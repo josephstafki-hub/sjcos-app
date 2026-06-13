@@ -91,10 +91,10 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 - [x] Wire to `/api/leads/[slug]` mock
 
 ### 1.4 Projects list (`/projects`)
-- [ ] Grouped by status: Active · Closeout · Pre-construction
-- [ ] Project cards with progress bar, contract value, status chips
-- [ ] Card click navigates to `/projects/[slug]`
-- [ ] Wire to `/api/projects` mock
+- [x] Grouped by status: Active · Closeout · Pre-construction
+- [x] Project cards with progress bar, contract value, status chips
+- [x] Card click navigates to `/projects/[slug]`
+- [x] Wire to `/api/projects` mock
 
 ### 1.5 Project detail (`/projects/[slug]`)
 - [ ] Header — name, contract value, status chips, action row

@@ -11,7 +11,7 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 
 ## Current Status
 
-> **Phase 0 — Foundation** · ✅ complete · next: Phase 1.1 Today screen
+> **Phase 1 — Daily Workflow Screens** · in progress (1.1 Today done; next: 1.2 Leads list)
 
 ---
 
@@ -69,13 +69,13 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 *The screens Joe touches every single day. Build these first so the app is immediately useful.*
 
 ### 1.1 Today (`/today`)
-- [ ] Header strip — date, "Good morning, Joe.", weekly-money chip, lead-state chip
-- [ ] AI brief card (AiBubble) — mocked summary, "Open agenda" + "Re-prioritize" actions
-- [ ] Priorities column — AI-ranked cards with type chip, title, reason
-- [ ] This-week mini calendar strip
-- [ ] Today's schedule — timeblock list
-- [ ] Waiting-on-me checklist preview
-- [ ] Wire to `/api/today` mock endpoint
+- [x] Header strip — date, "Good morning, Joe.", weekly-money chip, lead-state chip
+- [x] AI brief card (AiBubble) — summary from `ai.brief()`, "Open agenda" + "Re-prioritize" actions
+- [x] Priorities column — AI-ranked cards with type chip, title, reason
+- [x] This-week mini calendar strip
+- [x] Today's schedule — timeblock list
+- [x] Waiting-on-me checklist preview
+- [x] Wire to `/api/today` mock endpoint *(page server-renders via `getTodayData()`; route exposes same payload)*
 
 ### 1.2 Leads list (`/leads`)
 - [ ] Pipeline stage strip (6 stages: Intake → Signed + retainer)

@@ -11,7 +11,7 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 
 ## Current Status
 
-> **Phase 1 — Daily Workflow Screens** · in progress (1.1 Today, 1.2 Leads, 1.3 Lead detail done; next: 1.4 Projects list)
+> **Phase 1 — Daily Workflow Screens** · ✅ complete (1.1–1.5) · next: Phase 2.1 Inbox
 
 ---
 
@@ -97,11 +97,11 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 - [x] Wire to `/api/projects` mock
 
 ### 1.5 Project detail (`/projects/[slug]`)
-- [ ] Header — name, contract value, status chips, action row
-- [ ] 9 tabs — Overview, Schedule, Selections, Subs, Files, Money, Daily Log, Comms, Punch
-- [ ] Overview: AI pulse card, milestones (with money + status), this-week strip, latest daily log, AI weekly-status email draft
-- [ ] Right rail: money summary, subs roster, files
-- [ ] Wire to `/api/projects/[slug]` mock
+- [x] Header — name, contract value, status chips, action row
+- [x] 9 tabs — Overview, Schedule, Selections, Subs, Files, Money, Daily Log, Comms, Punch (Overview built; others placeholder)
+- [x] Overview: AI pulse card, milestones (with money + status), this-week strip, latest daily log, AI weekly-status email draft (`ai.draft`)
+- [x] Right rail: money summary, subs roster, files
+- [x] Wire to `/api/projects/[slug]` mock
 
 ---
 

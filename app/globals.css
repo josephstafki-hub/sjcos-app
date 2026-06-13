@@ -1,0 +1,128 @@
+@import "tailwindcss";
+
+/* ──────────────────────────────────────────────────────────────
+   SJC OS design tokens
+   Source: design_handoff_sjc_os/website-theme.css
+   Mirrors sjcarpentryllc.com — forest green + warm cream,
+   Newsreader serif + Mulish sans + JetBrains Mono.
+   ────────────────────────────────────────────────────────────── */
+:root {
+  /* paper / surface — warm cream */
+  --paper: #f1ece1;
+  --paper-2: #eae4d6;
+  --paper-3: #e1dac8;
+  --paper-4: #d6cdb8;
+  --card: #fbfaf4;
+
+  /* ink — near-black forest green (text + dark brand surfaces) */
+  --ink: #2c3326;
+  --ink-2: #4b5142;
+  --ink-3: #767a69;
+  --ink-4: #a7a992;
+
+  /* brand — forest / olive green */
+  --accent: #4c5a40;
+  --accent-2: #38442d;
+  --accent-soft: #dee2cf;
+
+  /* Claude / AI — muted teal-sage */
+  --ai: #5b7e72;
+  --ai-2: #35514a;
+  --ai-soft: #dce7e1;
+
+  /* semantic */
+  --flag: #a6452f;
+  --flag-soft: #efd9cf;
+  --money: #5e7046;
+  --money-soft: #dfe4cd;
+  --info: #4c6a8e;
+  --info-soft: #d9e1ed;
+
+  /* borders */
+  --rule: #cdc6b2;
+  --rule-soft: #ded8c5;
+
+  /* sidebar (forest-green panel) */
+  --sidebar: #283021;
+  --sidebar-active: rgba(191, 208, 166, 0.18);
+  --sidebar-text: rgba(241, 236, 225, 0.82);
+  --sidebar-text-dim: rgba(241, 236, 225, 0.5);
+  --sidebar-sage: #bfd0a6;
+
+  /* elevation */
+  --shadow-card: 0 1px 2px rgba(44, 51, 38, 0.04);
+  --shadow-pill: 0 8px 26px rgba(28, 32, 22, 0.28);
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Tailwind token mapping — utilities like bg-paper, text-ink-2,
+   border-rule, font-serif resolve to the variables above.
+   Font family vars are injected by next/font in layout.tsx.
+   ────────────────────────────────────────────────────────────── */
+@theme inline {
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-paper-3: var(--paper-3);
+  --color-paper-4: var(--paper-4);
+  --color-card: var(--card);
+
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-ink-4: var(--ink-4);
+
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-accent-soft: var(--accent-soft);
+
+  --color-ai: var(--ai);
+  --color-ai-2: var(--ai-2);
+  --color-ai-soft: var(--ai-soft);
+
+  --color-flag: var(--flag);
+  --color-flag-soft: var(--flag-soft);
+  --color-money: var(--money);
+  --color-money-soft: var(--money-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+
+  --color-rule: var(--rule);
+  --color-rule-soft: var(--rule-soft);
+
+  --color-sidebar: var(--sidebar);
+
+  --font-serif: var(--font-newsreader), Georgia, serif;
+  --font-sans: var(--font-mulish), system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+
+  --shadow-card: var(--shadow-card);
+  --shadow-pill: var(--shadow-pill);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* small-caps mono label, used widely for eyebrows + breadcrumbs */
+.eyebrow {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 600;
+}

@@ -2,7 +2,8 @@
 // (the leads table already exists — see db/schema.sql). Shape stays stable.
 
 import type { ChipKind } from "@/components/ui/Chip";
-import type { LeadStage } from "./types";
+import type { LeadStage, TriageVerdict } from "./types";
+import { ai } from "./ai";
 
 /** The 6 pipeline stages, in order, with display labels. */
 export const STAGES: { key: LeadStage; label: string }[] = [
@@ -118,6 +119,118 @@ const LEADS: LeadListItem[] = [
     hot: false,
   },
 ];
+
+// ─── Lead detail ────────────────────────────────────────────────────────────
+
+export interface LeadDetail {
+  slug: string;
+  initials: string;
+  name: string;
+  scope: string;
+  stage: LeadStage;
+  address: string;
+  source: string;
+  loggedLabel: string;
+  ageDays: number;
+  hot: boolean;
+  triage: { verdict: TriageVerdict; rationale: string };
+  intake: { label: string; value: string }[];
+  estimate: {
+    sentLabel: string;
+    lines: { label: string; value: string }[];
+    total: string;
+  } | null;
+  cadence: { label: string; value: string; chip?: ChipKind }[];
+  photosCount: number;
+}
+
+/** Rich, curated detail content keyed by slug. Leads not listed here still get
+ *  a sensible generic detail so every row in the table opens a real page. */
+const DETAILS: Record<string, Partial<LeadDetail>> = {
+  "maria-chen": {
+    address: "4218 Hillcrest Ave · Edina",
+    source: "Site form",
+    loggedLabel: "Logged Apr 19 (6 days ago)",
+    intake: [
+      { label: "Scope", value: "Full kitchen reno — cabinets, counters, backsplash, flooring, recessed lighting" },
+      { label: "Timeline", value: "Hoping to start late June, done before Thanksgiving" },
+      { label: "Budget", value: "$45,000 – $55,000" },
+      { label: "Address", value: "4218 Hillcrest Ave, Edina MN" },
+      { label: "Other bids?", value: "Yes — 2 others (one is Smith Bros)" },
+      { label: "Photos / measure", value: "6 photos + rough measurements provided" },
+    ],
+    estimate: {
+      sentLabel: "Sent Apr 21",
+      lines: [
+        { label: "Demo + prep", value: "$3,200" },
+        { label: "Cabinetry (mid-tier)", value: "$14,500 – $18,500" },
+        { label: "Counters (Calacatta)", value: "$8,200 – $11,000" },
+        { label: "Backsplash + tile", value: "$3,400 – $4,800" },
+        { label: "Flooring (LVP)", value: "$4,200 – $5,400" },
+        { label: "Electrical + light", value: "$3,800" },
+        { label: "Labor + GC + sub", value: "$12,000 – $14,000" },
+      ],
+      total: "$49,300 – $60,700",
+    },
+    cadence: [
+      { label: "First contact", value: "Apr 19, 11:08a" },
+      { label: "First reply (SLA <24h)", value: "3h 14m ✓", chip: "money" },
+      { label: "Last contact", value: "Today 9:14a" },
+      { label: "Awaiting your reply", value: "5h 12m", chip: "flag" },
+    ],
+    photosCount: 6,
+  },
+};
+
+/** Parse a display value like "$49–60k" / "$22k" / "?" to a rough dollar number. */
+function parseValue(v: string): number | null {
+  const m = v.match(/\$?\s*(\d+)/);
+  return m ? Number(m[1]) * 1000 : null;
+}
+
+export async function getLead(slug: string): Promise<LeadDetail | null> {
+  const item = LEADS.find((l) => l.slug === slug);
+  if (!item) return null;
+
+  const triageResult = await ai.triage({
+    name: item.name,
+    scope: item.scope,
+    estimateValue: parseValue(item.value),
+    source: "lead list",
+  });
+
+  const curated = DETAILS[slug] ?? {};
+
+  return {
+    slug: item.slug,
+    initials: item.initials,
+    name: item.name,
+    scope: item.scope,
+    stage: item.stage,
+    hot: item.hot,
+    ageDays: item.ageDays,
+    address: curated.address ?? item.scope,
+    source: curated.source ?? "Manual entry",
+    loggedLabel: curated.loggedLabel ?? `Logged ${item.ageDays} days ago`,
+    triage: { verdict: triageResult.verdict, rationale: triageResult.rationale },
+    intake:
+      curated.intake ??
+      [
+        { label: "Scope", value: item.scope },
+        { label: "Est. value", value: item.value },
+        { label: "Stage", value: stageLabel(item.stage) },
+        { label: "Age", value: `${item.ageDays} days` },
+      ],
+    estimate: curated.estimate ?? null,
+    cadence:
+      curated.cadence ??
+      [
+        { label: "First contact", value: `${item.ageDays}d ago` },
+        { label: "Last contact", value: "—" },
+      ],
+    photosCount: curated.photosCount ?? 0,
+  };
+}
 
 export async function getLeadsData(): Promise<LeadsData> {
   const needReply = LEADS.filter((l) => l.flag?.label === "Needs reply" || l.flag?.label === "Cooling").length;

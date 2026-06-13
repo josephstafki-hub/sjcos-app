@@ -11,7 +11,7 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 
 ## Current Status
 
-> **Phase 1 — Daily Workflow Screens** · in progress (1.1 Today, 1.2 Leads done; next: 1.3 Lead detail)
+> **Phase 1 — Daily Workflow Screens** · in progress (1.1 Today, 1.2 Leads, 1.3 Lead detail done; next: 1.4 Projects list)
 
 ---
 
@@ -84,11 +84,11 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 - [x] Wire to `/api/leads` mock
 
 ### 1.3 Lead detail (`/leads/[slug]`)
-- [ ] Header — avatar, name, scope, pipeline chip, action row (Call / Email / Ask Claude / Move to Pre-Con)
-- [ ] Tabs — Overview, Conversation, Rough Estimate, Selections, Files, Activity
-- [ ] Overview: AI triage card (GO/HOLD/PASS), 5-question intake, Phase 1 rough estimate
-- [ ] Sidebar: pipeline stage tracker, cadence/SLA, photos grid
-- [ ] Wire to `/api/leads/[slug]` mock
+- [x] Header — avatar, name, scope, pipeline chip, action row (Call / Email / Ask Claude / Move to Pre-Con)
+- [x] Tabs — Overview, Conversation, Rough Estimate, Selections, Files, Activity (Overview built; others placeholder)
+- [x] Overview: AI triage card (GO/HOLD/PASS via `ai.triage()`), 5-question intake, Phase 1 rough estimate
+- [x] Sidebar: pipeline stage tracker, cadence/SLA, photos grid
+- [x] Wire to `/api/leads/[slug]` mock
 
 ### 1.4 Projects list (`/projects`)
 - [ ] Grouped by status: Active · Closeout · Pre-construction

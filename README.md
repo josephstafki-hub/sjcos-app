@@ -11,7 +11,7 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 
 ## Current Status
 
-> **Phase 1 — Daily Workflow Screens** · in progress (1.1 Today done; next: 1.2 Leads list)
+> **Phase 1 — Daily Workflow Screens** · in progress (1.1 Today, 1.2 Leads done; next: 1.3 Lead detail)
 
 ---
 
@@ -78,10 +78,10 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 - [x] Wire to `/api/today` mock endpoint *(page server-renders via `getTodayData()`; route exposes same payload)*
 
 ### 1.2 Leads list (`/leads`)
-- [ ] Pipeline stage strip (6 stages: Intake → Signed + retainer)
-- [ ] Sortable lead table (name, scope, stage chip, AI triage verdict, last contact)
-- [ ] Row click navigates to `/leads/[slug]`
-- [ ] Wire to `/api/leads` mock
+- [x] Pipeline stage strip (6 stages: Intake → Signed + retainer)
+- [x] Sortable lead table (name, scope, stage chip, AI-take flag, age)
+- [x] Row click navigates to `/leads/[slug]`
+- [x] Wire to `/api/leads` mock
 
 ### 1.3 Lead detail (`/leads/[slug]`)
 - [ ] Header — avatar, name, scope, pipeline chip, action row (Call / Email / Ask Claude / Move to Pre-Con)

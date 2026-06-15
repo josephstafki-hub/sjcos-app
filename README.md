@@ -227,10 +227,10 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 - [x] Wire to mock *(`lib/client-portal.ts`; standalone server page (no Shell). Built from design ClientPortal_A.)*
 
 ### 6.2 Sub Portal (`/sub-portal`)
-- [ ] Standalone chrome — slim header with COI-current chip
-- [ ] Today's job front and center — scope checklist, materials verification, watch-out flag
-- [ ] "Log your day" — photo + voice note buttons (AI converts to daily log)
-- [ ] Wire to mock
+- [x] Standalone chrome — slim header with COI-current chip
+- [x] Today's job front and center — scope checklist, materials verification, watch-out flag
+- [x] "Log your day" — photo + voice note buttons (AI converts to daily log)
+- [x] Wire to mock *(`lib/sub-portal.ts`; standalone server page (no Shell). Built from design SubPortal_A.)*
 
 ### 6.3 Settings (`/settings`)
 - [ ] Left rail — categories (Profile, Workspace, Team & roles, Integrations, Claude & AI, Subscription, Data & backups, Notifications)

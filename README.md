@@ -187,9 +187,9 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 - [x] Wire to `/api/catalog` mock *(`lib/catalog.ts` + `/api/catalog`; server page → `CatalogClient` handles category-filter state. Built from design Catalog.)*
 
 ### 4.4 Floor Plan (`/floor`)
-- [ ] **Not in global sidebar — reached only from Floor-plan tab inside a Lead or Project**
-- [ ] 3-pane: 72px tool palette (Select, Wall, Door, Win, Measure, Cabinet, Appl, Plumb, Elec, Note + hotkeys), canvas (grid + walls + cabinets + dimensions), right rail (inspector + catalog grid + "Push to selections")
-- [ ] Structural shell only — full editor internals deferred
+- [x] **Not in global sidebar — reached only from Floor-plan tab inside a Lead or Project**
+- [x] 3-pane: 72px tool palette (Select, Wall, Door, Win, Measure, Cabinet, Appl, Plumb, Elec, Note + hotkeys), canvas (grid + walls + cabinets + dimensions), right rail (inspector + catalog grid + "Push to selections")
+- [x] Structural shell only — full editor internals deferred *(`lib/floor.ts` + server page; SVG grid + kitchen plan. Built from design Floor_A. No sidebar entry.)*
 
 ---
 

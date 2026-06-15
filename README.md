@@ -182,9 +182,9 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 - [x] Wire to mock *(`lib/newsletter.ts` + `/api/newsletter`; server page → `NewsletterClient` handles issue selection + Edit/Preview/Audience toggle. Built from design Newsletter.)*
 
 ### 4.3 Catalog (`/catalog`)
-- [ ] Search + trade filter chips
-- [ ] 4-column card grid — photo, name, supplier, SKU, usage count, price
-- [ ] Wire to `/api/catalog` mock
+- [x] Search + trade filter chips
+- [x] 4-column card grid — photo, name, supplier, SKU, usage count, price
+- [x] Wire to `/api/catalog` mock *(`lib/catalog.ts` + `/api/catalog`; server page → `CatalogClient` handles category-filter state. Built from design Catalog.)*
 
 ### 4.4 Floor Plan (`/floor`)
 - [ ] **Not in global sidebar — reached only from Floor-plan tab inside a Lead or Project**

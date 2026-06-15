@@ -107,6 +107,10 @@ export interface AiProvider {
 // Deterministic, instant, no network. Returns plausibly-shaped content so
 // screens can be built and demoed before a real model is wired in.
 
+// summarize() focuses whose text is already a finished blurb — the mock relays
+// it whole instead of truncating. The real provider composes these for real.
+const PASSTHROUGH_FOCUS = new Set(["sub-reliability", "compliance", "warranty"]);
+
 const mockProvider: AiProvider = {
   name: "mock",
 
@@ -195,10 +199,10 @@ const mockProvider: AiProvider = {
   },
 
   async summarize(input) {
-    // Passthrough for already-composed blurbs (sub reliability, compliance
-    // outlook) — the real provider will compose these from source records; the
-    // mock just relays the text whole rather than truncating.
-    if (input.focus === "sub-reliability" || input.focus === "compliance") {
+    // Passthrough for already-composed blurbs (sub reliability, compliance &
+    // warranty outlooks) — the real provider will compose these from source
+    // records; the mock just relays the text whole rather than truncating.
+    if (input.focus && PASSTHROUGH_FOCUS.has(input.focus)) {
       return { summary: input.text.trim(), bullets: [] };
     }
     const first = input.text.trim().slice(0, 120).replace(/\s+\S*$/, "");

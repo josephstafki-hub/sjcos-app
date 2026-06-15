@@ -161,10 +161,10 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 - [x] Wire to `/api/compliance` mock *(`lib/compliance.ts` + `/api/compliance`; server page. AI outlook via `ai.summarize({focus:"compliance"})`. Built from design Compliance.)*
 
 ### 3.6 Warranty (`/warranty`)
-- [ ] AI claim summary card
-- [ ] Active claims — card per open claim, deadline, AI-drafted reply chip
-- [ ] Under-warranty grid — closed projects with warranty end dates
-- [ ] Wire to `/api/warranty` mock
+- [x] AI claim summary card
+- [x] Active claims — card per open claim, deadline, AI-drafted reply chip
+- [x] Under-warranty grid — closed projects with warranty end dates
+- [x] Wire to `/api/warranty` mock *(`lib/warranty.ts` + `/api/warranty`; server page. AI claim summary via `ai.summarize({focus:"warranty"})`. Built from design Warranty.)*
 
 ---
 

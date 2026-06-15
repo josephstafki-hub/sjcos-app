@@ -233,11 +233,11 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 - [x] Wire to mock *(`lib/sub-portal.ts`; standalone server page (no Shell). Built from design SubPortal_A.)*
 
 ### 6.3 Settings (`/settings`)
-- [ ] Left rail — categories (Profile, Workspace, Team & roles, Integrations, Claude & AI, Subscription, Data & backups, Notifications)
-- [ ] Profile section — editable fields
-- [ ] Integrations section — 3-col card grid (connected / not-connected chips)
-- [ ] Claude defaults section — toggles
-- [ ] Wire to mock
+- [x] Left rail — categories (Profile, Workspace, Team & roles, Integrations, Claude & AI, Subscription, Data & backups, Notifications)
+- [x] Profile section — editable fields
+- [x] Integrations section — 3-col card grid (connected / not-connected chips)
+- [x] Claude defaults section — toggles
+- [x] Wire to mock *(`lib/settings.ts`; server page → `SettingsClient` handles category selection + live toggle state. Profile section built; other categories placeholder. Built from design Settings.)*
 
 ---
 

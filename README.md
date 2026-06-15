@@ -221,10 +221,10 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 ## Phase 6 — Portals + Settings
 
 ### 6.1 Client Portal (`/client-portal`)
-- [ ] Standalone chrome — no SJC OS sidebar; slim header with client avatar
-- [ ] Project journal entries with photos and dates
-- [ ] Sidebar: decisions needed, money summary, message-Joe box, files
-- [ ] Wire to mock
+- [x] Standalone chrome — no SJC OS sidebar; slim header with client avatar
+- [x] Project journal entries with photos and dates
+- [x] Sidebar: decisions needed, money summary, message-Joe box, files
+- [x] Wire to mock *(`lib/client-portal.ts`; standalone server page (no Shell). Built from design ClientPortal_A.)*
 
 ### 6.2 Sub Portal (`/sub-portal`)
 - [ ] Standalone chrome — slim header with COI-current chip

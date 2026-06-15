@@ -1,9 +1,13 @@
-// Leads list data builder. Mock-backed today; swaps to DB queries in Phase 7
-// (the leads table already exists — see db/schema.sql). Shape stays stable.
+// Leads data builder. DB-backed (Phase 7.2): the list + detail read from the
+// leads table via lib/db. Detail pages still merge curated rich content
+// (intake Q&A, estimate lines) keyed by slug — those aren't modeled as columns
+// yet, so they fall back to sensible generics for un-curated rows. The AI
+// triage verdict still routes through lib/ai.ts.
 
 import type { ChipKind } from "@/components/ui/Chip";
 import type { LeadStage, TriageVerdict } from "./types";
 import { ai } from "./ai";
+import { query } from "./db";
 
 /** The 6 pipeline stages, in order, with display labels. */
 export const STAGES: { key: LeadStage; label: string }[] = [
@@ -44,81 +48,51 @@ export interface LeadsData {
   leads: LeadListItem[];
 }
 
-const LEADS: LeadListItem[] = [
-  {
-    slug: "maria-chen",
-    initials: "MC",
-    name: "Maria & David Chen",
-    scope: "Kitchen reno · Edina",
-    stage: "phase1_sent",
-    value: "$49–60k",
-    ageDays: 6,
-    hot: true,
-    flag: { label: "Needs reply", kind: "flag" },
-  },
-  {
-    slug: "anh-pham",
-    initials: "AP",
-    name: "Anh Pham",
-    scope: "Bath reno · St Paul",
-    stage: "intake",
-    value: "$22k",
-    ageDays: 2,
-    hot: false,
-  },
-  {
-    slug: "a-cole",
-    initials: "AC",
-    name: "A. Cole",
-    scope: "Basement bar · Mpls",
-    stage: "intake",
-    value: "?",
-    ageDays: 4,
-    hot: false,
-    flag: { label: "New", kind: "ai" },
-  },
-  {
-    slug: "linda-bauer",
-    initials: "LB",
-    name: "Linda Bauer",
-    scope: "Mudroom · Mpls",
-    stage: "precon_in_flight",
-    value: "$28k",
-    ageDays: 21,
-    hot: false,
-  },
-  {
-    slug: "erik-holmstrom",
-    initials: "EH",
-    name: "Erik Holmstrom",
-    scope: "Front porch · Edina",
-    stage: "phase1_sent",
-    value: "$32k",
-    ageDays: 9,
-    hot: true,
-    flag: { label: "Cooling", kind: "flag" },
-  },
-  {
-    slug: "gabe-reyes",
-    initials: "GR",
-    name: "Gabe Reyes (referral)",
-    scope: "Master bath · Mpls",
-    stage: "formal_proposal",
-    value: "$41k",
-    ageDays: 15,
-    hot: false,
-  },
-  {
-    slug: "n-sandberg",
-    initials: "NS",
-    name: "N. Sandberg",
-    scope: "Built-ins · Edina",
-    stage: "precon_signed",
-    value: "$14k",
-    ageDays: 11,
-    hot: false,
-  },
-];
+// ─── DB row → display mapping ────────────────────────────────────────────────
+
+interface LeadRow {
+  slug: string;
+  name: string;
+  scope: string;
+  stage: LeadStage;
+  value: string;
+  hot: boolean;
+  flag_label: string | null;
+  flag_kind: string | null;
+  estimate_value: number | null;
+  age_days: number;
+}
+
+const LEAD_SELECT = `
+  SELECT slug, name, scope, stage,
+         COALESCE(value_display, '?') AS value,
+         hot, flag_label, flag_kind, estimate_value,
+         GREATEST(0, (CURRENT_DATE - last_contact_at::date))::int AS age_days
+  FROM leads`;
+
+/** Initials from a display name: first + last alphabetic word. */
+function initialsFrom(name: string): string {
+  const words = name.split(/\s+/).filter((w) => /^[A-Za-z]/.test(w));
+  if (words.length === 0) return name.slice(0, 2).toUpperCase();
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+}
+
+function rowToItem(r: LeadRow): LeadListItem {
+  return {
+    slug: r.slug,
+    initials: initialsFrom(r.name),
+    name: r.name,
+    scope: r.scope,
+    stage: r.stage,
+    value: r.value,
+    ageDays: r.age_days,
+    hot: r.hot,
+    flag: r.flag_label
+      ? { label: r.flag_label, kind: (r.flag_kind ?? "ghost") as ChipKind }
+      : undefined,
+  };
+}
 
 // ─── Lead detail ────────────────────────────────────────────────────────────
 
@@ -189,8 +163,10 @@ function parseValue(v: string): number | null {
 }
 
 export async function getLead(slug: string): Promise<LeadDetail | null> {
-  const item = LEADS.find((l) => l.slug === slug);
-  if (!item) return null;
+  const { rows } = await query<LeadRow>(`${LEAD_SELECT} WHERE slug = $1`, [slug]);
+  const row = rows[0];
+  if (!row) return null;
+  const item = rowToItem(row);
 
   const triageResult = await ai.triage({
     name: item.name,
@@ -233,13 +209,22 @@ export async function getLead(slug: string): Promise<LeadDetail | null> {
 }
 
 export async function getLeadsData(): Promise<LeadsData> {
-  const needReply = LEADS.filter((l) => l.flag?.label === "Needs reply" || l.flag?.label === "Cooling").length;
+  const { rows } = await query<LeadRow>(`${LEAD_SELECT} ORDER BY hot DESC, last_contact_at DESC`);
+  const leads = rows.map(rowToItem);
+
+  const needReply = leads.filter(
+    (l) => l.flag?.label === "Needs reply" || l.flag?.label === "Cooling",
+  ).length;
+  const weightedK = Math.round(
+    rows.reduce((sum, r) => sum + (r.estimate_value ?? 0), 0) / 1000,
+  );
+
   return {
-    summary: `Pipeline · ${LEADS.length} active · ${needReply} need a reply · $186k weighted`,
+    summary: `Pipeline · ${leads.length} active · ${needReply} need a reply · $${weightedK}k weighted`,
     stages: STAGES.map((s) => ({
       ...s,
-      count: LEADS.filter((l) => l.stage === s.key).length,
+      count: leads.filter((l) => l.stage === s.key).length,
     })),
-    leads: LEADS,
+    leads,
   };
 }

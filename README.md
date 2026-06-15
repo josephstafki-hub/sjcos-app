@@ -155,10 +155,10 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 - [x] Wire to mock file tree *(`lib/files.ts` + `/api/files`; server page → `FilesClient` handles file-selection + type-filter state. Curated previews (contract, demand) + generic fallback so any file opens. Built from design Files_A.)*
 
 ### 3.5 Compliance (`/compliance`)
-- [ ] AI summary card — what's coming, recommended actions
-- [ ] 3 timeline windows — Urgent (<14 days, flag color), 30-day, 60/90-day
-- [ ] Year-ahead timeline — chronological list
-- [ ] Wire to `/api/compliance` mock
+- [x] AI summary card — what's coming, recommended actions
+- [x] 3 timeline windows — Urgent (<14 days, flag color), 30-day, 60/90-day
+- [x] Year-ahead timeline — chronological list
+- [x] Wire to `/api/compliance` mock *(`lib/compliance.ts` + `/api/compliance`; server page. AI outlook via `ai.summarize({focus:"compliance"})`. Built from design Compliance.)*
 
 ### 3.6 Warranty (`/warranty`)
 - [ ] AI claim summary card

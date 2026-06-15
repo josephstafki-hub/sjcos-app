@@ -202,13 +202,13 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 - [x] Wire to `lib/ai.ts` mock; interface is streaming-ready *(`lib/assistant.ts` + `/api/ai`; server page. Assistant points via `ai.suggest({kind:"ai-thread"})`. Built from design AIScreen_A.)*
 
 ### 5.2 Command Bar (`/cmdk`)
-- [ ] Modal overlay on dimmed background (Today page renders behind it)
-- [ ] Search input with sparkle icon
-- [ ] "Claude — context aware" highlighted row
-- [ ] Actions group (Create new lead, Generate SOW, Draft client status email, Send demand letter)
-- [ ] Jump-to group (Henderson kitchen, Maria Chen)
-- [ ] Footer keyboard hints + mode chips
-- [ ] Global Ctrl+K keyboard shortcut wired from Shell
+- [x] Modal overlay on dimmed background (Today page renders behind it)
+- [x] Search input with sparkle icon
+- [x] "Claude — context aware" highlighted row
+- [x] Actions group (Create new lead, Generate SOW, Draft client status email, Send demand letter)
+- [x] Jump-to group (Henderson kitchen, Maria Chen)
+- [x] Footer keyboard hints + mode chips
+- [x] Global Ctrl+K keyboard shortcut wired from Shell *(`components/cmdk/CommandBar.tsx` mounted in Shell — ⌘/Ctrl+K toggles, Esc/backdrop closes, rows navigate; `/cmdk` deep-link opens it over a shared `TodayBody`. Built from design CmdK_Overlay.)*
 
 ### 5.3 Search (`/search`)
 - [ ] 720px centered column

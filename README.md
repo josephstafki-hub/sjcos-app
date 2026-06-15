@@ -172,9 +172,9 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 *Less frequent but important business tools.*
 
 ### 4.1 Site / CMS (`/site`)
-- [ ] Left rail — pages list (PUBLISHED / AUTO-SYNC / LIVE status), auto-publish queue
-- [ ] Editor pane — WYSIWYG preview of sjcarpentryllc.com with editable headline + inline annotation
-- [ ] Wire to mock
+- [x] Left rail — pages list (PUBLISHED / AUTO-SYNC / LIVE status), auto-publish queue
+- [x] Editor pane — WYSIWYG preview of sjcarpentryllc.com with editable headline + inline annotation
+- [x] Wire to mock *(`lib/site.ts` + `/api/site`; server page → `SiteClient` handles page-selection, Edit/Preview/Code + Desktop/Mobile toggles, contentEditable headline. Built from design CMS_A.)*
 
 ### 4.2 Newsletter (`/newsletter`)
 - [ ] Left rail — issues list, audience counts, last-issue performance stats

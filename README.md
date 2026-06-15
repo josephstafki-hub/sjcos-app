@@ -196,10 +196,10 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 ## Phase 5 — AI Surfaces + Search
 
 ### 5.1 AI Screen (`/ai`)
-- [ ] Left rail (260px) — Context loaded (in-scope records), Skills list (sow, lead-triage, co-draft, weekly-status, demand-letter, estimate-research, social-post), Recent threads
-- [ ] Center — thread with user/assistant messages, action chips, attached AI bubbles
-- [ ] Bottom composer — rich input with `@mention` + `/skill` slash commands + sample-prompt chips
-- [ ] Wire to `lib/ai.ts` mock; interface is streaming-ready
+- [x] Left rail (260px) — Context loaded (in-scope records), Skills list (sow, lead-triage, co-draft, weekly-status, demand-letter, estimate-research, social-post), Recent threads
+- [x] Center — thread with user/assistant messages, action chips, attached AI bubbles
+- [x] Bottom composer — rich input with `@mention` + `/skill` slash commands + sample-prompt chips
+- [x] Wire to `lib/ai.ts` mock; interface is streaming-ready *(`lib/assistant.ts` + `/api/ai`; server page. Assistant points via `ai.suggest({kind:"ai-thread"})`. Built from design AIScreen_A.)*
 
 ### 5.2 Command Bar (`/cmdk`)
 - [ ] Modal overlay on dimmed background (Today page renders behind it)

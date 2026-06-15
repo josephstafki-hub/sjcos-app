@@ -227,6 +227,19 @@ const mockProvider: AiProvider = {
         ],
       };
     }
+    if (input.kind === "ai-thread") {
+      // Analysis points for the Ask-Claude thread. Markdown bold is rendered
+      // by the screen. The real provider streams these from loaded context.
+      return {
+        suggestions: [
+          "**Sub-floor flatness** — last QC photo from Friday flagged a soft spot near the pantry threshold. Worth a level check before Marco lays cement board.",
+          "**Marble selection** confirmed Apr 21. Delivery receipt signed Fri — 4 boxes Calacatta on site, +1 extra was approved.",
+          "**No CO outstanding**. Scope sealed Apr 30.",
+          "**Marco is COI-current** through Aug 14. W-9 + agreement signed.",
+          "**Client expectation**: Henderson is at the lake until Wed. Photos at end-of-day are enough.",
+        ],
+      };
+    }
     return {
       suggestions: [
         `Follow up on: ${input.context.slice(0, 48)}`,

@@ -151,8 +151,8 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 - [x] Wire to `/api/subs/[slug]` mock *(`getSub()` in `lib/subs.ts` + `/api/subs/[slug]`; server page → `SubTabs`. Curated showcase (marco) + generic fallback so every card opens; AI summary via `ai.summarize({focus:"sub-reliability"})`. Built from design SubDetail.)*
 
 ### 3.4 Files (`/files`)
-- [ ] 3-pane layout — tree (Spaces + Projects/Year/Client), list (filterable, AI tags), preview (thumbnail, metadata, AI tags, actions)
-- [ ] Wire to mock file tree
+- [x] 3-pane layout — tree (Spaces + Projects/Year/Client), list (filterable, AI tags), preview (thumbnail, metadata, AI tags, actions)
+- [x] Wire to mock file tree *(`lib/files.ts` + `/api/files`; server page → `FilesClient` handles file-selection + type-filter state. Curated previews (contract, demand) + generic fallback so any file opens. Built from design Files_A.)*
 
 ### 3.5 Compliance (`/compliance`)
 - [ ] AI summary card — what's coming, recommended actions

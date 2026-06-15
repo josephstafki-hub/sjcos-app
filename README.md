@@ -211,10 +211,10 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 - [x] Global Ctrl+K keyboard shortcut wired from Shell *(`components/cmdk/CommandBar.tsx` mounted in Shell — ⌘/Ctrl+K toggles, Esc/backdrop closes, rows navigate; `/cmdk` deep-link opens it over a shared `TodayBody`. Built from design CmdK_Overlay.)*
 
 ### 5.3 Search (`/search`)
-- [ ] 720px centered column
-- [ ] AI direct-answer card at top
-- [ ] Grouped results — Projects, Files, People
-- [ ] Wire to mock
+- [x] 720px centered column
+- [x] AI direct-answer card at top
+- [x] Grouped results — Projects, Files, People
+- [x] Wire to mock *(`lib/search.ts` + `/api/search`; server page. Direct answer via `ai.summarize({focus:"search-answer"})`; results link to their records. Built from design Search.)*
 
 ---
 

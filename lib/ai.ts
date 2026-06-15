@@ -109,7 +109,12 @@ export interface AiProvider {
 
 // summarize() focuses whose text is already a finished blurb — the mock relays
 // it whole instead of truncating. The real provider composes these for real.
-const PASSTHROUGH_FOCUS = new Set(["sub-reliability", "compliance", "warranty"]);
+const PASSTHROUGH_FOCUS = new Set([
+  "sub-reliability",
+  "compliance",
+  "warranty",
+  "search-answer",
+]);
 
 const mockProvider: AiProvider = {
   name: "mock",

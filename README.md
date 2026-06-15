@@ -177,9 +177,9 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 - [x] Wire to mock *(`lib/site.ts` + `/api/site`; server page → `SiteClient` handles page-selection, Edit/Preview/Code + Desktop/Mobile toggles, contentEditable headline. Built from design CMS_A.)*
 
 ### 4.2 Newsletter (`/newsletter`)
-- [ ] Left rail — issues list, audience counts, last-issue performance stats
-- [ ] Center — email preview (580px width), masthead, serif headline, paragraphs, secondary items
-- [ ] Wire to mock
+- [x] Left rail — issues list, audience counts, last-issue performance stats
+- [x] Center — email preview (580px width), masthead, serif headline, paragraphs, secondary items
+- [x] Wire to mock *(`lib/newsletter.ts` + `/api/newsletter`; server page → `NewsletterClient` handles issue selection + Edit/Preview/Audience toggle. Built from design Newsletter.)*
 
 ### 4.3 Catalog (`/catalog`)
 - [ ] Search + trade filter chips

@@ -144,11 +144,11 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 - [x] Wire to `/api/subs` mock *(`lib/subs.ts` + `/api/subs`; server page → `SubsClient` handles trade-filter state. Built from design SubsList.)*
 
 ### 3.3 Sub detail (`/subs/[slug]`)
-- [ ] Header + back link
-- [ ] Tabs — Overview, Jobs, Paperwork, Pricing, Notes
-- [ ] Overview: reliability stats, AI summary, recent-jobs timeline
-- [ ] Sidebar: paperwork checklist, rate card, AI 1099 reminder
-- [ ] Wire to `/api/subs/[slug]` mock
+- [x] Header + back link
+- [x] Tabs — Overview, Jobs, Paperwork, Pricing, Notes *(Overview built; others placeholder)*
+- [x] Overview: reliability stats, AI summary, recent-jobs timeline
+- [x] Sidebar: paperwork checklist, rate card, AI 1099 reminder
+- [x] Wire to `/api/subs/[slug]` mock *(`getSub()` in `lib/subs.ts` + `/api/subs/[slug]`; server page → `SubTabs`. Curated showcase (marco) + generic fallback so every card opens; AI summary via `ai.summarize({focus:"sub-reliability"})`. Built from design SubDetail.)*
 
 ### 3.4 Files (`/files`)
 - [ ] 3-pane layout — tree (Spaces + Projects/Year/Client), list (filterable, AI tags), preview (thumbnail, metadata, AI tags, actions)

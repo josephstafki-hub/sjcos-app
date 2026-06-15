@@ -4,6 +4,7 @@
 // maps from the raw `Sub` row then; the screen never changes.
 
 import type { CoiStatus } from "./types";
+import { ai } from "./ai";
 
 /** Trade filter buttons, in design order. "All" is the default selection. */
 export const TRADES = [
@@ -65,5 +66,127 @@ export async function getSubsData(): Promise<SubsData> {
     summary: `${SUBS.length} subs · ${workingThisWeek} working this week · ${expiring} COI expiring`,
     trades: [...TRADES],
     subs: SUBS,
+  };
+}
+
+// ─── Sub detail ───────────────────────────────────────────────────────────
+
+/** Recent-job dot tone — accent (in progress), money (paid), ghost (other). */
+export type JobDot = "accent" | "money" | "ghost";
+
+export interface SubDetail {
+  slug: string;
+  initials: string;
+  name: string;
+  /** Trade tagline shown after the name, e.g. "tile + stone". */
+  tradeLine: string;
+  working: boolean;
+  coiStatus: SubCard["coiStatus"];
+  coiLabel: string;
+  w9: string;
+  /** One-line contact strip: email · phone · city · onboarded. */
+  contact: string;
+  jobsCount: number;
+  rating: number;
+  reliability: { label: string; value: string }[];
+  /** AI reliability summary (mock now; ai.summarize over job history in Phase 7). */
+  aiSummary: string;
+  recentJobs: { name: string; detail: string; dot: JobDot }[];
+  paperwork: { label: string; value: string; ok: boolean }[];
+  rate: { amount: string; unit: string; note: string };
+  taxNote: string;
+}
+
+/** Rich curated content keyed by slug. Subs not listed here get a sensible
+ *  generic detail built from their card, so every card opens a real page. */
+const DETAILS: Record<string, Partial<SubDetail>> = {
+  marco: {
+    tradeLine: "tile + stone",
+    contact: "marco@rivastile.example · (612) 555-0102 · Mpls · onboarded Apr 2023",
+    reliability: [
+      { label: "On-time", value: "13 / 14 (93%)" },
+      { label: "Quality QC pass", value: "14 / 14" },
+      { label: "Bid accuracy", value: "±4% avg" },
+      { label: "Response time", value: "~ 2 hrs" },
+    ],
+    aiSummary:
+      "Marco is one of two preferred tile subs. Strong with marble — first call " +
+      "for Calacatta or zellige work. Slightly slower on backsplash tear-out; " +
+      "build that into the schedule.",
+    recentJobs: [
+      { name: "Henderson kitchen", detail: "in progress · tile day 1", dot: "accent" },
+      { name: "Olson porch · tile entry", detail: "Apr · $1,800 · paid", dot: "money" },
+      { name: "Sandberg bath", detail: "Mar · $6,400 · paid", dot: "money" },
+      { name: "Reyes bath (prior job)", detail: "Feb · $8,200 · paid", dot: "money" },
+    ],
+    paperwork: [
+      { label: "COI · GL + WC", value: "Aug 14", ok: true },
+      { label: "W-9", value: "on file", ok: true },
+      { label: "Sub agreement", value: "v3 · Apr", ok: true },
+      { label: "Add'l insured · SJC", value: "yes", ok: true },
+    ],
+    rate: { amount: "$60", unit: "/hr", note: "Lump-sum on jobs > 60 hrs" },
+    taxNote: "1099 reminder · file by Jan 31 · 2025 total $52,800",
+  },
+};
+
+/** Split a free-form rate string ("$60/hr", "lump sum", "sq ft") into an
+ *  amount + unit for the rate card. */
+function splitRate(rate: string): { amount: string; unit: string } {
+  const m = rate.match(/^(\$[\d,]+)\s*(\/.*)?$/);
+  return m ? { amount: m[1], unit: m[2] ?? "" } : { amount: rate, unit: "" };
+}
+
+export async function getSub(slug: string): Promise<SubDetail | null> {
+  const card = SUBS.find((s) => s.slug === slug);
+  if (!card) return null;
+
+  const curated = DETAILS[slug] ?? {};
+
+  const fallbackSummary =
+    `${card.name} has completed ${card.jobsCount} jobs with SJC at a ` +
+    `${card.rating}-star rating. A fuller reliability profile fills in as ` +
+    `jobs are logged.`;
+
+  // The reliability blurb is the AI touch-point — routed through the service so
+  // Phase 7 can compose it from real job history with zero screen changes.
+  const { summary: aiSummary } = await ai.summarize({
+    text: curated.aiSummary ?? fallbackSummary,
+    focus: "sub-reliability",
+  });
+
+  const { amount, unit } = splitRate(card.rate);
+
+  return {
+    slug: card.slug,
+    initials: card.initials,
+    name: card.name,
+    tradeLine: curated.tradeLine ?? card.trade.toLowerCase(),
+    working: card.openJobs > 0,
+    coiStatus: card.coiStatus,
+    coiLabel: card.coiLabel,
+    w9: curated.w9 ?? "on file",
+    contact: curated.contact ?? `${card.trade} · onboarded 2024`,
+    jobsCount: card.jobsCount,
+    rating: card.rating,
+    reliability:
+      curated.reliability ??
+      [
+        { label: "Jobs completed", value: String(card.jobsCount) },
+        { label: "Rating", value: `${card.rating} / 5` },
+        { label: "Open jobs", value: String(card.openJobs) },
+        { label: "Response time", value: "—" },
+      ],
+    aiSummary,
+    recentJobs: curated.recentJobs ?? [],
+    paperwork:
+      curated.paperwork ??
+      [
+        { label: "COI · GL + WC", value: card.coiLabel, ok: card.coiStatus === "current" },
+        { label: "W-9", value: "on file", ok: true },
+        { label: "Sub agreement", value: "—", ok: false },
+      ],
+    rate: curated.rate ?? { amount, unit, note: "" },
+    taxNote: curated.taxNote ?? "1099 reminder · file by Jan 31",
   };
 }

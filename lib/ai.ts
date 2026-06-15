@@ -195,6 +195,12 @@ const mockProvider: AiProvider = {
   },
 
   async summarize(input) {
+    // Passthrough for already-composed reliability blurbs — the real provider
+    // will compose this from a sub's job history; the mock just relays it whole
+    // rather than truncating.
+    if (input.focus === "sub-reliability") {
+      return { summary: input.text.trim(), bullets: [] };
+    }
     const first = input.text.trim().slice(0, 120).replace(/\s+\S*$/, "");
     return {
       summary: `${first}${first.length < input.text.trim().length ? "…" : ""}`,

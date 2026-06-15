@@ -11,7 +11,7 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 
 ## Current Status
 
-> **Phase 1 — Daily Workflow Screens** · ✅ complete (1.1–1.5) · next: Phase 2.1 Inbox
+> **Phase 2 — Communications** · 🔨 in progress (2.1 ✅) · next: Phase 2.2 Team Chat
 
 ---
 
@@ -109,10 +109,10 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 *Inbox and chat are the second-highest daily-use surfaces.*
 
 ### 2.1 Inbox (`/inbox`)
-- [ ] Left rail — smart views (Needs reply, Awaiting them, Snoozed, Done), channels (Email, SMS, Client/Sub portal, Site forms), by-project filter
-- [ ] Middle list — thread cards (avatar, channel icon, project tag, AI verdict chip, urgency badge)
-- [ ] Right reader — full thread, AI draft-reply card
-- [ ] Wire to `/api/inbox` mock
+- [x] Left rail — smart views (Needs reply, Awaiting them, Snoozed, Done), channels (Email, SMS, Client/Sub portal, Site forms), by-project filter
+- [x] Middle list — thread cards (avatar, channel icon, project tag, AI verdict chip, urgency badge)
+- [x] Right reader — full thread, AI draft-reply card *(draft body via `ai.draft`)*
+- [x] Wire to `/api/inbox` mock *(page server-renders via `getInboxData()`; client handles thread selection across the 3 panes)*
 
 ### 2.2 Team Chat (`/chat`)
 - [ ] Left rail — channels (field-daily, selections, bookkeeping, safety, marketing-queue), project rooms, DMs with online dots

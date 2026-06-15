@@ -132,10 +132,10 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 *Operational tools Joe uses weekly.*
 
 ### 3.1 Schedule (`/schedule`)
-- [ ] 5-day card strip with timeblock pills (color-coded by job/AI)
-- [ ] Daily-log lane below (one box per day — photos + free text)
-- [ ] AI "auto-log from photos" offer chip
-- [ ] Wire to `/api/schedule` mock
+- [x] 5-day card strip with timeblock pills (color-coded by job/AI)
+- [x] Daily-log lane below (one box per day — photos + free text)
+- [x] AI "auto-log from photos" offer chip
+- [x] Wire to `/api/schedule` mock *(`lib/schedule.ts` + `/api/schedule`; server page. AI conflict note via `ai.suggest({kind:"schedule-conflicts"})` — mock now kind-aware. Built from design Schedule_B.)*
 
 ### 3.2 Subs list (`/subs`)
 - [ ] Card grid — avatar, name, trade, star rating, jobs count, rate, open-jobs chip, COI status chip

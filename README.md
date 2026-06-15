@@ -11,7 +11,7 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 
 ## Current Status
 
-> **Phase 2 — Communications** · 🔨 in progress (2.1 ✅) · next: Phase 2.2 Team Chat
+> **Phase 2 — Communications** · 🔨 in progress (2.1–2.2 ✅) · next: Phase 2.3 Notifications
 
 ---
 
@@ -115,10 +115,10 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 - [x] Wire to `/api/inbox` mock *(page server-renders via `getInboxData()`; client handles thread selection across the 3 panes)*
 
 ### 2.2 Team Chat (`/chat`)
-- [ ] Left rail — channels (field-daily, selections, bookkeeping, safety, marketing-queue), project rooms, DMs with online dots
-- [ ] Message thread — day separators, user/system messages, Claude as participant with `AI · system` chip
-- [ ] Bottom composer — message input, `@claude` + `/log` chips
-- [ ] Wire to mock data
+- [x] Left rail — channels (field-daily, selections, bookkeeping, safety, marketing-queue), project rooms, DMs with online dots
+- [x] Message thread — day separators, user/system messages, Claude as participant with `AI · system` chip
+- [x] Bottom composer — message input, `@claude` + `/log` chips
+- [x] Wire to mock data *(`lib/chat.ts` + `/api/chat`; server page renders #field-daily showcase, client handles channel selection; other channels get a generic "Claude is watching" view)*
 
 ### 2.3 Notifications (`/notifications`)
 - [ ] 720px centered column

@@ -11,7 +11,7 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 
 ## Current Status
 
-> **Phase 2 — Communications** · 🔨 in progress (2.1–2.2 ✅) · next: Phase 2.3 Notifications
+> **Phase 2 — Communications** · ✅ complete (2.1–2.3) · next: Phase 3.1 Schedule
 
 ---
 
@@ -121,10 +121,10 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 - [x] Wire to mock data *(`lib/chat.ts` + `/api/chat`; server page renders #field-daily showcase, client handles channel selection; other channels get a generic "Claude is watching" view)*
 
 ### 2.3 Notifications (`/notifications`)
-- [ ] 720px centered column
-- [ ] Filter chips (decisions, mentions, jobs, money, compliance)
-- [ ] Notification cards — icon, tag chip, title, sub-line, timestamp, right arrow; red border for decisions
-- [ ] Wire to `/api/notifications` mock
+- [x] 720px centered column
+- [x] Filter chips (decisions, mentions, jobs, money, compliance)
+- [x] Notification cards — icon, tag chip, title, sub-line, timestamp, right arrow; red border for decisions
+- [x] Wire to `/api/notifications` mock *(`lib/notifications.ts` + `/api/notifications`; server page → `NotificationsClient` handles filter state; counts computed from data)*
 
 ---
 

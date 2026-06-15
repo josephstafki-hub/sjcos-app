@@ -138,10 +138,10 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 - [x] Wire to `/api/schedule` mock *(`lib/schedule.ts` + `/api/schedule`; server page. AI conflict note via `ai.suggest({kind:"schedule-conflicts"})` — mock now kind-aware. Built from design Schedule_B.)*
 
 ### 3.2 Subs list (`/subs`)
-- [ ] Card grid — avatar, name, trade, star rating, jobs count, rate, open-jobs chip, COI status chip
-- [ ] Filter by trade
-- [ ] Card click navigates to `/subs/[slug]`
-- [ ] Wire to `/api/subs` mock
+- [x] Card grid — avatar, name, trade, star rating, jobs count, rate, open-jobs chip, COI status chip
+- [x] Filter by trade
+- [x] Card click navigates to `/subs/[slug]` *(route lands in 3.3)*
+- [x] Wire to `/api/subs` mock *(`lib/subs.ts` + `/api/subs`; server page → `SubsClient` handles trade-filter state. Built from design SubsList.)*
 
 ### 3.3 Sub detail (`/subs/[slug]`)
 - [ ] Header + back link

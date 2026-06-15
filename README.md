@@ -11,7 +11,7 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 
 ## Current Status
 
-> **Phase 2 — Communications** · ✅ complete (2.1–2.3) · next: Phase 3.1 Schedule
+> **Phases 0–6 — all mock-UI screens** · ✅ complete (30 screens, clean production build) · next: **Phase 7 — Real Data + Backend** (needs DB password, AI provider/key, and — for Phase 8 deploy — a DNS record + sudo)
 
 ---
 

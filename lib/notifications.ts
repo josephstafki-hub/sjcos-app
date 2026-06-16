@@ -29,6 +29,8 @@ export interface NotificationCard {
   flagged: boolean;
   href: string;
   icon: NotifIcon;
+  /** Whether the user has cleared this notification. */
+  read: boolean;
 }
 
 /** Filter selector value — "all" plus the canonical notification kinds. */
@@ -37,6 +39,8 @@ export type NotifFilter = "all" | NotificationKind;
 export interface NotificationsData {
   total: number;
   decisionCount: number;
+  /** Count of unread notifications. */
+  unread: number;
   filters: { key: NotifFilter; label: string }[];
   notifications: NotificationCard[];
 }
@@ -52,6 +56,7 @@ interface NotificationRow {
   when_label: string | null;
   flagged: boolean;
   href: string | null;
+  read: boolean;
 }
 
 function rowToCard(r: NotificationRow): NotificationCard {
@@ -66,20 +71,22 @@ function rowToCard(r: NotificationRow): NotificationCard {
     flagged: r.flagged,
     href: r.href ?? "#",
     icon: (r.icon ?? "star") as NotifIcon,
+    read: r.read,
   };
 }
 
 export async function getNotificationsData(): Promise<NotificationsData> {
   const { rows } = await query<NotificationRow>(`
-    SELECT id, kind, tag, accent, icon, title, subline, when_label, flagged, href
+    SELECT id, kind, tag, accent, icon, title, subline, when_label, flagged, href, read
     FROM notifications
-    ORDER BY created_at DESC
+    ORDER BY read ASC, created_at DESC
   `);
   const notifications = rows.map(rowToCard);
 
   return {
     total: notifications.length,
-    decisionCount: notifications.filter((n) => n.kind === "decision").length,
+    decisionCount: notifications.filter((n) => n.kind === "decision" && !n.read).length,
+    unread: notifications.filter((n) => !n.read).length,
     filters: [
       { key: "all", label: "All" },
       { key: "decision", label: "Decisions" },

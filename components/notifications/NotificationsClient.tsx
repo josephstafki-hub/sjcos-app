@@ -21,6 +21,7 @@ import type {
   NotificationCard,
   NotificationsData,
 } from "@/lib/notifications";
+import { markAllNotificationsRead } from "@/lib/actions/notifications";
 
 const ICON: Record<NotifIcon, LucideIcon> = {
   money: DollarSign,
@@ -55,15 +56,21 @@ export function NotificationsClient({ data }: { data: NotificationsData }) {
         <div className="mb-3.5 flex items-end gap-4">
           <div className="flex-1">
             <Eyebrow>
-              {data.total} today · {data.decisionCount} need a decision
+              {data.unread} unread · {data.decisionCount} need a decision
             </Eyebrow>
             <h1 className="mt-1 font-serif text-[34px] font-medium leading-none tracking-tight text-accent-2">
               Notifications
             </h1>
           </div>
-          <button className="rounded-md border border-ink-4 px-2.5 py-1 text-[12px] font-medium text-ink-2 transition-colors hover:bg-paper-2">
-            Mark all read
-          </button>
+          <form action={markAllNotificationsRead}>
+            <button
+              type="submit"
+              disabled={data.unread === 0}
+              className="rounded-md border border-ink-4 px-2.5 py-1 text-[12px] font-medium text-ink-2 transition-colors hover:bg-paper-2 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Mark all read
+            </button>
+          </form>
         </div>
 
         {/* Filter chips */}
@@ -98,7 +105,8 @@ function NotificationRow({ notification: n }: { notification: NotificationCard }
       <Card
         className={[
           "p-3 transition-colors hover:bg-paper-2",
-          n.flagged ? "border-flag" : "",
+          n.flagged && !n.read ? "border-flag" : "",
+          n.read ? "opacity-55" : "",
         ].join(" ")}
       >
         <div className="flex items-center gap-2.5">

@@ -3,6 +3,7 @@ import { Shell } from "@/components/shell/Shell";
 import { AiBubble, Card, Chip, Eyebrow } from "@/components/ui";
 import { getComplianceData } from "@/lib/compliance";
 import type { ComplianceDot } from "@/lib/compliance";
+import { resolveComplianceItem } from "@/lib/actions/compliance";
 
 const DOT: Record<ComplianceDot, string> = {
   flag: "bg-flag",
@@ -81,24 +82,38 @@ export default async function CompliancePage() {
           <div className="border-b border-rule bg-paper-2 px-4 py-2.5">
             <h2 className="font-serif text-[14px] font-semibold text-ink">Year ahead · timeline</h2>
           </div>
-          {data.timeline.map((r) => (
-            <div
-              key={`${r.date}-${r.what}`}
-              className="flex items-center gap-3 border-b border-rule-soft px-4 py-2.5 last:border-b-0"
-            >
-              <span className={`size-2 flex-none rounded-full ${DOT[r.dot]}`} />
-              <span className="w-[64px] flex-none font-mono text-[11px] text-ink-2">{r.date}</span>
-              <div className="min-w-0 flex-1">
-                <div className="truncate font-serif text-[13.5px] font-semibold text-ink">
-                  {r.what}
+          {data.timeline.map((r) => {
+            const resolve = async () => {
+              "use server";
+              await resolveComplianceItem(r.id);
+            };
+            return (
+              <div
+                key={r.id}
+                className="flex items-center gap-3 border-b border-rule-soft px-4 py-2.5 last:border-b-0"
+              >
+                <span className={`size-2 flex-none rounded-full ${DOT[r.dot]}`} />
+                <span className="w-[64px] flex-none font-mono text-[11px] text-ink-2">{r.date}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-serif text-[13.5px] font-semibold text-ink">
+                    {r.what}
+                  </div>
+                  <div className="text-[11px] text-ink-3">{r.who}</div>
                 </div>
-                <div className="text-[11px] text-ink-3">{r.who}</div>
+                <span className="hidden max-w-[32%] text-right text-[11px] text-ink-3 sm:block">
+                  {r.step}
+                </span>
+                <form action={resolve} className="flex-none">
+                  <button
+                    type="submit"
+                    className="rounded-md border border-rule px-2 py-1 text-[11px] font-semibold text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink"
+                  >
+                    Resolve
+                  </button>
+                </form>
               </div>
-              <span className="hidden max-w-[40%] text-right text-[11px] text-ink-3 sm:block">
-                {r.step}
-              </span>
-            </div>
-          ))}
+            );
+          })}
         </Card>
       </div>
     </Shell>

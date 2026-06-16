@@ -25,6 +25,8 @@ export interface ComplianceWindowCard {
 }
 
 export interface TimelineRow {
+  /** compliance_items.id — used by the resolve action. */
+  id: string;
   date: string;
   dot: ComplianceDot;
   what: string;
@@ -45,6 +47,7 @@ export interface ComplianceData {
 // ─── DB row → display mapping ────────────────────────────────────────────────
 
 interface ComplianceRow {
+  id: string;
   title: string;
   /** "Jun 1" — window item display. */
   due_label: string;
@@ -58,7 +61,7 @@ interface ComplianceRow {
 }
 
 const COMPLIANCE_SELECT = `
-  SELECT title,
+  SELECT id, title,
          to_char(due_date, 'FMMon FMDD')        AS due_label,
          upper(to_char(due_date, 'FMMon FMDD'))  AS timeline_date,
          (due_date - CURRENT_DATE)::int          AS days_until,
@@ -87,6 +90,7 @@ export async function getComplianceData(): Promise<ComplianceData> {
   ];
 
   const timeline: TimelineRow[] = rows.map((r) => ({
+    id: r.id,
     date: r.timeline_date,
     dot: (r.dot === "flag" || r.dot === "accent" ? r.dot : "ghost") as ComplianceDot,
     what: r.title,

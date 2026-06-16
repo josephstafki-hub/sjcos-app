@@ -21,8 +21,25 @@
   an esc/←/→ overlay; used in lead-detail sidebar); cmdk dead slugs fixed
   (`reyes-bath`→`reyes`, `henderson-kitchen`→`henderson`). tsc/build clean (42 pages).
   (Books link already done in A.)
-- **Phase D — NOT STARTED (next):** action-button backends (New project/Block modals,
-  AI Apply/Ignore, Call→tel/Email→mailto/Chat→/chat, doc Open/Summarize).
+- **Phase D — DONE** (commits `37062af`, `944b5d0`): action-button backends.
+  Create modals: `NewProjectButton`+`createProject` (pre-construction project),
+  `BlockButton`+`createScheduleBlock` (date defaults to today → lands in the
+  visible week; inline async action closes modal only after the write).
+  AI Apply/Ignore: `ConflictBubble` client wrapper (Apply acknowledges /
+  Ignore dismisses — no longer inert). Contact: lead/sub detail Call→`tel:`
+  (digits stripped) + Email→`mailto:` (email/phone surfaced on LeadDetail/
+  SubDetail + seeded; disabled span when unknown); Chat was already a `/chat`
+  link. Doc: files preview Open→enlarge overlay, Summarize→`summarizeFile`
+  action via `lib/ai` (focus "file") shown in an AiBubble. Also fixed stale
+  project hrefs that 404'd (notifications seed + `lib/search.ts`:
+  reyes-bath→reyes, henderson-kitchen→henderson, olson-porch→olson). Seed
+  re-applied. tsc/build clean (42 pages); authed routes verified 200 +
+  tel:/mailto: confirmed in rendered HTML.
+
+**✅ Phase 8 (A–D) COMPLETE.** Every named dead clickable now navigates or
+performs a real action; app has multi-user auth + role-gated portals. Remaining
+project work is the "final three" (AI swap → email → leads.csv import) then the
+Phase 8 *deploy* — all blocked on Joe's input (provider/key, DNS+sudo, port).
 
 **Dev server:** `next dev --port 3017` (log `/tmp/sjcos-dev.log`). **Tunnel:**
 https://welcome-cold-offerings-streaming.trycloudflare.com (cloudflared log

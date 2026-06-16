@@ -13,9 +13,11 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 
 > **Phases 0–6 — all mock-UI screens** · ✅ complete (30 screens) · **Phase 7.2 read APIs** done. **Phase 7-A write/CRUD** done (leads/projects/subs/notifications/compliance via Server Actions in `lib/actions/`). **Phase 7-B** done — schedule/warranty/files now DB-backed (warranty_projects, warranty_claims, schedule_blocks, daily_logs, files tables); settings toggles persist via app_settings. **The whole app is now DB-backed + writable.**
 >
-> **Phase 7-C (fill placeholder tabs) — ✅ complete.** Every detail screen now ships its real tabs (curated showcase data + empty-state fallbacks) instead of "arrives in a later phase" placeholders: Sub detail 5/5, Lead detail 6/6, Project detail 9/9, Settings 8/8. `npm run build` compiles clean (no client/server bundle leaks). **"Everything else" before the final three is done.**
+> **Phase 7-C (fill placeholder tabs) — ✅ complete.** Every detail screen ships real tabs (curated data + empty states): Sub 5/5, Lead 6/6, Project 9/9, Settings 8/8.
 >
-> **Remaining roadmap (agreed order, do NOT reorder):** **7.3 AI swap** → **7.x email** (`/inbox`) → **7.1 leads.csv import** → **Phase 8 deploy (very last)**. All four need Joe's input (AI provider/key or Ollama; email provider; the real CSV; DNS + sudo + a permanent port).
+> **Phase 8 (wire dead clickables + multi-user auth) — IN PROGRESS.** Plan + live resume point: [`docs/phases/phase-8-auth-and-wiring.md`](docs/phases/phase-8-auth-and-wiring.md). **8-A auth ✅** (login/sessions/roles/logout; demo logins owner+sub+client, pw `sjcos`). **8-B portals+team — partial** (role-gated identity-scoped portals; live Team & roles; editable Profile + add-user still TODO). **8-C interactivity / 8-D action backends — not started.**
+>
+> **Then (deferred, agreed order):** **7.3 AI swap** → **7.x email** (`/inbox`) → **7.1 leads.csv import** → **deploy (very last)**. All need Joe's input. `/site`, `/newsletter`, `/books` stay placeholders.
 
 ---
 

@@ -1,5 +1,30 @@
 # SJC OS — Wire up dead clickables + multi-user auth
 
+## ⏳ PROGRESS / RESUME POINT (2026-06-16)
+
+- **Phase A — DONE** (commit `0cda829`): users table + 4 seeded demo accounts
+  (pw `sjcos`), `lib/{password,session,dal}.ts`, `lib/actions/auth.ts`, `/login`,
+  `proxy.ts`, sidebar logout + real user, Books link disabled. Verified e2e.
+- **Phase B — PARTIAL** (commit `e7308a1`): portals requireRole + identity-scoped
+  to logged-in user (content still curated); Settings Team&roles live from `users`;
+  profile.phone persisted. **STILL TODO in B:** editable Profile form
+  (`updateProfile` action + SettingsClient form — `lib/actions/settings.ts` already
+  has the `upsertToggle` helper to mirror), owner add/disable user
+  (`createUser`/`setUserActive`, mirror `createSub`), deeper per-row portal data.
+- **Phase C — NOT STARTED:** leads-list filters (LeadsClient mirroring SubsClient),
+  photos box → lightbox (`components/ui/PhotoGrid`), fix cmdk dead slugs
+  (`reyes-bath`→`reyes`, `henderson-kitchen`→`henderson` in CommandBar.tsx).
+  (Books link already done in A.)
+- **Phase D — NOT STARTED:** action-button backends (New project/Block modals,
+  AI Apply/Ignore, Call→tel/Email→mailto/Chat→/chat, doc Open/Summarize).
+
+**Dev server:** `next dev --port 3017` (log `/tmp/sjcos-dev.log`). **Tunnel:**
+https://welcome-cold-offerings-streaming.trycloudflare.com (cloudflared log
+`/tmp/cf-tunnel.log`; quick-tunnel URLs die on restart — relaunch `~/bin/cloudflared
+tunnel --no-autoupdate --url http://localhost:3017` and grab the new URL). **Demo
+logins:** owner josephstafki@sjcarpentryllc.com / sub marco@trade.demo / client
+henderson@client.demo — all pw `sjcos`.
+
 ## Context
 
 Joe tested the app on the remote tunnel and found "the functionality doesn't really

@@ -1,95 +1,14 @@
-import Link from "next/link";
-import { ChevronRight } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { Card, Chip, Avatar, Eyebrow } from "@/components/ui";
-import { getLeadsData, stageIndex, stageLabel } from "@/lib/leads";
-import { NewLeadButton } from "@/components/leads/NewLeadButton";
+import { LeadsClient } from "@/components/leads/LeadsClient";
+import { getLeadsData } from "@/lib/leads";
 
 export default async function LeadsPage() {
-  const { summary, stages, leads } = await getLeadsData();
+  const data = await getLeadsData();
 
   return (
     <Shell breadcrumb="LEADS">
       <div className="mx-auto max-w-[1100px] px-7 py-6">
-        {/* Header */}
-        <div className="mb-3.5 flex items-end gap-4">
-          <div className="flex-1">
-            <Eyebrow>{summary}</Eyebrow>
-            <h1 className="mt-1 font-serif text-[34px] font-medium leading-none tracking-tight text-accent-2">
-              Leads
-            </h1>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Chip kind="solid">All</Chip>
-            <Chip kind="ghost">Hot</Chip>
-            <Chip kind="ghost">Cooling</Chip>
-            <Chip kind="ghost">Declined</Chip>
-            <NewLeadButton />
-          </div>
-        </div>
-
-        {/* Pipeline stage strip */}
-        <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-          {stages.map((s, i) => (
-            <Card key={s.key} kind="tan" className="p-2.5">
-              <div className="font-mono text-[9px] uppercase tracking-[0.12em] text-ink-3">
-                Stage {i + 1}
-              </div>
-              <div className="mt-0.5 font-serif text-[13.5px] font-semibold text-ink">{s.label}</div>
-              <div className="mt-1.5 flex items-end gap-1">
-                <span className="font-mono text-[22px] font-bold leading-none text-accent-2 tabular-nums">
-                  {s.count}
-                </span>
-                <span className="text-[11px] text-ink-3">leads</span>
-              </div>
-            </Card>
-          ))}
-        </div>
-
-        {/* Lead table */}
-        <Card className="overflow-hidden p-0">
-          {/* Column headers */}
-          <div className="flex items-center gap-2 border-b border-rule bg-paper-2 px-4 py-2.5 font-mono text-[9.5px] font-medium uppercase tracking-[0.16em] text-ink-3">
-            <span className="w-[200px]">Lead</span>
-            <span className="hidden w-[150px] md:block">Scope</span>
-            <span className="w-[130px]">Stage</span>
-            <span className="hidden w-[72px] md:block">Value</span>
-            <div className="flex-1" />
-            <span>AI take</span>
-            <span className="w-3" />
-          </div>
-
-          {leads.map((l) => (
-            <Link
-              key={l.slug}
-              href={`/leads/${l.slug}`}
-              className="flex items-center gap-2 border-b border-rule-soft px-4 py-3 transition-colors last:border-b-0 hover:bg-paper-2"
-            >
-              <div className="flex w-[200px] items-center gap-2">
-                <Avatar initials={l.initials} kind={l.hot ? "accent" : "gray"} />
-                <div className="min-w-0">
-                  <div className="truncate font-serif text-[13.5px] font-semibold text-ink">
-                    {l.name}
-                  </div>
-                  <div className="text-[11px] text-ink-3">{l.ageDays}d since first contact</div>
-                </div>
-              </div>
-              <div className="hidden w-[150px] text-[12px] text-ink-2 md:block">{l.scope}</div>
-              <div className="w-[130px]">
-                <Chip kind={stageIndex(l.stage) >= 3 ? "accent" : "ghost"}>{stageLabel(l.stage)}</Chip>
-              </div>
-              <div className="hidden w-[72px] font-mono text-[12px] text-ink-2 md:block">{l.value}</div>
-              <div className="flex flex-1 justify-end">
-                {l.flag && (
-                  <Chip kind={l.flag.kind} dot>
-                    {l.flag.label}
-                  </Chip>
-                )}
-              </div>
-              <ChevronRight className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
-            </Link>
-          ))}
-        </Card>
+        <LeadsClient data={data} />
       </div>
     </Shell>
   );

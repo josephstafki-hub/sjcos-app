@@ -27,12 +27,20 @@ export function stageLabel(stage: LeadStage): string {
   return STAGES.find((s) => s.key === stage)?.label ?? stage;
 }
 
+/** Lead temperature, derived server-side so the list filter chips work without
+ *  pulling this server-coupled module into a client bundle. */
+export type LeadTemperature = "hot" | "cooling" | "declined" | "active";
+
 export interface LeadListItem {
   slug: string;
   initials: string;
   name: string;
   scope: string;
   stage: LeadStage;
+  /** Precomputed so the client filter never imports stageLabel/stageIndex. */
+  stageLabelText: string;
+  stageAdvanced: boolean;
+  temperature: LeadTemperature;
   /** Display value, e.g. "$49–60k" or "?". */
   value: string;
   ageDays: number;
@@ -78,6 +86,16 @@ function initialsFrom(name: string): string {
   return (words[0][0] + words[words.length - 1][0]).toUpperCase();
 }
 
+/** Classify a lead's temperature for the list filters. A declining/lost flag
+ *  wins; otherwise hot, then quiet-for-2-weeks → cooling, else active. */
+function temperatureOf(r: LeadRow): LeadTemperature {
+  const label = (r.flag_label ?? "").toLowerCase();
+  if (/declin|lost|dead|cold/.test(label)) return "declined";
+  if (r.hot) return "hot";
+  if (/cool/.test(label) || r.age_days >= 14) return "cooling";
+  return "active";
+}
+
 function rowToItem(r: LeadRow): LeadListItem {
   return {
     slug: r.slug,
@@ -85,6 +103,9 @@ function rowToItem(r: LeadRow): LeadListItem {
     name: r.name,
     scope: r.scope,
     stage: r.stage,
+    stageLabelText: stageLabel(r.stage),
+    stageAdvanced: stageIndex(r.stage) >= 3,
+    temperature: temperatureOf(r),
     value: r.value,
     ageDays: r.age_days,
     hot: r.hot,

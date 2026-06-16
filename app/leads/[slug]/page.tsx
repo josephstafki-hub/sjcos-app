@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Phone, Mail, Sparkles, FileText } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { AiBubble, Card, Chip, Avatar, Eyebrow, Field } from "@/components/ui";
+import { AiBubble, Card, Chip, Avatar, Eyebrow, Field, PhotoGrid } from "@/components/ui";
 import { LeadTabs } from "@/components/leads/LeadTabs";
 import { getLead, STAGES, stageIndex, stageLabel } from "@/lib/leads";
 import { advanceLeadStage } from "@/lib/actions/leads";
@@ -147,14 +147,7 @@ export default async function LeadDetailPage({
         {lead.photosCount > 0 && (
           <Card className="p-3">
             <Eyebrow muted>Photos · {lead.photosCount}</Eyebrow>
-            <div className="mt-2 grid grid-cols-3 gap-1">
-              {Array.from({ length: lead.photosCount }).map((_, i) => (
-                <div
-                  key={i}
-                  className="aspect-square rounded-[3px] border border-rule bg-paper-3"
-                />
-              ))}
-            </div>
+            <PhotoGrid count={lead.photosCount} label="Site photo" />
           </Card>
         )}
       </div>

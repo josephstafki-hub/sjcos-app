@@ -26,11 +26,11 @@ const ACTIONS: CmdRow[] = [
   { icon: Plus, title: "Create new lead", sub: "…from a text, voicemail, or paste", kbd: "N L", href: "/leads" },
   { icon: FileText, title: "Generate Scope of Work", sub: "from current project notes", kbd: "G S", href: "/ai" },
   { icon: Mail, title: "Draft client status email", sub: "this week's update for Henderson", kbd: "D S", href: "/ai" },
-  { icon: DollarSign, title: "Send demand letter — Reyes", sub: "day 15 unpaid · draft ready", kbd: "↵", href: "/projects/reyes-bath" },
+  { icon: DollarSign, title: "Send demand letter — Reyes", sub: "day 15 unpaid · draft ready", kbd: "↵", href: "/projects/reyes" },
 ];
 
 const JUMP: CmdRow[] = [
-  { icon: FolderKanban, title: "Henderson kitchen", sub: "Active · Tile this afternoon", kbd: "→", href: "/projects/henderson-kitchen" },
+  { icon: FolderKanban, title: "Henderson kitchen", sub: "Active · Tile this afternoon", kbd: "→", href: "/projects/henderson" },
   { icon: UserRound, title: "Maria Chen · Phase 1", sub: "Awaiting your reply", kbd: "→", href: "/leads/maria-chen" },
 ];
 

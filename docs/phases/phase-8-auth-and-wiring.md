@@ -5,17 +5,23 @@
 - **Phase A — DONE** (commit `0cda829`): users table + 4 seeded demo accounts
   (pw `sjcos`), `lib/{password,session,dal}.ts`, `lib/actions/auth.ts`, `/login`,
   `proxy.ts`, sidebar logout + real user, Books link disabled. Verified e2e.
-- **Phase B — PARTIAL** (commit `e7308a1`): portals requireRole + identity-scoped
-  to logged-in user (content still curated); Settings Team&roles live from `users`;
-  profile.phone persisted. **STILL TODO in B:** editable Profile form
-  (`updateProfile` action + SettingsClient form — `lib/actions/settings.ts` already
-  has the `upsertToggle` helper to mirror), owner add/disable user
-  (`createUser`/`setUserActive`, mirror `createSub`), deeper per-row portal data.
-- **Phase C — NOT STARTED:** leads-list filters (LeadsClient mirroring SubsClient),
-  photos box → lightbox (`components/ui/PhotoGrid`), fix cmdk dead slugs
-  (`reyes-bath`→`reyes`, `henderson-kitchen`→`henderson` in CommandBar.tsx).
+- **Phase B — DONE** (commits `e7308a1`, `bbd4cab`): portals requireRole +
+  identity-scoped to logged-in user (content still curated); Settings Team&roles
+  live from `users`; profile.phone persisted. `bbd4cab` finished the two open
+  items: editable Profile form (`updateProfile` in `lib/actions/settings.ts` —
+  name/email → users row, company/phone → app_settings) + owner add/disable user
+  (`lib/actions/users.ts` `createUser`/`setUserActive`; Settings → Team "Add user"
+  modal + per-row Enable/Disable). Verified e2e (tsc/build/SQL/200). *Deeper
+  per-row portal data still curated — deferred, not blocking.*
+- **Phase C — DONE:** leads-list filters (`components/leads/LeadsClient.tsx` —
+  client component mirroring SubsClient; temperature derived server-side in
+  `lib/leads.ts` `temperatureOf` so chips All/Hot/Cooling/Declined filter without
+  pulling the server-coupled lib into the client bundle; empty-state fallback);
+  photos box → lightbox (`components/ui/PhotoGrid.tsx` — clickable thumbnails open
+  an esc/←/→ overlay; used in lead-detail sidebar); cmdk dead slugs fixed
+  (`reyes-bath`→`reyes`, `henderson-kitchen`→`henderson`). tsc/build clean (42 pages).
   (Books link already done in A.)
-- **Phase D — NOT STARTED:** action-button backends (New project/Block modals,
+- **Phase D — NOT STARTED (next):** action-button backends (New project/Block modals,
   AI Apply/Ignore, Call→tel/Email→mailto/Chat→/chat, doc Open/Summarize).
 
 **Dev server:** `next dev --port 3017` (log `/tmp/sjcos-dev.log`). **Tunnel:**

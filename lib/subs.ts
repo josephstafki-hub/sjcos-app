@@ -1,10 +1,11 @@
-// Subs directory data builder. Mock-backed today; swaps to DB queries in
-// Phase 7 (the subs table already exists — see db/schema.sql). The card shape
-// below is display-oriented (initials, fav, star int, trade filter key) and
-// maps from the raw `Sub` row then; the screen never changes.
+// Subs directory data builder. DB-backed (Phase 7.2): list + detail read the
+// subs table via lib/db. The card shape is display-oriented (initials, fav,
+// star int, trade filter key, COI label) — derived from the row in the mapper.
+// Detail merges curated reliability content per slug; AI summary via lib/ai.ts.
 
 import type { CoiStatus } from "./types";
 import { ai } from "./ai";
+import { query } from "./db";
 
 /** Trade filter buttons, in design order. "All" is the default selection. */
 export const TRADES = [
@@ -41,31 +42,70 @@ export interface SubCard {
   coiLabel: string;
 }
 
-const SUBS: SubCard[] = [
-  { slug: "marco", initials: "MR", name: "Marco Rivas", trade: "Tile · stone", tradeKey: "Tile", rate: "$60/hr", openJobs: 1, jobsCount: 14, rating: 5, fav: true, coiStatus: "current", coiLabel: "Aug 14" },
-  { slug: "tomas", initials: "TS", name: "Tomas Sanchez", trade: "Electric", tradeKey: "Electric", rate: "$72/hr", openJobs: 2, jobsCount: 22, rating: 5, fav: true, coiStatus: "current", coiLabel: "Oct 3" },
-  { slug: "brad", initials: "BP", name: "Brad Petersen", trade: "Paint", tradeKey: "Paint", rate: "$48/hr", openJobs: 1, jobsCount: 18, rating: 4, fav: false, coiStatus: "current", coiLabel: "Aug 14" },
-  { slug: "jen", initials: "JD", name: "Jen Doyle Plumbing", trade: "Plumbing", tradeKey: "Plumbing", rate: "$85/hr", openJobs: 0, jobsCount: 8, rating: 5, fav: false, coiStatus: "current", coiLabel: "Jul 22" },
-  { slug: "kris", initials: "KR", name: "Kris Rajan", trade: "Framing", tradeKey: "Framing", rate: "$58/hr", openJobs: 0, jobsCount: 9, rating: 4, fav: false, coiStatus: "current", coiLabel: "Nov 11" },
-  { slug: "rivera", initials: "RH", name: "Rivera HVAC", trade: "HVAC", tradeKey: "HVAC", rate: "lump sum", openJobs: 0, jobsCount: 4, rating: 4, fav: false, coiStatus: "current", coiLabel: "Sep 1" },
-  { slug: "carl", initials: "CL", name: "Carl Lund", trade: "Tile", tradeKey: "Tile", rate: "$55/hr", openJobs: 0, jobsCount: 3, rating: 3, fav: false, coiStatus: "expiring", coiLabel: "Jun 1" },
-  { slug: "falk", initials: "FT", name: "Falk Floors", trade: "Flooring", tradeKey: "Flooring", rate: "sq ft", openJobs: 0, jobsCount: 6, rating: 4, fav: false, coiStatus: "current", coiLabel: "Dec 8" },
-];
-
 export interface SubsData {
   summary: string;
   trades: TradeFilter[];
   subs: SubCard[];
 }
 
+// ─── DB row → display mapping ────────────────────────────────────────────────
+
+interface SubRow {
+  slug: string;
+  name: string;
+  trade: string;
+  rate: string | null;
+  fav: boolean;
+  open_jobs: number;
+  jobs_count: number;
+  rating: string | null;
+  coi_status: string;
+  coi_label: string | null;
+}
+
+const SUB_SELECT = `
+  SELECT slug, name, trade, rate, fav, open_jobs, jobs_count, rating, coi_status,
+         to_char(coi_expires_at, 'FMMon FMDD') AS coi_label
+  FROM subs`;
+
+/** Initials from a sub's display name: first two alphabetic words. */
+function subInitials(name: string): string {
+  const w = name.split(/\s+/).filter((x) => /^[A-Za-z]/.test(x));
+  if (w.length === 0) return name.slice(0, 2).toUpperCase();
+  if (w.length === 1) return w[0].slice(0, 2).toUpperCase();
+  return (w[0][0] + w[1][0]).toUpperCase();
+}
+
+function rowToCard(r: SubRow): SubCard {
+  return {
+    slug: r.slug,
+    initials: subInitials(r.name),
+    name: r.name,
+    trade: r.trade,
+    tradeKey: r.trade.split(/\s/)[0] as SubCard["tradeKey"],
+    rate: r.rate ?? "",
+    openJobs: r.open_jobs,
+    jobsCount: r.jobs_count,
+    rating: Math.round(Number(r.rating ?? 0)),
+    fav: r.fav,
+    coiStatus: r.coi_status === "expiring" ? "expiring" : "current",
+    coiLabel: r.coi_label ?? "",
+  };
+}
+
 export async function getSubsData(): Promise<SubsData> {
-  const workingThisWeek = SUBS.filter((s) => s.openJobs > 0).length;
-  const expiring = SUBS.filter((s) => s.coiStatus === "expiring").length;
+  const { rows } = await query<SubRow>(
+    `${SUB_SELECT} ORDER BY fav DESC, rating DESC, jobs_count DESC`,
+  );
+  const subs = rows.map(rowToCard);
+
+  const workingThisWeek = subs.filter((s) => s.openJobs > 0).length;
+  const expiring = subs.filter((s) => s.coiStatus === "expiring").length;
 
   return {
-    summary: `${SUBS.length} subs · ${workingThisWeek} working this week · ${expiring} COI expiring`,
+    summary: `${subs.length} subs · ${workingThisWeek} working this week · ${expiring} COI expiring`,
     trades: [...TRADES],
-    subs: SUBS,
+    subs,
   };
 }
 
@@ -138,8 +178,9 @@ function splitRate(rate: string): { amount: string; unit: string } {
 }
 
 export async function getSub(slug: string): Promise<SubDetail | null> {
-  const card = SUBS.find((s) => s.slug === slug);
-  if (!card) return null;
+  const { rows } = await query<SubRow>(`${SUB_SELECT} WHERE slug = $1`, [slug]);
+  if (!rows[0]) return null;
+  const card = rowToCard(rows[0]);
 
   const curated = DETAILS[slug] ?? {};
 

@@ -4,11 +4,14 @@
 //   • app/today/page.tsx       — calls getTodayData() directly (server render)
 //   • app/api/today/route.ts   — exposes the same payload over HTTP
 //
-// Today it stitches together the mock AI brief (lib/ai.ts) with curated sample
-// content. In Phase 7 the body of getTodayData() swaps to real DB queries +
-// real AI — the shape below, and every screen that reads it, stay unchanged.
+// DB-backed (Phase 7.2): the header metrics (active jobs, outstanding A/R,
+// leads needing attention) and the AI brief inputs are derived from real
+// leads/projects rows via lib/db. The priorities / schedule / waiting-on-me
+// lists stay curated — they have no backing table yet (tasks + a schedule
+// table land in a later phase). The AI brief still routes through lib/ai.ts.
 
 import { ai } from "./ai";
+import { query } from "./db";
 import type { ChipKind } from "@/components/ui/Chip";
 
 type DotKind = "flag" | "accent" | "ai" | "money" | "ghost";
@@ -63,30 +66,64 @@ function weekStrip(ref: Date): TodayCalDay[] {
   });
 }
 
+interface TodayProjectRow {
+  name: string;
+  status: string;
+  progress: number;
+  outstanding: number;
+}
+
+/** "$32,400" style dollars with thousands separators. */
+function dollars(n: number): string {
+  return `$${Math.round(n).toLocaleString("en-US")}`;
+}
+
 export async function getTodayData(): Promise<TodayData> {
   const now = new Date();
   const dateLabel = now
     .toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
     .toUpperCase();
 
+  // In-flight jobs (active + closeout) drive the header metrics and the brief.
+  // `flagged leads` = leads carrying the urgent "AI take" chip (flag_kind).
+  const [projectsRes, flaggedRes] = await Promise.all([
+    query<TodayProjectRow>(`
+      SELECT name, status, progress,
+             (contract_value - collected_to_date) AS outstanding
+      FROM projects
+      WHERE status IN ('active', 'closeout')
+      ORDER BY (status = 'active') DESC, progress DESC, name`),
+    query<{ n: string }>(
+      `SELECT count(*) AS n FROM leads WHERE flag_kind = 'flag'`,
+    ),
+  ]);
+
+  const projects = projectsRes.rows;
+  const activeCount = projects.filter((p) => p.status === "active").length;
+  const outstanding = projects.reduce((s, p) => s + Number(p.outstanding), 0);
+  const flaggedLeads = Number(flaggedRes.rows[0]?.n ?? 0);
+
   // The brief text comes from the AI service — the only AI touch-point here.
+  // Real project context + the flagged-lead count flow in; the mock relays
+  // them today and a real model composes from the same inputs in Phase 7.3.
   const brief = await ai.brief({
     date: now.toISOString().slice(0, 10),
     ownerName: "Joe",
-    projects: [
-      { name: "Henderson kitchen", status: "active", progress: 62 },
-      { name: "Reyes addition", status: "closeout", progress: 91 },
-    ],
-    threadsNeedingReply: 3,
+    projects: projects.map((p) => ({
+      name: p.name,
+      status: p.status,
+      progress: p.progress,
+    })),
+    threadsNeedingReply: flaggedLeads,
   });
 
   return {
     dateLabel,
     greeting: "Good morning, Joe.",
-    weekLabel: "4 ACTIVE JOBS",
+    weekLabel: `${activeCount} ACTIVE JOB${activeCount === 1 ? "" : "S"}`,
     headerChips: [
-      { kind: "money", label: "$32,400 due this week" },
-      { kind: "flag", label: "2 leads cooling" },
+      { kind: "money", label: `${dollars(outstanding)} outstanding A/R` },
+      { kind: "flag", label: `${flaggedLeads} lead${flaggedLeads === 1 ? "" : "s"} need attention` },
     ],
     briefHeadline: "Today's brief",
     briefBody: brief.summary,

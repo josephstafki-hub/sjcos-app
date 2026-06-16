@@ -11,7 +11,7 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 
 ## Current Status
 
-> **Phases 0–6 — all mock-UI screens** · ✅ complete (30 screens, clean production build) · next: **Phase 7 — Real Data + Backend** (needs DB password, AI provider/key, and — for Phase 8 deploy — a DNS record + sudo)
+> **Phases 0–6 — all mock-UI screens** · ✅ complete (30 screens) · **Phase 7.2 — read API routes** mostly done (today, leads, projects, subs, compliance, notifications all DB-backed; inbox stays a stub). Remaining: **7.1 real CSV import**, **7.3 real AI provider** (needs Joe's provider/key decision), **Phase 8 deploy** (needs DNS record + sudo + permanent port).
 
 ---
 
@@ -249,13 +249,13 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 - [ ] Validate data, resolve any schema mismatches
 
 ### 7.2 API routes (real)
-- [ ] `/api/today` — real daily brief (pulls leads, projects, schedule)
-- [ ] `/api/leads` + `/api/leads/[slug]` — CRUD on Lead table
-- [ ] `/api/projects` + `/api/projects/[slug]` — CRUD on Project table
-- [ ] `/api/inbox` — stub for email/SMS unification (Postmark + Twilio later)
-- [ ] `/api/subs` + `/api/subs/[slug]` — CRUD on Sub table
-- [ ] `/api/compliance` — reads compliance items, flags upcoming deadlines
-- [ ] `/api/notifications` — reads notification table
+- [x] `/api/today` — real daily brief *(header metrics + brief inputs from leads/projects rows; priorities/schedule/waiting stay curated until those tables exist)*
+- [x] `/api/leads` + `/api/leads/[slug]` — read from Lead table *(list + detail DB-backed; curated detail content merged per slug)*
+- [x] `/api/projects` + `/api/projects/[slug]` — read from Project table *(list + detail DB-backed; computed summary)*
+- [ ] `/api/inbox` — stub for email/SMS unification (Postmark + Twilio later) *(threads table empty; stays mock until integration)*
+- [x] `/api/subs` + `/api/subs/[slug]` — read from Sub table *(list + detail DB-backed)*
+- [x] `/api/compliance` — reads compliance_items, buckets windows by days-until-due
+- [x] `/api/notifications` — reads notifications table
 
 ### 7.3 Real AI (swap in when ready)
 - [ ] Decide: local LLM via Ollama, or Anthropic API

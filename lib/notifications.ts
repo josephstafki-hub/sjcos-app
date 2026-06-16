@@ -1,15 +1,13 @@
-// Notifications feed builder. Mock-backed today; swaps to DB queries in Phase 7
-// (the notifications table already exists — see db/schema.sql). Shape stays
-// stable.
+// Notifications feed builder. DB-backed (Phase 7.2): reads the notifications
+// table via lib/db.
 //
 // `kind` stays the canonical 5-value NotificationKind (matches the schema CHECK
-// + drives the filter chips). Display-only fields (tag / icon / accent) ride
-// alongside so a card can read "INTAKE" while still filtering under its kind.
-// The red border tracks `flagged` (the urgent flag-accent cards), which is how
-// the design renders it — decisions plus any other urgent item (e.g. an
-// expiring COI).
+// + drives the filter chips). Display-only fields (tag / icon / accent / when)
+// ride alongside so a card can read "INTAKE" while still filtering under its
+// kind. The red border tracks `flagged`.
 
 import type { NotificationKind } from "./types";
+import { query } from "./db";
 
 /** Display accent — drives the tag chip color and left icon tint. */
 export type NotifAccent = "flag" | "accent" | "ai" | "money" | "ghost";
@@ -33,105 +31,6 @@ export interface NotificationCard {
   icon: NotifIcon;
 }
 
-const NOTIFICATIONS: NotificationCard[] = [
-  {
-    id: "reyes-demand",
-    kind: "decision",
-    tag: "Decision",
-    accent: "flag",
-    title: "Reyes invoice hits Day 15 today — send demand letter?",
-    subline: "Draft ready · $4,800 outstanding",
-    when: "Just now",
-    flagged: true,
-    href: "/projects/reyes-bath",
-    icon: "money",
-  },
-  {
-    id: "chen-reply",
-    kind: "decision",
-    tag: "Decision",
-    accent: "flag",
-    title: "Reply to Maria Chen (Phase 1 lead)",
-    subline: "Quartz alternate draft ready",
-    when: "5h 12m",
-    flagged: true,
-    href: "/inbox",
-    icon: "mail",
-  },
-  {
-    id: "sandberg-warranty",
-    kind: "decision",
-    tag: "Decision",
-    accent: "flag",
-    title: "Sandberg warranty claim · ack deadline Fri",
-    subline: "Cabinet hinge · reply drafted",
-    when: "4 hrs",
-    flagged: true,
-    href: "/warranty",
-    icon: "star",
-  },
-  {
-    id: "claude-henderson",
-    kind: "mention",
-    tag: "Mention",
-    accent: "ai",
-    title: "@claude posted in #henderson-kitchen",
-    subline: "Pinned QC checklist + Friday flatness photo",
-    when: "6 hrs",
-    flagged: false,
-    href: "/chat",
-    icon: "chat",
-  },
-  {
-    id: "henderson-tile",
-    kind: "job",
-    tag: "Job",
-    accent: "accent",
-    title: "Henderson tile install starts in 4h",
-    subline: "Marco on the way · materials verified on site",
-    when: "8 hrs",
-    flagged: false,
-    href: "/projects/henderson-kitchen",
-    icon: "project",
-  },
-  {
-    id: "olson-cleared",
-    kind: "money",
-    tag: "Money",
-    accent: "money",
-    title: "Olson final · $8,200 cleared",
-    subline: "Stripe → SJC Operating · auto-marked paid",
-    when: "Yesterday",
-    flagged: false,
-    href: "/projects/olson-porch",
-    icon: "money",
-  },
-  {
-    id: "cole-intake",
-    kind: "job",
-    tag: "Intake",
-    accent: "ghost",
-    title: "New site form · A. Cole · basement bar",
-    subline: "5-question reply queued",
-    when: "Sat 4:12p",
-    flagged: false,
-    href: "/leads/a-cole",
-    icon: "site",
-  },
-  {
-    id: "lund-coi",
-    kind: "compliance",
-    tag: "Compliance",
-    accent: "flag",
-    title: "Carl Lund COI expires Jun 1",
-    subline: "AI auto-requested renewal",
-    when: "Sat",
-    flagged: true,
-    href: "/compliance",
-    icon: "shield",
-  },
-];
-
 /** Filter selector value — "all" plus the canonical notification kinds. */
 export type NotifFilter = "all" | NotificationKind;
 
@@ -142,12 +41,45 @@ export interface NotificationsData {
   notifications: NotificationCard[];
 }
 
+interface NotificationRow {
+  id: string;
+  kind: NotificationKind;
+  tag: string | null;
+  accent: string | null;
+  icon: string | null;
+  title: string;
+  subline: string | null;
+  when_label: string | null;
+  flagged: boolean;
+  href: string | null;
+}
+
+function rowToCard(r: NotificationRow): NotificationCard {
+  return {
+    id: r.id,
+    kind: r.kind,
+    tag: r.tag ?? r.kind,
+    accent: (r.accent ?? "ghost") as NotifAccent,
+    title: r.title,
+    subline: r.subline ?? "",
+    when: r.when_label ?? "",
+    flagged: r.flagged,
+    href: r.href ?? "#",
+    icon: (r.icon ?? "star") as NotifIcon,
+  };
+}
+
 export async function getNotificationsData(): Promise<NotificationsData> {
-  const decisionCount = NOTIFICATIONS.filter((n) => n.kind === "decision").length;
+  const { rows } = await query<NotificationRow>(`
+    SELECT id, kind, tag, accent, icon, title, subline, when_label, flagged, href
+    FROM notifications
+    ORDER BY created_at DESC
+  `);
+  const notifications = rows.map(rowToCard);
 
   return {
-    total: NOTIFICATIONS.length,
-    decisionCount,
+    total: notifications.length,
+    decisionCount: notifications.filter((n) => n.kind === "decision").length,
     filters: [
       { key: "all", label: "All" },
       { key: "decision", label: "Decisions" },
@@ -156,6 +88,6 @@ export async function getNotificationsData(): Promise<NotificationsData> {
       { key: "money", label: "Money" },
       { key: "compliance", label: "Compliance" },
     ],
-    notifications: NOTIFICATIONS,
+    notifications,
   };
 }

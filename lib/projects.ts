@@ -1,9 +1,12 @@
-// Projects list data builder. Mock-backed today; swaps to DB queries on the
-// projects table (db/schema.sql) in Phase 7. Shape stays stable.
+// Projects data builder. DB-backed (Phase 7.2): list + detail read the
+// projects table via lib/db. Detail merges curated rich content (milestones,
+// daily log, subs) per slug; the AI weekly-status note still routes through
+// lib/ai.ts.
 
 import type { ChipKind } from "@/components/ui/Chip";
 import type { ProjectStatus } from "./types";
 import { ai } from "./ai";
+import { query } from "./db";
 
 type GroupKey = "active" | "closeout" | "pre_construction";
 
@@ -43,19 +46,51 @@ const GROUP_META: Record<GroupKey, { title: string; dot: "accent" | "ai" | "ghos
   pre_construction: { title: "Pre-construction", dot: "ghost", chip: "ghost", bar: "bg-ink-4" },
 };
 
-const PROJECTS: ProjectListItem[] = [
-  { slug: "henderson", name: "Henderson kitchen", sub: "Edina · day 74 of ~92", stage: "Tile phase", value: "$58,400", billed: 60, group: "active" },
-  { slug: "reyes", name: "Reyes bath", sub: "Mpls · day 22", stage: "Drywall", value: "$18,500", billed: 35, group: "active" },
-  { slug: "olson", name: "Olson porch", sub: "Edina · client walk Tues", stage: "Punch list", value: "$22,000", billed: 90, group: "closeout" },
-  { slug: "bauer", name: "Bauer mudroom", sub: "Mpls · selections phase", stage: "6/24 selected", value: "$28,000 (est)", billed: 0, group: "pre_construction" },
-  { slug: "sandberg", name: "Sandberg built-ins", sub: "Edina · site visit done", stage: "Awaiting selections", value: "$14,000 (est)", billed: 0, group: "pre_construction" },
-];
-
 /** Map a project's status to its display group. */
 export function statusGroup(status: ProjectStatus): GroupKey {
   if (status === "active") return "active";
   if (status === "closeout") return "closeout";
   return "pre_construction";
+}
+
+// ─── DB row → display mapping ────────────────────────────────────────────────
+
+interface ProjectRow {
+  slug: string;
+  name: string;
+  status: ProjectStatus;
+  value: string;
+  billed: number;
+  sub: string;
+  stage: string;
+  contract_value: number;
+  collected_to_date: number;
+}
+
+const PROJECT_SELECT = `
+  SELECT slug, name, status,
+         COALESCE(value_display, '') AS value,
+         progress AS billed,
+         COALESCE(sub_label, '') AS sub,
+         COALESCE(stage_label, '') AS stage,
+         contract_value, collected_to_date
+  FROM projects`;
+
+function rowToItem(r: ProjectRow): ProjectListItem {
+  return {
+    slug: r.slug,
+    name: r.name,
+    sub: r.sub,
+    stage: r.stage,
+    value: r.value,
+    billed: r.billed,
+    group: statusGroup(r.status),
+  };
+}
+
+/** "$140.9k" style compact dollars. */
+function compactK(dollars: number): string {
+  return `$${(dollars / 1000).toFixed(1)}k`;
 }
 
 // ─── Project detail ───────────────────────────────────────────────────────
@@ -154,8 +189,9 @@ const PROJECT_DETAILS: Record<string, Partial<ProjectDetail>> = {
 };
 
 export async function getProject(slug: string): Promise<ProjectDetail | null> {
-  const item = PROJECTS.find((p) => p.slug === slug);
-  if (!item) return null;
+  const { rows } = await query<ProjectRow>(`${PROJECT_SELECT} WHERE slug = $1`, [slug]);
+  if (!rows[0]) return null;
+  const item = rowToItem(rows[0]);
 
   const curated = PROJECT_DETAILS[slug] ?? {};
 
@@ -198,15 +234,21 @@ export async function getProject(slug: string): Promise<ProjectDetail | null> {
 }
 
 export async function getProjectsData(): Promise<ProjectsData> {
+  const { rows } = await query<ProjectRow>(`${PROJECT_SELECT} ORDER BY progress DESC, name`);
+  const items = rows.map(rowToItem);
+
   const order: GroupKey[] = ["active", "closeout", "pre_construction"];
   const groups: ProjectGroup[] = order.map((key) => ({
     key,
     ...GROUP_META[key],
-    items: PROJECTS.filter((p) => p.group === key),
+    items: items.filter((p) => p.group === key),
   }));
 
+  const contracted = rows.reduce((s, r) => s + r.contract_value, 0);
+  const billed = rows.reduce((s, r) => s + r.collected_to_date, 0);
+
   return {
-    summary: "5 projects · $140.9k contracted · $61.5k billed YTD",
+    summary: `${items.length} projects · ${compactK(contracted)} contracted · ${compactK(billed)} billed YTD`,
     groups,
   };
 }

@@ -1,9 +1,11 @@
-// Compliance calendar data builder. Mock-backed today; swaps to DB queries in
-// Phase 7 (the compliance_items table already exists — see db/schema.sql, with
-// kind/dueDate/owner). The window grouping below is what `ComplianceWindow`
-// derives from dueDate; the shape stays stable.
+// Compliance calendar data builder. DB-backed (Phase 7.2): reads the
+// compliance_items table via lib/db. The timeline is the full ordered list of
+// open items; the three windows are derived by bucketing on days-until-due
+// (urgent < 14d / 30-day / 60-90d) relative to CURRENT_DATE, so the view tracks
+// real time. The AI outlook still routes through lib/ai.ts.
 
 import { ai } from "./ai";
+import { query } from "./db";
 
 /** Timeline dot tone — flag (urgent), accent (action/license), ghost (routine). */
 export type ComplianceDot = "flag" | "accent" | "ghost";
@@ -40,70 +42,77 @@ export interface ComplianceData {
   timeline: TimelineRow[];
 }
 
-const WINDOWS: ComplianceWindowCard[] = [
-  {
-    label: "Urgent · < 14 days",
-    urgent: true,
-    items: [
-      { title: "Carl Lund · COI", due: "Jun 1" },
-      { title: "IRS CP2100 reply", due: "Jun 15" },
-    ],
-  },
-  {
-    label: "30 day window",
-    urgent: false,
-    items: [
-      { title: "Q2 estimated tax · MN", due: "Jun 17" },
-      { title: "Q2 estimated tax · Federal", due: "Jun 17" },
-      { title: "Auto policy renewal", due: "Jun 28" },
-    ],
-  },
-  {
-    label: "60 / 90 day window",
-    urgent: false,
-    items: [
-      { title: "Marco COI", due: "Aug 14" },
-      { title: "Brad COI", due: "Aug 14" },
-      { title: "Rivera HVAC COI", due: "Sep 1" },
-      { title: "MN contractor license · renewal", due: "Sep 30" },
-      { title: "Tomas COI", due: "Oct 3" },
-    ],
-  },
-];
+// ─── DB row → display mapping ────────────────────────────────────────────────
 
-const TIMELINE: TimelineRow[] = [
-  { date: "JUN 1", dot: "flag", what: "Carl Lund · COI expires", who: "AI requesting renewal", step: "Send reminder + receive doc" },
-  { date: "JUN 15", dot: "flag", what: "IRS CP2100 mismatch · respond", who: "Joe + Dani", step: "Draft response ready · review" },
-  { date: "JUN 17", dot: "ghost", what: "Q2 estimated tax (MN + Fed)", who: "Dani · QuickBooks", step: "Auto-pull payments" },
-  { date: "JUN 28", dot: "ghost", what: "Auto policy renewal", who: "State Farm", step: "Verify additional insured stays on policy" },
-  { date: "JUL 31", dot: "ghost", what: "Q2 sales tax filing", who: "Dani", step: "P&L close runs Jul 26" },
-  { date: "AUG 14", dot: "ghost", what: "Marco + Brad COI", who: "AI auto-requests Jul 14", step: "—" },
-  { date: "SEP 30", dot: "accent", what: "MN contractor license · renewal", who: "Joe", step: "$200 fee · CE hours TBD" },
-  { date: "JAN 31", dot: "ghost", what: "1099 issue (all subs > $600)", who: "AI prep · Dani files", step: "8 subs expected" },
-];
+interface ComplianceRow {
+  title: string;
+  /** "Jun 1" — window item display. */
+  due_label: string;
+  /** "JUN 1" — timeline display. */
+  timeline_date: string;
+  /** Integer days from today; negative if overdue. */
+  days_until: number;
+  who: string;
+  step: string;
+  dot: string;
+}
+
+const COMPLIANCE_SELECT = `
+  SELECT title,
+         to_char(due_date, 'FMMon FMDD')        AS due_label,
+         upper(to_char(due_date, 'FMMon FMDD'))  AS timeline_date,
+         (due_date - CURRENT_DATE)::int          AS days_until,
+         COALESCE(who, '')                       AS who,
+         COALESCE(NULLIF(step, ''), '—')         AS step,
+         COALESCE(dot, 'ghost')                  AS dot
+  FROM compliance_items
+  WHERE resolved = false
+  ORDER BY due_date`;
 
 export async function getComplianceData(): Promise<ComplianceData> {
-  const urgent = WINDOWS.find((w) => w.urgent)?.items.length ?? 0;
-  const next30 = WINDOWS.filter((w) => w.label !== "60 / 90 day window").reduce(
-    (n, w) => n + w.items.length,
-    0,
-  );
+  const { rows } = await query<ComplianceRow>(COMPLIANCE_SELECT);
 
-  // The outlook is the AI touch-point — routed through the service so Phase 7
-  // composes it from the real compliance_items rows with no screen change.
+  // Bucket open items by days-until-due. Overdue items fall into the urgent
+  // window. Items beyond 90 days (e.g. next year's 1099 run) stay on the
+  // timeline but don't crowd a window card.
+  const inWindow = (lo: number, hi: number) =>
+    rows
+      .filter((r) => r.days_until <= hi && r.days_until > lo)
+      .map((r) => ({ title: r.title, due: r.due_label }));
+
+  const windows: ComplianceWindowCard[] = [
+    { label: "Urgent · < 14 days", urgent: true, items: inWindow(-Infinity, 14) },
+    { label: "30 day window", urgent: false, items: inWindow(14, 30) },
+    { label: "60 / 90 day window", urgent: false, items: inWindow(30, 90) },
+  ];
+
+  const timeline: TimelineRow[] = rows.map((r) => ({
+    date: r.timeline_date,
+    dot: (r.dot === "flag" || r.dot === "accent" ? r.dot : "ghost") as ComplianceDot,
+    what: r.title,
+    who: r.who,
+    step: r.step,
+  }));
+
+  const urgent = windows[0].items.length;
+  const next30 = urgent + windows[1].items.length;
+
+  // The outlook is the AI touch-point — routed through the service. The input
+  // is composed from the urgent rows so the swap to a real model in Phase 7.3
+  // needs no screen change. The mock passthrough relays this text whole.
+  const urgentLine = windows[0].items.length
+    ? windows[0].items.map((i) => `${i.title} (due ${i.due})`).join("; ")
+    : "Nothing urgent in the next 14 days";
   const { summary } = await ai.summarize({
     focus: "compliance",
-    text:
-      "Carl Lund's COI expires Jun 1 — he's not on a job, but I'll request the " +
-      "renewal automatically. The IRS CP2100 notice still needs a response by " +
-      "Jun 15.",
+    text: `${urgent} item${urgent === 1 ? "" : "s"} need attention soon: ${urgentLine}.`,
   });
 
   return {
     eyebrow: `${next30} items in next 30 days · ${urgent} urgent`,
     summary,
     filters: ["All", "COI", "Licenses", "Tax"],
-    windows: WINDOWS,
-    timeline: TIMELINE,
+    windows,
+    timeline,
   };
 }

@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { Plus, ChevronRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
 import { Card, Chip, Avatar, Eyebrow } from "@/components/ui";
 import { getLeadsData, stageIndex, stageLabel } from "@/lib/leads";
+import { NewLeadButton } from "@/components/leads/NewLeadButton";
 
 export default async function LeadsPage() {
   const { summary, stages, leads } = await getLeadsData();
@@ -23,10 +24,7 @@ export default async function LeadsPage() {
             <Chip kind="ghost">Hot</Chip>
             <Chip kind="ghost">Cooling</Chip>
             <Chip kind="ghost">Declined</Chip>
-            <button className="ml-1 inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper transition-colors hover:bg-[#232a1e]">
-              <Plus className="size-3" strokeWidth={1.5} />
-              New lead
-            </button>
+            <NewLeadButton />
           </div>
         </div>
 

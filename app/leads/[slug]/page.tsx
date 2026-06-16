@@ -5,6 +5,7 @@ import { Shell } from "@/components/shell/Shell";
 import { AiBubble, Card, Chip, Avatar, Eyebrow, Field } from "@/components/ui";
 import { LeadTabs } from "@/components/leads/LeadTabs";
 import { getLead, STAGES, stageIndex, stageLabel } from "@/lib/leads";
+import { advanceLeadStage } from "@/lib/actions/leads";
 
 const VERDICT: Record<string, { label: string; kind: "money" | "flag" | "info" }> = {
   go: { label: "GO", kind: "money" },
@@ -23,6 +24,12 @@ export default async function LeadDetailPage({
 
   const verdict = VERDICT[lead.triage.verdict];
   const currentStageIdx = stageIndex(lead.stage);
+  const nextStage = STAGES[currentStageIdx + 1];
+
+  async function moveToNextStage() {
+    "use server";
+    await advanceLeadStage(slug);
+  }
 
   const overview = (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
@@ -191,9 +198,20 @@ export default async function LeadDetailPage({
               <Sparkles className="size-3" strokeWidth={1.5} />
               Ask Claude
             </Link>
-            <button className="rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e]">
-              Move to Pre-Con
-            </button>
+            {nextStage ? (
+              <form action={moveToNextStage}>
+                <button
+                  type="submit"
+                  className="rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
+                >
+                  Move to {nextStage.label}
+                </button>
+              </form>
+            ) : (
+              <span className="rounded-md border border-rule bg-paper-2 px-2.5 py-1 text-[12px] font-semibold text-ink-3">
+                Signed ✓
+              </span>
+            )}
           </div>
         </div>
 

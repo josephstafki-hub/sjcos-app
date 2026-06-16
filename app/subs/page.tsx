@@ -1,7 +1,8 @@
-import { Filter, Plus } from "lucide-react";
+import { Filter } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
 import { Eyebrow } from "@/components/ui";
 import { SubsClient } from "@/components/subs/SubsClient";
+import { OnboardSubButton } from "@/components/subs/OnboardSubButton";
 import { getSubsData } from "@/lib/subs";
 
 export default async function SubsPage() {
@@ -23,10 +24,7 @@ export default async function SubsPage() {
               <Filter className="size-3" strokeWidth={1.5} />
               Filter
             </button>
-            <button className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper transition-colors hover:bg-[#232a1e]">
-              <Plus className="size-3" strokeWidth={1.5} />
-              Onboard a sub
-            </button>
+            <OnboardSubButton />
           </div>
         </div>
 

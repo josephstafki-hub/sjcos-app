@@ -49,9 +49,17 @@ const GROUP_META: Record<GroupKey, { title: string; dot: "accent" | "ai" | "ghos
 /** Map a project's status to its display group. */
 export function statusGroup(status: ProjectStatus): GroupKey {
   if (status === "active") return "active";
-  if (status === "closeout") return "closeout";
+  if (status === "closeout" || status === "complete") return "closeout";
   return "pre_construction";
 }
+
+/** Project statuses in lifecycle order, with display labels. */
+export const PROJECT_STATUSES: { key: ProjectStatus; label: string }[] = [
+  { key: "pre_construction", label: "Pre-construction" },
+  { key: "active", label: "Active" },
+  { key: "closeout", label: "Closeout" },
+  { key: "complete", label: "Complete" },
+];
 
 // ─── DB row → display mapping ────────────────────────────────────────────────
 
@@ -117,6 +125,7 @@ export interface SubRow {
 export interface ProjectDetail {
   slug: string;
   name: string;
+  status: ProjectStatus;
   contractValue: string;
   statusChips: { kind: ChipKind; label: string; dot?: boolean }[];
   subtitle: string;
@@ -204,6 +213,7 @@ export async function getProject(slug: string): Promise<ProjectDetail | null> {
   return {
     slug: item.slug,
     name: item.name,
+    status: rows[0].status,
     contractValue: curated.contractValue ?? `${item.value} contract`,
     statusChips:
       curated.statusChips ??

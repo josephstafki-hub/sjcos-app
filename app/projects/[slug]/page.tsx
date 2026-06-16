@@ -4,7 +4,8 @@ import { Check, DollarSign, Sparkles, MoreHorizontal, Mail, FileText } from "luc
 import { Shell } from "@/components/shell/Shell";
 import { AiBubble, Card, Chip, Avatar, Eyebrow } from "@/components/ui";
 import { ProjectTabs } from "@/components/projects/ProjectTabs";
-import { getProject } from "@/lib/projects";
+import { getProject, PROJECT_STATUSES } from "@/lib/projects";
+import { advanceProjectStatus } from "@/lib/actions/projects";
 
 const DOT: Record<string, string> = {
   accent: "bg-accent",
@@ -20,6 +21,14 @@ export default async function ProjectDetailPage({
   const { slug } = await params;
   const project = await getProject(slug);
   if (!project) notFound();
+
+  const statusIdx = PROJECT_STATUSES.findIndex((s) => s.key === project.status);
+  const nextStatus = PROJECT_STATUSES[statusIdx + 1];
+
+  async function moveToNextStatus() {
+    "use server";
+    await advanceProjectStatus(slug);
+  }
 
   const m = project.money;
 
@@ -228,6 +237,16 @@ export default async function ProjectDetailPage({
               <Sparkles className="size-3" strokeWidth={1.5} />
               Ask
             </Link>
+            {nextStatus && (
+              <form action={moveToNextStatus}>
+                <button
+                  type="submit"
+                  className="rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
+                >
+                  Move to {nextStatus.label}
+                </button>
+              </form>
+            )}
             <button className="inline-flex items-center rounded-md border border-rule bg-card px-1.5 py-1 text-ink-3 hover:bg-paper-2">
               <MoreHorizontal className="size-3.5" strokeWidth={1.5} />
             </button>

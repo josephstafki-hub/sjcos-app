@@ -11,7 +11,7 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 
 ## Current Status
 
-> **Phases 0–6 — all mock-UI screens** · ✅ complete (30 screens) · **Phase 7.2 read APIs** done (today/leads/projects/subs/compliance/notifications DB-backed; inbox stub). **Phase 7-A write/CRUD** core done: leads create + stage-advance, projects status-advance + progress, subs onboard, notifications mark-read, compliance resolve — via Server Actions in `lib/actions/`. Next (agreed order): finish **A** (settings persistence — folds into B since it needs a table), **B** back schedule/warranty/files with tables, **C** fill placeholder tabs. Then AI → email → import → **Phase 8 deploy** (last).
+> **Phases 0–6 — all mock-UI screens** · ✅ complete (30 screens) · **Phase 7.2 read APIs** done. **Phase 7-A write/CRUD** done (leads/projects/subs/notifications/compliance via Server Actions in `lib/actions/`). **Phase 7-B** done — schedule/warranty/files now DB-backed (warranty_projects, warranty_claims, schedule_blocks, daily_logs, files tables); settings toggles persist via app_settings. **The whole app is now DB-backed + writable.** Next (agreed order): **C** fill placeholder tabs (lead/project/sub detail, settings categories). Then AI → email → import → **Phase 8 deploy** (last).
 
 ---
 

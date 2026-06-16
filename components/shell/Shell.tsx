@@ -3,6 +3,13 @@ import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { CmdKPill } from "./CmdKPill";
 import { CommandBar } from "@/components/cmdk/CommandBar";
+import { getCurrentUser } from "@/lib/dal";
+
+const ROLE_LABEL: Record<string, string> = {
+  owner: "Owner · all roles",
+  sub: "Subcontractor",
+  client: "Client",
+};
 
 type ShellProps = {
   children: ReactNode;
@@ -20,10 +27,17 @@ type ShellProps = {
  * (Ctrl/⌘+K from anywhere). Standalone surfaces (Client / Sub portal) use
  * their own chrome and do not wrap in Shell.
  */
-export function Shell({ children, breadcrumb, hideCmd, cmdkOpen }: ShellProps) {
+export async function Shell({ children, breadcrumb, hideCmd, cmdkOpen }: ShellProps) {
+  const user = await getCurrentUser();
+  const sidebarUser = {
+    name: user?.name ?? "—",
+    initials: user?.initials || "?",
+    roleLabel: user ? (ROLE_LABEL[user.role] ?? user.role) : "",
+  };
+
   return (
     <div className="flex h-screen bg-paper">
-      <Sidebar />
+      <Sidebar user={sidebarUser} />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar breadcrumb={breadcrumb} />
         <div className="relative min-h-0 flex-1 overflow-auto">{children}</div>

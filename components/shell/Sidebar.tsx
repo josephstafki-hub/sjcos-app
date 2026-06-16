@@ -23,8 +23,10 @@ import {
   Sparkles,
   Search,
   Settings,
+  LogOut,
 } from "lucide-react";
 import { Logo } from "./Logo";
+import { logout } from "@/lib/actions/auth";
 
 type NavItem = {
   label: string;
@@ -32,6 +34,7 @@ type NavItem = {
   icon: LucideIcon;
   badge?: string;
   tag?: string;
+  disabled?: boolean;
 };
 
 const WORK: NavItem[] = [
@@ -51,7 +54,7 @@ const TOOLS: NavItem[] = [
   { label: "Catalog", href: "/catalog", icon: LayoutGrid },
   { label: "Compliance", href: "/compliance", icon: ShieldCheck },
   { label: "Warranty", href: "/warranty", icon: Star },
-  { label: "Books", href: "/books", icon: BookOpen, tag: "soon" },
+  { label: "Books", href: "/books", icon: BookOpen, tag: "soon", disabled: true },
 ];
 
 const EXTERNAL: NavItem[] = [
@@ -74,6 +77,23 @@ function RailLabel({ children }: { children: string }) {
 function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
   const active = isActive(pathname, item.href);
   const Icon = item.icon;
+
+  // Disabled ("soon") items render as a non-clickable row instead of a dead link.
+  if (item.disabled) {
+    return (
+      <div
+        className="flex cursor-default items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium text-[rgba(241,236,225,0.4)]"
+        aria-disabled
+      >
+        <Icon className="size-3.5 flex-none text-[rgba(241,236,225,0.4)]" strokeWidth={1.5} />
+        <span className="flex-1 truncate">{item.label}</span>
+        {item.tag && (
+          <span className="font-mono text-[9px] text-[rgba(241,236,225,0.32)]">{item.tag}</span>
+        )}
+      </div>
+    );
+  }
+
   return (
     <Link
       href={item.href}
@@ -101,8 +121,10 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
   );
 }
 
+type SidebarUser = { name: string; initials: string; roleLabel: string };
+
 /** Forest-green primary navigation panel. */
-export function Sidebar() {
+export function Sidebar({ user }: { user: SidebarUser }) {
   const pathname = usePathname();
 
   return (
@@ -157,19 +179,25 @@ export function Sidebar() {
         <span className="font-mono text-[9px] text-[rgba(241,236,225,0.38)]">⌘J</span>
       </Link>
 
-      <Link
-        href="/settings"
-        className="mt-1.5 flex items-center gap-2 border-t border-[rgba(255,255,255,0.1)] px-1.5 pb-0.5 pt-2"
-      >
-        <span className="inline-flex size-[26px] flex-none items-center justify-center rounded-full border border-[rgba(191,208,166,0.5)] bg-[rgba(191,208,166,0.18)] font-mono text-[10px] font-semibold text-[#E7EFD6]">
-          JS
-        </span>
-        <div className="flex-1">
-          <div className="font-serif text-[13.5px] font-semibold text-paper">Joe Schroeder</div>
-          <div className="text-[11px] text-[rgba(241,236,225,0.5)]">Owner · all roles</div>
-        </div>
-        <Settings className="size-3.5 text-[rgba(241,236,225,0.55)]" strokeWidth={1.5} />
-      </Link>
+      <div className="mt-1.5 flex items-center gap-2 border-t border-[rgba(255,255,255,0.1)] px-1.5 pb-0.5 pt-2">
+        <Link href="/settings" className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="inline-flex size-[26px] flex-none items-center justify-center rounded-full border border-[rgba(191,208,166,0.5)] bg-[rgba(191,208,166,0.18)] font-mono text-[10px] font-semibold text-[#E7EFD6]">
+            {user.initials}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-serif text-[13.5px] font-semibold text-paper">{user.name}</div>
+            <div className="truncate text-[11px] text-[rgba(241,236,225,0.5)]">{user.roleLabel}</div>
+          </div>
+        </Link>
+        <Link href="/settings" aria-label="Settings" className="flex-none p-1">
+          <Settings className="size-3.5 text-[rgba(241,236,225,0.55)] hover:text-paper" strokeWidth={1.5} />
+        </Link>
+        <form action={logout} className="flex-none">
+          <button type="submit" aria-label="Log out" className="block p-1">
+            <LogOut className="size-3.5 text-[rgba(241,236,225,0.55)] hover:text-paper" strokeWidth={1.5} />
+          </button>
+        </form>
+      </div>
     </nav>
   );
 }

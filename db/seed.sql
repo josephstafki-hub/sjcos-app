@@ -10,7 +10,7 @@ BEGIN;
 
 TRUNCATE leads, projects, subs, threads, notifications, compliance_items,
          warranty_projects, warranty_claims, schedule_blocks, daily_logs,
-         files, app_settings RESTART IDENTITY CASCADE;
+         files, app_settings, users RESTART IDENTITY CASCADE;
 
 -- ─── Leads ──────────────────────────────────────────────────────────────────
 INSERT INTO leads (slug, name, scope, stage, estimate_value, value_display, source, hot, flag_label, flag_kind, last_contact_at) VALUES
@@ -124,5 +124,15 @@ INSERT INTO app_settings (key, value) VALUES
   ('ai.weeklyStatusEmails',  'true'),
   ('ai.autoPublishSocial',   'false'),
   ('ai.sendBeforeReview',    'false');
+
+-- ─── Users / auth (demo accounts) ───────────────────────────────────────────
+-- All seeded with the demo password "sjcos" (scrypt, salt:hash). Owner is Joe;
+-- sub/client accounts link to subs.slug / projects.slug to scope the portals.
+-- SYNTHETIC credentials — rotate before any real deployment.
+INSERT INTO users (email, password_hash, name, role, initials, link_slug) VALUES
+  ('josephstafki@sjcarpentryllc.com', '40676a86efbd86836c89a27ef60bb454:5ef3dfb212f1dbd1aaa746f37e245d9d3c0b160f8e0ac3a2a681ad3d66dda4c5d2494df8f38b1c3eff9ebe7b2b387ddfb034ed6ece57bc84ee9dffcb50f03b8b', 'Joe Stafki',      'owner',  'JS', NULL),
+  ('marco@trade.demo',                 '7b0fde8bb853a839033153bdeaa36f85:13a5b94d59ae067395c377f3602a18bd1fcb0a304bd3d285596a96ddd2b19d32bf37ce1e3e3642cd266ce14a5133eea46c3c549d84ecd6d28f761a4a3ba1a04b', 'Marco Ruiz',      'sub',    'MR', 'marco'),
+  ('tomas@trade.demo',                 'c1ecbe91601cd65169760ecdd5ccb26e:13bf853d514195961b84b2f7ced4923c326c383b305ad91e2bd44c4389521062bdcc4d0a9600372816449b823fa373bb5685c9b040de181adde4b98bfd49b2c8', 'Tomas Silva',     'sub',    'TS', 'tomas'),
+  ('henderson@client.demo',            '2d3bf6e4e58f765b030d9ff3ad872e90:42e5321e91427191cc385489d0287e5f51ffa12e5392baab39dda1f0bf9d1ab40bd9d7b79a3c5b4743c174c75439388fa662f2ea9b135f1f6b09b785b760ddef', 'Kate Henderson',  'client', 'KH', 'henderson');
 
 COMMIT;

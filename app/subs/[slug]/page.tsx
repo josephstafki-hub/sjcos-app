@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Phone, MessageSquare, Sparkles, Check } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { AiBubble, Avatar, Card, Chip, Eyebrow, Field } from "@/components/ui";
+import { AiBubble, AckButton, Avatar, Card, Chip, Eyebrow, Field } from "@/components/ui";
 import { SubTabs } from "@/components/subs/SubTabs";
 import { getSub } from "@/lib/subs";
 import type { JobDot } from "@/lib/subs";
@@ -238,9 +238,7 @@ export default async function SubDetailPage({
               <MessageSquare className="size-3" strokeWidth={1.5} />
               Chat
             </Link>
-            <button className="rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e]">
-              Assign to job
-            </button>
+            <AckButton variant="ink" label="Assign to job" ackLabel="Assignment started" />
           </div>
         </div>
 

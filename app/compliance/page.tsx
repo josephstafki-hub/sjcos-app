@@ -1,6 +1,6 @@
 import { Sparkles } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { AiBubble, Card, Chip, Eyebrow } from "@/components/ui";
+import { AiBubble, AckButton, Card, Chip, Eyebrow } from "@/components/ui";
 import { getComplianceData } from "@/lib/compliance";
 import type { ComplianceDot } from "@/lib/compliance";
 import { resolveComplianceItem } from "@/lib/actions/compliance";
@@ -31,21 +31,14 @@ export default async function CompliancePage() {
                 {f}
               </Chip>
             ))}
-            <button className="inline-flex items-center gap-1 rounded-md border border-ai bg-ai px-2.5 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-ai-2">
-              <Sparkles className="size-3" strokeWidth={1.5} />
-              Auto-collect docs
-            </button>
+            <AckButton icon={<Sparkles className="size-3" strokeWidth={1.75} />} label="Auto-collect docs" ackLabel="Requesting renewals…" />
           </div>
         </div>
 
         {/* AI outlook */}
         <AiBubble
           className="mb-3.5"
-          actions={
-            <button className="rounded-md bg-ai px-2.5 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-ai-2">
-              Open both
-            </button>
-          }
+          actions={<AckButton label="Open both" ackLabel="Flagged for review" />}
         >
           {data.summary}
         </AiBubble>

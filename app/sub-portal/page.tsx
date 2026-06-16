@@ -1,5 +1,5 @@
 import { Flag, Check, ImagePlus, Mic, Plus, Phone } from "lucide-react";
-import { Avatar, Card, Chip, Eyebrow } from "@/components/ui";
+import { AckButton, Avatar, Card, Chip, Eyebrow } from "@/components/ui";
 import { getSubPortalData } from "@/lib/sub-portal";
 import { requireRole } from "@/lib/dal";
 import { getSub } from "@/lib/subs";
@@ -81,9 +81,7 @@ export default async function SubPortalPage() {
                   </div>
                   <div className="mt-0.5 text-[11px] text-ink-2">{data.watchout.detail}</div>
                 </div>
-                <button className="rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink transition-colors hover:bg-paper-2">
-                  Photo from Joe
-                </button>
+                <AckButton variant="outline" label="Photo from Joe" ackLabel="Requested" />
               </div>
             </Card>
 
@@ -93,14 +91,8 @@ export default async function SubPortalPage() {
                 <span className="text-[12px] text-ink-4">What did you get done? Anything to flag?</span>
               </Card>
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                <button className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1 text-[12px] font-semibold text-ink transition-colors hover:bg-paper-2">
-                  <ImagePlus className="size-3" strokeWidth={1.5} />
-                  Add photos
-                </button>
-                <button className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1 text-[12px] font-semibold text-ink transition-colors hover:bg-paper-2">
-                  <Mic className="size-3" strokeWidth={1.5} />
-                  Record voice note
-                </button>
+                <AckButton variant="outline" icon={<ImagePlus className="size-3" strokeWidth={1.75} />} label="Add photos" ackLabel="Photos added" />
+                <AckButton variant="outline" icon={<Mic className="size-3" strokeWidth={1.75} />} label="Record voice note" ackLabel="Recording…" />
                 <div className="flex-1" />
                 <Chip kind="ai">AI will draft daily log + push to Joe</Chip>
               </div>
@@ -121,10 +113,13 @@ export default async function SubPortalPage() {
                   </div>
                 ))}
               </div>
-              <button className="mt-3 flex w-full items-center justify-center gap-1 rounded-md bg-ink px-2.5 py-1.5 text-[12px] font-semibold text-paper transition-colors hover:bg-[#232a1e]">
-                <Plus className="size-3" strokeWidth={1.75} />
-                Submit final invoice
-              </button>
+              <AckButton
+                variant="ink"
+                icon={<Plus className="size-3" strokeWidth={1.75} />}
+                label="Submit final invoice"
+                ackLabel="Invoice submitted"
+                className="mt-3 w-full justify-center"
+              />
             </Card>
 
             <Card className="p-3">

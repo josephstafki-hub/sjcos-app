@@ -9,3 +9,4 @@ export { Tabs } from "./Tabs";
 export { Field } from "./Field";
 export { Eyebrow } from "./Eyebrow";
 export { PhotoGrid } from "./PhotoGrid";
+export { AckButton } from "./AckButton";

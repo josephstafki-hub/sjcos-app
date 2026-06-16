@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Phone, Mail, Sparkles, FileText } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { AiBubble, Card, Chip, Avatar, Eyebrow, Field, PhotoGrid } from "@/components/ui";
+import { AiBubble, AckButton, Card, Chip, Avatar, Eyebrow, Field, PhotoGrid } from "@/components/ui";
 import { LeadTabs } from "@/components/leads/LeadTabs";
 import { getLead, STAGES, stageIndex, stageLabel } from "@/lib/leads";
 import { advanceLeadStage } from "@/lib/actions/leads";
@@ -39,12 +39,13 @@ export default async function LeadDetailPage({
         <AiBubble
           actions={
             <>
-              <button className="rounded-md bg-ai px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-ai-2">
-                Run lead-triage skill again
-              </button>
-              <button className="rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-3 hover:bg-paper-2 hover:text-ink-2">
+              <AckButton label="Run lead-triage skill again" ackLabel="Re-running triage…" />
+              <Link
+                href="/ai"
+                className="rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-3 hover:bg-paper-2 hover:text-ink-2"
+              >
                 See reasoning
-              </button>
+              </Link>
             </>
           }
         >

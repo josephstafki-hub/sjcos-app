@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Check, DollarSign, Sparkles, MoreHorizontal, Mail, FileText } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { AiBubble, Card, Chip, Avatar, Eyebrow } from "@/components/ui";
+import { AiBubble, AckButton, Card, Chip, Avatar, Eyebrow } from "@/components/ui";
 import { ProjectTabs } from "@/components/projects/ProjectTabs";
 import { getProject, PROJECT_STATUSES } from "@/lib/projects";
 import { advanceProjectStatus } from "@/lib/actions/projects";
@@ -136,9 +136,7 @@ export default async function ProjectDetailPage({
                 </div>
                 <div className="mt-0.5 text-[11px] text-ai-2">{project.weeklyStatus}</div>
               </div>
-              <button className="rounded-md bg-ai px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-ai-2">
-                Review
-              </button>
+              <AckButton label="Review" ackLabel="Marked reviewed" />
             </div>
           </Card>
         )}
@@ -480,14 +478,13 @@ export default async function ProjectDetailPage({
             <div className="mt-1.5 text-[11px] text-ink-3">{project.subtitle}</div>
           </div>
           <div className="flex items-center gap-1.5">
-            <button className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-paper-2">
-              <Check className="size-3" strokeWidth={1.5} />
-              Log update
-            </button>
-            <button className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-paper-2">
-              <DollarSign className="size-3" strokeWidth={1.5} />
-              Send invoice
-            </button>
+            <AckButton variant="outline" icon={<Check className="size-3" strokeWidth={1.75} />} label="Log update" ackLabel="Update logged" />
+            <AckButton
+              variant="outline"
+              icon={<DollarSign className="size-3" strokeWidth={1.75} />}
+              label="Send invoice"
+              ackLabel="Invoice queued"
+            />
             <Link
               href="/ai"
               className="inline-flex items-center gap-1 rounded-md border border-ai bg-ai px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-ai-2"

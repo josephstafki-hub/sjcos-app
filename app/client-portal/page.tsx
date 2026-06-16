@@ -1,5 +1,5 @@
 import { Bell, FileText } from "lucide-react";
-import { Avatar, Card, Chip, Eyebrow } from "@/components/ui";
+import { AckButton, Avatar, Card, Chip, Eyebrow } from "@/components/ui";
 import { getClientPortalData } from "@/lib/client-portal";
 import { requireRole } from "@/lib/dal";
 import { getProject } from "@/lib/projects";
@@ -82,9 +82,7 @@ export default async function ClientPortalPage() {
           <Card kind="accent" className="mt-2 p-2.5">
             <div className="font-serif text-[13px] font-semibold text-ink">{data.decision.title}</div>
             <div className="mt-1 text-[11px] text-ink-2">{data.decision.detail}</div>
-            <button className="mt-2 rounded-md bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper transition-colors hover:bg-[#232a1e]">
-              Decide
-            </button>
+            <AckButton variant="ink" label="Decide" ackLabel="Response sent" className="mt-2" />
           </Card>
 
           <div className="my-4 border-t border-rule" />

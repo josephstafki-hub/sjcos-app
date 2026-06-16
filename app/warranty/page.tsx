@@ -1,6 +1,6 @@
 import { Sparkles } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { AiBubble, Card, Chip, Eyebrow } from "@/components/ui";
+import { AiBubble, AckButton, Card, Chip, Eyebrow } from "@/components/ui";
 import { getWarrantyData } from "@/lib/warranty";
 import type { ClaimDot } from "@/lib/warranty";
 
@@ -36,11 +36,7 @@ export default async function WarrantyPage() {
         {/* AI claim summary */}
         <AiBubble
           className="mb-3.5"
-          actions={
-            <button className="rounded-md bg-ai px-2.5 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-ai-2">
-              Open claim
-            </button>
-          }
+          actions={<AckButton label="Open claim" ackLabel="Flagged for review" />}
         >
           {data.summary}
         </AiBubble>
@@ -70,10 +66,12 @@ export default async function WarrantyPage() {
                   {c.deadline}
                 </Chip>
                 <span className="text-[11px] text-ink-3">{c.step}</span>
-                <button className="mt-0.5 inline-flex items-center gap-1 rounded-md border border-ai bg-ai px-2.5 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-ai-2">
-                  <Sparkles className="size-3" strokeWidth={1.5} />
-                  Open
-                </button>
+                <AckButton
+                  className="mt-0.5"
+                  icon={<Sparkles className="size-3" strokeWidth={1.75} />}
+                  label="Open"
+                  ackLabel="Flagged for review"
+                />
               </div>
             </div>
           ))}

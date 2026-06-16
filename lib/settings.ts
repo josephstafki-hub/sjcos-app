@@ -4,6 +4,7 @@
 // categories stay static placeholders.
 
 import { query } from "./db";
+import { getCurrentUser } from "./dal";
 
 export interface SettingsCategory {
   id: string;
@@ -50,10 +51,24 @@ export interface SettingsData {
   profile: {
     name: string;
     meta: string;
+    /** Editable identity fields (saved via updateProfile). */
+    email: string;
+    company: string;
+    phone: string;
+    /** Read-only display rows shown beneath the editable form. */
     fields: { label: string; value: string }[];
   };
   workspace: { label: string; value: string }[];
-  team: { initials: string; name: string; role: string; chip: "accent" | "ghost" | "ai" }[];
+  team: {
+    /** Present for real login rows; absent for the synthetic Claude row. */
+    id?: string;
+    initials: string;
+    name: string;
+    role: string;
+    chip: "accent" | "ghost" | "ai";
+    active?: boolean;
+    isOwner?: boolean;
+  }[];
   subscription: { plan: string; price: string; renews: string; fields: { label: string; value: string }[] };
   data: { label: string; value: string; ok: boolean }[];
   integrations: Integration[];
@@ -68,21 +83,25 @@ export async function getSettingsData(): Promise<SettingsData> {
   const settings = new Map(rows.map((r) => [r.key, r.value]));
   const get = (key: string, fallback = "") => settings.get(key) ?? fallback;
 
-  const name = get("profile.name", "Joe Stafki");
+  // Name + email are the authoritative login identity, read from the current
+  // user's row (kept in sync by updateProfile); company + phone live in settings.
+  const me = await getCurrentUser();
+  const name = me?.name ?? get("profile.name", "Joe Stafki");
+  const email = me?.email ?? get("profile.email", "josephstafki@sjcarpentryllc.com");
   const company = get("profile.company", "SJ Carpentry LLC");
-  const email = get("profile.email", "josephstafki@sjcarpentryllc.com");
   const phone = get("profile.phone", "(612) 555-0117");
 
   // Team list is live from the users table. A synthetic Claude row stands in for
   // the AI assistant (not a login account).
   const { rows: userRows } = await query<{
+    id: string;
     name: string;
     email: string;
     role: string;
     initials: string;
     link_slug: string | null;
     active: boolean;
-  }>(`SELECT name, email, role, initials, link_slug, active
+  }>(`SELECT id, name, email, role, initials, link_slug, active
         FROM users ORDER BY (role = 'owner') DESC, name`);
 
   const roleDescription = (r: typeof userRows[number]): string => {
@@ -97,10 +116,13 @@ export async function getSettingsData(): Promise<SettingsData> {
 
   const team: SettingsData["team"] = [
     ...userRows.map((r) => ({
+      id: r.id,
       initials: r.initials || "?",
       name: r.name,
       role: roleDescription(r),
       chip: (r.role === "owner" ? "accent" : "ghost") as "accent" | "ghost" | "ai",
+      active: r.active,
+      isOwner: r.role === "owner",
     })),
     { initials: "AI", name: "Claude", role: "AI assistant · system", chip: "ai" as const },
   ];
@@ -119,10 +141,10 @@ export async function getSettingsData(): Promise<SettingsData> {
     profile: {
       name,
       meta: `Owner · ${company} · all roles`,
+      email,
+      company,
+      phone,
       fields: [
-        { label: "Display name", value: name },
-        { label: "Email", value: email },
-        { label: "Phone (SMS in)", value: phone },
         { label: "Title shown to clients", value: `Owner, ${company}` },
         { label: "Time zone", value: "America/Chicago" },
         { label: "Working hours", value: "7:00 am – 6:00 pm · Mon–Fri" },

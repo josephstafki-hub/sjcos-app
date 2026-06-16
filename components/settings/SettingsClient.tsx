@@ -1,9 +1,117 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Plus, X } from "lucide-react";
 import { Avatar, Card, Chip, Eyebrow, Field } from "@/components/ui";
 import type { SettingsData } from "@/lib/settings";
-import { setAiToggle, setNotifyToggle } from "@/lib/actions/settings";
+import { setAiToggle, setNotifyToggle, updateProfile } from "@/lib/actions/settings";
+import { createUser, setUserActive } from "@/lib/actions/users";
+
+/** Shared text input for the editable forms, themed to match the modals. */
+function TextInput({
+  name,
+  label,
+  defaultValue,
+  type = "text",
+  required,
+  placeholder,
+}: {
+  name: string;
+  label: string;
+  defaultValue?: string;
+  type?: string;
+  required?: boolean;
+  placeholder?: string;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{label}</span>
+      <input
+        name={name}
+        type={type}
+        required={required}
+        defaultValue={defaultValue}
+        placeholder={placeholder}
+        className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+      />
+    </label>
+  );
+}
+
+/** Owner-only "Add user" button + modal. Submits the createUser Server Action. */
+function AddUserButton() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper transition-colors hover:bg-[#232a1e]"
+      >
+        <Plus className="size-3" strokeWidth={1.5} />
+        Add user
+      </button>
+
+      {open && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center bg-ink/30 p-4 pt-[12vh]"
+          onClick={() => setOpen(false)}
+        >
+          <div
+            className="w-full max-w-[440px] rounded-lg border border-rule bg-card shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-rule px-4 py-3">
+              <h2 className="font-serif text-[17px] font-semibold text-ink">Add a user</h2>
+              <button onClick={() => setOpen(false)} className="text-ink-3 hover:text-ink" aria-label="Close">
+                <X className="size-4" strokeWidth={1.5} />
+              </button>
+            </div>
+
+            <form action={createUser} className="flex flex-col gap-3 p-4">
+              <TextInput name="name" label="Name" required placeholder="Marco Rivas" />
+              <TextInput name="email" label="Email" type="email" required placeholder="marco@…" />
+              <div className="flex gap-3">
+                <label className="flex flex-1 flex-col gap-1">
+                  <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Role</span>
+                  <select
+                    name="role"
+                    defaultValue="sub"
+                    className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+                  >
+                    <option value="sub">Sub — portal access</option>
+                    <option value="client">Client — portal access</option>
+                    <option value="owner">Owner — full app</option>
+                  </select>
+                </label>
+                <div className="flex-1">
+                  <TextInput name="link_slug" label="Link slug" placeholder="marco / henderson" />
+                </div>
+              </div>
+              <TextInput name="password" label="Temp password" type="password" required placeholder="they can change it" />
+
+              <div className="mt-1 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  onClick={() => setOpen(false)}
+                  className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
+                >
+                  Add user
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 
 function Toggle({
   settingKey,
@@ -88,6 +196,24 @@ export function SettingsClient({ data }: { data: SettingsData }) {
             <div className="mt-1.5 text-[11px] text-ink-3">{data.profile.meta}</div>
 
             <div className="my-5 border-t border-rule" />
+            <form action={updateProfile} className="max-w-[720px]">
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                <TextInput name="name" label="Display name" defaultValue={data.profile.name} required />
+                <TextInput name="email" label="Email" type="email" defaultValue={data.profile.email} required />
+                <TextInput name="company" label="Business name" defaultValue={data.profile.company} />
+                <TextInput name="phone" label="Phone (SMS in)" defaultValue={data.profile.phone} />
+              </div>
+              <div className="mt-5">
+                <button
+                  type="submit"
+                  className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper transition-colors hover:bg-[#232a1e]"
+                >
+                  Save changes
+                </button>
+              </div>
+            </form>
+
+            <div className="my-5 border-t border-rule" />
             <div className="grid max-w-[720px] grid-cols-1 gap-5 sm:grid-cols-2">
               {data.profile.fields.map((f) => (
                 <Field key={f.label} label={f.label} value={f.value} />
@@ -156,18 +282,45 @@ export function SettingsClient({ data }: { data: SettingsData }) {
 
         {active === "team" && (
           <>
-            <Eyebrow>Team &amp; roles</Eyebrow>
-            <h1 className="mt-1 font-serif text-[30px] font-medium leading-none text-accent-2">Team &amp; roles</h1>
-            <div className="mt-1.5 text-[11px] text-ink-3">{data.team.length} members · portal guests don&apos;t count toward seats</div>
+            <div className="flex items-start justify-between">
+              <div>
+                <Eyebrow>Team &amp; roles</Eyebrow>
+                <h1 className="mt-1 font-serif text-[30px] font-medium leading-none text-accent-2">Team &amp; roles</h1>
+                <div className="mt-1.5 text-[11px] text-ink-3">{data.team.length} members · portal guests don&apos;t count toward seats</div>
+              </div>
+              <AddUserButton />
+            </div>
             <Card className="mt-5 max-w-[600px] overflow-hidden p-0">
               {data.team.map((m, i) => (
-                <div key={m.name} className={`flex items-center gap-3 px-4 py-3 ${i ? "border-t border-rule-soft" : ""}`}>
+                <div
+                  key={m.id ?? m.name}
+                  className={`flex items-center gap-3 px-4 py-3 ${i ? "border-t border-rule-soft" : ""} ${
+                    m.active === false ? "opacity-55" : ""
+                  }`}
+                >
                   <Avatar initials={m.initials} size="sm" kind={m.chip === "accent" ? "accent" : m.chip === "ai" ? "ai" : "gray"} />
                   <div className="min-w-0 flex-1">
                     <div className="font-serif text-[13.5px] font-semibold text-ink">{m.name}</div>
                     <div className="text-[11px] text-ink-3">{m.role}</div>
                   </div>
-                  <Chip kind={m.chip}>{m.chip === "accent" ? "owner" : m.chip === "ai" ? "system" : "guest"}</Chip>
+                  {/* Real, non-owner login rows get an enable/disable control. */}
+                  {m.id && !m.isOwner ? (
+                    <form action={setUserActive.bind(null, m.id, m.active === false)}>
+                      <button
+                        type="submit"
+                        className={[
+                          "rounded-md border px-2 py-0.5 text-[11px] font-semibold transition-colors",
+                          m.active === false
+                            ? "border-accent bg-accent-soft text-accent-2 hover:bg-accent-soft/70"
+                            : "border-rule text-ink-3 hover:bg-paper-2",
+                        ].join(" ")}
+                      >
+                        {m.active === false ? "Enable" : "Disable"}
+                      </button>
+                    </form>
+                  ) : (
+                    <Chip kind={m.chip}>{m.chip === "accent" ? "owner" : m.chip === "ai" ? "system" : "guest"}</Chip>
+                  )}
                 </div>
               ))}
             </Card>

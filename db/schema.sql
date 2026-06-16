@@ -147,6 +147,85 @@ ALTER TABLE compliance_items ADD COLUMN IF NOT EXISTS who  text;
 ALTER TABLE compliance_items ADD COLUMN IF NOT EXISTS step text;
 ALTER TABLE compliance_items ADD COLUMN IF NOT EXISTS dot  text;
 
+-- ─── Warranty ───────────────────────────────────────────────────────────────
+-- Closed projects under warranty + active claims against them. These are
+-- historical/closeout records distinct from the live `projects` table.
+CREATE TABLE IF NOT EXISTS warranty_projects (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  project         text NOT NULL,
+  client          text NOT NULL,
+  closed_at       date NOT NULL,
+  warranty_label  text NOT NULL,            -- "1 yr · ends May 23 2027" / "2 yr · structural"
+  warranty_ends_at date,                    -- null for open-ended/structural terms
+  flag            text,                     -- optional chip, e.g. "open claim"
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS warranty_claims (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  project         text NOT NULL,
+  client          text NOT NULL,
+  issue           text NOT NULL,
+  age_label       text,                     -- "4 hrs" (since opened)
+  deadline_label  text,                     -- "5d ack · Fri"
+  step            text,                     -- AI status line
+  dot             text NOT NULL DEFAULT 'accent'
+                    CHECK (dot IN ('accent','flag','ghost')),
+  resolved        boolean NOT NULL DEFAULT false,
+  opened_at       timestamptz NOT NULL DEFAULT now(),
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+-- ─── Schedule ───────────────────────────────────────────────────────────────
+-- Timeblocks pinned to a real date + the daily field log. The /schedule view
+-- shows the week containing CURRENT_DATE.
+CREATE TABLE IF NOT EXISTS schedule_blocks (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  block_date  date NOT NULL,
+  time_label  text NOT NULL,                -- "8:00" / "AM" / "all"
+  sort_min    integer NOT NULL DEFAULT 0,   -- minutes-from-midnight for ordering
+  label       text NOT NULL,
+  tone        text NOT NULL DEFAULT 'ghost'
+                CHECK (tone IN ('accent','ai','ghost')),
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS daily_logs (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  log_date    date NOT NULL UNIQUE,
+  body        text NOT NULL DEFAULT '',
+  photos      integer NOT NULL DEFAULT 0,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
+-- ─── Files ──────────────────────────────────────────────────────────────────
+-- Flat file index (Google-Drive mirror is deferred). project_key groups files
+-- under a project folder; ai_origin tints AI-generated rows.
+CREATE TABLE IF NOT EXISTS files (
+  id           text PRIMARY KEY,           -- stable slug used by the preview pane
+  project_key  text NOT NULL DEFAULT '',   -- "Henderson" etc.
+  type         text NOT NULL DEFAULT 'doc'
+                 CHECK (type IN ('doc','img','folder')),
+  name         text NOT NULL,
+  tag          text NOT NULL DEFAULT '',
+  ai_origin    boolean NOT NULL DEFAULT false,
+  modified_label text NOT NULL DEFAULT '',
+  size_label   text NOT NULL DEFAULT '',
+  subtitle     text,                        -- preview subtitle
+  ai_tags      text[] NOT NULL DEFAULT '{}',
+  sort         integer NOT NULL DEFAULT 0,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+
+-- ─── App settings ─────────────────────────────────────────────────────────
+-- Single-row key/value store for the Settings screen toggles + profile fields.
+CREATE TABLE IF NOT EXISTS app_settings (
+  key         text PRIMARY KEY,
+  value       text NOT NULL DEFAULT '',
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
 -- ─── Indexes for the common list queries ────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_leads_stage          ON leads(stage);
 CREATE INDEX IF NOT EXISTS idx_projects_status       ON projects(status);
@@ -167,7 +246,7 @@ $$ LANGUAGE plpgsql;
 DO $$
 DECLARE t text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['leads','projects','subs','threads'] LOOP
+  FOREACH t IN ARRAY ARRAY['leads','projects','subs','threads','daily_logs'] LOOP
     EXECUTE format(
       'DROP TRIGGER IF EXISTS trg_%1$s_updated_at ON %1$s;
        CREATE TRIGGER trg_%1$s_updated_at BEFORE UPDATE ON %1$s

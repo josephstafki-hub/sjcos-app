@@ -1,8 +1,10 @@
-// Warranty data builder. Mock-backed today; in Phase 7 it reads closed
-// projects (the projects table already exists) + a warranty_claims table added
-// then. Shape stays stable.
+// Warranty data builder. DB-backed (Phase 7-B): active claims read from
+// warranty_claims, the under-warranty grid from warranty_projects (closed/
+// closeout records distinct from the live projects table). The AI claim
+// summary still routes through lib/ai.ts.
 
 import { ai } from "./ai";
+import { query } from "./db";
 
 /** Claim status dot — accent (in progress), flag (overdue), ghost (waiting). */
 export type ClaimDot = "accent" | "flag" | "ghost";
@@ -40,47 +42,77 @@ export interface WarrantyData {
   projects: WarrantyProject[];
 }
 
-const CLAIMS: WarrantyClaim[] = [
-  {
-    project: "Sandberg built-ins",
-    client: "N. Sandberg",
-    age: "4 hrs",
-    issue: "Cabinet hinge loose · soft-close failing on 1 door",
-    deadline: "5d ack · Fri",
-    step: "Reply drafted · Marco prepped",
-    dot: "accent",
-  },
-];
+interface ClaimRow {
+  project: string;
+  client: string;
+  issue: string;
+  age_label: string | null;
+  deadline_label: string | null;
+  step: string | null;
+  dot: string;
+}
 
-const PROJECTS: WarrantyProject[] = [
-  { project: "Olson porch", client: "Diane Olson", closed: "May 22 2026", warranty: "1 yr · ends May 23 2027" },
-  { project: "Sandberg built-ins", client: "N. Sandberg", closed: "Mar 14 2026", warranty: "1 yr · ends Mar 14 2027", flag: "open claim" },
-  { project: "Bauer roof line", client: "L. Bauer", closed: "Feb 22 2026", warranty: "1 yr · ends Feb 22 2027" },
-  { project: "Reyes prior bath", client: "G. Reyes", closed: "Feb 8 2026", warranty: "1 yr · ends Feb 8 2027" },
-  { project: "Knutsen mudroom", client: "P. Knutsen", closed: "Jan 28 2026", warranty: "1 yr · ends Jan 28 2027" },
-  { project: "Mendez kitchen", client: "A. Mendez", closed: "Dec 14 2025", warranty: "2 yr · structural" },
-];
-
-const UNDER_WARRANTY_TOTAL = 32;
+interface ProjectRow {
+  project: string;
+  client: string;
+  closed: string;
+  warranty: string;
+  flag: string | null;
+}
 
 export async function getWarrantyData(): Promise<WarrantyData> {
-  const overdue = CLAIMS.filter((c) => c.dot === "flag").length;
+  const [claimsRes, projectsRes] = await Promise.all([
+    query<ClaimRow>(`
+      SELECT project, client, issue, age_label, deadline_label, step, dot
+      FROM warranty_claims
+      WHERE resolved = false
+      ORDER BY opened_at DESC`),
+    query<ProjectRow>(`
+      SELECT project, client,
+             to_char(closed_at, 'FMMon FMDD YYYY') AS closed,
+             warranty_label AS warranty,
+             flag
+      FROM warranty_projects
+      ORDER BY closed_at DESC`),
+  ]);
 
-  // The claim summary is the AI touch-point — routed through the service so
-  // Phase 7 composes it from the real claim record with no screen change.
-  const { summary } = await ai.summarize({
-    focus: "warranty",
-    text:
-      "Sandberg cabinet hinge — claim opened today. 5-day acknowledgment " +
-      "deadline runs Fri May 29. I have a reply draft + Marco prepped.",
-  });
+  const claims: WarrantyClaim[] = claimsRes.rows.map((r) => ({
+    project: r.project,
+    client: r.client,
+    age: r.age_label ?? "",
+    issue: r.issue,
+    deadline: r.deadline_label ?? "",
+    step: r.step ?? "",
+    dot: (r.dot === "flag" || r.dot === "ghost" ? r.dot : "accent") as ClaimDot,
+  }));
+
+  const projects: WarrantyProject[] = projectsRes.rows.map((r) => ({
+    project: r.project,
+    client: r.client,
+    closed: r.closed,
+    warranty: r.warranty,
+    flag: r.flag ?? undefined,
+  }));
+
+  const overdue = claims.filter((c) => c.dot === "flag").length;
+  const underWarrantyTotal = projects.length;
+
+  // The claim summary is the AI touch-point — routed through the service. The
+  // input is composed from the active claim(s); the mock relays it and a real
+  // model composes from the same rows in Phase 7.3.
+  const claimText = claims.length
+    ? claims
+        .map((c) => `${c.project}: ${c.issue} (${c.deadline}). ${c.step}.`)
+        .join(" ")
+    : "No active warranty claims right now.";
+  const { summary } = await ai.summarize({ focus: "warranty", text: claimText });
 
   return {
-    eyebrow: `${UNDER_WARRANTY_TOTAL} closed projects under warranty · ${CLAIMS.length} active claim${CLAIMS.length === 1 ? "" : "s"} · ${overdue} overdue`,
+    eyebrow: `${underWarrantyTotal} closed projects under warranty · ${claims.length} active claim${claims.length === 1 ? "" : "s"} · ${overdue} overdue`,
     summary,
     filters: ["Active claims", "Under warranty", "Expired"],
-    claims: CLAIMS,
-    underWarrantyTotal: UNDER_WARRANTY_TOTAL,
-    projects: PROJECTS,
+    claims,
+    underWarrantyTotal,
+    projects,
   };
 }

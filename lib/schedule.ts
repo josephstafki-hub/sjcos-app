@@ -4,12 +4,13 @@
 //   • app/schedule/page.tsx       — calls getScheduleData() directly (server render)
 //   • app/api/schedule/route.ts   — exposes the same payload over HTTP
 //
-// Mock-backed today. The week strip + daily logs become DB-driven in Phase 7
-// (the projects table already exists; daily_logs gets added then). The AI
-// conflict note routes through lib/ai.ts so the implementation swaps with zero
-// screen-code changes — never import a provider here.
+// DB-backed (Phase 7-B): the week strip reads schedule_blocks and the daily-log
+// lane reads daily_logs, both scoped to the week containing CURRENT_DATE (so the
+// view always lands on "this week"). The AI conflict note routes through
+// lib/ai.ts — never import a provider here.
 
 import { ai } from "./ai";
+import { query } from "./db";
 
 /** Color treatment for a timeblock pill — job (accent), AI-scheduled (ai), or
  *  routine/other (ghost). Matches the design's `d` field. */
@@ -53,91 +54,105 @@ export interface ScheduleData {
   };
 }
 
-const DAYS: ScheduleDay[] = [
-  {
-    dow: "MON",
-    date: "25",
-    today: true,
-    blocks: [
-      { time: "8:00", label: "Sub check-ins", tone: "ghost" },
-      { time: "12:45", label: "QC walk · Henderson", tone: "accent" },
-      { time: "1:00", label: "Tile · Marco · Henderson", tone: "accent" },
-      { time: "3:30", label: "New lead call · Pham", tone: "ai" },
-    ],
-  },
-  {
-    dow: "TUE",
-    date: "26",
-    today: false,
-    blocks: [
-      { time: "8:00", label: "Tile day 2 · Marco", tone: "accent" },
-      { time: "9:00", label: "Chen site walk", tone: "ai" },
-      { time: "4:00", label: "Olson client walk", tone: "ai" },
-    ],
-  },
-  {
-    dow: "WED",
-    date: "27",
-    today: false,
-    blocks: [
-      { time: "8:00", label: "Grout · Henderson", tone: "accent" },
-      { time: "10:00", label: "Reyes drywall day 3", tone: "ghost" },
-    ],
-  },
-  {
-    dow: "THU",
-    date: "28",
-    today: false,
-    blocks: [{ time: "all", label: "Reyes paint", tone: "ghost" }],
-  },
-  {
-    dow: "FRI",
-    date: "29",
-    today: false,
-    blocks: [
-      { time: "AM", label: "Plumbing fixtures · Tomas", tone: "ghost" },
-      { time: "PM", label: "Weekly close + invoice", tone: "ai" },
-    ],
-  },
-];
+interface DayRow {
+  iso: string;
+  dow: string;
+  date: string;
+  today: boolean;
+}
+interface BlockRow {
+  iso: string;
+  time_label: string;
+  label: string;
+  tone: string;
+}
+interface LogRow {
+  iso: string;
+  body: string;
+  photos: number;
+}
+interface WeekRow {
+  weeknum: string;
+  range_start: string;
+  range_end: string;
+}
 
-const LOGS: DailyLogEntry[] = [
-  {
-    dow: "MON",
-    logged: false,
-    today: true,
-    body: "Tile underway in the main bath — Marco set the field by 3pm, niche tomorrow. QC walk flagged one soft spot at the threshold; subfloor screwed off and re-checked flat.",
-    photos: 3,
-  },
-  { dow: "TUE", logged: false, today: false, body: "", photos: 0 },
-  { dow: "WED", logged: false, today: false, body: "", photos: 0 },
-  { dow: "THU", logged: false, today: false, body: "", photos: 0 },
-  { dow: "FRI", logged: false, today: false, body: "", photos: 0 },
-];
+const MONDAY = `date_trunc('week', CURRENT_DATE)`;
+const FRIDAY = `${MONDAY} + interval '4 day'`;
 
 export async function getScheduleData(): Promise<ScheduleData> {
-  // The conflict note is the only AI touch-point here — the model spots the
-  // double-booking; the screen just renders it.
-  const { suggestions } = await ai.suggest({
-    kind: "schedule-conflicts",
-    context:
-      "Week 22 site schedule. Brad (paint) is booked for Reyes paint and " +
-      "Henderson punch on the same day; Marco runs tile Mon–Tue.",
+  const [daysRes, blocksRes, logsRes, weekRes, suggestRes] = await Promise.all([
+    query<DayRow>(`
+      SELECT to_char(d, 'YYYY-MM-DD') AS iso,
+             to_char(d, 'DY')         AS dow,
+             to_char(d, 'FMDD')       AS date,
+             (d::date = CURRENT_DATE) AS today
+      FROM generate_series(${MONDAY}, ${FRIDAY}, interval '1 day') d
+      ORDER BY d`),
+    query<BlockRow>(`
+      SELECT to_char(block_date, 'YYYY-MM-DD') AS iso, time_label, label, tone
+      FROM schedule_blocks
+      WHERE block_date >= ${MONDAY} AND block_date <= ${FRIDAY}
+      ORDER BY block_date, sort_min`),
+    query<LogRow>(`
+      SELECT to_char(log_date, 'YYYY-MM-DD') AS iso, body, photos
+      FROM daily_logs
+      WHERE log_date >= ${MONDAY} AND log_date <= ${FRIDAY}`),
+    query<WeekRow>(`
+      SELECT to_char(${MONDAY}, 'FMIW')           AS weeknum,
+             to_char(${MONDAY}, 'FMMon FMDD')     AS range_start,
+             to_char(${FRIDAY}, 'FMDD')           AS range_end`),
+    ai.suggest({
+      kind: "schedule-conflicts",
+      context:
+        "Week site schedule. Brad (paint) is booked for Reyes paint and " +
+        "Henderson punch on the same day; Marco runs tile Mon–Tue.",
+    }),
+  ]);
+
+  const blocksByDay = new Map<string, ScheduleBlock[]>();
+  for (const b of blocksRes.rows) {
+    const tone: BlockTone = b.tone === "accent" || b.tone === "ai" ? b.tone : "ghost";
+    const list = blocksByDay.get(b.iso) ?? [];
+    list.push({ time: b.time_label, label: b.label, tone });
+    blocksByDay.set(b.iso, list);
+  }
+
+  const logsByDay = new Map<string, LogRow>();
+  for (const l of logsRes.rows) logsByDay.set(l.iso, l);
+
+  const days: ScheduleDay[] = daysRes.rows.map((d) => ({
+    dow: d.dow,
+    date: d.date,
+    today: d.today,
+    blocks: blocksByDay.get(d.iso) ?? [],
+  }));
+
+  const entries: DailyLogEntry[] = daysRes.rows.map((d) => {
+    const log = logsByDay.get(d.iso);
+    return {
+      dow: d.dow,
+      logged: !!log,
+      today: d.today,
+      body: log?.body ?? "",
+      photos: log?.photos ?? 0,
+    };
   });
 
+  const week = weekRes.rows[0];
   const conflictNote =
-    suggestions[0] ??
-    "Reyes paint collides with Henderson punch on May 30 — Brad is double-booked.";
+    suggestRes.suggestions[0] ??
+    "Reyes paint collides with Henderson punch this week — Brad is double-booked.";
 
   return {
-    weekLabel: "WEEK 22",
-    rangeLabel: "May 25 – 29",
+    weekLabel: `WEEK ${week?.weeknum ?? ""}`,
+    rangeLabel: `${week?.range_start ?? ""} – ${week?.range_end ?? ""}`,
     conflictNote,
-    days: DAYS,
+    days,
     logs: {
-      loggedCount: LOGS.filter((l) => l.logged).length,
-      total: LOGS.length,
-      entries: LOGS,
+      loggedCount: entries.filter((e) => e.logged).length,
+      total: entries.length,
+      entries,
     },
   };
 }

@@ -11,7 +11,7 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 
 ## Current Status
 
-> **Phases 0–6 — all mock-UI screens** · ✅ complete (30 screens) · **Phase 7.2 — read API routes** mostly done (today, leads, projects, subs, compliance, notifications all DB-backed; inbox stays a stub). Remaining: **7.1 real CSV import**, **7.3 real AI provider** (needs Joe's provider/key decision), **Phase 8 deploy** (needs DNS record + sudo + permanent port).
+> **Phases 0–6 — all mock-UI screens** · ✅ complete (30 screens) · **Phase 7.2 read APIs** done (today/leads/projects/subs/compliance/notifications DB-backed; inbox stub). **Phase 7-A write/CRUD** core done: leads create + stage-advance, projects status-advance + progress, subs onboard, notifications mark-read, compliance resolve — via Server Actions in `lib/actions/`. Next (agreed order): finish **A** (settings persistence — folds into B since it needs a table), **B** back schedule/warranty/files with tables, **C** fill placeholder tabs. Then AI → email → import → **Phase 8 deploy** (last).
 
 ---
 

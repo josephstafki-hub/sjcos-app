@@ -1,6 +1,9 @@
-// Settings data builder. Mock-backed today; reads workspace config + live
-// integration status in Phase 7. Profile is the built showcase section; the
-// other categories are placeholders.
+// Settings data builder. DB-backed (Phase 7-B): profile fields + Claude/AI
+// toggles read from the app_settings key/value table via lib/db; toggles
+// persist through lib/actions/settings.ts. Integrations + the non-profile
+// categories stay static placeholders.
+
+import { query } from "./db";
 
 export interface SettingsCategory {
   id: string;
@@ -14,9 +17,22 @@ export interface Integration {
 }
 
 export interface AiToggle {
+  /** Stable app_settings key, e.g. "ai.draftReplies". */
+  key: string;
   label: string;
   on: boolean;
 }
+
+/** The Claude/AI toggle set, with stable keys + defaults (used when a row is
+ *  absent from app_settings). */
+const AI_TOGGLES: { key: string; label: string; default: boolean }[] = [
+  { key: "ai.draftReplies", label: "Draft client replies by default", default: true },
+  { key: "ai.autoPinWatchouts", label: "Auto-pin watchouts in team chat", default: true },
+  { key: "ai.summarizeVoicemails", label: "Auto-summarize incoming voicemails", default: true },
+  { key: "ai.weeklyStatusEmails", label: "Auto-generate weekly client status emails (review before send)", default: true },
+  { key: "ai.autoPublishSocial", label: "Auto-publish social posts on job completion", default: false },
+  { key: "ai.sendBeforeReview", label: "Send before drafts are reviewed", default: false },
+];
 
 export interface SettingsData {
   categories: SettingsCategory[];
@@ -30,6 +46,16 @@ export interface SettingsData {
 }
 
 export async function getSettingsData(): Promise<SettingsData> {
+  const { rows } = await query<{ key: string; value: string }>(
+    `SELECT key, value FROM app_settings`,
+  );
+  const settings = new Map(rows.map((r) => [r.key, r.value]));
+  const get = (key: string, fallback = "") => settings.get(key) ?? fallback;
+
+  const name = get("profile.name", "Joe Stafki");
+  const company = get("profile.company", "SJ Carpentry LLC");
+  const email = get("profile.email", "josephstafki@sjcarpentryllc.com");
+
   return {
     categories: [
       { id: "profile", title: "Profile" },
@@ -42,13 +68,13 @@ export async function getSettingsData(): Promise<SettingsData> {
       { id: "notifications", title: "Notifications" },
     ],
     profile: {
-      name: "Joe Schroeder",
-      meta: "Owner · all roles · joined Mar 2017",
+      name,
+      meta: `Owner · ${company} · all roles`,
       fields: [
-        { label: "Display name", value: "Joe Schroeder" },
-        { label: "Email", value: "joe@sjcarpentryllc.com" },
+        { label: "Display name", value: name },
+        { label: "Email", value: email },
         { label: "Phone (SMS in)", value: "(612) 555-0117" },
-        { label: "Title shown to clients", value: "Owner, SJ Carpentry LLC" },
+        { label: "Title shown to clients", value: `Owner, ${company}` },
         { label: "Time zone", value: "America/Chicago" },
         { label: "Working hours", value: "7:00 am – 6:00 pm · Mon–Fri" },
       ],
@@ -63,13 +89,10 @@ export async function getSettingsData(): Promise<SettingsData> {
       { name: "Instagram", sub: "Auto-post", connected: false },
       { name: "Facebook", sub: "Auto-post", connected: false },
     ],
-    aiToggles: [
-      { label: "Draft client replies by default", on: true },
-      { label: "Auto-pin watchouts in team chat", on: true },
-      { label: "Auto-summarize incoming voicemails", on: true },
-      { label: "Auto-generate weekly client status emails (review before send)", on: true },
-      { label: "Auto-publish social posts on job completion", on: false },
-      { label: "Send before drafts are reviewed", on: false },
-    ],
+    aiToggles: AI_TOGGLES.map((t) => ({
+      key: t.key,
+      label: t.label,
+      on: settings.has(t.key) ? settings.get(t.key) === "true" : t.default,
+    })),
   };
 }

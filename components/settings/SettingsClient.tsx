@@ -1,15 +1,35 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { Card, Chip, Eyebrow, Field } from "@/components/ui";
-import type { AiToggle, SettingsData } from "@/lib/settings";
+import type { SettingsData } from "@/lib/settings";
+import { setAiToggle } from "@/lib/actions/settings";
 
-function Toggle({ label, on: initial }: AiToggle) {
+function Toggle({
+  settingKey,
+  label,
+  on: initial,
+}: {
+  settingKey: string;
+  label: string;
+  on: boolean;
+}) {
   const [on, setOn] = useState(initial);
+  const [pending, startTransition] = useTransition();
+
+  function flip() {
+    const next = !on;
+    setOn(next); // optimistic
+    startTransition(async () => {
+      await setAiToggle(settingKey, next);
+    });
+  }
+
   return (
     <button
-      onClick={() => setOn((v) => !v)}
-      className="flex w-full items-center gap-3 border-t border-rule-soft py-1.5 text-left first:border-t-0"
+      onClick={flip}
+      disabled={pending}
+      className="flex w-full items-center gap-3 border-t border-rule-soft py-1.5 text-left first:border-t-0 disabled:opacity-60"
     >
       <span className="flex-1 text-[13px] text-ink">{label}</span>
       <span
@@ -92,7 +112,7 @@ export function SettingsClient({ data }: { data: SettingsData }) {
             <h2 className="mb-2 font-serif text-[15px] font-semibold text-ink">Claude · AI defaults</h2>
             <div className="max-w-[600px]">
               {data.aiToggles.map((t) => (
-                <Toggle key={t.label} {...t} />
+                <Toggle key={t.key} settingKey={t.key} label={t.label} on={t.on} />
               ))}
             </div>
           </>

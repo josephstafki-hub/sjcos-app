@@ -118,9 +118,11 @@ INSERT INTO app_settings (key, value) VALUES
   ('profile.name',          'Joe Stafki'),
   ('profile.company',       'SJ Carpentry LLC'),
   ('profile.email',         'josephstafki@sjcarpentryllc.com'),
-  ('ai.autoDraftReplies',   'true'),
-  ('ai.autoTriageLeads',    'true'),
-  ('ai.autoLogFromPhotos',  'true'),
-  ('ai.weeklyStatusEmails', 'false');
+  ('ai.draftReplies',        'true'),
+  ('ai.autoPinWatchouts',    'true'),
+  ('ai.summarizeVoicemails', 'true'),
+  ('ai.weeklyStatusEmails',  'true'),
+  ('ai.autoPublishSocial',   'false'),
+  ('ai.sendBeforeReview',    'false');
 
 COMMIT;

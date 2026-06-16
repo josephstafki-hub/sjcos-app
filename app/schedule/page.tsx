@@ -1,6 +1,7 @@
+import Link from "next/link";
 import { Camera, ChevronLeft, ChevronRight, Plus, Sparkles } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { Card, Chip, Eyebrow } from "@/components/ui";
+import { AckButton, Card, Chip, Eyebrow } from "@/components/ui";
 import { BlockButton } from "@/components/schedule/BlockButton";
 import { ConflictBubble } from "@/components/schedule/ConflictBubble";
 import { getScheduleData } from "@/lib/schedule";
@@ -14,8 +15,15 @@ const TONE: Record<BlockTone, { card: "accent" | "ai" | "soft"; time: string; la
   ghost: { card: "soft", time: "text-ink-3", label: "text-ink-2" },
 };
 
-export default async function SchedulePage() {
-  const data = await getScheduleData();
+export default async function SchedulePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ w?: string }>;
+}) {
+  const { w } = await searchParams;
+  const offset = Math.trunc(Number(w)) || 0;
+  const data = await getScheduleData(offset);
+  const hrefFor = (o: number) => (o === 0 ? "/schedule" : `/schedule?w=${o}`);
 
   return (
     <Shell breadcrumb="SCHEDULE" hideCmd>
@@ -27,17 +35,27 @@ export default async function SchedulePage() {
               {data.weekLabel} · {data.rangeLabel}
             </Eyebrow>
             <h1 className="mt-1 font-serif text-[34px] font-medium leading-none tracking-tight text-accent-2">
-              This week on site
+              {offset === 0 ? "This week on site" : "Week on site"}
             </h1>
           </div>
           <div className="flex items-center gap-1.5">
-            <button className="rounded-md border border-ink-4 p-1.5 text-ink-2 transition-colors hover:bg-paper-2">
+            <Link
+              href={hrefFor(offset - 1)}
+              aria-label="Previous week"
+              className="rounded-md border border-ink-4 p-1.5 text-ink-2 transition-colors hover:bg-paper-2"
+            >
               <ChevronLeft className="size-3.5" strokeWidth={1.5} />
-            </button>
-            <Chip kind="ghost">This wk</Chip>
-            <button className="rounded-md border border-ink-4 p-1.5 text-ink-2 transition-colors hover:bg-paper-2">
+            </Link>
+            <Link href="/schedule">
+              <Chip kind={offset === 0 ? "solid" : "ghost"}>This wk</Chip>
+            </Link>
+            <Link
+              href={hrefFor(offset + 1)}
+              aria-label="Next week"
+              className="rounded-md border border-ink-4 p-1.5 text-ink-2 transition-colors hover:bg-paper-2"
+            >
               <ChevronRight className="size-3.5" strokeWidth={1.5} />
-            </button>
+            </Link>
             <BlockButton />
           </div>
         </div>
@@ -98,10 +116,7 @@ export default async function SchedulePage() {
             <Chip kind="ghost">
               {data.logs.loggedCount} of {data.logs.total} logged
             </Chip>
-            <button className="flex items-center gap-1 rounded-md bg-ai px-2.5 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-ai-2">
-              <Sparkles className="size-3" strokeWidth={1.75} />
-              Auto-log from photos
-            </button>
+            <AckButton icon={<Sparkles className="size-3" strokeWidth={1.75} />} label="Auto-log from photos" ackLabel="Drafting logs…" />
           </div>
 
           <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-5">

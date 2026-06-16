@@ -1,4 +1,3 @@
-import { Filter } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
 import { Eyebrow } from "@/components/ui";
 import { SubsClient } from "@/components/subs/SubsClient";
@@ -20,10 +19,6 @@ export default async function SubsPage() {
             </h1>
           </div>
           <div className="flex items-center gap-1.5">
-            <button className="inline-flex items-center gap-1 rounded-md border border-ink-4 px-2.5 py-1 text-[12px] font-medium text-ink-2 transition-colors hover:bg-paper-2">
-              <Filter className="size-3" strokeWidth={1.5} />
-              Filter
-            </button>
             <OnboardSubButton />
           </div>
         </div>

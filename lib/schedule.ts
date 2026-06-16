@@ -77,10 +77,17 @@ interface WeekRow {
   range_end: string;
 }
 
-const MONDAY = `date_trunc('week', CURRENT_DATE)`;
-const FRIDAY = `${MONDAY} + interval '4 day'`;
+/** SQL for the Monday/Friday of the week `offset` weeks from the current one.
+ *  `offset` is coerced to a safe integer before interpolation. */
+function weekBounds(offset: number) {
+  const n = Math.trunc(Number.isFinite(offset) ? offset : 0);
+  const monday = `(date_trunc('week', CURRENT_DATE) + interval '${n} week')`;
+  const friday = `(${monday} + interval '4 day')`;
+  return { monday, friday };
+}
 
-export async function getScheduleData(): Promise<ScheduleData> {
+export async function getScheduleData(weekOffset = 0): Promise<ScheduleData> {
+  const { monday: MONDAY, friday: FRIDAY } = weekBounds(weekOffset);
   const [daysRes, blocksRes, logsRes, weekRes, suggestRes] = await Promise.all([
     query<DayRow>(`
       SELECT to_char(d, 'YYYY-MM-DD') AS iso,

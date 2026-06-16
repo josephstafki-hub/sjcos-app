@@ -10,7 +10,6 @@ import {
   Image as ImageIcon,
   List,
   LayoutGrid,
-  Filter,
   Plus,
   Eye,
   Share2,
@@ -18,7 +17,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { AiBubble, Card, Chip } from "@/components/ui";
+import { AiBubble, AckButton, Card, Chip } from "@/components/ui";
 import { summarizeFile } from "@/lib/actions/files";
 import type { FilesData, FileRow, FileType } from "@/lib/files";
 
@@ -40,6 +39,7 @@ function RailLabel({ children }: { children: string }) {
 export function FilesClient({ data }: { data: FilesData }) {
   const [selectedId, setSelectedId] = useState(data.selectedId);
   const [typeFilter, setTypeFilter] = useState("All");
+  const [view, setView] = useState<"list" | "grid">("list");
   const [summary, setSummary] = useState<string | null>(null);
   const [opened, setOpened] = useState(false);
   const [pending, startSummarize] = useTransition();
@@ -123,22 +123,19 @@ export function FilesClient({ data }: { data: FilesData }) {
               <h1 className="font-serif text-[20px] font-semibold text-ink">{data.folderTitle}</h1>
               <div className="text-[11px] text-ink-3">{data.folderMeta}</div>
             </div>
-            <Chip kind="solid">
-              <List className="mr-0.5 inline size-2.5" strokeWidth={2} />
-              List
-            </Chip>
-            <Chip kind="ghost">
-              <LayoutGrid className="mr-0.5 inline size-2.5" strokeWidth={2} />
-              Grid
-            </Chip>
-            <button className="inline-flex items-center gap-1 rounded-md border border-ink-4 px-2 py-1 text-[12px] font-medium text-ink-2 transition-colors hover:bg-paper-2">
-              <Filter className="size-3" strokeWidth={1.5} />
-              Filter
+            <button onClick={() => setView("list")} aria-pressed={view === "list"}>
+              <Chip kind={view === "list" ? "solid" : "ghost"}>
+                <List className="mr-0.5 inline size-2.5" strokeWidth={2} />
+                List
+              </Chip>
             </button>
-            <button className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1 text-[12px] font-semibold text-ink transition-colors hover:bg-paper-2">
-              <Plus className="size-3" strokeWidth={1.5} />
-              Upload
+            <button onClick={() => setView("grid")} aria-pressed={view === "grid"}>
+              <Chip kind={view === "grid" ? "solid" : "ghost"}>
+                <LayoutGrid className="mr-0.5 inline size-2.5" strokeWidth={2} />
+                Grid
+              </Chip>
             </button>
+            <AckButton variant="outline" icon={<Plus className="size-3" strokeWidth={1.75} />} label="Upload" ackLabel="Uploading…" />
           </div>
           <div className="mt-2 flex flex-wrap gap-1">
             {data.typeFilters.map((t) => {
@@ -162,16 +159,29 @@ export function FilesClient({ data }: { data: FilesData }) {
           <span className="hidden w-[56px] text-right sm:block">Size</span>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
-          {data.files.map((f) => (
-            <FileListRow
-              key={f.id}
-              file={f}
-              selected={f.id === selectedId}
-              onSelect={() => selectFile(f.id)}
-            />
-          ))}
-        </div>
+        {view === "list" ? (
+          <div className="flex-1 overflow-y-auto">
+            {data.files.map((f) => (
+              <FileListRow
+                key={f.id}
+                file={f}
+                selected={f.id === selectedId}
+                onSelect={() => selectFile(f.id)}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="grid flex-1 auto-rows-min grid-cols-2 gap-2.5 overflow-y-auto p-4 lg:grid-cols-3">
+            {data.files.map((f) => (
+              <FileGridCard
+                key={f.id}
+                file={f}
+                selected={f.id === selectedId}
+                onSelect={() => selectFile(f.id)}
+              />
+            ))}
+          </div>
+        )}
       </section>
 
       {/* ─── Preview ──────────────────────────────────────────────── */}
@@ -222,10 +232,13 @@ export function FilesClient({ data }: { data: FilesData }) {
                 <Eye className="size-3" strokeWidth={1.5} />
                 Open
               </button>
-              <button className="inline-flex items-center gap-1 rounded-md border border-ink-4 px-2 py-1 text-[11px] font-medium text-ink-2 transition-colors hover:bg-paper-3">
-                <Share2 className="size-3" strokeWidth={1.5} />
-                Share
-              </button>
+              <AckButton
+                variant="subtle"
+                icon={<Share2 className="size-3" strokeWidth={1.75} />}
+                label="Share"
+                ackLabel="Link copied"
+                className="px-2 py-1 text-[11px]"
+              />
               <button
                 onClick={runSummarize}
                 disabled={pending}
@@ -270,6 +283,36 @@ export function FilesClient({ data }: { data: FilesData }) {
         </div>
       )}
     </div>
+  );
+}
+
+function FileGridCard({
+  file: f,
+  selected,
+  onSelect,
+}: {
+  file: FileRow;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const Icon = TYPE_ICON[f.type];
+  return (
+    <button
+      onClick={onSelect}
+      className={[
+        "flex flex-col gap-2 rounded-md border p-3 text-left transition-colors",
+        selected ? "border-accent bg-accent-soft" : "border-rule bg-card hover:bg-paper-2",
+      ].join(" ")}
+    >
+      <div className="flex items-start justify-between">
+        <Icon className={`size-5 ${f.ai ? "text-ai-2" : "text-ink-2"}`} strokeWidth={1.5} />
+        <Chip kind={f.ai ? "ai" : "ghost"}>{f.tag}</Chip>
+      </div>
+      <span className="truncate text-[12.5px] font-medium text-ink">{f.name}</span>
+      <span className="font-mono text-[10px] text-ink-3">
+        {f.modified} · {f.size}
+      </span>
+    </button>
   );
 }
 

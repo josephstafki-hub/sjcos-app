@@ -1,9 +1,23 @@
 import { Flag, Check, ImagePlus, Mic, Plus, Phone } from "lucide-react";
 import { Avatar, Card, Chip, Eyebrow } from "@/components/ui";
 import { getSubPortalData } from "@/lib/sub-portal";
+import { requireRole } from "@/lib/dal";
+import { getSub } from "@/lib/subs";
 
 export default async function SubPortalPage() {
+  const user = await requireRole("owner", "sub");
   const data = await getSubPortalData();
+
+  // Scope the portal identity to the logged-in subcontractor (owners previewing
+  // keep the showcase identity). Job content stays curated for now.
+  if (user.role === "sub" && user.linkSlug) {
+    const sub = await getSub(user.linkSlug);
+    if (sub) {
+      data.subName = sub.name;
+      data.subInitials = sub.initials;
+      data.trade = sub.tradeLine;
+    }
+  }
 
   return (
     <div className="flex h-screen flex-col bg-paper">

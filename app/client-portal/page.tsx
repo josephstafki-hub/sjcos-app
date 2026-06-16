@@ -1,9 +1,22 @@
 import { Bell, FileText } from "lucide-react";
 import { Avatar, Card, Chip, Eyebrow } from "@/components/ui";
 import { getClientPortalData } from "@/lib/client-portal";
+import { requireRole } from "@/lib/dal";
+import { getProject } from "@/lib/projects";
 
 export default async function ClientPortalPage() {
+  const user = await requireRole("owner", "client");
   const data = await getClientPortalData();
+
+  // Scope the portal to the logged-in client's project (owners previewing keep
+  // the showcase project). Journal content stays curated for now.
+  if (user.role === "client" && user.linkSlug) {
+    const project = await getProject(user.linkSlug);
+    if (project) {
+      data.project = project.name;
+      data.clientInitials = user.initials || data.clientInitials;
+    }
+  }
 
   return (
     <div className="flex h-screen flex-col bg-paper">

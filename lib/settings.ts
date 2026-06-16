@@ -71,6 +71,39 @@ export async function getSettingsData(): Promise<SettingsData> {
   const name = get("profile.name", "Joe Stafki");
   const company = get("profile.company", "SJ Carpentry LLC");
   const email = get("profile.email", "josephstafki@sjcarpentryllc.com");
+  const phone = get("profile.phone", "(612) 555-0117");
+
+  // Team list is live from the users table. A synthetic Claude row stands in for
+  // the AI assistant (not a login account).
+  const { rows: userRows } = await query<{
+    name: string;
+    email: string;
+    role: string;
+    initials: string;
+    link_slug: string | null;
+    active: boolean;
+  }>(`SELECT name, email, role, initials, link_slug, active
+        FROM users ORDER BY (role = 'owner') DESC, name`);
+
+  const roleDescription = (r: typeof userRows[number]): string => {
+    const base =
+      r.role === "owner"
+        ? "Owner · all roles"
+        : r.role === "sub"
+          ? `Sub · ${r.link_slug ?? "portal"} (portal access)`
+          : `Client · ${r.link_slug ?? "portal"} (portal access)`;
+    return r.active ? base : `${base} · disabled`;
+  };
+
+  const team: SettingsData["team"] = [
+    ...userRows.map((r) => ({
+      initials: r.initials || "?",
+      name: r.name,
+      role: roleDescription(r),
+      chip: (r.role === "owner" ? "accent" : "ghost") as "accent" | "ghost" | "ai",
+    })),
+    { initials: "AI", name: "Claude", role: "AI assistant · system", chip: "ai" as const },
+  ];
 
   return {
     categories: [
@@ -89,7 +122,7 @@ export async function getSettingsData(): Promise<SettingsData> {
       fields: [
         { label: "Display name", value: name },
         { label: "Email", value: email },
-        { label: "Phone (SMS in)", value: "(612) 555-0117" },
+        { label: "Phone (SMS in)", value: phone },
         { label: "Title shown to clients", value: `Owner, ${company}` },
         { label: "Time zone", value: "America/Chicago" },
         { label: "Working hours", value: "7:00 am – 6:00 pm · Mon–Fri" },
@@ -103,12 +136,7 @@ export async function getSettingsData(): Promise<SettingsData> {
       { label: "Default markup", value: "18% GC + 10% contingency" },
       { label: "Service area", value: "Twin Cities metro · 30 mi" },
     ],
-    team: [
-      { initials: "JS", name: name, role: "Owner · all roles", chip: "accent" },
-      { initials: "AI", name: "Claude", role: "AI assistant · system", chip: "ai" },
-      { initials: "MR", name: "Marco Ruiz", role: "Sub · tile (portal access)", chip: "ghost" },
-      { initials: "TS", name: "Tomas Silva", role: "Sub · electric (portal access)", chip: "ghost" },
-    ],
+    team,
     subscription: {
       plan: "SJC OS — self-hosted",
       price: "$0 / mo",

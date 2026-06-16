@@ -61,11 +61,13 @@ interface SubRow {
   rating: string | null;
   coi_status: string;
   coi_label: string | null;
+  email: string | null;
+  phone: string | null;
 }
 
 const SUB_SELECT = `
   SELECT slug, name, trade, rate, fav, open_jobs, jobs_count, rating, coi_status,
-         to_char(coi_expires_at, 'FMMon FMDD') AS coi_label
+         to_char(coi_expires_at, 'FMMon FMDD') AS coi_label, email, phone
   FROM subs`;
 
 /** Initials from a sub's display name: first two alphabetic words. */
@@ -126,6 +128,9 @@ export interface SubDetail {
   w9: string;
   /** One-line contact strip: email · phone · city · onboarded. */
   contact: string;
+  /** Structured contact for the Call action; null when unknown. */
+  phone: string | null;
+  email: string | null;
   jobsCount: number;
   rating: number;
   reliability: { label: string; value: string }[];
@@ -208,6 +213,8 @@ export async function getSub(slug: string): Promise<SubDetail | null> {
     coiLabel: card.coiLabel,
     w9: curated.w9 ?? "on file",
     contact: curated.contact ?? `${card.trade} · onboarded 2024`,
+    phone: rows[0].phone,
+    email: rows[0].email,
     jobsCount: card.jobsCount,
     rating: card.rating,
     reliability:

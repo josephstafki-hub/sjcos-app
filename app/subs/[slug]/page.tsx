@@ -217,10 +217,20 @@ export default async function SubDetailPage({
             <div className="mt-1.5 text-[11px] text-ink-3">{sub.contact}</div>
           </div>
           <div className="flex items-center gap-1.5">
-            <button className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-paper-2">
-              <Phone className="size-3" strokeWidth={1.5} />
-              Call
-            </button>
+            {sub.phone ? (
+              <a
+                href={`tel:${sub.phone.replace(/[^\d+]/g, "")}`}
+                className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-paper-2"
+              >
+                <Phone className="size-3" strokeWidth={1.5} />
+                Call
+              </a>
+            ) : (
+              <span className="inline-flex cursor-not-allowed items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-4">
+                <Phone className="size-3" strokeWidth={1.5} />
+                Call
+              </span>
+            )}
             <Link
               href="/chat"
               className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-paper-2"

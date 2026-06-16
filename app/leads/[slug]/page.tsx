@@ -320,14 +320,34 @@ export default async function LeadDetailPage({
             <div className="mt-1.5 text-[11px] text-ink-3">{lead.address} · {lead.loggedLabel}</div>
           </div>
           <div className="flex items-center gap-1.5">
-            <button className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-paper-2">
-              <Phone className="size-3" strokeWidth={1.5} />
-              Call
-            </button>
-            <button className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-paper-2">
-              <Mail className="size-3" strokeWidth={1.5} />
-              Email
-            </button>
+            {lead.phone ? (
+              <a
+                href={`tel:${lead.phone.replace(/[^\d+]/g, "")}`}
+                className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-paper-2"
+              >
+                <Phone className="size-3" strokeWidth={1.5} />
+                Call
+              </a>
+            ) : (
+              <span className="inline-flex cursor-not-allowed items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-4">
+                <Phone className="size-3" strokeWidth={1.5} />
+                Call
+              </span>
+            )}
+            {lead.email ? (
+              <a
+                href={`mailto:${lead.email}`}
+                className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-paper-2"
+              >
+                <Mail className="size-3" strokeWidth={1.5} />
+                Email
+              </a>
+            ) : (
+              <span className="inline-flex cursor-not-allowed items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-4">
+                <Mail className="size-3" strokeWidth={1.5} />
+                Email
+              </span>
+            )}
             <Link
               href="/ai"
               className="inline-flex items-center gap-1 rounded-md border border-ai bg-ai px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-ai-2"

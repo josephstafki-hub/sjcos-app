@@ -41,7 +41,7 @@ export async function getSearchData(): Promise<SearchData> {
     query,
     meta: "14 results · in 240 ms · across projects, files, comms, contacts",
     answer,
-    answerHref: "/projects/henderson-kitchen",
+    answerHref: "/projects/henderson",
     groups: [
       {
         label: "Projects · 1",
@@ -50,7 +50,7 @@ export async function getSearchData(): Promise<SearchData> {
             icon: "project",
             title: "Henderson kitchen",
             sub: "Active · Tile phase · today",
-            href: "/projects/henderson-kitchen",
+            href: "/projects/henderson",
           },
         ],
       },

@@ -68,13 +68,15 @@ interface LeadRow {
   flag_label: string | null;
   flag_kind: string | null;
   estimate_value: number | null;
+  email: string | null;
+  phone: string | null;
   age_days: number;
 }
 
 const LEAD_SELECT = `
   SELECT slug, name, scope, stage,
          COALESCE(value_display, '?') AS value,
-         hot, flag_label, flag_kind, estimate_value,
+         hot, flag_label, flag_kind, estimate_value, email, phone,
          GREATEST(0, (CURRENT_DATE - last_contact_at::date))::int AS age_days
   FROM leads`;
 
@@ -125,6 +127,9 @@ export interface LeadDetail {
   stage: LeadStage;
   address: string;
   source: string;
+  /** Contact details for the Call/Email actions; null when unknown. */
+  email: string | null;
+  phone: string | null;
   loggedLabel: string;
   ageDays: number;
   hot: boolean;
@@ -254,6 +259,8 @@ export async function getLead(slug: string): Promise<LeadDetail | null> {
     ageDays: item.ageDays,
     address: curated.address ?? item.scope,
     source: curated.source ?? "Manual entry",
+    email: row.email,
+    phone: row.phone,
     loggedLabel: curated.loggedLabel ?? `Logged ${item.ageDays} days ago`,
     triage: { verdict: triageResult.verdict, rationale: triageResult.rationale },
     intake:

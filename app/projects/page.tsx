@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { Plus, ChevronRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
 import { Card, Chip, Eyebrow } from "@/components/ui";
+import { NewProjectButton } from "@/components/projects/NewProjectButton";
 import { getProjectsData } from "@/lib/projects";
 
 const DOT: Record<string, string> = {
@@ -29,10 +30,7 @@ export default async function ProjectsPage() {
             <Chip kind="ghost">Active</Chip>
             <Chip kind="ghost">Pre-con</Chip>
             <Chip kind="ghost">Closed</Chip>
-            <button className="ml-1 inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper transition-colors hover:bg-[#232a1e]">
-              <Plus className="size-3" strokeWidth={1.5} />
-              New project
-            </button>
+            <NewProjectButton />
           </div>
         </div>
 

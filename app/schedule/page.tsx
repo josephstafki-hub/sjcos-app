@@ -1,6 +1,8 @@
 import { Camera, ChevronLeft, ChevronRight, Plus, Sparkles } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { AiBubble, Card, Chip, Eyebrow } from "@/components/ui";
+import { Card, Chip, Eyebrow } from "@/components/ui";
+import { BlockButton } from "@/components/schedule/BlockButton";
+import { ConflictBubble } from "@/components/schedule/ConflictBubble";
 import { getScheduleData } from "@/lib/schedule";
 import type { BlockTone } from "@/lib/schedule";
 
@@ -36,29 +38,12 @@ export default async function SchedulePage() {
             <button className="rounded-md border border-ink-4 p-1.5 text-ink-2 transition-colors hover:bg-paper-2">
               <ChevronRight className="size-3.5" strokeWidth={1.5} />
             </button>
-            <button className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1.5 text-[12px] font-medium text-paper transition-colors hover:bg-ink-2">
-              <Plus className="size-3.5" strokeWidth={1.75} />
-              Block
-            </button>
+            <BlockButton />
           </div>
         </div>
 
         {/* AI conflict note */}
-        <AiBubble
-          className="mb-3.5"
-          actions={
-            <>
-              <button className="rounded-md bg-ai px-2.5 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-ai-2">
-                Apply
-              </button>
-              <button className="rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink-2">
-                Ignore
-              </button>
-            </>
-          }
-        >
-          {data.conflictNote}
-        </AiBubble>
+        <ConflictBubble note={data.conflictNote} />
 
         {/* 5-day strip */}
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-5">

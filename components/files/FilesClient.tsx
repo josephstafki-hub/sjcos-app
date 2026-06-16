@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import {
   Search,
   Folder,
@@ -15,9 +15,11 @@ import {
   Eye,
   Share2,
   Sparkles,
+  X,
   type LucideIcon,
 } from "lucide-react";
-import { Card, Chip } from "@/components/ui";
+import { AiBubble, Card, Chip } from "@/components/ui";
+import { summarizeFile } from "@/lib/actions/files";
 import type { FilesData, FileRow, FileType } from "@/lib/files";
 
 const TYPE_ICON: Record<FileType, LucideIcon> = {
@@ -38,7 +40,22 @@ function RailLabel({ children }: { children: string }) {
 export function FilesClient({ data }: { data: FilesData }) {
   const [selectedId, setSelectedId] = useState(data.selectedId);
   const [typeFilter, setTypeFilter] = useState("All");
+  const [summary, setSummary] = useState<string | null>(null);
+  const [opened, setOpened] = useState(false);
+  const [pending, startSummarize] = useTransition();
   const preview = data.previews[selectedId];
+
+  // Selecting a different file clears the previous file's AI summary.
+  function selectFile(id: string) {
+    setSelectedId(id);
+    setSummary(null);
+  }
+
+  function runSummarize() {
+    startSummarize(async () => {
+      setSummary(await summarizeFile(selectedId));
+    });
+  }
 
   return (
     <div className="flex h-full">
@@ -151,7 +168,7 @@ export function FilesClient({ data }: { data: FilesData }) {
               key={f.id}
               file={f}
               selected={f.id === selectedId}
-              onSelect={() => setSelectedId(f.id)}
+              onSelect={() => selectFile(f.id)}
             />
           ))}
         </div>
@@ -198,7 +215,10 @@ export function FilesClient({ data }: { data: FilesData }) {
             <div className="my-3 border-t border-rule" />
 
             <div className="flex flex-wrap gap-1.5">
-              <button className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink transition-colors hover:bg-paper-3">
+              <button
+                onClick={() => setOpened(true)}
+                className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink transition-colors hover:bg-paper-3"
+              >
                 <Eye className="size-3" strokeWidth={1.5} />
                 Open
               </button>
@@ -206,14 +226,49 @@ export function FilesClient({ data }: { data: FilesData }) {
                 <Share2 className="size-3" strokeWidth={1.5} />
                 Share
               </button>
-              <button className="inline-flex items-center gap-1 rounded-md border border-ai bg-ai px-2 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-ai-2">
+              <button
+                onClick={runSummarize}
+                disabled={pending}
+                className="inline-flex items-center gap-1 rounded-md border border-ai bg-ai px-2 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-ai-2 disabled:opacity-60"
+              >
                 <Sparkles className="size-3" strokeWidth={1.5} />
-                Summarize
+                {pending ? "Summarizing…" : "Summarize"}
               </button>
             </div>
+
+            {summary && (
+              <AiBubble className="mt-3">{summary}</AiBubble>
+            )}
           </>
         )}
       </aside>
+
+      {/* Open overlay — enlarged document preview (no real blob to stream yet). */}
+      {opened && preview && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/70 p-6"
+          onClick={() => setOpened(false)}
+        >
+          <button
+            onClick={() => setOpened(false)}
+            aria-label="Close"
+            className="absolute right-5 top-5 text-paper/80 hover:text-paper"
+          >
+            <X className="size-6" strokeWidth={1.5} />
+          </button>
+          <figure
+            className="flex w-full max-w-[620px] flex-col items-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex aspect-[8.5/11] w-full max-w-[460px] items-center justify-center rounded border border-paper/15 bg-paper-3/95 px-6 text-center font-mono text-[12px] uppercase tracking-[0.12em] text-ink-3">
+              {preview.thumbLabel}
+            </div>
+            <figcaption className="mt-3 font-mono text-[11px] uppercase tracking-[0.14em] text-paper/70">
+              {preview.name} · {preview.subtitle}
+            </figcaption>
+          </figure>
+        </div>
+      )}
     </div>
   );
 }

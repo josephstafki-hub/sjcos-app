@@ -11,7 +11,11 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 
 ## Current Status
 
-> **Phases 0–6 — all mock-UI screens** · ✅ complete (30 screens) · **Phase 7.2 read APIs** done. **Phase 7-A write/CRUD** done (leads/projects/subs/notifications/compliance via Server Actions in `lib/actions/`). **Phase 7-B** done — schedule/warranty/files now DB-backed (warranty_projects, warranty_claims, schedule_blocks, daily_logs, files tables); settings toggles persist via app_settings. **The whole app is now DB-backed + writable.** Next (agreed order): **C** fill placeholder tabs (lead/project/sub detail, settings categories). Then AI → email → import → **Phase 8 deploy** (last).
+> **Phases 0–6 — all mock-UI screens** · ✅ complete (30 screens) · **Phase 7.2 read APIs** done. **Phase 7-A write/CRUD** done (leads/projects/subs/notifications/compliance via Server Actions in `lib/actions/`). **Phase 7-B** done — schedule/warranty/files now DB-backed (warranty_projects, warranty_claims, schedule_blocks, daily_logs, files tables); settings toggles persist via app_settings. **The whole app is now DB-backed + writable.**
+>
+> **Phase 7-C (fill placeholder tabs) — ✅ complete.** Every detail screen now ships its real tabs (curated showcase data + empty-state fallbacks) instead of "arrives in a later phase" placeholders: Sub detail 5/5, Lead detail 6/6, Project detail 9/9, Settings 8/8. `npm run build` compiles clean (no client/server bundle leaks). **"Everything else" before the final three is done.**
+>
+> **Remaining roadmap (agreed order, do NOT reorder):** **7.3 AI swap** → **7.x email** (`/inbox`) → **7.1 leads.csv import** → **Phase 8 deploy (very last)**. All four need Joe's input (AI provider/key or Ollama; email provider; the real CSV; DNS + sudo + a permanent port).
 
 ---
 
@@ -244,9 +248,7 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 ## Phase 7 — Real Data + Backend
 
 ### 7.1 Data import
-- [ ] Import `leads.csv` from `~/sj-carpentry-os/06_operations/crm/data/` into PostgreSQL
-- [ ] Import existing project data from same directory
-- [ ] Validate data, resolve any schema mismatches
+> Reordered to run **last of the final three** (after AI swap + email). Live checklist moved to **§7.1 — *final-three step 3*** below.
 
 ### 7.2 API routes (real)
 - [x] `/api/today` — real daily brief *(header metrics + brief inputs from leads/projects rows; priorities/schedule/waiting stay curated until those tables exist)*
@@ -257,10 +259,54 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 - [x] `/api/compliance` — reads compliance_items, buckets windows by days-until-due
 - [x] `/api/notifications` — reads notifications table
 
-### 7.3 Real AI (swap in when ready)
-- [ ] Decide: local LLM via Ollama, or Anthropic API
+### 7.3 Real AI (swap in when ready) — *final-three step 1*
+- [ ] Decide: local LLM via Ollama, or Anthropic API *(needs Joe: provider + API key, or Ollama install)*
 - [ ] Implement chosen provider in `lib/ai.ts` — zero screen-code changes required
-- [ ] Test each AI method (brief, triage, draft, summarize, suggest)
+- [ ] Preserve the mock as a fallback (`AI_PROVIDER=mock`) for offline/dev
+- [ ] Test each AI method (brief, triage, draft, summarize, suggest) + the passthrough-focus / kind-aware branches
+
+### 7.x Email unification (`/inbox`) — *final-three step 2*
+- [ ] Decide provider (Postmark inbound + Twilio SMS, or alternative) *(needs Joe)*
+- [ ] Add `threads` ingestion + a `messages` table; backfill seed
+- [ ] Convert `lib/inbox.ts` off mock onto `query()` (last remaining mock lib)
+- [ ] Wire AI triage/draft to real thread bodies
+
+### 7.1 Data import — *final-three step 3*
+- [ ] Import real `leads.csv` from `~/sj-carpentry-os/06_operations/crm/data/` into Postgres *(replaces hand-authored showcase seed)*
+- [ ] Import existing project data from same directory
+- [ ] Validate data, resolve schema mismatches, reconcile slugs used by curated detail content
+
+---
+
+## Phase 7-C — Fill placeholder secondary tabs
+*"Everything else" before the final three. Each detail screen ships its real tabs instead of "arrives in a later phase" placeholders. Pattern: server-render each panel and pass it into the tab component's `panels` map keyed by tab label; tabs with no panel still fall back to the placeholder.*
+
+### 7-C.1 Sub detail (`/subs/[slug]`)
+- [x] All 5 tabs built — Overview, Jobs, Paperwork, Pricing, Notes ✅
+
+### 7-C.2 Lead detail (`/leads/[slug]`) — 6 of 6 ✅
+- [x] Overview, Rough estimate, Activity (cadence/SLA timeline)
+- [x] Conversation — thread of lead messages *(curated showcase + empty state; goes live with 7.x email)*
+- [x] Selections — proposed products/finishes *(curated showcase + empty state)*
+- [x] Files — lead-scoped file list *(curated showcase + empty state)*
+
+### 7-C.3 Project detail (`/projects/[slug]`) — 9 of 9 ✅
+- [x] Overview, Schedule, Subs, Files, Money, Daily log
+- [x] Selections — product/finish selections per room/area
+- [x] Comms — project-scoped message thread *(curated showcase + empty state; real after 7.x email)*
+- [x] Punch — punch-list items with status *(curated showcase + empty state)*
+
+### 7-C.4 Settings (`/settings`) — 8 of 8 ✅
+- [x] Profile, Integrations, Claude & AI
+- [x] Workspace — business identity readout
+- [x] Team & roles — member list + role chips
+- [x] Subscription — plan + billing readout (self-hosted)
+- [x] Data & backups — DB/backup status readout
+- [x] Notifications — per-channel toggles *(persist via `app_settings` under `notify.*`, same upsert path as AI toggles)*
+
+### 7-C.5 Close out
+- [x] `npx tsc --noEmit` clean + `npm run build` compiles (no client/server bundle leaks)
+- [x] Commit Phase 7-C; update Current Status
 
 ---
 

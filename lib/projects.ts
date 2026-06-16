@@ -146,6 +146,9 @@ export interface ProjectDetail {
   subs: SubRow[];
   files: string[];
   filesCount: number;
+  selections: { area: string; choice: string; status: string; chip: ChipKind }[];
+  comms: { from: string; role: "client" | "you" | "ai"; time: string; body: string }[];
+  punch: { item: string; owner: string; done: boolean }[];
 }
 
 const PROJECT_DETAILS: Record<string, Partial<ProjectDetail>> = {
@@ -194,6 +197,40 @@ const PROJECT_DETAILS: Record<string, Partial<ProjectDetail>> = {
     ],
     files: ["Signed contract.pdf", "SOW v3.docx", "Selections — final.xlsx", "Floor plan.pdf", "Photos · 76"],
     filesCount: 38,
+    selections: [
+      { area: "Cabinets", choice: "Shaker, Benjamin Moore Simply White", status: "ordered", chip: "money" },
+      { area: "Countertops", choice: "Calacatta quartz · 3cm", status: "ordered", chip: "money" },
+      { area: "Tile (floor)", choice: '12x24 matte porcelain, herringbone', status: "approved", chip: "accent" },
+      { area: "Backsplash", choice: "Zellige, gloss white", status: "approved", chip: "accent" },
+      { area: "Plumbing fixtures", choice: "Brushed gold — pending final count", status: "pending", chip: "ai" },
+      { area: "Lighting", choice: "Recessed + 2 pendants over island", status: "pending", chip: "ai" },
+    ],
+    comms: [
+      {
+        from: "Kate Henderson",
+        role: "client",
+        time: "Fri 4:12p",
+        body: "The cabinet doors look amazing! Quick q — are we still on for tile starting Monday?",
+      },
+      {
+        from: "Claude",
+        role: "ai",
+        time: "Fri 4:13p",
+        body: "Drafted a reply confirming Monday 1pm tile start + the grout-color decision still needed. Queued for your review.",
+      },
+      {
+        from: "You",
+        role: "you",
+        time: "Fri 5:01p",
+        body: "Yes — Marco starts Monday at 1. One thing: need your grout color pick (light vs. charcoal) by Sunday so we don't lose a day.",
+      },
+    ],
+    punch: [
+      { item: "Replace hairline-damaged pantry door (supplier RMA)", owner: "Marco", done: false },
+      { item: "Caulk gap at range-wall cabinet", owner: "Joe", done: false },
+      { item: "Touch-up paint — island return", owner: "Brad", done: false },
+      { item: "Verify under-cabinet LED dimming", owner: "Tomas", done: true },
+    ],
   },
 };
 
@@ -240,6 +277,9 @@ export async function getProject(slug: string): Promise<ProjectDetail | null> {
     subs: curated.subs ?? [],
     files: curated.files ?? [],
     filesCount: curated.filesCount ?? 0,
+    selections: curated.selections ?? [],
+    comms: curated.comms ?? [],
+    punch: curated.punch ?? [],
   };
 }
 

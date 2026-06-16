@@ -6,10 +6,10 @@
 import { revalidatePath } from "next/cache";
 import { query } from "@/lib/db";
 
-/** Upsert a boolean AI setting by key. */
-export async function setAiToggle(key: string, on: boolean) {
-  // Only allow our namespaced AI keys through.
-  if (!key.startsWith("ai.")) return;
+/** Upsert a boolean setting under an allowed namespace. */
+async function upsertToggle(key: string, on: boolean, prefix: string) {
+  // Only allow our namespaced keys through.
+  if (!key.startsWith(prefix)) return;
   await query(
     `INSERT INTO app_settings (key, value, updated_at)
      VALUES ($1, $2, now())
@@ -17,4 +17,14 @@ export async function setAiToggle(key: string, on: boolean) {
     [key, on ? "true" : "false"],
   );
   revalidatePath("/settings");
+}
+
+/** Upsert a boolean AI setting by key (namespace "ai."). */
+export async function setAiToggle(key: string, on: boolean) {
+  await upsertToggle(key, on, "ai.");
+}
+
+/** Upsert a boolean notification setting by key (namespace "notify."). */
+export async function setNotifyToggle(key: string, on: boolean) {
+  await upsertToggle(key, on, "notify.");
 }

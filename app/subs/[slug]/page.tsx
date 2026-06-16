@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Phone, MessageSquare, Sparkles, Check } from "lucide-react";
@@ -103,6 +104,87 @@ export default async function SubDetailPage({
     </div>
   );
 
+  // ── Jobs panel — full recent-jobs history ──────────────────────────────────
+  const jobsPanel =
+    sub.recentJobs.length > 0 ? (
+      <Card className="max-w-[680px] overflow-hidden p-0">
+        <div className="border-b border-rule bg-paper-2 px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
+          {sub.jobsCount} jobs with SJ Carpentry
+        </div>
+        {sub.recentJobs.map((j, i) => (
+          <div
+            key={j.name}
+            className={`flex items-center gap-2.5 px-4 py-3 ${i ? "border-t border-rule-soft" : ""}`}
+          >
+            <span className={`size-2 flex-none rounded-full ${DOT[j.dot]}`} />
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-serif text-[13.5px] font-semibold text-ink">{j.name}</div>
+              <div className="text-[11px] text-ink-3">{j.detail}</div>
+            </div>
+          </div>
+        ))}
+      </Card>
+    ) : (
+      <Card kind="dashed" className="p-8 text-center">
+        <div className="font-serif text-[16px] font-semibold text-ink-2">No jobs yet</div>
+        <div className="mt-1 text-[12px] text-ink-3">Assign this sub to a job to start their history.</div>
+      </Card>
+    );
+
+  // ── Paperwork panel — compliance checklist ─────────────────────────────────
+  const paperworkPanel = (
+    <Card className="max-w-[520px] p-3.5">
+      <Eyebrow muted>Paperwork on file</Eyebrow>
+      <div className="mt-2.5 flex flex-col gap-2">
+        {sub.paperwork.map((p) => (
+          <div key={p.label} className="flex items-center gap-2 border-t border-rule-soft pt-2 first:border-t-0 first:pt-0">
+            <Check className={`size-3.5 flex-none ${p.ok ? "text-money" : "text-ink-4"}`} strokeWidth={2} />
+            <span className="flex-1 text-[13px] text-ink">{p.label}</span>
+            <span className={`font-mono text-[11px] ${p.ok ? "text-ink-3" : "text-flag"}`}>
+              {p.ok ? p.value : `${p.value} · needed`}
+            </span>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+
+  // ── Pricing panel — rate card + 1099 note ──────────────────────────────────
+  const pricingPanel = (
+    <div className="grid max-w-[680px] grid-cols-1 gap-3.5 sm:grid-cols-2">
+      <Card className="p-3.5">
+        <Eyebrow muted>Rate</Eyebrow>
+        <div className="mt-1 font-serif text-[30px] font-semibold leading-none text-ink">
+          {sub.rate.amount}
+          {sub.rate.unit && <span className="text-[15px] text-ink-3">{sub.rate.unit}</span>}
+        </div>
+        {sub.rate.note && <div className="mt-2 text-[12px] text-ink-3">{sub.rate.note}</div>}
+      </Card>
+      <Card kind="ai" className="p-3">
+        <div className="flex items-start gap-2">
+          <Sparkles className="mt-0.5 size-3.5 flex-none text-ai-2" strokeWidth={1.5} />
+          <span className="text-[12px] leading-snug text-ai-2">{sub.taxNote}</span>
+        </div>
+      </Card>
+    </div>
+  );
+
+  // ── Notes panel — what Claude knows ────────────────────────────────────────
+  const notesPanel = (
+    <div className="max-w-[680px]">
+      <Eyebrow muted>AI summary</Eyebrow>
+      <AiBubble className="mt-1.5">{sub.aiSummary}</AiBubble>
+    </div>
+  );
+
+  const panels: Record<string, ReactNode> = {
+    Overview: overview,
+    Jobs: jobsPanel,
+    Paperwork: paperworkPanel,
+    Pricing: pricingPanel,
+    Notes: notesPanel,
+  };
+
   return (
     <Shell breadcrumb={`SUBS › ${sub.name.toUpperCase()}`}>
       <div className="mx-auto max-w-[1100px] px-7 pb-14 pt-6">
@@ -152,7 +234,7 @@ export default async function SubDetailPage({
           </div>
         </div>
 
-        <SubTabs overview={overview} jobsCount={sub.jobsCount} />
+        <SubTabs panels={panels} jobsCount={sub.jobsCount} />
       </div>
     </Shell>
   );

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Check, DollarSign, Sparkles, MoreHorizontal, Mail, FileText } from "lucide-react";
@@ -196,6 +197,263 @@ export default async function ProjectDetailPage({
     </div>
   );
 
+  const emptyPanel = (label: string) => (
+    <Card kind="dashed" className="p-8 text-center">
+      <div className="font-serif text-[16px] font-semibold text-ink-2">{label}</div>
+      <div className="mt-1 text-[12px] text-ink-3">Nothing logged here yet for this project.</div>
+    </Card>
+  );
+
+  // ── Schedule panel — this-week strip + milestone timeline ──────────────────
+  const schedulePanel =
+    project.thisWeek.length > 0 || project.milestones.length > 0 ? (
+      <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
+        {project.thisWeek.length > 0 && (
+          <Card className="p-3.5">
+            <h3 className="mb-2 font-serif text-[16px] font-semibold text-ink">This week · on site</h3>
+            <div className="flex flex-col gap-1.5">
+              {project.thisWeek.map((w, i) => (
+                <div key={i} className="flex items-center gap-2 py-0.5">
+                  <span className="w-7 font-mono text-[11px] text-ink-3">{w.day}</span>
+                  <span className={`size-1.5 rounded-full ${DOT[w.dot]}`} />
+                  <span className="flex-1 text-[13px] text-ink">{w.label}</span>
+                  <span className="font-mono text-[11px] text-ink-3">{w.time}</span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+        {project.milestones.length > 0 && (
+          <Card className="p-3.5">
+            <h3 className="mb-2 font-serif text-[16px] font-semibold text-ink">Milestones</h3>
+            <div className="flex flex-col">
+              {project.milestones.map((ms, i) => (
+                <div
+                  key={ms.name}
+                  className={`flex items-center gap-2 py-2 ${i ? "border-t border-rule-soft" : ""}`}
+                >
+                  <span className="flex-1 text-[13px] text-ink">{ms.name}</span>
+                  <span className="font-mono text-[11px] text-ink-3">{ms.date}</span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+      </div>
+    ) : (
+      emptyPanel("Schedule")
+    );
+
+  // ── Subs panel — full project roster ───────────────────────────────────────
+  const subsPanel =
+    project.subs.length > 0 ? (
+      <Card className="overflow-hidden p-0">
+        {project.subs.map((s, i) => (
+          <div
+            key={s.name}
+            className={`flex items-center gap-2.5 px-4 py-3 ${i ? "border-t border-rule-soft" : ""}`}
+          >
+            <Avatar initials={s.initials} size="sm" />
+            <div className="min-w-0 flex-1">
+              <div className="font-serif text-[13.5px] font-semibold text-ink">{s.name}</div>
+              <div className="text-[11px] text-ink-3">{s.trade}</div>
+            </div>
+            <Chip kind="money" dot>
+              {s.coi}
+            </Chip>
+          </div>
+        ))}
+      </Card>
+    ) : (
+      emptyPanel("Subs")
+    );
+
+  // ── Files panel ────────────────────────────────────────────────────────────
+  const filesPanel =
+    project.files.length > 0 ? (
+      <Card className="overflow-hidden p-0">
+        <div className="border-b border-rule bg-paper-2 px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
+          {project.filesCount} files
+        </div>
+        {project.files.map((f, i) => (
+          <div
+            key={f}
+            className={`flex items-center gap-2 px-4 py-2.5 ${i ? "border-t border-rule-soft" : ""}`}
+          >
+            <FileText className="size-3.5 flex-none text-ink-3" strokeWidth={1.5} />
+            <span className="flex-1 truncate text-[13px] text-ink-2">{f}</span>
+          </div>
+        ))}
+      </Card>
+    ) : (
+      emptyPanel("Files")
+    );
+
+  // ── Money panel — summary + draw schedule ──────────────────────────────────
+  const moneyPanel = (
+    <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[320px_1fr]">
+      <Card className="h-fit p-3.5">
+        <Eyebrow muted>Money</Eyebrow>
+        <div className="mt-2 flex flex-col gap-1.5">
+          <Row label="Contract" value={m.contract} />
+          <Row label="Paid to date" value={m.paid} valueClass="text-money" />
+          <Row label="Next draw" value={m.nextDraw} valueClass="text-accent-2" />
+          <Row label="Open change orders" value={m.openCOs} />
+        </div>
+        <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-paper-3">
+          <div className="h-full bg-money" style={{ width: `${m.billedPct}%` }} />
+        </div>
+        <div className="mt-1 text-[11px] text-ink-3">{m.note}</div>
+      </Card>
+      {project.milestones.length > 0 && (
+        <Card className="p-3.5">
+          <h3 className="mb-2 font-serif text-[16px] font-semibold text-ink">Draw schedule</h3>
+          <div className="flex flex-col">
+            {project.milestones.map((ms, i) => (
+              <div
+                key={ms.name}
+                className={`flex items-center gap-2 py-2 ${i ? "border-t border-rule-soft" : ""}`}
+              >
+                <span
+                  className={[
+                    "size-3.5 flex-none rounded-[3px] border",
+                    ms.status === "paid"
+                      ? "border-accent-2 bg-accent-2"
+                      : ms.status === "next"
+                        ? "border-accent bg-accent"
+                        : "border-ink-4",
+                  ].join(" ")}
+                />
+                <span className={`flex-1 text-[13px] ${ms.status === "queued" ? "text-ink-3" : "text-ink"}`}>
+                  {ms.name}
+                </span>
+                <span className="font-mono text-[11px] text-ink-3">{ms.date}</span>
+                <span
+                  className={[
+                    "w-[68px] text-right font-mono text-[12px]",
+                    ms.status === "paid" ? "text-money" : ms.status === "next" ? "text-accent-2" : "text-ink-3",
+                  ].join(" ")}
+                >
+                  {ms.value}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+
+  // ── Daily log panel ─────────────────────────────────────────────────────────
+  const dailyLogPanel = project.latestLog ? (
+    <Card className="p-3.5">
+      <div className="flex items-center">
+        <h3 className="flex-1 font-serif text-[16px] font-semibold text-ink">Latest daily log</h3>
+        <span className="font-mono text-[11px] text-ink-3">{project.latestLog.date}</span>
+      </div>
+      <p className="mt-2 text-[13px] text-ink-2">{project.latestLog.body}</p>
+      <div className="mt-2.5 flex items-center gap-1">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="size-12 rounded-[3px] border border-rule bg-paper-3" />
+        ))}
+        {project.latestLog.photos > 4 && (
+          <Chip kind="ghost">+ {project.latestLog.photos - 4} photos</Chip>
+        )}
+      </div>
+    </Card>
+  ) : (
+    emptyPanel("Daily log")
+  );
+
+  // ── Selections panel — product/finish selections ───────────────────────────
+  const selectionsPanel =
+    project.selections.length > 0 ? (
+      <Card className="overflow-hidden p-0">
+        {project.selections.map((s, i) => (
+          <div
+            key={s.area}
+            className={`flex items-center gap-3 px-4 py-3 ${i ? "border-t border-rule-soft" : ""}`}
+          >
+            <span className="w-[130px] flex-none font-mono text-[11px] uppercase tracking-[0.08em] text-ink-3">
+              {s.area}
+            </span>
+            <span className="flex-1 text-[13px] text-ink">{s.choice}</span>
+            <Chip kind={s.chip} dot>
+              {s.status}
+            </Chip>
+          </div>
+        ))}
+      </Card>
+    ) : (
+      emptyPanel("Selections")
+    );
+
+  // ── Comms panel — project-scoped message thread ────────────────────────────
+  const commsPanel =
+    project.comms.length > 0 ? (
+      <Card className="max-w-[680px] overflow-hidden p-0">
+        {project.comms.map((msg, i) => (
+          <div
+            key={i}
+            className={`px-4 py-3 ${i ? "border-t border-rule-soft" : ""} ${msg.role === "ai" ? "bg-ai-soft" : ""}`}
+          >
+            <div className="flex items-center gap-2">
+              <span className="font-serif text-[13px] font-semibold text-ink">{msg.from}</span>
+              {msg.role === "ai" && <Chip kind="ai">AI</Chip>}
+              {msg.role === "you" && <Chip kind="ghost">You</Chip>}
+              <span className="ml-auto font-mono text-[10px] text-ink-3">{msg.time}</span>
+            </div>
+            <p className="mt-1 text-[13px] text-ink-2">{msg.body}</p>
+          </div>
+        ))}
+      </Card>
+    ) : (
+      emptyPanel("Comms")
+    );
+
+  // ── Punch panel — punch-list items ─────────────────────────────────────────
+  const punchPanel =
+    project.punch.length > 0 ? (
+      <Card className="max-w-[680px] overflow-hidden p-0">
+        <div className="border-b border-rule bg-paper-2 px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
+          {project.punch.filter((p) => !p.done).length} open · {project.punch.filter((p) => p.done).length} done
+        </div>
+        {project.punch.map((p, i) => (
+          <div
+            key={p.item}
+            className={`flex items-center gap-3 px-4 py-3 ${i ? "border-t border-rule-soft" : ""}`}
+          >
+            <span
+              className={[
+                "flex size-4 flex-none items-center justify-center rounded-[4px] border",
+                p.done ? "border-money bg-money" : "border-ink-4",
+              ].join(" ")}
+            >
+              {p.done && <Check className="size-3 text-paper" strokeWidth={2.5} />}
+            </span>
+            <span className={`flex-1 text-[13px] ${p.done ? "text-ink-3 line-through" : "text-ink"}`}>
+              {p.item}
+            </span>
+            <Chip kind="ghost">{p.owner}</Chip>
+          </div>
+        ))}
+      </Card>
+    ) : (
+      emptyPanel("Punch")
+    );
+
+  const panels: Record<string, ReactNode> = {
+    Overview: overview,
+    Schedule: schedulePanel,
+    Selections: selectionsPanel,
+    Subs: subsPanel,
+    Files: filesPanel,
+    Money: moneyPanel,
+    "Daily log": dailyLogPanel,
+    Comms: commsPanel,
+    Punch: punchPanel,
+  };
+
   return (
     <Shell breadcrumb={`PROJECTS › ${project.name.toUpperCase()}`}>
       {/* Header band */}
@@ -254,7 +512,7 @@ export default async function ProjectDetailPage({
         </div>
       </div>
 
-      <ProjectTabs overview={overview} />
+      <ProjectTabs panels={panels} />
     </Shell>
   );
 }

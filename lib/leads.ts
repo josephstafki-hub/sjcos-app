@@ -116,6 +116,9 @@ export interface LeadDetail {
   } | null;
   cadence: { label: string; value: string; chip?: ChipKind }[];
   photosCount: number;
+  conversation: { from: string; role: "lead" | "you" | "ai"; time: string; body: string }[];
+  selections: { label: string; choice: string; status: string; chip: ChipKind }[];
+  files: { name: string; meta: string; tag?: string }[];
 }
 
 /** Rich, curated detail content keyed by slug. Leads not listed here still get
@@ -153,6 +156,49 @@ const DETAILS: Record<string, Partial<LeadDetail>> = {
       { label: "Awaiting your reply", value: "5h 12m", chip: "flag" },
     ],
     photosCount: 6,
+    conversation: [
+      {
+        from: "Maria Chen",
+        role: "lead",
+        time: "Apr 19, 11:08a",
+        body: "Hi Joe — found you through the Edina remodel photos. We're ready to redo our kitchen and hoping to get a ballpark number.",
+      },
+      {
+        from: "Claude",
+        role: "ai",
+        time: "Apr 19, 11:09a",
+        body: "Auto-acknowledged within SLA and sent the 5 intake questions. Scored this a strong lead — full reno, realistic budget, two competing bids.",
+      },
+      {
+        from: "You",
+        role: "you",
+        time: "Apr 19, 2:22p",
+        body: "Thanks Maria! Sent over a few questions — once I have those I can get you a Phase 1 range this week.",
+      },
+      {
+        from: "Maria Chen",
+        role: "lead",
+        time: "Apr 21, 9:40a",
+        body: "Answered everything + attached 6 photos and rough measurements. Two other bids out, but we liked your work best.",
+      },
+      {
+        from: "You",
+        role: "you",
+        time: "Apr 21, 4:05p",
+        body: "Perfect — Phase 1 rough estimate attached, range is $49.3k–$60.7k. Happy to walk through it whenever works.",
+      },
+    ],
+    selections: [
+      { label: "Cabinetry", choice: "Mid-tier shaker, painted white", status: "proposed", chip: "ai" },
+      { label: "Countertops", choice: "Calacatta quartz", status: "proposed", chip: "ai" },
+      { label: "Flooring", choice: "LVP — warm oak", status: "proposed", chip: "ai" },
+      { label: "Backsplash", choice: "Undecided", status: "open", chip: "ghost" },
+    ],
+    files: [
+      { name: "Intake photos · 6", meta: "Uploaded Apr 21 · 18.4 MB", tag: "AI-tagged" },
+      { name: "Rough measurements.pdf", meta: "Apr 21 · 240 KB" },
+      { name: "Phase 1 estimate.pdf", meta: "Sent Apr 21 · 88 KB", tag: "Claude" },
+    ],
   },
 };
 
@@ -205,6 +251,9 @@ export async function getLead(slug: string): Promise<LeadDetail | null> {
         { label: "Last contact", value: "—" },
       ],
     photosCount: curated.photosCount ?? 0,
+    conversation: curated.conversation ?? [],
+    selections: curated.selections ?? [],
+    files: curated.files ?? [],
   };
 }
 

@@ -6,7 +6,9 @@
       "Bash(npm run *)",
       "Bash(node *)",
       "Bash(npx *)",
-      "Bash(curl *)"
+      "Bash(curl *)",
+      "Bash(sjcos-query *)",
+      "Bash(/home/joe/bin/sjcos-query *)"
     ]
   }
 }

@@ -256,6 +256,221 @@ const mockProvider: AiProvider = {
   },
 };
 
+// ─── Ollama provider (local LLM) ─────────────────────────────────────────────
+// Talks to a local Ollama daemon over its HTTP API — no SDK, no network egress,
+// no per-call cost. Structured methods request JSON via Ollama's `format` (a
+// JSON schema) so the model returns parseable output. Every call is bounded by
+// a timeout and falls back to the deterministic mock on any failure, so a slow
+// or down daemon degrades gracefully instead of 500-ing a page.
+//
+// Env: OLLAMA_HOST (default 127.0.0.1:11434), OLLAMA_MODEL (default
+// qwen2.5:7b-instruct), OLLAMA_TIMEOUT_MS (default 45000).
+
+const OLLAMA_HOST = (
+  process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434"
+).replace(/^(?!https?:\/\/)/, "http://");
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "qwen2.5:7b-instruct";
+const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS ?? 45000);
+
+const SYSTEM_PROMPT =
+  "You are the AI assistant built into SJC OS, the business operating system " +
+  "for SJ Carpentry LLC — a residential carpentry and remodeling firm. The " +
+  "owner is Joe Stafki. Write in a concise, concrete, practical voice for a " +
+  "busy contractor. Never invent clients, dollar amounts, dates, or facts that " +
+  "are not present in the context you are given. When asked to return JSON, " +
+  "return only valid JSON matching the requested shape — no prose, no code " +
+  "fences.";
+
+/** Low-level chat call. Returns the assistant message content as a string. */
+async function ollamaChat(
+  userPrompt: string,
+  schema?: Record<string, unknown>,
+): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${OLLAMA_HOST}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      // Server-side fetch; never cache model output.
+      cache: "no-store",
+      body: JSON.stringify({
+        model: OLLAMA_MODEL,
+        stream: false,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: userPrompt },
+        ],
+        ...(schema ? { format: schema } : {}),
+        options: { temperature: 0.4 },
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(`ollama HTTP ${res.status}: ${await res.text()}`);
+    }
+    const data = (await res.json()) as { message?: { content?: string } };
+    return data.message?.content ?? "";
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Run a JSON method; on any failure relay the mock's answer so screens render. */
+async function ollamaJson<T>(
+  prompt: string,
+  schema: Record<string, unknown>,
+  fallback: () => Promise<T>,
+): Promise<T> {
+  try {
+    const content = await ollamaChat(prompt, schema);
+    return JSON.parse(content) as T;
+  } catch (err) {
+    console.error(
+      `[ai:ollama] ${OLLAMA_MODEL} failed, falling back to mock — ${(err as Error).message}`,
+    );
+    return fallback();
+  }
+}
+
+const ollamaProvider: AiProvider = {
+  name: `ollama:${OLLAMA_MODEL}`,
+
+  brief(input) {
+    const projects = (input.projects ?? [])
+      .map((p) => `- ${p.name}: ${p.status}, ${p.progress}% complete`)
+      .join("\n");
+    const leads = (input.leads ?? [])
+      .map((l) => `- ${l.name}: ${l.scope} (${l.stage})`)
+      .join("\n");
+    const prompt =
+      `Write Joe's morning brief for ${input.date}. Open with a one- or ` +
+      `two-sentence summary of the day. Then list 2–4 priorities, each tagged ` +
+      `with a kind from: lead, job, money, marketing, compliance.\n\n` +
+      `Active projects:\n${projects || "(none)"}\n\n` +
+      `Open leads:\n${leads || "(none)"}\n\n` +
+      `Threads waiting on a reply: ${input.threadsNeedingReply ?? 0}\n\n` +
+      `Only reference the items above — do not invent others.`;
+    const schema = {
+      type: "object",
+      properties: {
+        summary: { type: "string" },
+        priorities: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              kind: {
+                type: "string",
+                enum: ["lead", "job", "money", "marketing", "compliance"],
+              },
+              title: { type: "string" },
+              reason: { type: "string" },
+            },
+            required: ["kind", "title", "reason"],
+          },
+        },
+      },
+      required: ["summary", "priorities"],
+    };
+    return ollamaJson<DailyBrief>(prompt, schema, () => mockProvider.brief(input));
+  },
+
+  triage(input) {
+    const prompt =
+      `Triage this inbound lead for a residential carpentry/remodel firm. ` +
+      `Decide a verdict: "go" (worth a Phase 1 estimate), "hold" (need a few ` +
+      `clarifying answers first), or "pass" (out of scope or too small). Give a ` +
+      `confidence 0–1, a one-sentence rationale, and exactly 5 intake questions ` +
+      `to ask next.\n\n` +
+      `Lead: ${input.name}\nScope: ${input.scope}\n` +
+      `Estimated value: ${input.estimateValue ?? "unknown"}\n` +
+      `Source: ${input.source ?? "unknown"}\n` +
+      `Notes: ${input.notes ?? "(none)"}`;
+    const schema = {
+      type: "object",
+      properties: {
+        verdict: { type: "string", enum: ["go", "hold", "pass"] },
+        confidence: { type: "number" },
+        rationale: { type: "string" },
+        questions: { type: "array", items: { type: "string" } },
+      },
+      required: ["verdict", "confidence", "rationale", "questions"],
+    };
+    return ollamaJson<TriageResult>(prompt, schema, () =>
+      mockProvider.triage(input),
+    ).then((r) => ({
+      ...r,
+      // Models sometimes emit confidence as a percentage; normalize to 0–1.
+      confidence: r.confidence > 1 ? r.confidence / 100 : r.confidence,
+    }));
+  },
+
+  draft(input) {
+    const what: Record<DraftKind, string> = {
+      email_reply: "a warm, professional reply to a client email",
+      weekly_status: "a brief weekly project status update for a client",
+      sow: "a numbered scope of work",
+      demand_letter: "a firm but professional past-due payment demand letter",
+      social_post: "a short marketing social post about a completed job",
+    };
+    const prompt =
+      `Write ${what[input.kind]}.\n` +
+      `Tone: ${input.tone ?? "professional"}.\n` +
+      `Sign emails as Joe, SJ Carpentry.\n\n` +
+      `Context:\n${input.context}\n\n` +
+      `Return a subject (omit for scope-of-work and social posts) and the body.`;
+    const schema = {
+      type: "object",
+      properties: {
+        subject: { type: "string" },
+        body: { type: "string" },
+      },
+      required: ["body"],
+    };
+    return ollamaJson<DraftResult>(prompt, schema, () =>
+      mockProvider.draft(input),
+    );
+  },
+
+  summarize(input) {
+    const prompt =
+      (input.focus ? `Focus: ${input.focus}.\n` : "") +
+      `Summarize the following in one tight paragraph, then give up to 3 ` +
+      `bullet points covering the key decisions, deadlines, or next actions. ` +
+      `Stick to what's in the text.\n\n${input.text}`;
+    const schema = {
+      type: "object",
+      properties: {
+        summary: { type: "string" },
+        bullets: { type: "array", items: { type: "string" } },
+      },
+      required: ["summary", "bullets"],
+    };
+    return ollamaJson<SummaryResult>(prompt, schema, () =>
+      mockProvider.summarize(input),
+    );
+  },
+
+  suggest(input) {
+    const prompt =
+      (input.kind ? `Suggestion type: ${input.kind}.\n` : "") +
+      `Given the context below, return a list of short, actionable ` +
+      `suggestions (each one a single sentence). Only use facts from the ` +
+      `context.\n\nContext:\n${input.context}`;
+    const schema = {
+      type: "object",
+      properties: {
+        suggestions: { type: "array", items: { type: "string" } },
+      },
+      required: ["suggestions"],
+    };
+    return ollamaJson<SuggestResult>(prompt, schema, () =>
+      mockProvider.suggest(input),
+    );
+  },
+};
+
 // ─── Provider selection ─────────────────────────────────────────────────────
 
 function notImplemented(provider: string): AiProvider {
@@ -279,9 +494,9 @@ function selectProvider(): AiProvider {
   switch (process.env.AI_PROVIDER ?? "mock") {
     case "mock":
       return mockProvider;
-    // Wire these up in Phase 7.3 — zero screen-code changes required.
     case "ollama":
-      return notImplemented("ollama");
+      return ollamaProvider;
+    // Anthropic stays stubbed — wire when/if a hosted provider is wanted.
     case "anthropic":
       return notImplemented("anthropic");
     default:

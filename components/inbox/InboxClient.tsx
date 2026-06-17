@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import {
   Filter,
   Mail,
@@ -12,12 +12,18 @@ import {
   MoreHorizontal,
   ArrowRight,
   Send,
+  PenSquare,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { Card, Chip, Avatar } from "@/components/ui";
-import { AckButton } from "@/components/ui/AckButton";
+import {
+  draftReplyAction,
+  sendReplyAction,
+  sendNewEmailAction,
+} from "@/lib/actions/inbox";
 import type { ThreadChannel } from "@/lib/types";
-import type { InboxData, InboxThread } from "@/lib/inbox";
+import type { InboxData, InboxThread, ThreadReader } from "@/lib/inbox";
 
 const CHANNEL_ICON: Record<ThreadChannel, LucideIcon> = {
   email: Mail,
@@ -42,8 +48,15 @@ const DOT_BG: Record<string, string> = {
   ghost: "bg-ink-4",
 };
 
-export function InboxClient({ data }: { data: InboxData }) {
+export function InboxClient({
+  data,
+  ownerEmail,
+}: {
+  data: InboxData;
+  ownerEmail: string;
+}) {
   const [selectedId, setSelectedId] = useState(data.selectedId);
+  const [composing, setComposing] = useState(false);
   const reader = data.readers[selectedId];
 
   return (
@@ -120,7 +133,13 @@ export function InboxClient({ data }: { data: InboxData }) {
             <h2 className="flex-1 font-serif text-[16px] font-semibold text-ink">
               {data.activeView.label}
             </h2>
-            <Chip kind="ai">AI sorted</Chip>
+            <button
+              onClick={() => setComposing(true)}
+              className="flex items-center gap-1 rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-white"
+            >
+              <PenSquare className="size-3" strokeWidth={1.5} />
+              Compose
+            </button>
           </div>
           <div className="mt-2 flex items-center gap-1">
             <Chip kind="solid">All</Chip>
@@ -178,39 +197,97 @@ export function InboxClient({ data }: { data: InboxData }) {
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto px-[18px] py-4">
-              <div className="flex max-w-[600px] flex-col gap-2.5">
-                {reader.messages.map((m, i) => (
-                  <div key={i} className="flex flex-col gap-2.5">
-                    {m.body.map((para, j) => (
-                      <p key={j} className="whitespace-pre-line text-[13px] leading-relaxed text-ink">
-                        {para}
-                      </p>
-                    ))}
-                  </div>
-                ))}
-              </div>
-
-              <div className="my-4 max-w-[600px] border-t border-dashed border-ink-4" />
-
-              <ReaderDraft summary={reader.aiDraft.summary} />
-            </div>
-
-            <div className="flex-none border-t border-rule bg-paper-2 px-[18px] py-3">
-              <Card kind="soft" className="flex items-center gap-2 px-3 py-2">
-                <span className="flex-1 text-[12px] text-ink-4">{reader.replyPlaceholder}</span>
-                <Chip kind="ai">Use AI draft</Chip>
-                <AckButton
-                  variant="ink"
-                  icon={<Send className="size-3" strokeWidth={1.5} />}
-                  label="Send"
-                  ackLabel="Sent"
-                />
-              </Card>
-            </div>
+            <ReaderBody key={selectedId} reader={reader} threadId={selectedId} />
           </>
         )}
       </section>
+
+      {composing && (
+        <ComposeModal
+          ownerEmail={ownerEmail}
+          onClose={() => setComposing(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function ComposeModal({
+  ownerEmail,
+  onClose,
+}: {
+  ownerEmail: string;
+  onClose: () => void;
+}) {
+  const [to, setTo] = useState(ownerEmail);
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [error, setError] = useState("");
+  const [sent, setSent] = useState(false);
+  const [sending, startSend] = useTransition();
+
+  function send() {
+    setError("");
+    startSend(async () => {
+      const res = await sendNewEmailAction({ to, subject, body });
+      if (res.ok) {
+        setSent(true);
+        setTimeout(onClose, 900);
+      } else setError(res.error ?? "Send failed.");
+    });
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-[560px] rounded-xl border border-rule bg-paper shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-2 border-b border-rule px-4 py-3">
+          <h3 className="flex-1 font-serif text-[15px] font-semibold text-ink">
+            New message
+          </h3>
+          <button onClick={onClose} className="text-ink-3 hover:text-ink">
+            <X className="size-4" strokeWidth={1.5} />
+          </button>
+        </div>
+        <div className="flex flex-col gap-2 p-4">
+          <input
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            placeholder="To"
+            className="rounded-md border border-rule bg-paper px-3 py-2 text-[13px] text-ink focus:outline-none focus:ring-1 focus:ring-accent"
+          />
+          <input
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            placeholder="Subject"
+            className="rounded-md border border-rule bg-paper px-3 py-2 text-[13px] text-ink focus:outline-none focus:ring-1 focus:ring-accent"
+          />
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={8}
+            placeholder="Write your message…"
+            className="resize-y rounded-md border border-rule bg-paper px-3 py-2 text-[13px] leading-relaxed text-ink focus:outline-none focus:ring-1 focus:ring-accent"
+          />
+          {error && <p className="text-[12px] text-flag">{error}</p>}
+          <div className="mt-1 flex items-center gap-2">
+            <button
+              onClick={send}
+              disabled={!to.trim() || !body.trim() || sending || sent}
+              className="flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-50"
+            >
+              <Send className="size-3" strokeWidth={1.5} />
+              {sent ? "Sent ✓" : sending ? "Sending…" : "Send"}
+            </button>
+            <span className="text-[11px] text-ink-3">Sends from your Gmail</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -264,19 +341,114 @@ function ThreadRow({
   );
 }
 
-function ReaderDraft({ summary }: { summary: string }) {
+// Scrollable message body + AI draft card + send composer, with the draft/send
+// state for this thread. Keyed on threadId by the caller so it resets on switch.
+// The AI draft is generated on demand (local-LLM, too slow to prebuild for every
+// thread); the mock path may arrive with aiDraft.body already filled.
+function ReaderBody({ reader, threadId }: { reader: ThreadReader; threadId: string }) {
+  const [draft, setDraft] = useState(reader.aiDraft.body);
+  const [meta, setMeta] = useState<{ toEmail: string; subject: string } | null>(null);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState("");
+  const [drafting, startDraft] = useTransition();
+  const [sending, startSend] = useTransition();
+  const hasDraft = draft.trim().length > 0;
+
+  function generate() {
+    setError("");
+    startDraft(async () => {
+      const r = await draftReplyAction(threadId);
+      if (r.ok) {
+        setDraft(r.body ?? "");
+        setMeta({ toEmail: r.toEmail ?? "", subject: r.subject ?? reader.subject });
+      } else {
+        setError(r.error ?? "Could not draft a reply.");
+      }
+    });
+  }
+
+  function send() {
+    setError("");
+    startSend(async () => {
+      const res = await sendReplyAction({
+        threadId,
+        toEmail: meta?.toEmail ?? "",
+        subject: meta?.subject ?? reader.subject,
+        body: draft,
+      });
+      if (res.ok) setSent(true);
+      else setError(res.error ?? "Send failed.");
+    });
+  }
+
   return (
-    <Card kind="ai" className="max-w-[600px] p-2.5">
-      <div className="text-[13px] text-ai-2">
-        <div className="mb-1 font-serif text-[14px] font-semibold">
-          Claude has a draft reply ready
+    <>
+      <div className="min-h-0 flex-1 overflow-y-auto px-[18px] py-4">
+        <div className="flex max-w-[600px] flex-col gap-2.5">
+          {reader.messages.map((m, i) => (
+            <div key={i} className="flex flex-col gap-2.5">
+              {m.body.map((para, j) => (
+                <p key={j} className="whitespace-pre-line text-[13px] leading-relaxed text-ink">
+                  {para}
+                </p>
+              ))}
+            </div>
+          ))}
         </div>
-        <p>{summary}</p>
-        <div className="mt-2.5 flex flex-wrap items-center gap-2">
-          <AckButton variant="ai" label="Review draft" ackLabel="Draft opened" />
-          <AckButton variant="subtle" label="Skip — write myself" ackLabel="Dismissed" />
-        </div>
+
+        <div className="my-4 max-w-[600px] border-t border-dashed border-ink-4" />
+
+        <Card kind="ai" className="max-w-[600px] p-2.5">
+          <div className="text-[13px] text-ai-2">
+            <div className="mb-1 font-serif text-[14px] font-semibold">Qwen draft reply</div>
+            <p>{reader.aiDraft.summary}</p>
+            <div className="mt-2.5">
+              <button
+                onClick={generate}
+                disabled={drafting}
+                className="rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-white disabled:opacity-60"
+              >
+                {drafting
+                  ? "Drafting…"
+                  : hasDraft
+                    ? "Regenerate draft"
+                    : "Draft a reply"}
+              </button>
+            </div>
+            {error && <p className="mt-2 text-[12px] text-flag">{error}</p>}
+          </div>
+        </Card>
       </div>
-    </Card>
+
+      <div className="flex-none border-t border-rule bg-paper-2 px-[18px] py-3">
+        <div className="flex items-end gap-2">
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={3}
+            placeholder={reader.replyPlaceholder}
+            className="min-h-[40px] flex-1 resize-y rounded-lg border border-rule bg-paper px-3 py-2 text-[13px] leading-relaxed text-ink placeholder:text-ink-4 focus:outline-none focus:ring-1 focus:ring-accent"
+          />
+          {!hasDraft && (
+            <button
+              onClick={generate}
+              disabled={drafting}
+              className="h-9 whitespace-nowrap rounded-md px-2 text-[12px] font-medium text-ai-2 disabled:opacity-60"
+            >
+              {drafting ? "Drafting…" : "Use AI draft"}
+            </button>
+          )}
+          <button
+            onClick={send}
+            disabled={!draft.trim() || sending || sent}
+            className="flex h-9 items-center gap-1 rounded-md bg-accent px-3 text-[12px] font-medium text-white disabled:opacity-50"
+          >
+            <Send className="size-3" strokeWidth={1.5} />
+            {sent ? "Sent" : sending ? "Sending…" : "Send"}
+          </button>
+        </div>
+        {sent && <p className="mt-1 text-[11px] text-ink-3">Reply sent ✓</p>}
+      </div>
+    </>
   );
 }

@@ -8,6 +8,11 @@
 
 import type { ThreadChannel, ThreadStatus } from "./types";
 import { ai } from "./ai";
+import {
+  gmailConfigured,
+  fetchThreads,
+  type RawGmailThread,
+} from "./gmail";
 
 // ─── Left rail: smart views, channels, by-project ───────────────────────────
 
@@ -258,6 +263,149 @@ async function buildReader(t: InboxThread): Promise<ThreadReader> {
 }
 
 export async function getInboxData(): Promise<InboxData> {
+  // Live Gmail when the connector is configured; otherwise the deterministic
+  // mock. On any Gmail failure we fall back to the mock so /inbox still renders
+  // (mirrors the Ollama provider's degrade-gracefully behavior in lib/ai.ts).
+  if (gmailConfigured()) {
+    try {
+      return await buildFromGmail();
+    } catch (err) {
+      console.error(
+        `[inbox:gmail] falling back to mock — ${(err as Error).message}`,
+      );
+    }
+  }
+  return buildFromMock();
+}
+
+// ─── Gmail-backed builder ────────────────────────────────────────────────────
+
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// Deterministic, locale-independent formatting (no toLocale*) so the value is
+// identical on server and client and never triggers a hydration mismatch.
+function relativeWhen(dateMs: number): string {
+  const d = new Date(dateMs);
+  const now = new Date();
+  const ymd = (x: Date) => `${x.getFullYear()}-${x.getMonth()}-${x.getDate()}`;
+  if (ymd(d) === ymd(now)) {
+    const ap = d.getHours() < 12 ? "am" : "pm";
+    const h = d.getHours() % 12 || 12;
+    return `${h}:${d.getMinutes().toString().padStart(2, "0")}${ap}`;
+  }
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (ymd(d) === ymd(yesterday)) return "Yesterday";
+  return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+}
+
+function rawToThread(r: RawGmailThread): InboxThread {
+  return {
+    id: r.id,
+    initials: initialsOf(r.fromName),
+    fromName: r.fromName,
+    channel: "email",
+    subject: r.subject,
+    preview: r.snippet,
+    when: relativeWhen(r.date),
+    // Heuristic until threads are linked to leads/projects: unread = needs reply.
+    view: r.unread ? "needs_reply" : "awaiting_them",
+    tag: "Email",
+    emphasis: r.unread ? "flag" : "ghost",
+    aiVerdict: r.unread ? "needs your reply" : undefined,
+  };
+}
+
+// Reader WITHOUT an AI draft. Local-LLM drafting is too slow to run eagerly for
+// every thread on page load (CPU inference, ~10s each), so the draft is
+// generated on demand when a thread is opened — see draftReplyForThread() and
+// lib/actions/inbox.ts. The reader still renders the real message immediately.
+function rawToReader(r: RawGmailThread): ThreadReader {
+  return {
+    tag: "Email",
+    channel: "email",
+    channelLabel: channelLabel("email"),
+    messageCount: 1,
+    subject: r.subject,
+    messages: [
+      {
+        fromName: r.fromName,
+        initials: initialsOf(r.fromName),
+        meta: `${r.fromEmail} · ${relativeWhen(r.date)}`,
+        to: r.toLine ? `to ${r.toLine}` : "to Joe",
+        body: r.bodyParas.length ? r.bodyParas : [r.snippet],
+      },
+    ],
+    aiDraft: {
+      summary: "Open this thread to draft a reply with Claude.",
+      body: "",
+    },
+    replyPlaceholder: `Reply to ${r.fromName.split(" ")[0]}…`,
+  };
+}
+
+/** On-demand AI reply draft for a single Gmail thread (called when opened). */
+export async function draftReplyForThread(
+  threadId: string,
+): Promise<{ summary: string; body: string; toEmail: string; subject: string }> {
+  const raw = (await fetchThreads(50)).find((t) => t.id === threadId);
+  if (!raw) return { summary: "", body: "", toEmail: "", subject: "" };
+  const draft = await ai.draft({
+    kind: "email_reply",
+    context: `${raw.fromName} <${raw.fromEmail}>: ${raw.subject}\n\n${raw.bodyParas.join("\n\n") || raw.snippet}`,
+    tone: "warm",
+  });
+  return {
+    summary: `Drafted a reply addressing "${raw.subject}". Review before sending.`,
+    body: draft.body,
+    toEmail: raw.fromEmail,
+    subject: raw.subject,
+  };
+}
+
+async function buildFromGmail(): Promise<InboxData> {
+  const raw = await fetchThreads(50);
+  const threads = raw.map(rawToThread);
+  const readerEntries = raw.map((r) => [r.id, rawToReader(r)] as const);
+
+  const needReply = threads.filter((t) => t.view === "needs_reply").length;
+  const awaiting = threads.length - needReply;
+  const viewCounts: Record<ThreadStatus, number> = {
+    needs_reply: needReply,
+    awaiting_them: awaiting,
+    snoozed: 0,
+    done: 0,
+  };
+
+  return {
+    smartViews: SMART_VIEWS.map((v) => ({
+      ...v,
+      count: viewCounts[v.key],
+      active: v.key === "needs_reply",
+    })),
+    // Only Email is wired; other channels stay at 0 until integrated.
+    channels: CHANNELS.map((c) => ({
+      ...c,
+      count: c.key === "email" ? threads.length : 0,
+    })),
+    projects: [],
+    activeView: { key: "needs_reply", label: "Needs reply" },
+    threads,
+    readers: Object.fromEntries(readerEntries),
+    selectedId: threads[0]?.id ?? "",
+  };
+}
+
+// ─── Mock builder ────────────────────────────────────────────────────────────
+
+async function buildFromMock(): Promise<InboxData> {
   const needReply = THREADS.filter((t) => t.view === "needs_reply");
 
   // Static counts for views/channels/projects not represented in the mock list.

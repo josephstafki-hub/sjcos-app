@@ -17,6 +17,7 @@ import {
   LayoutGrid,
   ShieldCheck,
   Star,
+  Zap,
   BookOpen,
   UserRound,
   UserCheck,
@@ -54,6 +55,7 @@ const TOOLS: NavItem[] = [
   { label: "Catalog", href: "/catalog", icon: LayoutGrid },
   { label: "Compliance", href: "/compliance", icon: ShieldCheck },
   { label: "Warranty", href: "/warranty", icon: Star },
+  { label: "Automate", href: "/automate", icon: Zap },
   { label: "Books", href: "/books", icon: BookOpen, tag: "soon", disabled: true },
 ];
 

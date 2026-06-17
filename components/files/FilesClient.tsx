@@ -36,14 +36,52 @@ function RailLabel({ children }: { children: string }) {
   );
 }
 
+// Tree-rail folder selection. `projectKey` filters the list to that project's
+// files; `label` is what the header shows. Spaces/year folders carry no
+// projectKey, so they match nothing yet (honest empty state until Drive mirror).
+type FolderSel = { label: string; projectKey?: string };
+
+// Maps a type-filter chip to a predicate over a file row.
+const TYPE_MATCH: Record<string, (f: FileRow) => boolean> = {
+  All: () => true,
+  Contracts: (f) => /CONTRACT|SCOPE|ESTIMATE|SELECTION|^CO ·/i.test(f.tag),
+  Drawings: (f) => /DRAWING|RENDER|FLOOR/i.test(f.tag),
+  Photos: (f) => /photo/i.test(f.tag),
+  Invoices: (f) => /INVOICE/i.test(f.tag),
+  "AI tags": (f) => f.ai,
+};
+
 export function FilesClient({ data }: { data: FilesData }) {
-  const [selectedId, setSelectedId] = useState(data.selectedId);
+  const activeProject = data.projects.find((p) => p.active)?.name;
+  const [folder, setFolder] = useState<FolderSel>({
+    label: activeProject ?? "All files",
+    projectKey: activeProject,
+  });
   const [typeFilter, setTypeFilter] = useState("All");
   const [view, setView] = useState<"list" | "grid">("list");
   const [summary, setSummary] = useState<string | null>(null);
   const [opened, setOpened] = useState(false);
   const [pending, startSummarize] = useTransition();
-  const preview = data.previews[selectedId];
+
+  const matchType = TYPE_MATCH[typeFilter] ?? (() => true);
+  const visibleFiles = data.files.filter(
+    (f) => (!folder.projectKey || f.projectKey === folder.projectKey) && matchType(f),
+  );
+
+  // Keep the selected file valid as filters narrow the list.
+  const selectableId = visibleFiles.some((f) => f.id === data.selectedId)
+    ? data.selectedId
+    : visibleFiles[0]?.id ?? "";
+  const [selectedId, setSelectedId] = useState(data.selectedId);
+  const effectiveId = visibleFiles.some((f) => f.id === selectedId)
+    ? selectedId
+    : selectableId;
+  const preview = data.previews[effectiveId];
+
+  function pickFolder(sel: FolderSel) {
+    setFolder(sel);
+    setSummary(null);
+  }
 
   // Selecting a different file clears the previous file's AI summary.
   function selectFile(id: string) {
@@ -53,7 +91,7 @@ export function FilesClient({ data }: { data: FilesData }) {
 
   function runSummarize() {
     startSummarize(async () => {
-      setSummary(await summarizeFile(selectedId));
+      setSummary(await summarizeFile(effectiveId));
     });
   }
 
@@ -71,7 +109,13 @@ export function FilesClient({ data }: { data: FilesData }) {
           {data.spaces.map((s) => (
             <button
               key={s}
-              className="flex items-center gap-1.5 rounded px-2 py-1 text-left text-[12px] text-ink-2 transition-colors hover:bg-paper-3"
+              onClick={() => pickFolder({ label: s })}
+              className={[
+                "flex items-center gap-1.5 rounded px-2 py-1 text-left text-[12px] transition-colors",
+                folder.label === s
+                  ? "bg-accent-soft font-medium text-accent-2"
+                  : "text-ink-2 hover:bg-paper-3",
+              ].join(" ")}
             >
               <Folder className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
               <span className="truncate">{s}</span>
@@ -86,7 +130,13 @@ export function FilesClient({ data }: { data: FilesData }) {
           {["2024", "2025"].map((y) => (
             <button
               key={y}
-              className="flex items-center gap-1 rounded px-2 py-1 text-left text-[12px] text-ink-2 transition-colors hover:bg-paper-3"
+              onClick={() => pickFolder({ label: y })}
+              className={[
+                "flex items-center gap-1 rounded px-2 py-1 text-left text-[12px] transition-colors",
+                folder.label === y
+                  ? "bg-accent-soft font-medium text-accent-2"
+                  : "text-ink-2 hover:bg-paper-3",
+              ].join(" ")}
             >
               <ChevronRight className="size-3 flex-none text-ink-4" strokeWidth={1.5} />
               <Folder className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
@@ -101,9 +151,10 @@ export function FilesClient({ data }: { data: FilesData }) {
           {data.projects.map((p) => (
             <button
               key={p.name}
+              onClick={() => pickFolder({ label: p.name, projectKey: p.name })}
               className={[
                 "flex items-center gap-1.5 rounded py-1 pl-7 pr-2 text-left text-[12px] transition-colors",
-                p.active
+                folder.label === p.name
                   ? "bg-accent-soft font-medium text-accent-2"
                   : "text-ink-2 hover:bg-paper-3",
               ].join(" ")}
@@ -120,8 +171,13 @@ export function FilesClient({ data }: { data: FilesData }) {
         <div className="border-b border-rule px-5 py-3">
           <div className="flex items-center gap-2">
             <div className="flex-1">
-              <h1 className="font-serif text-[20px] font-semibold text-ink">{data.folderTitle}</h1>
-              <div className="text-[11px] text-ink-3">{data.folderMeta}</div>
+              <h1 className="font-serif text-[20px] font-semibold text-ink">
+                {folder.projectKey ? `2026 / ${folder.label}` : folder.label}
+              </h1>
+              <div className="text-[11px] text-ink-3">
+                {visibleFiles.length} item{visibleFiles.length === 1 ? "" : "s"}
+                {folder.projectKey ? " · auto-organized · synced w/ Google Drive" : ""}
+              </div>
             </div>
             <button onClick={() => setView("list")} aria-pressed={view === "list"}>
               <Chip kind={view === "list" ? "solid" : "ghost"}>
@@ -159,24 +215,34 @@ export function FilesClient({ data }: { data: FilesData }) {
           <span className="hidden w-[56px] text-right sm:block">Size</span>
         </div>
 
-        {view === "list" ? (
+        {visibleFiles.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-1 p-10 text-center">
+            <Folder className="size-6 text-ink-4" strokeWidth={1.25} />
+            <div className="text-[13px] font-medium text-ink-2">No files here yet</div>
+            <div className="max-w-[280px] text-[11px] text-ink-3">
+              {folder.projectKey
+                ? `Nothing in ${folder.label} matches “${typeFilter}”.`
+                : `${folder.label} isn’t synced yet — Google Drive mirror is pending.`}
+            </div>
+          </div>
+        ) : view === "list" ? (
           <div className="flex-1 overflow-y-auto">
-            {data.files.map((f) => (
+            {visibleFiles.map((f) => (
               <FileListRow
                 key={f.id}
                 file={f}
-                selected={f.id === selectedId}
+                selected={f.id === effectiveId}
                 onSelect={() => selectFile(f.id)}
               />
             ))}
           </div>
         ) : (
           <div className="grid flex-1 auto-rows-min grid-cols-2 gap-2.5 overflow-y-auto p-4 lg:grid-cols-3">
-            {data.files.map((f) => (
+            {visibleFiles.map((f) => (
               <FileGridCard
                 key={f.id}
                 file={f}
-                selected={f.id === selectedId}
+                selected={f.id === effectiveId}
                 onSelect={() => selectFile(f.id)}
               />
             ))}

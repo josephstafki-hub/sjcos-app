@@ -1,7 +1,8 @@
 // Files browser data builder. DB-backed (Phase 7-B): the file list + previews
 // read the files table via lib/db (Google-Drive mirror is still deferred). The
-// left-rail tree (Spaces, project folders, type filters) stays static chrome —
-// it's a showcase, not a live filter. The 3-pane shape is unchanged.
+// left-rail project folders + type-filter chips are now live client filters
+// (FilesClient) keyed off projectKey/type; Spaces/year folders filter to an
+// honest empty state until the Drive mirror lands. The 3-pane shape is unchanged.
 
 import type { ChipKind } from "@/components/ui/Chip";
 import { query } from "./db";
@@ -10,6 +11,8 @@ export type FileType = "doc" | "img" | "folder";
 
 export interface FileRow {
   id: string;
+  /** Project folder this file lives under — drives the tree-rail filter. */
+  projectKey: string;
   type: FileType;
   name: string;
   /** Stage/tag label shown in its column, e.g. "CONTRACT" / "AI · DRAFT". */
@@ -77,6 +80,7 @@ export async function getFilesData(): Promise<FilesData> {
 
   const files: FileRow[] = rows.map((r) => ({
     id: r.id,
+    projectKey: r.project_key,
     type: r.type,
     name: r.name,
     tag: r.tag,

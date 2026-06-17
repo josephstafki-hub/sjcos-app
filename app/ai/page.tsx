@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
 import { Avatar, Card, Chip, Eyebrow } from "@/components/ui";
+import { AckButton } from "@/components/ui/AckButton";
 import { getAssistantData } from "@/lib/assistant";
 
 const CTX_ICON: Record<string, LucideIcon> = {
@@ -134,16 +135,19 @@ export default async function AiPage() {
                       ))}
                     </div>
                     <div className="mt-3 flex flex-wrap gap-1.5">
-                      <button className="rounded-md bg-ai px-2.5 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-ai-2">
-                        {thread.assistant.actions[0]}
-                      </button>
+                      <AckButton
+                        variant="ai"
+                        label={thread.assistant.actions[0]}
+                        ackLabel="Done"
+                      />
                       {thread.assistant.actions.slice(1).map((a) => (
-                        <button
+                        <AckButton
                           key={a}
-                          className="rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink-2"
-                        >
-                          {a}
-                        </button>
+                          variant="subtle"
+                          className="border-rule text-ink-3"
+                          label={a}
+                          ackLabel="Done"
+                        />
                       ))}
                     </div>
                   </Card>

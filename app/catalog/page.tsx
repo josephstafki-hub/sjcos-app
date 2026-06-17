@@ -1,6 +1,6 @@
 import { Search, Sparkles, Plus } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { Card, Eyebrow } from "@/components/ui";
+import { Card, Eyebrow, AckButton } from "@/components/ui";
 import { CatalogClient } from "@/components/catalog/CatalogClient";
 import { getCatalogData } from "@/lib/catalog";
 
@@ -23,14 +23,18 @@ export default async function CatalogPage() {
               <Search className="size-3 text-ink-4" strokeWidth={1.5} />
               <span className="text-[11px] text-ink-4">Search by SKU, supplier, color…</span>
             </Card>
-            <button className="inline-flex items-center gap-1 rounded-md border border-ai bg-ai px-2.5 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-ai-2">
-              <Sparkles className="size-3" strokeWidth={1.5} />
-              Browser capture
-            </button>
-            <button className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper transition-colors hover:bg-[#232a1e]">
-              <Plus className="size-3" strokeWidth={1.5} />
-              Add material
-            </button>
+            <AckButton
+              variant="ai"
+              icon={<Sparkles className="size-3" strokeWidth={1.5} />}
+              label="Browser capture"
+              ackLabel="Capturing…"
+            />
+            <AckButton
+              variant="ink"
+              icon={<Plus className="size-3" strokeWidth={1.5} />}
+              label="Add material"
+              ackLabel="Opening form…"
+            />
           </div>
         </div>
 

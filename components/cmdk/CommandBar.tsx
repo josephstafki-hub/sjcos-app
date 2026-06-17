@@ -77,13 +77,18 @@ export function CommandBar({ defaultOpen = false }: { defaultOpen?: boolean }) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setOpen((o) => !o);
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
+        // ⌘J / Ctrl+J — Ask Claude (per spec keyboard table)
+        e.preventDefault();
+        setOpen(false);
+        router.push("/ai");
       } else if (e.key === "Escape") {
         setOpen(false);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [router]);
 
   if (!open) return null;
 

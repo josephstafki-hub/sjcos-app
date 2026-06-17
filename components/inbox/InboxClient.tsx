@@ -15,6 +15,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Card, Chip, Avatar } from "@/components/ui";
+import { AckButton } from "@/components/ui/AckButton";
 import type { ThreadChannel } from "@/lib/types";
 import type { InboxData, InboxThread } from "@/lib/inbox";
 
@@ -199,10 +200,12 @@ export function InboxClient({ data }: { data: InboxData }) {
               <Card kind="soft" className="flex items-center gap-2 px-3 py-2">
                 <span className="flex-1 text-[12px] text-ink-4">{reader.replyPlaceholder}</span>
                 <Chip kind="ai">Use AI draft</Chip>
-                <button className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper transition-colors hover:bg-[#232a1e]">
-                  <Send className="size-3" strokeWidth={1.5} />
-                  Send
-                </button>
+                <AckButton
+                  variant="ink"
+                  icon={<Send className="size-3" strokeWidth={1.5} />}
+                  label="Send"
+                  ackLabel="Sent"
+                />
               </Card>
             </div>
           </>
@@ -270,12 +273,8 @@ function ReaderDraft({ summary }: { summary: string }) {
         </div>
         <p>{summary}</p>
         <div className="mt-2.5 flex flex-wrap items-center gap-2">
-          <button className="inline-flex items-center gap-1 rounded-md border border-ai bg-ai px-2.5 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-ai-2">
-            Review draft
-          </button>
-          <button className="rounded-md border border-ink-4 px-2.5 py-1 text-[12px] font-medium text-ink-2 transition-colors hover:bg-paper-2">
-            Skip — write myself
-          </button>
+          <AckButton variant="ai" label="Review draft" ackLabel="Draft opened" />
+          <AckButton variant="subtle" label="Skip — write myself" ackLabel="Dismissed" />
         </div>
       </div>
     </Card>

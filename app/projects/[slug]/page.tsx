@@ -502,9 +502,13 @@ export default async function ProjectDetailPage({
                 </button>
               </form>
             )}
-            <button className="inline-flex items-center rounded-md border border-rule bg-card px-1.5 py-1 text-ink-3 hover:bg-paper-2">
-              <MoreHorizontal className="size-3.5" strokeWidth={1.5} />
-            </button>
+            <AckButton
+              variant="outline"
+              className="px-1.5 text-ink-3"
+              icon={<MoreHorizontal className="size-3.5" strokeWidth={1.5} />}
+              label=""
+              ackLabel="Noted"
+            />
           </div>
         </div>
       </div>

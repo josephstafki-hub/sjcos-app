@@ -75,6 +75,15 @@ function rowToCard(r: NotificationRow): NotificationCard {
   };
 }
 
+/** Lightweight unread tally for the topbar bell dot — avoids building the
+ *  full feed on every page render. */
+export async function getUnreadCount(): Promise<number> {
+  const { rows } = await query<{ n: string }>(
+    `SELECT count(*)::int AS n FROM notifications WHERE read = false`,
+  );
+  return Number(rows[0]?.n ?? 0);
+}
+
 export async function getNotificationsData(): Promise<NotificationsData> {
   const { rows } = await query<NotificationRow>(`
     SELECT id, kind, tag, accent, icon, title, subline, when_label, flagged, href, read

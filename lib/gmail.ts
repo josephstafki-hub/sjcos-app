@@ -87,9 +87,42 @@ export interface RawGmailThread {
   /** Epoch ms of the latest message. */
   date: number;
   unread: boolean;
+  starred: boolean;
+  important: boolean;
+  /** True while the thread is still in the INBOX (not archived). */
+  inInbox: boolean;
+  /** True if Gmail has the thread snoozed. */
+  snoozed: boolean;
+  /** True when the latest message was sent BY the account owner (outbound). */
+  outbound: boolean;
+  /** Gmail category derived from CATEGORY_* system labels. */
+  category: GmailCategory;
+  /** Union of every label id across the thread's messages (system + user). */
+  labelIds: string[];
   /** Plain-text body paragraphs of the latest message. */
   bodyParas: string[];
 }
+
+export type GmailCategory =
+  | "primary"
+  | "social"
+  | "promotions"
+  | "updates"
+  | "forums";
+
+/** A resolved user-created label (system labels are filtered out). */
+export interface GmailLabel {
+  id: string;
+  name: string;
+}
+
+const CATEGORY_BY_LABEL: Record<string, GmailCategory> = {
+  CATEGORY_PERSONAL: "primary",
+  CATEGORY_SOCIAL: "social",
+  CATEGORY_PROMOTIONS: "promotions",
+  CATEGORY_UPDATES: "updates",
+  CATEGORY_FORUMS: "forums",
+};
 
 function gmail(): gmail_v1.Gmail {
   return google.gmail({ version: "v1", auth: oauthClient() });
@@ -196,13 +229,42 @@ function stripHtml(html: string): string {
     .replace(/[ \t]+/g, " ");
 }
 
-/** Fetch the most recent INBOX threads, newest first. */
+/** The account's own email address (Gmail "me"), cached per process. Used to
+ *  tell inbound from outbound messages. */
+let profileEmailCache: string | null = null;
+export async function fetchProfileEmail(): Promise<string> {
+  if (profileEmailCache) return profileEmailCache;
+  const { data } = await gmail().users.getProfile({ userId: "me" });
+  profileEmailCache = (data.emailAddress ?? "").toLowerCase();
+  return profileEmailCache;
+}
+
+/** List the user's own (non-system) labels for resolving ids → display names. */
+export async function fetchLabels(): Promise<GmailLabel[]> {
+  const { data } = await gmail().users.labels.list({ userId: "me" });
+  return (data.labels ?? [])
+    .filter((l) => l.type === "user" && l.id && l.name)
+    .map((l) => ({ id: l.id!, name: l.name! }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function deriveCategory(labelIds: string[]): GmailCategory {
+  for (const id of labelIds) {
+    if (CATEGORY_BY_LABEL[id]) return CATEGORY_BY_LABEL[id];
+  }
+  return "primary";
+}
+
+/** Fetch the most recent threads (inbox, archived, snoozed and sent — spam and
+ *  trash excluded), newest first. Returns enough metadata for lib/inbox.ts to
+ *  classify each thread into a smart view client-side. */
 export async function fetchThreads(max = 20): Promise<RawGmailThread[]> {
   const api = gmail();
+  const me = await fetchProfileEmail();
   const list = await api.users.threads.list({
     userId: "me",
     maxResults: max,
-    labelIds: ["INBOX"],
+    q: "-in:spam -in:trash",
   });
   const ids = (list.data.threads ?? []).map((t) => t.id!).filter(Boolean);
 
@@ -215,9 +277,13 @@ export async function fetchThreads(max = 20): Promise<RawGmailThread[]> {
       });
       const msgs = data.messages ?? [];
       const latest = msgs[msgs.length - 1];
+      // Union every label id across the thread so a single read/starred/snoozed
+      // message colours the whole conversation (matches Gmail's own behaviour).
+      const labelIds = Array.from(
+        new Set(msgs.flatMap((m) => m.labelIds ?? [])),
+      );
       const { name, email } = parseFrom(header(latest, "From"));
       const dateMs = Number(latest?.internalDate ?? Date.now());
-      const unread = (latest?.labelIds ?? []).includes("UNREAD");
       return {
         id,
         fromName: name,
@@ -226,7 +292,14 @@ export async function fetchThreads(max = 20): Promise<RawGmailThread[]> {
         subject: header(latest, "Subject") || "(no subject)",
         snippet: (data.snippet ?? "").trim(),
         date: dateMs,
-        unread,
+        unread: labelIds.includes("UNREAD"),
+        starred: labelIds.includes("STARRED"),
+        important: labelIds.includes("IMPORTANT"),
+        inInbox: labelIds.includes("INBOX"),
+        snoozed: labelIds.includes("SNOOZED"),
+        outbound: email.toLowerCase() === me,
+        category: deriveCategory(labelIds),
+        labelIds,
         bodyParas: extractBody(latest?.payload),
       } satisfies RawGmailThread;
     }),

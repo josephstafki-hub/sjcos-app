@@ -11,7 +11,9 @@ import { ai } from "./ai";
 import {
   gmailConfigured,
   fetchThreads,
+  fetchLabels,
   type RawGmailThread,
+  type GmailCategory,
 } from "./gmail";
 
 // ─── Left rail: smart views, channels, by-project ───────────────────────────
@@ -63,6 +65,14 @@ export interface InboxThread {
   aiVerdict?: string;
   /** Marks a thread tied to an active job (accent "Active job" chip). */
   activeJob?: boolean;
+  /** Gmail STARRED — drives pin/star UI and the starred treatment. */
+  starred?: boolean;
+  /** Resolved user-label display names, shown as chips on the row. */
+  labelNames?: string[];
+  /** Raw Gmail label ids, used by the label-rail filter. */
+  labelIds?: string[];
+  /** Gmail category (primary/social/promotions/updates/forums). */
+  category?: GmailCategory;
 }
 
 const THREADS: InboxThread[] = [
@@ -216,12 +226,26 @@ export interface InboxData {
   smartViews: { key: ThreadStatus; label: string; dot: "flag" | "ghost"; count: number; active: boolean }[];
   channels: { key: ThreadChannel; label: string; count: number }[];
   projects: { label: string; count: number; emphasis?: "accent" | "flag" }[];
+  /** User Gmail labels present on the fetched threads, with counts. */
+  labels: { id: string; name: string; count: number }[];
   activeView: { key: ThreadStatus; label: string };
   threads: InboxThread[];
   /** Full reader content, keyed by thread id. */
   readers: Record<string, ThreadReader>;
   /** Thread selected on first paint. */
   selectedId: string;
+}
+
+/** Count threads per smart view from the live list. */
+function countViews(threads: InboxThread[]): Record<ThreadStatus, number> {
+  const counts: Record<ThreadStatus, number> = {
+    needs_reply: 0,
+    awaiting_them: 0,
+    snoozed: 0,
+    done: 0,
+  };
+  for (const t of threads) counts[t.view]++;
+  return counts;
 }
 
 async function buildReader(t: InboxThread): Promise<ThreadReader> {
@@ -306,20 +330,44 @@ function relativeWhen(dateMs: number): string {
   return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
 }
 
-function rawToThread(r: RawGmailThread): InboxThread {
+/** "Maria Chen <m@x.com>" → "Maria Chen" (or the bare address). */
+function displayName(raw: string): string {
+  const m = raw.match(/^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/);
+  if (m) return (m[1].trim() || m[2].trim());
+  return raw.trim();
+}
+
+function viewOf(r: RawGmailThread): ThreadStatus {
+  if (r.snoozed) return "snoozed";
+  if (!r.inInbox) return "done";
+  if (r.outbound) return "awaiting_them";
+  return "needs_reply";
+}
+
+function rawToThread(r: RawGmailThread, labelMap: Map<string, string>): InboxThread {
+  const view = viewOf(r);
+  const needsReply = view === "needs_reply" && r.unread;
+  // For outbound threads the counterparty is the recipient, not "me".
+  const who = r.outbound && r.toLine ? displayName(r.toLine) : r.fromName;
+  const labelNames = r.labelIds
+    .filter((id) => labelMap.has(id))
+    .map((id) => labelMap.get(id)!);
   return {
     id: r.id,
-    initials: initialsOf(r.fromName),
-    fromName: r.fromName,
+    initials: initialsOf(who),
+    fromName: who,
     channel: "email",
     subject: r.subject,
     preview: r.snippet,
     when: relativeWhen(r.date),
-    // Heuristic until threads are linked to leads/projects: unread = needs reply.
-    view: r.unread ? "needs_reply" : "awaiting_them",
+    view,
     tag: "Email",
-    emphasis: r.unread ? "flag" : "ghost",
-    aiVerdict: r.unread ? "needs your reply" : undefined,
+    emphasis: needsReply ? "flag" : r.starred ? "accent" : "ghost",
+    aiVerdict: needsReply ? "needs your reply" : undefined,
+    starred: r.starred,
+    labelNames: labelNames.length ? labelNames : undefined,
+    labelIds: r.labelIds,
+    category: r.category,
   };
 }
 
@@ -371,18 +419,27 @@ export async function draftReplyForThread(
 }
 
 async function buildFromGmail(): Promise<InboxData> {
-  const raw = await fetchThreads(50);
-  const threads = raw.map(rawToThread);
+  const [raw, labels] = await Promise.all([fetchThreads(50), fetchLabels()]);
+  const labelMap = new Map(labels.map((l) => [l.id, l.name]));
+  const threads = raw.map((r) => rawToThread(r, labelMap));
   const readerEntries = raw.map((r) => [r.id, rawToReader(r)] as const);
 
-  const needReply = threads.filter((t) => t.view === "needs_reply").length;
-  const awaiting = threads.length - needReply;
-  const viewCounts: Record<ThreadStatus, number> = {
-    needs_reply: needReply,
-    awaiting_them: awaiting,
-    snoozed: 0,
-    done: 0,
-  };
+  const viewCounts = countViews(threads);
+
+  // Label rail: only labels actually present on the fetched threads, with counts.
+  const labelCounts = new Map<string, number>();
+  for (const t of threads) {
+    for (const id of t.labelIds ?? []) {
+      if (labelMap.has(id)) labelCounts.set(id, (labelCounts.get(id) ?? 0) + 1);
+    }
+  }
+  const labelRail = labels
+    .filter((l) => labelCounts.has(l.id))
+    .map((l) => ({ id: l.id, name: l.name, count: labelCounts.get(l.id)! }));
+
+  // First paint lands on the first thread of the default (needs_reply) view.
+  const firstInDefault =
+    threads.find((t) => t.view === "needs_reply") ?? threads[0];
 
   return {
     smartViews: SMART_VIEWS.map((v) => ({
@@ -396,10 +453,11 @@ async function buildFromGmail(): Promise<InboxData> {
       count: c.key === "email" ? threads.length : 0,
     })),
     projects: [],
+    labels: labelRail,
     activeView: { key: "needs_reply", label: "Needs reply" },
     threads,
     readers: Object.fromEntries(readerEntries),
-    selectedId: threads[0]?.id ?? "",
+    selectedId: firstInDefault?.id ?? "",
   };
 }
 
@@ -440,6 +498,7 @@ async function buildFromMock(): Promise<InboxData> {
       { label: "Reyes", count: 3, emphasis: "flag" },
       { label: "Chen lead", count: 1, emphasis: "flag" },
     ],
+    labels: [],
     activeView: { key: "needs_reply", label: "Needs reply" },
     threads: THREADS,
     readers: Object.fromEntries(readerEntries),

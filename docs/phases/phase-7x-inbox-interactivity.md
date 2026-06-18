@@ -1,20 +1,24 @@
 # Phase 7.x — Inbox interactivity & Gmail parity (PLAN)
 
-Status: **planned** (Gmail read + AI draft + send already shipped). This covers
-turning the inbox's currently visual-only controls into real, working features
-and bringing it closer to Gmail parity.
+Status: **A/B/D + E-display DONE** (Gmail read + AI draft + send shipped
+earlier). Smart views, channels, and Gmail labels now filter the thread list
+client-side; per-thread label chips render; the reader Pin shows real STARRED
+state. Remaining: **C** (project/audience classification — needs a DB contact
+resolver), **F** (add `gmail.modify` scope + re-consent — Joe's decision), and
+**E actions** (star toggle + ⋮ menu — gated on F).
 
 ## What's inert today (and the goal)
 
-| Control | Now | Goal |
-|---|---|---|
-| Smart views (Needs reply / Awaiting them / Snoozed / Done) | render, don't filter | filter the thread list |
-| Channel filters (Email / SMS / …) | render, don't filter | filter (only Email is real) |
-| By-project rail | static | filter by linked project |
-| All / Clients / Subs / Money chips | render, don't filter | classify + filter threads |
-| Gmail labels & categories | not shown | list labels, category tabs, per-thread chips |
-| Pin (reader header) | inert icon | map to Gmail **star** |
-| ⋮ three-dot menu (reader header) | inert icon | dropdown of real Gmail actions |
+| Control | Now | Goal | Status |
+|---|---|---|---|
+| Smart views (Needs reply / Awaiting them / Snoozed / Done) | filter the thread list | filter the thread list | ✅ done (B) |
+| Channel filters (Email / SMS / …) | filter (only Email is real) | filter | ✅ done (B) |
+| By-project rail | static (empty on Gmail path) | filter by linked project | ⬜ C |
+| All / Clients / Subs / Money chips | render, don't filter | classify + filter threads | ⬜ C |
+| Gmail labels | list + filter + per-thread chips | list labels, per-thread chips | ✅ done (D) |
+| Gmail category tabs | not shown | Primary/Social/Promotions/Updates tabs | ⬜ D (category carried, tabs not built) |
+| Pin (reader header) | shows real STARRED state | map to Gmail **star** + toggle | ◐ display done (E); toggle needs F |
+| ⋮ three-dot menu (reader header) | inert icon | dropdown of real Gmail actions | ⬜ E (needs F) |
 
 ## A. Data model — carry Gmail metadata through
 

@@ -66,4 +66,14 @@ reviews; detail added per page. Status: ⬜ todo · �doing · ✅ done.
   preview overlay. Drive mirror still deferred.
 
 ## /catalog
-- 🔶 In progress — Joe chose real table + CRUD.
+- ✅ **Real catalog** (Joe chose table + CRUD). New `catalog_items` table
+  (seeded), DB-backed grid with real material/supplier counts; owner adds via the
+  Add-material modal (`createMaterial`) and removes via a per-card trash control
+  (`deleteMaterial`). "Browser capture" (supplier scrape) stays deferred.
+
+---
+
+**All page-by-page punch-list items are now addressed.** Detail-page tabs tied to
+deferred subsystems (project Money/Comms/Selections, sub reliability/job-history)
+remain showcase by design — they need accounting / email / a project↔sub join
+that are explicitly out of scope this round. Next milestone: **Phase 8 deploy.**

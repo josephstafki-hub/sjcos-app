@@ -142,6 +142,8 @@ export interface LeadDetail {
   } | null;
   cadence: { label: string; value: string; chip?: ChipKind }[];
   photosCount: number;
+  /** Real uploaded lead photos (served from /api/files/<id>). */
+  photos: { id: string; name: string }[];
   conversation: { from: string; role: "lead" | "you" | "ai"; time: string; body: string }[];
   selections: { label: string; choice: string; status: string; chip: ChipKind }[];
   files: { name: string; meta: string; tag?: string }[];
@@ -249,6 +251,16 @@ export async function getLead(slug: string): Promise<LeadDetail | null> {
 
   const curated = DETAILS[slug] ?? {};
 
+  // Real uploaded photos for this lead (if any). Fall back to the showcase
+  // placeholder count only when none have been uploaded.
+  const photoRes = await query<{ id: string; name: string }>(
+    `SELECT id, name FROM files
+       WHERE lead_slug = $1 AND storage_path IS NOT NULL AND type = 'img'
+       ORDER BY created_at DESC`,
+    [slug],
+  );
+  const photos = photoRes.rows;
+
   return {
     slug: item.slug,
     initials: item.initials,
@@ -278,7 +290,8 @@ export async function getLead(slug: string): Promise<LeadDetail | null> {
         { label: "First contact", value: `${item.ageDays}d ago` },
         { label: "Last contact", value: "—" },
       ],
-    photosCount: curated.photosCount ?? 0,
+    photosCount: photos.length || curated.photosCount || 0,
+    photos,
     conversation: curated.conversation ?? [],
     selections: curated.selections ?? [],
     files: curated.files ?? [],

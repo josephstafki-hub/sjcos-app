@@ -77,6 +77,52 @@ export async function uploadFile(formData: FormData): Promise<UploadResult> {
   return { ok: true };
 }
 
+/** Upload a real photo attached to a lead (shown in the lead's Photos grid).
+ *  Owner-gated, images only. Stored like any other upload but tagged lead_slug. */
+export async function uploadLeadPhoto(
+  slug: string,
+  formData: FormData,
+): Promise<UploadResult> {
+  await requireRole("owner");
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, error: "No file selected." };
+  }
+  if (!(file.type || "").startsWith("image/")) {
+    return { ok: false, error: "Only image files can be added as photos." };
+  }
+  if (file.size > MAX_BYTES) {
+    return { ok: false, error: `Image is too large (max ${sizeLabel(MAX_BYTES)}).` };
+  }
+
+  const original = safeName(file.name);
+  const id = `lp-${randomUUID()}`;
+  const storedName = `${id}__${original}`;
+
+  await mkdir(UPLOAD_DIR, { recursive: true });
+  await writeFile(path.join(UPLOAD_DIR, storedName), Buffer.from(await file.arrayBuffer()));
+
+  await query(
+    `INSERT INTO files
+       (id, project_key, lead_slug, type, name, tag, ai_origin, modified_label,
+        size_label, subtitle, ai_tags, sort, storage_path, mime_type)
+     VALUES ($1, '', $2, 'img', $3, 'PHOTO', false, 'just now', $4, $5, '{}', -1, $6, $7)`,
+    [
+      id,
+      slug,
+      original,
+      sizeLabel(file.size),
+      `Lead photo · ${slug}`,
+      storedName,
+      file.type,
+    ],
+  );
+
+  revalidatePath(`/leads/${slug}`);
+  return { ok: true };
+}
+
 interface FileSummaryRow {
   name: string;
   tag: string;

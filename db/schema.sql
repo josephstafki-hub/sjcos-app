@@ -224,6 +224,9 @@ CREATE TABLE IF NOT EXISTS files (
 -- Upload storage columns (idempotent for existing DBs).
 ALTER TABLE files ADD COLUMN IF NOT EXISTS storage_path text;
 ALTER TABLE files ADD COLUMN IF NOT EXISTS mime_type    text;
+-- Lead photo association: uploaded images attached to a lead (real, viewable).
+ALTER TABLE files ADD COLUMN IF NOT EXISTS lead_slug    text;
+CREATE INDEX IF NOT EXISTS idx_files_lead ON files(lead_slug);
 
 -- ─── App settings ─────────────────────────────────────────────────────────
 -- Single-row key/value store for the Settings screen toggles + profile fields.

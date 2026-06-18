@@ -12,10 +12,13 @@ export function PhotoGrid({
   count,
   label = "Photo",
   cols = 3,
+  srcs,
 }: {
   count: number;
   label?: string;
   cols?: number;
+  /** Real image URLs. When given, tiles + lightbox render actual photos. */
+  srcs?: string[];
 }) {
   const [open, setOpen] = useState<number | null>(null);
 
@@ -49,8 +52,13 @@ export function PhotoGrid({
             key={i}
             onClick={() => setOpen(i)}
             aria-label={`${label} ${i + 1} of ${count}`}
-            className="aspect-square rounded-[3px] border border-rule bg-paper-3 transition-colors hover:border-accent hover:bg-paper-2"
-          />
+            className="aspect-square overflow-hidden rounded-[3px] border border-rule bg-paper-3 transition-colors hover:border-accent hover:bg-paper-2"
+          >
+            {srcs?.[i] && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={srcs[i]} alt={`${label} ${i + 1}`} className="size-full object-cover" />
+            )}
+          </button>
         ))}
       </div>
 
@@ -81,9 +89,18 @@ export function PhotoGrid({
             className="flex w-full max-w-[680px] flex-col items-center"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex aspect-[4/3] w-full items-center justify-center rounded-md border border-paper/15 bg-paper-3/95 font-mono text-[12px] uppercase tracking-[0.16em] text-ink-3">
-              {label} {open + 1}
-            </div>
+            {srcs?.[open] ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={srcs[open]}
+                alt={`${label} ${open + 1}`}
+                className="max-h-[78vh] w-auto max-w-full rounded-md border border-paper/15 object-contain"
+              />
+            ) : (
+              <div className="flex aspect-[4/3] w-full items-center justify-center rounded-md border border-paper/15 bg-paper-3/95 font-mono text-[12px] uppercase tracking-[0.16em] text-ink-3">
+                {label} {open + 1}
+              </div>
+            )}
             <figcaption className="mt-3 font-mono text-[11px] uppercase tracking-[0.14em] text-paper/70">
               {label} {open + 1} of {count}
             </figcaption>

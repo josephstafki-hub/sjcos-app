@@ -3,12 +3,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Sparkles, FileText } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { AiBubble, AckButton, Card, Chip, Avatar, Eyebrow, Field, PhotoGrid } from "@/components/ui";
+import { AiBubble, AckButton, Card, Chip, Avatar, Eyebrow, Field } from "@/components/ui";
 import { LeadTabs } from "@/components/leads/LeadTabs";
 import { getLead, STAGES, stageIndex, stageLabel } from "@/lib/leads";
 import { advanceLeadStage } from "@/lib/actions/leads";
 import { DeleteLeadButton } from "@/components/leads/DeleteLeadButton";
 import { LeadContact } from "@/components/leads/LeadContact";
+import { LeadPhotos } from "@/components/leads/LeadPhotos";
 import { AI_NAME } from "@/lib/ai-name";
 
 const VERDICT: Record<string, { label: string; kind: "money" | "flag" | "info" }> = {
@@ -148,12 +149,7 @@ export default async function LeadDetailPage({
           </div>
         </Card>
 
-        {lead.photosCount > 0 && (
-          <Card className="p-3">
-            <Eyebrow muted>Photos · {lead.photosCount}</Eyebrow>
-            <PhotoGrid count={lead.photosCount} label="Site photo" />
-          </Card>
-        )}
+        <LeadPhotos slug={lead.slug} photos={lead.photos} placeholderCount={lead.photosCount} />
       </div>
     </div>
   );

@@ -39,7 +39,12 @@ reviews; detail added per page. Status: ⬜ todo · �doing · ✅ done.
 
 ## /projects
 - ✅ Filters work (All open/Active/Pre-con/Closeout).
-- ⬜ Each project detail: full functionality — tabs are half-baked showcase.
+- 🔶 Each project detail — partial. **Punch tab is now real** (`project_punch`
+  table; checkboxes toggle/persist via `setPunchDone`). Status advance + progress
+  already real. Remaining showcase tabs are tied to deferred subsystems:
+  Selections (no table yet), Comms (→ email/chat), Money/Draw schedule
+  (→ accounting/QuickBooks, deferred-forever this round), Daily log (→ per-project
+  daily_logs link). Header "Log update"/"Send invoice" are still AckButtons.
 
 ## /schedule
 - ✅ The per-day "+" on the week strip now opens the block modal prefilled to

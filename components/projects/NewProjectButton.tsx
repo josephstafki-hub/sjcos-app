@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Plus, X } from "lucide-react";
 import { createProject } from "@/lib/actions/projects";
+import { SubmitButton } from "@/components/ui";
 
 /** "New project" button + modal form. Submits the createProject Server Action,
  *  which inserts the project (pre-construction) and redirects to its detail. */
@@ -93,12 +94,12 @@ export function NewProjectButton() {
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
+                <SubmitButton
+                  pendingLabel="Creating…"
                   className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
                 >
                   Create project
-                </button>
+                </SubmitButton>
               </div>
             </form>
           </div>

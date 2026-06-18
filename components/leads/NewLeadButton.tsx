@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Plus, X } from "lucide-react";
 import { createLead } from "@/lib/actions/leads";
+import { SubmitButton } from "@/components/ui";
 
 /** "New lead" button + modal form. Submits the createLead Server Action, which
  *  inserts the lead and redirects to its detail page. */
@@ -93,12 +94,12 @@ export function NewLeadButton() {
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
+                <SubmitButton
+                  pendingLabel="Creating…"
                   className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
                 >
                   Create lead
-                </button>
+                </SubmitButton>
               </div>
             </form>
           </div>

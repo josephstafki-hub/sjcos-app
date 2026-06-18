@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { createScheduleBlock } from "@/lib/actions/schedule";
+import { SubmitButton } from "@/components/ui";
 
 /** "Block" button + modal form on /schedule. Submits createScheduleBlock, which
  *  inserts a timeblock and revalidates the week strip. Date defaults to today
@@ -113,12 +114,12 @@ export function BlockButton() {
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
+                <SubmitButton
+                  pendingLabel="Adding…"
                   className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
                 >
                   Add block
-                </button>
+                </SubmitButton>
               </div>
             </form>
           </div>

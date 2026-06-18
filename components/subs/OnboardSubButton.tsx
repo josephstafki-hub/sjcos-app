@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Plus, X } from "lucide-react";
 import { createSub } from "@/lib/actions/subs";
+import { SubmitButton } from "@/components/ui";
 
 // Inlined (not imported from lib/subs): that module pulls in lib/db → pg, which
 // must never enter a client bundle. Keep in sync with TRADES there.
@@ -116,12 +117,12 @@ export function OnboardSubButton() {
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
+                <SubmitButton
+                  pendingLabel="Onboarding…"
                   className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
                 >
                   Onboard
-                </button>
+                </SubmitButton>
               </div>
             </form>
           </div>

@@ -52,7 +52,11 @@ reviews; detail added per page. Status: ⬜ todo · �doing · ✅ done.
 - ✅ Daily-log cards are clickable (`LogCard`) and open the full log entry.
 
 ## /subs
-- ⬜ Each sub detail is demo-only — real functionality.
+- 🔶 Sub detail — partial. **Notes tab is now real** (editable `subs.notes`,
+  persisted via `setSubNotes`). Card data (rate/COI/rating/contact, Call/Chat)
+  was already real. Reliability metrics / recent jobs / paperwork remain curated
+  showcase — they need a project↔sub assignment join (no table yet) to derive
+  real job history; folded into the deferred ops-data work.
 
 ## /files
 - ⬜ Half functional — real functionality (Drive mirror was deferred; clarify scope).

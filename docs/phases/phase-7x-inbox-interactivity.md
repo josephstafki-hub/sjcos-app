@@ -1,11 +1,21 @@
 # Phase 7.x — Inbox interactivity & Gmail parity (PLAN)
 
-Status: **A/B/D + E-display DONE** (Gmail read + AI draft + send shipped
-earlier). Smart views, channels, and Gmail labels now filter the thread list
+Status: **A/B/C/D + E-display DONE** (Gmail read + AI draft + send shipped
+earlier). Smart views, channels, Gmail labels, the All/Clients/Subs/Money
+audience chips, and the by-project rail now filter the thread list
 client-side; per-thread label chips render; the reader Pin shows real STARRED
-state. Remaining: **C** (project/audience classification — needs a DB contact
-resolver), **F** (add `gmail.modify` scope + re-consent — Joe's decision), and
-**E actions** (star toggle + ⋮ menu — gated on F).
+state. Remaining: **F** (add `gmail.modify` scope + re-consent — Joe's
+decision) and **E actions** (star toggle + ⋮ menu — gated on F).
+
+**C resolver notes:** `loadContactMaps()` in lib/inbox.ts joins each thread's
+counterparty email/domain against leads (→ client), subs (→ sub, plus
+company-domain match for non-consumer domains) and a money heuristic
+(known vendor domains + invoice/receipt subject regex); projects link via
+`projects.lead_id → leads.email`. Because the *seed* contacts use synthetic
+`.example` addresses and `projects.lead_id` is null, Clients/Subs/by-project
+resolve to ~0 on seed data today — Money matched 9 real threads in the live
+inbox. These chips populate once real lead/sub emails land (7.1 CSV import)
+and projects are linked to leads.
 
 ## What's inert today (and the goal)
 
@@ -13,8 +23,8 @@ resolver), **F** (add `gmail.modify` scope + re-consent — Joe's decision), and
 |---|---|---|---|
 | Smart views (Needs reply / Awaiting them / Snoozed / Done) | filter the thread list | filter the thread list | ✅ done (B) |
 | Channel filters (Email / SMS / …) | filter (only Email is real) | filter | ✅ done (B) |
-| By-project rail | static (empty on Gmail path) | filter by linked project | ⬜ C |
-| All / Clients / Subs / Money chips | render, don't filter | classify + filter threads | ⬜ C |
+| By-project rail | filters by linked project | filter by linked project | ✅ done (C) |
+| All / Clients / Subs / Money chips | classify + filter threads | classify + filter threads | ✅ done (C) |
 | Gmail labels | list + filter + per-thread chips | list labels, per-thread chips | ✅ done (D) |
 | Gmail category tabs | not shown | Primary/Social/Promotions/Updates tabs | ⬜ D (category carried, tabs not built) |
 | Pin (reader header) | shows real STARRED state | map to Gmail **star** + toggle | ◐ display done (E); toggle needs F |

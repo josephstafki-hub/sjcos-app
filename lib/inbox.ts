@@ -8,6 +8,7 @@
 
 import type { ThreadChannel, ThreadStatus } from "./types";
 import { ai } from "./ai";
+import { query } from "./db";
 import {
   gmailConfigured,
   fetchThreads,
@@ -73,7 +74,18 @@ export interface InboxThread {
   labelIds?: string[];
   /** Gmail category (primary/social/promotions/updates/forums). */
   category?: GmailCategory;
+  /** Sender resolved against DB contacts → client / sub / money chip filter. */
+  audience?: Audience;
+  /** Linked project slug (sender resolved to a project's client), for the rail. */
+  projectSlug?: string;
+  /** Linked project display name. */
+  projectLabel?: string;
 }
+
+/** Audience axis for the All/Clients/Subs/Money chip filters. A thread's
+ *  audience is resolved by matching its counterparty email/domain against the
+ *  leads (client), subs (sub) and known-vendor (money) sets in Postgres. */
+export type Audience = "client" | "sub" | "money";
 
 const THREADS: InboxThread[] = [
   {
@@ -225,7 +237,7 @@ export interface InboxData {
   /** Smart views with live counts; the active one drives the list header. */
   smartViews: { key: ThreadStatus; label: string; dot: "flag" | "ghost"; count: number; active: boolean }[];
   channels: { key: ThreadChannel; label: string; count: number }[];
-  projects: { label: string; count: number; emphasis?: "accent" | "flag" }[];
+  projects: { slug?: string; label: string; count: number; emphasis?: "accent" | "flag" }[];
   /** User Gmail labels present on the fetched threads, with counts. */
   labels: { id: string; name: string; count: number }[];
   activeView: { key: ThreadStatus; label: string };
@@ -418,10 +430,132 @@ export async function draftReplyForThread(
   };
 }
 
+// ─── Sender → DB contact resolution (audience + project) ─────────────────────
+
+interface ContactRow {
+  email: string;
+  name: string;
+  slug: string;
+  kind: "client" | "sub";
+}
+interface ProjectLinkRow {
+  email: string;
+  project_slug: string;
+  project_label: string;
+}
+
+// Consumer mail providers — a sub on one of these is matched by exact address
+// only, never by domain (we won't claim every gmail.com sender is that sub).
+const CONSUMER_DOMAINS = new Set([
+  "gmail.com", "googlemail.com", "yahoo.com", "ymail.com", "hotmail.com",
+  "outlook.com", "live.com", "msn.com", "icloud.com", "me.com", "aol.com",
+  "comcast.net", "proton.me", "protonmail.com",
+  "gmail.example", // synthetic seed contacts
+]);
+
+// Finance/vendor signals. Either a known money domain or an invoice-shaped
+// subject marks a thread as "money".
+const MONEY_DOMAIN_RX =
+  /(intuit|quickbooks|stripe|squareup|square\.com|paypal|venmo|homedepot|lowes|menards|ferguson|build\.com|wellsfargo|chase\.com|bankofamerica|amex|americanexpress|bill\.com)/i;
+const MONEY_SUBJECT_RX =
+  /\b(invoice|receipt|payment|paid|statement|billing|balance due|past due|autopay|order\s*(?:#|confirmation|placed|shipped)|transaction|deposit|wire transfer)\b/i;
+
+function domainOf(email: string): string {
+  const at = email.lastIndexOf("@");
+  return at >= 0 ? email.slice(at + 1).toLowerCase() : "";
+}
+
+/** First email address found in a raw header value (handles "Name <a@b>"). */
+function extractEmail(raw: string): string {
+  const m = raw.match(/[^\s<>"]+@[^\s<>"]+/);
+  return (m ? m[0] : "").toLowerCase();
+}
+
+interface ContactMaps {
+  byEmail: Map<string, Audience>;
+  subDomains: Set<string>;
+  projectByEmail: Map<string, { slug: string; label: string }>;
+}
+
+/** Load the contact index from Postgres once per inbox build. */
+async function loadContactMaps(): Promise<ContactMaps> {
+  const [contacts, links] = await Promise.all([
+    query<ContactRow>(
+      `SELECT lower(email) AS email, name, slug, 'client' AS kind
+         FROM leads WHERE email IS NOT NULL AND email <> ''
+       UNION ALL
+       SELECT lower(email) AS email, name, slug, 'sub' AS kind
+         FROM subs WHERE email IS NOT NULL AND email <> ''`,
+    ),
+    query<ProjectLinkRow>(
+      `SELECT lower(l.email) AS email, p.slug AS project_slug, p.name AS project_label
+         FROM projects p JOIN leads l ON p.lead_id = l.id
+        WHERE l.email IS NOT NULL AND l.email <> ''`,
+    ),
+  ]);
+
+  const byEmail = new Map<string, Audience>();
+  const subDomains = new Set<string>();
+  for (const c of contacts.rows) {
+    // Subs win ties over clients (businesses are the more specific match).
+    if (c.kind === "sub" || !byEmail.has(c.email)) {
+      byEmail.set(c.email, c.kind === "sub" ? "sub" : "client");
+    }
+    if (c.kind === "sub") {
+      const d = domainOf(c.email);
+      if (d && !CONSUMER_DOMAINS.has(d)) subDomains.add(d);
+    }
+  }
+
+  const projectByEmail = new Map<string, { slug: string; label: string }>();
+  for (const p of links.rows) {
+    projectByEmail.set(p.email, { slug: p.project_slug, label: p.project_label });
+  }
+
+  return { byEmail, subDomains, projectByEmail };
+}
+
+/** Classify one thread's counterparty into an audience + optional project. */
+function classifyThread(
+  r: RawGmailThread,
+  maps: ContactMaps,
+): { audience?: Audience; projectSlug?: string; projectLabel?: string } {
+  // For outbound mail the counterparty is the recipient, not the owner.
+  const email = r.outbound ? extractEmail(r.toLine) : r.fromEmail.toLowerCase();
+  const domain = domainOf(email);
+
+  let audience = maps.byEmail.get(email);
+  if (!audience && domain && maps.subDomains.has(domain)) audience = "sub";
+  if (
+    !audience &&
+    (MONEY_DOMAIN_RX.test(domain) ||
+      MONEY_SUBJECT_RX.test(`${r.subject} ${r.snippet}`))
+  ) {
+    audience = "money";
+  }
+
+  const project = maps.projectByEmail.get(email);
+  return { audience, projectSlug: project?.slug, projectLabel: project?.label };
+}
+
 async function buildFromGmail(): Promise<InboxData> {
-  const [raw, labels] = await Promise.all([fetchThreads(50), fetchLabels()]);
+  const [raw, labels, contactMaps] = await Promise.all([
+    fetchThreads(50),
+    fetchLabels(),
+    loadContactMaps(),
+  ]);
   const labelMap = new Map(labels.map((l) => [l.id, l.name]));
   const threads = raw.map((r) => rawToThread(r, labelMap));
+
+  // Resolve each thread's sender against DB contacts (threads[i] ↔ raw[i]).
+  raw.forEach((r, i) => {
+    const c = classifyThread(r, contactMaps);
+    threads[i].audience = c.audience;
+    threads[i].projectSlug = c.projectSlug;
+    threads[i].projectLabel = c.projectLabel;
+    // A resolved project becomes the row's tag chip (else the generic "Email").
+    if (c.projectLabel) threads[i].tag = c.projectLabel;
+  });
   const readerEntries = raw.map((r) => [r.id, rawToReader(r)] as const);
 
   const viewCounts = countViews(threads);
@@ -436,6 +570,23 @@ async function buildFromGmail(): Promise<InboxData> {
   const labelRail = labels
     .filter((l) => labelCounts.has(l.id))
     .map((l) => ({ id: l.id, name: l.name, count: labelCounts.get(l.id)! }));
+
+  // By-project rail: projects resolved on at least one thread, with counts.
+  const projCounts = new Map<string, { label: string; count: number }>();
+  for (const t of threads) {
+    if (!t.projectSlug) continue;
+    const e = projCounts.get(t.projectSlug) ?? {
+      label: t.projectLabel ?? t.projectSlug,
+      count: 0,
+    };
+    e.count++;
+    projCounts.set(t.projectSlug, e);
+  }
+  const projectsRail = [...projCounts.entries()].map(([slug, v]) => ({
+    slug,
+    label: v.label,
+    count: v.count,
+  }));
 
   // First paint lands on the first thread of the default (needs_reply) view.
   const firstInDefault =
@@ -452,7 +603,7 @@ async function buildFromGmail(): Promise<InboxData> {
       ...c,
       count: c.key === "email" ? threads.length : 0,
     })),
-    projects: [],
+    projects: projectsRail,
     labels: labelRail,
     activeView: { key: "needs_reply", label: "Needs reply" },
     threads,

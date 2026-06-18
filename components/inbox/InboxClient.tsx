@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition, type ReactNode } from "react";
 import {
   Filter,
   Mail,
@@ -25,14 +25,24 @@ import {
   sendNewEmailAction,
 } from "@/lib/actions/inbox";
 import type { ThreadChannel, ThreadStatus } from "@/lib/types";
-import type { InboxData, InboxThread, ThreadReader } from "@/lib/inbox";
+import type { Audience, InboxData, InboxThread, ThreadReader } from "@/lib/inbox";
 
 /** The single active lens over the thread list. Smart view is the default; a
- *  channel or label selection temporarily takes over (Gmail-style). */
+ *  channel, label, audience or project selection temporarily takes over
+ *  (Gmail-style — one active filter at a time). */
 type Lens =
+  | { kind: "all" }
   | { kind: "view"; view: ThreadStatus }
   | { kind: "channel"; channel: ThreadChannel }
-  | { kind: "label"; id: string; name: string };
+  | { kind: "label"; id: string; name: string }
+  | { kind: "audience"; audience: Audience }
+  | { kind: "project"; slug: string; label: string };
+
+const AUDIENCE_LABEL: Record<Audience, string> = {
+  client: "Clients",
+  sub: "Subs",
+  money: "Money",
+};
 
 const CHANNEL_ICON: Record<ThreadChannel, LucideIcon> = {
   email: Mail,
@@ -57,6 +67,23 @@ const DOT_BG: Record<string, string> = {
   ghost: "bg-ink-4",
 };
 
+/** A Chip rendered as a toggle button for the audience filter row. */
+function ChipButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button onClick={onClick} className="focus:outline-none">
+      <Chip kind={active ? "solid" : "ghost"}>{children}</Chip>
+    </button>
+  );
+}
+
 export function InboxClient({
   data,
   ownerEmail,
@@ -74,14 +101,27 @@ export function InboxClient({
   // Threads visible under the current lens.
   const visible = useMemo(() => {
     switch (lens.kind) {
+      case "all":
+        return data.threads;
       case "view":
         return data.threads.filter((t) => t.view === lens.view);
       case "channel":
         return data.threads.filter((t) => t.channel === lens.channel);
       case "label":
         return data.threads.filter((t) => (t.labelIds ?? []).includes(lens.id));
+      case "audience":
+        return data.threads.filter((t) => t.audience === lens.audience);
+      case "project":
+        return data.threads.filter((t) => t.projectSlug === lens.slug);
     }
   }, [data.threads, lens]);
+
+  // Counts for the All/Clients/Subs/Money chips, derived from resolved senders.
+  const audienceCounts = useMemo(() => {
+    const c = { client: 0, sub: 0, money: 0 };
+    for (const t of data.threads) if (t.audience) c[t.audience]++;
+    return c;
+  }, [data.threads]);
 
   // Keep the selection valid as the lens narrows the list.
   const selected =
@@ -89,16 +129,26 @@ export function InboxClient({
   const reader = selected ? data.readers[selected.id] : undefined;
 
   const headerLabel =
-    lens.kind === "view"
-      ? data.smartViews.find((v) => v.key === lens.view)?.label ?? "Inbox"
-      : lens.kind === "channel"
-        ? data.channels.find((c) => c.key === lens.channel)?.label ?? "Channel"
-        : lens.name;
+    lens.kind === "all"
+      ? "All mail"
+      : lens.kind === "view"
+        ? data.smartViews.find((v) => v.key === lens.view)?.label ?? "Inbox"
+        : lens.kind === "channel"
+          ? data.channels.find((c) => c.key === lens.channel)?.label ?? "Channel"
+          : lens.kind === "audience"
+            ? AUDIENCE_LABEL[lens.audience]
+            : lens.kind === "project"
+              ? lens.label
+              : lens.name;
 
   const isView = (k: ThreadStatus) => lens.kind === "view" && lens.view === k;
   const isChannel = (k: ThreadChannel) =>
     lens.kind === "channel" && lens.channel === k;
   const isLabel = (id: string) => lens.kind === "label" && lens.id === id;
+  const isAudience = (a: Audience) =>
+    lens.kind === "audience" && lens.audience === a;
+  const isProject = (slug: string) =>
+    lens.kind === "project" && lens.slug === slug;
 
   return (
     <div className="flex h-full">
@@ -184,20 +234,29 @@ export function InboxClient({
             <div className="my-2 h-px bg-rule" />
             <RailLabel>By project</RailLabel>
             <div className="flex flex-col gap-0.5">
-              {data.projects.map((p) => (
-                <div
-                  key={p.label}
-                  className="flex items-center gap-2 rounded-md px-2 py-1 text-[12px] text-ink-2 hover:bg-paper-3"
-                >
-                  {p.emphasis ? (
-                    <span className={`size-1.5 rounded-full ${DOT_BG[p.emphasis]}`} />
-                  ) : (
-                    <span className="size-1.5" />
-                  )}
-                  <span className="flex-1 truncate">{p.label}</span>
-                  <span className="font-mono text-[10px] text-ink-3">{p.count}</span>
-                </div>
-              ))}
+              {data.projects.map((p) => {
+                const slug = p.slug ?? p.label;
+                return (
+                  <button
+                    key={slug}
+                    onClick={() => setLens({ kind: "project", slug, label: p.label })}
+                    className={[
+                      "flex items-center gap-2 rounded-md px-2 py-1 text-left text-[12px]",
+                      isProject(slug)
+                        ? "bg-accent-soft font-semibold text-accent-2"
+                        : "text-ink-2 hover:bg-paper-3",
+                    ].join(" ")}
+                  >
+                    {p.emphasis ? (
+                      <span className={`size-1.5 rounded-full ${DOT_BG[p.emphasis]}`} />
+                    ) : (
+                      <span className="size-1.5" />
+                    )}
+                    <span className="flex-1 truncate">{p.label}</span>
+                    <span className="font-mono text-[10px] text-ink-3">{p.count}</span>
+                  </button>
+                );
+              })}
             </div>
           </>
         )}
@@ -222,10 +281,27 @@ export function InboxClient({
             </button>
           </div>
           <div className="mt-2 flex items-center gap-1">
-            <Chip kind="solid">All</Chip>
-            <Chip kind="ghost">Clients</Chip>
-            <Chip kind="ghost">Subs</Chip>
-            <Chip kind="ghost">Money</Chip>
+            <ChipButton active={lens.kind === "all"} onClick={() => setLens({ kind: "all" })}>
+              All
+            </ChipButton>
+            <ChipButton
+              active={isAudience("client")}
+              onClick={() => setLens({ kind: "audience", audience: "client" })}
+            >
+              Clients{audienceCounts.client ? ` ${audienceCounts.client}` : ""}
+            </ChipButton>
+            <ChipButton
+              active={isAudience("sub")}
+              onClick={() => setLens({ kind: "audience", audience: "sub" })}
+            >
+              Subs{audienceCounts.sub ? ` ${audienceCounts.sub}` : ""}
+            </ChipButton>
+            <ChipButton
+              active={isAudience("money")}
+              onClick={() => setLens({ kind: "audience", audience: "money" })}
+            >
+              Money{audienceCounts.money ? ` ${audienceCounts.money}` : ""}
+            </ChipButton>
           </div>
         </div>
 

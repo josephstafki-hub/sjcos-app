@@ -172,3 +172,22 @@ Wire the inert page-level buttons, by category:
 This is large (4 phases). Recommend landing **A → B → C → D** as separate commits so
 each is testable on the tunnel before the next. Auth (A/B) is the architectural core and
 should land + be verified first.
+
+## Deploy carryover checklist (the actual go-live)
+
+Items that must happen when the app gets its permanent home (DNS + nginx + TLS,
+replacing the ephemeral cloudflared quick tunnel):
+
+- [ ] Pick a permanent free port (`:3001` is taken by another tenant; dev used `:3017`).
+- [ ] DNS record + nginx vhost + TLS (Let's Encrypt) for the real subdomain.
+- [ ] PM2 (or systemd) for the Next prod server; ollama already runs as a systemd user service.
+- [ ] Set stable `GMAIL_REDIRECT_URI=https://<domain>/api/inbox/oauth/callback`; register that
+      URI in Google Cloud Console → Credentials → the OAuth client's Authorized redirect URIs.
+- [ ] **Gmail `modify` re-consent (deferred from Phase 7.x E/F, 2026-06-18):** scopes are
+      already `gmail.modify`+`gmail.send`, but the live refresh token predates `modify`, so
+      inbox star/archive/mark-read/important/trash show a "needs modify access" notice until
+      this runs. Once the permanent redirect URI is registered: visit
+      `https://<domain>/api/inbox/oauth/start`, approve, paste the new `GMAIL_REFRESH_TOKEN`
+      into `.env.local`, restart. Reads/sends work throughout.
+- [ ] Production Gmail auth: consider `ANTHROPIC_API_KEY`/`--bare` for the automation CLI path
+      (currently runs under Joe's interactive login).

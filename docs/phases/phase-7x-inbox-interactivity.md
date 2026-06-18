@@ -7,11 +7,14 @@ STARRED toggle and the ⋮ menu does Mark read/unread, Mark important, Archive
 and Trash via owner-gated server actions (`lib/actions/inbox.ts`
 modify/trash wrappers → `lib/gmail.ts` `modifyThread`/`trashThread`).
 **F: `GMAIL_SCOPES` is now `gmail.modify`+`gmail.send`** and the consent
-flow requests it. **ONE MANUAL STEP REMAINS:** the live refresh token was
-minted with the old `readonly`+`send` scopes, so the E actions return a
-"Gmail needs modify access" notice until Joe re-consents — re-run
-`/api/inbox/oauth/start`, approve, paste the new `GMAIL_REFRESH_TOKEN` into
-`.env.local`, restart. Reads/sends keep working in the meantime.
+flow requests it. **The modify re-consent is DEFERRED TO DEPLOY** (Joe,
+2026-06-18): the live refresh token was minted with the old `readonly`+`send`
+scopes, so the E actions show a "Gmail needs modify access" notice until then
+(reads/sends keep working). Re-consenting now would need a throwaway
+redirect URI — the cloudflared quick tunnel is ephemeral and was dead at the
+time. Doing it once at deploy against the permanent
+`https://<domain>/api/inbox/oauth/callback` is the clean path. **→ folded
+into the Phase 8 deploy checklist.**
 
 Not built (optional): the ⋮ "apply/remove label" submenu and Gmail category
 tabs (Joe skipped categories).

@@ -8,6 +8,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { query, queryOne } from "@/lib/db";
+import { requireRole } from "@/lib/dal";
 import { STAGES } from "@/lib/leads";
 import type { LeadStage } from "@/lib/types";
 
@@ -70,6 +71,16 @@ export async function advanceLeadStage(slug: string) {
   );
   revalidatePath(`/leads/${slug}`);
   revalidatePath("/leads");
+}
+
+/** Delete a lead, then return to the list. Any project linked via lead_id is
+ *  detached automatically (FK is ON DELETE SET NULL). Owner-only. */
+export async function deleteLead(slug: string) {
+  await requireRole("owner");
+  await query(`DELETE FROM leads WHERE slug = $1`, [slug]);
+  revalidatePath("/leads");
+  revalidatePath("/today");
+  redirect("/leads");
 }
 
 /** Set a lead to an explicit stage (used by a stage picker). */

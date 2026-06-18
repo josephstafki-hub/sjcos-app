@@ -7,6 +7,7 @@ import { AiBubble, AckButton, Card, Chip, Avatar, Eyebrow, Field, PhotoGrid } fr
 import { LeadTabs } from "@/components/leads/LeadTabs";
 import { getLead, STAGES, stageIndex, stageLabel } from "@/lib/leads";
 import { advanceLeadStage } from "@/lib/actions/leads";
+import { DeleteLeadButton } from "@/components/leads/DeleteLeadButton";
 
 const VERDICT: Record<string, { label: string; kind: "money" | "flag" | "info" }> = {
   go: { label: "GO", kind: "money" },
@@ -370,6 +371,7 @@ export default async function LeadDetailPage({
                 Signed ✓
               </span>
             )}
+            <DeleteLeadButton slug={slug} name={lead.name} />
           </div>
         </div>
 

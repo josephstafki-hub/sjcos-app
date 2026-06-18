@@ -10,6 +10,13 @@ const nextConfig: NextConfig = {
     "sophisticated-soundtrack-welfare-cape.trycloudflare.com",
     "*.trycloudflare.com",
   ],
+  // /files uploads go through a Server Action; the default request body cap is
+  // 1MB, too small for job photos / scanned PDFs. Raise it for real uploads.
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "25mb",
+    },
+  },
 };
 
 export default nextConfig;

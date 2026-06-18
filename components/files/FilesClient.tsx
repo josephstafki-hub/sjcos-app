@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import {
   Search,
   Folder,
@@ -12,13 +12,14 @@ import {
   LayoutGrid,
   Plus,
   Eye,
+  Download,
   Share2,
   Sparkles,
   X,
   type LucideIcon,
 } from "lucide-react";
 import { AiBubble, AckButton, Card, Chip } from "@/components/ui";
-import { summarizeFile } from "@/lib/actions/files";
+import { summarizeFile, uploadFile } from "@/lib/actions/files";
 import type { FilesData, FileRow, FileType } from "@/lib/files";
 
 const TYPE_ICON: Record<FileType, LucideIcon> = {
@@ -62,6 +63,23 @@ export function FilesClient({ data }: { data: FilesData }) {
   const [summary, setSummary] = useState<string | null>(null);
   const [opened, setOpened] = useState(false);
   const [pending, startSummarize] = useTransition();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, startUpload] = useTransition();
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+    setUploadError(null);
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("project_key", folder.projectKey ?? "");
+    startUpload(async () => {
+      const res = await uploadFile(fd);
+      if (!res.ok) setUploadError(res.error);
+    });
+  }
 
   const matchType = TYPE_MATCH[typeFilter] ?? (() => true);
   const visibleFiles = data.files.filter(
@@ -191,8 +209,20 @@ export function FilesClient({ data }: { data: FilesData }) {
                 Grid
               </Chip>
             </button>
-            <AckButton variant="outline" icon={<Plus className="size-3" strokeWidth={1.75} />} label="Upload" ackLabel="Uploading…" />
+            <input ref={fileInputRef} type="file" onChange={onPickFile} className="hidden" />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink transition-colors hover:bg-paper-3 disabled:opacity-60"
+            >
+              <Plus className="size-3" strokeWidth={1.75} />
+              {uploading ? "Uploading…" : "Upload"}
+            </button>
           </div>
+          {uploadError && (
+            <div className="mt-1 text-[11px] text-flag">{uploadError}</div>
+          )}
           <div className="mt-2 flex flex-wrap gap-1">
             {data.typeFilters.map((t) => {
               const isAi = t === "AI tags";
@@ -291,20 +321,43 @@ export function FilesClient({ data }: { data: FilesData }) {
             <div className="my-3 border-t border-rule" />
 
             <div className="flex flex-wrap gap-1.5">
-              <button
-                onClick={() => setOpened(true)}
-                className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink transition-colors hover:bg-paper-3"
-              >
-                <Eye className="size-3" strokeWidth={1.5} />
-                Open
-              </button>
-              <AckButton
-                variant="subtle"
-                icon={<Share2 className="size-3" strokeWidth={1.75} />}
-                label="Share"
-                ackLabel="Link copied"
-                className="px-2 py-1 text-[11px]"
-              />
+              {preview.hasBlob ? (
+                <a
+                  href={`/api/files/${effectiveId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink transition-colors hover:bg-paper-3"
+                >
+                  <Eye className="size-3" strokeWidth={1.5} />
+                  Open
+                </a>
+              ) : (
+                <button
+                  onClick={() => setOpened(true)}
+                  className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink transition-colors hover:bg-paper-3"
+                >
+                  <Eye className="size-3" strokeWidth={1.5} />
+                  Open
+                </button>
+              )}
+              {preview.hasBlob ? (
+                <a
+                  href={`/api/files/${effectiveId}`}
+                  download
+                  className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink transition-colors hover:bg-paper-3"
+                >
+                  <Download className="size-3" strokeWidth={1.5} />
+                  Download
+                </a>
+              ) : (
+                <AckButton
+                  variant="subtle"
+                  icon={<Share2 className="size-3" strokeWidth={1.75} />}
+                  label="Share"
+                  ackLabel="Link copied"
+                  className="px-2 py-1 text-[11px]"
+                />
+              )}
               <button
                 onClick={runSummarize}
                 disabled={pending}

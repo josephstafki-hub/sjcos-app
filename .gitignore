@@ -33,6 +33,9 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# user file uploads (/files) — real blobs stored on the server, not in git
+/uploads/
+
 # vercel
 .vercel
 

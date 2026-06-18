@@ -1,12 +1,81 @@
 "use server";
 
-// File actions (Phase 8-D). The preview pane's "Summarize" button routes here.
-// Like every AI touch-point, it goes through lib/ai.ts — never a provider — so
-// the swap in Phase 7.3 needs no screen changes. Returns the summary text to the
-// client; no DB mutation (read-only synthesis).
+// File actions. The preview pane's "Summarize" button routes through lib/ai.ts
+// (provider-agnostic). uploadFile stores a real blob on the server and inserts a
+// files row, so /files is now a real upload browser (Drive mirror still deferred).
 
+import { randomUUID } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { revalidatePath } from "next/cache";
 import { ai } from "@/lib/ai";
-import { queryOne } from "@/lib/db";
+import { query, queryOne } from "@/lib/db";
+import { requireRole } from "@/lib/dal";
+import { UPLOAD_DIR } from "@/lib/uploads";
+
+const MAX_BYTES = 25 * 1024 * 1024; // keep in step with next.config bodySizeLimit
+
+/** Humanize a byte count for the size column, e.g. "2.4 MB". */
+function sizeLabel(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Strip a filename to a safe on-disk basename (no paths, no odd chars). */
+function safeName(name: string): string {
+  return path.basename(name).replace(/[^\w.\- ]+/g, "_").slice(0, 120) || "file";
+}
+
+export type UploadResult = { ok: true } | { ok: false; error: string };
+
+/** Store an uploaded file on the server and index it in the files table.
+ *  Owner-gated. `project_key` (the viewed folder) scopes it in the tree rail. */
+export async function uploadFile(formData: FormData): Promise<UploadResult> {
+  await requireRole("owner");
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, error: "No file selected." };
+  }
+  if (file.size > MAX_BYTES) {
+    return { ok: false, error: `File is too large (max ${sizeLabel(MAX_BYTES)}).` };
+  }
+
+  const projectKey = String(formData.get("project_key") ?? "").trim();
+  const original = safeName(file.name);
+  const id = `up-${randomUUID()}`;
+  const storedName = `${id}__${original}`;
+
+  await mkdir(UPLOAD_DIR, { recursive: true });
+  const bytes = Buffer.from(await file.arrayBuffer());
+  await writeFile(path.join(UPLOAD_DIR, storedName), bytes);
+
+  const isImage = (file.type || "").startsWith("image/");
+  const type = isImage ? "img" : "doc";
+  const ext = path.extname(original).replace(".", "").toUpperCase();
+
+  await query(
+    `INSERT INTO files
+       (id, project_key, type, name, tag, ai_origin, modified_label, size_label,
+        subtitle, ai_tags, sort, storage_path, mime_type)
+     VALUES ($1, $2, $3, $4, $5, false, 'just now', $6, $7, '{}', -1, $8, $9)`,
+    [
+      id,
+      projectKey,
+      type,
+      original,
+      ext ? `UPLOAD · ${ext}` : "UPLOAD",
+      sizeLabel(file.size),
+      projectKey ? `Uploaded · ${projectKey}` : "Uploaded",
+      storedName,
+      file.type || "application/octet-stream",
+    ],
+  );
+
+  revalidatePath("/files");
+  return { ok: true };
+}
 
 interface FileSummaryRow {
   name: string;

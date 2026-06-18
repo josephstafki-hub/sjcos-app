@@ -216,8 +216,14 @@ CREATE TABLE IF NOT EXISTS files (
   subtitle     text,                        -- preview subtitle
   ai_tags      text[] NOT NULL DEFAULT '{}',
   sort         integer NOT NULL DEFAULT 0,
+  storage_path text,                        -- filename under uploads/ for real blobs (NULL = showcase/no blob)
+  mime_type    text,                        -- content type of the stored blob
   created_at   timestamptz NOT NULL DEFAULT now()
 );
+
+-- Upload storage columns (idempotent for existing DBs).
+ALTER TABLE files ADD COLUMN IF NOT EXISTS storage_path text;
+ALTER TABLE files ADD COLUMN IF NOT EXISTS mime_type    text;
 
 -- ─── App settings ─────────────────────────────────────────────────────────
 -- Single-row key/value store for the Settings screen toggles + profile fields.

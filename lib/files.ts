@@ -22,6 +22,8 @@ export interface FileRow {
   modified: string;
   /** Display size, "—" for folders. */
   size: string;
+  /** A real uploaded blob is on the server — Open/Download streams it. */
+  hasBlob: boolean;
 }
 
 export interface FilePreview {
@@ -31,6 +33,8 @@ export interface FilePreview {
   thumbLabel: string;
   meta: { label: string; value: string; chip?: ChipKind }[];
   aiTags: string[];
+  /** True when a real uploaded blob backs this file (Open downloads it). */
+  hasBlob: boolean;
 }
 
 export interface FilesData {
@@ -68,12 +72,13 @@ interface FileDbRow {
   size_label: string;
   subtitle: string | null;
   ai_tags: string[];
+  storage_path: string | null;
 }
 
 export async function getFilesData(): Promise<FilesData> {
   const { rows } = await query<FileDbRow>(`
     SELECT id, project_key, type, name, tag, ai_origin,
-           modified_label, size_label, subtitle, ai_tags
+           modified_label, size_label, subtitle, ai_tags, storage_path
     FROM files
     ORDER BY sort, name
   `);
@@ -87,14 +92,18 @@ export async function getFilesData(): Promise<FilesData> {
     ai: r.ai_origin,
     modified: r.modified_label,
     size: r.size_label,
+    hasBlob: !!r.storage_path,
   }));
 
   const previews: Record<string, FilePreview> = {};
   for (const r of rows) {
-    // AI-origin files aren't mirrored yet; everything else shows as synced.
-    const mirror: { label: string; value: string; chip?: ChipKind } = r.ai_origin
-      ? { label: "Mirror", value: "Not yet synced" }
-      : { label: "Mirror", value: "G Drive ✓", chip: "money" };
+    // Real uploads live on the server; AI-origin files aren't mirrored; the rest
+    // are the curated showcase shown as Drive-synced.
+    const mirror: { label: string; value: string; chip?: ChipKind } = r.storage_path
+      ? { label: "Storage", value: "On server ✓", chip: "money" }
+      : r.ai_origin
+        ? { label: "Mirror", value: "Not yet synced" }
+        : { label: "Mirror", value: "G Drive ✓", chip: "money" };
 
     previews[r.id] = {
       name: r.name,
@@ -114,6 +123,7 @@ export async function getFilesData(): Promise<FilesData> {
           : r.ai_origin
             ? [r.tag, "AI draft"]
             : [r.tag, r.project_key],
+      hasBlob: !!r.storage_path,
     };
   }
 

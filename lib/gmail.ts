@@ -382,3 +382,10 @@ export async function modifyThread(
 export async function trashThread(threadId: string): Promise<void> {
   await gmail().users.threads.trash({ userId: "me", id: threadId });
 }
+
+/** Unread thread count in the INBOX — a single cheap labels.get (no thread
+ *  fetching), suitable for the nav badge. */
+export async function gmailInboxUnread(): Promise<number> {
+  const { data } = await gmail().users.labels.get({ userId: "me", id: "INBOX" });
+  return data.threadsUnread ?? 0;
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -28,6 +29,7 @@ import {
 } from "lucide-react";
 import { Logo } from "./Logo";
 import { logout } from "@/lib/actions/auth";
+import { getNavCounts, type NavCounts } from "@/lib/actions/nav";
 
 type NavItem = {
   label: string;
@@ -40,9 +42,9 @@ type NavItem = {
 
 const WORK: NavItem[] = [
   { label: "Today", href: "/today", icon: Home },
-  { label: "Inbox", href: "/inbox", icon: Inbox, badge: "12" },
-  { label: "Team Chat", href: "/chat", icon: MessageSquare, badge: "3" },
-  { label: "Leads", href: "/leads", icon: Sprout, badge: "4" },
+  { label: "Inbox", href: "/inbox", icon: Inbox },
+  { label: "Team Chat", href: "/chat", icon: MessageSquare },
+  { label: "Leads", href: "/leads", icon: Sprout },
   { label: "Projects", href: "/projects", icon: FolderKanban },
   { label: "Schedule", href: "/schedule", icon: Calendar },
   { label: "Subs", href: "/subs", icon: HardHat },
@@ -128,6 +130,31 @@ type SidebarUser = { name: string; initials: string; roleLabel: string };
 /** Forest-green primary navigation panel. */
 export function Sidebar({ user }: { user: SidebarUser }) {
   const pathname = usePathname();
+  const [counts, setCounts] = useState<NavCounts | null>(null);
+
+  // Live nav badges, fetched after mount so they never delay a navigation.
+  useEffect(() => {
+    let alive = true;
+    getNavCounts()
+      .then((c) => alive && setCounts(c))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [pathname]);
+
+  const badgeFor = (href: string): string | undefined => {
+    if (!counts) return undefined;
+    const n =
+      href === "/inbox"
+        ? counts.inbox
+        : href === "/chat"
+          ? counts.chat
+          : href === "/leads"
+            ? counts.leads
+            : 0;
+    return n > 0 ? String(n) : undefined;
+  };
 
   return (
     <nav className="flex w-[232px] flex-none flex-col gap-1 bg-sidebar px-3 py-3.5">
@@ -148,7 +175,11 @@ export function Sidebar({ user }: { user: SidebarUser }) {
 
       <RailLabel>Work</RailLabel>
       {WORK.map((item) => (
-        <NavLink key={item.href} item={item} pathname={pathname} />
+        <NavLink
+          key={item.href}
+          item={{ ...item, badge: badgeFor(item.href) }}
+          pathname={pathname}
+        />
       ))}
 
       <div className="my-2 h-px bg-[rgba(255,255,255,0.09)]" />

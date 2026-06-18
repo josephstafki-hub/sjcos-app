@@ -178,3 +178,9 @@ export async function getChatData(): Promise<ChatData> {
     selectedKey: "field-daily",
   };
 }
+
+/** Total unread chat messages for the nav badge. Chat is UI-only today (no
+ *  table), so this is 0; it returns a real DB count once chat is persisted. */
+export async function getUnreadChatCount(): Promise<number> {
+  return 0;
+}

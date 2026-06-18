@@ -45,8 +45,9 @@ reviews; detail added per page. Status: ⬜ todo · �doing · ✅ done.
 - ⬜ Each project detail: full functionality — tabs are half-baked showcase.
 
 ## /schedule
-- ⬜ The "+" on calendar days should do something (add a block for that day).
-- ⬜ Clicking a daily log should link to where the daily logs live.
+- ✅ The per-day "+" on the week strip now opens the block modal prefilled to
+  that day's date (`ScheduleBlockModal`, reused by the header "Block" button).
+- ✅ Daily-log cards are clickable (`LogCard`) and open the full log entry.
 
 ## /subs
 - ⬜ Each sub detail is demo-only — real functionality.

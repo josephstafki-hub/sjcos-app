@@ -11,7 +11,7 @@ BEGIN;
 TRUNCATE leads, projects, subs, threads, notifications, compliance_items,
          warranty_projects, warranty_claims, schedule_blocks, daily_logs,
          files, app_settings, users, chat_messages, chat_reads,
-         project_punch
+         project_punch, catalog_items
          RESTART IDENTITY CASCADE;
 
 -- ─── Leads ──────────────────────────────────────────────────────────────────
@@ -155,6 +155,17 @@ INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initial
   ('marketing-queue','ai','Claude','CL','Queued. I''ll publish on approval and add it to the newsletter draft.', now() - interval '55 min');
 
 INSERT INTO chat_reads (channel_key, last_read_at) VALUES ('field-daily', now());
+
+-- ─── Material catalog ────────────────────────────────────────────────────────
+INSERT INTO catalog_items (name, supplier, sku, category, use_label, price) VALUES
+  ('Calacatta marble · slab',      'Cambria stoneyards', 'CAL-SLB-3CM', 'Counters', '4 projects',  '$185 / sq ft'),
+  ('Cambria Brittanicca · quartz', 'Cambria stoneyards', 'CAM-BRI-3CM', 'Counters', '6 projects',  '$95 / sq ft'),
+  ('Shaker maple base · 36"',      'Twin Cities Cab Co', 'SHK-MAP-B36', 'Cabinets', '12 projects', '$420'),
+  ('Zellige · honey · 2×8',        'Cle Tile',           'CLE-ZEL-H28', 'Tile',     '3 projects',  '$24 / sq ft'),
+  ('White oak LVP · 7"',           'Falk Floors',        'FLK-WO7',     'Flooring', '8 projects',  '$5.20 / sq ft'),
+  ('Brass bar pull · 4"',          'Schoolhouse',        'SCH-BBP-4',   'Hardware', '6 projects',  '$22'),
+  ('Kohler farmhouse 30"',         'Ferguson',           'KOH-FH30',    'Plumbing', '4 projects',  '$780'),
+  ('Sconce · brass · linen shade', 'Schoolhouse',        'SCH-SC-L',    'Lighting', '5 projects',  '$220');
 
 -- ─── Project punch lists ─────────────────────────────────────────────────────
 INSERT INTO project_punch (project_id, item, owner_name, done, sort_order)

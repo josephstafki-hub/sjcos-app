@@ -284,7 +284,22 @@ CREATE TABLE IF NOT EXISTS project_punch (
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- ─── Material catalog ───────────────────────────────────────────────────────
+-- The /catalog material library. Owner adds/removes items; category is one of
+-- the filter chips (excluding "All"). Drive/supplier-scrape capture deferred.
+CREATE TABLE IF NOT EXISTS catalog_items (
+  id          bigserial PRIMARY KEY,
+  name        text NOT NULL,
+  supplier    text NOT NULL DEFAULT '',
+  sku         text NOT NULL DEFAULT '',
+  category    text NOT NULL DEFAULT 'Cabinets',
+  use_label   text NOT NULL DEFAULT '',
+  price       text NOT NULL DEFAULT '',
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
 -- ─── Indexes for the common list queries ────────────────────────────────────
+CREATE INDEX IF NOT EXISTS idx_catalog_category     ON catalog_items(category);
 CREATE INDEX IF NOT EXISTS idx_punch_project        ON project_punch(project_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_chat_channel         ON chat_messages(channel_key, created_at);
 CREATE INDEX IF NOT EXISTS idx_leads_stage          ON leads(stage);

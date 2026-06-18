@@ -1,7 +1,8 @@
-import { Search, Sparkles, Plus } from "lucide-react";
+import { Search, Sparkles } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
 import { Card, Eyebrow, AckButton } from "@/components/ui";
 import { CatalogClient } from "@/components/catalog/CatalogClient";
+import { AddMaterialButton } from "@/components/catalog/AddMaterialButton";
 import { getCatalogData } from "@/lib/catalog";
 
 export default async function CatalogPage() {
@@ -29,12 +30,7 @@ export default async function CatalogPage() {
               label="Browser capture"
               ackLabel="Capturing…"
             />
-            <AckButton
-              variant="ink"
-              icon={<Plus className="size-3" strokeWidth={1.5} />}
-              label="Add material"
-              ackLabel="Opening form…"
-            />
+            <AddMaterialButton />
           </div>
         </div>
 

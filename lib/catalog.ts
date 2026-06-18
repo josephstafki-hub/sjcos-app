@@ -1,42 +1,28 @@
-// Catalog (material library) data builder. Mock-backed today; in Phase 7 it
-// reads the materials table + supplier links. The grid shape stays stable.
+// Catalog (material library) data builder. DB-backed: reads the catalog_items
+// table; the owner adds/removes items via lib/actions/catalog.ts. Supplier-scrape
+// "browser capture" is still deferred. The grid shape is unchanged.
 
-export const CATEGORIES = [
-  "All",
-  "Cabinets",
-  "Counters",
-  "Tile",
-  "Flooring",
-  "Hardware",
-  "Plumbing",
-  "Lighting",
-  "Trim",
-] as const;
+import { query } from "./db";
+import { CATEGORIES, MATERIAL_CATEGORIES } from "./catalog-categories";
+import type { CatalogCategory, MaterialCategory } from "./catalog-categories";
 
-export type CatalogCategory = (typeof CATEGORIES)[number];
+// Re-export the db-free constants/types so existing server-side imports keep
+// working (client components must import from ./catalog-categories directly).
+export { CATEGORIES, MATERIAL_CATEGORIES };
+export type { CatalogCategory, MaterialCategory };
 
 export interface Material {
+  id: number;
   name: string;
   supplier: string;
   sku: string;
   /** Canonical category for the filter chips. */
-  category: Exclude<CatalogCategory, "All">;
+  category: MaterialCategory;
   /** Usage count display, e.g. "4 projects". */
   use: string;
   /** Price display, e.g. "$185 / sq ft". */
   price: string;
 }
-
-const MATERIALS: Material[] = [
-  { name: "Calacatta marble · slab", supplier: "Cambria stoneyards", sku: "CAL-SLB-3CM", category: "Counters", use: "4 projects", price: "$185 / sq ft" },
-  { name: "Cambria Brittanicca · quartz", supplier: "Cambria stoneyards", sku: "CAM-BRI-3CM", category: "Counters", use: "6 projects", price: "$95 / sq ft" },
-  { name: 'Shaker maple base · 36"', supplier: "Twin Cities Cab Co", sku: "SHK-MAP-B36", category: "Cabinets", use: "12 projects", price: "$420" },
-  { name: "Zellige · honey · 2×8", supplier: "Cle Tile", sku: "CLE-ZEL-H28", category: "Tile", use: "3 projects", price: "$24 / sq ft" },
-  { name: 'White oak LVP · 7"', supplier: "Falk Floors", sku: "FLK-WO7", category: "Flooring", use: "8 projects", price: "$5.20 / sq ft" },
-  { name: 'Brass bar pull · 4"', supplier: "Schoolhouse", sku: "SCH-BBP-4", category: "Hardware", use: "6 projects", price: "$22" },
-  { name: 'Kohler farmhouse 30"', supplier: "Ferguson", sku: "KOH-FH30", category: "Plumbing", use: "4 projects", price: "$780" },
-  { name: "Sconce · brass · linen shade", supplier: "Schoolhouse", sku: "SCH-SC-L", category: "Lighting", use: "5 projects", price: "$220" },
-];
 
 export interface CatalogData {
   eyebrow: string;
@@ -44,11 +30,43 @@ export interface CatalogData {
   materials: Material[];
 }
 
-export async function getCatalogData(): Promise<CatalogData> {
-  const suppliers = new Set(MATERIALS.map((m) => m.supplier)).size;
+interface MaterialRow {
+  id: number;
+  name: string;
+  supplier: string;
+  sku: string;
+  category: string;
+  use_label: string;
+  price: string;
+}
+
+function rowToMaterial(r: MaterialRow): Material {
+  const category = (MATERIAL_CATEGORIES as readonly string[]).includes(r.category)
+    ? (r.category as MaterialCategory)
+    : "Cabinets";
   return {
-    eyebrow: `1,084 materials · used across 38 projects · ${suppliers} suppliers`,
+    id: r.id,
+    name: r.name,
+    supplier: r.supplier,
+    sku: r.sku,
+    category,
+    use: r.use_label,
+    price: r.price,
+  };
+}
+
+export async function getCatalogData(): Promise<CatalogData> {
+  const { rows } = await query<MaterialRow>(
+    `SELECT id, name, supplier, sku, category, use_label, price
+       FROM catalog_items
+       ORDER BY created_at DESC, id DESC`,
+  );
+  const materials = rows.map(rowToMaterial);
+  const suppliers = new Set(materials.map((m) => m.supplier).filter(Boolean)).size;
+
+  return {
+    eyebrow: `${materials.length} materials · ${suppliers} suppliers`,
     categories: [...CATEGORIES],
-    materials: MATERIALS,
+    materials,
   };
 }

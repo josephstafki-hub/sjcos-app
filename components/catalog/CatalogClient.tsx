@@ -1,11 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { Trash2 } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
+import { deleteMaterial } from "@/lib/actions/catalog";
 import type { CatalogCategory, CatalogData } from "@/lib/catalog";
 
 export function CatalogClient({ data }: { data: CatalogData }) {
   const [category, setCategory] = useState<CatalogCategory>("All");
+  const [removing, startRemove] = useTransition();
+  const [pendingId, setPendingId] = useState<number | null>(null);
+
+  function remove(id: number) {
+    setPendingId(id);
+    startRemove(async () => {
+      await deleteMaterial(id);
+      setPendingId(null);
+    });
+  }
 
   const visible =
     category === "All"
@@ -26,8 +38,20 @@ export function CatalogClient({ data }: { data: CatalogData }) {
       {/* Material grid */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {visible.map((m) => (
-          <Card key={m.sku} className="overflow-hidden p-0">
+          <Card
+            key={m.id}
+            className={`group relative overflow-hidden p-0 ${pendingId === m.id ? "opacity-40" : ""}`}
+          >
             <div className="aspect-[4/3] border-b border-rule bg-paper-3" />
+            <button
+              type="button"
+              onClick={() => remove(m.id)}
+              disabled={removing}
+              aria-label={`Remove ${m.name}`}
+              className="absolute right-1.5 top-1.5 rounded-md border border-rule bg-card/90 p-1 text-ink-3 opacity-0 transition hover:text-flag group-hover:opacity-100 disabled:opacity-40"
+            >
+              <Trash2 className="size-3.5" strokeWidth={1.5} />
+            </button>
             <div className="p-2.5">
               <div className="font-serif text-[13px] font-semibold leading-tight text-ink">
                 {m.name}

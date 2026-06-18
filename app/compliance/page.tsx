@@ -1,7 +1,7 @@
 import { Sparkles } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { AiBubble, AckButton, Card, Chip, Eyebrow } from "@/components/ui";
-import { getComplianceData } from "@/lib/compliance";
+import { AiBubble, AiStream, AckButton, Card, Chip, Eyebrow } from "@/components/ui";
+import { getComplianceData, getComplianceSummary } from "@/lib/compliance";
 import type { ComplianceDot } from "@/lib/compliance";
 import { resolveComplianceItem } from "@/lib/actions/compliance";
 
@@ -40,7 +40,7 @@ export default async function CompliancePage() {
           className="mb-3.5"
           actions={<AckButton label="Open both" ackLabel="Flagged for review" />}
         >
-          {data.summary}
+          <AiStream load={() => getComplianceSummary(data.summaryInput)} />
         </AiBubble>
 
         {/* Window cards */}

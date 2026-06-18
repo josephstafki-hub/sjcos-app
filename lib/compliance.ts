@@ -37,8 +37,9 @@ export interface TimelineRow {
 
 export interface ComplianceData {
   eyebrow: string;
-  /** AI outlook shown in the brief bubble. */
-  summary: string;
+  /** Input for the AI outlook; the text streams in via getComplianceSummary so
+   *  the page isn't blocked on inference. */
+  summaryInput: string;
   filters: string[];
   windows: ComplianceWindowCard[];
   timeline: TimelineRow[];
@@ -107,16 +108,20 @@ export async function getComplianceData(): Promise<ComplianceData> {
   const urgentLine = windows[0].items.length
     ? windows[0].items.map((i) => `${i.title} (due ${i.due})`).join("; ")
     : "Nothing urgent in the next 14 days";
-  const { summary } = await ai.summarize({
-    focus: "compliance",
-    text: `${urgent} item${urgent === 1 ? "" : "s"} need attention soon: ${urgentLine}.`,
-  });
+  const summaryInput = `${urgent} item${urgent === 1 ? "" : "s"} need attention soon: ${urgentLine}.`;
 
   return {
     eyebrow: `${next30} items in next 30 days · ${urgent} urgent`,
-    summary,
+    summaryInput,
     filters: ["All", "COI", "Licenses", "Tax"],
     windows,
     timeline,
   };
+}
+
+/** The AI compliance outlook. Streamed separately (see AiStream) so the page
+ *  paints before the model responds. */
+export async function getComplianceSummary(text: string): Promise<string> {
+  const { summary } = await ai.summarize({ focus: "compliance", text });
+  return summary;
 }

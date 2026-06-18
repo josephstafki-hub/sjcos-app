@@ -1,6 +1,7 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { AiBubble, Card, Chip, Eyebrow } from "@/components/ui";
-import type { TodayData } from "@/lib/today";
+import { getTodayBrief, type BriefInput, type TodayData } from "@/lib/today";
 
 const DOT: Record<string, string> = {
   flag: "bg-flag",
@@ -59,7 +60,9 @@ export function TodayBody({ data }: { data: TodayData }) {
         <div className="mb-1 font-serif text-[13.5px] font-semibold text-ai-2">
           {data.briefHeadline}
         </div>
-        <div>{data.briefBody}</div>
+        <Suspense fallback={<BriefSkeleton />}>
+          <BriefText inputs={data.briefInputs} />
+        </Suspense>
       </AiBubble>
 
       {/* Two-column body */}
@@ -148,6 +151,24 @@ export function TodayBody({ data }: { data: TodayData }) {
           </Card>
         </aside>
       </div>
+    </div>
+  );
+}
+
+/** Async server component: awaits the AI brief inside the Suspense boundary so
+ *  the rest of the page can stream immediately. */
+async function BriefText({ inputs }: { inputs: BriefInput }) {
+  const text = await getTodayBrief(inputs);
+  return <div>{text}</div>;
+}
+
+/** Shimmer shown while the brief is being composed. */
+function BriefSkeleton() {
+  return (
+    <div className="space-y-1.5" aria-hidden>
+      <div className="h-3 w-[92%] animate-pulse rounded bg-ai/15" />
+      <div className="h-3 w-[78%] animate-pulse rounded bg-ai/15" />
+      <div className="h-3 w-[40%] animate-pulse rounded bg-ai/15" />
     </div>
   );
 }

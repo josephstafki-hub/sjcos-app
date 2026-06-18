@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { Camera, ChevronLeft, ChevronRight, Plus, Sparkles } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { AckButton, Card, Chip, Eyebrow } from "@/components/ui";
+import { AckButton, AiStream, Card, Chip, Eyebrow } from "@/components/ui";
 import { BlockButton } from "@/components/schedule/BlockButton";
 import { ConflictBubble } from "@/components/schedule/ConflictBubble";
-import { getScheduleData } from "@/lib/schedule";
+import { getScheduleData, getScheduleConflict } from "@/lib/schedule";
 import type { BlockTone } from "@/lib/schedule";
 
 // Pill treatment per timeblock tone. Card kind sets fill+border; the text
@@ -61,7 +61,9 @@ export default async function SchedulePage({
         </div>
 
         {/* AI conflict note */}
-        <ConflictBubble note={data.conflictNote} />
+        <ConflictBubble>
+          <AiStream load={() => getScheduleConflict()} />
+        </ConflictBubble>
 
         {/* 5-day strip */}
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-5">

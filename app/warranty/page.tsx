@@ -1,7 +1,7 @@
 import { Sparkles } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { AiBubble, AckButton, Card, Chip, Eyebrow } from "@/components/ui";
-import { getWarrantyData } from "@/lib/warranty";
+import { AiBubble, AiStream, AckButton, Card, Chip, Eyebrow } from "@/components/ui";
+import { getWarrantyData, getWarrantySummary } from "@/lib/warranty";
 import type { ClaimDot } from "@/lib/warranty";
 
 const DOT: Record<ClaimDot, string> = {
@@ -38,7 +38,7 @@ export default async function WarrantyPage() {
           className="mb-3.5"
           actions={<AckButton label="Open claim" ackLabel="Flagged for review" />}
         >
-          {data.summary}
+          <AiStream load={() => getWarrantySummary(data.summaryInput)} />
         </AiBubble>
 
         {/* Active claims */}

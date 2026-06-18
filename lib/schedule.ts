@@ -44,8 +44,6 @@ export interface DailyLogEntry {
 export interface ScheduleData {
   weekLabel: string;
   rangeLabel: string;
-  /** AI scheduling-conflict note shown in the brief bubble. */
-  conflictNote: string;
   days: ScheduleDay[];
   logs: {
     loggedCount: number;
@@ -88,7 +86,7 @@ function weekBounds(offset: number) {
 
 export async function getScheduleData(weekOffset = 0): Promise<ScheduleData> {
   const { monday: MONDAY, friday: FRIDAY } = weekBounds(weekOffset);
-  const [daysRes, blocksRes, logsRes, weekRes, suggestRes] = await Promise.all([
+  const [daysRes, blocksRes, logsRes, weekRes] = await Promise.all([
     query<DayRow>(`
       SELECT to_char(d, 'YYYY-MM-DD') AS iso,
              to_char(d, 'DY')         AS dow,
@@ -109,12 +107,6 @@ export async function getScheduleData(weekOffset = 0): Promise<ScheduleData> {
       SELECT to_char(${MONDAY}, 'FMIW')           AS weeknum,
              to_char(${MONDAY}, 'FMMon FMDD')     AS range_start,
              to_char(${FRIDAY}, 'FMDD')           AS range_end`),
-    ai.suggest({
-      kind: "schedule-conflicts",
-      context:
-        "Week site schedule. Brad (paint) is booked for Reyes paint and " +
-        "Henderson punch on the same day; Marco runs tile Mon–Tue.",
-    }),
   ]);
 
   const blocksByDay = new Map<string, ScheduleBlock[]>();
@@ -147,14 +139,10 @@ export async function getScheduleData(weekOffset = 0): Promise<ScheduleData> {
   });
 
   const week = weekRes.rows[0];
-  const conflictNote =
-    suggestRes.suggestions[0] ??
-    "Reyes paint collides with Henderson punch this week — Brad is double-booked.";
 
   return {
     weekLabel: `WEEK ${week?.weeknum ?? ""}`,
     rangeLabel: `${week?.range_start ?? ""} – ${week?.range_end ?? ""}`,
-    conflictNote,
     days,
     logs: {
       loggedCount: entries.filter((e) => e.logged).length,
@@ -162,4 +150,19 @@ export async function getScheduleData(weekOffset = 0): Promise<ScheduleData> {
       entries,
     },
   };
+}
+
+/** The AI scheduling-conflict note, streamed separately (see AiStream) so the
+ *  week view paints before the model responds. */
+export async function getScheduleConflict(): Promise<string> {
+  const { suggestions } = await ai.suggest({
+    kind: "schedule-conflicts",
+    context:
+      "Week site schedule. Brad (paint) is booked for Reyes paint and " +
+      "Henderson punch on the same day; Marco runs tile Mon–Tue.",
+  });
+  return (
+    suggestions[0] ??
+    "Reyes paint collides with Henderson punch this week — Brad is double-booked."
+  );
 }

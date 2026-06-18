@@ -1,14 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Check } from "lucide-react";
 import { AiBubble } from "@/components/ui";
 
 /** The AI scheduling-conflict note with working Apply / Ignore controls. There's
  *  no structured reschedule to commit yet, so Apply acknowledges (the owner will
  *  action it) and Ignore dismisses — both resolve the note out of the way rather
- *  than sitting inert. */
-export function ConflictBubble({ note }: { note: string }) {
+ *  than sitting inert. The note is passed as children so it can be a streamed
+ *  (Suspense) server slot — see AiStream. */
+export function ConflictBubble({ children }: { children: ReactNode }) {
   const [state, setState] = useState<"open" | "applied" | "ignored">("open");
 
   if (state === "ignored") return null;
@@ -44,7 +45,7 @@ export function ConflictBubble({ note }: { note: string }) {
         </>
       }
     >
-      {note}
+      {children}
     </AiBubble>
   );
 }

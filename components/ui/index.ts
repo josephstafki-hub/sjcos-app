@@ -5,6 +5,7 @@ export type { ChipKind } from "./Chip";
 export { Avatar } from "./Avatar";
 export type { AvatarKind, AvatarSize } from "./Avatar";
 export { AiBubble } from "./AiBubble";
+export { AiStream, AiStreamSkeleton } from "./AiStream";
 export { Tabs } from "./Tabs";
 export { Field } from "./Field";
 export { Eyebrow } from "./Eyebrow";

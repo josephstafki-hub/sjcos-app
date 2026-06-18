@@ -42,11 +42,20 @@ export interface TodayData {
   weekLabel: string;
   headerChips: { kind: ChipKind; label: string }[];
   briefHeadline: string;
-  briefBody: string;
+  /** Inputs for the AI brief, resolved lazily so the page paints instantly and
+   *  the brief streams in (CPU Qwen is ~15s — see getTodayBrief + Suspense). */
+  briefInputs: BriefInput;
   priorities: TodayPriority[];
   week: TodayCalDay[];
   schedule: TodayScheduleBlock[];
   waiting: { items: string[]; total: number };
+}
+
+export interface BriefInput {
+  date: string;
+  ownerName: string;
+  projects: { name: string; status: string; progress: number }[];
+  threadsNeedingReply: number;
 }
 
 /** Mon–Sun strip for the week containing `ref`, flagging the current day. */
@@ -103,10 +112,10 @@ export async function getTodayData(): Promise<TodayData> {
   const outstanding = projects.reduce((s, p) => s + Number(p.outstanding), 0);
   const flaggedLeads = Number(flaggedRes.rows[0]?.n ?? 0);
 
-  // The brief text comes from the AI service — the only AI touch-point here.
-  // Real project context + the flagged-lead count flow in; the mock relays
-  // them today and a real model composes from the same inputs in Phase 7.3.
-  const brief = await ai.brief({
+  // The AI brief is NOT awaited here — that would block the whole page on
+  // ~15s of CPU inference. We return its inputs and let getTodayBrief() run
+  // inside a Suspense boundary so the shell paints immediately.
+  const briefInputs: BriefInput = {
     date: now.toISOString().slice(0, 10),
     ownerName: "Joe",
     projects: projects.map((p) => ({
@@ -115,7 +124,7 @@ export async function getTodayData(): Promise<TodayData> {
       progress: p.progress,
     })),
     threadsNeedingReply: flaggedLeads,
-  });
+  };
 
   return {
     dateLabel,
@@ -126,7 +135,7 @@ export async function getTodayData(): Promise<TodayData> {
       { kind: "flag", label: `${flaggedLeads} lead${flaggedLeads === 1 ? "" : "s"} need attention` },
     ],
     briefHeadline: "Today's brief",
-    briefBody: brief.summary,
+    briefInputs,
     priorities: [
       {
         tag: "LEAD · 18h",
@@ -174,4 +183,11 @@ export async function getTodayData(): Promise<TodayData> {
       ],
     },
   };
+}
+
+/** The AI brief text. Resolved separately from getTodayData() so it can run
+ *  inside a Suspense boundary (CPU Qwen ~15s) without blocking first paint. */
+export async function getTodayBrief(inputs: BriefInput): Promise<string> {
+  const brief = await ai.brief(inputs);
+  return brief.summary;
 }

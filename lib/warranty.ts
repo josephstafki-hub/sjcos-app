@@ -34,8 +34,8 @@ export interface WarrantyProject {
 
 export interface WarrantyData {
   eyebrow: string;
-  /** AI claim summary shown in the brief bubble. */
-  summary: string;
+  /** Input for the AI claim summary; the text streams in via getWarrantySummary. */
+  summaryInput: string;
   filters: string[];
   claims: WarrantyClaim[];
   underWarrantyTotal: number;
@@ -100,19 +100,24 @@ export async function getWarrantyData(): Promise<WarrantyData> {
   // The claim summary is the AI touch-point — routed through the service. The
   // input is composed from the active claim(s); the mock relays it and a real
   // model composes from the same rows in Phase 7.3.
-  const claimText = claims.length
+  const summaryInput = claims.length
     ? claims
         .map((c) => `${c.project}: ${c.issue} (${c.deadline}). ${c.step}.`)
         .join(" ")
     : "No active warranty claims right now.";
-  const { summary } = await ai.summarize({ focus: "warranty", text: claimText });
 
   return {
     eyebrow: `${underWarrantyTotal} closed projects under warranty · ${claims.length} active claim${claims.length === 1 ? "" : "s"} · ${overdue} overdue`,
-    summary,
+    summaryInput,
     filters: ["Active claims", "Under warranty", "Expired"],
     claims,
     underWarrantyTotal,
     projects,
   };
+}
+
+/** The AI warranty claim summary, streamed separately (see AiStream). */
+export async function getWarrantySummary(text: string): Promise<string> {
+  const { summary } = await ai.summarize({ focus: "warranty", text });
+  return summary;
 }

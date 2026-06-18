@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS subs (
 
 ALTER TABLE subs ADD COLUMN IF NOT EXISTS fav       boolean NOT NULL DEFAULT false;
 ALTER TABLE subs ADD COLUMN IF NOT EXISTS open_jobs integer NOT NULL DEFAULT 0;
+ALTER TABLE subs ADD COLUMN IF NOT EXISTS notes     text NOT NULL DEFAULT '';  -- owner's private notes on the sub
 
 -- ─── Communication threads (Inbox + Comms) ──────────────────────────────────
 CREATE TABLE IF NOT EXISTS threads (

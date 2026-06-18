@@ -43,6 +43,9 @@ INSERT INTO subs (slug, name, trade, rate, fav, open_jobs, jobs_count, rating, c
   ('carl',   'Carl Lund',           'Tile',         '$55/hr',   false, 0,  3, 3, 'expiring', CURRENT_DATE + interval '5 days', 'carl.lund@gmail.example', '(612) 555-0193'),
   ('falk',   'Falk Floors',         'Flooring',     'sq ft',    false, 0,  6, 4, 'current',  DATE '2026-12-08', 'hello@falkfloors.example',       '(651) 555-0149');
 
+UPDATE subs SET notes = 'Preferred tile sub — first call for marble/zellige. Slightly slower on backsplash tear-out, build that into the schedule. Bills lump-sum on jobs over ~60 hrs.' WHERE slug = 'marco';
+UPDATE subs SET notes = 'Reliable, fast on rough-in. Books up — give 2+ weeks notice for anything beyond a service call.' WHERE slug = 'tomas';
+
 -- ─── Notifications ──────────────────────────────────────────────────────────
 -- created_at offsets preserve the intended feed order (newest/urgent first).
 INSERT INTO notifications (kind, tag, accent, icon, title, subline, when_label, flagged, href, created_at) VALUES

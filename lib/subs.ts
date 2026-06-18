@@ -63,11 +63,13 @@ interface SubRow {
   coi_label: string | null;
   email: string | null;
   phone: string | null;
+  notes: string;
 }
 
 const SUB_SELECT = `
   SELECT slug, name, trade, rate, fav, open_jobs, jobs_count, rating, coi_status,
-         to_char(coi_expires_at, 'FMMon FMDD') AS coi_label, email, phone
+         to_char(coi_expires_at, 'FMMon FMDD') AS coi_label, email, phone,
+         COALESCE(notes, '') AS notes
   FROM subs`;
 
 /** Initials from a sub's display name: first two alphabetic words. */
@@ -140,6 +142,8 @@ export interface SubDetail {
   paperwork: { label: string; value: string; ok: boolean }[];
   rate: { amount: string; unit: string; note: string };
   taxNote: string;
+  /** Owner's free-form private notes on the sub (editable, persisted). */
+  notes: string;
 }
 
 /** Rich curated content keyed by slug. Subs not listed here get a sensible
@@ -236,5 +240,6 @@ export async function getSub(slug: string): Promise<SubDetail | null> {
       ],
     rate: curated.rate ?? { amount, unit, note: "" },
     taxNote: curated.taxNote ?? "1099 reminder · file by Jan 31",
+    notes: rows[0].notes,
   };
 }

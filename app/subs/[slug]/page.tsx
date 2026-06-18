@@ -5,6 +5,7 @@ import { Phone, MessageSquare, Sparkles, Check } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
 import { AiBubble, AckButton, Avatar, Card, Chip, Eyebrow, Field } from "@/components/ui";
 import { SubTabs } from "@/components/subs/SubTabs";
+import { SubNotes } from "@/components/subs/SubNotes";
 import { getSub } from "@/lib/subs";
 import type { JobDot } from "@/lib/subs";
 
@@ -169,11 +170,14 @@ export default async function SubDetailPage({
     </div>
   );
 
-  // ── Notes panel — what Claude knows ────────────────────────────────────────
+  // ── Notes panel — editable owner notes + AI summary ────────────────────────
   const notesPanel = (
-    <div className="max-w-[680px]">
-      <Eyebrow muted>AI summary</Eyebrow>
-      <AiBubble className="mt-1.5">{sub.aiSummary}</AiBubble>
+    <div className="flex max-w-[680px] flex-col gap-3.5">
+      <SubNotes slug={sub.slug} notes={sub.notes} />
+      <div>
+        <Eyebrow muted>AI summary</Eyebrow>
+        <AiBubble className="mt-1.5">{sub.aiSummary}</AiBubble>
+      </div>
     </div>
   );
 

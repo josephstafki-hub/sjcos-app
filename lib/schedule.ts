@@ -27,12 +27,16 @@ export interface ScheduleDay {
   dow: string;
   /** Day-of-month, e.g. "25". */
   date: string;
+  /** ISO date (YYYY-MM-DD) for prefilling the add-block form. */
+  iso: string;
   today: boolean;
   blocks: ScheduleBlock[];
 }
 
 export interface DailyLogEntry {
   dow: string;
+  /** ISO date (YYYY-MM-DD) of the log. */
+  iso: string;
   logged: boolean;
   today: boolean;
   /** Body text when logged; empty otherwise. */
@@ -123,6 +127,7 @@ export async function getScheduleData(weekOffset = 0): Promise<ScheduleData> {
   const days: ScheduleDay[] = daysRes.rows.map((d) => ({
     dow: d.dow,
     date: d.date,
+    iso: d.iso,
     today: d.today,
     blocks: blocksByDay.get(d.iso) ?? [],
   }));
@@ -131,6 +136,7 @@ export async function getScheduleData(weekOffset = 0): Promise<ScheduleData> {
     const log = logsByDay.get(d.iso);
     return {
       dow: d.dow,
+      iso: d.iso,
       logged: !!log,
       today: d.today,
       body: log?.body ?? "",

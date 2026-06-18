@@ -1,30 +1,41 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Plus, X } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { X } from "lucide-react";
 import { createScheduleBlock } from "@/lib/actions/schedule";
 import { SubmitButton } from "@/components/ui";
 
-/** "Block" button + modal form on /schedule. Submits createScheduleBlock, which
- *  inserts a timeblock and revalidates the week strip. Date defaults to today
- *  (set after mount to avoid a server/client hydration mismatch). */
-export function BlockButton() {
+/** Add-time-block modal, reused by the header "Block" button and the per-day
+ *  "+" on the week strip. `initialDate` (YYYY-MM-DD) prefills the date; the
+ *  header omits it and defaults to today. */
+export function ScheduleBlockModal({
+  triggerClassName,
+  triggerContent,
+  triggerAriaLabel,
+  initialDate,
+}: {
+  triggerClassName: string;
+  triggerContent: ReactNode;
+  triggerAriaLabel?: string;
+  initialDate?: string;
+}) {
   const [open, setOpen] = useState(false);
-  const [date, setDate] = useState("");
+  const [date, setDate] = useState(initialDate ?? "");
 
   useEffect(() => {
-    // en-CA renders YYYY-MM-DD in the local timezone.
-    if (!date) setDate(new Date().toLocaleDateString("en-CA"));
-  }, [date]);
+    // en-CA renders YYYY-MM-DD in local time. Default to today when unset.
+    if (!date) setDate(initialDate ?? new Date().toLocaleDateString("en-CA"));
+  }, [date, initialDate]);
 
   return (
     <>
       <button
+        type="button"
         onClick={() => setOpen(true)}
-        className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1.5 text-[12px] font-medium text-paper transition-colors hover:bg-ink-2"
+        aria-label={triggerAriaLabel}
+        className={triggerClassName}
       >
-        <Plus className="size-3.5" strokeWidth={1.75} />
-        Block
+        {triggerContent}
       </button>
 
       {open && (
@@ -38,11 +49,7 @@ export function BlockButton() {
           >
             <div className="flex items-center justify-between border-b border-rule px-4 py-3">
               <h2 className="font-serif text-[17px] font-semibold text-ink">New time block</h2>
-              <button
-                onClick={() => setOpen(false)}
-                className="text-ink-3 hover:text-ink"
-                aria-label="Close"
-              >
+              <button onClick={() => setOpen(false)} className="text-ink-3 hover:text-ink" aria-label="Close">
                 <X className="size-4" strokeWidth={1.5} />
               </button>
             </div>
@@ -55,9 +62,7 @@ export function BlockButton() {
               className="flex flex-col gap-3 p-4"
             >
               <label className="flex flex-col gap-1">
-                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
-                  What
-                </span>
+                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">What</span>
                 <input
                   name="label"
                   required
@@ -68,9 +73,7 @@ export function BlockButton() {
               </label>
               <div className="flex gap-3">
                 <label className="flex flex-1 flex-col gap-1">
-                  <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
-                    Date
-                  </span>
+                  <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Date</span>
                   <input
                     name="date"
                     type="date"
@@ -81,9 +84,7 @@ export function BlockButton() {
                   />
                 </label>
                 <label className="flex w-[110px] flex-col gap-1">
-                  <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
-                    Time
-                  </span>
+                  <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Time</span>
                   <input
                     name="time"
                     placeholder="8:00"
@@ -92,9 +93,7 @@ export function BlockButton() {
                 </label>
               </div>
               <label className="flex flex-col gap-1">
-                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
-                  Type
-                </span>
+                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Type</span>
                 <select
                   name="tone"
                   defaultValue="accent"

@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { Camera, ChevronLeft, ChevronRight, Plus, Sparkles } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Sparkles } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
 import { AckButton, AiStream, Card, Chip, Eyebrow } from "@/components/ui";
-import { BlockButton } from "@/components/schedule/BlockButton";
+import { ScheduleBlockModal } from "@/components/schedule/ScheduleBlockModal";
+import { LogCard } from "@/components/schedule/LogCard";
 import { ConflictBubble } from "@/components/schedule/ConflictBubble";
 import { getScheduleData, getScheduleConflict } from "@/lib/schedule";
 import type { BlockTone } from "@/lib/schedule";
@@ -56,7 +57,15 @@ export default async function SchedulePage({
             >
               <ChevronRight className="size-3.5" strokeWidth={1.5} />
             </Link>
-            <BlockButton />
+            <ScheduleBlockModal
+              triggerClassName="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1.5 text-[12px] font-medium text-paper transition-colors hover:bg-ink-2"
+              triggerContent={
+                <>
+                  <Plus className="size-3.5" strokeWidth={1.75} />
+                  Block
+                </>
+              }
+            />
           </div>
         </div>
 
@@ -91,7 +100,12 @@ export default async function SchedulePage({
                     {day.date}
                   </div>
                 </div>
-                <Plus className="size-3 text-ink-4" strokeWidth={1.5} />
+                <ScheduleBlockModal
+                  initialDate={day.iso}
+                  triggerAriaLabel={`Add a block on ${day.dow}`}
+                  triggerClassName="rounded p-0.5 text-ink-4 transition-colors hover:bg-paper-3 hover:text-ink-2"
+                  triggerContent={<Plus className="size-3" strokeWidth={1.5} />}
+                />
               </div>
 
               <div className="mt-2 flex flex-col gap-1">
@@ -124,19 +138,7 @@ export default async function SchedulePage({
           <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-5">
             {data.logs.entries.map((log) =>
               log.body ? (
-                <Card key={log.dow} className="flex min-h-[110px] flex-col p-2.5">
-                  <div className="font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-accent-2">
-                    {log.dow}
-                    {log.today ? " · TODAY" : ""}
-                  </div>
-                  <p className="mt-1.5 flex-1 text-[11px] leading-snug text-ink-2">{log.body}</p>
-                  {log.photos > 0 && (
-                    <div className="mt-2 flex items-center gap-1 text-ink-3">
-                      <Camera className="size-3" strokeWidth={1.5} />
-                      <span className="font-mono text-[10px]">{log.photos}</span>
-                    </div>
-                  )}
-                </Card>
+                <LogCard key={log.dow} log={log} />
               ) : (
                 <Card
                   key={log.dow}

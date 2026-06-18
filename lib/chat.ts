@@ -9,6 +9,8 @@
 // posts will be generated through the ai service abstraction — never a provider
 // directly.
 
+import { query } from "./db";
+
 // ─── Left rail: channels, project rooms, DMs ────────────────────────────────
 
 export interface ChatChannel {
@@ -76,59 +78,13 @@ export interface ChannelView {
   messages: ChatMessage[];
 }
 
-/** Curated transcript for the showcase channel. */
-const FIELD_DAILY: ChannelView = {
-  key: "field-daily",
-  name: "# field-daily",
-  description: "Daily check-ins from active sites · Claude pins what's blocking",
-  participants: ["JS", "MR", "TS", "BP"],
-  daySeparator: "Today · Mon May 25",
-  messages: [
-    {
-      initials: "MR",
-      name: "Marco",
-      time: "7:48am",
-      kind: "user",
-      text: "On Henderson at 12:30 — bringing the 1/4 trowel for the mosaic strip. Need the access code again?",
-    },
-    {
-      initials: "JS",
-      name: "Joe",
-      time: "7:51am",
-      kind: "owner",
-      text: "Code is 4429. I'll be on site at noon for the QC walk.",
-    },
-    {
-      initials: "CL",
-      name: "Claude",
-      time: "8:02am",
-      kind: "ai",
-      system: true,
-      text: "Pinned to #henderson-kitchen: tile pre-install QC checklist + Friday flatness photo. Marco — that soft spot at the pantry threshold is your watch-out.",
-    },
-    {
-      initials: "TS",
-      name: "Tomas",
-      time: "8:14am",
-      kind: "user",
-      text: "Pham bid sent. Let me know if you want me to walk Joe through the load calc.",
-    },
-    {
-      initials: "JS",
-      name: "Joe",
-      time: "8:32am",
-      kind: "owner",
-      text: "@claude what's outstanding on Olson for the Tues walk?",
-    },
-    {
-      initials: "CL",
-      name: "Claude",
-      time: "8:32am",
-      kind: "ai",
-      system: true,
-      text: "4 punch items remain — all minor. Paint touch-up by Brad (Mon EOD), trim caulk SW corner, replace one cabinet pull (back-ordered, ETA Tues AM), check vent dampener. I can confirm the dampener now if you want.",
-    },
-  ],
+/** Per-channel one-liner shown under the channel name. */
+const DESCRIPTIONS: Record<string, string> = {
+  "field-daily": "Daily check-ins from active sites · Claude pins what's blocking",
+  selections: "Client selections + approvals · Claude logs each decision",
+  bookkeeping: "Receipts, invoices, and money questions",
+  safety: "Site safety notes and incident reports",
+  "marketing-queue": "AI-drafted posts waiting on your approval",
 };
 
 // ─── Builders ────────────────────────────────────────────────────────────────
@@ -143,44 +99,116 @@ export interface ChatData {
   selectedKey: string;
 }
 
-/** Generic fallback view for channels without a curated transcript. */
-function buildGenericView(ch: ChatChannel): ChannelView {
+interface MessageRow {
+  channel_key: string;
+  author_kind: MessageKind;
+  author_name: string;
+  author_initials: string;
+  body: string;
+  created_at: Date;
+}
+
+/** "7:48am" in a deterministic format (computed server-side, sent as data). */
+function clockTime(d: Date): string {
+  let h = d.getHours();
+  const m = d.getMinutes().toString().padStart(2, "0");
+  const ap = h >= 12 ? "pm" : "am";
+  h = h % 12 || 12;
+  return `${h}:${m}${ap}`;
+}
+
+function rowToMessage(r: MessageRow): ChatMessage {
+  return {
+    initials: r.author_initials || (r.author_kind === "ai" ? "CL" : "?"),
+    name: r.author_name,
+    time: clockTime(new Date(r.created_at)),
+    text: r.body,
+    kind: r.author_kind,
+    system: r.author_kind === "ai",
+  };
+}
+
+function buildView(ch: ChatChannel, rows: MessageRow[]): ChannelView {
+  const messages = rows.map(rowToMessage);
+  const seen = new Set<string>();
+  const participants: string[] = [];
+  for (const m of messages) {
+    if (m.initials && !seen.has(m.initials)) {
+      seen.add(m.initials);
+      participants.push(m.initials);
+    }
+  }
+  if (!participants.includes("JS")) participants.unshift("JS");
+  if (!participants.includes("CL")) participants.push("CL");
+
   return {
     key: ch.key,
     name: ch.name,
-    description: "Claude is watching this channel and will flag anything that needs you.",
-    participants: ["JS", "CL"],
-    daySeparator: "Today · Mon May 25",
-    messages: [
-      {
-        initials: "CL",
-        name: "Claude",
-        time: "8:00am",
-        kind: "ai",
-        system: true,
-        text: `Watching ${ch.name} — I'll surface anything that needs a decision, money items, or a mention here.`,
-      },
-    ],
+    description:
+      DESCRIPTIONS[ch.key] ??
+      "Claude is watching this channel and will flag anything that needs you.",
+    participants: participants.slice(0, 5),
+    daySeparator: `Today · ${new Date().toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    })}`,
+    messages,
   };
 }
 
 export async function getChatData(): Promise<ChatData> {
   const all = [...CHANNELS, ...ROOMS];
+  const [msgRes, readRes] = await Promise.all([
+    query<MessageRow>(
+      `SELECT channel_key, author_kind, author_name, author_initials, body, created_at
+       FROM chat_messages ORDER BY created_at ASC`,
+    ),
+    query<{ channel_key: string; last_read_at: Date }>(
+      `SELECT channel_key, last_read_at FROM chat_reads`,
+    ),
+  ]);
+
+  const byChannel = new Map<string, MessageRow[]>();
+  for (const r of msgRes.rows) {
+    const list = byChannel.get(r.channel_key) ?? [];
+    list.push(r);
+    byChannel.set(r.channel_key, list);
+  }
+  const lastRead = new Map(readRes.rows.map((r) => [r.channel_key, new Date(r.last_read_at)]));
+
+  const unreadFor = (key: string): number => {
+    const since = lastRead.get(key);
+    return (byChannel.get(key) ?? []).filter(
+      (r) => r.author_kind !== "owner" && (!since || new Date(r.created_at) > since),
+    ).length;
+  };
+
+  const withUnread = (list: ChatChannel[]): ChatChannel[] =>
+    list.map((c) => ({ ...c, unread: unreadFor(c.key) || undefined }));
+
   const viewEntries = all.map(
-    (ch) => [ch.key, ch.key === "field-daily" ? FIELD_DAILY : buildGenericView(ch)] as const,
+    (ch) => [ch.key, buildView(ch, byChannel.get(ch.key) ?? [])] as const,
   );
 
   return {
-    channels: CHANNELS,
-    rooms: ROOMS,
+    channels: withUnread(CHANNELS),
+    rooms: withUnread(ROOMS),
     directs: DIRECTS,
     views: Object.fromEntries(viewEntries),
     selectedKey: "field-daily",
   };
 }
 
-/** Total unread chat messages for the nav badge. Chat is UI-only today (no
- *  table), so this is 0; it returns a real DB count once chat is persisted. */
+/** Total unread chat messages for the nav badge (messages from others after
+ *  each channel's last-read marker). */
 export async function getUnreadChatCount(): Promise<number> {
-  return 0;
+  const { rows } = await query<{ n: string }>(
+    `SELECT count(*) AS n
+       FROM chat_messages m
+       LEFT JOIN chat_reads r ON r.channel_key = m.channel_key
+      WHERE m.author_kind <> 'owner'
+        AND (r.last_read_at IS NULL OR m.created_at > r.last_read_at)`,
+  );
+  return Number(rows[0]?.n ?? 0);
 }

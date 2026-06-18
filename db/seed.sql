@@ -10,7 +10,8 @@ BEGIN;
 
 TRUNCATE leads, projects, subs, threads, notifications, compliance_items,
          warranty_projects, warranty_claims, schedule_blocks, daily_logs,
-         files, app_settings, users RESTART IDENTITY CASCADE;
+         files, app_settings, users, chat_messages, chat_reads
+         RESTART IDENTITY CASCADE;
 
 -- ─── Leads ──────────────────────────────────────────────────────────────────
 INSERT INTO leads (slug, name, scope, stage, estimate_value, value_display, source, hot, flag_label, flag_kind, email, phone, last_contact_at) VALUES
@@ -134,5 +135,21 @@ INSERT INTO users (email, password_hash, name, role, initials, link_slug) VALUES
   ('marco@trade.demo',                 '7b0fde8bb853a839033153bdeaa36f85:13a5b94d59ae067395c377f3602a18bd1fcb0a304bd3d285596a96ddd2b19d32bf37ce1e3e3642cd266ce14a5133eea46c3c549d84ecd6d28f761a4a3ba1a04b', 'Marco Ruiz',      'sub',    'MR', 'marco'),
   ('tomas@trade.demo',                 'c1ecbe91601cd65169760ecdd5ccb26e:13bf853d514195961b84b2f7ced4923c326c383b305ad91e2bd44c4389521062bdcc4d0a9600372816449b823fa373bb5685c9b040de181adde4b98bfd49b2c8', 'Tomas Silva',     'sub',    'TS', 'tomas'),
   ('henderson@client.demo',            '2d3bf6e4e58f765b030d9ff3ad872e90:42e5321e91427191cc385489d0287e5f51ffa12e5392baab39dda1f0bf9d1ab40bd9d7b79a3c5b4743c174c75439388fa662f2ea9b135f1f6b09b785b760ddef', 'Kate Henderson',  'client', 'KH', 'henderson');
+
+-- ─── Team chat ──────────────────────────────────────────────────────────────
+INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body, created_at) VALUES
+  ('field-daily','user','Marco','MR','On Henderson at 12:30 — bringing the 1/4 trowel for the mosaic strip. Need the access code again?', now() - interval '240 min'),
+  ('field-daily','owner','Joe','JS','Code is 4429. I''ll be on site at noon for the QC walk.', now() - interval '237 min'),
+  ('field-daily','ai','Claude','CL','Pinned to #henderson-kitchen: tile pre-install QC checklist + Friday flatness photo. Marco — that soft spot at the pantry threshold is your watch-out.', now() - interval '226 min'),
+  ('field-daily','user','Tomas','TS','Pham bid sent. Let me know if you want me to walk Joe through the load calc.', now() - interval '214 min'),
+  ('field-daily','owner','Joe','JS','@claude what''s outstanding on Olson for the Tues walk?', now() - interval '196 min'),
+  ('field-daily','ai','Claude','CL','4 punch items remain — all minor. Paint touch-up by Brad (Mon EOD), trim caulk SW corner, replace one cabinet pull (back-ordered, ETA Tues AM), check vent dampener.', now() - interval '196 min'),
+  ('selections','user','Dani','DH','Chen picked the Calacatta quartz — sending the slab photo now.', now() - interval '90 min'),
+  ('selections','user','Marco','MR','Got it, I''ll template Thursday once the slab is on site.', now() - interval '75 min'),
+  ('marketing-queue','ai','Claude','CL','3 social posts drafted from the Olson closeout photos — captions + crops ready for your approval.', now() - interval '120 min'),
+  ('marketing-queue','user','Dani','DH','The before/after on the porch is great — let''s push that one first.', now() - interval '60 min'),
+  ('marketing-queue','ai','Claude','CL','Queued. I''ll publish on approval and add it to the newsletter draft.', now() - interval '55 min');
+
+INSERT INTO chat_reads (channel_key, last_read_at) VALUES ('field-daily', now());
 
 COMMIT;

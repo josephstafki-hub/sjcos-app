@@ -1,8 +1,13 @@
 "use client";
 
-import { useState } from "react";
-import { Sparkles, Plus } from "lucide-react";
+import { useState, useTransition } from "react";
+import { Sparkles, Send } from "lucide-react";
 import { Card, Chip, Avatar } from "@/components/ui";
+import {
+  sendChatMessage,
+  askClaudeInChannel,
+  markChannelRead,
+} from "@/lib/actions/chat";
 import type { ChatChannel, ChatData, ChatMessage } from "@/lib/chat";
 
 /** Small-caps mono section label for the light-background rail. */
@@ -14,9 +19,69 @@ function RailLabel({ children }: { children: string }) {
   );
 }
 
+/** "7:48am" — matches the server-side format in lib/chat. */
+function clockNow(): string {
+  const d = new Date();
+  let h = d.getHours();
+  const m = d.getMinutes().toString().padStart(2, "0");
+  const ap = h >= 12 ? "pm" : "am";
+  h = h % 12 || 12;
+  return `${h}:${m}${ap}`;
+}
+
 export function ChatClient({ data }: { data: ChatData }) {
   const [selectedKey, setSelectedKey] = useState(data.selectedKey);
-  const view = data.views[selectedKey];
+  const [views, setViews] = useState(data.views);
+  const [channels, setChannels] = useState(data.channels);
+  const [rooms, setRooms] = useState(data.rooms);
+  const [input, setInput] = useState("");
+  const [typing, setTyping] = useState(false);
+  const [, startTransition] = useTransition();
+
+  const view = views[selectedKey];
+
+  const selectChannel = (key: string) => {
+    setSelectedKey(key);
+    // Optimistically clear the unread badge + persist the read marker.
+    const clear = (list: ChatChannel[]) =>
+      list.map((c) => (c.key === key ? { ...c, unread: undefined } : c));
+    setChannels(clear);
+    setRooms(clear);
+    markChannelRead(key).catch(() => {});
+  };
+
+  const append = (key: string, msg: ChatMessage) =>
+    setViews((v) => ({
+      ...v,
+      [key]: { ...v[key], messages: [...v[key].messages, msg] },
+    }));
+
+  const send = () => {
+    const text = input.trim();
+    if (!text) return;
+    const key = selectedKey;
+    append(key, { initials: "JS", name: "Joe", time: clockNow(), text, kind: "owner" });
+    setInput("");
+    const mentionsClaude = /@claude/i.test(text);
+    startTransition(async () => {
+      await sendChatMessage(key, text);
+      if (mentionsClaude) {
+        setTyping(true);
+        const r = await askClaudeInChannel(key);
+        if (r.ok && r.reply) {
+          append(key, {
+            initials: "CL",
+            name: "Claude",
+            time: clockNow(),
+            text: r.reply,
+            kind: "ai",
+            system: true,
+          });
+        }
+        setTyping(false);
+      }
+    });
+  };
 
   return (
     <div className="flex h-full">
@@ -24,12 +89,12 @@ export function ChatClient({ data }: { data: ChatData }) {
       <aside className="flex w-[220px] flex-none flex-col overflow-y-auto border-r border-rule bg-paper-2 p-3">
         <RailLabel>Channels</RailLabel>
         <div className="flex flex-col gap-0.5">
-          {data.channels.map((c) => (
+          {channels.map((c) => (
             <ChannelItem
               key={c.key}
               channel={c}
               active={c.key === selectedKey}
-              onSelect={() => setSelectedKey(c.key)}
+              onSelect={() => selectChannel(c.key)}
             />
           ))}
         </div>
@@ -37,12 +102,12 @@ export function ChatClient({ data }: { data: ChatData }) {
         <div className="my-2 h-px bg-rule" />
         <RailLabel>Project rooms</RailLabel>
         <div className="flex flex-col gap-0.5">
-          {data.rooms.map((c) => (
+          {rooms.map((c) => (
             <ChannelItem
               key={c.key}
               channel={c}
               active={c.key === selectedKey}
-              onSelect={() => setSelectedKey(c.key)}
+              onSelect={() => selectChannel(c.key)}
             />
           ))}
         </div>
@@ -99,19 +164,53 @@ export function ChatClient({ data }: { data: ChatData }) {
             <div className="flex justify-center">
               <Chip kind="ghost">{view.daySeparator}</Chip>
             </div>
+            {view.messages.length === 0 && (
+              <div className="py-8 text-center text-[12px] text-ink-3">
+                No messages yet. Say something — mention <b>@claude</b> to loop Claude in.
+              </div>
+            )}
             {view.messages.map((m, i) => (
               <MessageRow key={i} message={m} />
             ))}
+            {typing && (
+              <div className="flex items-center gap-2 pl-1 text-[12px] text-ai-2">
+                <Sparkles className="size-3 animate-pulse" strokeWidth={1.5} />
+                Claude is typing…
+              </div>
+            )}
           </div>
         </div>
 
         <div className="flex-none border-t border-rule px-5 py-3">
-          <Card kind="soft" className="flex items-center gap-2 px-3 py-2.5">
-            <Plus className="size-3.5 flex-none text-ink-3" strokeWidth={1.5} />
-            <span className="flex-1 text-[13px] text-ink-4">Message {view.name}…</span>
-            <Chip kind="ai">@claude</Chip>
-            <Chip kind="ghost">/log</Chip>
-          </Card>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              send();
+            }}
+            className="flex items-end gap-2"
+          >
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  send();
+                }
+              }}
+              rows={1}
+              placeholder={`Message ${view.name}…  (@claude to ask, Enter to send)`}
+              className="flex-1 resize-none rounded-md border border-rule bg-card px-3 py-2 text-[13px] text-ink outline-none focus:border-accent"
+            />
+            <button
+              type="submit"
+              disabled={!input.trim()}
+              aria-label="Send"
+              className="flex-none rounded-md bg-accent px-3 py-2 text-white transition-colors hover:bg-accent-2 disabled:opacity-50"
+            >
+              <Send className="size-4" strokeWidth={1.75} />
+            </button>
+          </form>
         </div>
       </section>
     </div>

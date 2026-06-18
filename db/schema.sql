@@ -244,7 +244,28 @@ CREATE TABLE IF NOT EXISTS users (
   created_at     timestamptz NOT NULL DEFAULT now()
 );
 
+-- ─── Team chat ──────────────────────────────────────────────────────────────
+-- Messages live here; channels/rooms/DMs are static constants in lib/chat.ts.
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id              bigserial PRIMARY KEY,
+  channel_key     text NOT NULL,
+  author_kind     text NOT NULL DEFAULT 'user'
+                    CHECK (author_kind IN ('owner','ai','user')),
+  author_name     text NOT NULL,
+  author_initials text NOT NULL DEFAULT '',
+  body            text NOT NULL,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+-- Per-channel last-read marker (single owner for now): unread = messages after
+-- last_read_at not authored by the owner.
+CREATE TABLE IF NOT EXISTS chat_reads (
+  channel_key   text PRIMARY KEY,
+  last_read_at  timestamptz NOT NULL DEFAULT now()
+);
+
 -- ─── Indexes for the common list queries ────────────────────────────────────
+CREATE INDEX IF NOT EXISTS idx_chat_channel         ON chat_messages(channel_key, created_at);
 CREATE INDEX IF NOT EXISTS idx_leads_stage          ON leads(stage);
 CREATE INDEX IF NOT EXISTS idx_projects_status       ON projects(status);
 CREATE INDEX IF NOT EXISTS idx_subs_trade            ON subs(trade);

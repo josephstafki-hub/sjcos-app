@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { AiBubble, Card, Chip, Eyebrow } from "@/components/ui";
 import { TodayPriorities } from "./TodayPriorities";
+import { AI_NAME } from "@/lib/ai-name";
 import { getTodayBrief, type BriefInput, type TodayData } from "@/lib/today";
 
 const DOT: Record<string, string> = {
@@ -53,7 +54,7 @@ export function TodayBody({ data }: { data: TodayData }) {
               href="/ai"
               className="rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink-2"
             >
-              Ask Claude
+              Ask {AI_NAME}
             </Link>
           </>
         }
@@ -77,18 +78,19 @@ export function TodayBody({ data }: { data: TodayData }) {
             <h2 className="mb-1.5 font-serif text-[16px] font-semibold text-ink">This week</h2>
             <div className="flex gap-1.5">
               {data.week.map((d, i) => (
-                <div
+                <Link
                   key={i}
+                  href="/schedule"
                   className={[
-                    "flex-1 rounded border border-rule py-1.5 text-center",
-                    d.today ? "bg-ink text-paper" : "bg-paper text-ink-2",
+                    "flex-1 rounded border border-rule py-1.5 text-center transition-colors",
+                    d.today ? "bg-ink text-paper hover:bg-ink-2" : "bg-paper text-ink-2 hover:bg-paper-2",
                   ].join(" ")}
                 >
                   <div className="font-mono text-[9px] opacity-70">{d.dow}</div>
                   <div className="font-mono text-[16px] font-semibold leading-tight tabular-nums">
                     {d.day}
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           </div>
@@ -96,13 +98,28 @@ export function TodayBody({ data }: { data: TodayData }) {
           <Card className="p-3">
             <h3 className="font-serif text-[13.5px] font-semibold text-ink">Today&apos;s schedule</h3>
             <div className="mt-2 flex flex-col gap-1.5">
-              {data.schedule.map((s) => (
-                <div key={s.time} className="flex items-center gap-2">
-                  <span className="w-9 font-mono text-[11px] tabular-nums text-ink-3">{s.time}</span>
-                  <span className={`size-1.5 rounded-full ${DOT[s.dot]}`} />
-                  <span className="text-[13px] text-ink">{s.label}</span>
-                </div>
-              ))}
+              {data.schedule.map((s, i) => {
+                const row = (
+                  <>
+                    <span className="w-9 font-mono text-[11px] tabular-nums text-ink-3">{s.time}</span>
+                    <span className={`size-1.5 rounded-full ${DOT[s.dot]}`} />
+                    <span className="text-[13px] text-ink">{s.label}</span>
+                  </>
+                );
+                return s.href ? (
+                  <Link
+                    key={i}
+                    href={s.href}
+                    className="-mx-1 flex items-center gap-2 rounded px-1 py-0.5 transition-colors hover:bg-paper-2"
+                  >
+                    {row}
+                  </Link>
+                ) : (
+                  <div key={i} className="flex items-center gap-2">
+                    {row}
+                  </div>
+                );
+              })}
             </div>
           </Card>
 
@@ -114,12 +131,27 @@ export function TodayBody({ data }: { data: TodayData }) {
               <span className="text-[11px] text-ink-3">{data.waiting.total} items</span>
             </div>
             <div className="mt-2 flex flex-col gap-1.5">
-              {data.waiting.items.map((item) => (
-                <div key={item} className="flex items-center gap-2">
-                  <span className="size-3.5 flex-none rounded-[3px] border border-ink-4" />
-                  <span className="text-[12px] text-ink-2">{item}</span>
-                </div>
-              ))}
+              {data.waiting.items.map((item, i) => {
+                const row = (
+                  <>
+                    <span className="size-3.5 flex-none rounded-[3px] border border-ink-4" />
+                    <span className="text-[12px] text-ink-2">{item.label}</span>
+                  </>
+                );
+                return item.href ? (
+                  <Link
+                    key={i}
+                    href={item.href}
+                    className="-mx-1 flex items-center gap-2 rounded px-1 py-0.5 transition-colors hover:bg-paper-3"
+                  >
+                    {row}
+                  </Link>
+                ) : (
+                  <div key={i} className="flex items-center gap-2">
+                    {row}
+                  </div>
+                );
+              })}
               {data.waiting.total > data.waiting.items.length && (
                 <div className="mt-1 text-[11px] text-ink-3">
                   +{data.waiting.total - data.waiting.items.length} more…

@@ -9,6 +9,9 @@ import {
   markChannelRead,
 } from "@/lib/actions/chat";
 import type { ChatChannel, ChatData, ChatMessage } from "@/lib/chat";
+import { AI_NAME } from "@/lib/ai-name";
+
+const AI_INITIALS = AI_NAME.slice(0, 2).toUpperCase();
 
 /** Small-caps mono section label for the light-background rail. */
 function RailLabel({ children }: { children: string }) {
@@ -62,16 +65,16 @@ export function ChatClient({ data }: { data: ChatData }) {
     const key = selectedKey;
     append(key, { initials: "JS", name: "Joe", time: clockNow(), text, kind: "owner" });
     setInput("");
-    const mentionsClaude = /@claude/i.test(text);
+    const mentionsAi = /@(claude|qwen|ai)\b/i.test(text);
     startTransition(async () => {
       await sendChatMessage(key, text);
-      if (mentionsClaude) {
+      if (mentionsAi) {
         setTyping(true);
         const r = await askClaudeInChannel(key);
         if (r.ok && r.reply) {
           append(key, {
-            initials: "CL",
-            name: "Claude",
+            initials: AI_INITIALS,
+            name: AI_NAME,
             time: clockNow(),
             text: r.reply,
             kind: "ai",
@@ -131,7 +134,7 @@ export function ChatClient({ data }: { data: ChatData }) {
         <div className="my-2 h-px bg-rule" />
         <Card kind="ai" className="flex items-center gap-1.5 p-2">
           <Sparkles className="size-3 flex-none text-ai-2" strokeWidth={1.5} />
-          <span className="text-[11px] text-ai-2">@claude is in this channel</span>
+          <span className="text-[11px] text-ai-2">@{AI_NAME.toLowerCase()} is in this channel</span>
         </Card>
       </aside>
 
@@ -166,7 +169,7 @@ export function ChatClient({ data }: { data: ChatData }) {
             </div>
             {view.messages.length === 0 && (
               <div className="py-8 text-center text-[12px] text-ink-3">
-                No messages yet. Say something — mention <b>@claude</b> to loop Claude in.
+                No messages yet. Say something — mention <b>@{AI_NAME.toLowerCase()}</b> to loop {AI_NAME} in.
               </div>
             )}
             {view.messages.map((m, i) => (
@@ -175,7 +178,7 @@ export function ChatClient({ data }: { data: ChatData }) {
             {typing && (
               <div className="flex items-center gap-2 pl-1 text-[12px] text-ai-2">
                 <Sparkles className="size-3 animate-pulse" strokeWidth={1.5} />
-                Claude is typing…
+                {AI_NAME} is typing…
               </div>
             )}
           </div>

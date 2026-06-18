@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { Sparkles } from "lucide-react";
 import { Card } from "@/components/ui";
 import { reprioritizeToday } from "@/lib/actions/today";
@@ -48,20 +49,31 @@ export function TodayPriorities({ initial }: { initial: TodayPriority[] }) {
         </button>
       </div>
       <div className="flex flex-col gap-3">
-        {items.map((p) => (
-          <Card key={p.title} className="p-3">
-            <div className="flex items-center gap-2">
-              <span className={`size-2 rounded-full ${DOT[p.dot]}`} />
-              <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.16em] text-ink-3">
-                {p.tag}
-              </span>
-              <div className="flex-1" />
-              <span className="font-mono text-[10px] text-ink-4">{p.rank}</span>
-            </div>
-            <div className="mt-1 font-serif text-[16px] font-semibold text-ink">{p.title}</div>
-            <div className="mt-0.5 text-[12px] text-ink-3">{p.sub}</div>
-          </Card>
-        ))}
+        {items.map((p) => {
+          const body = (
+            <>
+              <div className="flex items-center gap-2">
+                <span className={`size-2 rounded-full ${DOT[p.dot]}`} />
+                <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.16em] text-ink-3">
+                  {p.tag}
+                </span>
+                <div className="flex-1" />
+                <span className="font-mono text-[10px] text-ink-4">{p.rank}</span>
+              </div>
+              <div className="mt-1 font-serif text-[16px] font-semibold text-ink">{p.title}</div>
+              <div className="mt-0.5 text-[12px] text-ink-3">{p.sub}</div>
+            </>
+          );
+          return p.href ? (
+            <Link key={p.title} href={p.href} className="block">
+              <Card className="p-3 transition-colors hover:bg-paper-2">{body}</Card>
+            </Link>
+          ) : (
+            <Card key={p.title} className="p-3">
+              {body}
+            </Card>
+          );
+        })}
       </div>
     </section>
   );

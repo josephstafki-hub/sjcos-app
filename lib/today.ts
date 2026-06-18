@@ -22,12 +22,15 @@ export interface TodayPriority {
   rank: string;
   title: string;
   sub: string;
+  /** Where clicking the priority navigates (the source record). */
+  href?: string;
 }
 
 export interface TodayScheduleBlock {
   time: string;
   label: string;
   dot: DotKind;
+  href?: string;
 }
 
 export interface TodayCalDay {
@@ -48,7 +51,7 @@ export interface TodayData {
   priorities: TodayPriority[];
   week: TodayCalDay[];
   schedule: TodayScheduleBlock[];
-  waiting: { items: string[]; total: number };
+  waiting: { items: { label: string; href?: string }[]; total: number };
 }
 
 export interface BriefInput {
@@ -76,6 +79,7 @@ function weekStrip(ref: Date): TodayCalDay[] {
 }
 
 interface TodayProjectRow {
+  slug: string;
   name: string;
   status: string;
   progress: number;
@@ -98,7 +102,7 @@ export async function getTodayData(): Promise<TodayData> {
   const [projectsRes, leadsRes, scheduleRes, complianceRes, claimsRes] =
     await Promise.all([
       query<TodayProjectRow>(`
-        SELECT name, status, progress,
+        SELECT slug, name, status, progress,
                (contract_value - collected_to_date) AS outstanding
         FROM projects
         WHERE status IN ('active', 'closeout')
@@ -138,8 +142,9 @@ export async function getTodayData(): Promise<TodayData> {
         time: b.time_label,
         label: b.label,
         dot: toneToDot(b.tone),
+        href: "/schedule",
       }))
-    : [{ time: "—", label: "Nothing scheduled — add a block on Schedule", dot: "ghost" }];
+    : [{ time: "—", label: "Nothing scheduled — add a block on Schedule", dot: "ghost", href: "/schedule" }];
 
   // ── Priorities: ranked from real signals (leads → compliance → site → job) ──
   const candidates: Omit<TodayPriority, "rank">[] = [];
@@ -149,6 +154,7 @@ export async function getTodayData(): Promise<TodayData> {
       dot: "flag",
       title: `Reply to ${l.name}`,
       sub: [l.flag_label, l.scope].filter(Boolean).join(" · ") || "Needs your attention",
+      href: `/leads/${l.slug}`,
     });
   }
   for (const c of complianceRes.rows.filter((c) => c.days <= 7)) {
@@ -157,6 +163,7 @@ export async function getTodayData(): Promise<TodayData> {
       dot: c.days <= 3 ? "flag" : "accent",
       title: c.title,
       sub: `${c.step ?? "Action needed"} · due ${c.due}`,
+      href: "/compliance",
     });
   }
   const firstJobBlock = scheduleRes.rows.find((b) => b.tone === "accent" || b.tone === "ai");
@@ -166,6 +173,7 @@ export async function getTodayData(): Promise<TodayData> {
       dot: "accent",
       title: `On site — ${firstJobBlock.label}`,
       sub: `${firstJobBlock.time_label} today`,
+      href: "/schedule",
     });
   }
   const topActive = projects.find((p) => p.status === "active");
@@ -175,6 +183,7 @@ export async function getTodayData(): Promise<TodayData> {
       dot: "accent",
       title: `Keep ${topActive.name} moving`,
       sub: `${topActive.progress}% complete`,
+      href: `/projects/${topActive.slug}`,
     });
   }
   const priorities: TodayPriority[] = (
@@ -186,10 +195,19 @@ export async function getTodayData(): Promise<TodayData> {
     .map((c, i) => ({ ...c, rank: `#${i + 1}` }));
 
   // ── Waiting on me: decisions/actions in the owner's court ──
-  const waitingItems: string[] = [
-    ...flaggedLeadRows.map((l) => `Reply to ${l.name} — ${l.flag_label ?? "lead"}`),
-    ...complianceRes.rows.map((c) => `${c.title} (due ${c.due})`),
-    ...claimsRes.rows.map((c) => `Resolve warranty claim — ${c.project}`),
+  const waitingItems: { label: string; href?: string }[] = [
+    ...flaggedLeadRows.map((l) => ({
+      label: `Reply to ${l.name} — ${l.flag_label ?? "lead"}`,
+      href: `/leads/${l.slug}`,
+    })),
+    ...complianceRes.rows.map((c) => ({
+      label: `${c.title} (due ${c.due})`,
+      href: "/compliance",
+    })),
+    ...claimsRes.rows.map((c) => ({
+      label: `Resolve warranty claim — ${c.project}`,
+      href: "/warranty",
+    })),
   ];
 
   // The AI brief is NOT awaited here — that would block the whole page on

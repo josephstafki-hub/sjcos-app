@@ -14,6 +14,7 @@ import { Shell } from "@/components/shell/Shell";
 import { Avatar, Card, Chip, Eyebrow } from "@/components/ui";
 import { AckButton } from "@/components/ui/AckButton";
 import { getAssistantData } from "@/lib/assistant";
+import { AI_NAME } from "@/lib/ai-name";
 
 const CTX_ICON: Record<string, LucideIcon> = {
   project: FolderKanban,
@@ -46,7 +47,7 @@ export default async function AiPage() {
   const { thread } = data;
 
   return (
-    <Shell breadcrumb="ASK CLAUDE" hideCmd>
+    <Shell breadcrumb={`ASK ${AI_NAME.toUpperCase()}`} hideCmd>
       <div className="flex h-full">
         {/* ─── Context rail ─────────────────────────────────────────── */}
         <aside className="w-[260px] flex-none overflow-y-auto border-r border-rule bg-paper-2 p-3.5">

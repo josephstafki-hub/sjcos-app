@@ -30,6 +30,7 @@ import {
 import { Logo } from "./Logo";
 import { logout } from "@/lib/actions/auth";
 import { getNavCounts, type NavCounts } from "@/lib/actions/nav";
+import { AI_NAME } from "@/lib/ai-name";
 
 type NavItem = {
   label: string;
@@ -208,7 +209,7 @@ export function Sidebar({ user }: { user: SidebarUser }) {
         ].join(" ")}
       >
         <Sparkles className="size-3.5 flex-none text-[#BFD0A6]" strokeWidth={1.5} />
-        <span className="flex-1 text-[#BFD0A6]">Ask Claude</span>
+        <span className="flex-1 text-[#BFD0A6]">Ask {AI_NAME}</span>
         <span className="font-mono text-[9px] text-[rgba(241,236,225,0.38)]">⌘J</span>
       </Link>
 

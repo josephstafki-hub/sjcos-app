@@ -12,6 +12,7 @@ import {
   UserRound,
   type LucideIcon,
 } from "lucide-react";
+import { AI_NAME } from "@/lib/ai-name";
 
 type CmdRow = {
   icon: LucideIcon;
@@ -116,11 +117,11 @@ export function CommandBar({ defaultOpen = false }: { defaultOpen?: boolean }) {
         </div>
 
         <div className="max-h-[60vh] overflow-y-auto py-2">
-          <Group label="Claude — context aware" />
+          <Group label={`${AI_NAME} — context aware`} />
           <Row
             row={{
               icon: Sparkles,
-              title: "Ask Claude with the current page as context",
+              title: `Ask ${AI_NAME} with the current page as context`,
               sub: "2 active jobs · today's schedule loaded",
               kbd: "↵",
               href: "/ai",
@@ -146,7 +147,7 @@ export function CommandBar({ defaultOpen = false }: { defaultOpen?: boolean }) {
           </span>
           <div className="flex-1" />
           <span className="rounded-full border border-ai bg-ai-soft px-2 py-0.5 font-mono text-[9px] text-ai-2">
-            Claude
+            {AI_NAME}
           </span>
           <span className="rounded-full border border-ink-4 px-2 py-0.5 font-mono text-[9px] text-ink-3">
             Actions

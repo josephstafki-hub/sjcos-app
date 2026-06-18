@@ -6,6 +6,7 @@ import { Avatar, Card, Chip, Eyebrow, Field } from "@/components/ui";
 import type { SettingsData } from "@/lib/settings";
 import { setAiToggle, setNotifyToggle, updateProfile } from "@/lib/actions/settings";
 import { createUser, setUserActive } from "@/lib/actions/users";
+import { AI_NAME } from "@/lib/ai-name";
 
 /** Shared text input for the editable forms, themed to match the modals. */
 function TextInput({
@@ -249,12 +250,12 @@ export function SettingsClient({ data }: { data: SettingsData }) {
 
         {active === "ai" && (
           <>
-            <Eyebrow>Claude &amp; AI</Eyebrow>
+            <Eyebrow>{AI_NAME} &amp; AI</Eyebrow>
             <h1 className="mt-1 font-serif text-[30px] font-medium leading-none text-accent-2">
-              Claude &amp; AI defaults
+              {AI_NAME} &amp; AI defaults
             </h1>
             <div className="mt-1.5 text-[11px] text-ink-3">
-              Control what Claude does automatically. Changes save instantly.
+              Control what {AI_NAME} does automatically. Changes save instantly.
             </div>
             <div className="mt-5 max-w-[600px]">
               {data.aiToggles.map((t) => (

@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Card } from "@/components/ui";
 import { setSubNotes } from "@/lib/actions/subs";
+import { AI_NAME } from "@/lib/ai-name";
 
 /** Editable, persisted owner notes on a sub. Save is enabled only when the text
  *  differs from what's stored; the action re-checks the owner role. */
@@ -40,7 +41,7 @@ export function SubNotes({ slug, notes }: { slug: string; notes: string }) {
         value={text}
         onChange={(e) => setText(e.target.value)}
         rows={6}
-        placeholder="What Claude (and you) should remember about this sub — reliability, scheduling quirks, rate notes…"
+        placeholder={`What ${AI_NAME} (and you) should remember about this sub — reliability, scheduling quirks, rate notes…`}
         className="w-full resize-y rounded-md border border-rule bg-paper px-3 py-2 text-[13px] leading-relaxed text-ink outline-none focus:border-accent"
       />
       {error && (

@@ -21,7 +21,7 @@ import type {
   NotificationCard,
   NotificationsData,
 } from "@/lib/notifications";
-import { markAllNotificationsRead } from "@/lib/actions/notifications";
+import { markAllNotificationsRead, markNotificationRead } from "@/lib/actions/notifications";
 
 const ICON: Record<NotifIcon, LucideIcon> = {
   money: DollarSign,
@@ -100,13 +100,22 @@ export function NotificationsClient({ data }: { data: NotificationsData }) {
 
 function NotificationRow({ notification: n }: { notification: NotificationCard }) {
   const Icon = ICON[n.icon];
+  const [read, setRead] = useState(n.read);
+  // Mark read on click. Fire-and-forget: the action revalidates /notifications
+  // so it stays read on return; we also dim it immediately for feedback.
+  function onOpen() {
+    if (!read) {
+      setRead(true);
+      void markNotificationRead(n.id);
+    }
+  }
   return (
-    <Link href={n.href} className="block">
+    <Link href={n.href} className="block" onClick={onOpen}>
       <Card
         className={[
           "p-3 transition-colors hover:bg-paper-2",
-          n.flagged && !n.read ? "border-flag" : "",
-          n.read ? "opacity-55" : "",
+          n.flagged && !read ? "border-flag" : "",
+          read ? "opacity-55" : "",
         ].join(" ")}
       >
         <div className="flex items-center gap-2.5">

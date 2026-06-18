@@ -1,11 +1,13 @@
 import type { ReactNode } from "react";
+import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Sparkles, FileText } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { AiBubble, AckButton, Card, Chip, Avatar, Eyebrow, Field } from "@/components/ui";
+import { AiBubble, AckButton, AiStreamSkeleton, Card, Chip, Avatar, Eyebrow, Field } from "@/components/ui";
 import { LeadTabs } from "@/components/leads/LeadTabs";
-import { getLead, STAGES, stageIndex, stageLabel } from "@/lib/leads";
+import { getLead, getLeadTriage, STAGES, stageIndex, stageLabel } from "@/lib/leads";
+import type { TriageInput } from "@/lib/ai";
 import { advanceLeadStage } from "@/lib/actions/leads";
 import { DeleteLeadButton } from "@/components/leads/DeleteLeadButton";
 import { LeadContact } from "@/components/leads/LeadContact";
@@ -27,7 +29,6 @@ export default async function LeadDetailPage({
   const lead = await getLead(slug);
   if (!lead) notFound();
 
-  const verdict = VERDICT[lead.triage.verdict];
   const currentStageIdx = stageIndex(lead.stage);
   const nextStage = STAGES[currentStageIdx + 1];
 
@@ -53,10 +54,18 @@ export default async function LeadDetailPage({
             </>
           }
         >
-          <div className="mb-1.5 font-serif text-[13.5px] font-semibold text-ai-2">
-            Triage — {AI_NAME} scored this lead {verdict.label}
-          </div>
-          <div>{lead.triage.rationale}</div>
+          <Suspense
+            fallback={
+              <>
+                <div className="mb-1.5 font-serif text-[13.5px] font-semibold text-ai-2">
+                  Triage — {AI_NAME} is scoring this lead…
+                </div>
+                <AiStreamSkeleton />
+              </>
+            }
+          >
+            <LeadTriage input={lead.triageInput} />
+          </Suspense>
         </AiBubble>
 
         <Card className="p-3.5">
@@ -349,5 +358,20 @@ export default async function LeadDetailPage({
         <LeadTabs panels={panels} />
       </div>
     </Shell>
+  );
+}
+
+/** Async server component: awaits the AI triage inside a Suspense boundary so
+ *  the lead page paints instantly instead of blocking ~11s on CPU Qwen. */
+async function LeadTriage({ input }: { input: TriageInput }) {
+  const { verdict, rationale } = await getLeadTriage(input);
+  const v = VERDICT[verdict];
+  return (
+    <>
+      <div className="mb-1.5 font-serif text-[13.5px] font-semibold text-ai-2">
+        Triage — {AI_NAME} scored this lead {v.label}
+      </div>
+      <div>{rationale}</div>
+    </>
   );
 }

@@ -133,8 +133,11 @@ export interface ProjectDetail {
   milestones: MilestoneRow[];
   thisWeek: WeekRow[];
   latestLog: { date: string; body: string; photos: number } | null;
-  /** AI-drafted weekly status note. */
+  /** Curated weekly-status note (when one is hand-authored). */
   weeklyStatus: string | null;
+  /** Project name to draft a weekly status for (null when curated/none). The
+   *  draft streams via getProjectWeeklyStatus so the page doesn't block on Qwen. */
+  weeklyStatusName: string | null;
   money: {
     contract: string;
     paid: string;
@@ -258,9 +261,11 @@ export async function getProject(slug: string): Promise<ProjectDetail | null> {
     done: r.done,
   }));
 
-  // AI-drafted weekly status note (the only AI touch-point on this screen).
-  const draft = await ai.draft({ kind: "weekly_status", context: item.name });
-  const weeklyStatus = curated.weeklyStatus ?? draft.body.split("\n").find((l) => l.trim()) ?? null;
+  // The AI-drafted weekly status is NOT awaited here — that would block the page
+  // on ~15s of CPU inference. Curated text shows immediately; otherwise the
+  // draft streams via getProjectWeeklyStatus() inside a Suspense slot.
+  const weeklyStatus = curated.weeklyStatus ?? null;
+  const weeklyStatusName = curated.weeklyStatus ? null : item.name;
 
   const meta = GROUP_META[item.group];
 
@@ -281,6 +286,7 @@ export async function getProject(slug: string): Promise<ProjectDetail | null> {
     thisWeek: curated.thisWeek ?? [],
     latestLog: curated.latestLog ?? null,
     weeklyStatus,
+    weeklyStatusName,
     money:
       curated.money ??
       {
@@ -298,6 +304,13 @@ export async function getProject(slug: string): Promise<ProjectDetail | null> {
     comms: curated.comms ?? [],
     punch,
   };
+}
+
+/** The AI-drafted weekly-status line. Resolved separately from getProject() so
+ *  it can stream inside a Suspense boundary instead of blocking the page. */
+export async function getProjectWeeklyStatus(name: string): Promise<string> {
+  const draft = await ai.draft({ kind: "weekly_status", context: name });
+  return draft.body.split("\n").find((l) => l.trim()) ?? "";
 }
 
 export async function getProjectsData(): Promise<ProjectsData> {

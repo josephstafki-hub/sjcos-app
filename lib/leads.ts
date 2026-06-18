@@ -6,7 +6,7 @@
 
 import type { ChipKind } from "@/components/ui/Chip";
 import type { LeadStage, TriageVerdict } from "./types";
-import { ai } from "./ai";
+import { ai, type TriageInput, type TriageResult } from "./ai";
 import { query } from "./db";
 
 /** The 6 pipeline stages, in order, with display labels. */
@@ -133,7 +133,9 @@ export interface LeadDetail {
   loggedLabel: string;
   ageDays: number;
   hot: boolean;
-  triage: { verdict: TriageVerdict; rationale: string };
+  /** Inputs for the AI triage, resolved lazily so the page paints instantly and
+   *  the triage streams in (CPU Qwen is ~11s — see getLeadTriage + Suspense). */
+  triageInput: TriageInput;
   intake: { label: string; value: string }[];
   estimate: {
     sentLabel: string;
@@ -242,12 +244,14 @@ export async function getLead(slug: string): Promise<LeadDetail | null> {
   if (!row) return null;
   const item = rowToItem(row);
 
-  const triageResult = await ai.triage({
+  // Triage is NOT awaited here — that would block the page on ~11s of CPU
+  // inference. Return the inputs; getLeadTriage() runs inside a Suspense slot.
+  const triageInput: TriageInput = {
     name: item.name,
     scope: item.scope,
     estimateValue: parseValue(item.value),
     source: "lead list",
-  });
+  };
 
   const curated = DETAILS[slug] ?? {};
 
@@ -274,7 +278,7 @@ export async function getLead(slug: string): Promise<LeadDetail | null> {
     email: row.email,
     phone: row.phone,
     loggedLabel: curated.loggedLabel ?? `Logged ${item.ageDays} days ago`,
-    triage: { verdict: triageResult.verdict, rationale: triageResult.rationale },
+    triageInput,
     intake:
       curated.intake ??
       [
@@ -296,6 +300,12 @@ export async function getLead(slug: string): Promise<LeadDetail | null> {
     selections: curated.selections ?? [],
     files: curated.files ?? [],
   };
+}
+
+/** The AI triage verdict + rationale. Resolved separately from getLead() so it
+ *  can stream inside a Suspense boundary instead of blocking the page. */
+export async function getLeadTriage(input: TriageInput): Promise<TriageResult> {
+  return ai.triage(input);
 }
 
 export async function getLeadsData(): Promise<LeadsData> {

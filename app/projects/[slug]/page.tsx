@@ -3,10 +3,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Check, DollarSign, Sparkles, MoreHorizontal, Mail, FileText } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { AiBubble, AckButton, Card, Chip, Avatar, Eyebrow } from "@/components/ui";
+import { AiBubble, AckButton, AiStream, Card, Chip, Avatar, Eyebrow } from "@/components/ui";
 import { ProjectTabs } from "@/components/projects/ProjectTabs";
 import { PunchList } from "@/components/projects/PunchList";
-import { getProject, PROJECT_STATUSES } from "@/lib/projects";
+import { getProject, getProjectWeeklyStatus, PROJECT_STATUSES } from "@/lib/projects";
 import { advanceProjectStatus } from "@/lib/actions/projects";
 
 const DOT: Record<string, string> = {
@@ -127,7 +127,7 @@ export default async function ProjectDetailPage({
           </Card>
         )}
 
-        {project.weeklyStatus && (
+        {(project.weeklyStatus || project.weeklyStatusName) && (
           <Card kind="ai" className="p-3">
             <div className="flex items-start gap-2">
               <Mail className="mt-0.5 size-4 flex-none text-ai-2" strokeWidth={1.5} />
@@ -135,7 +135,13 @@ export default async function ProjectDetailPage({
                 <div className="font-serif text-[13.5px] font-semibold text-ai-2">
                   Weekly status email — drafted
                 </div>
-                <div className="mt-0.5 text-[11px] text-ai-2">{project.weeklyStatus}</div>
+                <div className="mt-0.5 text-[11px] text-ai-2">
+                  {project.weeklyStatus ? (
+                    project.weeklyStatus
+                  ) : (
+                    <AiStream load={() => getProjectWeeklyStatus(project.weeklyStatusName!)} />
+                  )}
+                </div>
               </div>
               <AckButton label="Review" ackLabel="Marked reviewed" />
             </div>

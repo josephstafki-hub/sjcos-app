@@ -266,12 +266,22 @@ function deriveCategory(labelIds: string[]): GmailCategory {
  *  trash excluded), newest first. Returns enough metadata for lib/inbox.ts to
  *  classify each thread into a smart view client-side. */
 export async function fetchThreads(max = 20): Promise<RawGmailThread[]> {
+  return (await fetchThreadPage(max)).threads;
+}
+
+/** One page of threads plus the token for the next page (undefined when there
+ *  are no more). Drives the inbox's "Load more". */
+export async function fetchThreadPage(
+  max = 50,
+  pageToken?: string,
+): Promise<{ threads: RawGmailThread[]; nextPageToken?: string }> {
   const api = gmail();
   const me = await fetchProfileEmail();
   const list = await api.users.threads.list({
     userId: "me",
     maxResults: max,
     q: "-in:spam -in:trash",
+    pageToken,
   });
   const ids = (list.data.threads ?? []).map((t) => t.id!).filter(Boolean);
 
@@ -311,7 +321,10 @@ export async function fetchThreads(max = 20): Promise<RawGmailThread[]> {
       } satisfies RawGmailThread;
     }),
   );
-  return threads.sort((a, b) => b.date - a.date);
+  return {
+    threads: threads.sort((a, b) => b.date - a.date),
+    nextPageToken: list.data.nextPageToken ?? undefined,
+  };
 }
 
 // ─── Sending ─────────────────────────────────────────────────────────────────

@@ -14,7 +14,8 @@ import {
   modifyThread,
   trashThread,
 } from "@/lib/gmail";
-import { draftReplyForThread } from "@/lib/inbox";
+import { draftReplyForThread, loadMoreInbox } from "@/lib/inbox";
+import type { InboxThread, ThreadReader } from "@/lib/inbox";
 
 type ActionResult = { ok: boolean; error?: string };
 
@@ -77,6 +78,24 @@ export async function archiveThreadAction(threadId: string) {
 /** Move a thread to Trash. */
 export async function trashThreadAction(threadId: string) {
   return withGmail(() => trashThread(threadId));
+}
+
+/** Fetch the next page of inbox threads for "Load more". */
+export async function loadMoreInboxAction(pageToken: string): Promise<{
+  ok: boolean;
+  threads?: InboxThread[];
+  readers?: Record<string, ThreadReader>;
+  nextPageToken?: string;
+  error?: string;
+}> {
+  await requireRole("owner");
+  if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
+  try {
+    const r = await loadMoreInbox(pageToken);
+    return { ok: true, ...r };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
 }
 
 /** Compose and send a brand-new email. */

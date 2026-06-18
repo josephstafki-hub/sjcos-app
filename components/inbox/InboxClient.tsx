@@ -33,6 +33,7 @@ import {
   setThreadImportantAction,
   archiveThreadAction,
   trashThreadAction,
+  loadMoreInboxAction,
 } from "@/lib/actions/inbox";
 import type { ThreadChannel, ThreadStatus } from "@/lib/types";
 import type { Audience, InboxData, InboxThread, ThreadReader } from "@/lib/inbox";
@@ -134,6 +135,11 @@ export function InboxClient({
   });
   const [selectedId, setSelectedId] = useState(data.selectedId);
   const [composing, setComposing] = useState(false);
+  // Threads/readers grow as "Load more" pages in from Gmail.
+  const [threads, setThreads] = useState(data.threads);
+  const [readers, setReaders] = useState(data.readers);
+  const [pageToken, setPageToken] = useState(data.nextPageToken);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   // Optimistic star state, keyed by thread id, until the revalidate lands.
@@ -144,31 +150,51 @@ export function InboxClient({
   const visible = useMemo(() => {
     switch (lens.kind) {
       case "all":
-        return data.threads;
+        return threads;
       case "view":
-        return data.threads.filter((t) => t.view === lens.view);
+        return threads.filter((t) => t.view === lens.view);
       case "channel":
-        return data.threads.filter((t) => t.channel === lens.channel);
+        return threads.filter((t) => t.channel === lens.channel);
       case "label":
-        return data.threads.filter((t) => (t.labelIds ?? []).includes(lens.id));
+        return threads.filter((t) => (t.labelIds ?? []).includes(lens.id));
       case "audience":
-        return data.threads.filter((t) => t.audience === lens.audience);
+        return threads.filter((t) => t.audience === lens.audience);
       case "project":
-        return data.threads.filter((t) => t.projectSlug === lens.slug);
+        return threads.filter((t) => t.projectSlug === lens.slug);
     }
-  }, [data.threads, lens]);
+  }, [threads, lens]);
 
   // Counts for the All/Clients/Subs/Money chips, derived from resolved senders.
   const audienceCounts = useMemo(() => {
     const c = { client: 0, sub: 0, money: 0 };
-    for (const t of data.threads) if (t.audience) c[t.audience]++;
+    for (const t of threads) if (t.audience) c[t.audience]++;
     return c;
-  }, [data.threads]);
+  }, [threads]);
 
   // Keep the selection valid as the lens narrows the list.
   const selected =
     visible.find((t) => t.id === selectedId) ?? visible[0] ?? null;
-  const reader = selected ? data.readers[selected.id] : undefined;
+  const reader = selected ? readers[selected.id] : undefined;
+
+  const loadMore = () => {
+    if (!pageToken || loadingMore) return;
+    setLoadingMore(true);
+    startTransition(async () => {
+      const r = await loadMoreInboxAction(pageToken);
+      if (r.ok && r.threads) {
+        // Append only genuinely new threads (guard against overlap).
+        setThreads((prev) => {
+          const seen = new Set(prev.map((t) => t.id));
+          return [...prev, ...r.threads!.filter((t) => !seen.has(t.id))];
+        });
+        setReaders((prev) => ({ ...prev, ...(r.readers ?? {}) }));
+        setPageToken(r.nextPageToken);
+      } else if (!r.ok) {
+        setNotice(r.error ?? "Couldn't load more.");
+      }
+      setLoadingMore(false);
+    });
+  };
 
   const headerLabel =
     lens.kind === "all"
@@ -389,6 +415,16 @@ export function InboxClient({
                 onSelect={() => setSelectedId(t.id)}
               />
             ))
+          )}
+
+          {pageToken && (
+            <button
+              onClick={loadMore}
+              disabled={loadingMore}
+              className="w-full border-t border-rule px-3 py-2.5 text-center text-[12px] font-medium text-ink-3 hover:bg-paper-3 disabled:opacity-60"
+            >
+              {loadingMore ? "Loading…" : "Load more"}
+            </button>
           )}
         </div>
       </section>

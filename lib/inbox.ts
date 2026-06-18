@@ -12,6 +12,7 @@ import { query } from "./db";
 import {
   gmailConfigured,
   fetchThreads,
+  fetchThreadPage,
   fetchLabels,
   type RawGmailThread,
   type GmailCategory,
@@ -246,6 +247,8 @@ export interface InboxData {
   readers: Record<string, ThreadReader>;
   /** Thread selected on first paint. */
   selectedId: string;
+  /** Gmail page token for loading the next batch (undefined = no more). */
+  nextPageToken?: string;
 }
 
 /** Count threads per smart view from the live list. */
@@ -538,16 +541,14 @@ function classifyThread(
   return { audience, projectSlug: project?.slug, projectLabel: project?.label };
 }
 
-async function buildFromGmail(): Promise<InboxData> {
-  const [raw, labels, contactMaps] = await Promise.all([
-    fetchThreads(50),
-    fetchLabels(),
-    loadContactMaps(),
-  ]);
-  const labelMap = new Map(labels.map((l) => [l.id, l.name]));
+/** Map a page of raw Gmail threads → InboxThreads (audience/project resolved)
+ *  + reader entries. Shared by the first load and "Load more". */
+function mapRawThreads(
+  raw: RawGmailThread[],
+  labelMap: Map<string, string>,
+  contactMaps: ContactMaps,
+): { threads: InboxThread[]; readerEntries: [string, ThreadReader][] } {
   const threads = raw.map((r) => rawToThread(r, labelMap));
-
-  // Resolve each thread's sender against DB contacts (threads[i] ↔ raw[i]).
   raw.forEach((r, i) => {
     const c = classifyThread(r, contactMaps);
     threads[i].audience = c.audience;
@@ -556,20 +557,57 @@ async function buildFromGmail(): Promise<InboxData> {
     // A resolved project becomes the row's tag chip (else the generic "Email").
     if (c.projectLabel) threads[i].tag = c.projectLabel;
   });
-  const readerEntries = raw.map((r) => [r.id, rawToReader(r)] as const);
+  const readerEntries = raw.map(
+    (r) => [r.id, rawToReader(r)] as [string, ThreadReader],
+  );
+  return { threads, readerEntries };
+}
+
+const INBOX_PAGE = 50;
+
+/** Fetch the next page of inbox threads (for "Load more"). */
+export async function loadMoreInbox(pageToken: string): Promise<{
+  threads: InboxThread[];
+  readers: Record<string, ThreadReader>;
+  nextPageToken?: string;
+}> {
+  const [page, labels, contactMaps] = await Promise.all([
+    fetchThreadPage(INBOX_PAGE, pageToken),
+    fetchLabels(),
+    loadContactMaps(),
+  ]);
+  const labelMap = new Map(labels.map((l) => [l.id, l.name]));
+  const { threads, readerEntries } = mapRawThreads(page.threads, labelMap, contactMaps);
+  return {
+    threads,
+    readers: Object.fromEntries(readerEntries),
+    nextPageToken: page.nextPageToken,
+  };
+}
+
+async function buildFromGmail(): Promise<InboxData> {
+  const [page, labels, contactMaps] = await Promise.all([
+    fetchThreadPage(INBOX_PAGE),
+    fetchLabels(),
+    loadContactMaps(),
+  ]);
+  const labelMap = new Map(labels.map((l) => [l.id, l.name]));
+  const { threads, readerEntries } = mapRawThreads(page.threads, labelMap, contactMaps);
 
   const viewCounts = countViews(threads);
 
-  // Label rail: only labels actually present on the fetched threads, with counts.
+  // Label rail: ALL user labels (counts from the loaded threads).
   const labelCounts = new Map<string, number>();
   for (const t of threads) {
     for (const id of t.labelIds ?? []) {
       if (labelMap.has(id)) labelCounts.set(id, (labelCounts.get(id) ?? 0) + 1);
     }
   }
-  const labelRail = labels
-    .filter((l) => labelCounts.has(l.id))
-    .map((l) => ({ id: l.id, name: l.name, count: labelCounts.get(l.id)! }));
+  const labelRail = labels.map((l) => ({
+    id: l.id,
+    name: l.name,
+    count: labelCounts.get(l.id) ?? 0,
+  }));
 
   // By-project rail: projects resolved on at least one thread, with counts.
   const projCounts = new Map<string, { label: string; count: number }>();
@@ -609,6 +647,7 @@ async function buildFromGmail(): Promise<InboxData> {
     threads,
     readers: Object.fromEntries(readerEntries),
     selectedId: firstInDefault?.id ?? "",
+    nextPageToken: page.nextPageToken,
   };
 }
 

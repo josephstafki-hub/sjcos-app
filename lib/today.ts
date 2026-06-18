@@ -95,22 +95,102 @@ export async function getTodayData(): Promise<TodayData> {
 
   // In-flight jobs (active + closeout) drive the header metrics and the brief.
   // `flagged leads` = leads carrying the urgent "AI take" chip (flag_kind).
-  const [projectsRes, flaggedRes] = await Promise.all([
-    query<TodayProjectRow>(`
-      SELECT name, status, progress,
-             (contract_value - collected_to_date) AS outstanding
-      FROM projects
-      WHERE status IN ('active', 'closeout')
-      ORDER BY (status = 'active') DESC, progress DESC, name`),
-    query<{ n: string }>(
-      `SELECT count(*) AS n FROM leads WHERE flag_kind = 'flag'`,
-    ),
-  ]);
+  const [projectsRes, leadsRes, scheduleRes, complianceRes, claimsRes] =
+    await Promise.all([
+      query<TodayProjectRow>(`
+        SELECT name, status, progress,
+               (contract_value - collected_to_date) AS outstanding
+        FROM projects
+        WHERE status IN ('active', 'closeout')
+        ORDER BY (status = 'active') DESC, progress DESC, name`),
+      query<{ slug: string; name: string; scope: string | null; flag_label: string | null }>(`
+        SELECT slug, name, scope, flag_label
+        FROM leads WHERE flag_kind = 'flag'
+        ORDER BY updated_at DESC`),
+      query<{ time_label: string; label: string; tone: string }>(`
+        SELECT time_label, label, tone
+        FROM schedule_blocks WHERE block_date = CURRENT_DATE
+        ORDER BY sort_min`),
+      query<{ title: string; step: string | null; due: string; days: number }>(`
+        SELECT title, step, to_char(due_date, 'FMMon FMDD') AS due,
+               (due_date - CURRENT_DATE) AS days
+        FROM compliance_items
+        WHERE resolved = false AND due_date <= CURRENT_DATE + 14
+        ORDER BY due_date`),
+      query<{ project: string; deadline_label: string | null }>(`
+        SELECT project, deadline_label
+        FROM warranty_claims WHERE resolved = false
+        ORDER BY opened_at DESC`),
+    ]);
 
   const projects = projectsRes.rows;
   const activeCount = projects.filter((p) => p.status === "active").length;
   const outstanding = projects.reduce((s, p) => s + Number(p.outstanding), 0);
-  const flaggedLeads = Number(flaggedRes.rows[0]?.n ?? 0);
+  const flaggedLeadRows = leadsRes.rows;
+  const flaggedLeads = flaggedLeadRows.length;
+
+  const toneToDot = (t: string): DotKind =>
+    t === "accent" || t === "ai" ? (t as DotKind) : "ghost";
+
+  // ── Today's schedule (real blocks; calm placeholder when empty) ──
+  const schedule: TodayScheduleBlock[] = scheduleRes.rows.length
+    ? scheduleRes.rows.map((b) => ({
+        time: b.time_label,
+        label: b.label,
+        dot: toneToDot(b.tone),
+      }))
+    : [{ time: "—", label: "Nothing scheduled — add a block on Schedule", dot: "ghost" }];
+
+  // ── Priorities: ranked from real signals (leads → compliance → site → job) ──
+  const candidates: Omit<TodayPriority, "rank">[] = [];
+  for (const l of flaggedLeadRows) {
+    candidates.push({
+      tag: "LEAD",
+      dot: "flag",
+      title: `Reply to ${l.name}`,
+      sub: [l.flag_label, l.scope].filter(Boolean).join(" · ") || "Needs your attention",
+    });
+  }
+  for (const c of complianceRes.rows.filter((c) => c.days <= 7)) {
+    candidates.push({
+      tag: "COMPLIANCE",
+      dot: c.days <= 3 ? "flag" : "accent",
+      title: c.title,
+      sub: `${c.step ?? "Action needed"} · due ${c.due}`,
+    });
+  }
+  const firstJobBlock = scheduleRes.rows.find((b) => b.tone === "accent" || b.tone === "ai");
+  if (firstJobBlock) {
+    candidates.push({
+      tag: "SCHEDULE",
+      dot: "accent",
+      title: `On site — ${firstJobBlock.label}`,
+      sub: `${firstJobBlock.time_label} today`,
+    });
+  }
+  const topActive = projects.find((p) => p.status === "active");
+  if (topActive) {
+    candidates.push({
+      tag: `JOB · ${topActive.name}`,
+      dot: "accent",
+      title: `Keep ${topActive.name} moving`,
+      sub: `${topActive.progress}% complete`,
+    });
+  }
+  const priorities: TodayPriority[] = (
+    candidates.length
+      ? candidates
+      : [{ tag: "ALL CLEAR", dot: "ghost" as DotKind, title: "Nothing urgent today", sub: "No flagged items right now." }]
+  )
+    .slice(0, 5)
+    .map((c, i) => ({ ...c, rank: `#${i + 1}` }));
+
+  // ── Waiting on me: decisions/actions in the owner's court ──
+  const waitingItems: string[] = [
+    ...flaggedLeadRows.map((l) => `Reply to ${l.name} — ${l.flag_label ?? "lead"}`),
+    ...complianceRes.rows.map((c) => `${c.title} (due ${c.due})`),
+    ...claimsRes.rows.map((c) => `Resolve warranty claim — ${c.project}`),
+  ];
 
   // The AI brief is NOT awaited here — that would block the whole page on
   // ~15s of CPU inference. We return its inputs and let getTodayBrief() run
@@ -136,51 +216,12 @@ export async function getTodayData(): Promise<TodayData> {
     ],
     briefHeadline: "Today's brief",
     briefInputs,
-    priorities: [
-      {
-        tag: "LEAD · 18h",
-        dot: "flag",
-        rank: "#1",
-        title: "Reply to Maria Chen — Phase 1 estimate question",
-        sub: "Asked about a countertop swap. Claude drafted a response.",
-      },
-      {
-        tag: "JOB · HENDERSON",
-        dot: "accent",
-        rank: "#2",
-        title: "QC walk before tile install",
-        sub: "Sub arrives 1:00pm · ~12 min on-site needed.",
-      },
-      {
-        tag: "MONEY · REYES",
-        dot: "flag",
-        rank: "#3",
-        title: "Day 15 — review & send demand letter",
-        sub: "Draft ready · $4,800 outstanding.",
-      },
-      {
-        tag: "MARKETING",
-        dot: "ai",
-        rank: "#4",
-        title: "Approve 3 social posts (Olson closeout)",
-        sub: "Captions + photo crops ready.",
-      },
-    ],
+    priorities,
     week: weekStrip(now),
-    schedule: [
-      { time: "8:00", label: "Daily sub check-in calls", dot: "ghost" },
-      { time: "10:30", label: "Site stop — Henderson", dot: "accent" },
-      { time: "1:00", label: "QC walk before tile (Henderson)", dot: "accent" },
-      { time: "3:30", label: "New lead call — Pham residence", dot: "ai" },
-    ],
+    schedule,
     waiting: {
-      total: 7,
-      items: [
-        "Approve change-order narrative — Henderson",
-        "Sign sub agreement — Tomas (electric)",
-        "Confirm marble selection — Chen lead",
-        "Review weekly P&L",
-      ],
+      total: waitingItems.length,
+      items: waitingItems.slice(0, 5),
     },
   };
 }

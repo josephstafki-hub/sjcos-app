@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { AiBubble, Card, Chip, Eyebrow } from "@/components/ui";
+import { TodayPriorities } from "./TodayPriorities";
 import { getTodayBrief, type BriefInput, type TodayData } from "@/lib/today";
 
 const DOT: Record<string, string> = {
@@ -52,7 +53,7 @@ export function TodayBody({ data }: { data: TodayData }) {
               href="/ai"
               className="rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink-2"
             >
-              Re-prioritize
+              Ask Claude
             </Link>
           </>
         }
@@ -67,31 +68,8 @@ export function TodayBody({ data }: { data: TodayData }) {
 
       {/* Two-column body */}
       <div className="mt-3.5 grid grid-cols-1 gap-3.5 lg:grid-cols-[1.4fr_1fr]">
-        {/* Priorities */}
-        <section>
-          <div className="mb-2 flex items-center gap-2">
-            <h2 className="font-serif text-[16px] font-semibold text-ink">Priorities</h2>
-            <span className="text-[11px] text-ink-3">· what moves the week</span>
-            <div className="flex-1" />
-            <Chip kind="ghost">AI-ranked</Chip>
-          </div>
-          <div className="flex flex-col gap-3">
-            {data.priorities.map((p) => (
-              <Card key={p.rank} className="p-3">
-                <div className="flex items-center gap-2">
-                  <span className={`size-2 rounded-full ${DOT[p.dot]}`} />
-                  <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.16em] text-ink-3">
-                    {p.tag}
-                  </span>
-                  <div className="flex-1" />
-                  <span className="font-mono text-[10px] text-ink-4">{p.rank}</span>
-                </div>
-                <div className="mt-1 font-serif text-[16px] font-semibold text-ink">{p.title}</div>
-                <div className="mt-0.5 text-[12px] text-ink-3">{p.sub}</div>
-              </Card>
-            ))}
-          </div>
-        </section>
+        {/* Priorities (client — has a working Re-prioritize button) */}
+        <TodayPriorities initial={data.priorities} />
 
         {/* Right rail */}
         <aside className="flex flex-col gap-3">

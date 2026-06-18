@@ -14,8 +14,8 @@ company-domain match for non-consumer domains) and a money heuristic
 `projects.lead_id → leads.email`. Because the *seed* contacts use synthetic
 `.example` addresses and `projects.lead_id` is null, Clients/Subs/by-project
 resolve to ~0 on seed data today — Money matched 9 real threads in the live
-inbox. These chips populate once real lead/sub emails land (7.1 CSV import)
-and projects are linked to leads.
+inbox. These chips populate once real lead/sub emails land (leads collected
+post-launch — the old CSV import was dropped) and projects are linked to leads.
 
 ## What's inert today (and the goal)
 

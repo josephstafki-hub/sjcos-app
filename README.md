@@ -17,7 +17,7 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 >
 > **Phase 8 (wire dead clickables + multi-user auth) — IN PROGRESS.** Plan + live resume point: [`docs/phases/phase-8-auth-and-wiring.md`](docs/phases/phase-8-auth-and-wiring.md). **8-A auth ✅** (login/sessions/roles/logout; demo logins owner+sub+client, pw `sjcos`). **8-B portals+team — partial** (role-gated identity-scoped portals; live Team & roles; editable Profile + add-user still TODO). **8-C interactivity / 8-D action backends — not started.**
 >
-> **Then (deferred, agreed order):** **7.3 AI swap** → **7.x email** (`/inbox`) → **7.1 leads.csv import** → **deploy (very last)**. All need Joe's input. `/site`, `/newsletter`, `/books` stay placeholders.
+> **Then (deferred, agreed order):** **7.3 AI swap** → **7.x email** (`/inbox`) → **deploy (very last)**. `/site`, `/newsletter`, `/books` stay placeholders. **Lead import (old 7.1) is dropped** — leads will be collected/imported fresh after the project ships.
 
 ---
 
@@ -249,8 +249,10 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 
 ## Phase 7 — Real Data + Backend
 
-### 7.1 Data import
-> Reordered to run **last of the final three** (after AI swap + email). Live checklist moved to **§7.1 — *final-three step 3*** below.
+### 7.1 Data import — ❌ DROPPED
+> Importing the existing `leads.csv` was dropped (Joe, 2026-06-18). The current
+> hand-authored showcase seed stays; real leads will be collected and imported
+> fresh once the project ships. No CSV import work planned.
 
 ### 7.2 API routes (real)
 - [x] `/api/today` — real daily brief *(header metrics + brief inputs from leads/projects rows; priorities/schedule/waiting stay curated until those tables exist)*
@@ -272,11 +274,6 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 - [ ] Add `threads` ingestion + a `messages` table; backfill seed
 - [ ] Convert `lib/inbox.ts` off mock onto `query()` (last remaining mock lib)
 - [ ] Wire AI triage/draft to real thread bodies
-
-### 7.1 Data import — *final-three step 3*
-- [ ] Import real `leads.csv` from `~/sj-carpentry-os/06_operations/crm/data/` into Postgres *(replaces hand-authored showcase seed)*
-- [ ] Import existing project data from same directory
-- [ ] Validate data, resolve schema mismatches, reconcile slugs used by curated detail content
 
 ---
 

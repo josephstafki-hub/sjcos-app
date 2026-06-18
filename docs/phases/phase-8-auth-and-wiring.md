@@ -38,8 +38,9 @@
 
 **✅ Phase 8 (A–D) COMPLETE.** Every named dead clickable now navigates or
 performs a real action; app has multi-user auth + role-gated portals. Remaining
-project work is the "final three" (AI swap → email → leads.csv import) then the
-Phase 8 *deploy* — all blocked on Joe's input (provider/key, DNS+sudo, port).
+project work is AI swap → email (both now done) then the Phase 8 *deploy*
+(DNS+sudo, port). The old leads.csv import was dropped — leads imported fresh
+post-launch.
 
 **Dev server:** `next dev --port 3017` (log `/tmp/sjcos-dev.log`). **Tunnel:**
 https://welcome-cold-offerings-streaming.trycloudflare.com (cloudflared log

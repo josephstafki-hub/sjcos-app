@@ -228,4 +228,4 @@ Inferred from wireframes + SJC OS Master Plan. Align with existing `/admin` sche
 - Use `JSONB` columns for array/object fields (photos, milestones, reliability stats) where a separate join table isn't needed
 - `slug` columns are URL-safe strings generated from name (e.g. "henderson-kitchen")
 - All tables get `created_at TIMESTAMPTZ DEFAULT now()` and `updated_at TIMESTAMPTZ DEFAULT now()` with an update trigger
-- Initial data import: `leads.csv` from `~/sj-carpentry-os/06_operations/crm/data/` (Phase 7.1)
+- Initial data: hand-authored showcase seed (`db/seed.sql`). The old `leads.csv` import (Phase 7.1) was dropped — leads will be collected/imported fresh after launch.

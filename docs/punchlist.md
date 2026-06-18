@@ -59,7 +59,11 @@ reviews; detail added per page. Status: ⬜ todo · �doing · ✅ done.
   real job history; folded into the deferred ops-data work.
 
 ## /files
-- ⬜ Half functional — real functionality (Drive mirror was deferred; clarify scope).
+- ✅ **Real uploads** (Joe chose server/DB over Drive mirror). `files` table gains
+  `storage_path`+`mime_type`; blobs stored under `uploads/` (gitignored).
+  `uploadFile` server action (owner-gated, 25MB) + `GET /api/files/[id]` serve
+  route; Upload button + Open/Download links are live. Showcase rows keep the
+  preview overlay. Drive mirror still deferred.
 
 ## /catalog
-- ⬜ Half functional — real functionality (table-less today; clarify scope).
+- 🔶 In progress — Joe chose real table + CRUD.

@@ -5,6 +5,7 @@ import { Check, DollarSign, Sparkles, MoreHorizontal, Mail, FileText } from "luc
 import { Shell } from "@/components/shell/Shell";
 import { AiBubble, AckButton, Card, Chip, Avatar, Eyebrow } from "@/components/ui";
 import { ProjectTabs } from "@/components/projects/ProjectTabs";
+import { PunchList } from "@/components/projects/PunchList";
 import { getProject, PROJECT_STATUSES } from "@/lib/projects";
 import { advanceProjectStatus } from "@/lib/actions/projects";
 
@@ -409,33 +410,10 @@ export default async function ProjectDetailPage({
       emptyPanel("Comms")
     );
 
-  // ── Punch panel — punch-list items ─────────────────────────────────────────
+  // ── Punch panel — real, interactive punch-list items ───────────────────────
   const punchPanel =
     project.punch.length > 0 ? (
-      <Card className="max-w-[680px] overflow-hidden p-0">
-        <div className="border-b border-rule bg-paper-2 px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
-          {project.punch.filter((p) => !p.done).length} open · {project.punch.filter((p) => p.done).length} done
-        </div>
-        {project.punch.map((p, i) => (
-          <div
-            key={p.item}
-            className={`flex items-center gap-3 px-4 py-3 ${i ? "border-t border-rule-soft" : ""}`}
-          >
-            <span
-              className={[
-                "flex size-4 flex-none items-center justify-center rounded-[4px] border",
-                p.done ? "border-money bg-money" : "border-ink-4",
-              ].join(" ")}
-            >
-              {p.done && <Check className="size-3 text-paper" strokeWidth={2.5} />}
-            </span>
-            <span className={`flex-1 text-[13px] ${p.done ? "text-ink-3 line-through" : "text-ink"}`}>
-              {p.item}
-            </span>
-            <Chip kind="ghost">{p.owner}</Chip>
-          </div>
-        ))}
-      </Card>
+      <PunchList slug={project.slug} items={project.punch} />
     ) : (
       emptyPanel("Punch")
     );

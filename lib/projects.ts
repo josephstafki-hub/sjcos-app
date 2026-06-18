@@ -148,7 +148,14 @@ export interface ProjectDetail {
   filesCount: number;
   selections: { area: string; choice: string; status: string; chip: ChipKind }[];
   comms: { from: string; role: "client" | "you" | "ai"; time: string; body: string }[];
-  punch: { item: string; owner: string; done: boolean }[];
+  punch: { id: number; item: string; owner: string; done: boolean }[];
+}
+
+interface PunchRow {
+  id: number;
+  item: string;
+  owner_name: string;
+  done: boolean;
 }
 
 const PROJECT_DETAILS: Record<string, Partial<ProjectDetail>> = {
@@ -225,12 +232,6 @@ const PROJECT_DETAILS: Record<string, Partial<ProjectDetail>> = {
         body: "Yes — Marco starts Monday at 1. One thing: need your grout color pick (light vs. charcoal) by Sunday so we don't lose a day.",
       },
     ],
-    punch: [
-      { item: "Replace hairline-damaged pantry door (supplier RMA)", owner: "Marco", done: false },
-      { item: "Caulk gap at range-wall cabinet", owner: "Joe", done: false },
-      { item: "Touch-up paint — island return", owner: "Brad", done: false },
-      { item: "Verify under-cabinet LED dimming", owner: "Tomas", done: true },
-    ],
   },
 };
 
@@ -240,6 +241,22 @@ export async function getProject(slug: string): Promise<ProjectDetail | null> {
   const item = rowToItem(rows[0]);
 
   const curated = PROJECT_DETAILS[slug] ?? {};
+
+  // Punch list is real (project_punch table); checkboxes toggle `done`.
+  const punchRes = await query<PunchRow>(
+    `SELECT pp.id, pp.item, pp.owner_name, pp.done
+       FROM project_punch pp
+       JOIN projects p ON p.id = pp.project_id
+      WHERE p.slug = $1
+      ORDER BY pp.sort_order, pp.id`,
+    [slug],
+  );
+  const punch = punchRes.rows.map((r) => ({
+    id: r.id,
+    item: r.item,
+    owner: r.owner_name,
+    done: r.done,
+  }));
 
   // AI-drafted weekly status note (the only AI touch-point on this screen).
   const draft = await ai.draft({ kind: "weekly_status", context: item.name });
@@ -279,7 +296,7 @@ export async function getProject(slug: string): Promise<ProjectDetail | null> {
     filesCount: curated.filesCount ?? 0,
     selections: curated.selections ?? [],
     comms: curated.comms ?? [],
-    punch: curated.punch ?? [],
+    punch,
   };
 }
 

@@ -5,6 +5,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { query, queryOne } from "@/lib/db";
+import { requireRole } from "@/lib/dal";
 import { PROJECT_STATUSES } from "@/lib/projects";
 import type { ProjectStatus } from "@/lib/types";
 
@@ -70,6 +71,13 @@ export async function advanceProjectStatus(slug: string) {
   revalidatePath(`/projects/${slug}`);
   revalidatePath("/projects");
   revalidatePath("/today"); // active-job count + outstanding A/R derive from projects
+}
+
+/** Toggle a punch-list item done/open. Owner-gated; `slug` drives revalidation. */
+export async function setPunchDone(id: number, done: boolean, slug: string) {
+  await requireRole("owner");
+  await query(`UPDATE project_punch SET done = $2 WHERE id = $1`, [id, done]);
+  revalidatePath(`/projects/${slug}`);
 }
 
 /** Set a project's billed/progress percent (0–100). */

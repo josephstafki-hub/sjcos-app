@@ -264,7 +264,21 @@ CREATE TABLE IF NOT EXISTS chat_reads (
   last_read_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- ─── Project punch list ─────────────────────────────────────────────────────
+-- Per-project punch items; checkboxes on the project-detail Punch tab toggle
+-- `done`. Owner-gated writes via lib/actions/projects.ts.
+CREATE TABLE IF NOT EXISTS project_punch (
+  id          bigserial PRIMARY KEY,
+  project_id  uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  item        text NOT NULL,
+  owner_name  text NOT NULL DEFAULT '',
+  done        boolean NOT NULL DEFAULT false,
+  sort_order  integer NOT NULL DEFAULT 0,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
 -- ─── Indexes for the common list queries ────────────────────────────────────
+CREATE INDEX IF NOT EXISTS idx_punch_project        ON project_punch(project_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_chat_channel         ON chat_messages(channel_key, created_at);
 CREATE INDEX IF NOT EXISTS idx_leads_stage          ON leads(stage);
 CREATE INDEX IF NOT EXISTS idx_projects_status       ON projects(status);

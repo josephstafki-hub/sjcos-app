@@ -10,7 +10,8 @@ BEGIN;
 
 TRUNCATE leads, projects, subs, threads, notifications, compliance_items,
          warranty_projects, warranty_claims, schedule_blocks, daily_logs,
-         files, app_settings, users, chat_messages, chat_reads
+         files, app_settings, users, chat_messages, chat_reads,
+         project_punch
          RESTART IDENTITY CASCADE;
 
 -- ─── Leads ──────────────────────────────────────────────────────────────────
@@ -151,5 +152,22 @@ INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initial
   ('marketing-queue','ai','Claude','CL','Queued. I''ll publish on approval and add it to the newsletter draft.', now() - interval '55 min');
 
 INSERT INTO chat_reads (channel_key, last_read_at) VALUES ('field-daily', now());
+
+-- ─── Project punch lists ─────────────────────────────────────────────────────
+INSERT INTO project_punch (project_id, item, owner_name, done, sort_order)
+SELECT p.id, v.item, v.owner_name, v.done, v.sort_order
+FROM projects p
+JOIN (VALUES
+  ('henderson', 'Replace hairline-damaged pantry door (supplier RMA)', 'Marco', false, 1),
+  ('henderson', 'Caulk gap at range-wall cabinet',                     'Joe',   false, 2),
+  ('henderson', 'Touch-up paint — island return',                      'Brad',  false, 3),
+  ('henderson', 'Verify under-cabinet LED dimming',                    'Tomas', true,  4),
+  ('reyes',     'Re-seat wobbly vanity drawer slide',                  'Joe',   false, 1),
+  ('reyes',     'Grout haze wipe-down in shower niche',                'Marco', false, 2),
+  ('reyes',     'Confirm exhaust fan timer wiring',                    'Tomas', true,  3),
+  ('olson',     'Final walkthrough punch with client',                 'Joe',   false, 1),
+  ('olson',     'Touch-up porch column paint after rain delay',        'Brad',  true,  2)
+) AS v(slug, item, owner_name, done, sort_order)
+  ON v.slug = p.slug;
 
 COMMIT;

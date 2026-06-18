@@ -73,7 +73,31 @@ reviews; detail added per page. Status: ⬜ todo · �doing · ✅ done.
 
 ---
 
-**All page-by-page punch-list items are now addressed.** Detail-page tabs tied to
-deferred subsystems (project Money/Comms/Selections, sub reliability/job-history)
-remain showcase by design — they need accounting / email / a project↔sub join
-that are explicitly out of scope this round. Next milestone: **Phase 8 deploy.**
+**First page-by-page pass addressed.** Detail-page tabs tied to deferred
+subsystems (project Money/Comms/Selections, sub reliability/job-history) remain
+showcase by design — they need accounting / email / a project↔sub join, out of
+scope this round.
+
+---
+
+## Review round 2 (2026-06-18, live preview)
+
+- ✅ **AI labels say "Qwen"** where the assistant is Qwen (`lib/ai-name.ts`,
+  `NEXT_PUBLIC_AI_PROVIDER`). Automate page stays "Claude" (it uses the Claude CLI).
+- ✅ **/today items clickable** — priorities, today's schedule, week-day cells,
+  and "waiting on me" link to their source record.
+- ✅ **/leads Call** reveals the number (desktop-usable popover + copy);
+  **Email** opens the in-app Gmail composer prefilled to the lead (not mailto:).
+- ✅ **Lead photos are real** — owner uploads images (stored like files, tagged
+  lead_slug), rendered for real in the grid + lightbox.
+- ✅ **"Notifications take forever"** root cause fixed: clicking a notification
+  opened a lead/project that blocked SSR on Qwen (11s/23s). Streamed both
+  (getLeadTriage / getProjectWeeklyStatus) → TTFB ~instant. **+ click marks the
+  notification read** (persists on return).
+- ⬜ **/inbox**: render sign-off/inline images in email bodies; clicking a label
+  should fetch that label's emails (server, paginated); label create/delete
+  (**label write needs the gmail.modify re-consent — deferred to deploy**).
+- ⬜ **/chat**: DMs are display-only → make them send/persist; add a way to
+  add/remove channel participants (needs a membership model).
+
+Next milestone after round 2: **Phase 8 deploy.**

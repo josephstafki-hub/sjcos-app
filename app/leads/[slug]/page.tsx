@@ -1,13 +1,14 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Phone, Mail, Sparkles, FileText } from "lucide-react";
+import { Sparkles, FileText } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
 import { AiBubble, AckButton, Card, Chip, Avatar, Eyebrow, Field, PhotoGrid } from "@/components/ui";
 import { LeadTabs } from "@/components/leads/LeadTabs";
 import { getLead, STAGES, stageIndex, stageLabel } from "@/lib/leads";
 import { advanceLeadStage } from "@/lib/actions/leads";
 import { DeleteLeadButton } from "@/components/leads/DeleteLeadButton";
+import { LeadContact } from "@/components/leads/LeadContact";
 import { AI_NAME } from "@/lib/ai-name";
 
 const VERDICT: Record<string, { label: string; kind: "money" | "flag" | "info" }> = {
@@ -323,34 +324,7 @@ export default async function LeadDetailPage({
             <div className="mt-1.5 text-[11px] text-ink-3">{lead.address} · {lead.loggedLabel}</div>
           </div>
           <div className="flex items-center gap-1.5">
-            {lead.phone ? (
-              <a
-                href={`tel:${lead.phone.replace(/[^\d+]/g, "")}`}
-                className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-paper-2"
-              >
-                <Phone className="size-3" strokeWidth={1.5} />
-                Call
-              </a>
-            ) : (
-              <span className="inline-flex cursor-not-allowed items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-4">
-                <Phone className="size-3" strokeWidth={1.5} />
-                Call
-              </span>
-            )}
-            {lead.email ? (
-              <a
-                href={`mailto:${lead.email}`}
-                className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-paper-2"
-              >
-                <Mail className="size-3" strokeWidth={1.5} />
-                Email
-              </a>
-            ) : (
-              <span className="inline-flex cursor-not-allowed items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-4">
-                <Mail className="size-3" strokeWidth={1.5} />
-                Email
-              </span>
-            )}
+            <LeadContact name={lead.name} phone={lead.phone} email={lead.email} />
             <Link
               href="/ai"
               className="inline-flex items-center gap-1 rounded-md border border-ai bg-ai px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-ai-2"

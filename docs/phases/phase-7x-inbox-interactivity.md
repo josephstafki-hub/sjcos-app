@@ -1,11 +1,20 @@
 # Phase 7.x — Inbox interactivity & Gmail parity (PLAN)
 
-Status: **A/B/C/D + E-display DONE** (Gmail read + AI draft + send shipped
-earlier). Smart views, channels, Gmail labels, the All/Clients/Subs/Money
-audience chips, and the by-project rail now filter the thread list
-client-side; per-thread label chips render; the reader Pin shows real STARRED
-state. Remaining: **F** (add `gmail.modify` scope + re-consent — Joe's
-decision) and **E actions** (star toggle + ⋮ menu — gated on F).
+Status: **A/B/C/D/E/F BUILT.** Smart views, channels, Gmail labels, the
+All/Clients/Subs/Money audience chips, and the by-project rail filter the
+list client-side; per-thread label chips render; the reader Pin is a real
+STARRED toggle and the ⋮ menu does Mark read/unread, Mark important, Archive
+and Trash via owner-gated server actions (`lib/actions/inbox.ts`
+modify/trash wrappers → `lib/gmail.ts` `modifyThread`/`trashThread`).
+**F: `GMAIL_SCOPES` is now `gmail.modify`+`gmail.send`** and the consent
+flow requests it. **ONE MANUAL STEP REMAINS:** the live refresh token was
+minted with the old `readonly`+`send` scopes, so the E actions return a
+"Gmail needs modify access" notice until Joe re-consents — re-run
+`/api/inbox/oauth/start`, approve, paste the new `GMAIL_REFRESH_TOKEN` into
+`.env.local`, restart. Reads/sends keep working in the meantime.
+
+Not built (optional): the ⋮ "apply/remove label" submenu and Gmail category
+tabs (Joe skipped categories).
 
 **C resolver notes:** `loadContactMaps()` in lib/inbox.ts joins each thread's
 counterparty email/domain against leads (→ client), subs (→ sub, plus
@@ -27,8 +36,8 @@ post-launch — the old CSV import was dropped) and projects are linked to leads
 | All / Clients / Subs / Money chips | classify + filter threads | classify + filter threads | ✅ done (C) |
 | Gmail labels | list + filter + per-thread chips | list labels, per-thread chips | ✅ done (D) |
 | Gmail category tabs | not shown | Primary/Social/Promotions/Updates tabs | ⬜ D (category carried, tabs not built) |
-| Pin (reader header) | shows real STARRED state | map to Gmail **star** + toggle | ◐ display done (E); toggle needs F |
-| ⋮ three-dot menu (reader header) | inert icon | dropdown of real Gmail actions | ⬜ E (needs F) |
+| Pin (reader header) | real STARRED toggle (optimistic) | map to Gmail **star** + toggle | ✅ built (E); needs re-consent (F) |
+| ⋮ three-dot menu (reader header) | read/unread, important, archive, trash | dropdown of real Gmail actions | ✅ built (E); needs re-consent (F) |
 
 ## A. Data model — carry Gmail metadata through
 

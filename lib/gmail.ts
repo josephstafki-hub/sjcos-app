@@ -7,16 +7,23 @@
 // Active only when GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / GMAIL_REFRESH_TOKEN
 // are all set in the environment. Until then `gmailConfigured()` is false and
 // lib/inbox.ts falls back to the deterministic mock — exactly like the Ollama
-// swap in lib/ai.ts. Scopes: gmail.readonly + gmail.send (read threads + send
-// the AI-drafted replies). The OAuth client_secret/refresh_token live only in
+// swap in lib/ai.ts. Scopes: gmail.modify + gmail.send. `modify` is a superset
+// of `readonly` (read threads + change labels/state: star, archive, mark
+// read/unread, important, trash) but NOT permanent delete; `send` sends the
+// AI-drafted replies. The OAuth client_secret/refresh_token live only in
 // .env.local (gitignored), never in code.
+//
+// NOTE: widening scope (readonly → modify) invalidates the old refresh token —
+// re-run /api/inbox/oauth/start to mint a new one and paste it into .env.local.
 
 import "server-only";
 import { google } from "googleapis";
 import type { gmail_v1 } from "googleapis";
 
 export const GMAIL_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.readonly",
+  // modify = read + label/state changes (star, archive, mark read, important,
+  // trash). Deliberately not the full mail scope and not permanent-delete.
+  "https://www.googleapis.com/auth/gmail.modify",
   "https://www.googleapis.com/auth/gmail.send",
 ];
 
@@ -352,4 +359,26 @@ export async function sendNewEmail(opts: {
     userId: "me",
     requestBody: { raw: buildRaw(opts.to, opts.subject || "(no subject)", opts.bodyText) },
   });
+}
+
+// ─── Mutations (require the gmail.modify scope) ──────────────────────────────
+
+/** Add/remove Gmail label ids across every message in a thread. */
+export async function modifyThread(
+  threadId: string,
+  changes: { addLabelIds?: string[]; removeLabelIds?: string[] },
+): Promise<void> {
+  await gmail().users.threads.modify({
+    userId: "me",
+    id: threadId,
+    requestBody: {
+      addLabelIds: changes.addLabelIds,
+      removeLabelIds: changes.removeLabelIds,
+    },
+  });
+}
+
+/** Move a whole thread to Trash (recoverable; not a permanent delete). */
+export async function trashThread(threadId: string): Promise<void> {
+  await gmail().users.threads.trash({ userId: "me", id: threadId });
 }

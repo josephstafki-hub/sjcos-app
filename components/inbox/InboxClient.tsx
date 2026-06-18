@@ -16,6 +16,11 @@ import {
   PenSquare,
   Inbox,
   X,
+  Star,
+  MailOpen,
+  Archive,
+  Trash2,
+  Flag,
   type LucideIcon,
 } from "lucide-react";
 import { Card, Chip, Avatar } from "@/components/ui";
@@ -23,6 +28,11 @@ import {
   draftReplyAction,
   sendReplyAction,
   sendNewEmailAction,
+  setThreadStarredAction,
+  setThreadReadAction,
+  setThreadImportantAction,
+  archiveThreadAction,
+  trashThreadAction,
 } from "@/lib/actions/inbox";
 import type { ThreadChannel, ThreadStatus } from "@/lib/types";
 import type { Audience, InboxData, InboxThread, ThreadReader } from "@/lib/inbox";
@@ -84,6 +94,33 @@ function ChipButton({
   );
 }
 
+/** A single row in the reader's ⋮ dropdown menu. */
+function MenuItem({
+  icon: Icon,
+  onClick,
+  danger,
+  children,
+}: {
+  icon: LucideIcon;
+  onClick: () => void;
+  danger?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      role="menuitem"
+      onClick={onClick}
+      className={[
+        "flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] hover:bg-paper-3",
+        danger ? "text-flag" : "text-ink-2",
+      ].join(" ")}
+    >
+      <Icon className="size-3.5 flex-none" strokeWidth={1.5} />
+      {children}
+    </button>
+  );
+}
+
 export function InboxClient({
   data,
   ownerEmail,
@@ -97,6 +134,11 @@ export function InboxClient({
   });
   const [selectedId, setSelectedId] = useState(data.selectedId);
   const [composing, setComposing] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  // Optimistic star state, keyed by thread id, until the revalidate lands.
+  const [starOverride, setStarOverride] = useState<Record<string, boolean>>({});
+  const [pending, startTransition] = useTransition();
 
   // Threads visible under the current lens.
   const visible = useMemo(() => {
@@ -149,6 +191,31 @@ export function InboxClient({
     lens.kind === "audience" && lens.audience === a;
   const isProject = (slug: string) =>
     lens.kind === "project" && lens.slug === slug;
+
+  const selectedStarred = selected
+    ? starOverride[selected.id] ?? selected.starred ?? false
+    : false;
+
+  // Run a Gmail mutation; surface a plain-language notice if it fails (the
+  // usual cause is the modify scope not yet granted).
+  const run = (fn: () => Promise<{ ok: boolean; error?: string }>) =>
+    startTransition(async () => {
+      setNotice(null);
+      const r = await fn();
+      if (!r.ok) setNotice(r.error ?? "Couldn't complete that action.");
+    });
+
+  const toggleStar = () => {
+    if (!selected) return;
+    const next = !selectedStarred;
+    setStarOverride((m) => ({ ...m, [selected.id]: next }));
+    run(() => setThreadStarredAction(selected.id, next));
+  };
+
+  const menuAction = (fn: () => Promise<{ ok: boolean; error?: string }>) => {
+    setMenuOpen(false);
+    run(fn);
+  };
 
   return (
     <div className="flex h-full">
@@ -346,11 +413,81 @@ export function InboxClient({
                   {reader.messageCount} {reader.messageCount === 1 ? "message" : "messages"}
                 </Chip>
                 <div className="flex-1" />
-                <Pin
-                  className={`size-3.5 ${selected.starred ? "fill-accent text-accent" : "text-ink-3"}`}
-                  strokeWidth={1.5}
-                />
-                <MoreHorizontal className="size-3.5 text-ink-3" strokeWidth={1.5} />
+                <button
+                  onClick={toggleStar}
+                  disabled={pending}
+                  aria-label={selectedStarred ? "Unstar" : "Star"}
+                  className="rounded p-0.5 hover:bg-paper-3 disabled:opacity-50"
+                >
+                  <Pin
+                    className={`size-3.5 ${selectedStarred ? "fill-accent text-accent" : "text-ink-3"}`}
+                    strokeWidth={1.5}
+                  />
+                </button>
+                <div className="relative">
+                  <button
+                    onClick={() => setMenuOpen((o) => !o)}
+                    aria-label="More actions"
+                    aria-haspopup="menu"
+                    aria-expanded={menuOpen}
+                    className="rounded p-0.5 hover:bg-paper-3"
+                  >
+                    <MoreHorizontal className="size-3.5 text-ink-3" strokeWidth={1.5} />
+                  </button>
+                  {menuOpen && (
+                    <>
+                      {/* click-away backdrop */}
+                      <button
+                        aria-hidden
+                        tabIndex={-1}
+                        onClick={() => setMenuOpen(false)}
+                        className="fixed inset-0 z-10 cursor-default"
+                      />
+                      <div
+                        role="menu"
+                        className="absolute right-0 z-20 mt-1 w-48 overflow-hidden rounded-lg border border-rule bg-card py-1 shadow-lg"
+                      >
+                        <MenuItem icon={Star} onClick={toggleStar}>
+                          {selectedStarred ? "Unstar" : "Star"}
+                        </MenuItem>
+                        <MenuItem
+                          icon={MailOpen}
+                          onClick={() => menuAction(() => setThreadReadAction(selected.id, true))}
+                        >
+                          Mark as read
+                        </MenuItem>
+                        <MenuItem
+                          icon={Mail}
+                          onClick={() => menuAction(() => setThreadReadAction(selected.id, false))}
+                        >
+                          Mark as unread
+                        </MenuItem>
+                        <MenuItem
+                          icon={Flag}
+                          onClick={() =>
+                            menuAction(() => setThreadImportantAction(selected.id, true))
+                          }
+                        >
+                          Mark important
+                        </MenuItem>
+                        <MenuItem
+                          icon={Archive}
+                          onClick={() => menuAction(() => archiveThreadAction(selected.id))}
+                        >
+                          Archive
+                        </MenuItem>
+                        <div className="my-1 h-px bg-rule" />
+                        <MenuItem
+                          icon={Trash2}
+                          danger
+                          onClick={() => menuAction(() => trashThreadAction(selected.id))}
+                        >
+                          Trash
+                        </MenuItem>
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
               <h1 className="font-serif text-[22px] font-medium leading-tight text-accent-2">
                 {reader.subject}
@@ -364,6 +501,15 @@ export function InboxClient({
                 <span className="text-[12px] text-ink-3">{reader.messages[0].to}</span>
               </div>
             </div>
+
+            {notice && (
+              <div className="flex items-center gap-2 border-b border-flag/30 bg-flag-soft px-[18px] py-2 text-[12px] text-flag">
+                <span className="flex-1">{notice}</span>
+                <button onClick={() => setNotice(null)} aria-label="Dismiss">
+                  <X className="size-3.5" strokeWidth={1.5} />
+                </button>
+              </div>
+            )}
 
             <ReaderBody key={selected.id} reader={reader} threadId={selected.id} />
           </>

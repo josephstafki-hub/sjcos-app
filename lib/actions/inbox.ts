@@ -7,8 +7,77 @@
 
 import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/dal";
-import { gmailConfigured, sendReply, sendNewEmail } from "@/lib/gmail";
+import {
+  gmailConfigured,
+  sendReply,
+  sendNewEmail,
+  modifyThread,
+  trashThread,
+} from "@/lib/gmail";
 import { draftReplyForThread } from "@/lib/inbox";
+
+type ActionResult = { ok: boolean; error?: string };
+
+/** Owner-gated wrapper for a Gmail mutation: runs it, revalidates /inbox, and
+ *  turns the common "scope too narrow" failure into plain language. */
+async function withGmail(fn: () => Promise<void>): Promise<ActionResult> {
+  await requireRole("owner");
+  if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
+  try {
+    await fn();
+    revalidatePath("/inbox");
+    return { ok: true };
+  } catch (err) {
+    const msg = (err as Error).message;
+    if (/insufficient|scope|permission|ACCESS_TOKEN_SCOPE/i.test(msg)) {
+      return {
+        ok: false,
+        error: "Gmail needs modify access — reconnect the inbox to enable this.",
+      };
+    }
+    return { ok: false, error: msg };
+  }
+}
+
+/** Star / unstar a thread (Gmail STARRED label). */
+export async function setThreadStarredAction(threadId: string, starred: boolean) {
+  return withGmail(() =>
+    modifyThread(
+      threadId,
+      starred ? { addLabelIds: ["STARRED"] } : { removeLabelIds: ["STARRED"] },
+    ),
+  );
+}
+
+/** Mark a thread read (remove UNREAD) or unread (add UNREAD). */
+export async function setThreadReadAction(threadId: string, read: boolean) {
+  return withGmail(() =>
+    modifyThread(
+      threadId,
+      read ? { removeLabelIds: ["UNREAD"] } : { addLabelIds: ["UNREAD"] },
+    ),
+  );
+}
+
+/** Mark a thread important / not important (Gmail IMPORTANT label). */
+export async function setThreadImportantAction(threadId: string, important: boolean) {
+  return withGmail(() =>
+    modifyThread(
+      threadId,
+      important ? { addLabelIds: ["IMPORTANT"] } : { removeLabelIds: ["IMPORTANT"] },
+    ),
+  );
+}
+
+/** Archive a thread (remove it from the INBOX). */
+export async function archiveThreadAction(threadId: string) {
+  return withGmail(() => modifyThread(threadId, { removeLabelIds: ["INBOX"] }));
+}
+
+/** Move a thread to Trash. */
+export async function trashThreadAction(threadId: string) {
+  return withGmail(() => trashThread(threadId));
+}
 
 /** Compose and send a brand-new email. */
 export async function sendNewEmailAction(input: {

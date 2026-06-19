@@ -7,7 +7,9 @@ import { AiBubble, AckButton, AiStream, Card, Chip, Avatar, Eyebrow } from "@/co
 import { ProjectTabs } from "@/components/projects/ProjectTabs";
 import { PunchList } from "@/components/projects/PunchList";
 import { StageSuggest } from "@/components/projects/StageSuggest";
+import { MoneyPanel } from "@/components/projects/MoneyPanel";
 import { getProject, getProjectWeeklyStatus, PROJECT_STATUSES, stageToolTab } from "@/lib/projects";
+import { getProjectMoney, usd } from "@/lib/money";
 import { projectContext } from "@/lib/page-context";
 import { advanceProjectStatus } from "@/lib/actions/projects";
 
@@ -23,8 +25,12 @@ export default async function ProjectDetailPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const project = await getProject(slug);
+  const [project, money] = await Promise.all([getProject(slug), getProjectMoney(slug)]);
   if (!project) notFound();
+
+  // Real invoices override the curated money summary on the Overview rail.
+  const realMoney = money.invoices.length > 0;
+  const nextInvoice = money.invoices.find((i) => i.status === "sent") ?? money.invoices.find((i) => i.status === "draft");
 
   const statusIdx = PROJECT_STATUSES.findIndex((s) => s.key === project.status);
   const nextStatus = PROJECT_STATUSES[statusIdx + 1];
@@ -157,9 +163,17 @@ export default async function ProjectDetailPage({
           <Eyebrow muted>Money</Eyebrow>
           <div className="mt-2 flex flex-col gap-1.5">
             <Row label="Contract" value={m.contract} />
-            <Row label="Paid" value={m.paid} valueClass="text-money" />
-            <Row label="Next draw" value={m.nextDraw} valueClass="text-accent-2" />
-            <Row label="Open COs" value={m.openCOs} />
+            <Row label="Paid" value={realMoney ? usd(money.paidTotal) : m.paid} valueClass="text-money" />
+            <Row
+              label="Next draw"
+              value={realMoney ? (nextInvoice ? usd(nextInvoice.amount) : "—") : m.nextDraw}
+              valueClass="text-accent-2"
+            />
+            {realMoney ? (
+              <Row label="Retainer bal." value={usd(money.retainer.balance)} />
+            ) : (
+              <Row label="Open COs" value={m.openCOs} />
+            )}
           </div>
           <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-paper-3">
             <div className="h-full bg-money" style={{ width: `${m.billedPct}%` }} />
@@ -296,53 +310,25 @@ export default async function ProjectDetailPage({
       emptyPanel("Files")
     );
 
-  // ── Money panel — summary + draw schedule ──────────────────────────────────
+  // ── Money panel — real invoices + retainer (curated draw schedule as a
+  //    reference only when no invoices exist yet) ──────────────────────────────
   const moneyPanel = (
-    <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[320px_1fr]">
-      <Card className="h-fit p-3.5">
-        <Eyebrow muted>Money</Eyebrow>
-        <div className="mt-2 flex flex-col gap-1.5">
-          <Row label="Contract" value={m.contract} />
-          <Row label="Paid to date" value={m.paid} valueClass="text-money" />
-          <Row label="Next draw" value={m.nextDraw} valueClass="text-accent-2" />
-          <Row label="Open change orders" value={m.openCOs} />
-        </div>
-        <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-paper-3">
-          <div className="h-full bg-money" style={{ width: `${m.billedPct}%` }} />
-        </div>
-        <div className="mt-1 text-[11px] text-ink-3">{m.note}</div>
-      </Card>
-      {project.milestones.length > 0 && (
+    <div className="flex flex-col gap-3.5">
+      <MoneyPanel slug={slug} money={money} />
+      {!realMoney && project.milestones.length > 0 && (
         <Card className="p-3.5">
-          <h3 className="mb-2 font-serif text-[16px] font-semibold text-ink">Draw schedule</h3>
+          <h3 className="mb-2 font-serif text-[16px] font-semibold text-ink">Draw schedule · reference</h3>
           <div className="flex flex-col">
             {project.milestones.map((ms, i) => (
               <div
                 key={ms.name}
                 className={`flex items-center gap-2 py-2 ${i ? "border-t border-rule-soft" : ""}`}
               >
-                <span
-                  className={[
-                    "size-3.5 flex-none rounded-[3px] border",
-                    ms.status === "paid"
-                      ? "border-accent-2 bg-accent-2"
-                      : ms.status === "next"
-                        ? "border-accent bg-accent"
-                        : "border-ink-4",
-                  ].join(" ")}
-                />
                 <span className={`flex-1 text-[13px] ${ms.status === "queued" ? "text-ink-3" : "text-ink"}`}>
                   {ms.name}
                 </span>
                 <span className="font-mono text-[11px] text-ink-3">{ms.date}</span>
-                <span
-                  className={[
-                    "w-[68px] text-right font-mono text-[12px]",
-                    ms.status === "paid" ? "text-money" : ms.status === "next" ? "text-accent-2" : "text-ink-3",
-                  ].join(" ")}
-                >
-                  {ms.value}
-                </span>
+                <span className="w-[68px] text-right font-mono text-[12px] text-ink-3">{ms.value}</span>
               </div>
             ))}
           </div>

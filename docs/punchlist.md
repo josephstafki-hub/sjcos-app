@@ -207,8 +207,16 @@ Qwen page-awareness = structured text context; sequence = quick wins first.
   ⌘K/Ask-Qwen bar now answers from what's on screen; `/ai` stays general.
   (MONEY/DECISION emit points for invoices land with Session 5's money tables.)
 
-### Sessions 5–6 — pending (see plan)
-S3 project lifecycle
-(9 stages + tool tabs). S4 notifications engine + Qwen page context. S5 money
-(invoices+retainers) + design-tools MVP (selections/mood/floor). S6 subs perf,
-schedule overview, portals build-out, settings rationalization.
+### Session 5 — money + design tools MVP (in progress; plan: ~/.claude/plans/gentle-dazzling-castle.md)
+Sub-phases, each its own commit (RESUME POINT in the plan file):
+- ✅ **5A money** — `invoices` + `retainers` tables/seed (henderson draws),
+  `lib/money.ts` (`getProjectMoney`, derived balance), `lib/actions/money.ts`
+  (createInvoice w/ Qwen line items → firm $; sendInvoice via Gmail + MONEY emit;
+  markInvoicePaid + MONEY emit; collect/applyRetainer), `components/projects/MoneyPanel.tsx`
+  wired into the project Money tab; Overview rail shows real paid/next-draw/retainer.
+  Closes S4's deferred MONEY emits.
+- ⬜ **5B** catalog image upload · ⬜ **5C** selections board + client approval ·
+  ⬜ **5D** mood boards · ⬜ **5E** floor-plan viewer · ⬜ finalize.
+
+### Session 6 — pending (see plan)
+S6 subs perf, schedule overview, portals build-out, settings rationalization.

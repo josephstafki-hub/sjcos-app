@@ -12,7 +12,8 @@ TRUNCATE leads, projects, subs, threads, notifications, compliance_items,
          warranty_projects, warranty_claims, schedule_blocks, daily_logs,
          files, app_settings, users, chat_messages, chat_reads,
          chat_members, project_punch, catalog_items,
-         lead_activity, lead_intake, lead_estimates
+         lead_activity, lead_intake, lead_estimates,
+         invoices, retainers
          RESTART IDENTITY CASCADE;
 
 -- ─── Leads ──────────────────────────────────────────────────────────────────
@@ -219,6 +220,21 @@ INSERT INTO catalog_items (name, supplier, sku, category, use_label, price) VALU
   ('Brass bar pull · 4"',          'Schoolhouse',        'SCH-BBP-4',   'Hardware', '6 projects',  '$22'),
   ('Kohler farmhouse 30"',         'Ferguson',           'KOH-FH30',    'Plumbing', '4 projects',  '$780'),
   ('Sconce · brass · linen shade', 'Schoolhouse',        'SCH-SC-L',    'Lighting', '5 projects',  '$220');
+
+-- ─── Money: invoices + retainer (Henderson showcase, from draw milestones) ───
+INSERT INTO invoices (project_id, number, milestone, amount, line_items, status, sent_at, paid_at)
+SELECT p.id, v.number, v.milestone, v.amount, v.line_items::jsonb, v.status, v.sent_at, v.paid_at
+FROM projects p
+JOIN (VALUES
+  ('henderson','INV-001','Demo + framing',          11680, '[{"label":"Demo + framing","amount":11680}]',          'paid',  now() - interval '90 days', now() - interval '88 days'),
+  ('henderson','INV-002','Cabinets installed',      11680, '[{"label":"Cabinets installed","amount":11680}]',      'paid',  now() - interval '50 days', now() - interval '48 days'),
+  ('henderson','INV-003','Tile substrate sign-off', 12400, '[{"label":"Tile substrate sign-off","amount":12400}]', 'sent',  now() - interval '2 days',  NULL),
+  ('henderson','INV-004','Final + punch',           10960, '[{"label":"Final + punch","amount":10960}]',           'draft', NULL,                        NULL)
+) AS v(slug, number, milestone, amount, line_items, status, sent_at, paid_at)
+  ON p.slug = v.slug;
+
+INSERT INTO retainers (project_id, collected, applied)
+SELECT id, 11680, 11680 FROM projects WHERE slug = 'henderson';
 
 -- ─── Project punch lists ─────────────────────────────────────────────────────
 INSERT INTO project_punch (project_id, item, owner_name, done, sort_order)

@@ -371,7 +371,32 @@ CREATE TABLE IF NOT EXISTS catalog_items (
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- ─── Money: invoices + retainers (Review-round-3 S5A) ───────────────────────
+-- Native invoices (create/send/track) + a per-project retainer ledger. P&L
+-- still lives in QuickBooks; these power the project Money tab. amount/collected/
+-- applied are integer dollars; retainer balance = collected - applied (derived).
+CREATE TABLE IF NOT EXISTS invoices (
+  id          bigserial PRIMARY KEY,
+  project_id  uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  number      text NOT NULL DEFAULT '',          -- display number, e.g. "INV-001"
+  milestone   text NOT NULL DEFAULT '',          -- draw/milestone label
+  amount      integer NOT NULL DEFAULT 0,        -- dollars (sum of line_items)
+  line_items  jsonb NOT NULL DEFAULT '[]',       -- [{ label, amount }]
+  status      text NOT NULL DEFAULT 'draft'
+                CHECK (status IN ('draft','sent','paid')),
+  sent_at     timestamptz,
+  paid_at     timestamptz,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS retainers (
+  project_id  uuid PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  collected   integer NOT NULL DEFAULT 0,        -- dollars collected up front
+  applied     integer NOT NULL DEFAULT 0,        -- dollars applied to invoices
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
 -- ─── Indexes for the common list queries ────────────────────────────────────
+CREATE INDEX IF NOT EXISTS idx_invoices_project     ON invoices(project_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_catalog_category     ON catalog_items(category);
 CREATE INDEX IF NOT EXISTS idx_punch_project        ON project_punch(project_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_chat_channel         ON chat_messages(channel_key, created_at);

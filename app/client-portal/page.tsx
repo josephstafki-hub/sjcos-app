@@ -4,10 +4,17 @@ import { AckButton, Avatar, Card, Chip, Eyebrow } from "@/components/ui";
 import { getClientPortalData } from "@/lib/client-portal";
 import { requireRole } from "@/lib/dal";
 import { getProject } from "@/lib/projects";
+import { getClientSelections } from "@/lib/selections";
+import { ClientSelections } from "@/components/portal/ClientSelections";
 
 export default async function ClientPortalPage() {
   const user = await requireRole("owner", "client");
   const data = await getClientPortalData();
+
+  // Selections pushed to this client's project (owners previewing see the
+  // Henderson showcase). Images stream through the client-scoped portal route.
+  const selectionsSlug = user.role === "client" ? user.linkSlug : "henderson";
+  const selections = selectionsSlug ? await getClientSelections(selectionsSlug) : [];
 
   // Scope the portal to the logged-in client's project (owners previewing keep
   // the showcase project). Journal content stays curated for now.
@@ -94,6 +101,10 @@ export default async function ClientPortalPage() {
             <div className="mt-1 text-[11px] text-ink-2">{data.decision.detail}</div>
             <AckButton variant="ink" label="Decide" ackLabel="Response sent" className="mt-2" />
           </Card>
+
+          <div className="my-4 border-t border-rule" />
+          <Eyebrow muted>Selections to review</Eyebrow>
+          <ClientSelections selections={selections} />
 
           <div className="my-4 border-t border-rule" />
           <Eyebrow muted>Money</Eyebrow>

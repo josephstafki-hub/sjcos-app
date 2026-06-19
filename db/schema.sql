@@ -397,8 +397,29 @@ CREATE TABLE IF NOT EXISTS retainers (
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- ─── Design tools: selections board (Review-round-3 S5C) ────────────────────
+-- Per-project finish/product selections the owner curates and pushes to the
+-- client portal for approval. Image is either an upload (image_file_id) or
+-- inherited from the linked catalog item. status flows draft → pending (pushed)
+-- → approved / declined (client decided).
+CREATE TABLE IF NOT EXISTS project_selections (
+  id            bigserial PRIMARY KEY,
+  project_id    uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  area          text NOT NULL DEFAULT '',         -- e.g. "Kitchen counters"
+  choice        text NOT NULL DEFAULT '',         -- the chosen product/finish
+  catalog_id    bigint REFERENCES catalog_items(id) ON DELETE SET NULL,
+  image_file_id text,                             -- own upload; else catalog image
+  status        text NOT NULL DEFAULT 'draft'
+                  CHECK (status IN ('draft','pending','approved','declined')),
+  pushed_at     timestamptz,
+  decided_at    timestamptz,
+  sort_order    integer NOT NULL DEFAULT 0,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+
 -- ─── Indexes for the common list queries ────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_invoices_project     ON invoices(project_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_selections_project   ON project_selections(project_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_catalog_category     ON catalog_items(category);
 CREATE INDEX IF NOT EXISTS idx_punch_project        ON project_punch(project_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_chat_channel         ON chat_messages(channel_key, created_at);

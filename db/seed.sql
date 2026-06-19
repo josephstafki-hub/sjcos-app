@@ -13,7 +13,7 @@ TRUNCATE leads, projects, subs, threads, notifications, compliance_items,
          files, app_settings, users, chat_messages, chat_reads,
          chat_members, project_punch, catalog_items,
          lead_activity, lead_intake, lead_estimates,
-         invoices, retainers
+         invoices, retainers, project_selections
          RESTART IDENTITY CASCADE;
 
 -- ─── Leads ──────────────────────────────────────────────────────────────────
@@ -235,6 +235,24 @@ JOIN (VALUES
 
 INSERT INTO retainers (project_id, collected, applied)
 SELECT id, 11680, 11680 FROM projects WHERE slug = 'henderson';
+
+-- ─── Selections board (Henderson showcase, linked to catalog items) ─────────
+-- Mix of statuses: a couple approved, one pending (pushed, awaiting client), and
+-- one still draft. catalog_id resolved by name; image inherits from catalog
+-- (seed catalog has no images yet → cards show a placeholder until uploads).
+INSERT INTO project_selections (project_id, area, choice, catalog_id, status, pushed_at, decided_at, sort_order)
+SELECT p.id, v.area, v.choice,
+       (SELECT id FROM catalog_items WHERE name = v.catalog_name),
+       v.status, v.pushed_at, v.decided_at, v.sort_order
+FROM projects p
+JOIN (VALUES
+  ('henderson','Kitchen counters', 'Calacatta marble · slab',      'Calacatta marble · slab',      'approved', now() - interval '20 days', now() - interval '18 days', 0),
+  ('henderson','Base cabinets',    'Shaker maple base · 36"',      'Shaker maple base · 36"',      'approved', now() - interval '20 days', now() - interval '17 days', 1),
+  ('henderson','Backsplash tile',  'Zellige · honey · 2×8',        'Zellige · honey · 2×8',        'pending',  now() - interval '3 days',  NULL,                       2),
+  ('henderson','Cabinet hardware', 'Brass bar pull · 4"',          'Brass bar pull · 4"',          'pending',  now() - interval '3 days',  NULL,                       3),
+  ('henderson','Flooring',         'White oak LVP · 7"',           'White oak LVP · 7"',           'draft',    NULL,                       NULL,                       4)
+) AS v(slug, area, choice, catalog_name, status, pushed_at, decided_at, sort_order)
+  ON p.slug = v.slug;
 
 -- ─── Project punch lists ─────────────────────────────────────────────────────
 INSERT INTO project_punch (project_id, item, owner_name, done, sort_order)

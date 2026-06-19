@@ -8,8 +8,11 @@ import { ProjectTabs } from "@/components/projects/ProjectTabs";
 import { PunchList } from "@/components/projects/PunchList";
 import { StageSuggest } from "@/components/projects/StageSuggest";
 import { MoneyPanel } from "@/components/projects/MoneyPanel";
+import { SelectionsBoard } from "@/components/projects/SelectionsBoard";
 import { getProject, getProjectWeeklyStatus, PROJECT_STATUSES, stageToolTab } from "@/lib/projects";
 import { getProjectMoney, usd } from "@/lib/money";
+import { getProjectSelections } from "@/lib/selections";
+import { getCatalogData } from "@/lib/catalog";
 import { projectContext } from "@/lib/page-context";
 import { advanceProjectStatus } from "@/lib/actions/projects";
 
@@ -25,8 +28,15 @@ export default async function ProjectDetailPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const [project, money] = await Promise.all([getProject(slug), getProjectMoney(slug)]);
+  const [project, money, selections, catalog] = await Promise.all([
+    getProject(slug),
+    getProjectMoney(slug),
+    getProjectSelections(slug),
+    getCatalogData(),
+  ]);
   if (!project) notFound();
+
+  const catalogOptions = catalog.materials.map((m) => ({ id: m.id, name: m.name }));
 
   // Real invoices override the curated money summary on the Overview rail.
   const realMoney = money.invoices.length > 0;
@@ -358,28 +368,10 @@ export default async function ProjectDetailPage({
     emptyPanel("Daily log")
   );
 
-  // ── Selections panel — product/finish selections ───────────────────────────
-  const selectionsPanel =
-    project.selections.length > 0 ? (
-      <Card className="overflow-hidden p-0">
-        {project.selections.map((s, i) => (
-          <div
-            key={s.area}
-            className={`flex items-center gap-3 px-4 py-3 ${i ? "border-t border-rule-soft" : ""}`}
-          >
-            <span className="w-[130px] flex-none font-mono text-[11px] uppercase tracking-[0.08em] text-ink-3">
-              {s.area}
-            </span>
-            <span className="flex-1 text-[13px] text-ink">{s.choice}</span>
-            <Chip kind={s.chip} dot>
-              {s.status}
-            </Chip>
-          </div>
-        ))}
-      </Card>
-    ) : (
-      emptyPanel("Selections")
-    );
+  // ── Selections panel — real board: catalog/upload images + client approval ──
+  const selectionsPanel = (
+    <SelectionsBoard slug={slug} selections={selections} catalog={catalogOptions} />
+  );
 
   // ── Comms panel — project-scoped message thread ────────────────────────────
   const commsPanel =

@@ -215,8 +215,18 @@ Sub-phases, each its own commit (RESUME POINT in the plan file):
   markInvoicePaid + MONEY emit; collect/applyRetainer), `components/projects/MoneyPanel.tsx`
   wired into the project Money tab; Overview rail shows real paid/next-draw/retainer.
   Closes S4's deferred MONEY emits.
-- ⬜ **5B** catalog image upload · ⬜ **5C** selections board + client approval ·
-  ⬜ **5D** mood boards · ⬜ **5E** floor-plan viewer · ⬜ finalize.
+- ✅ **5B** catalog image upload — optional product image on createMaterial via
+  shared `lib/upload-store.ts` (blob under uploads/ + files row), `catalog_items.
+  image_file_id`, card renders via `/api/files/<id>` (catalog owner-only). commit 0717523.
+- ✅ **5C** selections board + client approval — `project_selections` table (area/
+  choice/catalog_id/image_file_id/status draft→pending→approved/declined), seeded
+  henderson (2 approved, 2 pending, 1 draft). `lib/selections.ts` (owner board +
+  client view + image resolver), `lib/actions/selections.ts` (add/push/remove +
+  owner-or-scoped-client decide, emits DECISION). Client-scoped image route
+  `/api/portal/selection-image/[id]` (leaves owner-only /api/files untouched).
+  `SelectionsBoard` (project Selections tab: image grid, add w/ catalog-pick or
+  upload, push-to-client, remove) + `ClientSelections` (portal Approve/Decline).
+- ⬜ **5D** mood boards · ⬜ **5E** floor-plan viewer · ⬜ finalize.
 
 ### Session 6 — pending (see plan)
 S6 subs perf, schedule overview, portals build-out, settings rationalization.

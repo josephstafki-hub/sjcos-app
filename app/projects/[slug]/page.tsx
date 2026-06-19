@@ -10,10 +10,12 @@ import { StageSuggest } from "@/components/projects/StageSuggest";
 import { MoneyPanel } from "@/components/projects/MoneyPanel";
 import { SelectionsBoard } from "@/components/projects/SelectionsBoard";
 import { MoodBoard } from "@/components/projects/MoodBoard";
+import { FloorPlan } from "@/components/projects/FloorPlan";
 import { getProject, getProjectWeeklyStatus, PROJECT_STATUSES, stageToolTab } from "@/lib/projects";
 import { getProjectMoney, usd } from "@/lib/money";
 import { getProjectSelections } from "@/lib/selections";
 import { getProjectMood } from "@/lib/mood";
+import { getProjectFloorplans } from "@/lib/floorplans";
 import { getCatalogData } from "@/lib/catalog";
 import { projectContext } from "@/lib/page-context";
 import { advanceProjectStatus } from "@/lib/actions/projects";
@@ -30,11 +32,12 @@ export default async function ProjectDetailPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const [project, money, selections, mood, catalog] = await Promise.all([
+  const [project, money, selections, mood, floorplans, catalog] = await Promise.all([
     getProject(slug),
     getProjectMoney(slug),
     getProjectSelections(slug),
     getProjectMood(slug),
+    getProjectFloorplans(slug),
     getCatalogData(),
   ]);
   if (!project) notFound();
@@ -407,17 +410,8 @@ export default async function ProjectDetailPage({
       emptyPanel("Punch")
     );
 
-  // ── Floor — design-tool tab (Floor-plan viewer lands in S5E) ────────────────
-  const toolPanel = (title: string, blurb: string) => (
-    <Card kind="dashed" className="p-8 text-center">
-      <div className="font-serif text-[16px] font-semibold text-ink-2">{title}</div>
-      <div className="mx-auto mt-1 max-w-[420px] text-[12px] text-ink-3">{blurb}</div>
-    </Card>
-  );
-  const floorPanel = toolPanel(
-    "Floor plan",
-    "Upload, annotate, and version this project's floor-plan image. The plan board arrives in the design-tools build.",
-  );
+  // ── Floor / Mood — design-tool tabs (real boards, S5D/S5E) ──────────────────
+  const floorPanel = <FloorPlan slug={slug} versions={floorplans} />;
   const moodPanel = <MoodBoard slug={slug} rooms={mood} />;
 
   const panels: Record<string, ReactNode> = {

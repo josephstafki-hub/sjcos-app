@@ -431,9 +431,22 @@ CREATE TABLE IF NOT EXISTS project_mood (
   created_at    timestamptz NOT NULL DEFAULT now()
 );
 
+-- ─── Design tools: floor-plan versions (Review-round-3 S5E) ─────────────────
+-- Versioned floor-plan files (image or PDF) per project, each with text notes.
+-- Viewer only — not a CAD editor. version increments per upload.
+CREATE TABLE IF NOT EXISTS project_floorplans (
+  id          bigserial PRIMARY KEY,
+  project_id  uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  version     integer NOT NULL DEFAULT 1,
+  file_id     text NOT NULL,
+  notes       text NOT NULL DEFAULT '',
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_invoices_project     ON invoices(project_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_selections_project   ON project_selections(project_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_mood_project         ON project_mood(project_id, room, sort_order);
+CREATE INDEX IF NOT EXISTS idx_floorplans_project   ON project_floorplans(project_id, version DESC);
 CREATE INDEX IF NOT EXISTS idx_catalog_category     ON catalog_items(category);
 CREATE INDEX IF NOT EXISTS idx_punch_project        ON project_punch(project_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_chat_channel         ON chat_messages(channel_key, created_at);

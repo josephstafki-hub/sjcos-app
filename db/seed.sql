@@ -124,19 +124,19 @@ INSERT INTO warranty_claims (project, client, issue, age_label, deadline_label, 
 -- ─── Schedule: timeblocks for the current week (Mon–Fri) ────────────────────
 -- block_date is computed off date_trunc('week', CURRENT_DATE) (= Monday) so the
 -- view always lands on "this week".
-INSERT INTO schedule_blocks (block_date, time_label, sort_min, label, tone) VALUES
-  (date_trunc('week', CURRENT_DATE)::date,                  '8:00',  480, 'Sub check-ins',            'ghost'),
-  (date_trunc('week', CURRENT_DATE)::date,                  '12:45', 765, 'QC walk · Henderson',      'accent'),
-  (date_trunc('week', CURRENT_DATE)::date,                  '1:00',  780, 'Tile · Marco · Henderson', 'accent'),
-  (date_trunc('week', CURRENT_DATE)::date,                  '3:30',  930, 'New lead call · Pham',     'ai'),
-  (date_trunc('week', CURRENT_DATE)::date + 1,              '8:00',  480, 'Tile day 2 · Marco',       'accent'),
-  (date_trunc('week', CURRENT_DATE)::date + 1,              '9:00',  540, 'Chen site walk',           'ai'),
-  (date_trunc('week', CURRENT_DATE)::date + 1,              '4:00',  960, 'Olson client walk',        'ai'),
-  (date_trunc('week', CURRENT_DATE)::date + 2,              '8:00',  480, 'Grout · Henderson',        'accent'),
-  (date_trunc('week', CURRENT_DATE)::date + 2,              '10:00', 600, 'Reyes drywall day 3',      'ghost'),
-  (date_trunc('week', CURRENT_DATE)::date + 3,              'all',   0,   'Reyes paint',              'ghost'),
-  (date_trunc('week', CURRENT_DATE)::date + 4,              'AM',    480, 'Plumbing fixtures · Tomas','ghost'),
-  (date_trunc('week', CURRENT_DATE)::date + 4,              'PM',    720, 'Weekly close + invoice',   'ai');
+INSERT INTO schedule_blocks (block_date, time_label, sort_min, label, tone, project_id) VALUES
+  (date_trunc('week', CURRENT_DATE)::date,                  '8:00',  480, 'Sub check-ins',            'ghost', NULL),
+  (date_trunc('week', CURRENT_DATE)::date,                  '12:45', 765, 'QC walk · Henderson',      'accent', (SELECT id FROM projects WHERE slug='henderson')),
+  (date_trunc('week', CURRENT_DATE)::date,                  '1:00',  780, 'Tile · Marco · Henderson', 'accent', (SELECT id FROM projects WHERE slug='henderson')),
+  (date_trunc('week', CURRENT_DATE)::date,                  '3:30',  930, 'New lead call · Pham',     'ai',    NULL),
+  (date_trunc('week', CURRENT_DATE)::date + 1,              '8:00',  480, 'Tile day 2 · Marco',       'accent', (SELECT id FROM projects WHERE slug='henderson')),
+  (date_trunc('week', CURRENT_DATE)::date + 1,              '9:00',  540, 'Chen site walk',           'ai',    NULL),
+  (date_trunc('week', CURRENT_DATE)::date + 1,              '4:00',  960, 'Olson client walk',        'ai',    (SELECT id FROM projects WHERE slug='olson')),
+  (date_trunc('week', CURRENT_DATE)::date + 2,              '8:00',  480, 'Grout · Henderson',        'accent', (SELECT id FROM projects WHERE slug='henderson')),
+  (date_trunc('week', CURRENT_DATE)::date + 2,              '10:00', 600, 'Reyes drywall day 3',      'ghost', (SELECT id FROM projects WHERE slug='reyes')),
+  (date_trunc('week', CURRENT_DATE)::date + 3,              'all',   0,   'Reyes paint',              'ghost', (SELECT id FROM projects WHERE slug='reyes')),
+  (date_trunc('week', CURRENT_DATE)::date + 4,              'AM',    480, 'Plumbing fixtures · Tomas','ghost', NULL),
+  (date_trunc('week', CURRENT_DATE)::date + 4,              'PM',    720, 'Weekly close + invoice',   'ai',    NULL);
 
 -- ─── Schedule: today's daily log (one logged day) ───────────────────────────
 INSERT INTO daily_logs (log_date, body, photos) VALUES

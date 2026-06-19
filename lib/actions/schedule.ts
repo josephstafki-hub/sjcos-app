@@ -31,10 +31,15 @@ export async function createScheduleBlock(formData: FormData) {
     ? (toneInput as Tone)
     : "accent";
 
+  // Optional project link. Empty → standalone meeting (NULL). Validate it's a
+  // UUID; a bad/foreign value just falls back to NULL rather than erroring.
+  const projectInput = String(formData.get("project_id") ?? "").trim();
+  const projectId = /^[0-9a-f-]{36}$/i.test(projectInput) ? projectInput : null;
+
   await query(
-    `INSERT INTO schedule_blocks (block_date, time_label, sort_min, label, tone)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [date, timeLabel, sortMinFrom(timeLabel), label, tone],
+    `INSERT INTO schedule_blocks (block_date, time_label, sort_min, label, tone, project_id)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [date, timeLabel, sortMinFrom(timeLabel), label, tone, projectId],
   );
 
   revalidatePath("/schedule");

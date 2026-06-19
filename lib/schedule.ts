@@ -21,6 +21,16 @@ export interface ScheduleBlock {
   time: string;
   label: string;
   tone: BlockTone;
+  /** The project this block belongs to, if any. NULL = standalone meeting. */
+  projectSlug?: string;
+  projectName?: string;
+}
+
+/** A project option for the "Block / New meeting" picker. */
+export interface ScheduleProject {
+  id: string;
+  slug: string;
+  name: string;
 }
 
 export interface ScheduleDay {
@@ -67,6 +77,8 @@ interface BlockRow {
   time_label: string;
   label: string;
   tone: string;
+  project_slug: string | null;
+  project_name: string | null;
 }
 interface LogRow {
   iso: string;
@@ -99,10 +111,12 @@ export async function getScheduleData(weekOffset = 0): Promise<ScheduleData> {
       FROM generate_series(${MONDAY}, ${FRIDAY}, interval '1 day') d
       ORDER BY d`),
     query<BlockRow>(`
-      SELECT to_char(block_date, 'YYYY-MM-DD') AS iso, time_label, label, tone
-      FROM schedule_blocks
-      WHERE block_date >= ${MONDAY} AND block_date <= ${FRIDAY}
-      ORDER BY block_date, sort_min`),
+      SELECT to_char(b.block_date, 'YYYY-MM-DD') AS iso, b.time_label, b.label, b.tone,
+             p.slug AS project_slug, p.name AS project_name
+      FROM schedule_blocks b
+      LEFT JOIN projects p ON p.id = b.project_id
+      WHERE b.block_date >= ${MONDAY} AND b.block_date <= ${FRIDAY}
+      ORDER BY b.block_date, b.sort_min`),
     query<LogRow>(`
       SELECT to_char(log_date, 'YYYY-MM-DD') AS iso, body, photos
       FROM daily_logs
@@ -117,7 +131,13 @@ export async function getScheduleData(weekOffset = 0): Promise<ScheduleData> {
   for (const b of blocksRes.rows) {
     const tone: BlockTone = b.tone === "accent" || b.tone === "ai" ? b.tone : "ghost";
     const list = blocksByDay.get(b.iso) ?? [];
-    list.push({ time: b.time_label, label: b.label, tone });
+    list.push({
+      time: b.time_label,
+      label: b.label,
+      tone,
+      projectSlug: b.project_slug ?? undefined,
+      projectName: b.project_name ?? undefined,
+    });
     blocksByDay.set(b.iso, list);
   }
 
@@ -156,6 +176,14 @@ export async function getScheduleData(weekOffset = 0): Promise<ScheduleData> {
       entries,
     },
   };
+}
+
+/** Active projects for the block/meeting picker, most-recent first. */
+export async function getScheduleProjects(): Promise<ScheduleProject[]> {
+  const { rows } = await query<ScheduleProject>(
+    `SELECT id, slug, name FROM projects ORDER BY created_at DESC, name`,
+  );
+  return rows;
 }
 
 /** The AI scheduling-conflict note, streamed separately (see AiStream) so the

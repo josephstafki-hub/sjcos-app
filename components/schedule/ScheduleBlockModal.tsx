@@ -5,19 +5,32 @@ import { X } from "lucide-react";
 import { createScheduleBlock } from "@/lib/actions/schedule";
 import { SubmitButton } from "@/components/ui";
 
+/** A project option for the picker. Mirrors lib/schedule ScheduleProject but
+ *  declared locally so this client file never imports the db-coupled lib. */
+export interface ScheduleProjectOption {
+  id: string;
+  slug: string;
+  name: string;
+}
+
 /** Add-time-block modal, reused by the header "Block" button and the per-day
  *  "+" on the week strip. `initialDate` (YYYY-MM-DD) prefills the date; the
- *  header omits it and defaults to today. */
+ *  header omits it and defaults to today. `projects` populates the project
+ *  picker; `meeting` mode reframes it as a standalone (non-project) meeting. */
 export function ScheduleBlockModal({
   triggerClassName,
   triggerContent,
   triggerAriaLabel,
   initialDate,
+  projects = [],
+  meeting = false,
 }: {
   triggerClassName: string;
   triggerContent: ReactNode;
   triggerAriaLabel?: string;
   initialDate?: string;
+  projects?: ScheduleProjectOption[];
+  meeting?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [date, setDate] = useState(initialDate ?? "");
@@ -48,7 +61,9 @@ export function ScheduleBlockModal({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-rule px-4 py-3">
-              <h2 className="font-serif text-[17px] font-semibold text-ink">New time block</h2>
+              <h2 className="font-serif text-[17px] font-semibold text-ink">
+                {meeting ? "New meeting" : "New time block"}
+              </h2>
               <button onClick={() => setOpen(false)} className="text-ink-3 hover:text-ink" aria-label="Close">
                 <X className="size-4" strokeWidth={1.5} />
               </button>
@@ -67,7 +82,7 @@ export function ScheduleBlockModal({
                   name="label"
                   required
                   autoFocus
-                  placeholder="Tile — Henderson"
+                  placeholder={meeting ? "Client walkthrough" : "Tile — Henderson"}
                   className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
                 />
               </label>
@@ -93,10 +108,25 @@ export function ScheduleBlockModal({
                 </label>
               </div>
               <label className="flex flex-col gap-1">
+                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Project</span>
+                <select
+                  name="project_id"
+                  defaultValue=""
+                  className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+                >
+                  <option value="">No project — standalone meeting</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
                 <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Type</span>
                 <select
                   name="tone"
-                  defaultValue="accent"
+                  defaultValue={meeting ? "ghost" : "accent"}
                   className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
                 >
                   <option value="accent">Job</option>
@@ -117,7 +147,7 @@ export function ScheduleBlockModal({
                   pendingLabel="Adding…"
                   className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
                 >
-                  Add block
+                  {meeting ? "Add meeting" : "Add block"}
                 </SubmitButton>
               </div>
             </form>

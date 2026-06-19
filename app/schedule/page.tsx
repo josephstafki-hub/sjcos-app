@@ -5,7 +5,7 @@ import { AckButton, AiStream, Card, Chip, Eyebrow } from "@/components/ui";
 import { ScheduleBlockModal } from "@/components/schedule/ScheduleBlockModal";
 import { LogCard } from "@/components/schedule/LogCard";
 import { ConflictBubble } from "@/components/schedule/ConflictBubble";
-import { getScheduleData, getScheduleConflict } from "@/lib/schedule";
+import { getScheduleData, getScheduleConflict, getScheduleProjects } from "@/lib/schedule";
 import type { BlockTone } from "@/lib/schedule";
 
 // Pill treatment per timeblock tone. Card kind sets fill+border; the text
@@ -23,7 +23,10 @@ export default async function SchedulePage({
 }) {
   const { w } = await searchParams;
   const offset = Math.trunc(Number(w)) || 0;
-  const data = await getScheduleData(offset);
+  const [data, projects] = await Promise.all([
+    getScheduleData(offset),
+    getScheduleProjects(),
+  ]);
   const hrefFor = (o: number) => (o === 0 ? "/schedule" : `/schedule?w=${o}`);
 
   return (
@@ -38,6 +41,9 @@ export default async function SchedulePage({
             <h1 className="mt-1 font-serif text-[34px] font-medium leading-none tracking-tight text-accent-2">
               {offset === 0 ? "This week on site" : "Week on site"}
             </h1>
+            <p className="mt-1 text-[12px] text-ink-3">
+              Every project calendar and standalone meeting, in one week view.
+            </p>
           </div>
           <div className="flex items-center gap-1.5">
             <Link
@@ -58,6 +64,18 @@ export default async function SchedulePage({
               <ChevronRight className="size-3.5" strokeWidth={1.5} />
             </Link>
             <ScheduleBlockModal
+              meeting
+              projects={projects}
+              triggerClassName="flex items-center gap-1 rounded-md border border-ink-4 px-2.5 py-1.5 text-[12px] font-medium text-ink-2 transition-colors hover:bg-paper-2"
+              triggerContent={
+                <>
+                  <Plus className="size-3.5" strokeWidth={1.75} />
+                  New meeting
+                </>
+              }
+            />
+            <ScheduleBlockModal
+              projects={projects}
               triggerClassName="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1.5 text-[12px] font-medium text-paper transition-colors hover:bg-ink-2"
               triggerContent={
                 <>
@@ -102,6 +120,7 @@ export default async function SchedulePage({
                 </div>
                 <ScheduleBlockModal
                   initialDate={day.iso}
+                  projects={projects}
                   triggerAriaLabel={`Add a block on ${day.dow}`}
                   triggerClassName="rounded p-0.5 text-ink-4 transition-colors hover:bg-paper-3 hover:text-ink-2"
                   triggerContent={<Plus className="size-3" strokeWidth={1.5} />}
@@ -115,6 +134,18 @@ export default async function SchedulePage({
                     <Card key={i} kind={t.card} className="px-1.5 py-1">
                       <div className={`font-mono text-[9px] ${t.time}`}>{b.time}</div>
                       <div className={`mt-0.5 text-[11px] leading-snug ${t.label}`}>{b.label}</div>
+                      {b.projectSlug ? (
+                        <Link
+                          href={`/projects/${b.projectSlug}`}
+                          className="mt-1 inline-block font-mono text-[8.5px] uppercase tracking-[0.1em] text-ink-3 underline-offset-2 hover:underline"
+                        >
+                          {b.projectName}
+                        </Link>
+                      ) : (
+                        <div className="mt-1 font-mono text-[8.5px] uppercase tracking-[0.1em] text-ink-4">
+                          Standalone
+                        </div>
+                      )}
                     </Card>
                   );
                 })}

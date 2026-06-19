@@ -251,6 +251,11 @@ CREATE TABLE IF NOT EXISTS schedule_blocks (
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- S6: link a block to a project so /schedule is a cross-project overview.
+-- Nullable — NULL blocks are standalone meetings (not tied to a job).
+ALTER TABLE schedule_blocks
+  ADD COLUMN IF NOT EXISTS project_id uuid REFERENCES projects(id) ON DELETE SET NULL;
+
 CREATE TABLE IF NOT EXISTS daily_logs (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   log_date    date NOT NULL UNIQUE,

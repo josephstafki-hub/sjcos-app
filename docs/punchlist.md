@@ -109,7 +109,14 @@ scope this round.
   label with more mail than the loaded inbox window now shows in full.
   Remaining: label create/delete (**label write needs the gmail.modify
   re-consent — deferred to deploy**).
-- ⬜ **/chat**: DMs are display-only → make them send/persist; add a way to
-  add/remove channel participants (needs a membership model).
+- 🔶 **/chat**: ✅ **DMs are now real send/persist conversations** — modeled as
+  `dm:<sub-slug>` channel keys in the existing `chat_messages`/`chat_reads`
+  tables (no new table). `getChatData` derives DM partners from the subs Joe
+  coordinates with most (favourites + open jobs first), builds a `ChannelView`
+  per DM, and computes per-DM unread; `ChatClient` makes the Direct rail rows
+  clickable/selectable with unread badges and read-clearing; sending posts to
+  the DM key via the existing `sendChatMessage` (@claude still works inside a
+  DM). Seeded showcase transcripts for `dm:marco` + `dm:tomas`.
+  Remaining: add/remove channel participants (needs a membership model).
 
 Next milestone after round 2: **Phase 8 deploy.**

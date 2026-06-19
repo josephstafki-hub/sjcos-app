@@ -152,7 +152,14 @@ INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initial
   ('selections','user','Marco','MR','Got it, I''ll template Thursday once the slab is on site.', now() - interval '75 min'),
   ('marketing-queue','ai','Claude','CL','3 social posts drafted from the Olson closeout photos — captions + crops ready for your approval.', now() - interval '120 min'),
   ('marketing-queue','user','Dani','DH','The before/after on the porch is great — let''s push that one first.', now() - interval '60 min'),
-  ('marketing-queue','ai','Claude','CL','Queued. I''ll publish on approval and add it to the newsletter draft.', now() - interval '55 min');
+  ('marketing-queue','ai','Claude','CL','Queued. I''ll publish on approval and add it to the newsletter draft.', now() - interval '55 min'),
+  -- Direct messages (channel_key = dm:<sub-slug>): one-to-one with a sub.
+  ('dm:marco','owner','Joe','JS','Marco — can you template the Henderson backsplash Thursday or Friday this week?', now() - interval '180 min'),
+  ('dm:marco','user','Marco','MR','Thursday works. I''ll bring the laser and the schluter samples so we can lock the edge profile.', now() - interval '168 min'),
+  ('dm:marco','owner','Joe','JS','Perfect. Slab should be on site by then.', now() - interval '165 min'),
+  ('dm:marco','user','Marco','MR','Sounds good — text me the gate code morning of.', now() - interval '40 min'),
+  ('dm:tomas','owner','Joe','JS','Tomas, did the Pham load calc come back ok for the new range circuit?', now() - interval '95 min'),
+  ('dm:tomas','user','Tomas','TS','Yep, 50A is fine on the existing panel. I''ll pull the permit this week.', now() - interval '88 min');
 
 INSERT INTO chat_reads (channel_key, last_read_at) VALUES ('field-daily', now());
 

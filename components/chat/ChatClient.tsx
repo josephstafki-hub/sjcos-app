@@ -37,6 +37,7 @@ export function ChatClient({ data }: { data: ChatData }) {
   const [views, setViews] = useState(data.views);
   const [channels, setChannels] = useState(data.channels);
   const [rooms, setRooms] = useState(data.rooms);
+  const [directs, setDirects] = useState(data.directs);
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState(false);
   const [, startTransition] = useTransition();
@@ -46,10 +47,11 @@ export function ChatClient({ data }: { data: ChatData }) {
   const selectChannel = (key: string) => {
     setSelectedKey(key);
     // Optimistically clear the unread badge + persist the read marker.
-    const clear = (list: ChatChannel[]) =>
+    const clear = <T extends { key: string; unread?: number }>(list: T[]) =>
       list.map((c) => (c.key === key ? { ...c, unread: undefined } : c));
     setChannels(clear);
     setRooms(clear);
+    setDirects(clear);
     markChannelRead(key).catch(() => {});
   };
 
@@ -117,17 +119,31 @@ export function ChatClient({ data }: { data: ChatData }) {
 
         <div className="my-2 h-px bg-rule" />
         <RailLabel>Direct</RailLabel>
-        <div className="flex flex-col gap-1">
-          {data.directs.map((d) => (
-            <div key={d.initials} className="flex items-center gap-2 px-2 py-0.5">
+        <div className="flex flex-col gap-0.5">
+          {directs.map((d) => (
+            <button
+              key={d.key}
+              onClick={() => selectChannel(d.key)}
+              className={[
+                "flex w-full items-center gap-2 rounded-md px-2 py-1 text-left transition-colors",
+                d.key === selectedKey
+                  ? "bg-accent-soft text-accent-2"
+                  : "text-ink-2 hover:bg-paper-3",
+              ].join(" ")}
+            >
               <span className="relative flex-none">
                 <Avatar initials={d.initials} size="sm" kind="gray" />
                 {d.online && (
                   <span className="absolute -bottom-px -right-px size-1.5 rounded-full border border-paper bg-money" />
                 )}
               </span>
-              <span className="truncate text-[12px] text-ink-2">{d.name}</span>
-            </div>
+              <span className="flex-1 truncate text-[12px]">{d.name}</span>
+              {d.unread ? (
+                <Chip kind="accent" className="px-1.5">
+                  {d.unread}
+                </Chip>
+              ) : null}
+            </button>
           ))}
         </div>
 

@@ -38,18 +38,28 @@ export const ROOMS: ChatChannel[] = [
 ];
 
 export interface DirectMessage {
+  /** Channel key for this conversation, e.g. "dm:marco". */
+  key: string;
   initials: string;
-  /** Display name, e.g. "Marco · tile". */
+  /** Rail label, e.g. "Marco · Tile". */
   name: string;
+  /** Cosmetic presence dot (no real presence system; favourite subs show on). */
   online: boolean;
+  /** Unread count from the other party since the owner's last read. */
+  unread?: number;
 }
 
-export const DIRECTS: DirectMessage[] = [
-  { initials: "MR", name: "Marco · tile", online: true },
-  { initials: "TS", name: "Tomas · electric", online: false },
-  { initials: "DH", name: "Dani · bookkeeping", online: true },
-  { initials: "BP", name: "Brad · paint", online: false },
-];
+/** DM channel-key convention: one conversation per sub, in the shared
+ *  chat_messages/chat_reads tables (no separate DM table needed). */
+export const dmKey = (subSlug: string) => `dm:${subSlug}`;
+
+/** "Marco Rivas" → "MR". */
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  const first = parts[0]?.[0] ?? "";
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
+  return (first + last).toUpperCase() || "?";
+}
 
 // ─── Messages ────────────────────────────────────────────────────────────────
 
@@ -157,15 +167,48 @@ function buildView(ch: ChatChannel, rows: MessageRow[]): ChannelView {
   };
 }
 
+/** A DM is a private one-to-one room. Unlike channels, Claude isn't a member,
+ *  so the participant stack is just the owner + the sub. */
+function buildDmView(
+  d: { key: string; fullName: string; initials: string; trade: string },
+  rows: MessageRow[],
+): ChannelView {
+  return {
+    key: d.key,
+    name: d.fullName,
+    description: `Direct message · ${d.trade}`,
+    participants: ["JS", d.initials],
+    daySeparator: `Today · ${new Date().toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    })}`,
+    messages: rows.map(rowToMessage),
+  };
+}
+
+interface DmSubRow {
+  slug: string;
+  name: string;
+  trade: string;
+  fav: boolean;
+}
+
 export async function getChatData(): Promise<ChatData> {
   const all = [...CHANNELS, ...ROOMS];
-  const [msgRes, readRes] = await Promise.all([
+  const [msgRes, readRes, subRes] = await Promise.all([
     query<MessageRow>(
       `SELECT channel_key, author_kind, author_name, author_initials, body, created_at
        FROM chat_messages ORDER BY created_at ASC`,
     ),
     query<{ channel_key: string; last_read_at: Date }>(
       `SELECT channel_key, last_read_at FROM chat_reads`,
+    ),
+    // DM partners: the subs Joe coordinates with most (favourites + active
+    // jobs first), one conversation each.
+    query<DmSubRow>(
+      `SELECT slug, name, trade, fav FROM subs
+       ORDER BY fav DESC, open_jobs DESC, name ASC LIMIT 6`,
     ),
   ]);
 
@@ -191,11 +234,34 @@ export async function getChatData(): Promise<ChatData> {
     (ch) => [ch.key, buildView(ch, byChannel.get(ch.key) ?? [])] as const,
   );
 
+  // Direct messages — one conversation per coordinating sub.
+  const directs: DirectMessage[] = [];
+  const dmViewEntries: (readonly [string, ChannelView])[] = [];
+  for (const s of subRes.rows) {
+    const key = dmKey(s.slug);
+    const firstName = s.name.split(/\s+/)[0];
+    const initials = initialsOf(s.name);
+    directs.push({
+      key,
+      initials,
+      name: `${firstName} · ${s.trade}`,
+      online: s.fav,
+      unread: unreadFor(key) || undefined,
+    });
+    dmViewEntries.push([
+      key,
+      buildDmView(
+        { key, fullName: s.name, initials, trade: s.trade },
+        byChannel.get(key) ?? [],
+      ),
+    ]);
+  }
+
   return {
     channels: withUnread(CHANNELS),
     rooms: withUnread(ROOMS),
-    directs: DIRECTS,
-    views: Object.fromEntries(viewEntries),
+    directs,
+    views: Object.fromEntries([...viewEntries, ...dmViewEntries]),
     selectedKey: "field-daily",
   };
 }

@@ -8,6 +8,8 @@ import type { ChipKind } from "@/components/ui/Chip";
 import type { LeadStage, TriageVerdict } from "./types";
 import { ai, type TriageInput, type TriageResult } from "./ai";
 import { query } from "./db";
+import { relativeAge } from "./lead-activity";
+import { INTAKE_QUESTIONS } from "./lead-intake-questions";
 
 /** The lead pipeline stages, in order, ending at the signed pre-con contract. */
 export const STAGES: { key: LeadStage; label: string }[] = [
@@ -137,7 +139,9 @@ export interface LeadDetail {
   triageInput: TriageInput;
   intake: { label: string; value: string }[];
   estimate: {
+    status: "draft" | "sent";
     sentLabel: string;
+    notes: string;
     lines: { label: string; value: string }[];
     total: string;
   } | null;
@@ -157,27 +161,6 @@ const DETAILS: Record<string, Partial<LeadDetail>> = {
     address: "4218 Hillcrest Ave · Edina",
     source: "Site form",
     loggedLabel: "Logged Apr 19 (6 days ago)",
-    intake: [
-      { label: "Scope", value: "Full kitchen reno — cabinets, counters, backsplash, flooring, recessed lighting" },
-      { label: "Timeline", value: "Hoping to start late June, done before Thanksgiving" },
-      { label: "Budget", value: "$45,000 – $55,000" },
-      { label: "Address", value: "4218 Hillcrest Ave, Edina MN" },
-      { label: "Other bids?", value: "Yes — 2 others (one is Smith Bros)" },
-      { label: "Photos / measure", value: "6 photos + rough measurements provided" },
-    ],
-    estimate: {
-      sentLabel: "Sent Apr 21",
-      lines: [
-        { label: "Demo + prep", value: "$3,200" },
-        { label: "Cabinetry (mid-tier)", value: "$14,500 – $18,500" },
-        { label: "Counters (Calacatta)", value: "$8,200 – $11,000" },
-        { label: "Backsplash + tile", value: "$3,400 – $4,800" },
-        { label: "Flooring (LVP)", value: "$4,200 – $5,400" },
-        { label: "Electrical + light", value: "$3,800" },
-        { label: "Labor + GC + sub", value: "$12,000 – $14,000" },
-      ],
-      total: "$49,300 – $60,700",
-    },
     cadence: [
       { label: "First contact", value: "Apr 19, 11:08a" },
       { label: "First reply (SLA <24h)", value: "3h 14m ✓", chip: "money" },
@@ -264,6 +247,57 @@ export async function getLead(slug: string): Promise<LeadDetail | null> {
   );
   const photos = photoRes.rows;
 
+  // Real intake answers (round 3). Falls back to curated/generic when the lead
+  // has no lead_intake rows yet.
+  const intakeRes = await query<{ question: string; answer: string }>(
+    `SELECT li.question, li.answer
+       FROM lead_intake li JOIN leads l ON l.id = li.lead_id
+      WHERE l.slug = $1
+      ORDER BY li.sort_order, li.id`,
+    [slug],
+  );
+  // Intake is the canonical 5 questions (always editable), pre-filled with any
+  // saved answers, then any extra saved questions not in the canonical set.
+  const answerOf = new Map(intakeRes.rows.map((r) => [r.question, r.answer]));
+  const intake: { label: string; value: string }[] = INTAKE_QUESTIONS.map((q) => ({
+    label: q,
+    value: answerOf.get(q) ?? "",
+  }));
+  for (const r of intakeRes.rows) {
+    if (!INTAKE_QUESTIONS.includes(r.question as (typeof INTAKE_QUESTIONS)[number])) {
+      intake.push({ label: r.question, value: r.answer });
+    }
+  }
+
+  // Real rough estimate (round 3). One row per lead; null until drafted.
+  const estRes = await query<{
+    notes: string;
+    line_items: { label: string; value: string }[];
+    total: string;
+    status: "draft" | "sent";
+    sent_age: number | null;
+  }>(
+    `SELECT e.notes, e.line_items, e.total, e.status,
+            CASE WHEN e.sent_at IS NULL THEN NULL
+                 ELSE EXTRACT(EPOCH FROM (now() - e.sent_at))::int END AS sent_age
+       FROM lead_estimates e JOIN leads l ON l.id = e.lead_id
+      WHERE l.slug = $1`,
+    [slug],
+  );
+  const estRow = estRes.rows[0];
+  const estimateFromDb = estRow
+    ? {
+        status: estRow.status,
+        sentLabel:
+          estRow.status === "sent"
+            ? `Sent ${estRow.sent_age != null ? relativeAge(estRow.sent_age) : ""}`.trim()
+            : "Draft",
+        notes: estRow.notes,
+        lines: estRow.line_items ?? [],
+        total: estRow.total,
+      }
+    : null;
+
   return {
     slug: item.slug,
     initials: item.initials,
@@ -278,15 +312,8 @@ export async function getLead(slug: string): Promise<LeadDetail | null> {
     phone: row.phone,
     loggedLabel: curated.loggedLabel ?? `Logged ${item.ageDays} days ago`,
     triageInput,
-    intake:
-      curated.intake ??
-      [
-        { label: "Scope", value: item.scope },
-        { label: "Est. value", value: item.value },
-        { label: "Stage", value: stageLabel(item.stage) },
-        { label: "Age", value: `${item.ageDays} days` },
-      ],
-    estimate: curated.estimate ?? null,
+    intake,
+    estimate: estimateFromDb ?? curated.estimate ?? null,
     cadence:
       curated.cadence ??
       [

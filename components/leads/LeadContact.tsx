@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Phone, Mail, X, Copy, Check } from "lucide-react";
+import { Phone, Mail, X, Copy, Check, Pencil } from "lucide-react";
 import { sendNewEmailAction } from "@/lib/actions/inbox";
+import { updateLeadContact } from "@/lib/actions/leads";
 
 const BTN =
   "inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-paper-2";
@@ -13,10 +14,12 @@ const BTN_OFF =
  *  desktop, where tel: does nothing) with a copy + dial affordance. Email opens
  *  the in-app Gmail composer prefilled to the lead — not the OS mailto handler. */
 export function LeadContact({
+  slug,
   name,
   phone,
   email,
 }: {
+  slug: string;
   name: string;
   phone: string | null;
   email: string | null;
@@ -24,6 +27,7 @@ export function LeadContact({
   const [showPhone, setShowPhone] = useState(false);
   const [copied, setCopied] = useState(false);
   const [compose, setCompose] = useState(false);
+  const [edit, setEdit] = useState(false);
 
   function copy() {
     if (!phone) return;
@@ -80,10 +84,109 @@ export function LeadContact({
         </span>
       )}
 
+      {/* Edit contact info */}
+      <button type="button" onClick={() => setEdit(true)} className={BTN} title="Edit contact info">
+        <Pencil className="size-3" strokeWidth={1.5} />
+        Edit
+      </button>
+
       {compose && email && (
         <ComposeModal name={name} email={email} onClose={() => setCompose(false)} />
       )}
+      {edit && (
+        <EditContactModal
+          slug={slug}
+          name={name}
+          email={email ?? ""}
+          phone={phone ?? ""}
+          onClose={() => setEdit(false)}
+        />
+      )}
     </>
+  );
+}
+
+function EditContactModal({
+  slug,
+  name,
+  email,
+  phone,
+  onClose,
+}: {
+  slug: string;
+  name: string;
+  email: string;
+  phone: string;
+  onClose: () => void;
+}) {
+  const [em, setEm] = useState(email);
+  const [ph, setPh] = useState(phone);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [saving, startSave] = useTransition();
+
+  function save() {
+    setError(null);
+    startSave(async () => {
+      const res = await updateLeadContact(slug, em, ph);
+      if (res.ok) {
+        setSaved(true);
+        setTimeout(onClose, 700);
+      } else {
+        setError("Could not save.");
+      }
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink/30 p-4 pt-[10vh]" onClick={onClose}>
+      <div className="w-full max-w-[420px] rounded-lg border border-rule bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-rule px-4 py-3">
+          <h2 className="font-serif text-[17px] font-semibold text-ink">Edit contact · {name}</h2>
+          <button onClick={onClose} className="text-ink-3 hover:text-ink" aria-label="Close">
+            <X className="size-4" strokeWidth={1.5} />
+          </button>
+        </div>
+        <div className="flex flex-col gap-3 p-4">
+          <label className="flex flex-col gap-1">
+            <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Email</span>
+            <input
+              value={em}
+              onChange={(e) => setEm(e.target.value)}
+              placeholder="name@example.com"
+              className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Phone</span>
+            <input
+              value={ph}
+              onChange={(e) => setPh(e.target.value)}
+              placeholder="(612) 555-0100"
+              className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+            />
+          </label>
+          {error && <div className="text-[11px] text-flag">{error}</div>}
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={save}
+              disabled={saving || saved}
+              className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
+            >
+              {saved ? "Saved ✓" : saving ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

@@ -11,7 +11,8 @@ BEGIN;
 TRUNCATE leads, projects, subs, threads, notifications, compliance_items,
          warranty_projects, warranty_claims, schedule_blocks, daily_logs,
          files, app_settings, users, chat_messages, chat_reads,
-         chat_members, project_punch, catalog_items
+         chat_members, project_punch, catalog_items,
+         lead_activity, lead_intake, lead_estimates
          RESTART IDENTITY CASCADE;
 
 -- ─── Leads ──────────────────────────────────────────────────────────────────
@@ -23,6 +24,42 @@ INSERT INTO leads (slug, name, scope, stage, estimate_value, value_display, sour
   ('erik-holmstrom',  'Erik Holmstrom',          'Front porch · Edina',    'discovery_call',   32000, '$32k',    'Site form',    true,  'Cooling',     'flag', 'erik.holmstrom@gmail.example','(952) 555-0140', now() - interval '9 days'),
   ('gabe-reyes',      'Gabe Reyes (referral)',   'Master bath · Mpls',     'rough_estimate',   41000, '$41k',    'Referral',     false, NULL,          NULL,   'gabe.reyes@gmail.example',   '(612) 555-0162', now() - interval '15 days'),
   ('n-sandberg',      'N. Sandberg',             'Built-ins · Edina',      'precon_signed',    14000, '$14k',    'Manual entry', false, NULL,          NULL,   'nsandberg@gmail.example',    '(952) 555-0155', now() - interval '11 days');
+
+-- Lead intake answers — maria-chen has the full 5-question intake.
+INSERT INTO lead_intake (lead_id, sort_order, question, answer)
+SELECT leads.id, v.sort_order, v.question, v.answer
+FROM leads, (VALUES
+  (1, 'Scope', 'Full kitchen reno — cabinets, counters, backsplash, flooring, recessed lighting'),
+  (2, 'Timeline', 'Hoping to start late June, done before Thanksgiving'),
+  (3, 'Budget', '$45,000 – $55,000'),
+  (4, 'Address', '4218 Hillcrest Ave, Edina MN'),
+  (5, 'Other bids?', 'Yes — 2 others (one is Smith Bros)')
+) AS v(sort_order, question, answer)
+WHERE leads.slug = 'maria-chen';
+
+-- Lead rough estimate — maria-chen (Qwen-drafted, already emailed).
+INSERT INTO lead_estimates (lead_id, notes, line_items, total, status, sent_at)
+SELECT leads.id,
+  'Full gut kitchen; mid-tier shaker cabinets, Calacatta quartz, LVP floor. Two competing bids — keep the range tight.',
+  '[{"label":"Demo + prep","value":"$3,200"},{"label":"Cabinetry (mid-tier)","value":"$14,500 – $18,500"},{"label":"Counters (Calacatta)","value":"$8,200 – $11,000"},{"label":"Backsplash + tile","value":"$3,400 – $4,800"},{"label":"Flooring (LVP)","value":"$4,200 – $5,400"},{"label":"Electrical + light","value":"$3,800"},{"label":"Labor + GC + sub","value":"$12,000 – $14,000"}]'::jsonb,
+  '$49,300 – $60,700', 'sent', now() - interval '5 days'
+FROM leads WHERE leads.slug = 'maria-chen';
+
+-- Lead activity — a 'created' event for every lead, plus a richer trail on maria.
+INSERT INTO lead_activity (lead_id, kind, summary, actor, created_at)
+SELECT id, 'created', 'Lead created · ' || COALESCE(source, 'Manual entry'), 'Joe', created_at
+FROM leads;
+
+INSERT INTO lead_activity (lead_id, kind, summary, actor, created_at)
+SELECT leads.id, v.kind, v.summary, v.actor, now() - v.off
+FROM leads, (VALUES
+  ('stage',    'Moved to Qualified',                              'Joe',  interval '5 days 8 hours'),
+  ('stage',    'Moved to Discovery call',                         'Joe',  interval '5 days 2 hours'),
+  ('estimate', 'Rough estimate drafted by Qwen ($49.3k–$60.7k)',  'Qwen', interval '5 days'),
+  ('email',    'Rough estimate emailed to Maria',                 'Joe',  interval '5 days'),
+  ('stage',    'Moved to Rough estimate',                         'Joe',  interval '4 days')
+) AS v(kind, summary, actor, off)
+WHERE leads.slug = 'maria-chen';
 
 -- ─── Projects ───────────────────────────────────────────────────────────────
 INSERT INTO projects (slug, name, status, client_name, contract_value, value_display, collected_to_date, progress, sub_label, stage_label) VALUES

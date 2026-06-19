@@ -9,7 +9,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
-import { STAGES } from "@/lib/leads";
+import { STAGES, stageLabel } from "@/lib/leads";
+import { logLeadActivity } from "@/lib/lead-activity";
+import { INTAKE_QUESTIONS } from "@/lib/lead-intake-questions";
 import type { LeadStage } from "@/lib/types";
 
 /** Kebab-case a display name into a URL slug. */
@@ -49,6 +51,7 @@ export async function createLead(formData: FormData) {
      VALUES ($1, $2, $3, $4, $5, 'intake', now())`,
     [slug, name, scope, valueDisplay, source],
   );
+  await logLeadActivity(slug, "created", `Lead created · ${source}`);
 
   revalidatePath("/leads");
   redirect(`/leads/${slug}`);
@@ -69,6 +72,7 @@ export async function advanceLeadStage(slug: string) {
     `UPDATE leads SET stage = $2, updated_at = now() WHERE slug = $1`,
     [slug, next.key],
   );
+  await logLeadActivity(slug, "stage", `Moved to ${stageLabel(next.key)}`);
   revalidatePath(`/leads/${slug}`);
   revalidatePath("/leads");
 }
@@ -83,6 +87,48 @@ export async function deleteLead(slug: string) {
   redirect("/leads");
 }
 
+/** Upsert a single intake answer. Owner-gated. Returns {ok} for the inline
+ *  editor's optimistic save. */
+export async function saveIntakeAnswer(
+  slug: string,
+  question: string,
+  answer: string,
+): Promise<{ ok: boolean }> {
+  await requireRole("owner");
+  const q = question.trim();
+  if (!q) return { ok: false };
+  const canonical = INTAKE_QUESTIONS.indexOf(q as (typeof INTAKE_QUESTIONS)[number]);
+  const sortOrder = canonical >= 0 ? canonical + 1 : 99;
+  const res = await query(
+    `INSERT INTO lead_intake (lead_id, sort_order, question, answer)
+     SELECT id, $2, $3, $4 FROM leads WHERE slug = $1
+     ON CONFLICT (lead_id, question) DO UPDATE SET answer = EXCLUDED.answer`,
+    [slug, sortOrder, q, answer.trim()],
+  );
+  if (res.rowCount === 0) return { ok: false };
+  revalidatePath(`/leads/${slug}`);
+  return { ok: true };
+}
+
+/** Update a lead's contact email/phone. Owner-gated; logs a contact-edit
+ *  activity row. Empty strings clear the field. */
+export async function updateLeadContact(
+  slug: string,
+  email: string,
+  phone: string,
+): Promise<{ ok: boolean }> {
+  await requireRole("owner");
+  const res = await query(
+    `UPDATE leads SET email = NULLIF($2, ''), phone = NULLIF($3, ''), updated_at = now()
+      WHERE slug = $1`,
+    [slug, email.trim(), phone.trim()],
+  );
+  if (res.rowCount === 0) return { ok: false };
+  await logLeadActivity(slug, "contact", "Contact info updated");
+  revalidatePath(`/leads/${slug}`);
+  return { ok: true };
+}
+
 /** Set a lead to an explicit stage (used by a stage picker). */
 export async function setLeadStage(slug: string, stage: LeadStage) {
   if (!STAGES.some((s) => s.key === stage)) return;
@@ -90,6 +136,7 @@ export async function setLeadStage(slug: string, stage: LeadStage) {
     `UPDATE leads SET stage = $2, updated_at = now() WHERE slug = $1`,
     [slug, stage],
   );
+  await logLeadActivity(slug, "stage", `Moved to ${stageLabel(stage)}`);
   revalidatePath(`/leads/${slug}`);
   revalidatePath("/leads");
 }

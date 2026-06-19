@@ -44,6 +44,42 @@ ALTER TABLE leads ADD COLUMN IF NOT EXISTS hot           boolean NOT NULL DEFAUL
 ALTER TABLE leads ADD COLUMN IF NOT EXISTS flag_label    text;
 ALTER TABLE leads ADD COLUMN IF NOT EXISTS flag_kind     text;
 
+-- Lead activity log (round 3): a real timeline of what's happened on a lead
+-- (stage moves, estimate drafted/sent, contact edits, notes). Written by
+-- lib/lead-activity.ts from the lead server actions.
+CREATE TABLE IF NOT EXISTS lead_activity (
+  id          bigserial PRIMARY KEY,
+  lead_id     uuid NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+  kind        text NOT NULL DEFAULT 'note',   -- created/stage/estimate/email/contact/note
+  summary     text NOT NULL,
+  actor       text NOT NULL DEFAULT 'Joe',
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_lead_activity_lead ON lead_activity(lead_id, created_at DESC);
+
+-- Lead intake answers (round 3): editable Q&A captured during intake. One row
+-- per question; the owner fills/edits answers on the Intake tab.
+CREATE TABLE IF NOT EXISTS lead_intake (
+  id          bigserial PRIMARY KEY,
+  lead_id     uuid NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+  sort_order  integer NOT NULL DEFAULT 0,
+  question    text NOT NULL,
+  answer      text NOT NULL DEFAULT '',
+  UNIQUE (lead_id, question)
+);
+
+-- Lead rough estimate (round 3): owner notes + Qwen-drafted line items, sendable
+-- via Gmail. One per lead.
+CREATE TABLE IF NOT EXISTS lead_estimates (
+  lead_id     uuid PRIMARY KEY REFERENCES leads(id) ON DELETE CASCADE,
+  notes       text NOT NULL DEFAULT '',
+  line_items  jsonb NOT NULL DEFAULT '[]',     -- [{ label, value }]
+  total       text NOT NULL DEFAULT '',
+  status      text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','sent')),
+  sent_at     timestamptz,
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
 -- ─── Projects ───────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS projects (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),

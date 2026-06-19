@@ -4,14 +4,16 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Sparkles, FileText } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { AiBubble, AckButton, AiStreamSkeleton, Card, Chip, Avatar, Eyebrow, Field } from "@/components/ui";
+import { AiBubble, AckButton, AiStreamSkeleton, Card, Chip, Avatar, Eyebrow } from "@/components/ui";
 import { LeadTabs } from "@/components/leads/LeadTabs";
 import { getLead, getLeadTriage, STAGES, stageIndex, stageLabel } from "@/lib/leads";
+import { getLeadActivity, type LeadActivityKind } from "@/lib/lead-activity";
 import type { TriageInput } from "@/lib/ai";
 import { advanceLeadStage } from "@/lib/actions/leads";
 import { DeleteLeadButton } from "@/components/leads/DeleteLeadButton";
 import { LeadContact } from "@/components/leads/LeadContact";
 import { LeadPhotos } from "@/components/leads/LeadPhotos";
+import { LeadIntake } from "@/components/leads/LeadIntake";
 import { AI_NAME } from "@/lib/ai-name";
 
 const VERDICT: Record<string, { label: string; kind: "money" | "flag" | "info" }> = {
@@ -28,6 +30,8 @@ export default async function LeadDetailPage({
   const { slug } = await params;
   const lead = await getLead(slug);
   if (!lead) notFound();
+
+  const activity = await getLeadActivity(slug);
 
   const currentStageIdx = stageIndex(lead.stage);
   const nextStage = STAGES[currentStageIdx + 1];
@@ -68,16 +72,7 @@ export default async function LeadDetailPage({
           </Suspense>
         </AiBubble>
 
-        <Card className="p-3.5">
-          <h3 className="mb-2.5 font-serif text-[16px] font-semibold text-ink">
-            5-Question intake
-          </h3>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {lead.intake.map((f) => (
-              <Field key={f.label} label={f.label} value={f.value} />
-            ))}
-          </div>
-        </Card>
+        <LeadIntake slug={lead.slug} items={lead.intake} />
 
         {lead.estimate && (
           <Card className="p-3.5">
@@ -200,29 +195,6 @@ export default async function LeadDetailPage({
     </Card>
   );
 
-  // ── Activity panel — cadence/SLA timeline ──────────────────────────────────
-  const activityPanel = (
-    <Card className="max-w-[640px] overflow-hidden p-0">
-      <div className="border-b border-rule bg-paper-2 px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
-        Cadence · SLA · {lead.ageDays}d since first contact
-      </div>
-      {lead.cadence.map((c, i) => (
-        <div
-          key={c.label}
-          className={`flex items-center gap-3 px-4 py-2.5 ${i ? "border-t border-rule-soft" : ""}`}
-        >
-          <span className="size-2 flex-none rounded-full bg-ink-4" />
-          <span className="flex-1 text-[13px] text-ink">{c.label}</span>
-          {c.chip ? (
-            <Chip kind={c.chip}>{c.value}</Chip>
-          ) : (
-            <span className="font-mono text-[11px] text-ink-3">{c.value}</span>
-          )}
-        </div>
-      ))}
-    </Card>
-  );
-
   // ── empty-state helper for tabs with no data yet ───────────────────────────
   const emptyPanel = (label: string, hint: string) => (
     <Card kind="dashed" className="max-w-[640px] p-8 text-center">
@@ -230,6 +202,41 @@ export default async function LeadDetailPage({
       <div className="mt-1 text-[12px] text-ink-3">{hint}</div>
     </Card>
   );
+
+  // ── Activity panel — real lead_activity timeline (newest first) ─────────────
+  const ACTIVITY_DOT: Record<LeadActivityKind, string> = {
+    created: "bg-ink-4",
+    stage: "bg-accent",
+    estimate: "bg-ai",
+    email: "bg-accent-2",
+    contact: "bg-ink-3",
+    note: "bg-ink-4",
+  };
+  const activityPanel =
+    activity.length > 0 ? (
+      <Card className="max-w-[640px] overflow-hidden p-0">
+        <div className="border-b border-rule bg-paper-2 px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
+          Activity · {lead.ageDays}d since first contact
+        </div>
+        {activity.map((a, i) => (
+          <div
+            key={a.id}
+            className={`flex items-start gap-3 px-4 py-2.5 ${i ? "border-t border-rule-soft" : ""}`}
+          >
+            <span className={`mt-1.5 size-2 flex-none rounded-full ${ACTIVITY_DOT[a.kind]}`} />
+            <div className="min-w-0 flex-1">
+              <div className="text-[13px] text-ink">{a.summary}</div>
+              <div className="font-mono text-[10px] text-ink-3">
+                {a.actor} · {a.when}
+              </div>
+            </div>
+            {a.kind === "estimate" && <Chip kind="ai">{AI_NAME}</Chip>}
+          </div>
+        ))}
+      </Card>
+    ) : (
+      emptyPanel("Activity", "Stage moves, estimates, and emails are logged here as they happen.")
+    );
 
   // ── Conversation panel — full message thread ───────────────────────────────
   const conversationPanel =
@@ -307,7 +314,7 @@ export default async function LeadDetailPage({
             <div className="mt-1.5 text-[11px] text-ink-3">{lead.address} · {lead.loggedLabel}</div>
           </div>
           <div className="flex items-center gap-1.5">
-            <LeadContact name={lead.name} phone={lead.phone} email={lead.email} />
+            <LeadContact slug={lead.slug} name={lead.name} phone={lead.phone} email={lead.email} />
             <Link
               href="/ai"
               className="inline-flex items-center gap-1 rounded-md border border-ai bg-ai px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-ai-2"

@@ -23,8 +23,6 @@ import {
   UserRound,
   UserCheck,
   Sparkles,
-  Search,
-  Settings,
   LogOut,
 } from "lucide-react";
 import { Logo } from "./Logo";
@@ -165,14 +163,7 @@ export function Sidebar({ user }: { user: SidebarUser }) {
         </Link>
       </div>
 
-      <Link
-        href="/search"
-        className="mb-2.5 flex items-center gap-1.5 rounded-md border border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.06)] px-2 py-1.5"
-      >
-        <Search className="size-3 text-[rgba(241,236,225,0.6)]" strokeWidth={1.5} />
-        <span className="flex-1 text-[12px] text-[rgba(241,236,225,0.6)]">Search anything</span>
-        <span className="font-mono text-[9px] text-[rgba(241,236,225,0.45)]">⌘K</span>
-      </Link>
+      <div className="pt-0.5" />
 
       <RailLabel>Work</RailLabel>
       {WORK.map((item) => (
@@ -222,9 +213,6 @@ export function Sidebar({ user }: { user: SidebarUser }) {
             <div className="truncate font-serif text-[13.5px] font-semibold text-paper">{user.name}</div>
             <div className="truncate text-[11px] text-[rgba(241,236,225,0.5)]">{user.roleLabel}</div>
           </div>
-        </Link>
-        <Link href="/settings" aria-label="Settings" className="flex-none p-1">
-          <Settings className="size-3.5 text-[rgba(241,236,225,0.55)] hover:text-paper" strokeWidth={1.5} />
         </Link>
         <form action={logout} className="flex-none">
           <button type="submit" aria-label="Log out" className="block p-1">

@@ -174,14 +174,14 @@ function extractJson(text: string): unknown {
 // scripts read via the allowlisted, read-only `sjcos-query` wrapper.
 const SCHEMA_CONTEXT = `SJC OS Postgres tables (read them with: ~/bin/sjcos-query 'SQL' — a READ ONLY wrapper, safe, no creds needed):
 - leads(slug, name, scope, stage, triage_verdict, email, phone, estimate_value, source, hot, created_at)
-- projects(slug, name, status[pre_construction|active|closeout|complete], client_name, contract_value, collected_to_date, progress, start_date, target_end_date, created_at)
+- projects(slug, name, status[precon_signed|floor_plan|mood_board|selections|bidding|construction_contract|construction|closeout|warranty], client_name, contract_value, collected_to_date, progress, start_date, target_end_date, created_at)
 - subs(slug, name, trade, email, phone, rating, jobs_count, coi_status[current|expiring|expired|missing], coi_expires_at)
 - threads(channel, subject, from_name, status[needs_reply|awaiting_them|snoozed|done], urgency, last_message_at)
 - notifications(kind, title, subline, flagged, read, created_at)
 - compliance_items(title, kind[coi|license|tax|insurance|permit], due_date, owner, resolved)
 - warranty_projects(project, client, closed_at, warranty_ends_at) / warranty_claims(project, client, issue, resolved, opened_at)
 - schedule_blocks(block_date, time_label, label, tone) / daily_logs(log_date, body, photos)
-A "completed job" = projects WHERE status='complete'. "Last week" = created_at/updated_at within the prior 7 days. Dates are ISO. Output of sjcos-query is plain psql text.`;
+A "completed job" = projects WHERE status IN ('closeout','warranty'). "On site" = status='construction'. "Last week" = created_at/updated_at within the prior 7 days. Dates are ISO. Output of sjcos-query is plain psql text.`;
 
 // NOTE: propose runs with NO tools in a SINGLE turn. Testing showed that
 // --permission-mode plan makes the CLI explore/think for minutes — far too slow

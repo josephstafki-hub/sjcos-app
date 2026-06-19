@@ -138,8 +138,8 @@ export async function getTodayData(): Promise<TodayData> {
         SELECT slug, name, status, progress,
                (contract_value - collected_to_date) AS outstanding
         FROM projects
-        WHERE status IN ('active', 'closeout')
-        ORDER BY (status = 'active') DESC, progress DESC, name`),
+        WHERE status IN ('construction', 'closeout')
+        ORDER BY (status = 'construction') DESC, progress DESC, name`),
       query<{ slug: string; name: string; scope: string | null; flag_label: string | null }>(`
         SELECT slug, name, scope, flag_label
         FROM leads WHERE flag_kind = 'flag'
@@ -166,7 +166,7 @@ export async function getTodayData(): Promise<TodayData> {
     ]);
 
   const projects = projectsRes.rows;
-  const activeCount = projects.filter((p) => p.status === "active").length;
+  const activeCount = projects.filter((p) => p.status === "construction").length;
   const outstanding = projects.reduce((s, p) => s + Number(p.outstanding), 0);
   const flaggedLeadRows = leadsRes.rows;
   const flaggedLeads = flaggedLeadRows.length;
@@ -222,7 +222,7 @@ export async function getTodayData(): Promise<TodayData> {
       href: "/schedule",
     });
   }
-  const topActive = projects.find((p) => p.status === "active");
+  const topActive = projects.find((p) => p.status === "construction");
   if (topActive) {
     candidates.push({
       tag: `JOB · ${topActive.name}`,

@@ -274,7 +274,7 @@ export async function convertLeadToProject(slug: string) {
 
   await query(
     `INSERT INTO projects (slug, name, status, client_name, address, value_display, sub_label, lead_id)
-     VALUES ($1, $2, 'pre_construction', $3, $4, $5, $6, $7)`,
+     VALUES ($1, $2, 'floor_plan', $3, $4, $5, $6, $7)`,
     [pslug, projectName, lead.name, address, lead.value_display, address, lead.id],
   );
   await logLeadActivity(slug, "note", `Converted to project "${projectName}"`);

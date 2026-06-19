@@ -173,7 +173,25 @@ Qwen page-awareness = structured text context; sequence = quick wins first.
   "<LastName> · <scope head>", job-site address pulled from the intake "Address"
   answer.
 
-### Sessions 3–6 — pending (see plan)
+### Session 3 — project lifecycle + per-stage tools ✅ DONE
+- ✅ **9-stage lifecycle** replaces pre_construction/active/closeout/complete:
+  precon_signed → floor_plan → mood_board → selections → bidding →
+  construction_contract → construction → closeout → warranty. Updated
+  `ProjectStatus`, `PROJECT_STATUSES`, `statusGroup()` (4 display groups:
+  pre-con·design / construction·on-site / closeout / warranty), schema CHECK
+  (idempotent DROP→remap→ADD migration) + seed remap, and the projects-list
+  filter chips. New-project default = `precon_signed`; lead→project convert lands
+  at `floor_plan`. `lib/today.ts` + `lib/automate.ts` status refs updated.
+- ✅ **Stage move (manual + Qwen)** — kept "Move to {next stage}"; added a
+  **"Stage check"** button → `suggestProjectStage(slug)` (owner-gated, Qwen
+  one-liner on readiness; degrades gracefully). Owner still confirms the move.
+- ✅ **Stage → tool mapping** — `stageToolTab(status)` opens the project on its
+  stage's tool tab (floor_plan→Floor, mood_board→Mood, selections→Selections,
+  bidding→Subs, construction→Daily log, closeout→Punch; others→Overview).
+- ✅ **Mood + Floor tabs** added to ProjectTabs (MVP placeholder panels; the
+  actual boards land in Session 5's design-tools build).
+
+### Sessions 4–6 — pending (see plan)
 S3 project lifecycle
 (9 stages + tool tabs). S4 notifications engine + Qwen page context. S5 money
 (invoices+retainers) + design-tools MVP (selections/mood/floor). S6 subs perf,

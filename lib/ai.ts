@@ -254,6 +254,14 @@ const mockProvider: AiProvider = {
         ],
       };
     }
+    if (input.kind === "project-stage") {
+      return {
+        suggestions: [
+          "Deliverables for the current stage look complete — confirm the " +
+            "client sign-off is on file, then advance to the next stage.",
+        ],
+      };
+    }
     if (input.kind === "ai-thread") {
       // Analysis points for the Ask-Claude thread. Markdown bold is rendered
       // by the screen. The real provider streams these from loaded context.

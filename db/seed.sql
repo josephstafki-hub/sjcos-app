@@ -63,11 +63,11 @@ WHERE leads.slug = 'maria-chen';
 
 -- ─── Projects ───────────────────────────────────────────────────────────────
 INSERT INTO projects (slug, name, status, client_name, contract_value, value_display, collected_to_date, progress, sub_label, stage_label) VALUES
-  ('henderson', 'Henderson kitchen',   'active',          'Tom & Kate Henderson', 58400, '$58,400',       35040, 60, 'Edina · day 74 of ~92',    'Tile phase'),
-  ('reyes',     'Reyes bath',          'active',          'Gabe Reyes',           18500, '$18,500',        6475, 35, 'Mpls · day 22',            'Drywall'),
-  ('olson',     'Olson porch',         'closeout',        'Diane Olson',          22000, '$22,000',       19800, 90, 'Edina · client walk Tues', 'Punch list'),
-  ('bauer',     'Bauer mudroom',       'pre_construction','Linda Bauer',          28000, '$28,000 (est)',     0,  0, 'Mpls · selections phase',  '6/24 selected'),
-  ('sandberg',  'Sandberg built-ins',  'pre_construction','N. Sandberg',          14000, '$14,000 (est)',     0,  0, 'Edina · site visit done',  'Awaiting selections');
+  ('henderson', 'Henderson kitchen',   'construction',          'Tom & Kate Henderson', 58400, '$58,400',       35040, 60, 'Edina · day 74 of ~92',    'Tile phase'),
+  ('reyes',     'Reyes bath',          'construction',          'Gabe Reyes',           18500, '$18,500',        6475, 35, 'Mpls · day 22',            'Drywall'),
+  ('olson',     'Olson porch',         'closeout',              'Diane Olson',          22000, '$22,000',       19800, 90, 'Edina · client walk Tues', 'Punch list'),
+  ('bauer',     'Bauer mudroom',       'selections',            'Linda Bauer',          28000, '$28,000 (est)',     0,  0, 'Mpls · selections phase',  '6/24 selected'),
+  ('sandberg',  'Sandberg built-ins',  'mood_board',            'N. Sandberg',          14000, '$14,000 (est)',     0,  0, 'Edina · mood board',       'Awaiting selections');
 
 -- ─── Subcontractors ─────────────────────────────────────────────────────────
 INSERT INTO subs (slug, name, trade, rate, fav, open_jobs, jobs_count, rating, coi_status, coi_expires_at, email, phone) VALUES

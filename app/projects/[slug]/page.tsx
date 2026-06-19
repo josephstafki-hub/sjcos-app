@@ -6,7 +6,8 @@ import { Shell } from "@/components/shell/Shell";
 import { AiBubble, AckButton, AiStream, Card, Chip, Avatar, Eyebrow } from "@/components/ui";
 import { ProjectTabs } from "@/components/projects/ProjectTabs";
 import { PunchList } from "@/components/projects/PunchList";
-import { getProject, getProjectWeeklyStatus, PROJECT_STATUSES } from "@/lib/projects";
+import { StageSuggest } from "@/components/projects/StageSuggest";
+import { getProject, getProjectWeeklyStatus, PROJECT_STATUSES, stageToolTab } from "@/lib/projects";
 import { advanceProjectStatus } from "@/lib/actions/projects";
 
 const DOT: Record<string, string> = {
@@ -424,8 +425,26 @@ export default async function ProjectDetailPage({
       emptyPanel("Punch")
     );
 
+  // ── Floor / Mood — design-tool tabs (MVP; boards land in Session 5) ─────────
+  const toolPanel = (title: string, blurb: string) => (
+    <Card kind="dashed" className="p-8 text-center">
+      <div className="font-serif text-[16px] font-semibold text-ink-2">{title}</div>
+      <div className="mx-auto mt-1 max-w-[420px] text-[12px] text-ink-3">{blurb}</div>
+    </Card>
+  );
+  const floorPanel = toolPanel(
+    "Floor plan",
+    "Upload, annotate, and version this project's floor-plan image. The plan board arrives in the design-tools build.",
+  );
+  const moodPanel = toolPanel(
+    "Mood board",
+    "Collect per-room reference images and finishes for client review. The mood board arrives in the design-tools build.",
+  );
+
   const panels: Record<string, ReactNode> = {
     Overview: overview,
+    Floor: floorPanel,
+    Mood: moodPanel,
     Schedule: schedulePanel,
     Selections: selectionsPanel,
     Subs: subsPanel,
@@ -477,14 +496,17 @@ export default async function ProjectDetailPage({
               Ask
             </Link>
             {nextStatus && (
-              <form action={moveToNextStatus}>
-                <button
-                  type="submit"
-                  className="rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
-                >
-                  Move to {nextStatus.label}
-                </button>
-              </form>
+              <>
+                <StageSuggest slug={slug} />
+                <form action={moveToNextStatus}>
+                  <button
+                    type="submit"
+                    className="rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
+                  >
+                    Move to {nextStatus.label}
+                  </button>
+                </form>
+              </>
             )}
             <AckButton
               variant="outline"
@@ -497,7 +519,7 @@ export default async function ProjectDetailPage({
         </div>
       </div>
 
-      <ProjectTabs panels={panels} />
+      <ProjectTabs panels={panels} stageTab={stageToolTab(project.status)} />
     </Shell>
   );
 }

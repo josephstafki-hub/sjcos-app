@@ -8,7 +8,7 @@ import type { ProjectStatus } from "./types";
 import { ai } from "./ai";
 import { query } from "./db";
 
-type GroupKey = "active" | "closeout" | "pre_construction";
+type GroupKey = "active" | "closeout" | "warranty" | "pre_construction";
 
 export interface ProjectListItem {
   slug: string;
@@ -41,25 +41,59 @@ export interface ProjectsData {
 }
 
 const GROUP_META: Record<GroupKey, { title: string; dot: "accent" | "ai" | "ghost"; chip: ChipKind; bar: string }> = {
-  active: { title: "Active · on site", dot: "accent", chip: "accent", bar: "bg-accent" },
+  active: { title: "Construction · on site", dot: "accent", chip: "accent", bar: "bg-accent" },
   closeout: { title: "Closeout", dot: "ai", chip: "ai", bar: "bg-ai" },
-  pre_construction: { title: "Pre-construction", dot: "ghost", chip: "ghost", bar: "bg-ink-4" },
+  warranty: { title: "Under warranty", dot: "ghost", chip: "ghost", bar: "bg-ink-4" },
+  pre_construction: { title: "Pre-construction · design", dot: "ghost", chip: "ghost", bar: "bg-ink-4" },
 };
 
-/** Map a project's status to its display group. */
+/** Map a project's lifecycle stage to its display group on the projects list. */
 export function statusGroup(status: ProjectStatus): GroupKey {
-  if (status === "active") return "active";
-  if (status === "closeout" || status === "complete") return "closeout";
-  return "pre_construction";
+  if (status === "construction") return "active";
+  if (status === "closeout") return "closeout";
+  if (status === "warranty") return "warranty";
+  return "pre_construction"; // precon_signed … construction_contract
 }
 
-/** Project statuses in lifecycle order, with display labels. */
+/** Project lifecycle stages, in order, with display labels. */
 export const PROJECT_STATUSES: { key: ProjectStatus; label: string }[] = [
-  { key: "pre_construction", label: "Pre-construction" },
-  { key: "active", label: "Active" },
+  { key: "precon_signed", label: "Pre-con signed" },
+  { key: "floor_plan", label: "Floor plan" },
+  { key: "mood_board", label: "Mood board" },
+  { key: "selections", label: "Selections" },
+  { key: "bidding", label: "Bidding" },
+  { key: "construction_contract", label: "Construction contract" },
+  { key: "construction", label: "Construction" },
   { key: "closeout", label: "Closeout" },
-  { key: "complete", label: "Complete" },
+  { key: "warranty", label: "Warranty" },
 ];
+
+/** The project-detail tab that surfaces the tool for a given lifecycle stage.
+ *  Drives which tab opens first on the project detail (the design's stage-gated
+ *  flow). Stages without a dedicated tool fall back to Overview. */
+export function stageToolTab(status: ProjectStatus): string {
+  switch (status) {
+    case "floor_plan":
+      return "Floor";
+    case "mood_board":
+      return "Mood";
+    case "selections":
+      return "Selections";
+    case "bidding":
+      return "Subs";
+    case "construction":
+      return "Daily log";
+    case "closeout":
+      return "Punch";
+    default:
+      return "Overview"; // precon_signed, construction_contract, warranty
+  }
+}
+
+/** Human label for a stage key. */
+export function projectStageLabel(status: ProjectStatus): string {
+  return PROJECT_STATUSES.find((s) => s.key === status)?.label ?? status;
+}
 
 // ─── DB row → display mapping ────────────────────────────────────────────────
 
@@ -317,7 +351,7 @@ export async function getProjectsData(): Promise<ProjectsData> {
   const { rows } = await query<ProjectRow>(`${PROJECT_SELECT} ORDER BY progress DESC, name`);
   const items = rows.map(rowToItem);
 
-  const order: GroupKey[] = ["active", "closeout", "pre_construction"];
+  const order: GroupKey[] = ["active", "closeout", "pre_construction", "warranty"];
   const groups: ProjectGroup[] = order.map((key) => ({
     key,
     ...GROUP_META[key],

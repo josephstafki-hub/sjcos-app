@@ -85,8 +85,10 @@ CREATE TABLE IF NOT EXISTS projects (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   slug              text UNIQUE NOT NULL,
   name              text NOT NULL,
-  status            text NOT NULL DEFAULT 'pre_construction'
-                      CHECK (status IN ('pre_construction','active','closeout','complete')),
+  status            text NOT NULL DEFAULT 'precon_signed'
+                      CHECK (status IN ('precon_signed','floor_plan','mood_board','selections',
+                                        'bidding','construction_contract','construction',
+                                        'closeout','warranty')),
   client_name       text NOT NULL DEFAULT '',
   address           text,
   contract_value    integer NOT NULL DEFAULT 0,
@@ -106,6 +108,20 @@ CREATE TABLE IF NOT EXISTS projects (
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS value_display text;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS sub_label     text;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS stage_label   text;
+
+-- Migrate the project lifecycle to the design's 9 stages (Review-round-3 S3).
+-- Drop the old CHECK first so legacy values can be remapped, then re-add it.
+ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_status_check;
+UPDATE projects SET status = CASE status
+  WHEN 'pre_construction' THEN 'precon_signed'
+  WHEN 'active'           THEN 'construction'
+  WHEN 'complete'         THEN 'warranty'
+  ELSE status END
+  WHERE status IN ('pre_construction','active','complete');
+ALTER TABLE projects ADD CONSTRAINT projects_status_check
+  CHECK (status IN ('precon_signed','floor_plan','mood_board','selections',
+                    'bidding','construction_contract','construction',
+                    'closeout','warranty')) NOT VALID;
 
 -- ─── Subcontractors ─────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS subs (

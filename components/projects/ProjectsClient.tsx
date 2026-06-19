@@ -12,13 +12,14 @@ const DOT: Record<string, string> = {
   ghost: "bg-ink-4",
 };
 
-type Filter = "all" | "active" | "pre_construction" | "closeout";
+type Filter = "all" | "active" | "pre_construction" | "closeout" | "warranty";
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "all", label: "All open" },
-  { key: "active", label: "Active" },
-  { key: "pre_construction", label: "Pre-con" },
+  { key: "active", label: "On site" },
+  { key: "pre_construction", label: "Pre-con · design" },
   { key: "closeout", label: "Closeout" },
+  { key: "warranty", label: "Warranty" },
 ];
 
 /** Projects list with working status filters over the grouped data. */

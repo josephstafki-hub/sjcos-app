@@ -5,8 +5,10 @@ import { Tabs, Card } from "@/components/ui";
 
 const TAB_LABELS = [
   "Overview",
-  "Schedule",
+  "Floor",
+  "Mood",
   "Selections",
+  "Schedule",
   "Subs",
   "Files",
   "Money",
@@ -18,9 +20,18 @@ const TAB_LABELS = [
 /**
  * Project-detail tab bar. Each panel is server-rendered and passed in via
  * `panels` keyed by tab label; tabs without a panel show a placeholder.
+ * `stageTab` (the current lifecycle stage's tool tab) opens first so the
+ * project lands on the tool it's gated to.
  */
-export function ProjectTabs({ panels }: { panels: Record<string, ReactNode> }) {
-  const [active, setActive] = useState(0);
+export function ProjectTabs({
+  panels,
+  stageTab,
+}: {
+  panels: Record<string, ReactNode>;
+  stageTab?: string;
+}) {
+  const initial = stageTab ? Math.max(0, TAB_LABELS.indexOf(stageTab)) : 0;
+  const [active, setActive] = useState(initial);
   const label = TAB_LABELS[active];
   const content = panels[label];
 

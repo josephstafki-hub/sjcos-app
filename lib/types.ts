@@ -38,8 +38,17 @@ export interface Lead {
 
 // ─── Projects ───────────────────────────────────────────────────────────────
 
-/** Project lifecycle buckets (Projects list groups). */
-export type ProjectStatus = "pre_construction" | "active" | "closeout" | "complete";
+/** Project lifecycle stages, in order (the design's 9-stage flow). */
+export type ProjectStatus =
+  | "precon_signed"
+  | "floor_plan"
+  | "mood_board"
+  | "selections"
+  | "bidding"
+  | "construction_contract"
+  | "construction"
+  | "closeout"
+  | "warranty";
 
 export interface Project {
   id: string;

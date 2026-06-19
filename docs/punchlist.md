@@ -207,7 +207,7 @@ Qwen page-awareness = structured text context; sequence = quick wins first.
   ⌘K/Ask-Qwen bar now answers from what's on screen; `/ai` stays general.
   (MONEY/DECISION emit points for invoices land with Session 5's money tables.)
 
-### Session 5 — money + design tools MVP (in progress; plan: ~/.claude/plans/gentle-dazzling-castle.md)
+### Session 5 — money + design tools MVP ✅ DONE (plan: ~/.claude/plans/gentle-dazzling-castle.md)
 Sub-phases, each its own commit (RESUME POINT in the plan file):
 - ✅ **5A money** — `invoices` + `retainers` tables/seed (henderson draws),
   `lib/money.ts` (`getProjectMoney`, derived balance), `lib/actions/money.ts`
@@ -232,7 +232,18 @@ Sub-phases, each its own commit (RESUME POINT in the plan file):
   shared storeUpload / removeMoodImage, owner-gated), `components/projects/
   MoodBoard.tsx` (room-grouped square grid, add modal room+image+note, hover-X
   remove) wired into the project Mood tab (images owner-only via /api/files).
-- ⬜ **5E** floor-plan viewer · ⬜ finalize.
+- ✅ **5E** floor-plan viewer — `project_floorplans` table (version/file_id/notes,
+  no seed). `lib/floorplans.ts` (newest-first, isPdf from mime), `lib/actions/
+  floorplans.ts` (uploadFloorplan image|PDF version=max+1 / updateFloorplanNotes /
+  removeFloorplan, owner-gated), `components/projects/FloorPlan.tsx` (version
+  preview img|PDF-iframe, switchable version list + remove, editable notes,
+  upload modal) wired into the project Floor tab.
+- ✅ **finalize** — full schema+seed apply from scratch (all S5 tables/cols),
+  build clean, owner /projects/henderson + /catalog + client /client-portal all
+  200; client sees the 2 pending Henderson selections w/ Approve/Decline via the
+  client-scoped /api/portal/selection-image route. **Shared upload helper
+  `lib/upload-store.ts`** (`storeUpload`) backs catalog/selections/mood/floor
+  uploads. **Session 5 complete; next = Session 6.**
 
 ### Session 6 — pending (see plan)
 S6 subs perf, schedule overview, portals build-out, settings rationalization.

@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { AiBubble, Card, Chip, Eyebrow } from "@/components/ui";
+import { AiBubble, Card, Chip } from "@/components/ui";
 import { TodayPriorities } from "./TodayPriorities";
-import { AI_NAME } from "@/lib/ai-name";
+import { WeekStrip } from "./WeekStrip";
+import { WaitingList } from "./WaitingList";
 import { getTodayBrief, type BriefInput, type TodayData } from "@/lib/today";
 
 const DOT: Record<string, string> = {
@@ -21,8 +22,7 @@ export function TodayBody({ data }: { data: TodayData }) {
       {/* Header strip */}
       <div className="mb-3.5 flex items-end gap-4">
         <div className="flex-1">
-          <Eyebrow>{data.dateLabel}</Eyebrow>
-          <h1 className="mt-1 font-serif text-[34px] font-medium leading-none tracking-tight text-accent-2">
+          <h1 className="font-serif text-[34px] font-medium leading-none tracking-tight text-accent-2">
             {data.greeting}
           </h1>
         </div>
@@ -43,20 +43,12 @@ export function TodayBody({ data }: { data: TodayData }) {
       {/* AI brief */}
       <AiBubble
         actions={
-          <>
-            <Link
-              href="/schedule"
-              className="rounded-md bg-ai px-2.5 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-ai-2"
-            >
-              Open agenda
-            </Link>
-            <Link
-              href="/ai"
-              className="rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink-2"
-            >
-              Ask {AI_NAME}
-            </Link>
-          </>
+          <Link
+            href="/schedule"
+            className="rounded-md bg-ai px-2.5 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-ai-2"
+          >
+            Open agenda
+          </Link>
         }
       >
         <div className="mb-1 font-serif text-[13.5px] font-semibold text-ai-2">
@@ -76,23 +68,7 @@ export function TodayBody({ data }: { data: TodayData }) {
         <aside className="flex flex-col gap-3">
           <div>
             <h2 className="mb-1.5 font-serif text-[16px] font-semibold text-ink">This week</h2>
-            <div className="flex gap-1.5">
-              {data.week.map((d, i) => (
-                <Link
-                  key={i}
-                  href="/schedule"
-                  className={[
-                    "flex-1 rounded border border-rule py-1.5 text-center transition-colors",
-                    d.today ? "bg-ink text-paper hover:bg-ink-2" : "bg-paper text-ink-2 hover:bg-paper-2",
-                  ].join(" ")}
-                >
-                  <div className="font-mono text-[9px] opacity-70">{d.dow}</div>
-                  <div className="font-mono text-[16px] font-semibold leading-tight tabular-nums">
-                    {d.day}
-                  </div>
-                </Link>
-              ))}
-            </div>
+            <WeekStrip week={data.week} />
           </div>
 
           <Card className="p-3">
@@ -130,34 +106,7 @@ export function TodayBody({ data }: { data: TodayData }) {
               </h3>
               <span className="text-[11px] text-ink-3">{data.waiting.total} items</span>
             </div>
-            <div className="mt-2 flex flex-col gap-1.5">
-              {data.waiting.items.map((item, i) => {
-                const row = (
-                  <>
-                    <span className="size-3.5 flex-none rounded-[3px] border border-ink-4" />
-                    <span className="text-[12px] text-ink-2">{item.label}</span>
-                  </>
-                );
-                return item.href ? (
-                  <Link
-                    key={i}
-                    href={item.href}
-                    className="-mx-1 flex items-center gap-2 rounded px-1 py-0.5 transition-colors hover:bg-paper-3"
-                  >
-                    {row}
-                  </Link>
-                ) : (
-                  <div key={i} className="flex items-center gap-2">
-                    {row}
-                  </div>
-                );
-              })}
-              {data.waiting.total > data.waiting.items.length && (
-                <div className="mt-1 text-[11px] text-ink-3">
-                  +{data.waiting.total - data.waiting.items.length} more…
-                </div>
-              )}
-            </div>
+            <WaitingList items={data.waiting.items} />
           </Card>
         </aside>
       </div>

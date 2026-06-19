@@ -36,7 +36,11 @@ export interface TodayScheduleBlock {
 export interface TodayCalDay {
   dow: string;
   day: string;
+  /** YYYY-MM-DD for this cell. */
+  iso: string;
   today: boolean;
+  /** That day's schedule blocks (for the inline day summary). */
+  blocks: { time: string; label: string; dot: DotKind }[];
 }
 
 export interface TodayData {
@@ -61,21 +65,46 @@ export interface BriefInput {
   threadsNeedingReply: number;
 }
 
-/** Mon–Sun strip for the week containing `ref`, flagging the current day. */
-function weekStrip(ref: Date): TodayCalDay[] {
-  const dows = ["S", "M", "T", "W", "T", "F", "S"];
+/** YYYY-MM-DD in local time. */
+function isoDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate(),
+  ).padStart(2, "0")}`;
+}
+
+/** Monday of the week containing `ref`. */
+function weekMonday(ref: Date): Date {
   const monday = new Date(ref);
-  const offset = (ref.getDay() + 6) % 7; // days since Monday
-  monday.setDate(ref.getDate() - offset);
+  monday.setDate(ref.getDate() - ((ref.getDay() + 6) % 7));
+  return monday;
+}
+
+/** Mon–Sun strip for the week containing `ref`, flagging the current day. Each
+ *  day's `blocks` are filled from `byDay` (iso → blocks). */
+function weekStrip(
+  ref: Date,
+  byDay: Map<string, { time: string; label: string; dot: DotKind }[]>,
+): TodayCalDay[] {
+  const dows = ["S", "M", "T", "W", "T", "F", "S"];
+  const monday = weekMonday(ref);
   return Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday);
     d.setDate(monday.getDate() + i);
+    const iso = isoDate(d);
     return {
       dow: dows[d.getDay()],
       day: String(d.getDate()),
+      iso,
       today: d.toDateString() === ref.toDateString(),
+      blocks: byDay.get(iso) ?? [],
     };
   });
+}
+
+/** Time-of-day greeting for the server's local hour. */
+function greetingFor(hour: number, name: string): string {
+  const part = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
+  return `Good ${part}, ${name}.`;
 }
 
 interface TodayProjectRow {
@@ -99,7 +128,11 @@ export async function getTodayData(): Promise<TodayData> {
 
   // In-flight jobs (active + closeout) drive the header metrics and the brief.
   // `flagged leads` = leads carrying the urgent "AI take" chip (flag_kind).
-  const [projectsRes, leadsRes, scheduleRes, complianceRes, claimsRes] =
+  const monday = weekMonday(now);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+
+  const [projectsRes, leadsRes, scheduleRes, weekRes, complianceRes, claimsRes] =
     await Promise.all([
       query<TodayProjectRow>(`
         SELECT slug, name, status, progress,
@@ -115,6 +148,11 @@ export async function getTodayData(): Promise<TodayData> {
         SELECT time_label, label, tone
         FROM schedule_blocks WHERE block_date = CURRENT_DATE
         ORDER BY sort_min`),
+      query<{ iso: string; time_label: string; label: string; tone: string }>(`
+        SELECT block_date::text AS iso, time_label, label, tone
+        FROM schedule_blocks WHERE block_date BETWEEN $1 AND $2
+        ORDER BY block_date, sort_min`,
+        [isoDate(monday), isoDate(sunday)]),
       query<{ title: string; step: string | null; due: string; days: number }>(`
         SELECT title, step, to_char(due_date, 'FMMon FMDD') AS due,
                (due_date - CURRENT_DATE) AS days
@@ -135,6 +173,14 @@ export async function getTodayData(): Promise<TodayData> {
 
   const toneToDot = (t: string): DotKind =>
     t === "accent" || t === "ai" ? (t as DotKind) : "ghost";
+
+  // This week's blocks grouped by ISO date, for the week-strip day summaries.
+  const blocksByDay = new Map<string, { time: string; label: string; dot: DotKind }[]>();
+  for (const b of weekRes.rows) {
+    const list = blocksByDay.get(b.iso) ?? [];
+    list.push({ time: b.time_label, label: b.label, dot: toneToDot(b.tone) });
+    blocksByDay.set(b.iso, list);
+  }
 
   // ── Today's schedule (real blocks; calm placeholder when empty) ──
   const schedule: TodayScheduleBlock[] = scheduleRes.rows.length
@@ -226,7 +272,7 @@ export async function getTodayData(): Promise<TodayData> {
 
   return {
     dateLabel,
-    greeting: "Good morning, Joe.",
+    greeting: greetingFor(now.getHours(), "Joe"),
     weekLabel: `${activeCount} ACTIVE JOB${activeCount === 1 ? "" : "S"}`,
     headerChips: [
       { kind: "money", label: `${dollars(outstanding)} outstanding A/R` },
@@ -235,11 +281,11 @@ export async function getTodayData(): Promise<TodayData> {
     briefHeadline: "Today's brief",
     briefInputs,
     priorities,
-    week: weekStrip(now),
+    week: weekStrip(now, blocksByDay),
     schedule,
     waiting: {
       total: waitingItems.length,
-      items: waitingItems.slice(0, 5),
+      items: waitingItems,
     },
   };
 }

@@ -11,7 +11,7 @@ BEGIN;
 TRUNCATE leads, projects, subs, threads, notifications, compliance_items,
          warranty_projects, warranty_claims, schedule_blocks, daily_logs,
          files, app_settings, users, chat_messages, chat_reads,
-         project_punch, catalog_items
+         chat_members, project_punch, catalog_items
          RESTART IDENTITY CASCADE;
 
 -- ─── Leads ──────────────────────────────────────────────────────────────────
@@ -162,6 +162,15 @@ INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initial
   ('dm:tomas','user','Tomas','TS','Yep, 50A is fine on the existing panel. I''ll pull the permit this week.', now() - interval '88 min');
 
 INSERT INTO chat_reads (channel_key, last_read_at) VALUES ('field-daily', now());
+
+-- Channel membership (subs only; owner + AI are implicit).
+INSERT INTO chat_members (channel_key, sub_slug) VALUES
+  ('field-daily','marco'), ('field-daily','tomas'), ('field-daily','brad'),
+  ('selections','marco'),
+  ('safety','kris'),
+  ('henderson-kitchen','marco'), ('henderson-kitchen','tomas'),
+  ('olson-porch','brad'),
+  ('reyes-bath','jen');
 
 -- ─── Material catalog ────────────────────────────────────────────────────────
 INSERT INTO catalog_items (name, supplier, sku, category, use_label, price) VALUES

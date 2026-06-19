@@ -274,6 +274,16 @@ CREATE TABLE IF NOT EXISTS chat_reads (
   last_read_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- Channel membership: which subs (trade partners) are in a channel/room. The
+-- owner and the AI are implicit members of every channel and are NOT stored.
+-- DMs (dm:<slug>) are 1:1 and don't use this table.
+CREATE TABLE IF NOT EXISTS chat_members (
+  channel_key text NOT NULL,
+  sub_slug    text NOT NULL REFERENCES subs(slug) ON DELETE CASCADE,
+  added_at    timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (channel_key, sub_slug)
+);
+
 -- ─── Project punch list ─────────────────────────────────────────────────────
 -- Per-project punch items; checkboxes on the project-detail Punch tab toggle
 -- `done`. Owner-gated writes via lib/actions/projects.ts.

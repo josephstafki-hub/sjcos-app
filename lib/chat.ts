@@ -76,6 +76,14 @@ export interface ChatMessage {
   system?: boolean;
 }
 
+/** A sub who can be a channel member (also the shape of the add-picker roster). */
+export interface ChannelMember {
+  slug: string;
+  name: string;
+  initials: string;
+  trade: string;
+}
+
 export interface ChannelView {
   key: string;
   /** Display name, e.g. "# field-daily". */
@@ -83,6 +91,10 @@ export interface ChannelView {
   description: string;
   /** Participant initials for the header avatar stack. */
   participants: string[];
+  /** Sub members (owner + AI are implicit, not listed here). Empty for DMs. */
+  members: ChannelMember[];
+  /** True for channels/rooms (editable membership); false for DMs. */
+  canManageMembers: boolean;
   /** Day-separator chip, e.g. "Today · Mon May 25". */
   daySeparator: string;
   messages: ChatMessage[];
@@ -105,6 +117,8 @@ export interface ChatData {
   directs: DirectMessage[];
   /** All channel/room views, keyed by slug. */
   views: Record<string, ChannelView>;
+  /** Every sub — the pool the add-member picker draws from. */
+  roster: ChannelMember[];
   /** Channel selected on first paint. */
   selectedKey: string;
 }
@@ -138,18 +152,13 @@ function rowToMessage(r: MessageRow): ChatMessage {
   };
 }
 
-function buildView(ch: ChatChannel, rows: MessageRow[]): ChannelView {
-  const messages = rows.map(rowToMessage);
-  const seen = new Set<string>();
-  const participants: string[] = [];
-  for (const m of messages) {
-    if (m.initials && !seen.has(m.initials)) {
-      seen.add(m.initials);
-      participants.push(m.initials);
-    }
-  }
-  if (!participants.includes("JS")) participants.unshift("JS");
-  if (!participants.includes("CL")) participants.push("CL");
+function buildView(
+  ch: ChatChannel,
+  rows: MessageRow[],
+  members: ChannelMember[],
+): ChannelView {
+  // Avatar stack = owner (JS) + sub members + the AI (CL), in that order.
+  const participants = ["JS", ...members.map((m) => m.initials), "CL"];
 
   return {
     key: ch.key,
@@ -157,13 +166,15 @@ function buildView(ch: ChatChannel, rows: MessageRow[]): ChannelView {
     description:
       DESCRIPTIONS[ch.key] ??
       "Claude is watching this channel and will flag anything that needs you.",
-    participants: participants.slice(0, 5),
+    participants: participants.slice(0, 6),
+    members,
+    canManageMembers: true,
     daySeparator: `Today · ${new Date().toLocaleDateString("en-US", {
       weekday: "short",
       month: "short",
       day: "numeric",
     })}`,
-    messages,
+    messages: rows.map(rowToMessage),
   };
 }
 
@@ -178,6 +189,8 @@ function buildDmView(
     name: d.fullName,
     description: `Direct message · ${d.trade}`,
     participants: ["JS", d.initials],
+    members: [],
+    canManageMembers: false,
     daySeparator: `Today · ${new Date().toLocaleDateString("en-US", {
       weekday: "short",
       month: "short",
@@ -196,7 +209,7 @@ interface DmSubRow {
 
 export async function getChatData(): Promise<ChatData> {
   const all = [...CHANNELS, ...ROOMS];
-  const [msgRes, readRes, subRes] = await Promise.all([
+  const [msgRes, readRes, subRes, memberRes] = await Promise.all([
     query<MessageRow>(
       `SELECT channel_key, author_kind, author_name, author_initials, body, created_at
        FROM chat_messages ORDER BY created_at ASC`,
@@ -204,11 +217,14 @@ export async function getChatData(): Promise<ChatData> {
     query<{ channel_key: string; last_read_at: Date }>(
       `SELECT channel_key, last_read_at FROM chat_reads`,
     ),
-    // DM partners: the subs Joe coordinates with most (favourites + active
-    // jobs first), one conversation each.
+    // The full sub roster (favourites + active jobs first). Drives both the DM
+    // list (top few) and the add-member picker (all of them).
     query<DmSubRow>(
       `SELECT slug, name, trade, fav FROM subs
-       ORDER BY fav DESC, open_jobs DESC, name ASC LIMIT 6`,
+       ORDER BY fav DESC, open_jobs DESC, name ASC`,
+    ),
+    query<{ channel_key: string; sub_slug: string }>(
+      `SELECT channel_key, sub_slug FROM chat_members`,
     ),
   ]);
 
@@ -230,14 +246,37 @@ export async function getChatData(): Promise<ChatData> {
   const withUnread = (list: ChatChannel[]): ChatChannel[] =>
     list.map((c) => ({ ...c, unread: unreadFor(c.key) || undefined }));
 
+  // Sub roster, keyed by slug, as ChannelMember.
+  const roster: ChannelMember[] = subRes.rows.map((s) => ({
+    slug: s.slug,
+    name: s.name,
+    initials: initialsOf(s.name),
+    trade: s.trade,
+  }));
+  const rosterBySlug = new Map(roster.map((m) => [m.slug, m]));
+
+  // channel_key → its sub members (resolved against the roster).
+  const membersByChannel = new Map<string, ChannelMember[]>();
+  for (const r of memberRes.rows) {
+    const m = rosterBySlug.get(r.sub_slug);
+    if (!m) continue;
+    const list = membersByChannel.get(r.channel_key) ?? [];
+    list.push(m);
+    membersByChannel.set(r.channel_key, list);
+  }
+
   const viewEntries = all.map(
-    (ch) => [ch.key, buildView(ch, byChannel.get(ch.key) ?? [])] as const,
+    (ch) =>
+      [
+        ch.key,
+        buildView(ch, byChannel.get(ch.key) ?? [], membersByChannel.get(ch.key) ?? []),
+      ] as const,
   );
 
-  // Direct messages — one conversation per coordinating sub.
+  // Direct messages — one conversation per coordinating sub (top of the roster).
   const directs: DirectMessage[] = [];
   const dmViewEntries: (readonly [string, ChannelView])[] = [];
-  for (const s of subRes.rows) {
+  for (const s of subRes.rows.slice(0, 6)) {
     const key = dmKey(s.slug);
     const firstName = s.name.split(/\s+/)[0];
     const initials = initialsOf(s.name);
@@ -262,6 +301,7 @@ export async function getChatData(): Promise<ChatData> {
     rooms: withUnread(ROOMS),
     directs,
     views: Object.fromEntries([...viewEntries, ...dmViewEntries]),
+    roster,
     selectedKey: "field-daily",
   };
 }

@@ -1,14 +1,16 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Sparkles, Send } from "lucide-react";
+import { Sparkles, Send, UserPlus, X, Plus } from "lucide-react";
 import { Card, Chip, Avatar } from "@/components/ui";
 import {
   sendChatMessage,
   askClaudeInChannel,
   markChannelRead,
+  addChannelMember,
+  removeChannelMember,
 } from "@/lib/actions/chat";
-import type { ChatChannel, ChatData, ChatMessage } from "@/lib/chat";
+import type { ChatChannel, ChatData, ChatMessage, ChannelMember } from "@/lib/chat";
 import { AI_NAME } from "@/lib/ai-name";
 
 const AI_INITIALS = AI_NAME.slice(0, 2).toUpperCase();
@@ -40,12 +42,39 @@ export function ChatClient({ data }: { data: ChatData }) {
   const [directs, setDirects] = useState(data.directs);
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState(false);
+  const [managing, setManaging] = useState(false);
   const [, startTransition] = useTransition();
 
   const view = views[selectedKey];
 
+  // Optimistically replace a channel's member list, then persist.
+  const setMembers = (key: string, members: ChannelMember[]) =>
+    setViews((v) => ({ ...v, [key]: { ...v[key], members } }));
+
+  const addMember = (m: ChannelMember) => {
+    const key = selectedKey;
+    setMembers(key, [...view.members, m]);
+    startTransition(async () => {
+      await addChannelMember(key, m.slug);
+    });
+  };
+
+  const removeMember = (slug: string) => {
+    const key = selectedKey;
+    setMembers(key, view.members.filter((m) => m.slug !== slug));
+    startTransition(async () => {
+      await removeChannelMember(key, slug);
+    });
+  };
+
+  // Subs not yet in the current channel — the add-picker options.
+  const available = data.roster.filter(
+    (r) => !view.members.some((m) => m.slug === r.slug),
+  );
+
   const selectChannel = (key: string) => {
     setSelectedKey(key);
+    setManaging(false);
     // Optimistically clear the unread badge + persist the read marker.
     const clear = <T extends { key: string; unread?: number }>(list: T[]) =>
       list.map((c) => (c.key === key ? { ...c, unread: undefined } : c));
@@ -164,16 +193,39 @@ export function ChatClient({ data }: { data: ChatData }) {
               </h1>
               <div className="mt-0.5 text-[11px] text-ink-3">{view.description}</div>
             </div>
-            <div className="flex -space-x-1">
-              {view.participants.map((p, i) => (
-                <Avatar
-                  key={i}
-                  initials={p}
-                  size="sm"
-                  kind={p === "JS" ? "accent" : p === "CL" ? "ai" : "gray"}
-                  className="ring-1 ring-paper"
+            <div className="relative flex items-center gap-1.5">
+              <div className="flex -space-x-1">
+                {view.participants.map((p, i) => (
+                  <Avatar
+                    key={i}
+                    initials={p}
+                    size="sm"
+                    kind={p === "JS" ? "accent" : p === "CL" ? "ai" : "gray"}
+                    className="ring-1 ring-paper"
+                  />
+                ))}
+              </div>
+              {view.canManageMembers && (
+                <button
+                  onClick={() => setManaging((m) => !m)}
+                  aria-label="Manage participants"
+                  className={[
+                    "flex-none rounded-full border border-rule p-1 transition-colors",
+                    managing ? "bg-accent-soft text-accent-2" : "text-ink-3 hover:bg-paper-3",
+                  ].join(" ")}
+                >
+                  <UserPlus className="size-3.5" strokeWidth={1.75} />
+                </button>
+              )}
+              {managing && view.canManageMembers && (
+                <MembersPopover
+                  members={view.members}
+                  available={available}
+                  onAdd={addMember}
+                  onRemove={removeMember}
+                  onClose={() => setManaging(false)}
                 />
-              ))}
+              )}
             </div>
           </div>
         </div>
@@ -260,6 +312,78 @@ function ChannelItem({
         </Chip>
       ) : null}
     </button>
+  );
+}
+
+function MembersPopover({
+  members,
+  available,
+  onAdd,
+  onRemove,
+  onClose,
+}: {
+  members: ChannelMember[];
+  available: ChannelMember[];
+  onAdd: (m: ChannelMember) => void;
+  onRemove: (slug: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      {/* Click-away backdrop. */}
+      <div className="fixed inset-0 z-10" onClick={onClose} />
+      <div className="absolute right-0 top-9 z-20 w-60 rounded-lg border border-rule bg-card p-2 shadow-lg">
+        <div className="px-1 pb-1 font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-ink-3">
+          Participants
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-2 rounded-md px-1.5 py-1">
+            <Avatar initials="JS" size="sm" kind="accent" />
+            <span className="flex-1 truncate text-[12px] text-ink-2">Joe · you</span>
+            <span className="text-[10px] text-ink-3">owner</span>
+          </div>
+          {members.map((m) => (
+            <div key={m.slug} className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-paper-3">
+              <Avatar initials={m.initials} size="sm" kind="gray" />
+              <span className="flex-1 truncate text-[12px] text-ink-2">
+                {m.name.split(/\s+/)[0]} · {m.trade}
+              </span>
+              <button
+                onClick={() => onRemove(m.slug)}
+                aria-label={`Remove ${m.name}`}
+                className="flex-none rounded p-0.5 text-ink-3 hover:bg-flag-soft hover:text-flag"
+              >
+                <X className="size-3.5" strokeWidth={2} />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {available.length > 0 && (
+          <>
+            <div className="my-1.5 h-px bg-rule" />
+            <div className="px-1 pb-1 font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-ink-3">
+              Add a sub
+            </div>
+            <div className="flex max-h-44 flex-col gap-0.5 overflow-y-auto">
+              {available.map((m) => (
+                <button
+                  key={m.slug}
+                  onClick={() => onAdd(m)}
+                  className="flex items-center gap-2 rounded-md px-1.5 py-1 text-left hover:bg-paper-3"
+                >
+                  <Avatar initials={m.initials} size="sm" kind="gray" />
+                  <span className="flex-1 truncate text-[12px] text-ink-2">
+                    {m.name.split(/\s+/)[0]} · {m.trade}
+                  </span>
+                  <Plus className="size-3.5 flex-none text-accent" strokeWidth={2} />
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </>
   );
 }
 

@@ -61,6 +61,44 @@ export async function askClaudeInChannel(
   }
 }
 
+/** Add a sub to a channel's membership. No-op-safe (idempotent). */
+export async function addChannelMember(
+  channelKey: string,
+  subSlug: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireRole("owner");
+  if (channelKey.startsWith("dm:")) return { ok: false, error: "DMs have no members." };
+  try {
+    await query(
+      `INSERT INTO chat_members (channel_key, sub_slug) VALUES ($1, $2)
+       ON CONFLICT (channel_key, sub_slug) DO NOTHING`,
+      [channelKey, subSlug],
+    );
+    revalidatePath("/chat");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/** Remove a sub from a channel's membership. */
+export async function removeChannelMember(
+  channelKey: string,
+  subSlug: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireRole("owner");
+  try {
+    await query(
+      `DELETE FROM chat_members WHERE channel_key = $1 AND sub_slug = $2`,
+      [channelKey, subSlug],
+    );
+    revalidatePath("/chat");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
 /** Mark a channel read for the owner (clears its unread badge). */
 export async function markChannelRead(channelKey: string): Promise<void> {
   await requireRole("owner");

@@ -117,6 +117,12 @@ scope this round.
   clickable/selectable with unread badges and read-clearing; sending posts to
   the DM key via the existing `sendChatMessage` (@claude still works inside a
   DM). Seeded showcase transcripts for `dm:marco` + `dm:tomas`.
-  Remaining: add/remove channel participants (needs a membership model).
+- ✅ **Add/remove channel participants** — new `chat_members` table (channel_key
+  + sub_slug; owner + AI are implicit). `getChatData` resolves per-channel
+  members from the sub roster and builds the avatar stack from them;
+  `addChannelMember`/`removeChannelMember` (owner-gated) persist changes; the
+  channel header has a manage-participants popover (current members with remove,
+  plus the remaining subs to add). DMs have no member editor. Seeded sensible
+  memberships per channel/room.
 
 Next milestone after round 2: **Phase 8 deploy.**

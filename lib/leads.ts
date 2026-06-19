@@ -9,14 +9,13 @@ import type { LeadStage, TriageVerdict } from "./types";
 import { ai, type TriageInput, type TriageResult } from "./ai";
 import { query } from "./db";
 
-/** The 6 pipeline stages, in order, with display labels. */
+/** The lead pipeline stages, in order, ending at the signed pre-con contract. */
 export const STAGES: { key: LeadStage; label: string }[] = [
   { key: "intake", label: "Intake" },
-  { key: "phase1_sent", label: "Phase 1 sent" },
+  { key: "qualified", label: "Qualified" },
+  { key: "discovery_call", label: "Discovery call" },
+  { key: "rough_estimate", label: "Rough estimate" },
   { key: "precon_signed", label: "Pre-con signed" },
-  { key: "precon_in_flight", label: "Pre-con in flight" },
-  { key: "formal_proposal", label: "Formal proposal" },
-  { key: "signed_retainer", label: "Signed + retainer" },
 ];
 
 export function stageIndex(stage: LeadStage): number {

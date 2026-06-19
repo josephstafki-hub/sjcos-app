@@ -11,8 +11,8 @@ CREATE TABLE IF NOT EXISTS leads (
   name            text NOT NULL,
   scope           text NOT NULL DEFAULT '',
   stage           text NOT NULL DEFAULT 'intake'
-                    CHECK (stage IN ('intake','phase1_sent','precon_signed',
-                                     'precon_in_flight','formal_proposal','signed_retainer')),
+                    CHECK (stage IN ('intake','qualified','discovery_call',
+                                     'rough_estimate','precon_signed')),
   triage_verdict  text CHECK (triage_verdict IN ('go','hold','pass')),
   email           text,
   phone           text,
@@ -28,6 +28,14 @@ CREATE TABLE IF NOT EXISTS leads (
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now()
 );
+
+-- Lead pipeline migrated (round 3) to: intake → qualified → discovery_call →
+-- rough_estimate → precon_signed. Re-point the CHECK on existing DBs. NOT VALID
+-- skips re-checking pre-migration rows (the seed truncates + re-inserts valid
+-- values anyway) while still enforcing the new set on every insert/update.
+ALTER TABLE leads DROP CONSTRAINT IF EXISTS leads_stage_check;
+ALTER TABLE leads ADD CONSTRAINT leads_stage_check
+  CHECK (stage IN ('intake','qualified','discovery_call','rough_estimate','precon_signed')) NOT VALID;
 
 -- Display columns added after the initial cut (idempotent for existing DBs).
 ALTER TABLE leads ADD COLUMN IF NOT EXISTS scope_city    text;

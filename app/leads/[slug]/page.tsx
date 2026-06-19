@@ -254,27 +254,6 @@ export default async function LeadDetailPage({
       emptyPanel("Conversation", "Messages with this lead land here once email + SMS are connected.")
     );
 
-  // ── Selections panel — proposed products/finishes ──────────────────────────
-  const selectionsPanel =
-    lead.selections.length > 0 ? (
-      <Card className="max-w-[640px] overflow-hidden p-0">
-        {lead.selections.map((s, i) => (
-          <div
-            key={s.label}
-            className={`flex items-center gap-3 px-4 py-3 ${i ? "border-t border-rule-soft" : ""}`}
-          >
-            <span className="w-[110px] flex-none font-mono text-[11px] uppercase tracking-[0.08em] text-ink-3">
-              {s.label}
-            </span>
-            <span className="flex-1 text-[13px] text-ink">{s.choice}</span>
-            <Chip kind={s.chip}>{s.status}</Chip>
-          </div>
-        ))}
-      </Card>
-    ) : (
-      emptyPanel("Selections", "Product and finish selections appear here as the lead firms up.")
-    );
-
   // ── Files panel — lead-scoped documents ────────────────────────────────────
   const filesPanel =
     lead.files.length > 0 ? (
@@ -301,7 +280,6 @@ export default async function LeadDetailPage({
     Overview: overview,
     Conversation: conversationPanel,
     "Rough estimate": estimatePanel,
-    Selections: selectionsPanel,
     Files: filesPanel,
     Activity: activityPanel,
   };
@@ -320,7 +298,7 @@ export default async function LeadDetailPage({
             <div className="flex flex-wrap items-center gap-1.5">
               <Chip kind="ghost">Source: {lead.source}</Chip>
               <Chip kind="ghost">
-                Stage {currentStageIdx + 1} of 6
+                Stage {currentStageIdx + 1} of {STAGES.length}
               </Chip>
             </div>
             <h1 className="mt-1.5 font-serif text-[30px] font-medium leading-none tracking-tight text-accent-2">

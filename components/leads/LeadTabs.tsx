@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { Tabs, Card } from "@/components/ui";
 
-const TAB_LABELS = ["Overview", "Conversation", "Rough estimate", "Selections", "Files", "Activity"];
+const TAB_LABELS = ["Overview", "Conversation", "Rough estimate", "Files", "Activity"];
 
 /**
  * Lead-detail tab bar. Each panel is server-rendered and passed in via `panels`

@@ -16,12 +16,12 @@ TRUNCATE leads, projects, subs, threads, notifications, compliance_items,
 
 -- ─── Leads ──────────────────────────────────────────────────────────────────
 INSERT INTO leads (slug, name, scope, stage, estimate_value, value_display, source, hot, flag_label, flag_kind, email, phone, last_contact_at) VALUES
-  ('maria-chen',      'Maria & David Chen',      'Kitchen reno · Edina',   'phase1_sent',      54000, '$49–60k', 'Site form',    true,  'Needs reply', 'flag', 'maria.chen@gmail.example',   '(612) 555-0148', now() - interval '6 days'),
-  ('anh-pham',        'Anh Pham',                'Bath reno · St Paul',    'intake',           22000, '$22k',    'Site form',    false, NULL,          NULL,   'anh.pham@gmail.example',     '(651) 555-0173', now() - interval '2 days'),
+  ('maria-chen',      'Maria & David Chen',      'Kitchen reno · Edina',   'rough_estimate',   54000, '$49–60k', 'Site form',    true,  'Needs reply', 'flag', 'maria.chen@gmail.example',   '(612) 555-0148', now() - interval '6 days'),
+  ('anh-pham',        'Anh Pham',                'Bath reno · St Paul',    'qualified',        22000, '$22k',    'Site form',    false, NULL,          NULL,   'anh.pham@gmail.example',     '(651) 555-0173', now() - interval '2 days'),
   ('a-cole',          'A. Cole',                 'Basement bar · Mpls',    'intake',           NULL,  '?',       'Site form',    false, 'New',         'ai',   'acole@gmail.example',        '(612) 555-0119', now() - interval '4 days'),
-  ('linda-bauer',     'Linda Bauer',             'Mudroom · Mpls',         'precon_in_flight', 28000, '$28k',    'Referral',     false, NULL,          NULL,   'lbauer@gmail.example',       '(612) 555-0186', now() - interval '21 days'),
-  ('erik-holmstrom',  'Erik Holmstrom',          'Front porch · Edina',    'phase1_sent',      32000, '$32k',    'Site form',    true,  'Cooling',     'flag', 'erik.holmstrom@gmail.example','(952) 555-0140', now() - interval '9 days'),
-  ('gabe-reyes',      'Gabe Reyes (referral)',   'Master bath · Mpls',     'formal_proposal',  41000, '$41k',    'Referral',     false, NULL,          NULL,   'gabe.reyes@gmail.example',   '(612) 555-0162', now() - interval '15 days'),
+  ('linda-bauer',     'Linda Bauer',             'Mudroom · Mpls',         'precon_signed',    28000, '$28k',    'Referral',     false, NULL,          NULL,   'lbauer@gmail.example',       '(612) 555-0186', now() - interval '21 days'),
+  ('erik-holmstrom',  'Erik Holmstrom',          'Front porch · Edina',    'discovery_call',   32000, '$32k',    'Site form',    true,  'Cooling',     'flag', 'erik.holmstrom@gmail.example','(952) 555-0140', now() - interval '9 days'),
+  ('gabe-reyes',      'Gabe Reyes (referral)',   'Master bath · Mpls',     'rough_estimate',   41000, '$41k',    'Referral',     false, NULL,          NULL,   'gabe.reyes@gmail.example',   '(612) 555-0162', now() - interval '15 days'),
   ('n-sandberg',      'N. Sandberg',             'Built-ins · Edina',      'precon_signed',    14000, '$14k',    'Manual entry', false, NULL,          NULL,   'nsandberg@gmail.example',    '(952) 555-0155', now() - interval '11 days');
 
 -- ─── Projects ───────────────────────────────────────────────────────────────

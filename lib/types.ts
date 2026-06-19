@@ -5,14 +5,14 @@
 
 // ─── Leads ──────────────────────────────────────────────────────────────────
 
-/** The 6-stage sales pipeline (Leads list stage strip). */
+/** The lead pipeline, ending at the pre-construction contract being signed
+ *  (after which the lead converts to a project). */
 export type LeadStage =
   | "intake"
-  | "phase1_sent"
-  | "precon_signed"
-  | "precon_in_flight"
-  | "formal_proposal"
-  | "signed_retainer";
+  | "qualified"
+  | "discovery_call"
+  | "rough_estimate"
+  | "precon_signed";
 
 /** Claude's lead-triage verdict. */
 export type TriageVerdict = "go" | "hold" | "pass";

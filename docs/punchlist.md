@@ -156,10 +156,25 @@ Qwen page-awareness = structured text context; sequence = quick wins first.
 - ✅ **Catalog**: removed "Browser capture" button (→ Chrome extension).
 - ✅ Lead delete already had a native confirm() double-check.
 
-### Sessions 2–6 — pending (see plan)
-S2 lead lifecycle (stages intake/qualified/discovery_call/rough_estimate/
-precon_signed; intake answers; Qwen rough estimate; real Activity log; contact
-edit; remove Selections tab; lead→project convert). S3 project lifecycle
+### Session 2 — lead lifecycle ✅ DONE
+- ✅ **5-stage pipeline** — intake/qualified/discovery_call/rough_estimate/
+  precon_signed (migrated leads + STAGES; e34b1b8).
+- ✅ **Removed Selections tab** from lead detail (e34b1b8).
+- ✅ **Real intake answers** — `lead_intake` table + 5 canonical questions,
+  editable; **real Activity log** (`lead_activity`); **editable contact info**
+  (33e0ed8).
+- ✅ **Qwen rough estimate + send** — AI drafts line items, emailed to the lead
+  via Gmail (ad86f5c).
+- ✅ **Lead → project conversion** — signed leads get a "Convert to project"
+  button → creates a `pre_construction` project linked back via
+  `projects.lead_id`, logs the activity, redirects to the new project.
+  Idempotent (re-converting opens the existing project; once converted the lead
+  shows "View project →"). `convertLeadToProject` owner-gated; project named
+  "<LastName> · <scope head>", job-site address pulled from the intake "Address"
+  answer.
+
+### Sessions 3–6 — pending (see plan)
+S3 project lifecycle
 (9 stages + tool tabs). S4 notifications engine + Qwen page context. S5 money
 (invoices+retainers) + design-tools MVP (selections/mood/floor). S6 subs perf,
 schedule overview, portals build-out, settings rationalization.

@@ -152,6 +152,8 @@ export interface LeadDetail {
   conversation: { from: string; role: "lead" | "you" | "ai"; time: string; body: string }[];
   selections: { label: string; choice: string; status: string; chip: ChipKind }[];
   files: { name: string; meta: string; tag?: string }[];
+  /** Slug of the project this lead was converted into, if any. */
+  projectSlug: string | null;
 }
 
 /** Rich, curated detail content keyed by slug. Leads not listed here still get
@@ -284,6 +286,14 @@ export async function getLead(slug: string): Promise<LeadDetail | null> {
       WHERE l.slug = $1`,
     [slug],
   );
+  // Linked project (if this lead was already converted).
+  const projRes = await query<{ slug: string }>(
+    `SELECT p.slug FROM projects p JOIN leads l ON l.id = p.lead_id
+      WHERE l.slug = $1 LIMIT 1`,
+    [slug],
+  );
+  const projectSlug = projRes.rows[0]?.slug ?? null;
+
   const estRow = estRes.rows[0];
   const estimateFromDb = estRow
     ? {
@@ -325,6 +335,7 @@ export async function getLead(slug: string): Promise<LeadDetail | null> {
     conversation: curated.conversation ?? [],
     selections: curated.selections ?? [],
     files: curated.files ?? [],
+    projectSlug,
   };
 }
 

@@ -9,7 +9,7 @@ import { LeadTabs } from "@/components/leads/LeadTabs";
 import { getLead, getLeadTriage, STAGES, stageIndex, stageLabel } from "@/lib/leads";
 import { getLeadActivity, type LeadActivityKind } from "@/lib/lead-activity";
 import type { TriageInput } from "@/lib/ai";
-import { advanceLeadStage } from "@/lib/actions/leads";
+import { advanceLeadStage, convertLeadToProject } from "@/lib/actions/leads";
 import { DeleteLeadButton } from "@/components/leads/DeleteLeadButton";
 import { LeadContact } from "@/components/leads/LeadContact";
 import { LeadPhotos } from "@/components/leads/LeadPhotos";
@@ -40,6 +40,11 @@ export default async function LeadDetailPage({
   async function moveToNextStage() {
     "use server";
     await advanceLeadStage(slug);
+  }
+
+  async function convertToProject() {
+    "use server";
+    await convertLeadToProject(slug);
   }
 
   const overview = (
@@ -291,7 +296,14 @@ export default async function LeadDetailPage({
               <Sparkles className="size-3" strokeWidth={1.5} />
               Ask {AI_NAME}
             </Link>
-            {nextStage ? (
+            {lead.projectSlug ? (
+              <Link
+                href={`/projects/${lead.projectSlug}`}
+                className="rounded-md border border-accent-2 bg-paper-2 px-2.5 py-1 text-[12px] font-semibold text-accent-2 hover:bg-accent-soft"
+              >
+                View project →
+              </Link>
+            ) : nextStage ? (
               <form action={moveToNextStage}>
                 <button
                   type="submit"
@@ -301,9 +313,14 @@ export default async function LeadDetailPage({
                 </button>
               </form>
             ) : (
-              <span className="rounded-md border border-rule bg-paper-2 px-2.5 py-1 text-[12px] font-semibold text-ink-3">
-                Signed ✓
-              </span>
+              <form action={convertToProject}>
+                <button
+                  type="submit"
+                  className="rounded-md border border-accent bg-accent px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-accent-2"
+                >
+                  Convert to project
+                </button>
+              </form>
             )}
             <DeleteLeadButton slug={slug} name={lead.name} />
           </div>

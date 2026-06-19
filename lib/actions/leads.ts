@@ -226,6 +226,65 @@ export async function sendEstimate(slug: string): Promise<{ ok: boolean; error?:
   return { ok: true };
 }
 
+/** Convert a (signed) lead into a project: create a pre-construction project
+ *  linked back to the lead, then open it. Idempotent — re-running opens the
+ *  existing project. Owner-gated. */
+export async function convertLeadToProject(slug: string) {
+  await requireRole("owner");
+  const lead = await queryOne<{
+    id: string;
+    name: string;
+    scope: string;
+    scope_city: string | null;
+    value_display: string | null;
+  }>(
+    `SELECT id, name, scope, scope_city, value_display FROM leads WHERE slug = $1`,
+    [slug],
+  );
+  if (!lead) return;
+
+  // Already converted → just open the existing project.
+  const existing = await queryOne<{ slug: string }>(
+    `SELECT slug FROM projects WHERE lead_id = $1`,
+    [lead.id],
+  );
+  if (existing) redirect(`/projects/${existing.slug}`);
+
+  // Prefer the intake "Address" answer for the job site; fall back to scope_city.
+  const addr = await queryOne<{ answer: string }>(
+    `SELECT answer FROM lead_intake WHERE lead_id = $1 AND question = 'Address'`,
+    [lead.id],
+  );
+  const address = addr?.answer?.trim() || lead.scope_city || null;
+
+  // Name the project "<LastName> · <scope head>", e.g. "Chen · Full kitchen reno".
+  const words = lead.name.replace(/\([^)]*\)/g, "").trim().split(/\s+/).filter(Boolean);
+  const lastName = words[words.length - 1] ?? lead.name;
+  const scopeHead = lead.scope.split("·")[0].trim() || lead.scope;
+  const projectName = `${lastName} · ${scopeHead}`.slice(0, 80);
+
+  // Unique project slug.
+  const base = slugify(projectName);
+  let pslug = base;
+  for (let i = 2; ; i++) {
+    const hit = await queryOne(`SELECT 1 FROM projects WHERE slug = $1`, [pslug]);
+    if (!hit) break;
+    pslug = `${base}-${i}`;
+  }
+
+  await query(
+    `INSERT INTO projects (slug, name, status, client_name, address, value_display, sub_label, lead_id)
+     VALUES ($1, $2, 'pre_construction', $3, $4, $5, $6, $7)`,
+    [pslug, projectName, lead.name, address, lead.value_display, address, lead.id],
+  );
+  await logLeadActivity(slug, "note", `Converted to project "${projectName}"`);
+
+  revalidatePath("/leads");
+  revalidatePath("/projects");
+  revalidatePath("/today");
+  redirect(`/projects/${pslug}`);
+}
+
 /** Set a lead to an explicit stage (used by a stage picker). */
 export async function setLeadStage(slug: string, stage: LeadStage) {
   if (!STAGES.some((s) => s.key === stage)) return;

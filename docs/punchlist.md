@@ -226,7 +226,13 @@ Sub-phases, each its own commit (RESUME POINT in the plan file):
   `/api/portal/selection-image/[id]` (leaves owner-only /api/files untouched).
   `SelectionsBoard` (project Selections tab: image grid, add w/ catalog-pick or
   upload, push-to-client, remove) + `ClientSelections` (portal Approve/Decline).
-- ⬜ **5D** mood boards · ⬜ **5E** floor-plan viewer · ⬜ finalize.
+- ✅ **5D** mood boards — `project_mood` table (room/image_file_id NOT NULL/note,
+  grouped by room; no seed — image-only, empty state until upload). `lib/mood.ts`
+  (`getProjectMood` grouped by room), `lib/actions/mood.ts` (addMoodImage via
+  shared storeUpload / removeMoodImage, owner-gated), `components/projects/
+  MoodBoard.tsx` (room-grouped square grid, add modal room+image+note, hover-X
+  remove) wired into the project Mood tab (images owner-only via /api/files).
+- ⬜ **5E** floor-plan viewer · ⬜ finalize.
 
 ### Session 6 — pending (see plan)
 S6 subs perf, schedule overview, portals build-out, settings rationalization.

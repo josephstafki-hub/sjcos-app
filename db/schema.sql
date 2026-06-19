@@ -418,8 +418,22 @@ CREATE TABLE IF NOT EXISTS project_selections (
 );
 
 -- ─── Indexes for the common list queries ────────────────────────────────────
+-- ─── Design tools: mood boards (Review-round-3 S5D) ─────────────────────────
+-- Per-room reference-image collections for a project. Each row is one uploaded
+-- image with an optional note, grouped by room in the UI.
+CREATE TABLE IF NOT EXISTS project_mood (
+  id            bigserial PRIMARY KEY,
+  project_id    uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  room          text NOT NULL DEFAULT 'General',
+  image_file_id text NOT NULL,
+  note          text NOT NULL DEFAULT '',
+  sort_order    integer NOT NULL DEFAULT 0,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_invoices_project     ON invoices(project_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_selections_project   ON project_selections(project_id, sort_order);
+CREATE INDEX IF NOT EXISTS idx_mood_project         ON project_mood(project_id, room, sort_order);
 CREATE INDEX IF NOT EXISTS idx_catalog_category     ON catalog_items(category);
 CREATE INDEX IF NOT EXISTS idx_punch_project        ON project_punch(project_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_chat_channel         ON chat_messages(channel_key, created_at);

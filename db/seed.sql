@@ -13,7 +13,7 @@ TRUNCATE leads, projects, subs, threads, notifications, compliance_items,
          files, app_settings, users, chat_messages, chat_reads,
          chat_members, project_punch, catalog_items,
          lead_activity, lead_intake, lead_estimates,
-         invoices, retainers, project_selections
+         invoices, retainers, project_selections, project_mood
          RESTART IDENTITY CASCADE;
 
 -- ─── Leads ──────────────────────────────────────────────────────────────────

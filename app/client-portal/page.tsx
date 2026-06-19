@@ -5,26 +5,51 @@ import { getClientPortalData } from "@/lib/client-portal";
 import { requireRole } from "@/lib/dal";
 import { getProject } from "@/lib/projects";
 import { getClientSelections } from "@/lib/selections";
+import { getProjectMoney, usd } from "@/lib/money";
+import { getPortalThread, portalChannel } from "@/lib/portal-messages";
 import { ClientSelections } from "@/components/portal/ClientSelections";
+import { PortalMessenger } from "@/components/portal/PortalMessenger";
 
 export default async function ClientPortalPage() {
   const user = await requireRole("owner", "client");
-  const data = await getClientPortalData();
-
-  // Selections pushed to this client's project (owners previewing see the
-  // Henderson showcase). Images stream through the client-scoped portal route.
-  const selectionsSlug = user.role === "client" ? user.linkSlug : "henderson";
-  const selections = selectionsSlug ? await getClientSelections(selectionsSlug) : [];
 
   // Scope the portal to the logged-in client's project (owners previewing keep
-  // the showcase project). Journal content stays curated for now.
-  if (user.role === "client" && user.linkSlug) {
-    const project = await getProject(user.linkSlug);
-    if (project) {
-      data.project = project.name;
-      data.clientInitials = user.initials || data.clientInitials;
-    }
+  // the Henderson showcase). Journal content stays curated for now.
+  const slug = user.role === "client" ? user.linkSlug : "henderson";
+
+  const [data, project, money, selections, thread] = await Promise.all([
+    getClientPortalData(),
+    slug ? getProject(slug) : Promise.resolve(null),
+    slug ? getProjectMoney(slug) : Promise.resolve(null),
+    slug ? getClientSelections(slug) : Promise.resolve([]),
+    slug
+      ? getPortalThread(portalChannel("client", slug))
+      : Promise.resolve([]),
+  ]);
+
+  if (project) {
+    data.project = project.name;
+    if (user.role === "client") data.clientInitials = user.initials || data.clientInitials;
   }
+
+  // Real money: contract from the project, paid/outstanding/retainer from the
+  // invoices + retainer ledger. Falls back to the curated rows when empty.
+  const moneyRows =
+    money && (money.invoices.length > 0 || money.retainer.collected > 0)
+      ? [
+          ...(project?.contractValue
+            ? [{ label: "Contract", value: project.contractValue }]
+            : []),
+          { label: "Paid to date", value: usd(money.paidTotal), good: money.paidTotal > 0 },
+          { label: "Outstanding", value: usd(money.outstanding) },
+          ...(money.retainer.collected > 0
+            ? [{ label: "Retainer on file", value: usd(money.retainer.balance), good: true }]
+            : []),
+        ]
+      : data.money;
+
+  // Real "needs a decision" count = selections awaiting this client's approval.
+  const pendingCount = selections.filter((s) => s.status === "pending").length;
 
   return (
     <div className="flex h-screen flex-col bg-paper">
@@ -45,7 +70,8 @@ export default async function ClientPortalPage() {
           </Link>
         )}
         <Chip kind="ghost">
-          <Bell className="mr-0.5 inline size-2.5" strokeWidth={1.75} />2
+          <Bell className="mr-0.5 inline size-2.5" strokeWidth={1.75} />
+          {pendingCount}
         </Chip>
         <Avatar initials={data.clientInitials} size="sm" />
       </header>
@@ -109,7 +135,7 @@ export default async function ClientPortalPage() {
           <div className="my-4 border-t border-rule" />
           <Eyebrow muted>Money</Eyebrow>
           <div className="mt-2 flex flex-col gap-1.5">
-            {data.money.map((m) => (
+            {moneyRows.map((m) => (
               <div key={m.label} className="flex items-center">
                 <span className="flex-1 text-[12px] text-ink-2">{m.label}</span>
                 <span className={`font-mono text-[11px] ${m.good ? "text-money" : "text-ink-3"}`}>
@@ -121,9 +147,11 @@ export default async function ClientPortalPage() {
 
           <div className="my-4 border-t border-rule" />
           <Eyebrow muted>Message Joe</Eyebrow>
-          <Card kind="soft" className="mt-2 p-2.5">
-            <span className="text-[12px] text-ink-4">Reply about the project…</span>
-          </Card>
+          <PortalMessenger
+            surface="client"
+            thread={thread}
+            placeholder="Reply about the project…"
+          />
 
           <div className="my-4 border-t border-rule" />
           <Eyebrow muted>Files shared with you</Eyebrow>

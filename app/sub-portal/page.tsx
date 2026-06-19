@@ -4,6 +4,8 @@ import { AckButton, Avatar, Card, Chip, Eyebrow } from "@/components/ui";
 import { getSubPortalData } from "@/lib/sub-portal";
 import { requireRole } from "@/lib/dal";
 import { getSub } from "@/lib/subs";
+import { getPortalThread, portalChannel } from "@/lib/portal-messages";
+import { PortalMessenger } from "@/components/portal/PortalMessenger";
 
 export default async function SubPortalPage() {
   const user = await requireRole("owner", "sub");
@@ -11,6 +13,7 @@ export default async function SubPortalPage() {
 
   // Scope the portal identity to the logged-in subcontractor (owners previewing
   // keep the showcase identity). Job content stays curated for now.
+  const slug = user.role === "sub" ? user.linkSlug : "marco";
   if (user.role === "sub" && user.linkSlug) {
     const sub = await getSub(user.linkSlug);
     if (sub) {
@@ -19,6 +22,10 @@ export default async function SubPortalPage() {
       data.trade = sub.tradeLine;
     }
   }
+
+  // Real "Talk to Joe" thread — persists to the sub's DM channel (Joe reads/
+  // replies in /chat).
+  const thread = slug ? await getPortalThread(portalChannel("sub", slug)) : [];
 
   return (
     <div className="flex h-screen flex-col bg-paper">
@@ -146,9 +153,11 @@ export default async function SubPortalPage() {
 
             <Card className="p-3">
               <Eyebrow muted>Talk to Joe</Eyebrow>
-              <Card kind="soft" className="mt-2 p-2.5">
-                <span className="text-[12px] text-ink-4">Message Joe about today…</span>
-              </Card>
+              <PortalMessenger
+                surface="sub"
+                thread={thread}
+                placeholder="Message Joe about today…"
+              />
               <div className="mt-2 flex items-center gap-1.5 text-ink-3">
                 <Phone className="size-3" strokeWidth={1.5} />
                 <span className="font-mono text-[11px]">{data.joePhone}</span>

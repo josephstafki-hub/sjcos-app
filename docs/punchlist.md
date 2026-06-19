@@ -126,3 +126,40 @@ scope this round.
   memberships per channel/room.
 
 Next milestone after round 2: **Phase 8 deploy.**
+
+---
+
+## Review round 3 (2026-06-18) — extensive page-by-page punch list
+
+Approved 6-session plan: `~/.claude/plans/serene-skipping-kernighan.md`.
+Scope decisions: design tools = pragmatic MVP; money = native invoices+retainers;
+Qwen page-awareness = structured text context; sequence = quick wins first.
+
+### Session 1 — quick wins ✅ DONE
+- ✅ **Today**: removed duplicate date (kept Topbar breadcrumb); greeting now
+  reflects time of day (morning/afternoon/evening); week-strip day cells expand
+  an inline day summary (schedule blocks) instead of linking to /schedule;
+  "Waiting on me" is an expandable list (Show all). Header chips were already
+  live (A/R, flagged leads, active jobs).
+- ✅ **Search removed entirely** — Topbar input, sidebar link, /search +
+  /api/search routes, lib/search.ts all deleted (it was static demo).
+- ✅ **Single Qwen entry** — removed Topbar "Ask" button; CommandBar (⌘K) is now
+  a real Ask-Qwen prompt (askQwen action; page-context wiring deferred to S4);
+  bottom pill relabeled "Ask Qwen".
+- ✅ **Settings gear removed** from sidebar (settings via the profile card).
+- ✅ **Compliance**: filter chips really filter (ComplianceClient); timeline rows
+  expand to detail + resolve.
+- ✅ **Warranty**: active claims open into expandable detail + real Resolve
+  (resolveWarrantyClaim).
+- ✅ **Files**: year-folder tree rows are real expand/collapse toggles.
+- ✅ **Portals**: owner-only "Return to SJC OS" link in both portal headers.
+- ✅ **Catalog**: removed "Browser capture" button (→ Chrome extension).
+- ✅ Lead delete already had a native confirm() double-check.
+
+### Sessions 2–6 — pending (see plan)
+S2 lead lifecycle (stages intake/qualified/discovery_call/rough_estimate/
+precon_signed; intake answers; Qwen rough estimate; real Activity log; contact
+edit; remove Selections tab; lead→project convert). S3 project lifecycle
+(9 stages + tool tabs). S4 notifications engine + Qwen page context. S5 money
+(invoices+retainers) + design-tools MVP (selections/mood/floor). S6 subs perf,
+schedule overview, portals build-out, settings rationalization.

@@ -585,6 +585,32 @@ export async function loadMoreInbox(pageToken: string): Promise<{
   };
 }
 
+/** Fetch a page of threads scoped to a single Gmail label (server-side), for
+ *  when the user clicks a label in the rail. Paginates via pageToken so a label
+ *  with more mail than the loaded inbox window is shown in full, not just the
+ *  threads that happened to page in. */
+export async function loadLabelInbox(
+  labelId: string,
+  pageToken?: string,
+): Promise<{
+  threads: InboxThread[];
+  readers: Record<string, ThreadReader>;
+  nextPageToken?: string;
+}> {
+  const [page, labels, contactMaps] = await Promise.all([
+    fetchThreadPage(INBOX_PAGE, pageToken, labelId),
+    fetchLabels(),
+    loadContactMaps(),
+  ]);
+  const labelMap = new Map(labels.map((l) => [l.id, l.name]));
+  const { threads, readerEntries } = mapRawThreads(page.threads, labelMap, contactMaps);
+  return {
+    threads,
+    readers: Object.fromEntries(readerEntries),
+    nextPageToken: page.nextPageToken,
+  };
+}
+
 async function buildFromGmail(): Promise<InboxData> {
   const [page, labels, contactMaps] = await Promise.all([
     fetchThreadPage(INBOX_PAGE),

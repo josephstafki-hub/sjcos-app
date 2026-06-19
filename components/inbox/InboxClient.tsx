@@ -35,6 +35,7 @@ import {
   archiveThreadAction,
   trashThreadAction,
   loadMoreInboxAction,
+  loadLabelInboxAction,
 } from "@/lib/actions/inbox";
 import type { ThreadChannel, ThreadStatus } from "@/lib/types";
 import type { Audience, InboxData, InboxThread, ThreadReader } from "@/lib/inbox";
@@ -141,6 +142,15 @@ export function InboxClient({
   const [readers, setReaders] = useState(data.readers);
   const [pageToken, setPageToken] = useState(data.nextPageToken);
   const [loadingMore, setLoadingMore] = useState(false);
+  // Label view is fetched server-side (scoped to that Gmail label) so it shows
+  // the label's full mail, not just whatever paged into the inbox window. Keyed
+  // by label id with its own pagination token; null until a label is opened.
+  const [labelData, setLabelData] = useState<{
+    id: string;
+    threads: InboxThread[];
+    pageToken?: string;
+  } | null>(null);
+  const [labelLoading, setLabelLoading] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   // Optimistic star state, keyed by thread id, until the revalidate lands.
@@ -157,13 +167,17 @@ export function InboxClient({
       case "channel":
         return threads.filter((t) => t.channel === lens.channel);
       case "label":
-        return threads.filter((t) => (t.labelIds ?? []).includes(lens.id));
+        // Prefer the server-fetched, label-scoped list once it's loaded; until
+        // then (or if it fails) fall back to client-filtering the loaded inbox.
+        return labelData?.id === lens.id
+          ? labelData.threads
+          : threads.filter((t) => (t.labelIds ?? []).includes(lens.id));
       case "audience":
         return threads.filter((t) => t.audience === lens.audience);
       case "project":
         return threads.filter((t) => t.projectSlug === lens.slug);
     }
-  }, [threads, lens]);
+  }, [threads, lens, labelData]);
 
   // Counts for the All/Clients/Subs/Money chips, derived from resolved senders.
   const audienceCounts = useMemo(() => {
@@ -177,19 +191,61 @@ export function InboxClient({
     visible.find((t) => t.id === selectedId) ?? visible[0] ?? null;
   const reader = selected ? readers[selected.id] : undefined;
 
+  // Open a label: fetch its mail server-side (scoped to that Gmail label) with
+  // its own pagination. Re-clicking the open label is a no-op (cache stays).
+  const selectLabel = (id: string, name: string) => {
+    setLens({ kind: "label", id, name });
+    if (labelData?.id === id) return;
+    setLabelData(null);
+    setLabelLoading(true);
+    startTransition(async () => {
+      const r = await loadLabelInboxAction(id);
+      if (r.ok && r.threads) {
+        setReaders((prev) => ({ ...prev, ...(r.readers ?? {}) }));
+        setLabelData({ id, threads: r.threads, pageToken: r.nextPageToken });
+      } else if (!r.ok) {
+        setNotice(r.error ?? "Couldn't load that label.");
+      }
+      setLabelLoading(false);
+    });
+  };
+
+  const onLabel = lens.kind === "label" && labelData?.id === lens.id;
+  // "Load more" pages within the open label when one is selected, else the inbox.
+  const moreToken = onLabel ? labelData?.pageToken : pageToken;
+
   const loadMore = () => {
-    if (!pageToken || loadingMore) return;
+    if (!moreToken || loadingMore) return;
     setLoadingMore(true);
     startTransition(async () => {
-      const r = await loadMoreInboxAction(pageToken);
+      const r = onLabel
+        ? await loadLabelInboxAction(lens.id, moreToken)
+        : await loadMoreInboxAction(moreToken);
       if (r.ok && r.threads) {
-        // Append only genuinely new threads (guard against overlap).
-        setThreads((prev) => {
-          const seen = new Set(prev.map((t) => t.id));
-          return [...prev, ...r.threads!.filter((t) => !seen.has(t.id))];
-        });
         setReaders((prev) => ({ ...prev, ...(r.readers ?? {}) }));
-        setPageToken(r.nextPageToken);
+        if (onLabel) {
+          setLabelData((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  threads: [
+                    ...prev.threads,
+                    ...r.threads!.filter(
+                      (t) => !prev.threads.some((p) => p.id === t.id),
+                    ),
+                  ],
+                  pageToken: r.nextPageToken,
+                }
+              : prev,
+          );
+        } else {
+          // Append only genuinely new threads (guard against overlap).
+          setThreads((prev) => {
+            const seen = new Set(prev.map((t) => t.id));
+            return [...prev, ...r.threads!.filter((t) => !seen.has(t.id))];
+          });
+          setPageToken(r.nextPageToken);
+        }
       } else if (!r.ok) {
         setNotice(r.error ?? "Couldn't load more.");
       }
@@ -306,7 +362,7 @@ export function InboxClient({
               {data.labels.map((l) => (
                 <button
                   key={l.id}
-                  onClick={() => setLens({ kind: "label", id: l.id, name: l.name })}
+                  onClick={() => selectLabel(l.id, l.name)}
                   className={[
                     "flex items-center gap-2 rounded-md px-2 py-1 text-left text-[12px]",
                     isLabel(l.id)
@@ -400,7 +456,11 @@ export function InboxClient({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {visible.length === 0 ? (
+          {labelLoading && visible.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+              <p className="text-[12px] text-ink-3">Loading {headerLabel}…</p>
+            </div>
+          ) : visible.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
               <Inbox className="size-6 text-ink-4" strokeWidth={1.5} />
               <p className="text-[12px] text-ink-3">
@@ -418,7 +478,7 @@ export function InboxClient({
             ))
           )}
 
-          {pageToken && (
+          {moreToken && (
             <button
               onClick={loadMore}
               disabled={loadingMore}

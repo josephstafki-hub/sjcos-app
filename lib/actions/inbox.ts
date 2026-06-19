@@ -15,7 +15,7 @@ import {
   trashThread,
   fetchThreadHtml,
 } from "@/lib/gmail";
-import { draftReplyForThread, loadMoreInbox } from "@/lib/inbox";
+import { draftReplyForThread, loadMoreInbox, loadLabelInbox } from "@/lib/inbox";
 import type { InboxThread, ThreadReader } from "@/lib/inbox";
 
 type ActionResult = { ok: boolean; error?: string };
@@ -93,6 +93,28 @@ export async function loadMoreInboxAction(pageToken: string): Promise<{
   if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
   try {
     const r = await loadMoreInbox(pageToken);
+    return { ok: true, ...r };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/** Fetch a page of threads for a single Gmail label (clicking a label in the
+ *  rail). pageToken pages within that label. */
+export async function loadLabelInboxAction(
+  labelId: string,
+  pageToken?: string,
+): Promise<{
+  ok: boolean;
+  threads?: InboxThread[];
+  readers?: Record<string, ThreadReader>;
+  nextPageToken?: string;
+  error?: string;
+}> {
+  await requireRole("owner");
+  if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
+  try {
+    const r = await loadLabelInbox(labelId, pageToken);
     return { ok: true, ...r };
   } catch (err) {
     return { ok: false, error: (err as Error).message };

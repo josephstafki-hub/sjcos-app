@@ -101,8 +101,13 @@ scope this round.
   images (signature logos) resolved to data URIs; `getThreadHtmlAction` fetches
   it lazily on thread open; `ReaderBody` renders it for the latest message
   (plain-text paragraphs remain the fallback + cover earlier messages).
-  Remaining: clicking a label should fetch that label's emails (server,
-  paginated); label create/delete (**label write needs the gmail.modify
+  ✅ **clicking a label now server-fetches that label's mail, paginated** —
+  `fetchThreadPage(max,token,labelId)` passes `labelIds:[id]` to Gmail;
+  `loadLabelInbox`/`loadLabelInboxAction` build a label-scoped page;
+  `InboxClient` holds label-scoped state with its own "Load more" token (the
+  old client filter stays as the instant fallback while the fetch lands). A
+  label with more mail than the loaded inbox window now shows in full.
+  Remaining: label create/delete (**label write needs the gmail.modify
   re-consent — deferred to deploy**).
 - ⬜ **/chat**: DMs are display-only → make them send/persist; add a way to
   add/remove channel participants (needs a membership model).

@@ -371,6 +371,7 @@ export async function fetchThreads(max = 20): Promise<RawGmailThread[]> {
 export async function fetchThreadPage(
   max = 50,
   pageToken?: string,
+  labelId?: string,
 ): Promise<{ threads: RawGmailThread[]; nextPageToken?: string }> {
   const api = gmail();
   const me = await fetchProfileEmail();
@@ -378,6 +379,9 @@ export async function fetchThreadPage(
     userId: "me",
     maxResults: max,
     q: "-in:spam -in:trash",
+    // Scope to a single Gmail label when given (clicking a label in the rail);
+    // Gmail ANDs labelIds with q, so this returns that label's mail server-side.
+    ...(labelId ? { labelIds: [labelId] } : {}),
     pageToken,
   });
   const ids = (list.data.threads ?? []).map((t) => t.id!).filter(Boolean);

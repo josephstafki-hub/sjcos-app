@@ -7,6 +7,7 @@ import { Shell } from "@/components/shell/Shell";
 import { AiBubble, AckButton, AiStreamSkeleton, Card, Chip, Avatar, Eyebrow } from "@/components/ui";
 import { LeadTabs } from "@/components/leads/LeadTabs";
 import { getLead, getLeadTriage, STAGES, stageIndex, stageLabel } from "@/lib/leads";
+import { leadContext } from "@/lib/page-context";
 import { getLeadActivity, type LeadActivityKind } from "@/lib/lead-activity";
 import type { TriageInput } from "@/lib/ai";
 import { advanceLeadStage, convertLeadToProject } from "@/lib/actions/leads";
@@ -266,7 +267,7 @@ export default async function LeadDetailPage({
   };
 
   return (
-    <Shell breadcrumb={`LEADS › ${lead.name.toUpperCase()}`}>
+    <Shell breadcrumb={`LEADS › ${lead.name.toUpperCase()}`} aiContext={leadContext(lead)}>
       <div className="mx-auto max-w-[1100px] px-7 py-6">
         <Link href="/leads" className="text-[11px] text-ink-3 hover:text-ink-2">
           ← All leads

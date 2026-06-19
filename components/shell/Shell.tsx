@@ -20,6 +20,9 @@ type ShellProps = {
   hideCmd?: boolean;
   /** Open the command bar on mount (the /cmdk deep-link). */
   cmdkOpen?: boolean;
+  /** Structured text brief of this page's records — makes the Ask-Qwen bar
+   *  answer from what's in view (see lib/page-context.ts). */
+  aiContext?: string;
 };
 
 /**
@@ -28,7 +31,7 @@ type ShellProps = {
  * (Ctrl/⌘+K from anywhere). Standalone surfaces (Client / Sub portal) use
  * their own chrome and do not wrap in Shell.
  */
-export async function Shell({ children, breadcrumb, hideCmd, cmdkOpen }: ShellProps) {
+export async function Shell({ children, breadcrumb, hideCmd, cmdkOpen, aiContext }: ShellProps) {
   const [user, unread] = await Promise.all([getCurrentUser(), getUnreadCount()]);
   const sidebarUser = {
     name: user?.name ?? "—",
@@ -44,7 +47,7 @@ export async function Shell({ children, breadcrumb, hideCmd, cmdkOpen }: ShellPr
         <div className="relative min-h-0 flex-1 overflow-auto">{children}</div>
         {!hideCmd && <CmdKPill />}
       </div>
-      <CommandBar defaultOpen={cmdkOpen} />
+      <CommandBar defaultOpen={cmdkOpen} aiContext={aiContext} />
     </div>
   );
 }

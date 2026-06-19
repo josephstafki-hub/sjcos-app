@@ -8,6 +8,7 @@ import { ProjectTabs } from "@/components/projects/ProjectTabs";
 import { PunchList } from "@/components/projects/PunchList";
 import { StageSuggest } from "@/components/projects/StageSuggest";
 import { getProject, getProjectWeeklyStatus, PROJECT_STATUSES, stageToolTab } from "@/lib/projects";
+import { projectContext } from "@/lib/page-context";
 import { advanceProjectStatus } from "@/lib/actions/projects";
 
 const DOT: Record<string, string> = {
@@ -456,7 +457,7 @@ export default async function ProjectDetailPage({
   };
 
   return (
-    <Shell breadcrumb={`PROJECTS › ${project.name.toUpperCase()}`}>
+    <Shell breadcrumb={`PROJECTS › ${project.name.toUpperCase()}`} aiContext={projectContext(project)}>
       {/* Header band */}
       <div className="border-b border-rule bg-paper-2 px-7 py-4">
         <Link href="/projects" className="text-[11px] text-ink-3 hover:text-ink-2">

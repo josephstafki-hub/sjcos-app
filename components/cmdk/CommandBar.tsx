@@ -27,10 +27,17 @@ const JUMP: JumpRow[] = [
 /**
  * Global Ask-{AI_NAME} command bar — the front door to the assistant. Mounted
  * once in Shell so Ctrl/⌘+K opens it from any page; type a question and Qwen
- * answers inline. Esc or a backdrop click closes it. (Page-context awareness —
- * passing the current page to Qwen — lands in a later session.)
+ * answers inline. Esc or a backdrop click closes it. When the host page passes
+ * `aiContext` (a text brief of its records), the question is answered against it
+ * so Qwen is page-aware; pages without it get the general assistant.
  */
-export function CommandBar({ defaultOpen = false }: { defaultOpen?: boolean }) {
+export function CommandBar({
+  defaultOpen = false,
+  aiContext,
+}: {
+  defaultOpen?: boolean;
+  aiContext?: string;
+}) {
   const [open, setOpen] = useState(defaultOpen);
   const [prompt, setPrompt] = useState("");
   const [answer, setAnswer] = useState("");
@@ -71,7 +78,7 @@ export function CommandBar({ defaultOpen = false }: { defaultOpen?: boolean }) {
     setError("");
     setAnswer("");
     startTransition(async () => {
-      const r = await askQwen(q);
+      const r = await askQwen(q, aiContext);
       if (r.ok) setAnswer(r.answer ?? "");
       else setError(r.error ?? "Couldn't reach the assistant.");
     });

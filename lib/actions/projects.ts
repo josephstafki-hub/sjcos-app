@@ -8,6 +8,7 @@ import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { PROJECT_STATUSES, projectStageLabel } from "@/lib/projects";
 import { ai } from "@/lib/ai";
+import { emit } from "@/lib/notify";
 import type { ProjectStatus } from "@/lib/types";
 
 /** Kebab-case a display name into a URL slug. */
@@ -54,10 +55,10 @@ export async function createProject(formData: FormData) {
   redirect(`/projects/${slug}`);
 }
 
-/** Advance a project to the next lifecycle status. No-op once complete. */
+/** Advance a project to the next lifecycle stage. No-op at the final stage. */
 export async function advanceProjectStatus(slug: string) {
-  const row = await queryOne<{ status: ProjectStatus }>(
-    `SELECT status FROM projects WHERE slug = $1`,
+  const row = await queryOne<{ status: ProjectStatus; name: string }>(
+    `SELECT status, name FROM projects WHERE slug = $1`,
     [slug],
   );
   if (!row) return;
@@ -69,9 +70,19 @@ export async function advanceProjectStatus(slug: string) {
     `UPDATE projects SET status = $2, updated_at = now() WHERE slug = $1`,
     [slug, next.key],
   );
+  await emit({
+    kind: "job",
+    tag: "Job",
+    accent: "accent",
+    icon: "project",
+    title: `${row.name} → ${next.label}`,
+    subline: `Stage advanced from ${projectStageLabel(row.status)}`,
+    href: `/projects/${slug}`,
+  });
   revalidatePath(`/projects/${slug}`);
   revalidatePath("/projects");
   revalidatePath("/today"); // active-job count + outstanding A/R derive from projects
+  revalidatePath("/notifications");
 }
 
 /** Ask Qwen whether the project is ready to move to the next lifecycle stage.

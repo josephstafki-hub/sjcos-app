@@ -191,7 +191,23 @@ Qwen page-awareness = structured text context; sequence = quick wins first.
 - ✅ **Mood + Floor tabs** added to ProjectTabs (MVP placeholder panels; the
   actual boards land in Session 5's design-tools build).
 
-### Sessions 4–6 — pending (see plan)
+### Session 4 — notifications engine + Qwen page context ✅ DONE
+- ✅ **Emit engine** — `lib/notify.ts` `emit({kind,title,…})` inserts a
+  notifications row (best-effort, never throws). Wired into real events:
+  createLead → INTAKE (`kind=job`,`tag=Intake`), lead→project convert → JOB,
+  advanceProjectStatus → JOB (stage change), askClaudeInChannel → MENTION
+  (Claude posted). Each revalidates `/notifications`.
+- ✅ **Time-based derive** — `syncComplianceNotifications()` creates a flagged
+  COMPLIANCE notification for each unresolved compliance item due within 14 days;
+  idempotent (deduped on title), run "on read" from `getNotificationsData()`.
+  Verified: one card ("Auto policy renewal · due Jun 28"), no dupes on re-read.
+- ✅ **Qwen page context** — `lib/page-context.ts` serializers (lead/project/
+  today) turn the page's loaded records into a compact text brief; pages pass it
+  to `<Shell aiContext>` → `CommandBar` → `askQwen(prompt, aiContext)`. The
+  ⌘K/Ask-Qwen bar now answers from what's on screen; `/ai` stays general.
+  (MONEY/DECISION emit points for invoices land with Session 5's money tables.)
+
+### Sessions 5–6 — pending (see plan)
 S3 project lifecycle
 (9 stages + tool tabs). S4 notifications engine + Qwen page context. S5 money
 (invoices+retainers) + design-tools MVP (selections/mood/floor). S6 subs perf,

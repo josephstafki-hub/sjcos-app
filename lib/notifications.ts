@@ -8,6 +8,7 @@
 
 import type { NotificationKind } from "./types";
 import { query } from "./db";
+import { syncComplianceNotifications } from "./notify";
 
 /** Display accent — drives the tag chip color and left icon tint. */
 export type NotifAccent = "flag" | "accent" | "ai" | "money" | "ghost";
@@ -85,6 +86,10 @@ export async function getUnreadCount(): Promise<number> {
 }
 
 export async function getNotificationsData(): Promise<NotificationsData> {
+  // Derive time-based compliance notifications before reading the feed
+  // (idempotent; see lib/notify.ts). Best-effort — never blocks the feed.
+  await syncComplianceNotifications();
+
   const { rows } = await query<NotificationRow>(`
     SELECT id, kind, tag, accent, icon, title, subline, when_label, flagged, href, read
     FROM notifications

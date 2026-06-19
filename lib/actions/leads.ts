@@ -11,6 +11,7 @@ import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { STAGES, stageLabel } from "@/lib/leads";
 import { logLeadActivity } from "@/lib/lead-activity";
+import { emit } from "@/lib/notify";
 import { INTAKE_QUESTIONS } from "@/lib/lead-intake-questions";
 import { ai, type EstimateLine } from "@/lib/ai";
 import { AI_NAME } from "@/lib/ai-name";
@@ -55,8 +56,18 @@ export async function createLead(formData: FormData) {
     [slug, name, scope, valueDisplay, source],
   );
   await logLeadActivity(slug, "created", `Lead created · ${source}`);
+  await emit({
+    kind: "job",
+    tag: "Intake",
+    accent: "accent",
+    icon: "site",
+    title: `New lead · ${name}`,
+    subline: scope || source,
+    href: `/leads/${slug}`,
+  });
 
   revalidatePath("/leads");
+  revalidatePath("/notifications");
   redirect(`/leads/${slug}`);
 }
 
@@ -278,10 +289,20 @@ export async function convertLeadToProject(slug: string) {
     [pslug, projectName, lead.name, address, lead.value_display, address, lead.id],
   );
   await logLeadActivity(slug, "note", `Converted to project "${projectName}"`);
+  await emit({
+    kind: "job",
+    tag: "Job",
+    accent: "accent",
+    icon: "project",
+    title: `New project · ${projectName}`,
+    subline: `Converted from lead · ${lead.name}`,
+    href: `/projects/${pslug}`,
+  });
 
   revalidatePath("/leads");
   revalidatePath("/projects");
   revalidatePath("/today");
+  revalidatePath("/notifications");
   redirect(`/projects/${pslug}`);
 }
 

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/dal";
 import { query } from "@/lib/db";
 import { ai } from "@/lib/ai";
+import { emit } from "@/lib/notify";
 
 /** Post a message to a channel as the owner, and mark the channel read. */
 export async function sendChatMessage(
@@ -54,7 +55,17 @@ export async function askClaudeInChannel(
        VALUES ($1, 'ai', 'Claude', 'CL', $2)`,
       [channelKey, reply],
     );
+    await emit({
+      kind: "mention",
+      tag: "Mention",
+      accent: "ai",
+      icon: "chat",
+      title: `Claude replied in ${channelKey.startsWith("dm:") ? "a direct message" : `#${channelKey}`}`,
+      subline: reply.slice(0, 90),
+      href: "/chat",
+    });
     revalidatePath("/chat");
+    revalidatePath("/notifications");
     return { ok: true, reply };
   } catch (err) {
     return { ok: false, error: (err as Error).message };

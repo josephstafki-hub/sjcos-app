@@ -92,6 +92,27 @@ export interface SuggestResult {
   suggestions: string[];
 }
 
+export interface EstimateLine {
+  label: string;
+  /** A display range or amount, e.g. "$3,200" or "$8,200 – $11,000". */
+  value: string;
+}
+
+export interface EstimateInput {
+  name: string;
+  scope: string;
+  /** The lead's answered intake questions, used to ground the line items. */
+  intake: { question: string; answer: string }[];
+  /** Optional owner notes steering the estimate. */
+  notes?: string;
+}
+
+export interface EstimateResult {
+  lines: EstimateLine[];
+  /** A rounded display range for the whole job, e.g. "$49,300 – $60,700". */
+  total: string;
+}
+
 // ─── Provider contract ────────────────────────────────────────────────────
 
 export interface AiProvider {
@@ -101,6 +122,7 @@ export interface AiProvider {
   draft(input: DraftInput): Promise<DraftResult>;
   summarize(input: SummarizeInput): Promise<SummaryResult>;
   suggest(input: SuggestInput): Promise<SuggestResult>;
+  estimate(input: EstimateInput): Promise<EstimateResult>;
 }
 
 // ─── Mock provider ──────────────────────────────────────────────────────────
@@ -252,6 +274,21 @@ const mockProvider: AiProvider = {
         "Schedule a site visit",
         "Add to this week's plan",
       ],
+    };
+  },
+
+  async estimate(input) {
+    // Deterministic, plausibly-shaped phased estimate. The real provider grounds
+    // the line items in the lead's scope + intake answers.
+    return {
+      lines: [
+        { label: "Demo + prep", value: "$3,000 – $4,000" },
+        { label: "Materials", value: "$14,000 – $18,000" },
+        { label: "Labor + subs", value: "$12,000 – $15,000" },
+        { label: "Finishes", value: "$6,000 – $8,000" },
+        { label: "GC + contingency", value: "$5,000 – $7,000" },
+      ],
+      total: "$40,000 – $52,000",
     };
   },
 };
@@ -469,6 +506,44 @@ const ollamaProvider: AiProvider = {
       mockProvider.suggest(input),
     );
   },
+
+  estimate(input) {
+    const intake = input.intake
+      .filter((i) => i.answer.trim())
+      .map((i) => `- ${i.question}: ${i.answer}`)
+      .join("\n");
+    const prompt =
+      `Draft a Phase 1 rough estimate for a residential carpentry/remodel job. ` +
+      `Break it into 5–8 line items (demo, materials, labor/subs, finishes, ` +
+      `GC/contingency, etc.), each with a dollar amount or a tight range. Then ` +
+      `give a rounded total range for the whole job. These are ballpark Phase 1 ` +
+      `numbers — keep ranges realistic for the scope below; do not invent scope ` +
+      `not implied by the inputs.\n\n` +
+      `Lead: ${input.name}\nScope: ${input.scope}\n` +
+      `Intake answers:\n${intake || "(none provided)"}\n` +
+      (input.notes ? `Owner notes: ${input.notes}\n` : "");
+    const schema = {
+      type: "object",
+      properties: {
+        lines: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              label: { type: "string" },
+              value: { type: "string" },
+            },
+            required: ["label", "value"],
+          },
+        },
+        total: { type: "string" },
+      },
+      required: ["lines", "total"],
+    };
+    return ollamaJson<EstimateResult>(prompt, schema, () =>
+      mockProvider.estimate(input),
+    );
+  },
 };
 
 // ─── Provider selection ─────────────────────────────────────────────────────
@@ -487,6 +562,7 @@ function notImplemented(provider: string): AiProvider {
     draft: fail,
     summarize: fail,
     suggest: fail,
+    estimate: fail,
   };
 }
 

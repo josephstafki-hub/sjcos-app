@@ -12,6 +12,9 @@ import { requireRole } from "@/lib/dal";
 import { STAGES, stageLabel } from "@/lib/leads";
 import { logLeadActivity } from "@/lib/lead-activity";
 import { INTAKE_QUESTIONS } from "@/lib/lead-intake-questions";
+import { ai, type EstimateLine } from "@/lib/ai";
+import { AI_NAME } from "@/lib/ai-name";
+import { sendNewEmailAction } from "@/lib/actions/inbox";
 import type { LeadStage } from "@/lib/types";
 
 /** Kebab-case a display name into a URL slug. */
@@ -125,6 +128,100 @@ export async function updateLeadContact(
   );
   if (res.rowCount === 0) return { ok: false };
   await logLeadActivity(slug, "contact", "Contact info updated");
+  revalidatePath(`/leads/${slug}`);
+  return { ok: true };
+}
+
+/** Have the AI draft a Phase 1 rough estimate for a lead from its scope +
+ *  intake answers, saving it as a draft (overwrites any prior draft). Owner-gated. */
+export async function draftEstimate(slug: string): Promise<{ ok: boolean; error?: string }> {
+  await requireRole("owner");
+  const lead = await queryOne<{ id: string; name: string; scope: string }>(
+    `SELECT id, name, scope FROM leads WHERE slug = $1`,
+    [slug],
+  );
+  if (!lead) return { ok: false, error: "Lead not found." };
+
+  const { rows: intake } = await query<{ question: string; answer: string }>(
+    `SELECT question, answer FROM lead_intake WHERE lead_id = $1 ORDER BY sort_order, id`,
+    [lead.id],
+  );
+  const prior = await queryOne<{ notes: string }>(
+    `SELECT notes FROM lead_estimates WHERE lead_id = $1`,
+    [lead.id],
+  );
+
+  const est = await ai.estimate({
+    name: lead.name,
+    scope: lead.scope,
+    intake,
+    notes: prior?.notes || undefined,
+  });
+
+  await query(
+    `INSERT INTO lead_estimates (lead_id, line_items, total, status, updated_at)
+     VALUES ($1, $2, $3, 'draft', now())
+     ON CONFLICT (lead_id) DO UPDATE
+       SET line_items = EXCLUDED.line_items, total = EXCLUDED.total,
+           status = 'draft', sent_at = NULL, updated_at = now()`,
+    [lead.id, JSON.stringify(est.lines), est.total],
+  );
+  await logLeadActivity(slug, "estimate", `Rough estimate drafted by ${AI_NAME} (${est.total})`, AI_NAME);
+  revalidatePath(`/leads/${slug}`);
+  return { ok: true };
+}
+
+/** Persist the owner's notes that steer the rough estimate. Owner-gated. */
+export async function saveEstimateNotes(slug: string, notes: string): Promise<{ ok: boolean }> {
+  await requireRole("owner");
+  const res = await query(
+    `INSERT INTO lead_estimates (lead_id, notes)
+     SELECT id, $2 FROM leads WHERE slug = $1
+     ON CONFLICT (lead_id) DO UPDATE SET notes = EXCLUDED.notes, updated_at = now()`,
+    [slug, notes.trim()],
+  );
+  if (res.rowCount === 0) return { ok: false };
+  revalidatePath(`/leads/${slug}`);
+  return { ok: true };
+}
+
+/** Email the rough estimate to the lead via Gmail and mark it sent. Owner-gated. */
+export async function sendEstimate(slug: string): Promise<{ ok: boolean; error?: string }> {
+  await requireRole("owner");
+  const lead = await queryOne<{ id: string; name: string; email: string | null }>(
+    `SELECT id, name, email FROM leads WHERE slug = $1`,
+    [slug],
+  );
+  if (!lead) return { ok: false, error: "Lead not found." };
+  if (!lead.email) return { ok: false, error: "No email on file — add one first." };
+
+  const est = await queryOne<{ line_items: EstimateLine[]; total: string }>(
+    `SELECT line_items, total FROM lead_estimates WHERE lead_id = $1`,
+    [lead.id],
+  );
+  if (!est) return { ok: false, error: "Draft an estimate first." };
+
+  const first = lead.name.split(/\s+/)[0];
+  const lines = (est.line_items ?? []).map((l) => `  • ${l.label}: ${l.value}`).join("\n");
+  const body =
+    `Hi ${first},\n\nThanks for the opportunity. Here's a Phase 1 rough estimate based on ` +
+    `what we've discussed — these are ballpark ranges to confirm we're in the right neighborhood ` +
+    `before we firm up scope and selections.\n\n${lines}\n\nRough total: ${est.total}\n\n` +
+    `Happy to walk through any of this. Once you're comfortable with the range, the next step is a ` +
+    `pre-construction agreement and detailed scope.\n\nBest,\nJoe\nSJ Carpentry`;
+
+  const res = await sendNewEmailAction({
+    to: lead.email,
+    subject: "Phase 1 rough estimate — SJ Carpentry",
+    body,
+  });
+  if (!res.ok) return { ok: false, error: res.error ?? "Could not send." };
+
+  await query(
+    `UPDATE lead_estimates SET status = 'sent', sent_at = now(), updated_at = now() WHERE lead_id = $1`,
+    [lead.id],
+  );
+  await logLeadActivity(slug, "email", `Rough estimate emailed to ${lead.name}`);
   revalidatePath(`/leads/${slug}`);
   return { ok: true };
 }

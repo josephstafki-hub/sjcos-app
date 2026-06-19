@@ -59,6 +59,15 @@ export function FilesClient({ data }: { data: FilesData }) {
     projectKey: activeProject,
   });
   const [typeFilter, setTypeFilter] = useState("All");
+  // Which year folders are expanded in the tree rail (2026 holds this year's
+  // projects; 2024/2025 expand to an empty state until the Drive mirror lands).
+  const [expandedYears, setExpandedYears] = useState<Set<string>>(new Set(["2026"]));
+  const toggleYear = (y: string) =>
+    setExpandedYears((s) => {
+      const n = new Set(s);
+      n.has(y) ? n.delete(y) : n.add(y);
+      return n;
+    });
   const [view, setView] = useState<"list" | "grid">("list");
   const [summary, setSummary] = useState<string | null>(null);
   const [opened, setOpened] = useState(false);
@@ -145,42 +154,49 @@ export function FilesClient({ data }: { data: FilesData }) {
 
         <RailLabel>Projects</RailLabel>
         <div className="flex flex-col gap-0.5">
-          {["2024", "2025"].map((y) => (
-            <button
-              key={y}
-              onClick={() => pickFolder({ label: y })}
-              className={[
-                "flex items-center gap-1 rounded px-2 py-1 text-left text-[12px] transition-colors",
-                folder.label === y
-                  ? "bg-accent-soft font-medium text-accent-2"
-                  : "text-ink-2 hover:bg-paper-3",
-              ].join(" ")}
-            >
-              <ChevronRight className="size-3 flex-none text-ink-4" strokeWidth={1.5} />
-              <Folder className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
-              <span>{y}</span>
-            </button>
-          ))}
-          <div className="flex items-center gap-1 px-2 py-1 text-[12px] font-medium text-ink">
-            <ChevronDown className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
-            <Folder className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
-            <span>2026</span>
-          </div>
-          {data.projects.map((p) => (
-            <button
-              key={p.name}
-              onClick={() => pickFolder({ label: p.name, projectKey: p.name })}
-              className={[
-                "flex items-center gap-1.5 rounded py-1 pl-7 pr-2 text-left text-[12px] transition-colors",
-                folder.label === p.name
-                  ? "bg-accent-soft font-medium text-accent-2"
-                  : "text-ink-2 hover:bg-paper-3",
-              ].join(" ")}
-            >
-              <Folder className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
-              <span className="truncate">{p.name}</span>
-            </button>
-          ))}
+          {["2026", "2025", "2024"].map((y) => {
+            const expanded = expandedYears.has(y);
+            // Only the current year holds projects in the seed; prior years
+            // expand to an honest empty state until the Drive mirror lands.
+            const projects = y === "2026" ? data.projects : [];
+            return (
+              <div key={y}>
+                <button
+                  onClick={() => toggleYear(y)}
+                  className="flex w-full items-center gap-1 rounded px-2 py-1 text-left text-[12px] font-medium text-ink transition-colors hover:bg-paper-3"
+                  aria-expanded={expanded}
+                >
+                  {expanded ? (
+                    <ChevronDown className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
+                  ) : (
+                    <ChevronRight className="size-3 flex-none text-ink-4" strokeWidth={1.5} />
+                  )}
+                  <Folder className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
+                  <span>{y}</span>
+                </button>
+                {expanded &&
+                  (projects.length > 0 ? (
+                    projects.map((p) => (
+                      <button
+                        key={p.name}
+                        onClick={() => pickFolder({ label: p.name, projectKey: p.name })}
+                        className={[
+                          "flex w-full items-center gap-1.5 rounded py-1 pl-7 pr-2 text-left text-[12px] transition-colors",
+                          folder.label === p.name
+                            ? "bg-accent-soft font-medium text-accent-2"
+                            : "text-ink-2 hover:bg-paper-3",
+                        ].join(" ")}
+                      >
+                        <Folder className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
+                        <span className="truncate">{p.name}</span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="py-1 pl-7 pr-2 text-[11px] text-ink-4">No projects.</div>
+                  ))}
+              </div>
+            );
+          })}
         </div>
       </aside>
 

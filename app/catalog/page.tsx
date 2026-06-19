@@ -1,6 +1,6 @@
-import { Search, Sparkles } from "lucide-react";
+import { Search } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { Card, Eyebrow, AckButton } from "@/components/ui";
+import { Card, Eyebrow } from "@/components/ui";
 import { CatalogClient } from "@/components/catalog/CatalogClient";
 import { AddMaterialButton } from "@/components/catalog/AddMaterialButton";
 import { getCatalogData } from "@/lib/catalog";
@@ -24,12 +24,6 @@ export default async function CatalogPage() {
               <Search className="size-3 text-ink-4" strokeWidth={1.5} />
               <span className="text-[11px] text-ink-4">Search by SKU, supplier, color…</span>
             </Card>
-            <AckButton
-              variant="ai"
-              icon={<Sparkles className="size-3" strokeWidth={1.5} />}
-              label="Browser capture"
-              ackLabel="Capturing…"
-            />
             <AddMaterialButton />
           </div>
         </div>

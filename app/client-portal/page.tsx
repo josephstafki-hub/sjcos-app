@@ -1,4 +1,5 @@
-import { Bell, FileText } from "lucide-react";
+import Link from "next/link";
+import { Bell, FileText, ArrowLeft } from "lucide-react";
 import { AckButton, Avatar, Card, Chip, Eyebrow } from "@/components/ui";
 import { getClientPortalData } from "@/lib/client-portal";
 import { requireRole } from "@/lib/dal";
@@ -27,6 +28,15 @@ export default async function ClientPortalPage() {
           Client portal · {data.project}
         </span>
         <div className="flex-1" />
+        {user.role === "owner" && (
+          <Link
+            href="/today"
+            className="inline-flex items-center gap-1 rounded-md border border-rule px-2 py-1 text-[11px] font-medium text-ink-2 transition-colors hover:bg-paper-3"
+          >
+            <ArrowLeft className="size-3" strokeWidth={1.75} />
+            Return to SJC OS
+          </Link>
+        )}
         <Chip kind="ghost">
           <Bell className="mr-0.5 inline size-2.5" strokeWidth={1.75} />2
         </Chip>

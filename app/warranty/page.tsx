@@ -1,14 +1,7 @@
-import { Sparkles } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
 import { AiBubble, AiStream, AckButton, Card, Chip, Eyebrow } from "@/components/ui";
 import { getWarrantyData, getWarrantySummary } from "@/lib/warranty";
-import type { ClaimDot } from "@/lib/warranty";
-
-const DOT: Record<ClaimDot, string> = {
-  accent: "bg-accent",
-  flag: "bg-flag",
-  ghost: "bg-ink-4",
-};
+import { WarrantyClaims } from "@/components/warranty/WarrantyClaims";
 
 export default async function WarrantyPage() {
   const data = await getWarrantyData();
@@ -42,40 +35,7 @@ export default async function WarrantyPage() {
         </AiBubble>
 
         {/* Active claims */}
-        <Card className="mb-5 overflow-hidden p-0">
-          <div className="border-b border-rule bg-paper-2 px-4 py-2.5">
-            <h2 className="font-serif text-[14px] font-semibold text-ink">
-              Active claims · {data.claims.length}
-            </h2>
-          </div>
-          {data.claims.map((c) => (
-            <div
-              key={c.project}
-              className="flex flex-col gap-3 border-b border-rule-soft px-4 py-3.5 last:border-b-0 sm:flex-row sm:items-start"
-            >
-              <span className={`mt-1.5 size-2 flex-none rounded-full ${DOT[c.dot]}`} />
-              <div className="min-w-0 flex-1">
-                <h3 className="font-serif text-[15px] font-semibold text-ink">{c.project}</h3>
-                <div className="mt-0.5 text-[11px] text-ink-3">
-                  {c.client} · opened {c.age} ago via portal
-                </div>
-                <p className="mt-1.5 text-[13px] text-ink-2">{c.issue}</p>
-              </div>
-              <div className="flex flex-col items-start gap-1.5 sm:items-end">
-                <Chip kind="flag" dot>
-                  {c.deadline}
-                </Chip>
-                <span className="text-[11px] text-ink-3">{c.step}</span>
-                <AckButton
-                  className="mt-0.5"
-                  icon={<Sparkles className="size-3" strokeWidth={1.75} />}
-                  label="Open"
-                  ackLabel="Flagged for review"
-                />
-              </div>
-            </div>
-          ))}
-        </Card>
+        <WarrantyClaims claims={data.claims} />
 
         {/* Under-warranty grid */}
         <h2 className="mb-2.5 font-serif text-[15px] font-semibold text-ink">

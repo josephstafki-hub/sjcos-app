@@ -10,6 +10,8 @@ import { query } from "./db";
 export type ClaimDot = "accent" | "flag" | "ghost";
 
 export interface WarrantyClaim {
+  /** warranty_claims.id — used to open/resolve the claim. */
+  id: string;
   project: string;
   client: string;
   /** "opened 4 hrs ago via portal" tail (the prefix is rendered in the card). */
@@ -43,6 +45,7 @@ export interface WarrantyData {
 }
 
 interface ClaimRow {
+  id: string;
   project: string;
   client: string;
   issue: string;
@@ -63,7 +66,7 @@ interface ProjectRow {
 export async function getWarrantyData(): Promise<WarrantyData> {
   const [claimsRes, projectsRes] = await Promise.all([
     query<ClaimRow>(`
-      SELECT project, client, issue, age_label, deadline_label, step, dot
+      SELECT id, project, client, issue, age_label, deadline_label, step, dot
       FROM warranty_claims
       WHERE resolved = false
       ORDER BY opened_at DESC`),
@@ -77,6 +80,7 @@ export async function getWarrantyData(): Promise<WarrantyData> {
   ]);
 
   const claims: WarrantyClaim[] = claimsRes.rows.map((r) => ({
+    id: r.id,
     project: r.project,
     client: r.client,
     age: r.age_label ?? "",

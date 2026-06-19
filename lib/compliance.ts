@@ -14,6 +14,8 @@ export interface WindowItem {
   title: string;
   /** Due-date display, e.g. "Jun 1". */
   due: string;
+  /** compliance_items.kind — coi/tax/license/insurance (drives the filter). */
+  kind: string;
 }
 
 export interface ComplianceWindowCard {
@@ -33,6 +35,10 @@ export interface TimelineRow {
   who: string;
   /** Next step / note. */
   step: string;
+  /** compliance_items.kind — drives the filter + the expanded detail. */
+  kind: string;
+  /** Free-form notes (shown in the expanded row). */
+  notes: string;
 }
 
 export interface ComplianceData {
@@ -59,6 +65,8 @@ interface ComplianceRow {
   who: string;
   step: string;
   dot: string;
+  kind: string;
+  notes: string;
 }
 
 const COMPLIANCE_SELECT = `
@@ -68,7 +76,9 @@ const COMPLIANCE_SELECT = `
          (due_date - CURRENT_DATE)::int          AS days_until,
          COALESCE(who, '')                       AS who,
          COALESCE(NULLIF(step, ''), '—')         AS step,
-         COALESCE(dot, 'ghost')                  AS dot
+         COALESCE(dot, 'ghost')                  AS dot,
+         COALESCE(kind, 'other')                 AS kind,
+         COALESCE(notes, '')                     AS notes
   FROM compliance_items
   WHERE resolved = false
   ORDER BY due_date`;
@@ -82,7 +92,7 @@ export async function getComplianceData(): Promise<ComplianceData> {
   const inWindow = (lo: number, hi: number) =>
     rows
       .filter((r) => r.days_until <= hi && r.days_until > lo)
-      .map((r) => ({ title: r.title, due: r.due_label }));
+      .map((r) => ({ title: r.title, due: r.due_label, kind: r.kind }));
 
   const windows: ComplianceWindowCard[] = [
     { label: "Urgent · < 14 days", urgent: true, items: inWindow(-Infinity, 14) },
@@ -97,6 +107,8 @@ export async function getComplianceData(): Promise<ComplianceData> {
     what: r.title,
     who: r.who,
     step: r.step,
+    kind: r.kind,
+    notes: r.notes,
   }));
 
   const urgent = windows[0].items.length;

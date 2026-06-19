@@ -1,4 +1,5 @@
-import { Flag, Check, ImagePlus, Mic, Plus, Phone } from "lucide-react";
+import Link from "next/link";
+import { Flag, Check, ImagePlus, Mic, Plus, Phone, ArrowLeft } from "lucide-react";
 import { AckButton, Avatar, Card, Chip, Eyebrow } from "@/components/ui";
 import { getSubPortalData } from "@/lib/sub-portal";
 import { requireRole } from "@/lib/dal";
@@ -28,6 +29,15 @@ export default async function SubPortalPage() {
           Sub portal · {data.subName} · {data.trade}
         </span>
         <div className="flex-1" />
+        {user.role === "owner" && (
+          <Link
+            href="/today"
+            className="inline-flex items-center gap-1 rounded-md border border-rule px-2 py-1 text-[11px] font-medium text-ink-2 transition-colors hover:bg-paper-3"
+          >
+            <ArrowLeft className="size-3" strokeWidth={1.75} />
+            Return to SJC OS
+          </Link>
+        )}
         <Chip kind="money">COI current</Chip>
         <Avatar initials={data.subInitials} size="sm" />
       </header>

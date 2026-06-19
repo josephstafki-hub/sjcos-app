@@ -5,9 +5,11 @@
 import { revalidatePath } from "next/cache";
 import { query } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
+import { storeUpload } from "@/lib/upload-store";
 import { MATERIAL_CATEGORIES } from "@/lib/catalog-categories";
 
-/** Add a material to the catalog from the "Add material" form. */
+/** Add a material to the catalog from the "Add material" form. An optional
+ *  product image is stored via the shared uploads helper and linked. */
 export async function createMaterial(formData: FormData) {
   await requireRole("owner");
 
@@ -22,10 +24,22 @@ export async function createMaterial(formData: FormData) {
     ? categoryInput
     : "Cabinets";
 
+  const image = formData.get("image");
+  let imageFileId: string | null = null;
+  if (image instanceof File && image.size > 0) {
+    const stored = await storeUpload(image, {
+      idPrefix: "cat",
+      imagesOnly: true,
+      tag: "CATALOG",
+      subtitle: `Catalog · ${name}`,
+    });
+    if (stored.ok) imageFileId = stored.id;
+  }
+
   await query(
-    `INSERT INTO catalog_items (name, supplier, sku, category, use_label, price)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [name, supplier, sku, category, use, price],
+    `INSERT INTO catalog_items (name, supplier, sku, category, use_label, price, image_file_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [name, supplier, sku, category, use, price, imageFileId],
   );
 
   revalidatePath("/catalog");

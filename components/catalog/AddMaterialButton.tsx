@@ -104,6 +104,15 @@ export function AddMaterialButton() {
                   className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
                 />
               </label>
+              <label className="flex flex-col gap-1">
+                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Product image (optional)</span>
+                <input
+                  name="image"
+                  type="file"
+                  accept="image/*"
+                  className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[12px] text-ink-2 outline-none file:mr-2 file:rounded file:border-0 file:bg-paper-3 file:px-2 file:py-1 file:text-[11px] file:text-ink-2"
+                />
+              </label>
 
               <div className="mt-1 flex justify-end gap-2">
                 <button

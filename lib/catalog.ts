@@ -22,6 +22,8 @@ export interface Material {
   use: string;
   /** Price display, e.g. "$185 / sq ft". */
   price: string;
+  /** files row id of the product image, or null. Served via /api/files/<id>. */
+  imageId: string | null;
 }
 
 export interface CatalogData {
@@ -38,6 +40,7 @@ interface MaterialRow {
   category: string;
   use_label: string;
   price: string;
+  image_file_id: string | null;
 }
 
 function rowToMaterial(r: MaterialRow): Material {
@@ -52,12 +55,13 @@ function rowToMaterial(r: MaterialRow): Material {
     category,
     use: r.use_label,
     price: r.price,
+    imageId: r.image_file_id,
   };
 }
 
 export async function getCatalogData(): Promise<CatalogData> {
   const { rows } = await query<MaterialRow>(
-    `SELECT id, name, supplier, sku, category, use_label, price
+    `SELECT id, name, supplier, sku, category, use_label, price, image_file_id
        FROM catalog_items
        ORDER BY created_at DESC, id DESC`,
   );

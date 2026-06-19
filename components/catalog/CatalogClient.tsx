@@ -42,7 +42,16 @@ export function CatalogClient({ data }: { data: CatalogData }) {
             key={m.id}
             className={`group relative overflow-hidden p-0 ${pendingId === m.id ? "opacity-40" : ""}`}
           >
-            <div className="aspect-[4/3] border-b border-rule bg-paper-3" />
+            {m.imageId ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={`/api/files/${m.imageId}`}
+                alt={m.name}
+                className="aspect-[4/3] w-full border-b border-rule object-cover"
+              />
+            ) : (
+              <div className="aspect-[4/3] border-b border-rule bg-paper-3" />
+            )}
             <button
               type="button"
               onClick={() => remove(m.id)}

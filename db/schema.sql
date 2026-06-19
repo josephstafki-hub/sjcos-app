@@ -370,6 +370,8 @@ CREATE TABLE IF NOT EXISTS catalog_items (
   price       text NOT NULL DEFAULT '',
   created_at  timestamptz NOT NULL DEFAULT now()
 );
+-- Optional product image (a files row id), added S5B.
+ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS image_file_id text;
 
 -- ─── Money: invoices + retainers (Review-round-3 S5A) ───────────────────────
 -- Native invoices (create/send/track) + a per-project retainer ledger. P&L

@@ -94,9 +94,16 @@ scope this round.
   opened a lead/project that blocked SSR on Qwen (11s/23s). Streamed both
   (getLeadTriage / getProjectWeeklyStatus) → TTFB ~instant. **+ click marks the
   notification read** (persists on return).
-- ⬜ **/inbox**: render sign-off/inline images in email bodies; clicking a label
-  should fetch that label's emails (server, paginated); label create/delete
-  (**label write needs the gmail.modify re-consent — deferred to deploy**).
+- 🔶 **/inbox**: ✅ **email bodies now render rich HTML with images** — new
+  `fetchThreadHtml` (lib/gmail.ts) returns the latest message's sanitized HTML
+  (`sanitize-html`: drops scripts/handlers/unknown schemes, keeps formatting +
+  http(s)/data images, forces `target=_blank rel=noopener`) with `cid:` inline
+  images (signature logos) resolved to data URIs; `getThreadHtmlAction` fetches
+  it lazily on thread open; `ReaderBody` renders it for the latest message
+  (plain-text paragraphs remain the fallback + cover earlier messages).
+  Remaining: clicking a label should fetch that label's emails (server,
+  paginated); label create/delete (**label write needs the gmail.modify
+  re-consent — deferred to deploy**).
 - ⬜ **/chat**: DMs are display-only → make them send/persist; add a way to
   add/remove channel participants (needs a membership model).
 

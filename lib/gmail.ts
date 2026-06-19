@@ -19,6 +19,7 @@
 import "server-only";
 import { google } from "googleapis";
 import type { gmail_v1 } from "googleapis";
+import sanitizeHtml from "sanitize-html";
 
 export const GMAIL_SCOPES = [
   // modify = read + label/state changes (star, archive, mark read, important,
@@ -234,6 +235,102 @@ function stripHtml(html: string): string {
     .replace(/&#39;|&apos;/gi, "'")
     .replace(/&quot;/gi, '"')
     .replace(/[ \t]+/g, " ");
+}
+
+// ─── Rich HTML body (with images) — resolved lazily when a thread is opened ──
+
+/** An inline image part: cid (Content-ID without <>) → attachment to fetch. */
+interface InlinePart {
+  cid: string;
+  attachmentId: string;
+  mimeType: string;
+}
+
+/** Collect image parts that carry a Content-ID (inline cid: images, e.g. a
+ *  signature logo). These get fetched + inlined as data URIs. */
+function collectInlineImages(part: gmail_v1.Schema$MessagePart | undefined, out: InlinePart[] = []): InlinePart[] {
+  if (!part) return out;
+  const cidHeader = part.headers?.find((h) => (h.name ?? "").toLowerCase() === "content-id");
+  if (
+    (part.mimeType ?? "").startsWith("image/") &&
+    cidHeader?.value &&
+    part.body?.attachmentId
+  ) {
+    out.push({
+      cid: cidHeader.value.replace(/^<|>$/g, "").trim(),
+      attachmentId: part.body.attachmentId,
+      mimeType: part.mimeType!,
+    });
+  }
+  for (const child of part.parts ?? []) collectInlineImages(child, out);
+  return out;
+}
+
+/** Sanitize untrusted email HTML for safe in-app rendering. Drops scripts,
+ *  event handlers, and unknown schemes; keeps formatting + images (http(s)/data).
+ *  Images are constrained to the container width via an inline max-width. */
+function sanitizeEmailHtml(html: string): string {
+  return sanitizeHtml(html, {
+    allowedTags: sanitizeHtml.defaults.allowedTags.concat(["img", "h1", "h2", "span", "u", "font", "center"]),
+    allowedAttributes: {
+      "*": ["style", "align", "width", "height", "bgcolor", "color"],
+      a: ["href", "name", "target", "rel"],
+      img: ["src", "alt", "width", "height", "style"],
+      font: ["color", "face", "size"],
+    },
+    allowedSchemes: ["http", "https", "mailto", "tel"],
+    allowedSchemesByTag: { img: ["http", "https", "data"] },
+    transformTags: {
+      a: (tagName, attribs) => ({
+        tagName,
+        attribs: { ...attribs, target: "_blank", rel: "noopener noreferrer" },
+      }),
+      img: (tagName, attribs) => ({
+        tagName,
+        attribs: { ...attribs, style: `max-width:100%;height:auto;${attribs.style ?? ""}` },
+      }),
+    },
+  });
+}
+
+/** Full sanitized HTML body of a thread's latest message, with cid: inline
+ *  images resolved to data URIs. Returns "" when there's no HTML part. Resolved
+ *  lazily (on thread open) so the inbox list fetch stays cheap. */
+export async function fetchThreadHtml(threadId: string): Promise<string> {
+  const api = gmail();
+  const { data } = await api.users.threads.get({ userId: "me", id: threadId, format: "full" });
+  const msgs = data.messages ?? [];
+  const latest = msgs[msgs.length - 1];
+  if (!latest?.payload) return "";
+
+  const htmlData = findPart(latest.payload, "text/html");
+  if (!htmlData) return "";
+  let html = Buffer.from(htmlData, "base64url").toString("utf-8");
+
+  // Inline cid: images (signature logos etc.) → data URIs so they render.
+  const inlines = collectInlineImages(latest.payload);
+  if (inlines.length && latest.id) {
+    await Promise.all(
+      inlines.map(async (img) => {
+        try {
+          const att = await api.users.messages.attachments.get({
+            userId: "me",
+            messageId: latest.id!,
+            id: img.attachmentId,
+          });
+          const b64 = (att.data.data ?? "").replace(/-/g, "+").replace(/_/g, "/");
+          if (!b64) return;
+          const dataUri = `data:${img.mimeType};base64,${b64}`;
+          const ref = img.cid.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          html = html.replace(new RegExp(`cid:${ref}`, "gi"), dataUri);
+        } catch {
+          /* leave the cid ref; it just won't render */
+        }
+      }),
+    );
+  }
+
+  return sanitizeEmailHtml(html);
 }
 
 /** The account's own email address (Gmail "me"), cached per process. Used to

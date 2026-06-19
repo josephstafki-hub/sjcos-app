@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition, type ReactNode } from "react";
+import { useMemo, useState, useEffect, useTransition, type ReactNode } from "react";
 import {
   Filter,
   Mail,
@@ -26,6 +26,7 @@ import {
 import { Card, Chip, Avatar } from "@/components/ui";
 import {
   draftReplyAction,
+  getThreadHtmlAction,
   sendReplyAction,
   sendNewEmailAction,
   setThreadStarredAction,
@@ -709,6 +710,22 @@ function ReaderBody({ reader, threadId }: { reader: ThreadReader; threadId: stri
   const [sending, startSend] = useTransition();
   const hasDraft = draft.trim().length > 0;
 
+  // Rich HTML body (with inline images) is resolved lazily on thread open so the
+  // list fetch stays cheap. Empty string = no HTML / not connected → fall back to
+  // the plain-text paragraphs already on the reader.
+  const [html, setHtml] = useState("");
+  useEffect(() => {
+    let alive = true;
+    getThreadHtmlAction(threadId)
+      .then((r) => {
+        if (alive) setHtml(r.html);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [threadId]);
+
   function generate() {
     setError("");
     startDraft(async () => {
@@ -740,15 +757,29 @@ function ReaderBody({ reader, threadId }: { reader: ThreadReader; threadId: stri
     <>
       <div className="min-h-0 flex-1 overflow-y-auto px-[18px] py-4">
         <div className="flex max-w-[600px] flex-col gap-2.5">
-          {reader.messages.map((m, i) => (
-            <div key={i} className="flex flex-col gap-2.5">
-              {m.body.map((para, j) => (
-                <p key={j} className="whitespace-pre-line text-[13px] leading-relaxed text-ink">
-                  {para}
-                </p>
-              ))}
-            </div>
-          ))}
+          {reader.messages.map((m, i) => {
+            const isLatest = i === reader.messages.length - 1;
+            // The rich HTML body (`fetchThreadHtml`) covers only the latest
+            // message; earlier ones keep the plain-text paragraphs.
+            if (isLatest && html) {
+              return (
+                <div
+                  key={i}
+                  className="email-html text-[13px] leading-relaxed text-ink [&_a]:text-accent [&_a]:underline [&_img]:my-1 [&_img]:rounded"
+                  dangerouslySetInnerHTML={{ __html: html }}
+                />
+              );
+            }
+            return (
+              <div key={i} className="flex flex-col gap-2.5">
+                {m.body.map((para, j) => (
+                  <p key={j} className="whitespace-pre-line text-[13px] leading-relaxed text-ink">
+                    {para}
+                  </p>
+                ))}
+              </div>
+            );
+          })}
         </div>
 
         <div className="my-4 max-w-[600px] border-t border-dashed border-ink-4" />

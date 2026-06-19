@@ -13,6 +13,7 @@ import {
   sendNewEmail,
   modifyThread,
   trashThread,
+  fetchThreadHtml,
 } from "@/lib/gmail";
 import { draftReplyForThread, loadMoreInbox } from "@/lib/inbox";
 import type { InboxThread, ThreadReader } from "@/lib/inbox";
@@ -99,6 +100,19 @@ export async function loadMoreInboxAction(pageToken: string): Promise<{
 }
 
 /** Compose and send a brand-new email. */
+/** Rich sanitized HTML body for a thread's latest message (with images),
+ *  fetched lazily when the reader opens. Empty string = no HTML / not connected;
+ *  the reader keeps showing the plain-text paragraphs in that case. */
+export async function getThreadHtmlAction(threadId: string): Promise<{ html: string }> {
+  await requireRole("owner");
+  if (!gmailConfigured()) return { html: "" };
+  try {
+    return { html: await fetchThreadHtml(threadId) };
+  } catch {
+    return { html: "" };
+  }
+}
+
 export async function sendNewEmailAction(input: {
   to: string;
   subject: string;

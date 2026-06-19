@@ -5,6 +5,7 @@
 
 import { query } from "./db";
 import { getCurrentUser } from "./dal";
+import { gmailConfigured } from "./gmail";
 
 export interface SettingsCategory {
   id: string;
@@ -58,7 +59,6 @@ export interface SettingsData {
     /** Read-only display rows shown beneath the editable form. */
     fields: { label: string; value: string }[];
   };
-  workspace: { label: string; value: string }[];
   team: {
     /** Present for real login rows; absent for the synthetic Claude row. */
     id?: string;
@@ -69,8 +69,6 @@ export interface SettingsData {
     active?: boolean;
     isOwner?: boolean;
   }[];
-  subscription: { plan: string; price: string; renews: string; fields: { label: string; value: string }[] };
-  data: { label: string; value: string; ok: boolean }[];
   integrations: Integration[];
   aiToggles: AiToggle[];
   notifyToggles: AiToggle[];
@@ -90,6 +88,9 @@ export async function getSettingsData(): Promise<SettingsData> {
   const email = me?.email ?? get("profile.email", "josephstafki@sjcarpentryllc.com");
   const company = get("profile.company", "SJ Carpentry LLC");
   const phone = get("profile.phone", "(612) 555-0117");
+
+  const aiProvider = process.env.AI_PROVIDER ?? "mock";
+  const aiModel = process.env.OLLAMA_MODEL ?? "qwen2.5:7b-instruct";
 
   // Team list is live from the users table. A synthetic Claude row stands in for
   // the AI assistant (not a login account).
@@ -128,14 +129,14 @@ export async function getSettingsData(): Promise<SettingsData> {
   ];
 
   return {
+    // Only categories with a real function. Workspace/Subscription/Data were
+    // read-only fiction (no subscription on a self-hosted tool, duplicated
+    // identity, placeholder backup status) — removed in S6.
     categories: [
       { id: "profile", title: "Profile" },
-      { id: "workspace", title: "Workspace" },
       { id: "team", title: "Team & roles" },
       { id: "integrations", title: "Integrations" },
       { id: "ai", title: "Claude & AI" },
-      { id: "billing", title: "Subscription" },
-      { id: "data", title: "Data & backups" },
       { id: "notifications", title: "Notifications" },
     ],
     profile: {
@@ -150,41 +151,25 @@ export async function getSettingsData(): Promise<SettingsData> {
         { label: "Working hours", value: "7:00 am – 6:00 pm · Mon–Fri" },
       ],
     },
-    workspace: [
-      { label: "Business name", value: company },
-      { label: "Legal entity", value: `${company} (single-member LLC)` },
-      { label: "Office address", value: "Edina, MN 55435" },
-      { label: "EIN", value: "On file · QuickBooks" },
-      { label: "Default markup", value: "18% GC + 10% contingency" },
-      { label: "Service area", value: "Twin Cities metro · 30 mi" },
-    ],
     team,
-    subscription: {
-      plan: "SJC OS — self-hosted",
-      price: "$0 / mo",
-      renews: "Runs on your own server · no subscription",
-      fields: [
-        { label: "Plan", value: "Self-hosted (this server)" },
-        { label: "Seats", value: "1 owner + unlimited portal guests" },
-        { label: "AI usage", value: "Local model / metered API — see Claude & AI" },
-        { label: "Support", value: "Self-managed" },
-      ],
-    },
-    data: [
-      { label: "PostgreSQL — sjcos database", value: "Connected", ok: true },
-      { label: "Last nightly backup", value: "Configure in Phase 8 deploy", ok: false },
-      { label: "Google Drive mirror", value: "Deferred (local storage for now)", ok: false },
-      { label: "Export all data (CSV / JSON)", value: "Available on request", ok: true },
-    ],
+    // Honest connection state, derived from real config rather than a fixed
+    // showcase list. The first three reflect what's actually wired today; the
+    // rest are genuinely not connected yet (deferred subsystems).
     integrations: [
-      { name: "QuickBooks", sub: "Books · reconciliation", connected: true },
-      { name: "Google Drive", sub: "Doc archive", connected: true },
-      { name: "Twilio", sub: "SMS in/out", connected: true },
-      { name: "Postmark", sub: "Email sync", connected: true },
-      { name: "Plaid · 1 bank", sub: "Live txns", connected: true },
+      {
+        name: "Gmail",
+        sub: "Inbox read + send",
+        connected: gmailConfigured(),
+      },
+      {
+        name: aiProvider === "ollama" ? "Local AI · Ollama" : "AI provider",
+        sub: aiProvider === "ollama" ? `Qwen · ${aiModel}` : aiProvider,
+        connected: aiProvider !== "mock",
+      },
+      { name: "PostgreSQL", sub: "sjcos database", connected: true },
+      { name: "QuickBooks", sub: "Books · reconciliation", connected: false },
+      { name: "Google Drive", sub: "Doc archive (deferred)", connected: false },
       { name: "Stripe", sub: "Card payments", connected: false },
-      { name: "Instagram", sub: "Auto-post", connected: false },
-      { name: "Facebook", sub: "Auto-post", connected: false },
     ],
     aiToggles: AI_TOGGLES.map((t) => ({
       key: t.key,

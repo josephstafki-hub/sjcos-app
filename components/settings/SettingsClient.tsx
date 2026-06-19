@@ -265,22 +265,6 @@ export function SettingsClient({ data }: { data: SettingsData }) {
           </>
         )}
 
-        {active === "workspace" && (
-          <>
-            <Eyebrow>Workspace</Eyebrow>
-            <h1 className="mt-1 font-serif text-[30px] font-medium leading-none text-accent-2">
-              {data.profile.meta.split(" · ")[1] ?? "Workspace"}
-            </h1>
-            <div className="mt-1.5 text-[11px] text-ink-3">Business identity used across estimates, the site, and client docs.</div>
-            <div className="my-5 border-t border-rule" />
-            <div className="grid max-w-[720px] grid-cols-1 gap-5 sm:grid-cols-2">
-              {data.workspace.map((f) => (
-                <Field key={f.label} label={f.label} value={f.value} />
-              ))}
-            </div>
-          </>
-        )}
-
         {active === "team" && (
           <>
             <div className="flex items-start justify-between">
@@ -322,36 +306,6 @@ export function SettingsClient({ data }: { data: SettingsData }) {
                   ) : (
                     <Chip kind={m.chip}>{m.chip === "accent" ? "owner" : m.chip === "ai" ? "system" : "guest"}</Chip>
                   )}
-                </div>
-              ))}
-            </Card>
-          </>
-        )}
-
-        {active === "billing" && (
-          <>
-            <Eyebrow>Subscription</Eyebrow>
-            <h1 className="mt-1 font-serif text-[30px] font-medium leading-none text-accent-2">{data.subscription.plan}</h1>
-            <div className="mt-1.5 text-[11px] text-ink-3">{data.subscription.price} · {data.subscription.renews}</div>
-            <div className="my-5 border-t border-rule" />
-            <div className="grid max-w-[720px] grid-cols-1 gap-5 sm:grid-cols-2">
-              {data.subscription.fields.map((f) => (
-                <Field key={f.label} label={f.label} value={f.value} />
-              ))}
-            </div>
-          </>
-        )}
-
-        {active === "data" && (
-          <>
-            <Eyebrow>Data &amp; backups</Eyebrow>
-            <h1 className="mt-1 font-serif text-[30px] font-medium leading-none text-accent-2">Data &amp; backups</h1>
-            <div className="mt-1.5 text-[11px] text-ink-3">Where your business data lives and how it&apos;s protected.</div>
-            <Card className="mt-5 max-w-[600px] overflow-hidden p-0">
-              {data.data.map((d, i) => (
-                <div key={d.label} className={`flex items-center gap-3 px-4 py-3 ${i ? "border-t border-rule-soft" : ""}`}>
-                  <span className="flex-1 text-[13px] text-ink">{d.label}</span>
-                  <Chip kind={d.ok ? "money" : "ghost"} dot>{d.value}</Chip>
                 </div>
               ))}
             </Card>

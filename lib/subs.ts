@@ -136,8 +136,10 @@ export interface SubDetail {
   jobsCount: number;
   rating: number;
   reliability: { label: string; value: string }[];
-  /** AI reliability summary (mock now; ai.summarize over job history in Phase 7). */
-  aiSummary: string;
+  /** Raw text the AI summary is composed from. NOT awaited in getSub — the
+   *  summary streams via getSubSummary() in a Suspense slot so the page never
+   *  blocks on CPU Qwen (~10–20s). */
+  aiSummaryInput: string;
   recentJobs: { name: string; detail: string; dot: JobDot }[];
   paperwork: { label: string; value: string; ok: boolean }[];
   rate: { amount: string; unit: string; note: string };
@@ -158,7 +160,7 @@ const DETAILS: Record<string, Partial<SubDetail>> = {
       { label: "Bid accuracy", value: "±4% avg" },
       { label: "Response time", value: "~ 2 hrs" },
     ],
-    aiSummary:
+    aiSummaryInput:
       "Marco is one of two preferred tile subs. Strong with marble — first call " +
       "for Calacatta or zellige work. Slightly slower on backsplash tear-out; " +
       "build that into the schedule.",
@@ -198,12 +200,10 @@ export async function getSub(slug: string): Promise<SubDetail | null> {
     `${card.rating}-star rating. A fuller reliability profile fills in as ` +
     `jobs are logged.`;
 
-  // The reliability blurb is the AI touch-point — routed through the service so
-  // Phase 7 can compose it from real job history with zero screen changes.
-  const { summary: aiSummary } = await ai.summarize({
-    text: curated.aiSummary ?? fallbackSummary,
-    focus: "sub-reliability",
-  });
+  // The reliability blurb is the AI touch-point. It is NOT awaited here — that
+  // would block the page on ~10–20s of CPU inference. The raw input is returned;
+  // getSubSummary() resolves it inside a Suspense slot on the page.
+  const aiSummaryInput = curated.aiSummaryInput ?? fallbackSummary;
 
   const { amount, unit } = splitRate(card.rate);
 
@@ -229,7 +229,7 @@ export async function getSub(slug: string): Promise<SubDetail | null> {
         { label: "Open jobs", value: String(card.openJobs) },
         { label: "Response time", value: "—" },
       ],
-    aiSummary,
+    aiSummaryInput,
     recentJobs: curated.recentJobs ?? [],
     paperwork:
       curated.paperwork ??
@@ -242,4 +242,11 @@ export async function getSub(slug: string): Promise<SubDetail | null> {
     taxNote: curated.taxNote ?? "1099 reminder · file by Jan 31",
     notes: rows[0].notes,
   };
+}
+
+/** The AI reliability summary, resolved separately from getSub() so it can
+ *  stream inside a Suspense boundary instead of blocking the page on Qwen. */
+export async function getSubSummary(input: string): Promise<string> {
+  const { summary } = await ai.summarize({ text: input, focus: "sub-reliability" });
+  return summary;
 }

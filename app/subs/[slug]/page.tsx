@@ -3,10 +3,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Phone, MessageSquare, Sparkles, Check } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { AiBubble, AckButton, Avatar, Card, Chip, Eyebrow, Field } from "@/components/ui";
+import { AiBubble, AiStream, AckButton, Avatar, Card, Chip, Eyebrow, Field } from "@/components/ui";
 import { SubTabs } from "@/components/subs/SubTabs";
 import { SubNotes } from "@/components/subs/SubNotes";
-import { getSub } from "@/lib/subs";
+import { getSub, getSubSummary } from "@/lib/subs";
 import type { JobDot } from "@/lib/subs";
 
 const DOT: Record<JobDot, string> = {
@@ -38,7 +38,9 @@ export default async function SubDetailPage({
         </div>
         <div className="my-3 border-t border-dashed border-rule" />
         <Eyebrow muted>AI summary</Eyebrow>
-        <AiBubble className="mt-1.5">{sub.aiSummary}</AiBubble>
+        <AiBubble className="mt-1.5">
+          <AiStream load={() => getSubSummary(sub.aiSummaryInput)} />
+        </AiBubble>
       </Card>
 
       {/* Recent jobs */}
@@ -176,7 +178,9 @@ export default async function SubDetailPage({
       <SubNotes slug={sub.slug} notes={sub.notes} />
       <div>
         <Eyebrow muted>AI summary</Eyebrow>
-        <AiBubble className="mt-1.5">{sub.aiSummary}</AiBubble>
+        <AiBubble className="mt-1.5">
+          <AiStream load={() => getSubSummary(sub.aiSummaryInput)} />
+        </AiBubble>
       </div>
     </div>
   );

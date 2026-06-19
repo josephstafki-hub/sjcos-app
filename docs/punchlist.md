@@ -245,5 +245,26 @@ Sub-phases, each its own commit (RESUME POINT in the plan file):
   `lib/upload-store.ts`** (`storeUpload`) backs catalog/selections/mood/floor
   uploads. **Session 5 complete; next = Session 6.**
 
-### Session 6 — pending (see plan)
-S6 subs perf, schedule overview, portals build-out, settings rationalization.
+### Session 6 — subs perf, schedule, portals, settings ✅ DONE
+- ✅ **Subs load perf** (c160917) — sub-detail AI reliability summary split into
+  `aiSummaryInput` + `getSubSummary()` resolved in an `AiStream` Suspense slot
+  (mirrors lead/project detail); page no longer blocks on CPU Qwen.
+- ✅ **Schedule overview** (b513d94) — `/schedule` is now a cross-project
+  overview. `schedule_blocks.project_id` (nullable FK → projects) links a block
+  to a job; blocks render their project as a link or "Standalone". The Block
+  modal gained a project picker; a new "New meeting" button creates a standalone
+  (NULL-project) event. `createScheduleBlock` persists the optional project_id.
+  Per-project Schedule tab stays project-scoped.
+- ✅ **Portals build-out** (d8e2026) — client portal Money is now the project's
+  real invoices + retainer (`getProjectMoney`); the decision bell reflects the
+  real count of pending selections; both portals get a real "Message Joe" thread
+  (`PortalMessenger` → `sendPortalMessage`, persisted to chat_messages + owner
+  notification; subs use their `dm:<slug>` channel readable in /chat, clients use
+  `portal:<slug>`). Channel derived server-side from identity. Selections
+  approval was already real (S5C); Return-to-SJC link kept.
+- ✅ **Settings rationalization** (d3c4b3e) — dropped the 3 read-only fiction
+  categories (Workspace/Subscription/Data); kept Profile/Team/Integrations/AI/
+  Notifications (all functional). Integrations now derived from real config
+  (Gmail/Ollama/Postgres connected; QuickBooks/Drive/Stripe honestly not).
+
+**Session 6 complete. Round-3 plan done — next milestone = Phase 8 deploy.**

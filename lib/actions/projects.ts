@@ -127,6 +127,38 @@ export async function setPunchDone(id: number, done: boolean, slug: string) {
   revalidatePath(`/projects/${slug}`);
 }
 
+/** Add a punch-list item to a project. Owner-gated. Returns the new row so the
+ *  client can append it optimistically (null if the project/text is missing). */
+export async function addPunchItem(
+  slug: string,
+  item: string,
+  owner: string,
+): Promise<{ id: number; item: string; owner: string; done: boolean } | null> {
+  await requireRole("owner");
+  const text = item.trim();
+  if (!text) return null;
+  const proj = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [slug]);
+  if (!proj) return null;
+  const sort = await queryOne<{ next: number }>(
+    `SELECT COALESCE(MAX(sort_order), 0) + 1 AS next FROM project_punch WHERE project_id = $1`,
+    [proj.id],
+  );
+  const row = await queryOne<{ id: string }>(
+    `INSERT INTO project_punch (project_id, item, owner_name, sort_order)
+     VALUES ($1, $2, $3, $4) RETURNING id`,
+    [proj.id, text, owner.trim(), sort?.next ?? 0],
+  );
+  revalidatePath(`/projects/${slug}`);
+  return row ? { id: Number(row.id), item: text, owner: owner.trim(), done: false } : null;
+}
+
+/** Delete a punch-list item. Owner-gated; `slug` drives revalidation. */
+export async function deletePunchItem(id: number, slug: string) {
+  await requireRole("owner");
+  await query(`DELETE FROM project_punch WHERE id = $1`, [id]);
+  revalidatePath(`/projects/${slug}`);
+}
+
 /** Set a project's billed/progress percent (0–100). */
 export async function setProjectProgress(slug: string, progress: number) {
   const pct = Math.max(0, Math.min(100, Math.round(progress)));

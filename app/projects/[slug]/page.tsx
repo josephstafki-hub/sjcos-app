@@ -402,13 +402,8 @@ export default async function ProjectDetailPage({
       emptyPanel("Comms")
     );
 
-  // ── Punch panel — real, interactive punch-list items ───────────────────────
-  const punchPanel =
-    project.punch.length > 0 ? (
-      <PunchList slug={project.slug} items={project.punch} />
-    ) : (
-      emptyPanel("Punch")
-    );
+  // ── Punch panel — real, interactive punch-list items (add/toggle/remove) ────
+  const punchPanel = <PunchList slug={project.slug} items={project.punch} />;
 
   // ── Floor / Mood — design-tool tabs (real boards, S5D/S5E) ──────────────────
   const floorPanel = <FloorPlan slug={slug} versions={floorplans} />;

@@ -14,7 +14,9 @@ import { FloorPlan } from "@/components/projects/FloorPlan";
 import { getProject, getProjectFiles, getProjectWeeklyStatus, PROJECT_STATUSES, stageToolTab } from "@/lib/projects";
 import { ProjectFiles } from "@/components/projects/ProjectFiles";
 import { ProjectComms } from "@/components/projects/ProjectComms";
+import { ProjectSchedule } from "@/components/projects/ProjectSchedule";
 import { getPortalThread, portalChannel } from "@/lib/portal-messages";
+import { getProjectScheduleBlocks } from "@/lib/schedule";
 import { getProjectMoney, usd } from "@/lib/money";
 import { getProjectSelections } from "@/lib/selections";
 import { getProjectMood } from "@/lib/mood";
@@ -45,6 +47,7 @@ export default async function ProjectDetailPage({
     getProjectFiles(slug),
   ]);
   const commsThread = await getPortalThread(portalChannel("client", slug));
+  const scheduleBlocks = await getProjectScheduleBlocks(slug);
   if (!project) notFound();
 
   const catalogOptions = catalog.materials.map((m) => ({ id: m.id, name: m.name }));
@@ -246,45 +249,28 @@ export default async function ProjectDetailPage({
     </Card>
   );
 
-  // ── Schedule panel — this-week strip + milestone timeline ──────────────────
-  const schedulePanel =
-    project.thisWeek.length > 0 || project.milestones.length > 0 ? (
-      <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
-        {project.thisWeek.length > 0 && (
-          <Card className="p-3.5">
-            <h3 className="mb-2 font-serif text-[16px] font-semibold text-ink">This week · on site</h3>
-            <div className="flex flex-col gap-1.5">
-              {project.thisWeek.map((w, i) => (
-                <div key={i} className="flex items-center gap-2 py-0.5">
-                  <span className="w-7 font-mono text-[11px] text-ink-3">{w.day}</span>
-                  <span className={`size-1.5 rounded-full ${DOT[w.dot]}`} />
-                  <span className="flex-1 text-[13px] text-ink">{w.label}</span>
-                  <span className="font-mono text-[11px] text-ink-3">{w.time}</span>
-                </div>
-              ))}
-            </div>
-          </Card>
-        )}
-        {project.milestones.length > 0 && (
-          <Card className="p-3.5">
-            <h3 className="mb-2 font-serif text-[16px] font-semibold text-ink">Milestones</h3>
-            <div className="flex flex-col">
-              {project.milestones.map((ms, i) => (
-                <div
-                  key={ms.name}
-                  className={`flex items-center gap-2 py-2 ${i ? "border-t border-rule-soft" : ""}`}
-                >
-                  <span className="flex-1 text-[13px] text-ink">{ms.name}</span>
-                  <span className="font-mono text-[11px] text-ink-3">{ms.date}</span>
-                </div>
-              ))}
-            </div>
-          </Card>
-        )}
-      </div>
-    ) : (
-      emptyPanel("Schedule")
-    );
+  // ── Schedule panel — real project-scoped blocks (add/remove) + milestones ──
+  const schedulePanel = (
+    <div className="flex max-w-[680px] flex-col gap-3.5">
+      <ProjectSchedule slug={slug} blocks={scheduleBlocks} />
+      {project.milestones.length > 0 && (
+        <Card className="p-3.5">
+          <h3 className="mb-2 font-serif text-[16px] font-semibold text-ink">Milestones</h3>
+          <div className="flex flex-col">
+            {project.milestones.map((ms, i) => (
+              <div
+                key={ms.name}
+                className={`flex items-center gap-2 py-2 ${i ? "border-t border-rule-soft" : ""}`}
+              >
+                <span className="flex-1 text-[13px] text-ink">{ms.name}</span>
+                <span className="font-mono text-[11px] text-ink-3">{ms.date}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
 
   // ── Subs panel — full project roster ───────────────────────────────────────
   const subsPanel =

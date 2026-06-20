@@ -186,6 +186,47 @@ export async function getScheduleProjects(): Promise<ScheduleProject[]> {
   return rows;
 }
 
+/** A real schedule block scoped to one project (project Schedule tab). */
+export interface ProjectScheduleBlock {
+  id: string;
+  iso: string;
+  dateLabel: string;
+  time: string;
+  label: string;
+  tone: "accent" | "ai" | "ghost";
+}
+
+/** All schedule blocks linked to a project, chronological. Powers the project
+ *  Schedule tab (distinct from the cross-project /schedule overview). */
+export async function getProjectScheduleBlocks(slug: string): Promise<ProjectScheduleBlock[]> {
+  const { rows } = await query<{
+    id: string;
+    iso: string;
+    date_label: string;
+    time_label: string;
+    label: string;
+    tone: "accent" | "ai" | "ghost";
+  }>(
+    `SELECT sb.id,
+            to_char(sb.block_date, 'YYYY-MM-DD')   AS iso,
+            to_char(sb.block_date, 'Dy Mon FMDD')  AS date_label,
+            sb.time_label, sb.label, sb.tone
+       FROM schedule_blocks sb
+       JOIN projects p ON p.id = sb.project_id
+      WHERE p.slug = $1
+      ORDER BY sb.block_date, sb.sort_min, sb.id`,
+    [slug],
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    iso: r.iso,
+    dateLabel: r.date_label,
+    time: r.time_label,
+    label: r.label,
+    tone: r.tone,
+  }));
+}
+
 /** The AI scheduling-conflict note, streamed separately (see AiStream) so the
  *  week view paints before the model responds. */
 export async function getScheduleConflict(): Promise<string> {

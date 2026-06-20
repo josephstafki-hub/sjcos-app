@@ -383,6 +383,79 @@ export async function getProjectFiles(slug: string): Promise<ProjectFile[]> {
   }));
 }
 
+/** A sub assigned to a project, with the contact + COI info the Subs tab needs. */
+export interface AssignedSub {
+  slug: string;
+  name: string;
+  trade: string;
+  role: string;
+  coiStatus: "current" | "expiring" | "expired" | "missing";
+  coiLabel: string;
+  email: string | null;
+  phone: string | null;
+}
+
+/** A sub available to assign (not yet on the project). */
+export interface RosterSub {
+  slug: string;
+  name: string;
+  trade: string;
+}
+
+const COI_LABEL: Record<string, string> = {
+  current: "COI current",
+  expiring: "COI expiring",
+  expired: "COI expired",
+  missing: "No COI",
+};
+
+/** Assigned subs + the assignable roster for a project's Subs tab. */
+export async function getProjectSubsData(
+  slug: string,
+): Promise<{ assigned: AssignedSub[]; roster: RosterSub[] }> {
+  const assignedQ = query<{
+    slug: string;
+    name: string;
+    trade: string;
+    role_label: string;
+    coi_status: AssignedSub["coiStatus"];
+    email: string | null;
+    phone: string | null;
+  }>(
+    `SELECT s.slug, s.name, s.trade, ps.role_label, s.coi_status, s.email, s.phone
+       FROM project_subs ps
+       JOIN subs s ON s.slug = ps.sub_slug
+       JOIN projects p ON p.id = ps.project_id
+      WHERE p.slug = $1
+      ORDER BY ps.assigned_at`,
+    [slug],
+  );
+  const rosterQ = query<RosterSub>(
+    `SELECT s.slug, s.name, s.trade
+       FROM subs s
+      WHERE s.slug NOT IN (
+        SELECT ps.sub_slug FROM project_subs ps
+        JOIN projects p ON p.id = ps.project_id WHERE p.slug = $1
+      )
+      ORDER BY s.fav DESC, s.name`,
+    [slug],
+  );
+  const [assigned, roster] = await Promise.all([assignedQ, rosterQ]);
+  return {
+    assigned: assigned.rows.map((r) => ({
+      slug: r.slug,
+      name: r.name,
+      trade: r.trade,
+      role: r.role_label,
+      coiStatus: r.coi_status,
+      coiLabel: COI_LABEL[r.coi_status] ?? r.coi_status,
+      email: r.email,
+      phone: r.phone,
+    })),
+    roster: roster.rows,
+  };
+}
+
 export async function getProjectsData(): Promise<ProjectsData> {
   const { rows } = await query<ProjectRow>(`${PROJECT_SELECT} ORDER BY progress DESC, name`);
   const items = rows.map(rowToItem);

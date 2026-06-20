@@ -14,7 +14,7 @@ TRUNCATE leads, projects, subs, threads, notifications, compliance_items,
          chat_members, project_punch, catalog_items,
          lead_activity, lead_intake, lead_estimates,
          invoices, retainers, project_selections, project_mood,
-         project_floorplans
+         project_floorplans, project_subs
          RESTART IDENTITY CASCADE;
 
 -- ─── Leads ──────────────────────────────────────────────────────────────────
@@ -270,6 +270,21 @@ JOIN (VALUES
   ('olson',     'Final walkthrough punch with client',                 'Joe',   false, 1),
   ('olson',     'Touch-up porch column paint after rain delay',        'Brad',  true,  2)
 ) AS v(slug, item, owner_name, done, sort_order)
+  ON v.slug = p.slug;
+
+-- Project ↔ sub assignments (project Subs tab).
+INSERT INTO project_subs (project_id, sub_slug, role_label)
+SELECT p.id, v.sub_slug, v.role_label
+FROM projects p
+JOIN (VALUES
+  ('henderson', 'marco', 'Tile & stone'),
+  ('henderson', 'tomas', 'Electrical'),
+  ('henderson', 'brad',  'Paint'),
+  ('reyes',     'marco', 'Tile'),
+  ('reyes',     'jen',   'Plumbing'),
+  ('reyes',     'tomas', 'Electrical'),
+  ('olson',     'brad',  'Exterior paint')
+) AS v(slug, sub_slug, role_label)
   ON v.slug = p.slug;
 
 COMMIT;

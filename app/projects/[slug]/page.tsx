@@ -11,7 +11,8 @@ import { MoneyPanel } from "@/components/projects/MoneyPanel";
 import { SelectionsBoard } from "@/components/projects/SelectionsBoard";
 import { MoodBoard } from "@/components/projects/MoodBoard";
 import { FloorPlan } from "@/components/projects/FloorPlan";
-import { getProject, getProjectFiles, getProjectWeeklyStatus, PROJECT_STATUSES, stageToolTab } from "@/lib/projects";
+import { getProject, getProjectFiles, getProjectSubsData, getProjectWeeklyStatus, PROJECT_STATUSES, stageToolTab } from "@/lib/projects";
+import { ProjectSubs } from "@/components/projects/ProjectSubs";
 import { ProjectFiles } from "@/components/projects/ProjectFiles";
 import { ProjectComms } from "@/components/projects/ProjectComms";
 import { ProjectSchedule } from "@/components/projects/ProjectSchedule";
@@ -48,6 +49,7 @@ export default async function ProjectDetailPage({
   ]);
   const commsThread = await getPortalThread(portalChannel("client", slug));
   const scheduleBlocks = await getProjectScheduleBlocks(slug);
+  const subsData = await getProjectSubsData(slug);
   if (!project) notFound();
 
   const catalogOptions = catalog.materials.map((m) => ({ id: m.id, name: m.name }));
@@ -272,29 +274,10 @@ export default async function ProjectDetailPage({
     </div>
   );
 
-  // ── Subs panel — full project roster ───────────────────────────────────────
-  const subsPanel =
-    project.subs.length > 0 ? (
-      <Card className="overflow-hidden p-0">
-        {project.subs.map((s, i) => (
-          <div
-            key={s.name}
-            className={`flex items-center gap-2.5 px-4 py-3 ${i ? "border-t border-rule-soft" : ""}`}
-          >
-            <Avatar initials={s.initials} size="sm" />
-            <div className="min-w-0 flex-1">
-              <div className="font-serif text-[13.5px] font-semibold text-ink">{s.name}</div>
-              <div className="text-[11px] text-ink-3">{s.trade}</div>
-            </div>
-            <Chip kind="money" dot>
-              {s.coi}
-            </Chip>
-          </div>
-        ))}
-      </Card>
-    ) : (
-      emptyPanel("Subs")
-    );
+  // ── Subs panel — real project↔sub assignments (assign/remove + contact) ────
+  const subsPanel = (
+    <ProjectSubs slug={slug} assigned={subsData.assigned} roster={subsData.roster} />
+  );
 
   // ── Files panel — real upload/download scoped to the project ───────────────
   const filesPanel = (

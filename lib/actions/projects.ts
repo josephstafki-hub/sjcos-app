@@ -159,6 +159,31 @@ export async function deletePunchItem(id: number, slug: string) {
   revalidatePath(`/projects/${slug}`);
 }
 
+/** Assign a sub to a project (project Subs tab). Owner-gated; idempotent. */
+export async function assignSubToProject(slug: string, subSlug: string, role: string) {
+  await requireRole("owner");
+  const proj = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [slug]);
+  if (!proj) return;
+  await query(
+    `INSERT INTO project_subs (project_id, sub_slug, role_label)
+     VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+    [proj.id, subSlug, role.trim()],
+  );
+  revalidatePath(`/projects/${slug}`);
+}
+
+/** Remove a sub from a project. Owner-gated. */
+export async function removeSubFromProject(slug: string, subSlug: string) {
+  await requireRole("owner");
+  const proj = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [slug]);
+  if (!proj) return;
+  await query(`DELETE FROM project_subs WHERE project_id = $1 AND sub_slug = $2`, [
+    proj.id,
+    subSlug,
+  ]);
+  revalidatePath(`/projects/${slug}`);
+}
+
 /** Set a project's billed/progress percent (0–100). */
 export async function setProjectProgress(slug: string, progress: number) {
   const pct = Math.max(0, Math.min(100, Math.round(progress)));

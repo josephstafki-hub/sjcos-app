@@ -448,6 +448,17 @@ CREATE TABLE IF NOT EXISTS project_floorplans (
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- Project ↔ sub assignments (the project Subs tab). A sub can be on many jobs;
+-- a job has many subs. Slug FK keeps it readable + matches the subs portal link.
+CREATE TABLE IF NOT EXISTS project_subs (
+  project_id  uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  sub_slug    text NOT NULL REFERENCES subs(slug) ON DELETE CASCADE,
+  role_label  text NOT NULL DEFAULT '',
+  assigned_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (project_id, sub_slug)
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_subs_project ON project_subs(project_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_project     ON invoices(project_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_selections_project   ON project_selections(project_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_mood_project         ON project_mood(project_id, room, sort_order);

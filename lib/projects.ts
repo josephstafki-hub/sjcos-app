@@ -456,6 +456,44 @@ export async function getProjectSubsData(
   };
 }
 
+/** One project daily-log entry. */
+export interface ProjectLog {
+  id: string;
+  iso: string;
+  dateLabel: string;
+  body: string;
+  photos: number;
+}
+
+/** A project's daily-log history, newest first (project_id-scoped logs only —
+ *  the global /schedule log is project_id IS NULL). */
+export async function getProjectDailyLogs(slug: string): Promise<ProjectLog[]> {
+  const { rows } = await query<{
+    id: string;
+    iso: string;
+    date_label: string;
+    body: string;
+    photos: number;
+  }>(
+    `SELECT dl.id,
+            to_char(dl.log_date, 'YYYY-MM-DD')      AS iso,
+            to_char(dl.log_date, 'Dy Mon FMDD')     AS date_label,
+            dl.body, dl.photos
+       FROM daily_logs dl
+       JOIN projects p ON p.id = dl.project_id
+      WHERE p.slug = $1
+      ORDER BY dl.log_date DESC, dl.id DESC`,
+    [slug],
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    iso: r.iso,
+    dateLabel: r.date_label,
+    body: r.body,
+    photos: r.photos,
+  }));
+}
+
 export async function getProjectsData(): Promise<ProjectsData> {
   const { rows } = await query<ProjectRow>(`${PROJECT_SELECT} ORDER BY progress DESC, name`);
   const items = rows.map(rowToItem);

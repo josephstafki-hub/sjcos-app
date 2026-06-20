@@ -265,6 +265,15 @@ CREATE TABLE IF NOT EXISTS daily_logs (
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- Project-scoped daily logs (project Daily-log tab). project_id NULL = the
+-- global log shown on the /schedule lane; non-NULL = a project's own log.
+-- Drop the table-wide UNIQUE(log_date) and replace it with partial uniques so
+-- each project keeps one log per date while the global log also stays unique.
+ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS project_id uuid REFERENCES projects(id) ON DELETE CASCADE;
+ALTER TABLE daily_logs DROP CONSTRAINT IF EXISTS daily_logs_log_date_key;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_daily_logs_global  ON daily_logs(log_date) WHERE project_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_daily_logs_project ON daily_logs(project_id, log_date) WHERE project_id IS NOT NULL;
+
 -- ─── Files ──────────────────────────────────────────────────────────────────
 -- Flat file index (Google-Drive mirror is deferred). project_key groups files
 -- under a project folder; ai_origin tints AI-generated rows.

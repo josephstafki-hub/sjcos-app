@@ -120,7 +120,8 @@ export async function getScheduleData(weekOffset = 0): Promise<ScheduleData> {
     query<LogRow>(`
       SELECT to_char(log_date, 'YYYY-MM-DD') AS iso, body, photos
       FROM daily_logs
-      WHERE log_date >= ${MONDAY} AND log_date <= ${FRIDAY}`),
+      WHERE project_id IS NULL
+        AND log_date >= ${MONDAY} AND log_date <= ${FRIDAY}`),
     query<WeekRow>(`
       SELECT to_char(${MONDAY}, 'FMIW')           AS weeknum,
              to_char(${MONDAY}, 'FMMon FMDD')     AS range_start,

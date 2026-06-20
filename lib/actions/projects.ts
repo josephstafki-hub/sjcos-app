@@ -184,6 +184,27 @@ export async function removeSubFromProject(slug: string, subSlug: string) {
   revalidatePath(`/projects/${slug}`);
 }
 
+/** Add (or update) a project daily-log entry for a date. Owner-gated. Upserts
+ *  on (project_id, log_date) so re-logging the same day overwrites. */
+export async function addProjectDailyLog(slug: string, formData: FormData) {
+  await requireRole("owner");
+  const body = String(formData.get("body") ?? "").trim();
+  if (!body) return;
+  const dateInput = String(formData.get("date") ?? "").trim();
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(dateInput) ? dateInput : null;
+  const proj = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [slug]);
+  if (!proj) return;
+
+  await query(
+    `INSERT INTO daily_logs (project_id, log_date, body)
+     VALUES ($1, COALESCE($2::date, CURRENT_DATE), $3)
+     ON CONFLICT (project_id, log_date) WHERE project_id IS NOT NULL
+     DO UPDATE SET body = EXCLUDED.body, updated_at = now()`,
+    [proj.id, date, body],
+  );
+  revalidatePath(`/projects/${slug}`);
+}
+
 /** Set a project's billed/progress percent (0–100). */
 export async function setProjectProgress(slug: string, progress: number) {
   const pct = Math.max(0, Math.min(100, Math.round(progress)));

@@ -11,8 +11,9 @@ import { MoneyPanel } from "@/components/projects/MoneyPanel";
 import { SelectionsBoard } from "@/components/projects/SelectionsBoard";
 import { MoodBoard } from "@/components/projects/MoodBoard";
 import { FloorPlan } from "@/components/projects/FloorPlan";
-import { getProject, getProjectFiles, getProjectSubsData, getProjectWeeklyStatus, PROJECT_STATUSES, stageToolTab } from "@/lib/projects";
+import { getProject, getProjectFiles, getProjectSubsData, getProjectDailyLogs, getProjectWeeklyStatus, PROJECT_STATUSES, stageToolTab } from "@/lib/projects";
 import { ProjectSubs } from "@/components/projects/ProjectSubs";
+import { ProjectDailyLog } from "@/components/projects/ProjectDailyLog";
 import { ProjectFiles } from "@/components/projects/ProjectFiles";
 import { ProjectComms } from "@/components/projects/ProjectComms";
 import { ProjectSchedule } from "@/components/projects/ProjectSchedule";
@@ -50,6 +51,7 @@ export default async function ProjectDetailPage({
   const commsThread = await getPortalThread(portalChannel("client", slug));
   const scheduleBlocks = await getProjectScheduleBlocks(slug);
   const subsData = await getProjectSubsData(slug);
+  const dailyLogs = await getProjectDailyLogs(slug);
   if (!project) notFound();
 
   const catalogOptions = catalog.materials.map((m) => ({ id: m.id, name: m.name }));
@@ -244,13 +246,6 @@ export default async function ProjectDetailPage({
     </div>
   );
 
-  const emptyPanel = (label: string) => (
-    <Card kind="dashed" className="p-8 text-center">
-      <div className="font-serif text-[16px] font-semibold text-ink-2">{label}</div>
-      <div className="mt-1 text-[12px] text-ink-3">Nothing logged here yet for this project.</div>
-    </Card>
-  );
-
   // ── Schedule panel — real project-scoped blocks (add/remove) + milestones ──
   const schedulePanel = (
     <div className="flex max-w-[680px] flex-col gap-3.5">
@@ -311,26 +306,8 @@ export default async function ProjectDetailPage({
     </div>
   );
 
-  // ── Daily log panel ─────────────────────────────────────────────────────────
-  const dailyLogPanel = project.latestLog ? (
-    <Card className="p-3.5">
-      <div className="flex items-center">
-        <h3 className="flex-1 font-serif text-[16px] font-semibold text-ink">Latest daily log</h3>
-        <span className="font-mono text-[11px] text-ink-3">{project.latestLog.date}</span>
-      </div>
-      <p className="mt-2 text-[13px] text-ink-2">{project.latestLog.body}</p>
-      <div className="mt-2.5 flex items-center gap-1">
-        {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="size-12 rounded-[3px] border border-rule bg-paper-3" />
-        ))}
-        {project.latestLog.photos > 4 && (
-          <Chip kind="ghost">+ {project.latestLog.photos - 4} photos</Chip>
-        )}
-      </div>
-    </Card>
-  ) : (
-    emptyPanel("Daily log")
-  );
+  // ── Daily log panel — real project-scoped log history + add ────────────────
+  const dailyLogPanel = <ProjectDailyLog slug={slug} logs={dailyLogs} />;
 
   // ── Selections panel — real board: catalog/upload images + client approval ──
   const selectionsPanel = (

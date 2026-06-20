@@ -347,6 +347,42 @@ export async function getProjectWeeklyStatus(name: string): Promise<string> {
   return draft.body.split("\n").find((l) => l.trim()) ?? "";
 }
 
+/** A real uploaded file scoped to a project (project_key = slug). Curated
+ *  showcase names live on ProjectDetail.files; these are blobs on disk that
+ *  download through /api/files/[id]. */
+export interface ProjectFile {
+  id: string;
+  name: string;
+  type: "doc" | "img" | "folder";
+  sizeLabel: string;
+  modifiedLabel: string;
+}
+
+/** Real uploaded files for a project, newest first (uploads only — showcase
+ *  rows have no storage_path). Scoped by project_key = slug. */
+export async function getProjectFiles(slug: string): Promise<ProjectFile[]> {
+  const { rows } = await query<{
+    id: string;
+    name: string;
+    type: "doc" | "img" | "folder";
+    size_label: string;
+    modified_label: string;
+  }>(
+    `SELECT id, name, type, size_label, modified_label
+       FROM files
+      WHERE project_key = $1 AND storage_path IS NOT NULL
+      ORDER BY created_at DESC`,
+    [slug],
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    type: r.type,
+    sizeLabel: r.size_label,
+    modifiedLabel: r.modified_label,
+  }));
+}
+
 export async function getProjectsData(): Promise<ProjectsData> {
   const { rows } = await query<ProjectRow>(`${PROJECT_SELECT} ORDER BY progress DESC, name`);
   const items = rows.map(rowToItem);

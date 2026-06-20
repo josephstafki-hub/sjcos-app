@@ -11,7 +11,8 @@ import { MoneyPanel } from "@/components/projects/MoneyPanel";
 import { SelectionsBoard } from "@/components/projects/SelectionsBoard";
 import { MoodBoard } from "@/components/projects/MoodBoard";
 import { FloorPlan } from "@/components/projects/FloorPlan";
-import { getProject, getProjectWeeklyStatus, PROJECT_STATUSES, stageToolTab } from "@/lib/projects";
+import { getProject, getProjectFiles, getProjectWeeklyStatus, PROJECT_STATUSES, stageToolTab } from "@/lib/projects";
+import { ProjectFiles } from "@/components/projects/ProjectFiles";
 import { getProjectMoney, usd } from "@/lib/money";
 import { getProjectSelections } from "@/lib/selections";
 import { getProjectMood } from "@/lib/mood";
@@ -32,13 +33,14 @@ export default async function ProjectDetailPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const [project, money, selections, mood, floorplans, catalog] = await Promise.all([
+  const [project, money, selections, mood, floorplans, catalog, projectFiles] = await Promise.all([
     getProject(slug),
     getProjectMoney(slug),
     getProjectSelections(slug),
     getProjectMood(slug),
     getProjectFloorplans(slug),
     getCatalogData(),
+    getProjectFiles(slug),
   ]);
   if (!project) notFound();
 
@@ -305,26 +307,10 @@ export default async function ProjectDetailPage({
       emptyPanel("Subs")
     );
 
-  // ── Files panel ────────────────────────────────────────────────────────────
-  const filesPanel =
-    project.files.length > 0 ? (
-      <Card className="overflow-hidden p-0">
-        <div className="border-b border-rule bg-paper-2 px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
-          {project.filesCount} files
-        </div>
-        {project.files.map((f, i) => (
-          <div
-            key={f}
-            className={`flex items-center gap-2 px-4 py-2.5 ${i ? "border-t border-rule-soft" : ""}`}
-          >
-            <FileText className="size-3.5 flex-none text-ink-3" strokeWidth={1.5} />
-            <span className="flex-1 truncate text-[13px] text-ink-2">{f}</span>
-          </div>
-        ))}
-      </Card>
-    ) : (
-      emptyPanel("Files")
-    );
+  // ── Files panel — real upload/download scoped to the project ───────────────
+  const filesPanel = (
+    <ProjectFiles slug={slug} files={projectFiles} showcase={project.files} />
+  );
 
   // ── Money panel — real invoices + retainer (curated draw schedule as a
   //    reference only when no invoices exist yet) ──────────────────────────────

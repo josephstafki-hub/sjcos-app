@@ -12,6 +12,7 @@ import { ai } from "@/lib/ai";
 import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { UPLOAD_DIR } from "@/lib/uploads";
+import { storeUpload } from "@/lib/upload-store";
 
 const MAX_BYTES = 25 * 1024 * 1024; // keep in step with next.config bodySizeLimit
 
@@ -120,6 +121,23 @@ export async function uploadLeadPhoto(
   );
 
   revalidatePath(`/leads/${slug}`);
+  return { ok: true };
+}
+
+/** Upload a real file scoped to a project (project_key = slug), shown on the
+ *  project's Files tab and downloadable via /api/files/[id]. Owner-gated. */
+export async function uploadProjectFile(
+  slug: string,
+  formData: FormData,
+): Promise<UploadResult> {
+  await requireRole("owner");
+  const res = await storeUpload(formData.get("file"), {
+    idPrefix: "proj",
+    projectKey: slug,
+    subtitle: `Project file · ${slug}`,
+  });
+  if (!res.ok) return res;
+  revalidatePath(`/projects/${slug}`);
   return { ok: true };
 }
 

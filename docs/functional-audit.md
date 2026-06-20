@@ -37,18 +37,16 @@ Daily log · Comms · Punch. The project opens on its lifecycle stage's tool tab
      options rolls up a live total + remaining; client sees it on their dashboard
      and approves/declines per item.
 
-5. **Schedule** ❌ read-only curated (this-week + milestones). Now that
-   `schedule_blocks` has `project_id`, this tab can show the project's real
-   blocks. **Done =** project-scoped real schedule: add/edit/remove blocks here,
-   and Qwen can propose/auto-place blocks (interactive by user **and** Qwen).
+5. **Schedule** ✅ real (project-scoped `schedule_blocks` via `project_id`;
+   add/remove blocks; they surface on the cross-project /schedule overview too).
+   Qwen auto-place is a later enhancement (manual add/remove done).
 
-6. **Subs** ❌ read-only roster. **Done =** assign/remove subs to the project,
-   see/manage COI + contact, from this tab. Needs a project↔sub join table
-   (today there's no real job-history link).
+6. **Subs** ✅ real — new `project_subs` join table; assign from roster /
+   remove, COI status chip + tel/mailto contact per sub.
 
-7. **Files** ❌ read-only curated list, **no upload.** The global `/files` has
-   real upload; this tab doesn't. **Done =** upload (reuse `storeUpload`/uploads
-   infra) + download, scoped to the project.
+7. **Files** ✅ real — `getProjectFiles` (project_key = slug) + project-scoped
+   `uploadProjectFile` (reuses `storeUpload`); upload + per-row download via
+   `/api/files/[id]`. Curated names kept muted as a Drive-mirror-pending index.
 
 8. **Money / Invoices** 🟡 — `MoneyPanel` is actually interactive (New invoice →
    Qwen drafts line items, Send → Gmail, Mark paid, retainer collect/apply). But:
@@ -60,17 +58,16 @@ Daily log · Comms · Punch. The project opens on its lifecycle stage's tool tab
    - **Done =** editable line items; client sees invoices on their dashboard;
      drafting streams; empty projects have a sensible first-invoice flow.
 
-9. **Daily log** ❌ read-only latest entry, **no add.** **Done =** add a daily
-   log (text + photos) from here, see history (not just latest). Reuse
-   `daily_logs`; the sub portal "Log your day" should feed the same table.
+9. **Daily log** ✅ real — `daily_logs.project_id` (global /schedule log stays
+   `project_id IS NULL` via partial unique indexes); `getProjectDailyLogs` +
+   `addProjectDailyLog` (upsert per day). Dated composer + history. (Photo
+   attachments on a log entry still TODO — `photos` is a count today.)
 
-10. **Comms** ❌ read-only curated thread, **no composer.** Joe: "communications
-    via client dashboard." **Done =** wire Comms to the real client-portal
-    message thread (`portal:<slug>`, the `PortalMessenger` built in S6) with a
-    composer, so owner ⇄ client talk in one place.
+10. **Comms** ✅ real — wired to the live `portal:<slug>` thread (same store the
+    client sees on their dashboard) via `sendProjectMessage` + `ProjectComms`.
 
-11. **Punch** 🟡 — toggling done works; **no add/remove.** **Done =** create /
-    edit / delete punch items (owner, and ideally sub-flaggable).
+11. **Punch** ✅ real — add (`addPunchItem`) / remove (`deletePunchItem`) on top
+    of the done toggle. Edit-in-place still TODO (low priority).
 
 ---
 
@@ -127,15 +124,16 @@ Money + messaging (S6), Today (real metrics + reprioritize).
 
 ---
 
-## Suggested build order (once scope is set)
+## Build order / progress
 
-1. **Qwen actually answers** (B) — small, high-visibility; unblocks "ask from any
-   page."
-2. **Project tabs to real** (A) — Daily log add, Punch add, Files upload, Comms
-   composer, Subs management, Schedule project-scoped — mostly reuse existing
-   patterns (owner-gated action + optimistic client cmpt).
-3. **Selections rooms/sections + budgets** (A4) — the largest single feature.
+1. ✅ **Qwen actually answers** (B) — `ai.ask` + real /ai chat (commit ebeccd1).
+2. ✅ **Project tabs to real** (A) — Punch add/remove (769d98f), Files upload
+   (e540e92), Comms composer (221e0aa), Schedule project-scoped (44d8b34), Subs
+   management (6e7e056), Daily-log add+history (d9350a9). Remaining tab polish:
+   punch edit-in-place, daily-log photo attachments (low priority).
+3. **Selections rooms/sections + budgets** (A4) — the largest single feature. NEXT.
 4. **Money polish** (A8) — editable line items + client invoice view.
-5. **Overview wiring + AckButton cleanup** (A1, C).
-6. **Placeholder screens** (D) — only if pulled into scope.
+5. **Overview wiring + AckButton cleanup** (A1, C) — Overview cards click to
+   tabs, weekly-status email real, AckButton triage app-wide.
+6. **Placeholder screens** (D) — only if pulled into scope (needs Joe's call).
 </content>

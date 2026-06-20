@@ -113,6 +113,17 @@ export interface EstimateResult {
   total: string;
 }
 
+export interface AskInput {
+  /** The user's free-form question. */
+  prompt: string;
+  /** Optional structured text brief of the page the user asked from. */
+  context?: string;
+}
+
+export interface AskResult {
+  answer: string;
+}
+
 // ─── Provider contract ────────────────────────────────────────────────────
 
 export interface AiProvider {
@@ -123,6 +134,8 @@ export interface AiProvider {
   summarize(input: SummarizeInput): Promise<SummaryResult>;
   suggest(input: SuggestInput): Promise<SuggestResult>;
   estimate(input: EstimateInput): Promise<EstimateResult>;
+  /** Free-form Q&A — the Ask-Qwen command bar + /ai chat. */
+  ask(input: AskInput): Promise<AskResult>;
 }
 
 // ─── Mock provider ──────────────────────────────────────────────────────────
@@ -297,6 +310,22 @@ const mockProvider: AiProvider = {
         { label: "GC + contingency", value: "$5,000 – $7,000" },
       ],
       total: "$40,000 – $52,000",
+    };
+  },
+
+  async ask(input) {
+    // Deterministic stand-in so the assistant is usable without a model. Echoes
+    // the question and notes whether page context was supplied.
+    const q = input.prompt.trim();
+    const grounded = input.context
+      ? " Based on what's on this page, here's the gist — open the related " +
+        "record for the full detail."
+      : " Connect a model (Ollama/Qwen) for a grounded answer.";
+    return {
+      answer:
+        `You asked: "${q}".` +
+        grounded +
+        " (Assistant is running in mock mode right now.)",
     };
   },
 };
@@ -552,6 +581,27 @@ const ollamaProvider: AiProvider = {
       mockProvider.estimate(input),
     );
   },
+
+  async ask(input) {
+    // Free-form Q&A — plain text, no JSON schema. Grounds on page context when
+    // supplied; falls back to the mock answer on any failure/empty response.
+    const prompt = input.context
+      ? `Context for the page the user is viewing:\n${input.context}\n\n` +
+        `Answer the user's question using that context where relevant. Be ` +
+        `concise and concrete. If the answer isn't in the context, say what ` +
+        `you'd need.\n\nQuestion: ${input.prompt}`
+      : input.prompt;
+    try {
+      const answer = (await ollamaChat(prompt)).trim();
+      if (!answer) return mockProvider.ask(input);
+      return { answer };
+    } catch (err) {
+      console.error(
+        `[ai:ollama] ${OLLAMA_MODEL} ask failed, falling back to mock — ${(err as Error).message}`,
+      );
+      return mockProvider.ask(input);
+    }
+  },
 };
 
 // ─── Provider selection ─────────────────────────────────────────────────────
@@ -571,6 +621,7 @@ function notImplemented(provider: string): AiProvider {
     summarize: fail,
     suggest: fail,
     estimate: fail,
+    ask: fail,
   };
 }
 

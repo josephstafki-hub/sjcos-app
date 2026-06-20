@@ -16,11 +16,7 @@ export async function askQwen(
   const q = prompt.trim();
   if (!q) return { ok: false, error: "Ask a question first." };
   try {
-    const context = pageContext
-      ? `The user is currently viewing this page:\n${pageContext}\n\nThey ask: ${q}`
-      : q;
-    const { suggestions } = await ai.suggest({ kind: "ai-thread", context });
-    const answer = suggestions.join(" ").trim();
+    const { answer } = await ai.ask({ prompt: q, context: pageContext });
     return { ok: true, answer: answer || "I don't have an answer for that yet." };
   } catch (err) {
     return { ok: false, error: (err as Error).message };

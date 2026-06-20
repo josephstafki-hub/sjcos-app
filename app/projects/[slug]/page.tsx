@@ -13,6 +13,8 @@ import { MoodBoard } from "@/components/projects/MoodBoard";
 import { FloorPlan } from "@/components/projects/FloorPlan";
 import { getProject, getProjectFiles, getProjectWeeklyStatus, PROJECT_STATUSES, stageToolTab } from "@/lib/projects";
 import { ProjectFiles } from "@/components/projects/ProjectFiles";
+import { ProjectComms } from "@/components/projects/ProjectComms";
+import { getPortalThread, portalChannel } from "@/lib/portal-messages";
 import { getProjectMoney, usd } from "@/lib/money";
 import { getProjectSelections } from "@/lib/selections";
 import { getProjectMood } from "@/lib/mood";
@@ -42,6 +44,7 @@ export default async function ProjectDetailPage({
     getCatalogData(),
     getProjectFiles(slug),
   ]);
+  const commsThread = await getPortalThread(portalChannel("client", slug));
   if (!project) notFound();
 
   const catalogOptions = catalog.materials.map((m) => ({ id: m.id, name: m.name }));
@@ -365,28 +368,8 @@ export default async function ProjectDetailPage({
     <SelectionsBoard slug={slug} selections={selections} catalog={catalogOptions} />
   );
 
-  // ── Comms panel — project-scoped message thread ────────────────────────────
-  const commsPanel =
-    project.comms.length > 0 ? (
-      <Card className="max-w-[680px] overflow-hidden p-0">
-        {project.comms.map((msg, i) => (
-          <div
-            key={i}
-            className={`px-4 py-3 ${i ? "border-t border-rule-soft" : ""} ${msg.role === "ai" ? "bg-ai-soft" : ""}`}
-          >
-            <div className="flex items-center gap-2">
-              <span className="font-serif text-[13px] font-semibold text-ink">{msg.from}</span>
-              {msg.role === "ai" && <Chip kind="ai">AI</Chip>}
-              {msg.role === "you" && <Chip kind="ghost">You</Chip>}
-              <span className="ml-auto font-mono text-[10px] text-ink-3">{msg.time}</span>
-            </div>
-            <p className="mt-1 text-[13px] text-ink-2">{msg.body}</p>
-          </div>
-        ))}
-      </Card>
-    ) : (
-      emptyPanel("Comms")
-    );
+  // ── Comms panel — real owner ⇄ client thread (portal:<slug>) ───────────────
+  const commsPanel = <ProjectComms slug={slug} thread={commsThread} />;
 
   // ── Punch panel — real, interactive punch-list items (add/toggle/remove) ────
   const punchPanel = <PunchList slug={project.slug} items={project.punch} />;

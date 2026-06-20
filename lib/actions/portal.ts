@@ -14,6 +14,25 @@ import { emit } from "@/lib/notify";
 
 const PREVIEW_SLUG = { client: "henderson", sub: "marco" } as const;
 
+/** Owner-side composer for the project Comms tab. Posts into the project's
+ *  client portal thread (portal:<slug>) so owner ⇄ client talk in one place —
+ *  the client sees it on their dashboard. Owner-gated. */
+export async function sendProjectMessage(slug: string, formData: FormData) {
+  const body = String(formData.get("body") ?? "").trim();
+  if (!body) return;
+  const user = await requireRole("owner");
+  const channelKey = portalChannel("client", slug);
+
+  await query(
+    `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body)
+     VALUES ($1, 'owner', $2, $3, $4)`,
+    [channelKey, user.name || "Joe", user.initials || "JS", body],
+  );
+
+  revalidatePath(`/projects/${slug}`);
+  revalidatePath("/client-portal");
+}
+
 export async function sendPortalMessage(formData: FormData) {
   const body = String(formData.get("body") ?? "").trim();
   if (!body) return;

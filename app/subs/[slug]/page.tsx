@@ -8,6 +8,10 @@ import { SubTabs } from "@/components/subs/SubTabs";
 import { SubNotes } from "@/components/subs/SubNotes";
 import { getSub, getSubSummary } from "@/lib/subs";
 import type { JobDot } from "@/lib/subs";
+import { getSubLogs, getSubInvoices } from "@/lib/sub-portal";
+
+const usd = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
+const SUB_INVOICE_CHIP = { submitted: "info", approved: "accent", paid: "money" } as const;
 
 const DOT: Record<JobDot, string> = {
   accent: "bg-accent",
@@ -23,6 +27,9 @@ export default async function SubDetailPage({
   const { slug } = await params;
   const sub = await getSub(slug);
   if (!sub) notFound();
+
+  // Real records the sub posted from their portal (logs + submitted invoices).
+  const [subLogs, subInvoices] = await Promise.all([getSubLogs(slug), getSubInvoices(slug)]);
 
   const overview = (
     <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[1fr_1fr_320px]">
@@ -108,31 +115,72 @@ export default async function SubDetailPage({
   );
 
   // ── Jobs panel — full recent-jobs history ──────────────────────────────────
-  const jobsPanel =
-    sub.recentJobs.length > 0 ? (
-      <Card className="max-w-[680px] overflow-hidden p-0">
-        <div className="border-b border-rule bg-paper-2 px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
-          {sub.jobsCount} jobs with SJ Carpentry
-        </div>
-        {sub.recentJobs.map((j, i) => (
-          <div
-            key={j.name}
-            className={`flex items-center gap-2.5 px-4 py-3 ${i ? "border-t border-rule-soft" : ""}`}
-          >
-            <span className={`size-2 flex-none rounded-full ${DOT[j.dot]}`} />
-            <div className="min-w-0 flex-1">
-              <div className="truncate font-serif text-[13.5px] font-semibold text-ink">{j.name}</div>
-              <div className="text-[11px] text-ink-3">{j.detail}</div>
-            </div>
+  const jobsPanel = (
+    <div className="flex max-w-[680px] flex-col gap-3.5">
+      {sub.recentJobs.length > 0 ? (
+        <Card className="overflow-hidden p-0">
+          <div className="border-b border-rule bg-paper-2 px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
+            {sub.jobsCount} jobs with SJ Carpentry
           </div>
-        ))}
-      </Card>
-    ) : (
-      <Card kind="dashed" className="p-8 text-center">
-        <div className="font-serif text-[16px] font-semibold text-ink-2">No jobs yet</div>
-        <div className="mt-1 text-[12px] text-ink-3">Assign this sub to a job to start their history.</div>
-      </Card>
-    );
+          {sub.recentJobs.map((j, i) => (
+            <div
+              key={j.name}
+              className={`flex items-center gap-2.5 px-4 py-3 ${i ? "border-t border-rule-soft" : ""}`}
+            >
+              <span className={`size-2 flex-none rounded-full ${DOT[j.dot]}`} />
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-serif text-[13.5px] font-semibold text-ink">{j.name}</div>
+                <div className="text-[11px] text-ink-3">{j.detail}</div>
+              </div>
+            </div>
+          ))}
+        </Card>
+      ) : (
+        <Card kind="dashed" className="p-8 text-center">
+          <div className="font-serif text-[16px] font-semibold text-ink-2">No jobs yet</div>
+          <div className="mt-1 text-[12px] text-ink-3">Assign this sub to a job to start their history.</div>
+        </Card>
+      )}
+
+      {subInvoices.length > 0 && (
+        <Card className="p-3.5">
+          <Eyebrow muted>Submitted invoices · from the portal</Eyebrow>
+          <div className="mt-2 flex flex-col gap-2">
+            {subInvoices.map((inv) => (
+              <div key={inv.id} className="flex items-center gap-2 border-t border-rule-soft pt-2 first:border-t-0 first:pt-0">
+                <span className="font-mono text-[13px] text-ink">{usd(inv.amount)}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[12.5px] text-ink-2">{inv.note || "Final invoice"}</div>
+                  <div className="font-mono text-[10px] text-ink-3">
+                    {inv.when}{inv.projectName ? ` · ${inv.projectName}` : ""}
+                  </div>
+                </div>
+                <Chip kind={SUB_INVOICE_CHIP[inv.status]} dot>
+                  {inv.status}
+                </Chip>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {subLogs.length > 0 && (
+        <Card className="p-3.5">
+          <Eyebrow muted>Daily logs · from the portal</Eyebrow>
+          <div className="mt-2 flex flex-col gap-2.5">
+            {subLogs.map((l) => (
+              <div key={l.id} className="border-l-2 border-rule pl-2.5">
+                <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">
+                  {l.when}{l.hasPhoto ? " · 📷" : ""}{l.projectName ? ` · ${l.projectName}` : ""}
+                </div>
+                {l.body && <p className="mt-0.5 text-[12.5px] leading-snug text-ink">{l.body}</p>}
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
 
   // ── Paperwork panel — compliance checklist ─────────────────────────────────
   const paperworkPanel = (

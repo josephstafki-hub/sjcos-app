@@ -14,7 +14,8 @@ TRUNCATE leads, projects, subs, threads, notifications, compliance_items,
          chat_members, project_punch, catalog_items,
          lead_activity, lead_intake, lead_estimates,
          invoices, retainers, project_selections, project_sections,
-         project_mood, project_floorplans, project_subs
+         project_mood, project_floorplans, project_subs,
+         sub_logs, sub_invoices
          RESTART IDENTITY CASCADE;
 
 -- ─── Leads ──────────────────────────────────────────────────────────────────
@@ -299,5 +300,15 @@ JOIN (VALUES
   ('olson',     'brad',  'Exterior paint')
 ) AS v(slug, sub_slug, role_label)
   ON v.slug = p.slug;
+
+-- ─── Sub-portal showcase: one logged day + one submitted invoice (marco) ─────
+INSERT INTO sub_logs (sub_slug, project_id, body)
+SELECT 'marco', p.id,
+       'Set Calacatta floor pattern across kitchen — 178 sq ft done. Pantry threshold solid, no self-leveler needed.'
+FROM projects p WHERE p.slug = 'henderson';
+
+INSERT INTO sub_invoices (sub_slug, project_id, amount, note, status)
+SELECT 'marco', p.id, 4200, 'Final 50% on tile install', 'submitted'
+FROM projects p WHERE p.slug = 'henderson';
 
 COMMIT;

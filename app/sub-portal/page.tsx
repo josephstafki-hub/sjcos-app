@@ -1,11 +1,16 @@
 import Link from "next/link";
-import { Flag, Check, ImagePlus, Mic, Plus, Phone, ArrowLeft } from "lucide-react";
+import { Flag, Check, Image as ImageIcon, Phone, ArrowLeft } from "lucide-react";
 import { AckButton, Avatar, Card, Chip, Eyebrow } from "@/components/ui";
-import { getSubPortalData } from "@/lib/sub-portal";
+import { getSubPortalData, getSubLogs, getSubInvoices } from "@/lib/sub-portal";
 import { requireRole } from "@/lib/dal";
 import { getSub } from "@/lib/subs";
 import { getPortalThread, portalChannel } from "@/lib/portal-messages";
 import { PortalMessenger } from "@/components/portal/PortalMessenger";
+import { SubLogComposer } from "@/components/sub-portal/SubLogComposer";
+import { SubInvoiceSubmit } from "@/components/sub-portal/SubInvoiceSubmit";
+
+const usd = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
+const SUB_INVOICE_CHIP = { submitted: "info", approved: "accent", paid: "money" } as const;
 
 export default async function SubPortalPage() {
   const user = await requireRole("owner", "sub");
@@ -26,6 +31,11 @@ export default async function SubPortalPage() {
   // Real "Talk to Joe" thread — persists to the sub's DM channel (Joe reads/
   // replies in /chat).
   const thread = slug ? await getPortalThread(portalChannel("sub", slug)) : [];
+
+  // Real, DB-backed sub records: their daily logs + submitted invoices.
+  const [logs, subInvoices] = slug
+    ? await Promise.all([getSubLogs(slug), getSubInvoices(slug)])
+    : [[], []];
 
   return (
     <div className="flex h-screen flex-col bg-paper">
@@ -104,15 +114,31 @@ export default async function SubPortalPage() {
 
             <Card className="p-3.5">
               <h2 className="mb-2 font-serif text-[15px] font-semibold text-ink">Log your day</h2>
-              <Card kind="soft" className="p-2.5">
-                <span className="text-[12px] text-ink-4">What did you get done? Anything to flag?</span>
-              </Card>
-              <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                <AckButton variant="outline" icon={<ImagePlus className="size-3" strokeWidth={1.75} />} label="Add photos" ackLabel="Photos added" />
-                <AckButton variant="outline" icon={<Mic className="size-3" strokeWidth={1.75} />} label="Record voice note" ackLabel="Recording…" />
-                <div className="flex-1" />
-                <Chip kind="ai">AI will draft daily log + push to Joe</Chip>
-              </div>
+              <SubLogComposer slug={slug ?? ""} />
+
+              {logs.length > 0 && (
+                <div className="mt-3 border-t border-rule pt-2.5">
+                  <Eyebrow muted>Recent logs</Eyebrow>
+                  <div className="mt-2 flex flex-col gap-2">
+                    {logs.map((l) => (
+                      <div key={l.id} className="border-l-2 border-rule pl-2.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">
+                            {l.when}
+                          </span>
+                          {l.hasPhoto && (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] text-ink-3">
+                              <ImageIcon className="size-2.5" strokeWidth={1.75} />
+                              photo
+                            </span>
+                          )}
+                        </div>
+                        {l.body && <p className="mt-0.5 text-[12.5px] leading-snug text-ink">{l.body}</p>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </Card>
           </div>
 
@@ -130,13 +156,26 @@ export default async function SubPortalPage() {
                   </div>
                 ))}
               </div>
-              <AckButton
-                variant="ink"
-                icon={<Plus className="size-3" strokeWidth={1.75} />}
-                label="Submit final invoice"
-                ackLabel="Invoice submitted"
-                className="mt-3 w-full justify-center"
-              />
+              {subInvoices.length > 0 && (
+                <div className="mt-3 border-t border-rule pt-2.5">
+                  <Eyebrow muted>Your invoices</Eyebrow>
+                  <div className="mt-2 flex flex-col gap-1.5">
+                    {subInvoices.map((inv) => (
+                      <div key={inv.id} className="flex items-center gap-2">
+                        <span className="font-mono text-[12px] text-ink-2">{usd(inv.amount)}</span>
+                        <span className="min-w-0 flex-1 truncate text-[11px] text-ink-3">
+                          {inv.note || inv.projectName || "Final invoice"}
+                        </span>
+                        <Chip kind={SUB_INVOICE_CHIP[inv.status]} dot>
+                          {inv.status}
+                        </Chip>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <SubInvoiceSubmit slug={slug ?? ""} />
             </Card>
 
             <Card className="p-3">

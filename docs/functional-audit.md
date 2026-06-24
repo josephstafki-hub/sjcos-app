@@ -97,9 +97,13 @@ explicitly deferred this round.
   (`WeeklyStatusSend`); header Log-update/Send-invoice route to their tabs.
 - ✅ **Client portal:** the fake "Decide" card is replaced by a real
   pending-selections summary (approve/decline below is real).
-- 🔶 **Sub portal** (Add photos · Submit final invoice · Photo-from-Joe ·
-  voice note): left for a focused sub-portal pass — needs sub→project upload +
-  a sub-invoice submission model (voice note defers regardless).
+- ✅ **Sub portal** (logging + invoice): **Log your day** is a real composer
+  (note + optional photo → `sub_logs`, notifies Joe) with a recent-logs history;
+  **Submit final invoice** is real (amount + note → `sub_invoices`, notifies
+  Joe) with a submitted-invoices list. Both scope to the sub's current project
+  (`project_subs`). Joe reviews them on the sub-detail **Jobs** tab + in
+  Notifications. Photo-from-Joe stays an honest AckButton; voice note dropped
+  (defers regardless).
 - ⏸️ **Kept honest (deferred subsystems):** Schedule "Auto-log from photos" +
   Compliance "Auto-collect docs" (Qwen is text-only, no vision; Drive auto-
   collect deferred), Files "Share" (Drive), `/ai` action chips, Subs-detail
@@ -144,7 +148,10 @@ Money + messaging (S6), Today (real metrics + reprioritize).
    (`WeeklyStatusSend` → Gmail), client-portal "Decide" fake replaced;
    remaining AckButtons triaged (kept honest for deferred subsystems; sub-portal
    logging/invoice left for a focused pass).
-6. **Placeholder screens** (D) — only if pulled into scope (needs Joe's call).
-   Possible follow-up: sub-portal logging + invoice submission. **NEXT — needs
-   Joe's scope call.**
+6. ✅ **Sub-portal logging + invoice submission** — real `sub_logs` /
+   `sub_invoices` (composer + submit + Joe notification + owner review on
+   sub-detail Jobs tab).
+7. **Placeholder screens** (D) — `/site`, `/newsletter`, `/books`, full
+   floor-planner CAD. Still deferred by default. **NEXT — needs Joe's scope
+   call** before Phase 8 deploy.
 </content>

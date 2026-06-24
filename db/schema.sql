@@ -487,6 +487,33 @@ CREATE TABLE IF NOT EXISTS project_subs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_project_subs_project ON project_subs(project_id);
+
+-- ─── Sub portal: daily logs + submitted invoices (Functional-audit item 6) ──
+-- A subcontractor logs their day (text + optional photo) and submits a final
+-- invoice from the sub portal; both notify Joe and scope to the sub's current
+-- project when one is assigned.
+CREATE TABLE IF NOT EXISTS sub_logs (
+  id            bigserial PRIMARY KEY,
+  sub_slug      text NOT NULL REFERENCES subs(slug) ON DELETE CASCADE,
+  project_id    uuid REFERENCES projects(id) ON DELETE SET NULL,
+  body          text NOT NULL DEFAULT '',
+  photo_file_id text,                              -- optional uploaded photo
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_sub_logs_sub ON sub_logs(sub_slug, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS sub_invoices (
+  id          bigserial PRIMARY KEY,
+  sub_slug    text NOT NULL REFERENCES subs(slug) ON DELETE CASCADE,
+  project_id  uuid REFERENCES projects(id) ON DELETE SET NULL,
+  amount      integer NOT NULL DEFAULT 0,          -- dollars
+  note        text NOT NULL DEFAULT '',
+  status      text NOT NULL DEFAULT 'submitted'
+                CHECK (status IN ('submitted','approved','paid')),
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_sub_invoices_sub ON sub_invoices(sub_slug, created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_invoices_project     ON invoices(project_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_selections_project   ON project_selections(project_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_mood_project         ON project_mood(project_id, room, sort_order);

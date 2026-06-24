@@ -46,15 +46,15 @@ Daily log · Comms · Punch. The project opens on its lifecycle stage's tool tab
    `uploadProjectFile` (reuses `storeUpload`); upload + per-row download via
    `/api/files/[id]`. Curated names kept muted as a Drive-mirror-pending index.
 
-8. **Money / Invoices** 🟡 — `MoneyPanel` is actually interactive (New invoice →
-   Qwen drafts line items, Send → Gmail, Mark paid, retainer collect/apply). But:
-   - Only **henderson** is seeded, so every other project's Money tab looks empty
-     ("not interactive").
-   - Line items can't be **edited** after Qwen drafts them.
-   - No **client-facing** invoice view / "mark received" in the portal.
-   - Qwen drafting is **slow** (CPU, 10–20s) and can fall back to mock.
-   - **Done =** editable line items; client sees invoices on their dashboard;
-     drafting streams; empty projects have a sensible first-invoice flow.
+8. **Money / Invoices** ✅ real (audit A8) — `MoneyPanel`: New invoice (Qwen
+   draft **or** "Start blank" — no slow inference needed for any project), **edit
+   draft line items** (add/remove/edit rows + live total via `updateInvoice`),
+   delete draft (`deleteInvoice`), Send → Gmail, Mark paid, retainer collect/
+   apply. Every invoice shows its line breakdown. The **client portal** now lists
+   their sent + paid invoices (number, milestone, amount, line items, due/paid
+   status) — drafts stay internal. (Streaming the Qwen draft + client "mark
+   received" deferred — the blank path covers the slowness; payment confirmation
+   stays owner-driven.)
 
 9. **Daily log** ✅ real — `daily_logs.project_id` (global /schedule log stays
    `project_id IS NULL` via partial unique indexes); `getProjectDailyLogs` +
@@ -132,8 +132,9 @@ Money + messaging (S6), Today (real metrics + reprioritize).
 3. ✅ **Selections rooms/sections + budgets** (A4) — `project_sections` table +
    `section_id`/`price`; grouped budgeted board, per-section + grand roll-up,
    edit selection, client sees running total/remaining.
-4. **Money polish** (A8) — editable line items + client invoice view. NEXT.
+4. ✅ **Money polish** (A8) — editable draft line items + delete + blank-create
+   path; client portal lists their sent/paid invoices with line breakdown.
 5. **Overview wiring + AckButton cleanup** (A1, C) — Overview cards click to
-   tabs, weekly-status email real, AckButton triage app-wide.
+   tabs, weekly-status email real, AckButton triage app-wide. NEXT.
 6. **Placeholder screens** (D) — only if pulled into scope (needs Joe's call).
 </content>

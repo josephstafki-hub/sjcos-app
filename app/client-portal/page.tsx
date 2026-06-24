@@ -50,6 +50,9 @@ export default async function ClientPortalPage() {
         ]
       : data.money;
 
+  // Invoices the client should see — sent + paid only, never internal drafts.
+  const clientInvoices = (money?.invoices ?? []).filter((i) => i.status !== "draft");
+
   // Real "needs a decision" count = selections awaiting this client's approval.
   const pendingCount = selections.groups
     .flatMap((g) => g.selections)
@@ -148,6 +151,35 @@ export default async function ClientPortalPage() {
               </div>
             ))}
           </div>
+
+          {clientInvoices.length > 0 && (
+            <div className="mt-3 flex flex-col gap-1.5">
+              <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-ink-3">Invoices</span>
+              {clientInvoices.map((inv) => (
+                <Card key={inv.id} className="p-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[10px] text-ink-3">{inv.number}</span>
+                    <span className="min-w-0 flex-1 truncate text-[12px] text-ink">{inv.milestone}</span>
+                    <span className="font-mono text-[12px] font-semibold text-ink-2">{usd(inv.amount)}</span>
+                    <Chip kind={inv.status === "paid" ? "money" : "accent"} dot>
+                      {inv.status === "paid" ? "paid" : "due"}
+                    </Chip>
+                  </div>
+                  {inv.lines.length > 0 && (
+                    <div className="mt-1.5 flex flex-col gap-0.5 border-t border-rule-soft pt-1.5">
+                      {inv.lines.map((l, k) => (
+                        <div key={k} className="flex items-center gap-2 text-[11px]">
+                          <span className="min-w-0 flex-1 truncate text-ink-3">{l.label}</span>
+                          <span className="font-mono text-ink-3">{usd(l.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="mt-1 font-mono text-[10px] text-ink-3">{inv.statusLabel}</div>
+                </Card>
+              ))}
+            </div>
+          )}
 
           <div className="my-4 border-t border-rule" />
           <Eyebrow muted>Message Joe</Eyebrow>

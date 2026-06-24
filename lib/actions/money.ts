@@ -29,11 +29,23 @@ async function projectBySlug(slug: string) {
   );
 }
 
-/** Draft a new invoice for a project milestone. Qwen drafts the line items
- *  (firm amounts); saved as status='draft'. Owner-gated. */
+/** Clean a list of line items: trim labels, floor amounts to whole non-negative
+ *  dollars, drop fully-blank rows. */
+function sanitizeLines(raw: { label: string; amount: number | string }[]): InvoiceLine[] {
+  return raw
+    .map((l) => ({
+      label: String(l.label ?? "").trim(),
+      amount: Math.max(0, Math.floor(Number(String(l.amount).replace(/[$,\s]/g, "")) || 0)),
+    }))
+    .filter((l) => l.label !== "" || l.amount > 0);
+}
+
+/** Draft a new invoice for a project milestone. With mode "ai" (default) Qwen
+ *  drafts the line items; with "blank" the invoice starts with a single empty
+ *  line for the owner to fill in (no slow inference). Saved as status='draft'. */
 export async function createInvoice(
   slug: string,
-  input: { milestone: string; notes?: string },
+  input: { milestone: string; notes?: string; mode?: "ai" | "blank" },
 ): Promise<Result> {
   await requireRole("owner");
   const project = await projectBySlug(slug);
@@ -41,18 +53,22 @@ export async function createInvoice(
   const milestone = input.milestone.trim() || "Progress draw";
 
   let lines: InvoiceLine[] = [];
-  try {
-    const est = await ai.estimate({
-      name: project.name,
-      scope: `Construction invoice — "${milestone}" for ${project.name}`,
-      intake: [],
-      notes:
-        `${input.notes ?? ""}. Produce 2–5 invoice line items for this draw with ` +
-        `FIRM single dollar amounts (not ranges).`.trim(),
-    });
-    lines = est.lines.map((l) => ({ label: l.label, amount: parseAmount(l.value) }));
-  } catch {
+  if (input.mode === "blank") {
     lines = [{ label: milestone, amount: 0 }];
+  } else {
+    try {
+      const est = await ai.estimate({
+        name: project.name,
+        scope: `Construction invoice — "${milestone}" for ${project.name}`,
+        intake: [],
+        notes:
+          `${input.notes ?? ""}. Produce 2–5 invoice line items for this draw with ` +
+          `FIRM single dollar amounts (not ranges).`.trim(),
+      });
+      lines = est.lines.map((l) => ({ label: l.label, amount: parseAmount(l.value) }));
+    } catch {
+      lines = [{ label: milestone, amount: 0 }];
+    }
   }
   if (lines.length === 0) lines = [{ label: milestone, amount: 0 }];
   const amount = lines.reduce((s, l) => s + l.amount, 0);
@@ -69,6 +85,45 @@ export async function createInvoice(
     [project.id, number, milestone, amount, JSON.stringify(lines)],
   );
   revalidatePath(`/projects/${slug}`);
+  return { ok: true };
+}
+
+/** Edit a draft invoice's milestone + line items (owner only). Sent/paid
+ *  invoices are locked. Recomputes the total from the edited lines. */
+export async function updateInvoice(
+  id: number,
+  input: { milestone: string; lines: { label: string; amount: number | string }[] },
+): Promise<Result> {
+  await requireRole("owner");
+  const inv = await invoiceById(id);
+  if (!inv) return { ok: false, error: "Invoice not found." };
+  if (inv.status !== "draft") {
+    return { ok: false, error: "Only draft invoices can be edited." };
+  }
+
+  const milestone = input.milestone.trim() || inv.milestone || "Progress draw";
+  const lines = sanitizeLines(input.lines);
+  if (lines.length === 0) return { ok: false, error: "Add at least one line item." };
+  const amount = lines.reduce((s, l) => s + l.amount, 0);
+
+  await query(
+    `UPDATE invoices SET milestone = $2, line_items = $3::jsonb, amount = $4 WHERE id = $1`,
+    [id, milestone, JSON.stringify(lines), amount],
+  );
+  revalidatePath(`/projects/${inv.slug}`);
+  return { ok: true };
+}
+
+/** Delete a draft invoice (owner only). Sent/paid invoices are locked. */
+export async function deleteInvoice(id: number): Promise<Result> {
+  await requireRole("owner");
+  const inv = await invoiceById(id);
+  if (!inv) return { ok: false, error: "Invoice not found." };
+  if (inv.status !== "draft") {
+    return { ok: false, error: "Only draft invoices can be deleted." };
+  }
+  await query(`DELETE FROM invoices WHERE id = $1`, [id]);
+  revalidatePath(`/projects/${inv.slug}`);
   return { ok: true };
 }
 

@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { Tabs, Card } from "@/components/ui";
+import { TabNavContext } from "./TabNav";
 
 const TAB_LABELS = [
   "Overview",
@@ -26,17 +27,27 @@ const TAB_LABELS = [
 export function ProjectTabs({
   panels,
   stageTab,
+  header,
 }: {
   panels: Record<string, ReactNode>;
   stageTab?: string;
+  /** Server-rendered header band, rendered inside the tab-nav provider so its
+   *  controls (Log update / Send invoice) can jump to a tab. */
+  header?: ReactNode;
 }) {
   const initial = stageTab ? Math.max(0, TAB_LABELS.indexOf(stageTab)) : 0;
   const [active, setActive] = useState(initial);
   const label = TAB_LABELS[active];
   const content = panels[label];
 
+  function goToTab(target: string) {
+    const i = TAB_LABELS.indexOf(target);
+    if (i >= 0) setActive(i);
+  }
+
   return (
-    <>
+    <TabNavContext.Provider value={goToTab}>
+      {header}
       <div className="border-b border-rule bg-paper-2 px-7">
         <Tabs tabs={TAB_LABELS} active={active} onSelect={setActive} />
       </div>
@@ -48,6 +59,6 @@ export function ProjectTabs({
           </Card>
         )}
       </div>
-    </>
+    </TabNavContext.Provider>
   );
 }

@@ -14,12 +14,14 @@ Legend: ✅ real · 🟡 partial · ❌ demo/read-only.
 Tabs: Overview · Floor · Mood · Selections · Schedule · Subs · Files · Money ·
 Daily log · Comms · Punch. The project opens on its lifecycle stage's tool tab.
 
-1. **Overview** ❌ read-only dashboard.
-   - Milestones / This-week / Latest-log / Money / Subs / Files cards don't link
-     to their tabs — nothing on the page is clickable in a useful way.
-   - "Review" on the drafted weekly-status email is a fake `AckButton`.
-   - **Done =** cards click through to their tab; the weekly-status email is a
-     real action (send via Gmail or open the composer); pulse/status stay AI text.
+1. **Overview** ✅ real (audit A1) — cards now click through to their tab via a
+   `TabNavContext` that `ProjectTabs` provides (header band is passed into
+   ProjectTabs so it sits inside the provider): Milestones / This-week → Schedule,
+   Latest-log → Daily log, Money/Subs/Files → their tabs (a "View →" affordance);
+   header "Log update" → Daily log, "Send invoice" → Money. The weekly-status
+   email "Review" fake is now **`WeeklyStatusSend`** — emails the AI draft to the
+   client via Gmail (`sendWeeklyStatusEmail`, owner-gated, MONEY/Update notif).
+   Pulse/status stay AI text. (The "…" overflow stays an honest `AckButton`.)
 
 2. **Floor** ✅ real (S5E: image/PDF upload, versioning, notes). Full CAD editor
    is the deferred floor-planner epic — confirm it stays deferred for v1.
@@ -87,20 +89,23 @@ Daily log · Comms · Punch. The project opens on its lifecycle stage's tool tab
 
 ## C. App-wide showcase controls (`AckButton` = looks clickable, does nothing)
 
-These each capture intent then revert — no backend. Decide per item: implement,
-or remove for v1.
+These each capture intent then revert — no backend. Triaged (audit item 5):
+**wired** the ones with infra, **kept honest** the ones that map to a subsystem
+explicitly deferred this round.
 
-- **Sub portal:** Add photos · Record voice note · Photo-from-Joe · Submit final
-  invoice. (Logging + invoice submit should be real; voice note can defer.)
-- **Project Overview:** Review weekly-status email (+ the email itself).
-- **`/ai`:** 2 action chips.
-- **Schedule:** "Auto-log from photos".
-- **Compliance:** "Auto-collect docs".
-- **Warranty:** AI claim action.
-- **Subs detail / Leads detail:** 1 each.
-- **Client portal:** "Decide" on the decision card (selections approve/decline
-  IS real — this top card is a separate fake).
-- **Files:** "Share" (global upload itself IS real).
+- ✅ **Project Overview:** weekly-status email is now a real Gmail send
+  (`WeeklyStatusSend`); header Log-update/Send-invoice route to their tabs.
+- ✅ **Client portal:** the fake "Decide" card is replaced by a real
+  pending-selections summary (approve/decline below is real).
+- 🔶 **Sub portal** (Add photos · Submit final invoice · Photo-from-Joe ·
+  voice note): left for a focused sub-portal pass — needs sub→project upload +
+  a sub-invoice submission model (voice note defers regardless).
+- ⏸️ **Kept honest (deferred subsystems):** Schedule "Auto-log from photos" +
+  Compliance "Auto-collect docs" (Qwen is text-only, no vision; Drive auto-
+  collect deferred), Files "Share" (Drive), `/ai` action chips, Subs-detail
+  "Assign to job" (needs a project picker), Leads-detail "Run triage again"
+  (triage already auto-streams), Warranty AI claim action. `AckButton` is the
+  honest representation for these until their subsystem lands.
 
 ---
 
@@ -134,7 +139,12 @@ Money + messaging (S6), Today (real metrics + reprioritize).
    edit selection, client sees running total/remaining.
 4. ✅ **Money polish** (A8) — editable draft line items + delete + blank-create
    path; client portal lists their sent/paid invoices with line breakdown.
-5. **Overview wiring + AckButton cleanup** (A1, C) — Overview cards click to
-   tabs, weekly-status email real, AckButton triage app-wide. NEXT.
+5. ✅ **Overview wiring + AckButton cleanup** (A1, C) — Overview cards/header
+   click through to tabs (`TabNavContext`), weekly-status email real
+   (`WeeklyStatusSend` → Gmail), client-portal "Decide" fake replaced;
+   remaining AckButtons triaged (kept honest for deferred subsystems; sub-portal
+   logging/invoice left for a focused pass).
 6. **Placeholder screens** (D) — only if pulled into scope (needs Joe's call).
+   Possible follow-up: sub-portal logging + invoice submission. **NEXT — needs
+   Joe's scope call.**
 </content>

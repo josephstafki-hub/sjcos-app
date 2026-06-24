@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Bell, FileText, ArrowLeft } from "lucide-react";
-import { AckButton, Avatar, Card, Chip, Eyebrow } from "@/components/ui";
+import { Avatar, Card, Chip, Eyebrow } from "@/components/ui";
 import { getClientPortalData } from "@/lib/client-portal";
 import { requireRole } from "@/lib/dal";
 import { getProject } from "@/lib/projects";
@@ -129,11 +129,20 @@ export default async function ClientPortalPage() {
         {/* sidebar */}
         <aside className="overflow-y-auto border-l border-rule bg-paper-2 p-6">
           <Eyebrow muted>What I need from you</Eyebrow>
-          <Card kind="accent" className="mt-2 p-2.5">
-            <div className="font-serif text-[13px] font-semibold text-ink">{data.decision.title}</div>
-            <div className="mt-1 text-[11px] text-ink-2">{data.decision.detail}</div>
-            <AckButton variant="ink" label="Decide" ackLabel="Response sent" className="mt-2" />
-          </Card>
+          {pendingCount > 0 ? (
+            <Card kind="accent" className="mt-2 p-2.5">
+              <div className="font-serif text-[13px] font-semibold text-ink">
+                {pendingCount} selection{pendingCount > 1 ? "s" : ""} need your approval
+              </div>
+              <div className="mt-1 text-[11px] text-ink-2">
+                Review them below and approve or decline — your running budget updates as you go.
+              </div>
+            </Card>
+          ) : (
+            <div className="mt-2 text-[12px] text-ink-3">
+              You&apos;re all caught up — nothing needs a decision right now.
+            </div>
+          )}
 
           <div className="my-4 border-t border-rule" />
           <Eyebrow muted>Selections to review</Eyebrow>

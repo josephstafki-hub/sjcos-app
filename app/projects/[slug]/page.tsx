@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Check, DollarSign, Sparkles, MoreHorizontal, Mail, FileText } from "lucide-react";
+import { Check, DollarSign, Sparkles, MoreHorizontal, Mail, FileText, ChevronRight } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
 import { AiBubble, AckButton, AiStream, Card, Chip, Avatar, Eyebrow } from "@/components/ui";
 import { ProjectTabs } from "@/components/projects/ProjectTabs";
+import { TabLink } from "@/components/projects/TabNav";
+import { WeeklyStatusSend } from "@/components/projects/WeeklyStatusSend";
 import { PunchList } from "@/components/projects/PunchList";
 import { StageSuggest } from "@/components/projects/StageSuggest";
 import { MoneyPanel } from "@/components/projects/MoneyPanel";
@@ -32,6 +34,16 @@ const DOT: Record<string, string> = {
   ai: "bg-ai",
   ghost: "bg-ink-4",
 };
+
+/** Small "View →" affordance that jumps an Overview card to its full tab. */
+function ViewTab({ tab }: { tab: string }) {
+  return (
+    <TabLink tab={tab} title={`Open the ${tab} tab`}>
+      View
+      <ChevronRight className="size-2.5" strokeWidth={2} />
+    </TabLink>
+  );
+}
 
 export default async function ProjectDetailPage({
   params,
@@ -83,7 +95,10 @@ export default async function ProjectDetailPage({
 
         {project.milestones.length > 0 && (
           <Card className="p-3.5">
-            <h3 className="mb-2 font-serif text-[16px] font-semibold text-ink">Milestones</h3>
+            <div className="mb-2 flex items-center">
+              <h3 className="flex-1 font-serif text-[16px] font-semibold text-ink">Milestones</h3>
+              <ViewTab tab="Schedule" />
+            </div>
             <div className="flex flex-col">
               {project.milestones.map((ms, i) => (
                 <div
@@ -129,7 +144,10 @@ export default async function ProjectDetailPage({
       <div className="flex flex-col gap-3">
         {project.thisWeek.length > 0 && (
           <Card className="p-3.5">
-            <h3 className="mb-2 font-serif text-[16px] font-semibold text-ink">This week · on site</h3>
+            <div className="mb-2 flex items-center">
+              <h3 className="flex-1 font-serif text-[16px] font-semibold text-ink">This week · on site</h3>
+              <ViewTab tab="Schedule" />
+            </div>
             <div className="flex flex-col gap-1.5">
               {project.thisWeek.map((w, i) => (
                 <div key={i} className="flex items-center gap-2 py-0.5">
@@ -150,6 +168,7 @@ export default async function ProjectDetailPage({
                 Latest daily log
               </h3>
               <span className="font-mono text-[11px] text-ink-3">{project.latestLog.date}</span>
+              <ViewTab tab="Daily log" />
             </div>
             <p className="mt-2 text-[13px] text-ink-2">{project.latestLog.body}</p>
             <div className="mt-2.5 flex items-center gap-1">
@@ -179,7 +198,7 @@ export default async function ProjectDetailPage({
                   )}
                 </div>
               </div>
-              <AckButton label="Review" ackLabel="Marked reviewed" />
+              <WeeklyStatusSend slug={slug} />
             </div>
           </Card>
         )}
@@ -188,7 +207,12 @@ export default async function ProjectDetailPage({
       {/* Column 3 — right rail */}
       <div className="flex flex-col gap-3">
         <Card className="p-3">
-          <Eyebrow muted>Money</Eyebrow>
+          <div className="flex items-center">
+            <Eyebrow muted>Money</Eyebrow>
+            <span className="ml-auto">
+              <ViewTab tab="Money" />
+            </span>
+          </div>
           <div className="mt-2 flex flex-col gap-1.5">
             <Row label="Contract" value={m.contract} />
             <Row label="Paid" value={realMoney ? usd(money.paidTotal) : m.paid} valueClass="text-money" />
@@ -211,7 +235,12 @@ export default async function ProjectDetailPage({
 
         {project.subs.length > 0 && (
           <Card className="p-3">
-            <Eyebrow muted>Subs</Eyebrow>
+            <div className="flex items-center">
+              <Eyebrow muted>Subs</Eyebrow>
+              <span className="ml-auto">
+                <ViewTab tab="Subs" />
+              </span>
+            </div>
             <div className="mt-2 flex flex-col gap-2">
               {project.subs.map((s) => (
                 <div key={s.name} className="flex items-center gap-2">
@@ -231,7 +260,12 @@ export default async function ProjectDetailPage({
 
         {project.files.length > 0 && (
           <Card className="p-3">
-            <Eyebrow muted>Files · {project.filesCount}</Eyebrow>
+            <div className="flex items-center">
+              <Eyebrow muted>Files · {project.filesCount}</Eyebrow>
+              <span className="ml-auto">
+                <ViewTab tab="Files" />
+              </span>
+            </div>
             <div className="mt-2 flex flex-col gap-1.5">
               {project.files.map((f) => (
                 <div key={f} className="flex items-center gap-1.5">
@@ -338,71 +372,76 @@ export default async function ProjectDetailPage({
     Punch: punchPanel,
   };
 
-  return (
-    <Shell breadcrumb={`PROJECTS › ${project.name.toUpperCase()}`} aiContext={projectContext(project)}>
-      {/* Header band */}
-      <div className="border-b border-rule bg-paper-2 px-7 py-4">
-        <Link href="/projects" className="text-[11px] text-ink-3 hover:text-ink-2">
-          ← All projects
-        </Link>
-        <div className="mt-2 flex flex-wrap items-start gap-3.5">
-          <div className="size-12 flex-none rounded border-[1.5px] border-accent bg-accent-soft" />
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-1.5">
-              {project.statusChips.map((c) => (
-                <Chip key={c.label} kind={c.kind} dot={c.dot}>
-                  {c.label}
-                </Chip>
-              ))}
-            </div>
-            <h1 className="mt-1.5 font-serif text-[30px] font-medium leading-none tracking-tight text-accent-2">
-              {project.name}{" "}
-              <span className="font-serif text-[18px] italic text-accent">
-                · {project.contractValue}
-              </span>
-            </h1>
-            <div className="mt-1.5 text-[11px] text-ink-3">{project.subtitle}</div>
+  const outlineBtn =
+    "inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-paper-2";
+
+  const headerBand = (
+    <div className="border-b border-rule bg-paper-2 px-7 py-4">
+      <Link href="/projects" className="text-[11px] text-ink-3 hover:text-ink-2">
+        ← All projects
+      </Link>
+      <div className="mt-2 flex flex-wrap items-start gap-3.5">
+        <div className="size-12 flex-none rounded border-[1.5px] border-accent bg-accent-soft" />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {project.statusChips.map((c) => (
+              <Chip key={c.label} kind={c.kind} dot={c.dot}>
+                {c.label}
+              </Chip>
+            ))}
           </div>
-          <div className="flex items-center gap-1.5">
-            <AckButton variant="outline" icon={<Check className="size-3" strokeWidth={1.75} />} label="Log update" ackLabel="Update logged" />
-            <AckButton
-              variant="outline"
-              icon={<DollarSign className="size-3" strokeWidth={1.75} />}
-              label="Send invoice"
-              ackLabel="Invoice queued"
-            />
-            <Link
-              href="/ai"
-              className="inline-flex items-center gap-1 rounded-md border border-ai bg-ai px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-ai-2"
-            >
-              <Sparkles className="size-3" strokeWidth={1.5} />
-              Ask
-            </Link>
-            {nextStatus && (
-              <>
-                <StageSuggest slug={slug} />
-                <form action={moveToNextStatus}>
-                  <button
-                    type="submit"
-                    className="rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
-                  >
-                    Move to {nextStatus.label}
-                  </button>
-                </form>
-              </>
-            )}
-            <AckButton
-              variant="outline"
-              className="px-1.5 text-ink-3"
-              icon={<MoreHorizontal className="size-3.5" strokeWidth={1.5} />}
-              label=""
-              ackLabel="Noted"
-            />
-          </div>
+          <h1 className="mt-1.5 font-serif text-[30px] font-medium leading-none tracking-tight text-accent-2">
+            {project.name}{" "}
+            <span className="font-serif text-[18px] italic text-accent">
+              · {project.contractValue}
+            </span>
+          </h1>
+          <div className="mt-1.5 text-[11px] text-ink-3">{project.subtitle}</div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <TabLink tab="Daily log" className={outlineBtn}>
+            <Check className="size-3" strokeWidth={1.75} />
+            Log update
+          </TabLink>
+          <TabLink tab="Money" className={outlineBtn}>
+            <DollarSign className="size-3" strokeWidth={1.75} />
+            Send invoice
+          </TabLink>
+          <Link
+            href="/ai"
+            className="inline-flex items-center gap-1 rounded-md border border-ai bg-ai px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-ai-2"
+          >
+            <Sparkles className="size-3" strokeWidth={1.5} />
+            Ask
+          </Link>
+          {nextStatus && (
+            <>
+              <StageSuggest slug={slug} />
+              <form action={moveToNextStatus}>
+                <button
+                  type="submit"
+                  className="rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
+                >
+                  Move to {nextStatus.label}
+                </button>
+              </form>
+            </>
+          )}
+          <AckButton
+            variant="outline"
+            className="px-1.5 text-ink-3"
+            icon={<MoreHorizontal className="size-3.5" strokeWidth={1.5} />}
+            label=""
+            ackLabel="Noted"
+          />
         </div>
       </div>
+    </div>
+  );
 
-      <ProjectTabs panels={panels} stageTab={stageToolTab(project.status)} />
+  return (
+    <Shell breadcrumb={`PROJECTS › ${project.name.toUpperCase()}`} aiContext={projectContext(project)}>
+      <ProjectTabs panels={panels} stageTab={stageToolTab(project.status)} header={headerBand} />
     </Shell>
   );
 }

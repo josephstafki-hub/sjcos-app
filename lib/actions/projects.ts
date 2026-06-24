@@ -6,9 +6,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
-import { PROJECT_STATUSES, projectStageLabel } from "@/lib/projects";
+import { PROJECT_STATUSES, projectStageLabel, getProjectWeeklyStatus } from "@/lib/projects";
 import { ai } from "@/lib/ai";
 import { emit } from "@/lib/notify";
+import { sendNewEmailAction } from "@/lib/actions/inbox";
 import type { ProjectStatus } from "@/lib/types";
 
 /** Kebab-case a display name into a URL slug. */
@@ -203,6 +204,54 @@ export async function addProjectDailyLog(slug: string, formData: FormData) {
     [proj.id, date, body],
   );
   revalidatePath(`/projects/${slug}`);
+}
+
+/** Email this week's AI-drafted status to the project's client via Gmail, then
+ *  emit a notification. Owner-gated. Replaces the old fake "Review" button. */
+export async function sendWeeklyStatusEmail(
+  slug: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireRole("owner");
+  const project = await queryOne<{ name: string }>(
+    `SELECT name FROM projects WHERE slug = $1`,
+    [slug],
+  );
+  if (!project) return { ok: false, error: "Project not found." };
+
+  const client = await queryOne<{ email: string; name: string }>(
+    `SELECT email, name FROM users WHERE link_slug = $1 AND role = 'client' AND active = true LIMIT 1`,
+    [slug],
+  );
+  if (!client?.email) {
+    return { ok: false, error: "No client email on file for this project." };
+  }
+
+  const status = await getProjectWeeklyStatus(project.name);
+  const first = client.name.split(/\s+/)[0] || "there";
+  const body =
+    `Hi ${first},\n\nHere's this week's update on the ${project.name} project:\n\n` +
+    `${status}\n\nReply here with any questions — happy to walk through anything.\n\n` +
+    `Best,\nJoe\nSJ Carpentry`;
+
+  const res = await sendNewEmailAction({
+    to: client.email,
+    subject: `Weekly update — ${project.name}`,
+    body,
+  });
+  if (!res.ok) return { ok: false, error: res.error ?? "Could not send the update." };
+
+  await emit({
+    kind: "job",
+    tag: "Update",
+    accent: "ai",
+    icon: "project",
+    title: `Weekly update sent · ${project.name}`,
+    subline: `Emailed to ${client.name}`,
+    href: `/projects/${slug}`,
+  });
+  revalidatePath(`/projects/${slug}`);
+  revalidatePath("/notifications");
+  return { ok: true };
 }
 
 /** Set a project's billed/progress percent (0–100). */

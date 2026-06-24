@@ -21,7 +21,9 @@ export default async function ClientPortalPage() {
     getClientPortalData(),
     slug ? getProject(slug) : Promise.resolve(null),
     slug ? getProjectMoney(slug) : Promise.resolve(null),
-    slug ? getClientSelections(slug) : Promise.resolve([]),
+    slug
+      ? getClientSelections(slug)
+      : Promise.resolve({ groups: [], totalBudget: 0, totalSpent: 0, totalProposed: 0 }),
     slug
       ? getPortalThread(portalChannel("client", slug))
       : Promise.resolve([]),
@@ -49,7 +51,9 @@ export default async function ClientPortalPage() {
       : data.money;
 
   // Real "needs a decision" count = selections awaiting this client's approval.
-  const pendingCount = selections.filter((s) => s.status === "pending").length;
+  const pendingCount = selections.groups
+    .flatMap((g) => g.selections)
+    .filter((s) => s.status === "pending").length;
 
   return (
     <div className="flex h-screen flex-col bg-paper">
@@ -130,7 +134,7 @@ export default async function ClientPortalPage() {
 
           <div className="my-4 border-t border-rule" />
           <Eyebrow muted>Selections to review</Eyebrow>
-          <ClientSelections selections={selections} />
+          <ClientSelections view={selections} />
 
           <div className="my-4 border-t border-rule" />
           <Eyebrow muted>Money</Eyebrow>

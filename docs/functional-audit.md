@@ -26,16 +26,14 @@ Daily log · Comms · Punch. The project opens on its lifecycle stage's tool tab
 
 3. **Mood** ✅ real (S5D: per-room image boards).
 
-4. **Selections** 🟡 — owner can add / push-to-client / remove, client can
-   approve/decline (in the client portal). **Missing (Joe's asks):**
-   - **Edit** an existing selection (currently only add/remove).
-   - **Group into rooms / sections.**
-   - **Per-room/section budgets.**
-   - **Running total + remaining-budget** shown to the client as they choose
-     ("how much budget is left" / "how things add up").
-   - **Done =** selections grouped by room/section, each with a budget; choosing
-     options rolls up a live total + remaining; client sees it on their dashboard
-     and approves/declines per item.
+4. **Selections** ✅ real (audit A4) — selections grouped into **budgeted
+   sections (rooms)**: `project_sections` table (name + budget) + `section_id` /
+   `price` on `project_selections`. Owner manages sections (add/edit/remove, FK
+   `ON DELETE SET NULL` so picks survive into an "Ungrouped" bucket), adds/edits
+   selections with a price, pushes drafts. Approved picks roll up **spent /
+   remaining** per section + a grand total; the client portal shows the running
+   budget ("Budget so far · $X of $Y · $Z remaining") and approves/declines per
+   item. (Qwen-suggested options/auto-pricing is a later enhancement.)
 
 5. **Schedule** ✅ real (project-scoped `schedule_blocks` via `project_id`;
    add/remove blocks; they surface on the cross-project /schedule overview too).
@@ -131,8 +129,10 @@ Money + messaging (S6), Today (real metrics + reprioritize).
    (e540e92), Comms composer (221e0aa), Schedule project-scoped (44d8b34), Subs
    management (6e7e056), Daily-log add+history (d9350a9). Remaining tab polish:
    punch edit-in-place, daily-log photo attachments (low priority).
-3. **Selections rooms/sections + budgets** (A4) — the largest single feature. NEXT.
-4. **Money polish** (A8) — editable line items + client invoice view.
+3. ✅ **Selections rooms/sections + budgets** (A4) — `project_sections` table +
+   `section_id`/`price`; grouped budgeted board, per-section + grand roll-up,
+   edit selection, client sees running total/remaining.
+4. **Money polish** (A8) — editable line items + client invoice view. NEXT.
 5. **Overview wiring + AckButton cleanup** (A1, C) — Overview cards click to
    tabs, weekly-status email real, AckButton triage app-wide.
 6. **Placeholder screens** (D) — only if pulled into scope (needs Joe's call).

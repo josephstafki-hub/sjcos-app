@@ -411,11 +411,26 @@ CREATE TABLE IF NOT EXISTS retainers (
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- ─── Design tools: selection sections (Functional-audit A4) ─────────────────
+-- Rooms / sections that group a project's selections and carry a budget. The
+-- client sees per-section budgets roll up a running total + remaining as picks
+-- are approved.
+CREATE TABLE IF NOT EXISTS project_sections (
+  id            bigserial PRIMARY KEY,
+  project_id    uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name          text NOT NULL DEFAULT '',          -- e.g. "Kitchen"
+  budget        integer NOT NULL DEFAULT 0,        -- dollars
+  sort_order    integer NOT NULL DEFAULT 0,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_sections_project ON project_sections(project_id, sort_order);
+
 -- ─── Design tools: selections board (Review-round-3 S5C) ────────────────────
 -- Per-project finish/product selections the owner curates and pushes to the
 -- client portal for approval. Image is either an upload (image_file_id) or
 -- inherited from the linked catalog item. status flows draft → pending (pushed)
--- → approved / declined (client decided).
+-- → approved / declined (client decided). Selections optionally belong to a
+-- section (room) and carry the option's price for budget roll-up (audit A4).
 CREATE TABLE IF NOT EXISTS project_selections (
   id            bigserial PRIMARY KEY,
   project_id    uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -430,6 +445,10 @@ CREATE TABLE IF NOT EXISTS project_selections (
   sort_order    integer NOT NULL DEFAULT 0,
   created_at    timestamptz NOT NULL DEFAULT now()
 );
+-- Section grouping + per-option price for budget roll-up (Functional-audit A4).
+ALTER TABLE project_selections ADD COLUMN IF NOT EXISTS section_id bigint
+  REFERENCES project_sections(id) ON DELETE SET NULL;
+ALTER TABLE project_selections ADD COLUMN IF NOT EXISTS price integer NOT NULL DEFAULT 0;
 
 -- ─── Indexes for the common list queries ────────────────────────────────────
 -- ─── Design tools: mood boards (Review-round-3 S5D) ─────────────────────────

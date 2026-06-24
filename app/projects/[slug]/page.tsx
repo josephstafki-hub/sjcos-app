@@ -311,7 +311,7 @@ export default async function ProjectDetailPage({
 
   // ── Selections panel — real board: catalog/upload images + client approval ──
   const selectionsPanel = (
-    <SelectionsBoard slug={slug} selections={selections} catalog={catalogOptions} />
+    <SelectionsBoard slug={slug} view={selections} catalog={catalogOptions} />
   );
 
   // ── Comms panel — real owner ⇄ client thread (portal:<slug>) ───────────────

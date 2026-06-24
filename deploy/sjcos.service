@@ -1,0 +1,29 @@
+# SJC OS — Next.js production server as a systemd USER service.
+# Install (no sudo; relies on `loginctl enable-linger joe` for boot/logout persistence):
+#   cp deploy/sjcos.service ~/.config/systemd/user/sjcos.service
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now sjcos.service
+# Manage: systemctl --user {status,restart,stop} sjcos.service
+# Logs:   journalctl --user -u sjcos.service
+# (In a no-login shell, export XDG_RUNTIME_DIR=/run/user/$(id -u) first.)
+#
+# Binds loopback-only (127.0.0.1:3017) — public access is via nginx (deploy/nginx-sjcos.conf).
+
+[Unit]
+Description=SJC OS — Next.js production server
+After=network-online.target ollama.service postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/sjcos-app
+# Use the app's pinned Next binary; .env.local is auto-loaded by Next in prod.
+ExecStart=/usr/local/bin/node %h/sjcos-app/node_modules/.bin/next start --hostname 127.0.0.1 --port 3017
+Environment=NODE_ENV=production
+Environment=PORT=3017
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

@@ -173,16 +173,29 @@ This is large (4 phases). Recommend landing **A → B → C → D** as separate 
 each is testable on the tunnel before the next. Auth (A/B) is the architectural core and
 should land + be verified first.
 
-## Deploy carryover checklist (the actual go-live)
+## Deploy carryover checklist (the actual go-live) — IN PROGRESS 2026-06-24
 
-Items that must happen when the app gets its permanent home (DNS + nginx + TLS,
-replacing the ephemeral cloudflared quick tunnel):
+Target: **https://os.sjcarpentryllc.com**. Full deploy runbook + config artifacts live
+in `deploy/` (`README.md`, `nginx-sjcos.conf`, `sjcos.service`).
 
-- [ ] Pick a permanent free port (`:3001` is taken by another tenant; dev used `:3017`).
-- [ ] DNS record + nginx vhost + TLS (Let's Encrypt) for the real subdomain.
-- [ ] PM2 (or systemd) for the Next prod server; ollama already runs as a systemd user service.
-- [ ] Set stable `GMAIL_REDIRECT_URI=https://<domain>/api/inbox/oauth/callback`; register that
-      URI in Google Cloud Console → Credentials → the OAuth client's Authorized redirect URIs.
+Decisions made (2026-06-24): subdomain `os.sjcarpentryllc.com`; permanent port `:3017`;
+go-live path = **nginx + A record + certbot** (Cloudflare *named tunnel* was the first
+choice but the zone lives in Joe's web developer's Cloudflare account — registrar is
+Squarespace, NS delegated to Cloudflare — so a one-time A record was the smaller ask and
+keeps us independent afterward).
+
+- [x] Pick a permanent free port — `:3017` (loopback-only; was free, confirmed).
+- [x] Next prod server as a systemd **user** service `sjcos.service` (mirrors `ollama.service`,
+      reboot-persistent via existing linger; binds `127.0.0.1:3017`). Chose systemd over PM2
+      to avoid the sudo `pm2 startup` step. `deploy/sjcos.service`.
+- [x] Set stable `GMAIL_REDIRECT_URI=https://os.sjcarpentryllc.com/api/inbox/oauth/callback`
+      in `.env.local`.
+- [x] nginx vhost authored (`deploy/nginx-sjcos.conf`; proxy → 127.0.0.1:3017, 30M body cap,
+      120s AI timeouts). Pre-TLS port-80 form; `certbot --nginx` will inject the 443 block.
+- [ ] **DNS (developer, one-time):** A record `os` → `73.94.192.119`, **DNS-only (grey cloud)**.
+      Verify `dig +short A os.sjcarpentryllc.com @1.1.1.1` == `73.94.192.119`. ← BLOCKING, waiting.
+- [ ] Install vhost + `certbot --nginx -d os.sjcarpentryllc.com` (needs sudo). Once DNS resolves.
+- [ ] Register the prod redirect URI in Google Cloud Console → Credentials → the OAuth client.
 - [ ] **Gmail `modify` re-consent (deferred from Phase 7.x E/F, 2026-06-18):** scopes are
       already `gmail.modify`+`gmail.send`, but the live refresh token predates `modify`, so
       inbox star/archive/mark-read/important/trash show a "needs modify access" notice until

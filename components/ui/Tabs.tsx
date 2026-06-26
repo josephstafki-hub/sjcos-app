@@ -16,13 +16,15 @@ type TabsProps = {
 /** Tab bar with an active underline. Works as buttons (onSelect) or links (routes). */
 export function Tabs({ tabs, active = 0, onSelect, routes, className = "" }: TabsProps) {
   return (
-    <div className={`-mb-px flex border-b border-rule ${className}`}>
+    <div
+      className={`-mb-px flex overflow-x-auto border-b border-rule [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${className}`}
+    >
       {tabs.map((tab, i) => {
         const isActive = i === active;
         const inner = (
           <span
             className={[
-              "block cursor-pointer px-3.5 py-2 text-[13px] transition-colors",
+              "block cursor-pointer whitespace-nowrap px-3.5 py-2 text-[13px] transition-colors",
               "border-b-2",
               isActive
                 ? "border-accent font-bold text-ink"
@@ -35,13 +37,13 @@ export function Tabs({ tabs, active = 0, onSelect, routes, className = "" }: Tab
 
         if (routes?.[i]) {
           return (
-            <Link key={tab} href={routes[i]} className="block">
+            <Link key={tab} href={routes[i]} className="block shrink-0">
               {inner}
             </Link>
           );
         }
         return (
-          <button key={tab} type="button" onClick={() => onSelect?.(i)} className="block">
+          <button key={tab} type="button" onClick={() => onSelect?.(i)} className="block shrink-0">
             {inner}
           </button>
         );

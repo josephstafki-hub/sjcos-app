@@ -6,6 +6,7 @@ import {
   Folder,
   ChevronDown,
   ChevronRight,
+  ChevronLeft,
   FileText,
   Image as ImageIcon,
   List,
@@ -100,6 +101,8 @@ export function FilesClient({ data }: { data: FilesData }) {
     ? data.selectedId
     : visibleFiles[0]?.id ?? "";
   const [selectedId, setSelectedId] = useState(data.selectedId);
+  // Mobile master/detail: below lg, show the file list OR the preview, not both.
+  const [mobilePreview, setMobilePreview] = useState(false);
   const effectiveId = visibleFiles.some((f) => f.id === selectedId)
     ? selectedId
     : selectableId;
@@ -114,6 +117,7 @@ export function FilesClient({ data }: { data: FilesData }) {
   function selectFile(id: string) {
     setSelectedId(id);
     setSummary(null);
+    setMobilePreview(true);
   }
 
   function runSummarize() {
@@ -125,7 +129,7 @@ export function FilesClient({ data }: { data: FilesData }) {
   return (
     <div className="flex h-full">
       {/* ─── Tree rail ────────────────────────────────────────────── */}
-      <aside className="w-[230px] flex-none overflow-y-auto border-r border-rule bg-paper-2 p-3">
+      <aside className="hidden w-[230px] flex-none overflow-y-auto border-r border-rule bg-paper-2 p-3 lg:block">
         <Card kind="soft" className="mb-3 flex items-center gap-1.5 px-2.5 py-1.5">
           <Search className="size-3 text-ink-4" strokeWidth={1.5} />
           <span className="text-[11px] text-ink-4">Search files…</span>
@@ -201,7 +205,12 @@ export function FilesClient({ data }: { data: FilesData }) {
       </aside>
 
       {/* ─── File list ────────────────────────────────────────────── */}
-      <section className="flex min-w-0 flex-1 flex-col">
+      <section
+        className={[
+          "min-w-0 flex-col lg:flex lg:flex-1",
+          mobilePreview ? "hidden" : "flex flex-1",
+        ].join(" ")}
+      >
         <div className="border-b border-rule px-5 py-3">
           <div className="flex items-center gap-2">
             <div className="flex-1">
@@ -297,9 +306,21 @@ export function FilesClient({ data }: { data: FilesData }) {
       </section>
 
       {/* ─── Preview ──────────────────────────────────────────────── */}
-      <aside className="w-[280px] flex-none overflow-y-auto border-l border-rule bg-paper-2 p-3.5">
+      <aside
+        className={[
+          "w-full flex-none overflow-y-auto border-l border-rule bg-paper-2 p-3.5 lg:w-[280px]",
+          mobilePreview ? "block" : "hidden lg:block",
+        ].join(" ")}
+      >
         {preview && (
           <>
+            <button
+              onClick={() => setMobilePreview(false)}
+              className="-ml-1 mb-2 inline-flex items-center gap-1 rounded p-0.5 text-[12px] text-ink-3 hover:bg-paper-3 lg:hidden"
+            >
+              <ChevronLeft className="size-4" strokeWidth={1.5} />
+              Files
+            </button>
             <div className="mb-3 flex aspect-[8.5/11] items-center justify-center rounded border border-ink-3 bg-paper-3">
               <span className="px-3 text-center font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3">
                 {preview.thumbLabel}

@@ -11,6 +11,7 @@ import {
   Tag,
   Pin,
   MoreHorizontal,
+  ChevronLeft,
   ArrowRight,
   Send,
   PenSquare,
@@ -136,6 +137,8 @@ export function InboxClient({
     view: data.activeView.key,
   });
   const [selectedId, setSelectedId] = useState(data.selectedId);
+  // Mobile master/detail: below lg, show the thread list OR the reader, not both.
+  const [mobileReader, setMobileReader] = useState(false);
   const [composing, setComposing] = useState(false);
   // Threads/readers grow as "Load more" pages in from Gmail.
   const [threads, setThreads] = useState(data.threads);
@@ -303,7 +306,7 @@ export function InboxClient({
   return (
     <div className="flex h-full">
       {/* ─── Sources rail ─────────────────────────────────────────── */}
-      <aside className="w-[220px] flex-none overflow-y-auto border-r border-rule bg-paper-2 p-3">
+      <aside className="hidden w-[220px] flex-none overflow-y-auto border-r border-rule bg-paper-2 p-3 lg:block">
         <Card kind="soft" className="mb-3 flex items-center gap-1.5 px-2.5 py-1.5">
           <Filter className="size-3 text-ink-3" strokeWidth={1.5} />
           <span className="flex-1 font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3">
@@ -413,7 +416,12 @@ export function InboxClient({
       </aside>
 
       {/* ─── Thread list ──────────────────────────────────────────── */}
-      <section className="flex w-[340px] flex-none flex-col border-r border-rule">
+      <section
+        className={[
+          "w-full flex-none flex-col border-r border-rule lg:w-[340px]",
+          mobileReader ? "hidden lg:flex" : "flex",
+        ].join(" ")}
+      >
         <div className="flex-none border-b border-rule px-3.5 py-3">
           <div className="flex items-center gap-2">
             <h2 className="flex-1 font-serif text-[16px] font-semibold text-ink">
@@ -473,7 +481,10 @@ export function InboxClient({
                 key={t.id}
                 thread={t}
                 selected={selected?.id === t.id}
-                onSelect={() => setSelectedId(t.id)}
+                onSelect={() => {
+                  setSelectedId(t.id);
+                  setMobileReader(true);
+                }}
               />
             ))
           )}
@@ -491,11 +502,23 @@ export function InboxClient({
       </section>
 
       {/* ─── Reader ───────────────────────────────────────────────── */}
-      <section className="flex min-w-0 flex-1 flex-col">
+      <section
+        className={[
+          "min-w-0 flex-1 flex-col",
+          mobileReader ? "flex" : "hidden lg:flex",
+        ].join(" ")}
+      >
         {reader && selected && (
           <>
             <div className="flex-none border-b border-rule px-[18px] py-3">
               <div className="mb-1.5 flex items-center gap-2">
+                <button
+                  onClick={() => setMobileReader(false)}
+                  aria-label="Back to inbox list"
+                  className="-ml-1 rounded p-0.5 text-ink-3 hover:bg-paper-3 lg:hidden"
+                >
+                  <ChevronLeft className="size-4" strokeWidth={1.5} />
+                </button>
                 <Chip kind="accent" dot>
                   {reader.tag}
                 </Chip>

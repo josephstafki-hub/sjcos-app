@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Sparkles, Send, UserPlus, X, Plus } from "lucide-react";
+import { Sparkles, Send, UserPlus, X, Plus, ChevronLeft } from "lucide-react";
 import { Card, Chip, Avatar } from "@/components/ui";
 import {
   sendChatMessage,
@@ -36,6 +36,8 @@ function clockNow(): string {
 
 export function ChatClient({ data }: { data: ChatData }) {
   const [selectedKey, setSelectedKey] = useState(data.selectedKey);
+  // Mobile master/detail: below lg, show the channel rail OR the messages.
+  const [mobileThread, setMobileThread] = useState(false);
   const [views, setViews] = useState(data.views);
   const [channels, setChannels] = useState(data.channels);
   const [rooms, setRooms] = useState(data.rooms);
@@ -75,6 +77,7 @@ export function ChatClient({ data }: { data: ChatData }) {
   const selectChannel = (key: string) => {
     setSelectedKey(key);
     setManaging(false);
+    setMobileThread(true);
     // Optimistically clear the unread badge + persist the read marker.
     const clear = <T extends { key: string; unread?: number }>(list: T[]) =>
       list.map((c) => (c.key === key ? { ...c, unread: undefined } : c));
@@ -120,7 +123,12 @@ export function ChatClient({ data }: { data: ChatData }) {
   return (
     <div className="flex h-full">
       {/* ─── Channel rail ─────────────────────────────────────────── */}
-      <aside className="flex w-[220px] flex-none flex-col overflow-y-auto border-r border-rule bg-paper-2 p-3">
+      <aside
+        className={[
+          "w-full flex-none flex-col overflow-y-auto border-r border-rule bg-paper-2 p-3 lg:w-[220px]",
+          mobileThread ? "hidden lg:flex" : "flex",
+        ].join(" ")}
+      >
         <RailLabel>Channels</RailLabel>
         <div className="flex flex-col gap-0.5">
           {channels.map((c) => (
@@ -184,9 +192,21 @@ export function ChatClient({ data }: { data: ChatData }) {
       </aside>
 
       {/* ─── Messages ─────────────────────────────────────────────── */}
-      <section className="flex min-w-0 flex-1 flex-col">
+      <section
+        className={[
+          "min-w-0 flex-1 flex-col",
+          mobileThread ? "flex" : "hidden lg:flex",
+        ].join(" ")}
+      >
         <div className="flex-none border-b border-rule px-5 py-3">
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => setMobileThread(false)}
+              aria-label="Back to channels"
+              className="-ml-1 rounded p-0.5 text-ink-3 hover:bg-paper-3 lg:hidden"
+            >
+              <ChevronLeft className="size-5" strokeWidth={1.5} />
+            </button>
             <div className="min-w-0 flex-1">
               <h1 className="font-serif text-[20px] font-medium leading-tight text-accent-2">
                 {view.name}

@@ -164,17 +164,17 @@ export function SettingsClient({ data }: { data: SettingsData }) {
   const [active, setActive] = useState("profile");
 
   return (
-    <div className="flex h-full">
-      {/* Category rail */}
-      <aside className="w-[220px] flex-none border-r border-rule bg-paper-2 p-3.5">
+    <div className="flex h-full flex-col lg:flex-row">
+      {/* Category rail — horizontal scrolling tabs on mobile, vertical rail on desktop */}
+      <aside className="flex-none border-b border-rule bg-paper-2 p-3.5 lg:w-[220px] lg:border-b-0 lg:border-r">
         <Eyebrow muted>Settings</Eyebrow>
-        <div className="mt-2 flex flex-col gap-0.5">
+        <div className="mt-2 flex gap-0.5 overflow-x-auto lg:flex-col">
           {data.categories.map((c) => (
             <button
               key={c.id}
               onClick={() => setActive(c.id)}
               className={[
-                "rounded px-2.5 py-1.5 text-left text-[13px] transition-colors",
+                "whitespace-nowrap rounded px-2.5 py-1.5 text-left text-[13px] transition-colors",
                 c.id === active
                   ? "bg-accent-soft font-medium text-accent-2"
                   : "text-ink-2 hover:bg-paper-3",

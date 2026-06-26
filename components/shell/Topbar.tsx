@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { Bell } from "lucide-react";
 
 type TopbarProps = {
@@ -6,11 +7,14 @@ type TopbarProps = {
   breadcrumb?: string;
   /** Unread notification count — drives the bell's red dot. */
   unread?: number;
+  /** Leading slot (mobile hamburger menu), shown before the breadcrumb. */
+  leading?: ReactNode;
 };
 
-export function Topbar({ breadcrumb = "TODAY", unread = 0 }: TopbarProps) {
+export function Topbar({ breadcrumb = "TODAY", unread = 0, leading }: TopbarProps) {
   return (
     <div className="flex h-[50px] flex-none items-center gap-3 border-b border-rule bg-paper px-[18px]">
+      {leading}
       <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
         {breadcrumb}
       </div>

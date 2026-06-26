@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Sidebar } from "./Sidebar";
+import { MobileNav } from "./MobileNav";
 import { Topbar } from "./Topbar";
 import { CmdKPill } from "./CmdKPill";
 import { CommandBar } from "@/components/cmdk/CommandBar";
@@ -41,9 +42,16 @@ export async function Shell({ children, breadcrumb, hideCmd, cmdkOpen, aiContext
 
   return (
     <div className="flex h-screen bg-paper">
-      <Sidebar user={sidebarUser} />
+      {/* Desktop rail — collapses into the Topbar hamburger drawer below lg. */}
+      <div className="hidden flex-none lg:flex">
+        <Sidebar user={sidebarUser} />
+      </div>
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar breadcrumb={breadcrumb} unread={unread} />
+        <Topbar
+          breadcrumb={breadcrumb}
+          unread={unread}
+          leading={<MobileNav user={sidebarUser} />}
+        />
         <div className="relative min-h-0 flex-1 overflow-auto">{children}</div>
         {!hideCmd && <CmdKPill />}
       </div>

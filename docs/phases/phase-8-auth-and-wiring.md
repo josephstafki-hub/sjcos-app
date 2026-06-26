@@ -192,10 +192,14 @@ keeps us independent afterward).
       in `.env.local`.
 - [x] nginx vhost authored (`deploy/nginx-sjcos.conf`; proxy → 127.0.0.1:3017, 30M body cap,
       120s AI timeouts). Pre-TLS port-80 form; `certbot --nginx` will inject the 443 block.
-- [ ] **DNS (developer, one-time):** A record `os` → `73.94.192.119`, **DNS-only (grey cloud)**.
-      Verify `dig +short A os.sjcarpentryllc.com @1.1.1.1` == `73.94.192.119`. ← BLOCKING, waiting.
-- [ ] Install vhost + `certbot --nginx -d os.sjcarpentryllc.com` (needs sudo). Once DNS resolves.
-- [ ] Register the prod redirect URI in Google Cloud Console → Credentials → the OAuth client.
+- [x] **DNS (developer, one-time):** A record `os` → `73.94.192.119`, DNS-only. Verified
+      `dig +short A os.sjcarpentryllc.com @1.1.1.1` == `73.94.192.119` (2026-06-26).
+- [x] **GO-LIVE (2026-06-26):** installed vhost (`/etc/nginx/sites-enabled/sjcos`),
+      `certbot --nginx -d os.sjcarpentryllc.com --redirect` issued the LE cert (expires
+      2026-09-24, auto-renew on). **https://os.sjcarpentryllc.com is LIVE** — public HTTPS
+      /login 200, HTTP→HTTPS 301, root→/login 307, TLS verify ok. sjcos.service +
+      ollama.service running (reboot-persistent via linger).
+- [ ] Register the prod redirect URI in Google Cloud Console → Credentials → the OAuth client. ← Joe, one-time
 - [ ] **Gmail `modify` re-consent (deferred from Phase 7.x E/F, 2026-06-18):** scopes are
       already `gmail.modify`+`gmail.send`, but the live refresh token predates `modify`, so
       inbox star/archive/mark-read/important/trash show a "needs modify access" notice until

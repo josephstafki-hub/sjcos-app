@@ -575,6 +575,25 @@ CREATE TABLE IF NOT EXISTS signature_events (
 );
 CREATE INDEX IF NOT EXISTS idx_sigevent_request ON signature_events(request_id, created_at);
 
+-- ─── Cost book (Phase-2 estimating, B1) ────────────────────────────────────
+-- The company's reusable unit-cost assemblies — the engine of repeatable
+-- estimating, distinct from catalog_items (retail products). unit_cost is in
+-- CENTS (no float money). default_markup is an optional per-item override of the
+-- company-wide default (app_settings 'estimate.default_markup').
+CREATE TABLE IF NOT EXISTS cost_items (
+  id             bigserial PRIMARY KEY,
+  name           text NOT NULL,
+  category       text NOT NULL DEFAULT 'General',
+  unit           text NOT NULL DEFAULT 'ea'
+                   CHECK (unit IN ('sf','lf','ea','hr','ls','cy')),
+  unit_cost      integer NOT NULL DEFAULT 0,   -- cents
+  default_markup numeric(5,2),                 -- optional per-item override (%)
+  notes          text NOT NULL DEFAULT '',
+  archived       boolean NOT NULL DEFAULT false,
+  created_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_cost_items_cat ON cost_items(category, name);
+
 -- ─── Reminder log (scheduler idempotency) ──────────────────────────────────
 -- The daily cron (app/api/cron/reminders) claims a dedup_key per (item, window)
 -- before emitting a reminder, so each reminder window fires exactly once even

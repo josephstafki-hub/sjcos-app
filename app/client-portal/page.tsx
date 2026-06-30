@@ -9,6 +9,8 @@ import { getProjectMoney, usd } from "@/lib/money";
 import { getPortalThread, portalChannel } from "@/lib/portal-messages";
 import { ClientSelections } from "@/components/portal/ClientSelections";
 import { PortalMessenger } from "@/components/portal/PortalMessenger";
+import { ClientSignDocs } from "@/components/portal/ClientSignDocs";
+import { getClientSignatures } from "@/lib/esign";
 
 export default async function ClientPortalPage() {
   const user = await requireRole("owner", "client");
@@ -28,6 +30,8 @@ export default async function ClientPortalPage() {
       ? getPortalThread(portalChannel("client", slug))
       : Promise.resolve([]),
   ]);
+  const signDocs = slug ? await getClientSignatures(slug) : [];
+  const toSignCount = signDocs.filter((d) => d.status === "sent").length;
 
   if (project) {
     data.project = project.name;
@@ -78,7 +82,7 @@ export default async function ClientPortalPage() {
         )}
         <Chip kind="ghost">
           <Bell className="mr-0.5 inline size-2.5" strokeWidth={1.75} />
-          {pendingCount}
+          {pendingCount + toSignCount}
         </Chip>
         <Avatar initials={data.clientInitials} size="sm" />
       </header>
@@ -143,6 +147,21 @@ export default async function ClientPortalPage() {
               You&apos;re all caught up — nothing needs a decision right now.
             </div>
           )}
+
+          {toSignCount > 0 && (
+            <Card kind="accent" className="mt-2 p-2.5">
+              <div className="font-serif text-[13px] font-semibold text-ink">
+                {toSignCount} document{toSignCount > 1 ? "s" : ""} to sign
+              </div>
+              <div className="mt-1 text-[11px] text-ink-2">
+                Review and e-sign them below.
+              </div>
+            </Card>
+          )}
+
+          <div className="my-4 border-t border-rule" />
+          <Eyebrow muted>Documents to sign</Eyebrow>
+          <ClientSignDocs docs={signDocs} />
 
           <div className="my-4 border-t border-rule" />
           <Eyebrow muted>Selections to review</Eyebrow>

@@ -529,6 +529,52 @@ CREATE INDEX IF NOT EXISTS idx_threads_last_message  ON threads(last_message_at 
 CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_compliance_due        ON compliance_items(due_date);
 
+-- ─── E-signature (Phase-1 foundation) ───────────────────────────────────────
+-- A generic signable-document model reused for design prints, estimates,
+-- contracts, SOW, and change orders. A request carries either an attached file
+-- blob (file_id → files) or inline body text (for generated docs). Signing
+-- captures intent (consent), the typed signature, timestamp, IP, and UA for an
+-- ESIGN-minded audit trail; signature_events is the append-only log.
+CREATE TABLE IF NOT EXISTS signature_requests (
+  id              bigserial PRIMARY KEY,
+  project_id      uuid REFERENCES projects(id) ON DELETE CASCADE,   -- project-scoped (most)
+  lead_slug       text,                                             -- or lead-scoped (pre-project estimates)
+  doc_type        text NOT NULL DEFAULT 'other'
+                    CHECK (doc_type IN ('design','estimate','contract','sow','change_order','other')),
+  title           text NOT NULL DEFAULT '',
+  file_id         text REFERENCES files(id) ON DELETE SET NULL,     -- the document blob, if any
+  body            text NOT NULL DEFAULT '',                         -- inline rendered document text
+  status          text NOT NULL DEFAULT 'draft'
+                    CHECK (status IN ('draft','sent','signed','declined','void')),
+  signer_name     text NOT NULL DEFAULT '',
+  signer_email    text NOT NULL DEFAULT '',
+  -- signing capture (set when status → signed)
+  signed_name       text,
+  signed_at         timestamptz,
+  signed_ip         text,
+  signed_user_agent text,
+  consent           boolean NOT NULL DEFAULT false,
+  decline_reason    text,
+  created_by      uuid REFERENCES users(id) ON DELETE SET NULL,
+  sent_at         timestamptz,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_sigreq_project ON signature_requests(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sigreq_status  ON signature_requests(status);
+
+CREATE TABLE IF NOT EXISTS signature_events (
+  id            bigserial PRIMARY KEY,
+  request_id    bigint NOT NULL REFERENCES signature_requests(id) ON DELETE CASCADE,
+  kind          text NOT NULL
+                  CHECK (kind IN ('created','sent','viewed','signed','declined','voided')),
+  actor         text NOT NULL DEFAULT '',     -- email/name/"owner"
+  ip            text,
+  user_agent    text,
+  detail        text NOT NULL DEFAULT '',
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_sigevent_request ON signature_events(request_id, created_at);
+
 -- ─── updated_at touch trigger ───────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger AS $$
 BEGIN

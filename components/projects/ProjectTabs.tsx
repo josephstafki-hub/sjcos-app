@@ -16,6 +16,7 @@ const TAB_LABELS = [
   "Daily log",
   "Comms",
   "Punch",
+  "Sign-offs",
 ];
 
 /**

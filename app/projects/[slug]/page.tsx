@@ -19,6 +19,8 @@ import { ProjectDailyLog } from "@/components/projects/ProjectDailyLog";
 import { ProjectFiles } from "@/components/projects/ProjectFiles";
 import { ProjectComms } from "@/components/projects/ProjectComms";
 import { ProjectSchedule } from "@/components/projects/ProjectSchedule";
+import { SignOffs } from "@/components/projects/SignOffs";
+import { getProjectSignatureRequests, getProjectSignerDefaults } from "@/lib/esign";
 import { getPortalThread, portalChannel } from "@/lib/portal-messages";
 import { getProjectScheduleBlocks } from "@/lib/schedule";
 import { getProjectMoney, usd } from "@/lib/money";
@@ -64,6 +66,10 @@ export default async function ProjectDetailPage({
   const scheduleBlocks = await getProjectScheduleBlocks(slug);
   const subsData = await getProjectSubsData(slug);
   const dailyLogs = await getProjectDailyLogs(slug);
+  const [signatureRequests, signerDefaults] = await Promise.all([
+    getProjectSignatureRequests(slug),
+    getProjectSignerDefaults(slug),
+  ]);
   if (!project) notFound();
 
   const catalogOptions = catalog.materials.map((m) => ({ id: m.id, name: m.name }));
@@ -353,6 +359,14 @@ export default async function ProjectDetailPage({
 
   // ── Punch panel — real, interactive punch-list items (add/toggle/remove) ────
   const punchPanel = <PunchList slug={project.slug} items={project.punch} />;
+  const signOffsPanel = (
+    <SignOffs
+      slug={slug}
+      requests={signatureRequests}
+      defaultSignerName={signerDefaults.name}
+      defaultSignerEmail={signerDefaults.email}
+    />
+  );
 
   // ── Floor / Mood — design-tool tabs (real boards, S5D/S5E) ──────────────────
   const floorPanel = <FloorPlan slug={slug} versions={floorplans} />;
@@ -370,6 +384,7 @@ export default async function ProjectDetailPage({
     "Daily log": dailyLogPanel,
     Comms: commsPanel,
     Punch: punchPanel,
+    "Sign-offs": signOffsPanel,
   };
 
   const outlineBtn =

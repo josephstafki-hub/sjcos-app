@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "googleapis": "^173.0.0",
     "jose": "^6.2.3",
     "lucide-react": "^1.17.0",

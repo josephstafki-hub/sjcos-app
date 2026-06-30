@@ -17,6 +17,10 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "25mb",
     },
   },
+  // pdfkit reads its standard-14 .afm font metrics from its own package dir at
+  // runtime; bundling it breaks that fs lookup. Keep it external so contract/SOW
+  // PDF generation (lib/documents.ts) works under `next start`.
+  serverExternalPackages: ["pdfkit"],
 };
 
 export default nextConfig;

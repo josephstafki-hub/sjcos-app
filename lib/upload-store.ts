@@ -51,15 +51,66 @@ export async function storeUpload(file: unknown, opts: StoreOpts = {}): Promise<
     return { ok: false, error: "Only image files are allowed here." };
   }
 
-  const original = safeName(file.name);
-  const id = `${opts.idPrefix ?? "up"}-${randomUUID()}`;
-  const storedName = `${id}__${original}`;
+  return persistBlob(Buffer.from(await file.arrayBuffer()), {
+    original: safeName(file.name),
+    mime: file.type || "application/octet-stream",
+    isImage,
+    idPrefix: opts.idPrefix,
+    projectKey: opts.projectKey,
+    tag: opts.tag,
+    subtitle: opts.subtitle,
+  });
+}
+
+export interface StoreBufferOpts {
+  /** Stored + displayed file name, e.g. "Henderson — Contract.pdf". */
+  filename: string;
+  /** MIME type, e.g. "application/pdf". */
+  mime: string;
+  idPrefix?: string;
+  projectKey?: string;
+  tag?: string;
+  subtitle?: string;
+}
+
+/** Store an already-built Buffer (e.g. a generated PDF/DOCX) as a files row.
+ *  Mirrors storeUpload but takes raw bytes instead of an uploaded File — used by
+ *  the document generator (lib/documents.ts) where there's no client upload. */
+export async function storeBuffer(buf: Buffer, opts: StoreBufferOpts): Promise<StoreResult> {
+  if (!buf || buf.length === 0) return { ok: false, error: "Empty document." };
+  if (buf.length > MAX_BYTES) return { ok: false, error: `Document is too large (max ${sizeLabel(MAX_BYTES)}).` };
+  return persistBlob(buf, {
+    original: safeName(opts.filename),
+    mime: opts.mime,
+    isImage: opts.mime.startsWith("image/"),
+    idPrefix: opts.idPrefix,
+    projectKey: opts.projectKey,
+    tag: opts.tag,
+    subtitle: opts.subtitle,
+  });
+}
+
+/** Shared: write bytes to disk + insert the files row. */
+async function persistBlob(
+  bytes: Buffer,
+  o: {
+    original: string;
+    mime: string;
+    isImage: boolean;
+    idPrefix?: string;
+    projectKey?: string;
+    tag?: string;
+    subtitle?: string;
+  },
+): Promise<StoreResult> {
+  const id = `${o.idPrefix ?? "up"}-${randomUUID()}`;
+  const storedName = `${id}__${o.original}`;
 
   await mkdir(UPLOAD_DIR, { recursive: true });
-  await writeFile(path.join(UPLOAD_DIR, storedName), Buffer.from(await file.arrayBuffer()));
+  await writeFile(path.join(UPLOAD_DIR, storedName), bytes);
 
-  const type: "img" | "doc" = isImage ? "img" : "doc";
-  const ext = path.extname(original).replace(".", "").toUpperCase();
+  const type: "img" | "doc" = o.isImage ? "img" : "doc";
+  const ext = path.extname(o.original).replace(".", "").toUpperCase();
 
   await query(
     `INSERT INTO files
@@ -68,14 +119,14 @@ export async function storeUpload(file: unknown, opts: StoreOpts = {}): Promise<
      VALUES ($1, $2, $3, $4, $5, false, 'just now', $6, $7, '{}', -1, $8, $9)`,
     [
       id,
-      opts.projectKey ?? "",
+      o.projectKey ?? "",
       type,
-      original,
-      opts.tag ?? (ext ? `UPLOAD · ${ext}` : "UPLOAD"),
-      sizeLabel(file.size),
-      opts.subtitle ?? "Uploaded",
+      o.original,
+      o.tag ?? (ext ? `UPLOAD · ${ext}` : "UPLOAD"),
+      sizeLabel(bytes.length),
+      o.subtitle ?? "Uploaded",
       storedName,
-      file.type || "application/octet-stream",
+      o.mime,
     ],
   );
 

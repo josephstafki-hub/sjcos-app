@@ -72,6 +72,13 @@ export interface SettingsData {
   integrations: Integration[];
   aiToggles: AiToggle[];
   notifyToggles: AiToggle[];
+  /** Company / contract boilerplate used by generated contracts + SOWs (B5). */
+  companyDocs: {
+    license: string;
+    address: string;
+    depositPct: string;
+    terms: string;
+  };
 }
 
 export async function getSettingsData(): Promise<SettingsData> {
@@ -134,6 +141,7 @@ export async function getSettingsData(): Promise<SettingsData> {
     // identity, placeholder backup status) — removed in S6.
     categories: [
       { id: "profile", title: "Profile" },
+      { id: "company", title: "Company & documents" },
       { id: "team", title: "Team & roles" },
       { id: "integrations", title: "Integrations" },
       { id: "ai", title: "Claude & AI" },
@@ -181,5 +189,11 @@ export async function getSettingsData(): Promise<SettingsData> {
       label: t.label,
       on: settings.has(t.key) ? settings.get(t.key) === "true" : t.default,
     })),
+    companyDocs: {
+      license: get("company.license", ""),
+      address: get("company.address", ""),
+      depositPct: get("contract.deposit_pct", "10"),
+      terms: get("contract.terms", ""),
+    },
   };
 }

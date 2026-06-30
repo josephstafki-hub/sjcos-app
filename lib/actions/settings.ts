@@ -5,7 +5,7 @@
 
 import { revalidatePath } from "next/cache";
 import { query } from "@/lib/db";
-import { requireUser } from "@/lib/dal";
+import { requireUser, requireRole } from "@/lib/dal";
 
 /** First+last initial of a name, uppercased (e.g. "Joe Stafki" → "JS"). */
 function initialsOf(name: string): string {
@@ -66,4 +66,21 @@ export async function updateProfile(formData: FormData) {
 
   revalidatePath("/settings");
   revalidatePath("/today"); // sidebar footer shows the current user
+}
+
+/** Save the Company & documents form — boilerplate baked into generated
+ *  contracts + SOWs (B5). Owner-only. */
+export async function updateCompanyDocs(formData: FormData) {
+  await requireRole("owner");
+  const license = String(formData.get("license") ?? "").trim();
+  const address = String(formData.get("address") ?? "").trim();
+  const depositPct = String(Math.max(0, Math.min(100, Number(formData.get("depositPct")) || 0)));
+  const terms = String(formData.get("terms") ?? "").trim();
+
+  await upsertSetting("company.license", license);
+  await upsertSetting("company.address", address);
+  await upsertSetting("contract.deposit_pct", depositPct);
+  await upsertSetting("contract.terms", terms);
+
+  revalidatePath("/settings");
 }

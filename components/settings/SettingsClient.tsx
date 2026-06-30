@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { Plus, X } from "lucide-react";
 import { Avatar, Card, Chip, Eyebrow, Field } from "@/components/ui";
 import type { SettingsData } from "@/lib/settings";
-import { setAiToggle, setNotifyToggle, updateProfile } from "@/lib/actions/settings";
+import { setAiToggle, setNotifyToggle, updateProfile, updateCompanyDocs } from "@/lib/actions/settings";
 import { createUser, setUserActive } from "@/lib/actions/users";
 import { AI_NAME } from "@/lib/ai-name";
 
@@ -220,6 +220,44 @@ export function SettingsClient({ data }: { data: SettingsData }) {
                 <Field key={f.label} label={f.label} value={f.value} />
               ))}
             </div>
+          </>
+        )}
+
+        {active === "company" && (
+          <>
+            <Eyebrow>Company &amp; documents</Eyebrow>
+            <h1 className="mt-1 font-serif text-[30px] font-medium leading-none text-accent-2">
+              Company &amp; documents
+            </h1>
+            <div className="mt-1.5 text-[11px] text-ink-3">
+              Boilerplate baked into generated contracts &amp; scopes of work.
+            </div>
+
+            <div className="my-5 border-t border-rule" />
+            <form action={updateCompanyDocs} className="max-w-[720px]">
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                <TextInput name="license" label="License #" defaultValue={data.companyDocs.license} placeholder="e.g. BC123456" />
+                <TextInput name="address" label="Business address" defaultValue={data.companyDocs.address} placeholder="Street, City, MN ZIP" />
+                <TextInput name="depositPct" label="Default deposit %" type="number" defaultValue={data.companyDocs.depositPct} />
+              </div>
+              <label className="mt-5 flex flex-col gap-1">
+                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Standard contract terms</span>
+                <textarea
+                  name="terms"
+                  rows={10}
+                  defaultValue={data.companyDocs.terms}
+                  className="resize-y rounded-md border border-rule bg-paper px-2.5 py-2 text-[12px] leading-relaxed text-ink outline-none focus:border-accent"
+                />
+              </label>
+              <div className="mt-5">
+                <button
+                  type="submit"
+                  className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper transition-colors hover:bg-[#232a1e]"
+                >
+                  Save changes
+                </button>
+              </div>
+            </form>
           </>
         )}
 

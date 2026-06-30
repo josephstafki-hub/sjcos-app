@@ -638,6 +638,12 @@ CREATE INDEX IF NOT EXISTS idx_estimate_lines_est ON estimate_lines(estimate_id,
 ALTER TABLE signature_requests
   ADD COLUMN IF NOT EXISTS estimate_id bigint REFERENCES estimates(id) ON DELETE SET NULL;
 
+-- Editable payment/draw schedule for the contract generated from an estimate
+-- (Phase-2 B5). JSON array of { label, percent }; null → computed default
+-- (deposit + even progress draws). Owner edits it before generating the contract.
+ALTER TABLE estimates
+  ADD COLUMN IF NOT EXISTS draw_schedule jsonb;
+
 -- ─── Reminder log (scheduler idempotency) ──────────────────────────────────
 -- The daily cron (app/api/cron/reminders) claims a dedup_key per (item, window)
 -- before emitting a reminder, so each reminder window fires exactly once even

@@ -2,7 +2,7 @@
 
 import { useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { FileSignature, Plus, X, Check, Clock, Ban } from "lucide-react";
+import { FileSignature, Plus, X, Check, Clock, Ban, FileText } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import {
   DOC_TYPES,
@@ -172,6 +172,16 @@ export function SignOffs({
                       <>Created {r.createdAtLabel}</>
                     )}
                   </div>
+                  {r.fileId && (
+                    <a
+                      href={`/api/portal/sign-doc/${r.id}`}
+                      target="_blank"
+                      rel="noopener"
+                      className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-accent-2 hover:underline"
+                    >
+                      <FileText className="size-3" strokeWidth={1.75} /> View PDF
+                    </a>
+                  )}
                 </div>
                 {(r.status === "sent" || r.status === "draft") && (
                   <button

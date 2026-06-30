@@ -11,6 +11,7 @@ import type { EstimateDetail, EstimateLineView, EstimateStatus } from "@/lib/est
 import { createEstimate, deleteEstimate, deleteEstimateLine, suggestEstimate, sendEstimate } from "@/lib/actions/estimates";
 import { EstimateLineModal } from "./EstimateLineModal";
 import { TakeoffPanel } from "./TakeoffPanel";
+import { ContractGenerator } from "./ContractGenerator";
 
 const RAIL_LABEL: Record<string, string> = {
   design_build: "Design-build",
@@ -298,6 +299,15 @@ export function ProjectEstimate({
                 ))}
               </Card>
             ))
+          )}
+
+          {selected.lines.length > 0 && (
+            <ContractGenerator
+              slug={slug}
+              estimateId={selected.id}
+              total={selected.total}
+              schedule={selected.drawSchedule}
+            />
           )}
         </>
       )}

@@ -5,6 +5,7 @@ import "server-only";
 // the actions on every line write) for fast display + the e-sign snapshot.
 
 import { query } from "./db";
+import { type DrawLine, parseDrawSchedule } from "./draw-schedule";
 
 export type EstimateRail = "design_build" | "plans" | "merged";
 export type EstimateStatus = "draft" | "sent" | "approved" | "declined";
@@ -33,6 +34,8 @@ export interface EstimateDetail {
   markupTotal: number; // cents
   total: number; // cents
   createdAtLabel: string;
+  /** Persisted contract draw schedule (null until the owner edits it). */
+  drawSchedule: DrawLine[] | null;
   lines: EstimateLineView[];
 }
 
@@ -48,6 +51,7 @@ interface EstRow {
   subtotal: number;
   markup_total: number;
   total: number;
+  draw_schedule: unknown;
   created_at: Date;
 }
 interface LineRow {
@@ -80,7 +84,8 @@ function lineToView(r: LineRow): EstimateLineView {
 /** All estimates for a project, each with its lines (newest first). */
 export async function getProjectEstimates(slug: string): Promise<EstimateDetail[]> {
   const { rows: ests } = await query<EstRow>(
-    `SELECT e.id, e.title, e.rail, e.status, e.subtotal, e.markup_total, e.total, e.created_at
+    `SELECT e.id, e.title, e.rail, e.status, e.subtotal, e.markup_total, e.total,
+            e.draw_schedule, e.created_at
        FROM estimates e JOIN projects p ON p.id = e.project_id
       WHERE p.slug = $1
       ORDER BY e.created_at DESC`,
@@ -112,6 +117,7 @@ export async function getProjectEstimates(slug: string): Promise<EstimateDetail[
     markupTotal: e.markup_total,
     total: e.total,
     createdAtLabel: dateLabel(e.created_at),
+    drawSchedule: parseDrawSchedule(e.draw_schedule),
     lines: byEst.get(Number(e.id)) ?? [],
   }));
 }

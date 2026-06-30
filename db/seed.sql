@@ -59,7 +59,14 @@ INSERT INTO app_settings (key, value) VALUES
   ('ai.summarizeVoicemails', 'true'),
   ('ai.weeklyStatusEmails',  'true'),
   ('ai.autoPublishSocial',   'false'),
-  ('ai.sendBeforeReview',    'false');
+  ('ai.sendBeforeReview',    'false'),
+  -- Company / contract boilerplate used by generated contracts + SOWs (B5).
+  -- Edited live in Settings → Company & documents. License/address start blank
+  -- so they read as "—" until Joe fills them in.
+  ('company.license',        ''),
+  ('company.address',        ''),
+  ('contract.deposit_pct',   '10'),
+  ('contract.terms',         'This Agreement is between SJ Carpentry LLC ("Contractor") and the Client named above. Contractor agrees to furnish the labor, materials, and services described in the attached Scope of Work and Estimate for the Total Price stated. Payments are due per the Payment Schedule below within 7 days of each invoice. Any change to the scope must be authorized in writing via a signed Change Order before the work proceeds; approved changes adjust the Total Price accordingly. Contractor warrants its workmanship for one (1) year from substantial completion. Either party may terminate for material breach with written notice and a 10-day cure period; on termination the Client pays for all work completed and materials ordered to date. This Agreement is governed by the laws of the State of Minnesota.');
 
 -- ─── Users / auth ────────────────────────────────────────────────────────────
 -- Only the real owner account (Joe). Seeded with the demo password "sjcos"

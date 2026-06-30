@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Check, FileSignature, ChevronDown } from "lucide-react";
+import { Check, FileSignature, ChevronDown, FileText } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import { docTypeLabel, type SignatureRequestView } from "@/lib/esign-types";
 import { signSignatureRequest, declineSignatureRequest } from "@/lib/actions/esign";
@@ -89,6 +89,17 @@ function SignCard({ doc }: { doc: SignatureRequestView }) {
 
       {open && (
         <div className="mt-2.5 border-t border-rule-soft pt-2.5">
+          {doc.fileId && (
+            <a
+              href={`/api/portal/sign-doc/${doc.id}`}
+              target="_blank"
+              rel="noopener"
+              className="mb-2.5 inline-flex items-center gap-1.5 rounded-md border border-accent bg-accent-soft px-2.5 py-1.5 text-[12px] font-semibold text-accent-2 hover:bg-accent-soft/70"
+            >
+              <FileText className="size-3.5" strokeWidth={1.75} />
+              View document (PDF)
+            </a>
+          )}
           <div className="max-h-56 overflow-y-auto whitespace-pre-wrap rounded border border-rule bg-card p-2.5 font-mono text-[11px] leading-relaxed text-ink">
             {doc.body}
           </div>

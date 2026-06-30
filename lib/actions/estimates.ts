@@ -9,6 +9,7 @@ import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { dollarsToCents } from "@/lib/cost-book-units";
+import { getDefaultMarkup } from "@/lib/cost-book";
 import { ai } from "@/lib/ai";
 import type { EstimateRail } from "@/lib/estimates";
 
@@ -108,6 +109,52 @@ export async function deleteEstimateLine(lineId: number, slug: string): Promise<
     [lineId],
   );
   if (row) await recompute(Number(row.estimate_id));
+  revalidatePath(`/projects/${slug}`);
+  return { ok: true };
+}
+
+/** Takeoff: bulk-add lines from cost-book items in one pass (B3). Re-reads each
+ *  cost item server-side to snapshot authoritative price/markup (never trusts
+ *  client-sent money), then recomputes the estimate once. */
+export async function addTakeoffLines(
+  estimateId: number,
+  slug: string,
+  section: string,
+  entries: { costItemId: number; qty: number }[],
+): Promise<Result> {
+  await requireRole("owner");
+  const valid = (entries ?? []).filter((e) => e.costItemId && e.qty > 0);
+  if (valid.length === 0) return { ok: false, error: "Enter a quantity for at least one item." };
+
+  const def = await getDefaultMarkup();
+  const ids = valid.map((e) => e.costItemId);
+  const { rows } = await query<{
+    id: string;
+    name: string;
+    unit: string;
+    unit_cost: number;
+    default_markup: string | null;
+  }>(
+    `SELECT id, name, unit, unit_cost, default_markup FROM cost_items WHERE id = ANY($1::bigint[])`,
+    [ids],
+  );
+  const byId = new Map(rows.map((r) => [Number(r.id), r]));
+  const sec = section.trim() || "General";
+
+  for (const e of valid) {
+    const item = byId.get(e.costItemId);
+    if (!item) continue;
+    const markup = item.default_markup == null ? def : Number(item.default_markup);
+    const extended = Math.round(e.qty * item.unit_cost * (1 + markup / 100));
+    await query(
+      `INSERT INTO estimate_lines
+         (estimate_id, cost_item_id, description, section, unit, qty, unit_cost, markup, extended, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,
+          COALESCE((SELECT max(sort_order)+1 FROM estimate_lines WHERE estimate_id = $1), 0))`,
+      [estimateId, item.id, item.name, sec, item.unit, e.qty, item.unit_cost, markup, extended],
+    );
+  }
+  await recompute(estimateId);
   revalidatePath(`/projects/${slug}`);
   return { ok: true };
 }

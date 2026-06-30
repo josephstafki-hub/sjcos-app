@@ -2,13 +2,15 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, Trash2, Sparkles, FileSpreadsheet } from "lucide-react";
+import { Plus, Pencil, Trash2, Sparkles, FileSpreadsheet, Ruler } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import { fmtUsd, unitLabel } from "@/lib/cost-book-units";
 import type { CostItem } from "@/lib/cost-book";
+import type { FloorplanVersion } from "@/lib/floorplans";
 import type { EstimateDetail, EstimateLineView, EstimateStatus } from "@/lib/estimates";
 import { createEstimate, deleteEstimate, deleteEstimateLine, suggestEstimate } from "@/lib/actions/estimates";
 import { EstimateLineModal } from "./EstimateLineModal";
+import { TakeoffPanel } from "./TakeoffPanel";
 
 const RAIL_LABEL: Record<string, string> = {
   design_build: "Design-build",
@@ -27,16 +29,19 @@ export function ProjectEstimate({
   estimates,
   costItems,
   defaultMarkup,
+  floorplans,
 }: {
   slug: string;
   estimates: EstimateDetail[];
   costItems: CostItem[];
   defaultMarkup: number;
+  floorplans: FloorplanVersion[];
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [selectedId, setSelectedId] = useState<number | null>(estimates[0]?.id ?? null);
   const [showNew, setShowNew] = useState(estimates.length === 0);
+  const [takeoff, setTakeoff] = useState(false);
   const [lineModal, setLineModal] = useState<{ mode: "add" | "edit"; line?: EstimateLineView } | null>(null);
   const [suggestion, setSuggestion] = useState<{ lines: { label: string; value: string }[]; total: string } | null>(null);
   const [suggesting, setSuggesting] = useState(false);
@@ -178,6 +183,14 @@ export function ProjectEstimate({
                 <Plus className="size-3" strokeWidth={2} /> Add line
               </button>
               <button
+                onClick={() => setTakeoff((v) => !v)}
+                className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[12px] font-semibold ${
+                  takeoff ? "border-accent bg-accent-soft text-accent-2" : "border-rule bg-card text-ink-2 hover:bg-paper-2"
+                }`}
+              >
+                <Ruler className="size-3" strokeWidth={1.75} /> Takeoff
+              </button>
+              <button
                 onClick={runSuggest}
                 disabled={suggesting}
                 className="inline-flex items-center gap-1 rounded-md border border-ai bg-ai px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-ai-2 disabled:opacity-60"
@@ -213,6 +226,16 @@ export function ProjectEstimate({
               </div>
             )}
           </Card>
+
+          {takeoff && (
+            <TakeoffPanel
+              estimateId={selected.id}
+              slug={slug}
+              costItems={costItems}
+              floorplans={floorplans}
+              onDone={() => setTakeoff(false)}
+            />
+          )}
 
           {/* Lines by section */}
           {selected.lines.length === 0 ? (

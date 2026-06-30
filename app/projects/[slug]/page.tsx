@@ -370,6 +370,7 @@ export default async function ProjectDetailPage({
       estimates={estimates}
       costItems={costBook.items.filter((i) => !i.archived)}
       defaultMarkup={costBook.defaultMarkup}
+      floorplans={floorplans}
     />
   );
   const signOffsPanel = (

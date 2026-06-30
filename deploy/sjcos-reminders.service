@@ -1,0 +1,7 @@
+[Unit]
+Description=SJC OS daily reminder sweep (compliance + COI)
+After=sjcos.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/joe/bin/sjcos-reminders

@@ -47,3 +47,31 @@ git pull                       # (or edit in place)
 npm run build                  # do NOT run while sjcos.service is live if it shares .next — stop it first
 systemctl --user restart sjcos.service
 ```
+
+## Scheduler — daily reminders
+
+A systemd **user timer** runs the reminder sweep (`/api/cron/reminders`) once a
+day at 08:00. The endpoint is not session-gated (the proxy excludes `/api`); it
+checks `CRON_SECRET` from `.env.local`. Reboot-persistent via the existing
+`loginctl enable-linger joe`.
+
+Install (one-time):
+```
+# .env.local must contain CRON_SECRET=<random hex>  (gitignored)
+install -m755 deploy/sjcos-reminders.sh ~/bin/sjcos-reminders
+cp deploy/sjcos-reminders.service deploy/sjcos-reminders.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now sjcos-reminders.timer
+```
+
+Run on demand / inspect:
+```
+systemctl --user start sjcos-reminders.service           # trigger now
+journalctl --user -u sjcos-reminders.service -n 20       # last result (JSON)
+systemctl --user list-timers sjcos-reminders.timer       # next run
+```
+
+Windows emitted: compliance items 60/30 days out, sub COI expiry 30/15/5 days
+out (the urgent ≤14-day compliance window is emitted on feed-read in
+`lib/notify.ts`). Each (record, window) fires once via the `reminder_log` dedup
+table. Add new scans (warranty deadlines, A/R dunning) in `lib/reminders.ts`.

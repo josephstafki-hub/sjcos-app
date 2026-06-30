@@ -575,6 +575,15 @@ CREATE TABLE IF NOT EXISTS signature_events (
 );
 CREATE INDEX IF NOT EXISTS idx_sigevent_request ON signature_events(request_id, created_at);
 
+-- ─── Reminder log (scheduler idempotency) ──────────────────────────────────
+-- The daily cron (app/api/cron/reminders) claims a dedup_key per (item, window)
+-- before emitting a reminder, so each reminder window fires exactly once even
+-- though the job runs daily. Keys: "compliance:<id>:<days>", "coi:<slug>:<days>".
+CREATE TABLE IF NOT EXISTS reminder_log (
+  dedup_key   text PRIMARY KEY,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
 -- ─── updated_at touch trigger ───────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger AS $$
 BEGIN

@@ -21,6 +21,9 @@ import { ProjectComms } from "@/components/projects/ProjectComms";
 import { ProjectSchedule } from "@/components/projects/ProjectSchedule";
 import { SignOffs } from "@/components/projects/SignOffs";
 import { getProjectSignatureRequests, getProjectSignerDefaults } from "@/lib/esign";
+import { ProjectEstimate } from "@/components/projects/ProjectEstimate";
+import { getProjectEstimates } from "@/lib/estimates";
+import { getCostBook } from "@/lib/cost-book";
 import { getPortalThread, portalChannel } from "@/lib/portal-messages";
 import { getProjectScheduleBlocks } from "@/lib/schedule";
 import { getProjectMoney, usd } from "@/lib/money";
@@ -66,9 +69,11 @@ export default async function ProjectDetailPage({
   const scheduleBlocks = await getProjectScheduleBlocks(slug);
   const subsData = await getProjectSubsData(slug);
   const dailyLogs = await getProjectDailyLogs(slug);
-  const [signatureRequests, signerDefaults] = await Promise.all([
+  const [signatureRequests, signerDefaults, estimates, costBook] = await Promise.all([
     getProjectSignatureRequests(slug),
     getProjectSignerDefaults(slug),
+    getProjectEstimates(slug),
+    getCostBook(),
   ]);
   if (!project) notFound();
 
@@ -359,6 +364,14 @@ export default async function ProjectDetailPage({
 
   // ── Punch panel — real, interactive punch-list items (add/toggle/remove) ────
   const punchPanel = <PunchList slug={project.slug} items={project.punch} />;
+  const estimatePanel = (
+    <ProjectEstimate
+      slug={slug}
+      estimates={estimates}
+      costItems={costBook.items.filter((i) => !i.archived)}
+      defaultMarkup={costBook.defaultMarkup}
+    />
+  );
   const signOffsPanel = (
     <SignOffs
       slug={slug}
@@ -384,6 +397,7 @@ export default async function ProjectDetailPage({
     "Daily log": dailyLogPanel,
     Comms: commsPanel,
     Punch: punchPanel,
+    Estimate: estimatePanel,
     "Sign-offs": signOffsPanel,
   };
 

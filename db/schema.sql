@@ -594,6 +594,44 @@ CREATE TABLE IF NOT EXISTS cost_items (
 );
 CREATE INDEX IF NOT EXISTS idx_cost_items_cat ON cost_items(category, name);
 
+-- ─── Estimates (Phase-2 estimating, B2) ────────────────────────────────────
+-- A project (or lead) estimate built from cost_items + free-form lines. Money is
+-- in CENTS. Estimate totals are recomputed from the lines on every line write.
+CREATE TABLE IF NOT EXISTS estimates (
+  id            bigserial PRIMARY KEY,
+  project_id    uuid REFERENCES projects(id) ON DELETE CASCADE,
+  lead_slug     text,                              -- pre-project estimates
+  title         text NOT NULL DEFAULT '',
+  rail          text NOT NULL DEFAULT 'plans'
+                  CHECK (rail IN ('design_build','plans','merged')),
+  status        text NOT NULL DEFAULT 'draft'
+                  CHECK (status IN ('draft','sent','approved','declined')),
+  subtotal      integer NOT NULL DEFAULT 0,        -- cents, Σ(qty*unit_cost)
+  markup_total  integer NOT NULL DEFAULT 0,        -- cents
+  total         integer NOT NULL DEFAULT 0,        -- cents, Σ(extended)
+  sent_at       timestamptz,
+  approved_at   timestamptz,
+  created_by    uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_estimates_project ON estimates(project_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS estimate_lines (
+  id            bigserial PRIMARY KEY,
+  estimate_id   bigint NOT NULL REFERENCES estimates(id) ON DELETE CASCADE,
+  cost_item_id  bigint REFERENCES cost_items(id) ON DELETE SET NULL,  -- or free-form
+  description   text NOT NULL DEFAULT '',
+  section       text NOT NULL DEFAULT 'General',
+  unit          text NOT NULL DEFAULT 'ea',
+  qty           numeric(12,2) NOT NULL DEFAULT 0,
+  unit_cost     integer NOT NULL DEFAULT 0,        -- cents (snapshot, editable)
+  markup        numeric(5,2) NOT NULL DEFAULT 0,   -- effective % on this line
+  extended      integer NOT NULL DEFAULT 0,        -- cents = round(qty*unit_cost*(1+markup/100))
+  sort_order    integer NOT NULL DEFAULT 0,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_estimate_lines_est ON estimate_lines(estimate_id, sort_order);
+
 -- ─── Reminder log (scheduler idempotency) ──────────────────────────────────
 -- The daily cron (app/api/cron/reminders) claims a dedup_key per (item, window)
 -- before emitting a reminder, so each reminder window fires exactly once even

@@ -9,6 +9,7 @@ const TAB_LABELS = [
   "Floor",
   "Mood",
   "Selections",
+  "Estimate",
   "Schedule",
   "Subs",
   "Files",

@@ -211,6 +211,52 @@ export async function sendEstimate(slug: string, estimateId: number): Promise<Re
   return { ok: true };
 }
 
+/** Merge two or more of a project's estimates into a new rail='merged' estimate
+ *  (B7). Unions every source line as-is (snapshotted unit_cost/markup/extended
+ *  preserved — no re-pricing), keeps section grouping, recomputes totals. The
+ *  source estimates are left untouched (non-destructive). */
+export async function mergeEstimates(slug: string, sourceIds: number[], title: string): Promise<Result> {
+  const user = await requireRole("owner");
+  const proj = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [slug]);
+  if (!proj) return { ok: false, error: "Project not found." };
+
+  const uniq = Array.from(new Set((sourceIds ?? []).map(Number).filter((n) => Number.isFinite(n))));
+  if (uniq.length < 2) return { ok: false, error: "Pick at least two estimates to merge." };
+
+  // Only merge estimates that actually belong to this project.
+  const { rows: valid } = await query<{ id: string }>(
+    `SELECT e.id FROM estimates e JOIN projects p ON p.id = e.project_id
+      WHERE p.slug = $1 AND e.id = ANY($2::bigint[])`,
+    [slug, uniq],
+  );
+  const validIds = valid.map((r) => Number(r.id));
+  if (validIds.length < 2) return { ok: false, error: "Pick at least two estimates from this project." };
+
+  const cleanTitle = title.trim() || "Merged estimate";
+  const ins = await queryOne<{ id: string }>(
+    `INSERT INTO estimates (project_id, title, rail, created_by) VALUES ($1, $2, 'merged', $3) RETURNING id`,
+    [proj.id, cleanTitle, user.id],
+  );
+  const newId = Number(ins!.id);
+
+  // Copy all source lines into the merged estimate, ordered by source then
+  // section, re-numbering sort_order sequentially across the union.
+  await query(
+    `INSERT INTO estimate_lines
+       (estimate_id, cost_item_id, description, section, unit, qty, unit_cost, markup, extended, sort_order)
+     SELECT $1, cost_item_id, description, section, unit, qty, unit_cost, markup, extended,
+            (row_number() OVER (
+               ORDER BY array_position($2::bigint[], estimate_id), section, sort_order, id
+             ) - 1)::int
+       FROM estimate_lines
+      WHERE estimate_id = ANY($2::bigint[])`,
+    [newId, validIds],
+  );
+  await recompute(newId);
+  revalidatePath(`/projects/${slug}`);
+  return { ok: true, id: newId };
+}
+
 /** Takeoff: bulk-add lines from cost-book items in one pass (B3). Re-reads each
  *  cost item server-side to snapshot authoritative price/markup (never trusts
  *  client-sent money), then recomputes the estimate once. */

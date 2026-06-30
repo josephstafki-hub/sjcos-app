@@ -2,13 +2,13 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, Trash2, Sparkles, FileSpreadsheet, Ruler } from "lucide-react";
+import { Plus, Pencil, Trash2, Sparkles, FileSpreadsheet, Ruler, GitMerge } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import { fmtUsd, unitLabel } from "@/lib/cost-book-units";
 import type { CostItem } from "@/lib/cost-book";
 import type { FloorplanVersion } from "@/lib/floorplans";
 import type { EstimateDetail, EstimateLineView, EstimateStatus } from "@/lib/estimates";
-import { createEstimate, deleteEstimate, deleteEstimateLine, suggestEstimate, sendEstimate } from "@/lib/actions/estimates";
+import { createEstimate, deleteEstimate, deleteEstimateLine, suggestEstimate, sendEstimate, mergeEstimates } from "@/lib/actions/estimates";
 import { EstimateLineModal } from "./EstimateLineModal";
 import { TakeoffPanel } from "./TakeoffPanel";
 import { ContractGenerator } from "./ContractGenerator";
@@ -42,6 +42,10 @@ export function ProjectEstimate({
   const [, startTransition] = useTransition();
   const [selectedId, setSelectedId] = useState<number | null>(estimates[0]?.id ?? null);
   const [showNew, setShowNew] = useState(estimates.length === 0);
+  const [showMerge, setShowMerge] = useState(false);
+  const [mergeSel, setMergeSel] = useState<Set<number>>(new Set());
+  const [mergeError, setMergeError] = useState<string | null>(null);
+  const [merging, setMerging] = useState(false);
   const [takeoff, setTakeoff] = useState(false);
   const [lineModal, setLineModal] = useState<{ mode: "add" | "edit"; line?: EstimateLineView } | null>(null);
   const [suggestion, setSuggestion] = useState<{ lines: { label: string; value: string }[]; total: string } | null>(null);
@@ -59,6 +63,40 @@ export function ProjectEstimate({
         setShowNew(false);
         form.reset();
         router.refresh();
+      }
+    });
+  }
+
+  function toggleMergePick(id: number) {
+    setMergeError(null);
+    setMergeSel((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function runMerge(form: HTMLFormElement) {
+    const title = String(new FormData(form).get("title") ?? "").trim();
+    const ids = Array.from(mergeSel);
+    if (ids.length < 2) {
+      setMergeError("Pick at least two estimates to merge.");
+      return;
+    }
+    setMergeError(null);
+    setMerging(true);
+    startTransition(async () => {
+      const res = await mergeEstimates(slug, ids, title);
+      setMerging(false);
+      if (res.ok && res.id) {
+        setSelectedId(res.id);
+        setShowMerge(false);
+        setMergeSel(new Set());
+        form.reset();
+        router.refresh();
+      } else if (!res.ok) {
+        setMergeError(res.error);
       }
     });
   }
@@ -130,12 +168,75 @@ export function ProjectEstimate({
           </button>
         ))}
         <button
-          onClick={() => setShowNew((v) => !v)}
+          onClick={() => { setShowNew((v) => !v); setShowMerge(false); }}
           className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
         >
           <Plus className="size-3" strokeWidth={2} /> New estimate
         </button>
+        {estimates.length >= 2 && (
+          <button
+            onClick={() => {
+              setShowMerge((v) => !v);
+              setShowNew(false);
+              setMergeError(null);
+              setMergeSel(new Set());
+            }}
+            className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[12px] font-semibold ${
+              showMerge ? "border-accent bg-accent-soft text-accent-2" : "border-rule bg-card text-ink-2 hover:bg-paper-2"
+            }`}
+          >
+            <GitMerge className="size-3" strokeWidth={1.75} /> Merge
+          </button>
+        )}
       </div>
+
+      {showMerge && (
+        <Card className="p-3.5">
+          <div className="mb-2 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+            <GitMerge className="size-3" strokeWidth={1.75} /> Merge estimates
+          </div>
+          <div className="mb-3 text-[12px] text-ink-3">
+            Pick two or more estimates (e.g. a design-build and a plans-based bid). Their lines are combined into a
+            new merged estimate, grouped by section. The originals are kept.
+          </div>
+          <form onSubmit={(e) => { e.preventDefault(); runMerge(e.currentTarget); }}>
+            <div className="space-y-1.5">
+              {estimates.map((e) => (
+                <label
+                  key={e.id}
+                  className={`flex cursor-pointer items-center gap-2.5 rounded-md border px-2.5 py-1.5 ${
+                    mergeSel.has(e.id) ? "border-accent bg-accent-soft" : "border-rule bg-card hover:bg-paper-2"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={mergeSel.has(e.id)}
+                    onChange={() => toggleMergePick(e.id)}
+                    className="accent-accent"
+                  />
+                  <span className="flex-1 text-[13px] font-medium text-ink">{e.title}</span>
+                  <Chip kind="ghost">{RAIL_LABEL[e.rail]}</Chip>
+                  <span className="font-mono text-[12px] text-ink-2">{fmtUsd(e.total)}</span>
+                </label>
+              ))}
+            </div>
+            <div className="mt-3 flex flex-wrap items-end gap-3">
+              <label className="flex flex-1 flex-col gap-1">
+                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Merged title</span>
+                <input name="title" placeholder="Combined bid" className={inputCls} />
+              </label>
+              <button
+                type="submit"
+                disabled={merging || mergeSel.size < 2}
+                className="inline-flex items-center gap-1 rounded-md border border-accent bg-accent px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
+              >
+                <GitMerge className="size-3" strokeWidth={1.75} /> {merging ? "Merging…" : `Merge ${mergeSel.size || ""} estimates`.trim()}
+              </button>
+            </div>
+            {mergeError && <div className="mt-2 text-[12px] text-flag">{mergeError}</div>}
+          </form>
+        </Card>
+      )}
 
       {showNew && (
         <Card className="p-3.5">

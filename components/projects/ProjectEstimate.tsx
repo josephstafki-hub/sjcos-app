@@ -8,7 +8,7 @@ import { fmtUsd, unitLabel } from "@/lib/cost-book-units";
 import type { CostItem } from "@/lib/cost-book";
 import type { FloorplanVersion } from "@/lib/floorplans";
 import type { EstimateDetail, EstimateLineView, EstimateStatus } from "@/lib/estimates";
-import { createEstimate, deleteEstimate, deleteEstimateLine, suggestEstimate } from "@/lib/actions/estimates";
+import { createEstimate, deleteEstimate, deleteEstimateLine, suggestEstimate, sendEstimate } from "@/lib/actions/estimates";
 import { EstimateLineModal } from "./EstimateLineModal";
 import { TakeoffPanel } from "./TakeoffPanel";
 
@@ -45,6 +45,7 @@ export function ProjectEstimate({
   const [lineModal, setLineModal] = useState<{ mode: "add" | "edit"; line?: EstimateLineView } | null>(null);
   const [suggestion, setSuggestion] = useState<{ lines: { label: string; value: string }[]; total: string } | null>(null);
   const [suggesting, setSuggesting] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   const selected = estimates.find((e) => e.id === selectedId) ?? estimates[0] ?? null;
 
@@ -74,6 +75,16 @@ export function ProjectEstimate({
     startTransition(async () => {
       await deleteEstimateLine(lineId, slug);
       router.refresh();
+    });
+  }
+
+  function send() {
+    if (!selected) return;
+    setSendError(null);
+    startTransition(async () => {
+      const res = await sendEstimate(slug, selected.id);
+      if (res.ok) router.refresh();
+      else setSendError(res.error);
     });
   }
 
@@ -197,6 +208,20 @@ export function ProjectEstimate({
               >
                 <Sparkles className="size-3" strokeWidth={1.5} /> {suggesting ? "Thinking…" : "Suggest scope"}
               </button>
+              {(selected.status === "draft" || selected.status === "declined") && (
+                <button
+                  onClick={send}
+                  className="inline-flex items-center gap-1 rounded-md border border-accent bg-accent px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-accent-2"
+                >
+                  Send for approval
+                </button>
+              )}
+              {selected.status === "sent" && (
+                <span className="text-[11px] font-medium text-accent-2">Awaiting client signature…</span>
+              )}
+              {selected.status === "approved" && (
+                <span className="text-[11px] font-medium text-money">✓ Approved by client</span>
+              )}
               <div className="flex-1" />
               <button
                 onClick={() => removeEstimate(selected.id)}
@@ -205,6 +230,7 @@ export function ProjectEstimate({
                 Delete estimate
               </button>
             </div>
+            {sendError && <div className="mt-2 text-[12px] text-flag">{sendError}</div>}
 
             {suggestion && (
               <div className="mt-3 rounded-md border border-ai/40 bg-ai-soft p-3">

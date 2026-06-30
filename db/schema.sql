@@ -632,6 +632,12 @@ CREATE TABLE IF NOT EXISTS estimate_lines (
 );
 CREATE INDEX IF NOT EXISTS idx_estimate_lines_est ON estimate_lines(estimate_id, sort_order);
 
+-- Link an e-sign request back to the estimate it was generated from (B4), so
+-- signing/declining the request flips the estimate's status. Added here (after
+-- estimates exists) so the FK resolves on a fresh build.
+ALTER TABLE signature_requests
+  ADD COLUMN IF NOT EXISTS estimate_id bigint REFERENCES estimates(id) ON DELETE SET NULL;
+
 -- ─── Reminder log (scheduler idempotency) ──────────────────────────────────
 -- The daily cron (app/api/cron/reminders) claims a dedup_key per (item, window)
 -- before emitting a reminder, so each reminder window fires exactly once even

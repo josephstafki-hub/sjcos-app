@@ -8,8 +8,10 @@
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
-import { dollarsToCents } from "@/lib/cost-book-units";
+import { dollarsToCents, fmtUsd, unitLabel } from "@/lib/cost-book-units";
 import { getDefaultMarkup } from "@/lib/cost-book";
+import { getProjectSignerDefaults } from "@/lib/esign";
+import { emit } from "@/lib/notify";
 import { ai } from "@/lib/ai";
 import type { EstimateRail } from "@/lib/estimates";
 
@@ -110,6 +112,102 @@ export async function deleteEstimateLine(lineId: number, slug: string): Promise<
   );
   if (row) await recompute(Number(row.estimate_id));
   revalidatePath(`/projects/${slug}`);
+  return { ok: true };
+}
+
+/** Send an estimate to the client for e-signature approval (B4). Renders the
+ *  estimate to a signature_request (doc_type=estimate, linked via estimate_id),
+ *  marks the estimate 'sent'. When the client signs (lib/actions/esign), the
+ *  linked estimate flips to 'approved'. */
+export async function sendEstimate(slug: string, estimateId: number): Promise<Result> {
+  const user = await requireRole("owner");
+
+  const est = await queryOne<{
+    id: string;
+    title: string;
+    status: string;
+    subtotal: number;
+    markup_total: number;
+    total: number;
+    project_id: string;
+    project_name: string;
+  }>(
+    `SELECT e.id, e.title, e.status, e.subtotal, e.markup_total, e.total,
+            e.project_id, p.name AS project_name
+       FROM estimates e JOIN projects p ON p.id = e.project_id
+      WHERE e.id = $1 AND p.slug = $2`,
+    [estimateId, slug],
+  );
+  if (!est) return { ok: false, error: "Estimate not found." };
+  if (est.status === "sent") return { ok: false, error: "This estimate is already out for signature." };
+  if (est.status === "approved") return { ok: false, error: "This estimate is already approved." };
+
+  const { rows: lines } = await query<{
+    description: string;
+    section: string;
+    unit: string;
+    qty: string;
+    unit_cost: number;
+    markup: string;
+    extended: number;
+  }>(
+    `SELECT description, section, unit, qty, unit_cost, markup, extended
+       FROM estimate_lines WHERE estimate_id = $1 ORDER BY section, sort_order, id`,
+    [estimateId],
+  );
+  if (lines.length === 0) return { ok: false, error: "Add at least one line before sending." };
+
+  // Build the document body grouped by section.
+  const out: string[] = [`ESTIMATE — ${est.title}`, est.project_name, ""];
+  let currentSection = "";
+  for (const l of lines) {
+    if (l.section !== currentSection) {
+      currentSection = l.section;
+      out.push(`== ${currentSection} ==`);
+    }
+    out.push(
+      `  • ${l.description}: ${Number(l.qty)} ${unitLabel(l.unit)} × ${fmtUsd(l.unit_cost)} (+${Number(l.markup)}%) = ${fmtUsd(l.extended)}`,
+    );
+  }
+  out.push("");
+  out.push(`Subtotal (cost): ${fmtUsd(est.subtotal)}`);
+  out.push(`Overhead & profit: ${fmtUsd(est.markup_total)}`);
+  out.push(`TOTAL: ${fmtUsd(est.total)}`);
+  out.push("");
+  out.push("By signing, you approve this estimate and authorize SJ Carpentry LLC to proceed to contract.");
+  const body = out.join("\n");
+
+  const signer = await getProjectSignerDefaults(slug);
+
+  const ins = await queryOne<{ id: string }>(
+    `INSERT INTO signature_requests
+       (project_id, estimate_id, doc_type, title, body, status, signer_name, signer_email, created_by, sent_at)
+     VALUES ($1, $2, 'estimate', $3, $4, 'sent', $5, $6, $7, now())
+     RETURNING id`,
+    [est.project_id, estimateId, est.title, body, signer.name, signer.email, user.id],
+  );
+  const reqId = Number(ins!.id);
+
+  await query(
+    `INSERT INTO signature_events (request_id, kind, actor, detail)
+     VALUES ($1, 'created', $2, $3), ($1, 'sent', $2, $4)`,
+    [reqId, user.name || "Owner", est.title, `Sent to ${signer.name || signer.email || "client"}`],
+  );
+
+  await query(`UPDATE estimates SET status = 'sent', sent_at = now() WHERE id = $1`, [estimateId]);
+
+  await emit({
+    kind: "decision",
+    tag: "Signature",
+    icon: "mail",
+    accent: "ai",
+    title: `Estimate sent for approval: ${est.title}`,
+    subline: `${fmtUsd(est.total)} — awaiting client signature`,
+    href: `/projects/${slug}`,
+  });
+
+  revalidatePath(`/projects/${slug}`);
+  revalidatePath("/client-portal");
   return { ok: true };
 }
 

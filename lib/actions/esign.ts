@@ -126,8 +126,8 @@ async function portalProjectSlug(): Promise<string | null> {
 /** Verify a request belongs to the given project slug and is still awaiting
  *  signature. Returns the signer-facing title for messaging. */
 async function loadSignable(id: number, slug: string) {
-  return queryOne<{ title: string; status: string }>(
-    `SELECT sr.title, sr.status
+  return queryOne<{ title: string; status: string; estimate_id: string | null }>(
+    `SELECT sr.title, sr.status, sr.estimate_id
        FROM signature_requests sr
        JOIN projects p ON p.id = sr.project_id
       WHERE sr.id = $1 AND p.slug = $2`,
@@ -159,6 +159,14 @@ export async function signSignatureRequest(id: number, formData: FormData): Prom
     [id, signedName, meta.ip, meta.ua],
   );
   await logEvent(id, "signed", signedName, `Signed "${doc.title}" (consent given)`, meta);
+
+  // If this request was generated from an estimate, approve it.
+  if (doc.estimate_id) {
+    await query(
+      `UPDATE estimates SET status = 'approved', approved_at = now() WHERE id = $1`,
+      [doc.estimate_id],
+    );
+  }
 
   await emit({
     kind: "decision",
@@ -192,6 +200,11 @@ export async function declineSignatureRequest(id: number, formData: FormData): P
     [id, reason || "No reason given"],
   );
   await logEvent(id, "declined", doc.title, reason || "No reason given", meta);
+
+  // If generated from an estimate, mark it declined so the owner can revise.
+  if (doc.estimate_id) {
+    await query(`UPDATE estimates SET status = 'declined' WHERE id = $1`, [doc.estimate_id]);
+  }
 
   await emit({
     kind: "decision",

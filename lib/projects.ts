@@ -393,6 +393,10 @@ export interface AssignedSub {
   coiLabel: string;
   email: string | null;
   phone: string | null;
+  /** Scope of work + scheduled dates for this assignment (6-scope). */
+  scope: string;
+  startDate: string; // YYYY-MM-DD or ""
+  endDate: string; // YYYY-MM-DD or ""
 }
 
 /** A sub available to assign (not yet on the project). */
@@ -421,8 +425,14 @@ export async function getProjectSubsData(
     coi_status: AssignedSub["coiStatus"];
     email: string | null;
     phone: string | null;
+    scope_text: string;
+    start_date: string | null;
+    end_date: string | null;
   }>(
-    `SELECT s.slug, s.name, s.trade, ps.role_label, s.coi_status, s.email, s.phone
+    `SELECT s.slug, s.name, s.trade, ps.role_label, s.coi_status, s.email, s.phone,
+            ps.scope_text,
+            to_char(ps.start_date, 'YYYY-MM-DD') AS start_date,
+            to_char(ps.end_date,   'YYYY-MM-DD') AS end_date
        FROM project_subs ps
        JOIN subs s ON s.slug = ps.sub_slug
        JOIN projects p ON p.id = ps.project_id
@@ -451,6 +461,9 @@ export async function getProjectSubsData(
       coiLabel: COI_LABEL[r.coi_status] ?? r.coi_status,
       email: r.email,
       phone: r.phone,
+      scope: r.scope_text ?? "",
+      startDate: r.start_date ?? "",
+      endDate: r.end_date ?? "",
     })),
     roster: roster.rows,
   };

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Flag, Check, Image as ImageIcon, Phone, ArrowLeft } from "lucide-react";
 import { AckButton, Avatar, Card, Chip, Eyebrow } from "@/components/ui";
-import { getSubPortalData, getSubLogs, getSubInvoices } from "@/lib/sub-portal";
+import { getSubPortalData, getSubLogs, getSubInvoices, getSubAssignment } from "@/lib/sub-portal";
 import { requireRole } from "@/lib/dal";
 import { getSub } from "@/lib/subs";
 import { getPortalThread, portalChannel } from "@/lib/portal-messages";
@@ -32,10 +32,11 @@ export default async function SubPortalPage() {
   // replies in /chat).
   const thread = slug ? await getPortalThread(portalChannel("sub", slug)) : [];
 
-  // Real, DB-backed sub records: their daily logs + submitted invoices.
-  const [logs, subInvoices] = slug
-    ? await Promise.all([getSubLogs(slug), getSubInvoices(slug)])
-    : [[], []];
+  // Real, DB-backed sub records: their daily logs + submitted invoices + the
+  // owner-set scope & scheduled dates for their current assignment (6-scope).
+  const [logs, subInvoices, assignment] = slug
+    ? await Promise.all([getSubLogs(slug), getSubInvoices(slug), getSubAssignment(slug)])
+    : [[], [], null];
 
   return (
     <div className="flex h-screen flex-col bg-paper">
@@ -75,6 +76,29 @@ export default async function SubPortalPage() {
         <div className="mt-4 grid grid-cols-1 gap-3.5 lg:grid-cols-[1.4fr_1fr]">
           {/* left column */}
           <div className="flex flex-col gap-3">
+            {assignment && (assignment.scope || assignment.dateLabel) && (
+              <Card className="border-accent/40 p-3.5">
+                <div className="flex items-center justify-between">
+                  <h2 className="font-serif text-[15px] font-semibold text-ink">
+                    Your scope · {assignment.projectName}
+                  </h2>
+                  {assignment.dateLabel && (
+                    <Chip kind="accent" dot>
+                      {assignment.dateLabel}
+                    </Chip>
+                  )}
+                </div>
+                {assignment.role && (
+                  <div className="mt-0.5 text-[11px] text-ink-3">{assignment.role}</div>
+                )}
+                {assignment.scope && (
+                  <p className="mt-2 whitespace-pre-line text-[13px] leading-snug text-ink">
+                    {assignment.scope}
+                  </p>
+                )}
+              </Card>
+            )}
+
             <Card className="p-3.5">
               <h2 className="mb-2 font-serif text-[15px] font-semibold text-ink">
                 Scope today · per agreement

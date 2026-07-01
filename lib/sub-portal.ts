@@ -75,6 +75,44 @@ export interface SubInvoiceEntry {
   when: string;
 }
 
+/** The sub's real scope + scheduled dates on their current assignment (6-scope),
+ *  or null when unassigned. Read-only on the sub portal. */
+export interface SubAssignment {
+  projectName: string;
+  role: string;
+  scope: string;
+  dateLabel: string; // "" when no dates set
+}
+
+export async function getSubAssignment(subSlug: string): Promise<SubAssignment | null> {
+  const row = await queryOne<{
+    project_name: string;
+    role_label: string;
+    scope_text: string;
+    date_label: string | null;
+  }>(
+    `SELECT p.name AS project_name, ps.role_label, ps.scope_text,
+            CASE
+              WHEN ps.start_date IS NOT NULL AND ps.end_date IS NOT NULL
+                THEN to_char(ps.start_date, 'Mon FMDD') || ' – ' || to_char(ps.end_date, 'Mon FMDD')
+              WHEN ps.start_date IS NOT NULL THEN 'Starts ' || to_char(ps.start_date, 'Mon FMDD')
+              WHEN ps.end_date   IS NOT NULL THEN 'Due ' || to_char(ps.end_date, 'Mon FMDD')
+              ELSE NULL
+            END AS date_label
+       FROM project_subs ps JOIN projects p ON p.id = ps.project_id
+      WHERE ps.sub_slug = $1
+      ORDER BY ps.assigned_at DESC LIMIT 1`,
+    [subSlug],
+  );
+  if (!row) return null;
+  return {
+    projectName: row.project_name,
+    role: row.role_label,
+    scope: row.scope_text,
+    dateLabel: row.date_label ?? "",
+  };
+}
+
 /** The sub's current project (most recently assigned), or null when unassigned. */
 export async function getSubCurrentProject(
   subSlug: string,

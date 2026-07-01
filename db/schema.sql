@@ -490,6 +490,13 @@ CREATE TABLE IF NOT EXISTS project_subs (
 
 CREATE INDEX IF NOT EXISTS idx_project_subs_project ON project_subs(project_id);
 
+-- Sub scope + scheduled dates on the assignment (Phase-3 execution, 6-scope).
+-- The owner sets these on the project Subs tab; the sub sees them read-only on
+-- their portal.
+ALTER TABLE project_subs ADD COLUMN IF NOT EXISTS scope_text text NOT NULL DEFAULT '';
+ALTER TABLE project_subs ADD COLUMN IF NOT EXISTS start_date date;
+ALTER TABLE project_subs ADD COLUMN IF NOT EXISTS end_date   date;
+
 -- ─── Sub portal: daily logs + submitted invoices (Functional-audit item 6) ──
 -- A subcontractor logs their day (text + optional photo) and submits a final
 -- invoice from the sub portal; both notify Joe and scope to the sub's current

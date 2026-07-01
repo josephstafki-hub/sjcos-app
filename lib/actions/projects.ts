@@ -173,6 +173,28 @@ export async function assignSubToProject(slug: string, subSlug: string, role: st
   revalidatePath(`/projects/${slug}`);
 }
 
+/** Update a sub's scope of work + scheduled dates on a project (6-scope).
+ *  Owner-gated. Empty date strings clear the date. */
+export async function updateSubAssignment(
+  slug: string,
+  subSlug: string,
+  input: { scope: string; start: string; end: string },
+) {
+  await requireRole("owner");
+  const proj = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [slug]);
+  if (!proj) return;
+  await query(
+    `UPDATE project_subs
+        SET scope_text = $3,
+            start_date = NULLIF($4, '')::date,
+            end_date   = NULLIF($5, '')::date
+      WHERE project_id = $1 AND sub_slug = $2`,
+    [proj.id, subSlug, input.scope.trim(), input.start.trim(), input.end.trim()],
+  );
+  revalidatePath(`/projects/${slug}`);
+  revalidatePath("/sub-portal");
+}
+
 /** Remove a sub from a project. Owner-gated. */
 export async function removeSubFromProject(slug: string, subSlug: string) {
   await requireRole("owner");

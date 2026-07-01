@@ -665,6 +665,15 @@ CREATE TABLE IF NOT EXISTS marketing_drafts (
 );
 CREATE INDEX IF NOT EXISTS idx_marketing_drafts ON marketing_drafts(created_at DESC);
 
+-- Manual inbox ↔ record links (Phase-6 P6-3). Pins a Gmail thread to a project
+-- or lead; the inbox classifier prefers this over the email/domain guess.
+CREATE TABLE IF NOT EXISTS thread_links (
+  gmail_thread_id text PRIMARY KEY,
+  link_type       text NOT NULL CHECK (link_type IN ('project','lead')),
+  link_slug       text NOT NULL,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_invoices_project     ON invoices(project_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_selections_project   ON project_selections(project_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_mood_project         ON project_mood(project_id, room, sort_order);

@@ -81,6 +81,9 @@ export interface InboxThread {
   projectSlug?: string;
   /** Linked project display name. */
   projectLabel?: string;
+  /** Manual link (P6-3): the record this thread is pinned to, if any. */
+  linkedType?: "project" | "lead";
+  linkedSlug?: string;
 }
 
 /** Audience axis for the All/Clients/Subs/Money chip filters. A thread's
@@ -249,6 +252,8 @@ export interface InboxData {
   selectedId: string;
   /** Gmail page token for loading the next batch (undefined = no more). */
   nextPageToken?: string;
+  /** Records the owner can manually link a thread to (P6-3). */
+  linkOptions?: { projects: { slug: string; name: string }[]; leads: { slug: string; name: string }[] };
 }
 
 /** Count threads per smart view from the live list. */
@@ -474,15 +479,22 @@ function extractEmail(raw: string): string {
   return (m ? m[0] : "").toLowerCase();
 }
 
+interface ManualLink {
+  type: "project" | "lead";
+  slug: string;
+  projectSlug?: string; // set for project links → drives the by-project rail
+  label: string;
+}
 interface ContactMaps {
   byEmail: Map<string, Audience>;
   subDomains: Set<string>;
   projectByEmail: Map<string, { slug: string; label: string }>;
+  linkByThread: Map<string, ManualLink>;
 }
 
 /** Load the contact index from Postgres once per inbox build. */
 async function loadContactMaps(): Promise<ContactMaps> {
-  const [contacts, links] = await Promise.all([
+  const [contacts, links, threadLinks] = await Promise.all([
     query<ContactRow>(
       `SELECT lower(email) AS email, name, slug, 'client' AS kind
          FROM leads WHERE email IS NOT NULL AND email <> ''
@@ -494,6 +506,14 @@ async function loadContactMaps(): Promise<ContactMaps> {
       `SELECT lower(l.email) AS email, p.slug AS project_slug, p.name AS project_label
          FROM projects p JOIN leads l ON p.lead_id = l.id
         WHERE l.email IS NOT NULL AND l.email <> ''`,
+    ),
+    query<{ thread_id: string; link_type: "project" | "lead"; link_slug: string; label: string; project_slug: string | null }>(
+      `SELECT tl.gmail_thread_id AS thread_id, tl.link_type, tl.link_slug,
+              COALESCE(p.name, l.name, tl.link_slug) AS label,
+              p.slug AS project_slug
+         FROM thread_links tl
+         LEFT JOIN projects p ON tl.link_type = 'project' AND p.slug = tl.link_slug
+         LEFT JOIN leads    l ON tl.link_type = 'lead'    AND l.slug = tl.link_slug`,
     ),
   ]);
 
@@ -515,14 +535,44 @@ async function loadContactMaps(): Promise<ContactMaps> {
     projectByEmail.set(p.email, { slug: p.project_slug, label: p.project_label });
   }
 
-  return { byEmail, subDomains, projectByEmail };
+  const linkByThread = new Map<string, ManualLink>();
+  for (const t of threadLinks.rows) {
+    linkByThread.set(t.thread_id, {
+      type: t.link_type,
+      slug: t.link_slug,
+      projectSlug: t.link_type === "project" ? t.project_slug ?? t.link_slug : undefined,
+      label: t.label,
+    });
+  }
+
+  return { byEmail, subDomains, projectByEmail, linkByThread };
 }
 
-/** Classify one thread's counterparty into an audience + optional project. */
+/** Classify one thread's counterparty into an audience + optional project. A
+ *  manual link (P6-3) wins over the email/domain guess. */
 function classifyThread(
   r: RawGmailThread,
   maps: ContactMaps,
-): { audience?: Audience; projectSlug?: string; projectLabel?: string } {
+): {
+  audience?: Audience;
+  projectSlug?: string;
+  projectLabel?: string;
+  linkedType?: "project" | "lead";
+  linkedSlug?: string;
+} {
+  // Manual link takes precedence — a linked thread is always a client thread,
+  // and a project link drives the by-project rail.
+  const manual = maps.linkByThread.get(r.id);
+  if (manual) {
+    return {
+      audience: "client",
+      projectSlug: manual.projectSlug,
+      projectLabel: manual.label,
+      linkedType: manual.type,
+      linkedSlug: manual.slug,
+    };
+  }
+
   // For outbound mail the counterparty is the recipient, not the owner.
   const email = r.outbound ? extractEmail(r.toLine) : r.fromEmail.toLowerCase();
   const domain = domainOf(email);
@@ -554,6 +604,8 @@ function mapRawThreads(
     threads[i].audience = c.audience;
     threads[i].projectSlug = c.projectSlug;
     threads[i].projectLabel = c.projectLabel;
+    threads[i].linkedType = c.linkedType;
+    threads[i].linkedSlug = c.linkedSlug;
     // A resolved project becomes the row's tag chip (else the generic "Email").
     if (c.projectLabel) threads[i].tag = c.projectLabel;
   });
@@ -611,11 +663,21 @@ export async function loadLabelInbox(
   };
 }
 
+/** Records the owner can manually link a thread to (P6-3). */
+async function getLinkOptions(): Promise<InboxData["linkOptions"]> {
+  const [projects, leads] = await Promise.all([
+    query<{ slug: string; name: string }>(`SELECT slug, name FROM projects ORDER BY updated_at DESC`),
+    query<{ slug: string; name: string }>(`SELECT slug, name FROM leads ORDER BY created_at DESC`),
+  ]);
+  return { projects: projects.rows, leads: leads.rows };
+}
+
 async function buildFromGmail(): Promise<InboxData> {
-  const [page, labels, contactMaps] = await Promise.all([
+  const [page, labels, contactMaps, linkOptions] = await Promise.all([
     fetchThreadPage(INBOX_PAGE),
     fetchLabels(),
     loadContactMaps(),
+    getLinkOptions(),
   ]);
   const labelMap = new Map(labels.map((l) => [l.id, l.name]));
   const { threads, readerEntries } = mapRawThreads(page.threads, labelMap, contactMaps);
@@ -674,6 +736,7 @@ async function buildFromGmail(): Promise<InboxData> {
     readers: Object.fromEntries(readerEntries),
     selectedId: firstInDefault?.id ?? "",
     nextPageToken: page.nextPageToken,
+    linkOptions,
   };
 }
 

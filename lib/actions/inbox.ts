@@ -17,6 +17,36 @@ import {
 } from "@/lib/gmail";
 import { draftReplyForThread, loadMoreInbox, loadLabelInbox } from "@/lib/inbox";
 import type { InboxThread, ThreadReader } from "@/lib/inbox";
+import { query } from "@/lib/db";
+
+/** Manually link a Gmail thread to a project or lead (P6-3). Upserts so
+ *  re-linking just re-points it. Owner-gated. */
+export async function linkThread(
+  threadId: string,
+  type: "project" | "lead",
+  slug: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireRole("owner");
+  if (!threadId || !slug || (type !== "project" && type !== "lead")) {
+    return { ok: false, error: "Invalid link." };
+  }
+  await query(
+    `INSERT INTO thread_links (gmail_thread_id, link_type, link_slug)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (gmail_thread_id) DO UPDATE SET link_type = EXCLUDED.link_type, link_slug = EXCLUDED.link_slug`,
+    [threadId, type, slug],
+  );
+  revalidatePath("/inbox");
+  return { ok: true };
+}
+
+/** Remove a manual thread link (falls back to auto-classification). Owner-gated. */
+export async function unlinkThread(threadId: string): Promise<{ ok: boolean; error?: string }> {
+  await requireRole("owner");
+  await query(`DELETE FROM thread_links WHERE gmail_thread_id = $1`, [threadId]);
+  revalidatePath("/inbox");
+  return { ok: true };
+}
 
 type ActionResult = { ok: boolean; error?: string };
 

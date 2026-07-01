@@ -37,6 +37,8 @@ import {
   trashThreadAction,
   loadMoreInboxAction,
   loadLabelInboxAction,
+  linkThread,
+  unlinkThread,
 } from "@/lib/actions/inbox";
 import type { ThreadChannel, ThreadStatus } from "@/lib/types";
 import type { Audience, InboxData, InboxThread, ThreadReader } from "@/lib/inbox";
@@ -193,6 +195,44 @@ export function InboxClient({
   const selected =
     visible.find((t) => t.id === selectedId) ?? visible[0] ?? null;
   const reader = selected ? readers[selected.id] : undefined;
+
+  const linkOptions = data.linkOptions;
+  const currentLink =
+    selected?.linkedType && selected?.linkedSlug ? `${selected.linkedType}:${selected.linkedSlug}` : "";
+
+  // Manually (re)link the open thread to a project/lead, optimistically (P6-3).
+  function relink(next: string) {
+    if (!selected) return;
+    const id = selected.id;
+    if (!next) {
+      setThreads((ts) =>
+        ts.map((t) =>
+          t.id === id ? { ...t, linkedType: undefined, linkedSlug: undefined, projectSlug: undefined, projectLabel: undefined } : t,
+        ),
+      );
+      startTransition(async () => { await unlinkThread(id); });
+      return;
+    }
+    const [type, slug] = next.split(":") as ["project" | "lead", string];
+    const label =
+      (type === "project" ? linkOptions?.projects : linkOptions?.leads)?.find((o) => o.slug === slug)?.name ?? slug;
+    setThreads((ts) =>
+      ts.map((t) =>
+        t.id === id
+          ? {
+              ...t,
+              linkedType: type,
+              linkedSlug: slug,
+              audience: "client",
+              projectSlug: type === "project" ? slug : undefined,
+              projectLabel: label,
+              tag: label,
+            }
+          : t,
+      ),
+    );
+    startTransition(async () => { await linkThread(id, type, slug); });
+  }
 
   // Open a label: fetch its mail server-side (scoped to that Gmail label) with
   // its own pagination. Re-clicking the open label is a no-op (cache stays).
@@ -620,6 +660,35 @@ export function InboxClient({
                 <ArrowRight className="size-3 text-ink-3" strokeWidth={1.5} />
                 <span className="text-[12px] text-ink-3">{reader.messages[0].to}</span>
               </div>
+
+              {linkOptions && (
+                <div className="mt-2 flex items-center gap-1.5">
+                  <Tag className="size-3 flex-none text-ink-3" strokeWidth={1.75} />
+                  <span className="text-[11px] text-ink-3">Linked to</span>
+                  <select
+                    value={currentLink}
+                    onChange={(e) => relink(e.target.value)}
+                    className="max-w-[220px] rounded border border-rule bg-card px-1.5 py-0.5 text-[11px] text-ink-2 outline-none focus:border-accent"
+                  >
+                    <option value="">— not linked —</option>
+                    {linkOptions.projects.length > 0 && (
+                      <optgroup label="Projects">
+                        {linkOptions.projects.map((p) => (
+                          <option key={`project:${p.slug}`} value={`project:${p.slug}`}>{p.name}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {linkOptions.leads.length > 0 && (
+                      <optgroup label="Leads">
+                        {linkOptions.leads.map((l) => (
+                          <option key={`lead:${l.slug}`} value={`lead:${l.slug}`}>{l.name}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                  {selected?.linkedType && <Chip kind="accent" dot>linked</Chip>}
+                </div>
+              )}
             </div>
 
             {notice && (

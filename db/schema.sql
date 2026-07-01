@@ -256,6 +256,46 @@ CREATE TABLE IF NOT EXISTS schedule_blocks (
 ALTER TABLE schedule_blocks
   ADD COLUMN IF NOT EXISTS project_id uuid REFERENCES projects(id) ON DELETE SET NULL;
 
+-- ─── Schedule templates (Phase-3 execution, 7-sched) ───────────────────────
+-- A reusable phase template expanded into project schedule_blocks on demand.
+-- offset_days/duration_days count WEEKDAYS from the chosen project start date.
+CREATE TABLE IF NOT EXISTS schedule_templates (
+  id         bigserial PRIMARY KEY,
+  name       text NOT NULL UNIQUE,
+  archived   boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS schedule_template_phases (
+  id            bigserial PRIMARY KEY,
+  template_id   bigint NOT NULL REFERENCES schedule_templates(id) ON DELETE CASCADE,
+  label         text NOT NULL,
+  tone          text NOT NULL DEFAULT 'ghost' CHECK (tone IN ('accent','ai','ghost')),
+  offset_days   integer NOT NULL DEFAULT 0,   -- weekdays from project start
+  duration_days integer NOT NULL DEFAULT 1,   -- weekdays
+  sort_order    integer NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_sched_tmpl_phases ON schedule_template_phases(template_id, sort_order);
+
+-- Seed a default "Standard remodel" template (idempotent by unique name).
+INSERT INTO schedule_templates (name) VALUES ('Standard remodel')
+  ON CONFLICT (name) DO NOTHING;
+INSERT INTO schedule_template_phases (template_id, label, tone, offset_days, duration_days, sort_order)
+SELECT t.id, v.label, v.tone, v.offset_days, v.duration_days, v.sort_order
+  FROM schedule_templates t
+  JOIN (VALUES
+    ('Demolition',              'accent', 0,  3, 0),
+    ('Rough framing',           'ghost',  3,  5, 1),
+    ('MEP rough-in',            'ghost',  8,  5, 2),
+    ('Inspections',             'ai',     13, 1, 3),
+    ('Insulation & drywall',    'accent', 14, 6, 4),
+    ('Finish carpentry',        'ghost',  20, 6, 5),
+    ('Paint',                   'ghost',  26, 4, 6),
+    ('Flooring & tile',         'accent', 30, 5, 7),
+    ('Fixtures & final punch',  'ai',     35, 4, 8)
+  ) AS v(label, tone, offset_days, duration_days, sort_order) ON true
+ WHERE t.name = 'Standard remodel'
+   AND NOT EXISTS (SELECT 1 FROM schedule_template_phases p WHERE p.template_id = t.id);
+
 CREATE TABLE IF NOT EXISTS daily_logs (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   log_date    date NOT NULL UNIQUE,

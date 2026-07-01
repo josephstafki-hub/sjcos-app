@@ -27,7 +27,7 @@ import { ProjectEstimate } from "@/components/projects/ProjectEstimate";
 import { getProjectEstimates } from "@/lib/estimates";
 import { getCostBook } from "@/lib/cost-book";
 import { getPortalThread, portalChannel } from "@/lib/portal-messages";
-import { getProjectScheduleBlocks } from "@/lib/schedule";
+import { getProjectScheduleBlocks, getScheduleTemplates } from "@/lib/schedule";
 import { getProjectMoney, usd } from "@/lib/money";
 import { getProjectSelections } from "@/lib/selections";
 import { getProjectMood } from "@/lib/mood";
@@ -68,7 +68,10 @@ export default async function ProjectDetailPage({
     getProjectFiles(slug),
   ]);
   const commsThread = await getPortalThread(portalChannel("client", slug));
-  const scheduleBlocks = await getProjectScheduleBlocks(slug);
+  const [scheduleBlocks, scheduleTemplates] = await Promise.all([
+    getProjectScheduleBlocks(slug),
+    getScheduleTemplates(),
+  ]);
   const subsData = await getProjectSubsData(slug);
   const dailyLogs = await getProjectDailyLogs(slug);
   const [signatureRequests, signerDefaults, estimates, costBook, changeOrders] = await Promise.all([
@@ -297,7 +300,7 @@ export default async function ProjectDetailPage({
   // ── Schedule panel — real project-scoped blocks (add/remove) + milestones ──
   const schedulePanel = (
     <div className="flex max-w-[680px] flex-col gap-3.5">
-      <ProjectSchedule slug={slug} blocks={scheduleBlocks} />
+      <ProjectSchedule slug={slug} blocks={scheduleBlocks} templates={scheduleTemplates} />
       {project.milestones.length > 0 && (
         <Card className="p-3.5">
           <h3 className="mb-2 font-serif text-[16px] font-semibold text-ink">Milestones</h3>

@@ -228,6 +228,26 @@ export async function getProjectScheduleBlocks(slug: string): Promise<ProjectSch
   }));
 }
 
+/** Available (non-archived) schedule templates for the "Generate schedule"
+ *  picker (7-sched), with a phase count for the label. */
+export interface ScheduleTemplateOption {
+  id: number;
+  name: string;
+  phases: number;
+}
+
+export async function getScheduleTemplates(): Promise<ScheduleTemplateOption[]> {
+  const { rows } = await query<{ id: number; name: string; phases: number }>(
+    `SELECT t.id, t.name, count(p.id)::int AS phases
+       FROM schedule_templates t
+       LEFT JOIN schedule_template_phases p ON p.template_id = t.id
+      WHERE t.archived = false
+      GROUP BY t.id, t.name
+      ORDER BY t.name`,
+  );
+  return rows;
+}
+
 /** The AI scheduling-conflict note, streamed separately (see AiStream) so the
  *  week view paints before the model responds. */
 export async function getScheduleConflict(): Promise<string> {

@@ -80,7 +80,31 @@ export function NewLeadButton() {
                   </span>
                   <input
                     name="source"
-                    placeholder="Site form"
+                    placeholder="Referral / Site form"
+                    className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+                  />
+                </label>
+              </div>
+
+              <div className="flex gap-3">
+                <label className="flex flex-1 flex-col gap-1">
+                  <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+                    Referred by
+                  </span>
+                  <input
+                    name="referrer_name"
+                    placeholder="Referrer name"
+                    className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+                  />
+                </label>
+                <label className="flex flex-1 flex-col gap-1">
+                  <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+                    Referrer email
+                  </span>
+                  <input
+                    name="referrer_email"
+                    type="email"
+                    placeholder="thanks auto-sent"
                     className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
                   />
                 </label>

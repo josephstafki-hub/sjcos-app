@@ -41,6 +41,60 @@ async function uniqueSlug(name: string): Promise<string> {
   }
 }
 
+/** Looks like a referral source, e.g. "Referral", "referred by Dana". */
+function isReferralSource(source: string): boolean {
+  return /referr/i.test(source);
+}
+
+/** Send a thank-you email to a lead's referrer, stamp referrer_thanked_at once,
+ *  and log it. Best-effort + idempotent (guarded on referrer_thanked_at IS NULL).
+ *  The narrative is Qwen-drafted with a deterministic fallback. Returns true if
+ *  a thank-you was actually sent. */
+async function deliverReferralThanks(lead: {
+  slug: string;
+  name: string;
+  scope: string;
+  referrerName: string | null;
+  referrerEmail: string | null;
+}): Promise<boolean> {
+  const email = (lead.referrerEmail ?? "").trim();
+  if (!email) return false;
+  // Only thank once.
+  const claim = await query(
+    `UPDATE leads SET referrer_thanked_at = now() WHERE slug = $1 AND referrer_thanked_at IS NULL`,
+    [lead.slug],
+  );
+  if ((claim.rowCount ?? 0) === 0) return false;
+
+  const first = (lead.referrerName ?? "").trim().split(/\s+/)[0] || "there";
+  let body = "";
+  try {
+    const res = await ai.ask({
+      prompt:
+        `Write a short, warm thank-you email (3–4 sentences) to ${lead.referrerName || "a friend"} who ` +
+        `referred a potential client${lead.scope ? ` (${lead.scope})` : ""} to SJ Carpentry LLC. Grateful and ` +
+        `professional, not salesy. Sign off from Joe.`,
+    });
+    body = (res.answer ?? "").trim();
+  } catch {
+    body = "";
+  }
+  if (!body) {
+    body =
+      `Hi ${first},\n\nThank you so much for referring ${lead.name} to SJ Carpentry — it means a lot that ` +
+      `you thought of us. We'll take great care of them.\n\nGratefully,\nJoe\nSJ Carpentry LLC`;
+  }
+
+  const res = await sendNewEmailAction({ to: email, subject: "Thank you for the referral", body });
+  if (!res.ok) {
+    // Roll back the stamp so a later retry can send.
+    await query(`UPDATE leads SET referrer_thanked_at = NULL WHERE slug = $1`, [lead.slug]);
+    return false;
+  }
+  await logLeadActivity(lead.slug, "email", `Thank-you sent to referrer ${lead.referrerName || email}`);
+  return true;
+}
+
 /** Create a lead from the "New lead" form, then open its detail page. */
 export async function createLead(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
@@ -48,12 +102,14 @@ export async function createLead(formData: FormData) {
   const scope = String(formData.get("scope") ?? "").trim();
   const valueDisplay = String(formData.get("value") ?? "").trim() || null;
   const source = String(formData.get("source") ?? "").trim() || "Manual entry";
+  const referrerName = String(formData.get("referrer_name") ?? "").trim() || null;
+  const referrerEmail = String(formData.get("referrer_email") ?? "").trim() || null;
 
   const slug = await uniqueSlug(name);
   await query(
-    `INSERT INTO leads (slug, name, scope, value_display, source, stage, last_contact_at)
-     VALUES ($1, $2, $3, $4, $5, 'intake', now())`,
-    [slug, name, scope, valueDisplay, source],
+    `INSERT INTO leads (slug, name, scope, value_display, source, referrer_name, referrer_email, stage, last_contact_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 'intake', now())`,
+    [slug, name, scope, valueDisplay, source, referrerName, referrerEmail],
   );
   await logLeadActivity(slug, "created", `Lead created · ${source}`);
   await emit({
@@ -66,9 +122,44 @@ export async function createLead(formData: FormData) {
     href: `/leads/${slug}`,
   });
 
+  // Auto-thank the referrer on a genuine referral with an email on file.
+  if (referrerEmail && isReferralSource(source)) {
+    try {
+      await deliverReferralThanks({ slug, name, scope, referrerName, referrerEmail });
+    } catch {
+      /* never block lead creation on the thank-you */
+    }
+  }
+
   revalidatePath("/leads");
   revalidatePath("/notifications");
   redirect(`/leads/${slug}`);
+}
+
+/** Owner: manually (re)send a referral thank-you for a lead. */
+export async function sendReferralThankYou(slug: string): Promise<{ ok: boolean; error?: string }> {
+  await requireRole("owner");
+  const lead = await queryOne<{
+    slug: string;
+    name: string;
+    scope: string;
+    referrer_name: string | null;
+    referrer_email: string | null;
+  }>(
+    `SELECT slug, name, scope, referrer_name, referrer_email FROM leads WHERE slug = $1`,
+    [slug],
+  );
+  if (!lead) return { ok: false, error: "Lead not found." };
+  if (!lead.referrer_email) return { ok: false, error: "No referrer email on file." };
+  const sent = await deliverReferralThanks({
+    slug: lead.slug,
+    name: lead.name,
+    scope: lead.scope,
+    referrerName: lead.referrer_name,
+    referrerEmail: lead.referrer_email,
+  });
+  revalidatePath(`/leads/${slug}`);
+  return sent ? { ok: true } : { ok: false, error: "Already thanked, or the email couldn't be sent." };
 }
 
 /** Advance a lead to the next pipeline stage. No-op at the final stage. */

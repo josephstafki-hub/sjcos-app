@@ -28,6 +28,11 @@ CREATE TABLE IF NOT EXISTS leads (
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now()
 );
+-- Referral tracking (Phase-6 P6-1): who referred this lead + when they were
+-- thanked (a referral lead with a referrer email auto-sends a thank-you once).
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS referrer_name       text;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS referrer_email      text;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS referrer_thanked_at timestamptz;
 
 -- Lead pipeline migrated (round 3) to: intake → qualified → discovery_call →
 -- rough_estimate → precon_signed. Re-point the CHECK on existing DBs. NOT VALID

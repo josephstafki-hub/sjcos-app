@@ -72,13 +72,17 @@ interface LeadRow {
   email: string | null;
   phone: string | null;
   age_days: number;
+  referrer_name: string | null;
+  referrer_email: string | null;
+  referrer_thanked: boolean;
 }
 
 const LEAD_SELECT = `
   SELECT slug, name, scope, stage,
          COALESCE(value_display, '?') AS value,
          hot, flag_label, flag_kind, estimate_value, email, phone,
-         GREATEST(0, (CURRENT_DATE - last_contact_at::date))::int AS age_days
+         GREATEST(0, (CURRENT_DATE - last_contact_at::date))::int AS age_days,
+         referrer_name, referrer_email, (referrer_thanked_at IS NOT NULL) AS referrer_thanked
   FROM leads`;
 
 /** Initials from a display name: first + last alphabetic word. */
@@ -131,6 +135,10 @@ export interface LeadDetail {
   /** Contact details for the Call/Email actions; null when unknown. */
   email: string | null;
   phone: string | null;
+  /** Referral (P6-1): who referred this lead + whether they've been thanked. */
+  referrerName: string | null;
+  referrerEmail: string | null;
+  referrerThanked: boolean;
   loggedLabel: string;
   ageDays: number;
   hot: boolean;
@@ -320,6 +328,9 @@ export async function getLead(slug: string): Promise<LeadDetail | null> {
     source: curated.source ?? "Manual entry",
     email: row.email,
     phone: row.phone,
+    referrerName: row.referrer_name,
+    referrerEmail: row.referrer_email,
+    referrerThanked: row.referrer_thanked,
     loggedLabel: curated.loggedLabel ?? `Logged ${item.ageDays} days ago`,
     triageInput,
     intake,

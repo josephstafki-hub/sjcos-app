@@ -13,6 +13,7 @@ import type { TriageInput } from "@/lib/ai";
 import { advanceLeadStage, convertLeadToProject } from "@/lib/actions/leads";
 import { DeleteLeadButton } from "@/components/leads/DeleteLeadButton";
 import { LeadContact } from "@/components/leads/LeadContact";
+import { ThankReferrerButton } from "@/components/leads/ThankReferrerButton";
 import { LeadPhotos } from "@/components/leads/LeadPhotos";
 import { LeadIntake } from "@/components/leads/LeadIntake";
 import { LeadEstimate } from "@/components/leads/LeadEstimate";
@@ -159,6 +160,13 @@ export default async function LeadDetailPage({
             ))}
           </div>
         </Card>
+
+        <ThankReferrerButton
+          slug={lead.slug}
+          referrerName={lead.referrerName}
+          referrerEmail={lead.referrerEmail}
+          thanked={lead.referrerThanked}
+        />
 
         <LeadPhotos slug={lead.slug} photos={lead.photos} placeholderCount={lead.photosCount} />
       </div>

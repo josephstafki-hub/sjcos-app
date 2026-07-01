@@ -523,6 +523,21 @@ CREATE TABLE IF NOT EXISTS sub_invoices (
 );
 CREATE INDEX IF NOT EXISTS idx_sub_invoices_sub ON sub_invoices(sub_slug, created_at DESC);
 
+-- Sub compliance documents (Phase-3 execution, 6-docs). W-9 / COI / signed
+-- agreement uploaded from the sub portal (or by the owner). A COI upload with an
+-- expiry date also updates subs.coi_expires_at, which the reminder engine
+-- (lib/reminders.ts) already watches for 30/15/5-day expiry alerts.
+CREATE TABLE IF NOT EXISTS sub_documents (
+  id          bigserial PRIMARY KEY,
+  sub_slug    text NOT NULL REFERENCES subs(slug) ON DELETE CASCADE,
+  doc_type    text NOT NULL DEFAULT 'other'
+                CHECK (doc_type IN ('w9','coi','agreement','other')),
+  file_id     text REFERENCES files(id) ON DELETE SET NULL,
+  expires_at  date,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_sub_documents_sub ON sub_documents(sub_slug, created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_invoices_project     ON invoices(project_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_selections_project   ON project_selections(project_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_mood_project         ON project_mood(project_id, room, sort_order);

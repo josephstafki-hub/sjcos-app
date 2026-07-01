@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { Flag, Check, Image as ImageIcon, Phone, ArrowLeft } from "lucide-react";
+import { Flag, Image as ImageIcon, Phone, ArrowLeft } from "lucide-react";
 import { AckButton, Avatar, Card, Chip, Eyebrow } from "@/components/ui";
-import { getSubPortalData, getSubLogs, getSubInvoices, getSubAssignment } from "@/lib/sub-portal";
+import { getSubPortalData, getSubLogs, getSubInvoices, getSubAssignment, getSubDocuments } from "@/lib/sub-portal";
+import { SubDocs } from "@/components/sub-portal/SubDocs";
 import { requireRole } from "@/lib/dal";
 import { getSub } from "@/lib/subs";
 import { getPortalThread, portalChannel } from "@/lib/portal-messages";
@@ -34,9 +35,9 @@ export default async function SubPortalPage() {
 
   // Real, DB-backed sub records: their daily logs + submitted invoices + the
   // owner-set scope & scheduled dates for their current assignment (6-scope).
-  const [logs, subInvoices, assignment] = slug
-    ? await Promise.all([getSubLogs(slug), getSubInvoices(slug), getSubAssignment(slug)])
-    : [[], [], null];
+  const [logs, subInvoices, assignment, subDocs] = slug
+    ? await Promise.all([getSubLogs(slug), getSubInvoices(slug), getSubAssignment(slug), getSubDocuments(slug)])
+    : [[], [], null, []];
 
   return (
     <div className="flex h-screen flex-col bg-paper">
@@ -203,15 +204,7 @@ export default async function SubPortalPage() {
             </Card>
 
             <Card className="p-3">
-              <Eyebrow muted>Paperwork</Eyebrow>
-              <div className="mt-2 flex flex-col gap-1.5">
-                {data.paperwork.map((p) => (
-                  <div key={p} className="flex items-center gap-1.5">
-                    <Check className="size-3 flex-none text-money" strokeWidth={2} />
-                    <span className="text-[12px] text-ink-2">{p}</span>
-                  </div>
-                ))}
-              </div>
+              <SubDocs slug={slug ?? ""} docs={subDocs} />
             </Card>
 
             <Card className="p-3">

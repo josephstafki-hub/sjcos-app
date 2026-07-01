@@ -8,7 +8,7 @@ import { SubTabs } from "@/components/subs/SubTabs";
 import { SubNotes } from "@/components/subs/SubNotes";
 import { getSub, getSubSummary } from "@/lib/subs";
 import type { JobDot } from "@/lib/subs";
-import { getSubLogs, getSubInvoices } from "@/lib/sub-portal";
+import { getSubLogs, getSubInvoices, getSubDocuments } from "@/lib/sub-portal";
 
 const usd = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
 const SUB_INVOICE_CHIP = { submitted: "info", approved: "accent", paid: "money" } as const;
@@ -29,7 +29,11 @@ export default async function SubDetailPage({
   if (!sub) notFound();
 
   // Real records the sub posted from their portal (logs + submitted invoices).
-  const [subLogs, subInvoices] = await Promise.all([getSubLogs(slug), getSubInvoices(slug)]);
+  const [subLogs, subInvoices, subDocs] = await Promise.all([
+    getSubLogs(slug),
+    getSubInvoices(slug),
+    getSubDocuments(slug),
+  ]);
 
   const overview = (
     <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[1fr_1fr_320px]">
@@ -182,22 +186,50 @@ export default async function SubDetailPage({
     </div>
   );
 
-  // ── Paperwork panel — compliance checklist ─────────────────────────────────
+  // ── Paperwork panel — compliance checklist + real uploaded documents ────────
   const paperworkPanel = (
-    <Card className="max-w-[520px] p-3.5">
-      <Eyebrow muted>Paperwork on file</Eyebrow>
-      <div className="mt-2.5 flex flex-col gap-2">
-        {sub.paperwork.map((p) => (
-          <div key={p.label} className="flex items-center gap-2 border-t border-rule-soft pt-2 first:border-t-0 first:pt-0">
-            <Check className={`size-3.5 flex-none ${p.ok ? "text-money" : "text-ink-4"}`} strokeWidth={2} />
-            <span className="flex-1 text-[13px] text-ink">{p.label}</span>
-            <span className={`font-mono text-[11px] ${p.ok ? "text-ink-3" : "text-flag"}`}>
-              {p.ok ? p.value : `${p.value} · needed`}
-            </span>
+    <div className="flex max-w-[520px] flex-col gap-3.5">
+      <Card className="p-3.5">
+        <Eyebrow muted>Paperwork on file</Eyebrow>
+        <div className="mt-2.5 flex flex-col gap-2">
+          {sub.paperwork.map((p) => (
+            <div key={p.label} className="flex items-center gap-2 border-t border-rule-soft pt-2 first:border-t-0 first:pt-0">
+              <Check className={`size-3.5 flex-none ${p.ok ? "text-money" : "text-ink-4"}`} strokeWidth={2} />
+              <span className="flex-1 text-[13px] text-ink">{p.label}</span>
+              <span className={`font-mono text-[11px] ${p.ok ? "text-ink-3" : "text-flag"}`}>
+                {p.ok ? p.value : `${p.value} · needed`}
+              </span>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {subDocs.length > 0 && (
+        <Card className="p-3.5">
+          <Eyebrow muted>Uploaded documents · from the portal</Eyebrow>
+          <div className="mt-2.5 flex flex-col gap-2">
+            {subDocs.map((d) => (
+              <div key={d.id} className="flex items-center gap-2 border-t border-rule-soft pt-2 first:border-t-0 first:pt-0">
+                <span className="flex-1 text-[13px] text-ink">{d.docLabel}</span>
+                {d.expiresLabel && <Chip kind="ghost">exp {d.expiresLabel}</Chip>}
+                {d.fileId ? (
+                  <a
+                    href={`/api/files/${d.fileId}`}
+                    target="_blank"
+                    rel="noopener"
+                    className="font-mono text-[11px] font-semibold text-accent-2 hover:underline"
+                  >
+                    Open
+                  </a>
+                ) : (
+                  <span className="font-mono text-[11px] text-ink-3">{d.when}</span>
+                )}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-    </Card>
+        </Card>
+      )}
+    </div>
   );
 
   // ── Pricing panel — rate card + 1099 note ──────────────────────────────────

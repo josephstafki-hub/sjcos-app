@@ -3,6 +3,10 @@
 // submitted invoices (Functional-audit item 6) are real, DB-backed.
 
 import { query, queryOne } from "./db";
+import { SUB_DOC_LABEL, type SubDocType } from "./sub-doc-types";
+
+export { SUB_DOC_LABEL };
+export type { SubDocType };
 
 export interface SubPortalData {
   subName: string;
@@ -52,6 +56,43 @@ export async function getSubPortalData(): Promise<SubPortalData> {
     paperwork: ["COI · expires Aug 14", "W-9 on file", "Sub agreement signed"],
     joePhone: "(612) 555-0117",
   };
+}
+
+// ─── Sub compliance documents (6-docs) ───────────────────────────────────────
+
+export interface SubDocEntry {
+  id: number;
+  docType: SubDocType;
+  docLabel: string;
+  fileId: string | null;
+  expiresLabel: string | null;
+  when: string;
+}
+
+/** A sub's uploaded compliance documents (newest first). */
+export async function getSubDocuments(subSlug: string): Promise<SubDocEntry[]> {
+  const { rows } = await query<{
+    id: number;
+    doc_type: SubDocType;
+    file_id: string | null;
+    expires_label: string | null;
+    when_label: string;
+  }>(
+    `SELECT id, doc_type, file_id,
+            to_char(expires_at, 'Mon FMDD, YYYY') AS expires_label,
+            to_char(created_at, 'Mon FMDD') AS when_label
+       FROM sub_documents WHERE sub_slug = $1
+      ORDER BY created_at DESC LIMIT 30`,
+    [subSlug],
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    docType: r.doc_type,
+    docLabel: SUB_DOC_LABEL[r.doc_type] ?? "Document",
+    fileId: r.file_id,
+    expiresLabel: r.expires_label,
+    when: r.when_label,
+  }));
 }
 
 // ─── Real sub-portal records (logs + submitted invoices) ─────────────────────

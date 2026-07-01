@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { FileText, FileSignature, Plus, Trash2, ChevronDown } from "lucide-react";
 import { Card } from "@/components/ui";
 import { fmtUsd } from "@/lib/cost-book-units";
-import { type DrawLine, defaultDrawSchedule, sumPercent } from "@/lib/draw-schedule";
+import { type DrawLine, defaultDrawSchedule, sumPercent, DRAW_TRIGGER_STATUSES } from "@/lib/draw-schedule";
 import { generateContract, generateSOW, updateDrawSchedule } from "@/lib/actions/documents";
 
 /** Draw-schedule editor + contract/SOW generation for an estimate. The PDF is
@@ -98,11 +98,11 @@ export function ContractGenerator({
             </div>
             <div className="space-y-1.5">
               {lines.map((l, i) => (
-                <div key={i} className="flex items-center gap-2">
+                <div key={i} className="flex flex-wrap items-center gap-2">
                   <input
                     value={l.label}
                     onChange={(e) => setLine(i, { label: e.target.value })}
-                    className={`${inputCls} flex-1`}
+                    className={`${inputCls} min-w-[140px] flex-1`}
                     placeholder="Milestone"
                   />
                   <div className="flex items-center gap-1">
@@ -119,6 +119,19 @@ export function ContractGenerator({
                   <span className="w-[84px] text-right font-mono text-[12px] text-ink-2">
                     {fmtUsd(Math.round((total * l.percent) / 100))}
                   </span>
+                  <select
+                    value={l.triggerStatus ?? ""}
+                    onChange={(e) => setLine(i, { triggerStatus: e.target.value })}
+                    title="Auto-bill this draw when the project reaches this stage"
+                    className={`${inputCls} w-[150px]`}
+                  >
+                    {DRAW_TRIGGER_STATUSES.map((s) => (
+                      <option key={s.key} value={s.key}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                  {l.billed && <span className="font-mono text-[10px] text-money">billed</span>}
                   <button onClick={() => removeLine(i)} title="Remove" className="rounded p-1 text-ink-3 hover:bg-paper-2 hover:text-flag">
                     <Trash2 className="size-3.5" strokeWidth={1.75} />
                   </button>

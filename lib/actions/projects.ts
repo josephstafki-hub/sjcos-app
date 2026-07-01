@@ -10,6 +10,8 @@ import { PROJECT_STATUSES, projectStageLabel, getProjectWeeklyStatus } from "@/l
 import { ai } from "@/lib/ai";
 import { emit } from "@/lib/notify";
 import { sendNewEmailAction } from "@/lib/actions/inbox";
+import { createMilestoneInvoice } from "@/lib/actions/money";
+import { parseDrawSchedule } from "@/lib/draw-schedule";
 import type { ProjectStatus } from "@/lib/types";
 
 /** Kebab-case a display name into a URL slug. */
@@ -56,8 +58,64 @@ export async function createProject(formData: FormData) {
   redirect(`/projects/${slug}`);
 }
 
+/** Whether milestone invoices should auto-send (vs. draft-only) when a project
+ *  reaches a billing stage. Persisted in app_settings; defaults ON. */
+async function autoSendMilestone(): Promise<boolean> {
+  const row = await queryOne<{ value: string }>(
+    `SELECT value FROM app_settings WHERE key = 'invoice.auto_send_on_milestone'`,
+  );
+  return row ? row.value === "true" : true;
+}
+
+/** Auto-bill any draw whose triggerStatus matches the project's new stage (7-inv).
+ *  Reads the most recent approved estimate's draw schedule, generates (and, per
+ *  the setting, sends) an invoice for each due, unbilled draw, then marks it
+ *  billed so re-flipping the stage never double-bills. */
+async function billMilestonesForStatus(slug: string, newStatus: string) {
+  const est = await queryOne<{ id: string; total: number; draw_schedule: unknown }>(
+    `SELECT e.id, e.total, e.draw_schedule
+       FROM estimates e JOIN projects p ON p.id = e.project_id
+      WHERE p.slug = $1 AND e.status = 'approved' AND e.draw_schedule IS NOT NULL
+      ORDER BY e.approved_at DESC NULLS LAST, e.id DESC LIMIT 1`,
+    [slug],
+  );
+  if (!est) return;
+  const lines = parseDrawSchedule(est.draw_schedule);
+  if (!lines) return;
+  const due = lines.filter((l) => l.triggerStatus === newStatus && !l.billed);
+  if (due.length === 0) return;
+
+  const autoSend = await autoSendMilestone();
+  const totalDollars = (est.total ?? 0) / 100;
+  let billed = 0;
+  for (const l of due) {
+    const amount = Math.round((totalDollars * l.percent) / 100);
+    const res = await createMilestoneInvoice(slug, { milestone: l.label, amount, autoSend });
+    if (res.ok) {
+      l.billed = true;
+      billed++;
+    }
+  }
+  if (billed === 0) return;
+
+  await query(`UPDATE estimates SET draw_schedule = $1::jsonb WHERE id = $2`, [
+    JSON.stringify(lines),
+    est.id,
+  ]);
+  await emit({
+    kind: "money",
+    tag: "Money",
+    accent: "money",
+    icon: "money",
+    title: `${billed} milestone invoice${billed > 1 ? "s" : ""} ${autoSend ? "sent" : "drafted"}`,
+    subline: `Triggered by reaching ${projectStageLabel(newStatus as ProjectStatus)}`,
+    href: `/projects/${slug}`,
+  });
+}
+
 /** Advance a project to the next lifecycle stage. No-op at the final stage. */
 export async function advanceProjectStatus(slug: string) {
+  await requireRole("owner");
   const row = await queryOne<{ status: ProjectStatus; name: string }>(
     `SELECT status, name FROM projects WHERE slug = $1`,
     [slug],
@@ -71,6 +129,10 @@ export async function advanceProjectStatus(slug: string) {
     `UPDATE projects SET status = $2, updated_at = now() WHERE slug = $1`,
     [slug, next.key],
   );
+
+  // Auto-bill any draw scheduled to invoice on reaching this stage (7-inv).
+  await billMilestonesForStatus(slug, next.key);
+
   await emit({
     kind: "job",
     tag: "Job",

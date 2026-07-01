@@ -79,6 +79,8 @@ export interface SettingsData {
     address: string;
     depositPct: string;
     terms: string;
+    /** Auto-send milestone invoices when a project reaches a billing stage (7-inv). */
+    autoSendMilestone: boolean;
   };
   /** Browser-extension catalog clipper (Phase 2 A): the auth token (null until
    *  generated) + the endpoint the extension posts to. */
@@ -203,6 +205,9 @@ export async function getSettingsData(): Promise<SettingsData> {
       address: get("company.address", ""),
       depositPct: get("contract.deposit_pct", "10"),
       terms: get("contract.terms", ""),
+      autoSendMilestone: settings.has("invoice.auto_send_on_milestone")
+        ? settings.get("invoice.auto_send_on_milestone") === "true"
+        : true,
     },
     clip: {
       token: clipToken,

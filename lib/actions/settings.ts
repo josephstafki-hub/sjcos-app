@@ -77,10 +77,13 @@ export async function updateCompanyDocs(formData: FormData) {
   const depositPct = String(Math.max(0, Math.min(100, Number(formData.get("depositPct")) || 0)));
   const terms = String(formData.get("terms") ?? "").trim();
 
+  const autoSend = String(formData.get("autoSendMilestone") ?? "") === "on";
+
   await upsertSetting("company.license", license);
   await upsertSetting("company.address", address);
   await upsertSetting("contract.deposit_pct", depositPct);
   await upsertSetting("contract.terms", terms);
+  await upsertSetting("invoice.auto_send_on_milestone", autoSend ? "true" : "false");
 
   revalidatePath("/settings");
 }

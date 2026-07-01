@@ -7,7 +7,23 @@ export interface DrawLine {
   label: string;
   /** Percent of the contract total (0–100). */
   percent: number;
+  /** Project status whose arrival auto-bills this draw (7-inv). "" / undefined =
+   *  manual only. Must be a PROJECT_STATUSES key. */
+  triggerStatus?: string;
+  /** Set once the milestone invoice has been generated, so re-flipping the
+   *  status doesn't bill it twice. */
+  billed?: boolean;
 }
+
+/** Status points a draw can auto-bill on (client-safe subset of the project
+ *  lifecycle — keys must match PROJECT_STATUSES). "" = manual, no auto-bill. */
+export const DRAW_TRIGGER_STATUSES: { key: string; label: string }[] = [
+  { key: "", label: "Manual (no auto-bill)" },
+  { key: "construction_contract", label: "Contract signed" },
+  { key: "construction", label: "Construction start" },
+  { key: "closeout", label: "Closeout" },
+  { key: "warranty", label: "Completion" },
+];
 
 /** Default schedule: a deposit up front, then the remaining balance split evenly
  *  across progress draws + a final payment. Owner edits it before generating. */
@@ -36,10 +52,13 @@ export function parseDrawSchedule(raw: unknown): DrawLine[] | null {
   const lines: DrawLine[] = [];
   for (const r of raw) {
     if (!r || typeof r !== "object") continue;
-    const label = String((r as Record<string, unknown>).label ?? "").trim();
-    const percent = Math.max(0, Math.min(100, Number((r as Record<string, unknown>).percent) || 0));
+    const rec = r as Record<string, unknown>;
+    const label = String(rec.label ?? "").trim();
+    const percent = Math.max(0, Math.min(100, Number(rec.percent) || 0));
     if (!label) continue;
-    lines.push({ label, percent: Math.round(percent * 100) / 100 });
+    const triggerStatus = typeof rec.triggerStatus === "string" ? rec.triggerStatus : "";
+    const billed = rec.billed === true;
+    lines.push({ label, percent: Math.round(percent * 100) / 100, triggerStatus, billed });
   }
   return lines.length > 0 ? lines : null;
 }

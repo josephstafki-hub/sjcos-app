@@ -250,6 +250,17 @@ export function SettingsClient({ data }: { data: SettingsData }) {
                   className="resize-y rounded-md border border-rule bg-paper px-2.5 py-2 text-[12px] leading-relaxed text-ink outline-none focus:border-accent"
                 />
               </label>
+              <label className="mt-4 flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  name="autoSendMilestone"
+                  defaultChecked={data.companyDocs.autoSendMilestone}
+                  className="size-3.5 accent-accent"
+                />
+                <span className="text-[13px] text-ink-2">
+                  Auto-send milestone invoices when a project reaches a billing stage
+                </span>
+              </label>
               <div className="mt-5">
                 <button
                   type="submit"

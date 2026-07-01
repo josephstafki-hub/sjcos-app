@@ -88,6 +88,43 @@ export async function createInvoice(
   return { ok: true };
 }
 
+/** Create a single-line invoice for a fixed milestone amount and optionally send
+ *  it (7-inv milestone automation). Used by advanceProjectStatus when a project
+ *  reaches a status that bills a draw. Returns whether it was sent. */
+export async function createMilestoneInvoice(
+  slug: string,
+  input: { milestone: string; amount: number; autoSend: boolean },
+): Promise<{ ok: boolean; sent?: boolean; error?: string }> {
+  await requireRole("owner");
+  const project = await projectBySlug(slug);
+  if (!project) return { ok: false, error: "Project not found." };
+
+  const milestone = input.milestone.trim() || "Progress draw";
+  const amount = Math.max(0, Math.round(input.amount));
+  const lines: InvoiceLine[] = [{ label: milestone, amount }];
+
+  const { count } = (await queryOne<{ count: number }>(
+    `SELECT count(*)::int AS count FROM invoices WHERE project_id = $1`,
+    [project.id],
+  )) ?? { count: 0 };
+  const number = `INV-${String(count + 1).padStart(3, "0")}`;
+
+  const ins = await queryOne<{ id: string }>(
+    `INSERT INTO invoices (project_id, number, milestone, amount, line_items, status)
+     VALUES ($1, $2, $3, $4, $5::jsonb, 'draft')
+     RETURNING id`,
+    [project.id, number, milestone, amount, JSON.stringify(lines)],
+  );
+  revalidatePath(`/projects/${slug}`);
+
+  let sent = false;
+  if (input.autoSend && ins) {
+    const res = await sendInvoice(Number(ins.id));
+    sent = res.ok;
+  }
+  return { ok: true, sent };
+}
+
 /** Edit a draft invoice's milestone + line items (owner only). Sent/paid
  *  invoices are locked. Recomputes the total from the edited lines. */
 export async function updateInvoice(

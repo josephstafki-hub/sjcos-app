@@ -20,7 +20,9 @@ import { ProjectFiles } from "@/components/projects/ProjectFiles";
 import { ProjectComms } from "@/components/projects/ProjectComms";
 import { ProjectSchedule } from "@/components/projects/ProjectSchedule";
 import { SignOffs } from "@/components/projects/SignOffs";
+import { ChangeOrders } from "@/components/projects/ChangeOrders";
 import { getProjectSignatureRequests, getProjectSignerDefaults } from "@/lib/esign";
+import { getProjectChangeOrders } from "@/lib/change-orders";
 import { ProjectEstimate } from "@/components/projects/ProjectEstimate";
 import { getProjectEstimates } from "@/lib/estimates";
 import { getCostBook } from "@/lib/cost-book";
@@ -69,11 +71,12 @@ export default async function ProjectDetailPage({
   const scheduleBlocks = await getProjectScheduleBlocks(slug);
   const subsData = await getProjectSubsData(slug);
   const dailyLogs = await getProjectDailyLogs(slug);
-  const [signatureRequests, signerDefaults, estimates, costBook] = await Promise.all([
+  const [signatureRequests, signerDefaults, estimates, costBook, changeOrders] = await Promise.all([
     getProjectSignatureRequests(slug),
     getProjectSignerDefaults(slug),
     getProjectEstimates(slug),
     getCostBook(),
+    getProjectChangeOrders(slug),
   ]);
   if (!project) notFound();
 
@@ -381,6 +384,7 @@ export default async function ProjectDetailPage({
       defaultSignerEmail={signerDefaults.email}
     />
   );
+  const changeOrdersPanel = <ChangeOrders slug={slug} orders={changeOrders} />;
 
   // ── Floor / Mood — design-tool tabs (real boards, S5D/S5E) ──────────────────
   const floorPanel = <FloorPlan slug={slug} versions={floorplans} />;
@@ -399,6 +403,7 @@ export default async function ProjectDetailPage({
     Comms: commsPanel,
     Punch: punchPanel,
     Estimate: estimatePanel,
+    "Change orders": changeOrdersPanel,
     "Sign-offs": signOffsPanel,
   };
 

@@ -126,8 +126,8 @@ async function portalProjectSlug(): Promise<string | null> {
 /** Verify a request belongs to the given project slug and is still awaiting
  *  signature. Returns the signer-facing title for messaging. */
 async function loadSignable(id: number, slug: string) {
-  return queryOne<{ title: string; status: string; estimate_id: string | null }>(
-    `SELECT sr.title, sr.status, sr.estimate_id
+  return queryOne<{ title: string; status: string; estimate_id: string | null; change_order_id: string | null }>(
+    `SELECT sr.title, sr.status, sr.estimate_id, sr.change_order_id
        FROM signature_requests sr
        JOIN projects p ON p.id = sr.project_id
       WHERE sr.id = $1 AND p.slug = $2`,
@@ -167,6 +167,10 @@ export async function signSignatureRequest(id: number, formData: FormData): Prom
       [doc.estimate_id],
     );
   }
+  // If it was a change order, approve it (does NOT touch the contract total).
+  if (doc.change_order_id) {
+    await query(`UPDATE change_orders SET status = 'approved' WHERE id = $1`, [doc.change_order_id]);
+  }
 
   await emit({
     kind: "decision",
@@ -204,6 +208,10 @@ export async function declineSignatureRequest(id: number, formData: FormData): P
   // If generated from an estimate, mark it declined so the owner can revise.
   if (doc.estimate_id) {
     await query(`UPDATE estimates SET status = 'declined' WHERE id = $1`, [doc.estimate_id]);
+  }
+  // If it was a change order, mark it declined so the owner can revise/resend.
+  if (doc.change_order_id) {
+    await query(`UPDATE change_orders SET status = 'declined' WHERE id = $1`, [doc.change_order_id]);
   }
 
   await emit({

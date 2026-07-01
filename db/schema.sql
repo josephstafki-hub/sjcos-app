@@ -646,6 +646,29 @@ ALTER TABLE signature_requests
 ALTER TABLE estimates
   ADD COLUMN IF NOT EXISTS draw_schedule jsonb;
 
+-- ─── Change orders (Phase-3 execution, 7-co) ───────────────────────────────
+-- A mid-project scope/price change. Signed through the same e-sign foundation
+-- (signature_requests.doc_type='change_order'); the CO's own status mirrors the
+-- linked request. price_cents is CENTS. Tracked separately from the project
+-- contract total (owner manages that number — Phase-3 decision).
+CREATE TABLE IF NOT EXISTS change_orders (
+  id           bigserial PRIMARY KEY,
+  project_id   uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  title        text NOT NULL DEFAULT '',
+  description  text NOT NULL DEFAULT '',
+  price_cents  integer NOT NULL DEFAULT 0,
+  status       text NOT NULL DEFAULT 'draft'
+                 CHECK (status IN ('draft','sent','approved','declined')),
+  created_by   uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_change_orders_project ON change_orders(project_id, created_at DESC);
+
+-- Link an e-sign request to the change order it signs (mirrors estimate_id), so
+-- signing/declining the request flips the CO's status. After change_orders CREATE.
+ALTER TABLE signature_requests
+  ADD COLUMN IF NOT EXISTS change_order_id bigint REFERENCES change_orders(id) ON DELETE SET NULL;
+
 -- ─── Reminder log (scheduler idempotency) ──────────────────────────────────
 -- The daily cron (app/api/cron/reminders) claims a dedup_key per (item, window)
 -- before emitting a reminder, so each reminder window fires exactly once even

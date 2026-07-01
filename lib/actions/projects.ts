@@ -11,6 +11,7 @@ import { ai } from "@/lib/ai";
 import { emit } from "@/lib/notify";
 import { sendNewEmailAction } from "@/lib/actions/inbox";
 import { createMilestoneInvoice } from "@/lib/actions/money";
+import { sendCompletionOutreach } from "@/lib/actions/closeout";
 import { parseDrawSchedule } from "@/lib/draw-schedule";
 import type { ProjectStatus } from "@/lib/types";
 
@@ -63,6 +64,15 @@ export async function createProject(formData: FormData) {
 async function autoSendMilestone(): Promise<boolean> {
   const row = await queryOne<{ value: string }>(
     `SELECT value FROM app_settings WHERE key = 'invoice.auto_send_on_milestone'`,
+  );
+  return row ? row.value === "true" : true;
+}
+
+/** Whether completion outreach (warranty + review emails) auto-sends when a job
+ *  reaches the warranty stage. Persisted in app_settings; defaults ON. */
+async function autoOutreachEnabled(): Promise<boolean> {
+  const row = await queryOne<{ value: string }>(
+    `SELECT value FROM app_settings WHERE key = 'outreach.auto_on_completion'`,
   );
   return row ? row.value === "true" : true;
 }
@@ -132,6 +142,11 @@ export async function advanceProjectStatus(slug: string) {
 
   // Auto-bill any draw scheduled to invoice on reaching this stage (7-inv).
   await billMilestonesForStatus(slug, next.key);
+
+  // On reaching the warranty stage, fire completion outreach once (P4-2).
+  if (next.key === "warranty" && (await autoOutreachEnabled())) {
+    await sendCompletionOutreach(slug);
+  }
 
   await emit({
     kind: "job",

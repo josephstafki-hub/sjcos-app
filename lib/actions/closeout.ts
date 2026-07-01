@@ -12,8 +12,10 @@ import { storeBuffer } from "@/lib/upload-store";
 import { getProjectSignerDefaults } from "@/lib/esign";
 import { emit } from "@/lib/notify";
 import { ai } from "@/lib/ai";
+import { sendNewEmailAction } from "@/lib/actions/inbox";
 import {
   gatherCloseoutData,
+  getCompanyDocInfo,
   renderCompletionCertificatePdf,
   renderLienWaiverPdf,
 } from "@/lib/documents";
@@ -65,6 +67,66 @@ export async function generateCompletionCertificate(slug: string): Promise<Resul
 
   revalidatePath(`/projects/${slug}`);
   return { ok: true, id: stored.id };
+}
+
+/** Send completion outreach to the client: a warranty-coverage email and (if a
+ *  Google review link is configured) a review request. Fired on reaching the
+ *  warranty stage (or manually). Idempotent via projects.closeout_outreach_at,
+ *  so it never sends twice. Owner-gated; missing client email → skipped. */
+export async function sendCompletionOutreach(slug: string): Promise<{ ok: boolean; sent?: boolean; error?: string }> {
+  await requireRole("owner");
+  const proj = await queryOne<{ id: string; name: string; already: boolean }>(
+    `SELECT id, name, (closeout_outreach_at IS NOT NULL) AS already FROM projects WHERE slug = $1`,
+    [slug],
+  );
+  if (!proj) return { ok: false, error: "Project not found." };
+  if (proj.already) return { ok: true, sent: false }; // already sent
+
+  const client = await queryOne<{ email: string; name: string }>(
+    `SELECT email, name FROM users WHERE link_slug = $1 AND role = 'client' AND active = true LIMIT 1`,
+    [slug],
+  );
+  // Mark sent regardless so we don't retry every status flip; if there's no
+  // client email there's nothing to send.
+  await query(`UPDATE projects SET closeout_outreach_at = now() WHERE id = $1`, [proj.id]);
+  if (!client?.email) return { ok: true, sent: false };
+
+  const info = await getCompanyDocInfo();
+  const first = client.name.split(/\s+/)[0] || "there";
+
+  await sendNewEmailAction({
+    to: client.email,
+    subject: `Your ${proj.name} project is complete — warranty details`,
+    body:
+      `Hi ${first},\n\nThank you for trusting ${info.company.name} with your ${proj.name} project — ` +
+      `it's now substantially complete.\n\nWarranty coverage:\n${info.warrantyTerms}\n\n` +
+      `Keep this email for your records. If anything comes up, just reply here to open a warranty ` +
+      `request.\n\nBest,\nJoe\n${info.company.name}`,
+  });
+
+  if (info.googleReviewUrl) {
+    await sendNewEmailAction({
+      to: client.email,
+      subject: `A quick favor — how did we do on ${proj.name}?`,
+      body:
+        `Hi ${first},\n\nIt was a pleasure working on your ${proj.name} project. If you were happy with ` +
+        `the work, a short Google review would mean a lot and helps other homeowners find us:\n\n` +
+        `${info.googleReviewUrl}\n\nThank you!\n\nBest,\nJoe\n${info.company.name}`,
+    });
+  }
+
+  await emit({
+    kind: "job",
+    tag: "Closeout",
+    accent: "money",
+    icon: "mail",
+    title: `Completion outreach sent · ${proj.name}`,
+    subline: info.googleReviewUrl ? "Warranty info + review request emailed" : "Warranty info emailed",
+    href: `/projects/${slug}`,
+  });
+
+  revalidatePath(`/projects/${slug}`);
+  return { ok: true, sent: true };
 }
 
 /** Owner: generate the final lien waiver → PDF + a lien_waiver signature request

@@ -81,6 +81,12 @@ export interface SettingsData {
     terms: string;
     /** Auto-send milestone invoices when a project reaches a billing stage (7-inv). */
     autoSendMilestone: boolean;
+    /** Google review link used in completion outreach (P4-2); "" hides the ask. */
+    googleReviewUrl: string;
+    /** Warranty coverage blurb sent to clients + printed on closeout docs. */
+    warrantyTerms: string;
+    /** Auto-send warranty + review emails when a job reaches completion (P4-2). */
+    autoOutreach: boolean;
   };
   /** Browser-extension catalog clipper (Phase 2 A): the auth token (null until
    *  generated) + the endpoint the extension posts to. */
@@ -207,6 +213,11 @@ export async function getSettingsData(): Promise<SettingsData> {
       terms: get("contract.terms", ""),
       autoSendMilestone: settings.has("invoice.auto_send_on_milestone")
         ? settings.get("invoice.auto_send_on_milestone") === "true"
+        : true,
+      googleReviewUrl: get("company.google_review_url", ""),
+      warrantyTerms: get("company.warranty_terms", ""),
+      autoOutreach: settings.has("outreach.auto_on_completion")
+        ? settings.get("outreach.auto_on_completion") === "true"
         : true,
     },
     clip: {

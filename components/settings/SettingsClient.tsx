@@ -261,6 +261,32 @@ export function SettingsClient({ data }: { data: SettingsData }) {
                   Auto-send milestone invoices when a project reaches a billing stage
                 </span>
               </label>
+
+              <div className="my-4 border-t border-rule-soft" />
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                <TextInput name="googleReviewUrl" label="Google review link" defaultValue={data.companyDocs.googleReviewUrl} placeholder="https://g.page/r/…/review" />
+              </div>
+              <label className="mt-5 flex flex-col gap-1">
+                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Warranty terms (sent at completion)</span>
+                <textarea
+                  name="warrantyTerms"
+                  rows={4}
+                  defaultValue={data.companyDocs.warrantyTerms}
+                  placeholder="e.g. One-year workmanship warranty from substantial completion…"
+                  className="resize-y rounded-md border border-rule bg-paper px-2.5 py-2 text-[12px] leading-relaxed text-ink outline-none focus:border-accent"
+                />
+              </label>
+              <label className="mt-4 flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  name="autoOutreach"
+                  defaultChecked={data.companyDocs.autoOutreach}
+                  className="size-3.5 accent-accent"
+                />
+                <span className="text-[13px] text-ink-2">
+                  Auto-send warranty info + Google review request when a job completes
+                </span>
+              </label>
               <div className="mt-5">
                 <button
                   type="submit"

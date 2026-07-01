@@ -78,12 +78,18 @@ export async function updateCompanyDocs(formData: FormData) {
   const terms = String(formData.get("terms") ?? "").trim();
 
   const autoSend = String(formData.get("autoSendMilestone") ?? "") === "on";
+  const googleReviewUrl = String(formData.get("googleReviewUrl") ?? "").trim();
+  const warrantyTerms = String(formData.get("warrantyTerms") ?? "").trim();
+  const autoOutreach = String(formData.get("autoOutreach") ?? "") === "on";
 
   await upsertSetting("company.license", license);
   await upsertSetting("company.address", address);
   await upsertSetting("contract.deposit_pct", depositPct);
   await upsertSetting("contract.terms", terms);
   await upsertSetting("invoice.auto_send_on_milestone", autoSend ? "true" : "false");
+  await upsertSetting("company.google_review_url", googleReviewUrl);
+  await upsertSetting("company.warranty_terms", warrantyTerms);
+  await upsertSetting("outreach.auto_on_completion", autoOutreach ? "true" : "false");
 
   revalidatePath("/settings");
 }

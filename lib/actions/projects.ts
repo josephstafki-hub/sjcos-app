@@ -12,6 +12,7 @@ import { emit } from "@/lib/notify";
 import { sendNewEmailAction } from "@/lib/actions/inbox";
 import { createMilestoneInvoice } from "@/lib/actions/money";
 import { sendCompletionOutreach } from "@/lib/actions/closeout";
+import { autoDraftSocialOnCompletion } from "@/lib/actions/marketing";
 import { parseDrawSchedule } from "@/lib/draw-schedule";
 import type { ProjectStatus } from "@/lib/types";
 
@@ -143,9 +144,15 @@ export async function advanceProjectStatus(slug: string) {
   // Auto-bill any draw scheduled to invoice on reaching this stage (7-inv).
   await billMilestonesForStatus(slug, next.key);
 
-  // On reaching the warranty stage, fire completion outreach once (P4-2).
-  if (next.key === "warranty" && (await autoOutreachEnabled())) {
-    await sendCompletionOutreach(slug);
+  // On reaching the warranty stage, fire completion outreach once (P4-2) and
+  // auto-draft a social post (P6-2).
+  if (next.key === "warranty") {
+    if (await autoOutreachEnabled()) await sendCompletionOutreach(slug);
+    try {
+      await autoDraftSocialOnCompletion(slug);
+    } catch {
+      /* never block the status change on a marketing draft */
+    }
   }
 
   await emit({

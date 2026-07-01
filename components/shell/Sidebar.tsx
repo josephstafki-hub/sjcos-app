@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   Star,
   Zap,
+  Megaphone,
   BookOpen,
   UserRound,
   UserCheck,
@@ -58,6 +59,7 @@ const TOOLS: NavItem[] = [
   { label: "Cost book", href: "/cost-book", icon: Calculator },
   { label: "Compliance", href: "/compliance", icon: ShieldCheck },
   { label: "Warranty", href: "/warranty", icon: Star },
+  { label: "Marketing", href: "/marketing", icon: Megaphone },
   { label: "Automate", href: "/automate", icon: Zap },
   { label: "Books", href: "/books", icon: BookOpen, tag: "soon", disabled: true },
 ];

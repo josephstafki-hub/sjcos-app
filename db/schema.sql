@@ -651,6 +651,20 @@ CREATE TABLE IF NOT EXISTS insurance_policies (
 );
 CREATE INDEX IF NOT EXISTS idx_insurance_expires ON insurance_policies(expires_date);
 
+-- Marketing drafts (Phase-6 P6-2): AI-drafted social + blog posts (manual post).
+-- A social draft auto-generates when a job completes (gated by app_settings
+-- marketing.auto_draft_on_completion).
+CREATE TABLE IF NOT EXISTS marketing_drafts (
+  id          bigserial PRIMARY KEY,
+  project_id  uuid REFERENCES projects(id) ON DELETE SET NULL,
+  kind        text NOT NULL DEFAULT 'social' CHECK (kind IN ('social','blog')),
+  title       text NOT NULL DEFAULT '',
+  body        text NOT NULL DEFAULT '',
+  status      text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','posted')),
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_marketing_drafts ON marketing_drafts(created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_invoices_project     ON invoices(project_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_selections_project   ON project_selections(project_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_mood_project         ON project_mood(project_id, room, sort_order);

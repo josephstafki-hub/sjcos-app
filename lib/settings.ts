@@ -87,6 +87,8 @@ export interface SettingsData {
     warrantyTerms: string;
     /** Auto-send warranty + review emails when a job reaches completion (P4-2). */
     autoOutreach: boolean;
+    /** Auto-draft a social post when a job reaches completion (P6-2). */
+    autoDraftSocial: boolean;
   };
   /** Browser-extension catalog clipper (Phase 2 A): the auth token (null until
    *  generated) + the endpoint the extension posts to. */
@@ -218,6 +220,9 @@ export async function getSettingsData(): Promise<SettingsData> {
       warrantyTerms: get("company.warranty_terms", ""),
       autoOutreach: settings.has("outreach.auto_on_completion")
         ? settings.get("outreach.auto_on_completion") === "true"
+        : true,
+      autoDraftSocial: settings.has("marketing.auto_draft_on_completion")
+        ? settings.get("marketing.auto_draft_on_completion") === "true"
         : true,
     },
     clip: {

@@ -287,6 +287,17 @@ export function SettingsClient({ data }: { data: SettingsData }) {
                   Auto-send warranty info + Google review request when a job completes
                 </span>
               </label>
+              <label className="mt-3 flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  name="autoDraftSocial"
+                  defaultChecked={data.companyDocs.autoDraftSocial}
+                  className="size-3.5 accent-accent"
+                />
+                <span className="text-[13px] text-ink-2">
+                  Auto-draft a social post when a job completes (review on Marketing)
+                </span>
+              </label>
               <div className="mt-5">
                 <button
                   type="submit"

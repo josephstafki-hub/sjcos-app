@@ -81,6 +81,7 @@ export async function updateCompanyDocs(formData: FormData) {
   const googleReviewUrl = String(formData.get("googleReviewUrl") ?? "").trim();
   const warrantyTerms = String(formData.get("warrantyTerms") ?? "").trim();
   const autoOutreach = String(formData.get("autoOutreach") ?? "") === "on";
+  const autoDraftSocial = String(formData.get("autoDraftSocial") ?? "") === "on";
 
   await upsertSetting("company.license", license);
   await upsertSetting("company.address", address);
@@ -90,6 +91,7 @@ export async function updateCompanyDocs(formData: FormData) {
   await upsertSetting("company.google_review_url", googleReviewUrl);
   await upsertSetting("company.warranty_terms", warrantyTerms);
   await upsertSetting("outreach.auto_on_completion", autoOutreach ? "true" : "false");
+  await upsertSetting("marketing.auto_draft_on_completion", autoDraftSocial ? "true" : "false");
 
   revalidatePath("/settings");
 }

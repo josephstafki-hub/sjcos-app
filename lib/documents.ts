@@ -584,6 +584,40 @@ export async function renderLienWaiverPdf(d: CloseoutData): Promise<Buffer> {
   });
 }
 
+export interface IncidentDocData {
+  company: DocData["company"];
+  projectName: string;
+  occurredLabel: string;
+  reporter: string;
+  severityLabel: string;
+  narrative: string;
+  dateLabel: string;
+}
+
+/** Internal incident report — factual narrative (AI-drafted from the owner's
+ *  notes), with a disclaimer footer. Not an OSHA form. */
+export async function renderIncidentReportPdf(d: IncidentDocData): Promise<Buffer> {
+  return pdfToBuffer((doc) => {
+    companyHeader(doc, d.company);
+    docTitle(doc, "Incident Report", `${d.projectName} — ${d.dateLabel}`);
+
+    sectionLabel(doc, "Details");
+    row(doc, "Project", null, d.projectName);
+    row(doc, "Date of incident", null, d.occurredLabel || "—");
+    row(doc, "Reported by", null, d.reporter || "—");
+    row(doc, "Severity", null, d.severityLabel);
+
+    sectionLabel(doc, "Narrative");
+    para(doc, d.narrative || "(No narrative provided.)");
+
+    doc.moveDown(0.8);
+    sectionLabel(doc, "Prepared by");
+    signatureLine(doc, "Signature");
+
+    disclaimerFooter(doc);
+  });
+}
+
 export async function renderSowDocx(d: DocData, narrative: string): Promise<Buffer> {
   const children: (Paragraph | Table)[] = [
     ...companyHeaderDocx(d.company),

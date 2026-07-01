@@ -9,8 +9,13 @@ import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { emit } from "@/lib/notify";
 import { ai } from "@/lib/ai";
+import { storeBuffer } from "@/lib/upload-store";
+import { getCompanyDocInfo, renderIncidentReportPdf } from "@/lib/documents";
+import { SEVERITY_LABEL, type IncidentSeverity } from "@/lib/incident-types";
 
 type Result = { ok: boolean; error?: string };
+
+const SEVERITIES: IncidentSeverity[] = ["near_miss", "minor", "recordable", "serious"];
 
 /** Owner: generate a jobsite safety orientation for a project + trade (Qwen). */
 export async function generateSafetyOrientation(slug: string, trade: string): Promise<Result> {
@@ -50,6 +55,83 @@ export async function generateSafetyOrientation(slug: string, trade: string): Pr
   );
   revalidatePath(`/projects/${slug}`);
   revalidatePath("/sub-portal");
+  return { ok: true };
+}
+
+/** Owner: create an incident report. Qwen drafts a factual narrative from the
+ *  owner's notes → PDF (with disclaimer) stored in Files + a logged record. */
+export async function createIncidentReport(slug: string, formData: FormData): Promise<Result> {
+  const user = await requireRole("owner");
+  const proj = await queryOne<{ id: string; name: string }>(
+    `SELECT id, name FROM projects WHERE slug = $1`,
+    [slug],
+  );
+  if (!proj) return { ok: false, error: "Project not found." };
+
+  const notes = String(formData.get("notes") ?? "").trim();
+  if (!notes) return { ok: false, error: "Describe what happened." };
+  const occurredAt = String(formData.get("occurredAt") ?? "").trim();
+  const reporter = String(formData.get("reporter") ?? "").trim() || user.name || "Owner";
+  const sevRaw = String(formData.get("severity") ?? "minor") as IncidentSeverity;
+  const severity: IncidentSeverity = SEVERITIES.includes(sevRaw) ? sevRaw : "minor";
+
+  // Qwen turns the notes into a clear, factual incident narrative (no blame, no
+  // invented facts). Falls back to the raw notes on failure.
+  let narrative = "";
+  try {
+    const res = await ai.ask({
+      prompt:
+        `Turn these notes into a clear, factual construction incident report narrative (3–6 sentences). ` +
+        `Cover what happened, where, who was involved, any injury/damage, and the immediate response. ` +
+        `Neutral and objective — do NOT assign blame or invent details not in the notes.\n\nNotes: ${notes}`,
+      context: `Project: ${proj.name}`,
+    });
+    narrative = (res.answer ?? "").trim();
+  } catch {
+    narrative = "";
+  }
+  if (!narrative) narrative = notes;
+
+  const info = await getCompanyDocInfo();
+  const occurredLabel = occurredAt
+    ? new Date(occurredAt + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+    : "";
+  const pdf = await renderIncidentReportPdf({
+    company: info.company,
+    projectName: proj.name,
+    occurredLabel,
+    reporter,
+    severityLabel: SEVERITY_LABEL[severity],
+    narrative,
+    dateLabel: new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
+  });
+  const stored = await storeBuffer(pdf, {
+    filename: `${proj.name} — Incident Report.pdf`,
+    mime: "application/pdf",
+    idPrefix: "doc",
+    projectKey: slug,
+    tag: "SAFETY · Incident",
+    subtitle: `Incident report · ${occurredLabel || "date n/a"}`,
+  });
+
+  await query(
+    `INSERT INTO incident_reports (project_id, occurred_at, reporter, severity, notes, narrative, file_id)
+     VALUES ($1, NULLIF($2,'')::date, $3, $4, $5, $6, $7)`,
+    [proj.id, occurredAt, reporter, severity, notes, narrative, stored.ok ? stored.id : null],
+  );
+
+  await emit({
+    kind: "compliance",
+    tag: "Safety",
+    accent: severity === "serious" ? "flag" : "accent",
+    icon: "shield",
+    flagged: severity === "serious",
+    title: `Incident reported · ${proj.name}`,
+    subline: `${SEVERITY_LABEL[severity]} — report generated`,
+    href: `/projects/${slug}`,
+  });
+
+  revalidatePath(`/projects/${slug}`);
   return { ok: true };
 }
 

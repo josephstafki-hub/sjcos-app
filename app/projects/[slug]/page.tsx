@@ -23,10 +23,11 @@ import { SignOffs } from "@/components/projects/SignOffs";
 import { ChangeOrders } from "@/components/projects/ChangeOrders";
 import { Closeout } from "@/components/projects/Closeout";
 import { Safety } from "@/components/projects/Safety";
+import { Incidents } from "@/components/projects/Incidents";
 import { getProjectSignatureRequests, getProjectSignerDefaults } from "@/lib/esign";
 import { getProjectChangeOrders } from "@/lib/change-orders";
 import { getCloseoutView } from "@/lib/closeout";
-import { getProjectOrientations } from "@/lib/safety";
+import { getProjectOrientations, getProjectIncidents } from "@/lib/safety";
 import { ProjectEstimate } from "@/components/projects/ProjectEstimate";
 import { getProjectEstimates } from "@/lib/estimates";
 import { getCostBook } from "@/lib/cost-book";
@@ -88,6 +89,7 @@ export default async function ProjectDetailPage({
     getCloseoutView(slug),
     getProjectOrientations(slug),
   ]);
+  const incidents = await getProjectIncidents(slug);
   if (!project) notFound();
 
   const catalogOptions = catalog.materials.map((m) => ({ id: m.id, name: m.name }));
@@ -396,7 +398,9 @@ export default async function ProjectDetailPage({
   );
   const changeOrdersPanel = <ChangeOrders slug={slug} orders={changeOrders} />;
   const closeoutPanel = <Closeout slug={slug} view={closeoutView} />;
-  const safetyPanel = <Safety slug={slug} orientations={orientations} />;
+  const safetyPanel = (
+    <Safety slug={slug} orientations={orientations} incidents={<Incidents slug={slug} incidents={incidents} />} />
+  );
 
   // ── Floor / Mood — design-tool tabs (real boards, S5D/S5E) ──────────────────
   const floorPanel = <FloorPlan slug={slug} versions={floorplans} />;

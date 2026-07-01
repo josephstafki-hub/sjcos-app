@@ -612,6 +612,22 @@ CREATE TABLE IF NOT EXISTS safety_acknowledgments (
   PRIMARY KEY (orientation_id, sub_slug)
 );
 
+-- Incident reports (Phase-4 P4-5): AI drafts a factual narrative from the
+-- owner's notes; rendered to a PDF (with disclaimer) + logged to the project.
+CREATE TABLE IF NOT EXISTS incident_reports (
+  id          bigserial PRIMARY KEY,
+  project_id  uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  occurred_at date,
+  reporter    text NOT NULL DEFAULT '',
+  severity    text NOT NULL DEFAULT 'minor'
+                CHECK (severity IN ('near_miss','minor','recordable','serious')),
+  notes       text NOT NULL DEFAULT '',
+  narrative   text NOT NULL DEFAULT '',
+  file_id     text REFERENCES files(id) ON DELETE SET NULL,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_incidents_project ON incident_reports(project_id, created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_invoices_project     ON invoices(project_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_selections_project   ON project_selections(project_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_mood_project         ON project_mood(project_id, room, sort_order);

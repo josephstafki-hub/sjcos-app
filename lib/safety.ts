@@ -7,6 +7,7 @@ import "server-only";
 
 import { query } from "./db";
 import { getSubCurrentProject } from "./sub-portal";
+import { SEVERITY_LABEL, type IncidentSeverity } from "./incident-types";
 
 export interface SafetyOrientation {
   id: number;
@@ -47,6 +48,48 @@ export async function getProjectOrientations(slug: string): Promise<SafetyOrient
     createdLabel: r.created_label,
     ackCount: r.ack_count,
     ackNames: r.ack_names ?? [],
+  }));
+}
+
+export interface IncidentReport {
+  id: number;
+  occurredLabel: string | null;
+  reporter: string;
+  severity: IncidentSeverity;
+  severityLabel: string;
+  narrative: string;
+  fileId: string | null;
+  createdLabel: string;
+}
+
+/** Incident reports for a project (newest first). */
+export async function getProjectIncidents(slug: string): Promise<IncidentReport[]> {
+  const { rows } = await query<{
+    id: number;
+    occurred_label: string | null;
+    reporter: string;
+    severity: IncidentSeverity;
+    narrative: string;
+    file_id: string | null;
+    created_label: string;
+  }>(
+    `SELECT i.id, to_char(i.occurred_at, 'Mon FMDD, YYYY') AS occurred_label,
+            i.reporter, i.severity, i.narrative, i.file_id,
+            to_char(i.created_at, 'Mon FMDD, YYYY') AS created_label
+       FROM incident_reports i JOIN projects p ON p.id = i.project_id
+      WHERE p.slug = $1
+      ORDER BY i.created_at DESC`,
+    [slug],
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    occurredLabel: r.occurred_label,
+    reporter: r.reporter,
+    severity: r.severity,
+    severityLabel: SEVERITY_LABEL[r.severity] ?? r.severity,
+    narrative: r.narrative,
+    fileId: r.file_id,
+    createdLabel: r.created_label,
   }));
 }
 

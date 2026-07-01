@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Card, Chip } from "@/components/ui";
-import { resolveWarrantyClaim } from "@/lib/actions/warranty";
+import { resolveWarrantyClaim, acknowledgeWarrantyClaim } from "@/lib/actions/warranty";
 import type { ClaimDot, WarrantyClaim } from "@/lib/warranty";
 
 const DOT: Record<ClaimDot, string> = {
@@ -63,7 +63,7 @@ export function WarrantyClaims({ claims }: { claims: WarrantyClaim[] }) {
               <div className="min-w-0 flex-1">
                 <h3 className="font-serif text-[15px] font-semibold text-ink">{c.project}</h3>
                 <div className="mt-0.5 text-[11px] text-ink-3">
-                  {c.client} · opened {c.age} ago via portal
+                  {c.client}{c.age ? ` · ${c.age}` : ""}
                 </div>
                 <p className="mt-1.5 text-[13px] text-ink-2">{c.issue}</p>
               </div>
@@ -91,12 +91,20 @@ export function WarrantyClaims({ claims }: { claims: WarrantyClaim[] }) {
                     <span className="text-ink-3">Status:</span> {c.step}
                   </div>
                 </div>
-                <button
-                  onClick={() => resolve(c.id)}
-                  className="flex-none rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-2 transition-colors hover:bg-paper hover:text-ink"
-                >
-                  Resolve claim
-                </button>
+                <div className="flex flex-none gap-2">
+                  <button
+                    onClick={() => startTransition(async () => { await acknowledgeWarrantyClaim(c.id); })}
+                    className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-2 transition-colors hover:bg-paper hover:text-ink"
+                  >
+                    Acknowledge
+                  </button>
+                  <button
+                    onClick={() => resolve(c.id)}
+                    className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper transition-colors hover:bg-[#232a1e]"
+                  >
+                    Resolve claim
+                  </button>
+                </div>
               </div>
             )}
           </div>

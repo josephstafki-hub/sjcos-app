@@ -15,6 +15,8 @@ import { emit } from "./notify";
 
 const COMPLIANCE_WINDOWS = [60, 30]; // ≤14d handled on feed-read
 const COI_WINDOWS = [30, 15, 5];
+const WARRANTY_ACK_WINDOW = 2; // remind when the 5-day ack is ≤2 days out
+const WARRANTY_RESOLVE_WINDOW = 5; // remind when the 30-day resolve is ≤5 days out
 
 /** Claim a reminder key. Returns true only on the first claim (insert), so the
  *  caller emits exactly once per window across daily runs. */
@@ -29,10 +31,11 @@ async function claim(key: string): Promise<boolean> {
 export interface ReminderRun {
   compliance: number;
   coi: number;
+  warranty: number;
 }
 
 export async function runReminders(): Promise<ReminderRun> {
-  const out: ReminderRun = { compliance: 0, coi: 0 };
+  const out: ReminderRun = { compliance: 0, coi: 0, warranty: 0 };
 
   // ── Compliance items: 60 / 30-day heads-up (unresolved, future-dated) ──
   const comp = await query<{
@@ -97,6 +100,58 @@ export async function runReminders(): Promise<ReminderRun> {
         });
         out.coi++;
       }
+    }
+  }
+
+  // ── Warranty claim deadlines: 5-day acknowledgment + 30-day resolution ──
+  const warr = await query<{
+    id: string;
+    project: string;
+    issue: string;
+    acknowledged: boolean;
+    resolved: boolean;
+    ack_days: number | null;
+    resolve_days: number | null;
+    ack_label: string | null;
+    resolve_label: string | null;
+  }>(
+    `SELECT id, project, issue, acknowledged, resolved,
+            (ack_deadline_at - CURRENT_DATE)         AS ack_days,
+            (resolve_deadline_at - CURRENT_DATE)     AS resolve_days,
+            to_char(ack_deadline_at, 'Mon FMDD')     AS ack_label,
+            to_char(resolve_deadline_at, 'Mon FMDD') AS resolve_label
+       FROM warranty_claims
+      WHERE resolved = false
+        AND (ack_deadline_at IS NOT NULL OR resolve_deadline_at IS NOT NULL)`,
+  );
+  for (const r of warr.rows) {
+    if (!r.acknowledged && r.ack_days !== null && r.ack_days <= WARRANTY_ACK_WINDOW && (await claim(`warranty:${r.id}:ack`))) {
+      await emit({
+        kind: "decision",
+        tag: "Warranty",
+        accent: "flag",
+        icon: "shield",
+        flagged: true,
+        title: `Acknowledge warranty claim · ${r.project}`,
+        subline: `${r.issue.slice(0, 80)} — ack by ${r.ack_label ?? "soon"}`,
+        href: "/warranty",
+        whenLabel: "Today",
+      });
+      out.warranty++;
+    }
+    if (r.resolve_days !== null && r.resolve_days <= WARRANTY_RESOLVE_WINDOW && (await claim(`warranty:${r.id}:resolve`))) {
+      await emit({
+        kind: "decision",
+        tag: "Warranty",
+        accent: "flag",
+        icon: "shield",
+        flagged: true,
+        title: `Warranty claim resolution due · ${r.project}`,
+        subline: `${r.issue.slice(0, 80)} — resolve by ${r.resolve_label ?? "soon"}`,
+        href: "/warranty",
+        whenLabel: "Today",
+      });
+      out.warranty++;
     }
   }
 

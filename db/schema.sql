@@ -239,6 +239,14 @@ CREATE TABLE IF NOT EXISTS warranty_claims (
   opened_at       timestamptz NOT NULL DEFAULT now(),
   created_at      timestamptz NOT NULL DEFAULT now()
 );
+-- Real warranty workflow (Phase-4 P4-3): link claims to a project, record the
+-- intake channel, and track the acknowledgment (5-day) / resolution (30-day)
+-- deadlines the reminder engine watches.
+ALTER TABLE warranty_claims ADD COLUMN IF NOT EXISTS project_id uuid REFERENCES projects(id) ON DELETE SET NULL;
+ALTER TABLE warranty_claims ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'manual';
+ALTER TABLE warranty_claims ADD COLUMN IF NOT EXISTS ack_deadline_at date;
+ALTER TABLE warranty_claims ADD COLUMN IF NOT EXISTS resolve_deadline_at date;
+ALTER TABLE warranty_claims ADD COLUMN IF NOT EXISTS acknowledged boolean NOT NULL DEFAULT false;
 
 -- ─── Schedule ───────────────────────────────────────────────────────────────
 -- Timeblocks pinned to a real date + the daily field log. The /schedule view

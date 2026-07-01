@@ -12,7 +12,9 @@ import { ClientSelections } from "@/components/portal/ClientSelections";
 import { PortalMessenger } from "@/components/portal/PortalMessenger";
 import { ClientSignDocs } from "@/components/portal/ClientSignDocs";
 import { ClientUploads } from "@/components/portal/ClientUploads";
+import { WarrantyClaimForm } from "@/components/portal/WarrantyClaimForm";
 import { getClientSignatures } from "@/lib/esign";
+import { getClientWarranty } from "@/lib/warranty";
 
 export default async function ClientPortalPage() {
   const user = await requireRole("owner", "client");
@@ -39,6 +41,10 @@ export default async function ClientPortalPage() {
   const [scheduleBlocks, uploads] = slug
     ? await Promise.all([getProjectScheduleBlocks(slug), getClientUploads(slug)])
     : [[], []];
+
+  // Warranty panel — only once the project has reached the warranty stage (P4-3).
+  const inWarranty = project?.status === "warranty";
+  const warranty = inWarranty && slug ? await getClientWarranty(slug) : null;
 
   if (project) {
     data.project = project.name;
@@ -139,6 +145,14 @@ export default async function ClientPortalPage() {
 
         {/* sidebar */}
         <aside className="overflow-y-auto border-l border-rule bg-paper-2 p-6">
+          {warranty && slug && (
+            <>
+              <Card kind="accent" className="mb-4 p-3">
+                <WarrantyClaimForm slug={slug} data={warranty} />
+              </Card>
+            </>
+          )}
+
           <Eyebrow muted>What I need from you</Eyebrow>
           {pendingCount > 0 ? (
             <Card kind="accent" className="mt-2 p-2.5">

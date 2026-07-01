@@ -1,10 +1,11 @@
 import { Shell } from "@/components/shell/Shell";
 import { AiBubble, AiStream, AckButton, Card, Chip, Eyebrow } from "@/components/ui";
-import { getWarrantyData, getWarrantySummary } from "@/lib/warranty";
+import { getWarrantyData, getWarrantySummary, getWarrantyProjectOptions } from "@/lib/warranty";
 import { WarrantyClaims } from "@/components/warranty/WarrantyClaims";
+import { AddClaimButton } from "@/components/warranty/AddClaimButton";
 
 export default async function WarrantyPage() {
-  const data = await getWarrantyData();
+  const [data, projectOptions] = await Promise.all([getWarrantyData(), getWarrantyProjectOptions()]);
 
   return (
     <Shell breadcrumb="WARRANTY · CLOSED PROJECTS">
@@ -23,6 +24,7 @@ export default async function WarrantyPage() {
                 {f}
               </Chip>
             ))}
+            <AddClaimButton projects={projectOptions} />
           </div>
         </div>
 

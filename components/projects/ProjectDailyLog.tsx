@@ -2,8 +2,9 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Card, Chip, SubmitButton } from "@/components/ui";
+import { Card, Chip, SubmitButton, VoiceButton } from "@/components/ui";
 import { addProjectDailyLog } from "@/lib/actions/projects";
+import { appendTranscript } from "@/lib/append-transcript";
 
 interface Log {
   id: string;
@@ -15,9 +16,18 @@ interface Log {
 
 /** Project Daily-log tab — real, project-scoped log history with an add form.
  *  Owner posts a dated entry (upserts per day); the global /schedule log is
- *  separate. */
-export function ProjectDailyLog({ slug, logs }: { slug: string; logs: Log[] }) {
+ *  separate. Voice dictation (7-voice) is offered when the server has whisper. */
+export function ProjectDailyLog({
+  slug,
+  logs,
+  voiceEnabled = false,
+}: {
+  slug: string;
+  logs: Log[];
+  voiceEnabled?: boolean;
+}) {
   const formRef = useRef<HTMLFormElement>(null);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
   const router = useRouter();
   const [today] = useState(() => new Date().toLocaleDateString("en-CA"));
   const add = addProjectDailyLog.bind(null, slug);
@@ -45,13 +55,15 @@ export function ProjectDailyLog({ slug, logs }: { slug: string; logs: Log[] }) {
             />
           </div>
           <textarea
+            ref={bodyRef}
             name="body"
             required
             rows={3}
             placeholder="What happened on site today…"
             className="w-full resize-y rounded border border-rule bg-card px-2.5 py-2 text-[13px] text-ink outline-none placeholder:text-ink-4"
           />
-          <div className="flex justify-end">
+          <div className="flex items-center justify-end gap-2">
+            {voiceEnabled && <VoiceButton onText={(t) => appendTranscript(bodyRef.current, t)} />}
             <SubmitButton className="rounded-md bg-ink px-3 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e]">
               Save log
             </SubmitButton>

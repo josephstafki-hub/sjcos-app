@@ -3,6 +3,7 @@ import { Flag, Image as ImageIcon, Phone, ArrowLeft } from "lucide-react";
 import { AckButton, Avatar, Card, Chip, Eyebrow } from "@/components/ui";
 import { getSubPortalData, getSubLogs, getSubInvoices, getSubAssignment, getSubDocuments } from "@/lib/sub-portal";
 import { SubDocs } from "@/components/sub-portal/SubDocs";
+import { whisperAvailable } from "@/lib/transcribe";
 import { requireRole } from "@/lib/dal";
 import { getSub } from "@/lib/subs";
 import { getPortalThread, portalChannel } from "@/lib/portal-messages";
@@ -139,7 +140,7 @@ export default async function SubPortalPage() {
 
             <Card className="p-3.5">
               <h2 className="mb-2 font-serif text-[15px] font-semibold text-ink">Log your day</h2>
-              <SubLogComposer slug={slug ?? ""} />
+              <SubLogComposer slug={slug ?? ""} voiceEnabled={whisperAvailable()} />
 
               {logs.length > 0 && (
                 <div className="mt-3 border-t border-rule pt-2.5">

@@ -35,6 +35,7 @@ import { getProjectFloorplans } from "@/lib/floorplans";
 import { getCatalogData } from "@/lib/catalog";
 import { projectContext } from "@/lib/page-context";
 import { advanceProjectStatus } from "@/lib/actions/projects";
+import { whisperAvailable } from "@/lib/transcribe";
 
 const DOT: Record<string, string> = {
   accent: "bg-accent",
@@ -358,7 +359,7 @@ export default async function ProjectDetailPage({
   );
 
   // ── Daily log panel — real project-scoped log history + add ────────────────
-  const dailyLogPanel = <ProjectDailyLog slug={slug} logs={dailyLogs} />;
+  const dailyLogPanel = <ProjectDailyLog slug={slug} logs={dailyLogs} voiceEnabled={whisperAvailable()} />;
 
   // ── Selections panel — real board: catalog/upload images + client approval ──
   const selectionsPanel = (

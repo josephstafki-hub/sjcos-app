@@ -2,16 +2,20 @@
 
 import { useRef, useState, useTransition } from "react";
 import { ImagePlus, Send } from "lucide-react";
+import { VoiceButton } from "@/components/ui";
+import { appendTranscript } from "@/lib/append-transcript";
 import { submitSubLog } from "@/lib/actions/sub-portal";
 
 /** Real "Log your day" composer for the sub portal — a note + optional photo
  *  that persists to sub_logs and notifies Joe. Replaces the showcase AckButtons.
- *  On success the page revalidates so the log history below updates. */
-export function SubLogComposer({ slug }: { slug: string }) {
+ *  On success the page revalidates so the log history below updates. Voice
+ *  dictation (7-voice) shows when the server has whisper. */
+export function SubLogComposer({ slug, voiceEnabled = false }: { slug: string; voiceEnabled?: boolean }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState("");
   const [fileName, setFileName] = useState("");
   const formRef = useRef<HTMLFormElement>(null);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
 
   return (
     <form
@@ -32,6 +36,7 @@ export function SubLogComposer({ slug }: { slug: string }) {
       }}
     >
       <textarea
+        ref={bodyRef}
         name="body"
         rows={3}
         placeholder="What did you get done? Anything to flag?"
@@ -49,6 +54,7 @@ export function SubLogComposer({ slug }: { slug: string }) {
             onChange={(e) => setFileName(e.target.files?.[0]?.name ?? "")}
           />
         </label>
+        {voiceEnabled && <VoiceButton onText={(t) => appendTranscript(bodyRef.current, t)} />}
         <div className="flex-1" />
         <button
           type="submit"

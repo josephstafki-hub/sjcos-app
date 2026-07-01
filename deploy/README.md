@@ -75,3 +75,35 @@ Windows emitted: compliance items 60/30 days out, sub COI expiry 30/15/5 days
 out (the urgent ≤14-day compliance window is emitted on feed-read in
 `lib/notify.ts`). Each (record, window) fires once via the `reminder_log` dedup
 table. Add new scans (warranty deadlines, A/R dunning) in `lib/reminders.ts`.
+
+## Voice daily logs — whisper.cpp (Phase-3 7-voice)
+
+Local, offline speech-to-text for the daily-log composers. `/api/transcribe`
+decodes the browser recording with **ffmpeg** (system package) and transcribes
+it with **whisper.cpp** (user-local, no sudo). `lib/transcribe.ts` shows the mic
+button only when both the binary and model are present, so typed logs never
+break if it's missing.
+
+Install (one-time, no sudo — matches the Ollama pattern):
+```
+# portable cmake (whisper.cpp needs it to build)
+curl -sL https://github.com/Kitware/CMake/releases/latest \
+  | grep -oE 'cmake-[0-9.]+-linux-x86_64.tar.gz' | head -1   # note the version
+# download that asset, extract to ~/.local/opt, symlink bin/cmake -> ~/.local/bin
+
+# build whisper.cpp
+git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git ~/.local/src/whisper.cpp
+cd ~/.local/src/whisper.cpp
+PATH="$HOME/.local/bin:$PATH" cmake -B build -DCMAKE_BUILD_TYPE=Release
+PATH="$HOME/.local/bin:$PATH" cmake --build build -j 8        # -> build/bin/whisper-cli
+
+# model (English, ~142MB)
+mkdir -p ~/.local/share/whisper-models
+curl -sL https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin \
+  -o ~/.local/share/whisper-models/ggml-base.en.bin
+```
+
+Defaults (override in `.env.local` if you move them):
+`WHISPER_BIN=~/.local/src/whisper.cpp/build/bin/whisper-cli`,
+`WHISPER_MODEL=~/.local/share/whisper-models/ggml-base.en.bin`, `FFMPEG_BIN=ffmpeg`.
+The pipeline is `ffmpeg -ar 16000 -ac 1 -c:a pcm_s16le` → `whisper-cli -nt -np -otxt`.

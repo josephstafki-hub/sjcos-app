@@ -7,6 +7,7 @@ import type { SettingsData } from "@/lib/settings";
 import { setAiToggle, setNotifyToggle, updateProfile, updateCompanyDocs } from "@/lib/actions/settings";
 import { createUser, setUserActive } from "@/lib/actions/users";
 import { AI_NAME } from "@/lib/ai-name";
+import { ClipTokenCard } from "./ClipTokenCard";
 
 /** Shared text input for the editable forms, themed to match the modals. */
 function TextInput({
@@ -283,6 +284,8 @@ export function SettingsClient({ data }: { data: SettingsData }) {
                 </Card>
               ))}
             </div>
+
+            <ClipTokenCard token={data.clip.token} endpoint={data.clip.endpoint} />
           </>
         )}
 

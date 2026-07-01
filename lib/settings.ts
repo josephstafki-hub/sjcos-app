@@ -6,6 +6,7 @@
 import { query } from "./db";
 import { getCurrentUser } from "./dal";
 import { gmailConfigured } from "./gmail";
+import { getClipToken } from "./clip";
 
 export interface SettingsCategory {
   id: string;
@@ -79,6 +80,12 @@ export interface SettingsData {
     depositPct: string;
     terms: string;
   };
+  /** Browser-extension catalog clipper (Phase 2 A): the auth token (null until
+   *  generated) + the endpoint the extension posts to. */
+  clip: {
+    token: string | null;
+    endpoint: string;
+  };
 }
 
 export async function getSettingsData(): Promise<SettingsData> {
@@ -91,6 +98,8 @@ export async function getSettingsData(): Promise<SettingsData> {
   // Name + email are the authoritative login identity, read from the current
   // user's row (kept in sync by updateProfile); company + phone live in settings.
   const me = await getCurrentUser();
+  const clipToken = await getClipToken();
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://os.sjcarpentryllc.com").replace(/\/$/, "");
   const name = me?.name ?? get("profile.name", "Joe Stafki");
   const email = me?.email ?? get("profile.email", "josephstafki@sjcarpentryllc.com");
   const company = get("profile.company", "SJ Carpentry LLC");
@@ -194,6 +203,10 @@ export async function getSettingsData(): Promise<SettingsData> {
       address: get("company.address", ""),
       depositPct: get("contract.deposit_pct", "10"),
       terms: get("contract.terms", ""),
+    },
+    clip: {
+      token: clipToken,
+      endpoint: `${appUrl}/api/catalog/clip`,
     },
   };
 }

@@ -386,6 +386,8 @@ CREATE TABLE IF NOT EXISTS catalog_items (
 );
 -- Optional product image (a files row id), added S5B.
 ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS image_file_id text;
+-- Source product-page URL captured by the browser-extension clipper (Phase 2 A).
+ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS source_url text NOT NULL DEFAULT '';
 
 -- ─── Money: invoices + retainers (Review-round-3 S5A) ───────────────────────
 -- Native invoices (create/send/track) + a per-project retainer ledger. P&L

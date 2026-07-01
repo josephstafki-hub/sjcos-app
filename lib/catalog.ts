@@ -24,6 +24,8 @@ export interface Material {
   price: string;
   /** files row id of the product image, or null. Served via /api/files/<id>. */
   imageId: string | null;
+  /** Source product-page URL (browser-clipped items), or "". */
+  sourceUrl: string;
 }
 
 export interface CatalogData {
@@ -41,6 +43,7 @@ interface MaterialRow {
   use_label: string;
   price: string;
   image_file_id: string | null;
+  source_url: string;
 }
 
 function rowToMaterial(r: MaterialRow): Material {
@@ -56,12 +59,13 @@ function rowToMaterial(r: MaterialRow): Material {
     use: r.use_label,
     price: r.price,
     imageId: r.image_file_id,
+    sourceUrl: r.source_url ?? "",
   };
 }
 
 export async function getCatalogData(): Promise<CatalogData> {
   const { rows } = await query<MaterialRow>(
-    `SELECT id, name, supplier, sku, category, use_label, price, image_file_id
+    `SELECT id, name, supplier, sku, category, use_label, price, image_file_id, source_url
        FROM catalog_items
        ORDER BY created_at DESC, id DESC`,
   );

@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "SJC OS — Catalog Clipper",
+  "version": "1.0.0",
+  "description": "Clip a product from any supplier page into your SJC OS material catalog.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "action": {
+    "default_title": "Clip to SJC OS",
+    "default_popup": "popup.html"
+  }
+}

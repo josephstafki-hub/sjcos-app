@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Trash2 } from "lucide-react";
+import { Trash2, ExternalLink } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import { deleteMaterial } from "@/lib/actions/catalog";
 import type { CatalogCategory, CatalogData } from "@/lib/catalog";
@@ -71,6 +71,17 @@ export function CatalogClient({ data }: { data: CatalogData }) {
                 <span className="font-mono text-[11px] font-semibold text-accent-2">{m.price}</span>
               </div>
               <div className="mt-1 text-[11px] text-money">{m.use}</div>
+              {m.sourceUrl && (
+                <a
+                  href={m.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 inline-flex items-center gap-1 text-[10px] text-ink-3 underline decoration-rule underline-offset-2 hover:text-accent-2"
+                >
+                  <ExternalLink className="size-3" strokeWidth={1.5} />
+                  source
+                </a>
+              )}
             </div>
           </Card>
         ))}

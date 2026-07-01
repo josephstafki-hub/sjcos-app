@@ -71,10 +71,12 @@ journalctl --user -u sjcos-reminders.service -n 20       # last result (JSON)
 systemctl --user list-timers sjcos-reminders.timer       # next run
 ```
 
-Windows emitted: compliance items 60/30 days out, sub COI expiry 30/15/5 days
-out (the urgent ≤14-day compliance window is emitted on feed-read in
-`lib/notify.ts`). Each (record, window) fires once via the `reminder_log` dedup
-table. Add new scans (warranty deadlines, A/R dunning) in `lib/reminders.ts`.
+Windows emitted: compliance items 60/30 days out; sub COI expiry 30/15/5;
+warranty-claim ack (≤2d) + resolution (≤5d); insurance-policy renewals 60/30/14;
+and A/R dunning at 15/30 days overdue (the urgent ≤14-day compliance window is
+emitted on feed-read in `lib/notify.ts`). Each (record, window) fires once via
+the `reminder_log` dedup table. The cron JSON returns a per-scan count
+(`compliance`/`coi`/`warranty`/`insurance`/`ar`).
 
 ## Voice daily logs — whisper.cpp (Phase-3 7-voice)
 

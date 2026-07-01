@@ -18,6 +18,7 @@ const COI_WINDOWS = [30, 15, 5];
 const WARRANTY_ACK_WINDOW = 2; // remind when the 5-day ack is ≤2 days out
 const WARRANTY_RESOLVE_WINDOW = 5; // remind when the 30-day resolve is ≤5 days out
 const INSURANCE_WINDOWS = [60, 30, 14];
+const AR_WINDOWS = [15, 30]; // days overdue → demand letter / lien heads-up
 
 /** Claim a reminder key. Returns true only on the first claim (insert), so the
  *  caller emits exactly once per window across daily runs. */
@@ -34,10 +35,11 @@ export interface ReminderRun {
   coi: number;
   warranty: number;
   insurance: number;
+  ar: number;
 }
 
 export async function runReminders(): Promise<ReminderRun> {
-  const out: ReminderRun = { compliance: 0, coi: 0, warranty: 0, insurance: 0 };
+  const out: ReminderRun = { compliance: 0, coi: 0, warranty: 0, insurance: 0, ar: 0 };
 
   // ── Compliance items: 60 / 30-day heads-up (unresolved, future-dated) ──
   const comp = await query<{
@@ -181,6 +183,33 @@ export async function runReminders(): Promise<ReminderRun> {
           whenLabel: "Today",
         });
         out.insurance++;
+      }
+    }
+  }
+
+  // ── A/R dunning: invoices 15 / 30 days overdue (sent, unpaid) ──
+  const ar = await query<{ id: string; number: string; project: string; days: number }>(
+    `SELECT i.id, i.number, p.name AS project,
+            (CURRENT_DATE - i.sent_at::date) AS days
+       FROM invoices i JOIN projects p ON p.id = i.project_id
+      WHERE i.status = 'sent' AND i.sent_at IS NOT NULL
+        AND CURRENT_DATE - i.sent_at::date >= ${AR_WINDOWS[0]}`,
+  );
+  for (const r of ar.rows) {
+    for (const w of AR_WINDOWS) {
+      if (r.days >= w && (await claim(`ar:${r.id}:${w}`))) {
+        await emit({
+          kind: "money",
+          tag: "Collections",
+          accent: "flag",
+          icon: "money",
+          flagged: true,
+          title: `Invoice ${r.number} is ${r.days}d overdue · ${r.project}`,
+          subline: w >= 30 ? "Consider a lien package" : "Time to send a demand letter",
+          href: "/projects",
+          whenLabel: "Today",
+        });
+        out.ar++;
       }
     }
   }

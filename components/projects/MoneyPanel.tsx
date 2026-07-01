@@ -14,6 +14,7 @@ import {
   collectRetainer,
   applyRetainer,
 } from "@/lib/actions/money";
+import { generateDemandLetter, generateLienPackage } from "@/lib/actions/collections";
 
 // Local dollar formatter — NOT imported from lib/money (that module imports pg,
 // which must never reach the client bundle). See pg-in-client-bundle gotcha.
@@ -122,13 +123,37 @@ export function MoneyPanel({ slug, money }: { slug: string; money: ProjectMoney 
                 </div>
                 {/* read-only line breakdown */}
                 {inv.lines.length > 0 && (
-                  <div className="flex flex-col gap-0.5 px-4 pb-3 pl-[80px] pt-1.5">
+                  <div className="flex flex-col gap-0.5 px-4 pb-1.5 pl-[80px] pt-1.5">
                     {inv.lines.map((l, k) => (
                       <div key={k} className="flex items-center gap-2 text-[11px]">
                         <span className="min-w-0 flex-1 truncate text-ink-3">{l.label}</span>
                         <span className="font-mono text-ink-3">{fmt(l.amount)}</span>
                       </div>
                     ))}
+                  </div>
+                )}
+                {/* Collections — overdue sent invoices (P4-7) */}
+                {inv.status === "sent" && inv.daysOverdue !== null && inv.daysOverdue >= 15 && (
+                  <div className="flex flex-wrap items-center gap-2 px-4 pb-3 pl-[80px] pt-1">
+                    <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-flag">
+                      {inv.daysOverdue}d overdue
+                    </span>
+                    <button
+                      disabled={pending}
+                      onClick={() => run(() => generateDemandLetter(inv.id, true))}
+                      className="rounded-md border border-flag/40 bg-flag/10 px-2 py-0.5 text-[11px] font-semibold text-flag hover:bg-flag/20 disabled:opacity-50"
+                    >
+                      Demand letter
+                    </button>
+                    {inv.daysOverdue >= 30 && (
+                      <button
+                        disabled={pending}
+                        onClick={() => run(() => generateLienPackage(inv.id))}
+                        className="rounded-md border border-flag/40 bg-flag/10 px-2 py-0.5 text-[11px] font-semibold text-flag hover:bg-flag/20 disabled:opacity-50"
+                      >
+                        Lien package (draft)
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

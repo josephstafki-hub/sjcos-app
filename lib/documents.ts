@@ -584,6 +584,145 @@ export async function renderLienWaiverPdf(d: CloseoutData): Promise<Buffer> {
   });
 }
 
+export interface CollectionData {
+  invoiceNumber: string;
+  milestone: string;
+  amount: number; // dollars
+  sentLabel: string;
+  daysOverdue: number;
+  projectName: string;
+  projectSlug: string;
+  clientName: string;
+  clientEmail: string;
+  address: string;
+  company: DocData["company"];
+  dateLabel: string;
+}
+
+/** Gather invoice + project + company data for a demand letter / lien package.
+ *  Null if the invoice doesn't exist. */
+export async function gatherCollectionData(invoiceId: number): Promise<CollectionData | null> {
+  const r = await queryOne<{
+    number: string;
+    milestone: string;
+    amount: number;
+    sent_label: string | null;
+    days_overdue: number | null;
+    project_name: string;
+    slug: string;
+    client_name: string | null;
+    address: string | null;
+  }>(
+    `SELECT i.number, i.milestone, i.amount,
+            to_char(i.sent_at, 'FMMonth FMDD, YYYY') AS sent_label,
+            (CURRENT_DATE - i.sent_at::date)         AS days_overdue,
+            p.name AS project_name, p.slug, p.client_name, p.address
+       FROM invoices i JOIN projects p ON p.id = i.project_id
+      WHERE i.id = $1`,
+    [invoiceId],
+  );
+  if (!r) return null;
+  const clientUser = await queryOne<{ email: string }>(
+    `SELECT email FROM users WHERE role = 'client' AND link_slug = $1 LIMIT 1`,
+    [r.slug],
+  );
+  const info = await getCompanyDocInfo();
+  return {
+    invoiceNumber: r.number,
+    milestone: r.milestone,
+    amount: r.amount,
+    sentLabel: r.sent_label ?? "—",
+    daysOverdue: r.days_overdue ?? 0,
+    projectName: r.project_name,
+    projectSlug: r.slug,
+    clientName: r.client_name ?? "",
+    clientEmail: clientUser?.email ?? "",
+    address: r.address ?? "",
+    company: info.company,
+    dateLabel: today(),
+  };
+}
+
+/** Day-15 past-due demand letter. */
+export async function renderDemandLetterPdf(d: CollectionData): Promise<Buffer> {
+  return pdfToBuffer((doc) => {
+    companyHeader(doc, d.company);
+    docTitle(doc, "Notice of Past-Due Payment", `${d.projectName} — ${d.dateLabel}`);
+
+    para(doc, `${d.clientName || "Property Owner"}${d.address ? `\n${d.address}` : ""}`, 0.8);
+    para(
+      doc,
+      `Our records show that invoice ${d.invoiceNumber} for "${d.milestone}" on your ${d.projectName} ` +
+        `project, in the amount of ${usdDollars(d.amount)}, was sent on ${d.sentLabel} and remains unpaid ` +
+        `(${d.daysOverdue} days past the invoice date).`,
+    );
+    para(
+      doc,
+      `Please remit payment of ${usdDollars(d.amount)} within ten (10) days of this notice. If you have ` +
+        `already sent payment, thank you — please disregard this letter. If there's an issue with the work ` +
+        `or the invoice, contact us right away so we can resolve it.`,
+    );
+    para(
+      doc,
+      `Continued non-payment may result in suspension of work and the pursuit of remedies available under ` +
+        `Minnesota law, including mechanic's lien rights. We'd much rather resolve this directly.`,
+    );
+    para(doc, `Sincerely,\n\n${d.company.name}\n${[d.company.phone, d.company.email].filter(Boolean).join("  ·  ")}`, 0.4);
+
+    disclaimerFooter(doc);
+  });
+}
+
+/** Day-30 MN mechanic's-lien statement-of-claim draft. */
+export async function renderLienPackagePdf(d: CollectionData): Promise<Buffer> {
+  return pdfToBuffer((doc) => {
+    companyHeader(doc, d.company);
+    docTitle(doc, "Mechanic's Lien Statement — DRAFT", `${d.projectName} — ${d.dateLabel}`);
+
+    doc.font("Helvetica-Bold").fontSize(9).fillColor("#a4402f").text(
+      "DRAFT — NOT FILED. Minnesota mechanic's liens (Minn. Stat. ch. 514) have strict content, timing, " +
+        "and pre-lien notice requirements. Verify every field and deadline with your attorney before filing.",
+      { width: doc.page.width - 2 * PAGE.margin },
+    );
+    doc.fillColor(INK).moveDown(0.6);
+
+    sectionLabel(doc, "Claimant");
+    row(doc, d.company.name, d.company.license ? `License ${d.company.license}` : null, "");
+    if (d.company.address) row(doc, d.company.address, null, "");
+
+    sectionLabel(doc, "Property Owner");
+    row(doc, d.clientName || "[owner name]", null, "");
+
+    sectionLabel(doc, "Property");
+    row(doc, d.address || "[property address]", "Legal description: ________________________________", "");
+
+    sectionLabel(doc, "Claim");
+    row(doc, "Amount due and owing", `Invoice ${d.invoiceNumber} · ${d.milestone}`, usdDollars(d.amount), true);
+    row(doc, "Description of work", "Labor, services & materials furnished for the improvement", "");
+    row(doc, "First / last date of work", "________________  /  ________________", "");
+
+    doc.moveDown(0.6);
+    para(
+      doc,
+      `The claimant furnished labor, services, and/or materials for the improvement of the above-described ` +
+        `real property, the last of which was furnished within the statutory period, and ${usdDollars(d.amount)} ` +
+        `remains due and owing after demand.`,
+    );
+
+    doc.moveDown(0.8);
+    sectionLabel(doc, "Verification");
+    doc.font("Helvetica").fontSize(8.5).fillColor(GRAY).text(
+      "Signed under penalty of perjury.  Signature: ____________________________   Date: ____________\n" +
+        "State of Minnesota, County of ______________.  Subscribed and sworn before me this ____ day of " +
+        "____________, 20____.   Notary Public: ____________________________",
+      { width: doc.page.width - 2 * PAGE.margin },
+    );
+    doc.fillColor(INK);
+
+    disclaimerFooter(doc);
+  });
+}
+
 export interface IncidentDocData {
   company: DocData["company"];
   projectName: string;

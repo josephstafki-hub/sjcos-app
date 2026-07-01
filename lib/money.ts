@@ -21,6 +21,8 @@ export interface Invoice {
   status: InvoiceStatus;
   /** Display date for the status, e.g. "Sent Apr 30" / "Paid May 2" / "Draft". */
   statusLabel: string;
+  /** Days since a sent invoice was sent (for collections triggers); null else. */
+  daysOverdue: number | null;
 }
 
 export interface RetainerLedger {
@@ -47,6 +49,7 @@ interface InvoiceRow {
   status: InvoiceStatus;
   sent_label: string | null;
   paid_label: string | null;
+  days_overdue: number | null;
 }
 
 /** Format integer dollars as "$12,400". */
@@ -65,7 +68,9 @@ export async function getProjectMoney(slug: string): Promise<ProjectMoney> {
   const { rows } = await query<InvoiceRow>(
     `SELECT i.id, i.number, i.milestone, i.amount, i.line_items, i.status,
             to_char(i.sent_at, 'Mon FMDD') AS sent_label,
-            to_char(i.paid_at, 'Mon FMDD') AS paid_label
+            to_char(i.paid_at, 'Mon FMDD') AS paid_label,
+            CASE WHEN i.status = 'sent' AND i.sent_at IS NOT NULL
+                 THEN (CURRENT_DATE - i.sent_at::date) END AS days_overdue
        FROM invoices i
        JOIN projects p ON p.id = i.project_id
       WHERE p.slug = $1
@@ -80,6 +85,7 @@ export async function getProjectMoney(slug: string): Promise<ProjectMoney> {
     lines: Array.isArray(r.line_items) ? r.line_items : [],
     status: r.status,
     statusLabel: statusLabel(r),
+    daysOverdue: r.days_overdue,
   }));
 
   const ret = await queryOne<{ collected: number; applied: number }>(

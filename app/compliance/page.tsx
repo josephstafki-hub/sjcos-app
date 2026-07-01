@@ -2,9 +2,11 @@ import { Shell } from "@/components/shell/Shell";
 import { AiBubble, AiStream, AckButton } from "@/components/ui";
 import { getComplianceData, getComplianceSummary } from "@/lib/compliance";
 import { ComplianceClient } from "@/components/compliance/ComplianceClient";
+import { InsuranceSection } from "@/components/insurance/InsuranceSection";
+import { getInsurancePolicies } from "@/lib/insurance";
 
 export default async function CompliancePage() {
-  const data = await getComplianceData();
+  const [data, policies] = await Promise.all([getComplianceData(), getInsurancePolicies()]);
 
   return (
     <Shell breadcrumb="COMPLIANCE · CALENDAR">
@@ -23,6 +25,7 @@ export default async function CompliancePage() {
             </AiBubble>
           }
         />
+        <InsuranceSection policies={policies} />
       </div>
     </Shell>
   );

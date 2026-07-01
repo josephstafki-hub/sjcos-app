@@ -17,6 +17,7 @@ const COMPLIANCE_WINDOWS = [60, 30]; // ≤14d handled on feed-read
 const COI_WINDOWS = [30, 15, 5];
 const WARRANTY_ACK_WINDOW = 2; // remind when the 5-day ack is ≤2 days out
 const WARRANTY_RESOLVE_WINDOW = 5; // remind when the 30-day resolve is ≤5 days out
+const INSURANCE_WINDOWS = [60, 30, 14];
 
 /** Claim a reminder key. Returns true only on the first claim (insert), so the
  *  caller emits exactly once per window across daily runs. */
@@ -32,10 +33,11 @@ export interface ReminderRun {
   compliance: number;
   coi: number;
   warranty: number;
+  insurance: number;
 }
 
 export async function runReminders(): Promise<ReminderRun> {
-  const out: ReminderRun = { compliance: 0, coi: 0, warranty: 0 };
+  const out: ReminderRun = { compliance: 0, coi: 0, warranty: 0, insurance: 0 };
 
   // ── Compliance items: 60 / 30-day heads-up (unresolved, future-dated) ──
   const comp = await query<{
@@ -152,6 +154,34 @@ export async function runReminders(): Promise<ReminderRun> {
         whenLabel: "Today",
       });
       out.warranty++;
+    }
+  }
+
+  // ── Insurance policy renewals: 60 / 30 / 14-day reminders ──
+  const ins = await query<{ id: string; label: string; days: number; exp: string }>(
+    `SELECT id, upper(policy_type) AS label,
+            (expires_date - CURRENT_DATE)         AS days,
+            to_char(expires_date, 'Mon FMDD')     AS exp
+       FROM insurance_policies
+      WHERE archived = false AND expires_date IS NOT NULL
+        AND expires_date - CURRENT_DATE BETWEEN 0 AND ${INSURANCE_WINDOWS[0]}`,
+  );
+  for (const r of ins.rows) {
+    for (const w of INSURANCE_WINDOWS) {
+      if (r.days <= w && (await claim(`insurance:${r.id}:${w}`))) {
+        await emit({
+          kind: "compliance",
+          tag: "Insurance",
+          accent: "flag",
+          icon: "shield",
+          flagged: r.days <= 14,
+          title: `${r.label} policy renews ${r.exp}`,
+          subline: `${r.days}d out — confirm renewal`,
+          href: "/compliance",
+          whenLabel: "Today",
+        });
+        out.insurance++;
+      }
     }
   }
 

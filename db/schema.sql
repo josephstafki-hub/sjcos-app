@@ -628,6 +628,24 @@ CREATE TABLE IF NOT EXISTS incident_reports (
 );
 CREATE INDEX IF NOT EXISTS idx_incidents_project ON incident_reports(project_id, created_at DESC);
 
+-- Per-policy insurance tracking (Phase-4 P4-6). Renewal reminders (60/30/14) are
+-- emitted by lib/reminders.ts. coverage_amount + premium are integer dollars.
+CREATE TABLE IF NOT EXISTS insurance_policies (
+  id              bigserial PRIMARY KEY,
+  policy_type     text NOT NULL DEFAULT 'other'
+                    CHECK (policy_type IN ('gl','wc','auto','umbrella','other')),
+  carrier         text NOT NULL DEFAULT '',
+  policy_number   text NOT NULL DEFAULT '',
+  coverage_amount integer NOT NULL DEFAULT 0,
+  effective_date  date,
+  expires_date    date,
+  premium         integer NOT NULL DEFAULT 0,
+  notes           text NOT NULL DEFAULT '',
+  archived        boolean NOT NULL DEFAULT false,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_insurance_expires ON insurance_policies(expires_date);
+
 CREATE INDEX IF NOT EXISTS idx_invoices_project     ON invoices(project_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_selections_project   ON project_selections(project_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_mood_project         ON project_mood(project_id, room, sort_order);

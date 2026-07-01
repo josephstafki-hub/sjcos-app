@@ -1,15 +1,17 @@
 import Link from "next/link";
 import { Bell, FileText, ArrowLeft } from "lucide-react";
 import { Avatar, Card, Chip, Eyebrow } from "@/components/ui";
-import { getClientPortalData } from "@/lib/client-portal";
+import { getClientPortalData, getClientUploads } from "@/lib/client-portal";
 import { requireRole } from "@/lib/dal";
 import { getProject } from "@/lib/projects";
 import { getClientSelections } from "@/lib/selections";
 import { getProjectMoney, usd } from "@/lib/money";
+import { getProjectScheduleBlocks } from "@/lib/schedule";
 import { getPortalThread, portalChannel } from "@/lib/portal-messages";
 import { ClientSelections } from "@/components/portal/ClientSelections";
 import { PortalMessenger } from "@/components/portal/PortalMessenger";
 import { ClientSignDocs } from "@/components/portal/ClientSignDocs";
+import { ClientUploads } from "@/components/portal/ClientUploads";
 import { getClientSignatures } from "@/lib/esign";
 
 export default async function ClientPortalPage() {
@@ -32,6 +34,11 @@ export default async function ClientPortalPage() {
   ]);
   const signDocs = slug ? await getClientSignatures(slug) : [];
   const toSignCount = signDocs.filter((d) => d.status === "sent").length;
+
+  // Read-only schedule + the client's own uploaded files (5-depth).
+  const [scheduleBlocks, uploads] = slug
+    ? await Promise.all([getProjectScheduleBlocks(slug), getClientUploads(slug)])
+    : [[], []];
 
   if (project) {
     data.project = project.name;
@@ -167,6 +174,29 @@ export default async function ClientPortalPage() {
           <Eyebrow muted>Selections to review</Eyebrow>
           <ClientSelections view={selections} />
 
+          {scheduleBlocks.length > 0 && (
+            <>
+              <div className="my-4 border-t border-rule" />
+              <Eyebrow muted>Schedule</Eyebrow>
+              <div className="mt-2 flex flex-col gap-1.5">
+                {scheduleBlocks.slice(0, 8).map((b) => (
+                  <div key={b.id} className="flex items-center gap-2">
+                    <span
+                      className={`size-1.5 flex-none rounded-full ${
+                        b.tone === "accent" ? "bg-accent" : b.tone === "ai" ? "bg-ai" : "bg-ink-4"
+                      }`}
+                    />
+                    <span className="w-[92px] flex-none font-mono text-[10px] uppercase tracking-[0.06em] text-ink-3">
+                      {b.dateLabel}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[12px] text-ink-2">{b.label}</span>
+                    <span className="font-mono text-[10px] text-ink-3">{b.time}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
           <div className="my-4 border-t border-rule" />
           <Eyebrow muted>Money</Eyebrow>
           <div className="mt-2 flex flex-col gap-1.5">
@@ -217,16 +247,24 @@ export default async function ClientPortalPage() {
             placeholder="Reply about the project…"
           />
 
-          <div className="my-4 border-t border-rule" />
-          <Eyebrow muted>Files shared with you</Eyebrow>
-          <div className="mt-2 flex flex-col gap-1.5">
-            {data.files.map((f) => (
-              <div key={f} className="flex items-center gap-1.5">
-                <FileText className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
-                <span className="text-[12px] text-ink-2">{f}</span>
+          {data.files.length > 0 && (
+            <>
+              <div className="my-4 border-t border-rule" />
+              <Eyebrow muted>Files shared with you</Eyebrow>
+              <div className="mt-2 flex flex-col gap-1.5">
+                {data.files.map((f) => (
+                  <div key={f} className="flex items-center gap-1.5">
+                    <FileText className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
+                    <span className="text-[12px] text-ink-2">{f}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </>
+          )}
+
+          <div className="my-4 border-t border-rule" />
+          <Eyebrow muted>Share photos or documents</Eyebrow>
+          <ClientUploads uploads={uploads} />
         </aside>
       </div>
     </div>

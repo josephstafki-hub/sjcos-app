@@ -11,8 +11,49 @@ import { query } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { portalChannel } from "@/lib/portal-messages";
 import { emit } from "@/lib/notify";
+import { storeUpload } from "@/lib/upload-store";
 
 const PREVIEW_SLUG = { client: "henderson", sub: "marco" } as const;
+
+/** Client uploads a photo or document from their portal (Phase-3 5-depth). The
+ *  project slug is derived from the session (never trusted from the form); the
+ *  file is tagged with the client's slug so only they (and the owner) can view
+ *  it. The owner sees it in the project Files tab (project_key = slug). */
+export async function uploadClientFile(formData: FormData) {
+  const user = await requireRole("owner", "client");
+  const slug = user.role === "owner" ? PREVIEW_SLUG.client : user.linkSlug;
+  if (!slug) return { ok: false, error: "No project linked to this account." };
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, error: "Choose a file to upload." };
+  }
+
+  const stored = await storeUpload(file, {
+    idPrefix: "client",
+    projectKey: slug,
+    tag: "CLIENT UPLOAD",
+    subtitle: `Client upload · ${user.name || "client"}`,
+  });
+  if (!stored.ok) return { ok: false, error: stored.error };
+
+  // Mark the file as the client's so the portal serve route authorizes them.
+  await query(`UPDATE files SET client_slug = $1 WHERE id = $2`, [slug, stored.id]);
+
+  await emit({
+    kind: "job",
+    tag: "Client upload",
+    accent: "accent",
+    icon: "project",
+    title: `${user.name || "Client"} uploaded a file`,
+    subline: file.name.slice(0, 90),
+    href: `/projects/${slug}`,
+  });
+
+  revalidatePath("/client-portal");
+  revalidatePath(`/projects/${slug}`);
+  return { ok: true };
+}
 
 /** Owner-side composer for the project Comms tab. Posts into the project's
  *  client portal thread (portal:<slug>) so owner ⇄ client talk in one place —

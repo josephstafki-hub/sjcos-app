@@ -2,6 +2,28 @@
 // sidebar). Mock-backed today; reads the project journal + draw schedule in
 // Phase 7.
 
+import { query } from "./db";
+
+/** A file the client uploaded through their portal. */
+export interface ClientUpload {
+  id: string;
+  name: string;
+  isImage: boolean;
+  when: string;
+}
+
+/** Files the client uploaded (client_slug scoped), newest first. Served to the
+ *  client via /api/portal/project-file/[id]. */
+export async function getClientUploads(slug: string): Promise<ClientUpload[]> {
+  const { rows } = await query<{ id: string; name: string; type: string; when_label: string }>(
+    `SELECT id, name, type, to_char(created_at, 'Mon FMDD') AS when_label
+       FROM files WHERE client_slug = $1
+      ORDER BY created_at DESC LIMIT 30`,
+    [slug],
+  );
+  return rows.map((r) => ({ id: r.id, name: r.name, isImage: r.type === "img", when: r.when_label }));
+}
+
 export interface JournalEntry {
   date: string;
   title: string;

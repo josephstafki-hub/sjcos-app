@@ -301,6 +301,11 @@ ALTER TABLE files ADD COLUMN IF NOT EXISTS mime_type    text;
 -- Lead photo association: uploaded images attached to a lead (real, viewable).
 ALTER TABLE files ADD COLUMN IF NOT EXISTS lead_slug    text;
 CREATE INDEX IF NOT EXISTS idx_files_lead ON files(lead_slug);
+-- Marks a file uploaded by a client through their portal (Phase-3 5-depth). The
+-- client may view only files carrying their own slug here; owner project files
+-- stay owner-only (served via /api/files, not the portal route).
+ALTER TABLE files ADD COLUMN IF NOT EXISTS client_slug  text;
+CREATE INDEX IF NOT EXISTS idx_files_client ON files(client_slug);
 
 -- ─── App settings ─────────────────────────────────────────────────────────
 -- Single-row key/value store for the Settings screen toggles + profile fields.

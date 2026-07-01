@@ -108,6 +108,9 @@ CREATE TABLE IF NOT EXISTS projects (
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS value_display text;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS sub_label     text;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS stage_label   text;
+-- Completion-outreach dedup marker (Phase-4): set when the warranty + review
+-- emails go out on reaching the warranty stage, so re-flipping never re-sends.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS closeout_outreach_at timestamptz;
 
 -- Migrate the project lifecycle to the design's 9 stages (Review-round-3 S3).
 -- Drop the old CHECK first so legacy values can be remapped, then re-add it.
@@ -609,7 +612,8 @@ CREATE TABLE IF NOT EXISTS signature_requests (
   project_id      uuid REFERENCES projects(id) ON DELETE CASCADE,   -- project-scoped (most)
   lead_slug       text,                                             -- or lead-scoped (pre-project estimates)
   doc_type        text NOT NULL DEFAULT 'other'
-                    CHECK (doc_type IN ('design','estimate','contract','sow','change_order','other')),
+                    CHECK (doc_type IN ('design','estimate','contract','sow','change_order',
+                                        'completion','lien_waiver','other')),
   title           text NOT NULL DEFAULT '',
   file_id         text REFERENCES files(id) ON DELETE SET NULL,     -- the document blob, if any
   body            text NOT NULL DEFAULT '',                         -- inline rendered document text

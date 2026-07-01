@@ -20,6 +20,7 @@ const TAB_LABELS = [
   "Change orders",
   "Sign-offs",
   "Closeout",
+  "Safety",
 ];
 
 /**

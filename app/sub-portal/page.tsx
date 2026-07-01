@@ -3,6 +3,8 @@ import { Flag, Image as ImageIcon, Phone, ArrowLeft } from "lucide-react";
 import { AckButton, Avatar, Card, Chip, Eyebrow } from "@/components/ui";
 import { getSubPortalData, getSubLogs, getSubInvoices, getSubAssignment, getSubDocuments } from "@/lib/sub-portal";
 import { SubDocs } from "@/components/sub-portal/SubDocs";
+import { SubSafety } from "@/components/sub-portal/SubSafety";
+import { getSubOrientations } from "@/lib/safety";
 import { whisperAvailable } from "@/lib/transcribe";
 import { requireRole } from "@/lib/dal";
 import { getSub } from "@/lib/subs";
@@ -36,9 +38,9 @@ export default async function SubPortalPage() {
 
   // Real, DB-backed sub records: their daily logs + submitted invoices + the
   // owner-set scope & scheduled dates for their current assignment (6-scope).
-  const [logs, subInvoices, assignment, subDocs] = slug
-    ? await Promise.all([getSubLogs(slug), getSubInvoices(slug), getSubAssignment(slug), getSubDocuments(slug)])
-    : [[], [], null, []];
+  const [logs, subInvoices, assignment, subDocs, orientations] = slug
+    ? await Promise.all([getSubLogs(slug), getSubInvoices(slug), getSubAssignment(slug), getSubDocuments(slug), getSubOrientations(slug)])
+    : [[], [], null, [], []];
 
   return (
     <div className="flex h-screen flex-col bg-paper">
@@ -203,6 +205,12 @@ export default async function SubPortalPage() {
 
               <SubInvoiceSubmit slug={slug ?? ""} />
             </Card>
+
+            {orientations.length > 0 && (
+              <Card kind="flag" className="p-3">
+                <SubSafety orientations={orientations} />
+              </Card>
+            )}
 
             <Card className="p-3">
               <SubDocs slug={slug ?? ""} docs={subDocs} />

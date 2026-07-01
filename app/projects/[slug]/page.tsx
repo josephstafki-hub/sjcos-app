@@ -22,9 +22,11 @@ import { ProjectSchedule } from "@/components/projects/ProjectSchedule";
 import { SignOffs } from "@/components/projects/SignOffs";
 import { ChangeOrders } from "@/components/projects/ChangeOrders";
 import { Closeout } from "@/components/projects/Closeout";
+import { Safety } from "@/components/projects/Safety";
 import { getProjectSignatureRequests, getProjectSignerDefaults } from "@/lib/esign";
 import { getProjectChangeOrders } from "@/lib/change-orders";
 import { getCloseoutView } from "@/lib/closeout";
+import { getProjectOrientations } from "@/lib/safety";
 import { ProjectEstimate } from "@/components/projects/ProjectEstimate";
 import { getProjectEstimates } from "@/lib/estimates";
 import { getCostBook } from "@/lib/cost-book";
@@ -77,13 +79,14 @@ export default async function ProjectDetailPage({
   ]);
   const subsData = await getProjectSubsData(slug);
   const dailyLogs = await getProjectDailyLogs(slug);
-  const [signatureRequests, signerDefaults, estimates, costBook, changeOrders, closeoutView] = await Promise.all([
+  const [signatureRequests, signerDefaults, estimates, costBook, changeOrders, closeoutView, orientations] = await Promise.all([
     getProjectSignatureRequests(slug),
     getProjectSignerDefaults(slug),
     getProjectEstimates(slug),
     getCostBook(),
     getProjectChangeOrders(slug),
     getCloseoutView(slug),
+    getProjectOrientations(slug),
   ]);
   if (!project) notFound();
 
@@ -393,6 +396,7 @@ export default async function ProjectDetailPage({
   );
   const changeOrdersPanel = <ChangeOrders slug={slug} orders={changeOrders} />;
   const closeoutPanel = <Closeout slug={slug} view={closeoutView} />;
+  const safetyPanel = <Safety slug={slug} orientations={orientations} />;
 
   // ── Floor / Mood — design-tool tabs (real boards, S5D/S5E) ──────────────────
   const floorPanel = <FloorPlan slug={slug} versions={floorplans} />;
@@ -414,6 +418,7 @@ export default async function ProjectDetailPage({
     "Change orders": changeOrdersPanel,
     "Sign-offs": signOffsPanel,
     Closeout: closeoutPanel,
+    Safety: safetyPanel,
   };
 
   const outlineBtn =

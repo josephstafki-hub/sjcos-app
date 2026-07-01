@@ -594,6 +594,24 @@ CREATE TABLE IF NOT EXISTS sub_documents (
 );
 CREATE INDEX IF NOT EXISTS idx_sub_documents_sub ON sub_documents(sub_slug, created_at DESC);
 
+-- ─── Safety: orientations + acknowledgments (Phase-4 P4-4) ─────────────────
+-- AI-generated jobsite safety orientation per project/trade; subs acknowledge
+-- it from their portal (logged).
+CREATE TABLE IF NOT EXISTS safety_orientations (
+  id          bigserial PRIMARY KEY,
+  project_id  uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  trade       text NOT NULL DEFAULT 'General',
+  body        text NOT NULL DEFAULT '',
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_safety_orient_project ON safety_orientations(project_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS safety_acknowledgments (
+  orientation_id  bigint NOT NULL REFERENCES safety_orientations(id) ON DELETE CASCADE,
+  sub_slug        text NOT NULL REFERENCES subs(slug) ON DELETE CASCADE,
+  acknowledged_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (orientation_id, sub_slug)
+);
+
 CREATE INDEX IF NOT EXISTS idx_invoices_project     ON invoices(project_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_selections_project   ON project_selections(project_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_mood_project         ON project_mood(project_id, room, sort_order);

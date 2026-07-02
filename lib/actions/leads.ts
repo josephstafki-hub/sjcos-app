@@ -114,12 +114,27 @@ export async function createLead(formData: FormData) {
     [slug, name, scope, valueDisplay, source, referrerName, referrerEmail],
   );
   await logLeadActivity(slug, "created", `Lead created · ${source}`);
+
+  // Auto-score on creation, same as the inbound funnel. Best-effort — never
+  // block lead creation on the model (scoreLead falls back to mock internally).
+  let verdict: "go" | "hold" | "pass" | null = null;
+  try {
+    const score = await scoreLead(slug);
+    verdict = score?.verdict ?? null;
+    if (score) {
+      await logLeadActivity(slug, "note", `Scored ${score.verdict.toUpperCase()} — ${score.rationale}`, AI_NAME);
+    }
+  } catch {
+    /* leave unscored; the owner can re-score from the detail page */
+  }
+
   await emit({
     kind: "job",
     tag: "Intake",
-    accent: "accent",
+    accent: verdict === "go" ? "money" : "accent",
     icon: "site",
-    title: `New lead · ${name}`,
+    flagged: verdict === "go",
+    title: `New lead · ${name}${verdict ? ` · ${verdict.toUpperCase()}` : ""}`,
     subline: scope || source,
     href: `/leads/${slug}`,
   });

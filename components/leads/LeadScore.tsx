@@ -66,7 +66,7 @@ export function LeadScore({ slug, initial }: { slug: string; initial: Score | nu
         <p className="mt-2 text-[13px] leading-relaxed text-ink-2">{score.rationale}</p>
       ) : (
         <p className="mt-2 text-[12.5px] text-ink-3">
-          Not scored yet. Inbound leads are scored automatically; score this one on demand.
+          Not scored yet — leads score automatically on arrival. Re-run it here if the model was down.
         </p>
       )}
       {error && <p className="mt-1.5 text-[12px] text-flag">{error}</p>}

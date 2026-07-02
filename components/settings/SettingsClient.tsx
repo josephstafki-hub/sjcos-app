@@ -8,6 +8,7 @@ import { setAiToggle, setNotifyToggle, updateProfile, updateCompanyDocs } from "
 import { createUser, setUserActive } from "@/lib/actions/users";
 import { AI_NAME } from "@/lib/ai-name";
 import { ClipTokenCard } from "./ClipTokenCard";
+import { IntakeTokenCard } from "./IntakeTokenCard";
 
 /** Shared text input for the editable forms, themed to match the modals. */
 function TextInput({
@@ -333,6 +334,7 @@ export function SettingsClient({ data }: { data: SettingsData }) {
               ))}
             </div>
 
+            <IntakeTokenCard token={data.intake.token} endpoint={data.intake.endpoint} />
             <ClipTokenCard token={data.clip.token} endpoint={data.clip.endpoint} />
           </>
         )}

@@ -85,6 +85,30 @@ CREATE TABLE IF NOT EXISTS lead_estimates (
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- Lead qualification (Phase-7 lead-intake epic): the AI's assessment of the
+-- 5-question intake answers — a verdict + rationale the owner can act on. One
+-- per lead; re-running overwrites. Reuses the go/hold/pass verdict vocabulary.
+CREATE TABLE IF NOT EXISTS lead_qualification (
+  lead_id     uuid PRIMARY KEY REFERENCES leads(id) ON DELETE CASCADE,
+  verdict     text NOT NULL CHECK (verdict IN ('go','hold','pass')),
+  confidence  numeric,                          -- 0–1
+  rationale   text NOT NULL DEFAULT '',
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+-- Lead tasks (Phase-7 lead-intake epic): a real follow-up checklist per lead —
+-- "call back", "send measurements request", etc. Written from the Tasks tab.
+CREATE TABLE IF NOT EXISTS lead_tasks (
+  id          bigserial PRIMARY KEY,
+  lead_id     uuid NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+  title       text NOT NULL,
+  done        boolean NOT NULL DEFAULT false,
+  due_date    date,
+  sort_order  integer NOT NULL DEFAULT 0,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_lead_tasks_lead ON lead_tasks(lead_id, done, sort_order, id);
+
 -- ─── Projects ───────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS projects (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -836,6 +860,35 @@ CREATE TABLE IF NOT EXISTS reminder_log (
   dedup_key   text PRIMARY KEY,
   created_at  timestamptz NOT NULL DEFAULT now()
 );
+
+-- ─── SMS (two-way texting) ──────────────────────────────────────────────────
+-- Provider-agnostic SMS inbox mirroring the Gmail inbox. Populated only when a
+-- provider (Twilio/Telnyx/SignalWire) is configured (see lib/sms.ts); until then
+-- these stay empty and the /messages screen shows a "connect a provider" state.
+-- One thread per external counterparty phone number; messages append to it.
+CREATE TABLE IF NOT EXISTS sms_threads (
+  id            bigserial PRIMARY KEY,
+  phone         text UNIQUE NOT NULL,           -- E.164 counterparty number
+  contact_name  text,                           -- resolved display name, if known
+  link_type     text CHECK (link_type IN ('lead','sub','client','project')),
+  link_slug     text,                           -- optional link to a record
+  last_message_at timestamptz,
+  unread        boolean NOT NULL DEFAULT false,  -- inbound waiting on a reply
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_sms_threads_recent ON sms_threads(last_message_at DESC NULLS LAST);
+
+CREATE TABLE IF NOT EXISTS sms_messages (
+  id             bigserial PRIMARY KEY,
+  thread_id      bigint NOT NULL REFERENCES sms_threads(id) ON DELETE CASCADE,
+  direction      text NOT NULL CHECK (direction IN ('in','out')),
+  body           text NOT NULL DEFAULT '',
+  provider_sid   text,                           -- provider's message id (dedup)
+  status         text NOT NULL DEFAULT 'received',-- queued/sent/delivered/received/failed
+  created_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_sms_messages_sid ON sms_messages(provider_sid) WHERE provider_sid IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_sms_messages_thread ON sms_messages(thread_id, created_at);
 
 -- ─── updated_at touch trigger ───────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger AS $$

@@ -11,6 +11,7 @@ import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { STAGES, stageLabel } from "@/lib/leads";
 import { logLeadActivity } from "@/lib/lead-activity";
+import { scoreLead } from "@/lib/intake";
 import { emit } from "@/lib/notify";
 import { INTAKE_QUESTIONS } from "@/lib/lead-intake-questions";
 import { ai, type EstimateLine } from "@/lib/ai";
@@ -397,6 +398,20 @@ export async function convertLeadToProject(slug: string) {
   revalidatePath("/today");
   revalidatePath("/notifications");
   redirect(`/projects/${pslug}`);
+}
+
+/** Re-run the AI lead score on everything currently on file, persisting the
+ *  fresh verdict/rationale. Owner-gated. Returns the new score for the UI. */
+export async function rescoreLead(
+  slug: string,
+): Promise<{ ok: boolean; verdict?: "go" | "hold" | "pass"; rationale?: string; error?: string }> {
+  await requireRole("owner");
+  const score = await scoreLead(slug);
+  if (!score) return { ok: false, error: "Lead not found." };
+  await logLeadActivity(slug, "note", `Re-scored ${score.verdict.toUpperCase()} — ${score.rationale}`, AI_NAME);
+  revalidatePath(`/leads/${slug}`);
+  revalidatePath("/leads");
+  return { ok: true, verdict: score.verdict, rationale: score.rationale };
 }
 
 /** Set a lead to an explicit stage (used by a stage picker). */

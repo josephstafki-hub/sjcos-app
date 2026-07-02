@@ -1,29 +1,25 @@
 import type { ReactNode } from "react";
-import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Sparkles, FileText } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { AiBubble, AckButton, AiStreamSkeleton, Card, Chip, Avatar, Eyebrow } from "@/components/ui";
+import { Card, Chip, Avatar, Eyebrow } from "@/components/ui";
 import { LeadTabs } from "@/components/leads/LeadTabs";
-import { getLead, getLeadTriage, STAGES, stageIndex, stageLabel } from "@/lib/leads";
+import { getLead, STAGES, stageIndex, stageLabel } from "@/lib/leads";
+import { getLeadScore } from "@/lib/intake";
 import { leadContext } from "@/lib/page-context";
 import { getLeadActivity, type LeadActivityKind } from "@/lib/lead-activity";
-import type { TriageInput } from "@/lib/ai";
 import { advanceLeadStage, convertLeadToProject } from "@/lib/actions/leads";
 import { DeleteLeadButton } from "@/components/leads/DeleteLeadButton";
 import { LeadContact } from "@/components/leads/LeadContact";
 import { ThankReferrerButton } from "@/components/leads/ThankReferrerButton";
 import { LeadPhotos } from "@/components/leads/LeadPhotos";
 import { LeadIntake } from "@/components/leads/LeadIntake";
+import { LeadScore } from "@/components/leads/LeadScore";
+import { LeadTasks } from "@/components/leads/LeadTasks";
+import { getLeadTasks } from "@/lib/lead-tasks";
 import { LeadEstimate } from "@/components/leads/LeadEstimate";
 import { AI_NAME } from "@/lib/ai-name";
-
-const VERDICT: Record<string, { label: string; kind: "money" | "flag" | "info" }> = {
-  go: { label: "GO", kind: "money" },
-  hold: { label: "HOLD", kind: "info" },
-  pass: { label: "PASS", kind: "flag" },
-};
 
 export default async function LeadDetailPage({
   params,
@@ -35,6 +31,8 @@ export default async function LeadDetailPage({
   if (!lead) notFound();
 
   const activity = await getLeadActivity(slug);
+  const score = await getLeadScore(slug);
+  const tasks = await getLeadTasks(slug);
 
   const currentStageIdx = stageIndex(lead.stage);
   const nextStage = STAGES[currentStageIdx + 1];
@@ -53,32 +51,7 @@ export default async function LeadDetailPage({
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
       {/* Main column */}
       <div className="flex flex-col gap-3.5">
-        <AiBubble
-          actions={
-            <>
-              <AckButton label="Run lead-triage skill again" ackLabel="Re-running triage…" />
-              <Link
-                href="/ai"
-                className="rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-3 hover:bg-paper-2 hover:text-ink-2"
-              >
-                See reasoning
-              </Link>
-            </>
-          }
-        >
-          <Suspense
-            fallback={
-              <>
-                <div className="mb-1.5 font-serif text-[13.5px] font-semibold text-ai-2">
-                  Triage — {AI_NAME} is scoring this lead…
-                </div>
-                <AiStreamSkeleton />
-              </>
-            }
-          >
-            <LeadTriage input={lead.triageInput} />
-          </Suspense>
-        </AiBubble>
+        <LeadScore slug={lead.slug} initial={score} />
 
         <LeadIntake slug={lead.slug} items={lead.intake} />
 
@@ -268,6 +241,7 @@ export default async function LeadDetailPage({
 
   const panels: Record<string, ReactNode> = {
     Overview: overview,
+    Tasks: <LeadTasks slug={lead.slug} tasks={tasks} />,
     Conversation: conversationPanel,
     "Rough estimate": estimatePanel,
     Files: filesPanel,
@@ -338,20 +312,5 @@ export default async function LeadDetailPage({
         <LeadTabs panels={panels} />
       </div>
     </Shell>
-  );
-}
-
-/** Async server component: awaits the AI triage inside a Suspense boundary so
- *  the lead page paints instantly instead of blocking ~11s on CPU Qwen. */
-async function LeadTriage({ input }: { input: TriageInput }) {
-  const { verdict, rationale } = await getLeadTriage(input);
-  const v = VERDICT[verdict];
-  return (
-    <>
-      <div className="mb-1.5 font-serif text-[13.5px] font-semibold text-ai-2">
-        Triage — {AI_NAME} scored this lead {v.label}
-      </div>
-      <div>{rationale}</div>
-    </>
   );
 }

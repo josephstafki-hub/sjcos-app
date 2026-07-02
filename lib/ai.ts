@@ -42,6 +42,10 @@ export interface TriageInput {
   estimateValue?: number | null;
   source?: string | null;
   notes?: string;
+  /** The full inbound detail the lead provided (project, budget, timeline,
+   *  message, and any extra form fields). The scorer weighs ALL of these — it
+   *  is not tied to a fixed question set, which is expected to change. */
+  details?: { label: string; value: string }[];
 }
 
 export interface TriageResult {
@@ -185,13 +189,20 @@ const mockProvider: AiProvider = {
   },
 
   async triage(input) {
+    // Weigh the value plus how much detail the inbound actually provided — a
+    // richer submission is a stronger signal than a bare one.
+    const detailCount = (input.details ?? []).filter((d) => d.value.trim()).length;
     const big = (input.estimateValue ?? 0) >= 15000;
+    const detailed = detailCount >= 3;
+    const go = big && detailed;
     return {
-      verdict: big ? "go" : "hold",
-      confidence: big ? 0.78 : 0.55,
-      rationale: big
-        ? `${input.name}'s ${input.scope} is in the firm's wheelhouse and above the minimum job size. Worth a Phase 1 estimate.`
-        : `${input.name}'s ${input.scope} looks small or underspecified. Hold for two clarifying answers before committing time.`,
+      verdict: go ? "go" : big || detailed ? "hold" : "pass",
+      confidence: go ? 0.8 : big || detailed ? 0.55 : 0.4,
+      rationale: go
+        ? `${input.name}'s ${input.scope} is in the firm's wheelhouse, above the minimum job size, and the inbound is well-specified. Worth a Phase 1 estimate.`
+        : big || detailed
+          ? `${input.name}'s ${input.scope} shows promise but is thin on ${big ? "detail" : "budget"}. Hold for a clarifying reply before committing time.`
+          : `${input.name}'s ${input.scope} looks small or underspecified. Likely a pass unless more comes in.`,
       questions: [
         "What's the target start window?",
         "Is there a budget range in mind?",
@@ -451,15 +462,22 @@ const ollamaProvider: AiProvider = {
   },
 
   triage(input) {
+    const details = (input.details ?? [])
+      .filter((d) => d.value.trim())
+      .map((d) => `- ${d.label}: ${d.value}`)
+      .join("\n");
     const prompt =
       `Triage this inbound lead for a residential carpentry/remodel firm. ` +
+      `Weigh ALL the information the lead provided below — project fit, budget ` +
+      `realism, timeline, decision-readiness, and how complete the inbound is. ` +
       `Decide a verdict: "go" (worth a Phase 1 estimate), "hold" (need a few ` +
       `clarifying answers first), or "pass" (out of scope or too small). Give a ` +
-      `confidence 0–1, a one-sentence rationale, and exactly 5 intake questions ` +
-      `to ask next.\n\n` +
+      `confidence 0–1, a one-sentence rationale grounded in what they provided, ` +
+      `and exactly 5 clarifying questions to ask next.\n\n` +
       `Lead: ${input.name}\nScope: ${input.scope}\n` +
       `Estimated value: ${input.estimateValue ?? "unknown"}\n` +
       `Source: ${input.source ?? "unknown"}\n` +
+      `Provided details:\n${details || "(none beyond the above)"}\n` +
       `Notes: ${input.notes ?? "(none)"}`;
     const schema = {
       type: "object",

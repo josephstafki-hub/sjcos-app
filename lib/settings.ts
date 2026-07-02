@@ -7,6 +7,7 @@ import { query } from "./db";
 import { getCurrentUser } from "./dal";
 import { gmailConfigured } from "./gmail";
 import { getClipToken } from "./clip";
+import { getIntakeToken } from "./lead-intake-token";
 
 export interface SettingsCategory {
   id: string;
@@ -96,6 +97,12 @@ export interface SettingsData {
     token: string | null;
     endpoint: string;
   };
+  /** Website lead-form ingestion: the auth token (null until generated) + the
+   *  endpoint the site's lead form POSTs new leads to. */
+  intake: {
+    token: string | null;
+    endpoint: string;
+  };
 }
 
 export async function getSettingsData(): Promise<SettingsData> {
@@ -109,6 +116,7 @@ export async function getSettingsData(): Promise<SettingsData> {
   // user's row (kept in sync by updateProfile); company + phone live in settings.
   const me = await getCurrentUser();
   const clipToken = await getClipToken();
+  const intakeToken = await getIntakeToken();
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://os.sjcarpentryllc.com").replace(/\/$/, "");
   const name = me?.name ?? get("profile.name", "Joe Stafki");
   const email = me?.email ?? get("profile.email", "josephstafki@sjcarpentryllc.com");
@@ -224,6 +232,10 @@ export async function getSettingsData(): Promise<SettingsData> {
       autoDraftSocial: settings.has("marketing.auto_draft_on_completion")
         ? settings.get("marketing.auto_draft_on_completion") === "true"
         : true,
+    },
+    intake: {
+      token: intakeToken,
+      endpoint: `${appUrl}/api/leads/intake`,
     },
     clip: {
       token: clipToken,

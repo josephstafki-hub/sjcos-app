@@ -27,6 +27,7 @@ async function upsertSetting(key: string, value: string) {
 
 /** Upsert a boolean setting under an allowed namespace. */
 async function upsertToggle(key: string, on: boolean, prefix: string) {
+  await requireRole("owner");
   // Only allow our namespaced keys through.
   if (!key.startsWith(prefix)) return;
   await upsertSetting(key, on ? "true" : "false");

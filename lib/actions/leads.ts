@@ -97,6 +97,7 @@ async function deliverReferralThanks(lead: {
 
 /** Create a lead from the "New lead" form, then open its detail page. */
 export async function createLead(formData: FormData) {
+  await requireRole("owner");
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
   const scope = String(formData.get("scope") ?? "").trim();
@@ -164,6 +165,7 @@ export async function sendReferralThankYou(slug: string): Promise<{ ok: boolean;
 
 /** Advance a lead to the next pipeline stage. No-op at the final stage. */
 export async function advanceLeadStage(slug: string) {
+  await requireRole("owner");
   const row = await queryOne<{ stage: LeadStage }>(
     `SELECT stage FROM leads WHERE slug = $1`,
     [slug],
@@ -399,6 +401,7 @@ export async function convertLeadToProject(slug: string) {
 
 /** Set a lead to an explicit stage (used by a stage picker). */
 export async function setLeadStage(slug: string, stage: LeadStage) {
+  await requireRole("owner");
   if (!STAGES.some((s) => s.key === stage)) return;
   await query(
     `UPDATE leads SET stage = $2, updated_at = now() WHERE slug = $1`,

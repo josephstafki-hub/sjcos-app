@@ -42,6 +42,7 @@ async function uniqueSlug(name: string): Promise<string> {
 /** Create a project from the "New project" form, then open its detail page.
  *  New projects start at the first lifecycle stage (lands in the Pre-con group). */
 export async function createProject(formData: FormData) {
+  await requireRole("owner");
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
   const clientName = String(formData.get("client_name") ?? "").trim();
@@ -362,6 +363,7 @@ export async function sendWeeklyStatusEmail(
 
 /** Set a project's billed/progress percent (0–100). */
 export async function setProjectProgress(slug: string, progress: number) {
+  await requireRole("owner");
   const pct = Math.max(0, Math.min(100, Math.round(progress)));
   await query(
     `UPDATE projects SET progress = $2, updated_at = now() WHERE slug = $1`,

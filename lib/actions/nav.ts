@@ -8,23 +8,26 @@ import { getCurrentUser } from "@/lib/dal";
 import { query } from "@/lib/db";
 import { gmailConfigured, gmailInboxUnread } from "@/lib/gmail";
 import { getUnreadChatCount } from "@/lib/chat";
+import { getUnreadSmsCount } from "@/lib/sms";
 
 export interface NavCounts {
   inbox: number;
   chat: number;
   leads: number;
+  messages: number;
 }
 
 export async function getNavCounts(): Promise<NavCounts> {
   const user = await getCurrentUser();
-  if (user?.role !== "owner") return { inbox: 0, chat: 0, leads: 0 };
+  if (user?.role !== "owner") return { inbox: 0, chat: 0, leads: 0, messages: 0 };
 
-  const [inbox, chat, leads] = await Promise.all([
+  const [inbox, chat, leads, messages] = await Promise.all([
     inboxUnread(),
     getUnreadChatCount().catch(() => 0),
     leadsNeedingAttention(),
+    getUnreadSmsCount().catch(() => 0),
   ]);
-  return { inbox, chat, leads };
+  return { inbox, chat, leads, messages };
 }
 
 async function inboxUnread(): Promise<number> {

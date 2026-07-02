@@ -8,6 +8,7 @@ import {
   Home,
   Inbox,
   MessageSquare,
+  MessagesSquare,
   Sprout,
   FolderKanban,
   Calendar,
@@ -44,6 +45,7 @@ type NavItem = {
 const WORK: NavItem[] = [
   { label: "Today", href: "/today", icon: Home },
   { label: "Inbox", href: "/inbox", icon: Inbox },
+  { label: "Messages", href: "/messages", icon: MessagesSquare },
   { label: "Team Chat", href: "/chat", icon: MessageSquare },
   { label: "Leads", href: "/leads", icon: Sprout },
   { label: "Projects", href: "/projects", icon: FolderKanban },
@@ -151,11 +153,13 @@ export function Sidebar({ user }: { user: SidebarUser }) {
     const n =
       href === "/inbox"
         ? counts.inbox
-        : href === "/chat"
-          ? counts.chat
-          : href === "/leads"
-            ? counts.leads
-            : 0;
+        : href === "/messages"
+          ? counts.messages
+          : href === "/chat"
+            ? counts.chat
+            : href === "/leads"
+              ? counts.leads
+              : 0;
     return n > 0 ? String(n) : undefined;
   };
 

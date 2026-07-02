@@ -173,6 +173,24 @@ export async function recordInboundSms(input: {
   return threadId;
 }
 
+/** Get or create a thread for a counterparty number (outbound-initiate). Sets
+ *  the contact name if provided and one isn't already stored. Returns the id. */
+export async function upsertSmsThread(
+  phone: string,
+  contactName?: string | null,
+): Promise<number> {
+  const p = normalizePhone(phone);
+  const row = await queryOne<{ id: number }>(
+    `INSERT INTO sms_threads (phone, contact_name, last_message_at)
+     VALUES ($1, $2, now())
+     ON CONFLICT (phone) DO UPDATE
+       SET contact_name = COALESCE(sms_threads.contact_name, EXCLUDED.contact_name)
+     RETURNING id`,
+    [p, contactName?.trim() || null],
+  );
+  return row!.id;
+}
+
 /** Send an outbound text on an existing thread. Records the outbound message,
  *  then hands off to the provider. Refuses (no-op record) when SMS isn't
  *  configured. Returns {ok} + optional error. */

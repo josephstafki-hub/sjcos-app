@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { MessageSquare, Phone, Send, AlertCircle, ExternalLink } from "lucide-react";
+import { MessageSquare, Phone, Send, AlertCircle, ExternalLink, Plus, X } from "lucide-react";
 import { Chip } from "@/components/ui";
-import { loadSmsThread, sendSmsReply } from "@/lib/actions/sms";
+import { loadSmsThread, sendSmsReply, startSmsThread } from "@/lib/actions/sms";
 import type { SmsThreadSummary, SmsMessage } from "@/lib/sms";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -36,6 +36,12 @@ export function MessagesClient({
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [newPhone, setNewPhone] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newBody, setNewBody] = useState("");
+  const [composeErr, setComposeErr] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
   const [, start] = useTransition();
 
   const selected = threads.find((t) => t.id === selectedId) ?? null;
@@ -81,13 +87,60 @@ export function MessagesClient({
     });
   }
 
+  function startNew() {
+    if (sending) return;
+    setComposeErr(null);
+    setSending(true);
+    start(async () => {
+      const res = await startSmsThread(newPhone, newBody, newName);
+      setSending(false);
+      if (res.ok && res.threadId != null) {
+        const id = res.threadId;
+        // Add the thread to the rail if it's new, then open it.
+        setThreads((prev) =>
+          prev.some((t) => t.id === id)
+            ? prev
+            : [
+                {
+                  id,
+                  phone: newPhone.trim(),
+                  contactName: newName.trim() || null,
+                  linkType: null,
+                  linkSlug: null,
+                  unread: false,
+                  lastMessageAt: new Date().toISOString(),
+                },
+                ...prev,
+              ],
+        );
+        setComposeOpen(false);
+        setNewPhone("");
+        setNewName("");
+        setNewBody("");
+        openThread(id);
+      } else {
+        setComposeErr(res.error ?? "Could not start the conversation.");
+      }
+    });
+  }
+
   return (
     <div className="flex h-full">
       {/* Thread rail */}
       <aside className="flex w-[300px] flex-none flex-col border-r border-rule bg-paper-2">
         <div className="flex items-center gap-2 border-b border-rule px-4 py-3">
           <MessageSquare className="size-4 text-ink-3" strokeWidth={1.5} />
-          <span className="font-serif text-[15px] font-semibold text-ink">Text messages</span>
+          <span className="flex-1 font-serif text-[15px] font-semibold text-ink">Text messages</span>
+          <button
+            type="button"
+            onClick={() => {
+              setComposeErr(null);
+              setComposeOpen(true);
+            }}
+            className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2 py-1 text-[11px] font-semibold text-paper hover:bg-[#232a1e]"
+          >
+            <Plus className="size-3" strokeWidth={2} /> New
+          </button>
         </div>
 
         {!configured && (
@@ -227,6 +280,91 @@ export function MessagesClient({
           </div>
         )}
       </section>
+
+      {/* New-message compose modal */}
+      {composeOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 px-4"
+          onClick={() => !sending && setComposeOpen(false)}
+        >
+          <div
+            className="w-full max-w-[420px] rounded-xl border border-rule bg-card p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2">
+              <h2 className="flex-1 font-serif text-[17px] font-semibold text-ink">New text message</h2>
+              <button
+                type="button"
+                onClick={() => setComposeOpen(false)}
+                className="text-ink-3 hover:text-ink"
+                aria-label="Close"
+              >
+                <X className="size-4" strokeWidth={1.5} />
+              </button>
+            </div>
+
+            {!configured && (
+              <div className="mt-3 flex items-start gap-1.5 rounded-md border border-dashed border-rule bg-paper px-2.5 py-2 text-[11px] text-ink-3">
+                <AlertCircle className="mt-0.5 size-3.5 flex-none text-flag" strokeWidth={1.5} />
+                Connect a provider to send. You can compose now, but sending is disabled until SMS is set up.
+              </div>
+            )}
+
+            <div className="mt-4 flex flex-col gap-3">
+              <div>
+                <label className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">To · phone</label>
+                <input
+                  value={newPhone}
+                  onChange={(e) => setNewPhone(e.target.value)}
+                  placeholder="+16125551234"
+                  className="mt-1 w-full rounded-md border border-rule bg-paper px-2.5 py-1.5 font-mono text-[13px] text-ink outline-none focus:border-accent"
+                />
+              </div>
+              <div>
+                <label className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+                  Contact name · optional
+                </label>
+                <input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="e.g. Marco (framing)"
+                  className="mt-1 w-full rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+                />
+              </div>
+              <div>
+                <label className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Message</label>
+                <textarea
+                  value={newBody}
+                  onChange={(e) => setNewBody(e.target.value)}
+                  rows={3}
+                  placeholder="Type your text…"
+                  className="mt-1 w-full resize-y rounded-md border border-rule bg-paper px-2.5 py-2 text-[13px] text-ink outline-none focus:border-accent"
+                />
+              </div>
+            </div>
+
+            {composeErr && <p className="mt-2 text-[12px] text-flag">{composeErr}</p>}
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setComposeOpen(false)}
+                className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-2 hover:bg-paper-2"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={startNew}
+                disabled={!configured || sending || !newPhone.trim() || !newBody.trim()}
+                className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3.5 py-1.5 text-[12px] font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
+              >
+                <Send className="size-3.5" strokeWidth={1.5} /> {sending ? "Sending…" : "Send text"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

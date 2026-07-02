@@ -1,64 +1,108 @@
-// Newsletter data builder. Mock-backed today; in Phase 7 it reads sent issues
-// + audience counts from the mailing backend. The 2-pane shape (issues rail +
-// email preview) stays stable.
+import "server-only";
 
-export type IssueStatus = "DRAFT" | "SENT";
+// Newsletter builder (Phase-7). Real, DB-backed: issues with an intro + content
+// blocks (some pulled from completed jobs), sent to a recipient list via Gmail.
+// Reads here; writes/sends in lib/actions/newsletter.ts. Server-only (imports
+// lib/db); client components import only the types (`import type`).
 
-export interface NewsletterIssue {
-  slug: string;
-  name: string;
-  status: IssueStatus;
+import { query } from "./db";
+
+export type IssueStatus = "draft" | "sent";
+
+export interface NewsletterBlock {
+  heading: string;
+  body: string;
+  /** Optional link back to the project this block celebrates. */
+  projectSlug?: string;
 }
 
-export interface NewsletterContent {
-  masthead: string;
-  headline: string;
-  byline: string;
-  body: string[];
-  alsoThisMonth: string[];
+export interface NewsletterIssue {
+  id: number;
+  title: string;
+  intro: string;
+  blocks: NewsletterBlock[];
+  status: IssueStatus;
+  recipientCount: number;
+  sentLabel: string | null;
+  createdLabel: string;
+}
+
+/** A recently completed project offered as newsletter content. */
+export interface RecentJob {
+  slug: string;
+  name: string;
+  city: string;
+}
+
+export interface Recipient {
+  id: number;
+  email: string;
+  name: string;
+  active: boolean;
 }
 
 export interface NewsletterData {
   issues: NewsletterIssue[];
-  audience: { label: string; value: string }[];
-  performance: { label: string; value: string; good?: boolean }[];
-  selectedSlug: string;
-  content: NewsletterContent;
+  selectedId: number | null;
+  recentJobs: RecentJob[];
+  recipients: Recipient[];
+  activeRecipientCount: number;
 }
 
-const ISSUES: NewsletterIssue[] = [
-  { slug: "may-2026", name: "May 2026 · Draft", status: "DRAFT" },
-  { slug: "apr-2026", name: "Apr 2026", status: "SENT" },
-  { slug: "mar-2026", name: "Mar 2026", status: "SENT" },
-  { slug: "feb-2026", name: "Feb 2026", status: "SENT" },
-];
+interface IssueRow {
+  id: number;
+  title: string;
+  intro: string;
+  blocks: NewsletterBlock[];
+  status: IssueStatus;
+  recipient_count: number;
+  sent_label: string | null;
+  created_label: string;
+}
 
-export async function getNewsletterData(): Promise<NewsletterData> {
+function rowToIssue(r: IssueRow): NewsletterIssue {
   return {
-    issues: ISSUES,
-    audience: [
-      { label: "Past clients", value: "214" },
-      { label: "Active clients", value: "5" },
-      { label: "Site subscribers", value: "88" },
-    ],
-    performance: [
-      { label: "Apr open rate", value: "54%", good: true },
-      { label: "Apr click rate", value: "11%" },
-      { label: "Apr replies", value: "7" },
-    ],
-    selectedSlug: "may-2026",
-    content: {
-      masthead: "MAY · FROM THE WORKSHOP",
-      headline: "The Olson porch, and what we learned.",
-      byline: "Joe Schroeder · 6 min read",
-      body: [
-        "This month we wrapped the Olson porch in Edina — a stripped-back craftsman build that came down to one decision: how do you make a rebuild feel like it was always there?",
-        "The answer was in the trim. We milled the brackets to match the existing roof line — and the proportion came from Asher Benjamin, who's been dead 180 years but still has opinions worth listening to…",
-      ],
-      alsoThisMonth: [
-        "3 spots open in late summer · scheduling now",
-        "Welcoming Jen Doyle Plumbing to the SJC bench",
-      ],
-    },
+    id: r.id,
+    title: r.title,
+    intro: r.intro,
+    blocks: Array.isArray(r.blocks) ? r.blocks : [],
+    status: r.status,
+    recipientCount: r.recipient_count,
+    sentLabel: r.sent_label,
+    createdLabel: r.created_label,
   };
+}
+
+export async function getNewsletterData(selectedId?: number): Promise<NewsletterData> {
+  const { rows: issueRows } = await query<IssueRow>(
+    `SELECT id, title, intro, blocks, status, recipient_count,
+            to_char(sent_at, 'FMMon FMDD, YYYY')    AS sent_label,
+            to_char(created_at, 'FMMon FMDD, YYYY')  AS created_label
+       FROM newsletters
+      ORDER BY created_at DESC, id DESC`,
+  );
+  const issues = issueRows.map(rowToIssue);
+
+  const recentJobs = (
+    await query<{ slug: string; name: string; city: string | null }>(
+      `SELECT slug, name, address AS city
+         FROM projects
+        WHERE status IN ('closeout','warranty')
+        ORDER BY updated_at DESC
+        LIMIT 8`,
+    )
+  ).rows.map((r) => ({ slug: r.slug, name: r.name, city: r.city ?? "" }));
+
+  const recipients = (
+    await query<{ id: number; email: string; name: string; active: boolean }>(
+      `SELECT id, email, name, active FROM newsletter_recipients ORDER BY active DESC, name, email`,
+    )
+  ).rows;
+
+  const activeRecipientCount = recipients.filter((r) => r.active).length;
+
+  const selected =
+    selectedId && issues.some((i) => i.id === selectedId) ? selectedId : issues[0]?.id ?? null;
+
+  return { issues, selectedId: selected, recentJobs, recipients, activeRecipientCount };
 }

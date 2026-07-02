@@ -861,6 +861,29 @@ CREATE TABLE IF NOT EXISTS reminder_log (
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- ─── Newsletter (Phase-7) ───────────────────────────────────────────────────
+-- Real newsletter builder: issues with an intro + content blocks (some pulled
+-- from completed jobs), sent to a recipient list via Gmail.
+CREATE TABLE IF NOT EXISTS newsletters (
+  id              bigserial PRIMARY KEY,
+  title           text NOT NULL DEFAULT 'Untitled issue',
+  intro           text NOT NULL DEFAULT '',
+  blocks          jsonb NOT NULL DEFAULT '[]',   -- [{ heading, body, projectSlug? }]
+  status          text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','sent')),
+  recipient_count integer NOT NULL DEFAULT 0,
+  sent_at         timestamptz,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS newsletter_recipients (
+  id          bigserial PRIMARY KEY,
+  email       text UNIQUE NOT NULL,
+  name        text NOT NULL DEFAULT '',
+  active      boolean NOT NULL DEFAULT true,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
 -- ─── SMS (two-way texting) ──────────────────────────────────────────────────
 -- Provider-agnostic SMS inbox mirroring the Gmail inbox. Populated only when a
 -- provider (Twilio/Telnyx/SignalWire) is configured (see lib/sms.ts); until then

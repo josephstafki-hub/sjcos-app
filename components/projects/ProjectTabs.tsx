@@ -18,6 +18,7 @@ const TAB_LABELS = [
   "Comms",
   "Punch",
   "Change orders",
+  "Permits",
   "Sign-offs",
   "Closeout",
   "Safety",

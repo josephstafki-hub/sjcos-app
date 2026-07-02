@@ -584,6 +584,103 @@ export async function renderLienWaiverPdf(d: CloseoutData): Promise<Buffer> {
   });
 }
 
+// ─── Building permit application packet ─────────────────────────────────────
+
+export interface PermitData {
+  projectId: string;
+  projectName: string;
+  projectSlug: string;
+  address: string;
+  ownerName: string;
+  company: DocData["company"];
+  /** Estimated construction valuation in whole dollars (drives permit fees). */
+  valuation: number;
+  dateLabel: string;
+}
+
+/** Gather project + owner + company data + a valuation for a permit packet.
+ *  Valuation prefers the signed contract value; falls back to the highest
+ *  estimate total on the project. Null if the project doesn't exist. */
+export async function gatherPermitData(slug: string): Promise<PermitData | null> {
+  const proj = await queryOne<{
+    id: string;
+    name: string;
+    client_name: string | null;
+    address: string | null;
+    contract_value: number;
+  }>(
+    `SELECT id, name, client_name, address, contract_value FROM projects WHERE slug = $1`,
+    [slug],
+  );
+  if (!proj) return null;
+
+  let valuation = proj.contract_value ?? 0;
+  if (!valuation) {
+    // Fall back to the largest estimate total (stored in cents → dollars).
+    const est = await queryOne<{ total: number }>(
+      `SELECT total FROM estimates WHERE project_id = $1 ORDER BY total DESC LIMIT 1`,
+      [proj.id],
+    );
+    valuation = est?.total ? Math.round(est.total / 100) : 0;
+  }
+
+  const info = await getCompanyDocInfo();
+  return {
+    projectId: proj.id,
+    projectName: proj.name,
+    projectSlug: slug,
+    address: proj.address ?? "",
+    ownerName: proj.client_name ?? "",
+    company: info.company,
+    valuation,
+    dateLabel: today(),
+  };
+}
+
+/** Building-permit application packet — a cover packet to accompany the local
+ *  jurisdiction's official form. Facts/valuation are code-generated; the scope
+ *  narrative is AI-authored (passed in). */
+export async function renderPermitPacketPdf(d: PermitData, narrative: string): Promise<Buffer> {
+  return pdfToBuffer((doc) => {
+    companyHeader(doc, d.company);
+    docTitle(doc, "Building Permit Application Packet", `${d.projectName} — ${d.dateLabel}`);
+
+    para(
+      doc,
+      `This packet summarizes the project for a residential building permit application. Attach it to the ` +
+        `permit application form required by the local building department having jurisdiction over the ` +
+        `project address below.`,
+    );
+
+    sectionLabel(doc, "Project");
+    row(doc, d.projectName, d.address || null, "");
+    row(doc, "Property owner", d.ownerName || "—", "");
+    row(doc, "Estimated construction valuation", "used to compute permit fees", usdDollars(d.valuation), true);
+
+    sectionLabel(doc, "Contractor / Applicant");
+    row(doc, d.company.name, d.company.address || null, "");
+    row(doc, "Contractor license", null, d.company.license || "—");
+    const contact = [d.company.phone, d.company.email].filter(Boolean).join("  ·  ");
+    if (contact) row(doc, "Contact", null, "");
+    if (contact) doc.font("Helvetica").fontSize(9).fillColor(GRAY).text(contact, PAGE.margin, doc.y).fillColor(INK);
+
+    sectionLabel(doc, "Scope of Work");
+    para(doc, narrative.trim() || "See attached plans and specifications.");
+
+    doc.moveDown(0.8);
+    sectionLabel(doc, "Applicant Signature");
+    signatureLine(doc, "Applicant — " + d.company.name);
+
+    doc.moveDown(1.0);
+    doc.font("Helvetica-Oblique").fontSize(8).fillColor(GRAY).text(
+      "This packet is a preparation aid, not the official permit application. Permit requirements, forms, " +
+        "plan-review submittals, and fees vary by jurisdiction — confirm with the local building department.",
+      { width: doc.page.width - 2 * PAGE.margin, lineGap: 1.2 },
+    );
+    doc.fillColor(INK);
+  });
+}
+
 export interface CollectionData {
   invoiceNumber: string;
   milestone: string;

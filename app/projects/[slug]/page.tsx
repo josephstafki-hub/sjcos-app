@@ -27,6 +27,8 @@ import { Incidents } from "@/components/projects/Incidents";
 import { getProjectSignatureRequests, getProjectSignerDefaults } from "@/lib/esign";
 import { getProjectChangeOrders } from "@/lib/change-orders";
 import { getCloseoutView } from "@/lib/closeout";
+import { getProjectPermits } from "@/lib/permits";
+import { PermitPacket } from "@/components/projects/PermitPacket";
 import { getProjectOrientations, getProjectIncidents } from "@/lib/safety";
 import { ProjectEstimate } from "@/components/projects/ProjectEstimate";
 import { getProjectEstimates } from "@/lib/estimates";
@@ -90,6 +92,7 @@ export default async function ProjectDetailPage({
     getProjectOrientations(slug),
   ]);
   const incidents = await getProjectIncidents(slug);
+  const permits = await getProjectPermits(slug);
   if (!project) notFound();
 
   const catalogOptions = catalog.materials.map((m) => ({ id: m.id, name: m.name }));
@@ -420,6 +423,7 @@ export default async function ProjectDetailPage({
     Punch: punchPanel,
     Estimate: estimatePanel,
     "Change orders": changeOrdersPanel,
+    Permits: <PermitPacket slug={slug} permits={permits} />,
     "Sign-offs": signOffsPanel,
     Closeout: closeoutPanel,
     Safety: safetyPanel,

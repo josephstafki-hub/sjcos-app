@@ -147,6 +147,50 @@ function normalizePhone(phone: string): string {
   return plus + p.replace(/\D/g, "");
 }
 
+/** Last 10 digits of a phone (US local number) for record matching. */
+function last10(phone: string): string {
+  return phone.replace(/\D/g, "").slice(-10);
+}
+
+/** Auto-classify an unlinked thread by matching its number against a lead's or
+ *  sub's phone. Sets link_type/link_slug + fills contact_name when a match is
+ *  found and the thread isn't already linked. Best-effort. */
+async function autoLinkThread(threadId: number, phone: string): Promise<void> {
+  const l10 = last10(phone);
+  if (l10.length < 10) return;
+  await query(
+    `UPDATE sms_threads t
+        SET link_type = m.type, link_slug = m.slug,
+            contact_name = COALESCE(t.contact_name, m.name)
+       FROM (
+         SELECT 'lead'::text AS type, slug, name FROM leads
+           WHERE phone IS NOT NULL AND right(regexp_replace(phone, '\\D', '', 'g'), 10) = $2
+         UNION ALL
+         SELECT 'sub'::text, slug, name FROM subs
+           WHERE phone IS NOT NULL AND right(regexp_replace(phone, '\\D', '', 'g'), 10) = $2
+         LIMIT 1
+       ) m
+      WHERE t.id = $1 AND t.link_type IS NULL`,
+    [threadId, l10],
+  );
+}
+
+/** Records to link an SMS thread to (for the "Linked to" picker). */
+export interface SmsLinkOptions {
+  leads: { slug: string; name: string }[];
+  subs: { slug: string; name: string }[];
+  projects: { slug: string; name: string }[];
+}
+
+export async function getSmsLinkOptions(): Promise<SmsLinkOptions> {
+  const [leads, subs, projects] = await Promise.all([
+    query<{ slug: string; name: string }>(`SELECT slug, name FROM leads ORDER BY created_at DESC`),
+    query<{ slug: string; name: string }>(`SELECT slug, name FROM subs ORDER BY name`),
+    query<{ slug: string; name: string }>(`SELECT slug, name FROM projects ORDER BY updated_at DESC`),
+  ]);
+  return { leads: leads.rows, subs: subs.rows, projects: projects.rows };
+}
+
 /** Record an inbound text: upsert the thread by counterparty number, append the
  *  message, mark unread. Deduped on provider message id. Returns the thread id.
  *  Called by the provider webhook. */
@@ -170,6 +214,12 @@ export async function recordInboundSms(input: {
      ON CONFLICT (provider_sid) DO NOTHING`,
     [threadId, input.body.slice(0, 2000), input.providerSid ?? null],
   );
+  // Best-effort auto-classify to a lead/sub by phone (only if not already linked).
+  try {
+    await autoLinkThread(threadId, phone);
+  } catch {
+    /* linking is secondary — never fail an inbound on it */
+  }
   return threadId;
 }
 
@@ -188,7 +238,13 @@ export async function upsertSmsThread(
      RETURNING id`,
     [p, contactName?.trim() || null],
   );
-  return row!.id;
+  const id = row!.id;
+  try {
+    await autoLinkThread(id, p);
+  } catch {
+    /* linking is secondary */
+  }
+  return id;
 }
 
 /** Send an outbound text on an existing thread. Records the outbound message,

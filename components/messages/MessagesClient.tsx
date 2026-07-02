@@ -3,8 +3,22 @@
 import { useState, useTransition } from "react";
 import { MessageSquare, Phone, Send, AlertCircle, ExternalLink, Plus, X } from "lucide-react";
 import { Chip } from "@/components/ui";
-import { loadSmsThread, sendSmsReply, startSmsThread } from "@/lib/actions/sms";
-import type { SmsThreadSummary, SmsMessage } from "@/lib/sms";
+import {
+  loadSmsThread,
+  sendSmsReply,
+  startSmsThread,
+  linkSmsThread,
+  unlinkSmsThread,
+} from "@/lib/actions/sms";
+import type { SmsThreadSummary, SmsMessage, SmsLinkOptions } from "@/lib/sms";
+
+/** Record path for the "open record" link (link_type → route segment). */
+const LINK_ROUTE: Record<string, string> = {
+  lead: "leads",
+  sub: "subs",
+  project: "projects",
+  client: "projects",
+};
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -25,9 +39,11 @@ function threadTitle(t: SmsThreadSummary): string {
 
 export function MessagesClient({
   threads: initialThreads,
+  linkOptions,
   configured,
 }: {
   threads: SmsThreadSummary[];
+  linkOptions: SmsLinkOptions;
   configured: boolean;
 }) {
   const [threads, setThreads] = useState(initialThreads);
@@ -84,6 +100,22 @@ export function MessagesClient({
         setDraft(body);
         setNotice(res.error ?? "Could not send.");
       }
+    });
+  }
+
+  function changeLink(id: number, value: string) {
+    // value is "" (unlink) or "<type>:<slug>".
+    const [type, slug] = value ? value.split(":") : ["", ""];
+    setThreads((prev) =>
+      prev.map((t) =>
+        t.id === id
+          ? { ...t, linkType: (type || null) as SmsThreadSummary["linkType"], linkSlug: slug || null }
+          : t,
+      ),
+    );
+    start(async () => {
+      if (value) await linkSmsThread(id, type, slug);
+      else await unlinkSmsThread(id);
     });
   }
 
@@ -199,14 +231,47 @@ export function MessagesClient({
               <Phone className="size-3.5 text-ink-3" strokeWidth={1.5} />
               <span className="font-serif text-[15px] font-semibold text-ink">{threadTitle(selected)}</span>
               <span className="font-mono text-[11px] text-ink-3">{selected.phone}</span>
-              {selected.linkType && selected.linkSlug && (
-                <a
-                  href={`/${selected.linkType === "sub" ? "subs" : selected.linkType === "lead" ? "leads" : "projects"}/${selected.linkSlug}`}
-                  className="ml-auto inline-flex items-center gap-1 text-[11px] text-ink-3 hover:text-ink"
+
+              <div className="ml-auto flex items-center gap-1.5">
+                <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3">Linked to</span>
+                <select
+                  value={selected.linkType && selected.linkSlug ? `${selected.linkType}:${selected.linkSlug}` : ""}
+                  onChange={(e) => changeLink(selected.id, e.target.value)}
+                  className="max-w-[180px] rounded-md border border-rule bg-paper px-2 py-1 text-[12px] text-ink outline-none focus:border-accent"
                 >
-                  {selected.linkType} <ExternalLink className="size-3" strokeWidth={1.5} />
-                </a>
-              )}
+                  <option value="">Not linked</option>
+                  {linkOptions.leads.length > 0 && (
+                    <optgroup label="Leads">
+                      {linkOptions.leads.map((o) => (
+                        <option key={`lead:${o.slug}`} value={`lead:${o.slug}`}>{o.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {linkOptions.subs.length > 0 && (
+                    <optgroup label="Subs">
+                      {linkOptions.subs.map((o) => (
+                        <option key={`sub:${o.slug}`} value={`sub:${o.slug}`}>{o.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {linkOptions.projects.length > 0 && (
+                    <optgroup label="Projects">
+                      {linkOptions.projects.map((o) => (
+                        <option key={`project:${o.slug}`} value={`project:${o.slug}`}>{o.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+                {selected.linkType && selected.linkSlug && LINK_ROUTE[selected.linkType] && (
+                  <a
+                    href={`/${LINK_ROUTE[selected.linkType]}/${selected.linkSlug}`}
+                    className="inline-flex items-center text-ink-3 hover:text-ink"
+                    aria-label="Open linked record"
+                  >
+                    <ExternalLink className="size-3.5" strokeWidth={1.5} />
+                  </a>
+                )}
+              </div>
             </div>
 
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-paper-2 px-5 py-4">

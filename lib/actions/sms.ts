@@ -63,6 +63,34 @@ export async function sendSmsReply(
   return res;
 }
 
+const LINK_TYPES = ["lead", "sub", "client", "project"] as const;
+type SmsLinkType = (typeof LINK_TYPES)[number];
+
+/** Manually link an SMS thread to a record (lead/sub/project). Owner-only. */
+export async function linkSmsThread(
+  threadId: number,
+  type: string,
+  slug: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireRole("owner");
+  if (!LINK_TYPES.includes(type as SmsLinkType)) return { ok: false, error: "Invalid link type." };
+  if (!slug.trim()) return { ok: false, error: "Pick a record." };
+  await query(
+    `UPDATE sms_threads SET link_type = $2, link_slug = $3 WHERE id = $1`,
+    [threadId, type, slug.trim()],
+  );
+  revalidatePath("/messages");
+  return { ok: true };
+}
+
+/** Remove a thread's record link. Owner-only. */
+export async function unlinkSmsThread(threadId: number): Promise<{ ok: boolean }> {
+  await requireRole("owner");
+  await query(`UPDATE sms_threads SET link_type = NULL, link_slug = NULL WHERE id = $1`, [threadId]);
+  revalidatePath("/messages");
+  return { ok: true };
+}
+
 /** Clear the unread flag on a thread. Owner-only. */
 export async function markSmsThreadRead(threadId: number): Promise<{ ok: boolean }> {
   await requireRole("owner");

@@ -20,12 +20,24 @@ export const STAGES: { key: LeadStage; label: string }[] = [
   { key: "precon_signed", label: "Pre-con signed" },
 ];
 
+/** Terminal, off-pipeline stage for dead/declined/archived leads. Set only by an
+ *  explicit "mark lost" — never reached by advancing — and kept out of STAGES so
+ *  it never appears in the pipeline strip or the forward progression. */
+export const LOST_STAGE = { key: "lost" as LeadStage, label: "Lost / Archived" };
+
+/** Every valid lead stage (pipeline + terminal). Use for stage validation. */
+export const ALL_STAGES: { key: LeadStage; label: string }[] = [...STAGES, LOST_STAGE];
+
 export function stageIndex(stage: LeadStage): number {
   return STAGES.findIndex((s) => s.key === stage);
 }
 
+export function isLostStage(stage: LeadStage): boolean {
+  return stage === "lost";
+}
+
 export function stageLabel(stage: LeadStage): string {
-  return STAGES.find((s) => s.key === stage)?.label ?? stage;
+  return ALL_STAGES.find((s) => s.key === stage)?.label ?? stage;
 }
 
 /** Lead temperature, derived server-side so the list filter chips work without
@@ -96,6 +108,7 @@ function initialsFrom(name: string): string {
 /** Classify a lead's temperature for the list filters. A declining/lost flag
  *  wins; otherwise hot, then quiet-for-2-weeks → cooling, else active. */
 function temperatureOf(r: LeadRow): LeadTemperature {
+  if (r.stage === "lost") return "declined";
   const label = (r.flag_label ?? "").toLowerCase();
   if (/declin|lost|dead|cold/.test(label)) return "declined";
   if (r.hot) return "hot";
@@ -360,15 +373,17 @@ export async function getLeadsData(): Promise<LeadsData> {
   const { rows } = await query<LeadRow>(`${LEAD_SELECT} ORDER BY hot DESC, last_contact_at DESC`);
   const leads = rows.map(rowToItem);
 
-  const needReply = leads.filter(
+  // "Active" excludes terminal lost/archived leads from the headline + weighting.
+  const active = leads.filter((l) => l.stage !== "lost");
+  const needReply = active.filter(
     (l) => l.flag?.label === "Needs reply" || l.flag?.label === "Cooling",
   ).length;
   const weightedK = Math.round(
-    rows.reduce((sum, r) => sum + (r.estimate_value ?? 0), 0) / 1000,
+    rows.filter((r) => r.stage !== "lost").reduce((sum, r) => sum + (r.estimate_value ?? 0), 0) / 1000,
   );
 
   return {
-    summary: `Pipeline · ${leads.length} active · ${needReply} need a reply · $${weightedK}k weighted`,
+    summary: `Pipeline · ${active.length} active · ${needReply} need a reply · $${weightedK}k weighted`,
     stages: STAGES.map((s) => ({
       ...s,
       count: leads.filter((l) => l.stage === s.key).length,

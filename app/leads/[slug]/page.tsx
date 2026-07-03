@@ -9,7 +9,7 @@ import { getLead, STAGES, stageIndex, stageLabel } from "@/lib/leads";
 import { getLeadScore } from "@/lib/intake";
 import { leadContext } from "@/lib/page-context";
 import { getLeadActivity, type LeadActivityKind } from "@/lib/lead-activity";
-import { advanceLeadStage, convertLeadToProject } from "@/lib/actions/leads";
+import { advanceLeadStage, convertLeadToProject, markLeadLost, reopenLead } from "@/lib/actions/leads";
 import { DeleteLeadButton } from "@/components/leads/DeleteLeadButton";
 import { LeadContact } from "@/components/leads/LeadContact";
 import { ThankReferrerButton } from "@/components/leads/ThankReferrerButton";
@@ -38,6 +38,7 @@ export default async function LeadDetailPage({
   // Open Engine + Brain data scoped to this one lead — the "Ops" tab.
   const ops = await getRecordOps("lead", slug);
 
+  const isLost = lead.stage === "lost";
   const currentStageIdx = stageIndex(lead.stage);
   const nextStage = STAGES[currentStageIdx + 1];
 
@@ -49,6 +50,16 @@ export default async function LeadDetailPage({
   async function convertToProject() {
     "use server";
     await convertLeadToProject(slug);
+  }
+
+  async function markLost() {
+    "use server";
+    await markLeadLost(slug);
+  }
+
+  async function reopen() {
+    "use server";
+    await reopenLead(slug);
   }
 
   const overview = (
@@ -95,6 +106,12 @@ export default async function LeadDetailPage({
       <div className="flex flex-col gap-3">
         <Card kind="tan" className="p-3">
           <Eyebrow muted>Pipeline stage</Eyebrow>
+          {isLost ? (
+            <div className="mt-2 text-[13px] text-ink-2">
+              This lead is <span className="font-semibold text-flag">lost / archived</span> — off the
+              active pipeline. Reopen it to move it back to Intake.
+            </div>
+          ) : (
           <div className="mt-2 flex flex-col gap-1.5">
             {STAGES.map((s, i) => {
               const done = i < currentStageIdx;
@@ -120,6 +137,7 @@ export default async function LeadDetailPage({
               );
             })}
           </div>
+          )}
         </Card>
 
         <Card className="p-3">
@@ -266,9 +284,13 @@ export default async function LeadDetailPage({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-1.5">
               <Chip kind="ghost">Source: {lead.source}</Chip>
-              <Chip kind="ghost">
-                Stage {currentStageIdx + 1} of {STAGES.length}
-              </Chip>
+              {isLost ? (
+                <Chip kind="flag">Lost / Archived</Chip>
+              ) : (
+                <Chip kind="ghost">
+                  Stage {currentStageIdx + 1} of {STAGES.length}
+                </Chip>
+              )}
             </div>
             <h1 className="mt-1.5 font-serif text-[30px] font-medium leading-none tracking-tight text-accent-2">
               {lead.name}
@@ -291,6 +313,15 @@ export default async function LeadDetailPage({
               >
                 View project →
               </Link>
+            ) : isLost ? (
+              <form action={reopen}>
+                <button
+                  type="submit"
+                  className="rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
+                >
+                  Reopen lead
+                </button>
+              </form>
             ) : nextStage ? (
               <form action={moveToNextStage}>
                 <button
@@ -307,6 +338,16 @@ export default async function LeadDetailPage({
                   className="rounded-md border border-accent bg-accent px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-accent-2"
                 >
                   Convert to project
+                </button>
+              </form>
+            )}
+            {!isLost && !lead.projectSlug && (
+              <form action={markLost}>
+                <button
+                  type="submit"
+                  className="rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-3 hover:bg-paper-2 hover:text-flag"
+                >
+                  Mark lost
                 </button>
               </form>
             )}

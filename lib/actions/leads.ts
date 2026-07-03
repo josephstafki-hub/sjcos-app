@@ -9,7 +9,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
-import { STAGES, stageLabel } from "@/lib/leads";
+import { STAGES, ALL_STAGES, stageLabel } from "@/lib/leads";
 import { logLeadActivity } from "@/lib/lead-activity";
 import { scoreLead } from "@/lib/intake";
 import { emit } from "@/lib/notify";
@@ -188,6 +188,7 @@ export async function advanceLeadStage(slug: string) {
   );
   if (!row) return;
   const idx = STAGES.findIndex((s) => s.key === row.stage);
+  if (idx < 0) return; // terminal (lost) leads are off-pipeline — can't advance
   const next = STAGES[idx + 1];
   if (!next) return;
 
@@ -196,6 +197,24 @@ export async function advanceLeadStage(slug: string) {
     [slug, next.key],
   );
   await logLeadActivity(slug, "stage", `Moved to ${stageLabel(next.key)}`);
+  revalidatePath(`/leads/${slug}`);
+  revalidatePath("/leads");
+}
+
+/** Mark a lead lost / archived (terminal). Owner-gated. */
+export async function markLeadLost(slug: string) {
+  await requireRole("owner");
+  await query(`UPDATE leads SET stage = 'lost', updated_at = now() WHERE slug = $1`, [slug]);
+  await logLeadActivity(slug, "stage", "Marked lost / archived");
+  revalidatePath(`/leads/${slug}`);
+  revalidatePath("/leads");
+}
+
+/** Reopen a lost/archived lead back into the pipeline at intake. Owner-gated. */
+export async function reopenLead(slug: string) {
+  await requireRole("owner");
+  await query(`UPDATE leads SET stage = 'intake', updated_at = now() WHERE slug = $1`, [slug]);
+  await logLeadActivity(slug, "stage", "Reopened to Intake");
   revalidatePath(`/leads/${slug}`);
   revalidatePath("/leads");
 }
@@ -432,7 +451,7 @@ export async function rescoreLead(
 /** Set a lead to an explicit stage (used by a stage picker). */
 export async function setLeadStage(slug: string, stage: LeadStage) {
   await requireRole("owner");
-  if (!STAGES.some((s) => s.key === stage)) return;
+  if (!ALL_STAGES.some((s) => s.key === stage)) return;
   await query(
     `UPDATE leads SET stage = $2, updated_at = now() WHERE slug = $1`,
     [slug, stage],

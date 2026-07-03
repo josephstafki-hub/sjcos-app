@@ -8,18 +8,28 @@ import { NewLeadButton } from "@/components/leads/NewLeadButton";
 // Type-only — never pull lib/leads (→ lib/db → pg) into the client bundle.
 import type { LeadsData, LeadListItem, LeadTemperature } from "@/lib/leads";
 
-const FILTERS: { key: "All" | LeadTemperature; label: string }[] = [
+type FilterKey = "All" | "lost" | LeadTemperature;
+
+const FILTERS: { key: FilterKey; label: string }[] = [
   { key: "All", label: "All" },
   { key: "hot", label: "Hot" },
   { key: "cooling", label: "Cooling" },
-  { key: "declined", label: "Declined" },
+  { key: "lost", label: "Lost / Archived" },
 ];
 
 export function LeadsClient({ data }: { data: LeadsData }) {
-  const [filter, setFilter] = useState<"All" | LeadTemperature>("All");
+  const [filter, setFilter] = useState<FilterKey>("All");
 
+  // Terminal lost/archived leads are hidden from the active views (All/Hot/
+  // Cooling) and only shown under their own filter.
+  const active = data.leads.filter((l) => l.stage !== "lost");
+  const lost = data.leads.filter((l) => l.stage === "lost");
   const visible =
-    filter === "All" ? data.leads : data.leads.filter((l) => l.temperature === filter);
+    filter === "All"
+      ? active
+      : filter === "lost"
+        ? lost
+        : active.filter((l) => l.temperature === filter);
 
   return (
     <>

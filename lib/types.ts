@@ -6,13 +6,16 @@
 // ─── Leads ──────────────────────────────────────────────────────────────────
 
 /** The lead pipeline, ending at the pre-construction contract being signed
- *  (after which the lead converts to a project). */
+ *  (after which the lead converts to a project). `lost` is a terminal, off-
+ *  pipeline stage for dead/declined/archived leads — reachable only by an
+ *  explicit "mark lost" (never by advancing), and excluded from the active list. */
 export type LeadStage =
   | "intake"
   | "qualified"
   | "discovery_call"
   | "rough_estimate"
-  | "precon_signed";
+  | "precon_signed"
+  | "lost";
 
 /** Claude's lead-triage verdict. */
 export type TriageVerdict = "go" | "hold" | "pass";

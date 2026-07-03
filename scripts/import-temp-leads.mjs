@@ -357,9 +357,9 @@ async function importOne(client, c, crosswalk) {
   let work = 0;
   if ((r.next_action || "").trim()) {
     await client.query(
-      `INSERT INTO work_items (title, body, status, ${kind}_id, source_kind, source_id, requires_approval, created_by)
-       VALUES ($1,$2,'queued',$3,'import',$4,true,'import')`,
-      [r.next_action.trim().split("\n")[0].slice(0, 120), r.next_action.trim(), id, (r.record_id || "").trim()],
+      `INSERT INTO work_items (title, body, status, ${kind}_id, source_kind, source_id, requires_approval, created_by, due_at)
+       VALUES ($1,$2,'queued',$3,'import',$4,true,'import', NULLIF($5,'')::timestamptz)`,
+      [r.next_action.trim().split("\n")[0].slice(0, 120), r.next_action.trim(), id, (r.record_id || "").trim(), (r.next_action_due || "").trim()],
     );
     work = 1;
   }

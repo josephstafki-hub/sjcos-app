@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// SJC OS — MCP server (Phase-1 foundation, AI-agnostic).
+// SJC OS — MCP server (AI-agnostic).
 //
-// A standard Model Context Protocol server exposing curated, read-only tools
-// over the SJC OS Postgres database, so ANY MCP client (Claude Desktop/Code,
-// Cursor, Continue, …) can query real business data with structure — not just
+// A standard Model Context Protocol server exposing curated tools over the SJC OS
+// Postgres database, so ANY MCP client (Claude Desktop/Code, Cursor, Continue,
+// Codex, Hermes …) can work with real business data with structure — not just
 // Claude. Runs as its own process over stdio; reads DATABASE_URL from the app's
 // .env.local (the client may spawn us with a clean env, so we don't rely on it).
 //
@@ -13,8 +13,19 @@
 //   { "mcpServers": { "sjcos": { "command": "node",
 //       "args": ["/home/joe/sjcos-app/mcp/sjcos-mcp.mjs"] } } }
 //
-// Read-only by design: every tool is a parameterized SELECT. Write tools (gated)
-// can be added later. Keep tools curated — do NOT expose raw SQL.
+// Tool surface (all tools are curated + parameterized — raw SQL is NEVER exposed):
+//   • Curated READ tools: parameterized SELECTs over leads/projects/subs/
+//     compliance/knowledge/work items/skills/runbooks + business_snapshot.
+//   • Gated WRITE tools: capture_knowledge, create_work_item,
+//     update_work_item_status, record_agent_run, record_receipt,
+//     create_skill_proposal, record_skill_used. These are safe by construction —
+//     they only touch internal records, an append-only audit trail, or land as
+//     proposals (skills land 'proposed', invisible to the library until an owner
+//     approves them in /engine).
+//   • NOT exposed: no destructive tools (no deletes/drops), no client-facing or
+//     financial sends (email/SMS/invoices/contracts stay owner-approved in the
+//     app), and no raw-SQL passthrough. Secrets are read from .env.local at
+//     runtime and never logged or returned in a tool result.
 
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";

@@ -150,3 +150,245 @@ export interface ComplianceItem {
   resolved: boolean;
   createdAt: string;
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+//  OPEN BRAIN / OPEN ENGINE / OPEN SKILLS  (mirror the schema.sql section)
+// ════════════════════════════════════════════════════════════════════════════
+
+// ─── Open Brain: knowledge_items ────────────────────────────────────────────
+
+/** Free-text, but these are the recommended kinds (see schema.sql). */
+export type KnowledgeKind =
+  | "note"
+  | "client_note"
+  | "vendor_note"
+  | "project_decision"
+  | "business_rule"
+  | "sop"
+  | "lesson"
+  | "estimate_assumption"
+  | "selection_preference"
+  | "followup_context"
+  | "file_summary"
+  | "meeting_summary"
+  | "daily_log_summary"
+  | "admin_note"
+  | (string & {});
+
+export interface KnowledgeItem {
+  id: string;
+  content: string;
+  kind: KnowledgeKind;
+  /** manual/agent/import/email/file/system. */
+  source: string;
+  sourceUri: string | null;
+  metadata: Record<string, unknown>;
+  leadId: string | null;
+  projectId: string | null;
+  threadId: string | null;
+  fileId: string | null;
+  contentFingerprint: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ─── Open Brain: agent memory sidecar ───────────────────────────────────────
+
+export type MemoryProvenance = "asserted" | "inferred" | "imported" | "user_confirmed";
+export type MemoryReviewStatus = "pending" | "approved" | "rejected";
+
+export interface AgentMemory {
+  id: string;
+  summary: string;
+  content: string;
+  /** observation/instruction/preference/fact. */
+  memoryType: string;
+  provenanceStatus: MemoryProvenance;
+  /** 0–1. */
+  confidence: number | null;
+  reviewStatus: MemoryReviewStatus;
+  /** Defaults false — an AI memory never acts as a standing instruction unconfirmed. */
+  canUseAsInstruction: boolean;
+  canUseAsEvidence: boolean;
+  requiresUserConfirmation: boolean;
+  staleAfter: string | null;
+  runtimeName: string | null;
+  provider: string | null;
+  model: string | null;
+  knowledgeItemId: string | null;
+  leadId: string | null;
+  projectId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentMemorySourceRef {
+  id: string;
+  memoryId: string;
+  /** knowledge/thread/file/lead/project/uri/receipt. */
+  refKind: string;
+  refId: string | null;
+  uri: string | null;
+  label: string;
+  createdAt: string;
+}
+
+// ─── Open Engine: work items ────────────────────────────────────────────────
+
+export type WorkItemStatus =
+  | "queued"
+  | "in_progress"
+  | "waiting_on_human"
+  | "waiting_on_client"
+  | "waiting_on_sub"
+  | "blocked"
+  | "approval_needed"
+  | "done"
+  | "cancelled";
+export type WorkItemPriority = "low" | "normal" | "high" | "urgent";
+export type AssigneeKind = "human" | "agent";
+export type ApprovalStatus = "not_requested" | "requested" | "approved" | "rejected";
+
+export interface WorkItem {
+  id: string;
+  title: string;
+  body: string;
+  status: WorkItemStatus;
+  priority: WorkItemPriority;
+  assigneeKind: AssigneeKind;
+  /** human-joe / hermes-telegram / claude-code-server / … */
+  assigneeKey: string | null;
+  dueAt: string | null;
+  leadId: string | null;
+  projectId: string | null;
+  threadId: string | null;
+  sourceKind: string;
+  sourceId: string | null;
+  /** Skill the agent is expected to load before working this item. */
+  expectedSkillSlug: string | null;
+  expectedRunbookSlug: string | null;
+  requiresApproval: boolean;
+  approvalStatus: ApprovalStatus;
+  blockedReason: string | null;
+  completedAt: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ─── Open Engine: agent runs, receipts, status ledger ───────────────────────
+
+export type AgentRunStatus = "started" | "succeeded" | "failed" | "cancelled";
+
+export interface AgentRun {
+  id: string;
+  workItemId: string | null;
+  runtimeName: string;
+  model: string | null;
+  status: AgentRunStatus;
+  inputSummary: string;
+  outputSummary: string;
+  errorSummary: string | null;
+  costUsd: number | null;
+  skillSlug: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+export interface AgentReceipt {
+  id: string;
+  agentRunId: string | null;
+  workItemId: string | null;
+  /** email/calendar/file/db_row/git/draft/invoice/approval/… */
+  receiptKind: string;
+  uri: string | null;
+  label: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export type LedgerState = "idle" | "running" | "blocked" | "waiting_on_human" | "error";
+
+export interface StatusLedger {
+  runtimeName: string;
+  state: LedgerState;
+  currentWorkItemId: string | null;
+  blockedReason: string | null;
+  note: string;
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+  updatedAt: string;
+}
+
+// ─── Open Skills: skills, versions, runbooks ────────────────────────────────
+
+export type SkillReviewStatus = "proposed" | "approved" | "rejected";
+export type SkillVersionStatus = "draft" | "proposed" | "approved" | "rejected";
+
+export interface Skill {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  category: string;
+  triggerPhrases: string[];
+  whenToUse: string;
+  requiredContext: Record<string, unknown>;
+  allowedTools: string[];
+  approvalRules: string;
+  verificationRequirements: string;
+  currentVersionId: string | null;
+  reviewStatus: SkillReviewStatus;
+  proposedBy: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SkillVersion {
+  id: string;
+  skillId: string;
+  version: number;
+  bodyMarkdown: string;
+  changeSummary: string;
+  status: SkillVersionStatus;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface Runbook {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  bodyMarkdown: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RunbookStep {
+  id: string;
+  runbookId: string;
+  stepOrder: number;
+  skillId: string | null;
+  skillSlug: string | null;
+  title: string;
+  expectedOutput: string;
+  requiresHumanApproval: boolean;
+}
+
+// ─── Migration staging ──────────────────────────────────────────────────────
+
+export type ImportProposedTarget = "lead" | "project" | "archive" | "knowledge" | "review";
+export type ImportStatus = "staged" | "mapped" | "imported" | "skipped";
+
+export interface TempLeadImport {
+  recordId: string;
+  raw: Record<string, unknown>;
+  proposedTarget: ImportProposedTarget;
+  importStatus: ImportStatus;
+  reviewNotes: string;
+  importedAt: string;
+}

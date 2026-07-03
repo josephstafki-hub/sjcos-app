@@ -931,3 +931,409 @@ BEGIN
        FOR EACH ROW EXECUTE FUNCTION set_updated_at();', t);
   END LOOP;
 END $$;
+
+-- ════════════════════════════════════════════════════════════════════════════
+--  OPEN BRAIN / OPEN ENGINE / OPEN SKILLS  (Nate B. Jones patterns, adapted)
+--  ---------------------------------------------------------------------------
+--  SJC OS Postgres stays the single source of truth — NO separate Open Brain
+--  database. These tables add three layers inside SJC OS:
+--    • Open Brain  — knowledge_items (+ agent_memories sidecar): what we know.
+--    • Open Engine — work_items / agent_runs / agent_receipts / status_ledgers:
+--                    what needs to happen, who owns it, and proof it happened.
+--    • Open Skills — skills / skill_versions / runbooks / runbook_steps: the
+--                    reusable, versioned way to do the work to Joe's standards.
+--  All idempotent (safe to re-run). Money stays out of here; this is the
+--  operations/knowledge brain, not the ledger.
+-- ════════════════════════════════════════════════════════════════════════════
+
+-- Trigram search for fuzzy knowledge/skill lookup. Trusted extension (PG13+),
+-- so the app's DB owner can install it. Wrapped so a locked-down environment
+-- that forbids it doesn't abort the whole schema apply — the full-text (tsv)
+-- path below works without it.
+DO $$
+BEGIN
+  CREATE EXTENSION IF NOT EXISTS pg_trgm;
+EXCEPTION WHEN insufficient_privilege OR feature_not_supported THEN
+  RAISE NOTICE 'pg_trgm unavailable (%.); continuing with full-text search only', SQLERRM;
+END $$;
+
+-- ─── Open Brain: knowledge_items ────────────────────────────────────────────
+-- The durable memory/search layer. Durable business context: client notes,
+-- vendor knowledge, project decisions, business rules, SOP text, lessons,
+-- estimate assumptions, selection preferences, follow-up context, file/meeting/
+-- daily-log summaries. `kind` is free text (see recommended values below) so the
+-- memory layer can grow without a migration. Links are soft (ON DELETE SET NULL)
+-- so deleting a lead/project never destroys what we learned from it.
+--   Recommended kind values: client_note, vendor_note, project_decision,
+--   business_rule, sop, lesson, estimate_assumption, selection_preference,
+--   followup_context, file_summary, meeting_summary, daily_log_summary,
+--   admin_note.
+CREATE TABLE IF NOT EXISTS knowledge_items (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  content             text NOT NULL,
+  kind                text NOT NULL DEFAULT 'note',
+  source              text NOT NULL DEFAULT 'manual',   -- manual/agent/import/email/file/system
+  source_uri          text,
+  metadata            jsonb NOT NULL DEFAULT '{}'::jsonb,
+  lead_id             uuid REFERENCES leads(id)     ON DELETE SET NULL,
+  project_id          uuid REFERENCES projects(id)  ON DELETE SET NULL,
+  thread_id           uuid REFERENCES threads(id)   ON DELETE SET NULL,
+  file_id             text REFERENCES files(id)     ON DELETE SET NULL,
+  content_fingerprint text,                            -- de-dupe key (e.g. md5 of content)
+  created_by          text NOT NULL DEFAULT 'user',
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now(),
+  -- Full-text search vector, always in sync (generated column, no trigger).
+  search_tsv          tsvector GENERATED ALWAYS AS (to_tsvector('english', coalesce(content, ''))) STORED
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_metadata ON knowledge_items USING gin(metadata);
+CREATE INDEX IF NOT EXISTS idx_knowledge_project  ON knowledge_items(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_lead     ON knowledge_items(lead_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_kind     ON knowledge_items(kind, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_created  ON knowledge_items(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_search   ON knowledge_items USING gin(search_tsv);
+-- De-dupe helper: at most one row per identical fingerprint.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_fingerprint
+  ON knowledge_items(content_fingerprint) WHERE content_fingerprint IS NOT NULL;
+-- Trigram index for fuzzy/substring recall (only if pg_trgm installed).
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm') THEN
+    CREATE INDEX IF NOT EXISTS idx_knowledge_trgm ON knowledge_items USING gin(content gin_trgm_ops);
+  END IF;
+END $$;
+
+-- Optional semantic embeddings — ONLY if pgvector is available. Not installed on
+-- this server (checked: only pg_trgm is available), so this block is a no-op
+-- here and the app relies on full-text + trigram search. When a future server
+-- has pgvector, re-running the schema adds the column + IVFFlat index and the
+-- search tools can start using it. Fully idempotent either way.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector') THEN
+    CREATE EXTENSION IF NOT EXISTS vector;
+    ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS embedding vector(1536);
+    -- Cosine-distance ANN index; lists tuned later as the table grows.
+    IF NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'idx_knowledge_embedding') THEN
+      CREATE INDEX idx_knowledge_embedding ON knowledge_items
+        USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+    END IF;
+  END IF;
+END $$;
+
+-- ─── Open Brain: agent_memories sidecar ─────────────────────────────────────
+-- Memories PROPOSED or written by AI agents, kept apart from confirmed
+-- knowledge_items with provenance + review state. Governing rule (Section 5.2 of
+-- the plan): AI-created memories default to evidence-only / review pending and
+-- must NOT act as standing instructions until Joe confirms them (or they come
+-- from a trusted import). The column defaults below enforce that.
+CREATE TABLE IF NOT EXISTS agent_memories (
+  id                        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  summary                   text NOT NULL DEFAULT '',
+  content                   text NOT NULL,
+  memory_type               text NOT NULL DEFAULT 'observation', -- observation/instruction/preference/fact
+  provenance_status         text NOT NULL DEFAULT 'inferred'
+                              CHECK (provenance_status IN ('asserted','inferred','imported','user_confirmed')),
+  confidence                numeric,                             -- 0–1
+  review_status             text NOT NULL DEFAULT 'pending'
+                              CHECK (review_status IN ('pending','approved','rejected')),
+  can_use_as_instruction    boolean NOT NULL DEFAULT false,      -- SAFE DEFAULT: never auto-instruct
+  can_use_as_evidence       boolean NOT NULL DEFAULT true,
+  requires_user_confirmation boolean NOT NULL DEFAULT true,
+  stale_after               timestamptz,
+  runtime_name              text,                                -- hermes-telegram / claude-code-server / …
+  provider                  text,
+  model                     text,
+  -- Optional promotion link: once confirmed, the durable copy in knowledge_items.
+  knowledge_item_id         uuid REFERENCES knowledge_items(id) ON DELETE SET NULL,
+  lead_id                   uuid REFERENCES leads(id)    ON DELETE SET NULL,
+  project_id                uuid REFERENCES projects(id) ON DELETE SET NULL,
+  created_at                timestamptz NOT NULL DEFAULT now(),
+  updated_at                timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_agent_memories_review  ON agent_memories(review_status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_memories_project ON agent_memories(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_memories_lead    ON agent_memories(lead_id, created_at DESC);
+
+-- Provenance: where an agent memory came from (one memory → many source refs).
+CREATE TABLE IF NOT EXISTS agent_memory_source_refs (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  memory_id   uuid NOT NULL REFERENCES agent_memories(id) ON DELETE CASCADE,
+  ref_kind    text NOT NULL,                 -- knowledge/thread/file/lead/project/uri/receipt
+  ref_id      text,                          -- the referenced row id/slug (as text)
+  uri         text,                          -- or an external URI (Gmail/Drive/etc.)
+  label       text NOT NULL DEFAULT '',
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_memory_source_refs_mem ON agent_memory_source_refs(memory_id);
+
+-- ─── Open Engine: work_items ────────────────────────────────────────────────
+-- SJC OS's own work queue (replaces Linear in Nate's Open Engine). A unit of
+-- work that can be linked to a lead/project/thread and carry the skill/runbook
+-- an agent is expected to load before acting. requires_approval defaults TRUE so
+-- nothing client-facing/financial slips through unreviewed.
+CREATE TABLE IF NOT EXISTS work_items (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  title                  text NOT NULL,
+  body                   text NOT NULL DEFAULT '',
+  status                 text NOT NULL DEFAULT 'queued'
+                           CHECK (status IN ('queued','in_progress','waiting_on_human','waiting_on_client',
+                                             'waiting_on_sub','blocked','approval_needed','done','cancelled')),
+  priority               text NOT NULL DEFAULT 'normal'
+                           CHECK (priority IN ('low','normal','high','urgent')),
+  assignee_kind          text NOT NULL DEFAULT 'human'
+                           CHECK (assignee_kind IN ('human','agent')),
+  assignee_key           text,                            -- human-joe / hermes-telegram / claude-code-server / …
+  due_at                 timestamptz,
+  lead_id                uuid REFERENCES leads(id)     ON DELETE SET NULL,
+  project_id             uuid REFERENCES projects(id)  ON DELETE SET NULL,
+  thread_id              uuid REFERENCES threads(id)   ON DELETE SET NULL,
+  source_kind            text NOT NULL DEFAULT 'manual',-- manual/import/agent/email/schedule
+  source_id              text,
+  expected_skill_slug    text,                           -- soft ref → skills.slug
+  expected_runbook_slug  text,                           -- soft ref → runbooks.slug
+  requires_approval      boolean NOT NULL DEFAULT true,
+  approval_status        text NOT NULL DEFAULT 'not_requested'
+                           CHECK (approval_status IN ('not_requested','requested','approved','rejected')),
+  blocked_reason         text,
+  completed_at           timestamptz,
+  created_by             text NOT NULL DEFAULT 'user',
+  created_at             timestamptz NOT NULL DEFAULT now(),
+  updated_at             timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_work_items_status    ON work_items(status, priority, due_at);
+CREATE INDEX IF NOT EXISTS idx_work_items_due       ON work_items(due_at) WHERE status NOT IN ('done','cancelled');
+CREATE INDEX IF NOT EXISTS idx_work_items_assignee  ON work_items(assignee_key, status);
+CREATE INDEX IF NOT EXISTS idx_work_items_project   ON work_items(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_work_items_lead      ON work_items(lead_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_work_items_approval  ON work_items(approval_status) WHERE approval_status = 'requested';
+CREATE INDEX IF NOT EXISTS idx_work_items_created   ON work_items(created_at DESC);
+
+-- ─── Open Engine: agent_runs + agent_receipts ───────────────────────────────
+-- One row per automated/assisted AI run, with a receipt trail proving what
+-- changed (email id, calendar event, file path, DB row id, git SHA, …).
+CREATE TABLE IF NOT EXISTS agent_runs (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  work_item_id   uuid REFERENCES work_items(id) ON DELETE SET NULL,
+  runtime_name   text NOT NULL,
+  model          text,
+  status         text NOT NULL DEFAULT 'started'
+                   CHECK (status IN ('started','succeeded','failed','cancelled')),
+  input_summary  text NOT NULL DEFAULT '',
+  output_summary text NOT NULL DEFAULT '',
+  error_summary  text,
+  cost_usd       numeric,
+  skill_slug     text,                          -- skill loaded for this run, if any
+  started_at     timestamptz NOT NULL DEFAULT now(),
+  finished_at    timestamptz
+);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_work    ON agent_runs(work_item_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_runtime ON agent_runs(runtime_name, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_started ON agent_runs(started_at DESC);
+
+CREATE TABLE IF NOT EXISTS agent_receipts (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent_run_id  uuid REFERENCES agent_runs(id)  ON DELETE CASCADE,
+  work_item_id  uuid REFERENCES work_items(id)  ON DELETE SET NULL,
+  receipt_kind  text NOT NULL,                  -- email/calendar/file/db_row/git/draft/invoice/approval/…
+  uri           text,
+  label         text NOT NULL DEFAULT '',
+  metadata      jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_agent_receipts_run  ON agent_receipts(agent_run_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_receipts_work ON agent_receipts(work_item_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_receipts_recent ON agent_receipts(created_at DESC);
+
+-- ─── Open Engine: status_ledgers ────────────────────────────────────────────
+-- Current state of each AI runtime (one row per runtime) — Nate's "status
+-- comment", stored in SJC OS. The UI reads this to show what each agent last did,
+-- what it's working, why it's blocked, and when it runs next.
+CREATE TABLE IF NOT EXISTS status_ledgers (
+  runtime_name          text PRIMARY KEY,
+  state                 text NOT NULL DEFAULT 'idle'
+                          CHECK (state IN ('idle','running','blocked','waiting_on_human','error')),
+  current_work_item_id  uuid REFERENCES work_items(id) ON DELETE SET NULL,
+  blocked_reason        text,
+  note                  text NOT NULL DEFAULT '',
+  last_run_at           timestamptz,
+  next_run_at           timestamptz,
+  updated_at            timestamptz NOT NULL DEFAULT now()
+);
+
+-- ─── Open Skills: skills + versions ─────────────────────────────────────────
+-- Reusable operating procedures agents load on demand. review_status gates
+-- proposals: agent-suggested skills land as 'proposed' and stay out of the
+-- library until Joe approves. The live procedure text lives in skill_versions
+-- (versioned + auditable); skills.current_version_id points at the approved one.
+CREATE TABLE IF NOT EXISTS skills (
+  id                        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  slug                      text NOT NULL UNIQUE,
+  title                     text NOT NULL,
+  description               text NOT NULL DEFAULT '',
+  category                  text NOT NULL DEFAULT 'operations',
+  trigger_phrases           text[] NOT NULL DEFAULT '{}',
+  when_to_use               text NOT NULL DEFAULT '',
+  required_context          jsonb NOT NULL DEFAULT '{}'::jsonb,
+  allowed_tools             text[] NOT NULL DEFAULT '{}',
+  approval_rules            text NOT NULL DEFAULT '',
+  verification_requirements text NOT NULL DEFAULT '',
+  current_version_id        uuid,                       -- FK added after skill_versions exists
+  review_status             text NOT NULL DEFAULT 'proposed'
+                              CHECK (review_status IN ('proposed','approved','rejected')),
+  proposed_by               text NOT NULL DEFAULT 'user',
+  active                    boolean NOT NULL DEFAULT true,
+  created_at                timestamptz NOT NULL DEFAULT now(),
+  updated_at                timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_skills_category ON skills(category, slug);
+CREATE INDEX IF NOT EXISTS idx_skills_review   ON skills(review_status);
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm') THEN
+    CREATE INDEX IF NOT EXISTS idx_skills_title_trgm ON skills USING gin(title gin_trgm_ops);
+  END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS skill_versions (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  skill_id       uuid NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+  version        integer NOT NULL,
+  body_markdown  text NOT NULL,
+  change_summary text NOT NULL DEFAULT '',
+  status         text NOT NULL DEFAULT 'proposed'
+                   CHECK (status IN ('draft','proposed','approved','rejected')),
+  created_by     text NOT NULL DEFAULT 'user',
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (skill_id, version)
+);
+CREATE INDEX IF NOT EXISTS idx_skill_versions_skill  ON skill_versions(skill_id, version DESC);
+CREATE INDEX IF NOT EXISTS idx_skill_versions_status ON skill_versions(status) WHERE status = 'proposed';
+
+-- Close the skills ↔ skill_versions loop now that both tables exist.
+ALTER TABLE skills DROP CONSTRAINT IF EXISTS skills_current_version_fk;
+ALTER TABLE skills ADD CONSTRAINT skills_current_version_fk
+  FOREIGN KEY (current_version_id) REFERENCES skill_versions(id) ON DELETE SET NULL;
+
+-- ─── Open Skills: runbooks + steps ──────────────────────────────────────────
+-- Ordered chains of skills for larger workflows (daily ops review, lead intake,
+-- closeout). Each step names the skill an agent should run and whether it pauses
+-- for human approval.
+CREATE TABLE IF NOT EXISTS runbooks (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  slug          text NOT NULL UNIQUE,
+  title         text NOT NULL,
+  description   text NOT NULL DEFAULT '',
+  body_markdown text NOT NULL DEFAULT '',
+  active        boolean NOT NULL DEFAULT true,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS runbook_steps (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  runbook_id             uuid NOT NULL REFERENCES runbooks(id) ON DELETE CASCADE,
+  step_order             integer NOT NULL,
+  skill_id               uuid REFERENCES skills(id) ON DELETE SET NULL,
+  skill_slug             text,                        -- soft ref, survives skill deletion
+  title                  text NOT NULL,
+  expected_output        text NOT NULL DEFAULT '',
+  requires_human_approval boolean NOT NULL DEFAULT false,
+  UNIQUE (runbook_id, step_order)
+);
+CREATE INDEX IF NOT EXISTS idx_runbook_steps ON runbook_steps(runbook_id, step_order);
+
+-- ─── Migration staging: sjc_temp_lead_imports ───────────────────────────────
+-- One-way import buffer preserving EVERY column of the temp CRM CSV exactly as
+-- raw JSON, so the migration is reversible and nothing from the tracker is lost.
+-- The dry-run importer (scripts/import-temp-leads.mjs) stages rows here and
+-- proposes a target; official leads/projects/work_items are only written after
+-- explicit approval.
+CREATE TABLE IF NOT EXISTS sjc_temp_lead_imports (
+  record_id       text PRIMARY KEY,
+  raw             jsonb NOT NULL,
+  proposed_target text NOT NULL DEFAULT 'review'
+                    CHECK (proposed_target IN ('lead','project','archive','knowledge','review')),
+  import_status   text NOT NULL DEFAULT 'staged'
+                    CHECK (import_status IN ('staged','mapped','imported','skipped')),
+  review_notes    text NOT NULL DEFAULT '',
+  imported_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_temp_imports_status ON sjc_temp_lead_imports(import_status, proposed_target);
+
+-- updated_at touch triggers for the new mutable tables.
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['knowledge_items','agent_memories','work_items','skills','runbooks'] LOOP
+    EXECUTE format(
+      'DROP TRIGGER IF EXISTS trg_%1$s_updated_at ON %1$s;
+       CREATE TRIGGER trg_%1$s_updated_at BEFORE UPDATE ON %1$s
+       FOR EACH ROW EXECUTE FUNCTION set_updated_at();', t);
+  END LOOP;
+END $$;
+
+-- ─── Business stage rules + crosswalk (Phase-3 stage alignment) ──────────────
+-- The temp CRM tracker (stage_gates.md) models the REAL business lifecycle at a
+-- finer grain than the official leads.stage (5) / projects.status (9) enums that
+-- the UI is built around. Rather than widen those enums (which would ripple
+-- through the pipeline strips, chips, and lib/{leads,projects}.ts and risk
+-- breaking pages), we preserve the real business stages HERE as machine-readable
+-- rules with a crosswalk to the official status an agent should set. Hermes/
+-- agents check gate_requirements before advancing a record; the UI is untouched.
+-- Full narrative + gate detail: docs/stage-gates.md.
+CREATE TABLE IF NOT EXISTS stage_rules (
+  stage                   text PRIMARY KEY,      -- business stage from stage_gates.md
+  phase                   text NOT NULL          -- lead | precon | construction | closeout
+                            CHECK (phase IN ('lead','precon','construction','closeout')),
+  sort_order              integer NOT NULL DEFAULT 0,
+  gate_requirements       text NOT NULL DEFAULT '',   -- what must be true to enter this stage
+  maps_to_lead_stage      text,                  -- official leads.stage, when this is a lead-phase stage
+  maps_to_project_status  text,                  -- official projects.status, when project-phase
+  is_terminal             boolean NOT NULL DEFAULT false,   -- lost/pass/archived
+  created_at              timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_stage_rules_phase ON stage_rules(phase, sort_order);
+
+-- Seed the crosswalk (idempotent — same pattern as the schedule template seed).
+INSERT INTO stage_rules (stage, phase, sort_order, gate_requirements, maps_to_lead_stage, maps_to_project_status, is_terminal)
+SELECT v.stage, v.phase, v.sort_order, v.gate, v.lead_stage, v.proj_status, v.terminal
+  FROM (VALUES
+    -- ── Lead / sales pipeline ──────────────────────────────────────────────
+    ('new',                      'lead',         10, 'Lead captured, not yet reviewed.',                                                  'intake',        NULL,                    false),
+    ('needs_response',           'lead',         20, 'Name/contact present; source or notes explain origin.',                            'intake',        NULL,                    false),
+    ('discovery_scheduled',      'lead',         30, 'Phone or email present; discovery date in next_action/status_notes.',              'discovery_call',NULL,                    false),
+    ('discovery_completed',      'lead',         40, 'Discovery notes captured; project type, budget, timeline known or marked unknown.','discovery_call',NULL,                    false),
+    ('rough_estimate_needed',    'lead',         50, 'Discovery complete; scope sufficient for Phase-1 estimate; gaps listed.',          'rough_estimate',NULL,                    false),
+    ('rough_estimate_sent',      'lead',         60, 'Rough estimate sent; sent date in last_contact_at; follow-up set (~2 days).',      'rough_estimate',NULL,                    false),
+    ('follow_up_needed',         'lead',         70, 'Prior client contact exists; next follow-up reason stated in next_action.',        'rough_estimate',NULL,                    false),
+    ('precon_deposit_requested', 'lead',         80, 'Client wants to move forward; pre-con agreement/deposit request sent.',            'rough_estimate',NULL,                    false),
+    ('lost',                     'lead',         98, 'Lost reason captured in status_notes.',                                            NULL,            NULL,                    true),
+    ('pass',                     'lead',         99, 'Pass/disqualification reason captured in status_notes.',                           NULL,            NULL,                    true),
+    -- ── Pre-construction (lead has become a project) ───────────────────────
+    ('precon_deposit_paid',      'precon',      110, 'Pre-con agreement approved; deposit paid; precon_deposit_status = paid.',          'precon_signed', 'precon_signed',         false),
+    ('site_visit_scheduled',     'precon',      120, 'Deposit paid; site-visit date captured in next_action/status_notes.',              NULL,            'precon_signed',         false),
+    ('site_visit_completed',     'precon',      130, 'Site-visit notes captured; photos/measurements status noted.',                     NULL,            'floor_plan',            false),
+    ('precon_active',            'precon',      140, 'Detailed takeoff/scope/selections/sub pricing started; next action assigned.',     NULL,            'selections',            false),
+    ('formal_estimate_needed',   'precon',      150, 'Site visit complete; scope updated; selections/allowances/questions captured.',   NULL,            'bidding',               false),
+    ('formal_estimate_sent',     'precon',      160, 'Formal estimate/SOW sent; sent date in last_contact_at; follow-up set.',           NULL,            'bidding',               false),
+    ('contract_requested',       'precon',      170, 'Client approved estimate/SOW; contract request/draft ready or sent.',              NULL,            'bidding',               false),
+    ('contract_signed',          'precon',      180, 'Contract signed; contract_status = signed.',                                       NULL,            'construction_contract', false),
+    ('retainer_paid',            'precon',      190, 'Contract signed; retainer paid; retainer_status = paid.',                          NULL,            'construction_contract', false),
+    -- ── Construction ───────────────────────────────────────────────────────
+    ('construction_scheduled',   'construction',210, 'Retainer paid; start date/schedule captured; current milestone identified.',      NULL,            'construction',          false),
+    ('active_construction',      'construction',220, 'Construction started; current milestone identified; owner/PM assigned.',          NULL,            'construction',          false),
+    ('change_order_pending',     'construction',230, 'CO description in status_notes; client approval/payment/signature need stated.',   NULL,            'construction',          false),
+    ('waiting_on_client',        'construction',240, 'Client-blocking decision/payment/access item stated in next_action.',              NULL,            'construction',          false),
+    ('waiting_on_sub',           'construction',250, 'Sub/vendor-blocking item stated in next_action.',                                  NULL,            'construction',          false),
+    ('milestone_ready_to_invoice','construction',260,'Milestone in current_milestone; completion/approval evidence in status_notes.',   NULL,            'construction',          false),
+    ('substantial_completion',   'construction',270, 'Substantial completion reached; punch/walkthrough status in status_notes.',        NULL,            'closeout',              false),
+    -- ── Closeout / warranty ────────────────────────────────────────────────
+    ('punch_list_active',        'closeout',    310, 'Punch list exists or walkthrough done; open items summarized in status_notes.',    NULL,            'closeout',              false),
+    ('final_invoice_sent',       'closeout',    320, 'Final invoice sent; sent date in last_contact_at.',                                NULL,            'closeout',              false),
+    ('closed_out',               'closeout',    330, 'Final payment received; punch resolved/accepted; documents archived.',             NULL,            'warranty',              false),
+    ('warranty_active',          'closeout',    340, 'Project closed out; warranty period/policy reference captured.',                   NULL,            'warranty',              false),
+    ('warranty_claim_open',      'closeout',    350, 'Claim description captured; response/resolution next action set.',                 NULL,            'warranty',              false),
+    ('archived',                 'closeout',    399, 'No active project/payment/warranty/client action remains; archive note captured.', NULL,            NULL,                    true)
+  ) AS v(stage, phase, sort_order, gate, lead_stage, proj_status, terminal)
+ WHERE NOT EXISTS (SELECT 1 FROM stage_rules sr WHERE sr.stage = v.stage);

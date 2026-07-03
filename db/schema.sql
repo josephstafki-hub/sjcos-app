@@ -1337,3 +1337,151 @@ SELECT v.stage, v.phase, v.sort_order, v.gate, v.lead_stage, v.proj_status, v.te
     ('archived',                 'closeout',    399, 'No active project/payment/warranty/client action remains; archive note captured.', NULL,            NULL,                    true)
   ) AS v(stage, phase, sort_order, gate, lead_stage, proj_status, terminal)
  WHERE NOT EXISTS (SELECT 1 FROM stage_rules sr WHERE sr.stage = v.stage);
+
+-- ─── Open Skills seed: initial SJ Carpentry procedures + runbooks ────────────
+-- Foundational, Joe-authored operating procedures (from the Open Brain plan §5.5
+-- + business rules §13). Seeded 'approved'/active so the library is usable now;
+-- agent-PROPOSED skills still land as 'proposed' and wait for review. Idempotent:
+-- ON CONFLICT (slug) DO NOTHING + a v1 skill_version created only if missing.
+DO $seed_skills$
+DECLARE s record; sid uuid; vid uuid;
+BEGIN
+  FOR s IN
+    SELECT * FROM (VALUES
+      ('one-project-review', 'One project review', 'Review a single open job with Joe, confirm status, then update the record.',
+       'operations', 'When Joe wants to walk open jobs one at a time.', ARRAY['review jobs','open jobs','walk the jobs'],
+       $body$# One project review
+
+Review exactly ONE job at a time, in Joe's voice, then stop for confirmation.
+
+1. Pull the project/lead + its recent knowledge_items, work_items, threads.
+2. State: where it stands, what's waiting (on Joe / client / sub), the next action + due date.
+3. Propose the single next step. Keep it short and plain-spoken.
+4. WAIT for Joe to confirm. Do not batch multiple jobs.
+5. After Joe confirms, update the record (stage via stage_rules gate, next action, knowledge note) and log a receipt.
+6. Client-facing sends stay drafts until Joe approves.$body$),
+
+      ('client-followup-draft', 'Client follow-up draft', 'Draft a short, plain-spoken client follow-up.',
+       'communication', 'When a lead/project needs a client-facing follow-up email or text.', ARRAY['follow up','draft reply','email the client'],
+       $body$# Client follow-up draft
+
+- Short, plain-spoken, practical, casual — the way Joe talks.
+- Do NOT mention subcontractor business names unless explicitly asked.
+- One clear ask or next step. No corporate filler.
+- Always a DRAFT — never send. Joe reviews and sends.
+- Ground on the real thread + knowledge_items; don't invent facts/dates.$body$),
+
+      ('lead-triage-under-20k', 'Lead triage vs $20k floor', 'Triage a lead against the ~$20k job floor.',
+       'sales', 'When a new lead arrives and scope/budget must be judged against the floor.', ARRAY['triage lead','is this worth it','under 20k'],
+       $body$# Lead triage vs the $20k floor
+
+1. Estimate rough scope from project_type + notes.
+2. Basic cellar stairs and similar small jobs are usually under the floor → likely decline.
+3. If clearly under ~$20k with no upsell, recommend a polite decline (draft only).
+4. If at/over the floor or unclear, advance to discovery and list what's missing.
+5. Capture the reason in status_notes / a knowledge_item either way.$body$),
+
+      ('precon-deposit-site-visit-gate', 'Pre-con deposit → site visit gate', 'Enforce the deposit-before-site-visit order.',
+       'operations', 'Before scheduling a site visit or advancing pre-construction.', ARRAY['site visit','precon deposit','schedule visit'],
+       $body$# Pre-con deposit / site-visit gate
+
+Site visits happen AFTER rough-estimate acceptance AND the pre-construction
+deposit is paid. Before advancing:
+1. Confirm rough estimate sent + accepted.
+2. Confirm precon_deposit_status = paid.
+3. Only then schedule the site visit (date in next_action).
+4. If the deposit isn't paid, do not schedule — list what's missing (per stage_rules gate).$body$),
+
+      ('file-invoice-receipt-rebate', 'File invoice vs receipt vs rebate', 'Route financial documents to the right place.',
+       'finance', 'When filing a financial document (invoice, receipt, rebate, overhead).', ARRAY['file invoice','file receipt','where does this go'],
+       $body$# File invoice / receipt / rebate
+
+- Project invoices → Invoices.
+- Receipts / payment confirmations / rebate receipts → Receipts / Rebates.
+- Overhead / admin receipts → Overhead Receipts/<year>.
+- Do NOT create Google Drive files/folders unless explicitly asked; file on the server/local FS.
+- Houzz notification emails are NOT client emails.$body$),
+
+      ('project-meeting-brief', 'Project meeting brief', 'Prepare a concise brief before a client/vendor meeting.',
+       'operations', 'Before a client or vendor meeting.', ARRAY['meeting prep','brief me','prep for'],
+       $body$# Project meeting brief
+
+Pull and summarize (from SJC OS, not memory):
+1. Where the project stands + current milestone.
+2. Open decisions waiting on the client.
+3. Selections/allowances status + any budget deltas.
+4. Money: invoiced vs collected, anything overdue.
+5. The 2–3 things to get out of the meeting. Keep it to one screen.$body$),
+
+      ('temp-crm-import-review', 'Temp CRM import review', 'Review the temp CRM dry-run before importing.',
+       'operations', 'When migrating temp CRM rows into official records.', ARRAY['import review','crm import','migrate leads'],
+       $body$# Temp CRM import review
+
+1. Run the dry run (scripts/import-temp-leads.mjs) — never --approve first.
+2. Check: active vs closed counts, proposed lead/project split, unrecognized stages, rows needing review, duplicates.
+3. Low-certainty rows stay staged/reviewed — never auto-imported as real projects.
+4. Only after Joe approves the report: --stage then --approve.
+5. Raw rows are preserved in sjc_temp_lead_imports (reversible).$body$),
+
+      ('daily-operations-review', 'Daily operations review', 'Run the recurring daily review of the queue.',
+       'operations', 'Once daily, to surface what needs Joe/AI/subs/clients today.', ARRAY['daily review','what is due','morning review'],
+       $body$# Daily operations review
+
+1. Read work_items due today/overdue; group by waiting-on-Joe / client / sub.
+2. Surface approval_needed items first.
+3. Do safe read/draft/organize work per each item's expected skill.
+4. Request approval for anything client-facing or financial.
+5. Record a receipt per action; update the status ledger.
+6. Present to Joe one item at a time.$body$)
+    ) AS t(slug, title, descr, category, whenv, triggers, body)
+  LOOP
+    INSERT INTO skills (slug, title, description, category, when_to_use, trigger_phrases, review_status, proposed_by, active)
+    VALUES (s.slug, s.title, s.descr, s.category, s.whenv, s.triggers, 'approved', 'user', true)
+    ON CONFLICT (slug) DO NOTHING;
+    SELECT id INTO sid FROM skills WHERE slug = s.slug;
+    IF NOT EXISTS (SELECT 1 FROM skill_versions WHERE skill_id = sid AND version = 1) THEN
+      INSERT INTO skill_versions (skill_id, version, body_markdown, change_summary, status, created_by)
+      VALUES (sid, 1, s.body, 'seeded from Open Brain plan', 'approved', 'user')
+      RETURNING id INTO vid;
+      UPDATE skills SET current_version_id = vid WHERE id = sid AND current_version_id IS NULL;
+    END IF;
+  END LOOP;
+END $seed_skills$;
+
+-- Runbooks: ordered chains of the seeded skills. Idempotent per slug + step_order.
+DO $seed_runbooks$
+DECLARE rb record; st record; rbid uuid;
+BEGIN
+  FOR rb IN
+    SELECT * FROM (VALUES
+      ('daily-sjc-operations-review', 'Daily SJC operations review', 'Walk the queue each morning, one item at a time.'),
+      ('lead-intake-to-qualified-or-declined', 'Lead intake → qualified or declined', 'Take a new lead through triage to discovery or a polite decline.'),
+      ('rough-estimate-to-site-visit', 'Rough estimate → site visit', 'From rough estimate sent through deposit to a scheduled site visit.'),
+      ('active-project-followup-loop', 'Active project follow-up loop', 'Keep an active job moving with client/sub follow-ups.'),
+      ('completed-project-closeout', 'Completed project closeout', 'Close out a finished job cleanly.')
+    ) AS t(slug, title, descr)
+  LOOP
+    INSERT INTO runbooks (slug, title, description) VALUES (rb.slug, rb.title, rb.descr)
+    ON CONFLICT (slug) DO NOTHING;
+    SELECT id INTO rbid FROM runbooks WHERE slug = rb.slug;
+    FOR st IN
+      SELECT * FROM (VALUES
+        ('daily-sjc-operations-review', 1, 'Review the queue', 'daily-operations-review', false),
+        ('daily-sjc-operations-review', 2, 'Walk each open job with Joe', 'one-project-review', true),
+        ('lead-intake-to-qualified-or-declined', 1, 'Triage against the $20k floor', 'lead-triage-under-20k', false),
+        ('lead-intake-to-qualified-or-declined', 2, 'Draft the reply (advance or decline)', 'client-followup-draft', true),
+        ('rough-estimate-to-site-visit', 1, 'Draft the estimate follow-up', 'client-followup-draft', true),
+        ('rough-estimate-to-site-visit', 2, 'Enforce deposit before scheduling', 'precon-deposit-site-visit-gate', false),
+        ('active-project-followup-loop', 1, 'Review the project', 'one-project-review', false),
+        ('active-project-followup-loop', 2, 'Draft the client/sub follow-up', 'client-followup-draft', true),
+        ('completed-project-closeout', 1, 'Prep the closeout brief', 'project-meeting-brief', false),
+        ('completed-project-closeout', 2, 'File final invoice/receipts correctly', 'file-invoice-receipt-rebate', false)
+      ) AS t(rb_slug, ord, title, skill_slug, approval)
+      WHERE t.rb_slug = rb.slug
+    LOOP
+      INSERT INTO runbook_steps (runbook_id, step_order, title, skill_id, skill_slug, requires_human_approval)
+      VALUES (rbid, st.ord, st.title, (SELECT id FROM skills WHERE slug = st.skill_slug), st.skill_slug, st.approval)
+      ON CONFLICT (runbook_id, step_order) DO NOTHING;
+    END LOOP;
+  END LOOP;
+END $seed_runbooks$;

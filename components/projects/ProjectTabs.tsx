@@ -6,6 +6,7 @@ import { TabNavContext } from "./TabNav";
 
 const TAB_LABELS = [
   "Overview",
+  "Ops",
   "Floor",
   "Mood",
   "Selections",

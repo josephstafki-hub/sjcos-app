@@ -20,6 +20,8 @@ import { LeadTasks } from "@/components/leads/LeadTasks";
 import { getLeadTasks } from "@/lib/lead-tasks";
 import { LeadEstimate } from "@/components/leads/LeadEstimate";
 import { AI_NAME } from "@/lib/ai-name";
+import { RecordOps } from "@/components/engine/RecordOps";
+import { getRecordOps } from "@/lib/record-ops";
 
 export default async function LeadDetailPage({
   params,
@@ -33,6 +35,8 @@ export default async function LeadDetailPage({
   const activity = await getLeadActivity(slug);
   const score = await getLeadScore(slug);
   const tasks = await getLeadTasks(slug);
+  // Open Engine + Brain data scoped to this one lead — the "Ops" tab.
+  const ops = await getRecordOps("lead", slug);
 
   const currentStageIdx = stageIndex(lead.stage);
   const nextStage = STAGES[currentStageIdx + 1];
@@ -241,6 +245,7 @@ export default async function LeadDetailPage({
 
   const panels: Record<string, ReactNode> = {
     Overview: overview,
+    Ops: ops ? <RecordOps ops={ops} /> : null,
     Tasks: <LeadTasks slug={lead.slug} tasks={tasks} />,
     Conversation: conversationPanel,
     "Rough estimate": estimatePanel,

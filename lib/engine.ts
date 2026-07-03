@@ -99,9 +99,9 @@ function rowToItem(r: WorkRow): WorkItemView {
 export async function getEngineData(): Promise<EngineData> {
   const [{ rows: work }, { rows: ledgers }, { rows: receipts }] = await Promise.all([
     query<WorkRow>(
-      `SELECT w.id, w.title, w.body, w.status, w.priority, w.assignee_kind, w.assignee_key, w.due_at,
+      `SELECT w.id, w.title, w.body, w.status, w.priority, w.assignee_kind, w.assignee_key, w.due_at::text AS due_at,
               p.slug AS project_slug, l.slug AS lead_slug, w.expected_skill_slug, w.expected_runbook_slug,
-              w.requires_approval, w.approval_status, w.blocked_reason, w.created_at
+              w.requires_approval, w.approval_status, w.blocked_reason, w.created_at::text AS created_at
          FROM work_items w
          LEFT JOIN projects p ON p.id = w.project_id
          LEFT JOIN leads l ON l.id = w.lead_id
@@ -113,7 +113,7 @@ export async function getEngineData(): Promise<EngineData> {
       current_title: string | null; last_run_at: string | null; next_run_at: string | null;
     }>(
       `SELECT s.runtime_name, s.state, s.note, s.blocked_reason,
-              w.title AS current_title, s.last_run_at, s.next_run_at
+              w.title AS current_title, s.last_run_at::text AS last_run_at, s.next_run_at::text AS next_run_at
          FROM status_ledgers s
          LEFT JOIN work_items w ON w.id = s.current_work_item_id
         ORDER BY s.updated_at DESC`,
@@ -122,7 +122,7 @@ export async function getEngineData(): Promise<EngineData> {
       id: string; receipt_kind: string; uri: string | null; label: string;
       runtime_name: string | null; created_at: string;
     }>(
-      `SELECT r.id, r.receipt_kind, r.uri, r.label, ar.runtime_name, r.created_at
+      `SELECT r.id, r.receipt_kind, r.uri, r.label, ar.runtime_name, r.created_at::text AS created_at
          FROM agent_receipts r
          LEFT JOIN agent_runs ar ON ar.id = r.agent_run_id
         ORDER BY r.created_at DESC

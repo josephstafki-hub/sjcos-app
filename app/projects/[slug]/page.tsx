@@ -43,6 +43,8 @@ import { getCatalogData } from "@/lib/catalog";
 import { projectContext } from "@/lib/page-context";
 import { advanceProjectStatus } from "@/lib/actions/projects";
 import { whisperAvailable } from "@/lib/transcribe";
+import { RecordOps } from "@/components/engine/RecordOps";
+import { getRecordOps } from "@/lib/record-ops";
 
 const DOT: Record<string, string> = {
   accent: "bg-accent",
@@ -94,6 +96,10 @@ export default async function ProjectDetailPage({
   const incidents = await getProjectIncidents(slug);
   const permits = await getProjectPermits(slug);
   if (!project) notFound();
+
+  // Open Engine + Brain data scoped to this one project (work queue, knowledge,
+  // receipts, stage-gate guidance) — the "Ops" tab.
+  const ops = await getRecordOps("project", slug);
 
   const catalogOptions = catalog.materials.map((m) => ({ id: m.id, name: m.name }));
 
@@ -411,6 +417,7 @@ export default async function ProjectDetailPage({
 
   const panels: Record<string, ReactNode> = {
     Overview: overview,
+    Ops: ops ? <RecordOps ops={ops} /> : null,
     Floor: floorPanel,
     Mood: moodPanel,
     Schedule: schedulePanel,

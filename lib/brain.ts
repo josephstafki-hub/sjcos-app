@@ -32,7 +32,7 @@ interface KnowledgeRow {
 
 const SELECT = `
   SELECT k.id, k.content, k.kind, k.source, k.source_uri,
-         p.slug AS project_slug, l.slug AS lead_slug, k.created_by, k.created_at
+         p.slug AS project_slug, l.slug AS lead_slug, k.created_by, k.created_at::text AS created_at
     FROM knowledge_items k
     LEFT JOIN projects p ON p.id = k.project_id
     LEFT JOIN leads l ON l.id = k.lead_id`;

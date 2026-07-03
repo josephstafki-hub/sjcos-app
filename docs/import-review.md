@@ -17,7 +17,7 @@ Source: `/home/joe/SJC OS Temp/data/leads.csv` (legacy/import reference only —
 | sjc_temp_lead_imports | 56 | 56 | ✅ |
 | stage_rules | 32 | 32 | ✅ |
 
-## Records needing a look: 8 of 12
+## Records needing a look: 4 of 12
 
 Each imported **active** lead/project is below. Nothing here is auto-changed — this is review only. To roll the whole import back: `node scripts/import-undo.mjs undo --confirm`.
 
@@ -41,7 +41,7 @@ Each imported **active** lead/project is below. Nothing here is auto-changed —
 - **Linked knowledge items:** 4
 - **Work items (1):** No immediate reply needed; follow up after the J [queued, needs approval]
 
-### Dan Willems — project  ⚠️
+### Dan Willems — project  ✅
 
 - **Source record_id:** `sjc-545a9bcb`
 - **Classification:** proposed `project` → imported as **project**
@@ -51,8 +51,6 @@ Each imported **active** lead/project is below. Nothing here is auto-changed —
 - **Next action:** Review/send Dan/Kelli draft answering custom vanity cost difference/running-total question; before final commitment, pul  _(due Mon Jul 06)_
 - **Linked knowledge items:** 4
 - **Work items (1):** Review/send Dan/Kelli draft answering custom van [queued, needs approval]
-- **⚠️ Review flags:**
-  - Preconstruction/design phase — confirm project-vs-lead treatment (no construction contract yet).
 
 ### Derek Battey — project  ⚠️
 
@@ -65,9 +63,9 @@ Each imported **active** lead/project is below. Nothing here is auto-changed —
 - **Linked knowledge items:** 4
 - **Work items (1):** Keep waiting on Menards delivery timing for Dere [queued, needs approval]
 - **⚠️ Review flags:**
-  - Stage `active_construction` implies work underway but **no signed contract** is recorded — confirm a contract is on file.
+  - Contract executed in Joe's external system but not yet mirrored in SJC OS — capture a contract reference/knowledge note when convenient.
 
-### Elaine Louiselle — project  ⚠️
+### Elaine Louiselle — project  ✅
 
 - **Source record_id:** `sjc-112745c0`
 - **Classification:** proposed `project` → imported as **project**
@@ -77,10 +75,8 @@ Each imported **active** lead/project is below. Nothing here is auto-changed —
 - **Next action:** Review/send Elaine draft about Beaumont saving close to $500, and correct/update Houzz estimate ES-10177 to show Cambria  _(due Mon Jul 06)_
 - **Linked knowledge items:** 4
 - **Work items (1):** Review/send Elaine draft about Beaumont saving c [queued, needs approval]
-- **⚠️ Review flags:**
-  - Preconstruction/design phase — confirm project-vs-lead treatment (no construction contract yet).
 
-### Isaiah Maertens — project  ⚠️
+### Isaiah Maertens — project  ✅
 
 - **Source record_id:** `sjc-e6ce503a`
 - **Classification:** proposed `project` → imported as **project**
@@ -90,8 +86,6 @@ Each imported **active** lead/project is below. Nothing here is auto-changed —
 - **Next action:** Review/send Isaiah structural update draft if accurate; decide practical construction/engineering path for flush beam wh  _(due Mon Jul 06)_
 - **Linked knowledge items:** 4
 - **Work items (1):** Review/send Isaiah structural update draft if ac [queued, needs approval]
-- **⚠️ Review flags:**
-  - Preconstruction/design phase — confirm project-vs-lead treatment (no construction contract yet).
 
 ### Jeffrey Plumbon / New Kingdom Healthcare — project  ✅
 
@@ -115,7 +109,7 @@ Each imported **active** lead/project is below. Nothing here is auto-changed —
 - **Linked knowledge items:** 4
 - **Work items (1):** Keep waiting on Rob confirmation that demo/concr [queued, needs approval]
 - **⚠️ Review flags:**
-  - Stage `waiting_on_sub` implies work underway but **no signed contract** is recorded — confirm a contract is on file.
+  - Contract executed in Joe's external system but not yet mirrored in SJC OS — capture a contract reference/knowledge note when convenient.
 
 ### Laurel Gollinger — project  ⚠️
 
@@ -128,9 +122,9 @@ Each imported **active** lead/project is below. Nothing here is auto-changed —
 - **Linked knowledge items:** 4
 - **Work items (1):** Wait for Laurel to get back with what she wants  [queued, needs approval]
 - **⚠️ Review flags:**
-  - Stage `construction_scheduled` implies work underway but **no signed contract** is recorded — confirm a contract is on file.
+  - Contract executed in Joe's external system but not yet mirrored in SJC OS — capture a contract reference/knowledge note when convenient.
 
-### Libby Mahowald — project  ⚠️
+### Libby Mahowald — project  ✅
 
 - **Source record_id:** `sjc-8016666c`
 - **Classification:** proposed `project` → imported as **project**
@@ -140,8 +134,6 @@ Each imported **active** lead/project is below. Nothing here is auto-changed —
 - **Next action:** Wait for Libby/Tim feedback after showroom links and ranch home style guide email; continue selection/design/precon coor  _(due Wed Jul 08)_
 - **Linked knowledge items:** 4
 - **Work items (1):** Wait for Libby/Tim feedback after showroom links [queued, needs approval]
-- **⚠️ Review flags:**
-  - Preconstruction/design phase — confirm project-vs-lead treatment (no construction contract yet).
 
 ### Mike McCullough — project  ✅
 
@@ -165,7 +157,7 @@ Each imported **active** lead/project is below. Nothing here is auto-changed —
 - **Linked knowledge items:** 4
 - **Work items (1):** Wait for Molly to confirm whether she wants help [queued, needs approval]
 - **⚠️ Review flags:**
-  - Stage `active_construction` implies work underway but **no signed contract** is recorded — confirm a contract is on file.
+  - Contract executed in Joe's external system but not yet mirrored in SJC OS — capture a contract reference/knowledge note when convenient.
 
 ## Duplicate / false-record checks
 

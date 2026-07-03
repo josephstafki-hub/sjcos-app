@@ -97,10 +97,14 @@ async function main() {
       const signed = clean(raw.contract_status).toLowerCase() === "signed";
       const email = clean(raw.email), phone = clean(raw.phone);
       if (!actual) flags.push(`Could not locate the official ${tbl} row by name — verify it imported.`);
+      // Note (2026-07-03, confirmed by Joe): precon_active jobs are legitimately
+      // projects in the preconstruction stage, and the in-construction jobs DO
+      // have signed contracts — they live in Joe's external contract system, not
+      // the temp CRM (contract_status was simply blank there). So neither is a
+      // classification problem; we only surface a mild "mirror the contract"
+      // reminder for construction-stage jobs.
       if (IN_CONSTRUCTION.has(stage) && !signed)
-        flags.push(`Stage \`${stage}\` implies work underway but **no signed contract** is recorded — confirm a contract is on file.`);
-      if (stage === "precon_active")
-        flags.push("Preconstruction/design phase — confirm project-vs-lead treatment (no construction contract yet).");
+        flags.push(`Contract executed in Joe's external system but not yet mirrored in SJC OS — capture a contract reference/knowledge note when convenient.`);
       if (s.proposed_target === "lead" && signed)
         flags.push("Classified as a **lead** but a signed contract exists — should this be a project?");
       if (!email && !phone) flags.push("No email or phone on file.");

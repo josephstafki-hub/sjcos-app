@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { createScheduleBlock } from "@/lib/actions/schedule";
 import { SubmitButton } from "@/components/ui";
@@ -35,16 +35,19 @@ export function ScheduleBlockModal({
   const [open, setOpen] = useState(false);
   const [date, setDate] = useState(initialDate ?? "");
 
-  useEffect(() => {
-    // en-CA renders YYYY-MM-DD in local time. Default to today when unset.
+  // Seed today's date when opening (the date input only renders while open).
+  // Done in the event handler, not an effect, to avoid an SSR/client TZ mismatch.
+  // en-CA renders YYYY-MM-DD in local time.
+  const openModal = () => {
     if (!date) setDate(initialDate ?? new Date().toLocaleDateString("en-CA"));
-  }, [date, initialDate]);
+    setOpen(true);
+  };
 
   return (
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={openModal}
         aria-label={triggerAriaLabel}
         className={triggerClassName}
       >

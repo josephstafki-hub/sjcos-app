@@ -15,11 +15,15 @@ type SidebarUser = { name: string; initials: string; roleLabel: string };
 export function MobileNav({ user }: { user: SidebarUser }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
+  const [lastPath, setLastPath] = useState(pathname);
 
-  // Close the drawer whenever the route changes (tapping a nav link).
-  useEffect(() => {
+  // Close the drawer whenever the route changes (tapping a nav link). Handled by
+  // comparing during render — React's recommended "reset state on prop change"
+  // pattern — rather than a synchronous setState inside an effect.
+  if (pathname !== lastPath) {
+    setLastPath(pathname);
     setOpen(false);
-  }, [pathname]);
+  }
 
   // Lock background scroll while the drawer is open.
   useEffect(() => {

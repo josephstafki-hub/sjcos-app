@@ -64,7 +64,7 @@ export function WarrantyClaimForm({ slug, data }: { slug: string; data: ClientWa
             <Send className="size-3" strokeWidth={1.75} />
             {pending ? "Submitting…" : "Submit a claim"}
           </button>
-          {sent && <span className="text-[11px] text-money">Received — we'll be in touch.</span>}
+          {sent && <span className="text-[11px] text-money">Received — we&apos;ll be in touch.</span>}
         </div>
         {error && <div className="mt-1 text-[11px] text-flag">{error}</div>}
       </form>

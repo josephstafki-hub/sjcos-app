@@ -6,18 +6,18 @@ Source: `/home/joe/SJC OS Temp/data/leads.csv` (legacy/import reference only —
 
 ## Counts
 
-| Table | Actual | Expected (Hermes review) | OK |
+| Table | Actual | Baseline (Hermes review) | OK |
 |---|---:|---:|:--:|
 | leads | 2 | 2 | ✅ |
 | projects | 10 | 10 | ✅ |
-| work_items | 12 | 12 | ✅ |
-| knowledge_items | 47 | 47 | ✅ |
+| work_items | 12 | 12 (≥) | ✅ |
+| knowledge_items | 51 | 47 (≥) | ✅ |
 | skills (approved) | 8 | 8 | ✅ |
 | runbooks | 5 | 5 | ✅ |
 | sjc_temp_lead_imports | 56 | 56 | ✅ |
 | stage_rules | 32 | 32 | ✅ |
 
-## Records needing a look: 4 of 12
+## Records needing a look: 0 of 12
 
 Each imported **active** lead/project is below. Nothing here is auto-changed — this is review only. To roll the whole import back: `node scripts/import-undo.mjs undo --confirm`.
 
@@ -52,7 +52,7 @@ Each imported **active** lead/project is below. Nothing here is auto-changed —
 - **Linked knowledge items:** 4
 - **Work items (1):** Review/send Dan/Kelli draft answering custom van [queued, needs approval]
 
-### Derek Battey — project  ⚠️
+### Derek Battey — project  ✅
 
 - **Source record_id:** `sjc-b95e1e15`
 - **Classification:** proposed `project` → imported as **project**
@@ -60,10 +60,8 @@ Each imported **active** lead/project is below. Nothing here is auto-changed —
 - **Milestone:** Still waiting on Menards delivery timing for siding materials.
 - **Contact:** batteyderek@yahoo.com
 - **Next action:** Keep waiting on Menards delivery timing for Derek/Battey siding materials; check back early next week if no confirmation  _(due Mon Jul 06)_
-- **Linked knowledge items:** 4
+- **Linked knowledge items:** 5
 - **Work items (1):** Keep waiting on Menards delivery timing for Dere [queued, needs approval]
-- **⚠️ Review flags:**
-  - Contract executed in Joe's external system but not yet mirrored in SJC OS — capture a contract reference/knowledge note when convenient.
 
 ### Elaine Louiselle — project  ✅
 
@@ -98,7 +96,7 @@ Each imported **active** lead/project is below. Nothing here is auto-changed —
 - **Linked knowledge items:** 4
 - **Work items (1):** Track New Kingdom final invoice IN-10051 payment [queued, needs approval]
 
-### John Flanagans — project  ⚠️
+### John Flanagans — project  ✅
 
 - **Source record_id:** `sjc-5efeb6a3`
 - **Classification:** proposed `project` → imported as **project**
@@ -106,12 +104,10 @@ Each imported **active** lead/project is below. Nothing here is auto-changed —
 - **Milestone:** Still waiting for Rob to start demo/concrete at 311 Butler.
 - **Contact:** jflanaganpt@gmail.com
 - **Next action:** Keep waiting on Rob confirmation that demo/concrete work has begun at 311 Butler; follow up next week and do not order m  _(due Mon Jul 06)_
-- **Linked knowledge items:** 4
+- **Linked knowledge items:** 5
 - **Work items (1):** Keep waiting on Rob confirmation that demo/concr [queued, needs approval]
-- **⚠️ Review flags:**
-  - Contract executed in Joe's external system but not yet mirrored in SJC OS — capture a contract reference/knowledge note when convenient.
 
-### Laurel Gollinger — project  ⚠️
+### Laurel Gollinger — project  ✅
 
 - **Source record_id:** `sjc-5d04d387`
 - **Classification:** proposed `project` → imported as **project**
@@ -119,10 +115,8 @@ Each imported **active** lead/project is below. Nothing here is auto-changed —
 - **Milestone:** Pricing received/shared; waiting on Laurel decision.
 - **Contact:** laurel.gollinger@gmail.com · 612-270-0087
 - **Next action:** Wait for Laurel to get back with what she wants to do after receiving the pricing; follow up if quiet after the holiday/  _(due Wed Jul 08)_
-- **Linked knowledge items:** 4
+- **Linked knowledge items:** 5
 - **Work items (1):** Wait for Laurel to get back with what she wants  [queued, needs approval]
-- **⚠️ Review flags:**
-  - Contract executed in Joe's external system but not yet mirrored in SJC OS — capture a contract reference/knowledge note when convenient.
 
 ### Libby Mahowald — project  ✅
 
@@ -146,7 +140,7 @@ Each imported **active** lead/project is below. Nothing here is auto-changed —
 - **Linked knowledge items:** 3
 - **Work items (1):** Check in with Mike on Monday about floor complet [queued, needs approval]
 
-### Molly Egan — project  ⚠️
+### Molly Egan — project  ✅
 
 - **Source record_id:** `sjc-3ad6c7dc`
 - **Classification:** proposed `project` → imported as **project**
@@ -154,10 +148,8 @@ Each imported **active** lead/project is below. Nothing here is auto-changed —
 - **Milestone:** Waiting on Molly radiator-refurbishing decision.
 - **Contact:** 1mollydesign@gmail.com; heartandsoil@me.com
 - **Next action:** Wait for Molly to confirm whether she wants help finding someone to refurbish the radiators; continue payment/admin coor  _(due Tue Jul 07)_
-- **Linked knowledge items:** 4
+- **Linked knowledge items:** 5
 - **Work items (1):** Wait for Molly to confirm whether she wants help [queued, needs approval]
-- **⚠️ Review flags:**
-  - Contract executed in Joe's external system but not yet mirrored in SJC OS — capture a contract reference/knowledge note when convenient.
 
 ## Duplicate / false-record checks
 

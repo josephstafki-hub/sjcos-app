@@ -77,12 +77,18 @@ async function main() {
       const actual = found.rows[0] || null;
       const actualKind = actual ? s.proposed_target : null;
 
-      let knowledge = 0, work = [];
+      let knowledge = 0, work = [], hasContractNote = false;
       if (actual) {
         const col = s.proposed_target === "project" ? "project_id" : "lead_id";
         knowledge = Number(
           (await c.query(`SELECT count(*) n FROM knowledge_items WHERE ${col}=$1`, [actual.id])).rows[0].n,
         );
+        hasContractNote = (
+          await c.query(
+            `SELECT 1 FROM knowledge_items WHERE ${col}=$1 AND content ILIKE '%contract%' AND (content ILIKE '%on file%' OR content ILIKE '%executed%') LIMIT 1`,
+            [actual.id],
+          )
+        ).rowCount > 0;
         work = (
           await c.query(
             `SELECT title, status, due_at, requires_approval FROM work_items WHERE ${col}=$1 ORDER BY due_at NULLS LAST`,
@@ -103,7 +109,7 @@ async function main() {
       // the temp CRM (contract_status was simply blank there). So neither is a
       // classification problem; we only surface a mild "mirror the contract"
       // reminder for construction-stage jobs.
-      if (IN_CONSTRUCTION.has(stage) && !signed)
+      if (IN_CONSTRUCTION.has(stage) && !signed && !hasContractNote)
         flags.push(`Contract executed in Joe's external system but not yet mirrored in SJC OS — capture a contract reference/knowledge note when convenient.`);
       if (s.proposed_target === "lead" && signed)
         flags.push("Classified as a **lead** but a signed contract exists — should this be a project?");
@@ -133,13 +139,19 @@ async function main() {
     L.push("");
     L.push("Source: `/home/joe/SJC OS Temp/data/leads.csv` (legacy/import reference only — SJC OS Postgres is now the source of truth).");
     L.push("");
+    // work_items + knowledge_items grow over time (Joe/agents add more), so they
+    // pass when actual >= baseline; a drop below baseline would signal data loss.
+    // The rest are structural and must match exactly.
+    const GROWS = new Set(["work_items", "knowledge_items"]);
+    const okFor = (k) =>
+      expected[k] === undefined ? "" : (GROWS.has(k) ? counts[k] >= expected[k] : counts[k] === expected[k]) ? "✅" : "⚠️";
     L.push("## Counts");
     L.push("");
-    L.push("| Table | Actual | Expected (Hermes review) | OK |");
+    L.push("| Table | Actual | Baseline (Hermes review) | OK |");
     L.push("|---|---:|---:|:--:|");
     for (const k of Object.keys(counts)) {
-      const ok = expected[k] === undefined ? "" : counts[k] === expected[k] ? "✅" : "⚠️";
-      L.push(`| ${k} | ${counts[k]} | ${expected[k] ?? "—"} | ${ok} |`);
+      const grows = GROWS.has(k) ? " (≥)" : "";
+      L.push(`| ${k} | ${counts[k]} | ${expected[k] ?? "—"}${grows} | ${okFor(k)} |`);
     }
     L.push("");
     const flagged = records.filter((r) => r.flags.length);
@@ -185,8 +197,8 @@ async function main() {
     writeFileSync(OUT, L.join("\n"));
     console.log(`Wrote ${OUT}`);
     console.log(`Counts: ${Object.entries(counts).map(([k, v]) => `${k}=${v}`).join(", ")}`);
-    const mism = Object.keys(expected).filter((k) => counts[k] !== expected[k]);
-    console.log(mism.length ? `⚠️ Count mismatches: ${mism.join(", ")}` : "✅ All counts match Hermes review.");
+    const mism = Object.keys(expected).filter((k) => (GROWS.has(k) ? counts[k] < expected[k] : counts[k] !== expected[k]));
+    console.log(mism.length ? `⚠️ Count issues: ${mism.join(", ")}` : "✅ All counts OK (structural exact; work/knowledge ≥ baseline).");
     console.log(`Flagged for review: ${flagged.length}/${records.length} active records.`);
   } finally {
     c.release();

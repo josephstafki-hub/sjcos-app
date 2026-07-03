@@ -27,6 +27,26 @@ node scripts/import-temp-leads.mjs --csv <path>      # override the CSV path
 - Temp→official status mapping is read from the `stage_rules` crosswalk (Phase 3),
   not hardcoded. All SQL parameterized. No email/SMS/invoices are ever sent.
 
+## Reversible import (rollback safety net)
+
+`scripts/import-undo.mjs` makes `--approve` fully reversible. It snapshots the IDs
+that exist in `leads` / `projects` / `work_items` / `knowledge_items` **before** the
+import, then can delete exactly the rows added **after** (ID diff — it can never
+touch anything that existed before the snapshot).
+
+```bash
+node scripts/import-undo.mjs snapshot         # capture current IDs (do this right before approve)
+node scripts/import-temp-leads.mjs --stage --approve
+# ...inspect /engine, /leads, /projects...
+node scripts/import-undo.mjs preview          # what an undo would delete (no writes)
+node scripts/import-undo.mjs undo --confirm    # roll it all back; resets staging rows to 'staged'
+```
+
+Take the snapshot **immediately** before `--approve` and don't do other data entry
+in between — any row created by any means after the snapshot counts as "new". The
+snapshot lives at `db/.import-snapshot.json` (gitignored). Deletes run in one
+transaction, children before parents.
+
 ## Classification
 
 - `active_construction`, `precon_active`, `waiting_on_sub`, `final_invoice_sent`,

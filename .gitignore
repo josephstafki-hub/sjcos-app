@@ -42,3 +42,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# temp CRM import rollback snapshot (runtime artifact)
+db/.import-snapshot.json

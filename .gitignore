@@ -43,5 +43,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# temp CRM import rollback snapshot (runtime artifact)
+# import rollback snapshots (runtime artifacts)
 db/.import-snapshot.json
+db/.subs-import-snapshot.json

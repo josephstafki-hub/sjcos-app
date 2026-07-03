@@ -7,6 +7,7 @@ import { Card, Chip } from "@/components/ui";
 import { fmtUsd, unitLabel } from "@/lib/cost-book-units";
 import type { CostItem } from "@/lib/cost-book";
 import type { FloorplanVersion } from "@/lib/floorplans";
+import type { ApprovalGateBase } from "@/lib/approval-gate-types";
 import type { EstimateDetail, EstimateLineView, EstimateStatus } from "@/lib/estimates";
 import { createEstimate, deleteEstimate, deleteEstimateLine, suggestEstimate, sendEstimate, mergeEstimates } from "@/lib/actions/estimates";
 import { EstimateLineModal } from "./EstimateLineModal";
@@ -31,12 +32,14 @@ export function ProjectEstimate({
   costItems,
   defaultMarkup,
   floorplans,
+  approvalGate,
 }: {
   slug: string;
   estimates: EstimateDetail[];
   costItems: CostItem[];
   defaultMarkup: number;
   floorplans: FloorplanVersion[];
+  approvalGate: ApprovalGateBase;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -408,6 +411,8 @@ export function ProjectEstimate({
               estimateId={selected.id}
               total={selected.total}
               schedule={selected.drawSchedule}
+              gate={approvalGate}
+              estimateApproved={selected.status === "approved"}
             />
           )}
         </>

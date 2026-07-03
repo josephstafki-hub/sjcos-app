@@ -13,6 +13,7 @@ import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { storeBuffer } from "@/lib/upload-store";
 import { getProjectSignerDefaults } from "@/lib/esign";
+import { getApprovalGate } from "@/lib/approval-gate";
 import { emit } from "@/lib/notify";
 import { ai } from "@/lib/ai";
 import { fmtUsd, unitLabel } from "@/lib/cost-book-units";
@@ -92,7 +93,7 @@ async function createSentRequest(opts: {
   return id;
 }
 
-export async function generateContract(slug: string, estimateId: number): Promise<Result> {
+export async function generateContract(slug: string, estimateId: number, force = false): Promise<Result> {
   const user = await requireRole("owner");
   const proj = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [slug]);
   if (!proj) return { ok: false, error: "Project not found." };
@@ -100,6 +101,24 @@ export async function generateContract(slug: string, estimateId: number): Promis
   const data = await gatherDocData(estimateId, slug);
   if (!data) return { ok: false, error: "Estimate not found." };
   if (data.groups.length === 0) return { ok: false, error: "Add at least one line to the estimate first." };
+
+  // Pre-con approval gate: design + selections + estimate sign-offs must all be
+  // complete before a contract goes out — unless the owner explicitly overrides.
+  if (!force) {
+    const gate = await getApprovalGate(slug);
+    const est = await queryOne<{ status: string }>(`SELECT status FROM estimates WHERE id = $1`, [estimateId]);
+    const estimateOk = est?.status === "approved";
+    const missing: string[] = [];
+    if (!gate.design) missing.push("design sign-off");
+    if (!gate.selections) missing.push("selections approval");
+    if (!estimateOk) missing.push("estimate approval");
+    if (missing.length > 0) {
+      return {
+        ok: false,
+        error: `Approval gate — still need: ${missing.join(", ")}. Complete these (or override the gate) before generating the contract.`,
+      };
+    }
+  }
 
   const fileBase = `${data.projectName} — Contract`;
   const pdf = await renderContractPdf(data);

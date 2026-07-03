@@ -2,9 +2,10 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { FileText, FileSignature, Plus, Trash2, ChevronDown } from "lucide-react";
+import { FileText, FileSignature, Plus, Trash2, ChevronDown, Check, Circle } from "lucide-react";
 import { Card } from "@/components/ui";
 import { fmtUsd } from "@/lib/cost-book-units";
+import type { ApprovalGateBase } from "@/lib/approval-gate-types";
 import { type DrawLine, defaultDrawSchedule, sumPercent, DRAW_TRIGGER_STATUSES } from "@/lib/draw-schedule";
 import { generateContract, generateSOW, updateDrawSchedule } from "@/lib/actions/documents";
 
@@ -16,11 +17,15 @@ export function ContractGenerator({
   estimateId,
   total,
   schedule,
+  gate,
+  estimateApproved,
 }: {
   slug: string;
   estimateId: number;
   total: number; // cents
   schedule: DrawLine[] | null;
+  gate: ApprovalGateBase;
+  estimateApproved: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -29,6 +34,19 @@ export function ContractGenerator({
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [genMsg, setGenMsg] = useState<string | null>(null);
+  const [override, setOverride] = useState(false);
+
+  const gateItems = [
+    { label: "Design sign-off", done: gate.design, detail: gate.designDetail },
+    { label: "Selections approved", done: gate.selections, detail: gate.selectionsDetail },
+    {
+      label: "Estimate approved",
+      done: estimateApproved,
+      detail: estimateApproved ? "Client-approved" : "Send this estimate for approval and get it signed",
+    },
+  ];
+  const gateReady = gateItems.every((g) => g.done);
+  const contractBlocked = !gateReady && !override;
 
   const totalPct = sumPercent(lines);
   const pctOk = Math.abs(totalPct - 100) <= 0.5;
@@ -62,7 +80,7 @@ export function ContractGenerator({
     setError(null);
     setGenMsg(null);
     startTransition(async () => {
-      const res = kind === "contract" ? await generateContract(slug, estimateId) : await generateSOW(slug, estimateId);
+      const res = kind === "contract" ? await generateContract(slug, estimateId, override) : await generateSOW(slug, estimateId);
       if (res.ok) {
         setGenMsg(
           kind === "contract"
@@ -153,12 +171,44 @@ export function ContractGenerator({
             </div>
           </div>
 
+          {/* Pre-con approval gate */}
+          <div className="border-t border-rule-soft pt-3">
+            <div className="mb-1.5 flex items-center gap-2">
+              <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Approval gate</span>
+              <span className={`font-mono text-[10px] ${gateReady ? "text-money" : "text-ink-3"}`}>
+                {gateReady ? "ready" : "sign-offs needed before contract"}
+              </span>
+            </div>
+            <div className="space-y-1">
+              {gateItems.map((g) => (
+                <div key={g.label} className="flex items-start gap-2">
+                  {g.done ? (
+                    <Check className="mt-0.5 size-3.5 flex-none text-money" strokeWidth={2.25} />
+                  ) : (
+                    <Circle className="mt-0.5 size-3.5 flex-none text-ink-4" strokeWidth={1.75} />
+                  )}
+                  <div className="min-w-0">
+                    <span className={`text-[12px] ${g.done ? "text-ink-2" : "text-ink"}`}>{g.label}</span>
+                    <span className="ml-1.5 text-[11px] text-ink-3">— {g.detail}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {!gateReady && (
+              <label className="mt-2 flex items-center gap-1.5 text-[11px] text-ink-3">
+                <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} />
+                Override the gate and generate the contract anyway
+              </label>
+            )}
+          </div>
+
           {/* Generate */}
           <div className="border-t border-rule-soft pt-3">
             <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={() => generate("contract")}
-                disabled={pending}
+                disabled={pending || contractBlocked}
+                title={contractBlocked ? "Complete the approval gate (or override it) first" : undefined}
                 className="inline-flex items-center gap-1.5 rounded-md border border-accent bg-accent px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-accent-2 disabled:opacity-60"
               >
                 <FileSignature className="size-3.5" strokeWidth={1.75} /> Generate contract

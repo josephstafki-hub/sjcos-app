@@ -32,6 +32,7 @@ import { PermitPacket } from "@/components/projects/PermitPacket";
 import { getProjectOrientations, getProjectIncidents } from "@/lib/safety";
 import { ProjectEstimate } from "@/components/projects/ProjectEstimate";
 import { getProjectEstimates } from "@/lib/estimates";
+import { getApprovalGate } from "@/lib/approval-gate";
 import { getCostBook } from "@/lib/cost-book";
 import { getPortalThread, portalChannel } from "@/lib/portal-messages";
 import { getProjectScheduleBlocks, getScheduleTemplates } from "@/lib/schedule";
@@ -84,7 +85,7 @@ export default async function ProjectDetailPage({
   ]);
   const subsData = await getProjectSubsData(slug);
   const dailyLogs = await getProjectDailyLogs(slug);
-  const [signatureRequests, signerDefaults, estimates, costBook, changeOrders, closeoutView, orientations] = await Promise.all([
+  const [signatureRequests, signerDefaults, estimates, costBook, changeOrders, closeoutView, orientations, approvalGate] = await Promise.all([
     getProjectSignatureRequests(slug),
     getProjectSignerDefaults(slug),
     getProjectEstimates(slug),
@@ -92,6 +93,7 @@ export default async function ProjectDetailPage({
     getProjectChangeOrders(slug),
     getCloseoutView(slug),
     getProjectOrientations(slug),
+    getApprovalGate(slug),
   ]);
   const incidents = await getProjectIncidents(slug);
   const permits = await getProjectPermits(slug);
@@ -395,6 +397,7 @@ export default async function ProjectDetailPage({
       costItems={costBook.items.filter((i) => !i.archived)}
       defaultMarkup={costBook.defaultMarkup}
       floorplans={floorplans}
+      approvalGate={approvalGate}
     />
   );
   const signOffsPanel = (

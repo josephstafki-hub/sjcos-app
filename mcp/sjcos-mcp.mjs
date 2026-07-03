@@ -17,6 +17,7 @@
 // can be added later. Keep tools curated — do NOT expose raw SQL.
 
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
@@ -57,12 +58,14 @@ server.registerTool(
     inputSchema: {},
   },
   async () => {
-    const [leads, projects, subs, ar, compliance] = await Promise.all([
+    const [leads, projects, subs, ar, compliance, work, approvals] = await Promise.all([
       rows(`SELECT stage, count(*)::int AS n FROM leads GROUP BY stage ORDER BY stage`),
       rows(`SELECT status, count(*)::int AS n FROM projects GROUP BY status ORDER BY status`),
       rows(`SELECT count(*)::int AS subs FROM subs`),
       rows(`SELECT COALESCE(sum(amount),0)::int AS outstanding FROM invoices WHERE status = 'sent'`),
       rows(`SELECT count(*)::int AS due_60d FROM compliance_items WHERE resolved = false AND due_date - CURRENT_DATE BETWEEN 0 AND 60`),
+      rows(`SELECT status, count(*)::int AS n FROM work_items GROUP BY status ORDER BY status`),
+      rows(`SELECT count(*)::int AS n FROM work_items WHERE approval_status = 'requested'`),
     ]);
     return json({
       leads_by_stage: leads,
@@ -70,6 +73,8 @@ server.registerTool(
       subs: subs[0]?.subs ?? 0,
       outstanding_ar: ar[0]?.outstanding ?? 0,
       compliance_due_60d: compliance[0]?.due_60d ?? 0,
+      work_items_by_status: work,
+      work_items_awaiting_approval: approvals[0]?.n ?? 0,
     });
   },
 );
@@ -219,6 +224,556 @@ server.registerTool(
         params,
       ),
     );
+  },
+);
+
+// ════════════════════════════════════════════════════════════════════════════
+//  OPEN BRAIN / OPEN ENGINE / OPEN SKILLS tools
+//  Read tools (curated SELECTs) + gated/logged write tools. No raw SQL, no
+//  client-facing sends (email/SMS/invoice/contract are out of scope here).
+//  Writes are safe by construction: knowledge/work items are internal records,
+//  skill proposals land as 'proposed' (out of the library until Joe approves),
+//  and agent runs/receipts are append-only audit rows.
+// ════════════════════════════════════════════════════════════════════════════
+
+/** Resolve a lead/project slug → its uuid. `table` is a trusted literal. */
+async function slugToId(table, slug) {
+  if (!slug) return null;
+  const r = await rows(`SELECT id FROM ${table} WHERE slug = $1`, [slug]);
+  return r[0]?.id ?? null;
+}
+
+// ─── Open Brain: read ───────────────────────────────────────────────────────
+
+server.registerTool(
+  "search_knowledge",
+  {
+    title: "Search knowledge",
+    description:
+      "Full-text + fuzzy search across the SJC OS knowledge base (client/vendor " +
+      "notes, decisions, business rules, SOPs, lessons, selection preferences, …). " +
+      "Optionally scope to a project or lead slug.",
+    inputSchema: {
+      query: z.string(),
+      project_slug: z.string().optional(),
+      lead_slug: z.string().optional(),
+      kind: z.string().optional(),
+      limit: z.number().int().min(1).max(100).optional(),
+    },
+  },
+  async ({ query, project_slug, lead_slug, kind, limit = 20 }) => {
+    const conds = [`(search_tsv @@ websearch_to_tsquery('english', $1) OR content ILIKE '%' || $1 || '%')`];
+    const params = [query];
+    const pid = await slugToId("projects", project_slug);
+    const lid = await slugToId("leads", lead_slug);
+    if (project_slug) { params.push(pid); conds.push(`project_id = $${params.length}`); }
+    if (lead_slug) { params.push(lid); conds.push(`lead_id = $${params.length}`); }
+    if (kind) { params.push(kind); conds.push(`kind = $${params.length}`); }
+    params.push(limit);
+    return json(
+      await rows(
+        `SELECT id, kind, source, left(content, 600) AS content, project_id, lead_id, created_at,
+                ts_rank(search_tsv, websearch_to_tsquery('english', $1)) AS rank
+           FROM knowledge_items
+          WHERE ${conds.join(" AND ")}
+          ORDER BY rank DESC, created_at DESC
+          LIMIT $${params.length}`,
+        params,
+      ),
+    );
+  },
+);
+
+server.registerTool(
+  "fetch_knowledge",
+  {
+    title: "Fetch knowledge item",
+    description: "Full content + metadata + links for one knowledge item by id.",
+    inputSchema: { id: z.string() },
+  },
+  async ({ id }) => {
+    const r = await rows(
+      `SELECT k.*, p.slug AS project_slug, l.slug AS lead_slug
+         FROM knowledge_items k
+         LEFT JOIN projects p ON p.id = k.project_id
+         LEFT JOIN leads l ON l.id = k.lead_id
+        WHERE k.id = $1`,
+      [id],
+    );
+    return json(r[0] ?? { error: `No knowledge item ${id}` });
+  },
+);
+
+server.registerTool(
+  "list_recent_knowledge",
+  {
+    title: "List recent knowledge",
+    description: "Most recent knowledge items within N days (default 30), optionally by kind/project/lead.",
+    inputSchema: {
+      days: z.number().int().min(1).max(365).optional(),
+      kind: z.string().optional(),
+      project_slug: z.string().optional(),
+      lead_slug: z.string().optional(),
+      limit: z.number().int().min(1).max(100).optional(),
+    },
+  },
+  async ({ days = 30, kind, project_slug, lead_slug, limit = 30 }) => {
+    const conds = [`created_at >= now() - ($1 || ' days')::interval`];
+    const params = [String(days)];
+    if (kind) { params.push(kind); conds.push(`kind = $${params.length}`); }
+    if (project_slug) { params.push(await slugToId("projects", project_slug)); conds.push(`project_id = $${params.length}`); }
+    if (lead_slug) { params.push(await slugToId("leads", lead_slug)); conds.push(`lead_id = $${params.length}`); }
+    params.push(limit);
+    return json(
+      await rows(
+        `SELECT id, kind, source, left(content, 400) AS content, project_id, lead_id, created_at
+           FROM knowledge_items WHERE ${conds.join(" AND ")}
+          ORDER BY created_at DESC LIMIT $${params.length}`,
+        params,
+      ),
+    );
+  },
+);
+
+// ─── Open Engine: read ──────────────────────────────────────────────────────
+
+server.registerTool(
+  "list_work_items",
+  {
+    title: "List work items",
+    description:
+      "The SJC OS work queue. Filter by status, assignee_key (human-joe / " +
+      "hermes-telegram / claude-code-server / …), and/or a due_before ISO date. " +
+      "Ordered by priority then due date.",
+    inputSchema: {
+      status: z.string().optional(),
+      assignee_key: z.string().optional(),
+      due_before: z.string().optional(),
+      limit: z.number().int().min(1).max(200).optional(),
+    },
+  },
+  async ({ status, assignee_key, due_before, limit = 50 }) => {
+    const conds = [];
+    const params = [];
+    if (status) { params.push(status); conds.push(`w.status = $${params.length}`); }
+    if (assignee_key) { params.push(assignee_key); conds.push(`w.assignee_key = $${params.length}`); }
+    if (due_before) { params.push(due_before); conds.push(`w.due_at <= $${params.length}::timestamptz`); }
+    const where = conds.length ? `WHERE ${conds.join(" AND ")}` : ``;
+    params.push(limit);
+    return json(
+      await rows(
+        `SELECT w.id, w.title, w.status, w.priority, w.assignee_kind, w.assignee_key, w.due_at,
+                w.expected_skill_slug, w.expected_runbook_slug, w.requires_approval, w.approval_status,
+                w.blocked_reason, p.slug AS project_slug, l.slug AS lead_slug
+           FROM work_items w
+           LEFT JOIN projects p ON p.id = w.project_id
+           LEFT JOIN leads l ON l.id = w.lead_id
+           ${where}
+          ORDER BY array_position(ARRAY['urgent','high','normal','low'], w.priority),
+                   w.due_at NULLS LAST, w.created_at DESC
+          LIMIT $${params.length}`,
+        params,
+      ),
+    );
+  },
+);
+
+server.registerTool(
+  "get_work_item",
+  {
+    title: "Get work item",
+    description: "One work item by id, with its recent agent runs + receipts.",
+    inputSchema: { id: z.string() },
+  },
+  async ({ id }) => {
+    const item = await rows(
+      `SELECT w.*, p.slug AS project_slug, l.slug AS lead_slug
+         FROM work_items w
+         LEFT JOIN projects p ON p.id = w.project_id
+         LEFT JOIN leads l ON l.id = w.lead_id
+        WHERE w.id = $1`,
+      [id],
+    );
+    if (item.length === 0) return json({ error: `No work item ${id}` });
+    const [runs, receipts] = await Promise.all([
+      rows(`SELECT id, runtime_name, model, status, input_summary, output_summary, started_at, finished_at
+              FROM agent_runs WHERE work_item_id = $1 ORDER BY started_at DESC LIMIT 20`, [id]),
+      rows(`SELECT id, receipt_kind, uri, label, created_at
+              FROM agent_receipts WHERE work_item_id = $1 ORDER BY created_at DESC LIMIT 20`, [id]),
+    ]);
+    return json({ work_item: item[0], runs, receipts });
+  },
+);
+
+// ─── Open Skills: read ──────────────────────────────────────────────────────
+
+server.registerTool(
+  "list_skills",
+  {
+    title: "List skills",
+    description: "Reusable operating procedures. Filter by category and/or active. Approved skills only unless include_proposed.",
+    inputSchema: {
+      category: z.string().optional(),
+      active: z.boolean().optional(),
+      include_proposed: z.boolean().optional(),
+    },
+  },
+  async ({ category, active, include_proposed }) => {
+    const conds = [];
+    const params = [];
+    if (!include_proposed) conds.push(`review_status = 'approved'`);
+    if (category) { params.push(category); conds.push(`category = $${params.length}`); }
+    if (active !== undefined) { params.push(active); conds.push(`active = $${params.length}`); }
+    const where = conds.length ? `WHERE ${conds.join(" AND ")}` : ``;
+    return json(
+      await rows(
+        `SELECT slug, title, description, category, when_to_use, review_status, active
+           FROM skills ${where} ORDER BY category, title`,
+        params,
+      ),
+    );
+  },
+);
+
+server.registerTool(
+  "get_skill",
+  {
+    title: "Get skill",
+    description: "Full skill by slug, including the current approved procedure body (skill_versions).",
+    inputSchema: { slug: z.string() },
+  },
+  async ({ slug }) => {
+    const s = await rows(`SELECT * FROM skills WHERE slug = $1`, [slug]);
+    if (s.length === 0) return json({ error: `No skill "${slug}"` });
+    const body = await rows(
+      `SELECT version, body_markdown, change_summary, status, created_at
+         FROM skill_versions WHERE id = $1`,
+      [s[0].current_version_id],
+    );
+    return json({ skill: s[0], current_version: body[0] ?? null });
+  },
+);
+
+server.registerTool(
+  "search_skills",
+  {
+    title: "Search skills",
+    description: "Find skills by matching a query against title/description/when_to_use/trigger_phrases.",
+    inputSchema: { query: z.string(), category: z.string().optional() },
+  },
+  async ({ query, category }) => {
+    const params = [query];
+    let where = `(title ILIKE '%'||$1||'%' OR description ILIKE '%'||$1||'%'
+                  OR when_to_use ILIKE '%'||$1||'%' OR array_to_string(trigger_phrases, ' ') ILIKE '%'||$1||'%')`;
+    if (category) { params.push(category); where += ` AND category = $${params.length}`; }
+    return json(
+      await rows(
+        `SELECT slug, title, description, category, when_to_use, review_status
+           FROM skills WHERE review_status = 'approved' AND ${where} ORDER BY title`,
+        params,
+      ),
+    );
+  },
+);
+
+server.registerTool(
+  "suggest_skill_for_work_item",
+  {
+    title: "Suggest skill for a work item",
+    description:
+      "Given a work item id, return the skill/runbook it expects (if set), else the " +
+      "best-matching approved skills by fuzzy match against its title/body. An agent " +
+      "should load the expected skill before working a non-trivial item.",
+    inputSchema: { work_item_id: z.string() },
+  },
+  async ({ work_item_id }) => {
+    const w = await rows(`SELECT title, body, expected_skill_slug, expected_runbook_slug FROM work_items WHERE id = $1`, [work_item_id]);
+    if (w.length === 0) return json({ error: `No work item ${work_item_id}` });
+    const item = w[0];
+    if (item.expected_skill_slug) {
+      const s = await rows(`SELECT slug, title, description, when_to_use FROM skills WHERE slug = $1`, [item.expected_skill_slug]);
+      return json({ expected_skill_slug: item.expected_skill_slug, expected_runbook_slug: item.expected_runbook_slug, skill: s[0] ?? null, matched_by: "expected" });
+    }
+    const q = `${item.title} ${item.body || ""}`.slice(0, 400);
+    const suggestions = await rows(
+      `SELECT slug, title, description, when_to_use
+         FROM skills
+        WHERE review_status = 'approved' AND active = true
+          AND (title ILIKE '%'||$1||'%' OR when_to_use ILIKE '%'||$1||'%'
+               OR array_to_string(trigger_phrases,' ') ILIKE '%'||$1||'%'
+               OR $1 ILIKE '%'||slug||'%')
+        ORDER BY title LIMIT 5`,
+      [q],
+    );
+    return json({ expected_skill_slug: null, expected_runbook_slug: item.expected_runbook_slug, matched_by: "search", suggestions });
+  },
+);
+
+server.registerTool(
+  "list_runbooks",
+  {
+    title: "List runbooks",
+    description: "Ordered chains of skills for larger workflows. Filter by active.",
+    inputSchema: { active: z.boolean().optional() },
+  },
+  async ({ active }) => {
+    const where = active !== undefined ? `WHERE active = $1` : ``;
+    return json(
+      await rows(`SELECT slug, title, description, active FROM runbooks ${where} ORDER BY title`, active !== undefined ? [active] : []),
+    );
+  },
+);
+
+server.registerTool(
+  "get_runbook",
+  {
+    title: "Get runbook",
+    description: "One runbook by slug, with its ordered steps (each naming the skill to run + approval gate).",
+    inputSchema: { slug: z.string() },
+  },
+  async ({ slug }) => {
+    const rb = await rows(`SELECT * FROM runbooks WHERE slug = $1`, [slug]);
+    if (rb.length === 0) return json({ error: `No runbook "${slug}"` });
+    const steps = await rows(
+      `SELECT step_order, title, skill_slug, expected_output, requires_human_approval
+         FROM runbook_steps WHERE runbook_id = $1 ORDER BY step_order`,
+      [rb[0].id],
+    );
+    return json({ runbook: rb[0], steps });
+  },
+);
+
+// ─── Gated / logged writes ──────────────────────────────────────────────────
+// Safe by construction (internal records + append-only audit + proposals).
+// No client-facing sends. Every write attributes a runtime and returns its id.
+
+server.registerTool(
+  "capture_knowledge",
+  {
+    title: "Capture knowledge",
+    description:
+      "Save a durable knowledge item (note/decision/business_rule/sop/lesson/…). " +
+      "De-duped by content fingerprint. Optionally link a project/lead slug and " +
+      "attribute a runtime; pass agent_run_id to also log a receipt.",
+    inputSchema: {
+      content: z.string(),
+      kind: z.string().optional(),
+      project_slug: z.string().optional(),
+      lead_slug: z.string().optional(),
+      source_uri: z.string().optional(),
+      created_by: z.string().optional(),
+      agent_run_id: z.string().optional(),
+    },
+  },
+  async ({ content, kind = "note", project_slug, lead_slug, source_uri, created_by = "agent", agent_run_id }) => {
+    const fp = createHash("md5").update(content).digest("hex");
+    const r = await rows(
+      `INSERT INTO knowledge_items (content, kind, source, source_uri, project_id, lead_id, content_fingerprint, created_by)
+       VALUES ($1,$2,'agent',$3,$4,$5,$6,$7)
+       ON CONFLICT (content_fingerprint) WHERE content_fingerprint IS NOT NULL DO NOTHING
+       RETURNING id`,
+      [content, kind, source_uri ?? null, await slugToId("projects", project_slug), await slugToId("leads", lead_slug), fp, created_by],
+    );
+    const id = r[0]?.id ?? null;
+    if (id && agent_run_id) {
+      await rows(
+        `INSERT INTO agent_receipts (agent_run_id, receipt_kind, uri, label) VALUES ($1,'db_row',$2,$3)`,
+        [agent_run_id, `knowledge_items/${id}`, `captured knowledge (${kind})`],
+      );
+    }
+    return json({ ok: true, id, deduped: !id });
+  },
+);
+
+server.registerTool(
+  "create_work_item",
+  {
+    title: "Create work item",
+    description:
+      "Add an item to the SJC OS work queue. requires_approval defaults true. " +
+      "Optionally link project/lead slug, set assignee_key, due date, and the " +
+      "expected skill/runbook the worker should load.",
+    inputSchema: {
+      title: z.string(),
+      body: z.string().optional(),
+      priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
+      assignee_kind: z.enum(["human", "agent"]).optional(),
+      assignee_key: z.string().optional(),
+      due_at: z.string().optional(),
+      project_slug: z.string().optional(),
+      lead_slug: z.string().optional(),
+      expected_skill_slug: z.string().optional(),
+      expected_runbook_slug: z.string().optional(),
+      requires_approval: z.boolean().optional(),
+      created_by: z.string().optional(),
+    },
+  },
+  async (a) => {
+    const r = await rows(
+      `INSERT INTO work_items
+         (title, body, priority, assignee_kind, assignee_key, due_at, project_id, lead_id,
+          expected_skill_slug, expected_runbook_slug, requires_approval, source_kind, created_by)
+       VALUES ($1,$2,$3,$4,$5,NULLIF($6,'')::timestamptz,$7,$8,$9,$10,$11,'agent',$12)
+       RETURNING id`,
+      [
+        a.title, a.body ?? "", a.priority ?? "normal", a.assignee_kind ?? "human",
+        a.assignee_key ?? null, a.due_at ?? "", await slugToId("projects", a.project_slug),
+        await slugToId("leads", a.lead_slug), a.expected_skill_slug ?? null,
+        a.expected_runbook_slug ?? null, a.requires_approval ?? true, a.created_by ?? "agent",
+      ],
+    );
+    return json({ ok: true, id: r[0].id });
+  },
+);
+
+server.registerTool(
+  "update_work_item_status",
+  {
+    title: "Update work item status",
+    description:
+      "Move a work item to a new status (queued/in_progress/waiting_on_*/blocked/" +
+      "approval_needed/done/cancelled). Optional note becomes the blocked_reason; " +
+      "done sets completed_at.",
+    inputSchema: {
+      id: z.string(),
+      status: z.enum(["queued", "in_progress", "waiting_on_human", "waiting_on_client",
+                       "waiting_on_sub", "blocked", "approval_needed", "done", "cancelled"]),
+      note: z.string().optional(),
+    },
+  },
+  async ({ id, status, note }) => {
+    const r = await rows(
+      `UPDATE work_items
+          SET status = $2,
+              blocked_reason = CASE WHEN $2 IN ('blocked','waiting_on_human','waiting_on_client','waiting_on_sub')
+                                    THEN $3 ELSE blocked_reason END,
+              completed_at = CASE WHEN $2 = 'done' THEN now() ELSE completed_at END
+        WHERE id = $1 RETURNING id, status`,
+      [id, status, note ?? null],
+    );
+    return json(r[0] ? { ok: true, ...r[0] } : { ok: false, error: `No work item ${id}` });
+  },
+);
+
+server.registerTool(
+  "record_agent_run",
+  {
+    title: "Record agent run",
+    description:
+      "Append an audit row for an automated/assisted AI run. Returns its id (use it " +
+      "with record_receipt). Pass status started to open a run, or a terminal status " +
+      "with summaries to log a completed one.",
+    inputSchema: {
+      runtime_name: z.string(),
+      model: z.string().optional(),
+      status: z.enum(["started", "succeeded", "failed", "cancelled"]).optional(),
+      input_summary: z.string().optional(),
+      output_summary: z.string().optional(),
+      error_summary: z.string().optional(),
+      work_item_id: z.string().optional(),
+      skill_slug: z.string().optional(),
+    },
+  },
+  async (a) => {
+    const terminal = a.status && a.status !== "started";
+    const r = await rows(
+      `INSERT INTO agent_runs
+         (runtime_name, model, status, input_summary, output_summary, error_summary, work_item_id, skill_slug, finished_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8, CASE WHEN $9 THEN now() ELSE NULL END)
+       RETURNING id`,
+      [a.runtime_name, a.model ?? null, a.status ?? "started", a.input_summary ?? "",
+       a.output_summary ?? "", a.error_summary ?? null, a.work_item_id ?? null, a.skill_slug ?? null, terminal],
+    );
+    return json({ ok: true, id: r[0].id });
+  },
+);
+
+server.registerTool(
+  "record_receipt",
+  {
+    title: "Record receipt",
+    description:
+      "Append proof that something happened (email id, calendar event, file path, " +
+      "db row, git SHA, draft, invoice number, approval, …). Link an agent_run_id " +
+      "and/or work_item_id.",
+    inputSchema: {
+      receipt_kind: z.string(),
+      uri: z.string().optional(),
+      label: z.string().optional(),
+      agent_run_id: z.string().optional(),
+      work_item_id: z.string().optional(),
+    },
+  },
+  async (a) => {
+    const r = await rows(
+      `INSERT INTO agent_receipts (receipt_kind, uri, label, agent_run_id, work_item_id)
+       VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+      [a.receipt_kind, a.uri ?? null, a.label ?? "", a.agent_run_id ?? null, a.work_item_id ?? null],
+    );
+    return json({ ok: true, id: r[0].id });
+  },
+);
+
+server.registerTool(
+  "create_skill_proposal",
+  {
+    title: "Propose a skill (pending review)",
+    description:
+      "Suggest a new reusable procedure. Lands as review_status 'proposed' with a " +
+      "proposed v1 body — it stays OUT of the active library until Joe approves in " +
+      "the SJC OS UI. Use a stable kebab-case slug.",
+    inputSchema: {
+      slug: z.string(),
+      title: z.string(),
+      body_markdown: z.string(),
+      description: z.string().optional(),
+      category: z.string().optional(),
+      when_to_use: z.string().optional(),
+      change_summary: z.string().optional(),
+      proposed_by: z.string().optional(),
+    },
+  },
+  async (a) => {
+    const exists = await rows(`SELECT id FROM skills WHERE slug = $1`, [a.slug]);
+    if (exists.length) return json({ ok: false, error: `Skill "${a.slug}" already exists; propose a new version instead.` });
+    const s = await rows(
+      `INSERT INTO skills (slug, title, description, category, when_to_use, review_status, proposed_by)
+       VALUES ($1,$2,$3,$4,$5,'proposed',$6) RETURNING id`,
+      [a.slug, a.title, a.description ?? "", a.category ?? "operations", a.when_to_use ?? "", a.proposed_by ?? "agent"],
+    );
+    const skillId = s[0].id;
+    const v = await rows(
+      `INSERT INTO skill_versions (skill_id, version, body_markdown, change_summary, status, created_by)
+       VALUES ($1,1,$2,$3,'proposed',$4) RETURNING id`,
+      [skillId, a.body_markdown, a.change_summary ?? "initial proposal", a.proposed_by ?? "agent"],
+    );
+    // Point current_version at the proposed v1 so the UI can render it for review.
+    await rows(`UPDATE skills SET current_version_id = $2 WHERE id = $1`, [skillId, v[0].id]);
+    return json({ ok: true, skill_id: skillId, version_id: v[0].id, review_status: "proposed" });
+  },
+);
+
+server.registerTool(
+  "record_skill_used",
+  {
+    title: "Record skill used",
+    description: "Log that an agent loaded/followed a skill while working an item (stamps the run's skill_slug + a receipt).",
+    inputSchema: {
+      skill_slug: z.string(),
+      work_item_id: z.string().optional(),
+      agent_run_id: z.string().optional(),
+    },
+  },
+  async ({ skill_slug, work_item_id, agent_run_id }) => {
+    if (agent_run_id) {
+      await rows(`UPDATE agent_runs SET skill_slug = $2 WHERE id = $1`, [agent_run_id, skill_slug]);
+    }
+    const r = await rows(
+      `INSERT INTO agent_receipts (agent_run_id, work_item_id, receipt_kind, label)
+       VALUES ($1,$2,'skill',$3) RETURNING id`,
+      [agent_run_id ?? null, work_item_id ?? null, `used skill ${skill_slug}`],
+    );
+    return json({ ok: true, receipt_id: r[0].id });
   },
 );
 

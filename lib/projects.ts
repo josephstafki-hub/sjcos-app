@@ -185,7 +185,7 @@ export interface ProjectDetail {
   filesCount: number;
   selections: { area: string; choice: string; status: string; chip: ChipKind }[];
   comms: { from: string; role: "client" | "you" | "ai"; time: string; body: string }[];
-  punch: { id: number; item: string; owner: string; done: boolean }[];
+  punch: { id: number; item: string; owner: string; done: boolean; clientConfirmed: boolean }[];
 }
 
 interface PunchRow {
@@ -193,6 +193,7 @@ interface PunchRow {
   item: string;
   owner_name: string;
   done: boolean;
+  client_confirmed_at: Date | null;
 }
 
 const PROJECT_DETAILS: Record<string, Partial<ProjectDetail>> = {
@@ -281,7 +282,7 @@ export async function getProject(slug: string): Promise<ProjectDetail | null> {
 
   // Punch list is real (project_punch table); checkboxes toggle `done`.
   const punchRes = await query<PunchRow>(
-    `SELECT pp.id, pp.item, pp.owner_name, pp.done
+    `SELECT pp.id, pp.item, pp.owner_name, pp.done, pp.client_confirmed_at
        FROM project_punch pp
        JOIN projects p ON p.id = pp.project_id
       WHERE p.slug = $1
@@ -293,6 +294,7 @@ export async function getProject(slug: string): Promise<ProjectDetail | null> {
     item: r.item,
     owner: r.owner_name,
     done: r.done,
+    clientConfirmed: r.client_confirmed_at != null,
   }));
 
   // The AI-drafted weekly status is NOT awaited here — that would block the page

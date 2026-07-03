@@ -12,6 +12,7 @@ import { ClientSelections } from "@/components/portal/ClientSelections";
 import { PortalMessenger } from "@/components/portal/PortalMessenger";
 import { ClientSignDocs } from "@/components/portal/ClientSignDocs";
 import { ClientUploads } from "@/components/portal/ClientUploads";
+import { ClientPunch } from "@/components/portal/ClientPunch";
 import { WarrantyClaimForm } from "@/components/portal/WarrantyClaimForm";
 import { getClientSignatures } from "@/lib/esign";
 import { getClientWarranty } from "@/lib/warranty";
@@ -75,6 +76,10 @@ export default async function ClientPortalPage() {
     .flatMap((g) => g.selections)
     .filter((s) => s.status === "pending").length;
 
+  // Punch items the PM has finished, ready for the client to confirm.
+  const donePunch = (project?.punch ?? []).filter((p) => p.done);
+  const toConfirmCount = donePunch.filter((p) => !p.clientConfirmed).length;
+
   return (
     <div className="flex h-screen flex-col bg-paper">
       {/* slim header */}
@@ -95,7 +100,7 @@ export default async function ClientPortalPage() {
         )}
         <Chip kind="ghost">
           <Bell className="mr-0.5 inline size-2.5" strokeWidth={1.75} />
-          {pendingCount + toSignCount}
+          {pendingCount + toSignCount + toConfirmCount}
         </Chip>
         <Avatar initials={data.clientInitials} size="sm" />
       </header>
@@ -187,6 +192,16 @@ export default async function ClientPortalPage() {
           <div className="my-4 border-t border-rule" />
           <Eyebrow muted>Selections to review</Eyebrow>
           <ClientSelections view={selections} />
+
+          {donePunch.length > 0 && (
+            <>
+              <div className="my-4 border-t border-rule" />
+              <Eyebrow muted>Confirm completed items</Eyebrow>
+              <div className="mt-2">
+                <ClientPunch items={donePunch} />
+              </div>
+            </>
+          )}
 
           {scheduleBlocks.length > 0 && (
             <>

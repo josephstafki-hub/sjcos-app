@@ -245,6 +245,37 @@ export async function deletePunchItem(id: number, slug: string) {
   revalidatePath(`/projects/${slug}`);
 }
 
+/** Client (or owner previewing) confirms a resolved punch item is actually
+ *  fixed. Only items the PM has already marked `done` can be confirmed. A client
+ *  may only confirm items on their own project (linkSlug scope); the owner can
+ *  confirm any. Returns Result so the portal component can surface failures. */
+export async function confirmPunchItem(
+  id: number,
+  confirmed: boolean,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = await requireRole("owner", "client");
+  const row = await queryOne<{ slug: string; done: boolean }>(
+    `SELECT p.slug, pp.done
+       FROM project_punch pp JOIN projects p ON p.id = pp.project_id
+      WHERE pp.id = $1`,
+    [id],
+  );
+  if (!row) return { ok: false, error: "Punch item not found." };
+  if (user.role === "client" && user.linkSlug !== row.slug) {
+    return { ok: false, error: "Not authorized." };
+  }
+  if (!row.done) return { ok: false, error: "This item isn't marked done yet." };
+  await query(
+    `UPDATE project_punch
+        SET client_confirmed_at = ${confirmed ? "now()" : "NULL"}
+      WHERE id = $1 AND done = true`,
+    [id],
+  );
+  revalidatePath("/client-portal");
+  revalidatePath(`/projects/${row.slug}`);
+  return { ok: true };
+}
+
 /** Assign a sub to a project (project Subs tab). Owner-gated; idempotent. */
 export async function assignSubToProject(slug: string, subSlug: string, role: string) {
   await requireRole("owner");

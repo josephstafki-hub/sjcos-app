@@ -455,6 +455,9 @@ CREATE TABLE IF NOT EXISTS project_punch (
   sort_order  integer NOT NULL DEFAULT 0,
   created_at  timestamptz NOT NULL DEFAULT now()
 );
+-- Client confirmation of a resolved punch item: the PM marks it `done`, the
+-- client confirms it in their portal (set once they agree it's actually fixed).
+ALTER TABLE project_punch ADD COLUMN IF NOT EXISTS client_confirmed_at timestamptz;
 
 -- ─── Material catalog ───────────────────────────────────────────────────────
 -- The /catalog material library. Owner adds/removes items; category is one of

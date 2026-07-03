@@ -10,6 +10,7 @@ interface PunchItem {
   item: string;
   owner: string;
   done: boolean;
+  clientConfirmed: boolean;
 }
 
 /** Interactive project punch list. Checkboxes toggle `done` (optimistic, then
@@ -41,7 +42,7 @@ export function PunchList({ slug, items }: { slug: string; items: PunchItem[] })
       try {
         const created = await addPunchItem(slug, text, owner.trim());
         if (created) {
-          setRows((prev) => [...prev, created]);
+          setRows((prev) => [...prev, { ...created, clientConfirmed: false }]);
           setItem("");
           setOwner("");
         }
@@ -94,6 +95,8 @@ export function PunchList({ slug, items }: { slug: string; items: PunchItem[] })
               {p.item}
             </span>
           </button>
+          {p.done && p.clientConfirmed && <Chip kind="money" dot>client confirmed</Chip>}
+          {p.done && !p.clientConfirmed && <Chip kind="accent">awaiting client</Chip>}
           {p.owner && <Chip kind="ghost">{p.owner}</Chip>}
           <button
             type="button"

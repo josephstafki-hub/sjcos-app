@@ -1,105 +1,208 @@
-# Phase 5 — Full QuickBooks Replacement (Accounting Epic) — Sub-Plan
+# Phase 5 — Full QuickBooks Replacement (Accounting Epic) — Sub-Plan v2
 
-*Drafted 2026-07-01. Status: **DRAFT for Joe + CPA review — not started.** This is the roadmap's largest and highest-liability epic (`docs/plan-vs-build.md` §8). Joe's standing decree: it "needs its own sub-plan + CPA review before it's safe." This document is that sub-plan. **Do not begin building the tax/1099/sales-tax logic until a CPA has reviewed the rules encoded here.***
+*Status: **v2 — decisions locked 2026-07-05 · awaiting CPA packet answers · build not started.** Supersedes the 2026-07-01 draft. This is the roadmap's largest and highest-liability epic (`docs/plan-vs-build.md` §8). Do NOT ship the tax surfaces (5.6/5.7 output) until the CPA packet at the bottom is answered.*
+
+**Resume protocol:** this doc is the source of truth for the epic. Mark each sub-phase checkbox `[x] + commit hash` as it lands. One commit per sub-phase, push after each, deploy (stop `sjcos.service` → `npm run build` → restart, `XDG_RUNTIME_DIR=/run/user/1010`) after code phases. If a session dies, resume from this checklist.
+
+## Build checklist
+
+- [ ] 5.0 Cents migration + COA/cost-code seed
+- [ ] 5.1 Ledger core + /books goes live
+- [ ] 5.2 Wire money events + opening balances
+- [ ] 5.3 Vendors + A/P + expenses (+ pay gating)
+- [ ] 5.4 Job costing + WIP
+- [ ] 5.5 Bank reconciliation (manual CSV)
+- [ ] 5.6 1099 prep (CPA-gated output)
+- [ ] 5.7 MN sales/use tax (CPA-gated rules)
+- [ ] 5.8 Reports + monthly close
+- [ ] 5.9 AI cash flags + MCP tools
 
 ---
 
 ## Context — why this, why now
 
-SJC OS already owns the *front half* of the money flow: estimates → contracts with draw schedules → milestone invoices → retainers → collections (demand letter / lien package). What it does **not** have is a general ledger — the thing that actually replaces QuickBooks: a chart of accounts, double-entry bookkeeping, expense/bill tracking, job costing (actuals vs. estimate), 1099 prep, MN sales-tax tracking, and the P&L / Balance Sheet / cash reports that fall out of a ledger.
+SJC OS owns the front half of the money flow: estimates → contracts with draw schedules → milestone invoices → deposits/retainers → collections (Day-15 demand letter / Day-30 lien package). What it lacks is the thing that actually replaces QuickBooks: a **general ledger** — chart of accounts, double-entry bookkeeping, A/P (bills + expenses), job costing, bank reconciliation, 1099 prep, MN sales/use-tax tracking, and the P&L / Balance Sheet / cash reports that fall out of a ledger.
 
-Everything to date has been *operational* records. Accounting is *financial-of-record* — mistakes here have tax and legal consequences, which is why it was deferred until it could get a dedicated plan and professional review. The goal of Phase 5 is a correct, auditable ledger core first; **payments, bank sync, and A/R-dunning automation are explicitly deferred within Phase 5** until the core is solid.
+The plan is grounded in two things Joe asked for:
+1. **General-contractor bookkeeping best practices** (job costing first, deposits as liability, WIP over/under-billing, committed costs, contractor COA, use-tax on materials).
+2. **How the OS is meant to work** (master plan §8): AI completes every step it can and presents for approval; deposits tracked as liability applied to the first draw; AI proactively flags cash position rather than waiting for a report pull.
 
----
+**Decisions locked with Joe (2026-07-05):**
+1. **Migrate transactional money to cents** (invoices / retainers / sub_invoices) — one convention everywhere, no permanent conversion seam.
+2. **Manual bank-statement CSV import + reconcile screen in v1** (Plaid bank feed stays deferred).
+
+## What already exists (build on, don't rebuild)
+
+- `invoices` (amount + `line_items[].amount` int **dollars**, status draft/sent/paid), `retainers` (collected/applied int **dollars**) — `db/schema.sql` §invoices.
+- `estimates` / `estimate_lines` / `cost_items` — int **cents**. `sub_invoices` (dollars, submitted/approved/paid). `change_orders` + e-sign. `projects.contract_value`/`collected_to_date` (dollars, feed the /today A/R headline).
+- Money code: `lib/money.ts` (`getProjectMoney`, `usd()`), `lib/actions/money.ts` (`createInvoice`, `createMilestoneInvoice`, `updateInvoice`, `deleteInvoice`, `sendInvoice`, `markInvoicePaid`, `collectRetainer`, `applyRetainer`), `lib/actions/collections.ts` (demand/lien — built), `components/projects/MoneyPanel.tsx`, client-portal invoice list.
+- Infra to reuse: `lib/ai.ts` `ai.ask` (Qwen + mock fallback) · `lib/documents.ts` (pdfkit/docx, `LEGAL_DISCLAIMER`, `storeBuffer`) · `lib/upload-store.ts` + `/api/files/[id]` · reminders engine (`lib/reminders.ts` + `sjcos-reminders.timer` + `reminder_log` dedup) · `emit()` notifications · MCP server `mcp/sjcos-mcp.mjs` · cents formatter `fmtUsd` (`lib/cost-book-units.ts`) · sidebar "Books" disabled placeholder · W-9/COI docs on 28 subs (`sub_documents`, `subs.coi_expires_at`).
 
 ## Non-negotiable guardrails
 
-1. **CPA review before go-live.** The 1099 thresholds, MN sales-tax nexus/rate/filing logic, and any tax-form output must be reviewed by Joe's CPA. Ship these behind a "not tax advice / for preparation only" disclaimer, mirroring the existing `LEGAL_DISCLAIMER` pattern in `lib/documents.ts` (used on lien/demand PDFs).
-2. **Money is stored in integer minor units (cents).** See the currency-units decision below — this is the first thing to settle because the existing `invoices`/`retainers` tables use integer **dollars** while `estimates`/`cost_items` use **cents**. The ledger must be cents.
-3. **Double-entry, append-only.** Ledger entries are never edited or deleted in place; corrections are reversing entries. Every transaction must balance (Σ debits = Σ credits) — enforce in the write action and assert with a DB round-trip test.
-4. **Owner-gated writes.** All accounting mutations go through `requireRole("owner")` actions (established pattern in `lib/actions/*`).
-5. **Provider-agnostic AI.** Cash-flag/analysis text goes through `ai.ts` (Qwen), never a hardcoded provider — same as every other AI touch-point.
-6. **Additive DB migrations.** Apply new tables via the idempotent `db/schema.sql` through a throwaway `db/apply-*.mjs` in the project dir (never full reseed — live prod data must survive).
+1. **CPA review before the tax surfaces go live** (1099 + MN sales/use tax + COA sign-off). Ship behind "for preparation only — not tax advice" via the existing `LEGAL_DISCLAIMER` pattern.
+2. **Ledger = double-entry, append-only, cents.** No UPDATE/DELETE on posted entries; corrections are reversing entries. Σdebits = Σcredits enforced in the action AND asserted in rolled-back DB tests.
+3. Owner-gated writes (`requireRole("owner")`, `Result` return) · provider-agnostic AI · additive idempotent `db/schema.sql` applied via throwaway `db/apply-*.mjs` in the project dir · client-safe constants in db-free `lib/*-types.ts` (pg-in-client-bundle gotcha) · `import type` in client files.
+4. **Every migration/backfill script: dry-run default, `--approve` to run, JSON snapshot first, `--undo --confirm` reversal** (pattern: `scripts/import-undo.mjs`).
 
----
+## GC bookkeeping best practices this encodes
 
-## Decision needed first: currency units reconciliation
+- **Job costing is the heart**: every direct cost carries `project_id` + `cost_code_id` (simplified NAHB-style: labor / materials / subcontractors / equipment / permits+fees / other-direct — seeded, editable). Direct costs are **COGS accounts, not overhead**.
+- **Deposits are a liability** (§8 explicit): retainer collected → Customer Deposits (2100); applied → reduces A/R. Never income at collection.
+- **Progress billing + simple WIP**: % complete = cost-to-date ÷ estimated cost → earned revenue vs billed → **over/under-billing** per active job. Small-shop version, not ASC 606 ceremony.
+- **Committed costs**: approved `sub_invoices` auto-become A/P bills; the job-cost report shows actual + committed vs estimate.
+- **Change orders** billed/costed separately (CO income account 4100).
+- **Pay gating (OS-fit)**: warn before paying a sub with expired/missing COI or no W-9 (data already in DB); prompt for a lien waiver on final payment.
+- **Accrual ledger, cash-basis report toggle**: manage on accrual (WIP/job costing require it); CPA decides filing basis; cash-basis P&L derived from cash-touching postings.
+- **1099-NEC prep**: vendor flagged at onboarding, payments auto-accumulate per calendar year. **CPA flag: reporting threshold rises $600 → $2,000 for payments made in 2026 (OBBBA)** — encode as a settings constant, CPA-confirmed.
+- **MN sales-tax correction (IMPORTANT — the v1 draft had this backwards):** MN contractors improving real property are the **end consumers of materials** — they pay sales/use tax on material **purchases**; lump-sum contracts to customers are generally **not** taxed on the invoice. Model = **use-tax accrual on material purchases** (when the supplier didn't collect) + a filing worksheet. Entire rule set CPA-gated.
+- **Monthly close checklist** via the reminders engine: reconcile bank, review A/R aging, review WIP, check use-tax accrual — surfaces on /today.
 
-**Problem:** two money conventions coexist.
-- `invoices.amount`, `invoices.line_items[].amount`, `retainers.collected/applied` → **integer dollars**.
-- `estimates.*`, `estimate_lines.*`, `cost_items.unit_cost` → **integer cents**.
+## Data model (all cents; add to `db/schema.sql`, apply additively)
 
-A general ledger must be cents (rounding at dollar granularity is unacceptable for reconciliation). Options:
+```sql
+accounts (
+  id bigserial PK, code text UNIQUE,            -- "1000"
+  name text, type CHECK (asset|liability|equity|income|expense),
+  subtype text DEFAULT '',                      -- e.g. 'cogs','overhead','bank'
+  is_active bool DEFAULT true, sort_order int )
+cost_codes ( id bigserial PK, code text UNIQUE, name text, is_active bool )
+journal_entries (
+  id bigserial PK, entry_date date, memo text,
+  source_type CHECK (manual|invoice|payment|expense|bill|bill_payment|retainer|use_tax|adjustment|reversal|opening),
+  source_id text DEFAULT '',                    -- e.g. invoice id
+  reverses_entry_id bigint NULL REFERENCES journal_entries,
+  created_by uuid, created_at timestamptz )
+journal_lines (
+  id bigserial PK, entry_id FK ON DELETE RESTRICT,
+  account_id FK, debit_cents int DEFAULT 0, credit_cents int DEFAULT 0,
+  project_id uuid NULL REFERENCES projects ON DELETE SET NULL,   -- job-costing dim
+  cost_code_id bigint NULL REFERENCES cost_codes,
+  memo text,
+  CHECK ((debit_cents=0) <> (credit_cents=0)) ) -- exactly one side per line
+vendors (
+  id bigserial PK, name text, email text DEFAULT '', phone text DEFAULT '',
+  sub_slug text NULL REFERENCES subs(slug) ON DELETE SET NULL,
+  is_1099 bool DEFAULT false, tax_id_last4 text DEFAULT '',  -- NO full EIN/SSN stored
+  w9_file_id text NULL, address text DEFAULT '', notes text, is_active bool )
+bills (
+  id bigserial PK, vendor_id FK, project_id uuid NULL, bill_date date, due_date date NULL,
+  ref text DEFAULT '', status CHECK (open|paid), total_cents int,
+  source_sub_invoice_id bigint NULL REFERENCES sub_invoices,
+  paid_at timestamptz NULL, created_at )
+bill_lines ( id bigserial PK, bill_id FK CASCADE, account_id FK, cost_code_id NULL,
+  description text, amount_cents int )
+expenses (                                       -- direct card/cash spends, no bill
+  id bigserial PK, expense_date date, vendor_id NULL, account_id FK, cost_code_id NULL,
+  project_id uuid NULL, amount_cents int, memo text, receipt_file_id text NULL,
+  paid_from CHECK (checking|card|cash), use_tax_cents int DEFAULT 0, created_at )
+bank_statement_lines (
+  id bigserial PK, account_id FK,               -- which bank account (COA 1000)
+  stmt_date date, description text, amount_cents int,  -- signed: + deposit, − withdrawal
+  import_batch text, status CHECK (unmatched|matched|created|ignored),
+  matched_entry_id bigint NULL REFERENCES journal_entries, created_at,
+  UNIQUE (account_id, stmt_date, description, amount_cents, import_batch) ) -- re-import idempotent
+```
 
-- **(A) New ledger is cents; leave `invoices`/`retainers` as dollars, convert at the boundary** (×100 when an invoice posts to the ledger). Lowest risk, no migration, but keeps the split.
-- **(B) Migrate `invoices`/`retainers` to cents too** (one-time `UPDATE ... *100` + `ALTER`, update `lib/money.ts` + `lib/actions/money.ts` + `MoneyPanel`). Cleaner long-term, one migration, touches working code.
+**Seed COA** (idempotent in schema.sql, CPA to confirm): 1000 Checking · 1100 A/R · 1200 Retainage Receivable · 2000 A/P · 2100 Customer Deposits · 2200 Sales/Use Tax Payable · 2300 Retainage Payable · 2500 Credit Card Payable · 3000 Owner's Equity · 3100 Owner Draws · 3900 Retained Earnings · 4000 Contract Income · 4100 Change Order Income · 4900 Other Income · 5000 COGS-Materials · 5100 COGS-Subcontractors · 5200 COGS-Labor · 5300 COGS-Equipment · 5400 COGS-Permits+Fees · 5500 COGS-Other Direct · 6000–6900 Overhead (Insurance, Vehicle, Tools, Office, Marketing, Licenses, Professional Fees, Bank Fees, Other). Seed cost codes: L/M/S/E/P/O matching the 5xxx buckets.
 
-**Recommendation: (A) for the first ledger cut** (isolate risk), then (B) as a follow-up once the ledger is trusted. **Confirm with Joe.**
+## Posting matrix (the double-entry rules — encode in `lib/posting.ts`)
 
----
+| Event (hook location) | Debit | Credit |
+|---|---|---|
+| Invoice **sent** (`sendInvoice`, `createMilestoneInvoice` auto-send) | 1100 A/R | 4000 Contract Income (proj dim) — CO invoices → 4100 |
+| Invoice **paid** (`markInvoicePaid`) | 1000 Checking | 1100 A/R |
+| Deposit/retainer **collected** (`collectRetainer`) | 1000 Checking | 2100 Customer Deposits |
+| Deposit **applied** (`applyRetainer`) | 2100 Customer Deposits | 1100 A/R |
+| Bill entered (`createBill`, sub-invoice approve) | 5xxx COGS (proj + cost code) | 2000 A/P |
+| Bill paid (`payBill`) | 2000 A/P | 1000 Checking |
+| Expense (`createExpense`) | 5xxx/6xxx | 1000 Checking or 2500 Card |
+| Use-tax accrual (material purchase, supplier didn't collect) | 5000 COGS-Materials (tax is part of job cost) | 2200 Use Tax Payable |
+| Use-tax remitted | 2200 | 1000 |
+| Correction | reversing entry: swapped lines, `reverses_entry_id` set | |
 
-## Data model (new tables — all cents, all owner-scoped)
+`postJournalEntry` validates: ≥2 lines, each line one-sided, Σdebit === Σcredit, accounts active. Insert entry + lines in ONE transaction.
 
-Single-entity books (SJC Carpentry LLC only), so no `entity_id`.
+## Build sub-phases (one commit each)
 
-- **`accounts`** — chart of accounts. `id, code text, name, type CHECK(asset|liability|equity|income|expense), subtype, is_active, sort_order`. Seed a construction-contractor default COA (checking, A/R, retainage receivable, WIP, A/P, sales-tax payable, retainage payable, owner's equity, contract income, COGS-labor/materials/subs, overhead buckets, etc.) — **CPA to confirm the seed COA.**
-- **`journal_entries`** — `id, entry_date, memo, source_type (manual|invoice|payment|expense|bill|retainer|adjustment), source_id, created_by, created_at`. Header of a balanced transaction.
-- **`journal_lines`** — `id, entry_id FK, account_id FK, debit_cents int, credit_cents int, project_id nullable FK (job costing dim), memo`. CHECK: exactly one of debit/credit non-zero. App-level assert Σdebit=Σcredit per entry.
-- **`vendors`** — `id, name, email, ein_or_ssn (encrypted at rest), is_1099, address, ...`. Distinct from `subs` (a sub may map to a vendor; link by `sub_slug` nullable).
-- **`bills`** + **`bill_lines`** — A/P: vendor bill, due date, status(open|paid), lines → expense/COGS accounts + `project_id` for job costing.
-- **`expenses`** — direct/quick expenses (card/cash) not routed through a bill: `date, vendor_id, account_id, project_id, amount_cents, memo, receipt_file_id` (reuse `storeUpload`/`storeBuffer` + `/api/files/[id]`).
-- **`sales_tax_periods`** (or derive on the fly) — MN sales/use tax accrual per filing period. **CPA to confirm nexus + which line items are taxable** (labor vs. materials treatment in MN construction contracts is nuanced).
-- Posting bridges: when an invoice is **sent** → post A/R + income (+ sales-tax payable if taxable); when **paid** → post cash + clear A/R; retainer collect/apply → retainage accounts. These hooks slot into the existing `lib/actions/money.ts` and `advanceProjectStatus` milestone path.
+### 5.0 — Cents migration + COA/cost-code seed
+- **Migrate to cents:** `invoices.amount` + each `line_items[].amount`, `retainers.collected/applied`, `sub_invoices.amount` (×100 via `scripts/migrate-cents.mjs` — snapshot `db/.cents-snapshot.json`, dry-run/--approve/--undo). Add `-- CENTS` comments in schema.sql; seed.sql values ×100.
+- **Stay dollars (display/estimating, not books):** `projects.contract_value`/`collected_to_date` (marked deprecated — the /today A/R headline goes ledger-derived in 5.8), `project_sections.budget`, `project_selections.price`, `lead_estimates`.
+- **Code updates (grep `amount` + `/100` + `usd(`):** `lib/money.ts` (`usd()` → cents input, or adopt `fmtUsd` from `lib/cost-book-units.ts`), `lib/actions/money.ts` (dollar form inputs ×100 via a `parseDollars`-style helper; `createMilestoneInvoice` drops its cents→dollars conversion), `MoneyPanel.tsx`, `app/client-portal/page.tsx`, `lib/sub-portal.ts` + `SubInvoiceSubmit.tsx`, `app/subs/[slug]/page.tsx` (sub-invoice display), `lib/actions/collections.ts` (demand-letter amounts). `lib/today.ts` A/R headline stays untouched until 5.8.
+- **Verify:** rolled-back SQL spot-checks (a known invoice shows the same $ on MoneyPanel/portal), tsc+build, demand-letter PDF renders correct totals.
 
----
+### 5.1 — Ledger core + /books goes live
+- Tables: `accounts`, `cost_codes`, `journal_entries`, `journal_lines` + seeds.
+- `lib/ledger-types.ts` (client-safe: ACCOUNT_TYPES, entry-form types) · `lib/ledger.ts` (server reads: `getChartOfAccounts`, `getTrialBalance(asOf)`, `getAccountRegister(accountId, range)`, `getJournal(range)`) · `lib/actions/ledger.ts` (`postJournalEntry`, `postReversal(entryId)`, `createAccount`/`archiveAccount`, `createCostCode`).
+- `app/books/page.tsx` + `components/books/BooksClient.tsx` — tabs: **Overview** (cash/A-R/A-P/deposit balances) · **Journal** (list + manual-entry composer) · **Accounts** (COA CRUD + register drill-in). Enable the sidebar "Books" link (currently disabled).
+- **Verify:** rolled-back round-trip — balanced entry posts, unbalanced rejected, reversal nets the register to zero, trial balance nets zero; /books 200 with owner cookie.
 
-## Build sub-phases (dependency-ordered, one commit each)
+### 5.2 — Wire money events + opening balances
+- `lib/posting.ts` (server-only bridge implementing the posting matrix; every function takes a client/tx handle so it joins the caller's transaction).
+- Hooks: `sendInvoice`, `markInvoicePaid`, `collectRetainer`, `applyRetainer`, `createMilestoneInvoice` auto-send — each posts atomically with the status flip. CO-linked invoices → 4100.
+- `scripts/backfill-ledger.mjs` (dry-run/--approve/--undo): opening entries dated to the opening-balance date (CPA question) — paid invoices → income+cash, sent-unpaid → A/R+income, retainer balances → cash+deposit liability, `source_type='opening'`.
+- **Verify:** post-backfill trial balance nets zero and the A/R account equals Σ sent invoices; send+pay an invoice in a rolled-back tx and assert the 4 postings.
 
-- **5.0 — Currency decision + COA seed.** Settle the cents question (above); create `accounts` + seed the contractor COA (CPA-reviewed). No behavior change yet.
-- **5.1 — Double-entry ledger core.** `journal_entries` + `journal_lines`, `lib/ledger.ts` (reads: trial balance, account register) + `lib/actions/ledger.ts` (owner-gated `postJournalEntry` with balance assertion + reversing entries). Manual journal-entry UI on a new `/books` page (currently a disabled placeholder in the sidebar). This is the spine — everything else posts through it.
-- **5.2 — Wire existing money events into the ledger.** Invoice sent/paid, retainer collect/apply post balanced entries via 5.1. Backfill existing invoices/retainers into opening entries (one-time script). Now the ledger reflects reality.
-- **5.3 — Expenses + bills + vendors (A/P).** `vendors`, `bills`/`bill_lines`, `expenses` with receipt upload; each posts to the ledger with a `project_id` dimension. Unlocks job costing.
-- **5.4 — Job costing.** Actuals (ledger lines tagged `project_id`) vs. estimate (`estimates.total`) per project → margin view on the project Money tab; `ai.ask` flags margin erosion. Reuses the estimate figures already in `lib/estimates.ts`.
-- **5.5 — 1099 prep.** Sum vendor payments where `is_1099` over a tax year, threshold flag (**CPA-confirmed threshold**), export worksheet (CSV/PDF via `lib/documents.ts`). **Prep only, not e-file, v1** — with disclaimer.
-- **5.6 — MN sales-tax tracking.** Accrue tax-payable on taxable invoice lines; period summary + filing worksheet. **CPA-confirmed taxability rules.** Prep only, not e-file, v1.
-- **5.7 — Reports.** P&L, Balance Sheet, cash summary, A/R aging — all derived from the ledger (no separate stores). Date-range picker. Render on `/books`; PDF export via `lib/documents.ts`.
-- **5.8 — AI cash flags.** `ai.ask`-driven proactive flags (low cash runway, overdue A/R clusters, margin dips) surfaced on `/today` and `/books`, using the reminder/scheduler engine (`lib/reminders.ts`) for periodic scans.
+### 5.3 — Vendors + A/P + expenses (+ pay gating)
+- Tables: `vendors`, `bills`, `bill_lines`, `expenses`. `lib/ap-types.ts` · `lib/ap.ts` (reads: vendor list w/ YTD paid, open bills, expense feed) · `lib/actions/ap.ts` (`createVendor` [prefill from `subs` + link `sub_slug`; W-9 already in `sub_documents`], `createBill`, `payBill`, `createExpense` w/ receipt via `storeUpload` — all posting through `lib/posting.ts`).
+- **Sub-invoice bridge:** approving a `sub_invoices` row (existing action) auto-creates an open bill (vendor auto-created from the sub if missing), `source_sub_invoice_id` set — idempotent on re-run.
+- **Pay gating:** `payBill` + UI check — a sub-linked vendor with expired/missing COI (`subs.coi_expires_at`) or no W-9 gets a non-blocking warning + confirm; the final-payment prompt mentions the lien waiver.
+- UI: /books **A/P tab** (vendors, open bills, pay flow, quick-expense composer w/ receipt drop); project Money tab gains a "Job costs" list (bills+expenses for that project).
+- **Verify:** rolled-back bill→pay round-trip postings; sub-invoice approve creates exactly one bill on re-run; expense receipt serves via `/api/files/[id]`.
 
-**Deferred within Phase 5 (do NOT build in this pass):** bank connection + auto-reconcile (Plaid), bank rules/auto-categorization, payment processing (Stripe/portal pay → also unblocks 5-pay), A/R aging *dunning automation* (the aging *report* is in 5.7; automated 7/14/21 dunning is deferred), AI-optimized draw schedule (4b).
+### 5.4 — Job costing + WIP
+- `lib/job-costing.ts`: `getJobCostReport(slug)` → per cost code {estimate (from the approved estimate's `estimate_lines`), actual (Σ journal_lines 5xxx w/ project dim), committed (open bills), variance}; `getWipReport()` → per active project {estCost, costToDate, pctComplete, contract (approved estimate total), earned, billed, overUnder}.
+- `components/projects/JobCostPanel.tsx` in the Money tab (actual-vs-estimate bars, committed ghosted); /books **Overview** gains the WIP table.
+- Qwen margin flag via `ai.ask` (AiStream/Suspense pattern — never block SSR on Qwen).
+- **Verify:** hand-computed fixture in a rolled-back tx (known bills/estimate → exact variance + over/under numbers).
 
----
+### 5.5 — Bank reconciliation (manual CSV)
+- Table `bank_statement_lines`. `lib/bank-rec.ts` + `lib/actions/bank-rec.ts`: `importStatementCsv` (hand-rolled CSV parse, no new dep; tolerate common date/amount/desc layouts; preview→confirm; the UNIQUE constraint makes re-import idempotent), `matchLine(lineId, entryId)`, `createEntryFromLine` (unmatched line → expense/deposit composer prefilled; **Qwen suggests account/cost code via `ai.ask` — suggestion only, Joe approves**, per the OS approval principle), `ignoreLine`.
+- Auto-match suggestions: same amount within ±3 days of an unmatched cash-touching entry.
+- UI: /books **Reconcile tab** — import, unmatched queue, per-month "book balance vs statement balance" strip.
+- **Verify:** import a fixture CSV twice → no dupes; match + create paths post correctly; a month closes at $0 difference.
 
-## Reuse (don't rebuild)
+### 5.6 — 1099 prep (CPA-GATED output)
+- `lib/ten99.ts`: `getVendor1099Report(year)` = Σ (bill payments + expenses) per `is_1099` vendor by calendar year of **payment date**; threshold from `app_settings` key `tax.1099_threshold_cents` (default 200000 = $2,000 for 2026 payments — **CPA confirm**).
+- Worksheet CSV + PDF via `lib/documents.ts` (+ `LEGAL_DISCLAIMER`); /books **Taxes tab** section. Prep only — no e-file in v1.
+- **Verify:** fixture vendors crossing/under the threshold; PDF `%PDF-` assert (react-server tsx technique).
 
-- **AI:** `lib/ai.ts` `ai.ask` (free-form Qwen) for cash flags / narratives; deterministic fallback pattern already established.
-- **Docs/PDF:** `lib/documents.ts` (`pdfkit` + `docx`, `LEGAL_DISCLAIMER`, `storeBuffer`) for tax worksheets & reports; `serverExternalPackages:["pdfkit"]` already set. Verify PDFs headless with the documented `NODE_OPTIONS="--conditions=react-server" npx tsx` technique.
-- **Files/receipts:** `lib/upload-store.ts` `storeUpload`/`storeBuffer` + `/api/files/[id]` serve route.
-- **Scheduler:** `lib/reminders.ts` + `sjcos-reminders.timer` for periodic cash/A-R scans (add scans there, as done for COI/warranty/insurance/dunning).
-- **Client-safe types split:** put shared constants/types in a `lib/*-types.ts` with **no db import** (the pg-in-client-bundle gotcha — bit us repeatedly; `import type` for types in client components).
-- **Money events:** hook posting into existing `lib/actions/money.ts` + `createMilestoneInvoice` + `advanceProjectStatus`.
+### 5.7 — MN sales/use tax (CPA-GATED rules)
+- Use-tax capture on `expenses`/`bill_lines` for material purchases (`use_tax_cents`; auto-suggest = rate × amount when flagged "supplier didn't collect"; rate in `app_settings` `tax.mn_use_rate`); accrual posts per the matrix.
+- `lib/sales-tax.ts` `getTaxPeriodSummary(period)` (accrued, remitted, payable balance) + filing worksheet PDF; /books Taxes tab. Prep only.
+- **Verify:** fixture purchase → accrual posting → remittance clears 2200 to zero.
 
----
+### 5.8 — Reports + monthly close
+- `lib/reports.ts`: `getPnL(range, basis)` (accrual = income/COGS/overhead postings by entry_date; cash = derived from cash-account counterpart postings), `getBalanceSheet(asOf)`, `getCashPosition()`, `getArAging()` (current/30/60/90 from sent invoices), `getJobProfitability()`.
+- /books **Reports tab** (date-range picker, cash/accrual toggle, PDF export via `lib/documents.ts`).
+- **Switch the /today A/R headline to ledger-derived** (replace the `contract_value - collected_to_date` query in `lib/today.ts`).
+- Monthly-close checklist: reminders-engine scan (1st of month → emit "Close last month: reconcile bank · review A/R aging · review WIP · use-tax check", deduped via `reminder_log`).
+- **Verify:** P&L/BS tie to the trial balance on fixtures; aging buckets match `daysOverdue`; PDF asserts.
 
-## Open questions for Joe (before / during build)
+### 5.9 — AI cash flags + MCP
+- Scans in `lib/reminders.ts`: cash runway (checking balance ÷ trailing-90-day avg burn < 6 weeks), overdue-A/R cluster, job margin dip (actual+committed > 90% of estimate before late-construction status) → `emit()` flagged notifications; narrative via `ai.ask` with deterministic fallback.
+- /today cash card + /books Overview flags.
+- MCP read tools in `mcp/sjcos-mcp.mjs`: `ledger_snapshot`, `ar_aging`, `job_cost_report(slug)`, `pnl(range)` (curated SELECTs, read-only, no raw SQL — house style).
+- **Verify:** MCP stdio round-trip; scan idempotency (run twice → 1 notification).
 
-1. Currency units: option A (boundary-convert) or B (migrate invoices/retainers to cents)? *(Recommend A first.)*
-2. Cash-basis or accrual books? (MN contractor default is usually cash-basis for tax, but WIP/retainage favor accrual visibility — CPA input.)
-3. Does the CPA want a specific COA structure, or is a standard construction COA a fine starting point?
-4. 1099 & MN sales tax: **prep worksheets only in v1** (Joe/CPA files manually), confirmed? Or is e-file in scope later?
-5. Fiscal year = calendar year? Opening balances as of what date (need a starting trial balance to seed)?
+## Deferred within §8 (do NOT build this epic)
 
----
+Plaid bank feed + auto-reconcile · bank rules/auto-categorization (the 80% target) · payment processing (Stripe / portal pay / payment links) · A/R dunning **automation** (the aging *report* is in 5.8; Day-15 demand / Day-30 lien already exist) · AI-optimized draw schedule (unblocks after 5.9 cash data) · 1099 **e-file** · sales-tax **e-file**.
 
-## Verification approach (per sub-phase)
+## CPA review packet (answer before 5.6/5.7 output ships; COA before 5.1 seed if possible)
 
-- `npx tsc --noEmit` + `npm run build` clean (ProjectTabs/non-active-panel gotcha: verify via build, not curl).
-- **Rolled-back DB round-trips via `~/bin/sjcos-query`** proving: every journal entry balances (Σdebit=Σcredit); invoice-sent/paid posts the correct debits/credits; trial balance nets to zero; job-costing actuals sum correctly; 1099/sales-tax aggregations match hand-computed fixtures.
-- Authed-route smoke test (mint owner cookie: fetch live owner uuid via `~/bin/sjcos-query "SELECT id FROM users WHERE role='owner' LIMIT 1;"`, read `SESSION_SECRET`, jose SignJWT, env vars **before** node).
-- PDF reports/worksheets: assert buffer starts with `%PDF-` via the react-server tsx technique.
-- One commit per sub-phase; push + `stop→build→restart sjcos.service` deploy only after Joe signs off on each.
+1. COA seed sign-off (list above) — anything to add/rename for how you want statements grouped?
+2. Filing basis: cash or accrual? (Books stay accrual internally; reports offer a cash toggle.)
+3. 1099-NEC threshold for payments made in 2026 — $2,000 post-OBBBA? Which vendor types are reportable?
+4. MN contractor taxability: confirm the end-consumer-of-materials model, the use-tax rate(s) to apply, and any taxable-service edge cases (e.g., contracts with retail-sale components).
+5. Opening-balance date + starting trial balance figures.
+6. Fiscal year = calendar year?
+7. Owner draws / equity handling for the LLC.
 
----
+## Verification approach (every sub-phase)
 
-## Sequencing note
-
-5.0 → 5.1 → 5.2 are the critical path (a trustworthy ledger). 5.3–5.4 unlock job costing (high owner value). 5.5–5.6 are the CPA-gated tax pieces — build the data aggregation early but **hold the "file/output" surface until CPA review**. 5.7–5.8 fall out cheaply once the ledger exists. After Phase 5, roadmap → Phase 7 deferred epics (floor designer, task loop, lead intake) + deferred comms (SMS inbox, website push).
+- `npx tsc --noEmit` + `npm run build` clean (ProjectTabs non-active-panel gotcha: verify via build, not curl).
+- Rolled-back DB round-trips via `~/bin/sjcos-query` proving: every journal entry balances; the trial balance nets to zero; posting hooks write the exact debit/credit pairs in the matrix; aggregations (job cost, 1099, tax, aging) match hand-computed fixtures.
+- Authed-route smoke test (live owner uuid via `~/bin/sjcos-query "SELECT id FROM users WHERE role='owner' LIMIT 1;"`, `SESSION_SECRET` from .env.local, jose-minted `sjcos_session` cookie — env vars before `node`).
+- PDFs: assert the buffer starts with `%PDF-`.
+- One commit per sub-phase; push; stop→build→restart `sjcos.service` to deploy.

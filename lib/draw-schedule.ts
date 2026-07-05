@@ -26,7 +26,9 @@ export const DRAW_TRIGGER_STATUSES: { key: string; label: string }[] = [
 ];
 
 /** Default schedule: a deposit up front, then the remaining balance split evenly
- *  across progress draws + a final payment. Owner edits it before generating. */
+ *  across progress draws + a final payment. Each milestone is pre-wired to a
+ *  project stage so it auto-bills as the job advances (owner can change the
+ *  triggers, or set them to Manual, before generating the contract). */
 export function defaultDrawSchedule(depositPct = 10): DrawLine[] {
   const deposit = Math.max(0, Math.min(100, Math.round(depositPct)));
   const remaining = 100 - deposit;
@@ -34,10 +36,10 @@ export function defaultDrawSchedule(depositPct = 10): DrawLine[] {
   const each = Math.round((remaining / 3) * 100) / 100;
   const last = Math.round((remaining - each * 2) * 100) / 100;
   return [
-    { label: "Deposit (on signing)", percent: deposit },
-    { label: "Rough-in complete", percent: each },
-    { label: "Substantial completion", percent: each },
-    { label: "Final / punch-list", percent: last },
+    { label: "Deposit (on signing)", percent: deposit, triggerStatus: "construction_contract" },
+    { label: "Rough-in complete", percent: each, triggerStatus: "construction" },
+    { label: "Substantial completion", percent: each, triggerStatus: "closeout" },
+    { label: "Final / punch-list", percent: last, triggerStatus: "warranty" },
   ];
 }
 

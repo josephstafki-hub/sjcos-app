@@ -120,6 +120,21 @@ export async function generateContract(slug: string, estimateId: number, force =
     }
   }
 
+  // Persist the draw schedule the contract is actually built from, so milestone
+  // auto-billing has a source of truth (advanceProjectStatus only bills from a
+  // stored, non-null draw_schedule). Never clobber a schedule the owner already
+  // edited — only fill it in when none is stored yet.
+  const existing = await queryOne<{ draw_schedule: unknown }>(
+    `SELECT draw_schedule FROM estimates WHERE id = $1`,
+    [estimateId],
+  );
+  if (!parseDrawSchedule(existing?.draw_schedule)) {
+    await query(`UPDATE estimates SET draw_schedule = $1::jsonb WHERE id = $2`, [
+      JSON.stringify(data.drawSchedule),
+      estimateId,
+    ]);
+  }
+
   const fileBase = `${data.projectName} — Contract`;
   const pdf = await renderContractPdf(data);
   const pdfStored = await storeBuffer(pdf, {

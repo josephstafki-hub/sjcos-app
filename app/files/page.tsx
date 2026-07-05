@@ -7,7 +7,7 @@ export default async function FilesPage() {
 
   // hideCmd: the 3-pane fills the viewport; the ⌘K pill would overlap the list.
   return (
-    <Shell breadcrumb="FILES › PROJECTS / 2026 / HENDERSON KITCHEN" hideCmd>
+    <Shell breadcrumb="FILES" hideCmd>
       <FilesClient data={data} />
     </Shell>
   );

@@ -20,22 +20,20 @@ export interface ChatChannel {
   name: string;
   /** Unread count; omitted/0 renders no badge. */
   unread?: number;
+  /** Optional per-channel description (project rooms set this). */
+  description?: string;
 }
 
 export const CHANNELS: ChatChannel[] = [
   { key: "field-daily", name: "# field-daily" },
-  { key: "selections", name: "# selections", unread: 2 },
+  { key: "selections", name: "# selections" },
   { key: "bookkeeping", name: "# bookkeeping" },
   { key: "safety", name: "# safety" },
-  { key: "marketing-queue", name: "# marketing-queue", unread: 3 },
+  { key: "marketing-queue", name: "# marketing-queue" },
 ];
 
-export const ROOMS: ChatChannel[] = [
-  { key: "henderson-kitchen", name: "# henderson-kitchen" },
-  { key: "olson-porch", name: "# olson-porch" },
-  { key: "reyes-bath", name: "# reyes-bath" },
-  { key: "chen-lead", name: "# chen-lead" },
-];
+/** Project-room channel-key convention: one room per active project. */
+export const roomKey = (slug: string) => `room:${slug}`;
 
 export interface DirectMessage {
   /** Channel key for this conversation, e.g. "dm:marco". */
@@ -164,6 +162,7 @@ function buildView(
     key: ch.key,
     name: ch.name,
     description:
+      ch.description ??
       DESCRIPTIONS[ch.key] ??
       "Claude is watching this channel and will flag anything that needs you.",
     participants: participants.slice(0, 6),
@@ -208,8 +207,7 @@ interface DmSubRow {
 }
 
 export async function getChatData(): Promise<ChatData> {
-  const all = [...CHANNELS, ...ROOMS];
-  const [msgRes, readRes, subRes, memberRes] = await Promise.all([
+  const [msgRes, readRes, subRes, memberRes, roomRes] = await Promise.all([
     query<MessageRow>(
       `SELECT channel_key, author_kind, author_name, author_initials, body, created_at
        FROM chat_messages ORDER BY created_at ASC`,
@@ -226,7 +224,22 @@ export async function getChatData(): Promise<ChatData> {
     query<{ channel_key: string; sub_slug: string }>(
       `SELECT channel_key, sub_slug FROM chat_members`,
     ),
+    // Project rooms = one per project with active site work (construction /
+    // closeout), most-progressed first. Replaces the old hardcoded demo rooms.
+    query<{ slug: string; name: string }>(
+      `SELECT slug, name FROM projects
+        WHERE status IN ('construction', 'closeout')
+        ORDER BY progress DESC, name ASC
+        LIMIT 12`,
+    ),
   ]);
+
+  const ROOMS: ChatChannel[] = roomRes.rows.map((p) => ({
+    key: roomKey(p.slug),
+    name: `# ${p.name}`,
+    description: `Project room · ${p.name}`,
+  }));
+  const all = [...CHANNELS, ...ROOMS];
 
   const byChannel = new Map<string, MessageRow[]>();
   for (const r of msgRes.rows) {

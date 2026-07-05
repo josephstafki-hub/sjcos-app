@@ -6,10 +6,9 @@
 //
 // DB-backed (Phase 7-B): the week strip reads schedule_blocks and the daily-log
 // lane reads daily_logs, both scoped to the week containing CURRENT_DATE (so the
-// view always lands on "this week"). The AI conflict note routes through
-// lib/ai.ts — never import a provider here.
+// view always lands on "this week"). The conflict note is computed here from
+// real blocks (deterministic — no AI call, nothing invented).
 
-import { ai } from "./ai";
 import { query } from "./db";
 
 /** Color treatment for a timeblock pill — job (accent), AI-scheduled (ai), or
@@ -92,10 +91,15 @@ interface WeekRow {
 }
 
 /** SQL for the Monday/Friday of the week `offset` weeks from the current one.
- *  `offset` is coerced to a safe integer before interpolation. */
+ *  The strip only shows Mon–Fri, so on Sat/Sun "this week" rolls forward to the
+ *  upcoming week (the finished one isn't useful). `offset` is coerced to a safe
+ *  integer before interpolation. */
 function weekBounds(offset: number) {
   const n = Math.trunc(Number.isFinite(offset) ? offset : 0);
-  const monday = `(date_trunc('week', CURRENT_DATE) + interval '${n} week')`;
+  const monday =
+    `(date_trunc('week', CURRENT_DATE)` +
+    ` + (CASE WHEN extract(isodow FROM CURRENT_DATE) >= 6 THEN interval '1 week' ELSE interval '0' END)` +
+    ` + interval '${n} week')`;
   const friday = `(${monday} + interval '4 day')`;
   return { monday, friday };
 }
@@ -125,7 +129,7 @@ export async function getScheduleData(weekOffset = 0): Promise<ScheduleData> {
     query<WeekRow>(`
       SELECT to_char(${MONDAY}, 'FMIW')           AS weeknum,
              to_char(${MONDAY}, 'FMMon FMDD')     AS range_start,
-             to_char(${FRIDAY}, 'FMDD')           AS range_end`),
+             to_char(${FRIDAY}, 'FMMon FMDD')     AS range_end`),
   ]);
 
   const blocksByDay = new Map<string, ScheduleBlock[]>();
@@ -248,17 +252,45 @@ export async function getScheduleTemplates(): Promise<ScheduleTemplateOption[]> 
   return rows;
 }
 
-/** The AI scheduling-conflict note, streamed separately (see AiStream) so the
- *  week view paints before the model responds. */
+/** The scheduling-conflict note, loaded separately (see AiStream) so the week
+ *  view paints first. Deterministic and grounded in the real week's blocks: a
+ *  conflict is two blocks on the same day claiming the same time slot. Never
+ *  invents names or jobs. */
 export async function getScheduleConflict(): Promise<string> {
-  const { suggestions } = await ai.suggest({
-    kind: "schedule-conflicts",
-    context:
-      "Week site schedule. Brad (paint) is booked for Reyes paint and " +
-      "Henderson punch on the same day; Marco runs tile Mon–Tue.",
-  });
-  return (
-    suggestions[0] ??
-    "Reyes paint collides with Henderson punch this week — Brad is double-booked."
-  );
+  const { monday: MONDAY, friday: FRIDAY } = weekBounds(0);
+  const { rows } = await query<{
+    iso: string;
+    day_label: string;
+    time_label: string;
+    label: string;
+  }>(`
+    SELECT to_char(b.block_date, 'YYYY-MM-DD')    AS iso,
+           to_char(b.block_date, 'Dy FMMon FMDD') AS day_label,
+           b.time_label, b.label
+      FROM schedule_blocks b
+     WHERE b.block_date >= ${MONDAY} AND b.block_date <= ${FRIDAY}
+     ORDER BY b.block_date, b.sort_min`);
+
+  if (rows.length === 0) {
+    return "Nothing on the site schedule this week — no conflicts to flag.";
+  }
+
+  const clashes: string[] = [];
+  const bySlot = new Map<string, string>();
+  for (const r of rows) {
+    const slot = `${r.iso}|${r.time_label.trim().toLowerCase()}`;
+    const prev = bySlot.get(slot);
+    if (prev) {
+      clashes.push(`${r.day_label}: “${prev}” and “${r.label}” are both booked for ${r.time_label}`);
+    } else {
+      bySlot.set(slot, r.label);
+    }
+  }
+  if (clashes.length > 0) {
+    const more = clashes.length > 1 ? ` (+${clashes.length - 1} more)` : "";
+    return `Double-booked — ${clashes[0]}.${more}`;
+  }
+
+  const dayCount = new Set(rows.map((r) => r.iso)).size;
+  return `No conflicts this week — ${rows.length} block${rows.length === 1 ? "" : "s"} across ${dayCount} day${dayCount === 1 ? "" : "s"}, no double-bookings.`;
 }

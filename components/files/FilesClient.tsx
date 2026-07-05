@@ -4,8 +4,6 @@ import { useRef, useState, useTransition } from "react";
 import {
   Search,
   Folder,
-  ChevronDown,
-  ChevronRight,
   ChevronLeft,
   FileText,
   Image as ImageIcon,
@@ -54,21 +52,10 @@ const TYPE_MATCH: Record<string, (f: FileRow) => boolean> = {
 };
 
 export function FilesClient({ data }: { data: FilesData }) {
-  const activeProject = data.projects.find((p) => p.active)?.name;
-  const [folder, setFolder] = useState<FolderSel>({
-    label: activeProject ?? "All files",
-    projectKey: activeProject,
-  });
+  // Default to "All files" so every real file is visible; picking a project in
+  // the rail filters to that project's files.
+  const [folder, setFolder] = useState<FolderSel>({ label: "All files" });
   const [typeFilter, setTypeFilter] = useState("All");
-  // Which year folders are expanded in the tree rail (2026 holds this year's
-  // projects; 2024/2025 expand to an empty state until the Drive mirror lands).
-  const [expandedYears, setExpandedYears] = useState<Set<string>>(new Set(["2026"]));
-  const toggleYear = (y: string) =>
-    setExpandedYears((s) => {
-      const n = new Set(s);
-      n.has(y) ? n.delete(y) : n.add(y);
-      return n;
-    });
   const [view, setView] = useState<"list" | "grid">("list");
   const [summary, setSummary] = useState<string | null>(null);
   const [opened, setOpened] = useState(false);
@@ -135,72 +122,42 @@ export function FilesClient({ data }: { data: FilesData }) {
           <span className="text-[11px] text-ink-4">Search files…</span>
         </Card>
 
-        <RailLabel>Spaces</RailLabel>
-        <div className="flex flex-col gap-0.5">
-          {data.spaces.map((s) => (
-            <button
-              key={s}
-              onClick={() => pickFolder({ label: s })}
-              className={[
-                "flex items-center gap-1.5 rounded px-2 py-1 text-left text-[12px] transition-colors",
-                folder.label === s
-                  ? "bg-accent-soft font-medium text-accent-2"
-                  : "text-ink-2 hover:bg-paper-3",
-              ].join(" ")}
-            >
-              <Folder className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
-              <span className="truncate">{s}</span>
-            </button>
-          ))}
-        </div>
+        <button
+          onClick={() => pickFolder({ label: "All files" })}
+          className={[
+            "flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[12px] transition-colors",
+            !folder.projectKey
+              ? "bg-accent-soft font-medium text-accent-2"
+              : "text-ink-2 hover:bg-paper-3",
+          ].join(" ")}
+        >
+          <Folder className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
+          <span className="truncate">All files</span>
+        </button>
 
         <div className="my-2 border-t border-rule" />
 
         <RailLabel>Projects</RailLabel>
         <div className="flex flex-col gap-0.5">
-          {["2026", "2025", "2024"].map((y) => {
-            const expanded = expandedYears.has(y);
-            // Only the current year holds projects in the seed; prior years
-            // expand to an honest empty state until the Drive mirror lands.
-            const projects = y === "2026" ? data.projects : [];
-            return (
-              <div key={y}>
-                <button
-                  onClick={() => toggleYear(y)}
-                  className="flex w-full items-center gap-1 rounded px-2 py-1 text-left text-[12px] font-medium text-ink transition-colors hover:bg-paper-3"
-                  aria-expanded={expanded}
-                >
-                  {expanded ? (
-                    <ChevronDown className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
-                  ) : (
-                    <ChevronRight className="size-3 flex-none text-ink-4" strokeWidth={1.5} />
-                  )}
-                  <Folder className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
-                  <span>{y}</span>
-                </button>
-                {expanded &&
-                  (projects.length > 0 ? (
-                    projects.map((p) => (
-                      <button
-                        key={p.name}
-                        onClick={() => pickFolder({ label: p.name, projectKey: p.name })}
-                        className={[
-                          "flex w-full items-center gap-1.5 rounded py-1 pl-7 pr-2 text-left text-[12px] transition-colors",
-                          folder.label === p.name
-                            ? "bg-accent-soft font-medium text-accent-2"
-                            : "text-ink-2 hover:bg-paper-3",
-                        ].join(" ")}
-                      >
-                        <Folder className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
-                        <span className="truncate">{p.name}</span>
-                      </button>
-                    ))
-                  ) : (
-                    <div className="py-1 pl-7 pr-2 text-[11px] text-ink-4">No projects.</div>
-                  ))}
-              </div>
-            );
-          })}
+          {data.projects.length > 0 ? (
+            data.projects.map((p) => (
+              <button
+                key={p.slug}
+                onClick={() => pickFolder({ label: p.name, projectKey: p.slug })}
+                className={[
+                  "flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[12px] transition-colors",
+                  folder.projectKey === p.slug
+                    ? "bg-accent-soft font-medium text-accent-2"
+                    : "text-ink-2 hover:bg-paper-3",
+                ].join(" ")}
+              >
+                <Folder className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
+                <span className="truncate">{p.name}</span>
+              </button>
+            ))
+          ) : (
+            <div className="px-2 py-1 text-[11px] text-ink-4">No project files yet.</div>
+          )}
         </div>
       </aside>
 
@@ -215,11 +172,11 @@ export function FilesClient({ data }: { data: FilesData }) {
           <div className="flex items-center gap-2">
             <div className="flex-1">
               <h1 className="font-serif text-[20px] font-semibold text-ink">
-                {folder.projectKey ? `2026 / ${folder.label}` : folder.label}
+                {folder.label}
               </h1>
               <div className="text-[11px] text-ink-3">
                 {visibleFiles.length} item{visibleFiles.length === 1 ? "" : "s"}
-                {folder.projectKey ? " · auto-organized · synced w/ Google Drive" : ""}
+                {folder.projectKey ? " · stored on server" : ""}
               </div>
             </div>
             <button onClick={() => setView("list")} aria-pressed={view === "list"}>
@@ -277,7 +234,7 @@ export function FilesClient({ data }: { data: FilesData }) {
             <div className="max-w-[280px] text-[11px] text-ink-3">
               {folder.projectKey
                 ? `Nothing in ${folder.label} matches “${typeFilter}”.`
-                : `${folder.label} isn’t synced yet — Google Drive mirror is pending.`}
+                : `No files match “${typeFilter}”. Upload one, or generate docs from a project.`}
             </div>
           </div>
         ) : view === "list" ? (

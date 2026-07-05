@@ -1,8 +1,8 @@
-// Files browser data builder. DB-backed (Phase 7-B): the file list + previews
-// read the files table via lib/db (Google-Drive mirror is still deferred). The
-// left-rail project folders + type-filter chips are now live client filters
-// (FilesClient) keyed off projectKey/type; Spaces/year folders filter to an
-// honest empty state until the Drive mirror lands. The 3-pane shape is unchanged.
+// Files browser data builder. DB-backed: the file list + previews read the files
+// table, and the left-rail project folders are built from the real projects that
+// actually have files (keyed by slug, which is how uploads + generated docs are
+// tagged). The type-filter chips are live client filters (FilesClient). No
+// Google-Drive mirror — files are stored on this server.
 
 import type { ChipKind } from "@/components/ui/Chip";
 import { query } from "./db";
@@ -38,28 +38,15 @@ export interface FilePreview {
 }
 
 export interface FilesData {
-  /** Left-rail "Spaces" folders. */
-  spaces: string[];
-  /** Project folders under the expanded 2026 year, with the active one flagged. */
-  projects: { name: string; active: boolean }[];
-  folderTitle: string;
-  folderMeta: string;
+  /** Project folders in the tree rail — real projects that have files, keyed by
+   *  slug (how files.project_key is tagged). */
+  projects: { slug: string; name: string }[];
   /** Type filter chips; the last ("AI tags") is an `ai` chip. */
   typeFilters: string[];
   files: FileRow[];
   selectedId: string;
   previews: Record<string, FilePreview>;
 }
-
-// Static left-rail chrome (not a live filter — see header note).
-const SPACES = ["SOPs", "Subs (COI / W-9)", "Materials & spec sheets", "Insurance & licenses"];
-const PROJECTS = [
-  { name: "Bauer", active: false },
-  { name: "Chen (lead)", active: false },
-  { name: "Henderson", active: true },
-  { name: "Olson", active: false },
-  { name: "Reyes", active: false },
-];
 
 interface FileDbRow {
   id: string;
@@ -76,12 +63,22 @@ interface FileDbRow {
 }
 
 export async function getFilesData(): Promise<FilesData> {
-  const { rows } = await query<FileDbRow>(`
-    SELECT id, project_key, type, name, tag, ai_origin,
-           modified_label, size_label, subtitle, ai_tags, storage_path
-    FROM files
-    ORDER BY sort, name
-  `);
+  const [{ rows }, projectRes] = await Promise.all([
+    query<FileDbRow>(`
+      SELECT id, project_key, type, name, tag, ai_origin,
+             modified_label, size_label, subtitle, ai_tags, storage_path
+      FROM files
+      ORDER BY sort, name
+    `),
+    // Real project folders: every project that has at least one file, newest work
+    // first. project_key on a file is the project slug.
+    query<{ slug: string; name: string }>(`
+      SELECT p.slug, p.name
+        FROM projects p
+       WHERE EXISTS (SELECT 1 FROM files f WHERE f.project_key = p.slug)
+       ORDER BY p.progress DESC, p.name ASC
+    `),
+  ]);
 
   const files: FileRow[] = rows.map((r) => ({
     id: r.id,
@@ -97,17 +94,15 @@ export async function getFilesData(): Promise<FilesData> {
 
   const previews: Record<string, FilePreview> = {};
   for (const r of rows) {
-    // Real uploads live on the server; AI-origin files aren't mirrored; the rest
-    // are the curated showcase shown as Drive-synced.
+    // Real uploads + generated docs live on this server; anything without a blob
+    // is an index/placeholder row.
     const mirror: { label: string; value: string; chip?: ChipKind } = r.storage_path
       ? { label: "Storage", value: "On server ✓", chip: "money" }
-      : r.ai_origin
-        ? { label: "Mirror", value: "Not yet synced" }
-        : { label: "Mirror", value: "G Drive ✓", chip: "money" };
+      : { label: "Storage", value: "No file attached" };
 
     previews[r.id] = {
       name: r.name,
-      subtitle: r.subtitle ?? `2026 / ${r.project_key}`,
+      subtitle: r.subtitle ?? r.project_key,
       thumbLabel: r.name.toUpperCase(),
       meta: [
         { label: "Modified", value: r.modified_label },
@@ -128,10 +123,7 @@ export async function getFilesData(): Promise<FilesData> {
   }
 
   return {
-    spaces: SPACES,
-    projects: PROJECTS,
-    folderTitle: "2026 / Henderson",
-    folderMeta: `${files.length} items · auto-organized · synced w/ Google Drive`,
+    projects: projectRes.rows,
     typeFilters: ["All", "Contracts", "Drawings", "Photos", "Invoices", "AI tags"],
     files,
     selectedId: files[0]?.id ?? "",

@@ -270,14 +270,6 @@ const mockProvider: AiProvider = {
   async suggest(input) {
     // Kind-aware plausible content so each surface gets usable copy from the
     // mock (mirrors how brief() returns a real-looking summary).
-    if (input.kind === "schedule-conflicts") {
-      return {
-        suggestions: [
-          "Reyes paint collides with Henderson punch on May 30 — Brad is " +
-            "double-booked. Want me to slide Reyes paint to Jun 2?",
-        ],
-      };
-    }
     if (input.kind === "project-stage") {
       return {
         suggestions: [

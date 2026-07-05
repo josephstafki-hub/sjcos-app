@@ -12,17 +12,17 @@ interface Msg {
   error?: boolean;
 }
 
-const STARTERS = [
+const DEFAULT_STARTERS = [
   "What should I focus on today?",
   "Draft a follow-up to a stalled lead.",
-  "Summarize where the Henderson kitchen stands.",
   "What COIs expire in the next 30 days?",
 ];
 
 /** Real Ask-{AI_NAME} chat. Each turn calls the askQwen server action (Qwen via
  *  Ollama, mock fallback) and appends the answer. General assistant — no page
- *  context here (the in-page command bar carries that). */
-export function AssistantChat() {
+ *  context here (the in-page command bar carries that). `starters` come from the
+ *  page so chips can name real records. */
+export function AssistantChat({ starters = DEFAULT_STARTERS }: { starters?: string[] }) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [pending, startTransition] = useTransition();
@@ -61,7 +61,7 @@ export function AssistantChat() {
                 Questions about your jobs, leads, money, schedule — grounded in your data.
               </p>
               <div className="mt-3 flex flex-wrap gap-1.5">
-                {STARTERS.map((s) => (
+                {starters.map((s) => (
                   <button
                     key={s}
                     onClick={() => send(s)}

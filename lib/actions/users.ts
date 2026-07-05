@@ -19,8 +19,11 @@ function initialsOf(name: string): string {
 
 const ROLES = new Set(["owner", "sub", "client"]);
 
-/** Provision a login account from Settings → Team & roles. Owner-only. */
-export async function createUser(formData: FormData) {
+export type CreateUserResult = { ok: true } | { ok: false; error: string };
+
+/** Provision a login account from Settings → Team & roles. Owner-only.
+ *  Returns a result so the modal can show validation errors and only close on success. */
+export async function createUser(formData: FormData): Promise<CreateUserResult> {
   await requireRole("owner");
 
   const name = String(formData.get("name") ?? "").trim();
@@ -29,11 +32,12 @@ export async function createUser(formData: FormData) {
   const role = String(formData.get("role") ?? "sub").trim();
   const linkSlug = String(formData.get("link_slug") ?? "").trim() || null;
 
-  if (!name || !email || !password || !ROLES.has(role)) return;
+  if (!name || !email || !password) return { ok: false, error: "Name, email, and a temp password are required." };
+  if (!ROLES.has(role)) return { ok: false, error: "Pick a valid role." };
 
-  // Same email twice would violate the UNIQUE constraint — guard for a clean no-op.
+  // Same email twice would violate the UNIQUE constraint — guard for a clean message.
   const exists = await queryOne(`SELECT 1 FROM users WHERE lower(email) = lower($1)`, [email]);
-  if (exists) return;
+  if (exists) return { ok: false, error: "A user with that email already exists." };
 
   const passwordHash = await hashPassword(password);
   await query(
@@ -43,6 +47,7 @@ export async function createUser(formData: FormData) {
   );
 
   revalidatePath("/settings");
+  return { ok: true };
 }
 
 /** Enable/disable a login. Owner-only; owner rows are protected (no lock-out). */

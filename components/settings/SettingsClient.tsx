@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Plus, X } from "lucide-react";
-import { Avatar, Card, Chip, Eyebrow, Field } from "@/components/ui";
+import { Avatar, Card, Chip, Eyebrow, Field, SubmitButton } from "@/components/ui";
 import type { SettingsData } from "@/lib/settings";
 import { setAiToggle, setNotifyToggle, updateProfile, updateCompanyDocs } from "@/lib/actions/settings";
 import { createUser, setUserActive } from "@/lib/actions/users";
@@ -41,13 +41,40 @@ function TextInput({
   );
 }
 
-/** Owner-only "Add user" button + modal. Submits the createUser Server Action. */
+/** Owner-only "Add user" button + modal. Submits the createUser Server Action via an
+ *  inline async action so the modal closes only after the write succeeds; a failure
+ *  (duplicate email, missing field) keeps the modal open and shows the error. React
+ *  resets the form after every action, so on failure the submitted values are kept
+ *  in state and fed back as defaultValues — the owner's input survives the error. */
 function AddUserButton() {
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [vals, setVals] = useState<Record<string, string>>({});
+  const val = (k: string) => vals[k] ?? "";
+
+  async function handle(formData: FormData) {
+    const res = await createUser(formData);
+    if (res.ok) {
+      setError(null);
+      setVals({});
+      setOpen(false);
+    } else {
+      const kept: Record<string, string> = {};
+      formData.forEach((v, k) => {
+        if (typeof v === "string") kept[k] = v;
+      });
+      setVals(kept);
+      setError(res.error);
+    }
+  }
+
   return (
     <>
       <button
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setError(null);
+          setOpen(true);
+        }}
         className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper transition-colors hover:bg-[#232a1e]"
       >
         <Plus className="size-3" strokeWidth={1.5} />
@@ -70,15 +97,15 @@ function AddUserButton() {
               </button>
             </div>
 
-            <form action={createUser} className="flex flex-col gap-3 p-4">
-              <TextInput name="name" label="Name" required placeholder="Marco Rivas" />
-              <TextInput name="email" label="Email" type="email" required placeholder="marco@…" />
+            <form action={handle} className="flex flex-col gap-3 p-4">
+              <TextInput name="name" label="Name" required placeholder="Marco Rivas" defaultValue={val("name")} />
+              <TextInput name="email" label="Email" type="email" required placeholder="marco@…" defaultValue={val("email")} />
               <div className="flex gap-3">
                 <label className="flex flex-1 flex-col gap-1">
                   <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Role</span>
                   <select
                     name="role"
-                    defaultValue="sub"
+                    defaultValue={vals.role ?? "sub"}
                     className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
                   >
                     <option value="sub">Sub — portal access</option>
@@ -87,10 +114,12 @@ function AddUserButton() {
                   </select>
                 </label>
                 <div className="flex-1">
-                  <TextInput name="link_slug" label="Link slug" placeholder="marco / henderson" />
+                  <TextInput name="link_slug" label="Link slug" placeholder="marco / henderson" defaultValue={val("link_slug")} />
                 </div>
               </div>
-              <TextInput name="password" label="Temp password" type="password" required placeholder="they can change it" />
+              <TextInput name="password" label="Temp password" type="password" required placeholder="they can change it" defaultValue={val("password")} />
+
+              {error && <div className="text-[12px] text-flag">{error}</div>}
 
               <div className="mt-1 flex justify-end gap-2">
                 <button
@@ -100,13 +129,12 @@ function AddUserButton() {
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  onClick={() => setOpen(false)}
+                <SubmitButton
+                  pendingLabel="Adding…"
                   className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
                 >
                   Add user
-                </button>
+                </SubmitButton>
               </div>
             </form>
           </div>

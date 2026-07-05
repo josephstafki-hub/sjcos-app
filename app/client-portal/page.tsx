@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { Bell, FileText, ArrowLeft } from "lucide-react";
+import { Bell, ArrowLeft } from "lucide-react";
 import { Avatar, Card, Chip, Eyebrow } from "@/components/ui";
-import { getClientPortalData, getClientUploads } from "@/lib/client-portal";
+import { buildClientPortalData, getClientUploads } from "@/lib/client-portal";
 import { requireRole } from "@/lib/dal";
-import { getProject } from "@/lib/projects";
+import { getProject, getProjectDailyLogs } from "@/lib/projects";
 import { getClientSelections } from "@/lib/selections";
 import { getProjectMoney, usd } from "@/lib/money";
 import { getProjectScheduleBlocks } from "@/lib/schedule";
@@ -20,12 +20,11 @@ import { getClientWarranty } from "@/lib/warranty";
 export default async function ClientPortalPage() {
   const user = await requireRole("owner", "client");
 
-  // Scope the portal to the logged-in client's project (owners previewing keep
-  // the Henderson showcase). Journal content stays curated for now.
-  const slug = user.role === "client" ? user.linkSlug : "henderson";
+  // Scope the portal to the logged-in client's project. An owner previewing with
+  // no linked project sees the empty portal shell.
+  const slug = user.role === "client" ? user.linkSlug : null;
 
-  const [data, project, money, selections, thread] = await Promise.all([
-    getClientPortalData(),
+  const [project, money, selections, thread, logs] = await Promise.all([
     slug ? getProject(slug) : Promise.resolve(null),
     slug ? getProjectMoney(slug) : Promise.resolve(null),
     slug
@@ -34,7 +33,13 @@ export default async function ClientPortalPage() {
     slug
       ? getPortalThread(portalChannel("client", slug))
       : Promise.resolve([]),
+    slug ? getProjectDailyLogs(slug) : Promise.resolve([]),
   ]);
+
+  // Journal + header built from the real project and its daily logs.
+  const data = buildClientPortalData(project, logs);
+  if (user.role === "client") data.clientInitials = user.initials || data.clientInitials;
+
   const signDocs = slug ? await getClientSignatures(slug) : [];
   const toSignCount = signDocs.filter((d) => d.status === "sent").length;
 
@@ -47,26 +52,24 @@ export default async function ClientPortalPage() {
   const inWarranty = project?.status === "warranty";
   const warranty = inWarranty && slug ? await getClientWarranty(slug) : null;
 
-  if (project) {
-    data.project = project.name;
-    if (user.role === "client") data.clientInitials = user.initials || data.clientInitials;
-  }
+  // Contract value string carries a trailing " contract" — strip it for the row.
+  const contractOnly = project?.contractValue?.replace(/\s*contract$/i, "").trim();
 
-  // Real money: contract from the project, paid/outstanding/retainer from the
-  // invoices + retainer ledger. Falls back to the curated rows when empty.
-  const moneyRows =
-    money && (money.invoices.length > 0 || money.retainer.collected > 0)
-      ? [
-          ...(project?.contractValue
-            ? [{ label: "Contract", value: project.contractValue }]
-            : []),
-          { label: "Paid to date", value: usd(money.paidTotal), good: money.paidTotal > 0 },
-          { label: "Outstanding", value: usd(money.outstanding) },
-          ...(money.retainer.collected > 0
-            ? [{ label: "Retainer on file", value: usd(money.retainer.balance), good: true }]
-            : []),
-        ]
-      : data.money;
+  // Real money from the invoices + retainer ledger. When there are no invoices
+  // yet, show only the contract figure (or nothing) — never demo numbers.
+  const hasMoney = !!money && (money.invoices.length > 0 || money.retainer.collected > 0);
+  const moneyRows = hasMoney
+    ? [
+        ...(contractOnly ? [{ label: "Contract", value: contractOnly }] : []),
+        { label: "Paid to date", value: usd(money!.paidTotal), good: money!.paidTotal > 0 },
+        { label: "Outstanding", value: usd(money!.outstanding) },
+        ...(money!.retainer.collected > 0
+          ? [{ label: "Retainer on file", value: usd(money!.retainer.balance), good: true }]
+          : []),
+      ]
+    : contractOnly
+      ? [{ label: "Contract", value: contractOnly }]
+      : [];
 
   // Invoices the client should see — sent + paid only, never internal drafts.
   const clientInvoices = (money?.invoices ?? []).filter((i) => i.status !== "draft");
@@ -123,28 +126,36 @@ export default async function ClientPortalPage() {
           <div className="my-5 border-t border-rule" />
 
           <div className="flex flex-col gap-5">
-            {data.entries.map((e, i) => (
-              <div key={e.date}>
-                <div className="mb-1 flex items-center gap-1.5">
-                  <span className={`size-2 rounded-full ${i === 0 ? "bg-accent" : "bg-ink-4"}`} />
-                  <span className="font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-ink-3">
-                    {e.date}
-                  </span>
-                </div>
-                <h2 className="mb-1 font-serif text-[15px] font-semibold text-ink">{e.title}</h2>
-                <p className="text-[13.5px] leading-relaxed text-ink">{e.body}</p>
-                {e.photos > 0 && (
-                  <div className="mt-2.5 flex flex-wrap gap-1.5">
-                    {Array.from({ length: e.photos }).map((_, k) => (
-                      <div
-                        key={k}
-                        className="aspect-[4/3] w-[100px] rounded border border-rule bg-paper-3"
-                      />
-                    ))}
+            {data.entries.length === 0 ? (
+              <p className="text-[13.5px] leading-relaxed text-ink-3">
+                No updates posted yet. As work gets logged on site, the latest will show up here.
+              </p>
+            ) : (
+              data.entries.map((e, i) => (
+                <div key={e.date + i}>
+                  <div className="mb-1 flex items-center gap-1.5">
+                    <span className={`size-2 rounded-full ${i === 0 ? "bg-accent" : "bg-ink-4"}`} />
+                    <span className="font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-ink-3">
+                      {e.date}
+                    </span>
                   </div>
-                )}
-              </div>
-            ))}
+                  {e.title && (
+                    <h2 className="mb-1 font-serif text-[15px] font-semibold text-ink">{e.title}</h2>
+                  )}
+                  <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-ink">{e.body}</p>
+                  {e.photos > 0 && (
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                      {Array.from({ length: e.photos }).map((_, k) => (
+                        <div
+                          key={k}
+                          className="aspect-[4/3] w-[100px] rounded border border-rule bg-paper-3"
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
           </div>
         </main>
 
@@ -228,16 +239,20 @@ export default async function ClientPortalPage() {
 
           <div className="my-4 border-t border-rule" />
           <Eyebrow muted>Money</Eyebrow>
-          <div className="mt-2 flex flex-col gap-1.5">
-            {moneyRows.map((m) => (
-              <div key={m.label} className="flex items-center">
-                <span className="flex-1 text-[12px] text-ink-2">{m.label}</span>
-                <span className={`font-mono text-[11px] ${m.good ? "text-money" : "text-ink-3"}`}>
-                  {m.value}
-                </span>
-              </div>
-            ))}
-          </div>
+          {moneyRows.length > 0 ? (
+            <div className="mt-2 flex flex-col gap-1.5">
+              {moneyRows.map((m) => (
+                <div key={m.label} className="flex items-center">
+                  <span className="flex-1 text-[12px] text-ink-2">{m.label}</span>
+                  <span className={`font-mono text-[11px] ${m.good ? "text-money" : "text-ink-3"}`}>
+                    {m.value}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-2 text-[12px] text-ink-3">No invoices yet.</div>
+          )}
 
           {clientInvoices.length > 0 && (
             <div className="mt-3 flex flex-col gap-1.5">
@@ -275,21 +290,6 @@ export default async function ClientPortalPage() {
             thread={thread}
             placeholder="Reply about the project…"
           />
-
-          {data.files.length > 0 && (
-            <>
-              <div className="my-4 border-t border-rule" />
-              <Eyebrow muted>Files shared with you</Eyebrow>
-              <div className="mt-2 flex flex-col gap-1.5">
-                {data.files.map((f) => (
-                  <div key={f} className="flex items-center gap-1.5">
-                    <FileText className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
-                    <span className="text-[12px] text-ink-2">{f}</span>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
 
           <div className="my-4 border-t border-rule" />
           <Eyebrow muted>Share photos or documents</Eyebrow>

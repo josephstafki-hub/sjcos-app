@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { Flag, Image as ImageIcon, Phone, ArrowLeft } from "lucide-react";
-import { AckButton, Avatar, Card, Chip, Eyebrow } from "@/components/ui";
-import { getSubPortalData, getSubLogs, getSubInvoices, getSubAssignment, getSubDocuments } from "@/lib/sub-portal";
+import { Image as ImageIcon, Phone, ArrowLeft } from "lucide-react";
+import { Avatar, Card, Chip, Eyebrow } from "@/components/ui";
+import { getSubLogs, getSubInvoices, getSubAssignment, getSubDocuments, getOwnerPhone } from "@/lib/sub-portal";
 import { SubDocs } from "@/components/sub-portal/SubDocs";
 import { SubSafety } from "@/components/sub-portal/SubSafety";
 import { getSubOrientations } from "@/lib/safety";
@@ -18,29 +18,39 @@ const SUB_INVOICE_CHIP = { submitted: "info", approved: "accent", paid: "money" 
 
 export default async function SubPortalPage() {
   const user = await requireRole("owner", "sub");
-  const data = await getSubPortalData();
 
-  // Scope the portal identity to the logged-in subcontractor (owners previewing
-  // keep the showcase identity). Job content stays curated for now.
-  const slug = user.role === "sub" ? user.linkSlug : "marco";
-  if (user.role === "sub" && user.linkSlug) {
-    const sub = await getSub(user.linkSlug);
-    if (sub) {
-      data.subName = sub.name;
-      data.subInitials = sub.initials;
-      data.trade = sub.tradeLine;
-    }
-  }
+  // Scope the portal to the logged-in subcontractor. An owner previewing with no
+  // linked sub sees the empty portal shell.
+  const slug = user.role === "sub" ? user.linkSlug : null;
+  const sub = slug ? await getSub(slug) : null;
 
-  // Real "Talk to Joe" thread — persists to the sub's DM channel (Joe reads/
-  // replies in /chat).
-  const thread = slug ? await getPortalThread(portalChannel("sub", slug)) : [];
+  const subName = sub?.name ?? "Your account";
+  const subInitials = sub?.initials ?? "—";
+  const trade = sub?.tradeLine ?? "subcontractor";
 
-  // Real, DB-backed sub records: their daily logs + submitted invoices + the
-  // owner-set scope & scheduled dates for their current assignment (6-scope).
-  const [logs, subInvoices, assignment, subDocs, orientations] = slug
-    ? await Promise.all([getSubLogs(slug), getSubInvoices(slug), getSubAssignment(slug), getSubDocuments(slug), getSubOrientations(slug)])
-    : [[], [], null, [], []];
+  // Everything below is real + DB-backed: the "Talk to Joe" thread, the sub's
+  // daily logs, submitted invoices, current assignment scope/dates, documents,
+  // safety orientations, plus the owner's real phone.
+  const [thread, logs, subInvoices, assignment, subDocs, orientations, joePhone] = slug
+    ? await Promise.all([
+        getPortalThread(portalChannel("sub", slug)),
+        getSubLogs(slug),
+        getSubInvoices(slug),
+        getSubAssignment(slug),
+        getSubDocuments(slug),
+        getSubOrientations(slug),
+        getOwnerPhone(),
+      ])
+    : [[], [], [], null, [], [], null];
+
+  // Money summary from the sub's own invoices — awaiting/approved/paid totals.
+  const sumBy = (status: "submitted" | "approved" | "paid") =>
+    subInvoices.filter((i) => i.status === status).reduce((s, i) => s + i.amount, 0);
+  const moneyRows = [
+    ...(sumBy("submitted") > 0 ? [{ label: "Awaiting review", value: usd(sumBy("submitted")) }] : []),
+    ...(sumBy("approved") > 0 ? [{ label: "Approved", value: usd(sumBy("approved")), good: true }] : []),
+    ...(sumBy("paid") > 0 ? [{ label: "Paid", value: usd(sumBy("paid")), good: true }] : []),
+  ];
 
   return (
     <div className="flex h-screen flex-col bg-paper">
@@ -48,7 +58,8 @@ export default async function SubPortalPage() {
       <header className="flex h-[50px] flex-none items-center gap-3 border-b border-rule bg-paper-2 px-7">
         <span className="font-serif text-[15px] font-semibold text-accent-2">SJ Carpentry</span>
         <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
-          Sub portal · {data.subName} · {data.trade}
+          Sub portal · {subName}
+          {sub ? ` · ${trade}` : ""}
         </span>
         <div className="flex-1" />
         {user.role === "owner" && (
@@ -60,22 +71,25 @@ export default async function SubPortalPage() {
             Return to SJC OS
           </Link>
         )}
-        <Chip kind="money">COI current</Chip>
-        <Avatar initials={data.subInitials} size="sm" />
+        {sub &&
+          (sub.coiStatus === "expiring" ? (
+            <Chip kind="flag">COI expiring</Chip>
+          ) : (
+            <Chip kind="money">COI current</Chip>
+          ))}
+        <Avatar initials={subInitials} size="sm" />
       </header>
 
       <main className="min-h-0 flex-1 overflow-y-auto px-8 pb-12 pt-6">
-        <Eyebrow>Mon · May 25 · job 1 of 1</Eyebrow>
+        <Eyebrow>{assignment ? "Current job" : "Sub portal"}</Eyebrow>
         <h1 className="mt-1 font-serif text-[30px] font-medium leading-none text-accent-2">
-          Today: {data.job}
+          {assignment ? assignment.projectName : "No job assigned yet"}
         </h1>
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {data.jobChips.map((c) => (
-            <Chip key={c.label} kind={c.kind} dot={c.dot}>
-              {c.label}
-            </Chip>
-          ))}
-        </div>
+        {!assignment && (
+          <p className="mt-2 text-[13px] text-ink-3">
+            When Joe assigns you to a job, its scope and schedule show up here.
+          </p>
+        )}
 
         <div className="mt-4 grid grid-cols-1 gap-3.5 lg:grid-cols-[1.4fr_1fr]">
           {/* left column */}
@@ -102,43 +116,6 @@ export default async function SubPortalPage() {
                 )}
               </Card>
             )}
-
-            <Card className="p-3.5">
-              <h2 className="mb-2 font-serif text-[15px] font-semibold text-ink">
-                Scope today · per agreement
-              </h2>
-              <div className="flex flex-col gap-1.5">
-                {data.scope.map((s) => (
-                  <div key={s} className="flex items-start gap-2">
-                    <span className="mt-0.5 size-3.5 flex-none rounded-[3px] border border-ink-4" />
-                    <span className="text-[13px] text-ink">{s}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="my-3 border-t border-dashed border-rule" />
-              <Eyebrow muted>Materials on site</Eyebrow>
-              <div className="mt-2 flex flex-col gap-1.5">
-                {data.materials.map((m) => (
-                  <div key={m.label} className="flex items-center gap-2">
-                    <span className="flex-1 text-[12px] text-ink-2">{m.label}</span>
-                    {m.verified && <Chip kind="money">verified</Chip>}
-                  </div>
-                ))}
-              </div>
-            </Card>
-
-            <Card kind="flag" className="p-3">
-              <div className="flex items-start gap-2">
-                <Flag className="mt-0.5 size-3.5 flex-none text-flag" strokeWidth={1.5} />
-                <div className="flex-1">
-                  <div className="font-serif text-[13px] font-semibold text-flag">
-                    {data.watchout.title}
-                  </div>
-                  <div className="mt-0.5 text-[11px] text-ink-2">{data.watchout.detail}</div>
-                </div>
-                <AckButton variant="outline" label="Photo from Joe" ackLabel="Requested" />
-              </div>
-            </Card>
 
             <Card className="p-3.5">
               <h2 className="mb-2 font-serif text-[15px] font-semibold text-ink">Log your day</h2>
@@ -174,16 +151,20 @@ export default async function SubPortalPage() {
           <div className="flex flex-col gap-3">
             <Card className="p-3">
               <Eyebrow muted>Money</Eyebrow>
-              <div className="mt-2 flex flex-col gap-1.5">
-                {data.money.map((m) => (
-                  <div key={m.label} className="flex items-center">
-                    <span className="flex-1 text-[12px] text-ink-2">{m.label}</span>
-                    <span className={`font-mono text-[11px] ${m.good ? "text-money" : "text-ink-3"}`}>
-                      {m.value}
-                    </span>
-                  </div>
-                ))}
-              </div>
+              {moneyRows.length > 0 ? (
+                <div className="mt-2 flex flex-col gap-1.5">
+                  {moneyRows.map((m) => (
+                    <div key={m.label} className="flex items-center">
+                      <span className="flex-1 text-[12px] text-ink-2">{m.label}</span>
+                      <span className={`font-mono text-[11px] ${m.good ? "text-money" : "text-ink-3"}`}>
+                        {m.value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-2 text-[12px] text-ink-3">No invoices submitted yet.</div>
+              )}
               {subInvoices.length > 0 && (
                 <div className="mt-3 border-t border-rule pt-2.5">
                   <Eyebrow muted>Your invoices</Eyebrow>
@@ -223,10 +204,12 @@ export default async function SubPortalPage() {
                 thread={thread}
                 placeholder="Message Joe about today…"
               />
-              <div className="mt-2 flex items-center gap-1.5 text-ink-3">
-                <Phone className="size-3" strokeWidth={1.5} />
-                <span className="font-mono text-[11px]">{data.joePhone}</span>
-              </div>
+              {joePhone && (
+                <div className="mt-2 flex items-center gap-1.5 text-ink-3">
+                  <Phone className="size-3" strokeWidth={1.5} />
+                  <span className="font-mono text-[11px]">{joePhone}</span>
+                </div>
+              )}
             </Card>
           </div>
         </div>

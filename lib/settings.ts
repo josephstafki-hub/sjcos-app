@@ -121,7 +121,9 @@ export async function getSettingsData(): Promise<SettingsData> {
   const name = me?.name ?? get("profile.name", "Joe Stafki");
   const email = me?.email ?? get("profile.email", "josephstafki@sjcarpentryllc.com");
   const company = get("profile.company", "SJ Carpentry LLC");
-  const phone = get("profile.phone", "(612) 555-0117");
+  // No fake fallback number — stays empty until Joe saves his real cell
+  // (this value feeds SMS-in later, so a placeholder here is worse than blank).
+  const phone = get("profile.phone");
 
   const aiProvider = process.env.AI_PROVIDER ?? "mock";
   const aiModel = process.env.OLLAMA_MODEL ?? "qwen2.5:7b-instruct";

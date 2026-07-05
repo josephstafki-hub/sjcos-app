@@ -108,12 +108,14 @@ export default async function SubDetailPage({
           {sub.rate.note && <div className="mt-1.5 text-[11px] text-ink-3">{sub.rate.note}</div>}
         </Card>
 
-        <Card kind="ai" className="p-2.5">
-          <div className="flex items-start gap-2">
-            <Sparkles className="mt-0.5 size-3 flex-none text-ai-2" strokeWidth={1.5} />
-            <span className="text-[11px] leading-snug text-ai-2">{sub.taxNote}</span>
-          </div>
-        </Card>
+        {sub.taxNote && (
+          <Card kind="ai" className="p-2.5">
+            <div className="flex items-start gap-2">
+              <Sparkles className="mt-0.5 size-3 flex-none text-ai-2" strokeWidth={1.5} />
+              <span className="text-[11px] leading-snug text-ai-2">{sub.taxNote}</span>
+            </div>
+          </Card>
+        )}
       </div>
     </div>
   );
@@ -243,12 +245,14 @@ export default async function SubDetailPage({
         </div>
         {sub.rate.note && <div className="mt-2 text-[12px] text-ink-3">{sub.rate.note}</div>}
       </Card>
-      <Card kind="ai" className="p-3">
-        <div className="flex items-start gap-2">
-          <Sparkles className="mt-0.5 size-3.5 flex-none text-ai-2" strokeWidth={1.5} />
-          <span className="text-[12px] leading-snug text-ai-2">{sub.taxNote}</span>
-        </div>
-      </Card>
+      {sub.taxNote && (
+        <Card kind="ai" className="p-3">
+          <div className="flex items-start gap-2">
+            <Sparkles className="mt-0.5 size-3.5 flex-none text-ai-2" strokeWidth={1.5} />
+            <span className="text-[12px] leading-snug text-ai-2">{sub.taxNote}</span>
+          </div>
+        </Card>
+      )}
     </div>
   );
 

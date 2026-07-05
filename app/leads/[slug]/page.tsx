@@ -5,12 +5,13 @@ import { Sparkles, FileText } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
 import { Card, Chip, Avatar, Eyebrow } from "@/components/ui";
 import { LeadTabs } from "@/components/leads/LeadTabs";
-import { getLead, STAGES, stageIndex, stageLabel } from "@/lib/leads";
+import { getLead, STAGES, stageIndex, stageLabel, suggestedProjectName } from "@/lib/leads";
 import { getLeadScore } from "@/lib/intake";
 import { leadContext } from "@/lib/page-context";
 import { getLeadActivity, type LeadActivityKind } from "@/lib/lead-activity";
-import { advanceLeadStage, convertLeadToProject, markLeadLost, reopenLead } from "@/lib/actions/leads";
+import { advanceLeadStage, markLeadLost, reopenLead } from "@/lib/actions/leads";
 import { DeleteLeadButton } from "@/components/leads/DeleteLeadButton";
+import { ConvertLeadButton } from "@/components/leads/ConvertLeadButton";
 import { LeadContact } from "@/components/leads/LeadContact";
 import { ThankReferrerButton } from "@/components/leads/ThankReferrerButton";
 import { LeadPhotos } from "@/components/leads/LeadPhotos";
@@ -45,11 +46,6 @@ export default async function LeadDetailPage({
   async function moveToNextStage() {
     "use server";
     await advanceLeadStage(slug);
-  }
-
-  async function convertToProject() {
-    "use server";
-    await convertLeadToProject(slug);
   }
 
   async function markLost() {
@@ -332,14 +328,10 @@ export default async function LeadDetailPage({
                 </button>
               </form>
             ) : (
-              <form action={convertToProject}>
-                <button
-                  type="submit"
-                  className="rounded-md border border-accent bg-accent px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-accent-2"
-                >
-                  Convert to project
-                </button>
-              </form>
+              <ConvertLeadButton
+                slug={lead.slug}
+                suggestedName={suggestedProjectName(lead.name, lead.scope)}
+              />
             )}
             {!isLost && !lead.projectSlug && (
               <form action={markLost}>

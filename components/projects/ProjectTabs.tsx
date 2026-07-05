@@ -44,14 +44,15 @@ export function ProjectTabs({
 }) {
   const initial = stageTab ? Math.max(0, TAB_LABELS.indexOf(stageTab)) : 0;
   const [active, setActive] = useState(initial);
-  const label = TAB_LABELS[active];
-  const content = panels[label];
 
   function goToTab(target: string) {
     const i = TAB_LABELS.indexOf(target);
     if (i >= 0) setActive(i);
   }
 
+  // Every panel stays mounted (hidden when inactive) rather than swapping the
+  // subtree on tab change — remounting made the first click after a switch land
+  // on a node React was replacing, so it was silently lost.
   return (
     <TabNavContext.Provider value={goToTab}>
       {header}
@@ -59,12 +60,19 @@ export function ProjectTabs({
         <Tabs tabs={TAB_LABELS} active={active} onSelect={setActive} />
       </div>
       <div className="mx-auto max-w-[1200px] px-7 py-5">
-        {content ?? (
-          <Card kind="dashed" className="p-8 text-center">
-            <div className="font-serif text-[16px] font-semibold text-ink-2">{label}</div>
-            <div className="mt-1 text-[12px] text-ink-3">This tab arrives in a later phase.</div>
-          </Card>
-        )}
+        {TAB_LABELS.map((label, i) => (
+          <div key={label} hidden={i !== active}>
+            {panels[label] ??
+              (i === active ? (
+                <Card kind="dashed" className="p-8 text-center">
+                  <div className="font-serif text-[16px] font-semibold text-ink-2">{label}</div>
+                  <div className="mt-1 text-[12px] text-ink-3">
+                    This tab arrives in a later phase.
+                  </div>
+                </Card>
+              ) : null)}
+          </div>
+        ))}
       </div>
     </TabNavContext.Provider>
   );

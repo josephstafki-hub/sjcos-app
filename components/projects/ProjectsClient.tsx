@@ -55,10 +55,14 @@ export function ProjectsClient({ groups }: { groups: ProjectGroup[] }) {
                 <Card className="flex items-center gap-3 p-3.5 transition-colors hover:bg-paper-2">
                   <div className="size-10 flex-none rounded border-[1.5px] border-accent bg-accent-soft" />
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-serif text-[16px] font-semibold text-ink">{p.name}</span>
-                      <Chip kind={g.chip} dot>
-                        {p.stage}
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span className="flex-none font-serif text-[16px] font-semibold text-ink">
+                        {p.name}
+                      </span>
+                      {/* long AI stage labels truncate instead of overflowing
+                          into the billed column */}
+                      <Chip kind={g.chip} dot className="min-w-0 overflow-hidden">
+                        <span className="truncate">{p.stage}</span>
                       </Chip>
                     </div>
                     <div className="mt-0.5 text-[11px] text-ink-3">{p.sub}</div>

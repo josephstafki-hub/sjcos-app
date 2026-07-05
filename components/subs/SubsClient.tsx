@@ -84,7 +84,11 @@ function SubGridCard({ sub: s }: { sub: SubCard }) {
           ) : (
             <Chip kind="ghost">no open jobs</Chip>
           )}
-          {expiring ? (
+          {!s.coiLabel ? (
+            <Chip kind="flag" dot>
+              COI missing
+            </Chip>
+          ) : expiring ? (
             <Chip kind="flag" dot>
               COI expires {s.coiLabel}
             </Chip>

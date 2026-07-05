@@ -357,10 +357,19 @@ function displayName(raw: string): string {
   return raw.trim();
 }
 
+/** Bulk mail that never needs a personal reply — Gmail's promotions/social/
+ *  forums categories and no-reply senders. Kept out of "Needs reply" so promos
+ *  (Home Depot etc.) don't get flagged as waiting on Joe. */
+function isBulk(r: RawGmailThread): boolean {
+  if (r.category === "promotions" || r.category === "social" || r.category === "forums") return true;
+  return /\b(no-?reply|do-?not-?reply)\b|^(noreply|donotreply)/i.test(r.fromEmail);
+}
+
 function viewOf(r: RawGmailThread): ThreadStatus {
   if (r.snoozed) return "snoozed";
   if (!r.inInbox) return "done";
   if (r.outbound) return "awaiting_them";
+  if (isBulk(r)) return "done";
   return "needs_reply";
 }
 

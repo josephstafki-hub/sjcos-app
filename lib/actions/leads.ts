@@ -9,7 +9,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
-import { STAGES, ALL_STAGES, stageLabel } from "@/lib/leads";
+import { STAGES, ALL_STAGES, stageLabel, suggestedProjectName, formatMoneyish } from "@/lib/leads";
 import { logLeadActivity } from "@/lib/lead-activity";
 import { scoreLead } from "@/lib/intake";
 import { emit } from "@/lib/notify";
@@ -341,11 +341,13 @@ export async function sendEstimate(slug: string): Promise<{ ok: boolean; error?:
   if (!est) return { ok: false, error: "Draft an estimate first." };
 
   const first = lead.name.split(/\s+/)[0];
-  const lines = (est.line_items ?? []).map((l) => `  • ${l.label}: ${l.value}`).join("\n");
+  const lines = (est.line_items ?? [])
+    .map((l) => `  • ${l.label}: ${formatMoneyish(l.value)}`)
+    .join("\n");
   const body =
     `Hi ${first},\n\nThanks for the opportunity. Here's a Phase 1 rough estimate based on ` +
     `what we've discussed — these are ballpark ranges to confirm we're in the right neighborhood ` +
-    `before we firm up scope and selections.\n\n${lines}\n\nRough total: ${est.total}\n\n` +
+    `before we firm up scope and selections.\n\n${lines}\n\nRough total: ${formatMoneyish(est.total)}\n\n` +
     `Happy to walk through any of this. Once you're comfortable with the range, the next step is a ` +
     `pre-construction agreement and detailed scope.\n\nBest,\nJoe\nSJ Carpentry`;
 
@@ -367,8 +369,9 @@ export async function sendEstimate(slug: string): Promise<{ ok: boolean; error?:
 
 /** Convert a (signed) lead into a project: create a pre-construction project
  *  linked back to the lead, then open it. Idempotent — re-running opens the
- *  existing project. Owner-gated. */
-export async function convertLeadToProject(slug: string) {
+ *  existing project. Owner-gated. `nameInput` is the owner-confirmed project
+ *  name from the convert dialog; falls back to the suggested-name heuristic. */
+export async function convertLeadToProject(slug: string, nameInput?: string) {
   await requireRole("owner");
   const lead = await queryOne<{
     id: string;
@@ -396,11 +399,8 @@ export async function convertLeadToProject(slug: string) {
   );
   const address = addr?.answer?.trim() || lead.scope_city || null;
 
-  // Name the project "<LastName> · <scope head>", e.g. "Chen · Full kitchen reno".
-  const words = lead.name.replace(/\([^)]*\)/g, "").trim().split(/\s+/).filter(Boolean);
-  const lastName = words[words.length - 1] ?? lead.name;
-  const scopeHead = lead.scope.split("·")[0].trim() || lead.scope;
-  const projectName = `${lastName} · ${scopeHead}`.slice(0, 80);
+  const projectName =
+    (nameInput ?? "").trim().slice(0, 80) || suggestedProjectName(lead.name, lead.scope);
 
   // Unique project slug.
   const base = slugify(projectName);

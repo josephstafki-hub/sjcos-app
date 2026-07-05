@@ -92,9 +92,11 @@ export async function getWarrantyData(): Promise<WarrantyData> {
              flag
       FROM warranty_projects
       ORDER BY closed_at DESC`),
-    query<{ project: string; client: string; closed: string }>(`
-      SELECT name AS project, COALESCE(NULLIF(client_name, ''), 'Client') AS client,
-             to_char(updated_at, 'FMMon FMDD YYYY') AS closed
+    query<{ project: string; client: string | null; closed: string | null }>(`
+      SELECT name AS project,
+             NULLIF(NULLIF(client_name, ''), name)  AS client,
+             CASE WHEN updated_at::date > created_at::date
+                  THEN to_char(updated_at, 'FMMon FMDD YYYY') END AS closed
       FROM projects WHERE status = 'warranty' ORDER BY updated_at DESC`),
   ]);
 
@@ -129,9 +131,16 @@ export async function getWarrantyData(): Promise<WarrantyData> {
     seen.add(r.project);
     projects.push({ project: r.project, client: r.client, closed: r.closed, warranty: r.warranty, flag: r.flag ?? undefined });
   }
+  // Imported historical folders have no real closed date (created = updated at
+  // import time) and are named after the client — don't fabricate either field.
   for (const r of liveProjectsRes.rows) {
     if (seen.has(r.project)) continue;
-    projects.push({ project: r.project, client: r.client, closed: r.closed, warranty: "Under warranty" });
+    projects.push({
+      project: r.project,
+      client: r.client ?? "Historical project",
+      closed: r.closed ?? "Unknown",
+      warranty: r.closed ? "Under warranty" : "Imported record — closed date not on file",
+    });
   }
 
   const overdue = claims.filter((c) => c.dot === "flag").length;

@@ -40,6 +40,26 @@ export function stageLabel(stage: LeadStage): string {
   return ALL_STAGES.find((s) => s.key === stage)?.label ?? stage;
 }
 
+/** Normalize a model-drafted money string for display: "4000-5000" →
+ *  "$4,000–$5,000", "12000" → "$12,000". Already-formatted values and
+ *  non-amount text pass through untouched. */
+export function formatMoneyish(v: string): string {
+  return v
+    .trim()
+    .replace(/\$?\b(\d{4,7})\b(?!,|\.\d)/g, (_m, n: string) => `$${Number(n).toLocaleString("en-US")}`)
+    .replace(/(\$[\d,]+)\s*[-–]\s*(?=\$?\d)/g, "$1–");
+}
+
+/** Suggested project name for a converting lead — "<LastName> · <scope head>",
+ *  e.g. "Chen · Full kitchen reno". A best-guess prefill only: the owner
+ *  confirms/edits it in the convert dialog before the project is created. */
+export function suggestedProjectName(leadName: string, scope: string): string {
+  const words = leadName.replace(/\([^)]*\)/g, "").trim().split(/\s+/).filter(Boolean);
+  const lastName = words[words.length - 1] || leadName;
+  const scopeHead = (scope.split(/[·,.]/)[0] ?? "").trim() || scope.trim();
+  return [lastName, scopeHead].filter(Boolean).join(" · ").slice(0, 80);
+}
+
 /** Lead temperature, derived server-side so the list filter chips work without
  *  pulling this server-coupled module into a client bundle. */
 export type LeadTemperature = "hot" | "cooling" | "declined" | "active";
@@ -324,8 +344,8 @@ export async function getLead(slug: string): Promise<LeadDetail | null> {
             ? `Sent ${estRow.sent_age != null ? relativeAge(estRow.sent_age) : ""}`.trim()
             : "Draft",
         notes: estRow.notes,
-        lines: estRow.line_items ?? [],
-        total: estRow.total,
+        lines: (estRow.line_items ?? []).map((l) => ({ ...l, value: formatMoneyish(l.value) })),
+        total: formatMoneyish(estRow.total),
       }
     : null;
 

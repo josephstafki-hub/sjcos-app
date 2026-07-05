@@ -234,12 +234,17 @@ export async function getSub(slug: string): Promise<SubDetail | null> {
     paperwork:
       curated.paperwork ??
       [
-        { label: "COI · GL + WC", value: card.coiLabel, ok: card.coiStatus === "current" },
+        {
+          label: "COI · GL + WC",
+          value: card.coiLabel || "missing",
+          ok: card.coiStatus === "current" && !!card.coiLabel,
+        },
         { label: "W-9", value: "on file", ok: true },
         { label: "Sub agreement", value: "—", ok: false },
       ],
     rate: curated.rate ?? { amount, unit, note: "" },
-    taxNote: curated.taxNote ?? "1099 reminder · file by Jan 31",
+    // No fabricated 1099 reminder — the note only shows when curated/real.
+    taxNote: curated.taxNote ?? "",
     notes: rows[0].notes,
   };
 }

@@ -98,10 +98,10 @@ async function billMilestonesForStatus(slug: string, newStatus: string) {
   if (due.length === 0) return;
 
   const autoSend = await autoSendMilestone();
-  const totalDollars = (est.total ?? 0) / 100;
+  const totalCents = est.total ?? 0; // estimates.total is already cents
   let billed = 0;
   for (const l of due) {
-    const amount = Math.round((totalDollars * l.percent) / 100);
+    const amount = Math.round((totalCents * l.percent) / 100); // draw % of total, in cents
     const res = await createMilestoneInvoice(slug, { milestone: l.label, amount, autoSend });
     if (res.ok) {
       l.billed = true;

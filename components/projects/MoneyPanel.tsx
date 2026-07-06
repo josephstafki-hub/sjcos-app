@@ -15,11 +15,12 @@ import {
   applyRetainer,
 } from "@/lib/actions/money";
 import { generateDemandLetter, generateLienPackage } from "@/lib/actions/collections";
+// Money helpers from the db-free cost-book-units module (safe in the client
+// bundle — NOT lib/money, which imports pg). Amounts are CENTS everywhere; the
+// edit/retainer forms convert typed dollars → cents before calling the actions.
+import { fmtUsd, dollarsToCents, centsToInput } from "@/lib/cost-book-units";
 
-// Local dollar formatter — NOT imported from lib/money (that module imports pg,
-// which must never reach the client bundle). See pg-in-client-bundle gotcha.
-const fmt = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
-const num = (s: string) => Math.max(0, Math.floor(Number(s.replace(/[$,\s]/g, "")) || 0));
+const fmt = (cents: number) => fmtUsd(cents);
 
 const STATUS_CHIP: Record<InvoiceStatus, ChipKind> = {
   draft: "ghost",
@@ -236,7 +237,7 @@ function RetainerForm({
       className="mt-2 flex items-center gap-1.5"
       onSubmit={(e) => {
         e.preventDefault();
-        const amt = Number(v.replace(/[^\d.]/g, ""));
+        const amt = dollarsToCents(v); // typed dollars → cents
         if (amt > 0) {
           onSubmit(amt);
           setV("");
@@ -365,11 +366,12 @@ function EditInvoiceModal({
   const [milestone, setMilestone] = useState(invoice.milestone);
   const [lines, setLines] = useState<EditLine[]>(
     invoice.lines.length
-      ? invoice.lines.map((l) => ({ label: l.label, amount: l.amount ? String(l.amount) : "" }))
+      ? invoice.lines.map((l) => ({ label: l.label, amount: l.amount ? centsToInput(l.amount) : "" }))
       : [{ label: "", amount: "" }],
   );
 
-  const total = lines.reduce((s, l) => s + num(l.amount), 0);
+  // Inputs hold typed dollars; the total (and the saved lines) are cents.
+  const total = lines.reduce((s, l) => s + dollarsToCents(l.amount), 0);
 
   function setLine(i: number, patch: Partial<EditLine>) {
     setLines((prev) => prev.map((l, k) => (k === i ? { ...l, ...patch } : l)));
@@ -383,7 +385,7 @@ function EditInvoiceModal({
 
   function save() {
     const cleaned: InvoiceLine[] = lines
-      .map((l) => ({ label: l.label.trim(), amount: num(l.amount) }))
+      .map((l) => ({ label: l.label.trim(), amount: dollarsToCents(l.amount) }))
       .filter((l) => l.label !== "" || l.amount > 0);
     onSave(milestone, cleaned);
   }

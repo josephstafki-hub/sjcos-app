@@ -17,7 +17,9 @@ import {
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
 
-const usd = (n: number) => `$${Math.round(n || 0).toLocaleString("en-US")}`;
+// Invoice amount is CENTS (Phase 5.0).
+const usd = (cents: number) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format((cents || 0) / 100);
 
 /** Owner: generate a past-due demand letter for an overdue invoice; optionally
  *  email it to the client. Stored in the project Files. */

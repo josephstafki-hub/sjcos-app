@@ -1,9 +1,11 @@
 "use server";
 
 // Money write paths (Review-round-3 S5A). Owner-gated invoices + retainers.
-// Reads stay in lib/money.ts. Invoice line items are drafted by Qwen (ai.estimate)
-// and coerced to firm integer dollars. Sending an invoice emails the client via
-// Gmail and emits a MONEY notification; paying one emits another.
+// Reads stay in lib/money.ts. Amounts are integer CENTS everywhere (Phase 5.0):
+// the client (MoneyPanel) converts typed dollars → cents at the action boundary,
+// Qwen-drafted dollar figures are ×100'd here, and createMilestoneInvoice takes
+// cents from its caller. Sending an invoice emails the client via Gmail and emits
+// a MONEY notification; paying one emits another.
 
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
@@ -15,11 +17,11 @@ import { sendNewEmailAction } from "@/lib/actions/inbox";
 
 type Result = { ok: boolean; error?: string };
 
-/** Pull the first dollar figure out of a display value, e.g.
- *  "$3,000 – $4,000" → 3000, "$12,400" → 12400. 0 when none found. */
-function parseAmount(value: string): number {
+/** Pull the first dollar figure out of a display value and return CENTS, e.g.
+ *  "$3,000 – $4,000" → 300000, "$12,400" → 1240000. 0 when none found. */
+function parseAmountCents(value: string): number {
   const m = value.replace(/,/g, "").match(/\d+(?:\.\d+)?/);
-  return m ? Math.round(Number(m[0])) : 0;
+  return m ? Math.round(Number(m[0]) * 100) : 0;
 }
 
 async function projectBySlug(slug: string) {
@@ -29,13 +31,13 @@ async function projectBySlug(slug: string) {
   );
 }
 
-/** Clean a list of line items: trim labels, floor amounts to whole non-negative
- *  dollars, drop fully-blank rows. */
+/** Clean a list of line items: trim labels, round amounts to whole non-negative
+ *  CENTS (the client already converted typed dollars → cents), drop blank rows. */
 function sanitizeLines(raw: { label: string; amount: number | string }[]): InvoiceLine[] {
   return raw
     .map((l) => ({
       label: String(l.label ?? "").trim(),
-      amount: Math.max(0, Math.floor(Number(String(l.amount).replace(/[$,\s]/g, "")) || 0)),
+      amount: Math.max(0, Math.round(Number(String(l.amount).replace(/[$,\s]/g, "")) || 0)),
     }))
     .filter((l) => l.label !== "" || l.amount > 0);
 }
@@ -65,7 +67,7 @@ export async function createInvoice(
           `${input.notes ?? ""}. Produce 2–5 invoice line items for this draw with ` +
           `FIRM single dollar amounts (not ranges).`.trim(),
       });
-      lines = est.lines.map((l) => ({ label: l.label, amount: parseAmount(l.value) }));
+      lines = est.lines.map((l) => ({ label: l.label, amount: parseAmountCents(l.value) }));
     } catch {
       lines = [{ label: milestone, amount: 0 }];
     }
@@ -88,9 +90,9 @@ export async function createInvoice(
   return { ok: true };
 }
 
-/** Create a single-line invoice for a fixed milestone amount and optionally send
- *  it (7-inv milestone automation). Used by advanceProjectStatus when a project
- *  reaches a status that bills a draw. Returns whether it was sent. */
+/** Create a single-line invoice for a fixed milestone amount (in CENTS) and
+ *  optionally send it (7-inv milestone automation). Used by advanceProjectStatus
+ *  when a project reaches a status that bills a draw. Returns whether it was sent. */
 export async function createMilestoneInvoice(
   slug: string,
   input: { milestone: string; amount: number; autoSend: boolean },
@@ -100,7 +102,7 @@ export async function createMilestoneInvoice(
   if (!project) return { ok: false, error: "Project not found." };
 
   const milestone = input.milestone.trim() || "Progress draw";
-  const amount = Math.max(0, Math.round(input.amount));
+  const amount = Math.max(0, Math.round(input.amount)); // cents
   const lines: InvoiceLine[] = [{ label: milestone, amount }];
 
   const { count } = (await queryOne<{ count: number }>(
@@ -271,10 +273,10 @@ async function upsertRetainer(slug: string, deltaCollected: number, deltaApplied
   return project;
 }
 
-/** Record a retainer collection. Emits a MONEY notification. */
+/** Record a retainer collection (amount in CENTS). Emits a MONEY notification. */
 export async function collectRetainer(slug: string, amount: number): Promise<Result> {
   await requireRole("owner");
-  const amt = Math.round(amount);
+  const amt = Math.round(amount); // cents
   if (!Number.isFinite(amt) || amt <= 0) return { ok: false, error: "Enter an amount." };
   const project = await upsertRetainer(slug, amt, 0);
   if (!project) return { ok: false, error: "Project not found." };
@@ -292,10 +294,10 @@ export async function collectRetainer(slug: string, amount: number): Promise<Res
   return { ok: true };
 }
 
-/** Apply retainer toward draws (reduces the balance). */
+/** Apply retainer toward draws (amount in CENTS; reduces the balance). */
 export async function applyRetainer(slug: string, amount: number): Promise<Result> {
   await requireRole("owner");
-  const amt = Math.round(amount);
+  const amt = Math.round(amount); // cents
   if (!Number.isFinite(amt) || amt <= 0) return { ok: false, error: "Enter an amount." };
   const project = await upsertRetainer(slug, 0, amt);
   if (!project) return { ok: false, error: "Project not found." };

@@ -6,7 +6,7 @@
 
 ## Build checklist
 
-- [ ] 5.0 Cents migration + COA/cost-code seed
+- [x] 5.0 Cents migration + COA/cost-code seed — code flip done (COA/cost-code seed lands with 5.1)
 - [ ] 5.1 Ledger core + /books goes live
 - [ ] 5.2 Wire money events + opening balances
 - [ ] 5.3 Vendors + A/P + expenses (+ pay gating)
@@ -126,6 +126,7 @@ bank_statement_lines (
 ## Build sub-phases (one commit each)
 
 ### 5.0 — Cents migration + COA/cost-code seed
+**✅ DONE — code flip shipped.** Prod money tables were empty (0 invoices/retainers/sub_invoices — the 2026-06-30 wipe), so `scripts/migrate-cents.mjs` is a no-op here; NOT run with `--approve` (nothing to convert). The COA + cost-code seed is folded into 5.1 (tables land there). What shipped: all money display now uses cents formatters (`usd()` in lib/money reformatted to cents; MoneyPanel + sub pages + collections on `fmtUsd`), write paths convert typed dollars → cents at the client/action boundary (`dollarsToCents`), `createMilestoneInvoice`/`billMilestonesForStatus` pass cents (dropped the `/100`), collection PDFs render `fmtUsd(d.amount)`. Schema comments flipped to CENTS. tsc+lint(0)+build clean, PDFs assert %PDF-, authed routes 200, deployed.
 - **Migrate to cents:** `invoices.amount` + each `line_items[].amount`, `retainers.collected/applied`, `sub_invoices.amount` (×100 via `scripts/migrate-cents.mjs` — snapshot `db/.cents-snapshot.json`, dry-run/--approve/--undo). Add `-- CENTS` comments in schema.sql; seed.sql values ×100.
 - **Stay dollars (display/estimating, not books):** `projects.contract_value`/`collected_to_date` (marked deprecated — the /today A/R headline goes ledger-derived in 5.8), `project_sections.budget`, `project_selections.price`, `lead_estimates`.
 - **Code updates (grep `amount` + `/100` + `usd(`):** `lib/money.ts` (`usd()` → cents input, or adopt `fmtUsd` from `lib/cost-book-units.ts`), `lib/actions/money.ts` (dollar form inputs ×100 via a `parseDollars`-style helper; `createMilestoneInvoice` drops its cents→dollars conversion), `MoneyPanel.tsx`, `app/client-portal/page.tsx`, `lib/sub-portal.ts` + `SubInvoiceSubmit.tsx`, `app/subs/[slug]/page.tsx` (sub-invoice display), `lib/actions/collections.ts` (demand-letter amounts). `lib/today.ts` A/R headline stays untouched until 5.8.

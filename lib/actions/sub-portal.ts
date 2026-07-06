@@ -18,9 +18,12 @@ import { getSub } from "@/lib/subs";
 
 type Result = { ok: boolean; error?: string };
 
-const fmt = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
+// sub_invoices.amount is CENTS (Phase 5.0). fmt renders cents; parseDollars
+// converts the sub's typed dollar figure → cents.
+const fmt = (cents: number) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format((cents || 0) / 100);
 const parseDollars = (v: FormDataEntryValue | null) => {
-  const n = Math.floor(Number(String(v ?? "").replace(/[$,\s]/g, "")) || 0);
+  const n = Math.round(Number(String(v ?? "").replace(/[$,\s]/g, "")) * 100 || 0);
   return n > 0 ? n : 0;
 };
 

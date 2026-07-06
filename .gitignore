@@ -46,3 +46,4 @@ next-env.d.ts
 # import rollback snapshots (runtime artifacts)
 db/.import-snapshot.json
 db/.subs-import-snapshot.json
+db/.cents-snapshot.json

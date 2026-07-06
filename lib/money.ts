@@ -1,7 +1,7 @@
 // Project money builder (Review-round-3 S5A). DB-backed reads of the invoices
-// + retainers tables for the project Money tab. Amounts are integer dollars;
-// retainer balance is derived (collected - applied). Writes live in
-// lib/actions/money.ts.
+// + retainers tables for the project Money tab. Amounts are integer CENTS
+// (Phase 5.0 cents migration); retainer balance is derived (collected - applied).
+// Writes live in lib/actions/money.ts.
 
 import { query, queryOne } from "./db";
 
@@ -52,9 +52,11 @@ interface InvoiceRow {
   days_overdue: number | null;
 }
 
-/** Format integer dollars as "$12,400". */
-export function usd(n: number): string {
-  return `$${Math.round(n).toLocaleString("en-US")}`;
+/** Format integer CENTS as "$12,400.00" (Phase 5.0 — money tables are cents). */
+export function usd(cents: number): string {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
+    (cents ?? 0) / 100,
+  );
 }
 
 function statusLabel(r: InvoiceRow): string {

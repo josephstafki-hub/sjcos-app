@@ -13,7 +13,9 @@ import { PortalMessenger } from "@/components/portal/PortalMessenger";
 import { SubLogComposer } from "@/components/sub-portal/SubLogComposer";
 import { SubInvoiceSubmit } from "@/components/sub-portal/SubInvoiceSubmit";
 
-const usd = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
+// sub_invoices.amount is CENTS (Phase 5.0).
+const usd = (cents: number) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format((cents || 0) / 100);
 const SUB_INVOICE_CHIP = { submitted: "info", approved: "accent", paid: "money" } as const;
 
 export default async function SubPortalPage() {

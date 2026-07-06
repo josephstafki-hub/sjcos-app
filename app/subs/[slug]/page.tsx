@@ -10,7 +10,9 @@ import { getSub, getSubSummary } from "@/lib/subs";
 import type { JobDot } from "@/lib/subs";
 import { getSubLogs, getSubInvoices, getSubDocuments } from "@/lib/sub-portal";
 
-const usd = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
+// sub_invoices.amount is CENTS (Phase 5.0).
+const usd = (cents: number) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format((cents || 0) / 100);
 const SUB_INVOICE_CHIP = { submitted: "info", approved: "accent", paid: "money" } as const;
 
 const DOT: Record<JobDot, string> = {

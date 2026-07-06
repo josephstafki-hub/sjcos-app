@@ -684,7 +684,7 @@ export async function renderPermitPacketPdf(d: PermitData, narrative: string): P
 export interface CollectionData {
   invoiceNumber: string;
   milestone: string;
-  amount: number; // dollars
+  amount: number; // cents (Phase 5.0)
   sentLabel: string;
   daysOverdue: number;
   projectName: string;
@@ -750,12 +750,12 @@ export async function renderDemandLetterPdf(d: CollectionData): Promise<Buffer> 
     para(
       doc,
       `Our records show that invoice ${d.invoiceNumber} for "${d.milestone}" on your ${d.projectName} ` +
-        `project, in the amount of ${usdDollars(d.amount)}, was sent on ${d.sentLabel} and remains unpaid ` +
+        `project, in the amount of ${fmtUsd(d.amount)}, was sent on ${d.sentLabel} and remains unpaid ` +
         `(${d.daysOverdue} days past the invoice date).`,
     );
     para(
       doc,
-      `Please remit payment of ${usdDollars(d.amount)} within ten (10) days of this notice. If you have ` +
+      `Please remit payment of ${fmtUsd(d.amount)} within ten (10) days of this notice. If you have ` +
         `already sent payment, thank you — please disregard this letter. If there's an issue with the work ` +
         `or the invoice, contact us right away so we can resolve it.`,
     );
@@ -794,7 +794,7 @@ export async function renderLienPackagePdf(d: CollectionData): Promise<Buffer> {
     row(doc, d.address || "[property address]", "Legal description: ________________________________", "");
 
     sectionLabel(doc, "Claim");
-    row(doc, "Amount due and owing", `Invoice ${d.invoiceNumber} · ${d.milestone}`, usdDollars(d.amount), true);
+    row(doc, "Amount due and owing", `Invoice ${d.invoiceNumber} · ${d.milestone}`, fmtUsd(d.amount), true);
     row(doc, "Description of work", "Labor, services & materials furnished for the improvement", "");
     row(doc, "First / last date of work", "________________  /  ________________", "");
 
@@ -802,7 +802,7 @@ export async function renderLienPackagePdf(d: CollectionData): Promise<Buffer> {
     para(
       doc,
       `The claimant furnished labor, services, and/or materials for the improvement of the above-described ` +
-        `real property, the last of which was furnished within the statutory period, and ${usdDollars(d.amount)} ` +
+        `real property, the last of which was furnished within the statutory period, and ${fmtUsd(d.amount)} ` +
         `remains due and owing after demand.`,
     );
 

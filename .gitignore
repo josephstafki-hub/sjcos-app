@@ -36,6 +36,9 @@ yarn-error.log*
 # user file uploads (/files) — real blobs stored on the server, not in git
 /uploads/
 
+# AI-generated email drafts — client content, kept on the server, not in git
+/drafts/
+
 # vercel
 .vercel
 

@@ -3,12 +3,14 @@ import { Eyebrow } from "@/components/ui";
 import { NewProjectButton } from "@/components/projects/NewProjectButton";
 import { ProjectsClient } from "@/components/projects/ProjectsClient";
 import { getProjectsData } from "@/lib/projects";
+import { projectsContext } from "@/lib/page-context";
 
 export default async function ProjectsPage() {
-  const { summary, groups } = await getProjectsData();
+  const data = await getProjectsData();
+  const { summary, groups } = data;
 
   return (
-    <Shell breadcrumb="PROJECTS">
+    <Shell breadcrumb="PROJECTS" aiContext={projectsContext(data)}>
       <div className="mx-auto max-w-[1100px] px-7 py-6">
         {/* Header */}
         <div className="mb-3.5 flex items-end gap-4">

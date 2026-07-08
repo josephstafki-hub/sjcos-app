@@ -510,10 +510,14 @@ export async function getProjectDailyLogs(slug: string): Promise<ProjectLog[]> {
 }
 
 export async function getProjectsData(): Promise<ProjectsData> {
-  const { rows } = await query<ProjectRow>(`${PROJECT_SELECT} ORDER BY progress DESC, name`);
+  // Warranty-stage projects are closed jobs; they're managed on the Warranty
+  // page, not here, so they're excluded from the projects list entirely.
+  const { rows } = await query<ProjectRow>(
+    `${PROJECT_SELECT} WHERE status <> 'warranty' ORDER BY progress DESC, name`,
+  );
   const items = rows.map(rowToItem);
 
-  const order: GroupKey[] = ["active", "closeout", "pre_construction", "warranty"];
+  const order: GroupKey[] = ["active", "closeout", "pre_construction"];
   const groups: ProjectGroup[] = order.map((key) => ({
     key,
     ...GROUP_META[key],

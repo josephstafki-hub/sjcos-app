@@ -5,6 +5,15 @@ import { requireRole } from "@/lib/dal";
 import { query } from "@/lib/db";
 import { ai } from "@/lib/ai";
 import { emit } from "@/lib/notify";
+import { askHermes, chatReplyClaude } from "@/lib/dev-agents";
+import type { DevAgent } from "@/lib/dev-agents-meta";
+
+/** How each AI teammate signs its chat posts. */
+const AGENT_IDENTITY: Record<DevAgent, { name: string; initials: string }> = {
+  claude: { name: "Claude", initials: "CL" },
+  qwen: { name: "Qwen", initials: "QW" },
+  hermes: { name: "Hermes", initials: "HM" },
+};
 
 /** Post a message to a channel as the owner, and mark the channel read. */
 export async function sendChatMessage(
@@ -25,13 +34,16 @@ export async function sendChatMessage(
   return { ok: true };
 }
 
-/** Generate Claude's reply from recent channel context and post it. Called
- *  after a message that @-mentions claude. Slow (CPU Qwen), so the client
- *  shows a "Claude is typing" state while it runs. */
-export async function askClaudeInChannel(
+/** Generate an AI teammate's reply from recent channel context and post it.
+ *  Called after a message that @-mentions an agent. `agent` selects the model:
+ *  claude → headless CLI (no tools, ~3s), hermes → local Hermes model, qwen →
+ *  Ollama. The client shows a "typing" state while it runs. */
+export async function askAgentInChannel(
   channelKey: string,
+  agent: DevAgent = "qwen",
 ): Promise<{ ok: boolean; reply?: string; error?: string }> {
   await requireRole("owner");
+  const id = AGENT_IDENTITY[agent] ?? AGENT_IDENTITY.qwen;
   try {
     const { rows } = await query<{ author_name: string; body: string }>(
       `SELECT author_name, body FROM chat_messages
@@ -42,25 +54,33 @@ export async function askClaudeInChannel(
       .reverse()
       .map((r) => `${r.author_name}: ${r.body}`)
       .join("\n");
-    const { suggestions } = await ai.suggest({
-      kind: "chat-reply",
-      context:
-        `You are Claude, a teammate in the "${channelKey}" channel of a ` +
-        `remodeling company's chat. Reply to the latest message helpfully and ` +
-        `concisely (1-3 sentences). Use only what's in the transcript.\n\n${transcript}`,
-    });
-    const reply = suggestions.join(" ").trim() || "On it — I'll follow up shortly.";
+    const brief =
+      `You are ${id.name}, a teammate in the "${channelKey}" channel of a ` +
+      `remodeling company's chat. Reply to the latest message helpfully and ` +
+      `concisely (1-3 sentences). Use only what's in the transcript.\n\n${transcript}`;
+
+    let reply: string;
+    if (agent === "claude") {
+      reply = (await chatReplyClaude(brief)).trim();
+    } else if (agent === "hermes") {
+      reply = (await askHermes(brief, undefined, `chat-${channelKey}`)).trim();
+    } else {
+      const { suggestions } = await ai.suggest({ kind: "chat-reply", context: brief });
+      reply = suggestions.join(" ").trim();
+    }
+    if (!reply) reply = "On it — I'll follow up shortly.";
+
     await query(
       `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body)
-       VALUES ($1, 'ai', 'Claude', 'CL', $2)`,
-      [channelKey, reply],
+       VALUES ($1, 'ai', $2, $3, $4)`,
+      [channelKey, id.name, id.initials, reply],
     );
     await emit({
       kind: "mention",
       tag: "Mention",
       accent: "ai",
       icon: "chat",
-      title: `Claude replied in ${channelKey.startsWith("dm:") ? "a direct message" : `#${channelKey}`}`,
+      title: `${id.name} replied in ${channelKey.startsWith("dm:") ? "a direct message" : `#${channelKey}`}`,
       subline: reply.slice(0, 90),
       href: "/chat",
     });

@@ -132,7 +132,7 @@ export async function getTodayData(): Promise<TodayData> {
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
 
-  const [projectsRes, leadsRes, scheduleRes, weekRes, complianceRes, claimsRes] =
+  const [projectsRes, leadsRes, scheduleRes, weekRes, complianceRes] =
     await Promise.all([
       query<TodayProjectRow>(`
         SELECT slug, name, status, progress,
@@ -159,10 +159,6 @@ export async function getTodayData(): Promise<TodayData> {
         FROM compliance_items
         WHERE resolved = false AND due_date <= CURRENT_DATE + 14
         ORDER BY due_date`),
-      query<{ project: string; deadline_label: string | null }>(`
-        SELECT project, deadline_label
-        FROM warranty_claims WHERE resolved = false
-        ORDER BY opened_at DESC`),
     ]);
 
   const projects = projectsRes.rows;
@@ -249,10 +245,6 @@ export async function getTodayData(): Promise<TodayData> {
     ...complianceRes.rows.map((c) => ({
       label: `${c.title} (due ${c.due})`,
       href: "/compliance",
-    })),
-    ...claimsRes.rows.map((c) => ({
-      label: `Resolve warranty claim — ${c.project}`,
-      href: "/warranty",
     })),
   ];
 

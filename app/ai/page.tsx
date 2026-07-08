@@ -1,12 +1,21 @@
 import { Shell } from "@/components/shell/Shell";
 import { AssistantChat } from "@/components/ai/AssistantChat";
-import { AI_NAME } from "@/lib/ai-name";
 import { queryOne } from "@/lib/db";
+import type { DevAgent } from "@/lib/dev-agents-meta";
 
-/** Ask-{AI_NAME} — a real free-form chat surface. Each turn calls the askQwen
- *  server action (Qwen via Ollama, mock fallback). General assistant; the
- *  in-page command bar (⌘K) carries page context, this stays general. */
-export default async function AiPage() {
+/** Ask — the persisted multi-agent chat surface (Claude / Qwen / Hermes), with
+ *  per-model conversation history in the rail. `?c=<id>` deep-links a thread
+ *  (used by the ⌘K Claude launch); `?agent=` preselects a model. */
+export default async function AiPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ c?: string; agent?: string }>;
+}) {
+  const sp = await searchParams;
+  const initialConversationId = sp.c;
+  const initialAgent = (["claude", "qwen", "hermes"] as const).includes(sp.agent as DevAgent)
+    ? (sp.agent as DevAgent)
+    : "qwen";
   // Starter chips name real records only — the project chip points at the most
   // active real job, or is dropped when there isn't one.
   const active = await queryOne<{ name: string }>(
@@ -23,8 +32,12 @@ export default async function AiPage() {
   ];
 
   return (
-    <Shell breadcrumb={`ASK ${AI_NAME.toUpperCase()}`} hideCmd>
-      <AssistantChat starters={starters} />
+    <Shell breadcrumb="ASK" hideCmd>
+      <AssistantChat
+        starters={starters}
+        initialConversationId={initialConversationId}
+        initialAgent={initialAgent}
+      />
     </Shell>
   );
 }

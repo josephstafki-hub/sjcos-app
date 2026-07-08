@@ -358,6 +358,45 @@ const SYSTEM_PROMPT =
   "return only valid JSON matching the requested shape — no prose, no code " +
   "fences.";
 
+export interface ChatTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/** Multi-turn Qwen chat for the persisted Ask window. Prepends the SJC OS
+ *  system prompt and an optional page-context system note, then sends the full
+ *  conversation so Qwen remembers earlier turns. Throws on failure (the caller
+ *  decides how to surface it — unlike ai.ask which silently mocks). */
+export async function qwenChat(turns: ChatTurn[], context?: string): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${OLLAMA_HOST}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      cache: "no-store",
+      body: JSON.stringify({
+        model: OLLAMA_MODEL,
+        stream: false,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          ...(context ? [{ role: "system", content: `Page the user is viewing:\n${context}` }] : []),
+          ...turns,
+        ],
+        options: { temperature: 0.4 },
+      }),
+    });
+    if (!res.ok) throw new Error(`ollama HTTP ${res.status}`);
+    const data = (await res.json()) as { message?: { content?: string } };
+    const answer = data.message?.content?.trim() ?? "";
+    if (!answer) throw new Error("Qwen returned an empty response.");
+    return answer;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Low-level chat call. Returns the assistant message content as a string. */
 async function ollamaChat(
   userPrompt: string,

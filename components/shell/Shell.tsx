@@ -4,6 +4,7 @@ import { MobileNav } from "./MobileNav";
 import { Topbar } from "./Topbar";
 import { CmdKPill } from "./CmdKPill";
 import { CommandBar } from "@/components/cmdk/CommandBar";
+import { RouteTracker } from "./RouteTracker";
 import { getCurrentUser } from "@/lib/dal";
 import { getUnreadCount } from "@/lib/notifications";
 
@@ -56,6 +57,7 @@ export async function Shell({ children, breadcrumb, hideCmd, cmdkOpen, aiContext
         {!hideCmd && <CmdKPill />}
       </div>
       <CommandBar defaultOpen={cmdkOpen} aiContext={aiContext} />
+      <RouteTracker />
     </div>
   );
 }

@@ -5,15 +5,20 @@ import { Sparkles, Send, UserPlus, X, Plus, ChevronLeft } from "lucide-react";
 import { Card, Chip, Avatar } from "@/components/ui";
 import {
   sendChatMessage,
-  askClaudeInChannel,
+  askAgentInChannel,
   markChannelRead,
   addChannelMember,
   removeChannelMember,
 } from "@/lib/actions/chat";
 import type { ChatChannel, ChatData, ChatMessage, ChannelMember } from "@/lib/chat";
-import { AI_NAME } from "@/lib/ai-name";
+import type { DevAgent } from "@/lib/dev-agents-meta";
 
-const AI_INITIALS = AI_NAME.slice(0, 2).toUpperCase();
+// The AI teammates you can @-mention in any channel.
+const CHAT_AGENTS: Record<DevAgent, { name: string; initials: string }> = {
+  claude: { name: "Claude", initials: "CL" },
+  qwen: { name: "Qwen", initials: "QW" },
+  hermes: { name: "Hermes", initials: "HM" },
+};
 
 /** Small-caps mono section label for the light-background rail. */
 function RailLabel({ children }: { children: string }) {
@@ -43,7 +48,7 @@ export function ChatClient({ data }: { data: ChatData }) {
   const [rooms, setRooms] = useState(data.rooms);
   const [directs, setDirects] = useState(data.directs);
   const [input, setInput] = useState("");
-  const [typing, setTyping] = useState(false);
+  const [typing, setTyping] = useState<string | null>(null);
   const [managing, setManaging] = useState(false);
   const [, startTransition] = useTransition();
 
@@ -99,23 +104,30 @@ export function ChatClient({ data }: { data: ChatData }) {
     const key = selectedKey;
     append(key, { initials: "JS", name: "Joe", time: clockNow(), text, kind: "owner" });
     setInput("");
-    const mentionsAi = /@(claude|qwen|ai)\b/i.test(text);
+    const m = text.match(/@(claude|hermes|qwen|ai)\b/i);
+    const mentioned = m?.[1].toLowerCase();
+    const agent: DevAgent | null = mentioned
+      ? mentioned === "ai"
+        ? "qwen"
+        : (mentioned as DevAgent)
+      : null;
     startTransition(async () => {
       await sendChatMessage(key, text);
-      if (mentionsAi) {
-        setTyping(true);
-        const r = await askClaudeInChannel(key);
+      if (agent) {
+        const id = CHAT_AGENTS[agent];
+        setTyping(id.name);
+        const r = await askAgentInChannel(key, agent);
         if (r.ok && r.reply) {
           append(key, {
-            initials: AI_INITIALS,
-            name: AI_NAME,
+            initials: id.initials,
+            name: id.name,
             time: clockNow(),
             text: r.reply,
             kind: "ai",
             system: true,
           });
         }
-        setTyping(false);
+        setTyping(null);
       }
     });
   };
@@ -187,7 +199,7 @@ export function ChatClient({ data }: { data: ChatData }) {
         <div className="my-2 h-px bg-rule" />
         <Card kind="ai" className="flex items-center gap-1.5 p-2">
           <Sparkles className="size-3 flex-none text-ai-2" strokeWidth={1.5} />
-          <span className="text-[11px] text-ai-2">@{AI_NAME.toLowerCase()} is in this channel</span>
+          <span className="text-[11px] text-ai-2">@claude · @qwen · @hermes are in this channel</span>
         </Card>
       </aside>
 
@@ -257,7 +269,7 @@ export function ChatClient({ data }: { data: ChatData }) {
             </div>
             {view.messages.length === 0 && (
               <div className="py-8 text-center text-[12px] text-ink-3">
-                No messages yet. Say something — mention <b>@{AI_NAME.toLowerCase()}</b> to loop {AI_NAME} in.
+                No messages yet. Say something — mention <b>@claude</b>, <b>@qwen</b>, or <b>@hermes</b> to loop one in.
               </div>
             )}
             {view.messages.map((m, i) => (
@@ -266,7 +278,7 @@ export function ChatClient({ data }: { data: ChatData }) {
             {typing && (
               <div className="flex items-center gap-2 pl-1 text-[12px] text-ai-2">
                 <Sparkles className="size-3 animate-pulse" strokeWidth={1.5} />
-                {AI_NAME} is typing…
+                {typing} is typing…
               </div>
             )}
           </div>
@@ -290,7 +302,7 @@ export function ChatClient({ data }: { data: ChatData }) {
                 }
               }}
               rows={1}
-              placeholder={`Message ${view.name}…  (@claude to ask, Enter to send)`}
+              placeholder={`Message ${view.name}…  (@claude · @qwen · @hermes, Enter to send)`}
               className="flex-1 resize-none rounded-md border border-rule bg-card px-3 py-2 text-[13px] text-ink outline-none focus:border-accent"
             />
             <button

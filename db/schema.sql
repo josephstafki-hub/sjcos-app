@@ -1490,3 +1490,69 @@ BEGIN
     END LOOP;
   END LOOP;
 END $seed_runbooks$;
+
+-- ── Dev-agent chat runs (Ask window: Claude via headless CLI) ─────────────────
+-- Asynchronous agent turns. Qwen and Hermes answer synchronously in-request;
+-- Claude runs headless `claude -p` with full edit access (minutes, detached),
+-- so each Claude turn is a row here that a detached runner updates on finish
+-- and the chat polls. page_context = the app route the user was viewing, so the
+-- agent can open the right source files.
+CREATE TABLE IF NOT EXISTS dev_agent_runs (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent        text NOT NULL DEFAULT 'claude',
+  prompt       text NOT NULL,
+  page_context text,
+  status       text NOT NULL DEFAULT 'pending'
+               CHECK (status IN ('pending','running','done','error')),
+  answer       text,
+  cost_usd     numeric,
+  session_id   text,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS dev_agent_runs_status_idx ON dev_agent_runs (status, created_at DESC);
+
+-- ── Persisted AI chat: per-model conversations + messages ─────────────────────
+-- Backs the /ai Ask window (and ⌘K Claude launches). Conversations are scoped
+-- to one agent (claude/qwen/hermes) so history stays separated by model. Claude
+-- threads store the CLI session id so follow-ups resume with full context.
+CREATE TABLE IF NOT EXISTS ai_conversations (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent             text NOT NULL CHECK (agent IN ('claude','qwen','hermes')),
+  title             text NOT NULL DEFAULT 'New chat',
+  claude_session_id text,
+  archived          boolean NOT NULL DEFAULT false,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ai_conversations_agent_idx
+  ON ai_conversations (agent, archived, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS ai_messages (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id uuid NOT NULL REFERENCES ai_conversations(id) ON DELETE CASCADE,
+  role            text NOT NULL CHECK (role IN ('user','assistant')),
+  body            text NOT NULL,
+  page_context    text,
+  cost_usd        numeric,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ai_messages_conversation_idx
+  ON ai_messages (conversation_id, created_at);
+
+-- Link an async Claude run to its conversation (so the runner can persist the
+-- assistant message + resume the session).
+ALTER TABLE dev_agent_runs
+  ADD COLUMN IF NOT EXISTS conversation_id uuid REFERENCES ai_conversations(id) ON DELETE CASCADE;
+
+-- Per-run Claude controls (chosen in the Ask window) + a live activity log the
+-- runner streams into so the chat can show what Claude is doing in real time.
+--   model    → CLI --model ("" = the CLI's configured default)
+--   mode     → 'edit' (acceptEdits) or 'plan' (read-only, proposes changes)
+--   effort   → 'normal'|'think'|'hard'|'ultra' (injects a thinking directive)
+--   activity → newline-joined progress lines (Reading/Editing/Thinking…)
+ALTER TABLE dev_agent_runs
+  ADD COLUMN IF NOT EXISTS model    text,
+  ADD COLUMN IF NOT EXISTS mode     text NOT NULL DEFAULT 'edit',
+  ADD COLUMN IF NOT EXISTS effort   text NOT NULL DEFAULT 'normal',
+  ADD COLUMN IF NOT EXISTS activity text;

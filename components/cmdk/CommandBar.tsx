@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import {
   Sparkles,
   Home,
@@ -11,8 +11,9 @@ import {
   Calendar,
   type LucideIcon,
 } from "lucide-react";
-import { AI_NAME } from "@/lib/ai-name";
-import { askQwen } from "@/lib/actions/ask";
+import { askAgent } from "@/lib/actions/dev-agents";
+import { newConversationAction, sendMessageAction } from "@/lib/actions/ai-chat";
+import { AGENT_META, AGENT_ORDER, type DevAgent } from "@/lib/dev-agents-meta";
 
 type JumpRow = { icon: LucideIcon; title: string; href: string };
 
@@ -25,11 +26,11 @@ const JUMP: JumpRow[] = [
 ];
 
 /**
- * Global Ask-{AI_NAME} command bar — the front door to the assistant. Mounted
- * once in Shell so Ctrl/⌘+K opens it from any page; type a question and Qwen
- * answers inline. Esc or a backdrop click closes it. When the host page passes
- * `aiContext` (a text brief of its records), the question is answered against it
- * so Qwen is page-aware; pages without it get the general assistant.
+ * Global Ask command bar (⌘/Ctrl+K from any page). Pick Claude / Qwen / Hermes.
+ * Qwen & Hermes answer inline against the host page's `aiContext`; Claude is the
+ * async edit-agent, so it starts a conversation with the CURRENT route as
+ * context and opens the /ai Ask window to watch the run. ⌘K answers are a quick
+ * scratch pad — only Claude (which needs /ai) persists.
  */
 export function CommandBar({
   defaultOpen = false,
@@ -39,12 +40,15 @@ export function CommandBar({
   aiContext?: string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const [agent, setAgent] = useState<DevAgent>("qwen");
   const [prompt, setPrompt] = useState("");
   const [answer, setAnswer] = useState("");
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
+  const pathname = usePathname();
+  const meta = AGENT_META[agent];
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -52,18 +56,18 @@ export function CommandBar({
         e.preventDefault();
         setOpen((o) => !o);
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
-        // ⌘J / Ctrl+J — open the assistant bar too.
+        // Jump to the full Ask page (⌘K stays the inline quick-ask popup).
         e.preventDefault();
-        setOpen(true);
+        setOpen(false);
+        router.push("/ai");
       } else if (e.key === "Escape") {
         setOpen(false);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [router]);
 
-  // Focus the input whenever the bar opens.
   useEffect(() => {
     if (open) inputRef.current?.focus();
   }, [open]);
@@ -77,10 +81,35 @@ export function CommandBar({
     if (!q || pending) return;
     setError("");
     setAnswer("");
+
+    if (agent === "claude") {
+      // Launch the edit-agent: persist a thread with the current page as
+      // context, then hand off to /ai where the run streams in.
+      startTransition(async () => {
+        try {
+          const convId = await newConversationAction("claude");
+          const ctx = pathname && pathname !== "/ai" ? pathname : undefined;
+          await sendMessageAction(convId, q, ctx);
+          close();
+          router.push(`/ai?c=${convId}`);
+        } catch (e) {
+          setError((e as Error).message);
+        }
+      });
+      return;
+    }
+
+    // Prefer the page's rich record brief; otherwise at least tell the agent
+    // which route the user is on so answers aren't context-blind.
+    const ctx =
+      aiContext ??
+      (pathname
+        ? `The user is viewing the ${pathname} page of SJC OS. No structured record context was provided for this page.`
+        : undefined);
     startTransition(async () => {
-      const r = await askQwen(q, aiContext);
-      if (r.ok) setAnswer(r.answer ?? "");
-      else setError(r.error ?? "Couldn't reach the assistant.");
+      const r = await askAgent(agent, q, ctx);
+      if (r.ok && "answer" in r) setAnswer(r.answer);
+      else if (!r.ok) setError(r.error);
     });
   };
 
@@ -97,6 +126,31 @@ export function CommandBar({
         className="absolute inset-0 cursor-default bg-ink/45 backdrop-blur-[2px]"
       />
       <div className="absolute left-1/2 top-[110px] w-[620px] max-w-[calc(100vw-2rem)] -translate-x-1/2 overflow-hidden rounded-[10px] border-[1.5px] border-ink bg-paper shadow-[0_24px_60px_rgba(0,0,0,0.3)]">
+        {/* agent selector */}
+        <div className="flex items-center gap-2 border-b border-rule px-[18px] py-2">
+          <div className="flex rounded-md border border-rule bg-paper-2 p-0.5">
+            {AGENT_ORDER.map((a) => (
+              <button
+                key={a}
+                onClick={() => {
+                  setAgent(a);
+                  setAnswer("");
+                  setError("");
+                  inputRef.current?.focus();
+                }}
+                className={`rounded px-2.5 py-0.5 text-[11.5px] font-medium transition-colors ${
+                  a === agent ? "bg-ink text-paper" : "text-ink-2 hover:bg-paper"
+                }`}
+              >
+                {AGENT_META[a].label}
+              </button>
+            ))}
+          </div>
+          <span className="truncate text-[11px] text-ink-4">
+            {agent === "claude" ? `Edits code · opens in Ask (context: ${pathname})` : meta.note}
+          </span>
+        </div>
+
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -109,10 +163,12 @@ export function CommandBar({
             ref={inputRef}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder={`Ask ${AI_NAME} anything…`}
+            placeholder={`Ask ${meta.label} anything…`}
             className="flex-1 bg-transparent font-serif text-[15px] text-ink outline-none placeholder:text-ink-4"
           />
-          <span className="font-mono text-[11px] text-ink-3">{pending ? "…" : "↵ ask"}</span>
+          <span className="font-mono text-[11px] text-ink-3">
+            {pending ? "…" : agent === "claude" ? "↵ launch" : "↵ ask"}
+          </span>
         </form>
 
         <div className="max-h-[60vh] overflow-y-auto py-2">
@@ -126,7 +182,7 @@ export function CommandBar({
               ) : error ? (
                 <div className="text-[13px] text-flag">{error}</div>
               ) : (
-                <div className="rounded-md bg-ai-soft px-3 py-2 text-[13px] leading-relaxed text-ai-2">
+                <div className="whitespace-pre-wrap rounded-md bg-ai-soft px-3 py-2 text-[13px] leading-relaxed text-ai-2">
                   {answer}
                 </div>
               )}
@@ -157,10 +213,12 @@ export function CommandBar({
         </div>
 
         <div className="flex items-center gap-3 border-t border-rule bg-paper-2 px-[18px] py-2">
-          <span className="font-mono text-[10px] text-ink-3">↵ ASK · ESC CLOSE</span>
+          <span className="font-mono text-[10px] text-ink-3">
+            {agent === "claude" ? "↵ LAUNCH · ESC CLOSE" : "↵ ASK · ESC CLOSE"}
+          </span>
           <div className="flex-1" />
           <span className="rounded-full border border-ai bg-ai-soft px-2 py-0.5 font-mono text-[9px] text-ai-2">
-            {AI_NAME}
+            {meta.label}
           </span>
         </div>
       </div>

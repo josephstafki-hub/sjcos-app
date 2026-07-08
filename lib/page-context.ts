@@ -5,7 +5,7 @@
 // fetched. Qwen 2.5 is text-only, so this is structured TEXT, not vision.
 
 import type { LeadDetail } from "./leads";
-import type { ProjectDetail } from "./projects";
+import type { ProjectDetail, ProjectsData } from "./projects";
 import type { TodayData } from "./today";
 import { stageLabel } from "./leads";
 import { projectStageLabel } from "./projects";
@@ -46,6 +46,22 @@ export function projectContext(project: ProjectDetail): string {
     project.punch.length &&
       `Punch list: ${project.punch.filter((p) => !p.done).length} open of ${project.punch.length}`,
   ].filter(Boolean);
+  return lines.join("\n");
+}
+
+/** Brief for the projects list page. */
+export function projectsContext(data: ProjectsData): string {
+  const lines = [
+    `PROJECTS LIST · ${data.summary}`,
+    ...data.groups
+      .filter((g) => g.items.length)
+      .map(
+        (g) =>
+          `${g.title}:\n${g.items
+            .map((p) => `  - ${p.name} · ${p.stage} · ${p.value} · ${p.billed}% billed`)
+            .join("\n")}`,
+      ),
+  ];
   return lines.join("\n");
 }
 

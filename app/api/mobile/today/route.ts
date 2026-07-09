@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/api-auth";
 import { getTodayData } from "@/lib/today";
 
+export const dynamic = "force-dynamic";
+
 // GET /api/mobile/today — daily dashboard for the iOS app (owner only).
 export async function GET(req: Request) {
   const user = await getUserFromRequest(req);

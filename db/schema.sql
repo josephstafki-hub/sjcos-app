@@ -1106,6 +1106,15 @@ CREATE TABLE IF NOT EXISTS work_items (
   created_at             timestamptz NOT NULL DEFAULT now(),
   updated_at             timestamptz NOT NULL DEFAULT now()
 );
+
+-- Today page: when a work item is pulled into the owner's 5-slot Priorities
+-- rail (auto-promoted from the backlog, or promoted by checkPriorityCompletion
+-- when a slot frees up), promoted_at is stamped. NULL = still sitting in the
+-- Waiting-on-me backlog. This is app/owner-driven UI state — no MCP tool
+-- exposes it, so Hermes never touches it directly (see docs/hermes-mcp.md).
+ALTER TABLE work_items ADD COLUMN IF NOT EXISTS promoted_at timestamptz;
+CREATE INDEX IF NOT EXISTS idx_work_items_promoted ON work_items(promoted_at)
+  WHERE status NOT IN ('done','cancelled');
 CREATE INDEX IF NOT EXISTS idx_work_items_status    ON work_items(status, priority, due_at);
 CREATE INDEX IF NOT EXISTS idx_work_items_due       ON work_items(due_at) WHERE status NOT IN ('done','cancelled');
 CREATE INDEX IF NOT EXISTS idx_work_items_assignee  ON work_items(assignee_key, status);

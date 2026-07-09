@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Sparkles } from "lucide-react";
 import { Card } from "@/components/ui";
 import { reprioritizeToday } from "@/lib/actions/today";
+import { useTodayQueue } from "./TodayQueueContext";
 import type { TodayPriority } from "@/lib/today";
 
 const DOT: Record<string, string> = {
@@ -15,23 +17,43 @@ const DOT: Record<string, string> = {
   ghost: "bg-ink-4",
 };
 
-/** Priorities list with a working Re-prioritize button: it asks the AI to
- *  re-rank the current items and reorders them in place. */
-export function TodayPriorities({ initial }: { initial: TodayPriority[] }) {
-  const [items, setItems] = useState(initial);
+/** Priorities list with a working Re-prioritize button (asks the AI to
+ *  re-rank the current items) and click-time completion checking: a card
+ *  whose work item was already finished (by Hermes, or elsewhere in the app)
+ *  swaps for the next backlog item instead of navigating to a stale page —
+ *  see TodayQueueContext + lib/actions/today.ts#checkPriorityCompletion. */
+export function TodayPriorities() {
+  const { priorities: items, setPriorities: setItems, checkingId, handleCardClick } =
+    useTodayQueue();
   const [pending, startTransition] = useTransition();
+  const router = useRouter();
+
+  const isLeadPriority = (item: TodayPriority) =>
+    item.tag.startsWith("LEAD") || item.href?.startsWith("/leads/") === true;
+
+  const rankWithLeadsFirst = (next: TodayPriority[]) => [
+    ...next.filter(isLeadPriority),
+    ...next.filter((item) => !isLeadPriority(item)),
+  ].map((it, i) => ({ ...it, rank: `#${i + 1}` }));
 
   const reprioritize = () =>
     startTransition(async () => {
       const order = await reprioritizeToday(items.map((i) => i.title));
-      // Reorder by the returned title order, then renumber the ranks.
+      // Reorder by the returned title order, keep all lead items pinned above
+      // projects/internal work, then renumber the ranks.
       const byTitle = new Map(items.map((i) => [i.title, i]));
       const next = order
         .map((t) => byTitle.get(t))
-        .filter((x): x is TodayPriority => Boolean(x))
-        .map((it, i) => ({ ...it, rank: `#${i + 1}` }));
-      if (next.length) setItems(next);
+        .filter((x): x is TodayPriority => Boolean(x));
+      if (next.length) setItems(rankWithLeadsFirst(next));
     });
+
+  const onCardClick = async (e: React.MouseEvent, p: TodayPriority) => {
+    if (!p.checkable) return; // not backlog-sourced — let the Link navigate normally
+    e.preventDefault();
+    const handled = await handleCardClick(p);
+    if (!handled && p.href) router.push(p.href);
+  };
 
   return (
     <section>
@@ -64,12 +86,18 @@ export function TodayPriorities({ initial }: { initial: TodayPriority[] }) {
               <div className="mt-0.5 text-[12px] text-ink-3">{p.sub}</div>
             </>
           );
+          const isChecking = checkingId === p.id;
           return p.href ? (
-            <Link key={p.title} href={p.href} className="block">
+            <Link
+              key={p.id}
+              href={p.href}
+              onClick={(e) => onCardClick(e, p)}
+              className={`block ${isChecking ? "opacity-60" : ""}`}
+            >
               <Card className="p-3 transition-colors hover:bg-paper-2">{body}</Card>
             </Link>
           ) : (
-            <Card key={p.title} className="p-3">
+            <Card key={p.id} className="p-3">
               {body}
             </Card>
           );

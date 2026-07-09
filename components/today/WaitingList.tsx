@@ -1,19 +1,17 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
+import { useTodayQueue } from "./TodayQueueContext";
 
-const CAP = 5;
-
-/** "Waiting on me" list, capped at 5 with a Show-all toggle. */
-export function WaitingList({ items }: { items: { label: string; href?: string }[] }) {
-  const [expanded, setExpanded] = useState(false);
-  const shown = expanded ? items : items.slice(0, CAP);
-  const hidden = items.length - CAP;
-
+/** "Waiting on me" list: the full backlog minus whatever's currently shown in
+ *  Priorities (see TodayQueueContext). When a Priorities card's item turns
+ *  out to be done, the item promoted to fill its slot disappears from here
+ *  automatically — no separate fetch. */
+export function WaitingList() {
+  const { waiting: items } = useTodayQueue();
   return (
     <div className="mt-2 flex flex-col gap-1.5">
-      {shown.map((item, i) => {
+      {items.map((item) => {
         const row = (
           <>
             <span className="size-3.5 flex-none rounded-[3px] border border-ink-4" />
@@ -22,26 +20,24 @@ export function WaitingList({ items }: { items: { label: string; href?: string }
         );
         return item.href ? (
           <Link
-            key={i}
+            key={item.id}
             href={item.href}
             className="-mx-1 flex items-center gap-2 rounded px-1 py-0.5 transition-colors hover:bg-paper-3"
           >
             {row}
           </Link>
         ) : (
-          <div key={i} className="flex items-center gap-2">
+          <div key={item.id} className="flex items-center gap-2">
             {row}
           </div>
         );
       })}
-      {hidden > 0 && (
-        <button
-          onClick={() => setExpanded((v) => !v)}
-          className="mt-1 self-start text-[11px] font-medium text-ink-3 hover:text-ink"
-        >
-          {expanded ? "Show less" : `Show all (${hidden} more)`}
-        </button>
-      )}
     </div>
   );
+}
+
+/** Live "Waiting on me" count, kept in sync with the shared queue state. */
+export function WaitingCount() {
+  const { waiting } = useTodayQueue();
+  return <span className="text-[11px] text-ink-3">{waiting.length} items</span>;
 }

@@ -2,6 +2,14 @@
 
 import { requireRole } from "@/lib/dal";
 import { ai } from "@/lib/ai";
+import { query } from "@/lib/db";
+import {
+  OPEN_WORK_ITEMS_SQL,
+  OPEN_WORK_ITEMS_ORDER_SQL,
+  workItemCandidate,
+  type TodayPriority,
+  type TodayWorkItemRow,
+} from "@/lib/today";
 
 /** Ask the AI to re-rank today's priorities. Returns the given titles in the
  *  model's recommended order. Robust to free-form replies (we extract the item
@@ -30,4 +38,41 @@ export async function reprioritizeToday(titles: string[]): Promise<string[]> {
   } catch {
     return titles;
   }
+}
+
+export interface PrioritySwapResult {
+  /** True once the clicked work item's status is actually done/cancelled
+   *  (it may have been closed elsewhere — by Hermes, or on its own detail
+   *  page — since the card was last rendered). */
+  completed: boolean;
+  /** The next-ranked backlog item promoted to fill the freed slot, or null
+   *  if the item isn't done yet, or the backlog is empty. */
+  next: Omit<TodayPriority, "rank"> | null;
+}
+
+/** Called when a Priorities card is clicked. If the underlying work item is
+ *  actually done/cancelled, promotes the next unpromoted backlog item (marks
+ *  it "read" via promoted_at) so the freed slot can be filled without a full
+ *  page reload. If the item isn't done yet, the caller should just navigate
+ *  to its href as normal. */
+export async function checkPriorityCompletion(workItemId: string): Promise<PrioritySwapResult> {
+  await requireRole("owner");
+
+  const { rows } = await query<{ status: string }>(
+    `SELECT status FROM work_items WHERE id = $1`,
+    [workItemId],
+  );
+  const status = rows[0]?.status;
+  if (!status || !["done", "cancelled"].includes(status)) {
+    return { completed: false, next: null };
+  }
+
+  const { rows: nextRows } = await query<TodayWorkItemRow>(
+    `${OPEN_WORK_ITEMS_SQL} AND w.promoted_at IS NULL${OPEN_WORK_ITEMS_ORDER_SQL} LIMIT 1`,
+  );
+  const nextRow = nextRows[0];
+  if (!nextRow) return { completed: true, next: null };
+
+  await query(`UPDATE work_items SET promoted_at = now() WHERE id = $1`, [nextRow.id]);
+  return { completed: true, next: workItemCandidate(nextRow) };
 }

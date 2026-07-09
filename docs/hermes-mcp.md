@@ -43,6 +43,34 @@ Items with `requires_approval = true` (e.g. everything imported from the temp
 CRM) must be surfaced to Joe — Hermes proposes, Joe approves in `/engine` or the
 detail page's **Ops** tab.
 
+## How work_items surface on Joe's Today page
+
+`/today` shows two things pulled from the same backlog Hermes maintains:
+
+- **Priorities** — a 5-slot rail. This is what Joe actually looks at first.
+- **Waiting on me** — the rest of the open backlog, in full.
+
+A work item only surfaces on Today at all once it's assigned to Joe with a
+lead/project to anchor it: `assignee_kind = 'human'`,
+`assignee_key IS NULL OR assignee_key = 'human-joe'`, and either `lead_id` or
+`project_id` set. Items assigned to an agent (`assignee_kind = 'agent'`, e.g.
+`hermes-telegram` or `claude-code-server`) or with no lead/project never show
+on Today — they're Hermes's own working set, not Joe's.
+
+Which 5 items land in Priorities (vs. sitting in Waiting on me) is tracked by
+`work_items.promoted_at` — set the first time an item is pulled into a slot,
+either automatically (the app tops up empty slots from the top of the ranked
+backlog on each page load) or when the owner clicks a finished card on Today
+and the app promotes the next one in to fill the gap.
+
+**This is app/owner-driven UI state — Hermes never sets `promoted_at`.** No
+MCP tool exposes it, and none should. Hermes's only lever here is
+`update_work_item_status`: mark an item `done` (or `cancelled`) when it's
+actually finished, same as always. The moment that happens, the next backlog
+item gets promoted into Joe's Priorities automatically — either right away
+(if Joe's looking at Today when it happens) or on his next page load. Nothing
+else for Hermes to do.
+
 ## Register the server with Hermes (placeholders only)
 
 Hermes runs on the same box, so it spawns the MCP server over **stdio**. No

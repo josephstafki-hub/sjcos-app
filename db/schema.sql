@@ -1565,3 +1565,18 @@ ALTER TABLE dev_agent_runs
   ADD COLUMN IF NOT EXISTS mode     text NOT NULL DEFAULT 'edit',
   ADD COLUMN IF NOT EXISTS effort   text NOT NULL DEFAULT 'normal',
   ADD COLUMN IF NOT EXISTS activity text;
+
+-- ── Today v2: interactive AI feed ────────────────────────────────────────────
+-- Triage lane override. NULL = classify by rules at read time
+-- (lib/today-triage.ts). Set by the owner (UI) or by an agent proposal the
+-- owner accepted — rules are the default, this column is the exception.
+ALTER TABLE work_items ADD COLUMN IF NOT EXISTS effort_class text
+  CHECK (effort_class IN ('chat','quick','deep'));
+
+-- When a chat turn is ABOUT one work item (a card handed to an agent), stamp it
+-- so the thread renders the card's chips under the reply and the client knows
+-- which item to re-check after the turn lands.
+ALTER TABLE ai_messages    ADD COLUMN IF NOT EXISTS subject_work_item_id uuid
+  REFERENCES work_items(id) ON DELETE SET NULL;
+ALTER TABLE dev_agent_runs ADD COLUMN IF NOT EXISTS subject_work_item_id uuid
+  REFERENCES work_items(id) ON DELETE SET NULL;

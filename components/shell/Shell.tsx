@@ -25,6 +25,9 @@ type ShellProps = {
   /** Structured text brief of this page's records — makes the Ask-Qwen bar
    *  answer from what's in view (see lib/page-context.ts). */
   aiContext?: string;
+  /** Page renders its own inline `<CommandBar embedded />` — suppress the
+   *  floating ⌘K pill and popup so there's exactly one Ask surface on screen. */
+  embeddedAsk?: boolean;
 };
 
 /**
@@ -33,7 +36,14 @@ type ShellProps = {
  * (Ctrl/⌘+K from anywhere). Standalone surfaces (Client / Sub portal) use
  * their own chrome and do not wrap in Shell.
  */
-export async function Shell({ children, breadcrumb, hideCmd, cmdkOpen, aiContext }: ShellProps) {
+export async function Shell({
+  children,
+  breadcrumb,
+  hideCmd,
+  cmdkOpen,
+  aiContext,
+  embeddedAsk,
+}: ShellProps) {
   const [user, unread] = await Promise.all([getCurrentUser(), getUnreadCount()]);
   const sidebarUser = {
     name: user?.name ?? "—",
@@ -54,9 +64,9 @@ export async function Shell({ children, breadcrumb, hideCmd, cmdkOpen, aiContext
           leading={<MobileNav user={sidebarUser} />}
         />
         <div className="relative min-h-0 flex-1 overflow-auto">{children}</div>
-        {!hideCmd && <CmdKPill />}
+        {!hideCmd && !embeddedAsk && <CmdKPill />}
       </div>
-      <CommandBar defaultOpen={cmdkOpen} aiContext={aiContext} />
+      {!embeddedAsk && <CommandBar defaultOpen={cmdkOpen} aiContext={aiContext} />}
       <RouteTracker />
     </div>
   );

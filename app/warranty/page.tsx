@@ -1,14 +1,17 @@
 import { Shell } from "@/components/shell/Shell";
 import { AiBubble, AiStream, AckButton, Card, Chip, Eyebrow } from "@/components/ui";
+import { CommandBar } from "@/components/cmdk/CommandBar";
 import { getWarrantyData, getWarrantySummary, getWarrantyProjectOptions } from "@/lib/warranty";
+import { warrantyContext } from "@/lib/page-context";
 import { WarrantyClaims } from "@/components/warranty/WarrantyClaims";
 import { AddClaimButton } from "@/components/warranty/AddClaimButton";
 
 export default async function WarrantyPage() {
   const [data, projectOptions] = await Promise.all([getWarrantyData(), getWarrantyProjectOptions()]);
+  const aiContext = warrantyContext(data);
 
   return (
-    <Shell breadcrumb="WARRANTY · CLOSED PROJECTS">
+    <Shell breadcrumb="WARRANTY · CLOSED PROJECTS" aiContext={aiContext} embeddedAsk>
       <div className="mx-auto max-w-[1100px] px-7 pb-16 pt-6">
         {/* Header */}
         <div className="mb-3.5 flex items-end gap-4">
@@ -26,6 +29,10 @@ export default async function WarrantyPage() {
             ))}
             <AddClaimButton projects={projectOptions} />
           </div>
+        </div>
+
+        <div className="mb-3.5">
+          <CommandBar embedded aiContext={aiContext} />
         </div>
 
         {/* AI claim summary */}

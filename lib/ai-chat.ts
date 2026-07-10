@@ -21,6 +21,10 @@ export interface ChatMessage {
   body: string;
   costUsd: number | null;
   createdAt: string;
+  /** Today v2: set when this turn is ABOUT one work item (a card handed to an
+   *  agent), so the feed can render that card's chips under the reply and know
+   *  which item to re-check when the turn lands. */
+  subjectWorkItemId: string | null;
 }
 
 export interface ConversationDetail {
@@ -80,8 +84,9 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
     body: string;
     cost_usd: number | null;
     created_at: string;
+    subject_work_item_id: string | null;
   }>(
-    `SELECT id, role, body, cost_usd, created_at::text AS created_at
+    `SELECT id, role, body, cost_usd, created_at::text AS created_at, subject_work_item_id
        FROM ai_messages WHERE conversation_id = $1 ORDER BY created_at ASC`,
     [id],
   );
@@ -105,6 +110,7 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
       // pg returns `numeric` as a string — coerce for the UI's .toFixed().
       costUsd: m.cost_usd == null ? null : Number(m.cost_usd),
       createdAt: m.created_at,
+      subjectWorkItemId: m.subject_work_item_id,
     })),
     pendingRunId: pending?.id ?? null,
   };
@@ -136,7 +142,7 @@ export async function insertMessage(
   conversationId: string,
   role: "user" | "assistant",
   body: string,
-  opts: { pageContext?: string; costUsd?: number } = {},
+  opts: { pageContext?: string; costUsd?: number; subjectWorkItemId?: string } = {},
 ): Promise<ChatMessage> {
   const row = await queryOne<{
     id: string;
@@ -144,11 +150,12 @@ export async function insertMessage(
     body: string;
     cost_usd: number | null;
     created_at: string;
+    subject_work_item_id: string | null;
   }>(
-    `INSERT INTO ai_messages (conversation_id, role, body, page_context, cost_usd)
-     VALUES ($1, $2, $3, $4, $5)
-     RETURNING id, role, body, cost_usd, created_at::text AS created_at`,
-    [conversationId, role, body, opts.pageContext ?? null, opts.costUsd ?? null],
+    `INSERT INTO ai_messages (conversation_id, role, body, page_context, cost_usd, subject_work_item_id)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id, role, body, cost_usd, created_at::text AS created_at, subject_work_item_id`,
+    [conversationId, role, body, opts.pageContext ?? null, opts.costUsd ?? null, opts.subjectWorkItemId ?? null],
   );
   await query(`UPDATE ai_conversations SET updated_at = now() WHERE id = $1`, [conversationId]);
   return {
@@ -157,6 +164,7 @@ export async function insertMessage(
     body: row!.body,
     costUsd: row!.cost_usd == null ? null : Number(row!.cost_usd),
     createdAt: row!.created_at,
+    subjectWorkItemId: row!.subject_work_item_id,
   };
 }
 

@@ -22,6 +22,7 @@ It runs as its own process over **stdio**, separate from the Next app, and reads
 | `search_knowledge` | Full-text + fuzzy search of the knowledge base (`query`, optional `project_slug`/`lead_slug`/`kind`/`limit`) |
 | `fetch_knowledge` / `list_recent_knowledge` | One item by `id` / recent items (`days`,`kind`,…) |
 | `list_work_items` / `get_work_item` | The work queue (optional `status`,`assignee_key`,`due_before`) / one item + its runs & receipts |
+| `get_today_queue` | Joe's `/today` rail: promoted priorities + waiting backlog, each with its lane (`chat`/`quick`/`deep`). READ-ONLY — promotion is app-owned |
 | `list_skills` / `get_skill` / `search_skills` | Skill library (approved unless `include_proposed`) / one skill + current body / search |
 | `suggest_skill_for_work_item` | The skill/runbook a work item expects, else best fuzzy matches |
 | `list_runbooks` / `get_runbook` | Runbooks / one runbook + ordered steps |
@@ -36,6 +37,8 @@ Safe by construction — internal records, append-only audit, and proposals only
 | `capture_knowledge` | Save a knowledge item (dedup by fingerprint; optional receipt) |
 | `create_work_item` | Add to the queue (`requires_approval` defaults true) |
 | `update_work_item_status` | Move an item's status (done sets completed_at) |
+| `snooze_work_item` | Push `due_at` out + clear app-owned promotion (`{id, days?, reason?}`); logs a receipt |
+| `submit_draft_for_approval` | Chat-lane item that needs a client-facing step: save the draft + set `approval_needed` (never sends) |
 | `record_agent_run` / `record_receipt` | Open/close a run; append proof-of-work |
 | `create_skill_proposal` | Propose a skill → lands `proposed`, out of the library until Joe approves in `/engine` |
 | `record_skill_used` | Log that an agent followed a skill |
@@ -109,6 +112,24 @@ import("@modelcontextprotocol/sdk/client/index.js").then(async ({Client})=>{
   const c=new Client({name:"t",version:"1.0.0"});
   await c.connect(new StdioClientTransport({command:"node",args:["mcp/sjcos-mcp.mjs"]}));
   console.log((await c.listTools()).tools.map(t=>t.name));
+  await c.close();
+});'
+```
+
+Call the Today-queue tools directly:
+
+```
+# from sjcos-app/, get the Today rail with lanes:
+node -e '
+import("@modelcontextprotocol/sdk/client/index.js").then(async ({Client})=>{
+  const {StdioClientTransport}=await import("@modelcontextprotocol/sdk/client/stdio.js");
+  const c=new Client({name:"t",version:"1.0.0"});
+  await c.connect(new StdioClientTransport({command:"node",args:["mcp/sjcos-mcp.mjs"]}));
+  const r=await c.callTool({name:"get_today_queue",arguments:{}});
+  console.log(r.content[0].text);
+  // snooze on a done/nonexistent id → { ok:false }:
+  const s=await c.callTool({name:"snooze_work_item",arguments:{id:"00000000-0000-0000-0000-000000000000",days:2}});
+  console.log(s.content[0].text);
   await c.close();
 });'
 ```

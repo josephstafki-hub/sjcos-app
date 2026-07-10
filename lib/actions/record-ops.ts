@@ -11,6 +11,7 @@ import { revalidatePath } from "next/cache";
 import { query } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { WORK_STATUSES } from "@/lib/engine-constants";
+import { notifyAgentOwner } from "@/lib/dev-agents";
 import type { WorkItemStatus } from "@/lib/types";
 import type { RecordKind } from "@/lib/record-ops";
 
@@ -63,15 +64,17 @@ export async function setRecordWorkItemStatus(
 
 export async function approveRecordWorkItem(id: string, kind: RecordKind, slug: string): Promise<Result> {
   await requireRole("owner");
-  const { rows } = await query<{ title: string }>(
+  const { rows } = await query<{ title: string; body: string; assignee_key: string | null }>(
     `UPDATE work_items
         SET approval_status = 'approved',
             status = CASE WHEN status = 'approval_needed' THEN 'queued' ELSE status END
-      WHERE id = $1 RETURNING title`,
+      WHERE id = $1 RETURNING title, body, assignee_key`,
     [id],
   );
   if (!rows[0]) return { ok: false, error: "Work item not found." };
-  await writeReceipt("approval", `Approved: ${rows[0].title}`, id);
+  const { title, body, assignee_key } = rows[0];
+  await writeReceipt("approval", `Approved: ${title}`, id);
+  await notifyAgentOwner(id, assignee_key, title, body, `${kind} ${slug}`);
   revalidateRecord(kind, slug);
   return { ok: true };
 }

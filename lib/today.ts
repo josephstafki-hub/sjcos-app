@@ -12,6 +12,7 @@
 
 import { ai } from "./ai";
 import { query } from "./db";
+import { laneFor, type Lane } from "./today-triage";
 import type { ChipKind } from "@/components/ui/Chip";
 
 type DotKind = "flag" | "accent" | "ai" | "money" | "ghost";
@@ -28,6 +29,9 @@ export interface TodayPriority {
   rank: string;
   title: string;
   sub: string;
+  /** Triage lane (Today v2): chat = an agent can complete it via MCP; quick =
+   *  one human click; deep = real page work. See lib/today-triage.ts. */
+  lane: Lane;
   /** Where clicking the priority navigates (the source record). */
   href?: string;
 }
@@ -61,7 +65,17 @@ export interface TodayData {
   priorities: TodayPriority[];
   week: TodayCalDay[];
   schedule: TodayScheduleBlock[];
-  waiting: { items: { id: string; label: string; href?: string }[]; total: number };
+  waiting: { items: WaitingItem[]; total: number };
+}
+
+export interface WaitingItem {
+  id: string;
+  label: string;
+  href?: string;
+  lane: Lane;
+  /** True for work_items-backed rows — the only ones the queue actions can
+   *  mark done / snooze. Signal cards (warranty/lead/compliance/…) are false. */
+  checkable: boolean;
 }
 
 export interface BriefInput {
@@ -69,6 +83,8 @@ export interface BriefInput {
   ownerName: string;
   projects: { name: string; status: string; progress: number }[];
   threadsNeedingReply: number;
+  /** The displayed Priorities rail, so the brief can narrate lanes. */
+  queue: { rank: string; title: string; lane: Lane; tag: string }[];
 }
 
 /** YYYY-MM-DD in local time. */
@@ -127,6 +143,7 @@ export interface TodayWorkItemRow {
   body: string | null;
   status: string;
   priority: "low" | "normal" | "high" | "urgent";
+  effort_class: string | null;
   due: string | null;
   promoted_at: string | null;
   project_slug: string | null;
@@ -142,7 +159,8 @@ export interface TodayWorkItemRow {
  *  never drifts between the two. */
 export const OPEN_WORK_ITEMS_SQL = `
     SELECT w.id, w.title, left(NULLIF(w.body, ''), 140) AS body,
-           w.status, w.priority, to_char(w.due_at, 'FMMon FMDD') AS due,
+           w.status, w.priority, w.effort_class,
+           to_char(w.due_at, 'FMMon FMDD') AS due,
            w.promoted_at,
            p.slug AS project_slug, p.name AS project_name, p.status AS project_status,
            l.slug AS lead_slug, l.name AS lead_name
@@ -178,6 +196,7 @@ export function workItemCandidate(w: TodayWorkItemRow): Omit<TodayPriority, "ran
           ? `JOB · ${w.project_name ?? "Project"}`
           : "TODO",
     dot: w.priority === "urgent" || w.priority === "high" ? "flag" : "accent",
+    lane: laneFor({ title: w.title, body: w.body, effortClass: w.effort_class }),
     title: w.title,
     sub: [w.body, w.due ? `due ${w.due}` : null].filter(Boolean).join(" · ") || w.status.replaceAll("_", " "),
     href: w.lead_slug ? `/leads/${w.lead_slug}` : isWarranty ? "/warranty" : w.project_slug ? `/projects/${w.project_slug}` : "/engine",
@@ -199,19 +218,45 @@ function dollars(n: number): string {
   return `$${Math.round(n).toLocaleString("en-US")}`;
 }
 
-export async function getTodayData(): Promise<TodayData> {
-  const now = new Date();
-  const dateLabel = now
-    .toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
-    .toUpperCase();
+interface FlaggedLeadRow {
+  slug: string;
+  name: string;
+  scope: string | null;
+  flag_label: string | null;
+}
+interface ComplianceRow {
+  title: string;
+  step: string | null;
+  due: string;
+  days: number;
+}
+interface ScheduleRow {
+  time_label: string;
+  label: string;
+  tone: string;
+}
 
-  // In-flight jobs (active + closeout) drive the header metrics and the brief.
-  // `flagged leads` = leads carrying the urgent "AI take" chip (flag_kind).
-  const monday = weekMonday(now);
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
+/** The raw rows the Priorities/Waiting queue is built from. Fetched once and
+ *  fed to buildQueue() so getTodayData() and getQueueSnapshot() share the exact
+ *  same candidate pipeline (the ranking/promotion logic must never fork). */
+interface QueueSources {
+  openWorkItems: TodayWorkItemRow[];
+  warrantyClaims: TodayWarrantyClaimRow[];
+  flaggedLeadRows: FlaggedLeadRow[];
+  compliance: ComplianceRow[];
+  scheduleRows: ScheduleRow[];
+  projects: TodayProjectRow[];
+}
 
-  const [projectsRes, leadsRes, workItemsRes, scheduleRes, weekRes, complianceRes, warrantyClaimsRes] =
+export interface QueueSnapshot {
+  priorities: TodayPriority[];
+  waiting: { items: WaitingItem[]; total: number };
+}
+
+/** Run the six queries that feed the queue. Shared by getTodayData() (which
+ *  also reuses projects/leads/schedule for header/brief) and getQueueSnapshot(). */
+async function fetchQueueSources(): Promise<QueueSources> {
+  const [projectsRes, leadsRes, workItemsRes, scheduleRes, complianceRes, warrantyClaimsRes] =
     await Promise.all([
       query<TodayProjectRow>(`
         SELECT slug, name, status, progress,
@@ -219,21 +264,16 @@ export async function getTodayData(): Promise<TodayData> {
         FROM projects
         WHERE status IN ('construction', 'closeout')
         ORDER BY (status = 'construction') DESC, progress DESC, name`),
-      query<{ slug: string; name: string; scope: string | null; flag_label: string | null }>(`
+      query<FlaggedLeadRow>(`
         SELECT slug, name, scope, flag_label
         FROM leads WHERE flag_kind = 'flag'
         ORDER BY updated_at DESC`),
       query<TodayWorkItemRow>(`${OPEN_WORK_ITEMS_SQL}${OPEN_WORK_ITEMS_ORDER_SQL}`),
-      query<{ time_label: string; label: string; tone: string }>(`
+      query<ScheduleRow>(`
         SELECT time_label, label, tone
         FROM schedule_blocks WHERE block_date = CURRENT_DATE
         ORDER BY sort_min`),
-      query<{ iso: string; time_label: string; label: string; tone: string }>(`
-        SELECT block_date::text AS iso, time_label, label, tone
-        FROM schedule_blocks WHERE block_date BETWEEN $1 AND $2
-        ORDER BY block_date, sort_min`,
-        [isoDate(monday), isoDate(sunday)]),
-      query<{ title: string; step: string | null; due: string; days: number }>(`
+      query<ComplianceRow>(`
         SELECT title, step, to_char(due_date, 'FMMon FMDD') AS due,
                (due_date - CURRENT_DATE) AS days
         FROM compliance_items
@@ -259,36 +299,21 @@ export async function getTodayData(): Promise<TodayData> {
          WHERE resolved = false
          ORDER BY opened_at DESC`),
     ]);
+  return {
+    projects: projectsRes.rows,
+    flaggedLeadRows: leadsRes.rows,
+    openWorkItems: workItemsRes.rows,
+    scheduleRows: scheduleRes.rows,
+    compliance: complianceRes.rows,
+    warrantyClaims: warrantyClaimsRes.rows,
+  };
+}
 
-  const projects = projectsRes.rows;
-  const activeCount = projects.filter((p) => p.status === "construction").length;
-  const outstanding = projects.reduce((s, p) => s + Number(p.outstanding), 0);
-  const flaggedLeadRows = leadsRes.rows;
-  const openWorkItems = workItemsRes.rows;
-  const warrantyClaims = warrantyClaimsRes.rows;
-  const flaggedLeads = flaggedLeadRows.length;
-
-  const toneToDot = (t: string): DotKind =>
-    t === "accent" || t === "ai" ? (t as DotKind) : "ghost";
-
-  // This week's blocks grouped by ISO date, for the week-strip day summaries.
-  const blocksByDay = new Map<string, { time: string; label: string; dot: DotKind }[]>();
-  for (const b of weekRes.rows) {
-    const list = blocksByDay.get(b.iso) ?? [];
-    list.push({ time: b.time_label, label: b.label, dot: toneToDot(b.tone) });
-    blocksByDay.set(b.iso, list);
-  }
-
-  // ── Today's schedule (real blocks; calm placeholder when empty) ──
-  const schedule: TodayScheduleBlock[] = scheduleRes.rows.length
-    ? scheduleRes.rows.map((b) => ({
-        time: b.time_label,
-        label: b.label,
-        dot: toneToDot(b.tone),
-        href: "/schedule",
-      }))
-    : [{ time: "—", label: "Nothing scheduled — add a block on Schedule", dot: "ghost", href: "/schedule" }];
-
+/** Build the 5-slot Priorities rail + Waiting-on-me backlog from raw sources.
+ *  Auto-promotes unpromoted work items to top up empty slots (a DB write) so
+ *  the rail backfills even when nobody visited /today to trigger the click-time
+ *  swap. The ONE place this ranking/promotion logic lives. */
+async function buildQueue(s: QueueSources): Promise<QueueSnapshot> {
   // ── Priorities: a 5-slot rail, ranked from real signals. Leads are always
   // first because new revenue beats internal/project follow-ups, then the
   // rest keep their existing source order (work queue → warranty →
@@ -298,17 +323,14 @@ export async function getTodayData(): Promise<TodayData> {
   // `promoted_at` is set — see db/schema.sql. Non-work-item signals
   // (leads/warranty/compliance/schedule/job) aren't part of that backlog, so
   // they're always eligible. If fewer than 5 slots are filled, we
-  // auto-promote the next-ranked unpromoted work items to top up — this is
-  // what backfills the rail after Hermes (or the owner) clears items without
-  // anyone visiting /today to trigger the click-time swap in
-  // checkPriorityCompletion().
+  // auto-promote the next-ranked unpromoted work items to top up.
   interface Candidate extends Omit<TodayPriority, "rank"> {
     promotedAt: string | null;
     waitingLabel: string;
   }
   const candidates: Candidate[] = [];
-  const workItemLeadSlugs = new Set(openWorkItems.map((w) => w.lead_slug).filter(Boolean));
-  for (const w of openWorkItems) {
+  const workItemLeadSlugs = new Set(s.openWorkItems.map((w) => w.lead_slug).filter(Boolean));
+  for (const w of s.openWorkItems) {
     const isWarranty = w.project_status === "warranty";
     const kind = w.lead_slug ? "Lead" : isWarranty ? "Warranty" : "Project";
     const source = w.lead_name ?? w.project_name;
@@ -318,10 +340,11 @@ export async function getTodayData(): Promise<TodayData> {
       waitingLabel: [kind, source, w.title].filter(Boolean).join(" — "),
     });
   }
-  for (const claim of warrantyClaims) {
+  for (const claim of s.warrantyClaims) {
     candidates.push({
       id: `warranty:${claim.id}`,
       checkable: false,
+      lane: "deep",
       promotedAt: null,
       tag: `WARRANTY · ${claim.project}`,
       dot: claim.dot,
@@ -331,10 +354,11 @@ export async function getTodayData(): Promise<TodayData> {
       waitingLabel: `Warranty — ${claim.project}: ${claim.issue}${claim.deadline ? ` (${claim.deadline})` : ""}`,
     });
   }
-  for (const l of flaggedLeadRows.filter((l) => !workItemLeadSlugs.has(l.slug))) {
+  for (const l of s.flaggedLeadRows.filter((l) => !workItemLeadSlugs.has(l.slug))) {
     candidates.push({
       id: `lead:${l.slug}`,
       checkable: false,
+      lane: "deep",
       promotedAt: null,
       tag: "LEAD",
       dot: "flag",
@@ -344,10 +368,11 @@ export async function getTodayData(): Promise<TodayData> {
       waitingLabel: `Reply to ${l.name} — ${l.flag_label ?? "lead"}`,
     });
   }
-  for (const c of complianceRes.rows.filter((c) => c.days <= 7)) {
+  for (const c of s.compliance.filter((c) => c.days <= 7)) {
     candidates.push({
       id: `compliance:${c.title}:${c.due}`,
       checkable: false,
+      lane: "deep",
       promotedAt: null,
       tag: "COMPLIANCE",
       dot: c.days <= 3 ? "flag" : "accent",
@@ -357,11 +382,12 @@ export async function getTodayData(): Promise<TodayData> {
       waitingLabel: `${c.title} (due ${c.due})`,
     });
   }
-  const firstJobBlock = scheduleRes.rows.find((b) => b.tone === "accent" || b.tone === "ai");
+  const firstJobBlock = s.scheduleRows.find((b) => b.tone === "accent" || b.tone === "ai");
   if (firstJobBlock) {
     candidates.push({
       id: `schedule:${firstJobBlock.label}`,
       checkable: false,
+      lane: "deep",
       promotedAt: null,
       tag: "SCHEDULE",
       dot: "accent",
@@ -371,11 +397,12 @@ export async function getTodayData(): Promise<TodayData> {
       waitingLabel: `On site — ${firstJobBlock.label} (${firstJobBlock.time_label})`,
     });
   }
-  const topActive = projects.find((p) => p.status === "construction");
+  const topActive = s.projects.find((p) => p.status === "construction");
   if (topActive) {
     candidates.push({
       id: `job:${topActive.slug}`,
       checkable: false,
+      lane: "deep",
       promotedAt: null,
       tag: `JOB · ${topActive.name}`,
       dot: "accent",
@@ -410,6 +437,7 @@ export async function getTodayData(): Promise<TodayData> {
           {
             id: "all-clear",
             checkable: false,
+            lane: "deep" as Lane,
             tag: "ALL CLEAR",
             dot: "ghost" as DotKind,
             title: "Nothing urgent today",
@@ -421,9 +449,73 @@ export async function getTodayData(): Promise<TodayData> {
   // ── Waiting on me: the full backlog minus whatever's currently shown in
   // Priorities. This is the queue Hermes actually updates (work_items) plus
   // the other live signals — see docs/hermes-mcp.md.
-  const waitingItems = ranked
+  const waitingItems: WaitingItem[] = ranked
     .filter((c) => !displayedIds.has(c.id))
-    .map((c) => ({ id: c.id, label: c.waitingLabel, href: c.href }));
+    .map((c) => ({ id: c.id, label: c.waitingLabel, href: c.href, lane: c.lane, checkable: c.checkable }));
+
+  return { priorities, waiting: { total: waitingItems.length, items: waitingItems } };
+}
+
+/** Re-read the live Priorities + Waiting queue only (no schedule/brief/header).
+ *  Same candidate pipeline as getTodayData() via buildQueue(). Used by the
+ *  Today feed's chip actions to refresh both lists after a change. */
+export async function getQueueSnapshot(): Promise<QueueSnapshot> {
+  return buildQueue(await fetchQueueSources());
+}
+
+export async function getTodayData(): Promise<TodayData> {
+  const now = new Date();
+  const dateLabel = now
+    .toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
+    .toUpperCase();
+
+  // In-flight jobs (active + closeout) drive the header metrics and the brief.
+  // `flagged leads` = leads carrying the urgent "AI take" chip (flag_kind).
+  const monday = weekMonday(now);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+
+  // The queue sources (shared with getQueueSnapshot via buildQueue) plus this
+  // page's own week strip. projects/leads/schedule from the sources also feed
+  // the header metrics, the schedule card, and the brief.
+  const [sources, weekRes] = await Promise.all([
+    fetchQueueSources(),
+    query<{ iso: string; time_label: string; label: string; tone: string }>(`
+        SELECT block_date::text AS iso, time_label, label, tone
+        FROM schedule_blocks WHERE block_date BETWEEN $1 AND $2
+        ORDER BY block_date, sort_min`,
+      [isoDate(monday), isoDate(sunday)]),
+  ]);
+
+  const { projects, flaggedLeadRows, scheduleRows } = sources;
+  const activeCount = projects.filter((p) => p.status === "construction").length;
+  const outstanding = projects.reduce((s, p) => s + Number(p.outstanding), 0);
+  const flaggedLeads = flaggedLeadRows.length;
+
+  const toneToDot = (t: string): DotKind =>
+    t === "accent" || t === "ai" ? (t as DotKind) : "ghost";
+
+  // This week's blocks grouped by ISO date, for the week-strip day summaries.
+  const blocksByDay = new Map<string, { time: string; label: string; dot: DotKind }[]>();
+  for (const b of weekRes.rows) {
+    const list = blocksByDay.get(b.iso) ?? [];
+    list.push({ time: b.time_label, label: b.label, dot: toneToDot(b.tone) });
+    blocksByDay.set(b.iso, list);
+  }
+
+  // ── Today's schedule (real blocks; calm placeholder when empty) ──
+  const schedule: TodayScheduleBlock[] = scheduleRows.length
+    ? scheduleRows.map((b) => ({
+        time: b.time_label,
+        label: b.label,
+        dot: toneToDot(b.tone),
+        href: "/schedule",
+      }))
+    : [{ time: "—", label: "Nothing scheduled — add a block on Schedule", dot: "ghost", href: "/schedule" }];
+
+  // Priorities + Waiting-on-me: built by the shared buildQueue() pipeline (the
+  // one place ranking/promotion lives, so getQueueSnapshot never forks from it).
+  const { priorities, waiting } = await buildQueue(sources);
 
   // The AI brief is NOT awaited here — that would block the whole page on
   // ~15s of CPU inference. We return its inputs and let getTodayBrief() run
@@ -437,6 +529,7 @@ export async function getTodayData(): Promise<TodayData> {
       progress: p.progress,
     })),
     threadsNeedingReply: flaggedLeads,
+    queue: priorities.map((p) => ({ rank: p.rank, title: p.title, lane: p.lane, tag: p.tag })),
   };
 
   return {
@@ -452,10 +545,7 @@ export async function getTodayData(): Promise<TodayData> {
     priorities,
     week: weekStrip(now, blocksByDay),
     schedule,
-    waiting: {
-      total: waitingItems.length,
-      items: waitingItems,
-    },
+    waiting,
   };
 }
 

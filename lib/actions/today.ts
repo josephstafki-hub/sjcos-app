@@ -2,13 +2,15 @@
 
 import { requireRole } from "@/lib/dal";
 import { ai } from "@/lib/ai";
-import { query } from "@/lib/db";
+import { query, queryOne } from "@/lib/db";
 import {
   OPEN_WORK_ITEMS_SQL,
   OPEN_WORK_ITEMS_ORDER_SQL,
   workItemCandidate,
+  getQueueSnapshot,
   type TodayPriority,
   type TodayWorkItemRow,
+  type QueueSnapshot,
 } from "@/lib/today";
 
 /** Ask the AI to re-rank today's priorities. Returns the given titles in the
@@ -75,4 +77,53 @@ export async function checkPriorityCompletion(workItemId: string): Promise<Prior
 
   await query(`UPDATE work_items SET promoted_at = now() WHERE id = $1`, [nextRow.id]);
   return { completed: true, next: workItemCandidate(nextRow) };
+}
+
+// ─── Today feed chip actions (Phase 2) ───────────────────────────────────────
+// These back the deterministic, app-rendered chips on the Today feed cards.
+// Each returns the fresh queue via getQueueSnapshot() (buildQueue is the single
+// source of ranking/promotion truth), so the client can swap both lists in one
+// state update. Owner-only, and the mutations are idempotent so a double-click
+// or a concurrent completion elsewhere can't corrupt anything.
+
+/** Re-read the live Priorities + Waiting queue (no schedule/brief/header). */
+export async function refreshTodayQueue(): Promise<QueueSnapshot> {
+  await requireRole("owner");
+  return getQueueSnapshot();
+}
+
+/** Owner clicked "Mark done" on a card. Marks the work_item done and returns
+ *  the fresh queue (the freed slot backfills inside getQueueSnapshot). Skips
+ *  the write if the item is already done/cancelled. */
+export async function completeTodayItem(workItemId: string): Promise<QueueSnapshot> {
+  await requireRole("owner");
+  const cur = await queryOne<{ status: string }>(
+    `SELECT status FROM work_items WHERE id = $1`,
+    [workItemId],
+  );
+  if (cur && !["done", "cancelled"].includes(cur.status)) {
+    await query(
+      `UPDATE work_items SET status = 'done', completed_at = now(), updated_at = now()
+        WHERE id = $1 AND status NOT IN ('done','cancelled')`,
+      [workItemId],
+    );
+  }
+  return getQueueSnapshot();
+}
+
+/** Owner clicked "Snooze 3d". Pushes due_at out and demotes the item
+ *  (promoted_at = NULL) so it drops back to Waiting on me; the freed slot
+ *  backfills. No-op write if the item is already done/cancelled. */
+export async function snoozeTodayItem(workItemId: string, days = 3): Promise<QueueSnapshot> {
+  await requireRole("owner");
+  const n = Math.min(30, Math.max(1, Math.round(days)));
+  await query(
+    `UPDATE work_items
+        SET due_at = GREATEST(now(), COALESCE(due_at, now())) + make_interval(days => $2),
+            promoted_at = NULL,
+            updated_at = now()
+      WHERE id = $1 AND status NOT IN ('done','cancelled')`,
+    [workItemId, n],
+  );
+  return getQueueSnapshot();
 }

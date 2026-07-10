@@ -1,0 +1,7 @@
+[Unit]
+Description=SJC OS owner-agent approval-ping retry sweep
+After=sjcos.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/joe/bin/sjcos-agent-retries

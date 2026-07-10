@@ -78,6 +78,31 @@ emitted on feed-read in `lib/notify.ts`). Each (record, window) fires once via
 the `reminder_log` dedup table. The cron JSON returns a per-scan count
 (`compliance`/`coi`/`warranty`/`insurance`/`ar`).
 
+## Scheduler — owner-agent approval-ping retries
+
+A systemd **user timer** runs every 10 minutes (`/api/cron/agent-retries`) to
+re-nudge a work item's owner agent (Hermes/Claude) when the approval ping sent
+from the Approve button (`notifyAgentOwner()` in `lib/dev-agents.ts`) errored
+out — e.g. the Hermes gateway or `claude` CLI wasn't reachable at the moment
+Joe clicked Approve. Same auth pattern as the reminders cron (`CRON_SECRET`).
+Gives up after 5 attempts on one item; the last "⚠️ ..." reply in that item's
+Ask-window conversation is the record of why.
+
+Install (one-time):
+```
+install -m755 deploy/sjcos-agent-retries.sh ~/bin/sjcos-agent-retries
+cp deploy/sjcos-agent-retries.service deploy/sjcos-agent-retries.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now sjcos-agent-retries.timer
+```
+
+Run on demand / inspect:
+```
+systemctl --user start sjcos-agent-retries.service           # trigger now
+journalctl --user -u sjcos-agent-retries.service -n 20       # last result (JSON)
+systemctl --user list-timers sjcos-agent-retries.timer       # next run
+```
+
 ## Voice daily logs — whisper.cpp (Phase-3 7-voice)
 
 Local, offline speech-to-text for the daily-log composers. `/api/transcribe`

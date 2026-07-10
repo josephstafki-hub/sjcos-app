@@ -22,6 +22,10 @@ export interface BriefInput {
   leads?: { name: string; scope: string; stage: string }[];
   projects?: { name: string; status: string; progress: number }[];
   threadsNeedingReply?: number;
+  /** Today v2: the displayed Priorities rail, so the brief can narrate lanes —
+   *  which items an agent can handle in chat, which are one-click, which need
+   *  Joe on their page. See lib/today-triage.ts for the lanes. */
+  queue?: { rank: string; title: string; lane: string; tag: string }[];
 }
 
 export interface PriorityItem {
@@ -160,11 +164,19 @@ const mockProvider: AiProvider = {
 
   async brief(input) {
     const replies = input.threadsNeedingReply ?? 0;
+    const q = input.queue ?? [];
+    const chat = q.find((i) => i.lane === "chat");
+    const deep = q.find((i) => i.lane === "deep");
+    // Narrate lanes so dev-without-Ollama still demos the Today v2 UX.
+    const laneLine = q.length
+      ? `${chat ? `Say go on ${chat.rank} and I'll handle it in chat. ` : ""}` +
+        `${deep ? `${deep.rank} needs you on its page. ` : ""}` +
+        `The rest are quick check-offs.`
+      : `${replies} ${replies === 1 ? "thread" : "threads"} waiting on a reply.`;
     return {
       summary:
-        `Here's your day. ${input.projects?.[0]?.name ?? "Your lead job"} needs eyes this morning, ` +
-        `${replies} ${replies === 1 ? "thread" : "threads"} are waiting on a reply, and a couple of ` +
-        `marketing items are queued for review.`,
+        `Here's your day. ${input.projects?.[0]?.name ?? "Your lead job"} needs eyes this morning. ` +
+        laneLine,
       priorities: [
         {
           kind: "lead",
@@ -459,10 +471,18 @@ const ollamaProvider: AiProvider = {
     const leads = (input.leads ?? [])
       .map((l) => `- ${l.name}: ${l.scope} (${l.stage})`)
       .join("\n");
+    const queue = (input.queue ?? [])
+      .map((q) => `- ${q.rank} [${q.lane}] ${q.title} (${q.tag})`)
+      .join("\n");
     const prompt =
-      `Write Joe's morning brief for ${input.date}. Open with a one- or ` +
-      `two-sentence summary of the day. Then list 2–4 priorities, each tagged ` +
-      `with a kind from: lead, job, money, marketing, compliance.\n\n` +
+      `Write Joe's morning triage brief for ${input.date} in ≤3 sentences. ` +
+      `Open by naming what moves the week, then for each queued item say in ` +
+      `one clause how it gets handled based on its lane: "chat" = you (the AI) ` +
+      `can handle it in chat, so tell Joe to "say go" on that item by rank ` +
+      `(e.g. "say go on #1"); "quick" = a one-click check-off for Joe; ` +
+      `"deep" = Joe has to work it on its page (name the page). Reference ` +
+      `items by their rank.\n\n` +
+      `Today's queue (rank, lane, title):\n${queue || "(empty)"}\n\n` +
       `Active projects:\n${projects || "(none)"}\n\n` +
       `Open leads:\n${leads || "(none)"}\n\n` +
       `Threads waiting on a reply: ${input.threadsNeedingReply ?? 0}\n\n` +

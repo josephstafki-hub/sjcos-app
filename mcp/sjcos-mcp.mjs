@@ -15,9 +15,11 @@
 //
 // Tool surface (all tools are curated + parameterized — raw SQL is NEVER exposed):
 //   • Curated READ tools: parameterized SELECTs over leads/projects/subs/
-//     compliance/knowledge/work items/skills/runbooks + business_snapshot.
+//     compliance/knowledge/work items/skills/runbooks + business_snapshot +
+//     get_today_queue (Joe's Today rail with per-item lanes).
 //   • Gated WRITE tools: capture_knowledge, create_work_item,
-//     update_work_item_status, record_agent_run, record_receipt,
+//     update_work_item_status, snooze_work_item, submit_draft_for_approval,
+//     record_agent_run, record_receipt,
 //     create_skill_proposal, record_skill_used. These are safe by construction —
 //     they only touch internal records, an append-only audit trail, or land as
 //     proposals (skills land 'proposed', invisible to the library until an owner
@@ -354,20 +356,26 @@ server.registerTool(
     title: "List work items",
     description:
       "The SJC OS work queue. Filter by status, assignee_key (human-joe / " +
-      "hermes-telegram / claude-code-server / …), and/or a due_before ISO date. " +
-      "Ordered by priority then due date.",
+      "hermes-telegram / claude-code-server / …), project_slug/lead_slug (use " +
+      "these to find the to-do tied to the specific job/lead someone is talking " +
+      "about instead of paging through the whole queue), and/or a due_before ISO " +
+      "date. Ordered by priority then due date.",
     inputSchema: {
       status: z.string().optional(),
       assignee_key: z.string().optional(),
+      project_slug: z.string().optional(),
+      lead_slug: z.string().optional(),
       due_before: z.string().optional(),
       limit: z.number().int().min(1).max(200).optional(),
     },
   },
-  async ({ status, assignee_key, due_before, limit = 50 }) => {
+  async ({ status, assignee_key, project_slug, lead_slug, due_before, limit = 50 }) => {
     const conds = [];
     const params = [];
     if (status) { params.push(status); conds.push(`w.status = $${params.length}`); }
     if (assignee_key) { params.push(assignee_key); conds.push(`w.assignee_key = $${params.length}`); }
+    if (project_slug) { params.push(project_slug); conds.push(`p.slug = $${params.length}`); }
+    if (lead_slug) { params.push(lead_slug); conds.push(`l.slug = $${params.length}`); }
     if (due_before) { params.push(due_before); conds.push(`w.due_at <= $${params.length}::timestamptz`); }
     const where = conds.length ? `WHERE ${conds.join(" AND ")}` : ``;
     params.push(limit);
@@ -644,7 +652,8 @@ server.registerTool(
     description:
       "Move a work item to a new status (queued/in_progress/waiting_on_*/blocked/" +
       "approval_needed/done/cancelled). Optional note becomes the blocked_reason; " +
-      "done sets completed_at.",
+      "done sets completed_at. When completing a Today-queue item, include a short " +
+      "note and also record_agent_run + record_receipt so the owner sees proof of work.",
     inputSchema: {
       id: z.string(),
       status: z.enum(["queued", "in_progress", "waiting_on_human", "waiting_on_client",
@@ -785,6 +794,135 @@ server.registerTool(
       [agent_run_id ?? null, work_item_id ?? null, `used skill ${skill_slug}`],
     );
     return json({ ok: true, receipt_id: r[0].id });
+  },
+);
+
+// ─── Today queue (Today v2) ─────────────────────────────────────────────────
+// KEEP IN LOCKSTEP with lib/today-triage.ts (DEEP_RE / CHAT_RE). This .mjs
+// server can't import the TS module, so the lane rules are duplicated here — if
+// you change them in one place, change them in the other.
+const DEEP_RE_MJS =
+  /\b(estimate|invoice|draw|bill|payment|selection|contract|sign|proposal|permit|coi|insurance|upload|photo|drawing|plan|design|order|purchase|schedule the|change order)\b/;
+const CHAT_RE_MJS =
+  /\b(follow.?up|check.?in|reply|respond|draft|note|log|capture|summar|remind|status|update .*(status|log)|research|look.?up|find out|ask)\b/;
+function laneForMjs(w) {
+  if (["chat", "quick", "deep"].includes(w.effort_class)) return w.effort_class;
+  const hay = `${w.title} ${w.body ?? ""}`.toLowerCase();
+  if (DEEP_RE_MJS.test(hay)) return "deep";
+  if (CHAT_RE_MJS.test(hay)) return "chat";
+  return "quick";
+}
+
+server.registerTool(
+  "get_today_queue",
+  {
+    title: "Get today's queue",
+    description:
+      "Joe's Today rail: promoted priorities (promoted_at set) and the " +
+      "waiting backlog, with each item's lane (chat = an agent may complete " +
+      "it via MCP; quick = one-click for Joe; deep = needs page work). " +
+      "READ-ONLY — promotion is app-owned; complete items via " +
+      "update_work_item_status.",
+    inputSchema: {},
+  },
+  async () => {
+    // WHERE clause kept in lockstep with OPEN_WORK_ITEMS_SQL in lib/today.ts.
+    const items = await rows(
+      `SELECT w.id, w.title, left(NULLIF(w.body,''),140) AS body, w.status,
+              w.priority, w.due_at, w.effort_class,
+              (w.promoted_at IS NOT NULL) AS promoted,
+              p.slug AS project_slug, l.slug AS lead_slug
+         FROM work_items w
+         LEFT JOIN projects p ON p.id = w.project_id
+         LEFT JOIN leads l ON l.id = w.lead_id
+        WHERE w.status NOT IN ('done','cancelled')
+          AND w.assignee_kind = 'human'
+          AND (w.assignee_key IS NULL OR w.assignee_key = 'human-joe')
+          AND (w.lead_id IS NOT NULL OR w.project_id IS NOT NULL)
+        ORDER BY (w.promoted_at IS NOT NULL) DESC,
+                 array_position(ARRAY['urgent','high','normal','low'], w.priority),
+                 w.due_at NULLS LAST, w.updated_at DESC, w.id`,
+    );
+    return json(items.map((w) => ({ ...w, lane: laneForMjs(w) })));
+  },
+);
+
+server.registerTool(
+  "snooze_work_item",
+  {
+    title: "Snooze a work item",
+    description:
+      "Push a work item's due date out and drop it back to the Waiting-on-me " +
+      "backlog (clears app-owned promotion). Use ONLY when Joe asks or the item " +
+      "literally can't proceed yet — state the reason. Logs a receipt.",
+    inputSchema: {
+      id: z.string(),
+      days: z.number().int().min(1).max(30).optional(),
+      reason: z.string().optional(),
+    },
+  },
+  async ({ id, days = 3, reason }) => {
+    const r = await rows(
+      `UPDATE work_items
+          SET due_at = GREATEST(now(), COALESCE(due_at, now())) + make_interval(days => $2),
+              promoted_at = NULL,
+              updated_at = now()
+        WHERE id = $1 AND status NOT IN ('done','cancelled')
+        RETURNING id, due_at`,
+      [id, days],
+    );
+    if (!r[0]) return json({ ok: false, error: `No open work item ${id}` });
+    await rows(
+      `INSERT INTO agent_receipts (work_item_id, receipt_kind, label)
+       VALUES ($1,'db_row',$2)`,
+      [id, `snoozed ${days}d${reason ? `: ${reason}` : ""}`],
+    );
+    return json({ ok: true, id: r[0].id, due_at: r[0].due_at });
+  },
+);
+
+server.registerTool(
+  "submit_draft_for_approval",
+  {
+    title: "Submit a draft for owner approval",
+    description:
+      "For a chat-lane item that turns out to need a client-facing step. NEVER " +
+      "sends anything — sets the work item to approval_needed / requested, saves " +
+      "the draft as a knowledge item, and logs a receipt. Joe reviews + sends " +
+      "from the app.",
+    inputSchema: {
+      work_item_id: z.string(),
+      draft: z.string(),
+      kind: z.string().optional(),
+    },
+  },
+  async ({ work_item_id, draft, kind = "draft" }) => {
+    const item = await rows(
+      `SELECT id, lead_id, project_id FROM work_items WHERE id = $1`,
+      [work_item_id],
+    );
+    if (!item[0]) return json({ ok: false, error: `No work item ${work_item_id}` });
+    const fp = createHash("md5").update(draft).digest("hex");
+    const k = await rows(
+      `INSERT INTO knowledge_items (content, kind, source, project_id, lead_id, content_fingerprint, created_by)
+       VALUES ($1,$2,'agent',$3,$4,$5,'agent')
+       ON CONFLICT (content_fingerprint) WHERE content_fingerprint IS NOT NULL DO NOTHING
+       RETURNING id`,
+      [draft, kind, item[0].project_id, item[0].lead_id, fp],
+    );
+    const knowledgeId = k[0]?.id ?? null;
+    await rows(
+      `UPDATE work_items
+          SET status = 'approval_needed', approval_status = 'requested', updated_at = now()
+        WHERE id = $1`,
+      [work_item_id],
+    );
+    await rows(
+      `INSERT INTO agent_receipts (work_item_id, receipt_kind, uri, label)
+       VALUES ($1,'draft',$2,$3)`,
+      [work_item_id, knowledgeId ? `knowledge_items/${knowledgeId}` : null, `draft ready for approval (${kind})`],
+    );
+    return json({ ok: true, knowledge_id: knowledgeId });
   },
 );
 

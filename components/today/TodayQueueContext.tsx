@@ -1,14 +1,15 @@
 "use client";
 
-import { createContext, useContext, useState, type ReactNode } from "react";
-import { checkPriorityCompletion } from "@/lib/actions/today";
-import type { TodayPriority } from "@/lib/today";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  checkPriorityCompletion,
+  refreshTodayQueue,
+  completeTodayItem,
+  snoozeTodayItem,
+} from "@/lib/actions/today";
+import type { TodayPriority, WaitingItem } from "@/lib/today";
 
-export interface WaitingItem {
-  id: string;
-  label: string;
-  href?: string;
-}
+export type { WaitingItem };
 
 interface QueueState {
   priorities: TodayPriority[];
@@ -16,20 +17,28 @@ interface QueueState {
   waiting: WaitingItem[];
   /** Id of the card currently being checked, for a subtle pending style. */
   checkingId: string | null;
+  /** Id of the card with a chip action (mark done / snooze) in flight. */
+  busyId: string | null;
   /** Click handler for a Priorities card. Returns true once it's handled the
    *  click (the underlying item was already done, so the card was swapped or
    *  cleared in place) — the caller should skip navigation. Returns false
    *  when the item isn't checkable, or isn't actually done yet, so the
    *  caller should navigate to its href as normal. */
   handleCardClick: (item: TodayPriority) => Promise<boolean>;
+  /** Re-read the live queue and replace both lists (e.g. after a Hermes turn
+   *  or a window refocus). */
+  refresh: () => Promise<void>;
+  /** "Mark done" chip → complete the work item, replace both lists. */
+  complete: (id: string) => Promise<void>;
+  /** "Snooze 3d" chip → push the item out + demote it, replace both lists. */
+  snooze: (id: string, days?: number) => Promise<void>;
 }
 
 const QueueContext = createContext<QueueState | null>(null);
 
-/** Wraps the Priorities rail and the Waiting-on-me card so a click-time
- *  completion check (see lib/actions/today.ts) can swap both lists in place:
- *  a finished card is dropped from Priorities, and the next backlog item is
- *  promoted in to fill its slot and disappears from Waiting on me. */
+/** Wraps the Today feed and the Waiting-on-me card so queue changes swap both
+ *  lists in place: a finished/snoozed card leaves Priorities, and the next
+ *  backlog item promotes in (via getQueueSnapshot on the server). */
 export function TodayQueueProvider({
   initialPriorities,
   initialWaiting,
@@ -42,6 +51,14 @@ export function TodayQueueProvider({
   const [priorities, setPriorities] = useState(initialPriorities);
   const [waiting, setWaiting] = useState(initialWaiting.items);
   const [checkingId, setCheckingId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const lastRefresh = useRef(0);
+
+  const applySnapshot = (snap: { priorities: TodayPriority[]; waiting: { items: WaitingItem[] } }) => {
+    setPriorities(snap.priorities);
+    setWaiting(snap.waiting.items);
+    lastRefresh.current = Date.now();
+  };
 
   const handleCardClick = async (item: TodayPriority): Promise<boolean> => {
     if (!item.checkable) return false;
@@ -66,9 +83,54 @@ export function TodayQueueProvider({
     }
   };
 
+  const refresh = async () => {
+    const snap = await refreshTodayQueue();
+    applySnapshot(snap);
+  };
+
+  const complete = async (id: string) => {
+    setBusyId(id);
+    try {
+      applySnapshot(await completeTodayItem(id));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const snooze = async (id: string, days?: number) => {
+    setBusyId(id);
+    try {
+      applySnapshot(await snoozeTodayItem(id, days));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // Refresh when the tab regains focus (Hermes may have worked items on the
+  // Telegram/MCP side while Joe was away), throttled to ≥30s apart.
+  useEffect(() => {
+    function onFocus() {
+      if (Date.now() - lastRefresh.current < 30_000) return;
+      void refresh();
+    }
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <QueueContext.Provider
-      value={{ priorities, setPriorities, waiting, checkingId, handleCardClick }}
+      value={{
+        priorities,
+        setPriorities,
+        waiting,
+        checkingId,
+        busyId,
+        handleCardClick,
+        refresh,
+        complete,
+        snooze,
+      }}
     >
       {children}
     </QueueContext.Provider>

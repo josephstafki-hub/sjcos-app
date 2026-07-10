@@ -39,6 +39,9 @@ yarn-error.log*
 # AI-generated email drafts — client content, kept on the server, not in git
 /drafts/
 
+# Inbox-ops agent run checkpoints — client content, kept on the server, not in git
+/reports/
+
 # vercel
 .vercel
 

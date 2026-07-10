@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { AiBubble, Card, Chip } from "@/components/ui";
-import { CommandBar } from "@/components/cmdk/CommandBar";
-import { TodayPriorities } from "./TodayPriorities";
+import { TodayFeed } from "./TodayFeed";
 import { WeekStrip } from "./WeekStrip";
 import { WaitingList, WaitingCount } from "./WaitingList";
 import { TodayQueueProvider } from "./TodayQueueContext";
@@ -17,10 +16,33 @@ const DOT: Record<string, string> = {
   ghost: "bg-ink-4",
 };
 
-/** Inner content of the Today dashboard. Shared by /today (embeds the Ask
- *  bar inline) and the /cmdk deep-link (renders Today behind the open
- *  command-bar popup instead). */
-export function TodayBody({ data, embedAsk }: { data: TodayData; embedAsk?: boolean }) {
+/** Inner content of the Today dashboard. Shared by /today and the /cmdk
+ *  deep-link (which renders Today behind the open command-bar popup). The
+ *  interactive AI feed replaces the old embedded Ask bar + priorities list in
+ *  both modes; only the ⌘K popup behavior differs between the two routes. */
+export function TodayBody({ data }: { data: TodayData }) {
+  // The AI brief bubble, rendered on the server (Suspense streams the text) and
+  // passed into the client feed as its pinned first item.
+  const brief = (
+    <AiBubble
+      actions={
+        <Link
+          href="/schedule"
+          className="rounded-md bg-ai px-2.5 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-ai-2"
+        >
+          Open agenda
+        </Link>
+      }
+    >
+      <div className="mb-1 font-serif text-[13.5px] font-semibold text-ai-2">
+        {data.briefHeadline}
+      </div>
+      <Suspense fallback={<BriefSkeleton />}>
+        <BriefText inputs={data.briefInputs} />
+      </Suspense>
+    </AiBubble>
+  );
+
   return (
     <div className="mx-auto max-w-[1100px] px-7 py-6">
       {/* Header strip */}
@@ -44,38 +66,13 @@ export function TodayBody({ data, embedAsk }: { data: TodayData; embedAsk?: bool
         </div>
       </div>
 
-      {embedAsk && (
-        <div className="mb-3.5">
-          <CommandBar embedded aiContext={todayContext(data)} />
-        </div>
-      )}
-
-      {/* AI brief */}
-      <AiBubble
-        actions={
-          <Link
-            href="/schedule"
-            className="rounded-md bg-ai px-2.5 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-ai-2"
-          >
-            Open agenda
-          </Link>
-        }
-      >
-        <div className="mb-1 font-serif text-[13.5px] font-semibold text-ai-2">
-          {data.briefHeadline}
-        </div>
-        <Suspense fallback={<BriefSkeleton />}>
-          <BriefText inputs={data.briefInputs} />
-        </Suspense>
-      </AiBubble>
-
-      {/* Two-column body. Priorities + Waiting on me share click-to-check
-          state via TodayQueueProvider (a context, not a wrapping element)
-          so they stay siblings for the grid — see TodayQueueContext.tsx. */}
-      <div className="mt-3.5 grid grid-cols-1 gap-3.5 lg:grid-cols-[1.4fr_1fr]">
+      {/* Two-column body. The feed (left) and Waiting on me (right rail) share
+          queue state via TodayQueueProvider (a context, not a wrapping element)
+          so they stay grid siblings — see TodayQueueContext.tsx. */}
+      <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[1.4fr_1fr]">
         <TodayQueueProvider initialPriorities={data.priorities} initialWaiting={data.waiting}>
-          {/* Priorities (client — has a working Re-prioritize button) */}
-          <TodayPriorities />
+          {/* The interactive AI feed: brief + priority cards + chat */}
+          <TodayFeed brief={brief} aiContext={todayContext(data)} />
 
           {/* Right rail */}
           <aside className="flex flex-col gap-3">

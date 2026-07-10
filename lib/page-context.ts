@@ -7,6 +7,7 @@
 import type { LeadDetail } from "./leads";
 import type { ProjectDetail, ProjectsData } from "./projects";
 import type { TodayData } from "./today";
+import type { WarrantyData } from "./warranty";
 import { stageLabel } from "./leads";
 import { projectStageLabel } from "./projects";
 
@@ -62,6 +63,22 @@ export function projectsContext(data: ProjectsData): string {
             .join("\n")}`,
       ),
   ];
+  return lines.join("\n");
+}
+
+/** Brief for the Warranty page. */
+export function warrantyContext(data: WarrantyData): string {
+  const lines = [
+    `WARRANTY · ${data.eyebrow}`,
+    data.claims.length &&
+      `Active claims:\n${data.claims
+        .map((c) => `  - ${c.project} (${c.client}): ${c.issue} — ${c.deadline}. ${c.step}.`)
+        .join("\n")}`,
+    data.projects.length &&
+      `Under warranty:\n${data.projects
+        .map((p) => `  - ${p.project} (${p.client}) · closed ${p.closed} · ${p.warranty}${p.flag ? ` · ${p.flag}` : ""}`)
+        .join("\n")}`,
+  ].filter(Boolean);
   return lines.join("\n");
 }
 

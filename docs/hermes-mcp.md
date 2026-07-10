@@ -14,7 +14,10 @@ gated, audited tools.
 | Tool | Hermes use |
 |---|---|
 | `business_snapshot` | Morning briefing — counts by stage/status, **work items awaiting approval**, A/R, compliance due |
+| `get_today_queue` | What Joe sees on `/today`: promoted priorities + backlog, each with its **lane** (start here for "work my queue") |
 | `list_work_items` | The day's queue (filter by `status`, `assignee_key`, `due_before`) |
+| `snooze_work_item` | Push an item out + drop it back to Waiting on me (only when Joe asks / it can't proceed) |
+| `submit_draft_for_approval` | Chat-lane item needs a client-facing step — save a draft + set `approval_needed` (never sends) |
 | `get_work_item` | Full context for the one item under review (incl. its runs & receipts) |
 | `update_work_item_status` | Move an item forward (`in_progress`, `waiting_on_*`, `done`, …) |
 | `search_knowledge` | "What do we know about <client/job>?" before acting |
@@ -70,6 +73,33 @@ actually finished, same as always. The moment that happens, the next backlog
 item gets promoted into Joe's Priorities automatically — either right away
 (if Joe's looking at Today when it happens) or on his next page load. Nothing
 else for Hermes to do.
+
+## Today queue: lanes + how to work an item
+
+`get_today_queue` returns exactly what Joe sees on `/today` — the promoted
+priorities (`promoted: true`) plus the waiting backlog — with each item's
+**lane**:
+
+- `chat` — an agent can complete it end-to-end with internal MCP writes.
+- `quick` — one click for Joe; no page work.
+- `deep` — real page work (money / documents / client-facing); Joe does it.
+
+`promoted` is informational only — promotion is app-owned, so never try to set it.
+
+To finish a Today item:
+
+1. `get_work_item(id)` for full context.
+2. Do the work with internal tools only.
+3. `update_work_item_status(id, 'done', note)` with a short note.
+4. `record_agent_run(...)` + `record_receipt(work_item_id, ...)` so Joe sees proof.
+
+The app's feed refreshes and checks the card off — that's the loop closing.
+
+- **Never attempt a client-facing send.** If a chat-lane item turns out to need
+  one, call `submit_draft_for_approval(work_item_id, draft)` — it sets the item
+  to `approval_needed` and saves the draft; Joe reviews and sends from the app.
+- `snooze_work_item(id, days?, reason?)` only when Joe asks or the item literally
+  can't proceed yet — always state the reason.
 
 ## Register the server with Hermes (placeholders only)
 

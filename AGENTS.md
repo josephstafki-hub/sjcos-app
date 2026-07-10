@@ -10,7 +10,7 @@ When work is related to SJ Carpentry business operations — clients, leads, pro
 
 SJC OS is the source of truth:
 - Open Brain lives in SJC OS knowledge tools: `search_knowledge`, `fetch_knowledge`, `list_recent_knowledge`, `capture_knowledge`.
-- Open Engine lives in SJC OS work tools: `business_snapshot`, `list_work_items`, `get_work_item`, `suggest_skill_for_work_item`, `update_work_item_status`.
+- Open Engine lives in SJC OS work tools: `business_snapshot`, `get_today_queue`, `list_work_items`, `get_work_item`, `suggest_skill_for_work_item`, `update_work_item_status`, `snooze_work_item`, `submit_draft_for_approval`. For "what should I do today / work my queue" requests, start from `get_today_queue`; complete items with `update_work_item_status` + run/receipt records; never touch promotion.
 - Open Skills/runbooks live in SJC OS tools: `list_skills`, `get_skill`, `search_skills`, `list_runbooks`, `get_runbook`.
 - Audit/proof of work belongs in SJC OS via `record_agent_run`, `record_skill_used`, and `record_receipt`.
 

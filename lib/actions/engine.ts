@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { query } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { WORK_STATUSES } from "@/lib/engine-constants";
+import { notifyAgentOwner } from "@/lib/dev-agents";
 import type { WorkItemStatus } from "@/lib/types";
 
 type Result = { ok: true } | { ok: false; error: string };
@@ -48,16 +49,30 @@ export async function setWorkItemStatus(id: string, status: WorkItemStatus, note
   return { ok: true };
 }
 
-/** Approve a work item awaiting human approval → clears the gate, moves to queued. */
+/** Approve a work item awaiting human approval → clears the gate, moves to queued,
+ *  and (for agent-owned items) actively pings the owner agent to go complete it. */
 export async function approveWorkItem(id: string): Promise<Result> {
   await requireRole("owner");
-  await query(
-    `UPDATE work_items
+  const { rows } = await query<{
+    title: string;
+    body: string;
+    assignee_key: string | null;
+    lead_slug: string | null;
+    project_slug: string | null;
+  }>(
+    `UPDATE work_items w
         SET approval_status = 'approved',
             status = CASE WHEN status = 'approval_needed' THEN 'queued' ELSE status END
-      WHERE id = $1`,
+      WHERE id = $1
+      RETURNING title, body, assignee_key,
+        (SELECT slug FROM leads WHERE id = w.lead_id) AS lead_slug,
+        (SELECT slug FROM projects WHERE id = w.project_id) AS project_slug`,
     [id],
   );
+  if (!rows[0]) return { ok: false, error: "Work item not found." };
+  const { title, body, assignee_key, lead_slug, project_slug } = rows[0];
+  const context = project_slug ? `project ${project_slug}` : lead_slug ? `lead ${lead_slug}` : undefined;
+  await notifyAgentOwner(id, assignee_key, title, body, context);
   revalidatePath("/engine");
   return { ok: true };
 }

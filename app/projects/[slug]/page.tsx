@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { Check, DollarSign, Sparkles, MoreHorizontal, Mail, FileText, ChevronRight } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
 import { AiBubble, AckButton, AiStream, Card, Chip, Avatar, Eyebrow } from "@/components/ui";
+import { CommandBar } from "@/components/cmdk/CommandBar";
 import { ProjectTabs } from "@/components/projects/ProjectTabs";
 import { TabLink } from "@/components/projects/TabNav";
 import { WeeklyStatusSend } from "@/components/projects/WeeklyStatusSend";
@@ -442,12 +443,17 @@ export default async function ProjectDetailPage({
   const outlineBtn =
     "inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-paper-2";
 
+  const projectAiContext = projectContext(project);
+
   const headerBand = (
     <div className="border-b border-rule bg-paper-2 px-7 py-4">
       <Link href="/projects" className="text-[11px] text-ink-3 hover:text-ink-2">
         ← All projects
       </Link>
-      <div className="mt-2 flex flex-wrap items-start gap-3.5">
+      <div className="mt-2.5">
+        <CommandBar embedded aiContext={projectAiContext} />
+      </div>
+      <div className="mt-3 flex flex-wrap items-start gap-3.5">
         <div className="size-12 flex-none rounded border-[1.5px] border-accent bg-accent-soft" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
@@ -507,7 +513,11 @@ export default async function ProjectDetailPage({
   );
 
   return (
-    <Shell breadcrumb={`PROJECTS › ${project.name.toUpperCase()}`} aiContext={projectContext(project)}>
+    <Shell
+      breadcrumb={`PROJECTS › ${project.name.toUpperCase()}`}
+      aiContext={projectAiContext}
+      embeddedAsk
+    >
       <ProjectTabs panels={panels} stageTab={stageToolTab(project.status)} header={headerBand} />
     </Shell>
   );

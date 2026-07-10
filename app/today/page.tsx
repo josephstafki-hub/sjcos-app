@@ -10,7 +10,7 @@ export default async function TodayPage() {
 
   return (
     <Shell breadcrumb={data.dateLabel} aiContext={todayContext(data)} embeddedAsk>
-      <TodayBody data={data} embedAsk />
+      <TodayBody data={data} />
     </Shell>
   );
 }

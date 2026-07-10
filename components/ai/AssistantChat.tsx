@@ -85,17 +85,19 @@ export function AssistantChat({
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }),
     );
 
-  // Poll an in-flight Claude run to completion, streaming its live activity and
-  // then appending its reply.
+  // Poll an in-flight run (Claude, Qwen, or Hermes) to completion, streaming
+  // its live activity and then appending its reply. 480 * 2s = 16min, just
+  // past the failStaleRuns() backstop so a real Hermes turn always resolves
+  // itself before the client gives up on it.
   const pollClaude = useCallback(async (runId: string) => {
-    for (let i = 0; i < 300; i++) {
+    for (let i = 0; i < 480; i++) {
       await sleep(2000);
       const p = await pollAgentRun(runId);
       if (!p.ok) {
         setActivity("");
         setMessages((m) => [
           ...m,
-          { id: `err-${runId}`, role: "assistant", body: `⚠️ ${p.error}`, costUsd: null, createdAt: "" },
+          { id: `err-${runId}`, role: "assistant", body: `⚠️ ${p.error}`, costUsd: null, createdAt: "", subjectWorkItemId: null },
         ]);
         return;
       }
@@ -103,7 +105,7 @@ export function AssistantChat({
         setActivity("");
         setMessages((m) => [
           ...m,
-          { id: `run-${runId}`, role: "assistant", body: p.answer, costUsd: p.costUsd, createdAt: "" },
+          { id: `run-${runId}`, role: "assistant", body: p.answer, costUsd: p.costUsd, createdAt: "", subjectWorkItemId: null },
         ]);
         scrollDown();
         return;
@@ -246,7 +248,7 @@ export function AssistantChat({
     setActivity("");
     setMessages((m) => [
       ...m,
-      { id: `u-${Date.now()}`, role: "user", body: bodyNote, costUsd: null, createdAt: "" },
+      { id: `u-${Date.now()}`, role: "user", body: bodyNote, costUsd: null, createdAt: "", subjectWorkItemId: null },
     ]);
     scrollDown();
 
@@ -260,7 +262,7 @@ export function AssistantChat({
       if (!r.ok) {
         setMessages((m) => [
           ...m,
-          { id: `err-${Date.now()}`, role: "assistant", body: `⚠️ ${r.error}`, costUsd: null, createdAt: "" },
+          { id: `err-${Date.now()}`, role: "assistant", body: `⚠️ ${r.error}`, costUsd: null, createdAt: "", subjectWorkItemId: null },
         ]);
       } else if (r.kind === "answer") {
         setMessages((m) => [...m, r.message]);
@@ -458,39 +460,38 @@ export function AssistantChat({
               <div className="flex items-start gap-2.5">
                 <Avatar initials={meta.initials} kind="ai" />
                 <div className="flex-1 pt-1">
-                  {agent === "claude" ? (
-                    <div className="text-[12px]">
-                      <div className="text-ai-2">
-                        {claudeOpts.mode === "plan" ? "Claude is planning" : "Claude is working"}
-                        {elapsed > 0 ? ` · ${elapsed}s` : "…"}
-                      </div>
-                      {(() => {
-                        const lines = activity ? activity.split("\n").filter(Boolean) : [];
-                        const tail = lines.slice(-4);
-                        return tail.length ? (
-                          <div className="mt-1.5 space-y-0.5 border-l-2 border-rule pl-2.5">
-                            {tail.map((line, i) => (
-                              <div
-                                key={`${i}-${line}`}
-                                className={`font-mono text-[11px] ${
-                                  i === tail.length - 1 ? "text-ink-2" : "text-ink-4"
-                                }`}
-                              >
-                                {line}
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="mt-1 text-ink-4">Reading the code…</div>
-                        );
-                      })()}
+                  <div className="text-[12px]">
+                    <div className="text-ai-2">
+                      {agent === "claude"
+                        ? claudeOpts.mode === "plan"
+                          ? "Claude is planning"
+                          : "Claude is working"
+                        : `${meta.label} is thinking`}
+                      {elapsed > 0 ? ` · ${elapsed}s` : "…"}
                     </div>
-                  ) : (
-                    <div className="space-y-1.5" aria-hidden>
-                      <div className="h-3 w-[78%] animate-pulse rounded bg-ai/15" />
-                      <div className="h-3 w-[55%] animate-pulse rounded bg-ai/15" />
-                    </div>
-                  )}
+                    {(() => {
+                      const lines = activity ? activity.split("\n").filter(Boolean) : [];
+                      const tail = lines.slice(-4);
+                      return tail.length ? (
+                        <div className="mt-1.5 space-y-0.5 border-l-2 border-rule pl-2.5">
+                          {tail.map((line, i) => (
+                            <div
+                              key={`${i}-${line}`}
+                              className={`font-mono text-[11px] ${
+                                i === tail.length - 1 ? "text-ink-2" : "text-ink-4"
+                              }`}
+                            >
+                              {line}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="mt-1 text-ink-4">
+                          {agent === "claude" ? "Reading the code…" : "Working on it…"}
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
               </div>
             )}

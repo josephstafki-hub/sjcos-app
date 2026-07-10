@@ -115,6 +115,7 @@ export async function sendMessageAction(
   pageContext?: string,
   claudeOptions?: Partial<ClaudeOptions>,
   attachments?: ChatAttachment[],
+  subjectWorkItemId?: string,
 ): Promise<SendResult> {
   await requireRole("owner");
   const text = prompt.trim();
@@ -129,8 +130,12 @@ export async function sendMessageAction(
   const agent = conv.agent;
 
   // Persist the user turn (with a paperclip note naming attachments) + title.
+  // subjectWorkItemId marks a Today-feed hand-off (a card given to an agent).
   const attachNote = files.length ? `\n\n📎 ${files.map((f) => f.name).join(", ")}` : "";
-  const userMsg = await insertMessage(conversationId, "user", text + attachNote, { pageContext });
+  const userMsg = await insertMessage(conversationId, "user", text + attachNote, {
+    pageContext,
+    subjectWorkItemId,
+  });
   await autoTitleIfNeeded(conversationId, text || files[0]?.name || "New chat");
 
   try {
@@ -151,13 +156,47 @@ export async function sendMessageAction(
     if (files.length && turns.length) {
       turns[turns.length - 1].content += await inlineAttachmentText(files);
     }
-    const answer =
-      agent === "hermes"
-        ? await hermesChat(turns, pageContext, conversationId)
-        : await qwenChat(turns, pageContext);
 
-    const message = await insertMessage(conversationId, "assistant", answer);
-    return { ok: true, kind: "answer", message };
+    // Run the turn in the background instead of awaiting it here. A Hermes turn
+    // that has to go look things up (e.g. "mark this todo done") can run an
+    // agentic tool loop for a couple of minutes — holding that as one open HTTP
+    // request is what was crashing the page (a proxy/browser gives up on a
+    // multi-minute request long before Hermes does). Claude already avoids this
+    // by running detached and having the client poll; do the same here via the
+    // same dev_agent_runs row, just run in-process (no CLI to spawn) since this
+    // server is a long-lived systemd process, not a serverless function that
+    // would get torn down before the background work finishes.
+    const label = agent === "hermes" ? "Hermes" : "Qwen";
+    const run = await queryOne<{ id: string }>(
+      `INSERT INTO dev_agent_runs (agent, prompt, page_context, status, conversation_id, activity, subject_work_item_id)
+       VALUES ($1, $2, $3, 'running', $4, $5, $6)
+       RETURNING id`,
+      [agent, text, pageContext ?? null, conversationId, `${label} is thinking…`, subjectWorkItemId ?? null],
+    );
+    const runId = run!.id;
+
+    void (async () => {
+      try {
+        const answer =
+          agent === "hermes"
+            ? await hermesChat(turns, pageContext, conversationId)
+            : await qwenChat(turns, pageContext);
+        await insertMessage(conversationId, "assistant", answer);
+        await query(
+          `UPDATE dev_agent_runs SET status = 'done', answer = $2, updated_at = now() WHERE id = $1`,
+          [runId, answer],
+        );
+      } catch (err) {
+        const msg = `⚠️ ${(err as Error).message}`;
+        await insertMessage(conversationId, "assistant", msg);
+        await query(
+          `UPDATE dev_agent_runs SET status = 'error', answer = $2, updated_at = now() WHERE id = $1`,
+          [runId, msg],
+        );
+      }
+    })();
+
+    return { ok: true, kind: "pending", runId, userMessageId: userMsg.id };
   } catch (err) {
     // Save the failure as an assistant message so the thread reflects it.
     const message = await insertMessage(

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Sparkles, FileText } from "lucide-react";
+import { FileText } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
 import { Card, Chip, Avatar, Eyebrow } from "@/components/ui";
 import { CommandBar } from "@/components/cmdk/CommandBar";
@@ -21,6 +21,8 @@ import { LeadScore } from "@/components/leads/LeadScore";
 import { LeadTasks } from "@/components/leads/LeadTasks";
 import { getLeadTasks } from "@/lib/lead-tasks";
 import { LeadEstimate } from "@/components/leads/LeadEstimate";
+import { ProjectDocuments } from "@/components/projects/ProjectDocuments";
+import { listDocDrafts, listDocTemplates } from "@/lib/doc-drafts";
 import { AI_NAME } from "@/lib/ai-name";
 import { RecordOps } from "@/components/engine/RecordOps";
 import { getRecordOps } from "@/lib/record-ops";
@@ -37,6 +39,8 @@ export default async function LeadDetailPage({
   const activity = await getLeadActivity(slug);
   const score = await getLeadScore(slug);
   const tasks = await getLeadTasks(slug);
+  const leadDocDrafts = await listDocDrafts({ leadSlug: slug });
+  const leadDocTemplates = listDocTemplates().filter((t) => t.scope === "both" || t.scope === "lead");
   // Open Engine + Brain data scoped to this one lead — the "Ops" tab.
   const ops = await getRecordOps("lead", slug);
 
@@ -80,17 +84,17 @@ export default async function LeadDetailPage({
               {lead.estimate.lines.map((line, i) => (
                 <div
                   key={line.label}
-                  className={`flex items-center py-1 ${i ? "border-t border-dashed border-rule-soft" : ""}`}
+                  className={`flex items-start justify-between gap-4 py-1 ${i ? "border-t border-dashed border-rule-soft" : ""}`}
                 >
-                  <span className="flex-1 text-[13px] text-ink-2">{line.label}</span>
-                  <span className="font-mono text-[12px] text-ink-2">{line.value}</span>
+                  <span className="min-w-0 break-words text-[13px] text-ink-2">{line.label}</span>
+                  <span className="min-w-0 break-words text-right font-mono text-[12px] text-ink-2">{line.value}</span>
                 </div>
               ))}
-              <div className="mt-1.5 flex items-center border-t-2 border-ink-2 pt-2">
-                <span className="flex-1 font-serif text-[16px] font-semibold text-ink">
+              <div className="mt-1.5 flex items-start justify-between gap-4 border-t-2 border-ink-2 pt-2">
+                <span className="min-w-0 break-words font-serif text-[16px] font-semibold text-ink">
                   Rough total
                 </span>
-                <span className="font-mono text-[16px] font-semibold text-accent-2">
+                <span className="min-w-0 break-words text-right font-mono text-[16px] font-semibold text-accent-2">
                   {lead.estimate.total}
                 </span>
               </div>
@@ -167,7 +171,12 @@ export default async function LeadDetailPage({
 
   // ── Rough estimate panel — draft with the model + email to the lead ─────────
   const estimatePanel = (
-    <LeadEstimate slug={lead.slug} estimate={lead.estimate} hasEmail={!!lead.email} />
+    <LeadEstimate
+      key={JSON.stringify(lead.estimate?.lines) + (lead.estimate?.total ?? "")}
+      slug={lead.slug}
+      estimate={lead.estimate}
+      hasEmail={!!lead.email}
+    />
   );
 
   // ── empty-state helper for tabs with no data yet ───────────────────────────
@@ -264,6 +273,7 @@ export default async function LeadDetailPage({
     Tasks: <LeadTasks slug={lead.slug} tasks={tasks} />,
     Conversation: conversationPanel,
     "Rough estimate": estimatePanel,
+    Documents: <ProjectDocuments leadSlug={lead.slug} drafts={leadDocDrafts} templates={leadDocTemplates} />,
     Files: filesPanel,
     Activity: activityPanel,
   };
@@ -276,7 +286,7 @@ export default async function LeadDetailPage({
         </Link>
 
         <div className="mt-3">
-          <CommandBar embedded aiContext={leadContext(lead)} />
+          <CommandBar embedded aiContext={leadContext(lead)} agents={["claude", "hermes"]} />
         </div>
 
         {/* Header */}
@@ -300,13 +310,6 @@ export default async function LeadDetailPage({
           </div>
           <div className="flex items-center gap-1.5">
             <LeadContact slug={lead.slug} name={lead.name} phone={lead.phone} email={lead.email} />
-            <Link
-              href="/ai"
-              className="inline-flex items-center gap-1 rounded-md border border-ai bg-ai px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-ai-2"
-            >
-              <Sparkles className="size-3" strokeWidth={1.5} />
-              Ask {AI_NAME}
-            </Link>
             {lead.projectSlug ? (
               <Link
                 href={`/projects/${lead.projectSlug}`}

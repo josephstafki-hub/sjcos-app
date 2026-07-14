@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Check, DollarSign, Sparkles, MoreHorizontal, Mail, FileText, ChevronRight } from "lucide-react";
+import { Check, DollarSign, MoreHorizontal, Mail, FileText, ChevronRight } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
 import { AiBubble, AckButton, AiStream, Card, Chip, Avatar, Eyebrow } from "@/components/ui";
 import { CommandBar } from "@/components/cmdk/CommandBar";
@@ -21,6 +21,8 @@ import { ProjectFiles } from "@/components/projects/ProjectFiles";
 import { ProjectComms } from "@/components/projects/ProjectComms";
 import { ProjectSchedule } from "@/components/projects/ProjectSchedule";
 import { SignOffs } from "@/components/projects/SignOffs";
+import { ProjectDocuments } from "@/components/projects/ProjectDocuments";
+import { listDocDrafts, listDocTemplates } from "@/lib/doc-drafts";
 import { ChangeOrders } from "@/components/projects/ChangeOrders";
 import { Closeout } from "@/components/projects/Closeout";
 import { Safety } from "@/components/projects/Safety";
@@ -98,6 +100,8 @@ export default async function ProjectDetailPage({
   ]);
   const incidents = await getProjectIncidents(slug);
   const permits = await getProjectPermits(slug);
+  const docDrafts = await listDocDrafts({ slug });
+  const docTemplates = listDocTemplates().filter((t) => t.scope !== "lead");
   if (!project) notFound();
 
   // Open Engine + Brain data scoped to this one project (work queue, knowledge,
@@ -402,12 +406,15 @@ export default async function ProjectDetailPage({
     />
   );
   const signOffsPanel = (
-    <SignOffs
-      slug={slug}
-      requests={signatureRequests}
-      defaultSignerName={signerDefaults.name}
-      defaultSignerEmail={signerDefaults.email}
-    />
+    <div className="space-y-10">
+      <SignOffs
+        slug={slug}
+        requests={signatureRequests}
+        defaultSignerName={signerDefaults.name}
+        defaultSignerEmail={signerDefaults.email}
+      />
+      <ProjectDocuments slug={slug} drafts={docDrafts} templates={docTemplates} />
+    </div>
   );
   const changeOrdersPanel = <ChangeOrders slug={slug} orders={changeOrders} />;
   const closeoutPanel = <Closeout slug={slug} view={closeoutView} />;
@@ -451,7 +458,7 @@ export default async function ProjectDetailPage({
         ← All projects
       </Link>
       <div className="mt-2.5">
-        <CommandBar embedded aiContext={projectAiContext} />
+        <CommandBar embedded aiContext={projectAiContext} agents={["claude", "hermes"]} />
       </div>
       <div className="mt-3 flex flex-wrap items-start gap-3.5">
         <div className="size-12 flex-none rounded border-[1.5px] border-accent bg-accent-soft" />
@@ -480,13 +487,6 @@ export default async function ProjectDetailPage({
             <DollarSign className="size-3" strokeWidth={1.75} />
             Send invoice
           </TabLink>
-          <Link
-            href="/ai"
-            className="inline-flex items-center gap-1 rounded-md border border-ai bg-ai px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-ai-2"
-          >
-            <Sparkles className="size-3" strokeWidth={1.5} />
-            Ask
-          </Link>
           {nextStatus && (
             <>
               <StageSuggest slug={slug} />

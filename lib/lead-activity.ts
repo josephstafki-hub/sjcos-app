@@ -64,8 +64,23 @@ export async function getLeadActivity(slug: string): Promise<LeadActivityRow[]> 
   }));
 }
 
+// Activity kinds that represent a genuine touch on the LEAD (a reply sent, a
+// stage moved, contact info confirmed) — as opposed to passive AI prep work
+// (drafting an estimate, auto-scoring, importing photos) that doesn't mean
+// anyone actually engaged with the client. Every current call site already
+// lines up with this split; see lib/actions/leads.ts and lib/intake.ts.
+const REAL_CONTACT_KINDS: ReadonlySet<LeadActivityKind> = new Set(["stage", "contact", "email"]);
+
 /** Append an activity row for a lead, looked up by slug. Safe no-op if the lead
- *  doesn't exist (the subquery yields no row to insert). */
+ *  doesn't exist (the subquery yields no row to insert).
+ *
+ *  Also the single place that keeps `leads.last_contact_at` and the stale
+ *  `flag_label`/`flag_kind` "Needs reply" chip honest: a real contact-kind
+ *  activity (stage/contact/email) bumps last_contact_at and clears the flag,
+ *  since nothing else in the app ever did — a lead could sit flagged forever
+ *  even after being replied to and moved through several stages. AI-authored
+ *  activity (draftEstimate, auto-scoring) intentionally does NOT clear it —
+ *  drafting isn't replying. */
 export async function logLeadActivity(
   slug: string,
   kind: LeadActivityKind,
@@ -77,4 +92,10 @@ export async function logLeadActivity(
      SELECT id, $2, $3, $4 FROM leads WHERE slug = $1`,
     [slug, kind, summary, actor],
   );
+  if (REAL_CONTACT_KINDS.has(kind)) {
+    await query(
+      `UPDATE leads SET last_contact_at = now(), flag_label = NULL, flag_kind = NULL WHERE slug = $1`,
+      [slug],
+    );
+  }
 }

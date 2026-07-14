@@ -113,6 +113,10 @@ export interface EstimateInput {
   intake: { question: string; answer: string }[];
   /** Optional owner notes steering the estimate. */
   notes?: string;
+  /** Open Brain knowledge_items captured on this lead (site-visit notes,
+   *  measurements, material picks, prior estimate assumptions, etc.), newest
+   *  first — grounds the line items in facts beyond the intake form. */
+  knowledge?: { kind: string; content: string }[];
 }
 
 export interface EstimateResult {
@@ -618,6 +622,9 @@ const ollamaProvider: AiProvider = {
       .filter((i) => i.answer.trim())
       .map((i) => `- ${i.question}: ${i.answer}`)
       .join("\n");
+    const knowledge = (input.knowledge ?? [])
+      .map((k) => `- (${k.kind}) ${k.content}`)
+      .join("\n");
     const prompt =
       `Draft a Phase 1 rough estimate for a residential carpentry/remodel job. ` +
       `Break it into 5–8 line items (demo, materials, labor/subs, finishes, ` +
@@ -627,6 +634,8 @@ const ollamaProvider: AiProvider = {
       `not implied by the inputs.\n\n` +
       `Lead: ${input.name}\nScope: ${input.scope}\n` +
       `Intake answers:\n${intake || "(none provided)"}\n` +
+      (knowledge ? `Known facts about this job (site visits, measurements, ` +
+        `material picks, prior assumptions):\n${knowledge}\n` : "") +
       (input.notes ? `Owner notes: ${input.notes}\n` : "");
     const schema = {
       type: "object",

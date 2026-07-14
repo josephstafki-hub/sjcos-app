@@ -8,6 +8,8 @@ import "server-only";
 // called by lib/actions/documents.ts. pdfkit is kept external in next.config so
 // its runtime font-metric lookups work under `next start`.
 
+import fs from "node:fs";
+import path from "node:path";
 import PDFDocument from "pdfkit";
 import {
   Document,
@@ -168,9 +170,28 @@ export async function gatherDocData(estimateId: number, slug: string): Promise<D
 
 // ─── PDF rendering (pdfkit) ──────────────────────────────────────────────────
 
-const PAGE = { size: "LETTER" as const, margin: 56 };
-const INK = "#283021";
-const GRAY = "#6b6b63";
+// Shared page geometry + palette (also consumed by lib/doc-render.ts). ACCENT /
+// ACCENT_2 match the app's own --accent / --accent-2 CSS tokens (globals.css)
+// so generated PDFs read as the same brand as the uploaded house templates
+// (docs/reference/doc-templates/source/*.docx) instead of a generic mono doc.
+export const PAGE = { size: "LETTER" as const, margin: 56 };
+export const INK = "#283021";
+export const GRAY = "#6b6b63";
+export const ACCENT = "#4c5a40";
+export const ACCENT_2 = "#38442d";
+
+let logoCache: Buffer | null | undefined;
+/** SJ Carpentry wordmark, embedded in every generated PDF's header. Returns
+ *  null (header falls back to text-only) if the asset is ever moved. */
+function logoBuffer(): Buffer | null {
+  if (logoCache !== undefined) return logoCache;
+  try {
+    logoCache = fs.readFileSync(path.join(process.cwd(), "public/brand/sjc-logo.png"));
+  } catch {
+    logoCache = null;
+  }
+  return logoCache;
+}
 
 function pdfToBuffer(build: (doc: PDFKit.PDFDocument) => void): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -184,21 +205,38 @@ function pdfToBuffer(build: (doc: PDFKit.PDFDocument) => void): Promise<Buffer> 
   });
 }
 
-function companyHeader(doc: PDFKit.PDFDocument, c: DocData["company"]) {
-  doc.fillColor(INK).font("Helvetica-Bold").fontSize(17).text(c.name);
+export function companyHeader(doc: PDFKit.PDFDocument, c: DocData["company"]) {
+  const w = doc.page.width - 2 * PAGE.margin;
+  const logo = logoBuffer();
+  if (logo) {
+    const size = 44;
+    doc.image(logo, PAGE.margin + w / 2 - size / 2, doc.y, { width: size, height: size });
+    doc.y += size + 8;
+  }
+  doc.fillColor(INK).font("Helvetica-Bold").fontSize(13).text(c.name.toUpperCase(), PAGE.margin, doc.y, {
+    width: w,
+    align: "center",
+    characterSpacing: 0.5,
+  });
   const meta = [
     c.license ? `License ${c.license}` : null,
     c.address || null,
     [c.phone, c.email].filter(Boolean).join("  ·  ") || null,
   ].filter(Boolean) as string[];
-  if (meta.length) doc.font("Helvetica").fontSize(9).fillColor(GRAY).text(meta.join("\n"));
+  if (meta.length) {
+    doc.moveDown(0.15);
+    doc.font("Helvetica").fontSize(8.5).fillColor(GRAY).text(meta.join("   ·   "), PAGE.margin, doc.y, {
+      width: w,
+      align: "center",
+    });
+  }
   doc.fillColor(INK);
-  doc.moveDown(0.4);
-  doc.strokeColor("#d9d4c7").lineWidth(1).moveTo(doc.x, doc.y).lineTo(doc.page.width - PAGE.margin, doc.y).stroke();
+  doc.moveDown(0.5);
+  doc.strokeColor(ACCENT).lineWidth(1.5).moveTo(PAGE.margin, doc.y).lineTo(PAGE.margin + w, doc.y).stroke();
   doc.moveDown(0.6);
 }
 
-function docTitle(doc: PDFKit.PDFDocument, title: string, sub: string) {
+export function docTitle(doc: PDFKit.PDFDocument, title: string, sub: string) {
   doc.fillColor(INK).font("Helvetica-Bold").fontSize(15).text(title.toUpperCase());
   doc.font("Helvetica").fontSize(9.5).fillColor(GRAY).text(sub);
   doc.fillColor(INK).moveDown(0.6);

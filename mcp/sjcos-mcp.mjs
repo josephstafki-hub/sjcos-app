@@ -50,6 +50,41 @@ function databaseUrl() {
 
 const pool = new pg.Pool({ connectionString: databaseUrl(), max: 4 });
 
+/** Read a key from env or .env.local (same fallback as databaseUrl). */
+function envValue(key) {
+  if (process.env[key]) return process.env[key];
+  try {
+    const env = readFileSync(path.join(__dirname, "..", ".env.local"), "utf8");
+    const m = env.match(new RegExp(`^${key}=(.+)$`, "m"));
+    return m ? m[1].trim().replace(/^["']|["']$/g, "") : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Call the app's internal doc-drafts route (single source of truth for the doc
+ * template manifest, validation, and PDF/DOCX rendering — the .mjs server can't
+ * import the TS modules). Trusted local caller, authed with CRON_SECRET. This
+ * route deliberately has NO send/submit action: rendering a draft is safe;
+ * sending it for signature stays owner-gated in the app.
+ */
+async function docDraftsCall(action, payload = {}) {
+  const base = envValue("APP_INTERNAL_URL") || "http://127.0.0.1:3000";
+  const secret = envValue("CRON_SECRET");
+  if (!secret) return { ok: false, error: "CRON_SECRET not set — cannot reach the app doc-drafts route." };
+  try {
+    const res = await fetch(`${base}/api/internal/doc-drafts`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
+      body: JSON.stringify({ action, ...payload }),
+    });
+    return await res.json();
+  } catch (e) {
+    return { ok: false, error: `App not reachable at ${base} (${e.message}). Is \`npm run dev\` running?` };
+  }
+}
+
 async function rows(sql, params = []) {
   const r = await pool.query(sql, params);
   return r.rows;
@@ -92,6 +127,17 @@ server.registerTool(
   },
 );
 
+// `flag_label`/`flag_kind` ("Needs reply" etc.) and `last_contact_at` are
+// self-maintaining: lib/lead-activity.ts's logLeadActivity() clears the flag
+// and bumps last_contact_at automatically whenever the app logs a real
+// contact-kind activity (stage move, contact edit, email sent) — NOT on
+// AI/agent prep work like drafting an estimate. There is deliberately no MCP
+// write tool for these fields: an agent should never set/clear a lead's
+// "Needs reply" state directly. If you (an agent) actually reply to or
+// otherwise contact a lead on Joe's behalf, that must happen through the
+// app's own owner-approved send path (submit_draft_for_approval →
+// owner sends), which is what logs the activity that clears this — not by
+// asking for a lead-mutation tool.
 server.registerTool(
   "list_leads",
   {
@@ -924,6 +970,94 @@ server.registerTool(
     );
     return json({ ok: true, knowledge_id: knowledgeId });
   },
+);
+
+// ─── Document templates (doc-templates plan) ───────────────────────────────
+// Create / fill / render AI-fillable business documents (contract, precon, lien
+// release, completion cert, …). Drives the app's internal route so the field
+// manifest, validation, and rendering stay in one place. AI may fill ONLY
+// narrative fields; money/date/statutory fields are locked, and NOTHING here can
+// send — submitting for signature is owner-gated in the app.
+
+server.registerTool(
+  "list_doc_templates",
+  {
+    title: "List document templates",
+    description:
+      "List the AI-fillable document templates with their field manifests (key, " +
+      "label, kind, source, required). `source:'ai'` fields are the only ones an " +
+      "agent may write via update_document_draft.",
+    inputSchema: {},
+  },
+  async () => json(await docDraftsCall("list_templates")),
+);
+
+server.registerTool(
+  "create_document_draft",
+  {
+    title: "Create a document draft",
+    description:
+      "Start a draft from a template, scoped to a project (project_slug) or lead " +
+      "(lead_slug). Auto fields are resolved from the DB; returns the draft id, " +
+      "fill report, and the list of fields still missing. Does NOT send anything.",
+    inputSchema: {
+      template_key: z.string(),
+      project_slug: z.string().optional(),
+      lead_slug: z.string().optional(),
+      estimate_id: z.number().int().optional(),
+      invoice_id: z.number().int().optional(),
+      change_order_id: z.number().int().optional(),
+    },
+  },
+  async (a) => json(await docDraftsCall("create", a)),
+);
+
+server.registerTool(
+  "get_document_draft",
+  {
+    title: "Get a document draft",
+    description: "Read one draft: its field values, fill report, status, and missing required fields.",
+    inputSchema: { id: z.number().int() },
+  },
+  async ({ id }) => json(await docDraftsCall("get", { id })),
+);
+
+server.registerTool(
+  "list_document_drafts",
+  {
+    title: "List document drafts",
+    description: "List drafts for a project (project_slug) or lead (lead_slug), newest first.",
+    inputSchema: { project_slug: z.string().optional(), lead_slug: z.string().optional() },
+  },
+  async (a) => json(await docDraftsCall("list", a)),
+);
+
+server.registerTool(
+  "update_document_draft",
+  {
+    title: "Update a document draft",
+    description:
+      "Fill narrative fields on a draft. `edits` is a map of field_key → value. " +
+      "AI may write ONLY `source:'ai'` narrative fields — edits to money, date, " +
+      "enum, or statutory fields are rejected (returned in `rejected`). Re-editing " +
+      "a rendered draft marks it stale (re-render to refresh the files).",
+    inputSchema: { id: z.number().int(), edits: z.record(z.any()) },
+  },
+  async (a) => json(await docDraftsCall("update", a)),
+);
+
+server.registerTool(
+  "render_document_draft",
+  {
+    title: "Render a document draft",
+    description:
+      "Validate + render the draft to PDF (signable) and DOCX (editable), saved to " +
+      "the project Files browser. Returns file ids, or the still-missing required " +
+      "fields. Rendering does NOT send: to get it signed, ask Joe to submit it for " +
+      "signature in the app (use submit_draft_for_approval to flag it).",
+    inputSchema: { id: z.number().int() },
+  },
+  async ({ id }) => json(await docDraftsCall("render", { id })),
 );
 
 const transport = new StdioServerTransport();

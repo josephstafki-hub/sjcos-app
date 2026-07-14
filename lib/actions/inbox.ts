@@ -169,13 +169,14 @@ export async function sendNewEmailAction(input: {
   to: string;
   subject: string;
   body: string;
+  attachments?: import("@/lib/gmail").MailAttachment[];
 }): Promise<{ ok: boolean; error?: string }> {
   await requireRole("owner");
   if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
   if (!input.to.trim()) return { ok: false, error: "Recipient is required." };
   if (!input.body.trim()) return { ok: false, error: "Body is empty." };
   try {
-    await sendNewEmail({ to: input.to.trim(), subject: input.subject, bodyText: input.body });
+    await sendNewEmail({ to: input.to.trim(), subject: input.subject, bodyText: input.body, attachments: input.attachments });
     revalidatePath("/inbox");
     return { ok: true };
   } catch (err) {

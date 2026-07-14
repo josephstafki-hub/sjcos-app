@@ -1115,6 +1115,12 @@ CREATE TABLE IF NOT EXISTS work_items (
 ALTER TABLE work_items ADD COLUMN IF NOT EXISTS promoted_at timestamptz;
 CREATE INDEX IF NOT EXISTS idx_work_items_promoted ON work_items(promoted_at)
   WHERE status NOT IN ('done','cancelled');
+
+-- Today page: "Snooze 3d" sets snoozed_until (separate from due_at, which
+-- keeps its normal meaning) so the auto-promotion pool can exclude a just-
+-- demoted item until its snooze window passes, without also blocking
+-- ordinary future-dated backlog items from ever auto-promoting.
+ALTER TABLE work_items ADD COLUMN IF NOT EXISTS snoozed_until timestamptz;
 CREATE INDEX IF NOT EXISTS idx_work_items_status    ON work_items(status, priority, due_at);
 CREATE INDEX IF NOT EXISTS idx_work_items_due       ON work_items(due_at) WHERE status NOT IN ('done','cancelled');
 CREATE INDEX IF NOT EXISTS idx_work_items_assignee  ON work_items(assignee_key, status);
@@ -1580,3 +1586,45 @@ ALTER TABLE ai_messages    ADD COLUMN IF NOT EXISTS subject_work_item_id uuid
   REFERENCES work_items(id) ON DELETE SET NULL;
 ALTER TABLE dev_agent_runs ADD COLUMN IF NOT EXISTS subject_work_item_id uuid
   REFERENCES work_items(id) ON DELETE SET NULL;
+
+-- ─── Document templates (doc-templates plan) ───────────────────────────────
+-- The editable unit behind AI-fillable business documents (construction
+-- contract, precon agreement, lien release, completion cert, change order,
+-- estimate, invoice). Canonical legal/visual text lives in code
+-- (lib/doc-templates/*); this row holds only the FIELD VALUES an owner/agent
+-- filled in. The rendered PDF/DOCX is deterministic from
+-- (template_key, template_version, field_values). Money in field_values is
+-- CENTS, matching the rest of the transactional layer. AI may write only
+-- `source:'ai'` narrative fields — enforced in the fill layer, not here.
+--   status: draft → rendered (files exist) → submitted (signature_request
+--   created) → signed/void. After `submitted` a draft is read-only (void +
+--   clone to revise). Scope is project_id XOR lead_slug (precon/estimate can be
+--   lead-scoped before a project row exists).
+CREATE TABLE IF NOT EXISTS document_drafts (
+  id               bigserial PRIMARY KEY,
+  project_id       uuid REFERENCES projects(id) ON DELETE CASCADE,  -- project-scoped (most)
+  lead_slug        text,                                            -- or lead-scoped (precon/estimate)
+  template_key     text NOT NULL,           -- 'contract','precon','lien_release','completion_cert','change_order','estimate_doc','invoice_doc'
+  template_version text NOT NULL DEFAULT '',
+  title            text NOT NULL DEFAULT '',
+  field_values     jsonb NOT NULL DEFAULT '{}',   -- { field_key: value }
+  fill_report      jsonb NOT NULL DEFAULT '{}',   -- { field_key: 'auto'|'ai'|'owner'|'missing' }
+  status           text NOT NULL DEFAULT 'draft'
+                     CHECK (status IN ('draft','rendered','submitted','signed','void')),
+  pdf_file_id      text REFERENCES files(id) ON DELETE SET NULL,
+  docx_file_id     text REFERENCES files(id) ON DELETE SET NULL,
+  signature_request_id bigint REFERENCES signature_requests(id) ON DELETE SET NULL,
+  created_by       uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_via      text NOT NULL DEFAULT 'app',   -- 'app' | 'ai' | 'mcp'
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_doc_drafts_project ON document_drafts(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_doc_drafts_lead    ON document_drafts(lead_slug, created_at DESC);
+
+-- Widen signature_requests doc_type for the new templates (adds 'precon').
+-- NOT VALID so an existing table with legacy rows re-constrains without a scan.
+ALTER TABLE signature_requests DROP CONSTRAINT IF EXISTS signature_requests_doc_type_check;
+ALTER TABLE signature_requests ADD CONSTRAINT signature_requests_doc_type_check
+  CHECK (doc_type IN ('design','estimate','contract','sow','change_order',
+                      'completion','lien_waiver','precon','other')) NOT VALID;

@@ -1,0 +1,7 @@
+[Unit]
+Description=SJC OS live "needs reply" lead-thread sync
+After=sjcos.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/joe/bin/sjcos-lead-thread-sync

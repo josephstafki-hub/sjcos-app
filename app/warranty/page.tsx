@@ -32,7 +32,7 @@ export default async function WarrantyPage() {
         </div>
 
         <div className="mb-3.5">
-          <CommandBar embedded aiContext={aiContext} />
+          <CommandBar embedded aiContext={aiContext} agents={["claude", "hermes"]} />
         </div>
 
         {/* AI claim summary */}

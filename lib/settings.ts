@@ -8,6 +8,7 @@ import { getCurrentUser } from "./dal";
 import { gmailConfigured } from "./gmail";
 import { getClipToken } from "./clip";
 import { getIntakeToken } from "./lead-intake-token";
+import { BILLING_RATE_ROWS, MARKUP_KEY, MARKUP_DEFAULT } from "./billing-rates";
 
 export interface SettingsCategory {
   id: string;
@@ -90,6 +91,12 @@ export interface SettingsData {
     autoOutreach: boolean;
     /** Auto-draft a social post when a job reaches completion (P6-2). */
     autoDraftSocial: boolean;
+  };
+  /** Precon billing rates + third-party markup (doc-templates plan). Powers the
+   *  Pre-Construction Agreement's rates table. */
+  billingRates: {
+    markup: string;
+    rows: { key: string; label: string; value: string }[];
   };
   /** Browser-extension catalog clipper (Phase 2 A): the auth token (null until
    *  generated) + the endpoint the extension posts to. */
@@ -234,6 +241,10 @@ export async function getSettingsData(): Promise<SettingsData> {
       autoDraftSocial: settings.has("marketing.auto_draft_on_completion")
         ? settings.get("marketing.auto_draft_on_completion") === "true"
         : true,
+    },
+    billingRates: {
+      markup: get(MARKUP_KEY, MARKUP_DEFAULT),
+      rows: BILLING_RATE_ROWS.map((r) => ({ key: r.key, label: r.label, value: get(r.key, r.default) })),
     },
     intake: {
       token: intakeToken,

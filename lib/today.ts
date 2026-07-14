@@ -145,6 +145,7 @@ export interface TodayWorkItemRow {
   priority: "low" | "normal" | "high" | "urgent";
   effort_class: string | null;
   due: string | null;
+  snoozed_until: string | null;
   promoted_at: string | null;
   project_slug: string | null;
   project_name: string | null;
@@ -161,6 +162,7 @@ export const OPEN_WORK_ITEMS_SQL = `
     SELECT w.id, w.title, left(NULLIF(w.body, ''), 140) AS body,
            w.status, w.priority, w.effort_class,
            to_char(w.due_at, 'FMMon FMDD') AS due,
+           w.snoozed_until,
            w.promoted_at,
            p.slug AS project_slug, p.name AS project_name, p.status AS project_status,
            l.slug AS lead_slug, l.name AS lead_name
@@ -326,6 +328,11 @@ async function buildQueue(s: QueueSources): Promise<QueueSnapshot> {
   // auto-promote the next-ranked unpromoted work items to top up.
   interface Candidate extends Omit<TodayPriority, "rank"> {
     promotedAt: string | null;
+    /** Set by "Snooze 3d" so a just-demoted item is excluded from
+     *  auto-promotion until the snooze window passes, instead of immediately
+     *  refilling its own freed slot. Null for non-work-item signal candidates
+     *  (always eligible) and for work items that were never snoozed. */
+    snoozedUntil: string | null;
     waitingLabel: string;
   }
   const candidates: Candidate[] = [];
@@ -337,6 +344,7 @@ async function buildQueue(s: QueueSources): Promise<QueueSnapshot> {
     candidates.push({
       ...workItemCandidate(w),
       promotedAt: w.promoted_at,
+      snoozedUntil: w.snoozed_until,
       waitingLabel: [kind, source, w.title].filter(Boolean).join(" — "),
     });
   }
@@ -346,6 +354,7 @@ async function buildQueue(s: QueueSources): Promise<QueueSnapshot> {
       checkable: false,
       lane: "deep",
       promotedAt: null,
+      snoozedUntil: null,
       tag: `WARRANTY · ${claim.project}`,
       dot: claim.dot,
       title: claim.issue,
@@ -360,6 +369,7 @@ async function buildQueue(s: QueueSources): Promise<QueueSnapshot> {
       checkable: false,
       lane: "deep",
       promotedAt: null,
+      snoozedUntil: null,
       tag: "LEAD",
       dot: "flag",
       title: `Reply to ${l.name}`,
@@ -374,6 +384,7 @@ async function buildQueue(s: QueueSources): Promise<QueueSnapshot> {
       checkable: false,
       lane: "deep",
       promotedAt: null,
+      snoozedUntil: null,
       tag: "COMPLIANCE",
       dot: c.days <= 3 ? "flag" : "accent",
       title: c.title,
@@ -389,6 +400,7 @@ async function buildQueue(s: QueueSources): Promise<QueueSnapshot> {
       checkable: false,
       lane: "deep",
       promotedAt: null,
+      snoozedUntil: null,
       tag: "SCHEDULE",
       dot: "accent",
       title: `On site — ${firstJobBlock.label}`,
@@ -404,6 +416,7 @@ async function buildQueue(s: QueueSources): Promise<QueueSnapshot> {
       checkable: false,
       lane: "deep",
       promotedAt: null,
+      snoozedUntil: null,
       tag: `JOB · ${topActive.name}`,
       dot: "accent",
       title: `Keep ${topActive.name} moving`,
@@ -419,7 +432,16 @@ async function buildQueue(s: QueueSources): Promise<QueueSnapshot> {
 
   const ranked = candidates.toSorted(byLeadFirst);
   const eligible = ranked.filter((c) => !c.checkable || c.promotedAt);
-  const pool = ranked.filter((c) => c.checkable && !c.promotedAt);
+  // Exclude just-snoozed items from the auto-promotion pool until their
+  // snooze window passes — otherwise a demoted item with no other backlog
+  // competing for its lead-first slot gets immediately re-promoted into the
+  // very slot it just vacated, which reads as two cards swapping places
+  // instead of the snoozed one leaving Priorities. Ordinary future due_at
+  // (never snoozed) doesn't gate promotion — only snoozedUntil does.
+  const now = Date.now();
+  const pool = ranked.filter(
+    (c) => c.checkable && !c.promotedAt && (!c.snoozedUntil || new Date(c.snoozedUntil).getTime() <= now),
+  );
   const toPromote = pool.slice(0, Math.max(0, 5 - eligible.length));
   if (toPromote.length) {
     await query(`UPDATE work_items SET promoted_at = now() WHERE id = ANY($1::uuid[])`, [

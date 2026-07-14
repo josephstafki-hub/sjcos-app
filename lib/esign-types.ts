@@ -9,6 +9,9 @@ export type DocType =
   | "contract"
   | "sow"
   | "change_order"
+  | "completion"
+  | "lien_waiver"
+  | "precon"
   | "other";
 
 export type SigStatus = "draft" | "sent" | "signed" | "declined" | "void";
@@ -22,8 +25,22 @@ export const DOC_TYPES: { value: DocType; label: string }[] = [
   { value: "other", label: "Other document" },
 ];
 
+// Labels for every DocType, including the ones generated programmatically
+// (completion / lien_waiver / precon) that aren't offered in the manual picker.
+const DOC_TYPE_LABELS: Record<DocType, string> = {
+  contract: "Contract",
+  estimate: "Estimate",
+  sow: "Scope of Work",
+  change_order: "Change order",
+  design: "Design / prints",
+  completion: "Certificate of completion",
+  lien_waiver: "Lien waiver / release",
+  precon: "Pre-construction agreement",
+  other: "Other document",
+};
+
 export function docTypeLabel(t: DocType): string {
-  return DOC_TYPES.find((d) => d.value === t)?.label ?? "Document";
+  return DOC_TYPE_LABELS[t] ?? "Document";
 }
 
 export const STATUS_LABEL: Record<SigStatus, string> = {

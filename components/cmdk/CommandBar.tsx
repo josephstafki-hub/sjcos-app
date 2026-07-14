@@ -49,13 +49,16 @@ export function CommandBar({
   defaultOpen = false,
   aiContext,
   embedded = false,
+  agents = AGENT_ORDER,
 }: {
   defaultOpen?: boolean;
   aiContext?: string;
   embedded?: boolean;
+  /** Which agent tabs to offer — defaults to all (Claude/Qwen/Hermes). */
+  agents?: DevAgent[];
 }) {
   const [open, setOpen] = useState(embedded ? true : defaultOpen);
-  const [agent, setAgent] = useState<DevAgent>("qwen");
+  const [agent, setAgent] = useState<DevAgent>(agents[0] ?? "claude");
   const [prompt, setPrompt] = useState("");
   // Qwen/Hermes turns persist as a real ai_conversations thread (so this is a
   // conversation, not a one-shot Q&A) — messages + the id of that thread.
@@ -147,23 +150,9 @@ export function CommandBar({
     if (!q || pending) return;
     setError("");
 
-    if (agent === "claude") {
-      // Launch the edit-agent: persist a thread with the current page as
-      // context, then hand off to /ai where the run streams in.
-      startTransition(async () => {
-        try {
-          const convId = await newConversationAction("claude");
-          const ctx = pathname && pathname !== "/ai" ? pathname : undefined;
-          await sendMessageAction(convId, q, ctx);
-          close();
-          router.push(`/ai?c=${convId}`);
-        } catch (e) {
-          setError((e as Error).message);
-        }
-      });
-      return;
-    }
-
+    // Claude runs the same way as Qwen/Hermes here — inline, polled via the
+    // shared dev_agent_runs row — instead of handing off to /ai. It still
+    // edits code same as the full Ask window; it just answers in place.
     // Prefer the page's rich record brief; otherwise at least tell the agent
     // which route the user is on so answers aren't context-blind.
     const ctx =
@@ -209,7 +198,7 @@ export function CommandBar({
         {/* agent selector */}
         <div className="flex items-center gap-2 border-b border-rule px-[18px] py-2">
           <div className="flex rounded-md border border-rule bg-paper-2 p-0.5">
-            {AGENT_ORDER.map((a) => (
+            {agents.map((a) => (
               <button
                 key={a}
                 onClick={() => {
@@ -231,10 +220,10 @@ export function CommandBar({
             ))}
           </div>
           <span className="truncate text-[11px] text-ink-4">
-            {agent === "claude" ? `Edits code · opens in Ask (context: ${pathname})` : meta.note}
+            {agent === "claude" ? `Edits code · runs here (context: ${pathname})` : meta.note}
           </span>
           <div className="flex-1" />
-          {agent !== "claude" && messages.length > 0 && (
+          {messages.length > 0 && (
             <button
               onClick={newChat}
               disabled={pending}
@@ -290,7 +279,7 @@ export function CommandBar({
                   </div>
                 ),
               )}
-              {pending && agent !== "claude" && (
+              {pending && (
                 <div className="text-[12px]">
                   <div className="text-ai-2">
                     {meta.label} is thinking{elapsed > 0 ? ` · ${elapsed}s` : "…"}
@@ -300,15 +289,6 @@ export function CommandBar({
                   )}
                 </div>
               )}
-            </div>
-          )}
-
-          {pending && agent === "claude" && messages.length === 0 && (
-            <div className="px-[18px] py-2">
-              <div className="space-y-1.5" aria-hidden>
-                <div className="h-3 w-[88%] animate-pulse rounded bg-ai/15" />
-                <div className="h-3 w-[64%] animate-pulse rounded bg-ai/15" />
-              </div>
             </div>
           )}
 

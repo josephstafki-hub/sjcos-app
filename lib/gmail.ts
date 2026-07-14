@@ -430,17 +430,63 @@ export async function fetchThreadPage(
 
 // ─── Sending ─────────────────────────────────────────────────────────────────
 
+// RFC-2822 headers must be 7-bit ASCII. Dropping a raw UTF-8 string (e.g. a
+// subject with an em dash) straight into a header produces mojibake in the
+// recipient's client — it needs RFC 2047 encoded-word syntax instead.
+function encodeHeader(value: string): string {
+  return /^[\x00-\x7F]*$/.test(value) ? value : `=?UTF-8?B?${Buffer.from(value, "utf-8").toString("base64")}?=`;
+}
+
+// Attachment filenames go in a header *parameter*, which RFC 2047 doesn't
+// cover — that needs RFC 2231 (filename*=UTF-8''<percent-encoded>). Pair it
+// with an ASCII-sanitized plain `filename` for clients that don't support
+// RFC 2231, so the attachment still has a sane name everywhere.
+function contentDispositionFilename(filename: string): string {
+  if (/^[\x00-\x7F]*$/.test(filename)) return `filename="${filename}"`;
+  const ascii = filename.replace(/[^\x00-\x7F]/g, "-");
+  return `filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+}
+
 /** Build a base64url-encoded RFC-2822 plain-text message. */
-function buildRaw(to: string, subject: string, bodyText: string): string {
-  const mime = [
+function buildRaw(to: string, subject: string, bodyText: string, attachments?: MailAttachment[]): string {
+  if (!attachments || attachments.length === 0) {
+    const mime = [
+      `To: ${to}`,
+      `Subject: ${encodeHeader(subject)}`,
+      "Content-Type: text/plain; charset=utf-8",
+      "MIME-Version: 1.0",
+      "",
+      bodyText,
+    ].join("\r\n");
+    return Buffer.from(mime).toString("base64url");
+  }
+
+  // multipart/mixed: a text body part + one part per attachment (base64, wrapped
+  // at 76 cols per RFC 2045).
+  const boundary = `sjcos_${Math.random().toString(36).slice(2)}`;
+  const parts: string[] = [
     `To: ${to}`,
-    `Subject: ${subject}`,
-    "Content-Type: text/plain; charset=utf-8",
+    `Subject: ${encodeHeader(subject)}`,
     "MIME-Version: 1.0",
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    "",
+    `--${boundary}`,
+    "Content-Type: text/plain; charset=utf-8",
     "",
     bodyText,
-  ].join("\r\n");
-  return Buffer.from(mime).toString("base64url");
+  ];
+  for (const a of attachments) {
+    parts.push(
+      `--${boundary}`,
+      `Content-Type: ${a.mimeType}; name="${a.filename.replace(/[^\x00-\x7F]/g, "-")}"`,
+      `Content-Disposition: attachment; ${contentDispositionFilename(a.filename)}`,
+      "Content-Transfer-Encoding: base64",
+      "",
+      a.content.toString("base64").replace(/(.{76})/g, "$1\r\n"),
+    );
+  }
+  parts.push(`--${boundary}--`, "");
+  return Buffer.from(parts.join("\r\n")).toString("base64url");
 }
 
 /** Send a reply on an existing thread. Posts with the threadId so Gmail keeps
@@ -464,14 +510,22 @@ export async function sendReply(opts: {
 }
 
 /** Compose and send a brand-new email (not part of an existing thread). */
+/** A file to attach to an outgoing email. */
+export interface MailAttachment {
+  filename: string;
+  mimeType: string;
+  content: Buffer;
+}
+
 export async function sendNewEmail(opts: {
   to: string;
   subject: string;
   bodyText: string;
+  attachments?: MailAttachment[];
 }): Promise<void> {
   await gmail().users.messages.send({
     userId: "me",
-    requestBody: { raw: buildRaw(opts.to, opts.subject || "(no subject)", opts.bodyText) },
+    requestBody: { raw: buildRaw(opts.to, opts.subject || "(no subject)", opts.bodyText, opts.attachments) },
   });
 }
 

@@ -13,8 +13,8 @@ import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { storeBuffer } from "@/lib/upload-store";
 import { getProjectSignerDefaults } from "@/lib/esign";
+import { insertSentRequest } from "@/lib/esign-create";
 import { getApprovalGate } from "@/lib/approval-gate";
-import { emit } from "@/lib/notify";
 import { ai } from "@/lib/ai";
 import { fmtUsd, unitLabel } from "@/lib/cost-book-units";
 import {
@@ -51,8 +51,8 @@ function sowBody(d: DocData, narrative: string): string {
   return out.join("\n");
 }
 
-/** Insert a 'sent' signature_request + its audit events, and notify the owner.
- *  Returns the new request id. */
+/** Insert a 'sent' signature_request for an estimate-based contract/SOW, using
+ *  the shared helper (lib/esign-create.ts). Returns the new request id. */
 async function createSentRequest(opts: {
   projectId: string;
   slug: string;
@@ -67,30 +67,22 @@ async function createSentRequest(opts: {
   signerEmail: string;
   total: number;
 }): Promise<number> {
-  const ins = await queryOne<{ id: string }>(
-    `INSERT INTO signature_requests
-       (project_id, estimate_id, doc_type, title, body, file_id, status,
-        signer_name, signer_email, created_by, sent_at)
-     VALUES ($1,$2,$3,$4,$5,$6,'sent',$7,$8,$9, now())
-     RETURNING id`,
-    [opts.projectId, opts.estimateId, opts.docType, opts.title, opts.body, opts.fileId, opts.signerName, opts.signerEmail, opts.ownerId],
-  );
-  const id = Number(ins!.id);
-  await query(
-    `INSERT INTO signature_events (request_id, kind, actor, detail)
-     VALUES ($1, 'created', $2, $3), ($1, 'sent', $2, $4)`,
-    [id, opts.ownerName, opts.title, `Sent to ${opts.signerName || opts.signerEmail || "client"}`],
-  );
-  await emit({
-    kind: "decision",
-    tag: "Signature",
-    icon: "mail",
-    accent: "ai",
-    title: `${opts.docType === "contract" ? "Contract" : "Scope of Work"} sent for signature: ${opts.title}`,
-    subline: `${fmtUsd(opts.total)} — awaiting client signature`,
-    href: `/projects/${opts.slug}`,
+  return insertSentRequest({
+    projectId: opts.projectId,
+    estimateId: opts.estimateId,
+    docType: opts.docType,
+    title: opts.title,
+    body: opts.body,
+    fileId: opts.fileId,
+    ownerName: opts.ownerName,
+    ownerId: opts.ownerId,
+    signerName: opts.signerName,
+    signerEmail: opts.signerEmail,
+    notify: {
+      subline: `${fmtUsd(opts.total)} — awaiting client signature`,
+      href: `/projects/${opts.slug}`,
+    },
   });
-  return id;
 }
 
 export async function generateContract(slug: string, estimateId: number, force = false): Promise<Result> {

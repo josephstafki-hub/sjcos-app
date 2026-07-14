@@ -70,7 +70,9 @@ export async function checkPriorityCompletion(workItemId: string): Promise<Prior
   }
 
   const { rows: nextRows } = await query<TodayWorkItemRow>(
-    `${OPEN_WORK_ITEMS_SQL} AND w.promoted_at IS NULL${OPEN_WORK_ITEMS_ORDER_SQL} LIMIT 1`,
+    `${OPEN_WORK_ITEMS_SQL}
+       AND w.promoted_at IS NULL
+       AND (w.snoozed_until IS NULL OR w.snoozed_until <= now())${OPEN_WORK_ITEMS_ORDER_SQL} LIMIT 1`,
   );
   const nextRow = nextRows[0];
   if (!nextRow) return { completed: true, next: null };
@@ -111,15 +113,18 @@ export async function completeTodayItem(workItemId: string): Promise<QueueSnapsh
   return getQueueSnapshot();
 }
 
-/** Owner clicked "Snooze 3d". Pushes due_at out and demotes the item
- *  (promoted_at = NULL) so it drops back to Waiting on me; the freed slot
- *  backfills. No-op write if the item is already done/cancelled. */
+/** Owner clicked "Snooze 3d". Pushes due_at out, sets snoozed_until so the
+ *  item is excluded from auto-promotion until the window passes, and demotes
+ *  it (promoted_at = NULL) so it drops back to Waiting on me; the freed slot
+ *  backfills from the rest of the backlog. No-op write if the item is already
+ *  done/cancelled. */
 export async function snoozeTodayItem(workItemId: string, days = 3): Promise<QueueSnapshot> {
   await requireRole("owner");
   const n = Math.min(30, Math.max(1, Math.round(days)));
   await query(
     `UPDATE work_items
         SET due_at = GREATEST(now(), COALESCE(due_at, now())) + make_interval(days => $2),
+            snoozed_until = now() + make_interval(days => $2),
             promoted_at = NULL,
             updated_at = now()
       WHERE id = $1 AND status NOT IN ('done','cancelled')`,

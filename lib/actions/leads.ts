@@ -9,7 +9,14 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
-import { STAGES, ALL_STAGES, stageLabel, suggestedProjectName, formatMoneyish } from "@/lib/leads";
+import {
+  STAGES,
+  ALL_STAGES,
+  stageLabel,
+  suggestedProjectName,
+  formatMoneyish,
+  compactEstimateValue,
+} from "@/lib/leads";
 import { logLeadActivity } from "@/lib/lead-activity";
 import { scoreLead } from "@/lib/intake";
 import { emit } from "@/lib/notify";
@@ -17,6 +24,7 @@ import { INTAKE_QUESTIONS } from "@/lib/lead-intake-questions";
 import { ai, type EstimateLine } from "@/lib/ai";
 import { AI_NAME } from "@/lib/ai-name";
 import { sendNewEmailAction } from "@/lib/actions/inbox";
+import { renderRoughEstimatePdf } from "@/lib/doc-drafts";
 import type { LeadStage } from "@/lib/types";
 
 /** Kebab-case a display name into a URL slug. */
@@ -271,8 +279,10 @@ export async function updateLeadContact(
   return { ok: true };
 }
 
-/** Have the AI draft a Phase 1 rough estimate for a lead from its scope +
- *  intake answers, saving it as a draft (overwrites any prior draft). Owner-gated. */
+/** Have the AI draft a Phase 1 rough estimate for a lead from its scope,
+ *  intake answers, and captured Open Brain knowledge (site-visit notes,
+ *  measurements, material picks, prior assumptions), saving it as a draft
+ *  (overwrites any prior draft). Owner-gated. */
 export async function draftEstimate(slug: string): Promise<{ ok: boolean; error?: string }> {
   await requireRole("owner");
   const lead = await queryOne<{ id: string; name: string; scope: string }>(
@@ -289,12 +299,17 @@ export async function draftEstimate(slug: string): Promise<{ ok: boolean; error?
     `SELECT notes FROM lead_estimates WHERE lead_id = $1`,
     [lead.id],
   );
+  const { rows: knowledge } = await query<{ kind: string; content: string }>(
+    `SELECT kind, content FROM knowledge_items WHERE lead_id = $1 ORDER BY created_at DESC LIMIT 50`,
+    [lead.id],
+  );
 
   const est = await ai.estimate({
     name: lead.name,
     scope: lead.scope,
     intake,
     notes: prior?.notes || undefined,
+    knowledge,
   });
 
   await query(
@@ -305,8 +320,56 @@ export async function draftEstimate(slug: string): Promise<{ ok: boolean; error?
            status = 'draft', sent_at = NULL, updated_at = now()`,
     [lead.id, JSON.stringify(est.lines), est.total],
   );
+  await syncLeadValueFromEstimate(lead.id, est.total);
   await logLeadActivity(slug, "estimate", `Rough estimate drafted by ${AI_NAME} (${est.total})`, AI_NAME);
   revalidatePath(`/leads/${slug}`);
+  revalidatePath("/leads");
+  return { ok: true };
+}
+
+/** Mirror a rough estimate's total onto leads.value_display/estimate_value so
+ *  the /leads overview list (which reads those columns, not lead_estimates)
+ *  shows the current estimate instead of "?". */
+async function syncLeadValueFromEstimate(leadId: string, total: string): Promise<void> {
+  const compact = compactEstimateValue(total);
+  if (!compact) return;
+  await query(`UPDATE leads SET value_display = $2, estimate_value = $3 WHERE id = $1`, [
+    leadId,
+    compact.display,
+    compact.value,
+  ]);
+}
+
+/** Persist owner-edited rough-estimate line items + total. Owner-gated. The
+ *  edited items feed both the on-page preview and the emailed template PDF. */
+export async function saveEstimateLines(
+  slug: string,
+  lines: EstimateLine[],
+  total: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireRole("owner");
+  const clean = (Array.isArray(lines) ? lines : [])
+    .map((l) => ({ label: String(l?.label ?? "").trim(), value: String(l?.value ?? "").trim() }))
+    .filter((l) => l.label || l.value);
+  const cleanTotal = String(total ?? "").trim();
+  const res = await query(
+    `INSERT INTO lead_estimates (lead_id, line_items, total)
+     SELECT id, $2::jsonb, $3 FROM leads WHERE slug = $1
+     ON CONFLICT (lead_id) DO UPDATE
+       SET line_items = EXCLUDED.line_items, total = EXCLUDED.total, updated_at = now()`,
+    [slug, JSON.stringify(clean), cleanTotal],
+  );
+  if (res.rowCount === 0) return { ok: false, error: "Lead not found." };
+  const compact = compactEstimateValue(cleanTotal);
+  if (compact) {
+    await query(`UPDATE leads SET value_display = $2, estimate_value = $3 WHERE slug = $1`, [
+      slug,
+      compact.display,
+      compact.value,
+    ]);
+  }
+  revalidatePath(`/leads/${slug}`);
+  revalidatePath("/leads");
   return { ok: true };
 }
 
@@ -351,10 +414,26 @@ export async function sendEstimate(slug: string): Promise<{ ok: boolean; error?:
     `Happy to walk through any of this. Once you're comfortable with the range, the next step is a ` +
     `pre-construction agreement and detailed scope.\n\nBest,\nJoe\nSJ Carpentry`;
 
+  // Attach the house-style rough-estimate PDF so the client gets a polished
+  // document, not just the plain-text ranges. Best-effort: if rendering fails,
+  // the email still goes out with the text body.
+  let attachments;
+  try {
+    const pdf = await renderRoughEstimatePdf(slug);
+    if (pdf) {
+      attachments = [
+        { filename: "Phase 1 Rough Estimate — SJ Carpentry.pdf", mimeType: "application/pdf", content: pdf },
+      ];
+    }
+  } catch {
+    attachments = undefined;
+  }
+
   const res = await sendNewEmailAction({
     to: lead.email,
     subject: "Phase 1 rough estimate — SJ Carpentry",
     body,
+    attachments,
   });
   if (!res.ok) return { ok: false, error: res.error ?? "Could not send." };
 

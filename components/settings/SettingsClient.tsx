@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { Plus, X } from "lucide-react";
 import { Avatar, Card, Chip, Eyebrow, Field, SubmitButton } from "@/components/ui";
 import type { SettingsData } from "@/lib/settings";
-import { setAiToggle, setNotifyToggle, updateProfile, updateCompanyDocs } from "@/lib/actions/settings";
+import { setAiToggle, setNotifyToggle, updateProfile, updateCompanyDocs, updateBillingRates } from "@/lib/actions/settings";
 import { createUser, setUserActive } from "@/lib/actions/users";
 import { AI_NAME } from "@/lib/ai-name";
 import { ClipTokenCard } from "./ClipTokenCard";
@@ -333,6 +333,29 @@ export function SettingsClient({ data }: { data: SettingsData }) {
                   className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper transition-colors hover:bg-[#232a1e]"
                 >
                   Save changes
+                </button>
+              </div>
+            </form>
+
+            <div className="my-8 border-t border-rule" />
+            <h2 className="font-serif text-[19px] font-semibold text-ink">Billing rates</h2>
+            <div className="mt-1 text-[11px] text-ink-3">
+              Hourly rates + third-party markup printed on the Pre-Construction Agreement. Free text
+              (e.g. &ldquo;$52 / hr&rdquo;, &ldquo;Unbilled&rdquo;, &ldquo;20%&rdquo;).
+            </div>
+            <form action={updateBillingRates} className="mt-5 max-w-[720px]">
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                <TextInput name="markup" label="Third-party markup" defaultValue={data.billingRates.markup} placeholder="e.g. 20%" />
+                {data.billingRates.rows.map((r) => (
+                  <TextInput key={r.key} name={r.key} label={r.label} defaultValue={r.value} placeholder="e.g. $52 / hr" />
+                ))}
+              </div>
+              <div className="mt-5">
+                <button
+                  type="submit"
+                  className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper transition-colors hover:bg-[#232a1e]"
+                >
+                  Save billing rates
                 </button>
               </div>
             </form>

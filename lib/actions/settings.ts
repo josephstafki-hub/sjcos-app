@@ -6,6 +6,7 @@
 import { revalidatePath } from "next/cache";
 import { query } from "@/lib/db";
 import { requireUser, requireRole } from "@/lib/dal";
+import { BILLING_RATE_ROWS, MARKUP_KEY } from "@/lib/billing-rates";
 
 /** First+last initial of a name, uppercased (e.g. "Joe Stafki" → "JS"). */
 function initialsOf(name: string): string {
@@ -71,6 +72,17 @@ export async function updateProfile(formData: FormData) {
 
 /** Save the Company & documents form — boilerplate baked into generated
  *  contracts + SOWs (B5). Owner-only. */
+/** Persist the precon billing rates + third-party markup (doc-templates plan).
+ *  Values are free-text display strings ("$52 / hr", "20%"). */
+export async function updateBillingRates(formData: FormData) {
+  await requireRole("owner");
+  await upsertSetting(MARKUP_KEY, String(formData.get("markup") ?? "").trim());
+  for (const r of BILLING_RATE_ROWS) {
+    await upsertSetting(r.key, String(formData.get(r.key) ?? "").trim());
+  }
+  revalidatePath("/settings");
+}
+
 export async function updateCompanyDocs(formData: FormData) {
   await requireRole("owner");
   const license = String(formData.get("license") ?? "").trim();

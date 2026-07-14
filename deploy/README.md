@@ -103,6 +103,36 @@ journalctl --user -u sjcos-agent-retries.service -n 20       # last result (JSON
 systemctl --user list-timers sjcos-agent-retries.timer       # next run
 ```
 
+## Scheduler — live "needs reply" lead-thread sync
+
+A systemd **user timer** runs every 15 minutes (`/api/cron/lead-thread-sync`)
+to keep a lead's "Needs reply" flag + `last_contact_at` honest against real
+Gmail state: whoever sent the MOST RECENT message in a lead's matched thread
+determines whether we owe them a reply (see `lib/lead-thread-sync.ts`). This
+catches replies sent from Gmail directly (outside the app) — an in-app reply
+already clears the flag instantly via `logLeadActivity()`. No-ops safely if
+Gmail isn't connected (`gmailConfigured()` false). Same auth pattern as the
+reminders cron.
+
+Pass `?dry=1` to compute + return what WOULD change without writing — used to
+sanity-check the feature before the timer runs unattended, and safe to reuse
+any time (e.g. after Gmail is (re)connected).
+
+Install (one-time):
+```
+install -m755 deploy/sjcos-lead-thread-sync.sh ~/bin/sjcos-lead-thread-sync
+cp deploy/sjcos-lead-thread-sync.service deploy/sjcos-lead-thread-sync.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now sjcos-lead-thread-sync.timer
+```
+
+Run on demand / inspect:
+```
+systemctl --user start sjcos-lead-thread-sync.service           # trigger now
+journalctl --user -u sjcos-lead-thread-sync.service -n 20       # last result (JSON)
+systemctl --user list-timers sjcos-lead-thread-sync.timer       # next run
+```
+
 ## Voice daily logs — whisper.cpp (Phase-3 7-voice)
 
 Local, offline speech-to-text for the daily-log composers. `/api/transcribe`

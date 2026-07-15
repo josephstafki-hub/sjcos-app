@@ -1,4 +1,4 @@
-// Settings data builder. DB-backed (Phase 7-B): profile fields + Claude/AI
+// Settings data builder. DB-backed (Phase 7-B): profile fields + AI
 // toggles read from the app_settings key/value table via lib/db; toggles
 // persist through lib/actions/settings.ts. Integrations + the non-profile
 // categories stay static placeholders.
@@ -28,7 +28,7 @@ export interface AiToggle {
   on: boolean;
 }
 
-/** The Claude/AI toggle set, with stable keys + defaults (used when a row is
+/** The AI toggle set, with stable keys + defaults (used when a row is
  *  absent from app_settings). */
 const AI_TOGGLES: { key: string; label: string; default: boolean }[] = [
   { key: "ai.draftReplies", label: "Draft client replies by default", default: true },
@@ -63,7 +63,7 @@ export interface SettingsData {
     fields: { label: string; value: string }[];
   };
   team: {
-    /** Present for real login rows; absent for the synthetic Claude row. */
+    /** Present for real login rows; absent for the synthetic AI row. */
     id?: string;
     initials: string;
     name: string;
@@ -135,7 +135,7 @@ export async function getSettingsData(): Promise<SettingsData> {
   const aiProvider = process.env.AI_PROVIDER ?? "mock";
   const aiModel = process.env.OLLAMA_MODEL ?? "qwen2.5:7b-instruct";
 
-  // Team list is live from the users table. A synthetic Claude row stands in for
+  // Team list is live from the users table. A synthetic AI row stands in for
   // the AI assistant (not a login account).
   const { rows: userRows } = await query<{
     id: string;
@@ -168,7 +168,7 @@ export async function getSettingsData(): Promise<SettingsData> {
       active: r.active,
       isOwner: r.role === "owner",
     })),
-    { initials: "AI", name: "Claude", role: "AI assistant · system", chip: "ai" as const },
+    { initials: "AI", name: "AI assistant", role: "System · all models", chip: "ai" as const },
   ];
 
   return {
@@ -180,7 +180,7 @@ export async function getSettingsData(): Promise<SettingsData> {
       { id: "company", title: "Company & documents" },
       { id: "team", title: "Team & roles" },
       { id: "integrations", title: "Integrations" },
-      { id: "ai", title: "Claude & AI" },
+      { id: "ai", title: "AI" },
       { id: "notifications", title: "Notifications" },
     ],
     profile: {
@@ -207,7 +207,7 @@ export async function getSettingsData(): Promise<SettingsData> {
       },
       {
         name: aiProvider === "ollama" ? "Local AI · Ollama" : "AI provider",
-        sub: aiProvider === "ollama" ? `Qwen · ${aiModel}` : aiProvider,
+        sub: aiProvider === "ollama" ? aiModel : aiProvider,
         connected: aiProvider !== "mock",
       },
       { name: "PostgreSQL", sub: "sjcos database", connected: true },

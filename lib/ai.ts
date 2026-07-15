@@ -339,7 +339,7 @@ const mockProvider: AiProvider = {
     const grounded = input.context
       ? " Based on what's on this page, here's the gist — open the related " +
         "record for the full detail."
-      : " Connect a model (Ollama/Qwen) for a grounded answer.";
+      : " Connect a local model (Ollama) for a grounded answer.";
     return {
       answer:
         `You asked: "${q}".` +

@@ -301,12 +301,12 @@ function NewInvoiceModal({
           <input value={milestone} onChange={(e) => setMilestone(e.target.value)} autoFocus placeholder="Tile substrate sign-off" className={FIELD} />
         </label>
         <label className="flex flex-col gap-1">
-          <span className={LABEL}>Notes for the Qwen draft (optional)</span>
+          <span className={LABEL}>Notes for the AI draft (optional)</span>
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={3}
-            placeholder="What this draw covers — Qwen drafts the line items."
+            placeholder="What this draw covers — AI drafts the line items."
             className={FIELD}
           />
         </label>
@@ -339,7 +339,7 @@ function NewInvoiceModal({
             className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
           >
             <Sparkles className="size-3" strokeWidth={1.75} />
-            Draft with Qwen
+            Draft with AI
           </button>
         </div>
       </div>

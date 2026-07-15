@@ -107,7 +107,7 @@ export function AutomateClient() {
         Describe an automation in plain English
       </h1>
       <p className="mt-1.5 text-[13px] text-ink-3">
-        Claude drafts a concrete plan you review before anything is created. Setup runs once;
+        AI drafts a concrete plan you review before anything is created. Setup runs once;
         recurring work runs locally for free.
       </p>
 

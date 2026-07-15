@@ -61,7 +61,7 @@ function initialsOf(name: string): string {
 
 // ─── Messages ────────────────────────────────────────────────────────────────
 
-/** owner = Joe (accent), ai = Claude (sage), user = everyone else (gray). */
+/** owner = Joe (accent), ai = the AI assistant (sage), user = everyone else (gray). */
 export type MessageKind = "owner" | "ai" | "user";
 
 export interface ChatMessage {
@@ -100,8 +100,8 @@ export interface ChannelView {
 
 /** Per-channel one-liner shown under the channel name. */
 const DESCRIPTIONS: Record<string, string> = {
-  "field-daily": "Daily check-ins from active sites · Claude pins what's blocking",
-  selections: "Client selections + approvals · Claude logs each decision",
+  "field-daily": "Daily check-ins from active sites · AI pins what's blocking",
+  selections: "Client selections + approvals · AI logs each decision",
   bookkeeping: "Receipts, invoices, and money questions",
   safety: "Site safety notes and incident reports",
   "marketing-queue": "AI-drafted posts waiting on your approval",
@@ -141,7 +141,7 @@ function clockTime(d: Date): string {
 
 function rowToMessage(r: MessageRow): ChatMessage {
   return {
-    initials: r.author_initials || (r.author_kind === "ai" ? "CL" : "?"),
+    initials: r.author_initials || (r.author_kind === "ai" ? "AI" : "?"),
     name: r.author_name,
     time: clockTime(new Date(r.created_at)),
     text: r.body,
@@ -155,8 +155,8 @@ function buildView(
   rows: MessageRow[],
   members: ChannelMember[],
 ): ChannelView {
-  // Avatar stack = owner (JS) + sub members + the AI (CL), in that order.
-  const participants = ["JS", ...members.map((m) => m.initials), "CL"];
+  // Avatar stack = owner (JS) + sub members + the AI, in that order.
+  const participants = ["JS", ...members.map((m) => m.initials), "AI"];
 
   return {
     key: ch.key,
@@ -164,7 +164,7 @@ function buildView(
     description:
       ch.description ??
       DESCRIPTIONS[ch.key] ??
-      "Claude is watching this channel and will flag anything that needs you.",
+      "AI is watching this channel and will flag anything that needs you.",
     participants: participants.slice(0, 6),
     members,
     canManageMembers: true,
@@ -177,7 +177,7 @@ function buildView(
   };
 }
 
-/** A DM is a private one-to-one room. Unlike channels, Claude isn't a member,
+/** A DM is a private one-to-one room. Unlike channels, the AI isn't a member,
  *  so the participant stack is just the owner + the sub. */
 function buildDmView(
   d: { key: string; fullName: string; initials: string; trade: string },

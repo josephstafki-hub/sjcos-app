@@ -6,7 +6,6 @@ import { Avatar, Card, Chip, Eyebrow, Field, SubmitButton } from "@/components/u
 import type { SettingsData } from "@/lib/settings";
 import { setAiToggle, setNotifyToggle, updateProfile, updateCompanyDocs, updateBillingRates } from "@/lib/actions/settings";
 import { createUser, setUserActive } from "@/lib/actions/users";
-import { AI_NAME } from "@/lib/ai-name";
 import { ClipTokenCard } from "./ClipTokenCard";
 import { IntakeTokenCard } from "./IntakeTokenCard";
 
@@ -392,12 +391,12 @@ export function SettingsClient({ data }: { data: SettingsData }) {
 
         {active === "ai" && (
           <>
-            <Eyebrow>{AI_NAME} &amp; AI</Eyebrow>
+            <Eyebrow>AI</Eyebrow>
             <h1 className="mt-1 font-serif text-[30px] font-medium leading-none text-accent-2">
-              {AI_NAME} &amp; AI defaults
+              AI defaults
             </h1>
             <div className="mt-1.5 text-[11px] text-ink-3">
-              Control what {AI_NAME} does automatically. Changes save instantly.
+              Control what the AI does automatically. Changes save instantly.
             </div>
             <div className="mt-5 max-w-[600px]">
               {data.aiToggles.map((t) => (

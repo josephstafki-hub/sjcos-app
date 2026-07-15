@@ -11,6 +11,7 @@ import "server-only";
 
 import { query, queryOne } from "./db";
 import { ai } from "./ai";
+import { AI_NAME } from "./ai-name";
 import { logLeadActivity } from "./lead-activity";
 import { emit } from "./notify";
 
@@ -193,7 +194,7 @@ export async function createInboundLead(
     const score = await scoreLead(slug);
     verdict = score?.verdict ?? null;
     if (score) {
-      await logLeadActivity(slug, "note", `Scored ${score.verdict.toUpperCase()} — ${score.rationale}`, "Qwen");
+      await logLeadActivity(slug, "note", `Scored ${score.verdict.toUpperCase()} — ${score.rationale}`, AI_NAME);
     }
   } catch {
     /* leave unscored; the owner can re-score from the detail page */

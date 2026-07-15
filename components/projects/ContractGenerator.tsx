@@ -223,7 +223,7 @@ export function ContractGenerator({
             </div>
             <p className="mt-2 text-[11px] text-ink-3">
               The PDF is sent to the client to e-sign in their portal; an editable .docx is saved to the Files tab.
-              The Scope of Work narrative is drafted by Qwen from your line items.
+              The Scope of Work narrative is drafted by AI from your line items.
             </p>
             {genMsg && <div className="mt-1.5 text-[12px] text-money">{genMsg}</div>}
             {error && <div className="mt-1.5 text-[12px] text-flag">{error}</div>}

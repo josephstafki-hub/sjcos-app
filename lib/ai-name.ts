@@ -1,11 +1,10 @@
-// The display name of the active AI assistant, for user-facing labels.
-// Derived from the provider so the UI says "Qwen" on the local Ollama model,
-// "Claude" on Anthropic, "AI" on the mock. NEXT_PUBLIC_AI_PROVIDER mirrors
-// AI_PROVIDER so client components (which can't read private env) get it too.
+// The display name of the AI assistant, for user-facing labels.
+// Deliberately generic: the app offers several selectable models, so a label
+// describing the assistant's *role* ("Ask AI", "Draft with AI") must never name
+// one of them — the model behind any given surface is an implementation detail
+// and can be swapped. Model names belong only where the user is choosing or has
+// chosen between models (see AGENT_META in lib/dev-agents-meta.ts).
+// Kept as a constant so the wording is one edit away if it ever changes.
 // Pure constant module (no db / server-only) → safe to import anywhere.
 
-const provider =
-  process.env.NEXT_PUBLIC_AI_PROVIDER ?? process.env.AI_PROVIDER ?? "mock";
-
-export const AI_NAME =
-  provider === "ollama" ? "Qwen" : provider === "anthropic" ? "Claude" : "AI";
+export const AI_NAME = "AI";

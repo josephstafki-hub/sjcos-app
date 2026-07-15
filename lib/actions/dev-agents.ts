@@ -19,7 +19,7 @@ export async function pollAgentRun(runId: string): Promise<PollResult> {
   const run = await getDevAgentRun(runId);
   if (!run) return { ok: false, error: "That run no longer exists." };
   if (run.status === "error")
-    return { ok: false, error: run.answer ?? "The Claude run failed." };
+    return { ok: false, error: run.answer ?? "The agent run failed." };
   if (run.status === "done")
     return { ok: true, status: "done", answer: run.answer ?? "(no output)", costUsd: run.costUsd };
   return { ok: true, status: run.status, activity: run.activity };

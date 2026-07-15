@@ -258,7 +258,7 @@ const PROJECT_DETAILS: Record<string, Partial<ProjectDetail>> = {
         body: "The cabinet doors look amazing! Quick q — are we still on for tile starting Monday?",
       },
       {
-        from: "Claude",
+        from: "AI assistant",
         role: "ai",
         time: "Fri 4:13p",
         body: "Drafted a reply confirming Monday 1pm tile start + the grout-color decision still needed. Queued for your review.",

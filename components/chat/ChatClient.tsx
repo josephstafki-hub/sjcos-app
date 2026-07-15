@@ -232,7 +232,7 @@ export function ChatClient({ data }: { data: ChatData }) {
                     key={i}
                     initials={p}
                     size="sm"
-                    kind={p === "JS" ? "accent" : p === "CL" ? "ai" : "gray"}
+                    kind={p === "JS" ? "accent" : p === "AI" ? "ai" : "gray"}
                     className="ring-1 ring-paper"
                   />
                 ))}

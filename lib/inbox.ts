@@ -421,7 +421,7 @@ function rawToReader(r: RawGmailThread): ThreadReader {
       },
     ],
     aiDraft: {
-      summary: "Open this thread to draft a reply with Claude.",
+      summary: "Open this thread to draft a reply with AI.",
       body: "",
     },
     replyPlaceholder: `Reply to ${r.fromName.split(" ")[0]}…`,

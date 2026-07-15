@@ -219,7 +219,7 @@ const DETAILS: Record<string, Partial<LeadDetail>> = {
         body: "Hi Joe — found you through the Edina remodel photos. We're ready to redo our kitchen and hoping to get a ballpark number.",
       },
       {
-        from: "Claude",
+        from: "AI assistant",
         role: "ai",
         time: "Apr 19, 11:09a",
         body: "Auto-acknowledged within SLA and sent the 5 intake questions. Scored this a strong lead — full reno, realistic budget, two competing bids.",
@@ -252,7 +252,7 @@ const DETAILS: Record<string, Partial<LeadDetail>> = {
     files: [
       { name: "Intake photos · 6", meta: "Uploaded Apr 21 · 18.4 MB", tag: "AI-tagged" },
       { name: "Rough measurements.pdf", meta: "Apr 21 · 240 KB" },
-      { name: "Phase 1 estimate.pdf", meta: "Sent Apr 21 · 88 KB", tag: "Claude" },
+      { name: "Phase 1 estimate.pdf", meta: "Sent Apr 21 · 88 KB", tag: "AI" },
     ],
   },
 };

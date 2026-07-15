@@ -938,7 +938,7 @@ function ReaderBody({ reader, threadId }: { reader: ThreadReader; threadId: stri
 
         <Card kind="ai" className="max-w-[600px] p-2.5">
           <div className="text-[13px] text-ai-2">
-            <div className="mb-1 font-serif text-[14px] font-semibold">Qwen draft reply</div>
+            <div className="mb-1 font-serif text-[14px] font-semibold">AI draft reply</div>
             <p>{reader.aiDraft.summary}</p>
             <div className="mt-2.5">
               <button

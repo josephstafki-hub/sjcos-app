@@ -5,6 +5,93 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-15 · P1-A2 — Replace model-specific labels with generic wording · **[x] DONE**
+
+**Root cause — this was one line, not a hundred.** `lib/ai-name.ts` derived the label from
+the provider env: `AI_NAME = provider === "ollama" ? "Qwen" : provider === "anthropic" ?
+"Claude" : "AI"`. Prod runs Ollama, so every one of the ~12 `AI_NAME` interpolation sites
+rendered the model's name — `Ask {AI_NAME}` in the Sidebar and the ⌘K pill literally read
+**"Ask Qwen"**, which is Joe's exact example. `AI_NAME` is now a plain constant `"AI"`.
+Kept as a constant (not inlined) because 12 call sites use it and a future rename should
+stay a one-line edit. It must never be dynamic again — the dynamism *was* the bug.
+
+**Heads-up: I found uncommitted WIP and built on it rather than discarding it.** The tree
+had unattributed changes to 9 files (incl. the `ai-name.ts` rewrite above). It postdates the
+`a132a8b` checkpoint of Joe's pre-existing WIP and isn't from the P1-A1 commit, so it is
+almost certainly an earlier iteration of this loop that was interrupted before it could
+record anything (P1-A2 was still `[ ]`). It was correct and on-target, so I kept all of it
+and finished the job. **If that was actually Joe's own hand-written WIP, it's preserved
+intact — nothing was reverted.**
+
+**The judgment call — where model names must STAY.** Joe's item says "everywhere a model
+picker/multiple models are available", so the line I drew is **role vs. identity**:
+- **Role label → genericize.** Describes what the assistant *does* when the model behind it
+  is interchangeable: "Ask AI", "Draft with AI", "AI is watching this channel".
+- **Identity label → keep.** The user explicitly picked, or is picking, that named agent —
+  genericizing here would actively destroy information. Kept: `AGENT_META`/
+  `CLAUDE_MODEL_OPTIONS` in `lib/dev-agents-meta.ts` (that *is* the picker); every
+  "Ask Claude…"/"Claude is planning" string in `AssistantChat.tsx` (verified — all gated on
+  `agent === "claude"`); `@claude/@qwen/@hermes` mention tokens + sender maps; "Have Hermes
+  do it" (Hermes is the only agent with MCP tools); agent-specific errors on agent-specific
+  code paths (`qwenChat`'s "Qwen returned an empty response", `runClaude`'s "Claude timed
+  out"); the Settings integrations row showing the *actually-configured* model — that one is
+  telling Joe what's really connected, which is legitimate and stays dynamic.
+- Also untouched: env vars, DB keys (`agent:'claude'`, `claude_session_id`), code
+  identifiers, and `docs/*.md`.
+
+**Two real bugs fell out of the sweep (not just wording):**
+1. `lib/intake.ts:196` hardcoded the string `"Qwen"` as the `lead_activity` actor written to
+   the DB, while the *identical* call in `lib/actions/leads.ts` (3 sites) used `AI_NAME`.
+   Website-form leads were attributed differently from in-app ones. Now uses `AI_NAME`.
+2. `lib/actions/dev-agents.ts:22` returned "The Claude run failed." from `pollAgentRun` —
+   which its own header comment says is agent-agnostic. A **Qwen or Hermes** failure reported
+   the wrong model. Now "The agent run failed."
+
+**Fable's plan:** inventoried every hit across ~50 files, drew the role-vs-identity line
+above with a per-file verdict, validated the existing WIP as sound, and flagged the two bugs.
+I followed it, having independently verified its load-bearing claims (the `AI_NAME` sites,
+the `agent === "claude"` gating, and that `NEXT_PUBLIC_AI_PROVIDER` now has zero readers).
+
+**Fable's review verdict: PROBLEMS FOUND → fixed → now passing.** It caught a **real
+regression I introduced**: I changed the chat participants stack from `"CL"` to `"AI"` in
+`lib/chat.ts`, but the avatar *color* lookup lives in a different file
+(`ChatClient.tsx:235`, `p === "CL" ? "ai" : "gray"`) — so the AI avatar in every channel
+header would have silently rendered as a gray "everyone else" chip instead of the sage AI
+one. Fixed the lookup to key on `"AI"`, plus the matching `"CL"` fallback at `lib/chat.ts:144`.
+I confirmed no other consumer keys on `"CL"` for color (message avatars hardcode
+`kind="gray"`), so the `@claude` sender map keeping `"CL"` initials is unaffected.
+
+**Files changed (16):** `lib/ai-name.ts`, `lib/chat.ts`, `lib/intake.ts`, `lib/leads.ts`,
+`lib/projects.ts`, `lib/settings.ts`, `lib/ai.ts`, `lib/inbox.ts`,
+`lib/actions/dev-agents.ts`, `components/chat/ChatClient.tsx`,
+`components/subs/SubNotes.tsx`, `components/automate/AutomateClient.tsx`,
+`components/inbox/InboxClient.tsx`, `components/projects/ContractGenerator.tsx`,
+`components/projects/MoneyPanel.tsx`, `components/settings/SettingsClient.tsx`
+
+**Verify:** `npx tsc --noEmit` clean (exit 0) · `npm run lint` 0 errors (same 11 pre-existing
+warnings as the P1-A1 baseline, none in files this diff touches). Final sweep grep confirms
+every surviving model-name string maps to a documented KEEP. No build run, service/:3017
+untouched.
+
+**Decisions Joe should know:**
+- **Old `lead_activity` rows still say "Qwen"** in the actor column and will display that in
+  the Lead Activity tab next to new "AI" rows. I did **not** rewrite history — nothing reads
+  or filters on the value (verified; it's display-only), and silently mutating historical
+  records felt like Joe's call, not mine. One-time cleanup if you want it:
+  `UPDATE lead_activity SET actor='AI' WHERE actor='Qwen';`
+- **`NEXT_PUBLIC_AI_PROVIDER` is now dead** — zero readers after `ai-name.ts` stopped
+  branching on it. Left `.env.local` alone (live config; harmless unused var).
+- `docs/punchlist.md:86` records the *old* decision that the Automate page stays "Claude".
+  Joe's blanket rule supersedes it; that line is now stale. Left as-is (docs out of scope).
+- Settings "Claude & AI" section is now just "AI"; the integrations row shows the raw model
+  id (`qwen2.5:7b-instruct`) instead of "Qwen · <model>".
+
+**Still worth a human look:** reasoning is static (code-read + tsc + lint) — I can't serve the
+branch without touching the running site. When served, check the sidebar/⌘K pill read "Ask
+AI" and the chat channel header's AI avatar is sage-green, not gray.
+
+---
+
 ## 2026-07-15 · P1-A1 — Bottom-of-page chrome loses green / account info invisible · **[x] DONE**
 
 **What was actually wrong (it was not what it looked like).** There is no scroll listener,

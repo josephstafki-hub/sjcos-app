@@ -131,7 +131,11 @@ export async function sendMessageAction(
 
   // Persist the user turn (with a paperclip note naming attachments) + title.
   // subjectWorkItemId marks a Today-feed hand-off (a card given to an agent).
-  const attachNote = files.length ? `\n\n📎 ${files.map((f) => f.name).join(", ")}` : "";
+  // Blank line only when there's text to separate from — an attachment-only
+  // send would otherwise persist with leading newlines the composer didn't show.
+  const attachNote = files.length
+    ? `${text ? "\n\n" : ""}📎 ${files.map((f) => f.name).join(", ")}`
+    : "";
   const userMsg = await insertMessage(conversationId, "user", text + attachNote, {
     pageContext,
     subjectWorkItemId,

@@ -12,9 +12,8 @@ import {
   renameConversationAction,
   archiveConversationAction,
   deleteConversationAction,
-  uploadChatFilesAction,
-  type ChatAttachment,
 } from "@/lib/actions/ai-chat";
+import { useChatAttachments } from "@/components/ai/useChatAttachments";
 import type { ConversationSummary, ChatMessage } from "@/lib/ai-chat";
 import {
   AGENT_META,
@@ -63,10 +62,7 @@ export function AssistantChat({
   // route). A transient notice line surfaces slash-command / mode changes.
   const [pageCtx, setPageCtx] = useState<string>("");
   const [editingCtx, setEditingCtx] = useState(false);
-  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
-  const [uploading, setUploading] = useState(false);
   const [notice, setNotice] = useState<string>("");
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const meta = AGENT_META[agent];
 
@@ -74,6 +70,16 @@ export function AssistantChat({
     setNotice(msg);
     window.setTimeout(() => setNotice((n) => (n === msg ? "" : n)), 2500);
   };
+
+  const {
+    attachments,
+    setAttachments,
+    uploading,
+    fileInputRef,
+    uploadFiles,
+    uploadFromTransfer,
+    removeAttachment,
+  } = useChatAttachments(flashNotice);
 
   const refreshList = useCallback(
     async (a: DevAgent) => setConversations(await listConversationsAction(a)),
@@ -213,24 +219,10 @@ export function AssistantChat({
     return true; // consume the slash even if the value was invalid
   }
 
-  async function uploadFiles(list: FileList | null) {
-    if (!list || !list.length || uploading) return;
-    setUploading(true);
-    try {
-      const fd = new FormData();
-      Array.from(list).forEach((f) => fd.append("files", f));
-      const r = await uploadChatFilesAction(fd);
-      if (r.ok) setAttachments((a) => [...a, ...r.files]);
-      else flashNotice(r.error);
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  }
-
   function send(qRaw: string) {
     const q = qRaw.trim();
-    if (pending) return;
+    // `uploading`: don't let the turn leave without the file still in flight.
+    if (pending || uploading) return;
     // Slash commands adjust Claude controls instead of sending a message.
     if (agent === "claude" && q.startsWith("/") && handleSlash(q)) {
       setInput("");
@@ -260,6 +252,10 @@ export function AssistantChat({
       }
       const r = await sendMessageAction(convId, q, ctx, opts, files);
       if (!r.ok) {
+        // Re-stage the files: the turn never reached the model, and re-picking
+        // uploads is more annoying than retyping a prompt. Prepend rather than
+        // replace — anything staged while the turn was in flight is still live.
+        setAttachments((cur) => [...files, ...cur]);
         setMessages((m) => [
           ...m,
           { id: `err-${Date.now()}`, role: "assistant", body: `⚠️ ${r.error}`, costUsd: null, createdAt: "", subjectWorkItemId: null },
@@ -548,7 +544,7 @@ export function AssistantChat({
                   <button
                     type="button"
                     aria-label={`Remove ${a.name}`}
-                    onClick={() => setAttachments((cur) => cur.filter((_, j) => j !== i))}
+                    onClick={() => removeAttachment(i)}
                     className="rounded p-0.5 hover:bg-paper-2"
                   >
                     <X className="size-3 text-ink-4" strokeWidth={1.75} />
@@ -592,6 +588,10 @@ export function AssistantChat({
                   cycleMode(1);
                 }
               }}
+              onPaste={(e) => {
+                // Pasting a screenshot straight into the box attaches it.
+                if (uploadFromTransfer(e.clipboardData)) e.preventDefault();
+              }}
               placeholder={
                 agent === "claude" ? `Ask Claude… (⇧Tab: ${CLAUDE_MODE_OPTIONS.find((m) => m.value === claudeOpts.mode)?.label})` : `Ask ${meta.label} anything…`
               }
@@ -599,7 +599,7 @@ export function AssistantChat({
             />
             <button
               type="submit"
-              disabled={pending || (!input.trim() && attachments.length === 0)}
+              disabled={pending || uploading || (!input.trim() && attachments.length === 0)}
               aria-label="Send"
               className="flex size-7 flex-none items-center justify-center rounded-md bg-ink text-paper transition-colors hover:bg-[#232a1e] disabled:opacity-40"
             >

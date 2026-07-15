@@ -5,6 +5,99 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-15 · P1-B1 — AI chat box in Projects/Leads/Warranties must accept file uploads · **[x] DONE**
+
+**The good news: all three pages are one component.** The "AI chat box" on Projects, Leads,
+and Warranties is the *same* `<CommandBar embedded />` (`components/cmdk/CommandBar.tsx`),
+mounted at `app/projects/[slug]/page.tsx:461`, `app/leads/[slug]/page.tsx:289`, and
+`app/warranty/page.tsx:35`. So this was one fix, not three — and the global ⌘K modal is the
+same component too, so it got uploads for free.
+
+**Heads-up: I again found uncommitted WIP and built on it rather than discarding it.** The
+tree had unattributed changes to `CommandBar.tsx` adding a paperclip, chips, and the
+`sendMessageAction` 5th-arg wiring. Same pattern as the P1-A2 entry below — almost certainly
+an earlier interrupted iteration of this loop (P1-B1 was still `[ ]`). It was on-target, so I
+validated it, fixed its bugs, and finished the job. **Nothing was reverted.** The whole
+server side (`uploadChatFilesAction`, `sendMessageAction(..., attachments)`, the 25MB cap,
+`sanitizeAttachments` path-traversal guard) already existed and was committed back in
+`e9a155c` — only the client was missing.
+
+**The WIP was copy-pasted from `AssistantChat.tsx` (/ai), and it copied four real bugs with
+it.** That duplication *was* the bug, so I extracted the shared logic into a new hook,
+`components/ai/useChatAttachments.ts`, and pointed both files at it. Fixed in one place:
+1. **No `catch` around the server action.** A throw was an unhandled rejection — spinner
+   stops, no error, file silently gone.
+2. **One FormData for the whole batch.** `next.config.ts` sets
+   `serverActions.bodySizeLimit: "25mb"` and the server's per-file cap is *also* 25MB — so
+   two 15MB job photos summed past the limit and Next threw away the whole batch opaquely.
+   Now one request per file, so a good file can't be lost to a bad neighbour. Note the two
+   limits being equal means a file *at* the cap always throws inside Next before the action's
+   own tidy error can run — hence the client-side pre-check that never POSTs an oversized file.
+3. **Send didn't check `uploading`.** Pick a big photo, hit ↵ before it lands → the turn went
+   without the attachment, no warning.
+4. **Staged files lost on a failed send.** `setAttachments([])` ran optimistically; if
+   `sendMessageAction` returned `!ok` the uploads were orphaned and had to be re-picked.
+
+**Also added (cheap, and how people actually attach things):** paste-to-attach (screenshot →
+⌘V straight into the box) on both, and drag-and-drop with a highlight on the CommandBar.
+
+**Fable's plan:** confirmed the one-component insight, found bugs 1–4 with file:line, and
+made the scope calls I adopted (below). I verified its load-bearing claims independently —
+the mount points, the `bodySizeLimit`/per-file-cap collision, and that `AssistantChat`'s
+`uploadFiles` was byte-identical to the WIP's.
+
+**Fable's review verdict: PROBLEMS FOUND → both fixed → re-verified green.** It caught two
+real concurrency bugs I introduced, both narrow but genuine:
+1. **The restore clobbered mid-flight files.** Paste/drop aren't gated on `pending`, so Joe
+   can stage a file *while* a turn runs. My `setAttachments(files)` restore would replace it
+   with the send-time snapshot — and for a failed *text-only* send, `files` is `[]`, so it
+   would wipe the new chip entirely. Now prepends: `setAttachments((cur) => [...files, ...cur])`.
+2. **A paste during an in-flight upload was consumed and silently discarded** — exactly the
+   failure class this item set out to fix. The root cause was that `uploading` was a
+   *boolean*, which can't represent two overlapping uploads: it either rejects the second or
+   lets the first one finishing re-open sending while the second is still going. Replaced
+   with an in-flight **counter** (`uploadCount > 0`), so concurrent pastes both attach and
+   the send guard stays honest.
+
+**Decisions Joe should know:**
+- **Uploads do NOT auto-file into the project's Files tab — deliberate.** Attaching a
+  screenshot to ask a question isn't filing a project document; auto-filing would fill Files
+  with chat ephemera. It's also not definable across the three pages: Warranty is a list page
+  with no per-entity files surface at all. If you want it, the right shape is an explicit
+  "Save to project files" action on a chip — say the word.
+- **No file-type restriction.** Claude reads anything off disk; Qwen/Hermes degrade to
+  "(binary file — not shown)". Restricting types would only remove capability.
+- **Worth knowing: Hermes can't see images.** On these pages the agents are Claude + Hermes.
+  Claude gets absolute paths and reads files itself; Hermes has no filesystem access, so the
+  server inlines file *text* — an image inlines as "(binary file — not shown)". Photos are
+  the likeliest upload on a Project/Lead, so **attach photos to Claude, not Hermes.** This is
+  pre-existing server behavior (identical on /ai), not something this diff changed — but it's
+  the one place "uploads work" has an asterisk. Flagging rather than fixing: giving Hermes
+  vision is a real piece of work, not a slice of this item.
+- Removed chips / agent switches orphan files under `uploads/ai-chat/` (gitignored). Pre-existing
+  pattern, no cleanup anywhere in the app; left alone.
+- Fixed one server-side inconsistency while in there: an attachment-only send persisted its
+  body with leading `\n\n` (`lib/actions/ai-chat.ts`), which didn't match what the composer
+  optimistically showed. Cosmetic, visible when reopening the thread in /ai.
+- **`AssistantChat.tsx` (/ai) was not in scope** — the item names only Projects/Leads/
+  Warranties, and it already had uploads. I touched it anyway because it carried the same
+  four bugs in copy-identical code; leaving it would have meant fixing the bug once and
+  leaving it live next door. Drag-and-drop on /ai deferred (paste + paperclip are there).
+
+**Files changed (4):** `components/ai/useChatAttachments.ts` (new),
+`components/cmdk/CommandBar.tsx`, `components/ai/AssistantChat.tsx`, `lib/actions/ai-chat.ts`
+
+**Verify:** `npx tsc --noEmit` clean (exit 0) · `npm run lint` 0 errors (same 11 pre-existing
+warnings, none in files this diff touches). No build run, service/:3017 untouched.
+
+**Still worth a human look:** reasoning is static (code-read + tsc + lint) — I can't serve the
+branch without touching the running site. When served, on a project page: paperclip a .txt →
+chip appears → ask Hermes about its contents (exercises the inlining path); then paste a
+screenshot and send to Claude (exercises the path-handoff path); drag a file onto the bar to
+see the highlight.
+
+---
+
 ## 2026-07-15 · P1-A2 — Replace model-specific labels with generic wording · **[x] DONE**
 
 **Root cause — this was one line, not a hundred.** `lib/ai-name.ts` derived the label from

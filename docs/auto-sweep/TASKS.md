@@ -18,7 +18,7 @@ Update the checkbox here AND append a detailed entry to `PROGRESS.md` every iter
 - [x] **P1-A2** Replace model-specific labels ("Ask Qwen", etc.) with generic wording ("Ask AI") everywhere a model picker/multiple models are available. Keep it generic across the app.
 
 ### P1-B · Projects, Leads, Warranties
-- [ ] **P1-B1** AI chat box in Projects, Leads, and Warranties must accept file uploads.
+- [x] **P1-B1** AI chat box in Projects, Leads, and Warranties must accept file uploads.
 - [ ] **P1-B2** AI chats persist per-page across navigation (stay active when you leave and come back). Add a **Clear** button; also auto-clear on hard refresh.
 - [ ] **P1-B3** Mood board = a real mood-board *creator* (Houzz Pro style) that pulls items from the catalog.
 - [ ] **P1-B4** Fix Selections board — currently cannot create sections. Make section creation work.

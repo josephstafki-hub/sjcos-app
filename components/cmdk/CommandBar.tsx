@@ -10,10 +10,13 @@ import {
   FolderKanban,
   Calendar,
   Plus,
+  Paperclip,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { pollAgentRun } from "@/lib/actions/dev-agents";
 import { newConversationAction, sendMessageAction } from "@/lib/actions/ai-chat";
+import { useChatAttachments } from "@/components/ai/useChatAttachments";
 import type { ChatMessage } from "@/lib/ai-chat";
 import { AGENT_META, AGENT_ORDER, type DevAgent } from "@/lib/dev-agents-meta";
 
@@ -67,6 +70,18 @@ export function CommandBar({
   const [activity, setActivity] = useState("");
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState("");
+  const [dragging, setDragging] = useState(false);
+  // Files staged for the next turn. Claude reads them off disk by path;
+  // Qwen/Hermes get their text inlined server-side (lib/actions/ai-chat.ts).
+  const {
+    attachments,
+    setAttachments,
+    uploading,
+    fileInputRef,
+    uploadFiles,
+    uploadFromTransfer,
+    removeAttachment,
+  } = useChatAttachments(setError);
   const [pending, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
@@ -143,11 +158,16 @@ export function CommandBar({
     setMessages([]);
     setActivity("");
     setError("");
+    setAttachments([]);
   };
 
   const ask = () => {
     const q = prompt.trim();
-    if (!q || pending) return;
+    // Attachment-only sends are allowed (the server titles the thread off the
+    // first filename when there's no text). Block while an upload is still in
+    // flight, or the turn would silently go without the file.
+    const files = attachments;
+    if ((!q && !files.length) || pending || uploading) return;
     setError("");
 
     // Claude runs the same way as Qwen/Hermes here — inline, polled via the
@@ -160,12 +180,14 @@ export function CommandBar({
       (pathname
         ? `The user is viewing the ${pathname} page of SJC OS. No structured record context was provided for this page.`
         : undefined);
+    const bodyNote = files.length ? `${q}${q ? "\n\n" : ""}📎 ${files.map((f) => f.name).join(", ")}` : q;
     setPrompt("");
+    setAttachments([]);
     setElapsed(0);
     setActivity("");
     setMessages((m) => [
       ...m,
-      { id: `u-${Date.now()}`, role: "user", body: q, costUsd: null, createdAt: "", subjectWorkItemId: null },
+      { id: `u-${Date.now()}`, role: "user", body: bodyNote, costUsd: null, createdAt: "", subjectWorkItemId: null },
     ]);
 
     startTransition(async () => {
@@ -174,8 +196,14 @@ export function CommandBar({
         convId = await newConversationAction(agent);
         setConversationId(convId);
       }
-      const r = await sendMessageAction(convId, q, ctx);
+      // 4th arg (claudeOptions) is undefined — this bar has no run controls, so
+      // startClaudeRun applies CLAUDE_DEFAULTS.
+      const r = await sendMessageAction(convId, q, ctx, undefined, files);
       if (!r.ok) {
+        // Re-stage the files: retyping a prompt is cheap, re-picking uploads
+        // isn't, and the turn never reached the model. Prepend rather than
+        // replace — anything staged while the turn was in flight is still live.
+        setAttachments((cur) => [...files, ...cur]);
         setMessages((m) => [
           ...m,
           { id: `err-${Date.now()}`, role: "assistant", body: `⚠️ ${r.error}`, costUsd: null, createdAt: "", subjectWorkItemId: null },
@@ -194,7 +222,25 @@ export function CommandBar({
   };
 
   const panel = (
-    <>
+    // Wrapper carries the drop target so both render modes below get it from
+    // one place. `dragging` only tracks files — dragging selected text over
+    // the box shouldn't light it up.
+    <div
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(e) => {
+        // Crossing a child fires dragleave on the wrapper too; ignore those.
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+      }}
+      onDrop={(e) => {
+        setDragging(false);
+        if (uploadFromTransfer(e.dataTransfer)) e.preventDefault();
+      }}
+      className={dragging ? "ring-2 ring-inset ring-ai" : undefined}
+    >
         {/* agent selector */}
         <div className="flex items-center gap-2 border-b border-rule px-[18px] py-2">
           <div className="flex rounded-md border border-rule bg-paper-2 p-0.5">
@@ -208,6 +254,7 @@ export function CommandBar({
                   setMessages([]);
                   setActivity("");
                   setError("");
+                  setAttachments([]);
                   inputRef.current?.focus();
                 }}
                 disabled={pending}
@@ -248,13 +295,51 @@ export function CommandBar({
             ref={inputRef}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
+            onPaste={(e) => {
+              // Pasting a screenshot straight into the box attaches it.
+              if (uploadFromTransfer(e.clipboardData)) e.preventDefault();
+            }}
             placeholder={`Ask ${meta.label} anything…`}
             className="flex-1 bg-transparent font-serif text-[15px] text-ink outline-none placeholder:text-ink-4"
           />
+          <input ref={fileInputRef} type="file" multiple hidden onChange={(e) => uploadFiles(e.target.files)} />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={pending || uploading}
+            aria-label="Attach files"
+            title="Attach files"
+            className="flex size-6 flex-none items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-paper-2 disabled:opacity-40"
+          >
+            <Paperclip className={`size-4 ${uploading ? "animate-pulse" : ""}`} strokeWidth={1.75} />
+          </button>
           <span className="font-mono text-[11px] text-ink-3">
             {pending ? "…" : agent === "claude" ? "↵ launch" : "↵ ask"}
           </span>
         </form>
+
+        {/* staged attachment chips */}
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 border-b border-rule px-[18px] py-2">
+            {attachments.map((a, i) => (
+              <span
+                key={`${a.path}-${i}`}
+                className="flex items-center gap-1 rounded border border-rule bg-paper-2 px-1.5 py-0.5 text-[11px] text-ink-2"
+              >
+                <Paperclip className="size-3 text-ink-4" strokeWidth={1.5} />
+                <span className="max-w-[160px] truncate">{a.name}</span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${a.name}`}
+                  onClick={() => removeAttachment(i)}
+                  className="rounded p-0.5 hover:bg-paper"
+                >
+                  <X className="size-3 text-ink-4" strokeWidth={1.75} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
 
         <div className="max-h-[60vh] overflow-y-auto py-2">
           {error && (
@@ -330,7 +415,7 @@ export function CommandBar({
             {meta.label}
           </span>
         </div>
-    </>
+    </div>
   );
 
   if (embedded) {

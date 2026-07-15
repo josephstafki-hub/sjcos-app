@@ -52,7 +52,7 @@ export async function Shell({
   };
 
   return (
-    <div className="flex h-screen bg-paper">
+    <div className="flex h-dvh overflow-hidden bg-paper">
       {/* Desktop rail — collapses into the Topbar hamburger drawer below lg. */}
       <div className="hidden flex-none lg:flex">
         <Sidebar user={sidebarUser} />

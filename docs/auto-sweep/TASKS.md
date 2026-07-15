@@ -14,7 +14,7 @@ Update the checkbox here AND append a detailed entry to `PROGRESS.md` every iter
 ## PRIORITY 1
 
 ### P1-A · All pages (global)
-- [ ] **P1-A1** Fix bottom-of-page chrome: when scrolled to the bottom, the menu/nav bar loses its green background and the account info becomes invisible. Make the bar stay green and account info visible at all scroll positions, on every page.
+- [x] **P1-A1** Fix bottom-of-page chrome: when scrolled to the bottom, the menu/nav bar loses its green background and the account info becomes invisible. Make the bar stay green and account info visible at all scroll positions, on every page.
 - [ ] **P1-A2** Replace model-specific labels ("Ask Qwen", etc.) with generic wording ("Ask AI") everywhere a model picker/multiple models are available. Keep it generic across the app.
 
 ### P1-B · Projects, Leads, Warranties

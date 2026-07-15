@@ -79,7 +79,7 @@ function isActive(pathname: string, href: string) {
 
 function RailLabel({ children }: { children: string }) {
   return (
-    <div className="px-2 pb-1 pt-1 font-mono text-[9.5px] font-medium uppercase tracking-[0.16em] text-[rgba(241,236,225,0.42)]">
+    <div className="flex-none px-2 pb-1 pt-1 font-mono text-[9.5px] font-medium uppercase tracking-[0.16em] text-[rgba(241,236,225,0.42)]">
       {children}
     </div>
   );
@@ -93,7 +93,7 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
   if (item.disabled) {
     return (
       <div
-        className="flex cursor-default items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium text-[rgba(241,236,225,0.4)]"
+        className="flex flex-none cursor-default items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium text-[rgba(241,236,225,0.4)]"
         aria-disabled
       >
         <Icon className="size-3.5 flex-none text-[rgba(241,236,225,0.4)]" strokeWidth={1.5} />
@@ -109,7 +109,7 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
     <Link
       href={item.href}
       className={[
-        "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors",
+        "flex flex-none items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors",
         active
           ? "bg-[rgba(191,208,166,0.18)] font-semibold text-[#FBFAF4]"
           : "text-[rgba(241,236,225,0.82)] hover:bg-[rgba(255,255,255,0.07)] hover:text-[#FBFAF4]",
@@ -166,44 +166,47 @@ export function Sidebar({ user }: { user: SidebarUser }) {
   };
 
   return (
-    <nav className="flex w-[232px] flex-none flex-col gap-1 bg-sidebar px-3 py-3.5">
-      <div className="px-1.5 pb-3.5 pt-0.5">
+    <nav className="flex h-full w-[232px] flex-none flex-col bg-sidebar px-3 py-3.5">
+      <div className="flex-none px-1.5 pb-3.5 pt-0.5">
         <Link href="/today">
           <Logo onDark />
         </Link>
       </div>
 
-      <div className="pt-0.5" />
+      {/* Link list scrolls inside the green panel so the rows can never spill
+          past it (which would paint them on the cream body) and so the account
+          row below stays pinned and visible at any viewport height. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto [scrollbar-color:rgba(241,236,225,0.25)_transparent] [scrollbar-width:thin]">
+        <div className="flex-none pt-1.5" />
 
-      <RailLabel>Work</RailLabel>
-      {WORK.map((item) => (
-        <NavLink
-          key={item.href}
-          item={{ ...item, badge: badgeFor(item.href) }}
-          pathname={pathname}
-        />
-      ))}
+        <RailLabel>Work</RailLabel>
+        {WORK.map((item) => (
+          <NavLink
+            key={item.href}
+            item={{ ...item, badge: badgeFor(item.href) }}
+            pathname={pathname}
+          />
+        ))}
 
-      <div className="my-2 h-px bg-[rgba(255,255,255,0.09)]" />
+        <div className="my-2 h-px flex-none bg-[rgba(255,255,255,0.09)]" />
 
-      <RailLabel>Tools</RailLabel>
-      {TOOLS.map((item) => (
-        <NavLink key={item.href} item={item} pathname={pathname} />
-      ))}
+        <RailLabel>Tools</RailLabel>
+        {TOOLS.map((item) => (
+          <NavLink key={item.href} item={item} pathname={pathname} />
+        ))}
 
-      <div className="my-2 h-px bg-[rgba(255,255,255,0.09)]" />
+        <div className="my-2 h-px flex-none bg-[rgba(255,255,255,0.09)]" />
 
-      <RailLabel>External</RailLabel>
-      {EXTERNAL.map((item) => (
-        <NavLink key={item.href} item={item} pathname={pathname} />
-      ))}
-
-      <div className="flex-1" />
+        <RailLabel>External</RailLabel>
+        {EXTERNAL.map((item) => (
+          <NavLink key={item.href} item={item} pathname={pathname} />
+        ))}
+      </div>
 
       <Link
         href="/ai"
         className={[
-          "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors",
+          "mt-1 flex flex-none items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors",
           isActive(pathname, "/ai")
             ? "bg-[rgba(191,208,166,0.18)]"
             : "hover:bg-[rgba(255,255,255,0.07)]",
@@ -214,7 +217,7 @@ export function Sidebar({ user }: { user: SidebarUser }) {
         <span className="font-mono text-[9px] text-[rgba(241,236,225,0.38)]">⌘J</span>
       </Link>
 
-      <div className="mt-1.5 flex items-center gap-2 border-t border-[rgba(255,255,255,0.1)] px-1.5 pb-0.5 pt-2">
+      <div className="mt-2.5 flex flex-none items-center gap-2 border-t border-[rgba(255,255,255,0.1)] px-1.5 pb-[max(0.125rem,env(safe-area-inset-bottom))] pt-2">
         <Link href="/settings" className="flex min-w-0 flex-1 items-center gap-2">
           <span className="inline-flex size-[26px] flex-none items-center justify-center rounded-full border border-[rgba(191,208,166,0.5)] bg-[rgba(191,208,166,0.18)] font-mono text-[10px] font-semibold text-[#E7EFD6]">
             {user.initials}

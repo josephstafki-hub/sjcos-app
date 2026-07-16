@@ -5,6 +5,87 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-16 · P1-B4 — Fix Selections board: cannot create sections · **[x] DONE**
+
+**Section creation was never broken. It always wrote the row — it just never showed you.**
+You'd click Add, the modal would close, and the board would still say "No sections yet".
+Nothing looks more like "cannot create sections" than that. The `kitchen` row sitting in
+your database (project Elaine Louiselle, created 2026-07-14 17:24) is the fossil: you made
+it, the app swallowed it, you moved on and wrote this todo (`a8b6a3f`).
+
+**I reproduced it on the live site before changing anything.** Drove the real page with a
+browser: filled the Add-section form on Libby Mahowald, submitted → modal closed, board
+still empty, and a new row (`ZZ Sweep Test`, budget 5000) was sitting in Postgres. Bug
+confirmed from the outside, not guessed at.
+
+**Root cause — the write half was right, the read half never happened:**
+
+> `addSection` inserts and calls `revalidatePath('/projects/<slug>')`. But the project page
+> is **dynamic** (cookie auth via `requireUser`), so there is no cached entry to invalidate
+> and the client router never refetches. The board keeps rendering the props it was born
+> with. **`SelectionsBoard.tsx` never called `router.refresh()`.**
+
+The rest of the app already knows this: `ProjectDailyLog`, `EstimateLineModal`, `SignOffs`,
+`Closeout` and friends all pair `revalidatePath` with a client-side `router.refresh()`. This
+board (and the Mood board) were the ones that missed the memo. `PunchList` gets away with it
+only because it mirrors its rows in local `useState` — the same hole, papered over.
+
+**Fix:** all seven mutations (add/update/remove section, add/update/push/remove selection)
+now run through the existing `run()` helper, which refreshes on success. Centralised on
+purpose — per-call-site refreshes are exactly the thing that gets forgotten. Error paths are
+unchanged: on failure the modal stays open with your typed-in values and the error shows.
+
+**Verified for real, not just typechecked.** I could not build this repo (guardrail: it
+would corrupt the live `.next`), so I copied the repo to a throwaway dir and ran `next dev`
+on **port 3099** — the live site on :3017, its `.next`, and the service were never touched
+(confirmed: BUILD_ID mtime unchanged, :3017 still answering 200, same pid). Against the
+fixed code: **create → section appears, $12,000 budget renders, empty-state clears; rename →
+reflected; remove → reflected; zero JS errors.** The dev log shows each action followed by
+the refetch. `npx tsc --noEmit` and `npm run lint` both green (11 pre-existing warnings,
+unrelated files).
+
+**All test data removed.** Every `ZZ *` row I created (sections, selections, one catalog
+item, one mood pin) is deleted. Your `kitchen` row is untouched. DB is back to: 1 section,
+0 selections, 0 mood, 0 catalog.
+
+**Fable's plan:** match the repo's `revalidatePath` + `router.refresh()` pattern; centralise
+through `run()`; refresh only on success (a failed action changed nothing, and refreshing
+would eat the user's form input); do **not** "fix" the bigint-as-string ids while in here.
+**Fable's review verdict:** *"yes, this accomplishes P1-B4"* — no bugs, no missed call sites,
+no guardrail violations, error paths identical, `pending` stays correct through the refetch.
+
+### Decisions you should know about
+
+1. **I also fixed the Mood board (`78a8ba7`), which was not my task item.** P1-B3 shipped
+   last iteration with the *identical* defect and is marked `[x]` on this same unmerged
+   branch — pin an item, nothing appears. Fixing it now cost two lines of the same pattern;
+   not fixing it meant you'd file "P1-B3 is broken" the day this branch lands. I verified it
+   the same way: created a room, pinned a catalog item, **the pin showed up**. One exception —
+   the drag/resize persist path deliberately does *not* refresh, because the canvas already
+   renders the dragged position from its own overrides map and a full page refetch per
+   drag-end would be wasted work.
+2. **Your catalog is empty (0 rows).** The Mood board's "Add from catalog" picker and the
+   Selections catalog dropdown therefore have nothing to offer in production right now. P1-B3
+   is built and works — I proved it with a temporary item — but it has no stock to pull from
+   until the catalog is populated. Worth knowing before you judge that tab.
+3. **Two more places have this same missing-refresh hole. I left them alone** rather than
+   sprawl this item:
+   - `components/portal/ClientSelections.tsx` — the **client portal's Approve/Decline**
+     calls `decideSelection` with no refresh and no local mirror. Your client very likely
+     clicks Approve and sees nothing happen. **This one is client-facing and I'd fix it next.**
+   - `components/projects/PunchList.tsx` — same hole, hidden by local state. No visible
+     symptom; cosmetic priority.
+4. **`sjcos.service` reports `inactive`** while a `next-server` process serves :3017 (pid
+   1035543, predates this work). Nothing I did caused it, but the "restart sjcos.service"
+   note in my memory looks stale — worth a look at how prod is actually being run.
+5. **Neither fix is live yet.** Both need a rebuild + restart on your side to reach :3017.
+
+**Files changed:** `components/projects/SelectionsBoard.tsx` (P1-B4, `a8b6a3f`),
+`components/projects/MoodBoard.tsx` (P1-B3 follow-up, `78a8ba7`).
+**Verify:** tsc ✅ · lint ✅ · real browser run of create/rename/remove + mood pin ✅
+
+---
+
 ## 2026-07-16 · P1-B3 — Mood board = a real mood-board creator that pulls from the catalog · **[x] DONE**
 
 **The Mood tab is now a real creator.** Per-room boards; an "Add from catalog" picker with

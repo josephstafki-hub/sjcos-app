@@ -9,7 +9,6 @@ import {
   Sprout,
   FolderKanban,
   Calendar,
-  Plus,
   Paperclip,
   X,
   type LucideIcon,
@@ -17,6 +16,13 @@ import {
 import { pollAgentRun } from "@/lib/actions/dev-agents";
 import { newConversationAction, sendMessageAction } from "@/lib/actions/ai-chat";
 import { useChatAttachments } from "@/components/ai/useChatAttachments";
+import {
+  getSnapshot,
+  saveSnapshot,
+  setPendingRun,
+  setConversationRef,
+  clearSnapshot,
+} from "@/components/cmdk/commandBarStore";
 import type { ChatMessage } from "@/lib/ai-chat";
 import { AGENT_META, AGENT_ORDER, type DevAgent } from "@/lib/dev-agents-meta";
 
@@ -47,6 +53,12 @@ const JUMP: JumpRow[] = [
  *  - embedded: always visible, laid out inline in the page (Home, and
  *    individual Leads / Projects / Warranty). ⌘/Ctrl+K focuses it instead of
  *    toggling a modal, since the bar is already on screen.
+ *
+ * The thread is kept per page in commandBarStore, so navigating away and back
+ * returns to the conversation you left — including one that was still running
+ * when you left (the run finishes server-side either way; we re-poll its id and
+ * the answer lands late). Each embedded page gets its own thread; the popup
+ * follows you across routes on one. A hard refresh drops the lot by design.
  */
 export function CommandBar({
   defaultOpen = false,
@@ -88,32 +100,59 @@ export function CommandBar({
   const pathname = usePathname();
   const meta = AGENT_META[agent];
 
+  // Which thread this bar is showing. Embedded bars are per page (the slug is
+  // in the pathname, so every project/lead keeps its own); the popup is one
+  // thread that follows you across routes, since it isn't "on" a page.
+  const storeKey = embedded ? `page:${pathname}` : "popup";
+  // Which key the state below currently belongs to. State, not a ref, so the
+  // mirror effect can't save the outgoing page's thread under the incoming
+  // page's key: on a key change it reads the stale value for one pass and skips.
+  const [hydratedKey, setHydratedKey] = useState<string | null>(null);
+  // Marks how long this bar is showing `storeKey`. Cleared when it stops
+  // (unmount, or a move to another page); any poll loop still running holds the
+  // token it started under and checks it, so an orphan stops on its own.
+  const liveRef = useRef({ alive: true });
+
+  // Appending is id-keyed rather than positional: a run's message id is derived
+  // from its run id, so a resumed poll can't double-post an answer.
+  const appendOnce = (list: ChatMessage[], msg: ChatMessage) =>
+    list.some((m) => m.id === msg.id) ? list : [...list, msg];
+
   // Poll a backgrounded Qwen/Hermes turn (same dev_agent_runs row Claude runs
   // use) until it lands, streaming its "thinking" status in the meantime.
   // 480 * 2s = 16min — past the failStaleRuns() backstop (lib/dev-agents.ts)
   // so a real Hermes turn always resolves itself before we give up on it.
-  const pollTurn = async (runId: string) => {
+  //
+  // `live` is the caller's claim on this bar. Once it's dead the loop is
+  // orphaned — its setStates would land on a dead fiber (silent no-ops) and it
+  // would keep hitting the server every 2s for up to 16 minutes — so it stops
+  // and leaves pendingRunId set for the next mount to pick the run back up.
+  const pollTurn = async (runId: string, live: { alive: boolean }) => {
     for (let i = 0; i < 480; i++) {
       await sleep(2000);
+      if (!live.alive) return;
       const p = await pollAgentRun(runId);
+      if (!live.alive) return;
       if (!p.ok) {
+        setPendingRun(storeKey, null);
         setActivity("");
-        setMessages((m) => [
-          ...m,
-          { id: `err-${runId}`, role: "assistant", body: `⚠️ ${p.error}`, costUsd: null, createdAt: "", subjectWorkItemId: null },
-        ]);
+        setMessages((m) =>
+          appendOnce(m, { id: `err-${runId}`, role: "assistant", body: `⚠️ ${p.error}`, costUsd: null, createdAt: "", subjectWorkItemId: null }),
+        );
         return;
       }
       if (p.status === "done") {
+        setPendingRun(storeKey, null);
         setActivity("");
-        setMessages((m) => [
-          ...m,
-          { id: `run-${runId}`, role: "assistant", body: p.answer, costUsd: p.costUsd, createdAt: "", subjectWorkItemId: null },
-        ]);
+        setMessages((m) =>
+          appendOnce(m, { id: `run-${runId}`, role: "assistant", body: p.answer, costUsd: p.costUsd, createdAt: "", subjectWorkItemId: null }),
+        );
         return;
       }
       setActivity(p.activity ?? "");
     }
+    // Gave up on it — don't leave a run behind for the next mount to resume.
+    setPendingRun(storeKey, null);
   };
 
   useEffect(() => {
@@ -146,19 +185,84 @@ export function CommandBar({
     if (open && !embedded) inputRef.current?.focus();
   }, [open, embedded]);
 
+  // Restore this page's thread, and resume a turn that was mid-flight when we
+  // left. Keyed on storeKey rather than mount so it also handles React reusing
+  // this instance between two slugs (/projects/a → /projects/b renders the same
+  // component at the same position, which would otherwise carry A's chat into B).
+  useEffect(() => {
+    const live = { alive: true };
+    liveRef.current = live;
+    const snap = getSnapshot(storeKey);
+    // A thread whose agent this page doesn't offer can't be shown — its tab
+    // isn't rendered, so the selection would be invisible and sends would go
+    // somewhere Joe can't see. Start clean instead.
+    const usable = snap && agents.includes(snap.agent) ? snap : undefined;
+    // Restoring is a plain state swap, so keep it a sync transition: `pending`
+    // clears in the same commit that paints the thread. Were this the async
+    // transition below, pending would outlive that commit by a microtask and
+    // flash "…is thinking" on every visit to a page with a saved chat.
+    startTransition(() => {
+      setAgent(usable?.agent ?? agents[0] ?? "claude");
+      setConversationId(usable?.conversationId ?? null);
+      setMessages(usable?.messages ?? []);
+      setPrompt(usable?.prompt ?? "");
+      setAttachments(usable?.attachments ?? []);
+      setActivity("");
+      setError("");
+      setElapsed(0);
+      setHydratedKey(storeKey);
+    });
+    // A turn that was still running when we left. Async, so `pending` stays
+    // true for the poll's duration and the "thinking…" line and disabled
+    // controls come back as if the turn never paused.
+    const runId = usable?.pendingRunId;
+    if (runId) {
+      startTransition(async () => {
+        await pollTurn(runId, live);
+      });
+    }
+    return () => {
+      live.alive = false;
+    };
+    // Only storeKey: `pollTurn` is redefined every render and `agents` can be a
+    // fresh array literal from the host page — either would re-run this (wiping
+    // the live thread) on every render. `setAttachments` is a plain useState
+    // setter and is stable, so it isn't why the disable is here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeKey]);
+
+  // Mirror the visible state back to the store on every change, so navigating
+  // away needs no unmount hook to race with.
+  useEffect(() => {
+    if (hydratedKey !== storeKey) return;
+    saveSnapshot(storeKey, { agent, conversationId, messages, prompt, attachments });
+  }, [hydratedKey, storeKey, agent, conversationId, messages, prompt, attachments]);
+
   if (!open && !embedded) return null;
 
   const close = () => {
     if (!embedded) setOpen(false);
   };
 
-  const newChat = () => {
+  // Drop the thread and start over. Evicts the stored snapshot too, or the
+  // chat would simply come back on the next visit — and with it any
+  // pendingRunId, which the mirror doesn't own and would otherwise resurrect a
+  // "thinking…" poll into the empty thread.
+  //
+  // The un-sent draft survives on purpose — both halves of it, the typed text
+  // and the staged files. Clear is aimed at the conversation above the box, and
+  // silently eating a half-written question (or a photo you just picked) is the
+  // kind of thing you only notice after it's gone. Nothing is destroyed
+  // server-side either — the conversation stays in ai_conversations and is
+  // still reachable from the /ai rail, which is why this is "Clear", not
+  // "Delete".
+  const clearChat = () => {
     if (pending) return;
+    clearSnapshot(storeKey);
     setConversationId(null);
     setMessages([]);
     setActivity("");
     setError("");
-    setAttachments([]);
   };
 
   const ask = () => {
@@ -190,11 +294,17 @@ export function CommandBar({
       { id: `u-${Date.now()}`, role: "user", body: bodyNote, costUsd: null, createdAt: "", subjectWorkItemId: null },
     ]);
 
+    const live = liveRef.current;
     startTransition(async () => {
       let convId = conversationId;
       if (!convId) {
         convId = await newConversationAction(agent);
+        // Store write as well as state, for the same reason as the runId below:
+        // if Joe left while the thread was being opened, only the store write
+        // lands — and without it the next turn here would fork a second
+        // conversation instead of continuing this one.
         setConversationId(convId);
+        setConversationRef(storeKey, convId);
       }
       // 4th arg (claudeOptions) is undefined — this bar has no run controls, so
       // startClaudeRun applies CLAUDE_DEFAULTS.
@@ -211,7 +321,12 @@ export function CommandBar({
       } else if (r.kind === "answer") {
         setMessages((m) => [...m, r.message]);
       } else {
-        await pollTurn(r.runId);
+        // Record the run before polling it, straight into the store rather than
+        // via state: if Joe navigated while the turn was starting, this bar is
+        // already gone and setState is a no-op, but the store write still lands
+        // and the next visit picks the run back up.
+        setPendingRun(storeKey, r.runId);
+        await pollTurn(r.runId, live);
       }
     });
   };
@@ -248,13 +363,19 @@ export function CommandBar({
               <button
                 key={a}
                 onClick={() => {
+                  // Switching agent abandons the thread (each one keeps its own
+                  // conversation), so clear it out of the store as well — the
+                  // mirror re-saves under the new agent on the next render.
+                  // Staged files survive the switch: they're paths on disk, not
+                  // bound to an agent, and switching is exactly what you do when
+                  // you attach a photo and remember Hermes can't see images.
                   if (pending) return;
+                  clearSnapshot(storeKey);
                   setAgent(a);
                   setConversationId(null);
                   setMessages([]);
                   setActivity("");
                   setError("");
-                  setAttachments([]);
                   inputRef.current?.focus();
                 }}
                 disabled={pending}
@@ -272,13 +393,13 @@ export function CommandBar({
           <div className="flex-1" />
           {messages.length > 0 && (
             <button
-              onClick={newChat}
+              onClick={clearChat}
               disabled={pending}
-              aria-label="New chat"
-              title="New chat"
+              aria-label="Clear chat"
+              title="Clear chat"
               className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ink-3 transition-colors hover:bg-paper disabled:opacity-40"
             >
-              <Plus className="size-3" strokeWidth={2} /> New
+              <X className="size-3" strokeWidth={2} /> Clear
             </button>
           )}
         </div>

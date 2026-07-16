@@ -5,6 +5,113 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-15 · P1-B2 — AI chats persist per page + Clear button + auto-clear on refresh · **[x] DONE**
+
+**Same one-component story as P1-B1.** Projects, Leads, and Warranty all render the same
+`<CommandBar embedded agents={["claude","hermes"]} />`, so this was one fix for three pages.
+The global ⌘K popup is the same component and got persistence for free — it keeps a single
+thread that follows you across routes (it isn't "on" a page), while each embedded page keeps
+its own, keyed by pathname, so `/projects/a` and `/projects/b` never share a chat.
+
+**Why the chat was being lost at all:** `Shell` is rendered per-page, not in a layout, so the
+CommandBar genuinely unmounts on every navigation. Component state alone can't survive that —
+persistence needs somewhere outside React to live.
+
+**The load-bearing design decision: an in-memory module-scoped `Map`, not `sessionStorage`.**
+New file `components/cmdk/commandBarStore.ts`. All internal nav is `next/link` soft nav, so
+the document — and therefore the module — outlives route changes and the thread persists. A
+hard refresh re-evaluates the bundle, so the Map starts empty and **"auto-clear on hard
+refresh" falls out for free, with zero teardown code to get wrong.** `sessionStorage` would
+have inverted the requirement: it survives refreshes, so we'd have to explicitly clear it —
+fighting the spec instead of getting it for nothing. The one rule this buys us is that the
+store must never be read during render (the server-side copy of the Map is shared across
+requests, and reading it in render would risk a hydration mismatch); all access is in effects
+and event handlers, and that contract is documented at the top of the store.
+
+**Heads-up: third iteration in a row where I found uncommitted WIP and built on it rather
+than discarding it.** The tree had an untracked `commandBarStore.ts` and a modified
+`CommandBar.tsx` implementing most of this (P1-B2 was still `[ ]` — almost certainly an
+earlier interrupted iteration of this loop). It was well-built and on-target, so I validated
+it against the item, fixed what was wrong, and finished. **Nothing was reverted.**
+
+**Beyond the ask: a turn that was running when you left now resumes.** The item says chats
+should "stay active when you leave and come back". The run already finishes server-side
+regardless (it's a `dev_agent_runs` row), so the snapshot keeps its `pendingRunId` and the
+next mount re-polls it — the answer lands late instead of being lost. `live` tokens kill
+orphaned poll loops so a departed page doesn't keep hitting the server every 2s for 16
+minutes, and appends are id-keyed off the run id (`appendOnce`) so a resumed poll can't
+double-post.
+
+**The one real bug I fixed in the WIP — first-send navigation forked conversations.**
+`ask()` wrote the runId straight to the store but set `conversationId` only via `setState`.
+Send the *first* message on a page, navigate away during the `await newConversationAction`
+window, and that setState lands on a dead fiber — the snapshot keeps `conversationId: null`
+while `pendingRunId` is set. The answer would still arrive on return, but the **next** send
+would open a *second* server-side conversation and fork the history. Added
+`setConversationRef(key, id)` to the store (mirror of `setPendingRun`) and call it alongside
+the setState, so the id survives an unmount. Also corrected a comment that wrongly claimed
+`setAttachments` is redefined per render (it's a stable `useState` setter) — `pollTurn` and
+`agents` are the real reason the deps disable is there, and I'd rather the next reader not
+"fix" the wrong thing.
+
+**Fable's plan:** verified the soft-nav claim against Next 16's bundled docs, confirmed
+CommandBar really does unmount per navigation (`Shell` is per-page), traced the hydrate/mirror
+effect ordering, and found the conversationId fork bug. I checked its load-bearing claims
+myself, including the one thing it waved off: `kind: "answer"` (`lib/actions/ai-chat.ts:211`)
+is only the server's catch branch — both real agent paths return `pending` — so it really is
+a rare failure path, not a live-answer path.
+
+**Fable's review verdict: PASSED, no real bugs.** It independently traced the cases I most
+wanted a second opinion on and found them safe: no A→B thread leak on same-instance rekey
+(the `hydratedKey` gate skips the one render where the key has flipped but the state hasn't),
+`setConversationRef` can't silently no-op (the mirror always creates the entry first), and
+Clear can't leave a phantom "thinking…" behind. **I acted on its one substantive nitpick**
+(below); the rest were cosmetic or pre-existing and are recorded as known limitations.
+
+**Decisions Joe should know:**
+- **Clear keeps your un-sent draft — both the typed text and the staged files.** Clear is
+  aimed at the conversation above the box; silently eating a half-written question or a photo
+  you just picked is the kind of thing you only notice once it's gone. Fable flagged that the
+  WIP kept the text but dropped the file chips, which is half a draft — I made both survive,
+  in the Clear button **and** the agent-switch handler. The concrete case that decided it is
+  straight out of the P1-B1 notes: Hermes can't see images, so attaching a photo and then
+  switching to Claude is *exactly* the right move — and it was silently throwing the photo
+  away when you did.
+- **"Clear", not "Delete" — nothing is destroyed server-side.** The conversation stays in
+  `ai_conversations` and is still reachable from the /ai rail. Say the word if you want Clear
+  to actually delete.
+- **Threads are per pathname**, so every project/lead slug keeps its own chat. Capped at the
+  20 most recent pages (LRU) so a long session can't grow the Map forever; evicting a page
+  only drops the bar's copy, since the run and its answer persist server-side.
+- **The popup keeps one thread across routes** rather than per-page — it floats over whatever
+  page you're on, so a per-page popup thread would be surprising.
+- `/ai`'s `AssistantChat.tsx` is **out of scope and needed nothing** — the item names the
+  Projects/Leads/Warranty box, and /ai already persists server-side via the conversations rail.
+
+**Known limitations (deliberate, low stakes):**
+- Navigating away mid-send loses only the *failure* branches (`!r.ok` / the catch-path
+  `kind:"answer"`); real answers are covered by the `pendingRunId` resume, and the server
+  persists the error to the thread anyway.
+- Up to a ~2s "thinking" bleed on a same-instance page switch, because an orphaned poll is
+  mid-`sleep(2000)` when killed. Cosmetic; an abortable sleep isn't worth the code.
+- A back-button restore from bfcache keeps threads (it isn't a refresh). Correct, I think.
+
+**Files changed (2):** `components/cmdk/commandBarStore.ts` (new),
+`components/cmdk/CommandBar.tsx`
+
+**Verify:** `npx tsc --noEmit` clean (exit 0) · `npm run lint` 0 errors (same 11 pre-existing
+warnings, none in `components/cmdk/`). No build run, service/:3017 untouched.
+
+**Still worth a human look:** this is the item where static checking is weakest — the whole
+feature is browser behavior (soft nav vs. refresh) that tsc and lint cannot prove, and I
+can't serve the branch without touching the running site. When served: open a project, ask
+something, navigate to another project and back (thread should be there, and the other
+project should have its own); hit Clear (chat goes, your typed draft stays); then hard-refresh
+(chat should be gone). The best one to check: ask Hermes something slow, navigate away
+mid-answer, come back — the reply should land in the thread late.
+
+---
+
 ## 2026-07-15 · P1-B1 — AI chat box in Projects/Leads/Warranties must accept file uploads · **[x] DONE**
 
 **The good news: all three pages are one component.** The "AI chat box" on Projects, Leads,

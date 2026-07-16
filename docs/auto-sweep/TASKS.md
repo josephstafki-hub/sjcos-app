@@ -20,7 +20,7 @@ Update the checkbox here AND append a detailed entry to `PROGRESS.md` every iter
 ### P1-B · Projects, Leads, Warranties
 - [x] **P1-B1** AI chat box in Projects, Leads, and Warranties must accept file uploads.
 - [x] **P1-B2** AI chats persist per-page across navigation (stay active when you leave and come back). Add a **Clear** button; also auto-clear on hard refresh.
-- [ ] **P1-B3** Mood board = a real mood-board *creator* (Houzz Pro style) that pulls items from the catalog.
+- [x] **P1-B3** Mood board = a real mood-board *creator* (Houzz Pro style) that pulls items from the catalog.
 - [ ] **P1-B4** Fix Selections board — currently cannot create sections. Make section creation work.
 - [ ] **P1-B5** Fix Subs feature: assigning a sub to a project doesn't show on the sub's record ("not assigned to any job"). Wire the assignment both ways.
   - On assignment, the sub gets an email with a link to the **sub portal**. **GATE:** build the email + trigger, but DO NOT actually send — queue/park for Joe.

@@ -5,6 +5,135 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-16 · P1-B3 — Mood board = a real mood-board creator that pulls from the catalog · **[x] DONE**
+
+**The Mood tab is now a real creator.** Per-room boards; an "Add from catalog" picker with
+search, category chips, thumbnails and prices where you multi-select and pin as many items as
+you like in one go; a free-form canvas where you drag and resize pins into a composition; an
+upload path for reference images that aren't catalog products; a note per pin; and a
+"Products on this board" spec list underneath with prices and links back to each product page.
+That's the Houzz-Pro shape you asked for, on top of what was previously a plain per-room
+image list (`974c61a`).
+
+**Fourth iteration in a row where I found uncommitted WIP and finished it rather than
+discarding it.** ~670 lines across 5 files plus an untracked `MoodCanvas.tsx` — almost
+certainly an earlier interrupted iteration of this loop (P1-B3 was still `[ ]`). It was
+well-architected and on-target, so I validated it, fixed its bugs, and finished.
+**Nothing was reverted.**
+
+**The headline: the WIP was dead on arrival, and tsc could never have told us.** Both of the
+feature's two verbs were broken, and this is the thing worth understanding, because it will
+bite again elsewhere:
+
+> `catalog_items.id` and `project_mood.id` are `bigserial`. **node-postgres returns int8 as a
+> JavaScript string**, and this app sets no `setTypeParser` anywhere (`lib/db.ts` is bare). So
+> an id declared `number` in TypeScript is a **string at runtime** — the type is a lie that
+> tsc happily type-checks.
+
+The WIP validated ids with `Number.isInteger(id)`, which is `false` for `"42"`. Consequences:
+- **Pinning from the catalog never worked.** `addCatalogMoodItems` filtered every id out of
+  its own input and returned "Pick at least one catalog item." — every time, for every item.
+  The entire headline feature of this task item.
+- **Drag/resize never persisted.** `saveMoodLayout` skipped every row and returned `ok: true`.
+  It *looked* like it worked, because the canvas holds an `overrides` map that shows you where
+  you dropped the pin — so you'd compose a whole board, feel it working, reload, and find
+  everything back where it started. Silent, and only visible after a reload.
+
+I verified this empirically rather than trusting the reasoning (`pg.types.getTypeParser(20)`
+returns a string parser; `lib/catalog.ts:53` passes `id: r.id` straight through uncoerced).
+Fixed by coercing at every boundary — `toId`/`isId` in `lib/actions/mood.ts` (coerce *then*
+validate), the `byId` lookup map keyed by coerced id, `lib/mood.ts` coercing `id`/`catalog_id`
+on read so `MoodItem.id` is honestly a number, and `Number(m.id)` at the catalog boundary in
+`page.tsx`. Fable independently re-traced every id path end-to-end afterward and found no
+remaining number-vs-string comparison.
+
+**Schema: nothing to do — the columns are already live.** The WIP's `db/schema.sql` block
+ALTERs `project_mood` (nullable `image_file_id`, plus `catalog_id`/`label`/`price_label`/
+`pos_x`/`pos_y`/`pos_w`). I checked the live DB read-only (`psql \d project_mood`) and **all
+of them already exist** — the interrupted iteration had applied the file. `project_mood` has
+**0 rows**, so there's no historical data at risk. The ALTERs are additive and idempotent
+(`DROP NOT NULL` is a silent no-op when already nullable, and the ADDs are `IF NOT EXISTS`),
+so re-running `psql -f db/schema.sql` is safe. This matches the repo convention — there's no
+migration runner; schema is applied manually.
+
+**Fable's plan:** verified the schema question against the live DB (the thing I most needed it
+to be right about), confirmed the WIP's load-bearing claims (`Material` field names,
+`CATEGORIES` includes "All" so the default filter isn't empty, `storeUpload` options,
+`requireRole("owner")`, `/api/files`, and that `deleteMaterial` really does leave the `files`
+row intact so the snapshot claim holds), and **found the bigint blocker** with file:line. I
+independently confirmed each load-bearing claim before acting on it.
+
+**Fable's review verdict: PROBLEMS FOUND → fixed → re-verified green.** It caught **a real bug
+in the WIP that I'd missed**: the last-touched pin gets `zIndex: 1000` and `front` is never
+cleared, but the board container was `relative` with no z-index — which does **not** create a
+stacking context. So the pin escaped into the root stacking context and painted *over* the
+`z-50` modals, permanently, for the rest of the session. Concretely: drag any pin, then click
+"Add from catalog", and the pin shows through the picker. I verified the mechanism myself
+before fixing it with `isolate` on the board.
+
+**The other bugs I fixed in the WIP:**
+- **Unplaced pins reshuffled themselves.** Auto-layout keyed off the index into the *z-sorted*
+  list, and dragging any pin bumps its `sort_order` — so moving one pin made every not-yet-
+  placed pin jump to a different slot. Now ranked by creation order among unplaced pins only.
+- **Pins 13+ were parked off the board.** The old grid ran `y = 0.05 + row * 0.3` with no cap,
+  putting the 13th pin at `y ≥ 1.25` — below a board that clips (`overflow-hidden`). Invisible
+  and impossible to drag back. Now capped at 4×3 and cascading by a small offset.
+- **`releasePointerCapture` before listener removal.** It throws if the capture is already gone
+  (a `pointercancel` can beat you to it), which would leave the drag listeners attached. Now
+  detaches first and guards the release with `hasPointerCapture`.
+- **A `javascript:` URL could become a clickable link on a board.** Catalog `source_url` is
+  free text — the clip endpoint (`app/api/catalog/clip/route.ts`) only trims and truncates it —
+  and it lands in an `href`. `lib/mood.ts` now passes through `http(s)` only.
+- **Removed the eager `setDraftRoom(null)`** on a successful pin. The room arrives in `boards`
+  on the next render and the chip list dedupes it, so clearing eagerly only dropped the chip
+  for the frame between the write landing and the new props arriving — and `room` falls back to
+  `rooms[0]` when the active room isn't in the list, which could yank you onto a different
+  board mid-compose. Also `maxLength={500}` on the upload note to match the server's cap, and
+  `group-focus-within` so the pin controls aren't hover-only.
+
+**PARKED for you — "show the client" is not built.** The item's own words say to show the
+client, and I want to be explicit rather than let this pass silently: **mood boards are
+owner-screen-only right now.** Board images stream through `/api/files`, which hard-403s
+anyone who isn't the owner, so a client portal literally cannot render one. Exposing boards in
+the client portal crosses the portal-auth boundary and is a product/privacy call that's yours,
+not mine — so I stopped at the safe point. Say the word and it's a focused next slice.
+
+**Decisions you should know:**
+- **Catalog pins are snapshots, not live lookups.** Name/price/image are copied onto the pin at
+  pin time, so a board keeps rendering exactly as you composed it after you edit or delete the
+  catalog item. `catalog_id` survives as provenance (the link back to the product page) and
+  goes NULL if the item is deleted. A mood board is a presentation frozen at curation time —
+  I don't think you want last month's board silently repricing itself.
+- **Prices are display text, never summed.** `price_label` is free text like "$185 / sq ft".
+  This is a mood board, not an estimate — no math is done on it anywhere.
+- **Rooms sort alphabetically**, and a room exists only once it holds a pin (the "New board"
+  chip is client-side until you pin something to it).
+- Layout is stored normalized (fractions of board width/height), so a board looks the same at
+  any window size, and positions are clamped server-side.
+
+**Follow-up worth knowing (not fixed, out of scope):** `components/catalog/CatalogClient.tsx:76`
+renders the same unvalidated `sourceUrl` in an `href` — the `javascript:` exposure I closed for
+boards still exists on the Catalog page itself. The real fix is scheme-validating `source_url`
+at write time in the clip endpoint, which touches the browser-extension contract.
+
+**Files changed (6):** `components/projects/MoodCanvas.tsx` (new),
+`components/projects/MoodBoard.tsx`, `lib/mood.ts`, `lib/actions/mood.ts`, `db/schema.sql`,
+`app/projects/[slug]/page.tsx`
+
+**Verify:** `npx tsc --noEmit` clean (exit 0) · `npm run lint` 0 errors (same 11 pre-existing
+warnings, none in the mood files). Live DB inspected read-only only — no writes, no migration
+run. No build, service/:3017 untouched.
+
+**Still worth a human look — more than usual on this one.** The two bugs that mattered most
+here (pins never persisting, the modal overlap) were both invisible to tsc and lint, and this
+feature is almost entirely pointer behavior I can't exercise without serving the branch. When
+served, the one test that proves it: open a project's Mood tab, add a board, pin two catalog
+items, drag and resize them, then **reload** — they must stay where you put them. That's the
+exact path that was silently broken. Then click "Add from catalog" right after a drag and
+confirm no pin floats over the picker.
+
+---
+
 ## 2026-07-15 · P1-B2 — AI chats persist per page + Clear button + auto-clear on refresh · **[x] DONE**
 
 **Same one-component story as P1-B1.** Projects, Leads, and Warranty all render the same

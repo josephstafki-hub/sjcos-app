@@ -110,6 +110,18 @@ export default async function ProjectDetailPage({
 
   const catalogOptions = catalog.materials.map((m) => ({ id: m.id, name: m.name }));
 
+  // The mood-board picker shows thumbnails + price, so it needs more than the
+  // id/name the selections picker gets. `id` is coerced because catalog_items.id
+  // is bigserial and node-postgres hands int8 back as a string.
+  const moodCatalog = catalog.materials.map((m) => ({
+    id: Number(m.id),
+    name: m.name,
+    supplier: m.supplier,
+    category: m.category,
+    priceLabel: m.price,
+    imageUrl: m.imageId ? `/api/files/${m.imageId}` : null,
+  }));
+
   // Real invoices override the curated money summary on the Overview rail.
   const realMoney = money.invoices.length > 0;
   const nextInvoice = money.invoices.find((i) => i.status === "sent") ?? money.invoices.find((i) => i.status === "draft");
@@ -424,7 +436,7 @@ export default async function ProjectDetailPage({
 
   // ── Floor / Mood — design-tool tabs (real boards, S5D/S5E) ──────────────────
   const floorPanel = <FloorPlan slug={slug} versions={floorplans} />;
-  const moodPanel = <MoodBoard slug={slug} rooms={mood} />;
+  const moodPanel = <MoodBoard slug={slug} boards={mood} catalog={moodCatalog} />;
 
   const panels: Record<string, ReactNode> = {
     Overview: overview,

@@ -555,6 +555,23 @@ CREATE TABLE IF NOT EXISTS project_mood (
   sort_order    integer NOT NULL DEFAULT 0,
   created_at    timestamptz NOT NULL DEFAULT now()
 );
+-- Mood-board creator (P1-B3): catalog pins + free-form canvas layout.
+-- A pin is either an uploaded image or a catalog item, so image_file_id is now
+-- nullable (a catalog item may have no image — it renders as a text card).
+-- Catalog pins SNAPSHOT name/price onto label/price_label at pin time;
+-- catalog_id is provenance only (source-URL link), and deleting the catalog item
+-- leaves the board intact because deleteMaterial never removes the files row.
+-- pos_x/pos_w are fractions of board width, pos_y of board height (0..1);
+-- NULL = never placed, the client auto-lays those out. sort_order doubles as
+-- z-order (last dragged is on top).
+ALTER TABLE project_mood ALTER COLUMN image_file_id DROP NOT NULL;
+ALTER TABLE project_mood ADD COLUMN IF NOT EXISTS catalog_id bigint
+  REFERENCES catalog_items(id) ON DELETE SET NULL;
+ALTER TABLE project_mood ADD COLUMN IF NOT EXISTS label text NOT NULL DEFAULT '';
+ALTER TABLE project_mood ADD COLUMN IF NOT EXISTS price_label text NOT NULL DEFAULT '';
+ALTER TABLE project_mood ADD COLUMN IF NOT EXISTS pos_x real;
+ALTER TABLE project_mood ADD COLUMN IF NOT EXISTS pos_y real;
+ALTER TABLE project_mood ADD COLUMN IF NOT EXISTS pos_w real;
 
 -- ─── Design tools: floor-plan versions (Review-round-3 S5E) ─────────────────
 -- Versioned floor-plan files (image or PDF) per project, each with text notes.

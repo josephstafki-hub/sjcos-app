@@ -1,7 +1,7 @@
 import "server-only";
 
 // DB-backed auto-field resolution for document templates. Pulls facts from
-// projects / estimates / invoices / retainers / project_punch / app_settings and
+// projects / estimates / invoices / project_punch / app_settings and
 // marks each field 'auto' (resolved) or 'missing'. Owner/AI fields start
 // 'missing' and are filled later via applyFieldEdits. Re-exports the pure fill
 // logic so callers have a single import surface. See docs/doc-templates-plan.md.
@@ -329,24 +329,18 @@ async function resolveInvoiceDoc(f: Fill, scope: FillScope) {
     number: string;
     amount: number;
     line_items: unknown;
-    project_id: string;
     project_name: string;
     client_name: string;
     address: string | null;
     slug: string;
   }>(
-    `SELECT i.number, i.amount, i.line_items, i.project_id,
+    `SELECT i.number, i.amount, i.line_items,
             p.name AS project_name, p.client_name, p.address, p.slug
        FROM invoices i JOIN projects p ON p.id = i.project_id
       WHERE i.id = $1`,
     [scope.invoiceId],
   );
   if (!inv) return;
-  const retainer = await queryOne<{ applied: number }>(
-    `SELECT applied FROM retainers WHERE project_id = $1`,
-    [inv.project_id],
-  );
-  const applied = retainer?.applied ?? 0;
 
   f.set("invoice_number", inv.number || `INV-${scope.invoiceId}`);
   f.set("invoice_date", today());
@@ -356,8 +350,9 @@ async function resolveInvoiceDoc(f: Fill, scope: FillScope) {
   f.set("job_site_address", inv.address ?? "");
   f.set("client_phone_email", await clientEmailForProject(inv.slug));
   f.set("subtotal", inv.amount);
-  f.set("retainer_applied", applied);
-  f.set("total_due", inv.amount - applied);
+  // P1-B7: no retainer ledger to draw down — the invoice total is the invoice
+  // amount. `previous_payments_applied` is owner-entered when it applies.
+  f.set("total_due", inv.amount);
 
   const items = Array.isArray(inv.line_items) ? (inv.line_items as { label?: string; amount?: number }[]) : [];
   const rows = items.map((it) => [String(it.label ?? ""), "", "", fmtUsd(Number(it.amount) || 0)]);

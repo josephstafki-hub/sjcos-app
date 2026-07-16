@@ -211,7 +211,7 @@ const PROJECT_DETAILS: Record<string, Partial<ProjectDetail>> = {
     pulse:
       "On schedule. Tile starts today 1pm. Watch: Friday's flatness photo flagged the pantry threshold — bring a level. Next milestone draw ($12,400) fires when the tile substrate signs off.",
     milestones: [
-      { name: "Retainer", value: "$11,680", status: "paid", date: "Mar 8" },
+      { name: "Deposit (on signing)", value: "$11,680", status: "paid", date: "Mar 8" },
       { name: "Demo + framing", value: "$11,680", status: "paid", date: "Mar 22" },
       { name: "Cabinets installed", value: "$11,680", status: "paid", date: "Apr 30" },
       { name: "Tile substrate sign-off", value: "$12,400", status: "next", date: "Today–Wed" },

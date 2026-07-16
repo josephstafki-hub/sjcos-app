@@ -3,7 +3,7 @@
 // CANONICAL LEGAL TEXT: docs/reference/doc-templates/lien-release.md (source of
 // truth — BUMP `version` on any change). One template, four variants selected by
 // the `waiver_type` enum; build() emits ONLY the selected variant's body
-// paragraph. Amounts auto from projects/invoices/retainers. Supersedes the
+// paragraph. Amounts auto from projects/invoices. Supersedes the
 // simpler renderLienWaiverPdf in lib/documents.ts after cutover.
 
 import type { DocTemplate, FieldValues, TemplateSection } from "./types";

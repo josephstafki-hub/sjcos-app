@@ -9,7 +9,7 @@
 
 ## ✅ Decisions roll-up (reviewed 2026-06-30)
 
-**KEEP (built, accepted):** A7 architecture · catalog · selections/budgets · portal messaging · sub-portal logging/invoicing · punch list · retainer tracking · Gmail inbox · lead AI triage · compliance calendar · `lead-triage` + `weekly-status` skills.
+**KEEP (built, accepted):** A7 architecture · catalog · selections/budgets · portal messaging · sub-portal logging/invoicing · punch list · Gmail inbox · lead AI triage · compliance calendar · `lead-triage` + `weekly-status` skills.
 
 **BUILD (committed to close the gap):**
 - **Foundations:** e-signature (4c) · MCP server, AI-agnostic (A6) · shared scheduler (for COI/dunning/warranty/compliance reminders)
@@ -150,7 +150,7 @@
 | Bank connection + auto-reconcile (Plaid) | ❌ Not built. | | **BUILD** — part of Full-QB epic. |
 | Bank rules / auto-categorization | ❌ Not built. | | **BUILD** — part of Full-QB epic. |
 | Progress invoicing from estimate | 🟡 Invoices exist (manual line items); not generated from an estimate. | | **BUILD** — generate invoices from the estimate. |
-| Deposit/retainer tracking | ✅ Retainer collect/apply. | | **KEEP**. |
+| Deposit/retainer tracking | ❌ Removed (P1-B7, 2026-07-16). | | **REMOVED** — SJC is fixed-price only; nothing bills against a retainer balance. Ledger UI + actions gone; empty `retainers` table kept, unreferenced. |
 | A/R aging + dunning (7/14/21) | ❌ Not built. | | **DEFER** — collections automation after ledger core. |
 | 1099 tracking + prep/e-file | ❌ Not built. | | **BUILD** — part of Full-QB epic (CPA-review tax logic). |
 | MN sales tax tracking/filing | ❌ Not built. | | **BUILD** — part of Full-QB epic (CPA-review). |

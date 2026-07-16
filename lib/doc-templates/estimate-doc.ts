@@ -22,7 +22,7 @@ import {
 
 export const estimateDocTemplate: DocTemplate = {
   key: "estimate_doc",
-  version: "2026-07-10.1",
+  version: "2026-07-16.1",
   title: "Formal Estimate",
   subtitle: "Prepared following site visit, material takeoff, and confirmed selections.",
   docClass: "transactional",
@@ -106,7 +106,7 @@ function build(v: FieldValues): TemplateSection[] {
     heading("Notes & Terms"),
     bulletList([
       "This is a formal estimate based on a completed site visit, material takeoff, and available client selections.",
-      "This estimate is not a contract. A signed contract and retainer deposit are required before work is scheduled.",
+      "This estimate is not a contract. A signed contract and deposit are required before work is scheduled.",
       "Pricing is valid for 30 days from the date prepared above; material and labor costs may change after that period.",
       "Any change to scope after acceptance will be handled through SJ Carpentry's written change order process.",
     ]),

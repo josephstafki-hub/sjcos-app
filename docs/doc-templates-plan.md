@@ -201,7 +201,7 @@ New directory `lib/doc-templates/` (plain server helpers, NOT "use server"):
     from new `app_settings` keys `rates.*` with the defaults from the .md.
   - `lien-release.ts` (key `lien_release`) — `waiver_type` enum field
     (`partial_conditional | partial_unconditional | final_conditional | final_unconditional`)
-    selects which body paragraphs render. Amounts auto from invoices/retainers/projects.
+    selects which body paragraphs render. Amounts auto from invoices/projects.
   - `completion-cert.ts` (key `completion_cert`) — punch data from `project_punch`,
     account summary from project/invoices; `work_summary` is the AI field.
   - `change-order.ts` (key `change_order`) — mirrors `SJC_Change_Order_Template.docx`:
@@ -212,8 +212,9 @@ New directory `lib/doc-templates/` (plain server helpers, NOT "use server"):
     valid-until (30 days), scope summary (AI field), line items from `estimate_lines` grouped
     by section, contingency row, allowances & selections text, notes & terms, acceptance block.
   - `invoice-doc.ts` (key `invoice_doc`) — mirrors `SJC_Invoice_Template.docx`: Net-7 dates,
-    bill-to grid, `invoices.line_items`, previous-payments/retainer-applied row (from
-    `retainers`), CO balance row, payment-terms text. No AI fields; no signature block.
+    bill-to grid, `invoices.line_items`, previous-payments-applied row (owner-entered
+    credit, netted out of Total Due — P1-B7 retired the retainer ledger it used to read),
+    CO balance row, payment-terms text. No AI fields; no signature block.
 
 ## Fill engine (Phase 2, same PR)
 

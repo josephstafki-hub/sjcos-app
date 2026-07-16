@@ -55,17 +55,14 @@ export default async function ClientPortalPage() {
   // Contract value string carries a trailing " contract" — strip it for the row.
   const contractOnly = project?.contractValue?.replace(/\s*contract$/i, "").trim();
 
-  // Real money from the invoices + retainer ledger. When there are no invoices
-  // yet, show only the contract figure (or nothing) — never demo numbers.
-  const hasMoney = !!money && (money.invoices.length > 0 || money.retainer.collected > 0);
+  // Real money from the invoices. When there are no invoices yet, show only the
+  // contract figure (or nothing) — never demo numbers.
+  const hasMoney = !!money && money.invoices.length > 0;
   const moneyRows = hasMoney
     ? [
         ...(contractOnly ? [{ label: "Contract", value: contractOnly }] : []),
         { label: "Paid to date", value: usd(money!.paidTotal), good: money!.paidTotal > 0 },
         { label: "Outstanding", value: usd(money!.outstanding) },
-        ...(money!.retainer.collected > 0
-          ? [{ label: "Retainer on file", value: usd(money!.retainer.balance), good: true }]
-          : []),
       ]
     : contractOnly
       ? [{ label: "Contract", value: contractOnly }]

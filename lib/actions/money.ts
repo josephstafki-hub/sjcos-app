@@ -1,7 +1,9 @@
 "use server";
 
-// Money write paths (Review-round-3 S5A). Owner-gated invoices + retainers.
-// Reads stay in lib/money.ts. Amounts are integer CENTS everywhere (Phase 5.0):
+// Money write paths (Review-round-3 S5A). Owner-gated invoices.
+// Reads stay in lib/money.ts. P1-B7 removed the retainer ledger — SJC is
+// fixed-price only, so there is no billing against a retainer balance.
+// Amounts are integer CENTS everywhere (Phase 5.0):
 // the client (MoneyPanel) converts typed dollars → cents at the action boundary,
 // Qwen-drafted dollar figures are ×100'd here, and createMilestoneInvoice takes
 // cents from its caller. Sending an invoice emails the client via Gmail and emits
@@ -255,52 +257,5 @@ export async function markInvoicePaid(id: number): Promise<Result> {
   });
   revalidatePath(`/projects/${inv.slug}`);
   revalidatePath("/notifications");
-  return { ok: true };
-}
-
-async function upsertRetainer(slug: string, deltaCollected: number, deltaApplied: number) {
-  const project = await projectBySlug(slug);
-  if (!project) return null;
-  await query(
-    `INSERT INTO retainers (project_id, collected, applied)
-     VALUES ($1, GREATEST($2, 0), GREATEST($3, 0))
-     ON CONFLICT (project_id) DO UPDATE
-       SET collected = GREATEST(retainers.collected + $2, 0),
-           applied   = GREATEST(retainers.applied + $3, 0),
-           updated_at = now()`,
-    [project.id, deltaCollected, deltaApplied],
-  );
-  return project;
-}
-
-/** Record a retainer collection (amount in CENTS). Emits a MONEY notification. */
-export async function collectRetainer(slug: string, amount: number): Promise<Result> {
-  await requireRole("owner");
-  const amt = Math.round(amount); // cents
-  if (!Number.isFinite(amt) || amt <= 0) return { ok: false, error: "Enter an amount." };
-  const project = await upsertRetainer(slug, amt, 0);
-  if (!project) return { ok: false, error: "Project not found." };
-  await emit({
-    kind: "money",
-    tag: "Money",
-    accent: "money",
-    icon: "money",
-    title: `Retainer collected · ${project.name}`,
-    subline: `${usd(amt)} received`,
-    href: `/projects/${slug}`,
-  });
-  revalidatePath(`/projects/${slug}`);
-  revalidatePath("/notifications");
-  return { ok: true };
-}
-
-/** Apply retainer toward draws (amount in CENTS; reduces the balance). */
-export async function applyRetainer(slug: string, amount: number): Promise<Result> {
-  await requireRole("owner");
-  const amt = Math.round(amount); // cents
-  if (!Number.isFinite(amt) || amt <= 0) return { ok: false, error: "Enter an amount." };
-  const project = await upsertRetainer(slug, 0, amt);
-  if (!project) return { ok: false, error: "Project not found." };
-  revalidatePath(`/projects/${slug}`);
   return { ok: true };
 }

@@ -1,9 +1,11 @@
 // Invoice template (key `invoice_doc`).
 //
 // VISUAL SOURCE: docs/reference/doc-templates/source/SJC_Invoice_Template.docx.
-// Auto fields from the invoices row (+ retainer applied). No AI fields; no
-// signature block (an invoice is not signed). Money is CENTS. Transactional —
-// carries its own Net-7 payment terms.
+// Auto fields from the invoices row. No AI fields; no signature block (an
+// invoice is not signed). Money is CENTS. Transactional — carries its own Net-7
+// payment terms.
+// P1-B7: the retainer ledger is gone, so "previous payments applied" is now an
+// owner-entered credit (same pattern as co_balance), not a retainer read.
 
 import type { DocTemplate, FieldValues, TemplateSection } from "./types";
 import {
@@ -20,7 +22,7 @@ import {
 
 export const invoiceDocTemplate: DocTemplate = {
   key: "invoice_doc",
-  version: "2026-07-10.1",
+  version: "2026-07-16.1",
   title: "Invoice",
   subtitle: "",
   docClass: "transactional",
@@ -41,12 +43,25 @@ export const invoiceDocTemplate: DocTemplate = {
     { key: "job_site_address", label: "Job site address", kind: "text", source: "auto", required: false },
     { key: "line_items_table", label: "Itemized charges", kind: "table", source: "auto", required: true },
     { key: "subtotal", label: "Subtotal", kind: "money_cents", source: "auto", required: true },
-    { key: "retainer_applied", label: "Previous payments / retainer applied", kind: "money_cents", source: "auto", required: false },
+    {
+      key: "previous_payments_applied",
+      label: "Previous payments applied",
+      kind: "money_cents",
+      source: "owner",
+      required: false,
+      help: "Deposit or prior payment to credit against this invoice. Subtracted from Total Due.",
+    },
     { key: "co_balance", label: "Change order balance", kind: "money_cents", source: "owner", required: false },
     { key: "total_due", label: "Total due", kind: "money_cents", source: "auto", required: true },
   ],
   build,
 };
+
+/** Read a money_cents field as a number; 0 when unset/unparseable. */
+function cents(v: FieldValues, key: string): number {
+  const n = Number(v[key]);
+  return Number.isFinite(n) ? n : 0;
+}
 
 function build(v: FieldValues): TemplateSection[] {
   const out: TemplateSection[] = [];
@@ -69,12 +84,20 @@ function build(v: FieldValues): TemplateSection[] {
   out.push(heading("Itemized Charges"));
   const lines = table(v, "line_items_table");
   if (lines) out.push(tableSection(lines));
+  // Total Due nets out any owner-entered credit so the rendered invoice can
+  // never show a payment applied above an un-reduced total. With no credit
+  // entered this is exactly `total_due` (= the invoice amount); with `total_due`
+  // itself unset it stays "—" rather than a misleading $0.00.
+  const totalDue =
+    v["total_due"] == null || v["total_due"] === ""
+      ? money(v, "total_due")
+      : money({ net: cents(v, "total_due") - cents(v, "previous_payments_applied") }, "net");
   out.push(
     infoGrid([
       { label: "Subtotal", value: money(v, "subtotal") },
-      { label: "Previous Payments / Retainer Applied", value: money(v, "retainer_applied", "$0.00") },
+      { label: "Previous Payments Applied", value: money(v, "previous_payments_applied", "$0.00") },
       { label: "Change Order Balance (if any)", value: money(v, "co_balance", "$0.00") },
-      { label: "Total Due", value: money(v, "total_due") },
+      { label: "Total Due", value: totalDue },
     ]),
   );
 

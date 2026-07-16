@@ -26,7 +26,7 @@ Update the checkbox here AND append a detailed entry to `PROGRESS.md` every iter
   - On assignment, the sub gets an email with a link to the **sub portal**. **GATE:** build the email + trigger, but DO NOT actually send — queue/park for Joe.
   - Sub portal recognizes the person via a cookie so they don't have to log in / create an account.
 - [x] **P1-B6** Reorganize project tabs. First **inventory every tab + its use case** (write it into PROGRESS.md), identify duplicates (estimates/invoices/change-orders have own tabs while sign-off handles the rest plus some of those), then consolidate/eliminate duplicates. Document decisions.
-- [ ] **P1-B7** Remove the **retainer system** — it's obsolete. SJC does fixed-price contracting only; no billing against retainers. Remove/neutralize retainer UI, logic, and billing paths. Be careful: preserve historical data, don't break accounting. Document what was removed.
+- [x] **P1-B7** Remove the **retainer system** — it's obsolete. SJC does fixed-price contracting only; no billing against retainers. Remove/neutralize retainer UI, logic, and billing paths. Be careful: preserve historical data, don't break accounting. Document what was removed.
 - [ ] **P1-B8** Remove the **Stage Check** button in projects. Audit all other project buttons for usefulness before keeping; remove the "avatar" boxes next to lead/project/warranty names (not useful in current state). Document button-by-button decisions.
 
 ### P1-C · Inbox

@@ -478,11 +478,9 @@ ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS image_file_id text;
 -- Source product-page URL captured by the browser-extension clipper (Phase 2 A).
 ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS source_url text NOT NULL DEFAULT '';
 
--- ─── Money: invoices + retainers (Review-round-3 S5A) ───────────────────────
--- Native invoices (create/send/track) + a per-project retainer ledger. P&L
--- still lives in QuickBooks; these power the project Money tab. amount/collected/
--- applied are integer CENTS (Phase 5.0 migration); retainer balance = collected
--- - applied (derived).
+-- ─── Money: invoices (Review-round-3 S5A) ──────────────────────────────────
+-- Native invoices (create/send/track). P&L still lives in QuickBooks; these
+-- power the project Money tab. amount is integer CENTS (Phase 5.0 migration).
 CREATE TABLE IF NOT EXISTS invoices (
   id          bigserial PRIMARY KEY,
   project_id  uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -496,6 +494,11 @@ CREATE TABLE IF NOT EXISTS invoices (
   paid_at     timestamptz,
   created_at  timestamptz NOT NULL DEFAULT now()
 );
+-- RETIRED (P1-B7, 2026-07-16). SJ Carpentry is fixed-price only — nothing bills
+-- against a retainer balance, and no app code reads or writes this table any
+-- more. It is kept (empty in prod: 0 rows, $0 collected/applied when retired) so
+-- the schema stays reproducible and nothing historical is destroyed. Safe to
+-- DROP once Joe confirms; do not drop as a drive-by.
 CREATE TABLE IF NOT EXISTS retainers (
   project_id  uuid PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
   collected   integer NOT NULL DEFAULT 0,        -- CENTS collected up front

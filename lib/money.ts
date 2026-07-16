@@ -1,9 +1,9 @@
 // Project money builder (Review-round-3 S5A). DB-backed reads of the invoices
-// + retainers tables for the project Money tab. Amounts are integer CENTS
-// (Phase 5.0 cents migration); retainer balance is derived (collected - applied).
-// Writes live in lib/actions/money.ts.
+// table for the project Money tab. Amounts are integer CENTS (Phase 5.0 cents
+// migration). Writes live in lib/actions/money.ts.
+// P1-B7: the retainer ledger was removed — SJC is fixed-price only.
 
-import { query, queryOne } from "./db";
+import { query } from "./db";
 
 export type InvoiceStatus = "draft" | "sent" | "paid";
 
@@ -25,15 +25,8 @@ export interface Invoice {
   daysOverdue: number | null;
 }
 
-export interface RetainerLedger {
-  collected: number;
-  applied: number;
-  balance: number;
-}
-
 export interface ProjectMoney {
   invoices: Invoice[];
-  retainer: RetainerLedger;
   /** Σ paid invoices. */
   paidTotal: number;
   /** Σ sent-but-unpaid invoices. */
@@ -65,7 +58,7 @@ function statusLabel(r: InvoiceRow): string {
   return "Draft";
 }
 
-/** Read a project's invoices + retainer ledger. Empty/zeroed when none exist. */
+/** Read a project's invoices. Empty/zeroed when none exist. */
 export async function getProjectMoney(slug: string): Promise<ProjectMoney> {
   const { rows } = await query<InvoiceRow>(
     `SELECT i.id, i.number, i.milestone, i.amount, i.line_items, i.status,
@@ -90,17 +83,8 @@ export async function getProjectMoney(slug: string): Promise<ProjectMoney> {
     daysOverdue: r.days_overdue,
   }));
 
-  const ret = await queryOne<{ collected: number; applied: number }>(
-    `SELECT r.collected, r.applied FROM retainers r
-       JOIN projects p ON p.id = r.project_id WHERE p.slug = $1`,
-    [slug],
-  );
-  const collected = ret?.collected ?? 0;
-  const applied = ret?.applied ?? 0;
-
   return {
     invoices,
-    retainer: { collected, applied, balance: collected - applied },
     paidTotal: invoices.filter((i) => i.status === "paid").reduce((s, i) => s + i.amount, 0),
     outstanding: invoices.filter((i) => i.status === "sent").reduce((s, i) => s + i.amount, 0),
   };

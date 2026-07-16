@@ -283,7 +283,7 @@ export default async function ProjectDetailPage({
               valueClass="text-accent-2"
             />
             {realMoney ? (
-              <Row label="Retainer bal." value={usd(money.retainer.balance)} />
+              <Row label="Outstanding" value={usd(money.outstanding)} />
             ) : (
               <Row label="Open COs" value={m.openCOs} />
             )}
@@ -378,7 +378,7 @@ export default async function ProjectDetailPage({
     <ProjectFiles slug={slug} files={projectFiles} showcase={project.files} />
   );
 
-  // ── Money panel — real invoices + retainer (curated draw schedule as a
+  // ── Money panel — real invoices (curated draw schedule as a
   //    reference only when no invoices exist yet) ──────────────────────────────
   const moneyPanel = (
     <div className="flex flex-col gap-3.5">

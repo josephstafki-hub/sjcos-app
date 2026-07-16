@@ -5,6 +5,103 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-16 · P1-B7 — Remove the retainer system · **[x] DONE**
+
+**The retainer ledger is gone from the app, and it never held a cent.** Before touching
+anything I checked the live DB: `retainers` had **0 rows, $0 collected, $0 applied**. So there
+was no historical money to preserve and nothing on screen changed value — every retainer
+figure the app displayed was already $0.00. That fact is what made a clean removal safe.
+
+### The thing you should read before anything else
+"Retainer" means **three different things** in this codebase, and only one of them was
+obsolete. I removed one and deliberately left the other two alone:
+
+| Concept | Where | What I did |
+|---|---|---|
+| **Retainer ledger** (collect/apply against a balance) | `retainers` table, Money tab | **REMOVED** — this is the one you meant |
+| **Pre-construction retainer** | `lib/doc-templates/precon.ts` | **UNTOUCHED** — this is the flat non-refundable precon *fee*, i.e. how you actually sell precon today. It's canonical contract prose. Killing the word here would have gutted a live agreement. |
+| **Retainage** (Minn. Stat. § 337.10 withholding) | `docs/reference/doc-templates/construction-contract.md` | **UNTOUCHED** — statutory legal concept, unrelated to billing retainers |
+
+If you actually want the precon fee renamed too, say so — but that's a contract-language
+decision, not a code cleanup, and it needs your sign-off.
+
+### What was removed
+- **UI:** the Retainer card (Collected / Applied / Balance) and both Collect/Apply forms on
+  the project Money tab; the `RetainerForm` component; "Retainer bal." on the project
+  Overview money rail; "Retainer on file" on the client portal.
+- **Logic:** `collectRetainer`, `applyRetainer`, `upsertRetainer` server actions
+  (`lib/actions/money.ts`) — deleted outright, including the "Retainer collected"
+  notification they emitted.
+- **Reads:** the `RetainerLedger` type and `ProjectMoney.retainer` field plus the
+  `SELECT ... FROM retainers` query (`lib/money.ts`); the retainers read in the invoice
+  document resolver (`lib/doc-templates/fill.ts`).
+
+### What replaced it (nothing was left blank)
+- **Money tab right rail** → a **Billed** card: Paid · Outstanding · Billed to date
+  (= paid + sent; drafts excluded, since a draft hasn't been billed). Keeps the two-column
+  layout intact instead of leaving a hole.
+- **Overview rail** → "Retainer bal." became **Outstanding**.
+- **Demo milestone** `"Retainer"` → `"Deposit (on signing)"` (`lib/projects.ts`), matching the
+  vocabulary `lib/draw-schedule.ts` already generates.
+
+### Accounting: verified nothing moved
+`paidTotal` and `outstanding` were **always** computed from invoices alone — the retainer
+never fed them. The one real billing path was the invoice document's
+`total_due = amount − retainer_applied`; since `applied` was 0 everywhere, output is
+numerically identical today.
+
+### Decisions you should sanity-check
+- **I did NOT drop the `retainers` table.** It's marked RETIRED in `db/schema.sql` with a
+  comment, kept empty and unreferenced by any app code. Dropping it would have meant a
+  destructive migration against your live DB to reclaim zero rows — bad trade. **Drop it
+  whenever you like; nothing reads it.** `db/seed.sql` still TRUNCATEs it, which is harmless.
+- **The invoice "Previous payments / retainer applied" row survived, reworded.** It's now
+  `previous_payments_applied`, an **owner-entered** field (same pattern as the neighbouring
+  `co_balance`), labelled "Previous payments applied". The row exists in your invoice docx,
+  and "previous payments" isn't a retainer concept — so I kept the row and cut the retainer
+  wiring. No existing draft used the old field, so nothing broke. Templates `invoice_doc` and
+  `estimate_doc` both version-bumped to `2026-07-16.1`.
+- **Estimate terms reworded:** "A signed contract and retainer deposit are required before
+  work is scheduled" → "…contract and deposit…". This is app-authored boilerplate in
+  `estimate-doc.ts`, not canonical reference prose. Flagging it because it's client-facing.
+- **Left alone on purpose:** the `retainer_paid` lead-pipeline stage key (it gates promotion,
+  which is app-owned and out of scope), `scripts/migrate-cents.mjs` and
+  `scripts/import-temp-leads.mjs` (one-shot historical scripts), and the historical records in
+  `docs/functional-audit.md` / `docs/punchlist.md`. Updated the live ledgers:
+  `docs/plan-vs-build.md` (retainer tracking KEEP → REMOVED) and `docs/doc-templates-plan.md`.
+
+### Fable's plan / review
+**Plan:** inventory → remove UI, then actions, then reads, then doc-template wiring; keep the
+table, no migration; flag the three-concepts distinction. Followed it.
+**Review verdict:** "Correct, complete, and careful" — no guardrail violations, no orphaned
+imports, no dead references. It caught **one real bug**, which I fixed: by making
+`previous_payments_applied` owner-entered without wiring it into the math, an owner-entered
+credit would have rendered a **client-facing invoice showing a payment applied above an
+un-reduced Total Due**. The old code subtracted it; my first pass didn't. `build()` now nets
+the credit out of Total Due. Verified by exercising the real template through three cases:
+no credit → $12,400.00 (identical to before), $5,000 credit → $7,400.00, unfilled draft → "—"
+(not a misleading $0.00).
+
+**Files changed:** `lib/money.ts`, `lib/actions/money.ts`, `components/projects/MoneyPanel.tsx`,
+`app/projects/[slug]/page.tsx`, `app/client-portal/page.tsx`, `lib/projects.ts`,
+`lib/doc-templates/fill.ts`, `lib/doc-templates/invoice-doc.ts`,
+`lib/doc-templates/estimate-doc.ts`, `lib/doc-templates/lien-release.ts`, `db/schema.sql`,
+`docs/plan-vs-build.md`, `docs/doc-templates-plan.md`.
+
+**Verify:** `npx tsc --noEmit` clean · `npm run lint` 0 errors (same 11 pre-existing warnings,
+none in files I touched) · invoice total-due math exercised directly. No build, no service
+restart, nothing sent outward.
+
+### ⚠️ Still not mine, still uncommitted (unchanged from the P1-B6 note)
+The same five files remain modified in your tree and I left them alone again:
+`components/today/WaitingList.tsx`, `lib/actions/engine.ts`, `lib/engine.ts`, `lib/today.ts`,
+`mcp/sjcos-mcp.mjs`. They're the Today-queue work (checkable "waiting on me" items, lost leads
+filtered out, `snoozed_until` on snooze) — unrelated to retainers, and none of them reference
+retainer at all, so there's no collision with this item. **P1-G1 will trip over them.** Tell me
+to commit them and I will.
+
+---
+
 ## 2026-07-16 · P1-B6 — Reorganize project tabs: 18 → 14 · **[x] DONE**
 
 **You had 18 tabs on every project, and the money paperwork was smeared across four of

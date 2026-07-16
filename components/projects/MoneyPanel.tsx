@@ -11,13 +11,11 @@ import {
   deleteInvoice,
   sendInvoice,
   markInvoicePaid,
-  collectRetainer,
-  applyRetainer,
 } from "@/lib/actions/money";
 import { generateDemandLetter, generateLienPackage } from "@/lib/actions/collections";
 // Money helpers from the db-free cost-book-units module (safe in the client
 // bundle — NOT lib/money, which imports pg). Amounts are CENTS everywhere; the
-// edit/retainer forms convert typed dollars → cents before calling the actions.
+// edit form converts typed dollars → cents before calling the actions.
 import { fmtUsd, dollarsToCents, centsToInput } from "@/lib/cost-book-units";
 
 const fmt = (cents: number) => fmtUsd(cents);
@@ -31,7 +29,7 @@ const STATUS_CHIP: Record<InvoiceStatus, ChipKind> = {
 type Result = { ok: boolean; error?: string };
 
 /** Project Money tab — invoice list (edit draft / send / mark paid / delete
- *  draft), retainer ledger (collect / apply), and a New-invoice modal (Qwen
+ *  draft), a paid/outstanding totals rail, and a New-invoice modal (Qwen
  *  drafts the line items, or start blank and fill them in). */
 export function MoneyPanel({ slug, money }: { slug: string; money: ProjectMoney }) {
   const [pending, startTransition] = useTransition();
@@ -46,8 +44,6 @@ export function MoneyPanel({ slug, money }: { slug: string; money: ProjectMoney 
       if (!r.ok) setError(r.error ?? "Something went wrong.");
     });
   }
-
-  const r = money.retainer;
 
   return (
     <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[1fr_300px]">
@@ -163,20 +159,20 @@ export function MoneyPanel({ slug, money }: { slug: string; money: ProjectMoney 
         )}
       </div>
 
-      {/* Retainer ledger */}
+      {/* Billed totals — derived from the invoices themselves (P1-B7 retired the
+          retainer ledger; SJC bills fixed-price draws, not against a balance). */}
       <Card className="h-fit p-3.5">
-        <Eyebrow muted>Retainer</Eyebrow>
+        <Eyebrow muted>Billed</Eyebrow>
         <div className="mt-2 flex flex-col gap-1.5">
-          <Row label="Collected" value={fmt(r.collected)} valueClass="text-money" />
-          <Row label="Applied" value={fmt(r.applied)} />
+          <Row label="Paid" value={fmt(money.paidTotal)} valueClass="text-money" />
+          <Row label="Outstanding" value={fmt(money.outstanding)} />
           <div className="mt-0.5 flex items-center border-t border-rule-soft pt-1.5">
-            <span className="flex-1 text-[12px] font-semibold text-ink">Balance</span>
-            <span className="font-mono text-[13px] font-semibold text-accent-2">{fmt(r.balance)}</span>
+            <span className="flex-1 text-[12px] font-semibold text-ink">Billed to date</span>
+            <span className="font-mono text-[13px] font-semibold text-accent-2">
+              {fmt(money.paidTotal + money.outstanding)}
+            </span>
           </div>
         </div>
-
-        <RetainerForm label="Collect" disabled={pending} onSubmit={(amt) => run(() => collectRetainer(slug, amt))} />
-        <RetainerForm label="Apply" disabled={pending} onSubmit={(amt) => run(() => applyRetainer(slug, amt))} />
       </Card>
 
       {modal && (
@@ -219,47 +215,6 @@ function Row({ label, value, valueClass = "text-ink-2" }: { label: string; value
       <span className="flex-1 text-[12px] text-ink-2">{label}</span>
       <span className={`font-mono text-[12px] ${valueClass}`}>{value}</span>
     </div>
-  );
-}
-
-function RetainerForm({
-  label,
-  disabled,
-  onSubmit,
-}: {
-  label: string;
-  disabled: boolean;
-  onSubmit: (amount: number) => void;
-}) {
-  const [v, setV] = useState("");
-  return (
-    <form
-      className="mt-2 flex items-center gap-1.5"
-      onSubmit={(e) => {
-        e.preventDefault();
-        const amt = dollarsToCents(v); // typed dollars → cents
-        if (amt > 0) {
-          onSubmit(amt);
-          setV("");
-        }
-      }}
-    >
-      <span className="w-[52px] flex-none font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3">{label}</span>
-      <input
-        value={v}
-        onChange={(e) => setV(e.target.value)}
-        placeholder="$0"
-        inputMode="numeric"
-        className="w-[84px] rounded-md border border-rule bg-paper px-2 py-1 text-[12px] text-ink outline-none focus:border-accent"
-      />
-      <button
-        type="submit"
-        disabled={disabled}
-        className="rounded-md border border-rule px-2 py-1 text-[11px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50"
-      >
-        Go
-      </button>
-    </form>
   );
 }
 

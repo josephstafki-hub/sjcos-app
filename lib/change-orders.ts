@@ -1,7 +1,7 @@
 import "server-only";
 
-// Change orders (Phase-3 execution, 7-co). Reads for the project "Change orders"
-// tab. A CO is signed through the e-sign foundation (signature_requests with
+// Change orders (Phase-3 execution, 7-co). Reads for the project Money tab's
+// "Change orders" section. A CO is signed through the e-sign foundation (signature_requests with
 // doc_type='change_order' and change_order_id link); its own status mirrors the
 // linked request. Writes live in lib/actions/change-orders.ts.
 

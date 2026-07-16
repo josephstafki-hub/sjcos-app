@@ -1,7 +1,7 @@
 "use server";
 
 // Change-order write paths (Phase-3 execution, 7-co). Owner-gated. A CO is drafted
-// in the project "Change orders" tab, then sent for signature through the same
+// in the project Money tab's "Change orders" section, then sent for signature through the same
 // e-sign foundation as estimates/contracts (signature_requests, change_order_id
 // link). Signing/declining flips the CO status via lib/actions/esign.ts. Money is
 // CENTS. Reads stay in lib/change-orders.ts. Does NOT touch the project contract

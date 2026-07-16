@@ -5,6 +5,116 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-16 · P1-B6 — Reorganize project tabs: 18 → 14 · **[x] DONE**
+
+**You had 18 tabs on every project, and the money paperwork was smeared across four of
+them.** Estimate, Money, Change orders and Sign-offs were separate tabs, but Sign-offs was
+really two things stacked — the document *generator* (which produces the contract, the change
+order, the estimate paperwork) and the e-signature queue for those same documents. So to send
+a change order you'd start on "Change orders", generate paperwork on "Sign-offs", and chase
+the signature on "Sign-offs" again, while the invoice it turns into lived on "Money". That's
+the duplication you flagged. Those four tabs are now **one Money tab** — the whole contract
+lifecycle behind a sub-nav: **Estimate · Invoices · Change orders · Documents · Signatures**.
+
+**Nothing was deleted.** Every one of the 18 panels still renders, with the same props and the
+same server actions; they were regrouped, not rewritten. The review verified each of the 18
+individually against `git HEAD`.
+
+### Full tab inventory (the "inventory every tab + use case" this item asked for)
+
+| # | Tab (before) | What it's for | Decision |
+|---|---|---|---|
+| 1 | Overview | AI project pulse, milestones, this-week-on-site, latest log, drafted weekly status email, money/subs/files rails | **Kept** |
+| 2 | Ops | Open Engine work queue + Open Brain knowledge + receipts, scoped to this project | **Kept** |
+| 3 | Floor | Floor-plan versions (stage `floor_plan`'s tool) | **Kept** |
+| 4 | Mood | Mood-board creator pulling catalog items (stage `mood_board`) | **Kept** |
+| 5 | Selections | Selections board — catalog/upload + client approval (stage `selections`) | **Kept** |
+| 6 | Estimate | Estimate builder: cost book, takeoff from floorplans, approval gate | → **Money · Estimate** |
+| 7 | Schedule | Project schedule blocks + templates + milestones | **Kept** |
+| 8 | Subs | Sub assign/remove/contact + parked portal invites (stage `bidding`) | **Kept** |
+| 9 | Files | Project file browser, upload/download | **Kept** |
+| 10 | Money | Invoices + retainer + draw-schedule reference | → **Money · Invoices** (tab keeps the name) |
+| 11 | Daily log | Daily log history + add, voice input (stage `construction`) | **Kept** |
+| 12 | Comms | Owner ⇄ client portal thread | **Kept** |
+| 13 | Punch | Punch list add/toggle/remove (stage `closeout`'s tool) | → **Closeout · Punch list** |
+| 14 | Change orders | Draft a CO, send for e-sign, track status | → **Money · Change orders** |
+| 15 | Permits | Permit packet | **Kept** |
+| 16 | Sign-offs | *Two things:* AI document drafts from templates **+** the e-sign request queue | **Split** → **Money · Documents** and **Money · Signatures** |
+| 17 | Closeout | Completion certificate, final lien waiver, generated closeout docs | → **Closeout · Final docs** |
+| 18 | Safety | Sub orientations + incident log | **Kept** |
+
+**Final tab bar (14):** Overview · Ops · Floor · Mood · Selections · **Money** · Schedule ·
+Subs · Files · Daily log · Comms · Permits · **Closeout** · Safety
+
+### Decisions you should sanity-check
+- **Money absorbed four tabs, not two.** I read your note ("estimates/invoices/change-orders
+  have own tabs while sign-off handles the rest plus some of those") as: the money paperwork
+  is one lifecycle and should be one tab. Estimate → invoices → change orders → the documents
+  and signatures for all three. If you'd rather Estimate stayed its own tab (it's the biggest
+  single tool at 434 lines and it's mostly a pre-construction thing), that's a one-line change.
+- **I did NOT merge Floor / Mood / Selections into a "Design" tab.** Tempting for the count,
+  but they aren't duplicates — they're three distinct tools, each stage-gated to open first at
+  its own lifecycle stage. Merging would have added sub-nav risk for zero de-duplication. The
+  item said consolidate *duplicates*, so I left them.
+- **Punch + Closeout merged** because they're the same phase: punch list is the work, closeout
+  docs are the paperwork that follows it. Punch list is the first section, so the `closeout`
+  stage still lands you on the punch list exactly like before.
+- **Safety already contained Incidents** (nested, not a separate tab) — left as-is.
+- **Retainer untouched** — that's P1-B7, next. The Invoices section still shows it; B7 will
+  remove it there.
+
+### Tab labels are now compile-checked (a real bug class, closed)
+Tab labels were bare strings compared with `indexOf`, and a stale one failed **silently**:
+`stageToolTab` returned `"Punch"`, and had I removed that tab without noticing, every project
+at closeout stage would have quietly opened on Overview with no error anywhere. New
+`lib/project-tabs.ts` exports `PROJECT_TABS as const` + a `ProjectTab` type; `stageToolTab`
+and `TabLink`'s `tab` prop are both typed to it, so a bad label is now a `tsc` failure. (This
+caught the `closeout → "Punch"` mapping, which I updated to `"Closeout"`.)
+
+### Files changed
+- **new** `lib/project-tabs.ts` — the shared, compile-checked tab list
+- **new** `components/projects/PanelSections.tsx` — sub-nav; all sections stay mounted (hidden
+  when inactive), mirroring ProjectTabs' existing discipline — remounting is what broke
+  first-click before
+- `components/projects/ProjectTabs.tsx` — uses `PROJECT_TABS`, holds section state
+- `components/projects/TabNav.tsx` — `TabLink` gains an optional `section`; new
+  `SectionNavContext` so "Send invoice" deep-links Money · Invoices
+- `app/projects/[slug]/page.tsx` — composes the Money + Closeout sections
+- `lib/projects.ts` — `stageToolTab` returns `ProjectTab`; `closeout` → `"Closeout"`
+- comment-only fixes for tab names my change made stale: `lib/esign.ts`,
+  `lib/change-orders.ts`, `lib/actions/change-orders.ts`, `components/projects/SignOffs.tsx`,
+  `components/projects/ProjectDocuments.tsx`, `components/projects/ChangeOrders.tsx`
+
+### Plan / review
+**Fable was down all iteration** — six 529 Overloaded errors across ~5 minutes, including
+after a 3-minute backoff, for both the plan and review steps. I planned the item myself
+(I'd already read every relevant file) and ran the **review on Sonnet instead**, since the
+point of that step is an independent adversarial pass and skipping it on a navigation
+refactor seemed worse than swapping the model. Flagging the substitution so you know this
+one didn't get the usual two-model treatment.
+
+**Review verdict: SHIP**, no real bugs; it verified all 18 panels still reachable, no dead
+tab targets anywhere in the repo, and confirmed the ReactNode-array-prop pattern against
+this Next.js version's own docs. It flagged stale tab-name comments in 6 files (drift my
+change caused) — fixed above. One bug I caught and fixed *before* review: a `TabLink`
+naming a section that doesn't exist would have hidden every section and rendered a blank
+tab; `PanelSections` now falls back to the first section.
+
+**Verify:** `npx tsc --noEmit` clean · `npm run lint` 0 errors (11 pre-existing warnings, none
+in files I touched). No build, no service restart, nothing sent outward.
+
+### ⚠️ Uncommitted work in the tree that isn't mine — left alone for you
+Five files were **already modified when this iteration started** and are unrelated to the tab
+work: `components/today/WaitingList.tsx`, `lib/actions/engine.ts`, `lib/engine.ts`,
+`lib/today.ts`, `mcp/sjcos-mcp.mjs`. They add checkable "waiting on me" items, filter lost
+leads out of the Today queue / Engine / MCP, and set `snoozed_until` on snooze. It looks
+coherent and it's tsc/lint green, but **I didn't write it, didn't review it, and didn't
+commit it** — I don't know if it's finished. It's still sitting in your working tree,
+untouched. Tell me to commit it and I will; P1-G1 (final "everything is pushed" sweep) will
+otherwise trip over it.
+
+---
+
 ## 2026-07-16 · P1-B5 — Subs: wire assignment both ways + parked portal invite · **[x] DONE**
 
 **Your sub records were reading the wrong source.** Assigning a sub on the project Subs tab

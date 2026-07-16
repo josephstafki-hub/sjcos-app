@@ -1,7 +1,7 @@
 import "server-only";
 
 // E-signature read layer. Signature requests are project-scoped; the owner
-// curates + sends them from the project "Sign-offs" tab, the client signs them
+// curates + sends them from the project Money tab's Signatures section, the client signs them
 // in the portal. Writes live in lib/actions/esign.ts.
 
 import { query } from "./db";

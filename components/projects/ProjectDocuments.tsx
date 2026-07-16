@@ -5,7 +5,7 @@
 // fill/override its fields (auto values shown read-only with an unlock toggle;
 // AI narrative fields get a "Draft with AI" button), render PDF+DOCX, and submit
 // for signature. Submitting is the only step that sends — it reuses the existing
-// owner-gated e-sign flow. Lives under the Sign-offs tab.
+// owner-gated e-sign flow. Lives in the Money tab's Documents section.
 
 import { useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";

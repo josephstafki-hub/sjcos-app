@@ -14,7 +14,7 @@ function StatusIcon({ status }: { status: CoStatus }) {
   return <FileEdit className="size-3.5 text-ink-3" strokeWidth={1.75} />;
 }
 
-/** Owner project "Change orders" tab. Draft a CO (optional Qwen scope draft),
+/** Money tab · "Change orders" section. Draft a CO (optional AI scope draft),
  *  send it for the client to e-sign in the portal, track its status. */
 export function ChangeOrders({ slug, orders }: { slug: string; orders: ChangeOrderView[] }) {
   const router = useRouter();

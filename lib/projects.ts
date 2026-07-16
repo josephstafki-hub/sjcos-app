@@ -5,6 +5,7 @@
 
 import type { ChipKind } from "@/components/ui/Chip";
 import type { ProjectStatus } from "./types";
+import type { ProjectTab } from "./project-tabs";
 import { ai } from "./ai";
 import { query } from "./db";
 
@@ -71,7 +72,7 @@ export const PROJECT_STATUSES: { key: ProjectStatus; label: string }[] = [
 /** The project-detail tab that surfaces the tool for a given lifecycle stage.
  *  Drives which tab opens first on the project detail (the design's stage-gated
  *  flow). Stages without a dedicated tool fall back to Overview. */
-export function stageToolTab(status: ProjectStatus): string {
+export function stageToolTab(status: ProjectStatus): ProjectTab {
   switch (status) {
     case "floor_plan":
       return "Floor";
@@ -84,7 +85,8 @@ export function stageToolTab(status: ProjectStatus): string {
     case "construction":
       return "Daily log";
     case "closeout":
-      return "Punch";
+      // Closeout opens on its first section, the punch list.
+      return "Closeout";
     default:
       return "Overview"; // precon_signed, construction_contract, warranty
   }

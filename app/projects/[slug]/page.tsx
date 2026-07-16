@@ -6,7 +6,9 @@ import { Shell } from "@/components/shell/Shell";
 import { AiBubble, AckButton, AiStream, Card, Chip, Avatar, Eyebrow } from "@/components/ui";
 import { CommandBar } from "@/components/cmdk/CommandBar";
 import { ProjectTabs } from "@/components/projects/ProjectTabs";
+import { PanelSections } from "@/components/projects/PanelSections";
 import { TabLink } from "@/components/projects/TabNav";
+import type { ProjectTab } from "@/lib/project-tabs";
 import { WeeklyStatusSend } from "@/components/projects/WeeklyStatusSend";
 import { PunchList } from "@/components/projects/PunchList";
 import { StageSuggest } from "@/components/projects/StageSuggest";
@@ -59,9 +61,9 @@ const DOT: Record<string, string> = {
 };
 
 /** Small "View →" affordance that jumps an Overview card to its full tab. */
-function ViewTab({ tab }: { tab: string }) {
+function ViewTab({ tab, section }: { tab: ProjectTab; section?: string }) {
   return (
-    <TabLink tab={tab} title={`Open the ${tab} tab`}>
+    <TabLink tab={tab} section={section} title={`Open the ${tab} tab`}>
       View
       <ChevronRight className="size-2.5" strokeWidth={2} />
     </TabLink>
@@ -269,7 +271,7 @@ export default async function ProjectDetailPage({
           <div className="flex items-center">
             <Eyebrow muted>Money</Eyebrow>
             <span className="ml-auto">
-              <ViewTab tab="Money" />
+              <ViewTab tab="Money" section="Invoices" />
             </span>
           </div>
           <div className="mt-2 flex flex-col gap-1.5">
@@ -426,16 +428,17 @@ export default async function ProjectDetailPage({
       approvalGate={approvalGate}
     />
   );
-  const signOffsPanel = (
-    <div className="space-y-10">
-      <SignOffs
-        slug={slug}
-        requests={signatureRequests}
-        defaultSignerName={signerDefaults.name}
-        defaultSignerEmail={signerDefaults.email}
-      />
-      <ProjectDocuments slug={slug} drafts={docDrafts} templates={docTemplates} />
-    </div>
+  // The old "Sign-offs" tab stacked these two: the paperwork generator and the
+  // e-signature queue for that paperwork. They're now the last two sections of
+  // Money, next to the estimate / invoices / change orders they're about.
+  const documentsPanel = <ProjectDocuments slug={slug} drafts={docDrafts} templates={docTemplates} />;
+  const signaturesPanel = (
+    <SignOffs
+      slug={slug}
+      requests={signatureRequests}
+      defaultSignerName={signerDefaults.name}
+      defaultSignerEmail={signerDefaults.email}
+    />
   );
   const changeOrdersPanel = <ChangeOrders slug={slug} orders={changeOrders} />;
   const closeoutPanel = <Closeout slug={slug} view={closeoutView} />;
@@ -447,24 +450,48 @@ export default async function ProjectDetailPage({
   const floorPanel = <FloorPlan slug={slug} versions={floorplans} />;
   const moodPanel = <MoodBoard slug={slug} boards={mood} catalog={moodCatalog} />;
 
-  const panels: Record<string, ReactNode> = {
+  // ── Money — the whole contract lifecycle behind one sub-nav: what the job was
+  //    priced at, what's been billed, what changed, and the paperwork + e-sign
+  //    for all three. These were five separate tabs (Estimate / Money / Change
+  //    orders / Sign-offs), and Sign-offs duplicated the other three's docs.
+  const moneyTab = (
+    <PanelSections
+      tab="Money"
+      sections={[
+        { label: "Estimate", node: estimatePanel },
+        { label: "Invoices", node: moneyPanel },
+        { label: "Change orders", node: changeOrdersPanel },
+        { label: "Documents", node: documentsPanel },
+        { label: "Signatures", node: signaturesPanel },
+      ]}
+    />
+  );
+
+  // ── Closeout — punch list first (it's the work), then the final paperwork.
+  const closeoutTab = (
+    <PanelSections
+      tab="Closeout"
+      sections={[
+        { label: "Punch list", node: punchPanel },
+        { label: "Final docs", node: closeoutPanel },
+      ]}
+    />
+  );
+
+  const panels: Partial<Record<ProjectTab, ReactNode>> = {
     Overview: overview,
     Ops: ops ? <RecordOps ops={ops} /> : null,
     Floor: floorPanel,
     Mood: moodPanel,
-    Schedule: schedulePanel,
     Selections: selectionsPanel,
+    Money: moneyTab,
+    Schedule: schedulePanel,
     Subs: subsPanel,
     Files: filesPanel,
-    Money: moneyPanel,
     "Daily log": dailyLogPanel,
     Comms: commsPanel,
-    Punch: punchPanel,
-    Estimate: estimatePanel,
-    "Change orders": changeOrdersPanel,
     Permits: <PermitPacket slug={slug} permits={permits} />,
-    "Sign-offs": signOffsPanel,
-    Closeout: closeoutPanel,
+    Closeout: closeoutTab,
     Safety: safetyPanel,
   };
 
@@ -504,7 +531,7 @@ export default async function ProjectDetailPage({
             <Check className="size-3" strokeWidth={1.75} />
             Log update
           </TabLink>
-          <TabLink tab="Money" className={outlineBtn}>
+          <TabLink tab="Money" section="Invoices" className={outlineBtn}>
             <DollarSign className="size-3" strokeWidth={1.75} />
             Send invoice
           </TabLink>

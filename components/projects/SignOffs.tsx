@@ -27,7 +27,7 @@ function StatusIcon({ status }: { status: SigStatus }) {
   return <Clock className="size-3.5 text-accent" strokeWidth={1.75} />;
 }
 
-/** Owner project "Sign-offs" tab. Lists signature requests for the project and
+/** Money tab · Signatures section. Lists signature requests for the project and
  *  lets the owner request a new one (sent to the client to e-sign in the portal). */
 export function SignOffs({
   slug,

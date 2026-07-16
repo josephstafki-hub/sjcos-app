@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Plus, X, Check, Send, Pencil, Trash2, FolderPlus } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import type { ChipKind } from "@/components/ui/Chip";
@@ -52,6 +53,7 @@ export function SelectionsBoard({
   view: SelectionsView;
   catalog: CatalogOption[];
 }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState("");
   // Modal state: add a selection (optionally prefilled section), edit one, or
@@ -65,11 +67,21 @@ export function SelectionsBoard({
     .filter((g) => g.id !== null)
     .map((g) => ({ id: g.id as number, name: g.name }));
 
-  function run(fn: () => Promise<Result>) {
+  // Single path for every mutation on this board. The actions revalidate on the
+  // server, but the project page is dynamic (cookie auth), so nothing re-renders
+  // until the client router refetches — without router.refresh() a new section
+  // lands in the DB and never shows up. On failure the modal stays open with the
+  // error so the typed-in values survive.
+  function run(fn: () => Promise<Result>, onSuccess?: () => void, fallback = "Something went wrong.") {
     setError("");
     startTransition(async () => {
       const r = await fn();
-      if (!r.ok) setError(r.error ?? "Something went wrong.");
+      if (!r.ok) {
+        setError(r.error ?? fallback);
+        return;
+      }
+      onSuccess?.();
+      router.refresh();
     });
   }
 
@@ -134,12 +146,7 @@ export function SelectionsBoard({
           defaultSectionId={addSel.sectionId}
           onClose={() => setAddSel(null)}
           onSubmit={(fd) =>
-            startTransition(async () => {
-              setError("");
-              const res = await addSelection(slug, fd);
-              if (res.ok) setAddSel(null);
-              else setError(res.error ?? "Could not add the selection.");
-            })
+            run(() => addSelection(slug, fd), () => setAddSel(null), "Could not add the selection.")
           }
         />
       )}
@@ -154,12 +161,7 @@ export function SelectionsBoard({
           selection={editSel}
           onClose={() => setEditSel(null)}
           onSubmit={(fd) =>
-            startTransition(async () => {
-              setError("");
-              const res = await updateSelection(editSel.id, fd);
-              if (res.ok) setEditSel(null);
-              else setError(res.error ?? "Could not save the selection.");
-            })
+            run(() => updateSelection(editSel.id, fd), () => setEditSel(null), "Could not save the selection.")
           }
         />
       )}
@@ -170,14 +172,11 @@ export function SelectionsBoard({
           initial={sectionModal}
           onClose={() => setSectionModal(null)}
           onSubmit={(fd) =>
-            startTransition(async () => {
-              setError("");
-              const res = sectionModal.id === null
-                ? await addSection(slug, fd)
-                : await updateSection(sectionModal.id, fd);
-              if (res.ok) setSectionModal(null);
-              else setError(res.error ?? "Could not save the section.");
-            })
+            run(
+              () => (sectionModal.id === null ? addSection(slug, fd) : updateSection(sectionModal.id, fd)),
+              () => setSectionModal(null),
+              "Could not save the section.",
+            )
           }
         />
       )}

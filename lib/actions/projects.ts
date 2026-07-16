@@ -14,6 +14,7 @@ import { createMilestoneInvoice } from "@/lib/actions/money";
 import { sendCompletionOutreach } from "@/lib/actions/closeout";
 import { autoDraftSocialOnCompletion } from "@/lib/actions/marketing";
 import { parseDrawSchedule } from "@/lib/draw-schedule";
+import { queueSubPortalInvite, markSubInviteApproved } from "@/lib/sub-invites";
 import type { ProjectStatus } from "@/lib/types";
 
 /** Kebab-case a display name into a URL slug. */
@@ -276,15 +277,50 @@ export async function confirmPunchItem(
   return { ok: true };
 }
 
-/** Assign a sub to a project (project Subs tab). Owner-gated; idempotent. */
+/** Assign a sub to a project (project Subs tab). Owner-gated; idempotent.
+ *  A genuinely new assignment also parks a sub-portal invite for Joe (composed,
+ *  never sent — see lib/sub-invites.ts). */
 export async function assignSubToProject(slug: string, subSlug: string, role: string) {
   await requireRole("owner");
   const proj = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [slug]);
   if (!proj) return;
-  await query(
+  const res = await query(
     `INSERT INTO project_subs (project_id, sub_slug, role_label)
      VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
     [proj.id, subSlug, role.trim()],
+  );
+  // Only on a real insert — re-clicking Assign must not re-queue an invite.
+  if (res.rowCount === 1) {
+    await queueSubPortalInvite(proj.id, subSlug);
+    revalidatePath("/notifications"); // queueSubPortalInvite emits; the feed may be on screen
+  }
+  revalidatePath(`/projects/${slug}`);
+  revalidateSub(subSlug);
+}
+
+/** The sub's own record reads project_subs (lib/subs.ts), so every assignment
+ *  write has to refresh their side too — that's the "both ways" in P1-B5. */
+function revalidateSub(subSlug: string) {
+  revalidatePath(`/subs/${subSlug}`);
+  revalidatePath("/subs");
+}
+
+/** Mark a parked sub-portal invite as handled — Joe sent it himself (mailto).
+ *  This does NOT transmit anything; it only records that he took it from here
+ *  and restarts the link's expiry from the moment it actually went out. */
+export async function approveSubInvite(id: number, slug: string) {
+  await requireRole("owner");
+  await markSubInviteApproved(id);
+  revalidatePath(`/projects/${slug}`);
+}
+
+/** Discard a parked invite. Also revokes its portal link — /sub-portal/enter
+ *  refuses a dismissed token. */
+export async function dismissSubInvite(id: number, slug: string) {
+  await requireRole("owner");
+  await query(
+    `UPDATE sub_portal_invites SET status = 'dismissed' WHERE id = $1 AND status = 'queued'`,
+    [id],
   );
   revalidatePath(`/projects/${slug}`);
 }
@@ -309,6 +345,7 @@ export async function updateSubAssignment(
   );
   revalidatePath(`/projects/${slug}`);
   revalidatePath("/sub-portal");
+  revalidateSub(subSlug);
 }
 
 /** Remove a sub from a project. Owner-gated. */
@@ -320,7 +357,18 @@ export async function removeSubFromProject(slug: string, subSlug: string) {
     proj.id,
     subSlug,
   ]);
+  // Pulling a sub off the job retires the invite you never sent: it drops off
+  // the Subs tab and its token stops working. Invites you already ACTED on
+  // ('approved') are left alone — that link is out in the world in an email you
+  // sent, and killing it mid-job would strand the sub with no warning. Those
+  // expire on their own, or go dead with users.active = false.
+  await query(
+    `UPDATE sub_portal_invites SET status = 'dismissed'
+      WHERE project_id = $1 AND sub_slug = $2 AND status = 'queued'`,
+    [proj.id, subSlug],
+  );
   revalidatePath(`/projects/${slug}`);
+  revalidateSub(subSlug);
 }
 
 /** Add (or update) a project daily-log entry for a date. Owner-gated. Upserts

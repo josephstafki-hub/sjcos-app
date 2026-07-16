@@ -128,11 +128,11 @@ export default async function SubDetailPage({
       {sub.recentJobs.length > 0 ? (
         <Card className="overflow-hidden p-0">
           <div className="border-b border-rule bg-paper-2 px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
-            {sub.jobsCount} jobs with SJ Carpentry
+            {sub.jobsCount} job{sub.jobsCount === 1 ? "" : "s"} with SJ Carpentry
           </div>
           {sub.recentJobs.map((j, i) => (
             <div
-              key={j.name}
+              key={`${j.name}-${i}`}
               className={`flex items-center gap-2.5 px-4 py-3 ${i ? "border-t border-rule-soft" : ""}`}
             >
               <span className={`size-2 flex-none rounded-full ${DOT[j.dot]}`} />

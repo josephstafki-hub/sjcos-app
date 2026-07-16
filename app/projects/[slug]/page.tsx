@@ -16,6 +16,8 @@ import { MoodBoard } from "@/components/projects/MoodBoard";
 import { FloorPlan } from "@/components/projects/FloorPlan";
 import { getProject, getProjectFiles, getProjectSubsData, getProjectDailyLogs, getProjectWeeklyStatus, PROJECT_STATUSES, stageToolTab } from "@/lib/projects";
 import { ProjectSubs } from "@/components/projects/ProjectSubs";
+import { SubInvitesPanel } from "@/components/projects/SubInvitesPanel";
+import { getQueuedSubInvites } from "@/lib/sub-invites";
 import { ProjectDailyLog } from "@/components/projects/ProjectDailyLog";
 import { ProjectFiles } from "@/components/projects/ProjectFiles";
 import { ProjectComms } from "@/components/projects/ProjectComms";
@@ -86,7 +88,10 @@ export default async function ProjectDetailPage({
     getProjectScheduleBlocks(slug),
     getScheduleTemplates(),
   ]);
-  const subsData = await getProjectSubsData(slug);
+  const [subsData, subInvites] = await Promise.all([
+    getProjectSubsData(slug),
+    getQueuedSubInvites(slug),
+  ]);
   const dailyLogs = await getProjectDailyLogs(slug);
   const [signatureRequests, signerDefaults, estimates, costBook, changeOrders, closeoutView, orientations, approvalGate] = await Promise.all([
     getProjectSignatureRequests(slug),
@@ -357,9 +362,13 @@ export default async function ProjectDetailPage({
     </div>
   );
 
-  // ── Subs panel — real project↔sub assignments (assign/remove + contact) ────
+  // ── Subs panel — real project↔sub assignments (assign/remove + contact),
+  //    plus any portal invites parked for Joe by an assignment (never sent).
   const subsPanel = (
-    <ProjectSubs slug={slug} assigned={subsData.assigned} roster={subsData.roster} />
+    <div>
+      <ProjectSubs slug={slug} assigned={subsData.assigned} roster={subsData.roster} />
+      <SubInvitesPanel slug={slug} invites={subInvites} />
+    </div>
   );
 
   // ── Files panel — real upload/download scoped to the project ───────────────

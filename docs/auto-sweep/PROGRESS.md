@@ -5,6 +5,111 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-16 · P1-B5 — Subs: wire assignment both ways + parked portal invite · **[x] DONE**
+
+**Your sub records were reading the wrong source.** Assigning a sub on the project Subs tab
+wrote `project_subs` correctly all along — but the sub's own page never read that table. It
+rendered `subs.jobs_count` / `subs.open_jobs`, two static columns that predate the join table
+and sit at **0 for all 29 of your subs**, plus a hardcoded `recentJobs` list that existed for
+exactly one sub (`marco`, with four fake jobs). So every real assignment landed in a table
+nobody looked at, and the record said "no jobs". Now `getSubJobs()` reads `project_subs`, and
+the list cards count live assignments. Both directions revalidate on assign/update/remove.
+
+**The email is BUILT and PARKED — the app cannot send it.** `lib/sub-invites.ts` composes the
+full invite on assignment and writes it to a new `sub_portal_invites` row, then stops. It
+imports `node:crypto`, `./db`, `./notify` and nothing else: no mail client, no `lib/gmail.ts`,
+no fetch, no send-behind-a-flag. The schema has **no `'sent'` status** — only
+`queued|approved|dismissed` — so "sent" isn't representable. You review each invite on the
+project Subs tab; the only way one leaves is **you** clicking "Send it myself", a `mailto:`
+that opens your own mail client with the text prefilled. `approved` just means "Joe took it
+from here." Nothing was sent to anyone.
+
+**The sub never logs in or makes an account.** `GET /sub-portal/enter?token=…` trades the
+link for the normal `sjcos_session` cookie (role=sub, link_slug=their slug) and creates their
+`users` row silently with an unguessable scrypt password, so every existing
+`requireRole("owner","sub")` check just works. `proxy.ts` exempts that one path (they have no
+cookie yet by definition — bouncing them to /login would defeat the point).
+
+**I found this item half-built and uncommitted** — a previous iteration crashed mid-flight.
+I audited its WIP rather than trusting it, and it was sound in shape but had four real defects
+(below), plus it had left test data in your live database.
+
+### ⚠️ It smoke-tested against PROD and left rows behind — I removed them
+The crashed run created a fake sub **"ZZ Sweep Sub"** and **assigned it to the real Derek
+Battey job**, parked an invite on it, made a `users` row, and dropped a "Portal invite queued
+— ZZ Sweep Sub" card in your notifications feed. That was all sitting in your live DB, visible
+to you, when I started. Deleted (FK cascade), along with my own `zz-verify-*` test rows. Your
+real `pro-deo-construction ↔ Derek Battey` assignment is untouched, and
+`sub_portal_invites` is back to 0 rows. **My own verification used a throwaway `zz-verify-job`
+project instead of touching a real one** — that's the lesson from the crashed run.
+
+### Defects I fixed in the inherited WIP
+1. **One Dismiss locked a sub out of a job forever.** `ON CONFLICT (sub_slug, project_id) DO
+   NOTHING` meant remove→reassign silently no-op'd: the assignment succeeded, the invite never
+   re-parked, and that sub could never be invited to that project again. Now a conditional
+   resurrect (`DO UPDATE … WHERE status='dismissed' OR expires_at <= now()`) mints a fresh
+   token; a *live* invite still no-ops so re-clicking Assign reuses the existing link.
+2. **Removing a sub left a live token + a ghost invite** in the panel. Removal now retires the
+   un-sent invite (queued→dismissed, which also kills the token).
+3. **A dead link dumped subs on a bare login form** after the email promised "no account or
+   password needed." `/login` now explains why (expired / inactive / missing / failed).
+4. **Missing `revalidatePath("/notifications")`** after the invite notification is emitted.
+
+### Defect Fable caught in my own work (fixed)
+5. **The 30-day clock started when the invite was composed, not when you send it.** The email
+   promises "works for the next 30 days," but an invite parked three weeks before you got to
+   it would have handed the sub a link dying in 9 days. "Mark handled" now **restarts the TTL
+   from that moment** (verified: 1 day left → 30). And a queued invite whose link already died
+   now says so and **withholds the mailto** — a bounced sub is worse than no invite.
+
+**Verified live, not just typechecked** (`tsc` exit 0; lint 0 errors / 11 pre-existing warnings
+in untouched files). Per the repo pattern I copied the repo out and ran `next dev` on **:3099**
+with a minted owner cookie — **:3017, its `.next`, and the service were never touched**
+(confirmed after: BUILD_ID mtime still Jul 14 16:34, pid 1035543 alive, :3017 → 200). Against
+the real code: assign → `project_subs` row + invite parked `queued` + notification; **sub
+detail page shows "ZZ Verify Job · Tile lead · assigned Jul 16 · in progress" and the empty
+state is gone**; subs list shows them; a **cookieless** `GET /sub-portal/enter?token=…` → 307
++ `Set-Cookie` → `/sub-portal` renders their job (no login, no signup); dismiss → token bounces
+to `/login?invite=expired` with the notice; remove → invite retired; approved invite survives
+removal; assign twice → still exactly 1 invite and 1 assignment.
+
+**Fable's plan:** audit the inherited WIP rather than rewrite it; it confirmed the original bug
+was fixed and the gate airtight, and produced the 4-defect list above. **Fable's review
+verdict:** *"SOUND — ship it. All three P1-B5 bullets accomplished, all 4 prior defects
+correctly fixed, no guardrail violations."* It walked the resurrect SQL case-by-case and
+confirmed `rowCount===1` still gates the notification correctly (pg doesn't count rows skipped
+by a `DO UPDATE … WHERE`), then flagged the TTL bug (#5) which I fixed and re-verified.
+
+**Files:** `lib/sub-invites.ts` (new), `app/sub-portal/enter/route.ts` (new),
+`components/projects/SubInvitesPanel.tsx` (new), `lib/subs.ts`, `lib/actions/projects.ts`,
+`app/projects/[slug]/page.tsx`, `app/subs/[slug]/page.tsx`, `app/login/page.tsx`, `proxy.ts`,
+`db/schema.sql` (applied to the DB — additive: new table + `idx_project_subs_sub`).
+
+### Decisions + limitations you should know about
+
+1. **The portal link is a bearer token — anyone holding that email can enter that sub's
+   portal.** No password, which is the entire point for guys on a roof. It cannot reach owner
+   surfaces or another sub's data. Your levers: 30-day expiry, Dismiss (revokes), and
+   `users.active = false` (beats any link). The token is stored raw on purpose — the parked
+   email body must contain the clickable link anyway, so hashing the column would be theatre.
+   **If you want passwords for subs instead, say so — this is the one call worth your veto.**
+2. **Removing a sub does NOT revoke an already-*approved* link** — you emailed that link; killing
+   it mid-job would strand them with no warning. It dies at expiry, or immediately via
+   `users.active = false`. Removal does revoke un-sent (queued) ones.
+3. **`jobsCount` = `max(static jobs_count, live assignments)`** so an old hand's pre-system
+   history isn't erased by the switch; the "working now" badge is live-only. **I deleted
+   marco's four hardcoded fake jobs** — curated data was masking the real thing this page
+   exists to show.
+4. **The sub portal itself still shows only ONE job** (`getSubAssignment` is `LIMIT 1`, newest).
+   Pre-existing, out of scope for this item — the *owner-side* record correctly lists all.
+   Flagging it because it'll bite when a sub is on two jobs at once.
+5. **Clicking an invite link while signed in as owner swaps your session to that sub's.** A
+   testing footgun, not a hole — sign back in.
+6. **No "re-invite" button while a sub is assigned**; the path is remove → re-assign. Say the
+   word if you want a direct one.
+
+---
+
 ## 2026-07-16 · P1-B4 — Fix Selections board: cannot create sections · **[x] DONE**
 
 **Section creation was never broken. It always wrote the row — it just never showed you.**

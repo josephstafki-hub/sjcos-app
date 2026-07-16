@@ -64,12 +64,24 @@ interface SubRow {
   email: string | null;
   phone: string | null;
   notes: string;
+  /** Real assignments still on the board — see live_total. */
+  live_open_jobs: number;
+  /** Real rows in project_subs for this sub. The static subs.jobs_count column
+   *  predates project_subs and holds pre-system history, so the card takes the
+   *  GREATER of the two: a sub with 2 live assignments reads 2 instead of 0,
+   *  while an old hand's logged history isn't erased by the switch. */
+  live_total: number;
 }
 
 const SUB_SELECT = `
   SELECT slug, name, trade, rate, fav, open_jobs, jobs_count, rating, coi_status,
          to_char(coi_expires_at, 'FMMon FMDD') AS coi_label, email, phone,
-         COALESCE(notes, '') AS notes
+         COALESCE(notes, '') AS notes,
+         (SELECT count(*)::int FROM project_subs ps
+            JOIN projects p ON p.id = ps.project_id
+           WHERE ps.sub_slug = subs.slug AND p.status <> 'warranty') AS live_open_jobs,
+         (SELECT count(*)::int FROM project_subs ps
+           WHERE ps.sub_slug = subs.slug) AS live_total
   FROM subs`;
 
 /** Initials from a sub's display name: first two alphabetic words. */
@@ -88,8 +100,10 @@ function rowToCard(r: SubRow): SubCard {
     trade: r.trade,
     tradeKey: r.trade.split(/\s/)[0] as SubCard["tradeKey"],
     rate: r.rate ?? "",
-    openJobs: r.open_jobs,
-    jobsCount: r.jobs_count,
+    // Live assignments win over the stale static columns — an assignment made on
+    // the project Subs tab is what "working" actually means.
+    openJobs: r.live_open_jobs,
+    jobsCount: Math.max(r.jobs_count, r.live_total),
     rating: Math.round(Number(r.rating ?? 0)),
     fav: r.fav,
     coiStatus: r.coi_status === "expiring" ? "expiring" : "current",
@@ -149,7 +163,10 @@ export interface SubDetail {
 }
 
 /** Rich curated content keyed by slug. Subs not listed here get a sensible
- *  generic detail built from their card, so every card opens a real page. */
+ *  generic detail built from their card, so every card opens a real page.
+ *  NOTE: recentJobs is deliberately NOT curated — a sub's job history comes from
+ *  project_subs only (see getSubJobs). Curated jobs here would mask the real
+ *  assignments this page exists to show. */
 const DETAILS: Record<string, Partial<SubDetail>> = {
   marco: {
     tradeLine: "tile + stone",
@@ -164,12 +181,6 @@ const DETAILS: Record<string, Partial<SubDetail>> = {
       "Marco is one of two preferred tile subs. Strong with marble — first call " +
       "for Calacatta or zellige work. Slightly slower on backsplash tear-out; " +
       "build that into the schedule.",
-    recentJobs: [
-      { name: "Henderson kitchen", detail: "in progress · tile day 1", dot: "accent" },
-      { name: "Olson porch · tile entry", detail: "Apr · $1,800 · paid", dot: "money" },
-      { name: "Sandberg bath", detail: "Mar · $6,400 · paid", dot: "money" },
-      { name: "Reyes bath (prior job)", detail: "Feb · $8,200 · paid", dot: "money" },
-    ],
     paperwork: [
       { label: "COI · GL + WC", value: "Aug 14", ok: true },
       { label: "W-9", value: "on file", ok: true },
@@ -188,12 +199,78 @@ function splitRate(rate: string): { amount: string; unit: string } {
   return m ? { amount: m[1], unit: m[2] ?? "" } : { amount: rate, unit: "" };
 }
 
+// ─── Real job history (project_subs) ─────────────────────────────────────────
+// The sub's side of the assignment. The project Subs tab writes project_subs;
+// this reads it back, so an assignment shows on both records.
+
+/** Dot tone per project stage: on site now / delivered / not started yet. */
+const JOB_DOT: Record<string, JobDot> = {
+  construction: "accent",
+  closeout: "accent",
+  warranty: "money",
+};
+
+/** Short human stage label for the job's detail line. */
+const JOB_STAGE_TEXT: Record<string, string> = {
+  precon_signed: "upcoming",
+  floor_plan: "upcoming",
+  mood_board: "upcoming",
+  selections: "upcoming",
+  bidding: "upcoming",
+  construction_contract: "upcoming",
+  construction: "in progress",
+  closeout: "closeout",
+  warranty: "complete",
+};
+
+interface SubJobRow {
+  name: string;
+  status: string;
+  role_label: string;
+  assigned_label: string;
+  date_label: string | null;
+}
+
+/** A sub's real assignments, newest first. Empty when they're on no jobs — the
+ *  page's honest "No jobs yet" state. No money is shown: project_subs carries no
+ *  per-sub payment, and inventing one would be worse than omitting it. */
+async function getSubJobs(slug: string, trade: string): Promise<SubDetail["recentJobs"]> {
+  const { rows } = await query<SubJobRow>(
+    `SELECT p.name, p.status, ps.role_label,
+            to_char(ps.assigned_at, 'FMMon FMDD') AS assigned_label,
+            CASE
+              WHEN ps.start_date IS NOT NULL AND ps.end_date IS NOT NULL
+                THEN to_char(ps.start_date, 'FMMon FMDD') || ' – ' || to_char(ps.end_date, 'FMMon FMDD')
+              WHEN ps.start_date IS NOT NULL THEN 'starts ' || to_char(ps.start_date, 'FMMon FMDD')
+              WHEN ps.end_date   IS NOT NULL THEN 'due '    || to_char(ps.end_date, 'FMMon FMDD')
+              ELSE NULL
+            END AS date_label
+       FROM project_subs ps JOIN projects p ON p.id = ps.project_id
+      WHERE ps.sub_slug = $1
+      ORDER BY ps.assigned_at DESC
+      LIMIT 12`,
+    [slug],
+  );
+  return rows.map((r) => ({
+    name: r.name,
+    detail: [
+      r.role_label || trade,
+      r.date_label ?? `assigned ${r.assigned_label}`,
+      JOB_STAGE_TEXT[r.status] ?? r.status,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+    dot: JOB_DOT[r.status] ?? "ghost",
+  }));
+}
+
 export async function getSub(slug: string): Promise<SubDetail | null> {
   const { rows } = await query<SubRow>(`${SUB_SELECT} WHERE slug = $1`, [slug]);
   if (!rows[0]) return null;
   const card = rowToCard(rows[0]);
 
   const curated = DETAILS[slug] ?? {};
+  const recentJobs = await getSubJobs(slug, card.trade);
 
   const fallbackSummary =
     `${card.name} has completed ${card.jobsCount} jobs with SJC at a ` +
@@ -230,7 +307,7 @@ export async function getSub(slug: string): Promise<SubDetail | null> {
         { label: "Response time", value: "—" },
       ],
     aiSummaryInput,
-    recentJobs: curated.recentJobs ?? [],
+    recentJobs,
     paperwork:
       curated.paperwork ??
       [

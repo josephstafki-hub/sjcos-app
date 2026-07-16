@@ -596,6 +596,8 @@ CREATE TABLE IF NOT EXISTS project_subs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_project_subs_project ON project_subs(project_id);
+-- The sub side of the join drives the sub's own record (jobs list + live counts).
+CREATE INDEX IF NOT EXISTS idx_project_subs_sub     ON project_subs(sub_slug);
 
 -- Sub scope + scheduled dates on the assignment (Phase-3 execution, 6-scope).
 -- The owner sets these on the project Subs tab; the sub sees them read-only on
@@ -603,6 +605,34 @@ CREATE INDEX IF NOT EXISTS idx_project_subs_project ON project_subs(project_id);
 ALTER TABLE project_subs ADD COLUMN IF NOT EXISTS scope_text text NOT NULL DEFAULT '';
 ALTER TABLE project_subs ADD COLUMN IF NOT EXISTS start_date date;
 ALTER TABLE project_subs ADD COLUMN IF NOT EXISTS end_date   date;
+
+-- ─── Sub portal invites (P1-B5) ─────────────────────────────────────────────
+-- Composed when a sub is assigned to a project, then PARKED for Joe. The app
+-- never transmits these: there is deliberately no 'sent' status, and no code
+-- path from here reaches lib/gmail.ts. 'approved' means "Joe took it from here"
+-- (he sends it himself via the mailto link), nothing more.
+--
+-- `token` is stored RAW on purpose. The parked email `body` must contain the
+-- clickable link for Joe to send days later, so the plaintext credential lives
+-- in this row either way — hashing the column while body holds the same link
+-- would be theatre. Tradeoff, stated plainly: DB read access ⇒ ability to enter
+-- one sub's portal. Bounded by expires_at, revocable via status='dismissed'.
+CREATE TABLE IF NOT EXISTS sub_portal_invites (
+  id          bigserial PRIMARY KEY,
+  sub_slug    text NOT NULL REFERENCES subs(slug) ON DELETE CASCADE,
+  project_id  uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  to_email    text,                              -- subs.email at queue time; may be null
+  subject     text NOT NULL,
+  body        text NOT NULL,                     -- full plain-text email incl. the portal link
+  token       text UNIQUE NOT NULL,              -- opaque bearer token for /sub-portal/enter
+  status      text NOT NULL DEFAULT 'queued'
+                CHECK (status IN ('queued','approved','dismissed')),
+  expires_at  timestamptz NOT NULL,
+  used_at     timestamptz,                       -- first successful portal entry (audit)
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (sub_slug, project_id)
+);
+CREATE INDEX IF NOT EXISTS idx_sub_invites_project ON sub_portal_invites(project_id, status);
 
 -- ─── Sub portal: daily logs + submitted invoices (Functional-audit item 6) ──
 -- A subcontractor logs their day (text + optional photo) and submits a final

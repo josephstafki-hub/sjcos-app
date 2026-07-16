@@ -29,6 +29,12 @@ function homeForRole(role: Role): string {
   return "/today";
 }
 
+/** Reachable without a session. The sub-portal invite link is the sub's way IN —
+ *  they have no cookie yet by definition, so bouncing it to /login would defeat
+ *  the whole point. The route itself is the gate: it only mints a session for a
+ *  valid, unexpired, undismissed token (app/sub-portal/enter/route.ts). */
+const PUBLIC_PATHS = ["/login", "/sub-portal/enter"];
+
 /** Routes a non-owner role is allowed to reach (besides /login). */
 function allowedFor(role: Role): string[] {
   if (role === "sub") return ["/sub-portal"];
@@ -40,9 +46,9 @@ export default async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
   const session = await readRole(req);
 
-  // Unauthenticated → only /login is reachable.
+  // Unauthenticated → only the public paths are reachable.
   if (!session) {
-    if (path === "/login") return NextResponse.next();
+    if (PUBLIC_PATHS.includes(path)) return NextResponse.next();
     const url = req.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

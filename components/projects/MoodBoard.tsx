@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Check, ExternalLink, ImagePlus, LayoutGrid, Plus, X } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import { CATEGORIES } from "@/lib/catalog-categories";
@@ -29,6 +30,13 @@ export interface MoodCatalogOption {
 
 type Result = { ok: boolean; error?: string };
 
+interface RunOptions {
+  onSuccess?: () => void;
+  fallback?: string;
+  /** Skip the router refetch when the canvas already shows the change locally. */
+  refresh?: boolean;
+}
+
 const FIELD = "rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent";
 const LABEL = "font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3";
 
@@ -45,6 +53,7 @@ export function MoodBoard({
   boards: MoodBoardData[];
   catalog: MoodCatalogOption[];
 }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState("");
   const [picker, setPicker] = useState(false);
@@ -68,11 +77,24 @@ export function MoodBoard({
   const room = (activeRoom && rooms.includes(activeRoom) ? activeRoom : rooms[0]) ?? null;
   const items = boards.find((b) => b.room === room)?.items ?? [];
 
-  function run(fn: () => Promise<Result>) {
+  // Single path for every mutation on this board. The actions revalidate on the
+  // server, but the project page is dynamic (cookie auth), so nothing re-renders
+  // until the client router refetches — without router.refresh() a pinned item
+  // lands in the DB and never shows up. On failure the modal stays open with the
+  // error so the owner's picks survive.
+  function run(
+    fn: () => Promise<Result>,
+    { onSuccess, fallback = "Something went wrong.", refresh = true }: RunOptions = {},
+  ) {
     setError("");
     startTransition(async () => {
       const r = await fn();
-      if (!r.ok) setError(r.error ?? "Something went wrong.");
+      if (!r.ok) {
+        setError(r.error ?? fallback);
+        return;
+      }
+      onSuccess?.();
+      if (refresh) router.refresh();
     });
   }
 
@@ -157,7 +179,14 @@ export function MoodBoard({
           <MoodCanvas
             items={items}
             pending={pending}
-            onMove={(pos) => run(() => saveMoodLayout(slug, [pos], pos.id))}
+            // The canvas keeps the dragged position in its own overrides map, so a
+            // refetch per drag would be wasted work — just persist it.
+            onMove={(pos) =>
+              run(() => saveMoodLayout(slug, [pos], pos.id), {
+                refresh: false,
+                fallback: "Could not save the layout.",
+              })
+            }
             onRemove={(id) => run(() => removeMoodImage(id))}
             onEditNote={(item) => setNoteFor(item)}
           />
@@ -201,11 +230,9 @@ export function MoodBoard({
           room={room}
           onClose={() => setPicker(false)}
           onPin={(ids) =>
-            startTransition(async () => {
-              setError("");
-              const res = await addCatalogMoodItems(slug, room, ids);
-              if (res.ok) setPicker(false);
-              else setError(res.error ?? "Could not pin those items.");
+            run(() => addCatalogMoodItems(slug, room, ids), {
+              onSuccess: () => setPicker(false),
+              fallback: "Could not pin those items.",
             })
           }
         />
@@ -217,13 +244,13 @@ export function MoodBoard({
           room={room}
           onClose={() => setUpload(false)}
           onAdd={(fd) =>
-            startTransition(async () => {
-              setError("");
-              fd.set("room", room);
-              const res = await addMoodImage(slug, fd);
-              if (res.ok) setUpload(false);
-              else setError(res.error ?? "Could not add the image.");
-            })
+            run(
+              () => {
+                fd.set("room", room);
+                return addMoodImage(slug, fd);
+              },
+              { onSuccess: () => setUpload(false), fallback: "Could not add the image." },
+            )
           }
         />
       )}
@@ -234,11 +261,9 @@ export function MoodBoard({
           pending={pending}
           onClose={() => setNoteFor(null)}
           onSave={(note) =>
-            startTransition(async () => {
-              setError("");
-              const res = await updateMoodNote(noteFor.id, note);
-              if (res.ok) setNoteFor(null);
-              else setError(res.error ?? "Could not save the note.");
+            run(() => updateMoodNote(noteFor.id, note), {
+              onSuccess: () => setNoteFor(null),
+              fallback: "Could not save the note.",
             })
           }
         />

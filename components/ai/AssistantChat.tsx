@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { Sparkles, ArrowUp, Pencil, Plus, Trash2, Archive, MessageSquare, Paperclip, X } from "lucide-react";
-import { Avatar, Card } from "@/components/ui";
+import { Avatar, Card, VoiceButton } from "@/components/ui";
+import { mergeTranscript } from "@/lib/append-transcript";
 import { pollAgentRun } from "@/lib/actions/dev-agents";
 import {
   listConversationsAction,
@@ -579,6 +580,7 @@ export function AssistantChat({
             >
               <Paperclip className={`size-4 ${uploading ? "animate-pulse" : ""}`} strokeWidth={1.75} />
             </button>
+            <VoiceButton compact onText={(t) => setInput((cur) => mergeTranscript(cur, t))} />
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}

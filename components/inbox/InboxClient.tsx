@@ -26,7 +26,8 @@ import {
   OctagonAlert,
   type LucideIcon,
 } from "lucide-react";
-import { Card, Chip, Avatar } from "@/components/ui";
+import { Card, Chip, Avatar, VoiceButton } from "@/components/ui";
+import { mergeTranscript } from "@/lib/append-transcript";
 import {
   draftReplyAction,
   getThreadHtmlAction,
@@ -969,6 +970,7 @@ function ComposeModal({
               <Send className="size-3" strokeWidth={1.5} />
               {sent ? "Sent ✓" : sending ? "Sending…" : "Send"}
             </button>
+            <VoiceButton compact onText={(t) => setBody((cur) => mergeTranscript(cur, t))} />
             <span className="text-[11px] text-ink-3">Sends from your Gmail</span>
           </div>
         </div>
@@ -1218,6 +1220,7 @@ function ReaderBody({ reader, threadId }: { reader: ThreadReader; threadId: stri
             placeholder={reader.replyPlaceholder}
             className="min-h-[40px] flex-1 resize-y rounded-lg border border-rule bg-paper px-3 py-2 text-[13px] leading-relaxed text-ink placeholder:text-ink-4 focus:outline-none focus:ring-1 focus:ring-accent"
           />
+          <VoiceButton compact onText={(t) => setDraft((cur) => mergeTranscript(cur, t))} />
           {!hasDraft && (
             <button
               onClick={generate}

@@ -2,15 +2,25 @@
 
 import { useRef, useState } from "react";
 import { Mic, Square, Loader2 } from "lucide-react";
+import { useVoiceAvailable } from "@/lib/use-voice-available";
 
 // Records a short voice memo via MediaRecorder and posts it to /api/transcribe
-// (local whisper.cpp). Calls onText with the transcript. Rendered only when the
-// server reports voice is available (whisperAvailable), so typed logs are never
-// blocked. Kept generic so both the project + sub daily-log composers use it.
+// (local whisper.cpp). Calls onText with the transcript. Self-gates on server
+// availability (useVoiceAvailable → GET /api/transcribe), so it's drop-in on any
+// composer without threading whisperAvailable() down as a prop — it simply
+// renders nothing when voice isn't set up. `compact` renders an icon-only button
+// sized to sit inside a chat composer next to the send/attach controls.
 
 type Phase = "idle" | "recording" | "transcribing";
 
-export function VoiceButton({ onText }: { onText: (text: string) => void }) {
+export function VoiceButton({
+  onText,
+  compact = false,
+}: {
+  onText: (text: string) => void;
+  compact?: boolean;
+}) {
+  const available = useVoiceAvailable();
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState("");
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -59,30 +69,54 @@ export function VoiceButton({ onText }: { onText: (text: string) => void }) {
     }
   }
 
+  // Self-gate: render nothing until the probe confirms voice is set up.
+  if (available !== true) return null;
+
   const busy = phase === "transcribing";
+  const recording = phase === "recording";
+  const iconSize = compact ? "size-3.5" : "size-3";
+  const icon = busy ? (
+    <Loader2 className={`${iconSize} animate-spin`} strokeWidth={1.75} />
+  ) : recording ? (
+    <Square className={`${iconSize} fill-flag`} strokeWidth={1.75} />
+  ) : (
+    <Mic className={iconSize} strokeWidth={1.75} />
+  );
+
+  if (compact) {
+    // Icon-only, sized to sit inside a chat composer. Errors surface via title
+    // (red tint) rather than an inline span, so composer layout never shifts.
+    return (
+      <button
+        type="button"
+        onClick={recording ? stop : start}
+        disabled={busy}
+        aria-label={recording ? "Stop & transcribe" : "Dictate"}
+        title={error || (recording ? "Stop & transcribe" : "Dictate")}
+        className={[
+          "flex size-7 flex-none items-center justify-center rounded-md transition-colors disabled:opacity-40",
+          recording ? "text-flag" : error ? "text-flag hover:bg-paper-2" : "text-ink-3 hover:bg-paper-2",
+        ].join(" ")}
+      >
+        {icon}
+      </button>
+    );
+  }
 
   return (
     <span className="inline-flex items-center gap-1.5">
       <button
         type="button"
-        onClick={phase === "recording" ? stop : start}
+        onClick={recording ? stop : start}
         disabled={busy}
-        title={phase === "recording" ? "Stop & transcribe" : "Dictate"}
+        title={recording ? "Stop & transcribe" : "Dictate"}
         className={[
           "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[12px] font-semibold transition-colors disabled:opacity-60",
-          phase === "recording"
-            ? "border-flag bg-flag/10 text-flag"
-            : "border-rule bg-card text-ink hover:bg-paper-2",
+          recording ? "border-flag bg-flag/10 text-flag" : "border-rule bg-card text-ink hover:bg-paper-2",
         ].join(" ")}
       >
-        {busy ? (
-          <Loader2 className="size-3 animate-spin" strokeWidth={1.75} />
-        ) : phase === "recording" ? (
-          <Square className="size-3 fill-flag" strokeWidth={1.75} />
-        ) : (
-          <Mic className="size-3" strokeWidth={1.75} />
-        )}
-        {busy ? "Transcribing…" : phase === "recording" ? "Stop" : "Dictate"}
+        {icon}
+        {busy ? "Transcribing…" : recording ? "Stop" : "Dictate"}
       </button>
       {error && <span className="text-[11px] text-flag">{error}</span>}
     </span>

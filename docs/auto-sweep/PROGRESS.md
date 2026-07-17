@@ -5,6 +5,89 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P2-1 — Voice-to-text for text inputs (app-wide) · **[x] DONE**
+
+**Dictation is now a drop-in, self-gating primitive wired into every high-value
+prose composer in the app.** Previously voice-to-text existed but was bolted onto
+exactly two places (project + sub daily logs) and required each server page to
+compute `whisperAvailable()` and thread it down as a `voiceEnabled` prop — which
+is why it never spread. This iteration removed that friction and expanded coverage.
+
+### What already existed (built on, not reinvented)
+- `components/ui/VoiceButton.tsx` — MediaRecorder → POST `/api/transcribe` → `onText(text)`.
+- `app/api/transcribe/route.ts` (POST) + `lib/transcribe.ts` — **local, offline**
+  whisper.cpp + ffmpeg; owner/sub session-gated; no cloud, no outbound.
+- `lib/append-transcript.ts` — ref-based append for *uncontrolled* textareas only.
+
+### What I built
+1. **Availability probe** — added `GET /api/transcribe` → `{ available }` (same
+   owner/sub gate), so a client composer can learn if voice is set up without a
+   server prop.
+2. **`lib/use-voice-available.ts`** — `useVoiceAvailable()` hook that fetches the
+   probe **once, module-cached** (a single shared promise across every mounted
+   button → N mics = 1 request). Returns `null` while unknown, then boolean.
+3. **`VoiceButton` self-gates** — calls the hook and renders `null` until voice is
+   confirmed available. Now truly drop-in: any input adds a mic with one line and
+   zero prop threading. Added a **`compact`** icon-only variant sized to sit inside
+   a chat composer next to send/attach (errors surface via red-tinted `title` so
+   composer layout never shifts). Existing pill usage + icon size preserved.
+4. **`mergeTranscript(current, text)`** — string helper for *controlled* React
+   inputs (`setInput(cur => mergeTranscript(cur, t))`); the old ref-based
+   `appendTranscript` now delegates to it and also accepts `<input>`.
+
+### Composers wired (the "where sensible" set = prose/free-text boxes)
+- **AI chat** — `components/ai/AssistantChat.tsx` (the box on Projects/Leads/
+  Warranties **and** /ai). Biggest win. Mic sits next to the attach button.
+- **Team chat** — `components/chat/ChatClient.tsx` message composer.
+- **Inbox** — `components/inbox/InboxClient.tsx`: both the **reply/draft** textarea
+  and the **new-message body** textarea.
+- (Pre-existing project + sub **daily logs** keep working, now also self-gated.)
+
+### Decisions / judgment calls (Guardrail 6)
+- **Marked `[x]`, not `[~]`.** "App-wide where sensible": the sensible targets are
+  the prose composers, which are now all covered, plus a reusable one-line primitive
+  for the rest. **Deliberately NOT wired:** single-line fields (To/Subject, names,
+  dollar amounts) — dictation there is noise, not signal. Any future field is a
+  trivial `<VoiceButton compact onText={t => setX(c => mergeTranscript(c, t))} />`.
+- **Guardrail 4 respected:** voice only *fills* a text box; every send stays
+  user-initiated (I touched no send/outbound path). Transcription is fully local
+  (whisper.cpp) — nothing leaves the machine.
+- **Guardrail 3 respected:** owner/sub role gate on the probe means a client-portal
+  viewer never even sees the mic (probe → 403 → button hidden).
+
+### Fable subagents — UNAVAILABLE this iteration
+Both the Step-1 PLAN and Step-4 REVIEW were to run on Fable 5, but the Agent call
+returned **"Usage credits are required for this model"** (Fable is credit-blocked
+this session). Per Guardrail 6 I proceeded on my own investigated plan and did the
+review myself:
+- **Self-review (passed):** all hooks run before the early `return null` (rules of
+  hooks OK); server + first-client render both `null` (available starts `null`) →
+  **no hydration mismatch**; all mic buttons are `type="button"` (no stray form
+  submit); functional `setState` updaters (no stale closure); module cache scoped
+  per client bundle.
+
+### Verify
+- `npx tsc --noEmit` → clean (exit 0).
+- `npm run lint` → 0 errors, 11 warnings (all pre-existing, none in touched files).
+- No build / no service restart / no port 3017 (Guardrails 1–2).
+
+### Files changed
+- `app/api/transcribe/route.ts` — added GET availability probe.
+- `lib/use-voice-available.ts` — **new** module-cached `useVoiceAvailable()` hook.
+- `components/ui/VoiceButton.tsx` — self-gate + `compact` variant.
+- `lib/append-transcript.ts` — added `mergeTranscript()`; `appendTranscript` shares it.
+- `components/ai/AssistantChat.tsx` — mic in composer.
+- `components/chat/ChatClient.tsx` — mic in composer.
+- `components/inbox/InboxClient.tsx` — mic on reply + new-message composers.
+
+### State for next iteration
+Next `[ ]` item is **P2-2** (Operator console) — **GATE: build the DEMO, then STOP
+and park for Joe's approval** before implementing further (plan at
+`docs/operator-console-plan.md`). Note Fable was credit-blocked this session; if it
+stays down, P2-2's plan/review steps will also need to be done inline.
+
+---
+
 ## 2026-07-17 · P1-G1 — Final commit/push sweep · **[x] DONE** — 🎉 PRIORITY 1 COMPLETE
 
 **Verified the whole branch is committed and pushed to GitHub with nothing

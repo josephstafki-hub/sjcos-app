@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { Sparkles, Send, UserPlus, X, Plus, ChevronLeft } from "lucide-react";
-import { Card, Chip, Avatar } from "@/components/ui";
+import { Card, Chip, Avatar, VoiceButton } from "@/components/ui";
+import { mergeTranscript } from "@/lib/append-transcript";
 import {
   sendChatMessage,
   askAgentInChannel,
@@ -831,6 +832,7 @@ export function ChatClient({ data }: { data: ChatData }) {
               placeholder={`Message ${view.name}…  (${composerHint})`}
               className="flex-1 resize-none rounded-md border border-rule bg-card px-3 py-2 text-[13px] text-ink outline-none focus:border-accent"
             />
+            <VoiceButton compact onText={(t) => setInput((cur) => mergeTranscript(cur, t))} />
             <button
               type="submit"
               disabled={!input.trim()}

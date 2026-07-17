@@ -5,6 +5,80 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P2-3 — iPhone/iPad apps · **[~] PARTIAL (coherent slice: iPad support)**
+
+**Slice done: promoted the existing iPhone app to a first-class iPad app and made
+the layout responsive.** The whole "iPhone/iPad apps" item is too large for one pass
+(guardrail 7), so I did the highest-value remaining gap end to end and left the rest
+clearly scoped.
+
+### Context (what already existed)
+`/home/joe/sjcos-mobile` already holds **iPhone app v1** (Expo SDK 56 / RN 0.85 /
+expo-router): 5 tabs (Today, Inbox, Projects, Leads, Subs) + project detail with an
+"add daily log" composer + inbox thread read/AI-reply/compose. It reads live Postgres
+through the backend routes that already exist in **this** repo (`app/api/mobile/*`,
+`app/api/auth/{login,me}`). So the "iPhone" half is built; the concrete open gap was
+**iPad**: the app was iPhone-only (portrait-locked, no `supportsTablet`, full-bleed
+layouts that stretch on a tablet).
+
+### What I built (in the separate `/home/joe/sjcos-mobile` repo)
+- **`app.json` — first-class iPad app:** `ios.supportsTablet: true` (so it runs as a
+  real iPad app, not the scaled-up iPhone compatibility view) and `orientation`
+  `"portrait"` → `"default"` (iPad users expect rotation).
+- **`src/components/ui.tsx` — responsive reading column:** every screen funnels through
+  the shared `RefreshScroll`, so one edit covers the whole app. Added
+  `useWindowDimensions`; on screens ≥ `WIDE_BREAKPOINT` (700px — all iPads + landscape)
+  the horizontal padding widens to center a `MAX_CONTENT_WIDTH` (640px) column instead
+  of stretching edge to edge. Phones (~390px) are untouched (`paddingHorizontal =
+  space.md`). The `paddingHorizontal` longhand overrides only the horizontal axis of the
+  base `padding` shorthand, so top/bottom spacing is preserved.
+- **`src/app/login.tsx`:** login form capped to `maxWidth: 480`, centered, so it doesn't
+  span a full iPad width.
+- **Lint bootstrap:** the repo declared `"lint": "expo lint"` but had **no eslint config**
+  (never linted). First run bootstrapped it (added `eslint.config.js` + `eslint`/
+  `eslint-config-expo` devDeps). Got it green: silenced 3 pre-existing intentional
+  derived-state hook patterns in `src/lib/use-api.ts` (generic-hook dynamic `deps` +
+  loading reset) and `src/components/thread-modal.tsx` (composer reset on thread change)
+  with targeted `eslint-disable` comments (no behavior change), and removed 2 unused
+  `space` imports (leads/subs).
+
+### Plan source (Step 1) & Review (Step 4)
+Both Fable 5 subagents were **credit-blocked** again ("Usage credits are required for
+this model" — same as the P2-1 and P2-2 iterations). Self-planned and self-reviewed.
+Review checks: iPad promotion correct (supportsTablet + rotation); responsive cap covers
+iPad portrait/landscape and phone landscape while leaving phone portrait full-bleed;
+RN padding-longhand-over-shorthand semantics verified; login centering verified;
+guardrails clean.
+
+### Decisions Joe should know
+- **iPhone rotation now allowed too.** `orientation: "default"` is global in app.json, so
+  enabling iPad rotation also unlocks iPhone landscape (it was portrait-locked).
+  Deliberate — the scroll layouts adapt fine and the capped column keeps landscape
+  readable. If you specifically want iPhone locked to portrait while iPad rotates, that
+  needs a native/config-plugin split, not a plain app.json field — say the word.
+- **Committed in the mobile repo's own git**, not the sweep branch (the code lives in a
+  separate repo). The sweep branch here only carries the TASKS/PROGRESS doc updates.
+
+### Deferred (why still `[~]`, not `[x]`)
+- iPad-optimized **two-pane / master-detail** layouts (list + detail side by side) — the
+  responsive cap is the pragmatic first step; true split-view is a bigger design pass.
+- **Android** app + **mobile browser** site are their own todos (P2-6, P2-7).
+- **Distribution** (EAS cloud build → TestFlight/App Store) needs an **Apple Developer
+  account ($99/yr)** — owner action, can't be automated here.
+- No new feature surface beyond v1 was added; this slice is device support + polish.
+
+### Guardrails
+No outbound (static app config + layout only). No `next build`/prod restart/port 3017
+(all changes are in the mobile repo). tsc clean + `expo lint` 0 problems in the mobile
+repo; sjcos-app tsc/lint untouched (docs-only here).
+
+Files changed (mobile repo): `app.json`, `src/components/ui.tsx`, `src/app/login.tsx`,
+`src/lib/use-api.ts`, `src/components/thread-modal.tsx`, `src/app/(tabs)/leads.tsx`,
+`src/app/(tabs)/subs.tsx`, `eslint.config.js` (new), `package.json`, `package-lock.json`.
+Files changed (this repo): `docs/auto-sweep/TASKS.md`, `docs/auto-sweep/PROGRESS.md`.
+
+---
+
 ## 2026-07-17 · P2-2 — Operator console (DEMO) · **[!] PARKED (needs Joe)**
 
 **Built the Phase 0 demo and STOPPED at the GATE.** The item explicitly says:

@@ -5,6 +5,48 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P1-G1 — Final commit/push sweep · **[x] DONE** — 🎉 PRIORITY 1 COMPLETE
+
+**Verified the whole branch is committed and pushed to GitHub with nothing
+left behind, and the tree is green.** This is the closing item of PRIORITY 1;
+with A1–F1 all `[x]`, every PRIORITY 1 task is now done.
+
+### What I checked (all passed)
+- **Working tree:** `git status --porcelain` empty — no modified/untracked files
+  (checked `--ignored` too; nothing stray outside normal ignores).
+- **Stashes:** none (`git stash list` empty).
+- **Stray branches:** only `auto/todo-sweep-2026-07-14` (local + `origin/…`); no
+  other unmerged sweep branches carrying orphaned work.
+- **Sync with GitHub:** local `HEAD` == `origin/auto/todo-sweep-2026-07-14`
+  (`72b6c19`), `rev-list --left-right --count` = `0  0` (0 ahead / 0 behind).
+  Every prior iteration's commit is already on the remote.
+- **Typecheck:** `npx tsc --noEmit` — clean (exit 0).
+- **Lint:** `npm run lint` — 0 errors, 11 warnings (all pre-existing, none in any
+  file this sweep touched; unchanged from prior iterations).
+
+### Process note (documented per Guardrail 6)
+P1-G1 is a *verification/meta* item, not a code change. I deliberately skipped the
+Fable PLAN and REVIEW subagents for this iteration: there is no implementation
+diff to plan or review — the only file changes are this audit block plus the
+TASKS.md checkbox. Spawning subagents to "plan" and "review" a checkbox update
+would be pure waste. The substantive work (confirm nothing uncommitted, confirm
+pushed, confirm tsc+lint green) was done directly and is recorded above.
+
+### Guardrails respected
+No build, no `sjcos.service` restart, no port 3017, no merge to main, no outbound
+comms. Read-only inspection + doc updates only.
+
+### State for the next iteration
+PRIORITY 1 is fully `[x]`. The next `[ ]` item is **P2-1** (voice-to-text), the
+start of PRIORITY 2. Note P2-2 (operator console) and P2-4/P2-5 carry GATE/park
+notes — build-to-demo / never-auto-publish / never-send.
+
+### Files changed
+- `docs/auto-sweep/TASKS.md` — P1-G1 → `[x]`, PRIORITY 1 marked complete.
+- `docs/auto-sweep/PROGRESS.md` — this block.
+
+---
+
 ## 2026-07-17 · P1-F1 — Warranty projects itemized by MN statutory periods · **[x] DONE**
 
 **Every project under warranty now shows exactly what's warrantied and until

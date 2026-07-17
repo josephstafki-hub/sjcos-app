@@ -8,6 +8,9 @@
 
 import { query } from "./db";
 import type { DevAgent } from "./dev-agents-meta";
+import { listQueuedDeliveries, type PortalOutboxItem } from "./portal-delivery";
+
+export type { PortalOutboxItem };
 
 // ─── Left rail: channels, project rooms, DMs ────────────────────────────────
 
@@ -170,6 +173,9 @@ export interface ChatData {
   /** Client options (derived from projects + open leads) for the DM
    *  person-lookup (P1-D3). Subs come from `roster`, team from `teamRoster`. */
   clientRoster: DmClientOption[];
+  /** Queued portal deliveries awaiting the owner's Release/Skip (P1-D4). Every
+   *  team-chat message bound for a sub/client portal is parked here first. */
+  portalOutbox: PortalOutboxItem[];
   /** Channel selected on first paint. */
   selectedKey: string;
 }
@@ -533,6 +539,8 @@ export async function getChatData(): Promise<ChatData> {
   }
   clientRoster.sort((a, b) => a.name.localeCompare(b.name));
 
+  const portalOutbox = await listQueuedDeliveries();
+
   return {
     channels: withUnread(CHANNELS),
     rooms: withUnread(ROOMS),
@@ -541,6 +549,7 @@ export async function getChatData(): Promise<ChatData> {
     roster,
     teamRoster,
     clientRoster,
+    portalOutbox,
     selectedKey: CHANNELS[0]?.key ?? ROOMS[0]?.key ?? directs[0]?.key ?? "",
   };
 }

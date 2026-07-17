@@ -5,6 +5,121 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P1-D4 — Team Chat: deliver comms to sub/client portals · **[x] DONE**
+
+**Team-chat messages in rooms and client DMs are now WIRED to reach the sub/client
+portals — but every delivery is PARKED for you.** Nothing crosses to a real person
+automatically. When you post in an entity room or a client DM, the message is queued
+in a new **Portal outbox**; a sub/client only sees it after you click **Release**.
+
+### What you can now do
+- **Portal outbox rail panel** (new, bottom of the Team-chat left rail, appears only
+  when items are queued): each queued delivery shows the message preview + **"→ who it
+  goes to"** (e.g. "Marco Rivas · sub portal", "Isaiah Maertens · client portal"), with
+  two buttons:
+  - **Release** — copies the message into that person's real portal thread (`dm:<sub-slug>`
+    for a sub, `portal:<project-slug>` for a client). Room messages get a `[Room name] `
+    prefix so they carry context in the portal's "Talk to Joe" thread. **This is the only
+    thing that pushes to a real portal, and only you can trigger it.**
+  - **Skip** — drops the delivery without sending (kept as a `skipped` audit row).
+- Post in a **room** (project/warranty) → deliveries queue for every **sub** on the room
+  and, if the room has ≥1 manually-added **client**, for the project's client portal.
+- Post in a **client DM** → queues a delivery to the matched project's client portal.
+- **AI replies count too** — an `@qwen`/`@hermes`/`@claude` answer in a room / client DM
+  is queued the same way (your Skip is the filter).
+
+### The gate (guardrail #4 — "portal push" is an outbound send)
+The portals read `chat_messages` **live**, so auto-copying a row into `dm:<sub-slug>` /
+`portal:<project-slug>` would make it appear to a real person instantly — that IS the
+send. So "wire delivery but park the send" = build the full resolution + queue + release
+machinery, ship the Release button live for you, and make sure **no code path ever
+auto-invokes release**. Confirmed by review: `releaseDelivery` is called from exactly one
+place — the owner-gated `releasePortalDelivery` action behind the Release button.
+
+### Target-resolution rules
+| Source key | Sub targets | Client target |
+|---|---|---|
+| `room:<slug>` / `room:wty:<slug>` (project/warranty) | each `chat_members` sub → `dm:<sub-slug>` | iff ≥1 `chat_room_clients` → one `portal:<entity_ref>` (entity_ref = project slug; both key on it) |
+| `room:lead:<slug>` | subs only | none (leads have no portal) |
+| `dm:client:<slug>` | none | match a project where `dmSlug(client_name)==party_slug` (prefer one with a client login, newest tie-break) → `portal:<project-slug>`; no match → none |
+| bare channels, `dm:<sub-slug>`, `dm:team:*` | none | none |
+
+### Key decisions you should know
+1. **Sub DMs (`dm:<sub-slug>`) self-deliver and are NOT queued.** That key already IS the
+   sub-portal "Talk to Joe" thread (pre-existing) — your typed message there reaches the sub
+   directly, as it always has. Queueing it would copy a message into its own channel.
+2. **Closed a pre-existing hole (review's one must-fix):** `@`-mentioning an AI in a sub DM
+   used to post an **unreviewed AI-generated reply straight into the real sub portal** (DMs
+   keep AI implicit + the membership gate skips `:`-keys). Since D4 is the gating item, I now
+   **refuse AI replies in bare sub DMs** (`lib/actions/chat.ts`). Your own typed messages still
+   flow (your explicit act); the machine's don't. Team/client DMs unaffected.
+3. **Bare channels excluded by design** — #field-daily etc. are the internal team space;
+   auto-queueing every message there for every sub member would bury the outbox. One predicate
+   change if you ever want it.
+4. **Release preserves authorship** (owner vs AI) in the portal copy and **honestly lights your
+   own unread badge** for that thread — I deliberately don't touch `chat_reads` (that would
+   swallow genuine unread portal replies).
+5. **The outbox row is kept after Release/Skip** as the delivery audit trail (`released`/`skipped`).
+
+### Plan (Fable 5) — summary
+Validated outbox-with-manual-release as the correct AND permanent shape (not a temporary
+gate): the portals read live, so there's no staging layer — auto-copy = the send; the only way
+to "park the send" is a queue whose release nothing auto-calls. Refinements adopted: don't store
+the body (re-read the immutable source on release), snapshot `source_label` + prefix room
+messages, return newly-queued items so the client panel updates without reload, don't enqueue
+undeliverable targets (vs flooding as `skipped`), enqueue AI messages too, single-statement CTE
+release for atomicity.
+
+### Review (Fable 5) — verdict: **FIX-THEN-SHIP → fixed → ship**
+Audited the gate (release called from one owner-gated spot only, helper not `"use server"`),
+release CTE atomicity (guarded transition; concurrent double-click loser no-ops; FK cascade so
+the release join can't dangle), resolution (warranty `entity_ref`==project slug; login assumption
+matches esign/documents precedent; dead-sub join-dropped; 0/multi client-DM match handled), UI
+(server-first = honest, hooks unconditional, tsc covers JSX), and the value-import cycle (safe —
+no top-level use of cyclic bindings, `dmSlug` hoisted). **One must-fix — the sub-DM AI hole above —
+now closed.** Two harmless nits noted (outbox not resynced from fresh props across tabs — stale
+click is a server-guarded no-op; `releasePortalDelivery` returns ok even when the guard lost — row
+is gone either way).
+
+### Verify
+- `npx tsc --noEmit` → exit 0 (before and after the fix). `npm run lint` → 0 errors (same 11
+  pre-existing warnings, none in touched files).
+- `portal_deliveries` applied to the **live DB** idempotently (`CREATE TABLE IF NOT EXISTS` +
+  partial index), **0 rows**.
+- **Full path in a rolled-back txn against live data:** synthesized a project room with a sub +
+  client member, posted a message → resolution produced `dm:<sub>` + `portal:<slug>`; enqueue
+  created 2 rows; re-enqueue deduped (`ON CONFLICT`, 0 new); release CTE copied into
+  `portal:<slug>` with the `[Room] ` prefix; **re-release guarded → 0 rows** (no double send);
+  ROLLBACK → 0 rows (live untouched).
+- **tsx smoke test against live DB:** the `chat.ts↔portal-delivery.ts` value cycle resolves
+  (`dmSlug` + all functions defined); room resolution returns label + targets; bare channel and
+  **sub-DM enqueue early-return `[]`** (excluded); `listQueuedDeliveries` → 0.
+- No build run, service/:3017 untouched, **nothing sent outward** (every delivery sits `queued`;
+  release is manual-only). Not runtime-clicked in the live app (I don't restart :3017), but the
+  data layer + module graph are proven and tsc/lint are green.
+
+### Files changed
+- `db/schema.sql` — `portal_deliveries` table + partial index (additive, idempotent).
+- `db/seed.sql` — `portal_deliveries` added to the TRUNCATE list.
+- `lib/portal-delivery.ts` (new) — `resolvePortalTargets`, `enqueuePortalDeliveries`,
+  `listQueuedDeliveries`, `releaseDelivery` (gated outbound, CTE), `skipDelivery`, types.
+- `lib/actions/chat.ts` — `sendChatMessage`/`askAgentInChannel` `RETURNING id` + best-effort
+  enqueue + `queued?` return; owner-gated `releasePortalDelivery`/`skipPortalDelivery`; **sub-DM
+  AI refusal guard**.
+- `lib/chat.ts` — `ChatData.portalOutbox` via `listQueuedDeliveries`; re-exports `PortalOutboxItem`.
+- `components/chat/ChatClient.tsx` — "Portal outbox (N)" rail panel + Release/Skip handlers
+  (server-first); `send()`/AI path prepend newly-queued items.
+
+### What remains / follow-ons (your call, not silent)
+- **No dedicated review page** — the outbox lives in the Team-chat rail. If you'd rather review
+  deliveries from /today or an approvals surface, that's a clean follow-on (`listQueuedDeliveries`
+  is the ready data source).
+- **Client-DM → project match is name-based** (no clients table): two clients whose names slugify
+  identically, or a client with no project yet, resolve to no/ambiguous target. Inherent to having
+  no client entity; documented.
+
+---
+
 ## 2026-07-17 · P1-D3 — Team Chat: DM person-lookup · **[x] DONE**
 
 **Your Team Chat DMs were derived-only and uncreatable.** The Direct rail showed a

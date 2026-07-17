@@ -19,6 +19,8 @@ import {
   addClientToRoom,
   removeClientFromRoom,
   openDirectMessage,
+  releasePortalDelivery,
+  skipPortalDelivery,
 } from "@/lib/actions/chat";
 import type {
   ChatChannel,
@@ -28,6 +30,7 @@ import type {
   ChannelView,
   TeamMember,
   ClientMember,
+  PortalOutboxItem,
 } from "@/lib/chat";
 import { AGENT_ORDER, type DevAgent } from "@/lib/dev-agents-meta";
 
@@ -89,6 +92,11 @@ export function ChatClient({ data }: { data: ChatData }) {
   const [pickingDm, setPickingDm] = useState(false);
   const [dmQuery, setDmQuery] = useState("");
   const [dmError, setDmError] = useState<string | null>(null);
+  // Portal-delivery outbox (P1-D4): team-chat messages parked for the owner to
+  // Release into (or Skip from) a real sub/client portal.
+  const [outbox, setOutbox] = useState<PortalOutboxItem[]>(data.portalOutbox);
+  const [outboxError, setOutboxError] = useState<string | null>(null);
+  const [outboxPending, setOutboxPending] = useState<number | null>(null);
   const [, startTransition] = useTransition();
 
   // May be undefined after archiving the last channel — the render guards for it.
@@ -270,7 +278,8 @@ export function ChatClient({ data }: { data: ChatData }) {
         : (mentioned as DevAgent)
       : null;
     startTransition(async () => {
-      await sendChatMessage(key, text);
+      const sent = await sendChatMessage(key, text);
+      if (sent.queued?.length) setOutbox((list) => [...sent.queued!, ...list]);
       if (agent) {
         const id = CHAT_AGENTS[agent];
         // Skip the round-trip when we already know the model isn't a member.
@@ -286,6 +295,7 @@ export function ChatClient({ data }: { data: ChatData }) {
         setTyping(id.name);
         const r = await askAgentInChannel(key, agent);
         setTyping(null);
+        if (r.queued?.length) setOutbox((list) => [...r.queued!, ...list]);
         if (r.ok && r.reply) {
           append(key, {
             initials: id.initials,
@@ -299,6 +309,31 @@ export function ChatClient({ data }: { data: ChatData }) {
           notice(key, id.name, id.initials, r.error);
         }
       }
+    });
+  };
+
+  // Portal outbox — server-first (never optimistic): a failed release must not
+  // show "delivered" when nothing reached the portal. Release is the gated
+  // outbound; Skip just drops the queued row.
+  const releaseDeliveryHandler = (id: number) => {
+    setOutboxError(null);
+    setOutboxPending(id);
+    startTransition(async () => {
+      const r = await releasePortalDelivery(id);
+      setOutboxPending(null);
+      if (r.ok) setOutbox((list) => list.filter((d) => d.id !== id));
+      else setOutboxError(r.error ?? "Could not release.");
+    });
+  };
+
+  const skipDeliveryHandler = (id: number) => {
+    setOutboxError(null);
+    setOutboxPending(id);
+    startTransition(async () => {
+      const r = await skipPortalDelivery(id);
+      setOutboxPending(null);
+      if (r.ok) setOutbox((list) => list.filter((d) => d.id !== id));
+      else setOutboxError(r.error ?? "Could not skip.");
     });
   };
 
@@ -617,6 +652,44 @@ export function ChatClient({ data }: { data: ChatData }) {
             </button>
           )}
         </div>
+
+        {/* ─── Portal outbox ── team-chat comms parked for portal delivery. ──
+            Release pushes the message into a real sub/client portal (the gated
+            outbound); Skip drops it. Nothing is delivered without a click. */}
+        {outbox.length > 0 && (
+          <>
+            <div className="my-2 h-px bg-rule" />
+            <RailLabel>{`Portal outbox (${outbox.length})`}</RailLabel>
+            {outboxError && <div className="px-1 pb-1 text-[10px] text-flag">{outboxError}</div>}
+            <div className="flex flex-col gap-1">
+              {outbox.map((d) => (
+                <div key={d.id} className="rounded-md border border-rule bg-card px-2 py-1.5">
+                  <div className="truncate text-[11.5px] text-ink-2">{d.preview}</div>
+                  <div className="mt-0.5 flex items-center gap-1 text-[10px] text-ink-3">
+                    <Send className="size-2.5 flex-none" strokeWidth={1.75} />
+                    <span className="truncate">{d.recipientLabel}</span>
+                  </div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <button
+                      onClick={() => releaseDeliveryHandler(d.id)}
+                      disabled={outboxPending === d.id}
+                      className="rounded border border-accent/40 px-1.5 py-0.5 text-[10px] font-medium text-accent-2 transition-colors hover:bg-accent-soft disabled:opacity-50"
+                    >
+                      Release
+                    </button>
+                    <button
+                      onClick={() => skipDeliveryHandler(d.id)}
+                      disabled={outboxPending === d.id}
+                      className="rounded px-1.5 py-0.5 text-[10px] text-ink-3 transition-colors hover:bg-paper-3 hover:text-ink-2 disabled:opacity-50"
+                    >
+                      Skip
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
 
         {view && (
           <>

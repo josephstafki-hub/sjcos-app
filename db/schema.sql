@@ -590,6 +590,31 @@ CREATE TABLE IF NOT EXISTS chat_dms (
   opened_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- Portal-delivery outbox (P1-D4). Team-chat messages posted in entity rooms
+-- (room:*) and client DMs (dm:client:*) are WIRED for delivery to the sub/client
+-- portals, but every delivery is PARKED here until the owner releases it —
+-- release copies the source message into the target portal thread (dm:<sub-slug>
+-- or portal:<project-slug>); NOTHING is ever pushed to a real client/sub
+-- automatically (guardrail: "portal push" is an outbound send). Bare channels
+-- and team DMs are deliberately excluded (internal-only surfaces). Sub DMs
+-- (dm:<sub-slug>) are already the sub-portal thread, so they self-deliver and
+-- are not queued here. UNIQUE(message_id, portal_channel) dedups a re-fired
+-- enqueue; the row is kept after release/skip as the delivery audit trail.
+CREATE TABLE IF NOT EXISTS portal_deliveries (
+  id              bigserial PRIMARY KEY,
+  message_id      bigint NOT NULL REFERENCES chat_messages(id) ON DELETE CASCADE,
+  source_key      text NOT NULL,             -- room:* | dm:client:* the message was posted in
+  source_label    text NOT NULL DEFAULT '',  -- snapshot of the room/DM display name at enqueue time
+  recipient_type  text NOT NULL CHECK (recipient_type IN ('sub','client')),
+  recipient_label text NOT NULL,             -- e.g. "Marco Rivas · sub portal"
+  portal_channel  text NOT NULL,             -- dm:<sub-slug> | portal:<project-slug> (delivery target)
+  status          text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','released','skipped')),
+  queued_at       timestamptz NOT NULL DEFAULT now(),
+  released_at     timestamptz,
+  UNIQUE (message_id, portal_channel)
+);
+CREATE INDEX IF NOT EXISTS idx_portal_deliveries_queued ON portal_deliveries(queued_at) WHERE status = 'queued';
+
 -- ─── Project punch list ─────────────────────────────────────────────────────
 -- Per-project punch items; checkboxes on the project-detail Punch tab toggle
 -- `done`. Owner-gated writes via lib/actions/projects.ts.

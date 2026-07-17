@@ -8,6 +8,12 @@ import { emit } from "@/lib/notify";
 import { askHermes, chatReplyClaude } from "@/lib/dev-agents";
 import type { DevAgent } from "@/lib/dev-agents-meta";
 import { initialsOf, type TeamMember, type ClientMember } from "@/lib/chat";
+import {
+  enqueuePortalDeliveries,
+  releaseDelivery,
+  skipDelivery,
+  type PortalOutboxItem,
+} from "@/lib/portal-delivery";
 
 /** How each AI teammate signs its chat posts. */
 const AGENT_IDENTITY: Record<DevAgent, { name: string; initials: string }> = {
@@ -20,19 +26,28 @@ const AGENT_IDENTITY: Record<DevAgent, { name: string; initials: string }> = {
 export async function sendChatMessage(
   channelKey: string,
   body: string,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; queued?: PortalOutboxItem[]; error?: string }> {
   const user = await requireRole("owner");
   const text = body.trim();
   if (!text) return { ok: false, error: "Message is empty." };
 
-  await query(
+  const { rows } = await query<{ id: number }>(
     `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body)
-     VALUES ($1, 'owner', $2, $3, $4)`,
+     VALUES ($1, 'owner', $2, $3, $4)
+     RETURNING id`,
     [channelKey, user.name || "Joe", user.initials || "JS", text],
   );
   await markRead(channelKey);
+  // Wire portal delivery for room/client-DM messages — PARKED (queued only,
+  // never auto-sent). Best-effort: a delivery hiccup must not fail the post.
+  let queued: PortalOutboxItem[] = [];
+  try {
+    queued = await enqueuePortalDeliveries(rows[0].id, channelKey);
+  } catch {
+    /* delivery is best-effort; the message is posted regardless */
+  }
   revalidatePath("/chat");
-  return { ok: true };
+  return { ok: true, queued };
 }
 
 /** Generate an AI teammate's reply from recent channel context and post it.
@@ -42,9 +57,25 @@ export async function sendChatMessage(
 export async function askAgentInChannel(
   channelKey: string,
   agent: DevAgent = "qwen",
-): Promise<{ ok: boolean; reply?: string; error?: string }> {
+): Promise<{ ok: boolean; reply?: string; queued?: PortalOutboxItem[]; error?: string }> {
   await requireRole("owner");
   const id = AGENT_IDENTITY[agent] ?? AGENT_IDENTITY.qwen;
+  // A bare sub DM (dm:<slug>) IS the sub's live portal thread — an AI reply here
+  // would push unreviewed machine-generated content straight to a real sub with
+  // no Release step (P1-D4's gate). Refuse it. Joe's own typed messages still
+  // flow (his explicit act on the direct-messaging surface); the AI stays out.
+  // Team/client DMs (dm:team:/dm:client:) are internal or outbox-gated, so they
+  // are unaffected.
+  if (
+    channelKey.startsWith("dm:") &&
+    !channelKey.startsWith("dm:team:") &&
+    !channelKey.startsWith("dm:client:")
+  ) {
+    return {
+      ok: false,
+      error: `${id.name} can't reply in a sub DM — it's the sub's live portal thread.`,
+    };
+  }
   // AI membership is independent per bare channel (P1-D1): a model only responds
   // if it's been added. Rooms and DMs keep AI implicit, so they skip the gate.
   if (!channelKey.includes(":")) {
@@ -85,11 +116,20 @@ export async function askAgentInChannel(
     }
     if (!reply) reply = "On it — I'll follow up shortly.";
 
-    await query(
+    const { rows: aiRows } = await query<{ id: number }>(
       `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body)
-       VALUES ($1, 'ai', $2, $3, $4)`,
+       VALUES ($1, 'ai', $2, $3, $4)
+       RETURNING id`,
       [channelKey, id.name, id.initials, reply],
     );
+    // AI replies in a room / client DM are "communications here" too — queue them
+    // for portal delivery, PARKED (never auto-sent). Best-effort.
+    let queued: PortalOutboxItem[] = [];
+    try {
+      queued = await enqueuePortalDeliveries(aiRows[0].id, channelKey);
+    } catch {
+      /* delivery is best-effort */
+    }
     await emit({
       kind: "mention",
       tag: "Mention",
@@ -101,7 +141,7 @@ export async function askAgentInChannel(
     });
     revalidatePath("/chat");
     revalidatePath("/notifications");
-    return { ok: true, reply };
+    return { ok: true, reply, queued };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }
@@ -473,6 +513,40 @@ export async function openDirectMessage(
       ok: true,
       dm: { key, fullName: cleanName, initials: initialsOf(cleanName), subtitle: cleanSubtitle },
     };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+// ─── Portal-delivery outbox (P1-D4) ─────────────────────────────────────────
+
+/** RELEASE a queued portal delivery — the gated outbound. This is the ONLY path
+ *  that pushes a team-chat message to a real client/sub portal, and it runs only
+ *  when the owner clicks Release. Nothing auto-invokes it. */
+export async function releasePortalDelivery(
+  id: number,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireRole("owner");
+  try {
+    await releaseDelivery(id);
+    revalidatePath("/chat");
+    revalidatePath("/client-portal");
+    revalidatePath("/sub-portal");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/** SKIP a queued portal delivery — drop it without ever sending. */
+export async function skipPortalDelivery(
+  id: number,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireRole("owner");
+  try {
+    await skipDelivery(id);
+    revalidatePath("/chat");
+    return { ok: true };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }

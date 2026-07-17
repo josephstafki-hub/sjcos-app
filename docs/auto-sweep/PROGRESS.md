@@ -5,6 +5,71 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P1-C7 — Inbox Clients/Subs/Money/Filters: evaluate + make smarter · **[x] DONE**
+
+**The evaluation.** Your inbox thread-list header has a chip row: **All · Clients ·
+Subs · Money**. I evaluated each, plus "Filters":
+- **Clients / Subs / Money** — genuinely useful (a contractor wants to separate client
+  mail from vendor/money mail at a glance) and they *worked*, but they were **dumb** in
+  two ways: (1) each chip was a mutually-exclusive **lens that replaced your whole view** —
+  click "Clients" while reading Unread and you were thrown out of Unread back to a base
+  thread set; you could never ask "Unread **from clients only**" or "this label, **subs
+  only**"; (2) the counts on each chip were a **global** tally, not the number the chip
+  would actually reveal in your current view.
+- **"All"** chip — was a `{kind:"all"}` lens meaning "every loaded thread, any status."
+  That was itself misleading: it only showed the locally-paged window, not real Gmail All
+  Mail, and every status is already reachable via the four smart views + the Sent/Spam/
+  Trash mailboxes (added in P1-C4).
+- **"Filters"** — there is **no Filters feature**. The only "Filter" in the inbox is a
+  **decorative lucide icon** adorning the non-interactive "Smart views" section header.
+  The chip row *is* the filter feature. Nothing to build or remove there.
+
+**The decision — keep all three, make them smarter (layered filter).** I converted
+Clients/Subs/Money from replace-the-view lenses into a **secondary audience filter that
+layers on top of whichever sidebar lens is active** (`audienceFilter: Audience | null`
+state, independent of `lens`). Now:
+- Pick Unread (or any label/project/channel), then Clients → you get **"Unread ·
+  Clients"** — the filter refines instead of replacing. Header shows the combined label
+  so a persisted filter never silently shortens the list.
+- The filter **persists across sidebar navigation** until you clear it. **All** clears it;
+  re-clicking the lit chip also clears it (toggle).
+- Chip **counts are now scoped to the current view** ("how many clients are in *this*
+  lens"), which matches what clicking actually reveals — same honest-counts principle as
+  P1-C5.
+- Works over **remote lenses** (Gmail labels/mailboxes) too, because those threads are
+  classified by the same `mapRawThreads`/`classifyThread` path, so the filter and its
+  counts apply there as well.
+
+**What was removed.** The now-dead `{kind:"all"}` and `{kind:"audience"}` lens variants
+(and their `visible`/`headerLabel`/`isAudience` branches). Net simpler lens union.
+
+**Tradeoff you should know.** The old cross-status "All mail" chip is gone. Nothing
+becomes unreachable — every thread maps to one of the four smart views, and Sent/Spam/
+Trash have dedicated mailboxes — the only thing lost is a single merged chronological
+list. If you ever want a true All Mail, the right build is a server-scoped system view
+(like Unread/Spam), not the old paged-window pseudo-view. Not built this pass.
+
+**Fable plan summary:** confirmed layering is the right call; recommended the two
+refinements I adopted (toggle-to-clear the lit chip + append the audience to the header
+so persistence isn't confusing); precise edit list; flagged selection-validity, remote
+counts, and mobileReader as the edge cases to check.
+
+**Fable review verdict:** **Approve — accomplishes the item, no real bugs.** Verified:
+no stray references to the removed lens kinds; `selected` degrades safely to null on an
+empty filtered list (and `selectedId` isn't cleared, so clearing the filter restores your
+selection); filter + counts work over remote lenses; no exhaustiveness/type hole from
+removing union members; nothing became unreachable. Non-blocking notes: "Load more" under
+an active filter can page in a batch with no matching-audience threads (cosmetic quirk
+inherent to client-side filtering over server pagination); the "Document" clause is
+satisfied by this PROGRESS entry + in-code comments.
+
+**Files changed:** `components/inbox/InboxClient.tsx` (43 +/29 -).
+**Verify:** `npx tsc --noEmit` clean (0 errors); `npm run lint` 0 errors (11 pre-existing
+warnings elsewhere, none in InboxClient). No build/service restart; port 3017 untouched.
+**Guardrails:** no outbound sends; no build; branch-only.
+
+---
+
 ## 2026-07-17 · P1-C6 — Draft reply: selectable model + Open Brain/Engine context · **[x] DONE**
 
 **The "Draft a reply" button in your inbox was hardwired to Qwen and drafted from

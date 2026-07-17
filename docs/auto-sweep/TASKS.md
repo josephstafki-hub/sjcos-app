@@ -36,7 +36,7 @@ Update the checkbox here AND append a detailed entry to `PROGRESS.md` every iter
 - [x] **P1-C4** Add important Gmail views: read/unread, spam, trash, etc.
 - [x] **P1-C5** Fix label counts — they don't accurately show the number of emails contained, and may not display all contained emails.
 - [x] **P1-C6** "Draft response with Qwen" → make the AI **model selectable**; while drafting, the model should also pull any related context for that email from Open Brain/Engine.
-- [ ] **P1-C7** Evaluate Clients/Subs/Money/Filters — make smarter if possible, else remove if not useful. Document.
+- [x] **P1-C7** Evaluate Clients/Subs/Money/Filters — make smarter if possible, else remove if not useful. Document.
 
 ### P1-D · Team Chat
 - [ ] **P1-D1** Remove hardcoded channels; add ability to **create and remove channels**. Team members, subs, and AI models can each be added to channels **independently**. AI models only respond when invoked via `@model_name`.

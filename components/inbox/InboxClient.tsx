@@ -49,16 +49,15 @@ import { DRAFT_MODEL_OPTIONS, type DraftModel } from "@/lib/dev-agents-meta";
 import type { Audience, InboxData, InboxThread, ThreadReader } from "@/lib/inbox";
 
 /** The single active lens over the thread list. Smart view is the default; a
- *  channel, label, audience or project selection temporarily takes over
- *  (Gmail-style — one active filter at a time). */
+ *  channel, label or project selection temporarily takes over (Gmail-style —
+ *  one active source at a time). The Clients/Subs/Money audience filter is NOT
+ *  a lens — it layers on top of whichever lens is active (see audienceFilter). */
 type Lens =
   | { kind: "inbox" }
-  | { kind: "all" }
   | { kind: "view"; view: ThreadStatus }
   | { kind: "channel"; channel: ThreadChannel }
   | { kind: "label"; id: string; name: string }
   | { kind: "system"; view: SystemViewKey }
-  | { kind: "audience"; audience: Audience }
   | { kind: "project"; slug: string; label: string };
 
 /** Namespaced cache key for a server-fetched lens (label or system view). One
@@ -168,6 +167,10 @@ export function InboxClient({
     kind: "view",
     view: data.activeView.key,
   });
+  // Clients/Subs/Money audience filter. Layers on top of the active lens (so
+  // "Unread + Clients only" works) and deliberately persists across lens
+  // changes until cleared with the All chip. null = no audience filter.
+  const [audienceFilter, setAudienceFilter] = useState<Audience | null>(null);
   const [selectedId, setSelectedId] = useState(data.selectedId);
   // Mobile master/detail: below lg, show the thread list OR the reader, not both.
   const [mobileReader, setMobileReader] = useState(false);
@@ -192,13 +195,11 @@ export function InboxClient({
   const [starOverride, setStarOverride] = useState<Record<string, boolean>>({});
   const [pending, startTransition] = useTransition();
 
-  // Threads visible under the current lens.
-  const visible = useMemo(() => {
+  // Threads under the current lens, before the audience filter is applied.
+  const baseVisible = useMemo(() => {
     switch (lens.kind) {
       case "inbox":
         return threads.filter((t) => t.inInbox);
-      case "all":
-        return threads;
       case "view":
         return threads.filter((t) => t.view === lens.view);
       case "channel":
@@ -223,12 +224,19 @@ export function InboxClient({
           ? threads.filter((t) => (t.labelIds ?? []).includes(labelId))
           : [];
       }
-      case "audience":
-        return threads.filter((t) => t.audience === lens.audience);
       case "project":
         return threads.filter((t) => t.projectSlug === lens.slug);
     }
   }, [threads, lens, remoteData]);
+
+  // Layer the Clients/Subs/Money audience filter on top of the lens.
+  const visible = useMemo(
+    () =>
+      audienceFilter
+        ? baseVisible.filter((t) => t.audience === audienceFilter)
+        : baseVisible,
+    [baseVisible, audienceFilter],
+  );
 
   // Count of threads sitting in the Gmail inbox (the plain "Inbox" rail view).
   const inboxCount = useMemo(
@@ -236,12 +244,14 @@ export function InboxClient({
     [threads],
   );
 
-  // Counts for the All/Clients/Subs/Money chips, derived from resolved senders.
+  // Counts for the Clients/Subs/Money chips, scoped to the CURRENT lens (how
+  // many of each audience are in this view), so the number matches what the
+  // chip actually reveals rather than a global tally.
   const audienceCounts = useMemo(() => {
     const c = { client: 0, sub: 0, money: 0 };
-    for (const t of threads) if (t.audience) c[t.audience]++;
+    for (const t of baseVisible) if (t.audience) c[t.audience]++;
     return c;
-  }, [threads]);
+  }, [baseVisible]);
 
   // Keep the selection valid as the lens narrows the list.
   const selected =
@@ -375,22 +385,23 @@ export function InboxClient({
     });
   };
 
-  const headerLabel =
+  const lensLabel =
     lens.kind === "inbox"
       ? "Inbox"
-      : lens.kind === "all"
-      ? "All mail"
       : lens.kind === "view"
         ? data.smartViews.find((v) => v.key === lens.view)?.label ?? "Inbox"
         : lens.kind === "channel"
           ? data.channels.find((c) => c.key === lens.channel)?.label ?? "Channel"
-          : lens.kind === "audience"
-            ? AUDIENCE_LABEL[lens.audience]
-            : lens.kind === "project"
-              ? lens.label
-              : lens.kind === "system"
-                ? SYSTEM_VIEWS.find((v) => v.key === lens.view)?.label ?? "Mailbox"
-                : lens.name;
+          : lens.kind === "project"
+            ? lens.label
+            : lens.kind === "system"
+              ? SYSTEM_VIEWS.find((v) => v.key === lens.view)?.label ?? "Mailbox"
+              : lens.name;
+  // Append the active audience filter so a persisted filter doesn't silently
+  // shorten the list (e.g. "Unread · Clients").
+  const headerLabel = audienceFilter
+    ? `${lensLabel} · ${AUDIENCE_LABEL[audienceFilter]}`
+    : lensLabel;
 
   const isInbox = lens.kind === "inbox";
   const isView = (k: ThreadStatus) => lens.kind === "view" && lens.view === k;
@@ -398,8 +409,7 @@ export function InboxClient({
     lens.kind === "channel" && lens.channel === k;
   const isLabel = (id: string) => lens.kind === "label" && lens.id === id;
   const isSystem = (k: SystemViewKey) => lens.kind === "system" && lens.view === k;
-  const isAudience = (a: Audience) =>
-    lens.kind === "audience" && lens.audience === a;
+  const isAudience = (a: Audience) => audienceFilter === a;
   const isProject = (slug: string) =>
     lens.kind === "project" && lens.slug === slug;
 
@@ -629,25 +639,29 @@ export function InboxClient({
               Compose
             </button>
           </div>
+          {/* Audience filter — layers on top of the active sidebar lens, so it
+              refines the current view (e.g. Unread → Clients) instead of
+              replacing it. All clears the filter; clicking the lit chip clears
+              it too. */}
           <div className="mt-2 flex items-center gap-1">
-            <ChipButton active={lens.kind === "all"} onClick={() => setLens({ kind: "all" })}>
+            <ChipButton active={audienceFilter === null} onClick={() => setAudienceFilter(null)}>
               All
             </ChipButton>
             <ChipButton
               active={isAudience("client")}
-              onClick={() => setLens({ kind: "audience", audience: "client" })}
+              onClick={() => setAudienceFilter((a) => (a === "client" ? null : "client"))}
             >
               Clients{audienceCounts.client ? ` ${audienceCounts.client}` : ""}
             </ChipButton>
             <ChipButton
               active={isAudience("sub")}
-              onClick={() => setLens({ kind: "audience", audience: "sub" })}
+              onClick={() => setAudienceFilter((a) => (a === "sub" ? null : "sub"))}
             >
               Subs{audienceCounts.sub ? ` ${audienceCounts.sub}` : ""}
             </ChipButton>
             <ChipButton
               active={isAudience("money")}
-              onClick={() => setLens({ kind: "audience", audience: "money" })}
+              onClick={() => setAudienceFilter((a) => (a === "money" ? null : "money"))}
             >
               Money{audienceCounts.money ? ` ${audienceCounts.money}` : ""}
             </ChipButton>

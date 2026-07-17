@@ -5,6 +5,107 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P2-6 — Mobile browser site · **[x] DONE**
+
+**The web app is now usable in a mobile phone browser without regressing
+desktop.** The shell half was already done in an earlier pass; this slice
+finished the split-pane pages that still broke on a ~390px screen, plus the one
+overflowing table and oversized page gutters.
+
+### Starting point (what already existed)
+The Fable planner's investigation confirmed the **app shell responsive half was
+already shipped**: `components/shell/Shell.tsx` hides the sidebar rail below `lg`
+(`hidden lg:flex`) and `components/shell/MobileNav.tsx` provides a hamburger →
+off-canvas green drawer (backdrop, body scroll-lock, close-on-route-change).
+Most primary pages (Today, Leads/Projects lists, detail grids, Schedule, Subs,
+Files, Settings, Warranty) were already responsive from prior passes, and
+**Inbox + Team Chat** had already solved the two-pane-on-phone problem with a
+CSS-only pane toggle (`InboxClient.tsx` `mobileReader`). So P2-6 ≠ "build a
+mobile shell" — it was "finish the last desktop-only surfaces using the app's own
+established pattern."
+
+### What was actually still broken at ~390px, and what I did
+1. **Messages** (`components/messages/MessagesClient.tsx`) — the only *primary-nav*
+   page still broken: a `w-[300px]` thread rail + conversation pane rendered
+   side-by-side unconditionally. Added a `mobileThread` toggle (mirrors Inbox's
+   `mobileReader`): rail is `w-full lg:w-[300px]` and `hidden lg:flex` once a
+   thread is open; conversation is `hidden lg:flex` until opened; `openThread()`
+   sets it true; a `lg:hidden` ArrowLeft **back button** in the conversation
+   header returns to the list. Header row got `flex-wrap` and the "Linked to"
+   label `hidden sm:inline` so it doesn't clip on a narrow screen.
+2. **Website/Site composer** (`components/site/SiteClient.tsx`) — same pattern:
+   `mobileEditor` toggle, `w-full lg:w-[300px]` posts rail, back button ("Posts")
+   at the top of the editor pane, editor padding `p-6`→`p-4 sm:p-6`. Selecting a
+   post (or a successful auto-draft) opens the editor on phones.
+3. **Newsletter** (`components/newsletter/NewsletterClient.tsx`) — same pattern:
+   `mobileEditor` toggle, `w-full lg:w-[240px]` issues rail, back button
+   ("Issues") above the editor's empty/`!current` conditional so there's never a
+   dead end. Selecting or creating an issue opens the editor on phones.
+4. **Cost book** (`components/cost-book/CostBookClient.tsx`) — the app's only
+   `<table>` (6 columns) had no overflow guard. Wrapped it in
+   `<div className="overflow-x-auto">` + `min-w-[560px]` so it scrolls
+   horizontally on phones instead of squishing/clipping.
+5. **Gutter polish** — Today/Projects/Leads/Schedule/Subs page containers went
+   `px-7` (28px) → `px-4 sm:px-7`, reclaiming ~24px of width per phone screen.
+
+### Key design point — desktop is pixel-identical
+Every change is **additive and `lg:`/`sm:`-guarded**. The pane display swaps
+remove the literal `flex` from the base class and re-add it via the conditional
+(`"flex"` or `"hidden lg:flex"`), so at `lg`+ the element is always `display:flex`
+with all its original width/border/flex-col classes intact. `sm:` and `lg:`
+prefixes cover every desktop width. No conditional unmounting (state + scroll
+survive), consistent with the Inbox reference.
+
+### Fable 5 — plan (Step 1) & review (Step 4)
+Both ran this iteration (not credit-blocked). **Plan (Fable):** investigated the
+shell/CSS approach (Tailwind v4, no CSS modules), found the shell already
+responsive, and scoped the slice to Messages/Site/Newsletter panes + the Cost
+book table + gutters, prescribing the Inbox `mobileReader` replication and the
+edge cases — I followed it. **Review (Fable): "sound. No blocking problems. Ship
+it."** It traced every selection-mutation path for stuck-state dead ends (none —
+back buttons sit above the empty-state conditionals on Newsletter/Site; Messages'
+`mobileThread` can only be true with a valid `selected`), verified each pane swap
+resolves to the original classes at `lg`, confirmed the Cost book wrapper is a
+desktop no-op, and checked hydration (all `useState(false)` + pure CSS
+breakpoints → server/first-client render match) and a11y (`type="button"` +
+labels on all back buttons). Three non-blocking cosmetic notes; I applied the one
+worth fixing — the Site empty-state copy said "Pick a post **on the left**",
+wrong on a stacked phone layout → "Pick a post from the list". Left the other two
+(unguarded `flex-wrap` on the Messages header only matters on overflow where it's
+a fix, not a regression; stale Site selection after a fresh auto-draft is
+pre-existing desktop behavior).
+
+### Guardrails
+No outbound anywhere (pure client layout — no send/email/SMS path touched). No
+`npm run build`, no `sjcos.service` restart, no port 3017. Branch-only. tsc +
+lint green before commit.
+
+### Verify
+- `npx tsc --noEmit` → clean (exit 0).
+- `npm run lint` → 0 errors, 11 warnings (all pre-existing, none in touched files).
+- Layout-only CSS slice — not driven in a live browser this pass (the no-build
+  guardrail means the running prod bundle wouldn't reflect it anyway); tsc + lint
+  + Fable's class-by-class desktop-regression check are the gate.
+
+### Files changed
+`components/messages/MessagesClient.tsx`, `components/site/SiteClient.tsx`,
+`components/newsletter/NewsletterClient.tsx`,
+`components/cost-book/CostBookClient.tsx`, `components/today/TodayBody.tsx`,
+`app/projects/page.tsx`, `app/leads/page.tsx`, `app/schedule/page.tsx`,
+`app/subs/page.tsx`, plus `docs/auto-sweep/{TASKS,PROGRESS}.md`.
+
+### Deferred (noted for Joe)
+- **Floor plan editor** (`app/floor/page.tsx`) — a desktop drafting canvas;
+  scrolls within the shell, intentionally out of scope for a phone.
+- **Deep project-detail sub-tabs** (Selections board, estimate line tables,
+  Takeoff) — usable with horizontal scroll today; column-hiding polish is a later
+  pass if you want it.
+- **Real-device Safari pass** — inputs under 16px can trigger iOS auto-zoom on
+  focus (e.g. the Messages composer). If it bugs you on a real iPhone, bumping
+  those inputs to `text-[16px]` on mobile fixes it — a Joe check, needs a device.
+
+---
+
 ## 2026-07-17 · P2-3 (slice 4) — iPad master-detail two-pane for Subs · **[x] DONE (item complete for sweep scope)**
 
 **Fourth and final iPad master-detail slice: the Subs tab.** This closes the

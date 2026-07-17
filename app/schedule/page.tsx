@@ -31,7 +31,7 @@ export default async function SchedulePage({
 
   return (
     <Shell breadcrumb="SCHEDULE" hideCmd>
-      <div className="h-full overflow-y-auto px-7 pb-16 pt-6">
+      <div className="h-full overflow-y-auto px-4 pb-16 pt-6 sm:px-7">
         {/* Header */}
         <div className="mb-3.5 flex items-end gap-4">
           <div className="flex-1">

@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Globe, Sparkles, Copy, Check, Trash2, ImagePlus, FileText } from "lucide-react";
+import { Globe, Sparkles, Copy, Check, Trash2, ImagePlus, FileText, ArrowLeft } from "lucide-react";
 import { Card, Chip, VoiceButton } from "@/components/ui";
 import { mergeTranscript } from "@/lib/append-transcript";
 import type { BlogPost, ComposerProject } from "@/lib/site";
@@ -26,6 +26,10 @@ export function SiteClient({
   const [selectedId, setSelectedId] = useState<number | null>(posts[0]?.id ?? null);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState("");
+  // Phones can't fit the posts rail + editor side by side; show one at a time
+  // (selecting a post reveals the editor, back returns to the list). Desktop
+  // keeps both panes — this only toggles below `lg`.
+  const [mobileEditor, setMobileEditor] = useState(false);
 
   const selected = posts.find((p) => p.id === selectedId) ?? null;
   const projectBySlug = new Map(projects.map((p) => [p.slug, p]));
@@ -39,7 +43,10 @@ export function SiteClient({
     startTransition(async () => {
       const r = await generateDraft(slug, "blog");
       if (!r.ok) setError(r.error ?? "Couldn't draft.");
-      else router.refresh();
+      else {
+        setMobileEditor(true);
+        router.refresh();
+      }
     });
   }
 
@@ -49,7 +56,11 @@ export function SiteClient({
   return (
     <div className="flex h-full">
       {/* ─── Posts rail ───────────────────────────────────────────── */}
-      <aside className="flex w-[300px] flex-none flex-col overflow-y-auto border-r border-rule bg-paper-2 p-3.5">
+      <aside
+        className={`w-full flex-none flex-col overflow-y-auto border-r border-rule bg-paper-2 p-3.5 lg:w-[300px] ${
+          mobileEditor ? "hidden lg:flex" : "flex"
+        }`}
+      >
         <div className="flex items-center gap-1.5">
           <Globe className="size-4 text-accent" strokeWidth={1.75} />
           <h2 className="flex-1 font-serif text-[15px] font-semibold text-ink">Website content</h2>
@@ -108,7 +119,10 @@ export function SiteClient({
               return (
                 <button
                   key={post.id}
-                  onClick={() => setSelectedId(post.id)}
+                  onClick={() => {
+                    setSelectedId(post.id);
+                    setMobileEditor(true);
+                  }}
                   className={[
                     "rounded-md border px-2.5 py-2 text-left transition-colors",
                     post.id === selectedId
@@ -135,7 +149,18 @@ export function SiteClient({
       </aside>
 
       {/* ─── Editor ───────────────────────────────────────────────── */}
-      <section className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-paper-3 p-6">
+      <section
+        className={`min-w-0 flex-1 flex-col overflow-y-auto bg-paper-3 p-4 sm:p-6 ${
+          mobileEditor ? "flex" : "hidden lg:flex"
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => setMobileEditor(false)}
+          className="mb-3 -ml-1 inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 lg:hidden"
+        >
+          <ArrowLeft className="size-3.5" strokeWidth={1.5} /> Posts
+        </button>
         {selected ? (
           <PostEditor
             key={selected.id}
@@ -149,7 +174,7 @@ export function SiteClient({
               No post selected
             </div>
             <div className="mt-1 text-[12px] text-ink-3">
-              Pick a post on the left, or write a new one from a completed project.
+              Pick a post from the list, or write a new one from a completed project.
             </div>
           </div>
         )}

@@ -100,7 +100,8 @@ export function CostBookClient({ data }: { data: CostBookData }) {
         </Card>
       ) : (
         <Card className="overflow-hidden p-0">
-          <table className="w-full text-left">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-left">
             <thead>
               <tr className="border-b border-rule bg-paper-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
                 <th className="px-4 py-2 font-medium">Item</th>
@@ -149,6 +150,7 @@ export function CostBookClient({ data }: { data: CostBookData }) {
               ))}
             </tbody>
           </table>
+          </div>
         </Card>
       )}
 

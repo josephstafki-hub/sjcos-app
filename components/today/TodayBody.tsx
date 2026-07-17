@@ -44,7 +44,7 @@ export function TodayBody({ data }: { data: TodayData }) {
   );
 
   return (
-    <div className="mx-auto max-w-[1100px] px-7 py-6">
+    <div className="mx-auto max-w-[1100px] px-4 py-6 sm:px-7">
       {/* Header strip */}
       <div className="mb-3.5 flex items-end gap-4">
         <div className="flex-1">

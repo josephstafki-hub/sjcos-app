@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { MessageSquare, Phone, Send, AlertCircle, ExternalLink, Plus, X } from "lucide-react";
+import { MessageSquare, Phone, Send, AlertCircle, ExternalLink, Plus, X, ArrowLeft } from "lucide-react";
 import { Chip } from "@/components/ui";
 import {
   loadSmsThread,
@@ -58,12 +58,17 @@ export function MessagesClient({
   const [newBody, setNewBody] = useState("");
   const [composeErr, setComposeErr] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  // On phones the rail + conversation can't sit side by side; show one at a time
+  // (opening a thread reveals the conversation, the back button returns to the
+  // list). Desktop keeps both panes — this only toggles below `lg`.
+  const [mobileThread, setMobileThread] = useState(false);
   const [, start] = useTransition();
 
   const selected = threads.find((t) => t.id === selectedId) ?? null;
 
   function openThread(id: number) {
     setSelectedId(id);
+    setMobileThread(true);
     setMessages([]);
     setLoading(true);
     setNotice(null);
@@ -159,7 +164,11 @@ export function MessagesClient({
   return (
     <div className="flex h-full">
       {/* Thread rail */}
-      <aside className="flex w-[300px] flex-none flex-col border-r border-rule bg-paper-2">
+      <aside
+        className={`w-full flex-none flex-col border-r border-rule bg-paper-2 lg:w-[300px] ${
+          mobileThread ? "hidden lg:flex" : "flex"
+        }`}
+      >
         <div className="flex items-center gap-2 border-b border-rule px-4 py-3">
           <MessageSquare className="size-4 text-ink-3" strokeWidth={1.5} />
           <span className="flex-1 font-serif text-[15px] font-semibold text-ink">Text messages</span>
@@ -224,16 +233,26 @@ export function MessagesClient({
       </aside>
 
       {/* Conversation */}
-      <section className="flex min-w-0 flex-1 flex-col">
+      <section
+        className={`min-w-0 flex-1 flex-col ${mobileThread ? "flex" : "hidden lg:flex"}`}
+      >
         {selected ? (
           <>
-            <div className="flex items-center gap-2 border-b border-rule px-5 py-3">
+            <div className="flex flex-wrap items-center gap-2 border-b border-rule px-5 py-3">
+              <button
+                type="button"
+                onClick={() => setMobileThread(false)}
+                aria-label="Back to conversations"
+                className="-ml-1 inline-flex size-7 flex-none items-center justify-center rounded-md text-ink-2 hover:bg-black/5 lg:hidden"
+              >
+                <ArrowLeft className="size-4" strokeWidth={1.5} />
+              </button>
               <Phone className="size-3.5 text-ink-3" strokeWidth={1.5} />
               <span className="font-serif text-[15px] font-semibold text-ink">{threadTitle(selected)}</span>
               <span className="font-mono text-[11px] text-ink-3">{selected.phone}</span>
 
               <div className="ml-auto flex items-center gap-1.5">
-                <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3">Linked to</span>
+                <span className="hidden font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3 sm:inline">Linked to</span>
                 <select
                   value={selected.linkType && selected.linkSlug ? `${selected.linkType}:${selected.linkSlug}` : ""}
                   onChange={(e) => changeLink(selected.id, e.target.value)}

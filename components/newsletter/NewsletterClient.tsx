@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Plus, Sparkles, Trash2, X, Send, Users, Mail, Download, Check, Inbox, SkipForward } from "lucide-react";
+import { Plus, Sparkles, Trash2, X, Send, Users, Mail, Download, Check, Inbox, SkipForward, ArrowLeft } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import { AI_NAME } from "@/lib/ai-name";
 import { NEWSLETTER_TEMPLATES } from "@/lib/newsletter-templates";
@@ -36,6 +36,10 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [picking, setPicking] = useState(false);
+  // Phones can't fit the issues rail + editor side by side; show one at a time
+  // (selecting/creating an issue reveals the editor, back returns to the list).
+  // Desktop keeps both panes — this only toggles below `lg`.
+  const [mobileEditor, setMobileEditor] = useState(false);
   const [pending, start] = useTransition();
 
   const current = issues.find((i) => i.id === selectedId) ?? null;
@@ -74,6 +78,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
       ]);
       setSelectedId(id);
       setMode("Edit");
+      setMobileEditor(true);
     });
   }
 
@@ -200,7 +205,11 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
   return (
     <div className="flex h-full">
       {/* Issues rail */}
-      <aside className="flex w-[240px] flex-none flex-col border-r border-rule bg-paper-2">
+      <aside
+        className={`w-full flex-none flex-col border-r border-rule bg-paper-2 lg:w-[240px] ${
+          mobileEditor ? "hidden lg:flex" : "flex"
+        }`}
+      >
         <div className="relative flex items-center gap-2 border-b border-rule px-4 py-3">
           <h2 className="flex-1 font-serif text-[15px] font-semibold text-ink">Issues</h2>
           <button
@@ -243,7 +252,10 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
               <button
                 key={it.id}
                 type="button"
-                onClick={() => setSelectedId(it.id)}
+                onClick={() => {
+                  setSelectedId(it.id);
+                  setMobileEditor(true);
+                }}
                 className={`flex w-full items-center gap-1.5 rounded-md px-2.5 py-2 text-left ${
                   it.id === selectedId ? "bg-accent-soft" : "hover:bg-paper"
                 }`}
@@ -264,7 +276,16 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
       </aside>
 
       {/* Editor / preview / recipients */}
-      <section className="flex min-w-0 flex-1 flex-col">
+      <section
+        className={`min-w-0 flex-1 flex-col ${mobileEditor ? "flex" : "hidden lg:flex"}`}
+      >
+        <button
+          type="button"
+          onClick={() => setMobileEditor(false)}
+          className="m-2 -mb-1 inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 lg:hidden"
+        >
+          <ArrowLeft className="size-3.5" strokeWidth={1.5} /> Issues
+        </button>
         {!current ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
             <Mail className="size-8 text-ink-4" strokeWidth={1.25} />

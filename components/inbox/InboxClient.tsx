@@ -23,6 +23,7 @@ import {
   Trash2,
   Flag,
   ExternalLink,
+  OctagonAlert,
   type LucideIcon,
 } from "lucide-react";
 import { Card, Chip, Avatar } from "@/components/ui";
@@ -38,10 +39,12 @@ import {
   trashThreadAction,
   loadMoreInboxAction,
   loadLabelInboxAction,
+  loadSystemViewAction,
   linkThread,
   unlinkThread,
 } from "@/lib/actions/inbox";
-import type { ThreadChannel, ThreadStatus } from "@/lib/types";
+import type { ThreadChannel, ThreadStatus, SystemViewKey } from "@/lib/types";
+import { SYSTEM_VIEWS } from "@/lib/types";
 import type { Audience, InboxData, InboxThread, ThreadReader } from "@/lib/inbox";
 
 /** The single active lens over the thread list. Smart view is the default; a
@@ -53,8 +56,32 @@ type Lens =
   | { kind: "view"; view: ThreadStatus }
   | { kind: "channel"; channel: ThreadChannel }
   | { kind: "label"; id: string; name: string }
+  | { kind: "system"; view: SystemViewKey }
   | { kind: "audience"; audience: Audience }
   | { kind: "project"; slug: string; label: string };
+
+/** Namespaced cache key for a server-fetched lens (label or system view). One
+ *  slot holds whichever is open; switching keys refetches, re-clicking is a
+ *  cache hit. `null` for lenses served from the already-loaded thread list. */
+function remoteKeyOf(lens: Lens): string | null {
+  if (lens.kind === "label") return `label:${lens.id}`;
+  if (lens.kind === "system") return `system:${lens.view}`;
+  return null;
+}
+
+const SYSTEM_ICON: Record<SystemViewKey, LucideIcon> = {
+  unread: MailOpen,
+  starred: Star,
+  sent: Send,
+  spam: OctagonAlert,
+  trash: Trash2,
+};
+
+/** labelId for the label-scoped system views, so the client can filter the
+ *  already-loaded threads as a fallback before the server-scoped fetch lands. */
+const SYSTEM_LABEL_ID: Partial<Record<SystemViewKey, string>> = Object.fromEntries(
+  SYSTEM_VIEWS.filter((v) => v.labelId).map((v) => [v.key, v.labelId!]),
+);
 
 const AUDIENCE_LABEL: Record<Audience, string> = {
   client: "Clients",
@@ -149,15 +176,15 @@ export function InboxClient({
   const [readers, setReaders] = useState(data.readers);
   const [pageToken, setPageToken] = useState(data.nextPageToken);
   const [loadingMore, setLoadingMore] = useState(false);
-  // Label view is fetched server-side (scoped to that Gmail label) so it shows
-  // the label's full mail, not just whatever paged into the inbox window. Keyed
-  // by label id with its own pagination token; null until a label is opened.
-  const [labelData, setLabelData] = useState<{
-    id: string;
+  // Label + system-view lists are fetched server-side (scoped to that Gmail
+  // label / mailbox) so they show the full mail, not just whatever paged into
+  // the inbox window. One slot, namespaced by remoteKeyOf; null until opened.
+  const [remoteData, setRemoteData] = useState<{
+    key: string;
     threads: InboxThread[];
     pageToken?: string;
   } | null>(null);
-  const [labelLoading, setLabelLoading] = useState(false);
+  const [remoteLoading, setRemoteLoading] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   // Optimistic star state, keyed by thread id, until the revalidate lands.
@@ -175,18 +202,32 @@ export function InboxClient({
         return threads.filter((t) => t.view === lens.view);
       case "channel":
         return threads.filter((t) => t.channel === lens.channel);
-      case "label":
+      case "label": {
         // Prefer the server-fetched, label-scoped list once it's loaded; until
         // then (or if it fails) fall back to client-filtering the loaded inbox.
-        return labelData?.id === lens.id
-          ? labelData.threads
+        const key = `label:${lens.id}`;
+        return remoteData?.key === key
+          ? remoteData.threads
           : threads.filter((t) => (t.labelIds ?? []).includes(lens.id));
+      }
+      case "system": {
+        // Prefer the server-fetched mailbox page once it lands. Before then,
+        // fall back to filtering loaded threads by the view's system label
+        // (Unread/Starred/Sent); Spam/Trash have no local match, so show
+        // nothing until the fetch returns (the loading state covers the gap).
+        const key = `system:${lens.view}`;
+        if (remoteData?.key === key) return remoteData.threads;
+        const labelId = SYSTEM_LABEL_ID[lens.view];
+        return labelId
+          ? threads.filter((t) => (t.labelIds ?? []).includes(labelId))
+          : [];
+      }
       case "audience":
         return threads.filter((t) => t.audience === lens.audience);
       case "project":
         return threads.filter((t) => t.projectSlug === lens.slug);
     }
-  }, [threads, lens, labelData]);
+  }, [threads, lens, remoteData]);
 
   // Count of threads sitting in the Gmail inbox (the plain "Inbox" rail view).
   const inboxCount = useMemo(
@@ -248,40 +289,63 @@ export function InboxClient({
     startTransition(async () => { await linkThread(id, type, slug); });
   }
 
-  // Open a label: fetch its mail server-side (scoped to that Gmail label) with
-  // its own pagination. Re-clicking the open label is a no-op (cache stays).
-  const selectLabel = (id: string, name: string) => {
-    setLens({ kind: "label", id, name });
-    if (labelData?.id === id) return;
-    setLabelData(null);
-    setLabelLoading(true);
+  // Open a server-fetched lens (a Gmail label or a system mailbox): fetch its
+  // mail scoped server-side, with its own pagination. Re-clicking the open one
+  // is a no-op (cache stays); switching keys refetches.
+  const fetchRemote = (
+    key: string,
+    loader: () => Promise<{
+      ok: boolean;
+      threads?: InboxThread[];
+      readers?: Record<string, ThreadReader>;
+      nextPageToken?: string;
+      error?: string;
+    }>,
+  ) => {
+    if (remoteData?.key === key) return;
+    setRemoteData(null);
+    setRemoteLoading(true);
     startTransition(async () => {
-      const r = await loadLabelInboxAction(id);
+      const r = await loader();
       if (r.ok && r.threads) {
         setReaders((prev) => ({ ...prev, ...(r.readers ?? {}) }));
-        setLabelData({ id, threads: r.threads, pageToken: r.nextPageToken });
+        setRemoteData({ key, threads: r.threads, pageToken: r.nextPageToken });
       } else if (!r.ok) {
-        setNotice(r.error ?? "Couldn't load that label.");
+        setNotice(r.error ?? "Couldn't load that view.");
       }
-      setLabelLoading(false);
+      setRemoteLoading(false);
     });
   };
 
-  const onLabel = lens.kind === "label" && labelData?.id === lens.id;
-  // "Load more" pages within the open label when one is selected, else the inbox.
-  const moreToken = onLabel ? labelData?.pageToken : pageToken;
+  const selectLabel = (id: string, name: string) => {
+    setLens({ kind: "label", id, name });
+    fetchRemote(`label:${id}`, () => loadLabelInboxAction(id));
+  };
+
+  const selectSystem = (view: SystemViewKey) => {
+    setLens({ kind: "system", view });
+    fetchRemote(`system:${view}`, () => loadSystemViewAction(view));
+  };
+
+  const remoteKey = remoteKeyOf(lens);
+  const onRemote = remoteKey !== null && remoteData?.key === remoteKey;
+  // "Load more" pages within the open remote lens when one is selected, else the
+  // main inbox.
+  const moreToken = onRemote ? remoteData?.pageToken : pageToken;
 
   const loadMore = () => {
     if (!moreToken || loadingMore) return;
     setLoadingMore(true);
     startTransition(async () => {
-      const r = onLabel
-        ? await loadLabelInboxAction(lens.id, moreToken)
+      const r = onRemote
+        ? lens.kind === "label"
+          ? await loadLabelInboxAction(lens.id, moreToken)
+          : await loadSystemViewAction((lens as { view: SystemViewKey }).view, moreToken)
         : await loadMoreInboxAction(moreToken);
       if (r.ok && r.threads) {
         setReaders((prev) => ({ ...prev, ...(r.readers ?? {}) }));
-        if (onLabel) {
-          setLabelData((prev) =>
+        if (onRemote) {
+          setRemoteData((prev) =>
             prev
               ? {
                   ...prev,
@@ -323,13 +387,16 @@ export function InboxClient({
             ? AUDIENCE_LABEL[lens.audience]
             : lens.kind === "project"
               ? lens.label
-              : lens.name;
+              : lens.kind === "system"
+                ? SYSTEM_VIEWS.find((v) => v.key === lens.view)?.label ?? "Mailbox"
+                : lens.name;
 
   const isInbox = lens.kind === "inbox";
   const isView = (k: ThreadStatus) => lens.kind === "view" && lens.view === k;
   const isChannel = (k: ThreadChannel) =>
     lens.kind === "channel" && lens.channel === k;
   const isLabel = (id: string) => lens.kind === "label" && lens.id === id;
+  const isSystem = (k: SystemViewKey) => lens.kind === "system" && lens.view === k;
   const isAudience = (a: Audience) =>
     lens.kind === "audience" && lens.audience === a;
   const isProject = (slug: string) =>
@@ -421,6 +488,34 @@ export function InboxClient({
               <span className="font-mono text-[10px] text-ink-3">{v.count}</span>
             </button>
           ))}
+        </div>
+
+        <div className="my-2 h-px bg-rule" />
+        <RailLabel>Mailboxes</RailLabel>
+        <div className="flex flex-col gap-0.5">
+          {SYSTEM_VIEWS.map((v) => {
+            const Icon = SYSTEM_ICON[v.key];
+            return (
+              <button
+                key={v.key}
+                onClick={() => selectSystem(v.key)}
+                className={[
+                  "flex items-center gap-2 rounded-md px-2 py-1 text-left text-[12px]",
+                  isSystem(v.key)
+                    ? "bg-accent-soft font-semibold text-accent-2"
+                    : "text-ink-2 hover:bg-paper-3",
+                ].join(" ")}
+              >
+                <Icon className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
+                {/* No count badge: the only honest number would be one derived
+                    from what clicking shows, but these are server-fetched pages —
+                    a labels.get total counts across folders (incl. spam/trash)
+                    and wouldn't match the opened list. No badge beats a wrong
+                    one (same principle as the smart-view/channel counts). */}
+                <span className="flex-1 truncate">{v.label}</span>
+              </button>
+            );
+          })}
         </div>
 
         <div className="my-2 h-px bg-rule" />
@@ -554,16 +649,28 @@ export function InboxClient({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {labelLoading && visible.length === 0 ? (
+          {remoteLoading && visible.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
               <p className="text-[12px] text-ink-3">Loading {headerLabel}…</p>
             </div>
           ) : visible.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-              <Inbox className="size-6 text-ink-4" strokeWidth={1.5} />
-              <p className="text-[12px] text-ink-3">
-                Nothing in {headerLabel.toLowerCase()}.
-              </p>
+              {/* On an empty remote lens (a mailbox/label that failed to load)
+                  the reader — and its notice banner — never mounts, so surface a
+                  fetch error here instead of a misleading "Nothing in …". */}
+              {notice && onRemote ? (
+                <>
+                  <X className="size-6 text-flag" strokeWidth={1.5} />
+                  <p className="text-[12px] text-flag">{notice}</p>
+                </>
+              ) : (
+                <>
+                  <Inbox className="size-6 text-ink-4" strokeWidth={1.5} />
+                  <p className="text-[12px] text-ink-3">
+                    Nothing in {headerLabel.toLowerCase()}.
+                  </p>
+                </>
+              )}
             </div>
           ) : (
             visible.map((t) => (

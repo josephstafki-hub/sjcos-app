@@ -15,8 +15,9 @@ import {
   trashThread,
   fetchThreadHtml,
 } from "@/lib/gmail";
-import { draftReplyForThread, loadMoreInbox, loadLabelInbox } from "@/lib/inbox";
+import { draftReplyForThread, loadMoreInbox, loadLabelInbox, loadSystemView } from "@/lib/inbox";
 import type { InboxThread, ThreadReader } from "@/lib/inbox";
+import { SYSTEM_VIEWS, type SystemViewKey } from "@/lib/types";
 import { query } from "@/lib/db";
 
 /** Manually link a Gmail thread to a project or lead (P6-3). Upserts so
@@ -145,6 +146,33 @@ export async function loadLabelInboxAction(
   if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
   try {
     const r = await loadLabelInbox(labelId, pageToken);
+    return { ok: true, ...r };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/** Fetch a page of threads for a Gmail system view (Unread/Starred/Sent/Spam/
+ *  Trash) — clicking a "Mailboxes" rail item. pageToken pages within the view. */
+export async function loadSystemViewAction(
+  view: SystemViewKey,
+  pageToken?: string,
+): Promise<{
+  ok: boolean;
+  threads?: InboxThread[];
+  readers?: Record<string, ThreadReader>;
+  nextPageToken?: string;
+  error?: string;
+}> {
+  await requireRole("owner");
+  if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
+  // The view arrives over the wire — reject anything that isn't a known key
+  // before it reaches the fetch map.
+  if (!SYSTEM_VIEWS.some((v) => v.key === view)) {
+    return { ok: false, error: "Unknown view." };
+  }
+  try {
+    const r = await loadSystemView(view, pageToken);
     return { ok: true, ...r };
   } catch (err) {
     return { ok: false, error: (err as Error).message };

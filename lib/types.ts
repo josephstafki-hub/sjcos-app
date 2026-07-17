@@ -103,6 +103,22 @@ export type ThreadChannel = "email" | "sms" | "client_portal" | "sub_portal" | "
 export type ThreadStatus = "needs_reply" | "awaiting_them" | "snoozed" | "done";
 export type Urgency = "low" | "normal" | "high";
 
+/** Standard Gmail "mailbox" views beyond the smart-view triage lenses — the
+ *  read/unread + spam/trash slice the inbox rail was missing (P1-C4). Unread /
+ *  Starred / Sent map to Gmail system labels; Spam / Trash need a search query
+ *  because the default thread fetch deliberately excludes them. `labelId` is set
+ *  only for the label-scoped views, so the client can also filter the already-
+ *  loaded threads as a fallback before the server-scoped fetch lands. */
+export type SystemViewKey = "unread" | "starred" | "sent" | "spam" | "trash";
+
+export const SYSTEM_VIEWS: { key: SystemViewKey; label: string; labelId?: string }[] = [
+  { key: "unread", label: "Unread", labelId: "UNREAD" },
+  { key: "starred", label: "Starred", labelId: "STARRED" },
+  { key: "sent", label: "Sent", labelId: "SENT" },
+  { key: "spam", label: "Spam" },
+  { key: "trash", label: "Trash" },
+];
+
 export interface Thread {
   id: string;
   channel: ThreadChannel;

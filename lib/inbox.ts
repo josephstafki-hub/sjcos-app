@@ -6,7 +6,7 @@
 // opens a real reader pane. The AI draft-reply card routes through lib/ai.ts —
 // never a provider directly.
 
-import type { ThreadChannel, ThreadStatus } from "./types";
+import type { SystemViewKey, ThreadChannel, ThreadStatus } from "./types";
 import { ai } from "./ai";
 import { query } from "./db";
 import {
@@ -691,6 +691,45 @@ export async function loadLabelInbox(
 }> {
   const [page, labels, contactMaps] = await Promise.all([
     fetchThreadPage(INBOX_PAGE, pageToken, labelId),
+    fetchLabels(),
+    loadContactMaps(),
+  ]);
+  const labelMap = new Map(labels.map((l) => [l.id, l.name]));
+  const { threads, readerEntries } = mapRawThreads(page.threads, labelMap, contactMaps);
+  return {
+    threads,
+    readers: Object.fromEntries(readerEntries),
+    nextPageToken: page.nextPageToken,
+  };
+}
+
+// Standard Gmail mailbox views (P1-C4): Unread / Starred / Sent scope by a
+// system label; Spam / Trash need an explicit search query because the default
+// thread fetch excludes them. Server-owned so no user value ever reaches the
+// Gmail query — loadSystemView only ever looks up a known key here.
+const SYSTEM_VIEW_FETCH: Record<SystemViewKey, { labelId?: string; q?: string }> = {
+  unread: { labelId: "UNREAD" },
+  starred: { labelId: "STARRED" },
+  sent: { labelId: "SENT" },
+  spam: { q: "in:spam" },
+  trash: { q: "in:trash" },
+};
+
+/** Fetch a page of threads for a Gmail system view (Unread/Starred/Sent/Spam/
+ *  Trash), the same shape loadLabelInbox returns. Paginates via pageToken. */
+export async function loadSystemView(
+  key: SystemViewKey,
+  pageToken?: string,
+): Promise<{
+  threads: InboxThread[];
+  readers: Record<string, ThreadReader>;
+  nextPageToken?: string;
+}> {
+  const def = SYSTEM_VIEW_FETCH[key];
+  const [page, labels, contactMaps] = await Promise.all([
+    // Spam/Trash pass their own q; label-scoped views keep the default (which
+    // excludes spam/trash), so "Unread" means unread mail you can actually see.
+    fetchThreadPage(INBOX_PAGE, pageToken, def.labelId, def.q ?? "-in:spam -in:trash"),
     fetchLabels(),
     loadContactMaps(),
   ]);

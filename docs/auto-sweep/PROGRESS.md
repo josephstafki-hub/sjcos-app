@@ -5,6 +5,117 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P1-C4 — Add important Gmail views (read/unread, spam, trash) · **[x] DONE**
+
+**Your inbox rail could only show Gmail's INBOX, your smart-triage lenses, your
+channels, your user labels, and by-project — there was no way to open Unread-only,
+Spam, Trash, Sent, or Starred as their own view.** Worse, the underlying fetch
+*hard-excluded* spam and trash (`q: "-in:spam -in:trash"`), so even if you'd wanted to
+peek at spam you couldn't. This adds a **"Mailboxes"** section to the left rail with the
+five standard Gmail system views, each backed by a real server-scoped fetch so it shows
+the mailbox's *full* mail (not just whatever paged into the loaded inbox window).
+
+### What you get
+A new rail block between **Smart views** and **Channels**:
+
+| View | Fetched by | Shows |
+|---|---|---|
+| **Unread** | Gmail `UNREAD` label (+ default spam/trash exclusion) | unread mail you can actually act on |
+| **Starred** | Gmail `STARRED` label | everything you've starred/pinned |
+| **Sent** | Gmail `SENT` label | your sent mail (row shows the *recipient*, not you) |
+| **Spam** | search `in:spam` | your spam folder |
+| **Trash** | search `in:trash` | your trash folder |
+
+Clicking one server-fetches that mailbox with its own "Load more" pagination, exactly like
+clicking a user label already did.
+
+### Product decisions (the "etc." + judgment calls)
+- **Five views, not more.** "Read/unread" is satisfied by an **Unread** view — a "Read"
+  view is noise (nobody triages already-read mail). **Skipped Drafts** (the app has its own
+  compose; there's no draft-management surface to point at) and **skipped a standalone
+  Important view** (IMPORTANT already drives emphasis elsewhere, and it'd just clutter the
+  rail). Easy to add later if you want them.
+- **Spam/Trash use a search query, not a label id.** The default thread fetch excludes
+  spam/trash; rather than fight the Gmail `includeSpamTrash` flag, Spam/Trash pass an
+  explicit `q` (`in:spam` / `in:trash`) which unambiguously returns those folders. Unread/
+  Starred/Sent stay label-scoped **with** the default exclusion, so "Unread" means unread
+  mail you can see here — never unread spam.
+- **No count badges on Mailboxes rows.** The only *honest* number would be one derived from
+  what clicking actually shows, but these are server-fetched pages — a `labels.get` total
+  counts across folders (incl. spam/trash) and wouldn't match the opened list; Sent/Spam/
+  Trash totals are unbounded and useless as badges. **No badge beats a wrong badge** — same
+  "never advertise a count you can't open" principle as the P1-C2/C3 work. The list header
+  still shows the honest live `visible.length`.
+- **Rail placement:** Mailboxes sits **below** Smart views (triage is your primary flow)
+  and **above** Channels. Trivially reorderable.
+
+### How it's built (read-only — nothing is ever sent from here)
+- **`lib/gmail.ts`** — `fetchThreadPage()` gained an optional 4th `q` param defaulting to
+  the old `"-in:spam -in:trash"`, so **every existing caller behaves byte-identically**
+  (verified: `fetchThreads`, `buildFromGmail`, `loadMoreInbox`, `loadLabelInbox`, and
+  `lib/lead-thread-sync.ts` all pass ≤3 args). Only the new path passes a `q`.
+- **`lib/types.ts`** — `SystemViewKey` + a client-safe `SYSTEM_VIEWS` const (carries the
+  `labelId` for label-scoped views so the client can filter already-loaded threads as a
+  fallback before the server fetch lands). Lives in the pure-types module so the client can
+  value-import it without dragging in `server-only` DB/Gmail code.
+- **`lib/inbox.ts`** — `loadSystemView(key, pageToken?)` maps a key → fetch params via a
+  server-owned `SYSTEM_VIEW_FETCH` table and reuses the existing `mapRawThreads` +
+  `fetchLabels` + `loadContactMaps`, returning the *same* `{threads, readers,
+  nextPageToken}` shape `loadLabelInbox` returns.
+- **`lib/actions/inbox.ts`** — `loadSystemViewAction(view, pageToken?)`: owner-gated,
+  `gmailConfigured` guard, and **whitelists `view` against `SYSTEM_VIEWS`** before it can
+  reach the fetch map (no way to smuggle an arbitrary Gmail query — the `q` strings are
+  server-owned constants; the client-supplied token only ever goes to Gmail's `pageToken`).
+- **`components/inbox/InboxClient.tsx`** — generalized the label-scoped cache
+  (`labelData` → **`remoteData`**, keyed by `remoteKeyOf`: `label:<id>` / `system:<view>`)
+  so labels and system views share one fetch/pagination/dedupe path instead of duplicating
+  it. New `system` lens kind, `selectSystem`, `isSystem`, a `SYSTEM_ICON` map (Unread→MailOpen,
+  Starred→Star, Sent→Send, Spam→OctagonAlert, Trash→Trash2), header-label branch, and the
+  Mailboxes rail section. Switching label↔system refetches (key mismatch), re-click is a
+  cache no-op.
+
+### Decisions / limitations you should know
+- **System-view threads never touch the main `threads` state** — they live only in
+  `remoteData`, so opening Trash/Spam **can't** pollute smart-view counts, the Inbox tab, or
+  the audience chips. (Confirmed by Fable.)
+- **Spam/Trash threads render the normal reader** (they're `channel:"email"`), so star / mark
+  read / archive / reply controls are present — Gmail itself allows acting on spam/trash.
+  **No new send path was added**; replies still go only through the existing owner-gated,
+  you-click-Send actions.
+- **Added polish:** if a mailbox fetch *fails*, the error now shows in the empty list state
+  (previously the error banner only mounted inside the reader, which doesn't render when the
+  list is empty — so a failed Spam load would have shown a misleading "Nothing in spam").
+- **Not runtime-verified against live Gmail** in this working copy (connector not configured
+  here). The one thing static review couldn't prove is that `q:"in:spam"`/`"in:trash"`
+  returns those folders — Gmail search-box semantics say yes, and worst case is an empty
+  list (read-only), never a wrong action. A single live click on Spam + Trash is the cheap
+  confirmation when you're next in the connected app.
+- **Known pre-existing races** (not introduced here, inherited from the label path): a
+  "Load more" response landing after a fast lens switch can append to the wrong slot; the
+  open Unread list is a snapshot (marking read from the ⋮ menu drops the thread only after
+  you leave and return). Cosmetic; flagged for completeness.
+
+### Fable's plan / review
+**Plan (Fable 5):** validated the fetch-split approach and pre-empted several things —
+put the shared const in `lib/types.ts` (client can't value-import `lib/inbox.ts`), default
+the new `q` param so callers are untouched, whitelist the action `view`, generalize the
+label cache rather than duplicate loadMore, and omit count badges on honesty grounds.
+**Review (Fable 5): SHIP IT** — no blocking issues. Confirmed all existing `fetchThreadPage`
+callers unchanged, the remote-cache switch/refetch/dedupe logic, no leakage into
+smart-view counts, the `(lens as …).view` cast is only reachable when `kind==="system"`,
+owner-gating + view whitelist + no q-injection, and no outbound-send path added. Its one
+actionable non-blocking note (invisible fetch error on an empty remote lens) I fixed before
+committing.
+
+### Verify
+`npx tsc --noEmit` → exit 0. `npm run lint` → 0 errors (same 11 pre-existing warnings, none
+in the touched files). No build run, service/:3017 untouched, nothing sent outward.
+
+**Files:** `lib/types.ts`, `lib/gmail.ts`, `lib/inbox.ts`, `lib/actions/inbox.ts`,
+`components/inbox/InboxClient.tsx`.
+
+---
+
 ## 2026-07-17 · P1-C3 — Make Channels work · **[x] DONE**
 
 **Your Channels rail was decoration.** Email / SMS / Client portal / Sub portal / Website

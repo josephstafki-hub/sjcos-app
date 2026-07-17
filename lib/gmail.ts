@@ -367,18 +367,21 @@ export async function fetchThreads(max = 20): Promise<RawGmailThread[]> {
 }
 
 /** One page of threads plus the token for the next page (undefined when there
- *  are no more). Drives the inbox's "Load more". */
+ *  are no more). Drives the inbox's "Load more". The default `q` excludes spam
+ *  and trash; pass an explicit `q` (e.g. "in:spam" / "in:trash") to reach those
+ *  system mailboxes — see loadSystemView in lib/inbox.ts. */
 export async function fetchThreadPage(
   max = 50,
   pageToken?: string,
   labelId?: string,
+  q = "-in:spam -in:trash",
 ): Promise<{ threads: RawGmailThread[]; nextPageToken?: string }> {
   const api = gmail();
   const me = await fetchProfileEmail();
   const list = await api.users.threads.list({
     userId: "me",
     maxResults: max,
-    q: "-in:spam -in:trash",
+    q,
     // Scope to a single Gmail label when given (clicking a label in the rail);
     // Gmail ANDs labelIds with q, so this returns that label's mail server-side.
     ...(labelId ? { labelIds: [labelId] } : {}),

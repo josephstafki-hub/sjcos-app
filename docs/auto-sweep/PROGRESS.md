@@ -5,6 +5,86 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P1-C2 — Evaluate the four inbox smart views · **[x] DONE**
+
+**You asked me to put the four smart views on trial: do they earn their spot, do they
+actually work, and how hard would they be to fix? Verdict: keep all four, but one of them
+was lying to you and I fixed it.** The important finding up front — none of these are broken
+plumbing. They're all derived by one function, `viewOf()` in `lib/inbox.ts`, from flags Gmail
+already hands us per thread. So this was an *evaluation-and-honesty* item, not a build-a-feature
+item; the code change is deliberately small because three of the four already work. Here's the
+call on each.
+
+### Verdict table (the "document the call for each" this item asked for)
+
+| View | Works? | Useful? | Difficulty | Call |
+|---|---|---|---|---|
+| **Needs reply** | Yes — inbound + in-inbox + not-bulk + not-snoozed | Yes, it's the heartbeat | n/a (it's the default lens) | **KEEP as-is** |
+| **Awaiting them** | Yes — you sent the last message (`outbound`) | Yes — "did they ever answer me" | n/a | **KEEP as-is** |
+| **Snoozed** | Yes, but **read-only** — mirrors Gmail's own `SNOOZED` set | Yes, consolidates what you snoozed in Gmail | An in-app **Snooze button is not buildable** | **KEEP, read-only** |
+| **Done today** | Half — showed the right *kind* of thread, but the "today" was fiction | The bucket is useful; the label wasn't | Relabel = trivial; true "today" = impossible | **FIXED → renamed "Done"** |
+
+### The one that was lying: "Done today"
+It was labeled **Done today** but the code (`viewOf`) put a thread there whenever it was
+**archived** (`!inInbox`) **or** bulk (promos/social/forums) — with **zero date scoping**. So
+"today" was never true: it showed everything you'd ever archived that happened to be in the
+loaded window, mixed with promotional mail. And it **can't** be made literally true — the Gmail
+API exposes no "when was this archived" timestamp, so there's no honest way to compute "done
+*today*." Rather than fake it (e.g. filtering on last-message date, which is a different kind of
+wrong), I **renamed it "Done"** and documented it as the "off my plate" bucket = archived + bulk.
+The label now matches what the data can actually support.
+
+### Snoozed: kept, but you should know its ceiling
+It faithfully surfaces threads **you** snoozed in Gmail. But there is **no in-app Snooze
+button and I did not add one** — the Gmail API has no snooze-write endpoint (snooze is a
+Gmail-UI-only feature; the API can't set a `snoozeUntil`). So this view can *show* snoozes but
+the app can't *create* them. It's a read-only mirror. Worth keeping (one place to see snoozed
+mail), as long as you know snoozing itself still happens in Gmail. If you ever want app-native
+snooze, it'd have to be a home-grown "hide until date" stored in our own DB, not Gmail's — a
+real feature, not a fix. Say the word.
+
+### Two things I fixed so the worthwhile ones actually *work* (not just re-labeled)
+1. **Archive is now optimistic.** Before, archiving a thread from the reader menu left it
+   sitting in Needs reply (and the new Inbox tab) until a full reload — the exact staleness the
+   P1-C1 note flagged. Now `archiveSelected` drops it out of the inbox and into Done the instant
+   you click, so Needs reply behaves like a real queue you can clear. A snoozed thread stays
+   snoozed (Gmail keeps `SNOOZED` through an archive), matching what a re-fetch would compute.
+   Fable caught a mobile dead-end in my first pass — on a phone the reader is full-screen, so
+   archiving the last thread in a lens left a blank screen with no back button; `archiveSelected`
+   now also returns you to the list (Gmail-mobile behavior). Fixed and re-verified.
+2. **Mock rail counts stopped lying.** In mock mode (Gmail not configured) the rail hardcoded
+   *Awaiting 8 / Snoozed 3 / Done 11* while the mock thread list is 100% needs_reply — click one
+   and you'd get an empty list under a non-zero badge. Now derived from the list itself
+   (`countViews(THREADS)`), so a badge never advertises threads that aren't there. (The mock
+   *channel* counts still hardcode a few — same class of quirk, but channels are out of scope
+   for this item; flagging for P1-C3/C7.)
+
+### Deliberate non-changes (documented so they don't look like misses)
+- `ThreadStatus` type (`needs_reply|awaiting_them|snoozed|done`) — **unchanged**. "done" is the
+  key; only its display label changed. Keeping the key means `viewOf` routing, `countViews`, the
+  DB `threads.status` CHECK, and the `lib/automate.ts` schema-description string all stay valid.
+- Bulk-in-inbox threads (a Home Depot promo still in your inbox) land in **Done** *and* also show
+  under the plain **Inbox** tab (P1-C1, since they carry the `INBOX` label). That's intentional,
+  not a double-count bug — they're different lenses on the same thread, same as Gmail.
+
+### Fable's plan / review
+**Plan:** confirmed the per-view verdict, and added the two amendments above (optimistic archive
+so "Done" is live; truthful mock counts) — both folded in. **Review verdict: SHIP**, after it
+caught the mobile blank-pane dead-end (fixed) and confirmed the optimistic `setThreads` doesn't
+break the `visible`/`selected`/`inboxCount` memos, the `menuAction`→`run` path runs the action
+exactly once, and `countViews(THREADS)` fully satisfies the `Record<ThreadStatus, number>` type.
+Its only remaining notes are nits already covered here (no rollback-on-failure — consistent with
+the existing star/relink patterns; brief rail-badge lag until `revalidatePath` lands).
+
+### Verify
+`npx tsc --noEmit` → exit 0. `npm run lint` → 0 errors (same 11 pre-existing warnings, none in
+the touched files). `grep "Done today"` → gone from source (only this branch's sweep docs mention
+it, as audit history). No build run, service/:3017 untouched, nothing sent outward.
+
+**Files:** `lib/inbox.ts`, `components/inbox/InboxClient.tsx`.
+
+---
+
 ## 2026-07-17 · P1-C1 — Add a regular Inbox tab · **[x] DONE**
 
 **Your Inbox only had "smart" views and no plain inbox.** The left rail led with

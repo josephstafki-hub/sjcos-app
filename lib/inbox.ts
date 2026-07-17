@@ -20,7 +20,9 @@ import {
 
 // ─── Left rail: smart views, channels, by-project ───────────────────────────
 
-/** Smart views map to ThreadStatus plus a "done today" slice of done. */
+/** Smart views map 1:1 to ThreadStatus. "Done" = archived or bulk (off my
+ *  plate); "Snoozed" mirrors Gmail's own snooze (read-only — the Gmail API has
+ *  no snooze-write endpoint, so we surface Gmail's snoozes, never set our own). */
 export const SMART_VIEWS: {
   key: ThreadStatus;
   label: string;
@@ -30,7 +32,9 @@ export const SMART_VIEWS: {
   { key: "needs_reply", label: "Needs reply", dot: "flag" },
   { key: "awaiting_them", label: "Awaiting them", dot: "ghost" },
   { key: "snoozed", label: "Snoozed", dot: "ghost" },
-  { key: "done", label: "Done today", dot: "ghost" },
+  // "Done", not "Done today": Gmail exposes no archive timestamp, so a literal
+  // "today" scope isn't derivable — this is the "off my plate" bucket.
+  { key: "done", label: "Done", dot: "ghost" },
 ];
 
 /** Channel display labels, in rail order. Icons are mapped in the component. */
@@ -761,15 +765,10 @@ async function buildFromGmail(): Promise<InboxData> {
 // ─── Mock builder ────────────────────────────────────────────────────────────
 
 async function buildFromMock(): Promise<InboxData> {
-  const needReply = THREADS.filter((t) => t.view === "needs_reply");
-
-  // Static counts for views/channels/projects not represented in the mock list.
-  const viewCounts: Record<ThreadStatus, number> = {
-    needs_reply: needReply.length,
-    awaiting_them: 8,
-    snoozed: 3,
-    done: 11,
-  };
+  // Truthful smart-view counts derived from the mock list itself, so a rail
+  // badge never advertises threads that aren't there when the view is opened.
+  const viewCounts = countViews(THREADS);
+  // Static counts for channels not represented in the mock list.
   const channelCounts: Record<ThreadChannel, number> = {
     email: 4,
     sms: 2,

@@ -355,6 +355,25 @@ export function InboxClient({
     run(fn);
   };
 
+  // Archive, optimistically: drop the thread out of the inbox and into Done so
+  // it leaves Needs reply / Inbox immediately instead of lingering until reload.
+  // A snoozed thread stays snoozed (Gmail keeps SNOOZED through an archive).
+  const archiveSelected = () => {
+    if (!selected) return;
+    const id = selected.id;
+    setThreads((ts) =>
+      ts.map((t) =>
+        t.id === id
+          ? { ...t, inInbox: false, view: t.view === "snoozed" ? t.view : "done" }
+          : t,
+      ),
+    );
+    // On mobile the reader occupies the whole screen; once the thread leaves the
+    // lens there's no back button, so return to the list (matches Gmail mobile).
+    setMobileReader(false);
+    menuAction(() => archiveThreadAction(id));
+  };
+
   return (
     <div className="flex h-full">
       {/* ─── Sources rail ─────────────────────────────────────────── */}
@@ -656,10 +675,7 @@ export function InboxClient({
                         >
                           Mark important
                         </MenuItem>
-                        <MenuItem
-                          icon={Archive}
-                          onClick={() => menuAction(() => archiveThreadAction(selected.id))}
-                        >
+                        <MenuItem icon={Archive} onClick={archiveSelected}>
                           Archive
                         </MenuItem>
                         <div className="my-1 h-px bg-rule" />

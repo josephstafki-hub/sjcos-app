@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  OPERATOR CONSOLE — PHASE 0 DEMO MOCK  (static, no build step)
+  ============================================================================
+  Spec: docs/operator-console-plan.md  (§1 layout, §Phase 0 done-when)
+  Status: DEMO ONLY. This is a hand sketch to show Joe the concept before any
+          app code is written. Nothing here is wired to the real database — the
+          titles below are a snapshot of Joe's real Today queue (2026-07-17) so
+          it reads true, but every button is scripted, not live.
+
+  HOW TO OPEN
+    Double-click this file (or `xdg-open docs/reference/operator-console-mock.html`).
+    No server, no build — it runs from disk in any browser.
+
+  WALKTHROUGH SCRIPT (what to show Joe)
+    1. Open the mock. The center chat opens with a pinned "Here's the queue
+       right now" bubble that NUMBERS every priority — so Joe can just say
+       "do #2".
+    2. Point at card #2 (Dembinski) and its "▶ Have Hermes do it" chip. The
+       right-hand WORKBENCH is already focused on that lead — its header fields
+       (Stage / Flag / Value…) and a live event timeline.
+    3. Press the big "▶ Simulate run" button (top of the chat). Over ~10s watch
+       THREE things move at once:
+         (a) CHAT   — a hand-off line, then a ticking "Hermes is working · Ns"
+                      heartbeat with activity lines ("Reading lead…",
+                      "Drafting follow-up…").
+         (b) WORKBENCH FIELD — the lead's "Flag" flashes from "Needs reply"
+                      to "—" the moment Hermes clears it.
+         (c) WORKBENCH TIMELINE — a highlighted receipt row drops in:
+                      "receipt: email draft created — Dembinski follow-up".
+       When the run lands, the chat says the draft is parked for approval
+       (NOTHING is sent) and the queue card checks off.
+    4. Re-press "Simulate run" any time — it resets cleanly and replays.
+
+  This mock intentionally changes NO source files. Phase 1+ (the real /operator
+  route) is GATED on Joe's approval per the plan.
+  ============================================================================
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Operator Console — demo mock</title>
+<style>
+  :root {
+    /* pulled from app/globals.css so the sketch matches the real palette */
+    --paper: #f1ece1; --paper-2: #eae4d6; --paper-3: #e1dac8; --paper-4: #d6cdb8;
+    --ink: #2c3326; --ink-2: #4b5142; --ink-3: #767a69; --ink-4: #a7a992;
+    --accent: #4c5a40; --accent-2: #38442d; --accent-soft: #dee2cf;
+    --ai: #5b7e72; --ai-2: #35514a; --ai-soft: #dce7e1;
+    --flag: #a8552f; --flag-soft: #f0dccf;
+    --money: #4c5a40; --money-soft: #dee2cf;
+    --rule: #cdc6b2; --rule-soft: #ded8c5;
+    --shadow-card: 0 1px 2px rgba(44, 51, 38, 0.04);
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    --serif: "Iowan Old Style", Georgia, "Times New Roman", serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  a { color: inherit; }
+
+  /* ---- top bar ---- */
+  .topbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 18px; border-bottom: 1px solid var(--rule);
+    background: var(--paper-2);
+  }
+  .topbar .brand { font-family: var(--serif); font-weight: 700; font-size: 16px; }
+  .topbar .crumb { color: var(--ink-3); font-size: 12.5px; }
+  .topbar .demo-tag {
+    margin-left: auto; font-family: var(--mono); font-size: 10px; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--ink-3);
+    border: 1px solid var(--rule); border-radius: 999px; padding: 3px 9px; background: var(--paper);
+  }
+
+  /* ---- three-panel grid (§1.3) ---- */
+  .grid {
+    display: grid; gap: 14px; padding: 14px;
+    grid-template-columns: minmax(240px, 0.9fr) minmax(360px, 1.4fr) minmax(280px, 1fr);
+    align-items: start;
+  }
+  @media (max-width: 1180px) { .grid { grid-template-columns: 1fr 1.2fr; } .grid .queue-rail { display: none; } }
+  @media (max-width: 760px)  { .grid { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--paper); border: 1px solid var(--rule); border-radius: 10px;
+    box-shadow: var(--shadow-card); overflow: hidden;
+  }
+  .panel-head {
+    padding: 9px 14px; border-bottom: 1px solid var(--rule); background: var(--paper-2);
+    font-family: var(--mono); font-size: 10px; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--ink-3); display: flex; align-items: center; gap: 8px;
+  }
+
+  /* ---- queue rail ---- */
+  .card {
+    padding: 10px 12px; border-bottom: 1px solid var(--rule-soft); cursor: default;
+  }
+  .card:last-child { border-bottom: 0; }
+  .card.done { opacity: .5; }
+  .card .rank { font-family: var(--mono); font-size: 11px; color: var(--ink-4); }
+  .card .tag {
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: .05em; text-transform: uppercase;
+    border-radius: 4px; padding: 1px 5px; margin-left: 4px;
+  }
+  .tag.permit { background: var(--flag-soft); color: var(--flag); }
+  .tag.lead   { background: var(--ai-soft);  color: var(--ai-2); }
+  .tag.money  { background: var(--money-soft); color: var(--money); }
+  .tag.quote  { background: var(--accent-soft); color: var(--accent-2); }
+  .card .title { font-size: 13px; margin-top: 3px; color: var(--ink); }
+  .card .sub   { font-size: 11.5px; color: var(--ink-3); margin-top: 1px; }
+  .card .row2  { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+  .lane {
+    font-family: var(--mono); font-size: 9.5px; color: var(--ink-4);
+    margin-left: auto;
+  }
+  .chip {
+    font-size: 10.5px; border: 1px solid var(--rule); background: var(--paper-2);
+    border-radius: 6px; padding: 2px 7px; cursor: pointer; color: var(--ink-2);
+  }
+  .chip:hover { background: var(--accent-soft); }
+  .chip.primary { background: var(--ai-soft); border-color: var(--ai); color: var(--ai-2); }
+  .waiting-note { padding: 9px 12px; font-size: 11.5px; color: var(--ink-3); }
+  .waiting-item { padding: 6px 12px; font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--rule-soft); }
+
+  /* ---- chat ---- */
+  .chat-body { display: flex; flex-direction: column; height: 560px; }
+  .chat-controls {
+    display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--rule-soft);
+  }
+  .agent-pick { display: flex; gap: 5px; }
+  .agent-pick button {
+    font-size: 11px; border: 1px solid var(--rule); background: var(--paper-2); color: var(--ink-2);
+    border-radius: 6px; padding: 3px 9px; cursor: pointer;
+  }
+  .agent-pick button.on { background: var(--accent); color: #fff; border-color: var(--accent-2); }
+  .sim-btn {
+    margin-left: auto; font-size: 12px; font-weight: 600; cursor: pointer;
+    background: var(--accent); color: #fff; border: 0; border-radius: 7px; padding: 6px 12px;
+  }
+  .sim-btn:disabled { opacity: .5; cursor: default; }
+  .transcript { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 9px; }
+  .bubble { max-width: 92%; padding: 8px 11px; border-radius: 10px; font-size: 12.5px; white-space: pre-wrap; }
+  .bubble.assistant { background: var(--ai-soft); color: var(--ink); align-self: flex-start; }
+  .bubble.user { background: var(--accent); color: #fff; align-self: flex-end; }
+  .bubble.system { background: var(--paper-3); color: var(--ink-2); align-self: flex-start; font-style: italic; }
+  .working {
+    align-self: flex-start; font-size: 12px; color: var(--ai-2);
+    background: var(--ai-soft); border-radius: 10px; padding: 8px 11px; max-width: 92%;
+  }
+  .working .tick { font-weight: 600; }
+  .activity { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); margin-top: 4px; white-space: pre-wrap; }
+  .composer { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--rule); }
+  .composer input {
+    flex: 1; border: 1px solid var(--rule); border-radius: 8px; padding: 8px 10px; font-size: 13px;
+    background: var(--paper-2); color: var(--ink);
+  }
+  .composer .send { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 0 14px; cursor: pointer; }
+
+  /* ---- workbench ---- */
+  .wb-head { padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+  .wb-dot { display: inline-block; width: 8px; height: 8px; border-radius: 999px; background: var(--ink-4); margin-right: 7px; vertical-align: middle; }
+  .wb-dot.live { background: var(--ai); animation: pulse 1.1s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+  .wb-title { font-family: var(--serif); font-size: 15px; font-weight: 600; }
+  .wb-sub { font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
+  .wb-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; padding: 10px 14px; }
+  .wb-field .k { font-family: var(--mono); font-size: 9px; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-4); }
+  .wb-field .v { font-size: 12.5px; color: var(--ink); }
+  .wb-field.flash { background: var(--ai-soft); border-radius: 5px; padding: 2px 5px; margin: -2px -5px; transition: background .4s; }
+  .wb-work { border-top: 1px solid var(--rule); padding: 8px 14px; font-size: 11.5px; color: var(--ink-2); }
+  .wb-work .wi { margin: 2px 0; }
+  .wb-work .wi .st { color: var(--ink-4); }
+  .wb-timeline { border-top: 1px solid var(--rule); padding: 8px 14px; max-height: 220px; overflow-y: auto; }
+  .ev { display: flex; gap: 8px; padding: 4px 0; font-size: 12px; }
+  .ev.new { background: var(--ai-soft); border-radius: 5px; margin: 0 -6px; padding: 4px 6px; }
+  .ev .when { width: 52px; flex: none; font-family: var(--mono); font-size: 10px; color: var(--ink-4); }
+  .ev .badge { width: 46px; flex: none; font-family: var(--mono); font-size: 9.5px; color: var(--ink-3); }
+  .ev .txt { color: var(--ink-2); }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <span class="brand">SJC OS</span>
+    <span class="crumb">Operator</span>
+    <span class="demo-tag">demo mock · not wired</span>
+  </div>
+
+  <div class="grid">
+    <!-- ========================= LEFT: QUEUE RAIL ========================= -->
+    <div class="panel queue-rail">
+      <div class="panel-head">Queue · Priorities</div>
+      <div id="queue"></div>
+      <div class="panel-head" style="border-top:1px solid var(--rule)">Waiting on me</div>
+      <div id="waiting"></div>
+    </div>
+
+    <!-- ========================= CENTER: CHAT ========================= -->
+    <div class="panel">
+      <div class="panel-head">
+        Operator chat
+        <span style="margin-left:auto;font-family:var(--serif);text-transform:none;letter-spacing:0;font-size:12px;color:var(--ink-3)">talk to Hermes · Claude · Qwen</span>
+      </div>
+      <div class="chat-body">
+        <div class="chat-controls">
+          <div class="agent-pick" id="agents">
+            <button class="on" data-agent="Hermes">Hermes</button>
+            <button data-agent="Claude">Claude</button>
+            <button data-agent="Qwen">Qwen</button>
+          </div>
+          <button class="sim-btn" id="simBtn">▶ Simulate run</button>
+        </div>
+        <div class="transcript" id="transcript"></div>
+        <div class="composer">
+          <input id="composer" placeholder='Tell me which one to take — "do #2"' />
+          <button class="send">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================= RIGHT: WORKBENCH ========================= -->
+    <div class="panel">
+      <div class="panel-head">Workbench · live record</div>
+      <div class="wb-head">
+        <div><span class="wb-dot" id="wbDot"></span><span class="wb-title">Adrienne &amp; Michael Dembinski</span></div>
+        <div class="wb-sub">Lead · Phase 1 addition · quote sent</div>
+      </div>
+      <div class="wb-fields" id="wbFields"></div>
+      <div class="wb-work">
+        <div class="wi">• Follow up after quote review window <span class="st">(waiting_on_human)</span></div>
+        <div class="wi">• Prep Phase 1 addition rough estimate packet <span class="st">(open)</span></div>
+      </div>
+      <div class="panel-head" style="border-top:1px solid var(--rule)">Event timeline</div>
+      <div class="wb-timeline" id="wbTimeline"></div>
+    </div>
+  </div>
+
+<script>
+// ---------------------------------------------------------------------------
+// DATA — a snapshot of Joe's real Today queue (2026-07-17). Scripted, not live.
+// ---------------------------------------------------------------------------
+const PRIORITIES = [
+  { rank: "#1", tag: "permit", tagLabel: "permit", title: "Resolve Battey 4444 6th St permit deficiency",
+    sub: "Columbia Heights foundation/code verification", lane: "needs you", laneClass: "deep" },
+  { rank: "#2", tag: "lead", tagLabel: "lead", title: "Follow up Adrienne & Michael Dembinski",
+    sub: "Phase 1 addition rough estimate · quote review window", lane: "agent can complete", laneClass: "chat", target: true },
+  { rank: "#3", tag: "money", tagLabel: "money", title: "Track New Kingdom final invoice payment",
+    sub: "IN-10051 · then final CO for Craig", lane: "needs you", laneClass: "deep" },
+  { rank: "#4", tag: "quote", tagLabel: "quote", title: "Price Dan & Kelli custom vanity/cabinet direction",
+    sub: "Leaning custom cabinets · countertop TBD", lane: "one click", laneClass: "quick" },
+  { rank: "#5", tag: "lead", tagLabel: "lead", title: "Follow up Laurel Gollinger if still quiet",
+    sub: "Screen door / porch pricing sent", lane: "agent can complete", laneClass: "chat" },
+];
+const WAITING = [
+  "Review Mahowald drawings when Heather sends today",
+  "Call Isaiah/Sophia — resolve peninsula layout constraints",
+  "Review Molly Egan forwarded trade estimates",
+  "Confirm Elaine Louiselle cabinet lead time/start window",
+  "Follow up Benjamin & Heather Vasko rough estimate",
+];
+const FIELDS_INITIAL = [
+  { k: "Stage", v: "Quote sent" },
+  { k: "Flag", v: "Needs reply", flag: true },
+  { k: "Last contact", v: "3d ago" },
+  { k: "Value", v: "$48,200" },
+  { k: "Scope", v: "Second-story addition" },
+  { k: "Email", v: "adrienne.d@…" },
+];
+const EVENTS_INITIAL = [
+  { when: "3d ago",  badge: "activity", txt: "Rough estimate emailed — Phase 1 addition" },
+  { when: "3d ago",  badge: "run",      txt: "hermes · prepared estimate packet" },
+  { when: "6d ago",  badge: "activity", txt: "Site visit notes logged" },
+  { when: "8d ago",  badge: "activity", txt: "Lead created from web inquiry" },
+];
+
+// ---------------------------------------------------------------------------
+// RENDER
+// ---------------------------------------------------------------------------
+const $ = (id) => document.getElementById(id);
+
+function renderQueue() {
+  $("queue").innerHTML = PRIORITIES.map((p, i) => `
+    <div class="card" data-i="${i}">
+      <div><span class="rank">${p.rank}</span><span class="tag ${p.tag}">${p.tagLabel}</span></div>
+      <div class="title">${p.title}</div>
+      <div class="sub">${p.sub}</div>
+      <div class="row2">
+        ${p.laneClass === "chat" ? `<span class="chip primary" data-do="${i}">▶ Have Hermes do it</span>` : `<span class="chip">Inspect</span>`}
+        <span class="lane">${p.lane}</span>
+      </div>
+    </div>`).join("");
+  $("queue").querySelectorAll("[data-do]").forEach((el) =>
+    el.addEventListener("click", () => { if (el.getAttribute("data-do") === "1") runSimulation(); }));
+}
+function renderWaiting() {
+  $("waiting").innerHTML =
+    `<div class="waiting-note">…plus ${WAITING.length} more waiting on you.</div>` +
+    WAITING.map((w) => `<div class="waiting-item">${w}</div>`).join("");
+}
+function renderFields() {
+  $("wbFields").innerHTML = FIELDS_INITIAL.map((f) =>
+    `<div class="wb-field" data-k="${f.k}"><div class="k">${f.k}</div><div class="v">${f.v}</div></div>`).join("");
+}
+function renderTimeline(events, newIds = new Set()) {
+  $("wbTimeline").innerHTML = events.map((e, i) =>
+    `<div class="ev ${newIds.has(i) ? "new" : ""}"><span class="when">${e.when}</span><span class="badge">${e.badge}</span><span class="txt">${e.txt}</span></div>`).join("");
+}
+function narration() {
+  const lines = PRIORITIES.map((p) => `${p.rank} [${p.tagLabel}] ${p.title} — ${p.sub} (${p.lane})`);
+  return ["Here's the queue right now:", ...lines,
+    `…plus ${WAITING.length} more waiting on you.`, "",
+    `Tell me which one to take — "do #2", or use the chips on a card. I'll draft anything client-facing for your approval instead of sending it.`
+  ].join("\n");
+}
+
+// agent picker
+$("agents").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  $("agents").querySelectorAll("button").forEach((x) => x.classList.remove("on"));
+  b.classList.add("on");
+});
+
+// ---------------------------------------------------------------------------
+// SIMULATE RUN — the scripted "live" moment (§Phase 0 done-when)
+// ---------------------------------------------------------------------------
+let running = false;
+let timers = [];
+
+function resetConsole() {
+  timers.forEach(clearTimeout); timers = [];
+  running = false;
+  $("simBtn").disabled = false;
+  $("simBtn").textContent = "▶ Simulate run";
+  $("wbDot").classList.remove("live");
+  // rebuild transcript, fields, timeline from scratch
+  $("transcript").innerHTML = `<div class="bubble assistant">${narration()}</div>`;
+  renderFields();
+  renderTimeline(EVENTS_INITIAL);
+  // un-check any done cards
+  $("queue").querySelectorAll(".card.done").forEach((c) => c.classList.remove("done"));
+}
+
+function addBubble(cls, text) {
+  const el = document.createElement("div");
+  el.className = "bubble " + cls; el.textContent = text;
+  $("transcript").appendChild(el); $("transcript").scrollTop = $("transcript").scrollHeight;
+  return el;
+}
+function later(fn, ms) { const t = setTimeout(fn, ms); timers.push(t); return t; }
+
+function runSimulation() {
+  if (running) return;
+  resetConsole();
+  running = true;
+  $("simBtn").disabled = true;
+  $("simBtn").textContent = "● running…";
+  $("wbDot").classList.add("live");
+
+  addBubble("user", "▶ Have Hermes do it — #2 Follow up Adrienne & Michael Dembinski");
+
+  // ticking heartbeat + activity lines
+  const work = document.createElement("div");
+  work.className = "working";
+  work.innerHTML = `<span>Hermes is working · <span class="tick">0s</span></span><div class="activity"></div>`;
+  $("transcript").appendChild(work);
+  const tickEl = work.querySelector(".tick");
+  const actEl = work.querySelector(".activity");
+  const start = Date.now();
+  const hb = setInterval(() => { tickEl.textContent = Math.round((Date.now() - start) / 1000) + "s"; }, 250);
+  timers.push({ __interval: hb });
+
+  const activity = [
+    [1200, "Reading lead — Dembinski, Phase 1 addition"],
+    [2600, "Pulling quote context from Open Brain"],
+    [4200, "Checking last-contact + follow-up cadence"],
+    [5800, "Drafting follow-up email (approval-gated)"],
+  ];
+  activity.forEach(([ms, line]) =>
+    later(() => { actEl.textContent += (actEl.textContent ? "\n" : "") + "› " + line; }, ms));
+
+  // ~7s: receipt row drops into the workbench timeline (highlighted)
+  later(() => {
+    const events = [
+      { when: "now", badge: "receipt", txt: "email draft created — Dembinski follow-up" },
+      ...EVENTS_INITIAL,
+    ];
+    renderTimeline(events, new Set([0]));
+  }, 7000);
+
+  // ~8s: Flag field flashes Needs reply -> —
+  later(() => {
+    const fld = $("wbFields").querySelector('[data-k="Flag"]');
+    fld.classList.add("flash");
+    fld.querySelector(".v").textContent = "—";
+  }, 8000);
+
+  // ~10s: run lands — heartbeat stops, draft parked, card checks off
+  later(() => {
+    clearInterval(hb);
+    work.remove();
+    addBubble("assistant", "Draft ready for your approval — a follow-up to Adrienne & Michael. Nothing was sent; it's parked in your approval queue.");
+    addBubble("system", "Queue updated · #2 checked off · next backlog item promotes in.");
+    $("wbDot").classList.remove("live");
+    const card = $("queue").querySelector('.card[data-i="1"]');
+    if (card) card.classList.add("done");
+    running = false;
+    $("simBtn").disabled = false;
+    $("simBtn").textContent = "▶ Simulate run";
+  }, 10200);
+}
+
+// clean any intervals stored in timers on reset
+const _origReset = resetConsole;
+resetConsole = function () {
+  timers.forEach((t) => { if (t && t.__interval) clearInterval(t.__interval); });
+  _origReset();
+};
+
+$("simBtn").addEventListener("click", runSimulation);
+
+// ---------------------------------------------------------------------------
+// INIT
+// ---------------------------------------------------------------------------
+renderQueue();
+renderWaiting();
+resetConsole();
+</script>
+</body>
+</html>

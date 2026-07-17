@@ -5,6 +5,77 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P2-2 — Operator console (DEMO) · **[!] PARKED (needs Joe)**
+
+**Built the Phase 0 demo and STOPPED at the GATE.** The item explicitly says:
+"build the DEMO, then STOP and park for Joe's approval before implementing
+further. (He wants to see/like it first.)" So this iteration delivered exactly
+that — the demo mock — and nothing else. **No `/operator` route, no app code,
+no DB touched.** Phases 1–4 of `docs/operator-console-plan.md` stay parked
+until Joe looks at the mock and says "yes, build it."
+
+### What I built
+- **`docs/reference/operator-console-mock.html`** — one self-contained static
+  file (no build step, opens directly from disk in any browser). Implements the
+  §1.3 three-panel layout:
+  - **Left — Queue rail:** 5 numbered priorities (real titles from Joe's live
+    Today queue, 2026-07-17: Battey permit, Dembinski follow-up, New Kingdom
+    invoice, Dan & Kelli vanity pricing, Laurel Gollinger) + "Waiting on me"
+    list. Chat-lane cards show a "▶ Have Hermes do it" chip.
+  - **Center — Operator chat:** agent picker (Hermes/Claude/Qwen), a pinned
+    deterministic **narration bubble** that numbers the queue so Joe can say
+    "do #2", transcript, and a composer.
+  - **Right — Workbench:** the Dembinski lead's header fields (Stage / Flag /
+    Last contact / Value / Scope / Email), open work items, and an event
+    timeline (activity + run rows).
+- **The scripted "live" moment** (the whole point of the demo): a top-of-chat
+  "▶ Simulate run" button (also fires from card #2's chip) plays a ~10s
+  sequence — (a) a hand-off user line + a ticking `Hermes is working · Ns`
+  heartbeat with activity lines appended ("Reading lead…", "Drafting
+  follow-up…"), (b) at ~7s a highlighted `receipt: email draft created —
+  Dembinski follow-up` row drops into the workbench timeline, (c) at ~8s the
+  lead's **Flag** field flashes `Needs reply` → `—`, (d) at ~10s the run lands:
+  heartbeat stops, chat says the draft is **parked for approval (nothing sent)**,
+  the queue card checks off. Re-pressing resets cleanly and replays (timers +
+  intervals cleared, fields/timeline/transcript rebuilt).
+- **Walkthrough script** for Joe lives in the file's header comment.
+- Palette pulled verbatim from `app/globals.css` (paper/ink/ai-soft/rule tokens)
+  so the sketch reads like the real app.
+
+### Plan source (Step 1)
+Fable 5 planner was **credit-blocked again** ("Usage credits are required for
+this model" — same as the P2-1 iteration). Fell back to the plan doc's own very
+detailed **Phase 0 — Demo** spec (`docs/operator-console-plan.md`), which
+prescribes the exact file path, the three panels, and the exact simulate
+sequence. That spec WAS the plan; I followed its "done when" checklist.
+
+### Review (Step 4)
+Fable 5 reviewer also credit-blocked. Self-reviewed against the Phase 0
+"done when": file opens from disk ✓, simulate plays the sequence ✓, `git status`
+shows ONLY the new mock under `docs/` (no source files changed) ✓. Also
+node-parsed the embedded JS (190 lines, no syntax errors) and confirmed every
+referenced element id exists in the markup.
+
+### Guardrails
+- **Guardrail 4 (no outbound):** it's a static HTML sketch — no network, no
+  sends; the simulated draft is explicitly "parked for approval."
+- **GATE honored:** demo only. Did NOT create `app/operator/*`,
+  `components/operator/*`, `lib/workbench.ts`, `operatorContext`, or the Sidebar
+  nav item — all of that is Phase 1+ and waits on Joe.
+- Guardrails 1–3, 5 (no build / no prod restart / branch-only / tsc+lint green):
+  respected. tsc clean; lint 0 errors (11 pre-existing warnings).
+
+### For Joe
+Open `docs/reference/operator-console-mock.html` in a browser and hit
+**▶ Simulate run**. If you like it, say so and the next sweep can start Phase 1
+(the real read-only `/operator` route). If you want the layout/wording changed,
+note it and the mock gets adjusted before any app code.
+
+Files changed: `docs/reference/operator-console-mock.html` (new),
+`docs/auto-sweep/TASKS.md`, `docs/auto-sweep/PROGRESS.md`.
+
+---
+
 ## 2026-07-17 · P2-1 — Voice-to-text for text inputs (app-wide) · **[x] DONE**
 
 **Dictation is now a drop-in, self-gating primitive wired into every high-value

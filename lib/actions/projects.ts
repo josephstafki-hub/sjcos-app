@@ -11,7 +11,7 @@ import { emit } from "@/lib/notify";
 import { sendNewEmailAction } from "@/lib/actions/inbox";
 import { createMilestoneInvoice } from "@/lib/actions/money";
 import { sendCompletionOutreach } from "@/lib/actions/closeout";
-import { autoDraftSocialOnCompletion } from "@/lib/actions/marketing";
+import { autoDraftSocialOnCompletion, autoDraftBlogOnCompletion } from "@/lib/actions/marketing";
 import { parseDrawSchedule } from "@/lib/draw-schedule";
 import { queueSubPortalInvite, markSubInviteApproved } from "@/lib/sub-invites";
 import {
@@ -162,11 +162,12 @@ export async function advanceProjectStatus(slug: string) {
   await billMilestonesForStatus(slug, next.key);
 
   // On reaching the warranty stage, fire completion outreach once (P4-2) and
-  // auto-draft a social post (P6-2).
+  // auto-draft a social post (P6-2) + a website blog post (P2-4).
   if (next.key === "warranty") {
     if (await autoOutreachEnabled()) await sendCompletionOutreach(slug);
     try {
       await autoDraftSocialOnCompletion(slug);
+      await autoDraftBlogOnCompletion(slug);
     } catch {
       /* never block the status change on a marketing draft */
     }

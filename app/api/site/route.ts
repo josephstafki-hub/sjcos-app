@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { getSiteData } from "@/lib/site";
+import { getSiteComposerData } from "@/lib/site";
 
-// GET /api/site — the CMS payload (pages, auto-publish queue, home content).
-// Mock-backed today (see lib/site.ts); reads the live site in Phase 7.
+// GET /api/site — the Website Content Composer payload (blog post drafts + the
+// per-project media-readiness the composer flags). Read-only; nothing here
+// publishes outward. See lib/site.ts.
 export async function GET() {
-  const data = await getSiteData();
+  const data = await getSiteComposerData();
   return NextResponse.json(data);
 }

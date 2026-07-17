@@ -5,6 +5,80 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P2-4 — Website content composer · **[x] DONE**
+
+**Replaced the mock Site tab with a real Website Content Composer that writes the
+blog post on project close-out and asks for photos/video when none are on file.**
+GATE honored — nothing publishes outward.
+
+### What I built
+- **`/site` is now the Website Content Composer** (mock CMS deleted). Nav label
+  "Site" → **"Website"** (`components/shell/Sidebar.tsx`, same `/site` href + Globe
+  icon). Two-pane UI (`components/site/SiteClient.tsx`, full rewrite): a left rail
+  of blog posts + a "Write blog post" project picker; a right-pane editor with
+  Copy / Save edits / **Mark posted** / Delete and the app-wide voice-dictation
+  mic (P2-1 `VoiceButton` + `mergeTranscript`) on the body.
+- **Backed by the existing `marketing_drafts` table (`kind='blog'`)** — deliberate
+  reuse so there is **no schema migration** against the live prod DB. Reads:
+  `lib/site.ts` rewritten (`getSiteComposerData` → blog drafts + per-project media
+  counts). Writes reuse `lib/actions/marketing.ts` (`generateDraft`/`updateDraft`/
+  `markPosted`/`deleteDraft` already accept `kind='blog'`); added
+  `revalidatePath("/site")` alongside `/marketing` on each.
+- **Auto-writes the blog post on close-out.** New `autoDraftBlogOnCompletion(slug)`
+  in `lib/actions/marketing.ts`, called from `advanceProjectStatus` in the existing
+  `next.key === "warranty"` completion block (same hook as the social auto-draft +
+  completion outreach), inside the same never-throw try/catch so it can't block the
+  status change. Deduped per project (`kind='blog'` existence check); manual Generate
+  stays unlimited. AI failure falls back to the deterministic `draftPrompt("blog")`
+  template that already existed.
+- **Asks for photos/video if not uploaded.** Media readiness = real photo uploads
+  only (`files.type='img' AND storage_path IS NOT NULL` — showcase rows have no
+  blob and must not satisfy the ask). When a project has zero real photos: the
+  composer shows a "needs photos" chip in the rail + an amber banner in the editor
+  linking to `/projects/<slug>` Files, **and** the auto-draft `emit()`s an **owner**
+  notification ("Blog draft ready — needs photos"). Video is a filename-extension
+  heuristic over doc-typed files (the `files` table has no `video` type).
+- Restored `app/api/site/route.ts` (now serving `getSiteComposerData`) rather than
+  deleting it — the generated `.next/**/validator.ts` still references the route
+  and I can't regenerate it without a build (guardrail). Read-only, no consumers.
+
+### GATE / guardrails
+No outbound path anywhere: `emit()` only inserts a `notifications` row; `markPosted`
+only flips a DB status; no fetch/email/SMS/CMS API in the composer or auto-draft.
+The editor copy states plainly that publishing is manual. All writes `requireRole("owner")`.
+
+### Fable 5 — plan (Step 1) & review (Step 4)
+Both ran this iteration (not credit-blocked). Plan matched my approach (reuse
+`marketing_drafts`, warranty hook, owner-notification ask, extension heuristic).
+Review verdict: **sound overall**, accomplishes P2-4, guardrails clean — with one
+**substantive fix**: the media counts must filter `storage_path IS NOT NULL` or
+curated showcase `img` rows would suppress the "needs photos" ask (exactly the
+projects likely seeded in the live DB). **Fixed** in both `lib/site.ts` and
+`lib/actions/marketing.ts`; also tightened the banner wording for the video-only
+edge case. Re-verified green.
+
+### Verify
+`npx tsc --noEmit` → clean. `npm run lint` → 0 errors (11 pre-existing warnings,
+none in the touched files). Not run: `npm run build` / service restart (guardrail).
+
+### Files changed
+`app/site/page.tsx`, `app/api/site/route.ts`, `components/site/SiteClient.tsx`,
+`components/shell/Sidebar.tsx`, `lib/site.ts`, `lib/actions/marketing.ts`,
+`lib/actions/projects.ts`, plus `docs/auto-sweep/{TASKS,PROGRESS}.md`.
+
+### Decisions Joe should know
+- **Blog drafts now appear on BOTH `/site` and `/marketing`** (shared table). The
+  Website composer is the authoring home; `/marketing` keeps social + shows blog
+  too. Left intentionally — didn't want to change Marketing behavior mid-sweep.
+- **Close-out trigger = reaching the `warranty` stage**, matching how the codebase
+  already defines "completion" for social + outreach (not the earlier `closeout`
+  stage). One auto blog draft per project, ever.
+- **No live-website publishing** was built (by design / GATE). Deferred: a real
+  `video` file type in the schema, and a CMS/API push path if Joe ever wants
+  one-click publish.
+
+---
+
 ## 2026-07-17 · P2-3 — iPhone/iPad apps · **[~] PARTIAL (coherent slice: iPad support)**
 
 **Slice done: promoted the existing iPhone app to a first-class iPad app and made

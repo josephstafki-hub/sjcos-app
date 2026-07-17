@@ -1,14 +1,13 @@
 import { Shell } from "@/components/shell/Shell";
 import { SiteClient } from "@/components/site/SiteClient";
-import { getSiteData } from "@/lib/site";
+import { getSiteComposerData } from "@/lib/site";
 
 export default async function SitePage() {
-  const data = await getSiteData();
+  const data = await getSiteComposerData();
 
-  // hideCmd: the 2-pane editor fills the viewport; the ⌘K pill would overlap.
   return (
-    <Shell breadcrumb="SITE · SJCARPENTRYLLC.COM · /admin" hideCmd>
-      <SiteClient data={data} />
+    <Shell breadcrumb="WEBSITE · CONTENT COMPOSER · BLOG">
+      <SiteClient posts={data.posts} projects={data.projects} />
     </Shell>
   );
 }

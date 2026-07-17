@@ -56,7 +56,7 @@ const WORK: NavItem[] = [
 ];
 
 const TOOLS: NavItem[] = [
-  { label: "Site", href: "/site", icon: Globe },
+  { label: "Website", href: "/site", icon: Globe },
   { label: "Newsletter", href: "/newsletter", icon: Mail },
   { label: "Catalog", href: "/catalog", icon: LayoutGrid },
   { label: "Cost book", href: "/cost-book", icon: Calculator },

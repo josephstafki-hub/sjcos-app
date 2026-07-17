@@ -416,7 +416,7 @@ server.registerTool(
     },
   },
   async ({ status, assignee_key, project_slug, lead_slug, due_before, limit = 50 }) => {
-    const conds = [];
+    const conds = ["(l.id IS NULL OR l.stage <> 'lost' OR w.status IN ('done','cancelled'))"];
     const params = [];
     if (status) { params.push(status); conds.push(`w.status = $${params.length}`); }
     if (assignee_key) { params.push(assignee_key); conds.push(`w.assignee_key = $${params.length}`); }
@@ -885,6 +885,7 @@ server.registerTool(
           AND w.assignee_kind = 'human'
           AND (w.assignee_key IS NULL OR w.assignee_key = 'human-joe')
           AND (w.lead_id IS NOT NULL OR w.project_id IS NOT NULL)
+          AND (l.id IS NULL OR l.stage <> 'lost')
         ORDER BY (w.promoted_at IS NOT NULL) DESC,
                  array_position(ARRAY['urgent','high','normal','low'], w.priority),
                  w.due_at NULLS LAST, w.updated_at DESC, w.id`,
@@ -911,6 +912,7 @@ server.registerTool(
     const r = await rows(
       `UPDATE work_items
           SET due_at = GREATEST(now(), COALESCE(due_at, now())) + make_interval(days => $2),
+              snoozed_until = now() + make_interval(days => $2),
               promoted_at = NULL,
               updated_at = now()
         WHERE id = $1 AND status NOT IN ('done','cancelled')

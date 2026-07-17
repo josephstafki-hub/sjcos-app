@@ -41,11 +41,13 @@ export async function setWorkItemStatus(id: string, status: WorkItemStatus, note
         SET status = $2,
             blocked_reason = CASE WHEN $2 IN ('blocked','waiting_on_human','waiting_on_client','waiting_on_sub')
                                   THEN $3 ELSE blocked_reason END,
-            completed_at = CASE WHEN $2 = 'done' THEN now() ELSE completed_at END
+            completed_at = CASE WHEN $2 = 'done' THEN now() ELSE completed_at END,
+            updated_at = now()
       WHERE id = $1`,
     [id, status, note ?? null],
   );
   revalidatePath("/engine");
+  revalidatePath("/today");
   return { ok: true };
 }
 

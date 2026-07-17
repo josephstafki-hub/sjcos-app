@@ -71,6 +71,7 @@ interface WorkRow {
   approval_status: string;
   blocked_reason: string | null;
   created_at: string;
+  lead_stage: string | null;
 }
 
 function rowToItem(r: WorkRow): WorkItemView {
@@ -101,10 +102,12 @@ export async function getEngineData(): Promise<EngineData> {
     query<WorkRow>(
       `SELECT w.id, w.title, w.body, w.status, w.priority, w.assignee_kind, w.assignee_key, w.due_at::text AS due_at,
               p.slug AS project_slug, l.slug AS lead_slug, w.expected_skill_slug, w.expected_runbook_slug,
-              w.requires_approval, w.approval_status, w.blocked_reason, w.created_at::text AS created_at
+              w.requires_approval, w.approval_status, w.blocked_reason, w.created_at::text AS created_at,
+              l.stage AS lead_stage
          FROM work_items w
          LEFT JOIN projects p ON p.id = w.project_id
          LEFT JOIN leads l ON l.id = w.lead_id
+        WHERE (l.id IS NULL OR l.stage <> 'lost' OR w.status IN ('done','cancelled'))
         ORDER BY array_position(ARRAY['urgent','high','normal','low']::text[], w.priority),
                  w.due_at NULLS LAST, w.created_at DESC`,
     ),

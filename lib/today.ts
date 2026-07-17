@@ -172,7 +172,8 @@ export const OPEN_WORK_ITEMS_SQL = `
      WHERE w.status NOT IN ('done','cancelled')
        AND w.assignee_kind = 'human'
        AND (w.assignee_key IS NULL OR w.assignee_key = 'human-joe')
-       AND (w.lead_id IS NOT NULL OR w.project_id IS NOT NULL)`;
+       AND (w.lead_id IS NOT NULL OR w.project_id IS NOT NULL)
+       AND (l.id IS NULL OR l.stage <> 'lost')`;
 
 export const OPEN_WORK_ITEMS_ORDER_SQL = `
      ORDER BY array_position(ARRAY['urgent','high','normal','low'], w.priority),
@@ -268,7 +269,7 @@ async function fetchQueueSources(): Promise<QueueSources> {
         ORDER BY (status = 'construction') DESC, progress DESC, name`),
       query<FlaggedLeadRow>(`
         SELECT slug, name, scope, flag_label
-        FROM leads WHERE flag_kind = 'flag'
+        FROM leads WHERE flag_kind = 'flag' AND stage <> 'lost'
         ORDER BY updated_at DESC`),
       query<TodayWorkItemRow>(`${OPEN_WORK_ITEMS_SQL}${OPEN_WORK_ITEMS_ORDER_SQL}`),
       query<ScheduleRow>(`

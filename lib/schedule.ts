@@ -23,6 +23,14 @@ export interface ScheduleBlock {
   /** The project this block belongs to, if any. NULL = standalone meeting. */
   projectSlug?: string;
   projectName?: string;
+  /** True for auto-derived entries (project start/end dates, lead-task due
+   *  dates, warranty deadlines) — computed live from the entities, never stored
+   *  in schedule_blocks. Rendered read-only with an "AUTO" tag. */
+  auto?: boolean;
+  /** Link target for derived entries that aren't tied to a project slug
+   *  (a lead page, the warranty board). */
+  href?: string;
+  hrefLabel?: string;
 }
 
 /** A project option for the "Block / New meeting" picker. */
@@ -84,6 +92,18 @@ interface LogRow {
   body: string;
   photos: number;
 }
+/** A read-only schedule entry derived live from a project/lead/warranty date.
+ *  `source` picks the tone; `project_slug`/`href` decide the footer link. */
+interface DerivedRow {
+  iso: string;
+  time_label: string;
+  label: string;
+  source: string;
+  project_slug: string | null;
+  project_name: string | null;
+  href: string | null;
+  href_label: string | null;
+}
 interface WeekRow {
   weeknum: string;
   range_start: string;
@@ -106,7 +126,7 @@ function weekBounds(offset: number) {
 
 export async function getScheduleData(weekOffset = 0): Promise<ScheduleData> {
   const { monday: MONDAY, friday: FRIDAY } = weekBounds(weekOffset);
-  const [daysRes, blocksRes, logsRes, weekRes] = await Promise.all([
+  const [daysRes, blocksRes, logsRes, weekRes, derivedRes] = await Promise.all([
     query<DayRow>(`
       SELECT to_char(d, 'YYYY-MM-DD') AS iso,
              to_char(d, 'DY')         AS dow,
@@ -130,6 +150,58 @@ export async function getScheduleData(weekOffset = 0): Promise<ScheduleData> {
       SELECT to_char(${MONDAY}, 'FMIW')           AS weeknum,
              to_char(${MONDAY}, 'FMMon FMDD')     AS range_start,
              to_char(${FRIDAY}, 'FMMon FMDD')     AS range_end`),
+    // Auto-derived entries (P1-E1): schedule-relevant dates pulled live from
+    // Projects, Leads (open follow-up tasks), and Warranties, bounded to the
+    // visible week. Nothing here is stored in schedule_blocks. `src_rank` keeps
+    // the per-day order stable (project starts/ends → lead tasks → warranty).
+    query<DerivedRow>(`
+      SELECT iso, time_label, label, source, src_rank,
+             project_slug, project_name, href, href_label
+      FROM (
+        SELECT to_char(p.start_date, 'YYYY-MM-DD') AS iso, 'START' AS time_label,
+               'Project start' AS label, 'project' AS source, 1 AS src_rank,
+               p.slug AS project_slug, p.name AS project_name,
+               NULL::text AS href, NULL::text AS href_label
+        FROM projects p
+        WHERE p.start_date >= ${MONDAY} AND p.start_date <= ${FRIDAY}
+        UNION ALL
+        SELECT to_char(p.target_end_date, 'YYYY-MM-DD'), 'END',
+               'Target completion', 'project', 2,
+               p.slug, p.name, NULL, NULL
+        FROM projects p
+        WHERE p.target_end_date >= ${MONDAY} AND p.target_end_date <= ${FRIDAY}
+        UNION ALL
+        SELECT to_char(t.due_date, 'YYYY-MM-DD'), 'DUE',
+               t.title, 'lead', 3,
+               NULL, NULL, '/leads/' || l.slug, l.name
+        FROM lead_tasks t
+        JOIN leads l ON l.id = t.lead_id
+        WHERE t.done = false AND l.stage <> 'lost'
+          AND t.due_date >= ${MONDAY} AND t.due_date <= ${FRIDAY}
+        UNION ALL
+        SELECT to_char(w.warranty_ends_at, 'YYYY-MM-DD'), 'WTY',
+               'Warranty ends', 'warranty', 4,
+               NULL, NULL, '/warranty', w.project
+        FROM warranty_projects w
+        WHERE w.warranty_ends_at >= ${MONDAY} AND w.warranty_ends_at <= ${FRIDAY}
+        UNION ALL
+        SELECT to_char(c.ack_deadline_at, 'YYYY-MM-DD'), 'ACK',
+               'Ack due: ' || c.issue, 'warranty', 5,
+               cp.slug, cp.name, '/warranty', c.project
+        FROM warranty_claims c
+        LEFT JOIN projects cp ON cp.id = c.project_id
+        WHERE c.acknowledged = false AND c.resolved = false
+          AND c.ack_deadline_at >= ${MONDAY} AND c.ack_deadline_at <= ${FRIDAY}
+        UNION ALL
+        SELECT to_char(c.resolve_deadline_at, 'YYYY-MM-DD'), 'FIX',
+               'Resolve due: ' || c.issue, 'warranty', 6,
+               cp.slug, cp.name, '/warranty', c.project
+        FROM warranty_claims c
+        LEFT JOIN projects cp ON cp.id = c.project_id
+        WHERE c.resolved = false
+          AND c.resolve_deadline_at >= ${MONDAY} AND c.resolve_deadline_at <= ${FRIDAY}
+      ) d
+      ORDER BY iso, src_rank, label`),
   ]);
 
   const blocksByDay = new Map<string, ScheduleBlock[]>();
@@ -146,6 +218,30 @@ export async function getScheduleData(weekOffset = 0): Promise<ScheduleData> {
     blocksByDay.set(b.iso, list);
   }
 
+  // Derived entries append after the day's manual blocks (which carry real
+  // clock times); tone keys off the source: job dates = accent, lead follow-ups
+  // = ai, warranty = ghost.
+  const DERIVED_TONE: Record<string, BlockTone> = {
+    project: "accent",
+    lead: "ai",
+    warranty: "ghost",
+  };
+  const derivedByDay = new Map<string, ScheduleBlock[]>();
+  for (const r of derivedRes.rows) {
+    const list = derivedByDay.get(r.iso) ?? [];
+    list.push({
+      time: r.time_label,
+      label: r.label,
+      tone: DERIVED_TONE[r.source] ?? "ghost",
+      auto: true,
+      projectSlug: r.project_slug ?? undefined,
+      projectName: r.project_name ?? undefined,
+      href: r.project_slug ? undefined : r.href ?? undefined,
+      hrefLabel: r.project_slug ? undefined : r.href_label ?? undefined,
+    });
+    derivedByDay.set(r.iso, list);
+  }
+
   const logsByDay = new Map<string, LogRow>();
   for (const l of logsRes.rows) logsByDay.set(l.iso, l);
 
@@ -154,7 +250,7 @@ export async function getScheduleData(weekOffset = 0): Promise<ScheduleData> {
     date: d.date,
     iso: d.iso,
     today: d.today,
-    blocks: blocksByDay.get(d.iso) ?? [],
+    blocks: [...(blocksByDay.get(d.iso) ?? []), ...(derivedByDay.get(d.iso) ?? [])],
   }));
 
   const entries: DailyLogEntry[] = daysRes.rows.map((d) => {

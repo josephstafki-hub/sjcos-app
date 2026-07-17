@@ -132,7 +132,10 @@ export default async function SchedulePage({
                   const t = TONE[b.tone];
                   return (
                     <Card key={i} kind={t.card} className="px-1.5 py-1">
-                      <div className={`font-mono text-[9px] ${t.time}`}>{b.time}</div>
+                      <div className={`flex items-baseline justify-between font-mono text-[9px] ${t.time}`}>
+                        <span>{b.time}</span>
+                        {b.auto ? <span className="text-ink-4">AUTO</span> : null}
+                      </div>
                       <div className={`mt-0.5 text-[11px] leading-snug ${t.label}`}>{b.label}</div>
                       {b.projectSlug ? (
                         <Link
@@ -141,9 +144,16 @@ export default async function SchedulePage({
                         >
                           {b.projectName}
                         </Link>
+                      ) : b.href ? (
+                        <Link
+                          href={b.href}
+                          className="mt-1 inline-block font-mono text-[8.5px] uppercase tracking-[0.1em] text-ink-3 underline-offset-2 hover:underline"
+                        >
+                          {b.hrefLabel}
+                        </Link>
                       ) : (
                         <div className="mt-1 font-mono text-[8.5px] uppercase tracking-[0.1em] text-ink-4">
-                          Standalone
+                          {b.auto ? "Auto-pulled" : "Standalone"}
                         </div>
                       )}
                     </Card>

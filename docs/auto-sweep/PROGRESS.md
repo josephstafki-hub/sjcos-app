@@ -5,6 +5,77 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P1-E1 — Schedule auto-pulls from Projects, Leads, Warranties · **[x] DONE**
+
+**The /schedule week view now auto-surfaces schedule-relevant dates from your
+entities — you no longer have to hand-enter a block for every project start,
+follow-up, or warranty deadline.** These auto entries are read-only, computed
+live on every page load, and tagged **AUTO** so they're visually distinct from
+the timeblocks you create manually. Nothing is written to the DB.
+
+### What now shows up automatically on the week strip
+| Source | What appears | Tone | Links to |
+|---|---|---|---|
+| **Projects** | `Project start` (start_date) + `Target completion` (target_end_date) | accent (job) | `/projects/<slug>` |
+| **Leads** | each open follow-up task's title on its `due_date` (excludes done tasks + `lost` leads) | ai | `/leads/<slug>` |
+| **Warranties** | `Warranty ends` (warranty_projects.warranty_ends_at); `Ack due: …` (claim ack_deadline, until acknowledged); `Resolve due: …` (claim resolve_deadline, until resolved) | ghost | `/warranty` (or `/projects/<slug>` when the claim is linked to a project) |
+
+All bounded to the visible Mon–Fri week (week-nav arrows apply to them too).
+Manual timeblocks still render first (they carry real clock times); auto entries
+append below, ordered project → lead → warranty.
+
+### Files changed
+- `lib/schedule.ts` — extended `ScheduleBlock` (optional `auto`/`href`/`hrefLabel`);
+  added `DerivedRow` type; added a 6-branch `UNION ALL` derived query as a 5th
+  member of the existing `Promise.all`; built `derivedByDay` (+ `DERIVED_TONE` map)
+  and merged it after manual blocks in the `days` mapping. Pure SELECT, no writes.
+- `app/schedule/page.tsx` — block card shows an `AUTO` tag when `b.auto`; footer
+  link is now three-way (project slug → `/projects`; else `href` → lead/warranty;
+  else "Auto-pulled"/"Standalone").
+
+### Verify
+- `npx tsc --noEmit`: clean. `npm run lint`: 0 errors (only pre-existing warnings,
+  none in touched files).
+- **Live read-only check**: ran `getScheduleData` across 8 sampled weeks — 0 derived
+  rows because the prod DB currently has **no** start/target dates, lead-task due
+  dates, warranty end dates, or claim deadlines populated (all four source fields
+  are empty today). To prove the query logic, ran the derived SQL inside a DB
+  **transaction with temp rows then ROLLBACK** (prod untouched): a project start +
+  a lead-task due (both dated today) surfaced correctly, and a target-end +
+  warranty-end that landed on Sat/Sun were correctly excluded by the Mon–Fri bounds.
+
+### Fable plan summary
+Add one 6-branch UNION ALL derived query to `getScheduleData`; represent derived
+entries via additive optional fields on `ScheduleBlock` (auto/href/hrefLabel); tone
+by source (project=accent, lead=ai, warranty=ghost); append derived after manual
+per day; page.tsx gets an AUTO tag + three-way footer link. Read-only, no persistence.
+
+### Fable review verdict
+**"Solid — ship it."** All three sources covered; UNION ALL column alignment,
+filters (lost/done/resolved exclusions), tone map, merge order, and the three-way
+link all verified correct against the real schema; no consumer of `getScheduleData`
+/`ScheduleBlock` broken (`/api/schedule` just re-serializes; `lib/today.ts` has its
+own type; `getScheduleConflict` reads only manual blocks so no false double-booking);
+no DB writes, no outbound sends.
+
+### Decisions / notes for Joe
+1. **Nothing is stored** — derived entries are computed live each load, matching
+   the item's "auto-pulls" intent (the schedule stays a true reflection of the
+   entities, not a stale copy). Editing a project date auto-updates the schedule.
+2. **The strip is Mon–Fri (pre-existing design).** So a deadline dated on a
+   **Saturday/Sunday never appears** in any week. Harmless for most, but for a
+   statutory warranty **ack deadline** (5-day) that's a real gap. Follow-up option:
+   clamp weekend deadlines to Friday, or surface them on the following Monday, or
+   extend the strip to 7 days. Left as-is this pass — it's a product/UX decision
+   and out of scope for "auto-pull." Flagged here so it isn't lost.
+3. **No project-status filter** on start/end: a closed/warranty-stage project with
+   a stale target date in-week would still show "Target completion." Harmless now
+   (no data); add `status NOT IN ('closeout','warranty')` later if it gets noisy.
+4. **Warranty ends auto-close** ties into P1-F1 (warranty expiry) — that item will
+   own dropping expired items; this one only *displays* the end date.
+
+---
+
 ## 2026-07-17 · P1-D4 — Team Chat: deliver comms to sub/client portals · **[x] DONE**
 
 **Team-chat messages in rooms and client DMs are now WIRED to reach the sub/client

@@ -75,6 +75,8 @@ export interface InboxThread {
   labelIds?: string[];
   /** Gmail category (primary/social/promotions/updates/forums). */
   category?: GmailCategory;
+  /** Gmail INBOX label present — drives the plain "Inbox" rail view. */
+  inInbox?: boolean;
   /** Sender resolved against DB contacts → client / sub / money chip filter. */
   audience?: Audience;
   /** Linked project slug (sender resolved to a project's client), for the rail. */
@@ -102,6 +104,7 @@ const THREADS: InboxThread[] = [
       "Hi Joe — thanks for the rough estimate. Quick Q before we move forward — we love the look of the marble but…",
     when: "9:14am",
     view: "needs_reply",
+    inInbox: true,
     tag: "Chen lead",
     emphasis: "flag",
     aiVerdict: "needs your reply",
@@ -115,6 +118,7 @@ const THREADS: InboxThread[] = [
     preview: "Tile starts today right? Send pics please",
     when: "8:52am",
     view: "needs_reply",
+    inInbox: true,
     tag: "Henderson",
     emphasis: "accent",
     activeJob: true,
@@ -128,6 +132,7 @@ const THREADS: InboxThread[] = [
     preview: "You filed Form 1099-NEC on 02/24 with a payee TIN that does not match…",
     when: "Yesterday",
     view: "needs_reply",
+    inInbox: true,
     tag: "Tax",
     emphasis: "flag",
     urgent: true,
@@ -142,6 +147,7 @@ const THREADS: InboxThread[] = [
     preview: "Sent the bid breakdown. Lemme know any Qs.",
     when: "Yesterday",
     view: "needs_reply",
+    inInbox: true,
     tag: "Pham lead",
     emphasis: "ghost",
   },
@@ -154,6 +160,7 @@ const THREADS: InboxThread[] = [
     preview: "Tuesday works. Should I be there for both subs?",
     when: "Yesterday",
     view: "needs_reply",
+    inInbox: true,
     tag: "Olson",
     emphasis: "ghost",
   },
@@ -166,6 +173,7 @@ const THREADS: InboxThread[] = [
     preview: "Hi, looking for a quote on a basement bar build…",
     when: "Sat",
     view: "needs_reply",
+    inInbox: true,
     tag: "New lead",
     emphasis: "ghost",
     aiVerdict: "new lead — triage",
@@ -397,6 +405,7 @@ function rawToThread(r: RawGmailThread, labelMap: Map<string, string>): InboxThr
     labelNames: labelNames.length ? labelNames : undefined,
     labelIds: r.labelIds,
     category: r.category,
+    inInbox: r.inInbox,
   };
 }
 

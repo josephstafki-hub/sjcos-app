@@ -5,6 +5,68 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P1-C1 — Add a regular Inbox tab · **[x] DONE**
+
+**Your Inbox only had "smart" views and no plain inbox.** The left rail led with
+*Needs reply / Awaiting them / Snoozed / Done today* — opinionated triage slices — plus
+channels, labels, and a by-project list. The only thing close to "show me everything" was
+the **All** chip in the list header, and that's not a regular inbox: it shows *every loaded
+thread including archived and sent mail*. So there was no view that answers "what's actually
+sitting in my inbox right now," the way every email client opens. That's what this adds: an
+**Inbox** entry pinned to the top of the rail that shows exactly the threads carrying Gmail's
+`INBOX` label — not archived, not (only) snoozed. Same set Gmail's own Inbox shows.
+
+### What "regular inbox" means here (the load-bearing distinction)
+| Rail entry | Shows |
+|---|---|
+| **Inbox** (new) | Threads with the Gmail `INBOX` label — the real inbox, incl. promos still in it |
+| All (chip) | Every *loaded* thread, incl. archived/sent/done — unchanged |
+| Needs reply / Awaiting / Snoozed / Done today | Smart triage slices — unchanged |
+
+Snoozed threads correctly stay out of Inbox (Gmail strips `INBOX` while snoozed) and remain
+under the Snoozed view — matches real Gmail.
+
+### How it's wired
+- **`lib/inbox.ts`** — added `inInbox?: boolean` to `InboxThread`; `rawToThread` now copies
+  `r.inInbox` (the `INBOX`-label bit `lib/gmail.ts` already computes); set `inInbox: true` on
+  all six mock threads so the tab works when Gmail isn't configured.
+- **`components/inbox/InboxClient.tsx`** — new `Lens` kind `{kind:"inbox"}`; `visible` switch
+  case filters `threads.filter(t => t.inInbox)`; a client-side `inboxCount` memo; the Inbox
+  button at the top of the rail (Inbox icon + live count, same active styling as the smart-view
+  buttons); `headerLabel` + `isInbox` branches. The exhaustive `visible` switch means tsc would
+  have failed if any lens site missed the new kind — it didn't.
+
+### Decisions you should know
+- **Default landing stays "Needs reply", not Inbox.** Your inbox is deliberately triage-first
+  (`activeView`, the server-picked first-thread selection, everything points at "what needs
+  me"). A regular Inbox tab is now one click away; making it the *default* would pull promos
+  into first paint and fight the triage flow you built. If you find yourself clicking Inbox
+  first every day, flipping the default is a ~3-line change — say the word.
+- **The count is over the loaded window (~50 threads / mock 6), not your true Gmail total.**
+  Same as every other count in that rail — consistent, not a new quirk. "Load more" grows the
+  Inbox list and its count together.
+- **Known, pre-existing, not touched:** archiving a thread from the reader menu doesn't
+  optimistically drop it from the client list, so it lingers in Inbox until reload — the exact
+  same staleness the smart views already have. Out of scope for "add the tab"; flagging it.
+- The rail (and so the Inbox tab) is desktop-only (`hidden lg:block`) — same as every existing
+  rail entry, not a regression.
+
+### Fable's plan / review
+**Plan:** new Lens kind (not overloading "All", which includes archived); carry `inInbox` onto
+`InboxThread` and set it on mock threads; top-of-rail button; keep needs_reply default; count
+client-side so it stays live through "Load more". Followed exactly.
+**Review verdict: SHIP** — traced inbox/archived semantics, Load-more pagination, exhaustiveness,
+selection fallback, and the mock path; no real problems, only the two pre-existing observations
+above. Confirmed tsc exit 0 itself.
+
+### Verify
+`npx tsc --noEmit` → exit 0. `npm run lint` → 0 errors (same 11 pre-existing warnings, none in
+the touched files). No build run, service/:3017 untouched, nothing sent outward.
+
+**Files:** `lib/inbox.ts`, `components/inbox/InboxClient.tsx`.
+
+---
+
 ## 2026-07-17 · P1-B8 — Remove Stage Check + dead buttons + avatar boxes · **[x] DONE**
 
 Two things you asked for: kill the **Stage Check** button, and strip the **decorative

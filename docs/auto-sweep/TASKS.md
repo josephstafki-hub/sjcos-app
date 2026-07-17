@@ -30,7 +30,7 @@ Update the checkbox here AND append a detailed entry to `PROGRESS.md` every iter
 - [x] **P1-B8** Remove the **Stage Check** button in projects. Audit all other project buttons for usefulness before keeping; remove the "avatar" boxes next to lead/project/warranty names (not useful in current state). Document button-by-button decisions.
 
 ### P1-C · Inbox
-- [ ] **P1-C1** Add a regular **Inbox** tab.
+- [x] **P1-C1** Add a regular **Inbox** tab.
 - [ ] **P1-C2** Evaluate "Needs reply / Awaiting them / Snoozed / Done today" for real usefulness + whether they actually work + implementation difficulty. Make the worthwhile ones work; remove the rest. Document the call for each.
 - [ ] **P1-C3** Make **Channels** work.
 - [ ] **P1-C4** Add important Gmail views: read/unread, spam, trash, etc.

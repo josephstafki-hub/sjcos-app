@@ -47,6 +47,7 @@ import type { Audience, InboxData, InboxThread, ThreadReader } from "@/lib/inbox
  *  channel, label, audience or project selection temporarily takes over
  *  (Gmail-style — one active filter at a time). */
 type Lens =
+  | { kind: "inbox" }
   | { kind: "all" }
   | { kind: "view"; view: ThreadStatus }
   | { kind: "channel"; channel: ThreadChannel }
@@ -165,6 +166,8 @@ export function InboxClient({
   // Threads visible under the current lens.
   const visible = useMemo(() => {
     switch (lens.kind) {
+      case "inbox":
+        return threads.filter((t) => t.inInbox);
       case "all":
         return threads;
       case "view":
@@ -183,6 +186,12 @@ export function InboxClient({
         return threads.filter((t) => t.projectSlug === lens.slug);
     }
   }, [threads, lens, labelData]);
+
+  // Count of threads sitting in the Gmail inbox (the plain "Inbox" rail view).
+  const inboxCount = useMemo(
+    () => threads.filter((t) => t.inInbox).length,
+    [threads],
+  );
 
   // Counts for the All/Clients/Subs/Money chips, derived from resolved senders.
   const audienceCounts = useMemo(() => {
@@ -297,7 +306,9 @@ export function InboxClient({
   };
 
   const headerLabel =
-    lens.kind === "all"
+    lens.kind === "inbox"
+      ? "Inbox"
+      : lens.kind === "all"
       ? "All mail"
       : lens.kind === "view"
         ? data.smartViews.find((v) => v.key === lens.view)?.label ?? "Inbox"
@@ -309,6 +320,7 @@ export function InboxClient({
               ? lens.label
               : lens.name;
 
+  const isInbox = lens.kind === "inbox";
   const isView = (k: ThreadStatus) => lens.kind === "view" && lens.view === k;
   const isChannel = (k: ThreadChannel) =>
     lens.kind === "channel" && lens.channel === k;
@@ -347,6 +359,20 @@ export function InboxClient({
     <div className="flex h-full">
       {/* ─── Sources rail ─────────────────────────────────────────── */}
       <aside className="hidden w-[220px] flex-none overflow-y-auto border-r border-rule bg-paper-2 p-3 lg:block">
+        <button
+          onClick={() => setLens({ kind: "inbox" })}
+          className={[
+            "mb-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px]",
+            isInbox
+              ? "bg-accent-soft font-semibold text-accent-2"
+              : "text-ink-2 hover:bg-paper-3",
+          ].join(" ")}
+        >
+          <Inbox className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
+          <span className="flex-1">Inbox</span>
+          <span className="font-mono text-[10px] text-ink-3">{inboxCount}</span>
+        </button>
+
         <Card kind="soft" className="mb-3 flex items-center gap-1.5 px-2.5 py-1.5">
           <Filter className="size-3 text-ink-3" strokeWidth={1.5} />
           <span className="flex-1 font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3">

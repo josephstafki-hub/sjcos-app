@@ -5,6 +5,84 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P2-3 (slice 2) — iPad master-detail two-pane for Projects · **[~] PARTIAL (slice done)**
+
+**Second concrete iPad slice: a real master-detail two-pane layout for the
+Projects tab on wide screens.** All work is in the separate mobile repo
+`/home/joe/sjcos-mobile` (its own git, branch `main`) — committed there. No
+files in sjcos-app changed except this sweep log + TASKS.md.
+
+### Starting point
+Slice 1 (earlier today) promoted the app to a first-class iPad app
+(`supportsTablet`, rotation) and made the shared reading column responsive, but
+every tab still just showed the phone layout scaled up. The most-called-out
+remaining iPad gap was a proper **master-detail / two-pane** layout. Projects is
+the clear candidate: it already has a list → pushed detail route
+(`/project/[slug]`), so it maps directly onto master-detail.
+
+### What I built (mobile repo)
+- **`RefreshScroll` escape hatch** (`src/components/ui.tsx`): exported
+  `WIDE_BREAKPOINT` (700) and added a `fullBleed?: boolean` prop. RefreshScroll
+  normally caps + centers a 640px reading column on wide screens, but that width
+  is derived from the **whole window**, not the container — so an embedded detail
+  in a ~407px right pane would get ~64–192px of side padding and break. `fullBleed`
+  bypasses the centering; documented inline as the trap it guards.
+- **Extracted the detail body** into `src/components/project-detail-body.tsx`
+  (`ProjectDetailBody({ slug, embedded })`) — a verbatim move of the old
+  `[slug].tsx` content (data fetch, daily-log composer, money card, logs, styles,
+  `MoneyCell`). When `embedded`: renders `fullBleed` and omits `<Stack.Screen>`
+  (the tab screen owns the header — no title collision). The route
+  `src/app/project/[slug].tsx` is now a thin wrapper
+  (`<Screen><ProjectDetailBody slug={slug} /></Screen>`) — phone behavior byte-identical.
+- **Two-pane Projects** (`src/app/(tabs)/projects.tsx`): `twoPane = width >=
+  WIDE_BREAKPOINT`. When two-pane, a `View`-based split renders the list in a
+  fixed **360px** left rail (border-right hairline, selected card gets a forest
+  2px border) beside a flex detail pane holding `ProjectDetailBody` with
+  `key={activeSlug}` (remount on switch resets the composer draft; useApi refetches
+  anyway). Card tap **selects** (two-pane) vs **pushes** (phone). Active project is
+  **pure-derived** — the current `selectedSlug` if it's still in the list, else the
+  first project — so rotation and list-refresh need no effects (avoids
+  react-hooks lint churn). Both panes' scrolls pass `fullBleed` (same trap).
+
+### Decisions / notes for Joe
+- **Phone landscape also gets two-pane** (widths ~844–932 cross 700). This is
+  consistent with the pre-existing breakpoint (the code already labels ≥700 as
+  "iPad / phone landscape"); portrait phones are untouched and push-nav still
+  works. Flagging as a known choice, not a surprise — trivially raiseable if you'd
+  rather phones never split.
+- **No new features, no schema, no backend, no outbound** — pure client layout
+  over the existing `/api/mobile/*` reads. `addDailyLog` is the same internal
+  call as before.
+- **Still `[~]`** because P2-3 (iPhone/iPad apps) has more deferred work:
+  master-detail for other tabs (Inbox already uses a thread modal; Leads/Subs
+  don't have detail routes yet), Android + mobile-web (their own todos P2-6/P2-7),
+  and EAS/TestFlight distribution (needs an Apple Developer account — yours).
+
+### Fable 5 — plan (Step 1) & review (Step 4)
+Plan (fable): export the breakpoint; add `fullBleed` to RefreshScroll; extract
+`ProjectDetailBody` (skip `<Screen>`/`<Stack.Screen>` when embedded); derive
+active slug purely (selection-if-present-else-first); `key` the pane to reset the
+composer; split View with fixed 360 rail + flex detail; verify tsc + expo lint.
+I followed it. Review (fable): **"sound — the slice does what P2-3 intended; no
+real bugs."** Verified hook ordering (all before early returns), rotation
+correctness with no effects, phone path unchanged (verbatim extraction), the
+`key` remount refetch, no unused imports / no `Stack.Screen` collision, and iPad
+portrait (768→407px detail pane) layout holds. Flagged the phone-landscape
+two-pane as a known choice (above) — no defect. No fixes required.
+
+### Files changed (in `/home/joe/sjcos-mobile`, committed on `main`)
+- `src/components/ui.tsx` — export `WIDE_BREAKPOINT`, add `fullBleed` to RefreshScroll.
+- `src/components/project-detail-body.tsx` — NEW extracted detail body.
+- `src/app/project/[slug].tsx` — slimmed to a thin wrapper.
+- `src/app/(tabs)/projects.tsx` — master-detail two-pane logic.
+
+### Verify
+`npx tsc --noEmit` → clean (exit 0). `npx expo lint` → clean (exit 0). No
+`npm run build`, no service restart, no port 3017. (Layout-only slice; not
+runtime-driven this pass — tsc + lint are the gate, per the mobile repo norm.)
+
+---
+
 ## 2026-07-17 · P2-5 — Newsletter builder · **[x] DONE**
 
 **Templates + real edit + mailing-list send + auto-greeting + open receipts + AI

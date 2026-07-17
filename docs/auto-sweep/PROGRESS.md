@@ -5,6 +5,95 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P2-3 (slice 3) — iPad master-detail two-pane for Leads · **[~] PARTIAL (slice done)**
+
+**Third concrete iPad slice: a real master-detail two-pane layout for the
+Leads tab on wide screens**, mirroring the Projects slice (slice 2). This slice
+spans BOTH repos — a new mobile-backend read endpoint in `sjcos-app` plus the
+mobile UI in `/home/joe/sjcos-mobile` (its own git, branch `main`).
+
+### Starting point
+Projects already had two-pane (slice 2). Leads was still a flat list of cards
+with no detail route and no detail endpoint — the next obvious master-detail
+candidate. `sjcos-app` already had `getLead(slug): LeadDetail` (`lib/leads.ts`),
+so the backend work was just exposing a mobile-friendly subset.
+
+### What I built
+**sjcos-app (backend — LIVE prod, files only, no build/restart):**
+- NEW `app/api/mobile/leads/[slug]/route.ts` — owner-only `GET` (same
+  401/403/404 auth shape as the projects detail route). Calls `getLead(slug)` +
+  `stageLabel(lead.stage)` and returns a **read-only mobile subset**: header
+  (name/initials/scope), stage + label, hot/age/loggedLabel, contact
+  (email/phone/address/source), collapsed referral, intake Q&A (only answered
+  rows), estimate summary, cadence, photo **count**, and `projectSlug`.
+  Intentionally omits the heavy/lazy `triageInput`, raw `conversation`,
+  `selections`, `files`, and photo ids.
+
+**sjcos-mobile (Expo app):**
+- `src/lib/api.ts` — added `getLead(slug)` (encodeURIComponent'd).
+- NEW `src/components/lead-detail-body.tsx` — `LeadDetailBody({slug, embedded})`,
+  read-only (no comms/mailto/tel actions — delivery stays owner-gated in the web
+  app). Sections: header w/ initials avatar + stage/hot/age pills (lost →
+  neutral tone), a "Converted — tap to open project" card (`router.push`
+  `/project/[slug]`) when `projectSlug` set, Contact, Referral (thanked pill),
+  Intake, Estimate (lines + total), Cadence, photo-count line. `embedded`
+  renders `RefreshScroll fullBleed` and omits `<Stack.Screen>` (same trap/escape
+  hatch as the project body).
+- NEW `src/app/lead/[slug].tsx` — thin phone push-nav wrapper (mirror of
+  `project/[slug].tsx`).
+- `src/app/_layout.tsx` — registered `lead/[slug]` Stack screen.
+- `src/app/(tabs)/leads.tsx` — ported the projects two-pane pattern verbatim
+  (adjusted for a flat list, no groups): `twoPane = width >= WIDE_BREAKPOINT`
+  (700), 360px list rail (selected card → forest 2px border) + flex detail pane;
+  active slug **pure-derived** (selection if still in list else first — survives
+  rotation/refresh, no effects); card tap **selects** (two-pane) vs
+  `router.push('/lead/…')` (phone). Phone portrait layout unchanged except cards
+  now push to the new detail route (a UX upgrade, matching the Projects
+  convention).
+
+### Fable plan / review
+- **Plan (Fable 5):** produced the two-repo file list, the JSON subset shape, and
+  edge cases; followed as written.
+- **Review (Fable 5): CLEAN** — no bugs, crashes, guardrail violations, or
+  pattern deviations. Verified every field the mobile component reads exists in
+  the route JSON; `q.value.trim()` is null-safe (`lead_intake.answer` is
+  `NOT NULL DEFAULT ''` + `?? ""`); owner-only auth matches the projects route;
+  no writes/outbound. Raised one cosmetic nit — a **draft** estimate rendered
+  "Draft Draft" (pill + `sentLabel`). **Fixed:** `sentLabel` now only shows when
+  status is `sent`. Re-verified green.
+
+### Decisions / notes for Joe
+- **Deployment reality (inherent to the no-build guardrail):** the new
+  `/api/mobile/leads/[slug]` route won't be served by the live `next start`
+  process until a future coordinated build + `sjcos.service` restart (yours).
+  Until then the iPad lead-detail pane will 404 against prod — same situation as
+  the projects detail slice. Cannot be prod-live-verified from the sweep; tsc +
+  lint are green in both repos.
+- **Un-curated leads** show `address = scope` (pre-existing backend fallback in
+  `lib/leads.ts`), so the Contact card may echo the scope as "Address". Not
+  introduced here; flag for a later backend tweak if you want it blank instead.
+- **Phone landscape also gets two-pane** (≥700px), consistent with the Projects
+  slice / existing breakpoint. Portrait phones untouched.
+
+### Verify
+- sjcos-app: `npx tsc --noEmit` clean; `npm run lint` 0 errors (11 pre-existing
+  warnings, none in touched files).
+- sjcos-mobile: `npx tsc --noEmit` clean; `npm run lint` (expo lint) exit 0.
+
+### Still `[~]`
+P2-3 (iPhone/iPad apps) has remaining deferred work: **Subs** tab master-detail
+(no sub-detail endpoint yet), Inbox already uses a thread modal, Android +
+mobile-web (own todos P2-6/P2-7), and EAS/TestFlight distribution (needs an Apple
+Developer account — yours).
+
+**Files changed:**
+- sjcos-app: `app/api/mobile/leads/[slug]/route.ts` (new),
+  `docs/auto-sweep/TASKS.md`, `docs/auto-sweep/PROGRESS.md`
+- sjcos-mobile: `src/lib/api.ts`, `src/components/lead-detail-body.tsx` (new),
+  `src/app/lead/[slug].tsx` (new), `src/app/_layout.tsx`, `src/app/(tabs)/leads.tsx`
+
+---
+
 ## 2026-07-17 · P2-3 (slice 2) — iPad master-detail two-pane for Projects · **[~] PARTIAL (slice done)**
 
 **Second concrete iPad slice: a real master-detail two-pane layout for the

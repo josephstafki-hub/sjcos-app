@@ -5,6 +5,75 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P1-B8 — Remove Stage Check + dead buttons + avatar boxes · **[x] DONE**
+
+Two things you asked for: kill the **Stage Check** button, and strip the **decorative
+avatar boxes** next to lead/project names. Both done, plus I audited the rest of the
+project-header buttons and removed one more dead one. No behavior you rely on changed.
+
+### Button-by-button audit (project detail header)
+| Button | Decision | Why |
+|---|---|---|
+| **Log update** (→ Daily log tab) | **KEPT** | Real navigation to a working tab |
+| **Send invoice** (→ Money · Invoices) | **KEPT** | Real navigation to a working tab |
+| **Stage check** (`StageSuggest`) | **REMOVED** | You asked. It was an AI "is this ready to advance?" popover — advice only; you already decide with the "Move to …" button right next to it. |
+| **Move to {next stage}** | **KEPT** | The only real stage-advance write path |
+| **"…" overflow** (`AckButton`, MoreHorizontal) | **REMOVED** | Dead control: no menu, no handler — clicking it just flashed a checkmark ("Noted") for 2 seconds and did nothing. Exactly the kind of not-useful button this item targets. Zero risk (no backend). |
+
+The `AckButton` **component** stays — it's still used on ~8 other pages (warranty, schedule,
+compliance, subs, files). I only removed the meaningless instance on the project header.
+
+### Avatar boxes removed
+"Avatar" meant two different things; I removed all four decorative instances:
+- **Project detail header** and **project list cards** (`ProjectsClient`): these were *empty*
+  accent-colored squares — pure decoration, no initials, no image. Gone.
+- **Lead detail header** and **lead list rows** (`LeadsClient`): the `<Avatar initials>` block
+  showing the lead's initials. Gone (you called these not useful in the current state).
+- **Warranty page:** checked — there is **no** avatar box on warranty cards. Nothing to remove;
+  noting it so the "warranty" part of the item is accounted for.
+- **KEPT on purpose:** the small `Avatar` for **sub initials** inside a project's Subs list
+  (`app/projects/[slug]/page.tsx`) — that one carries real info (which sub) and isn't next to
+  an entity *name*, so it's out of scope.
+
+Layout after removal: every box was the first child of a flex row whose remaining sibling is
+`flex-1` (or a fixed-width wrapper on the lead rows), so the name/title block just fills the
+row flush-left — no empty gap, no ragged alignment. Fable verified this reading the final
+markup.
+
+### Also deleted (dead code, not just hidden)
+- `components/projects/StageSuggest.tsx` — the whole component (only used on the project page).
+- `suggestProjectStage` server action in `lib/actions/projects.ts` — its only caller was
+  StageSuggest. Removed the now-orphaned `import { ai }` with it. Left `PROJECT_STATUSES` /
+  `projectStageLabel` imports — still used by `advanceProjectStatus`.
+
+### Decisions to sanity-check
+- **`lead.initials` is now computed-but-unused** in `lib/leads.ts` (list + detail payloads).
+  Left it: it's harmless, and other entities still use `initials` (subs). Flagging as a
+  future micro-cleanup, not touched under this item.
+- Removing the "…" button means the project header no longer has an overflow affordance. There
+  was nothing behind it, so nothing was lost — but if you later want a real overflow menu
+  (archive, export, etc.), that's a new build, not a regression.
+
+### Fable's plan / review
+**Plan:** delete StageSuggest + action (checked for other callers → none); remove the "…"
+AckButton; strip the four avatar boxes; drop orphaned imports; confirm flex `gap` layout needs
+no compensation. Followed it exactly.
+**Review verdict:** clean, **no confirmed bugs** — zero orphaned references, imports correct
+(`Avatar`/`Check` correctly kept where still used), layout correct, deletions safe. Only nit
+was "make sure the PROGRESS.md doc actually lands" (this entry) and the harmless `initials`
+field noted above.
+
+### Verify
+`npx tsc --noEmit` → exit 0. `npm run lint` → 0 errors (11 pre-existing warnings, none new).
+Grep confirms zero remaining `StageSuggest`/`suggestProjectStage` references and no decorative
+empty accent boxes left. No build run, service untouched.
+
+**Files:** `app/projects/[slug]/page.tsx`, `app/leads/[slug]/page.tsx`,
+`components/projects/ProjectsClient.tsx`, `components/leads/LeadsClient.tsx`,
+`components/projects/StageSuggest.tsx` (deleted), `lib/actions/projects.ts`.
+
+---
+
 ## 2026-07-16 · P1-B7 — Remove the retainer system · **[x] DONE**
 
 **The retainer ledger is gone from the app, and it never held a cent.** Before touching

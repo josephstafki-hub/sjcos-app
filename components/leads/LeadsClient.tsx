@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
-import { Avatar, Card, Chip, Eyebrow } from "@/components/ui";
+import { Card, Chip, Eyebrow } from "@/components/ui";
 import { NewLeadButton } from "@/components/leads/NewLeadButton";
 // Type-only — never pull lib/leads (→ lib/db → pg) into the client bundle.
 import type { LeadsData, LeadListItem, LeadTemperature } from "@/lib/leads";
@@ -102,7 +102,6 @@ function LeadRow({ lead: l }: { lead: LeadListItem }) {
       className="flex items-center gap-2 border-b border-rule-soft px-4 py-3 transition-colors last:border-b-0 hover:bg-paper-2"
     >
       <div className="flex w-[200px] items-center gap-2">
-        <Avatar initials={l.initials} kind={l.hot ? "accent" : "gray"} />
         <div className="min-w-0">
           <div className="truncate font-serif text-[13.5px] font-semibold text-ink">{l.name}</div>
           <div className="text-[11px] text-ink-3">{l.ageDays}d since first contact</div>

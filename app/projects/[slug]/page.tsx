@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Check, DollarSign, MoreHorizontal, Mail, FileText, ChevronRight } from "lucide-react";
+import { Check, DollarSign, Mail, FileText, ChevronRight } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { AiBubble, AckButton, AiStream, Card, Chip, Avatar, Eyebrow } from "@/components/ui";
+import { AiBubble, AiStream, Card, Chip, Avatar, Eyebrow } from "@/components/ui";
 import { CommandBar } from "@/components/cmdk/CommandBar";
 import { ProjectTabs } from "@/components/projects/ProjectTabs";
 import { PanelSections } from "@/components/projects/PanelSections";
@@ -11,7 +11,6 @@ import { TabLink } from "@/components/projects/TabNav";
 import type { ProjectTab } from "@/lib/project-tabs";
 import { WeeklyStatusSend } from "@/components/projects/WeeklyStatusSend";
 import { PunchList } from "@/components/projects/PunchList";
-import { StageSuggest } from "@/components/projects/StageSuggest";
 import { MoneyPanel } from "@/components/projects/MoneyPanel";
 import { SelectionsBoard } from "@/components/projects/SelectionsBoard";
 import { MoodBoard } from "@/components/projects/MoodBoard";
@@ -509,7 +508,6 @@ export default async function ProjectDetailPage({
         <CommandBar embedded aiContext={projectAiContext} agents={["claude", "hermes"]} />
       </div>
       <div className="mt-3 flex flex-wrap items-start gap-3.5">
-        <div className="size-12 flex-none rounded border-[1.5px] border-accent bg-accent-soft" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             {project.statusChips.map((c) => (
@@ -536,25 +534,15 @@ export default async function ProjectDetailPage({
             Send invoice
           </TabLink>
           {nextStatus && (
-            <>
-              <StageSuggest slug={slug} />
-              <form action={moveToNextStatus}>
-                <button
-                  type="submit"
-                  className="rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
-                >
-                  Move to {nextStatus.label}
-                </button>
-              </form>
-            </>
+            <form action={moveToNextStatus}>
+              <button
+                type="submit"
+                className="rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
+              >
+                Move to {nextStatus.label}
+              </button>
+            </form>
           )}
-          <AckButton
-            variant="outline"
-            className="px-1.5 text-ink-3"
-            icon={<MoreHorizontal className="size-3.5" strokeWidth={1.5} />}
-            label=""
-            ackLabel="Noted"
-          />
         </div>
       </div>
     </div>

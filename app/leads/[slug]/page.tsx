@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { FileText } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { Card, Chip, Avatar, Eyebrow } from "@/components/ui";
+import { Card, Chip, Eyebrow } from "@/components/ui";
 import { CommandBar } from "@/components/cmdk/CommandBar";
 import { LeadTabs } from "@/components/leads/LeadTabs";
 import { getLead, STAGES, stageIndex, stageLabel, suggestedProjectName } from "@/lib/leads";
@@ -291,7 +291,6 @@ export default async function LeadDetailPage({
 
         {/* Header */}
         <div className="mt-2 flex flex-wrap items-start gap-4">
-          <Avatar initials={lead.initials} kind="accent" size="lg" />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-1.5">
               <Chip kind="ghost">Source: {lead.source}</Chip>

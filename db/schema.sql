@@ -415,7 +415,9 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- ─── Team chat ──────────────────────────────────────────────────────────────
--- Messages live here; channels/rooms/DMs are static constants in lib/chat.ts.
+-- Messages live here. Bare channels are owner-managed rows in chat_channels
+-- (P1-D1); project rooms (room:<slug>) and DMs (dm:<slug>) stay key-convention
+-- only (rooms derive from projects, DMs from subs) and are NOT stored here.
 CREATE TABLE IF NOT EXISTS chat_messages (
   id              bigserial PRIMARY KEY,
   channel_key     text NOT NULL,
@@ -435,14 +437,59 @@ CREATE TABLE IF NOT EXISTS chat_reads (
 );
 
 -- Channel membership: which subs (trade partners) are in a channel/room. The
--- owner and the AI are implicit members of every channel and are NOT stored.
--- DMs (dm:<slug>) are 1:1 and don't use this table.
+-- owner is an implicit member of every channel and is NOT stored. AI models are
+-- per-channel members via chat_ai_members (below), not implicit. DMs (dm:<slug>)
+-- are 1:1 and don't use this table.
 CREATE TABLE IF NOT EXISTS chat_members (
   channel_key text NOT NULL,
   sub_slug    text NOT NULL REFERENCES subs(slug) ON DELETE CASCADE,
   added_at    timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (channel_key, sub_slug)
 );
+
+-- Bare team-chat channels (P1-D1). Replaces the old hardcoded CHANNELS const in
+-- lib/chat.ts so the owner can create/remove channels at runtime. Remove is a
+-- soft archive (archived_at set) so a channel's transcript is never destroyed;
+-- recreating an archived name un-archives it. Project rooms and DMs are NOT
+-- stored here — they stay key-convention only.
+CREATE TABLE IF NOT EXISTS chat_channels (
+  key         text PRIMARY KEY,
+  name        text NOT NULL,
+  description text NOT NULL DEFAULT '',
+  sort_order  integer NOT NULL DEFAULT 0,
+  archived_at timestamptz,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+-- Independent per-channel AI membership (P1-D1). An AI model only responds to an
+-- @model_name mention in a bare channel if it is a member here. Rooms and DMs
+-- keep AI implicit (all models invocable) and do NOT use this table.
+CREATE TABLE IF NOT EXISTS chat_ai_members (
+  channel_key text NOT NULL,
+  agent       text NOT NULL CHECK (agent IN ('claude','qwen','hermes')),
+  added_at    timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (channel_key, agent)
+);
+
+-- Bootstrap the five channels that used to be hardcoded (idempotent so this is
+-- safe to re-run against the live DB), each seeded with all three AI models to
+-- preserve the prior "@claude · @qwen · @hermes are in this channel" behavior.
+INSERT INTO chat_channels (key, name, description, sort_order) VALUES
+  ('field-daily',     'field-daily',     'Daily check-ins from active sites · AI pins what''s blocking', 10),
+  ('selections',      'selections',      'Client selections + approvals · AI logs each decision',        20),
+  ('bookkeeping',     'bookkeeping',     'Receipts, invoices, and money questions',                      30),
+  ('safety',          'safety',          'Site safety notes and incident reports',                       40),
+  ('marketing-queue', 'marketing-queue', 'AI-drafted posts waiting on your approval',                    50)
+ON CONFLICT (key) DO NOTHING;
+
+-- Only seed a channel's default AI set if it has NO members yet, so re-applying
+-- this file never silently re-adds a model the owner deliberately removed.
+INSERT INTO chat_ai_members (channel_key, agent)
+SELECT c.key, a.agent
+  FROM (VALUES ('field-daily'),('selections'),('bookkeeping'),('safety'),('marketing-queue')) AS c(key)
+ CROSS JOIN (VALUES ('claude'),('qwen'),('hermes')) AS a(agent)
+ WHERE NOT EXISTS (SELECT 1 FROM chat_ai_members x WHERE x.channel_key = c.key)
+ON CONFLICT DO NOTHING;
 
 -- ─── Project punch list ─────────────────────────────────────────────────────
 -- Per-project punch items; checkboxes on the project-detail Punch tab toggle

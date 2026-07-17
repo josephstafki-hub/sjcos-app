@@ -1,15 +1,13 @@
-// Team-chat data builder. Mock / UI-only for now — there is no chat table in
-// db/schema.sql yet (chat persistence is a later phase). Shape stays stable so
-// the screen code won't change when it's backed for real.
-//
-// Follows the lib/inbox.ts pattern: a flat channel list drives the rail, a
-// curated showcase channel (#field-daily) carries a full transcript, and other
-// channels fall back to a generic "Claude is watching" view. Claude is modeled
-// as an in-channel participant; when transcripts are backed for real, Claude's
-// posts will be generated through the ai service abstraction — never a provider
-// directly.
+// Team-chat data builder. Fully DB-backed: bare channels are owner-managed rows
+// in chat_channels (P1-D1 — create/remove at runtime, no more hardcoded list),
+// project rooms derive from active projects, DMs from the sub roster. Sub
+// membership lives in chat_members; AI membership is independent, per-channel,
+// in chat_ai_members — an AI model only responds to an @model_name mention in a
+// bare channel if it's a member there. AI posts are generated through the ai
+// service abstraction (lib/actions/chat.ts) — never a provider directly.
 
 import { query } from "./db";
+import type { DevAgent } from "./dev-agents-meta";
 
 // ─── Left rail: channels, project rooms, DMs ────────────────────────────────
 
@@ -23,14 +21,6 @@ export interface ChatChannel {
   /** Optional per-channel description (project rooms set this). */
   description?: string;
 }
-
-export const CHANNELS: ChatChannel[] = [
-  { key: "field-daily", name: "# field-daily" },
-  { key: "selections", name: "# selections" },
-  { key: "bookkeeping", name: "# bookkeeping" },
-  { key: "safety", name: "# safety" },
-  { key: "marketing-queue", name: "# marketing-queue" },
-];
 
 /** Project-room channel-key convention: one room per active project. */
 export const roomKey = (slug: string) => `room:${slug}`;
@@ -89,23 +79,20 @@ export interface ChannelView {
   description: string;
   /** Participant initials for the header avatar stack. */
   participants: string[];
-  /** Sub members (owner + AI are implicit, not listed here). Empty for DMs. */
+  /** Sub members (owner is implicit, not listed here). Empty for DMs. */
   members: ChannelMember[];
-  /** True for channels/rooms (editable membership); false for DMs. */
+  /** AI models that respond in this channel (via @model_name). Rooms/DMs keep
+   *  all three implicitly; bare channels list only their members. */
+  aiMembers: DevAgent[];
+  /** True for channels/rooms (editable sub membership); false for DMs. */
   canManageMembers: boolean;
+  /** True only for bare channels — AI membership is editable there. Rooms/DMs
+   *  keep AI implicit, so their popover has no AI section. */
+  canManageAi: boolean;
   /** Day-separator chip, e.g. "Today · Mon May 25". */
   daySeparator: string;
   messages: ChatMessage[];
 }
-
-/** Per-channel one-liner shown under the channel name. */
-const DESCRIPTIONS: Record<string, string> = {
-  "field-daily": "Daily check-ins from active sites · AI pins what's blocking",
-  selections: "Client selections + approvals · AI logs each decision",
-  bookkeeping: "Receipts, invoices, and money questions",
-  safety: "Site safety notes and incident reports",
-  "marketing-queue": "AI-drafted posts waiting on your approval",
-};
 
 // ─── Builders ────────────────────────────────────────────────────────────────
 
@@ -150,24 +137,35 @@ function rowToMessage(r: MessageRow): ChatMessage {
   };
 }
 
+/** Every AI model — the implicit set rooms and DMs use, and the add-picker's
+ *  full option list for bare channels. */
+const ALL_AGENTS: DevAgent[] = ["claude", "qwen", "hermes"];
+
 function buildView(
   ch: ChatChannel,
   rows: MessageRow[],
   members: ChannelMember[],
+  aiMembers: DevAgent[],
 ): ChannelView {
-  // Avatar stack = owner (JS) + sub members + the AI, in that order.
-  const participants = ["JS", ...members.map((m) => m.initials), "AI"];
+  // A bare channel (no `room:`/`dm:` prefix) has owner-editable AI membership;
+  // project rooms keep all models implicitly.
+  const isBare = !ch.key.includes(":");
+  // Avatar stack = owner (JS) + sub members + one AI chip if any model is in.
+  const participants = [
+    "JS",
+    ...members.map((m) => m.initials),
+    ...(aiMembers.length ? ["AI"] : []),
+  ];
 
   return {
     key: ch.key,
     name: ch.name,
-    description:
-      ch.description ??
-      DESCRIPTIONS[ch.key] ??
-      "AI is watching this channel and will flag anything that needs you.",
+    description: ch.description ?? "Team channel",
     participants: participants.slice(0, 6),
     members,
+    aiMembers,
     canManageMembers: true,
+    canManageAi: isBare,
     daySeparator: `Today · ${new Date().toLocaleDateString("en-US", {
       weekday: "short",
       month: "short",
@@ -189,7 +187,10 @@ function buildDmView(
     description: `Direct message · ${d.trade}`,
     participants: ["JS", d.initials],
     members: [],
+    // DMs keep AI implicitly invocable (unchanged) but expose no membership UI.
+    aiMembers: ALL_AGENTS,
     canManageMembers: false,
+    canManageAi: false,
     daySeparator: `Today · ${new Date().toLocaleDateString("en-US", {
       weekday: "short",
       month: "short",
@@ -207,32 +208,49 @@ interface DmSubRow {
 }
 
 export async function getChatData(): Promise<ChatData> {
-  const [msgRes, readRes, subRes, memberRes, roomRes] = await Promise.all([
-    query<MessageRow>(
-      `SELECT channel_key, author_kind, author_name, author_initials, body, created_at
+  const [msgRes, readRes, subRes, memberRes, aiMemberRes, channelRes, roomRes] =
+    await Promise.all([
+      query<MessageRow>(
+        `SELECT channel_key, author_kind, author_name, author_initials, body, created_at
        FROM chat_messages ORDER BY created_at ASC`,
-    ),
-    query<{ channel_key: string; last_read_at: Date }>(
-      `SELECT channel_key, last_read_at FROM chat_reads`,
-    ),
-    // The full sub roster (favourites + active jobs first). Drives both the DM
-    // list (top few) and the add-member picker (all of them).
-    query<DmSubRow>(
-      `SELECT slug, name, trade, fav FROM subs
+      ),
+      query<{ channel_key: string; last_read_at: Date }>(
+        `SELECT channel_key, last_read_at FROM chat_reads`,
+      ),
+      // The full sub roster (favourites + active jobs first). Drives both the DM
+      // list (top few) and the add-member picker (all of them).
+      query<DmSubRow>(
+        `SELECT slug, name, trade, fav FROM subs
        ORDER BY fav DESC, open_jobs DESC, name ASC`,
-    ),
-    query<{ channel_key: string; sub_slug: string }>(
-      `SELECT channel_key, sub_slug FROM chat_members`,
-    ),
-    // Project rooms = one per project with active site work (construction /
-    // closeout), most-progressed first. Replaces the old hardcoded demo rooms.
-    query<{ slug: string; name: string }>(
-      `SELECT slug, name FROM projects
+      ),
+      query<{ channel_key: string; sub_slug: string }>(
+        `SELECT channel_key, sub_slug FROM chat_members`,
+      ),
+      query<{ channel_key: string; agent: DevAgent }>(
+        `SELECT channel_key, agent FROM chat_ai_members`,
+      ),
+      // Owner-managed bare channels (P1-D1) — replaces the old hardcoded list.
+      // Archived channels are hidden; their transcripts remain in chat_messages.
+      query<{ key: string; name: string; description: string }>(
+        `SELECT key, name, description FROM chat_channels
+          WHERE archived_at IS NULL
+          ORDER BY sort_order, created_at, key`,
+      ),
+      // Project rooms = one per project with active site work (construction /
+      // closeout), most-progressed first.
+      query<{ slug: string; name: string }>(
+        `SELECT slug, name FROM projects
         WHERE status IN ('construction', 'closeout')
         ORDER BY progress DESC, name ASC
         LIMIT 12`,
-    ),
-  ]);
+      ),
+    ]);
+
+  const CHANNELS: ChatChannel[] = channelRes.rows.map((c) => ({
+    key: c.key,
+    name: `# ${c.name}`,
+    description: c.description || undefined,
+  }));
 
   const ROOMS: ChatChannel[] = roomRes.rows.map((p) => ({
     key: roomKey(p.slug),
@@ -240,6 +258,17 @@ export async function getChatData(): Promise<ChatData> {
     description: `Project room · ${p.name}`,
   }));
   const all = [...CHANNELS, ...ROOMS];
+
+  // channel_key → its AI members (bare channels only carry rows here).
+  const aiByChannel = new Map<string, DevAgent[]>();
+  for (const r of aiMemberRes.rows) {
+    const list = aiByChannel.get(r.channel_key) ?? [];
+    list.push(r.agent);
+    aiByChannel.set(r.channel_key, list);
+  }
+  // Rooms keep all models implicitly; bare channels use their stored set.
+  const aiMembersFor = (ch: ChatChannel): DevAgent[] =>
+    ch.key.includes(":") ? ALL_AGENTS : aiByChannel.get(ch.key) ?? [];
 
   const byChannel = new Map<string, MessageRow[]>();
   for (const r of msgRes.rows) {
@@ -282,7 +311,12 @@ export async function getChatData(): Promise<ChatData> {
     (ch) =>
       [
         ch.key,
-        buildView(ch, byChannel.get(ch.key) ?? [], membersByChannel.get(ch.key) ?? []),
+        buildView(
+          ch,
+          byChannel.get(ch.key) ?? [],
+          membersByChannel.get(ch.key) ?? [],
+          aiMembersFor(ch),
+        ),
       ] as const,
   );
 
@@ -315,7 +349,7 @@ export async function getChatData(): Promise<ChatData> {
     directs,
     views: Object.fromEntries([...viewEntries, ...dmViewEntries]),
     roster,
-    selectedKey: "field-daily",
+    selectedKey: CHANNELS[0]?.key ?? ROOMS[0]?.key ?? directs[0]?.key ?? "",
   };
 }
 
@@ -327,7 +361,11 @@ export async function getUnreadChatCount(): Promise<number> {
        FROM chat_messages m
        LEFT JOIN chat_reads r ON r.channel_key = m.channel_key
       WHERE m.author_kind <> 'owner'
-        AND (r.last_read_at IS NULL OR m.created_at > r.last_read_at)`,
+        AND (r.last_read_at IS NULL OR m.created_at > r.last_read_at)
+        AND NOT EXISTS (
+          SELECT 1 FROM chat_channels c
+           WHERE c.key = m.channel_key AND c.archived_at IS NOT NULL
+        )`,
   );
   return Number(rows[0]?.n ?? 0);
 }

@@ -11,7 +11,7 @@ BEGIN;
 TRUNCATE leads, projects, subs, threads, notifications, compliance_items,
          warranty_projects, warranty_claims, schedule_blocks, daily_logs,
          files, app_settings, users, chat_messages, chat_reads,
-         chat_members, project_punch, catalog_items,
+         chat_members, chat_channels, chat_ai_members, project_punch, catalog_items,
          lead_activity, lead_intake, lead_estimates,
          invoices, retainers, project_selections, project_sections,
          project_mood, project_floorplans, project_subs,
@@ -76,8 +76,22 @@ INSERT INTO users (email, password_hash, name, role, initials, link_slug) VALUES
   ('josephstafki@sjcarpentryllc.com', '40676a86efbd86836c89a27ef60bb454:5ef3dfb212f1dbd1aaa746f37e245d9d3c0b160f8e0ac3a2a681ad3d66dda4c5d2494df8f38b1c3eff9ebe7b2b387ddfb034ed6ece57bc84ee9dffcb50f03b8b', 'Joe Stafki', 'owner', 'JS', NULL);
 
 -- ─── Team chat ──────────────────────────────────────────────────────────────
--- Sample chat messages / reads / memberships removed — populated live. Tables
--- start empty after reseed.
+-- Sample chat messages / reads / memberships removed — populated live. The five
+-- default channels (with all three AI models) are restored so the rail isn't
+-- empty after a reseed; schema.sql seeds the same rows idempotently.
+INSERT INTO chat_channels (key, name, description, sort_order) VALUES
+  ('field-daily',     'field-daily',     'Daily check-ins from active sites · AI pins what''s blocking', 10),
+  ('selections',      'selections',      'Client selections + approvals · AI logs each decision',        20),
+  ('bookkeeping',     'bookkeeping',     'Receipts, invoices, and money questions',                      30),
+  ('safety',          'safety',          'Site safety notes and incident reports',                       40),
+  ('marketing-queue', 'marketing-queue', 'AI-drafted posts waiting on your approval',                    50)
+ON CONFLICT (key) DO NOTHING;
+INSERT INTO chat_ai_members (channel_key, agent)
+SELECT c.key, a.agent
+  FROM (VALUES ('field-daily'),('selections'),('bookkeeping'),('safety'),('marketing-queue')) AS c(key)
+ CROSS JOIN (VALUES ('claude'),('qwen'),('hermes')) AS a(agent)
+ WHERE NOT EXISTS (SELECT 1 FROM chat_ai_members x WHERE x.channel_key = c.key)
+ON CONFLICT DO NOTHING;
 
 -- ─── Material catalog ────────────────────────────────────────────────────────
 -- Sample materials removed — catalog is built live in the app. Table starts empty.

@@ -5,6 +5,103 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P1-D1 — Team Chat: create/remove channels + independent AI membership · **[~] PARTIAL**
+
+**Your Team Chat channels were hardcoded and the AI was in every channel whether you
+wanted it or not.** Five channels (#field-daily, #selections, #bookkeeping, #safety,
+#marketing-queue) lived as a `const CHANNELS = [...]` array in `lib/chat.ts` — you couldn't
+add or remove one without a code change — and the footer permanently claimed "@claude · @qwen
+· @hermes are in this channel." Now channels are real, owner-managed rows, you can create and
+remove them from the rail, and each AI model is an **independent per-channel member** you add
+or drop — a model only answers an `@model_name` mention if it's actually in that channel.
+
+### What you can now do
+- **Create a channel:** "+ New channel" at the bottom of the Channels rail → type a name →
+  Enter. The name is slugified to a key (`Deck Crew` → `# deck-crew`, matching the existing
+  channel style). It opens immediately, empty, owner-only.
+- **Remove a channel:** hover a channel row → the **×** → confirm. This is a **soft archive**
+  — the transcript is never destroyed, and re-creating a channel with the same name **restores
+  its history**. Removing the selected channel jumps you to the next one; removing the last one
+  shows a clean "create one to get started" state instead of crashing.
+- **Add/remove members independently** from the participants menu (the person-plus icon):
+  - **Subs** — unchanged (already worked), listed with add/remove.
+  - **AI models** — new "AI models" section: add or drop **Claude / Qwen / Hermes** per
+    channel, each independently. The footer, composer hint, and empty-state copy now reflect
+    the channel's *actual* AI members (e.g. "@qwen · @hermes are in this channel", or "No AI in
+    this channel — add a model from the participants menu").
+- **`@model_name` gating (server-enforced):** in a bare channel, an AI only replies if it's a
+  member. Mention a non-member and you get a friendly "X isn't in this channel — add them from
+  the participants menu" notice, and **nothing is posted from that model**. The check is in the
+  server action, so a stale browser can't bypass it. **Project rooms and DMs keep AI implicit**
+  (all three invocable) — untouched, because rooms are auto-generated (P1-D2's territory) and a
+  brand-new room has no membership rows yet.
+
+### How it's built
+- **DB (`db/schema.sql`, applied to the live DB idempotently):** new `chat_channels`
+  (key, name, description, sort_order, archived_at, created_at) replaces the hardcoded list;
+  new `chat_ai_members` (channel_key, agent CHECK claude|qwen|hermes, PK). Both are seeded with
+  the five existing channels + all three models each via `INSERT … ON CONFLICT DO NOTHING`, so
+  **nothing you see today changed**. The AI-member seed is guarded with `WHERE NOT EXISTS (…)`
+  so re-applying the schema can never silently re-add a model you removed. `db/seed.sql` mirrors
+  this for dev reseeds and adds both tables to its TRUNCATE list.
+- **`lib/chat.ts`:** deleted the `CHANNELS` const + `DESCRIPTIONS` map; `getChatData` now reads
+  channels from `chat_channels` (non-archived, ordered by sort_order) and AI members from
+  `chat_ai_members`; `ChannelView` gained `aiMembers: DevAgent[]` + `canManageAi` (true only for
+  bare channels); `selectedKey` falls back first-channel→room→direct→""; `getUnreadChatCount`
+  now excludes archived channels (so a removed channel can't keep lighting the nav badge).
+- **`lib/actions/chat.ts`:** new owner-gated `createChannel` (slugify, dup-guard, un-archive on
+  re-create), `archiveChannel` (soft archive + mark-read), `addChannelAgent`/`removeChannelAgent`;
+  `askAgentInChannel` gained the membership gate for bare channels.
+- **`components/chat/ChatClient.tsx`:** the rail create/remove UI, the AI-models section in the
+  participants popover, the view-undefined empty state, dynamic footer/placeholder/empty copy,
+  and `@ai` resolution (prefers **qwen** — your grounded assistant — among the channel's members).
+
+### Decisions you should know
+- **New channels start with ZERO AI members** — you add the models you want. That's the whole
+  point of "independent" membership; the alternative (auto-add all three) would recreate the old
+  always-on behavior you asked to change.
+- **`@ai` prefers Qwen**, not Claude. Claude/Hermes are dev-only models; Qwen is the
+  business-grounded assistant, and was the prior hardcoded default — so `@ai` keeps routing to it
+  where it's a member (this was a regression Fable caught and I fixed).
+- **Remove = archive, not delete.** Fixed-price contracting or not, chat history is evidence; I
+  never hard-delete a transcript. Re-creating the name brings it back.
+
+### ⚠️ REMAINING (why this is [~] not [x])
+**"Team members" can't be added independently yet — there is no internal-team roster in the
+product.** The `users` table has exactly three roles (owner / sub / client); the only internal
+human is you (the owner), who is already an implicit member of every channel. Subs are a real
+roster (done) and AI models are a real roster (done), but a multi-person *staff/team* entity
+doesn't exist anywhere in the schema, so there's nothing to attach team membership to. Building
+it would mean inventing a team-roster entity + a `chat_team_members` table + roster-management
+UI with zero rows to show — real new product, not a chat fix. **The remaining slice:** introduce
+an internal-team roster (or extend user roles), then add a "Team" section to the participants
+popover. Say the word and I'll scope it.
+
+### Fable's plan / review
+**Plan (Fable 5):** validated two-tables-over-generalizing-chat_members (avoids a destructive FK/PK
+migration on the live DB); caught that bootstrap data must live in `schema.sql` (running `seed.sql`
+against live would TRUNCATE real messages); flagged `sort_order` (same-txn `created_at` would
+scramble order), the `getUnreadChatCount` archived-leak, the `selectedKey`/view-undefined guards,
+scoping the AI gate to bare channels only, and un-archive-on-recreate. All folded in.
+**Review (Fable 5): SHIP** (after one fix) — traced the JSX fragment balance, the nested-button
+fix, archive-selected/last-channel fallback, optimistic-state vs revalidatePath, and the gate
+query; found no crashes. Its one real catch — `@ai` silently flipped from qwen to claude — is
+**fixed**. Minor notes (schema re-add of removed AI members, footer copy when no channel) also
+**fixed**. Confirmed `[~]` PARTIAL is the honest verdict.
+
+### Verify
+`npx tsc --noEmit` → exit 0. `npm run lint` → 0 errors (same 11 pre-existing warnings, none in
+touched files). New tables applied to the **live DB** and every new SQL path (create with
+sort_order=max+10, membership gate, idempotent agent add, archive→hide, restore→show, unread
+exclusion) exercised in a **rolled-back transaction** against live data — all correct, nothing
+mutated. Not runtime-clicked in the live app (I don't restart :3017), but the data layer is
+proven and tsc/lint are green. No build run, service/:3017 untouched, nothing sent outward.
+
+**Files:** `db/schema.sql`, `db/seed.sql`, `lib/chat.ts`, `lib/actions/chat.ts`,
+`components/chat/ChatClient.tsx`.
+
+---
+
 ## 2026-07-17 · P1-C7 — Inbox Clients/Subs/Money/Filters: evaluate + make smarter · **[x] DONE**
 
 **The evaluation.** Your inbox thread-list header has a chip row: **All · Clients ·

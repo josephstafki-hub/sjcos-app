@@ -44,6 +44,20 @@ export async function askAgentInChannel(
 ): Promise<{ ok: boolean; reply?: string; error?: string }> {
   await requireRole("owner");
   const id = AGENT_IDENTITY[agent] ?? AGENT_IDENTITY.qwen;
+  // AI membership is independent per bare channel (P1-D1): a model only responds
+  // if it's been added. Rooms and DMs keep AI implicit, so they skip the gate.
+  if (!channelKey.includes(":")) {
+    const { rows } = await query<{ one: number }>(
+      `SELECT 1 AS one FROM chat_ai_members WHERE channel_key = $1 AND agent = $2`,
+      [channelKey, agent],
+    );
+    if (rows.length === 0) {
+      return {
+        ok: false,
+        error: `${id.name} isn't in this channel — add them from the participants menu.`,
+      };
+    }
+  }
   try {
     const { rows } = await query<{ author_name: string; body: string }>(
       `SELECT author_name, body FROM chat_messages
@@ -122,6 +136,119 @@ export async function removeChannelMember(
     await query(
       `DELETE FROM chat_members WHERE channel_key = $1 AND sub_slug = $2`,
       [channelKey, subSlug],
+    );
+    revalidatePath("/chat");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+// ─── Channel create / remove (P1-D1) ────────────────────────────────────────
+
+const AI_AGENTS: DevAgent[] = ["claude", "qwen", "hermes"];
+
+/** Slugify a channel name into a key: lowercase, non-alphanumerics → hyphens.
+ *  Strips `:` so a name can never collide with the room:/dm: key namespaces. */
+function channelKeyFromName(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/** Create a bare channel. Recreating an archived channel's name un-archives it
+ *  (restoring its transcript). Rejects empty/duplicate names. */
+export async function createChannel(
+  name: string,
+): Promise<{ ok: boolean; channel?: { key: string; name: string; description: string }; error?: string }> {
+  await requireRole("owner");
+  const clean = name.trim();
+  const key = channelKeyFromName(clean);
+  if (!key) return { ok: false, error: "Enter a channel name." };
+  try {
+    const existing = await query<{ archived_at: Date | null }>(
+      `SELECT archived_at FROM chat_channels WHERE key = $1`,
+      [key],
+    );
+    if (existing.rows.length > 0) {
+      if (existing.rows[0].archived_at === null) {
+        return { ok: false, error: "A channel with that name already exists." };
+      }
+      // Archived → restore it (transcript comes back with it).
+      await query(
+        `UPDATE chat_channels SET archived_at = NULL, name = $2 WHERE key = $1`,
+        [key, key],
+      );
+    } else {
+      await query(
+        `INSERT INTO chat_channels (key, name, sort_order)
+         VALUES ($1, $1, (SELECT COALESCE(MAX(sort_order), 0) + 10 FROM chat_channels))`,
+        [key],
+      );
+    }
+    revalidatePath("/chat");
+    return { ok: true, channel: { key, name: `# ${key}`, description: "" } };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/** Remove a bare channel — soft archive so the transcript survives. Also clears
+ *  its read marker so a stale message can't keep lighting the nav badge. */
+export async function archiveChannel(
+  channelKey: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireRole("owner");
+  if (channelKey.includes(":")) {
+    return { ok: false, error: "Only bare channels can be removed." };
+  }
+  try {
+    await query(
+      `UPDATE chat_channels SET archived_at = now()
+        WHERE key = $1 AND archived_at IS NULL`,
+      [channelKey],
+    );
+    await markRead(channelKey);
+    revalidatePath("/chat");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/** Add an AI model to a bare channel's membership. Idempotent. */
+export async function addChannelAgent(
+  channelKey: string,
+  agent: DevAgent,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireRole("owner");
+  if (channelKey.includes(":")) return { ok: false, error: "AI is implicit here." };
+  if (!AI_AGENTS.includes(agent)) return { ok: false, error: "Unknown model." };
+  try {
+    await query(
+      `INSERT INTO chat_ai_members (channel_key, agent) VALUES ($1, $2)
+       ON CONFLICT (channel_key, agent) DO NOTHING`,
+      [channelKey, agent],
+    );
+    revalidatePath("/chat");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/** Remove an AI model from a bare channel's membership. */
+export async function removeChannelAgent(
+  channelKey: string,
+  agent: DevAgent,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireRole("owner");
+  try {
+    await query(
+      `DELETE FROM chat_ai_members WHERE channel_key = $1 AND agent = $2`,
+      [channelKey, agent],
     );
     revalidatePath("/chat");
     return { ok: true };

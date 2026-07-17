@@ -43,9 +43,29 @@ export interface DirectMessage {
   unread?: number;
 }
 
-/** DM channel-key convention: one conversation per sub, in the shared
- *  chat_messages/chat_reads tables (no separate DM table needed). */
+/** DM channel-key conventions (P1-D3). One conversation per person in the shared
+ *  chat_messages/chat_reads tables. Subs keep the bare `dm:<slug>` form
+ *  (backward-compatible with existing transcripts and the sub portal, which
+ *  writes there); team members and clients get their own namespaces. Every DM
+ *  key contains ":" (so the AI gate keeps all models implicit) and starts with
+ *  "dm:" (so the membership UI stays off) — no gate changes needed. Slugs are
+ *  `[a-z0-9-]` only, so `dm:team:` / `dm:client:` can never collide with a bare
+ *  sub key. */
 export const dmKey = (subSlug: string) => `dm:${subSlug}`;
+export const dmTeamKey = (slug: string) => `dm:team:${slug}`;
+export const dmClientKey = (slug: string) => `dm:client:${slug}`;
+
+/** Slugify a name/label into a key: lowercase, non-alphanumerics → hyphens.
+ *  Must match `channelKeyFromName` in lib/actions/chat.ts so the client roster's
+ *  derived slug and the DM the action opens produce the same `dm:client:<slug>`
+ *  key. */
+export function dmSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
 
 /** "Marco Rivas" → "MR". */
 export function initialsOf(name: string): string {
@@ -86,6 +106,16 @@ export interface TeamMember {
   initials: string;
   /** e.g. "Office manager" — the team analog of a sub's trade. */
   roleLabel: string;
+}
+
+/** A client option for the DM person-lookup (P1-D3). There is no clients table,
+ *  so this roster is derived from projects + open leads. Slug is a slugified
+ *  name (the DM key is `dm:client:<slug>`); subtitle is a flat "Client". */
+export interface DmClientOption {
+  slug: string;
+  name: string;
+  initials: string;
+  subtitle: string;
 }
 
 /** A client manually added to an entity room (P1-D2). Create-only, room-scoped
@@ -137,6 +167,9 @@ export interface ChatData {
   roster: ChannelMember[];
   /** Every active team member — the pool the add-teammate picker draws from. */
   teamRoster: TeamMember[];
+  /** Client options (derived from projects + open leads) for the DM
+   *  person-lookup (P1-D3). Subs come from `roster`, team from `teamRoster`. */
+  clientRoster: DmClientOption[];
   /** Channel selected on first paint. */
   selectedKey: string;
 }
@@ -222,13 +255,13 @@ function buildView(
 /** A DM is a private one-to-one room. Unlike channels, the AI isn't a member,
  *  so the participant stack is just the owner + the sub. */
 function buildDmView(
-  d: { key: string; fullName: string; initials: string; trade: string },
+  d: { key: string; fullName: string; initials: string; subtitle: string },
   rows: MessageRow[],
 ): ChannelView {
   return {
     key: d.key,
     name: d.fullName,
-    description: `Direct message · ${d.trade}`,
+    description: `Direct message · ${d.subtitle}`,
     participants: ["JS", d.initials],
     members: [],
     teamMembers: [],
@@ -266,6 +299,8 @@ export async function getChatData(): Promise<ChatData> {
     roomClientRes,
     teamRes,
     teamMemberRes,
+    dmRes,
+    clientRosterRes,
   ] = await Promise.all([
       query<MessageRow>(
         `SELECT channel_key, author_kind, author_name, author_initials, body, created_at
@@ -311,6 +346,21 @@ export async function getChatData(): Promise<ChatData> {
       ),
       query<{ channel_key: string; member_slug: string }>(
         `SELECT channel_key, member_slug FROM chat_team_members`,
+      ),
+      // Owner-opened DMs (P1-D3) — persistent so a DM to a non-top-6 person
+      // survives reload before its first message. Newest first.
+      query<{ key: string; party_type: "sub" | "team" | "client"; party_slug: string; name: string; subtitle: string }>(
+        `SELECT key, party_type, party_slug, name, subtitle FROM chat_dms ORDER BY opened_at DESC`,
+      ),
+      // Client roster for the DM person-lookup (P1-D3). No clients table, so
+      // derive from project homeowners + open, un-converted leads (mirrors the
+      // room-backfill predicate). Deduped by slug below.
+      query<{ name: string }>(
+        `SELECT DISTINCT client_name AS name FROM projects WHERE client_name <> ''
+          UNION
+         SELECT l.name FROM leads l
+          WHERE l.stage <> 'lost'
+            AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.lead_id = l.id)`,
       ),
     ]);
 
@@ -423,28 +473,65 @@ export async function getChatData(): Promise<ChatData> {
       ] as const,
   );
 
-  // Direct messages — one conversation per coordinating sub (top of the roster).
+  // Direct messages — the top-of-roster subs (derived, always shown) plus every
+  // owner-opened DM in chat_dms (P1-D3). A DM added to both is deduped by key.
   const directs: DirectMessage[] = [];
   const dmViewEntries: (readonly [string, ChannelView])[] = [];
-  for (const s of subRes.rows.slice(0, 6)) {
-    const key = dmKey(s.slug);
-    const firstName = s.name.split(/\s+/)[0];
-    const initials = initialsOf(s.name);
+  const seenDm = new Set<string>();
+  const pushDm = (
+    key: string,
+    fullName: string,
+    subtitle: string,
+    online: boolean,
+  ) => {
+    if (seenDm.has(key)) return;
+    seenDm.add(key);
+    const firstName = fullName.split(/\s+/)[0];
+    const initials = initialsOf(fullName);
     directs.push({
       key,
       initials,
-      name: `${firstName} · ${s.trade}`,
-      online: s.fav,
+      name: `${firstName} · ${subtitle}`,
+      online,
       unread: unreadFor(key) || undefined,
     });
     dmViewEntries.push([
       key,
-      buildDmView(
-        { key, fullName: s.name, initials, trade: s.trade },
-        byChannel.get(key) ?? [],
-      ),
+      buildDmView({ key, fullName, initials, subtitle }, byChannel.get(key) ?? []),
     ]);
+  };
+
+  for (const s of subRes.rows.slice(0, 6)) {
+    pushDm(dmKey(s.slug), s.name, s.trade, s.fav);
   }
+  // Persisted DMs. Subs/team resolve fresh display data from the roster when the
+  // person still exists (a favourited sub shows online); otherwise fall back to
+  // the denormalized columns so a deleted sub / deactivated teammate still lists.
+  const subBySlug = new Map(subRes.rows.map((s) => [s.slug, s]));
+  for (const d of dmRes.rows) {
+    if (d.party_type === "sub") {
+      const s = subBySlug.get(d.party_slug);
+      pushDm(d.key, s?.name ?? d.name, s?.trade ?? d.subtitle, s?.fav ?? false);
+    } else if (d.party_type === "team") {
+      const t = teamBySlug.get(d.party_slug);
+      pushDm(d.key, t?.name ?? d.name, t?.roleLabel || d.subtitle || "Team", false);
+    } else {
+      pushDm(d.key, d.name, d.subtitle || "Client", false);
+    }
+  }
+
+  // Client roster for the person-lookup, deduped by slug.
+  const clientRoster: DmClientOption[] = [];
+  const seenClient = new Set<string>();
+  for (const c of clientRosterRes.rows) {
+    const name = c.name.trim();
+    if (!name) continue;
+    const slug = dmSlug(name);
+    if (!slug || seenClient.has(slug)) continue;
+    seenClient.add(slug);
+    clientRoster.push({ slug, name, initials: initialsOf(name), subtitle: "Client" });
+  }
+  clientRoster.sort((a, b) => a.name.localeCompare(b.name));
 
   return {
     channels: withUnread(CHANNELS),
@@ -453,6 +540,7 @@ export async function getChatData(): Promise<ChatData> {
     views: Object.fromEntries([...viewEntries, ...dmViewEntries]),
     roster,
     teamRoster,
+    clientRoster,
     selectedKey: CHANNELS[0]?.key ?? ROOMS[0]?.key ?? directs[0]?.key ?? "",
   };
 }

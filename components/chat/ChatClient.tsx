@@ -18,6 +18,7 @@ import {
   createTeamMember,
   addClientToRoom,
   removeClientFromRoom,
+  openDirectMessage,
 } from "@/lib/actions/chat";
 import type {
   ChatChannel,
@@ -40,6 +41,16 @@ const CHAT_AGENTS: Record<DevAgent, { name: string; initials: string }> = {
 // Preference order for a bare `@ai` mention: qwen first (the grounded business
 // assistant), matching the prior hardcoded default before AI membership existed.
 const AT_AI_ORDER: DevAgent[] = ["qwen", "claude", "hermes"];
+
+// A person you can start a DM with (P1-D3): a sub, a team member, or a client.
+type DmParty = "sub" | "team" | "client";
+interface DmOption {
+  partyType: DmParty;
+  slug: string;
+  name: string;
+  initials: string;
+  subtitle: string;
+}
 
 /** Small-caps mono section label for the light-background rail. */
 function RailLabel({ children }: { children: string }) {
@@ -74,6 +85,10 @@ export function ChatClient({ data }: { data: ChatData }) {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
+  // DM person-lookup (P1-D3): search across subs/team/clients before opening.
+  const [pickingDm, setPickingDm] = useState(false);
+  const [dmQuery, setDmQuery] = useState("");
+  const [dmError, setDmError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   // May be undefined after archiving the last channel — the render guards for it.
@@ -344,6 +359,105 @@ export function ChatClient({ data }: { data: ChatData }) {
     });
   };
 
+  // ─── DM person-lookup (P1-D3) ──────────────────────────────────────────────
+  // Kept local (not imported from lib/chat) so the client bundle doesn't drag in
+  // lib/db; mirrors the server key convention exactly.
+  const dmKeyFor = (partyType: DmParty, slug: string) =>
+    partyType === "sub"
+      ? `dm:${slug}`
+      : partyType === "team"
+        ? `dm:team:${slug}`
+        : `dm:client:${slug}`;
+
+  // Everyone you can DM: subs, live team roster (so a just-created teammate shows
+  // up), and derived clients — flattened into one searchable option list.
+  const dmOptions: DmOption[] = [
+    ...data.roster.map((r) => ({
+      partyType: "sub" as const,
+      slug: r.slug,
+      name: r.name,
+      initials: r.initials,
+      subtitle: r.trade || "Sub",
+    })),
+    ...teamRoster.map((t) => ({
+      partyType: "team" as const,
+      slug: t.slug,
+      name: t.name,
+      initials: t.initials,
+      subtitle: t.roleLabel || "Team",
+    })),
+    ...data.clientRoster.map((c) => ({
+      partyType: "client" as const,
+      slug: c.slug,
+      name: c.name,
+      initials: c.initials,
+      subtitle: c.subtitle,
+    })),
+  ];
+  const dmNeedle = dmQuery.trim().toLowerCase();
+  const dmMatches = (
+    dmNeedle
+      ? dmOptions.filter((o) => `${o.name} ${o.subtitle}`.toLowerCase().includes(dmNeedle))
+      : dmOptions
+  ).slice(0, 10);
+
+  const closeDmPicker = () => {
+    setPickingDm(false);
+    setDmQuery("");
+    setDmError(null);
+  };
+
+  const openDmHandler = (o: DmOption) => {
+    const key = dmKeyFor(o.partyType, o.slug);
+    // Already in the rail (a top-6 sub or a previously-opened DM) → just select.
+    if (directs.some((d) => d.key === key)) {
+      selectChannel(key);
+      closeDmPicker();
+      return;
+    }
+    startTransition(async () => {
+      const r = await openDirectMessage(o.partyType, o.slug, o.name, o.subtitle);
+      if (!r.ok || !r.dm) {
+        setDmError(r.error ?? "Could not open direct message.");
+        return;
+      }
+      const dm = r.dm;
+      const firstName = dm.fullName.split(/\s+/)[0];
+      setDirects((list) =>
+        list.some((d) => d.key === dm.key)
+          ? list
+          : [
+              ...list,
+              { key: dm.key, initials: dm.initials, name: `${firstName} · ${dm.subtitle}`, online: false },
+            ],
+      );
+      setViews((v) => ({
+        ...v,
+        [dm.key]: v[dm.key] ?? {
+          key: dm.key,
+          name: dm.fullName,
+          description: `Direct message · ${dm.subtitle}`,
+          participants: ["JS", dm.initials],
+          members: [],
+          teamMembers: [],
+          clientMembers: [],
+          aiMembers: [...AGENT_ORDER],
+          canManageMembers: false,
+          canManageAi: false,
+          canManageClients: false,
+          daySeparator: `Today · ${new Date().toLocaleDateString("en-US", {
+            weekday: "short",
+            month: "short",
+            day: "numeric",
+          })}`,
+          messages: [],
+        },
+      }));
+      closeDmPicker();
+      selectChannel(dm.key);
+    });
+  };
+
   // Dynamic AI-membership copy for the footer / placeholder / empty state.
   const aiMembers = view?.aiMembers ?? [];
   const aiMentions = aiMembers.map((a) => `@${a}`).join(" · ");
@@ -457,6 +571,51 @@ export function ChatClient({ data }: { data: ChatData }) {
               ) : null}
             </button>
           ))}
+          {pickingDm ? (
+            <div className="px-1 pt-1">
+              <input
+                autoFocus
+                value={dmQuery}
+                onChange={(e) => {
+                  setDmQuery(e.target.value);
+                  setDmError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") closeDmPicker();
+                }}
+                placeholder="Search subs, team, clients…"
+                className="w-full rounded-md border border-rule bg-card px-2 py-1 text-[12px] text-ink outline-none focus:border-accent"
+              />
+              {dmError && <div className="px-1 pt-1 text-[10px] text-flag">{dmError}</div>}
+              <div className="mt-1 max-h-56 overflow-y-auto">
+                {dmMatches.length === 0 ? (
+                  <div className="px-2 py-1.5 text-[11px] text-ink-3">No one matches.</div>
+                ) : (
+                  dmMatches.map((o) => (
+                    <button
+                      key={`${o.partyType}:${o.slug}`}
+                      onClick={() => openDmHandler(o)}
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-ink-2 transition-colors hover:bg-paper-3"
+                    >
+                      <Avatar initials={o.initials} size="sm" kind="gray" />
+                      <span className="flex-1 truncate text-[12px]">
+                        {o.name}
+                        <span className="text-ink-3"> · {o.subtitle}</span>
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setPickingDm(true)}
+              className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[12px] text-ink-3 transition-colors hover:bg-paper-3 hover:text-ink-2"
+            >
+              <Plus className="size-3.5 flex-none" strokeWidth={2} />
+              New message
+            </button>
+          )}
         </div>
 
         {view && (

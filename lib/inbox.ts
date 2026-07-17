@@ -1039,7 +1039,13 @@ async function loadPortalThreads(): Promise<ChannelBuild> {
        LEFT JOIN projects p ON m.channel_key LIKE 'portal:%' AND p.slug = split_part(m.channel_key, ':', 2)
        LEFT JOIN leads    l ON p.lead_id = l.id
        LEFT JOIN subs     s ON m.channel_key LIKE 'dm:%'     AND s.slug = split_part(m.channel_key, ':', 2)
-      WHERE m.channel_key LIKE 'portal:%' OR m.channel_key LIKE 'dm:%'
+      -- Only sub DMs (dm:<slug>) map to the sub portal. Team/client DMs (P1-D3,
+      -- dm:team:% / dm:client:%) are chat-surface only — excluding them keeps a
+      -- client DM from rendering as a bogus "Sub portal" thread here.
+      WHERE m.channel_key LIKE 'portal:%'
+         OR (m.channel_key LIKE 'dm:%'
+             AND m.channel_key NOT LIKE 'dm:team:%'
+             AND m.channel_key NOT LIKE 'dm:client:%')
       GROUP BY m.channel_key, p.name, l.name, s.name
       ORDER BY max(m.created_at) DESC`,
   );

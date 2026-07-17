@@ -5,6 +5,101 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P1-D3 — Team Chat: DM person-lookup · **[x] DONE**
+
+**Your Team Chat DMs were derived-only and uncreatable.** The Direct rail showed a
+fixed list — the top 6 subs off your roster (`subRes.rows.slice(0, 6)`), keyed
+`dm:<sub-slug>` — and that was it. There was **no way to start a DM** with anyone else:
+no other sub, no team member, and no client. This adds the missing **"New message"**
+person-lookup: search across **subs + team + clients**, pick someone, and a DM opens —
+and it **persists** (survives reload, even before you send the first message).
+
+### What you can now do
+- **Direct rail → "New message"** (mirrors the "New channel" pattern) opens an inline
+  search box. Type a name/trade/role → a live-filtered list of everyone you can DM:
+  - **Subs** — your full sub roster.
+  - **Team** — the internal-team roster (P1-D1); a teammate you just created inline shows up.
+  - **Clients** — a **derived** roster (see decision #3): every project homeowner
+    (`projects.client_name`) plus every open, un-converted lead (`leads.name`), deduped.
+- **Pick a person → the DM opens.** If it already exists (a top-6 sub, or one you opened
+  before), it just selects it — no duplicate row. New DMs get added to the rail + a seeded
+  empty view immediately (server returns the canonical key), and **stay there after reload.**
+
+### Key product decisions (guardrail #6)
+1. **Key namespaces, backward-compatible.** Subs keep the bare `dm:<slug>` form (so existing
+   transcripts **and the sub portal** — which writes to `dm:<slug>` — keep working untouched).
+   Team members get `dm:team:<slug>`, clients `dm:client:<slug>`. Every DM key still contains
+   `:` (so the AI gate keeps all models implicit) and starts with `dm:` (so the member-management
+   UI stays off) — **zero changes to any existing gate.** Slugs are `[a-z0-9-]` only, so the new
+   namespaces can never collide with a bare sub key.
+2. **Persistence via a lean `chat_dms` table**, not derived-from-messages. A DM to a non-top-6
+   person must survive reload before any message exists, and a **client** DM has no backing
+   table to re-resolve display data from — so the row **denormalizes** name + subtitle. That
+   also means a rail entry keeps rendering after a sub is deleted / a teammate deactivated.
+   `getChatData` now reads open DMs from `chat_dms` (deduped against the derived top-6 by key),
+   resolving subs/team fresh from the roster with a fallback to the stored columns.
+3. **The client roster is derived (there is no clients table).** Built from project homeowners
+   + open leads, deduped by slugified name, subtitle a flat **"Client"**. A project-name
+   subtitle would need a join that fights the DISTINCT — flagged as a later nicety. Two distinct
+   clients whose names slugify identically collapse to one entry (inherent to having no client
+   entity); real, rare, documented.
+4. **Opening a DM sends NOTHING.** `openDirectMessage` is owner-gated, validates the referent
+   (sub/team must exist), does one idempotent `INSERT … ON CONFLICT DO NOTHING`, and returns —
+   **no email/SMS/portal/emit.** Recording the conversation only. (Portal delivery of chat is
+   the separate gated item **P1-D4**.) Guardrail #4 respected.
+5. **Inbox de-confliction.** `lib/inbox.ts loadPortalThreads` swept **all** `dm:%` keys as
+   "Sub portal" threads. A team/client DM with messages would have rendered as a bogus sub-portal
+   thread, so the query now excludes `dm:team:%` / `dm:client:%`. Sub DMs are unaffected.
+
+### Plan (Fable 5) — summary
+Validated the design and pre-empted the cross-surface risks I adopted: (1) the inbox `dm:%`
+sweep would mislabel client DMs — exclude the new namespaces; (2) persist in a new `chat_dms`
+table with denormalized display fields rather than deriving from messages; (3) keep the DM-key
+helper **local** in the client (importing runtime fns from lib/chat would drag lib/db into the
+client bundle); (4) derive the client roster from projects + open leads; (5) idempotent
+`ON CONFLICT DO NOTHING` so reopen never clobbers stored display fields; (6) mirror the
+"New channel" inline-input rail pattern rather than a modal.
+
+### Review (Fable 5) — verdict: **clean, item accomplished, zero must-fix bugs**
+Traced every gate + consumer and checked the live DB. All 4 guardrails and all 7 targeted
+checks pass: no outward delivery in `openDirectMessage`; the new keys handled correctly by
+every existing `includes(":")`/`startsWith("dm:")` gate (incl. the `dm:team` sub-slug edge
+case with no trailing colon); `dmSlug` === `channelKeyFromName` char-for-char (so client key ==
+server key); dedup solid both server (`seenDm`) and client (`directs.some` + updater re-check);
+client DMs render purely from denormalized columns; empty/punctuation-only client names skipped/
+rejected; hooks unconditional; JSX balanced; only other `dm:` consumer (`lib/portal-messages.ts`,
+subs-only) unaffected. Four nice-to-have notes, none requiring action: (a) a non-top-6 sub's
+existing portal transcript shows only after a reload on first open (pre-existing state-init
+pattern); (b) slug collisions collapse (no clients table); (c) a whitespace-only-trade sub's
+denormalized subtitle would read "Team" not "Sub" (near-unreachable); (d) messages later *sent*
+in a `dm:<sub-slug>` DM are portal-readable — pre-existing sub-DM design, not introduced here.
+
+### Verify
+- `npx tsc --noEmit` → exit 0. `npm run lint` → 0 errors (same 11 pre-existing warnings, none
+  in touched files).
+- `chat_dms` applied to the **live DB** idempotently (`CREATE TABLE IF NOT EXISTS`, 0 rows).
+- SQL dry-runs in **rolled-back txns**: insert + idempotent re-insert (name NOT clobbered on
+  reopen); client-roster UNION returns **54** options; rollback left 0 rows.
+- **Full read path exercised against live DB** via a throwaway `tsx` script: `getChatData` →
+  6 derived sub DMs + 54 client options + 0 team (roster empty). Then inserted a client-DM row,
+  re-read → the client DM **surfaces in `directs`** (7 total) with its view present; deleted the
+  row (back to 0). Proves persistence end-to-end at the data layer.
+- No build run, service/:3017 untouched, nothing sent outward. (Not runtime-clicked in the live
+  app — I don't restart :3017 — but tsc/lint green and the data layer is proven.)
+
+### Files changed
+- `db/schema.sql` — `chat_dms` table (additive, idempotent).
+- `db/seed.sql` — `chat_dms` added to the TRUNCATE list.
+- `lib/chat.ts` — `dmTeamKey`/`dmClientKey`/`dmSlug` helpers, `DmClientOption` type,
+  `ChatData.clientRoster`, `buildDmView` param `trade`→`subtitle`, persisted-DM + client-roster
+  reads in `getChatData`.
+- `lib/actions/chat.ts` — `openDirectMessage` (owner-gated, idempotent, no delivery).
+- `lib/inbox.ts` — `loadPortalThreads` excludes `dm:team:%` / `dm:client:%`.
+- `components/chat/ChatClient.tsx` — DM person-lookup panel in the Direct rail, `DmOption`
+  type, `dmKeyFor` local helper, unified options list + filter, `openDmHandler`.
+
+---
+
 ## 2026-07-17 · P1-D2 — Team Chat: entity project rooms · **[x] DONE**
 
 Team chat now has **persistent, entity-backed rooms**. A room is auto-created when a

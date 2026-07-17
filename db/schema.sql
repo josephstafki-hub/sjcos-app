@@ -570,6 +570,26 @@ SELECT 'room:lead:' || l.slug, 'lead', l.slug, l.name
    AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.lead_id = l.id)
 ON CONFLICT (key) DO NOTHING;
 
+-- Owner-opened direct messages (P1-D3). The Direct rail = the derived
+-- top-of-roster sub DMs plus every row here, created by the "New message"
+-- person-lookup so a DM to ANY sub, team member, or client survives reload
+-- before a first message exists. Display fields are denormalized because a
+-- client DM has no backing table to re-resolve from (there is no clients table),
+-- and so the rail entry keeps rendering after a sub is deleted or a teammate
+-- deactivated. Keys: dm:<sub-slug> | dm:team:<slug> | dm:client:<slug> — all
+-- contain ':' (AI stays implicit) and start with 'dm:' (no membership UI), and
+-- the bare dm:<slug> form stays reserved for subs (backward-compatible with
+-- existing transcripts and the sub portal). Membership/display ONLY — no outward
+-- delivery ever happens from this table (portal delivery is gated, P1-D4).
+CREATE TABLE IF NOT EXISTS chat_dms (
+  key        text PRIMARY KEY,
+  party_type text NOT NULL CHECK (party_type IN ('sub','team','client')),
+  party_slug text NOT NULL,
+  name       text NOT NULL,              -- full display name, e.g. "Dana Whitfield"
+  subtitle   text NOT NULL DEFAULT '',   -- trade / role label / "Client"
+  opened_at  timestamptz NOT NULL DEFAULT now()
+);
+
 -- ─── Project punch list ─────────────────────────────────────────────────────
 -- Per-project punch items; checkboxes on the project-detail Punch tab toggle
 -- `done`. Owner-gated writes via lib/actions/projects.ts.

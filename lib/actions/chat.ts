@@ -412,6 +412,72 @@ export async function removeClientFromRoom(
   }
 }
 
+// ─── Direct messages (P1-D3) ────────────────────────────────────────────────
+
+const DM_PARTY_TYPES = ["sub", "team", "client"] as const;
+type DmPartyType = (typeof DM_PARTY_TYPES)[number];
+
+/** Open (or re-open) a direct message after the person-lookup picks someone.
+ *  Persists the DM in chat_dms so it survives reload before its first message,
+ *  and denormalizes the display name/subtitle (a client DM has no backing table
+ *  to re-resolve from). Idempotent: reopening an existing DM is a clean no-op.
+ *  This records the conversation ONLY — there is NO outward delivery here
+ *  (portal delivery of chat is the separate gated item, P1-D4). Returns the DM
+ *  so the client seeds the rail + view without a refetch. */
+export async function openDirectMessage(
+  partyType: DmPartyType,
+  slug: string,
+  displayName: string,
+  subtitle: string = "",
+): Promise<{
+  ok: boolean;
+  dm?: { key: string; fullName: string; initials: string; subtitle: string };
+  error?: string;
+}> {
+  await requireRole("owner");
+  if (!DM_PARTY_TYPES.includes(partyType)) return { ok: false, error: "Unknown person type." };
+  const cleanName = displayName.trim();
+  if (!cleanName) return { ok: false, error: "Enter a name." };
+  const cleanSlug = channelKeyFromName(slug || cleanName);
+  if (!cleanSlug) return { ok: false, error: "Enter a name." };
+  const cleanSubtitle = subtitle.trim() || (partyType === "client" ? "Client" : "Team");
+
+  try {
+    // Guard against orphan keys from a stale roster: subs/team must exist.
+    if (partyType === "sub") {
+      const { rows } = await query(`SELECT 1 FROM subs WHERE slug = $1`, [cleanSlug]);
+      if (rows.length === 0) return { ok: false, error: "That sub no longer exists." };
+    } else if (partyType === "team") {
+      const { rows } = await query(
+        `SELECT 1 FROM team_members WHERE slug = $1 AND active`,
+        [cleanSlug],
+      );
+      if (rows.length === 0) return { ok: false, error: "That teammate no longer exists." };
+    }
+
+    const key =
+      partyType === "sub"
+        ? `dm:${cleanSlug}`
+        : partyType === "team"
+          ? `dm:team:${cleanSlug}`
+          : `dm:client:${cleanSlug}`;
+
+    await query(
+      `INSERT INTO chat_dms (key, party_type, party_slug, name, subtitle)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (key) DO NOTHING`,
+      [key, partyType, cleanSlug, cleanName, cleanSubtitle],
+    );
+    revalidatePath("/chat");
+    return {
+      ok: true,
+      dm: { key, fullName: cleanName, initials: initialsOf(cleanName), subtitle: cleanSubtitle },
+    };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
 /** Mark a channel read for the owner (clears its unread badge). */
 export async function markChannelRead(channelKey: string): Promise<void> {
   await requireRole("owner");

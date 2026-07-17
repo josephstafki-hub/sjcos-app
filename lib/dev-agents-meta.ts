@@ -40,6 +40,18 @@ export const AGENT_META: Record<DevAgent, AgentMeta> = {
 
 export const AGENT_ORDER: DevAgent[] = ["claude", "qwen", "hermes"];
 
+// ─── Inbox reply-draft model picker ──────────────────────────────────────────
+// The two grounded assistant models Joe can pick to draft an email reply. Claude
+// is deliberately excluded — it's the async, dev-only code-editing agent, wrong
+// tool for writing a client email. Kept here (not in the "use server" action
+// module) so the "use client" inbox can import the type + options.
+export type DraftModel = "qwen" | "hermes";
+
+export const DRAFT_MODEL_OPTIONS: { value: DraftModel; label: string; note: string }[] = [
+  { value: "qwen", label: "Qwen", note: "Fast · local · grounded in your data" },
+  { value: "hermes", label: "Hermes", note: "Deeper business context · slower" },
+];
+
 // ─── Claude run controls (Ask window selectors) ──────────────────────────────
 // Client-safe so the "use client" chat can render the pickers. The runner
 // (scripts/run-claude-agent.mjs) maps these to CLI flags / prompt directives.

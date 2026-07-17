@@ -18,6 +18,7 @@ import {
 import { draftReplyForThread, loadMoreInbox, loadLabelInbox, loadSystemView } from "@/lib/inbox";
 import type { InboxThread, ThreadReader } from "@/lib/inbox";
 import { SYSTEM_VIEWS, type SystemViewKey } from "@/lib/types";
+import type { DraftModel } from "@/lib/dev-agents-meta";
 import { query } from "@/lib/db";
 
 /** Manually link a Gmail thread to a project or lead (P6-3). Upserts so
@@ -217,14 +218,25 @@ export async function sendNewEmailAction(input: {
  *  inbox load. Returns the draft plus the recipient/subject needed to send. */
 export async function draftReplyAction(
   threadId: string,
+  model?: DraftModel,
 ): Promise<{ ok: boolean; summary?: string; body?: string; toEmail?: string; subject?: string; error?: string }> {
   await requireRole("owner");
   if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
+  // Whitelist the model — never trust the client string. Anything but the
+  // explicit "hermes" choice drafts with Qwen (the fast local default).
+  const m: DraftModel = model === "hermes" ? "hermes" : "qwen";
   try {
-    const d = await draftReplyForThread(threadId);
+    const d = await draftReplyForThread(threadId, m);
     return { ok: true, ...d };
   } catch (err) {
-    return { ok: false, error: (err as Error).message };
+    const msg = (err as Error).message;
+    return {
+      ok: false,
+      error:
+        m === "hermes"
+          ? `Hermes is unavailable — try Qwen. (${msg})`
+          : msg,
+    };
   }
 }
 

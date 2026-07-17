@@ -45,6 +45,7 @@ import {
 } from "@/lib/actions/inbox";
 import type { ThreadChannel, ThreadStatus, SystemViewKey } from "@/lib/types";
 import { SYSTEM_VIEWS } from "@/lib/types";
+import { DRAFT_MODEL_OPTIONS, type DraftModel } from "@/lib/dev-agents-meta";
 import type { Audience, InboxData, InboxThread, ThreadReader } from "@/lib/inbox";
 
 /** The single active lens over the thread list. Smart view is the default; a
@@ -1072,9 +1073,11 @@ function ReaderBody({ reader, threadId }: { reader: ThreadReader; threadId: stri
   const [meta, setMeta] = useState<{ toEmail: string; subject: string } | null>(null);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
+  const [model, setModel] = useState<DraftModel>("qwen");
   const [drafting, startDraft] = useTransition();
   const [sending, startSend] = useTransition();
   const hasDraft = draft.trim().length > 0;
+  const modelLabel = DRAFT_MODEL_OPTIONS.find((m) => m.value === model)?.label ?? "AI";
 
   // Rich HTML body (with inline images) is resolved lazily on thread open so the
   // list fetch stays cheap. Empty string = no HTML / not connected → fall back to
@@ -1095,7 +1098,7 @@ function ReaderBody({ reader, threadId }: { reader: ThreadReader; threadId: stri
   function generate() {
     setError("");
     startDraft(async () => {
-      const r = await draftReplyAction(threadId);
+      const r = await draftReplyAction(threadId, model);
       if (r.ok) {
         setDraft(r.body ?? "");
         setMeta({ toEmail: r.toEmail ?? "", subject: r.subject ?? reader.subject });
@@ -1154,19 +1157,39 @@ function ReaderBody({ reader, threadId }: { reader: ThreadReader; threadId: stri
           <div className="text-[13px] text-ai-2">
             <div className="mb-1 font-serif text-[14px] font-semibold">AI draft reply</div>
             <p>{reader.aiDraft.summary}</p>
-            <div className="mt-2.5">
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
               <button
                 onClick={generate}
                 disabled={drafting}
                 className="rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-white disabled:opacity-60"
               >
                 {drafting
-                  ? "Drafting…"
+                  ? model === "hermes"
+                    ? "Drafting… (Hermes can take a minute)"
+                    : "Drafting…"
                   : hasDraft
-                    ? "Regenerate draft"
-                    : "Draft a reply"}
+                    ? `Regenerate with ${modelLabel}`
+                    : `Draft with ${modelLabel}`}
               </button>
+              <label className="flex items-center gap-1 text-[11px] text-ai-2">
+                <span className="text-ink-4">Model</span>
+                <select
+                  value={model}
+                  disabled={drafting}
+                  onChange={(e) => setModel(e.target.value as DraftModel)}
+                  className="rounded border border-rule bg-paper px-1.5 py-0.5 text-[11px] text-ink focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-60"
+                >
+                  {DRAFT_MODEL_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
+            <p className="mt-1 text-[11px] text-ink-4">
+              {DRAFT_MODEL_OPTIONS.find((m) => m.value === model)?.note}
+            </p>
             {error && <p className="mt-2 text-[12px] text-flag">{error}</p>}
           </div>
         </Card>
@@ -1187,7 +1210,7 @@ function ReaderBody({ reader, threadId }: { reader: ThreadReader; threadId: stri
               disabled={drafting}
               className="h-9 whitespace-nowrap rounded-md px-2 text-[12px] font-medium text-ai-2 disabled:opacity-60"
             >
-              {drafting ? "Drafting…" : "Use AI draft"}
+              {drafting ? "Drafting…" : `Draft with ${modelLabel}`}
             </button>
           )}
           <button

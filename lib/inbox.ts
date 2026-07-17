@@ -9,6 +9,8 @@
 import type { SystemViewKey, ThreadChannel, ThreadStatus } from "./types";
 import { ai } from "./ai";
 import { query } from "./db";
+import { askHermes } from "./dev-agents";
+import type { DraftModel } from "./dev-agents-meta";
 import {
   gmailConfigured,
   fetchThreads,
@@ -461,20 +463,129 @@ function rawToReader(r: RawGmailThread): ThreadReader {
   };
 }
 
-/** On-demand AI reply draft for a single Gmail thread (called when opened). */
+/** Related context for a reply draft: pulls Open Brain knowledge + open Open
+ *  Engine work items for the project/lead this email's counterparty is linked
+ *  to, so a drafted reply can be grounded in the real job (not just the email
+ *  text). Read-only. Returns empty context + null matchLabel when the sender
+ *  matches no project or lead (a vendor, a stranger, a money thread). Exported
+ *  so it can be exercised without Gmail or an LLM. */
+export async function gatherReplyContext(raw: RawGmailThread): Promise<{
+  knowledge: { kind: string; content: string }[];
+  matchLabel: string | null;
+}> {
+  const maps = await loadContactMaps();
+  const cls = classifyThread(raw, maps);
+
+  const projectSlug = cls.projectSlug ?? null;
+  let leadSlug = cls.linkedType === "lead" ? cls.linkedSlug ?? null : null;
+  // A manually-linked lead thread already carries its lead slug (+ name via
+  // projectLabel), so label it too — not just project links.
+  let matchLabel: string | null = projectSlug
+    ? `project ${cls.projectLabel ?? projectSlug}`
+    : leadSlug
+      ? `lead ${cls.projectLabel ?? leadSlug}`
+      : null;
+
+  // No project/lead yet from the thread classification → one lead-by-email look
+  // (classifyThread's byEmail map drops the slug, so resolve it directly here).
+  if (!projectSlug && !leadSlug) {
+    const email = raw.outbound ? extractEmail(raw.toLine) : raw.fromEmail.toLowerCase();
+    if (email) {
+      const { rows } = await query<{ slug: string; name: string }>(
+        `SELECT slug, name FROM leads WHERE lower(email) = $1 ORDER BY created_at DESC LIMIT 1`,
+        [email],
+      );
+      if (rows[0]) {
+        leadSlug = rows[0].slug;
+        matchLabel = `lead ${rows[0].name}`;
+      }
+    }
+  }
+
+  if (!projectSlug && !leadSlug) return { knowledge: [], matchLabel: null };
+
+  const [know, work] = await Promise.all([
+    query<{ kind: string; content: string }>(
+      `SELECT k.kind, k.content
+         FROM knowledge_items k
+         LEFT JOIN projects p ON p.id = k.project_id
+         LEFT JOIN leads    l ON l.id = k.lead_id
+        WHERE ($1::text IS NOT NULL AND p.slug = $1)
+           OR ($2::text IS NOT NULL AND l.slug = $2)
+        ORDER BY k.created_at DESC
+        LIMIT 6`,
+      [projectSlug, leadSlug],
+    ),
+    query<{ title: string; status: string }>(
+      `SELECT w.title, w.status
+         FROM work_items w
+         LEFT JOIN projects p ON p.id = w.project_id
+         LEFT JOIN leads    l ON l.id = w.lead_id
+        WHERE (($1::text IS NOT NULL AND p.slug = $1)
+            OR ($2::text IS NOT NULL AND l.slug = $2))
+          AND w.status NOT IN ('done', 'cancelled')
+        ORDER BY w.created_at DESC
+        LIMIT 5`,
+      [projectSlug, leadSlug],
+    ),
+  ]);
+
+  const knowledge = [
+    ...know.rows.map((k) => ({ kind: k.kind, content: k.content.slice(0, 400) })),
+    ...work.rows.map((w) => ({ kind: "open work item", content: `${w.title} (${w.status})` })),
+  ];
+  return { knowledge, matchLabel };
+}
+
+/** On-demand AI reply draft for a single Gmail thread (called when opened).
+ *  `model` selects who drafts: "qwen" (fast, local) or "hermes" (grounded via
+ *  its own MCP tools, slower). Both get the same Open Brain / Open Engine facts
+ *  gathered here so the reply is grounded in the linked project/lead. This is a
+ *  read-and-write-text operation only — it never sends anything. */
 export async function draftReplyForThread(
   threadId: string,
+  model: DraftModel = "qwen",
 ): Promise<{ summary: string; body: string; toEmail: string; subject: string }> {
   const raw = (await fetchThreads(50)).find((t) => t.id === threadId);
   if (!raw) return { summary: "", body: "", toEmail: "", subject: "" };
-  const draft = await ai.draft({
-    kind: "email_reply",
-    context: `${raw.fromName} <${raw.fromEmail}>: ${raw.subject}\n\n${raw.bodyParas.join("\n\n") || raw.snippet}`,
-    tone: "warm",
-  });
+
+  const { knowledge, matchLabel } = await gatherReplyContext(raw);
+  const excerpt = `${raw.fromName} <${raw.fromEmail}>: ${raw.subject}\n\n${raw.bodyParas.join("\n\n") || raw.snippet}`;
+
+  let body: string;
+  if (model === "hermes") {
+    const facts = knowledge.map((k) => `- (${k.kind}) ${k.content}`).join("\n");
+    const context =
+      `Email to reply to:\n${excerpt}\n\n` +
+      (matchLabel ? `This sender is linked to ${matchLabel}.\n` : "") +
+      (facts ? `Known facts from the business system:\n${facts}\n` : "");
+    const instruction =
+      `Draft a reply to this email as Joe, SJ Carpentry. Return ONLY the email ` +
+      `body text — no subject line, no preamble, no markdown fences. Warm, ` +
+      `concise, concrete. This is research and writing only: do NOT create work ` +
+      `items, capture knowledge, submit drafts for approval, or send anything.`;
+    // Per-thread session id so one client's facts never bleed into another's
+    // draft if the gateway keeps conversational continuity per session.
+    const answer = await askHermes(instruction, context, `inbox-draft-${threadId}`);
+    body = answer.replace(/^\s*subject:.*(\r?\n)+/i, "").trim();
+    if (!body) throw new Error("Hermes returned an empty draft.");
+  } else {
+    const draft = await ai.draft({
+      kind: "email_reply",
+      context: excerpt,
+      tone: "warm",
+      knowledge,
+    });
+    body = draft.body;
+  }
+
+  const who = model === "hermes" ? "Hermes" : "Qwen";
+  const grounding = matchLabel
+    ? ` using notes from ${matchLabel}.`
+    : " — no linked project or lead found; drafted from the email alone.";
   return {
-    summary: `Drafted a reply addressing "${raw.subject}". Review before sending.`,
-    body: draft.body,
+    summary: `Drafted with ${who}${grounding} Review before sending.`,
+    body,
     toEmail: raw.fromEmail,
     subject: raw.subject,
   };

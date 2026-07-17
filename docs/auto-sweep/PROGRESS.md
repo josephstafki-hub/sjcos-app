@@ -5,6 +5,98 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P1-C6 — Draft reply: selectable model + Open Brain/Engine context · **[x] DONE**
+
+**The "Draft a reply" button in your inbox was hardwired to Qwen and drafted from
+the email text alone.** Two changes: (1) you now **pick the model** — **Qwen** (fast,
+local) or **Hermes** (deeper business context, slower) — from a dropdown right next to
+the Draft button; (2) before either model writes, the app **pulls the real facts** for
+that email's sender out of Open Brain (knowledge_items) and Open Engine (open work
+items) and feeds them into the draft, so a reply to a client is grounded in *their*
+project/lead, not a generic guess.
+
+### How the grounding works (the "pull related context" half)
+New `gatherReplyContext(raw)` in `lib/inbox.ts` resolves the thread's counterparty
+email → a **project or lead**, then reads that entity's memory:
+- **Match:** reuses the inbox's existing `loadContactMaps()` + `classifyThread()` (manual
+  thread-links win, then project-by-email); if still unmatched, one `leads WHERE
+  lower(email)=…` lookup. Outbound threads correctly resolve the *recipient*, not you.
+- **Facts pulled:** up to **6** most-recent `knowledge_items` (Open Brain) for that
+  project/lead slug (each truncated to 400 chars) + up to **5** open `work_items` (Open
+  Engine, excluding done/cancelled). Assembled into a compact fact list.
+- **Fed to the model:** Qwen path → passed as new `DraftInput.knowledge` (mirrors the
+  existing `EstimateInput.knowledge` pattern), rendered into the prompt as "Facts from
+  the business system (use only if relevant; do not invent…)". Hermes path → same facts
+  ride along in its context *and* Hermes can pull more via its own MCP tools.
+- **No match** (a vendor, a stranger, a money thread) → empty context, draft proceeds
+  from the email alone, and the summary line **says so honestly**.
+
+### How model selection works
+- `DraftModel = "qwen" | "hermes"` + client-safe `DRAFT_MODEL_OPTIONS` live in
+  `lib/dev-agents-meta.ts`. **Claude is deliberately excluded** — it's the async, dev-only
+  *code-editing* agent, the wrong tool for writing a client email. The two grounded
+  assistant models are Qwen and Hermes.
+- `draftReplyForThread(threadId, model)` branches: Qwen → `ai.draft(...)` (unchanged fast
+  path, keeps the mock-fallback chain); Hermes → `askHermes(instruction, context,
+  "inbox-draft-<threadId>")`, body-text-only, strips a stray leading `Subject:` line,
+  throws on empty.
+- `draftReplyAction(threadId, model?)` **whitelists** the model server-side (anything but
+  the explicit "hermes" → "qwen") — the client string is never trusted. A Hermes failure
+  surfaces as "Hermes is unavailable — try Qwen. (…)"; **no silent model fallback** (if you
+  picked Hermes for grounding, you're not handed an ungrounded Qwen draft pretending to be
+  it).
+- Mobile route (`/api/mobile/inbox/draft`) reads an optional `model` too (default qwen),
+  so the not-yet-built iOS app keeps working and can opt in later.
+
+### Guardrail — drafting never sends (verified)
+Nothing here sends. Both paths only *return text*; Send remains the separate, unchanged,
+you-click-it action. Hermes does hold gated MCP **write** tools, so its instruction
+explicitly forbids create/capture/submit/send — this is prompt-level mitigation (there's
+no server-side way to strip a gateway agent's tools, same exposure every existing
+`askHermes` surface already has, so no new risk class). Flagged for your awareness.
+
+### Decisions you should know
+- **Two models, not three.** Claude excluded as above. If you ever want it, it's a
+  one-line add to `DRAFT_MODEL_OPTIONS` — but it edits code and runs async, so I left it out.
+- **Model picker is per-thread and resets to Qwen on thread switch** — consistent with how
+  the draft/error state already behaves (ReaderBody is keyed on thread id). Qwen is the
+  sensible default (fast, always available).
+- **Per-thread Hermes session id** (`inbox-draft-<threadId>`) so one client's facts can't
+  bleed into another client's draft if the gateway keeps per-session continuity.
+- **Honest summaries:** "Drafted with Qwen using notes from project X." / "Drafted with
+  Hermes — no linked project or lead found; drafted from the email alone." The label always
+  matches what actually happened.
+
+### Fable's plan / review
+**Plan (Fable 5):** validated the scope and made three corrections I folded in — (1)
+`classifyThread`'s `byEmail` map drops the lead slug, so resolve it with a targeted
+lead-by-email query rather than widening the shared `ContactMaps` shape; (2) don't reuse
+`getEngineData()` (3 queries + receipts) — one targeted work_items SELECT; (3) the type +
+options must live in the client-safe `dev-agents-meta.ts`, not the `"use server"` action
+module.
+**Review (Fable 5): FIX ONE THING, then ship** — caught a real bug: for a **manually-linked
+lead** thread, `matchLabel` stayed null (the fallback that labels it was gated on the
+email-lookup branch), so the summary falsely said "no linked lead" even though the facts
+*were* pulled. Fixed (label the lead-link case too). It also flagged the shared Hermes
+session id (fixed → per-thread). Everything else on the worry-list cleared: SQL null-param
+guards correct, outbound counterparty lowercased, function-declaration hoisting safe,
+no send path, no silent fallback, per-thread state fine.
+
+### Verify
+`npx tsc --noEmit` → exit 0. `npm run lint` → 0 errors (same 11 pre-existing warnings, none
+in touched files). `gatherReplyContext`'s SQL exercised **directly against the live DB**:
+a known lead email (`erinmorley87@gmail.com`) → matchLabel "lead Travis and Erin
+Christensen" + **5 real Open Brain items**; a stranger email → null + 0 items. **Not
+runtime-verified against live Gmail / a live Hermes gateway** in this working copy (neither
+connector configured here) — the deferred checks are eyeballing a Qwen vs Hermes draft in
+the connected app; both are read-and-write-text only, worst case a bad draft you don't send.
+No build run, service/:3017 untouched, nothing sent outward.
+
+**Files:** `lib/dev-agents-meta.ts`, `lib/ai.ts`, `lib/inbox.ts`, `lib/actions/inbox.ts`,
+`app/api/mobile/inbox/draft/route.ts`, `components/inbox/InboxClient.tsx`.
+
+---
+
 ## 2026-07-17 · P1-C5 — Fix inbox label counts · **[x] DONE**
 
 **The number next to each Gmail label in your inbox rail was counting the wrong

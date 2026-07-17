@@ -73,6 +73,10 @@ export interface DraftInput {
   /** Free-form context: thread excerpt, project facts, prompt, etc. */
   context: string;
   tone?: "professional" | "warm" | "firm";
+  /** Open Brain / Open Engine facts pulled for this draft (knowledge items,
+   *  open work items), so an email reply can be grounded in the linked project
+   *  or lead. Mirrors EstimateInput.knowledge. Omit when nothing was found. */
+  knowledge?: { kind: string; content: string }[];
 }
 
 export interface DraftResult {
@@ -561,11 +565,18 @@ const ollamaProvider: AiProvider = {
       demand_letter: "a firm but professional past-due payment demand letter",
       social_post: "a short marketing social post about a completed job",
     };
+    const facts = (input.knowledge ?? [])
+      .map((k) => `- (${k.kind}) ${k.content}`)
+      .join("\n");
     const prompt =
       `Write ${what[input.kind]}.\n` +
       `Tone: ${input.tone ?? "professional"}.\n` +
       `Sign emails as Joe, SJ Carpentry.\n\n` +
       `Context:\n${input.context}\n\n` +
+      (facts
+        ? `Facts from the business system (use only if relevant; do not ` +
+          `invent anything beyond these):\n${facts}\n\n`
+        : "") +
       `Return a subject (omit for scope-of-work and social posts) and the body.`;
     const schema = {
       type: "object",

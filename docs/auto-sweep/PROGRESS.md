@@ -5,6 +5,86 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P2-3 (slice 4) — iPad master-detail two-pane for Subs · **[x] DONE (item complete for sweep scope)**
+
+**Fourth and final iPad master-detail slice: the Subs tab.** This closes the
+last deferred list-tab (the note keeping P2-3 `[~]` was "Subs tab still not
+master-detail — no sub-detail endpoint yet"). Spans BOTH repos — a new
+mobile-backend read endpoint in `sjcos-app` plus the mobile UI in
+`/home/joe/sjcos-mobile` (its own git, branch `main`).
+
+### Starting point
+Projects (slice 2) and Leads (slice 3) already had two-pane. Subs was a flat
+list of cards with no detail route and no mobile detail endpoint. `sjcos-app`
+already had `getSub(slug): SubDetail | null` (`lib/subs.ts`), so the backend
+work was just exposing a mobile-friendly read-only subset.
+
+### What I built
+**sjcos-app (backend — LIVE prod, files only, no build/restart):**
+- NEW `app/api/mobile/subs/[slug]/route.ts` — owner-only `GET` (same
+  401/403/404 auth shape as the projects/leads detail routes). Calls
+  `getSub(slug)` and returns a **read-only mobile subset**: header
+  (initials/name/tradeLine/working), COI status+label, contact strip
+  (contact line + email/phone), reliability metrics, **real** `project_subs`
+  job history (`recentJobs`), paperwork, and rate. **Deliberately omits**
+  `aiSummaryInput` (the web page streams this ~10–20s CPU blurb via
+  `getSubSummary` in a Suspense slot — never awaited/shipped here), the owner's
+  private editable `notes`, and the redundant `w9` (already inside `paperwork`).
+
+**sjcos-mobile (Expo app):**
+- `src/lib/api.ts` — added `getSub(slug)` (encodeURIComponent'd).
+- NEW `src/components/sub-detail-body.tsx` — `SubDetailBody({slug, embedded})`,
+  read-only (no call/email/comms actions, no Linking/tel/mailto — delivery stays
+  owner-gated in the web app). Sections: header w/ initials avatar + on-site/COI
+  pills + star rating + job count, Contact (plain-text rows), Reliability, Jobs
+  (real history w/ stage dots, else honest "No jobs yet"), Paperwork (ok/flag
+  pills), Rate, tax note. `embedded` renders `RefreshScroll fullBleed` and omits
+  `<Stack.Screen>` (same escape hatch as the project/lead bodies).
+- NEW `src/app/sub/[slug].tsx` — thin phone push-nav wrapper (mirror of
+  `lead/[slug].tsx`).
+- `src/app/_layout.tsx` — registered `sub/[slug]` Stack screen.
+- `src/app/(tabs)/subs.tsx` — ported the leads two-pane pattern verbatim:
+  `twoPane = width >= WIDE_BREAKPOINT` (700), 360px list rail (selected card →
+  forest 2px border) + flex detail pane; active slug **pure-derived** (selection
+  if still in list else first — survives rotation/refresh, no effects); card tap
+  **selects** (two-pane) vs `router.push('/sub/…')` (phone). Existing card
+  content (stars, rate/open/COI pills) unchanged.
+
+### Fable plan / review
+- **Plan (Fable 5):** produced the two-repo file list, the JSON subset shape, the
+  include/omit rationale (drop aiSummaryInput/notes/w9), and edge cases; followed
+  as written.
+- **Review (Fable 5): CLEAN** — verified every field `SubDetailBody` reads exists
+  in the route payload; owner-only auth + 404 match the leads route; no
+  comms/Linking/tel/mailto/aiSummaryInput/notes leak; two-pane pattern matches
+  leads.tsx; degenerate data (no jobs / missing phone-email / non-curated subs)
+  all null/empty-guarded. No findings.
+
+### Verify
+- sjcos-app: `npx tsc --noEmit` clean; `npm run lint` 0 errors (11 pre-existing
+  warnings, all unrelated).
+- sjcos-mobile: `npx tsc --noEmit` clean; `npm run lint` (`expo lint`) clean.
+
+### Decision — marking P2-3 `[x]` (was `[~]`)
+All three list tabs (Projects, Leads, Subs) now have iPad master-detail; Inbox
+already uses a thread modal. The **sweep-buildable** mobile-app scope is
+complete. The genuine remainders are out of sweep scope or need Joe:
+- **Device distribution** (EAS build → TestFlight) requires a paid **Apple
+  Developer account** — Joe-owned, a park; the sweep can't and shouldn't do it.
+- **Android** is its own item (P2-7); **mobile-web** is P2-6.
+Rather than leave P2-3 `[~]` to be re-picked each iteration for work that is only
+distribution/park, I marked it `[x]` with this note so Joe sees exactly what's
+left and who owns it.
+
+### Files changed
+- sjcos-app: `app/api/mobile/subs/[slug]/route.ts` (new);
+  `docs/auto-sweep/TASKS.md`, `docs/auto-sweep/PROGRESS.md`.
+- sjcos-mobile: `src/components/sub-detail-body.tsx` (new),
+  `src/app/sub/[slug].tsx` (new), `src/app/(tabs)/subs.tsx`,
+  `src/app/_layout.tsx`, `src/lib/api.ts`.
+
+---
+
 ## 2026-07-17 · P2-3 (slice 3) — iPad master-detail two-pane for Leads · **[~] PARTIAL (slice done)**
 
 **Third concrete iPad slice: a real master-detail two-pane layout for the

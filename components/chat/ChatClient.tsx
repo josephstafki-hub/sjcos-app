@@ -16,6 +16,8 @@ import {
   addChannelTeamMember,
   removeChannelTeamMember,
   createTeamMember,
+  addClientToRoom,
+  removeClientFromRoom,
 } from "@/lib/actions/chat";
 import type {
   ChatChannel,
@@ -24,6 +26,7 @@ import type {
   ChannelMember,
   ChannelView,
   TeamMember,
+  ClientMember,
 } from "@/lib/chat";
 import { AGENT_ORDER, type DevAgent } from "@/lib/dev-agents-meta";
 
@@ -167,6 +170,42 @@ export function ChatClient({ data }: { data: ChatData }) {
     });
   };
 
+  const setClientMembers = (key: string, clientMembers: ClientMember[]) =>
+    setViews((v) => ({ ...v, [key]: { ...v[key], clientMembers } }));
+
+  // Add a client to the current room (server-first — the row id comes back from
+  // the action). Manual only: there's no client roster to pick from. Returns an
+  // error string, or null on success, so the popover can show it inline.
+  const addClientHandler = (name: string, email: string): Promise<string | null> => {
+    const key = selectedKey;
+    return new Promise((resolve) => {
+      startTransition(async () => {
+        const r = await addClientToRoom(key, name, email);
+        if (!r.ok || !r.client) {
+          resolve(r.error ?? "Could not add client.");
+          return;
+        }
+        const c = r.client;
+        setViews((v) => {
+          const cur = v[key];
+          if (!cur) return v;
+          const rest = cur.clientMembers.filter((x) => x.id !== c.id && x.name !== c.name);
+          return { ...v, [key]: { ...cur, clientMembers: [...rest, c] } };
+        });
+        resolve(null);
+      });
+    });
+  };
+
+  const removeClient = (id: number) => {
+    if (!view) return;
+    const key = selectedKey;
+    setClientMembers(key, view.clientMembers.filter((c) => c.id !== id));
+    startTransition(async () => {
+      await removeClientFromRoom(key, id);
+    });
+  };
+
   // Subs not yet in the current channel — the add-picker options.
   const available = view
     ? data.roster.filter((r) => !view.members.some((m) => m.slug === r.slug))
@@ -272,9 +311,11 @@ export function ChatClient({ data }: { data: ChatData }) {
           participants: ["JS"],
           members: [],
           teamMembers: [],
+          clientMembers: [],
           aiMembers: [],
           canManageMembers: true,
           canManageAi: true,
+          canManageClients: false,
           daySeparator: `Today · ${new Date().toLocaleDateString("en-US", {
             weekday: "short",
             month: "short",
@@ -376,7 +417,7 @@ export function ChatClient({ data }: { data: ChatData }) {
         </div>
 
         <div className="my-2 h-px bg-rule" />
-        <RailLabel>Project rooms</RailLabel>
+        <RailLabel>Rooms</RailLabel>
         <div className="flex flex-col gap-0.5">
           {rooms.map((c) => (
             <ChannelItem
@@ -487,6 +528,8 @@ export function ChatClient({ data }: { data: ChatData }) {
                   available={available}
                   teamMembers={view.teamMembers}
                   availableTeam={availableTeam}
+                  clientMembers={view.clientMembers}
+                  canManageClients={view.canManageClients}
                   aiMembers={view.aiMembers}
                   canManageAi={view.canManageAi}
                   onAdd={addMember}
@@ -494,6 +537,8 @@ export function ChatClient({ data }: { data: ChatData }) {
                   onAddTeam={addTeamMember}
                   onRemoveTeam={removeTeamMember}
                   onCreateTeam={createTeammateHandler}
+                  onAddClient={addClientHandler}
+                  onRemoveClient={removeClient}
                   onAddAgent={addAgent}
                   onRemoveAgent={removeAgent}
                   onClose={() => setManaging(false)}
@@ -616,6 +661,8 @@ function MembersPopover({
   available,
   teamMembers,
   availableTeam,
+  clientMembers,
+  canManageClients,
   aiMembers,
   canManageAi,
   onAdd,
@@ -623,6 +670,8 @@ function MembersPopover({
   onAddTeam,
   onRemoveTeam,
   onCreateTeam,
+  onAddClient,
+  onRemoveClient,
   onAddAgent,
   onRemoveAgent,
   onClose,
@@ -631,6 +680,8 @@ function MembersPopover({
   available: ChannelMember[];
   teamMembers: TeamMember[];
   availableTeam: TeamMember[];
+  clientMembers: ClientMember[];
+  canManageClients: boolean;
   aiMembers: DevAgent[];
   canManageAi: boolean;
   onAdd: (m: ChannelMember) => void;
@@ -638,6 +689,8 @@ function MembersPopover({
   onAddTeam: (m: TeamMember) => void;
   onRemoveTeam: (slug: string) => void;
   onCreateTeam: (name: string, roleLabel: string) => Promise<string | null>;
+  onAddClient: (name: string, email: string) => Promise<string | null>;
+  onRemoveClient: (id: number) => void;
   onAddAgent: (agent: DevAgent) => void;
   onRemoveAgent: (agent: DevAgent) => void;
   onClose: () => void;
@@ -646,6 +699,10 @@ function MembersPopover({
   const [teamName, setTeamName] = useState("");
   const [teamRole, setTeamRole] = useState("");
   const [teamError, setTeamError] = useState<string | null>(null);
+  const [addingClient, setAddingClient] = useState(false);
+  const [clientName, setClientName] = useState("");
+  const [clientEmail, setClientEmail] = useState("");
+  const [clientError, setClientError] = useState<string | null>(null);
 
   const submitNewTeammate = async () => {
     const name = teamName.trim();
@@ -659,6 +716,20 @@ function MembersPopover({
     setTeamName("");
     setTeamRole("");
     setAddingTeam(false);
+  };
+
+  const submitNewClient = async () => {
+    const name = clientName.trim();
+    if (!name) return;
+    setClientError(null);
+    const err = await onAddClient(name, clientEmail.trim());
+    if (err) {
+      setClientError(err);
+      return;
+    }
+    setClientName("");
+    setClientEmail("");
+    setAddingClient(false);
   };
 
   return (
@@ -817,6 +888,95 @@ function MembersPopover({
             <Plus className="size-3.5 flex-none" strokeWidth={2} />
             New teammate
           </button>
+        )}
+
+        {/* ─── Clients ── entity rooms only; added manually (P1-D2). No portal ──
+             ── delivery here (that's gated, P1-D4) — this is membership only. ── */}
+        {canManageClients && (
+          <>
+            <div className="my-1.5 h-px bg-rule" />
+            <div className="px-1 pb-1 font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-ink-3">
+              Clients
+            </div>
+            <div className="flex flex-col gap-0.5">
+              {clientMembers.map((c) => (
+                <div key={c.id} className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-paper-3">
+                  <Avatar initials={c.initials} size="sm" kind="gray" />
+                  <span className="flex-1 truncate text-[12px] text-ink-2">
+                    {c.name}
+                    {c.email ? <span className="text-ink-3"> · {c.email}</span> : null}
+                  </span>
+                  <button
+                    onClick={() => onRemoveClient(c.id)}
+                    aria-label={`Remove ${c.name}`}
+                    className="flex-none rounded p-0.5 text-ink-3 hover:bg-flag-soft hover:text-flag"
+                  >
+                    <X className="size-3.5" strokeWidth={2} />
+                  </button>
+                </div>
+              ))}
+              {clientMembers.length === 0 && !addingClient && (
+                <p className="px-1.5 py-1 text-[11px] text-ink-3">No clients in this room.</p>
+              )}
+            </div>
+
+            {addingClient ? (
+              <div className="mt-1 flex flex-col gap-1">
+                <input
+                  autoFocus
+                  value={clientName}
+                  onChange={(e) => setClientName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") submitNewClient();
+                    if (e.key === "Escape") setAddingClient(false);
+                  }}
+                  placeholder="Name"
+                  className="rounded-md border border-rule bg-paper px-2 py-1 text-[12px] text-ink outline-none focus:border-accent"
+                />
+                <input
+                  value={clientEmail}
+                  onChange={(e) => setClientEmail(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") submitNewClient();
+                    if (e.key === "Escape") setAddingClient(false);
+                  }}
+                  placeholder="Email (optional)"
+                  className="rounded-md border border-rule bg-paper px-2 py-1 text-[12px] text-ink outline-none focus:border-accent"
+                />
+                {clientError && <p className="px-0.5 text-[11px] text-flag">{clientError}</p>}
+                <div className="flex gap-1">
+                  <button
+                    onClick={submitNewClient}
+                    className="flex-1 rounded-md bg-accent px-2 py-1 text-[12px] font-medium text-paper hover:bg-accent-2"
+                  >
+                    Add
+                  </button>
+                  <button
+                    onClick={() => {
+                      setAddingClient(false);
+                      setClientName("");
+                      setClientEmail("");
+                      setClientError(null);
+                    }}
+                    className="rounded-md border border-rule px-2 py-1 text-[12px] text-ink-2 hover:bg-paper-3"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => {
+                  setAddingClient(true);
+                  setClientError(null);
+                }}
+                className="mt-0.5 flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-[12px] text-accent hover:bg-paper-3"
+              >
+                <Plus className="size-3.5 flex-none" strokeWidth={2} />
+                Add client
+              </button>
+            )}
+          </>
         )}
 
         {canManageAi && (

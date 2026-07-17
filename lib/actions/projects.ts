@@ -14,6 +14,14 @@ import { sendCompletionOutreach } from "@/lib/actions/closeout";
 import { autoDraftSocialOnCompletion } from "@/lib/actions/marketing";
 import { parseDrawSchedule } from "@/lib/draw-schedule";
 import { queueSubPortalInvite, markSubInviteApproved } from "@/lib/sub-invites";
+import {
+  openEntityRoom,
+  closeEntityRoom,
+  addSubToEntityRoom,
+  removeSubFromEntityRoom,
+  carryRoomMembership,
+} from "@/lib/rooms";
+import { roomKey, warrantyRoomKey } from "@/lib/chat";
 import type { ProjectStatus } from "@/lib/types";
 
 /** Kebab-case a display name into a URL slug. */
@@ -56,8 +64,16 @@ export async function createProject(formData: FormData) {
     [slug, name, clientName, address, valueDisplay, address],
   );
 
+  // Auto-create the project's chat room (P1-D2). Best-effort — never block.
+  try {
+    await openEntityRoom("project", slug, name);
+  } catch {
+    /* room bookkeeping must never block project creation */
+  }
+
   revalidatePath("/projects");
   revalidatePath("/today"); // active-job count derives from projects
+  revalidatePath("/chat");
   redirect(`/projects/${slug}`);
 }
 
@@ -154,6 +170,16 @@ export async function advanceProjectStatus(slug: string) {
     } catch {
       /* never block the status change on a marketing draft */
     }
+    // Completion = the project case closes and a warranty case opens (P1-D2).
+    // Carry the project room's participants into the warranty room so the
+    // conversation continues. Best-effort — never block the status change.
+    try {
+      await openEntityRoom("warranty", slug, row.name);
+      await carryRoomMembership(roomKey(slug), warrantyRoomKey(slug));
+      await closeEntityRoom(roomKey(slug));
+    } catch {
+      /* room bookkeeping must never block the status change */
+    }
   }
 
   await emit({
@@ -169,6 +195,7 @@ export async function advanceProjectStatus(slug: string) {
   revalidatePath("/projects");
   revalidatePath("/today"); // active-job count + outstanding A/R derive from projects
   revalidatePath("/notifications");
+  revalidatePath("/chat"); // room may have opened/closed on this transition
 }
 
 /** Toggle a punch-list item done/open. Owner-gated; `slug` drives revalidation. */
@@ -257,6 +284,13 @@ export async function assignSubToProject(slug: string, subSlug: string, role: st
   if (res.rowCount === 1) {
     await queueSubPortalInvite(proj.id, subSlug);
     revalidatePath("/notifications"); // queueSubPortalInvite emits; the feed may be on screen
+    // Auto-add the sub to the project's open chat room (P1-D2). Best-effort.
+    try {
+      await addSubToEntityRoom(slug, subSlug);
+      revalidatePath("/chat");
+    } catch {
+      /* room bookkeeping must never block the assignment */
+    }
   }
   revalidatePath(`/projects/${slug}`);
   revalidateSub(subSlug);
@@ -331,6 +365,13 @@ export async function removeSubFromProject(slug: string, subSlug: string) {
       WHERE project_id = $1 AND sub_slug = $2 AND status = 'queued'`,
     [proj.id, subSlug],
   );
+  // Pull them from the project's open chat room too (P1-D2). Best-effort.
+  try {
+    await removeSubFromEntityRoom(slug, subSlug);
+    revalidatePath("/chat");
+  } catch {
+    /* room bookkeeping must never block the removal */
+  }
   revalidatePath(`/projects/${slug}`);
   revalidateSub(subSlug);
 }

@@ -22,8 +22,14 @@ export interface ChatChannel {
   description?: string;
 }
 
-/** Project-room channel-key convention: one room per active project. */
+/** Entity-room channel-key conventions (P1-D2). One room per open case; the
+ *  stored set lives in chat_rooms. Project rooms keep the bare `room:<slug>`
+ *  form so transcripts/membership from the old derived era stay addressable;
+ *  leads and warranties get their own namespaces. All contain ":", so the AI
+ *  gate treats every room as "all models implicit". */
 export const roomKey = (slug: string) => `room:${slug}`;
+export const leadRoomKey = (slug: string) => `room:lead:${slug}`;
+export const warrantyRoomKey = (slug: string) => `room:wty:${slug}`;
 
 export interface DirectMessage {
   /** Channel key for this conversation, e.g. "dm:marco". */
@@ -82,6 +88,15 @@ export interface TeamMember {
   roleLabel: string;
 }
 
+/** A client manually added to an entity room (P1-D2). Create-only, room-scoped
+ *  (no clients table / shared pool); display membership only — no delivery. */
+export interface ClientMember {
+  id: number;
+  name: string;
+  email: string;
+  initials: string;
+}
+
 export interface ChannelView {
   key: string;
   /** Display name, e.g. "# field-daily". */
@@ -93,6 +108,8 @@ export interface ChannelView {
   members: ChannelMember[];
   /** Internal-team members (owner is implicit, not listed here). Empty for DMs. */
   teamMembers: TeamMember[];
+  /** Manually-added client participants (entity rooms only). Empty elsewhere. */
+  clientMembers: ClientMember[];
   /** AI models that respond in this channel (via @model_name). Rooms/DMs keep
    *  all three implicitly; bare channels list only their members. */
   aiMembers: DevAgent[];
@@ -101,6 +118,8 @@ export interface ChannelView {
   /** True only for bare channels — AI membership is editable there. Rooms/DMs
    *  keep AI implicit, so their popover has no AI section. */
   canManageAi: boolean;
+  /** True only for entity rooms (`room:` keys) — where clients can be added. */
+  canManageClients: boolean;
   /** Day-separator chip, e.g. "Today · Mon May 25". */
   daySeparator: string;
   messages: ChatMessage[];
@@ -160,17 +179,22 @@ function buildView(
   rows: MessageRow[],
   members: ChannelMember[],
   teamMembers: TeamMember[],
+  clientMembers: ClientMember[],
   aiMembers: DevAgent[],
 ): ChannelView {
   // A bare channel (no `room:`/`dm:` prefix) has owner-editable AI membership;
-  // project rooms keep all models implicitly.
+  // project rooms keep all models implicitly. Clients can be added only in
+  // entity rooms (`room:` keys), never bare channels or DMs.
   const isBare = !ch.key.includes(":");
-  // Avatar stack = owner (JS) + team members + sub members + one AI chip if any
-  // model is in. Team leads (internal staff sit closest to the owner).
+  const isRoom = ch.key.startsWith("room:");
+  // Avatar stack = owner (JS) + team members + sub members + client members +
+  // one AI chip if any model is in. Team leads (internal staff) sit closest to
+  // the owner, clients last before the AI chip.
   const participants = [
     "JS",
     ...teamMembers.map((m) => m.initials),
     ...members.map((m) => m.initials),
+    ...clientMembers.map((m) => m.initials),
     ...(aiMembers.length ? ["AI"] : []),
   ];
 
@@ -181,9 +205,11 @@ function buildView(
     participants: participants.slice(0, 6),
     members,
     teamMembers,
+    clientMembers,
     aiMembers,
     canManageMembers: true,
     canManageAi: isBare,
+    canManageClients: isRoom,
     daySeparator: `Today · ${new Date().toLocaleDateString("en-US", {
       weekday: "short",
       month: "short",
@@ -206,10 +232,12 @@ function buildDmView(
     participants: ["JS", d.initials],
     members: [],
     teamMembers: [],
+    clientMembers: [],
     // DMs keep AI implicitly invocable (unchanged) but expose no membership UI.
     aiMembers: ALL_AGENTS,
     canManageMembers: false,
     canManageAi: false,
+    canManageClients: false,
     daySeparator: `Today · ${new Date().toLocaleDateString("en-US", {
       weekday: "short",
       month: "short",
@@ -235,6 +263,7 @@ export async function getChatData(): Promise<ChatData> {
     aiMemberRes,
     channelRes,
     roomRes,
+    roomClientRes,
     teamRes,
     teamMemberRes,
   ] = await Promise.all([
@@ -264,13 +293,17 @@ export async function getChatData(): Promise<ChatData> {
           WHERE archived_at IS NULL
           ORDER BY sort_order, created_at, key`,
       ),
-      // Project rooms = one per project with active site work (construction /
-      // closeout), most-progressed first.
-      query<{ slug: string; name: string }>(
-        `SELECT slug, name FROM projects
-        WHERE status IN ('construction', 'closeout')
-        ORDER BY progress DESC, name ASC
-        LIMIT 12`,
+      // Entity rooms (P1-D2) — persistent, one per open lead/project/warranty
+      // case, newest first. Auto-opened on entity create, closed_at set on
+      // lost/completed/closed (closed rooms drop out here, transcript kept).
+      query<{ key: string; name: string; entity_type: "lead" | "project" | "warranty" }>(
+        `SELECT key, name, entity_type FROM chat_rooms
+          WHERE closed_at IS NULL
+          ORDER BY opened_at DESC`,
+      ),
+      // Manually-added client participants per room (P1-D2).
+      query<{ id: number; room_key: string; name: string; email: string }>(
+        `SELECT id, room_key, name, email FROM chat_room_clients`,
       ),
       // The internal-team roster (active only) — drives the add-teammate picker.
       query<{ slug: string; name: string; role_label: string }>(
@@ -287,10 +320,15 @@ export async function getChatData(): Promise<ChatData> {
     description: c.description || undefined,
   }));
 
-  const ROOMS: ChatChannel[] = roomRes.rows.map((p) => ({
-    key: roomKey(p.slug),
-    name: `# ${p.name}`,
-    description: `Project room · ${p.name}`,
+  const roomDescription = (entityType: "lead" | "project" | "warranty", name: string): string => {
+    if (entityType === "lead") return `Lead room · ${name}`;
+    if (entityType === "warranty") return `Warranty room · ${name}`;
+    return `Project room · ${name}`;
+  };
+  const ROOMS: ChatChannel[] = roomRes.rows.map((r) => ({
+    key: r.key,
+    name: `# ${r.name}`,
+    description: roomDescription(r.entity_type, r.name),
   }));
   const all = [...CHANNELS, ...ROOMS];
 
@@ -362,6 +400,14 @@ export async function getChatData(): Promise<ChatData> {
     teamByChannel.set(r.channel_key, list);
   }
 
+  // room_key → its manually-added client participants (P1-D2).
+  const clientsByRoom = new Map<string, ClientMember[]>();
+  for (const r of roomClientRes.rows) {
+    const list = clientsByRoom.get(r.room_key) ?? [];
+    list.push({ id: r.id, name: r.name, email: r.email, initials: initialsOf(r.name) });
+    clientsByRoom.set(r.room_key, list);
+  }
+
   const viewEntries = all.map(
     (ch) =>
       [
@@ -371,6 +417,7 @@ export async function getChatData(): Promise<ChatData> {
           byChannel.get(ch.key) ?? [],
           membersByChannel.get(ch.key) ?? [],
           teamByChannel.get(ch.key) ?? [],
+          clientsByRoom.get(ch.key) ?? [],
           aiMembersFor(ch),
         ),
       ] as const,
@@ -422,6 +469,10 @@ export async function getUnreadChatCount(): Promise<number> {
         AND NOT EXISTS (
           SELECT 1 FROM chat_channels c
            WHERE c.key = m.channel_key AND c.archived_at IS NOT NULL
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM chat_rooms rm
+           WHERE rm.key = m.channel_key AND rm.closed_at IS NOT NULL
         )`,
   );
   return Number(rows[0]?.n ?? 0);

@@ -450,8 +450,8 @@ CREATE TABLE IF NOT EXISTS chat_members (
 -- Bare team-chat channels (P1-D1). Replaces the old hardcoded CHANNELS const in
 -- lib/chat.ts so the owner can create/remove channels at runtime. Remove is a
 -- soft archive (archived_at set) so a channel's transcript is never destroyed;
--- recreating an archived name un-archives it. Project rooms and DMs are NOT
--- stored here — they stay key-convention only.
+-- recreating an archived name un-archives it. Project/entity rooms live in
+-- chat_rooms (P1-D2), DMs stay key-convention only — neither is stored here.
 CREATE TABLE IF NOT EXISTS chat_channels (
   key         text PRIMARY KEY,
   name        text NOT NULL,
@@ -516,6 +516,59 @@ CREATE TABLE IF NOT EXISTS chat_team_members (
   added_at    timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (channel_key, member_slug)
 );
+
+-- Persistent entity chat rooms (P1-D2). One room per open lead/project/warranty
+-- case, auto-created when the entity is created and closed (closed_at set —
+-- never deleted, so the transcript under the key survives in chat_messages) when
+-- the entity goes lost/completed/closed. Replaces the old derived project-room
+-- query in lib/chat.ts (which only surfaced construction/closeout projects).
+-- No FK on entity_ref: it's a text slug and the room deliberately outlives the
+-- entity on delete so history is kept.
+CREATE TABLE IF NOT EXISTS chat_rooms (
+  key         text PRIMARY KEY,           -- room:<slug> | room:lead:<slug> | room:wty:<slug>
+  entity_type text NOT NULL CHECK (entity_type IN ('lead','project','warranty')),
+  entity_ref  text NOT NULL,              -- leads.slug or projects.slug
+  name        text NOT NULL,
+  opened_at   timestamptz NOT NULL DEFAULT now(),
+  closed_at   timestamptz
+);
+CREATE INDEX IF NOT EXISTS idx_chat_rooms_open_ref ON chat_rooms(entity_ref) WHERE closed_at IS NULL;
+
+-- Manually-added client participants of an entity room (P1-D2 — "clients can be
+-- added but manually only"). Display-only membership: there is NO outward
+-- delivery here. Portal delivery of chat is gated separately (P1-D4). Clients
+-- aren't subs and there is no clients table, so this is a create-only roster
+-- scoped to the room (no shared client pool to pick from).
+CREATE TABLE IF NOT EXISTS chat_room_clients (
+  id       bigserial PRIMARY KEY,
+  room_key text NOT NULL REFERENCES chat_rooms(key) ON DELETE CASCADE,
+  name     text NOT NULL,
+  email    text NOT NULL DEFAULT '',
+  added_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (room_key, name)
+);
+
+-- Idempotent backfill from live entities so existing leads/projects/warranties
+-- get their rooms without a data migration. Safe to re-run: ON CONFLICT DO
+-- NOTHING means a room the app later closed never silently reopens on re-apply.
+-- Non-warranty projects → project rooms (room:<slug>, preserving any transcript
+-- from the old derived era); warranty-stage projects → warranty rooms; leads
+-- that are neither lost nor already converted (a converted lead's room is closed
+-- at convert, its conversation moved to the project) → lead rooms.
+INSERT INTO chat_rooms (key, entity_type, entity_ref, name)
+SELECT 'room:' || slug, 'project', slug, name FROM projects WHERE status <> 'warranty'
+ON CONFLICT (key) DO NOTHING;
+
+INSERT INTO chat_rooms (key, entity_type, entity_ref, name)
+SELECT 'room:wty:' || slug, 'warranty', slug, name FROM projects WHERE status = 'warranty'
+ON CONFLICT (key) DO NOTHING;
+
+INSERT INTO chat_rooms (key, entity_type, entity_ref, name)
+SELECT 'room:lead:' || l.slug, 'lead', l.slug, l.name
+  FROM leads l
+ WHERE l.stage <> 'lost'
+   AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.lead_id = l.id)
+ON CONFLICT (key) DO NOTHING;
 
 -- ─── Project punch list ─────────────────────────────────────────────────────
 -- Per-project punch items; checkboxes on the project-detail Punch tab toggle

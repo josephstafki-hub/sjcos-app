@@ -14,6 +14,7 @@ import { ai } from "./ai";
 import { AI_NAME } from "./ai-name";
 import { logLeadActivity } from "./lead-activity";
 import { emit } from "./notify";
+import { openEntityRoom } from "./rooms";
 
 /** A flexible inbound lead. `name` is the only hard requirement; every other
  *  field is optional, and `extra` carries any additional key/value pairs the
@@ -187,6 +188,14 @@ export async function createInboundLead(
   }
 
   await logLeadActivity(slug, "created", `Lead received · ${source}`);
+
+  // Auto-create the lead's chat room (P1-D2) — same as the manual form, so the
+  // highest-volume creation path (inbound) gets a room too. Best-effort.
+  try {
+    await openEntityRoom("lead", slug, name);
+  } catch {
+    /* room bookkeeping must never block ingestion */
+  }
 
   // Score on the full inbound (best-effort — never block ingestion on the model).
   let verdict: "go" | "hold" | "pass" | null = null;

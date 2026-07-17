@@ -7,7 +7,7 @@ import { ai } from "@/lib/ai";
 import { emit } from "@/lib/notify";
 import { askHermes, chatReplyClaude } from "@/lib/dev-agents";
 import type { DevAgent } from "@/lib/dev-agents-meta";
-import { initialsOf, type TeamMember } from "@/lib/chat";
+import { initialsOf, type TeamMember, type ClientMember } from "@/lib/chat";
 
 /** How each AI teammate signs its chat posts. */
 const AGENT_IDENTITY: Record<DevAgent, { name: string; initials: string }> = {
@@ -345,6 +345,68 @@ export async function createTeamMember(
       ok: true,
       member: { slug, name: cleanName, initials: initialsOf(cleanName), roleLabel: cleanRole },
     };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/** Add a client to an entity room, manually (P1-D2 — "clients can be added but
+ *  manually only"). Create-only, room-scoped: there's no clients table to pick
+ *  from, so the owner types the name (and optional email). Recording a duplicate
+ *  name updates the email instead of erroring. This records membership ONLY —
+ *  there is deliberately NO outward delivery here (portal delivery is gated,
+ *  P1-D4). Returns the full row so the client updates without a refetch. */
+export async function addClientToRoom(
+  roomKey: string,
+  name: string,
+  email: string = "",
+): Promise<{ ok: boolean; client?: ClientMember; error?: string }> {
+  await requireRole("owner");
+  if (!roomKey.startsWith("room:")) {
+    return { ok: false, error: "Clients can only be added to an entity room." };
+  }
+  const cleanName = name.trim();
+  const cleanEmail = email.trim();
+  if (!cleanName) return { ok: false, error: "Enter a client name." };
+  try {
+    const open = await query(
+      `SELECT 1 FROM chat_rooms WHERE key = $1 AND closed_at IS NULL`,
+      [roomKey],
+    );
+    if (open.rows.length === 0) {
+      return { ok: false, error: "That room is closed or no longer exists." };
+    }
+    const res = await query<{ id: number }>(
+      `INSERT INTO chat_room_clients (room_key, name, email) VALUES ($1, $2, $3)
+       ON CONFLICT (room_key, name) DO UPDATE SET email = EXCLUDED.email
+       RETURNING id`,
+      [roomKey, cleanName, cleanEmail],
+    );
+    revalidatePath("/chat");
+    return {
+      ok: true,
+      client: {
+        id: res.rows[0].id,
+        name: cleanName,
+        email: cleanEmail,
+        initials: initialsOf(cleanName),
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/** Remove a manually-added client from an entity room. */
+export async function removeClientFromRoom(
+  roomKey: string,
+  id: number,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireRole("owner");
+  try {
+    await query(`DELETE FROM chat_room_clients WHERE room_key = $1 AND id = $2`, [roomKey, id]);
+    revalidatePath("/chat");
+    return { ok: true };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }

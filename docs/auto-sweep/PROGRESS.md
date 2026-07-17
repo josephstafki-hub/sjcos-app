@@ -5,6 +5,106 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P1-D2 — Team Chat: entity project rooms · **[x] DONE**
+
+Team chat now has **persistent, entity-backed rooms**. A room is auto-created when a
+lead/project/warranty case comes into being, subs on the entity are auto-added to it,
+you can add clients manually, and rooms auto-close when the case goes lost/completed/closed.
+Before this, "project rooms" were *derived on the fly* from projects in construction/closeout
+only — nothing for leads or warranties, no stored membership, no lifecycle.
+
+### What you can now do / what happens automatically
+- **Create a lead** (either the manual "New lead" form **or** an inbound website/API submission)
+  → a `# <lead>` room appears in Team chat under a renamed **"Rooms"** rail section.
+- **Create a project** (New-project form **or** converting a lead) → a project room appears.
+  On convert, the lead's room **closes** and its participants **carry over** to the project room
+  (the conversation moves with the job).
+- **Assign a sub** to a project (Subs tab) → that sub is **auto-added** to the project's room.
+  Unassigning removes them. (Symmetric with P1-B5's both-ways wiring.)
+- **Complete a job** (advance to the warranty stage) → the project room **closes** and a
+  **warranty room** opens, carrying subs/team/clients across so support conversation continues.
+- **Add a client to a room** — participants menu → new **"Clients"** section → "Add client"
+  (name + optional email). Manual only (there's no client roster to pick from), exactly as asked.
+  **This records membership ONLY — nothing is sent anywhere** (portal delivery of chat is the
+  separate gated item **P1-D4**).
+- **Lose/delete a lead** → its room auto-closes (transcript kept, never deleted).
+
+### The key product decisions (guardrail #6)
+1. **Warranty "case" = the project continuing.** SJC has no separate warranty-create action —
+   `warranty_projects` rows are seeded/legacy, and the live warranty surface is "projects in the
+   `warranty` stage." So the warranty room is spawned at the project→warranty transition, and the
+   project room closes there. That single transition satisfies both "warranty case created → room"
+   and "project completed → close its room."
+2. **Project rooms keep the bare `room:<slug>` key** (backward-compatible with any transcript/
+   membership from the old derived era). Leads use `room:lead:<slug>`, warranties `room:wty:<slug>`.
+   Slugs are kebab-cased so these namespaces can never collide, and every room key contains `:`
+   so the existing AI/membership gates treat them correctly with zero changes.
+3. **Every creation path is hooked**, including the inbound funnel (`lib/intake.ts`) — the
+   review caught that I'd initially only hooked the manual form; the highest-volume path (website
+   leads) now opens a room too.
+4. **The rail is now unbounded** (the old derived query had `LIMIT 12`). Backfill created rooms for
+   all currently-open entities: **5 lead + 10 project + 39 warranty = 54 rooms**. The 39 warranty
+   rooms are every job currently in its warranty window — real support surface, but it makes the
+   rail long. If you'd rather collapse/limit warranty rooms in the rail, that's a clean follow-on;
+   flagging it so it's your call, not a silent one.
+
+### The one deferred sub-clause (why [x] and not [~])
+**Warranty rooms have no auto-close event yet.** `warranty` is the final project stage — nothing in
+the product signals "this warranty is over," so there's no event to hook a close to. The mechanism is
+**wired-ready**: `closeEntityRoom(warrantyRoomKey(slug))` exists and works; it just needs a caller.
+That caller is **P1-F1** (warranty items expiring per MN statute → whole project drops off warranty) —
+when P1-F1 lands, closing the warranty room there is a one-liner. Marked [x] because D2's own scope
+(the room infrastructure + wiring to every event that exists today) is complete; re-running D2 would
+be futile until P1-F1 creates the missing event. Recorded here so the dependency is explicit.
+
+### Plan (Fable 5) — summary
+Validated my persistent-`chat_rooms` design and returned six corrections I adopted: (1) hook
+`setLeadStage` (the stage picker can set `lost`/un-lose directly, bypassing markLeadLost);
+(2) make `openEntityRoom` an upsert so reopen == open; (3) closing a room must clear its unread
+marker AND `getUnreadChatCount` must exclude closed rooms, or a closed room lights the nav badge
+forever; (4) backfill must exclude already-converted leads, not just lost ones; (5) the client-side
+seeded-`ChannelView` literal in ChatClient needs the new fields or tsc breaks; (6) membership carry
+must copy subs + team + clients, not just subs.
+
+### Review (Fable 5) — verdict: core correct & safe; found 4 issues, all addressed
+- **[Medium] Inbound leads never got a room** — hooked `createInboundLead` in `lib/intake.ts`. **Fixed.**
+- **[Low] `reopenLead` reopened a converted lead's room** — added the same `!converted` guard
+  `setLeadStage` uses. **Fixed.**
+- **[Low] Convert didn't carry membership** (asymmetric with the warranty transition) — added
+  `carryRoomMembership(leadRoomKey, projectRoomKey)`. **Fixed.**
+- **[Low] Warranty rooms have no terminal event** — acknowledged as the deferred sub-clause above
+  (app-level gap, tied to P1-F1). **Documented, not a code defect in this diff.**
+- Reviewer confirmed: warranty-transition FK/sequencing safe, `redirect()` ordering safe (room
+  hooks before/outside every redirect, try/catch never swallows `NEXT_REDIRECT`), no outward send
+  in the add-client path, SQL idempotent, backfill filters correct.
+
+### Verify
+- `npx tsc --noEmit` → clean. `npm run lint` → 0 errors (11 pre-existing warnings, none in new code).
+- Applied `db/schema.sql` to the **live DB** idempotently (additive `CREATE TABLE IF NOT EXISTS` +
+  `ON CONFLICT DO NOTHING` backfill). Second apply = no-op (54 rooms both times). No build, no service
+  restart, port 3017 untouched — the running service ignores `chat_rooms` until the next deploy.
+- DB dry-runs (in rolled-back txns): one open room per project ref (no dupes); client upsert on a
+  duplicate name updates the email instead of erroring.
+
+### Files changed
+- `db/schema.sql` — `chat_rooms` + `chat_room_clients` tables, indexes, idempotent backfill; stale
+  "rooms are key-convention only" comment corrected.
+- `db/seed.sql` — added both tables to the TRUNCATE list.
+- `lib/chat.ts` — `leadRoomKey`/`warrantyRoomKey`, `ClientMember` type, `ChannelView.clientMembers`/
+  `canManageClients`, `getChatData` reads open rooms from `chat_rooms` + loads clients, unread-count
+  excludes closed rooms.
+- `lib/rooms.ts` (new) — `openEntityRoom`/`closeEntityRoom`/`addSubToEntityRoom`/
+  `removeSubFromEntityRoom`/`carryRoomMembership` primitives.
+- `lib/actions/chat.ts` — `addClientToRoom` (no delivery) + `removeClientFromRoom`.
+- `lib/actions/leads.ts` — hooks in createLead, convertLeadToProject, markLeadLost, reopenLead,
+  deleteLead, setLeadStage.
+- `lib/actions/projects.ts` — hooks in createProject, advanceProjectStatus (warranty), assign/remove sub.
+- `lib/intake.ts` — hook in createInboundLead.
+- `components/chat/ChatClient.tsx` — Clients section in the participants popover, client handlers,
+  rail label "Project rooms" → "Rooms".
+
+---
+
 ## 2026-07-17 · P1-D1 (finish) — Team Chat: independent team-member add · **[x] DONE**
 
 **This closes P1-D1.** Last iteration left it `[~]` because subs and AI models could be

@@ -18,6 +18,8 @@ import {
   compactEstimateValue,
 } from "@/lib/leads";
 import { logLeadActivity } from "@/lib/lead-activity";
+import { openEntityRoom, closeEntityRoom, carryRoomMembership } from "@/lib/rooms";
+import { leadRoomKey, roomKey } from "@/lib/chat";
 import { scoreLead } from "@/lib/intake";
 import { emit } from "@/lib/notify";
 import { INTAKE_QUESTIONS } from "@/lib/lead-intake-questions";
@@ -123,6 +125,13 @@ export async function createLead(formData: FormData) {
   );
   await logLeadActivity(slug, "created", `Lead created · ${source}`);
 
+  // Auto-create the lead's chat room (P1-D2). Best-effort — never block create.
+  try {
+    await openEntityRoom("lead", slug, name);
+  } catch {
+    /* room bookkeeping must never block lead creation */
+  }
+
   // Auto-score on creation, same as the inbound funnel. Best-effort — never
   // block lead creation on the model (scoreLead falls back to mock internally).
   let verdict: "go" | "hold" | "pass" | null = null;
@@ -214,17 +223,38 @@ export async function markLeadLost(slug: string) {
   await requireRole("owner");
   await query(`UPDATE leads SET stage = 'lost', updated_at = now() WHERE slug = $1`, [slug]);
   await logLeadActivity(slug, "stage", "Marked lost / archived");
+  try {
+    await closeEntityRoom(leadRoomKey(slug)); // lost → close the room (P1-D2)
+  } catch {
+    /* room bookkeeping must never block the stage change */
+  }
   revalidatePath(`/leads/${slug}`);
   revalidatePath("/leads");
+  revalidatePath("/chat");
 }
 
 /** Reopen a lost/archived lead back into the pipeline at intake. Owner-gated. */
 export async function reopenLead(slug: string) {
   await requireRole("owner");
+  const row = await queryOne<{ name: string; converted: boolean }>(
+    `SELECT l.name, EXISTS (SELECT 1 FROM projects p WHERE p.lead_id = l.id) AS converted
+       FROM leads l WHERE l.slug = $1`,
+    [slug],
+  );
   await query(`UPDATE leads SET stage = 'intake', updated_at = now() WHERE slug = $1`, [slug]);
   await logLeadActivity(slug, "stage", "Reopened to Intake");
+  // Reopen the lead's room — but not for a converted lead, whose conversation
+  // lives in the project room (its lead room was deliberately closed at convert).
+  if (row && !row.converted) {
+    try {
+      await openEntityRoom("lead", slug, row.name); // reopen the room (P1-D2)
+    } catch {
+      /* room bookkeeping must never block the reopen */
+    }
+  }
   revalidatePath(`/leads/${slug}`);
   revalidatePath("/leads");
+  revalidatePath("/chat");
 }
 
 /** Delete a lead, then return to the list. Any project linked via lead_id is
@@ -232,8 +262,14 @@ export async function reopenLead(slug: string) {
 export async function deleteLead(slug: string) {
   await requireRole("owner");
   await query(`DELETE FROM leads WHERE slug = $1`, [slug]);
+  try {
+    await closeEntityRoom(leadRoomKey(slug)); // close (keep transcript), don't delete
+  } catch {
+    /* room bookkeeping must never block the delete */
+  }
   revalidatePath("/leads");
   revalidatePath("/today");
+  revalidatePath("/chat");
   redirect("/leads");
 }
 
@@ -496,6 +532,18 @@ export async function convertLeadToProject(slug: string, nameInput?: string) {
     [pslug, projectName, lead.name, address, lead.value_display, address, lead.id],
   );
   await logLeadActivity(slug, "note", `Converted to project "${projectName}"`);
+
+  // The conversation moves from the lead to the new project room (P1-D2): open
+  // the project room, carry any participants added during the lead stage over,
+  // then close the lead's. Best-effort — never block the convert.
+  try {
+    await openEntityRoom("project", pslug, projectName);
+    await carryRoomMembership(leadRoomKey(slug), roomKey(pslug));
+    await closeEntityRoom(leadRoomKey(slug));
+  } catch {
+    /* room bookkeeping must never block the conversion */
+  }
+
   await emit({
     kind: "job",
     tag: "Job",
@@ -510,6 +558,7 @@ export async function convertLeadToProject(slug: string, nameInput?: string) {
   revalidatePath("/projects");
   revalidatePath("/today");
   revalidatePath("/notifications");
+  revalidatePath("/chat");
   redirect(`/projects/${pslug}`);
 }
 
@@ -536,6 +585,24 @@ export async function setLeadStage(slug: string, stage: LeadStage) {
     [slug, stage],
   );
   await logLeadActivity(slug, "stage", `Moved to ${stageLabel(stage)}`);
+  // Keep the lead's room in sync (P1-D2): 'lost' closes it; any live stage
+  // reopens it — but only for an unconverted lead (a converted lead's room was
+  // deliberately closed at convert, its conversation moved to the project).
+  try {
+    if (stage === "lost") {
+      await closeEntityRoom(leadRoomKey(slug));
+    } else {
+      const lead = await queryOne<{ name: string; converted: boolean }>(
+        `SELECT l.name, EXISTS (SELECT 1 FROM projects p WHERE p.lead_id = l.id) AS converted
+           FROM leads l WHERE l.slug = $1`,
+        [slug],
+      );
+      if (lead && !lead.converted) await openEntityRoom("lead", slug, lead.name);
+    }
+  } catch {
+    /* room bookkeeping must never block the stage change */
+  }
   revalidatePath(`/leads/${slug}`);
   revalidatePath("/leads");
+  revalidatePath("/chat");
 }

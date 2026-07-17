@@ -14,6 +14,7 @@ import {
   fetchThreads,
   fetchThreadPage,
   fetchLabels,
+  fetchLabelCounts,
   type RawGmailThread,
   type GmailCategory,
 } from "./gmail";
@@ -258,8 +259,9 @@ export interface InboxData {
   smartViews: { key: ThreadStatus; label: string; dot: "flag" | "ghost"; count: number; active: boolean }[];
   channels: { key: ThreadChannel; label: string; count: number }[];
   projects: { slug?: string; label: string; count: number; emphasis?: "accent" | "flag" }[];
-  /** User Gmail labels present on the fetched threads, with counts. */
-  labels: { id: string; name: string; count: number }[];
+  /** All user Gmail labels with true thread totals (count = null when the
+   *  per-label count fetch failed → the rail hides that badge). */
+  labels: { id: string; name: string; count: number | null }[];
   activeView: { key: ThreadStatus; label: string };
   threads: InboxThread[];
   /** Full reader content, keyed by thread id. */
@@ -1110,7 +1112,7 @@ async function loadChannelThreads(): Promise<ChannelBuild> {
 async function buildFromGmail(): Promise<InboxData> {
   const [page, labels, contactMaps, linkOptions, folded] = await Promise.all([
     fetchThreadPage(INBOX_PAGE),
-    fetchLabels(),
+    fetchLabelCounts(),
     loadContactMaps(),
     getLinkOptions(),
     loadChannelThreads(),
@@ -1131,17 +1133,16 @@ async function buildFromGmail(): Promise<InboxData> {
   const viewCounts = countViews(threads);
   const channelCounts = countChannels(threads);
 
-  // Label rail: ALL user labels (counts from the loaded threads).
-  const labelCounts = new Map<string, number>();
-  for (const t of threads) {
-    for (const id of t.labelIds ?? []) {
-      if (labelMap.has(id)) labelCounts.set(id, (labelCounts.get(id) ?? 0) + 1);
-    }
-  }
+  // Label rail: ALL user labels with true Gmail totals (threadsTotal), so the
+  // badge reflects every email the label contains — not just the handful that
+  // paged into the loaded inbox window — and matches what clicking loads (the
+  // label view paginates to everything). Tiny caveat documented on
+  // fetchLabelCounts: totals include labeled threads in trash/spam, which the
+  // opened list filters out — acceptable for user labels.
   const labelRail = labels.map((l) => ({
     id: l.id,
     name: l.name,
-    count: labelCounts.get(l.id) ?? 0,
+    count: l.count,
   }));
 
   // By-project rail: projects resolved on at least one thread, with counts.

@@ -511,7 +511,10 @@ export function InboxClient({
                     from what clicking shows, but these are server-fetched pages —
                     a labels.get total counts across folders (incl. spam/trash)
                     and wouldn't match the opened list. No badge beats a wrong
-                    one (same principle as the smart-view/channel counts). */}
+                    one (same principle as the smart-view/channel counts). User
+                    labels DO badge from labels.get — see the Labels rail below —
+                    because their trash/spam overlap is rare, unlike Unread's,
+                    where every spam thread is unread and the skew is systematic. */}
                 <span className="flex-1 truncate">{v.label}</span>
               </button>
             );
@@ -560,7 +563,9 @@ export function InboxClient({
                 >
                   <Tag className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
                   <span className="flex-1 truncate">{l.name}</span>
-                  <span className="font-mono text-[10px] text-ink-3">{l.count}</span>
+                  {l.count != null && (
+                    <span className="font-mono text-[10px] text-ink-3">{l.count}</span>
+                  )}
                 </button>
               ))}
             </div>

@@ -5,6 +5,93 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P1-C5 — Fix inbox label counts · **[x] DONE**
+
+**The number next to each Gmail label in your inbox rail was counting the wrong
+thing.** It counted how many of the *~50 threads currently loaded into the inbox
+window* carried that label — not how many emails the label actually contains. So a
+label holding 200 emails showed whatever tiny slice (often **0**) happened to page
+into that window, while **clicking** the label did a real server-scoped fetch and
+showed the full set. The badge and the click disagreed. Now the badge shows the
+label's **true total** straight from Gmail, so it matches what opening the label loads.
+
+### Root cause (and why "display all" was already fine)
+`buildFromGmail()` in `lib/inbox.ts` built the rail counts by iterating the loaded
+thread list (`INBOX_PAGE = 50`) and tallying label ids — a loaded-window count, not a
+mailbox total. The **display** half was already correct: clicking a label runs
+`loadLabelInboxAction → loadLabelInbox → fetchThreadPage(…, labelId)`, server-scoped to
+that label with "Load more" pagination, so *every* email in the label is reachable. The
+only defect was the count, so that's the surgical fix.
+
+### The fix
+- **`lib/gmail.ts`** — new `fetchLabelCounts()` (+ `CountedGmailLabel` type). It calls
+  the existing `fetchLabels()`, then issues one `users.labels.get` per label **in
+  parallel** and reads **`threadsTotal`** — the whole-mailbox total for that label. Same
+  endpoint/response object `gmailInboxUnread()` already reads `threadsUnread` from, so no
+  new API surface. Each get is wrapped in try/catch → `count: null` on failure.
+- **`lib/inbox.ts`** — `buildFromGmail()` swaps `fetchLabels()` → `fetchLabelCounts()`
+  in its `Promise.all`; the loaded-window `labelCounts` loop is **deleted**; `labelRail`
+  count now comes straight from the real total. `labelMap` (id→name, used for row chips)
+  is unchanged — `CountedGmailLabel` is a `GmailLabel` superset. Only the **live Gmail**
+  path changed; the mock builder still ships `labels: []`.
+- **`components/inbox/InboxClient.tsx`** — the label badge renders only when
+  `count != null`, so a label whose count-fetch failed shows **no badge** rather than a
+  wrong `0` (the repo's "no badge beats a wrong one" principle). Amended the Mailboxes
+  comment so it no longer reads as contradicting the new user-label badging.
+
+### Product decisions you should know
+- **`threadsTotal`, not `messagesTotal`.** Every rail row and every list row is a
+  *thread* (conversation), so a 1-thread/8-message exchange counts **once** — matching
+  what clicking loads. `messagesTotal` would over-count multi-message conversations.
+- **Kept the tiny trash/spam caveat instead of chasing exactness.** `threadsTotal`
+  includes a labeled thread that also sits in trash/spam, while the opened label view
+  excludes those (`-in:spam -in:trash`). For **user** labels that overlap requires you to
+  have both labeled *and* trashed the same thread — rare and transient (trash auto-purges
+  ~30 days). This is deliberately different from the P1-C4 Mailboxes decision (no badges
+  there): for **Unread/Spam/Trash** the skew is systematic (every spam thread is unread),
+  so a badge would be wildly wrong; for user labels it's a rare off-by-small. Documented
+  at both sites; did **not** pass `includeSpamTrash` to the label view (that would show
+  trashed mail inside a label — worse than a rare count skew).
+- **Zero-count labels still render** (a truthful `0` that matches an empty click). With
+  real totals, far fewer labels show `0` than before (most used to show a false `0`).
+- **On failure, hide the badge, don't fake it.** A per-label `labels.get` failure →
+  `count: null` → no badge; the label stays clickable. Recreating "shows 0 for a full
+  label" would just be the original bug under a new name.
+
+### Perf / quota
+Negligible. `labels.get` is 1 quota unit with a tiny body; an inbox load already spends
+~500 units on 50 `threads.get format:full`. The N label-gets run inside the *same*
+top-level `Promise.all` as the (much slower) thread fetch, so wall time is effectively
+unchanged. Only `buildFromGmail` (initial load) pays — Load-more / label-click / system
+views still use plain `fetchLabels()` (names only, no per-label gets).
+
+### Fable's plan / review
+**Plan (Fable 5):** validated the approach and sharpened it — use `count: number | null`
+(hide the badge on failure rather than show a wrong `0`), use `threadsTotal`, keep the
+other three `fetchLabels()` callers untouched, render all labels including zeros, and
+**reconcile with the P1-C4 Mailboxes "no badge" comment** so the two don't appear to
+contradict. All folded in.
+**Review (Fable 5): SHIP IT** — no blocking issues. Confirmed the count is now the true
+mailbox total not the window slice, `threadsTotal` is right vs `messagesTotal`, `labelMap`
+still works, the **only** consumer of `labels[].count` in the repo is the (now null-checked)
+rail badge — mobile/`/api/inbox` routes don't touch `labels` — the `number | null` widening
+is type-safe (tsc+lint green), no outbound-send path, and the "display all" half was already
+satisfied by the server-scoped fetch + Load more. Non-blocking nits (the `?? 0` coalesce if
+Gmail ever omits `threadsTotal` — it doesn't for user labels; a transient pre-fetch
+badge/row mismatch that self-resolves) left as-is by design.
+
+### Verify
+`npx tsc --noEmit` → exit 0. `npm run lint` → 0 errors (same 11 pre-existing warnings, none
+in the touched files). **Not runtime-verified against live Gmail** in this working copy
+(connector not configured here) — the one deferred check is eyeballing a badge against
+Gmail's own label total on the connected machine; `threadsTotal` is the same response field
+`gmailInboxUnread()` already relies on, and worst case is a read-only wrong number, never a
+wrong action. No build run, service/:3017 untouched, nothing sent outward.
+
+**Files:** `lib/gmail.ts`, `lib/inbox.ts`, `components/inbox/InboxClient.tsx`.
+
+---
+
 ## 2026-07-17 · P1-C4 — Add important Gmail views (read/unread, spam, trash) · **[x] DONE**
 
 **Your inbox rail could only show Gmail's INBOX, your smart-triage lenses, your

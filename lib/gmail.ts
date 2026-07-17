@@ -352,6 +352,37 @@ export async function fetchLabels(): Promise<GmailLabel[]> {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** A user label plus its true total thread count (null when the count fetch
+ *  failed — the rail hides the badge rather than advertise a wrong number). */
+export interface CountedGmailLabel extends GmailLabel {
+  count: number | null;
+}
+
+/** User labels with real totals for the inbox label rail. `labels.list` carries
+ *  no counts, so this issues one cheap `labels.get` per label (1 quota unit each;
+ *  trivial next to the ~50 `threads.get` an inbox load already does).
+ *  Uses `threadsTotal`, not `messagesTotal`: rail rows and list rows are both
+ *  threads, so a multi-message conversation counts once (matching what clicking
+ *  the label loads). Caveat: `threadsTotal` includes labeled threads sitting in
+ *  trash/spam while the opened label view excludes them (`-in:spam -in:trash`) —
+ *  for USER labels that overlap is rare (Joe must have labeled AND trashed the
+ *  same thread) and transient, unlike the systematic skew that keeps the
+ *  system-mailbox badges off (see the Mailboxes note in InboxClient). */
+export async function fetchLabelCounts(): Promise<CountedGmailLabel[]> {
+  const labels = await fetchLabels();
+  const api = gmail();
+  return Promise.all(
+    labels.map(async (l) => {
+      try {
+        const { data } = await api.users.labels.get({ userId: "me", id: l.id });
+        return { ...l, count: data.threadsTotal ?? 0 };
+      } catch {
+        return { ...l, count: null }; // hide the badge; label stays clickable
+      }
+    }),
+  );
+}
+
 function deriveCategory(labelIds: string[]): GmailCategory {
   for (const id of labelIds) {
     if (CATEGORY_BY_LABEL[id]) return CATEGORY_BY_LABEL[id];

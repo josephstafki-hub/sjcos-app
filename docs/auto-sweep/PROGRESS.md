@@ -89,7 +89,9 @@ Mobile-repo-only commit on its `main`; sweep docs committed on
 `auto/todo-sweep-2026-07-14`.
 
 **Files changed (mobile repo `/home/joe/sjcos-mobile`):** `app.json`,
-`src/app/login.tsx`.
+`src/app/login.tsx`. Committed to that repo's `main` (`63491b0`). The mobile repo
+is **local-only (no git remote configured)** — same as every prior P2-3 slice —
+so there is nothing to push there; the sweep-docs branch pushed to origin fine.
 
 ---
 

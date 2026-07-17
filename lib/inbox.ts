@@ -208,6 +208,10 @@ export interface ThreadReader {
    *  `body` is the generated reply (from ai.draft) shown on "Review draft". */
   aiDraft: { summary: string; body: string };
   replyPlaceholder: string;
+  /** Non-email channels are read-only in the inbox (replies happen on the
+   *  channel's own surface / are approval-gated). These point at that surface. */
+  actionHref?: string;
+  actionLabel?: string;
 }
 
 /** Curated reader content keyed by thread id. Threads not listed get a generic
@@ -277,6 +281,20 @@ function countViews(threads: InboxThread[]): Record<ThreadStatus, number> {
     done: 0,
   };
   for (const t of threads) counts[t.view]++;
+  return counts;
+}
+
+/** Count threads per channel from the live list, so a rail badge never
+ *  advertises a channel it can't open. */
+function countChannels(threads: InboxThread[]): Record<ThreadChannel, number> {
+  const counts: Record<ThreadChannel, number> = {
+    email: 0,
+    sms: 0,
+    client_portal: 0,
+    sub_portal: 0,
+    site_form: 0,
+  };
+  for (const t of threads) counts[t.channel]++;
   return counts;
 }
 
@@ -694,17 +712,385 @@ async function getLinkOptions(): Promise<InboxData["linkOptions"]> {
   return { projects: projects.rows, leads: leads.rows };
 }
 
+// ─── Non-email channel folding (SMS / portals / website forms) ───────────────
+// The unified inbox is Gmail-centric, so the "Channels" rail only ever showed
+// Email. These loaders fold each channel's REAL conversations (from Postgres)
+// into the same thread list so clicking a channel surfaces its threads and the
+// rail counts are truthful. Read/display only — replies happen on each
+// channel's own surface (the reader links out); nothing is sent from here.
+
+interface ChannelBuild {
+  threads: InboxThread[];
+  readerEntries: [string, ThreadReader][];
+}
+
+type ChatAuthor = "owner" | "ai" | "user";
+
+/** A folded, read-only reader (no AI draft — those are Gmail-only and slow). */
+function readOnlyReader(opts: {
+  tag: string;
+  channel: ThreadChannel;
+  subject: string;
+  messages: ReaderMessage[];
+  actionHref?: string;
+  actionLabel?: string;
+}): ThreadReader {
+  return {
+    tag: opts.tag,
+    channel: opts.channel,
+    channelLabel: channelLabel(opts.channel),
+    messageCount: opts.messages.length,
+    subject: opts.subject,
+    messages: opts.messages,
+    aiDraft: { summary: "", body: "" },
+    replyPlaceholder: "",
+    actionHref: opts.actionHref,
+    actionLabel: opts.actionLabel,
+  };
+}
+
+/** "(612) 555-1234" from an E.164-ish number; passthrough if not 10 digits. */
+function formatPhone(phone: string): string {
+  const ten = phone.replace(/\D/g, "").slice(-10);
+  if (ten.length !== 10) return phone;
+  return `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}`;
+}
+
+function smsLinkHref(type: string | null, slug: string | null): string | undefined {
+  if (!slug) return undefined;
+  if (type === "lead") return `/leads/${slug}`;
+  if (type === "sub") return `/subs/${slug}`;
+  if (type === "project") return `/projects/${slug}`;
+  return undefined;
+}
+
+/** SMS channel: two-way texts from sms_threads/sms_messages (lib/sms.ts). */
+async function loadSmsThreads(): Promise<ChannelBuild> {
+  const { rows } = await query<{
+    id: string;
+    phone: string;
+    contact_name: string | null;
+    link_type: string | null;
+    link_slug: string | null;
+    unread: boolean;
+    last_message_at: string | null;
+    last_body: string | null;
+    last_dir: "in" | "out" | null;
+  }>(
+    `SELECT t.id::text AS id, t.phone, t.contact_name, t.link_type, t.link_slug,
+            t.unread, t.last_message_at, m.body AS last_body, m.direction AS last_dir
+       FROM sms_threads t
+       LEFT JOIN LATERAL (
+         SELECT body, direction FROM sms_messages
+          WHERE thread_id = t.id ORDER BY created_at DESC, id DESC LIMIT 1
+       ) m ON true
+      ORDER BY t.last_message_at DESC NULLS LAST, t.id DESC`,
+  );
+  if (!rows.length) return { threads: [], readerEntries: [] };
+
+  const ids = rows.map((r) => r.id);
+  const { rows: msgs } = await query<{
+    thread_id: string;
+    direction: "in" | "out";
+    body: string;
+    created_at: string;
+  }>(
+    `SELECT thread_id::text AS thread_id, direction, body, created_at
+       FROM sms_messages WHERE thread_id = ANY($1::bigint[]) ORDER BY created_at, id`,
+    [ids],
+  );
+  const byThread = new Map<string, typeof msgs>();
+  for (const m of msgs) {
+    const list = byThread.get(m.thread_id) ?? [];
+    list.push(m);
+    byThread.set(m.thread_id, list);
+  }
+
+  const threads: InboxThread[] = [];
+  const readerEntries: [string, ThreadReader][] = [];
+  for (const r of rows) {
+    const id = `sms:${r.id}`;
+    const name = r.contact_name || formatPhone(r.phone);
+    // Their text is the last (or unread) → waiting on Joe; else awaiting them.
+    const view: ThreadStatus =
+      r.unread || r.last_dir === "in" ? "needs_reply" : "awaiting_them";
+    const audience: Audience | undefined =
+      r.link_type === "sub"
+        ? "sub"
+        : r.link_type === "lead" || r.link_type === "client"
+          ? "client"
+          : undefined;
+    threads.push({
+      id,
+      initials: initialsOf(name),
+      fromName: name,
+      channel: "sms",
+      subject: r.last_body?.slice(0, 80) || "Text message",
+      preview: r.last_body || "",
+      when: r.last_message_at ? relativeWhen(Date.parse(r.last_message_at)) : "",
+      view,
+      tag: "SMS",
+      emphasis: view === "needs_reply" ? "flag" : "ghost",
+      audience,
+    });
+    const conv = byThread.get(r.id) ?? [];
+    const messages: ReaderMessage[] = conv.map((m) => ({
+      fromName: m.direction === "in" ? name : "Joe",
+      initials: m.direction === "in" ? initialsOf(name) : "JS",
+      meta: relativeWhen(Date.parse(m.created_at)),
+      to: m.direction === "in" ? "to Joe" : `to ${name}`,
+      body: [m.body],
+    }));
+    if (!messages.length) {
+      messages.push({
+        fromName: name,
+        initials: initialsOf(name),
+        meta: r.last_message_at ? relativeWhen(Date.parse(r.last_message_at)) : "",
+        to: "to Joe",
+        body: [r.last_body || ""],
+      });
+    }
+    const href = smsLinkHref(r.link_type, r.link_slug);
+    readerEntries.push([
+      id,
+      readOnlyReader({
+        tag: `SMS · ${name}`,
+        channel: "sms",
+        subject: `Text — ${name}`,
+        messages,
+        actionHref: href,
+        actionLabel: href ? "Open linked record" : undefined,
+      }),
+    ]);
+  }
+  return { threads, readerEntries };
+}
+
+/** Portal channels: client portal (portal:<project-slug>) and sub portal
+ *  (dm:<sub-slug>, unified with /chat DMs) — both persist to chat_messages. */
+async function loadPortalThreads(): Promise<ChannelBuild> {
+  const { rows: groups } = await query<{
+    channel_key: string;
+    last_at: string;
+    last_author: ChatAuthor;
+    last_body: string;
+    proj_name: string | null;
+    client_name: string | null;
+    sub_name: string | null;
+  }>(
+    `SELECT m.channel_key,
+            max(m.created_at) AS last_at,
+            (array_agg(m.author_kind ORDER BY m.created_at DESC, m.id DESC))[1] AS last_author,
+            (array_agg(m.body        ORDER BY m.created_at DESC, m.id DESC))[1] AS last_body,
+            p.name AS proj_name, l.name AS client_name, s.name AS sub_name
+       FROM chat_messages m
+       LEFT JOIN projects p ON m.channel_key LIKE 'portal:%' AND p.slug = split_part(m.channel_key, ':', 2)
+       LEFT JOIN leads    l ON p.lead_id = l.id
+       LEFT JOIN subs     s ON m.channel_key LIKE 'dm:%'     AND s.slug = split_part(m.channel_key, ':', 2)
+      WHERE m.channel_key LIKE 'portal:%' OR m.channel_key LIKE 'dm:%'
+      GROUP BY m.channel_key, p.name, l.name, s.name
+      ORDER BY max(m.created_at) DESC`,
+  );
+  if (!groups.length) return { threads: [], readerEntries: [] };
+
+  const keys = groups.map((g) => g.channel_key);
+  const { rows: msgs } = await query<{
+    channel_key: string;
+    author_kind: ChatAuthor;
+    author_name: string;
+    author_initials: string;
+    body: string;
+    created_at: string;
+  }>(
+    `SELECT channel_key, author_kind, author_name, author_initials, body, created_at
+       FROM chat_messages WHERE channel_key = ANY($1) ORDER BY created_at, id`,
+    [keys],
+  );
+  const byKey = new Map<string, typeof msgs>();
+  for (const m of msgs) {
+    const list = byKey.get(m.channel_key) ?? [];
+    list.push(m);
+    byKey.set(m.channel_key, list);
+  }
+
+  const threads: InboxThread[] = [];
+  const readerEntries: [string, ThreadReader][] = [];
+  for (const g of groups) {
+    const isSub = g.channel_key.startsWith("dm:");
+    const channel: ThreadChannel = isSub ? "sub_portal" : "client_portal";
+    const slug = g.channel_key.split(":")[1] ?? "";
+    const name = isSub ? g.sub_name || slug : g.client_name || g.proj_name || slug;
+    // Counterparty (user) sent last → waiting on Joe; owner/ai last → awaiting.
+    const view: ThreadStatus = g.last_author === "user" ? "needs_reply" : "awaiting_them";
+    threads.push({
+      id: g.channel_key,
+      initials: initialsOf(name),
+      fromName: name,
+      channel,
+      subject:
+        g.last_body?.slice(0, 80) ||
+        (isSub ? "Sub portal message" : "Client portal message"),
+      preview: g.last_body || "",
+      when: relativeWhen(Date.parse(g.last_at)),
+      view,
+      tag: isSub ? "Sub portal" : "Client portal",
+      emphasis: view === "needs_reply" ? "flag" : "ghost",
+      audience: isSub ? "sub" : "client",
+      projectSlug: !isSub && g.proj_name ? slug : undefined,
+      projectLabel: !isSub && g.proj_name ? g.proj_name : undefined,
+    });
+    const conv = byKey.get(g.channel_key) ?? [];
+    const messages: ReaderMessage[] = conv.map((m) => ({
+      fromName: m.author_name,
+      initials: m.author_initials || initialsOf(m.author_name),
+      meta: relativeWhen(Date.parse(m.created_at)),
+      to: m.author_kind === "owner" ? `to ${name}` : "to Joe",
+      body: [m.body],
+    }));
+    readerEntries.push([
+      g.channel_key,
+      readOnlyReader({
+        tag: isSub ? `Sub portal · ${name}` : `Client portal · ${name}`,
+        channel,
+        subject: isSub ? `Sub portal — ${name}` : `Client portal — ${name}`,
+        messages,
+        actionHref: isSub ? "/chat" : `/projects/${slug}`,
+        actionLabel: isSub ? "Open in Chat" : "Open project comms",
+      }),
+    ]);
+  }
+  return { threads, readerEntries };
+}
+
+/** Website-form channel: inbound inquiries that landed as website-sourced leads
+ *  (dropped once lost). The reader shows the scope + any captured intake Q&A. */
+async function loadSiteFormThreads(): Promise<ChannelBuild> {
+  const { rows } = await query<{
+    slug: string;
+    name: string;
+    stage: string;
+    scope: string;
+    scope_city: string | null;
+    created_at: string;
+  }>(
+    `SELECT slug, name, stage, coalesce(scope,'') AS scope, scope_city, created_at
+       FROM leads
+      WHERE source ILIKE '%website%' AND stage <> 'lost'
+      ORDER BY created_at DESC`,
+  );
+  if (!rows.length) return { threads: [], readerEntries: [] };
+
+  const slugs = rows.map((r) => r.slug);
+  const { rows: intake } = await query<{ slug: string; question: string; answer: string }>(
+    `SELECT l.slug, li.question, li.answer
+       FROM lead_intake li JOIN leads l ON l.id = li.lead_id
+      WHERE l.slug = ANY($1) AND li.answer <> ''
+      ORDER BY li.sort_order`,
+    [slugs],
+  );
+  const intakeBySlug = new Map<string, { question: string; answer: string }[]>();
+  for (const r of intake) {
+    const list = intakeBySlug.get(r.slug) ?? [];
+    list.push({ question: r.question, answer: r.answer });
+    intakeBySlug.set(r.slug, list);
+  }
+
+  const threads: InboxThread[] = [];
+  const readerEntries: [string, ThreadReader][] = [];
+  for (const r of rows) {
+    const id = `siteform:${r.slug}`;
+    // A fresh intake lead is waiting on triage; a worked lead is off the queue.
+    const view: ThreadStatus = r.stage === "intake" ? "needs_reply" : "done";
+    const subject = `Website inquiry — ${r.name}`;
+    threads.push({
+      id,
+      initials: initialsOf(r.name),
+      fromName: r.name,
+      channel: "site_form",
+      subject,
+      preview: r.scope || "New website inquiry",
+      when: relativeWhen(Date.parse(r.created_at)),
+      view,
+      tag: "Website lead",
+      emphasis: view === "needs_reply" ? "flag" : "ghost",
+      audience: "client",
+      aiVerdict: view === "needs_reply" ? "new lead — triage" : undefined,
+    });
+    const body: string[] = [];
+    if (r.scope) body.push(r.scope);
+    for (const qa of intakeBySlug.get(r.slug) ?? []) body.push(`${qa.question}\n${qa.answer}`);
+    if (!body.length) body.push("New inquiry submitted through the website form.");
+    readerEntries.push([
+      id,
+      readOnlyReader({
+        tag: r.scope_city ? `Website lead · ${r.scope_city}` : "Website lead",
+        channel: "site_form",
+        subject,
+        messages: [
+          {
+            fromName: r.name,
+            initials: initialsOf(r.name),
+            meta: relativeWhen(Date.parse(r.created_at)),
+            to: "to SJ Carpentry",
+            body,
+          },
+        ],
+        actionHref: `/leads/${r.slug}`,
+        actionLabel: "Open lead",
+      }),
+    ]);
+  }
+  return { threads, readerEntries };
+}
+
+/** Fold all non-email channels, isolating each so one failing source never
+ *  takes down the email inbox (it just contributes no threads). */
+async function loadChannelThreads(): Promise<ChannelBuild> {
+  const safe = async (
+    fn: () => Promise<ChannelBuild>,
+    label: string,
+  ): Promise<ChannelBuild> => {
+    try {
+      return await fn();
+    } catch (err) {
+      console.error(`[inbox:channels] ${label} failed — ${(err as Error).message}`);
+      return { threads: [], readerEntries: [] };
+    }
+  };
+  const parts = await Promise.all([
+    safe(loadSmsThreads, "sms"),
+    safe(loadPortalThreads, "portal"),
+    safe(loadSiteFormThreads, "site_form"),
+  ]);
+  return {
+    threads: parts.flatMap((p) => p.threads),
+    readerEntries: parts.flatMap((p) => p.readerEntries),
+  };
+}
+
 async function buildFromGmail(): Promise<InboxData> {
-  const [page, labels, contactMaps, linkOptions] = await Promise.all([
+  const [page, labels, contactMaps, linkOptions, folded] = await Promise.all([
     fetchThreadPage(INBOX_PAGE),
     fetchLabels(),
     loadContactMaps(),
     getLinkOptions(),
+    loadChannelThreads(),
   ]);
   const labelMap = new Map(labels.map((l) => [l.id, l.name]));
-  const { threads, readerEntries } = mapRawThreads(page.threads, labelMap, contactMaps);
+  const { threads: emailThreads, readerEntries: emailReaderEntries } =
+    mapRawThreads(page.threads, labelMap, contactMaps);
+
+  // First paint stays on the first email needing a reply (the triage flow) —
+  // computed before folding so a chatty portal thread can't steal first paint.
+  const firstInDefault =
+    emailThreads.find((t) => t.view === "needs_reply") ?? emailThreads[0];
+
+  // Fold the non-email channels into the same list so the Channels rail works.
+  const threads = [...emailThreads, ...folded.threads];
+  const readerEntries = [...emailReaderEntries, ...folded.readerEntries];
 
   const viewCounts = countViews(threads);
+  const channelCounts = countChannels(threads);
 
   // Label rail: ALL user labels (counts from the loaded threads).
   const labelCounts = new Map<string, number>();
@@ -736,21 +1122,15 @@ async function buildFromGmail(): Promise<InboxData> {
     count: v.count,
   }));
 
-  // First paint lands on the first thread of the default (needs_reply) view.
-  const firstInDefault =
-    threads.find((t) => t.view === "needs_reply") ?? threads[0];
-
   return {
     smartViews: SMART_VIEWS.map((v) => ({
       ...v,
       count: viewCounts[v.key],
       active: v.key === "needs_reply",
     })),
-    // Only Email is wired; other channels stay at 0 until integrated.
-    channels: CHANNELS.map((c) => ({
-      ...c,
-      count: c.key === "email" ? threads.length : 0,
-    })),
+    // Truthful counts from the folded list — a channel badge never advertises
+    // threads it can't open (0 when that channel has no conversations yet).
+    channels: CHANNELS.map((c) => ({ ...c, count: channelCounts[c.key] })),
     projects: projectsRail,
     labels: labelRail,
     activeView: { key: "needs_reply", label: "Needs reply" },
@@ -768,14 +1148,10 @@ async function buildFromMock(): Promise<InboxData> {
   // Truthful smart-view counts derived from the mock list itself, so a rail
   // badge never advertises threads that aren't there when the view is opened.
   const viewCounts = countViews(THREADS);
-  // Static counts for channels not represented in the mock list.
-  const channelCounts: Record<ThreadChannel, number> = {
-    email: 4,
-    sms: 2,
-    client_portal: 3,
-    sub_portal: 1,
-    site_form: 2,
-  };
+  // Derived from the mock list itself so a channel badge matches what opening
+  // that channel actually shows. (The mock is the offline degrade path — real
+  // DB-backed channel folding happens in buildFromGmail.)
+  const channelCounts = countChannels(THREADS);
 
   const readerEntries = await Promise.all(
     THREADS.map(async (t) => [t.id, await buildReader(t)] as const),

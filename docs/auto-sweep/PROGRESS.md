@@ -5,6 +5,94 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P1-C3 — Make Channels work · **[x] DONE**
+
+**Your Channels rail was decoration.** Email / SMS / Client portal / Sub portal / Website
+forms sat in the left rail with counts next to them — but every Gmail thread is
+`channel:"email"`, and nothing else was ever folded into the thread list. So clicking any
+of the four non-email channels dropped you on "Nothing in …", and the counts next to them
+were **made up** (the mock hardcoded email 4 / sms 2 / client_portal 3 / sub_portal 1 /
+site_form 2; the live Gmail path showed email = thread-count and a flat **0** for the other
+four — yet still rendered the rows). This wires the channels to their **real** data so
+clicking one surfaces actual conversations and the counts tell the truth.
+
+### What each channel now pulls from (all read paths already existed — nothing invented)
+| Channel | Source | Today's live data |
+|---|---|---|
+| **Email** | Gmail (unchanged) | your inbox |
+| **SMS** | `sms_threads` / `sms_messages` (`lib/sms.ts`) | **0** — inert until you pick a texting provider |
+| **Client portal** | `chat_messages` `portal:<project-slug>` | **0** — no client has messaged yet |
+| **Sub portal** | `chat_messages` `dm:<sub-slug>` (same thread as /chat DMs — intentional) | **0** |
+| **Website forms** | website-sourced leads (`leads.source ILIKE '%website%'`, minus lost) + their intake Q&A | **1** (Travis & Erin Christensen) |
+
+So right now the honest picture is: **Email** works as before, **Website forms** shows your
+one live website lead, and SMS / both portals show **0** — because that's the truth, not
+because they're broken. The instant an SMS lands or a client posts in their portal, it
+appears under its channel with a real count. That's the whole point of the fix: the rail
+stopped lying and started reflecting the database.
+
+### How it's built (read/display only — nothing is ever sent from here)
+- **`lib/inbox.ts`** — new `loadChannelThreads()` folds three DB-backed sources into the
+  same `InboxThread` list the email inbox already uses: `loadSmsThreads` (id `sms:<n>`),
+  `loadPortalThreads` (id = the `portal:`/`dm:` channel key), `loadSiteFormThreads` (id
+  `siteform:<slug>`). Each source is wrapped in its own try/catch so a bad channel query
+  **can never take down your email inbox** — it just contributes zero threads. Channel
+  counts now come from `countChannels(threads)` over the merged list, in both the Gmail and
+  mock builders, so a badge never advertises threads clicking won't show (same principle as
+  the P1-C2 "never advertise what you can't open" fix).
+- **Reader is read-only for non-email.** Folded threads render the real conversation
+  (SMS back-and-forth, the portal thread, the website inquiry + any intake answers) with a
+  footer that **links out to where you actually reply** — Website form → the lead page,
+  Client portal → the project's Comms tab, Sub portal → /chat, SMS → the linked lead/sub if
+  known. New `ReadOnlyReaderBody` component; the Gmail-only controls (star, ⋮ menu with
+  archive/trash/read/important, and the "Linked to" project picker) are **hidden** on
+  non-email threads so no Gmail action fires against a non-Gmail id.
+
+### Decisions you should know
+- **First paint still lands on your first email needing a reply** — computed from the email
+  threads *before* the fold, so a chatty portal thread can't steal the opening view.
+- **Folded threads stay out of the plain "Inbox" tab** (P1-C1) — that tab is defined as the
+  Gmail `INBOX` label, and a text/portal message has no Gmail label. They *do* show under
+  their channel, under "All", and under the smart view they belong to (a client waiting on
+  you shows in **Needs reply**, which is exactly the unified-inbox value).
+- **`dm:` is deliberately shared** between the sub portal and /chat DMs — same underlying
+  thread, so "Sub portal" and a sub's DM are one conversation, not two. Not a bug.
+- **No outbound anything.** All three loaders are pure `SELECT`s; the reader has no composer
+  or send button for these channels; replies happen on each channel's own (owner-approved)
+  surface. Guardrail 4 respected.
+
+### Non-changes / limitations (documented so they don't read as misses)
+- **Mock path left as a mock** — only its fake channel counts were corrected
+  (`countChannels(THREADS)`). Real DB folding happens in the live (`buildFromGmail`) path;
+  mock is the offline degrade path and stays deterministic.
+- **`/api/mobile/inbox` now also returns folded threads** to the (not-yet-built) iOS app
+  (P2-3). No send risk — if that app ever fires a Gmail action on an `sms:`/`dm:` id, the
+  server action simply fails. Flagging for whoever builds the mobile client.
+- Cosmetic, empty-table-today: folded threads append after emails (so within a smart view an
+  SMS sorts below every email regardless of recency); a phone with no saved contact name
+  gets ugly initials. Both only matter once those channels carry traffic.
+
+### Fable's plan / review
+**Plan:** validated my approach and caught four things I folded in before writing —
+(1) use a separate `ReadOnlyReaderBody` component rather than early-returning inside
+`ReaderBody` (would have tripped the hooks lint), (2) don't reuse `buildReader()` for folded
+threads (it eagerly runs the local LLM, ~10s each), (3) compute first-paint from email
+threads pre-fold, (4) exclude `lost` website leads. **Review verdict: SHIP IT** — no
+blocking issues. It specifically cleared the reader-header `messages[0]` crash (every folded
+reader has ≥1 message, with an SMS fallback), hydration (all timestamps pre-rendered via the
+locale-independent `relativeWhen`), that every Gmail-only action is unreachable for non-email
+selections, first-paint staying on email, and no `inInbox` pollution of the Inbox tab.
+
+### Verify
+`npx tsc --noEmit` → exit 0. `npm run lint` → 0 errors (same 11 pre-existing warnings, none
+in the touched files). All three loaders' SQL was run **read-only against the live DB** and
+returns cleanly (SMS/portals empty, 1 non-lost website lead). No build run, service/:3017
+untouched, nothing sent outward.
+
+**Files:** `lib/inbox.ts`, `components/inbox/InboxClient.tsx`.
+
+---
+
 ## 2026-07-17 · P1-C2 — Evaluate the four inbox smart views · **[x] DONE**
 
 **You asked me to put the four smart views on trial: do they earn their spot, do they

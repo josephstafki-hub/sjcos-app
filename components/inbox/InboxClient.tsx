@@ -22,6 +22,7 @@ import {
   Archive,
   Trash2,
   Flag,
+  ExternalLink,
   type LucideIcon,
 } from "lucide-react";
 import { Card, Chip, Avatar } from "@/components/ui";
@@ -204,6 +205,10 @@ export function InboxClient({
   const selected =
     visible.find((t) => t.id === selectedId) ?? visible[0] ?? null;
   const reader = selected ? readers[selected.id] : undefined;
+  // Non-email channels (SMS / portals / website forms) are read-only in the
+  // inbox: their reply/star/link surfaces are Gmail-only, so those controls are
+  // hidden and the reader links out to each channel's own surface instead.
+  const readerIsEmail = (reader?.channel ?? "email") === "email";
 
   const linkOptions = data.linkOptions;
   const currentLink =
@@ -618,17 +623,20 @@ export function InboxClient({
                   {reader.messageCount} {reader.messageCount === 1 ? "message" : "messages"}
                 </Chip>
                 <div className="flex-1" />
-                <button
-                  onClick={toggleStar}
-                  disabled={pending}
-                  aria-label={selectedStarred ? "Unstar" : "Star"}
-                  className="rounded p-0.5 hover:bg-paper-3 disabled:opacity-50"
-                >
-                  <Pin
-                    className={`size-3.5 ${selectedStarred ? "fill-accent text-accent" : "text-ink-3"}`}
-                    strokeWidth={1.5}
-                  />
-                </button>
+                {readerIsEmail && (
+                  <button
+                    onClick={toggleStar}
+                    disabled={pending}
+                    aria-label={selectedStarred ? "Unstar" : "Star"}
+                    className="rounded p-0.5 hover:bg-paper-3 disabled:opacity-50"
+                  >
+                    <Pin
+                      className={`size-3.5 ${selectedStarred ? "fill-accent text-accent" : "text-ink-3"}`}
+                      strokeWidth={1.5}
+                    />
+                  </button>
+                )}
+                {readerIsEmail && (
                 <div className="relative">
                   <button
                     onClick={() => setMenuOpen((o) => !o)}
@@ -690,6 +698,7 @@ export function InboxClient({
                     </>
                   )}
                 </div>
+                )}
               </div>
               <h1 className="font-serif text-[22px] font-medium leading-tight text-accent-2">
                 {reader.subject}
@@ -703,7 +712,7 @@ export function InboxClient({
                 <span className="text-[12px] text-ink-3">{reader.messages[0].to}</span>
               </div>
 
-              {linkOptions && (
+              {readerIsEmail && linkOptions && (
                 <div className="mt-2 flex items-center gap-1.5">
                   <Tag className="size-3 flex-none text-ink-3" strokeWidth={1.75} />
                   <span className="text-[11px] text-ink-3">Linked to</span>
@@ -742,7 +751,11 @@ export function InboxClient({
               </div>
             )}
 
-            <ReaderBody key={selected.id} reader={reader} threadId={selected.id} />
+            {readerIsEmail ? (
+              <ReaderBody key={selected.id} reader={reader} threadId={selected.id} />
+            ) : (
+              <ReadOnlyReaderBody key={selected.id} reader={reader} />
+            )}
           </>
         )}
       </section>
@@ -834,6 +847,53 @@ function ComposeModal({
         </div>
       </div>
     </div>
+  );
+}
+
+// Non-email channels are read-only in the unified inbox: render the
+// conversation and link out to where a reply actually happens (the channel's
+// own surface). No AI-draft/Gmail-send composer, no lazy html fetch.
+function ReadOnlyReaderBody({ reader }: { reader: ThreadReader }) {
+  return (
+    <>
+      <div className="min-h-0 flex-1 overflow-y-auto px-[18px] py-4">
+        <div className="flex max-w-[600px] flex-col gap-4">
+          {reader.messages.map((m, i) => (
+            <div key={i} className="flex flex-col gap-1">
+              <div className="flex items-center gap-1.5 text-[11px] text-ink-3">
+                <Avatar initials={m.initials} size="sm" />
+                <span className="font-medium text-ink-2">{m.fromName}</span>
+                <span>· {m.meta}</span>
+              </div>
+              <div className="flex flex-col gap-2 pl-[26px]">
+                {m.body.map((para, j) => (
+                  <p key={j} className="whitespace-pre-line text-[13px] leading-relaxed text-ink">
+                    {para}
+                  </p>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex-none border-t border-rule bg-paper-2 px-[18px] py-3">
+        <div className="flex items-center gap-2">
+          <span className="flex-1 text-[12px] text-ink-3">
+            Read-only here — reply on the {reader.channelLabel.toLowerCase()} surface.
+          </span>
+          {reader.actionHref && (
+            <a
+              href={reader.actionHref}
+              className="flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-white"
+            >
+              <ExternalLink className="size-3" strokeWidth={1.5} />
+              {reader.actionLabel ?? "Open"}
+            </a>
+          )}
+        </div>
+      </div>
+    </>
   );
 }
 

@@ -32,7 +32,7 @@ Update the checkbox here AND append a detailed entry to `PROGRESS.md` every iter
 ### P1-C · Inbox
 - [x] **P1-C1** Add a regular **Inbox** tab.
 - [x] **P1-C2** Evaluate "Needs reply / Awaiting them / Snoozed / Done today" for real usefulness + whether they actually work + implementation difficulty. Make the worthwhile ones work; remove the rest. Document the call for each.
-- [ ] **P1-C3** Make **Channels** work.
+- [x] **P1-C3** Make **Channels** work.
 - [ ] **P1-C4** Add important Gmail views: read/unread, spam, trash, etc.
 - [ ] **P1-C5** Fix label counts — they don't accurately show the number of emails contained, and may not display all contained emails.
 - [ ] **P1-C6** "Draft response with Qwen" → make the AI **model selectable**; while drafting, the model should also pull any related context for that email from Open Brain/Engine.

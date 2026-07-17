@@ -7,7 +7,7 @@ import "server-only";
 
 import { query } from "./db";
 
-export type IssueStatus = "draft" | "sent";
+export type IssueStatus = "draft" | "queued" | "sent";
 
 export interface NewsletterBlock {
   heading: string;
@@ -21,10 +21,28 @@ export interface NewsletterIssue {
   title: string;
   intro: string;
   blocks: NewsletterBlock[];
+  /** Layout/style key (lib/newsletter-templates.ts). */
+  template: string;
   status: IssueStatus;
   recipientCount: number;
   sentLabel: string | null;
   createdLabel: string;
+}
+
+/** A parked send (issue or greeting) awaiting the owner's Release. */
+export interface OutboxItem {
+  id: number;
+  kind: "issue" | "greeting";
+  newsletterId: number | null;
+  issueTitle: string | null;
+  email: string;
+  name: string;
+  subject: string;
+  status: "queued" | "released" | "skipped" | "failed";
+  error: string | null;
+  openCount: number;
+  openedLabel: string | null;
+  queuedLabel: string;
 }
 
 /** A recently completed project offered as newsletter content. */
@@ -47,6 +65,7 @@ export interface NewsletterData {
   recentJobs: RecentJob[];
   recipients: Recipient[];
   activeRecipientCount: number;
+  outbox: OutboxItem[];
 }
 
 interface IssueRow {
@@ -54,6 +73,7 @@ interface IssueRow {
   title: string;
   intro: string;
   blocks: NewsletterBlock[];
+  template: string;
   status: IssueStatus;
   recipient_count: number;
   sent_label: string | null;
@@ -66,6 +86,7 @@ function rowToIssue(r: IssueRow): NewsletterIssue {
     title: r.title,
     intro: r.intro,
     blocks: Array.isArray(r.blocks) ? r.blocks : [],
+    template: r.template || "classic",
     status: r.status,
     recipientCount: r.recipient_count,
     sentLabel: r.sent_label,
@@ -73,15 +94,59 @@ function rowToIssue(r: IssueRow): NewsletterIssue {
   };
 }
 
+/** Read the parked outbox (queued first, then most-recent). Shared by the page
+ *  load and the post-action refresh so real row ids replace optimistic ones. */
+export async function readOutbox(): Promise<OutboxItem[]> {
+  return (
+    await query<{
+      id: number;
+      kind: "issue" | "greeting";
+      newsletter_id: number | null;
+      issue_title: string | null;
+      email: string;
+      name: string;
+      subject: string;
+      status: OutboxItem["status"];
+      error: string | null;
+      open_count: number;
+      opened_label: string | null;
+      queued_label: string;
+    }>(
+      `SELECT o.id, o.kind, o.newsletter_id, n.title AS issue_title, o.email, o.name,
+              o.subject, o.status, o.error, o.open_count,
+              to_char(o.opened_at, 'FMMon FMDD') AS opened_label,
+              to_char(o.queued_at, 'FMMon FMDD, HH12:MI AM') AS queued_label
+         FROM newsletter_outbox o
+         LEFT JOIN newsletters n ON n.id = o.newsletter_id
+        ORDER BY (o.status = 'queued') DESC, o.queued_at DESC, o.id DESC`,
+    )
+  ).rows.map((r) => ({
+    id: r.id,
+    kind: r.kind,
+    newsletterId: r.newsletter_id,
+    issueTitle: r.issue_title,
+    email: r.email,
+    name: r.name,
+    subject: r.subject,
+    status: r.status,
+    error: r.error,
+    openCount: r.open_count,
+    openedLabel: r.opened_label,
+    queuedLabel: r.queued_label,
+  }));
+}
+
 export async function getNewsletterData(selectedId?: number): Promise<NewsletterData> {
   const { rows: issueRows } = await query<IssueRow>(
-    `SELECT id, title, intro, blocks, status, recipient_count,
+    `SELECT id, title, intro, blocks, template, status, recipient_count,
             to_char(sent_at, 'FMMon FMDD, YYYY')    AS sent_label,
             to_char(created_at, 'FMMon FMDD, YYYY')  AS created_label
        FROM newsletters
       ORDER BY created_at DESC, id DESC`,
   );
   const issues = issueRows.map(rowToIssue);
+
+  const outbox = await readOutbox();
 
   const recentJobs = (
     await query<{ slug: string; name: string; city: string | null }>(
@@ -104,5 +169,5 @@ export async function getNewsletterData(selectedId?: number): Promise<Newsletter
   const selected =
     selectedId && issues.some((i) => i.id === selectedId) ? selectedId : issues[0]?.id ?? null;
 
-  return { issues, selectedId: selected, recentJobs, recipients, activeRecipientCount };
+  return { issues, selectedId: selected, recentJobs, recipients, activeRecipientCount, outbox };
 }

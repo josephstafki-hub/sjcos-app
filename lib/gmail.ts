@@ -482,20 +482,39 @@ function contentDispositionFilename(filename: string): string {
 }
 
 /** Build a base64url-encoded RFC-2822 plain-text message. */
-function buildRaw(to: string, subject: string, bodyText: string, attachments?: MailAttachment[]): string {
+function buildRaw(
+  to: string,
+  subject: string,
+  bodyText: string,
+  attachments?: MailAttachment[],
+  bodyHtml?: string,
+): string {
+  // Renders the message body: a plain text/plain part, or — when an HTML
+  // alternative is given (P2-5 newsletter open-pixel) — a multipart/alternative
+  // wrapping text + HTML so clients that hide images still get the text.
+  const altBoundary = `sjcos_alt_${Math.random().toString(36).slice(2)}`;
+  const bodyLines = bodyHtml
+    ? [
+        `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
+        "",
+        `--${altBoundary}`,
+        "Content-Type: text/plain; charset=utf-8",
+        "",
+        bodyText,
+        `--${altBoundary}`,
+        "Content-Type: text/html; charset=utf-8",
+        "",
+        bodyHtml,
+        `--${altBoundary}--`,
+      ]
+    : ["Content-Type: text/plain; charset=utf-8", "", bodyText];
+
   if (!attachments || attachments.length === 0) {
-    const mime = [
-      `To: ${to}`,
-      `Subject: ${encodeHeader(subject)}`,
-      "Content-Type: text/plain; charset=utf-8",
-      "MIME-Version: 1.0",
-      "",
-      bodyText,
-    ].join("\r\n");
+    const mime = [`To: ${to}`, `Subject: ${encodeHeader(subject)}`, "MIME-Version: 1.0", ...bodyLines].join("\r\n");
     return Buffer.from(mime).toString("base64url");
   }
 
-  // multipart/mixed: a text body part + one part per attachment (base64, wrapped
+  // multipart/mixed: the body part(s) + one part per attachment (base64, wrapped
   // at 76 cols per RFC 2045).
   const boundary = `sjcos_${Math.random().toString(36).slice(2)}`;
   const parts: string[] = [
@@ -505,9 +524,7 @@ function buildRaw(to: string, subject: string, bodyText: string, attachments?: M
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
     "",
     `--${boundary}`,
-    "Content-Type: text/plain; charset=utf-8",
-    "",
-    bodyText,
+    ...bodyLines,
   ];
   for (const a of attachments) {
     parts.push(
@@ -556,10 +573,13 @@ export async function sendNewEmail(opts: {
   subject: string;
   bodyText: string;
   attachments?: MailAttachment[];
+  bodyHtml?: string;
 }): Promise<void> {
   await gmail().users.messages.send({
     userId: "me",
-    requestBody: { raw: buildRaw(opts.to, opts.subject || "(no subject)", opts.bodyText, opts.attachments) },
+    requestBody: {
+      raw: buildRaw(opts.to, opts.subject || "(no subject)", opts.bodyText, opts.attachments, opts.bodyHtml),
+    },
   });
 }
 

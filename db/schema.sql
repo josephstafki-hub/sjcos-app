@@ -1095,12 +1095,17 @@ CREATE TABLE IF NOT EXISTS newsletters (
   title           text NOT NULL DEFAULT 'Untitled issue',
   intro           text NOT NULL DEFAULT '',
   blocks          jsonb NOT NULL DEFAULT '[]',   -- [{ heading, body, projectSlug? }]
-  status          text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','sent')),
+  template        text NOT NULL DEFAULT 'classic', -- P2-5: layout/style key (lib/newsletter-templates.ts)
+  status          text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','queued','sent')),
   recipient_count integer NOT NULL DEFAULT 0,
   sent_at         timestamptz,
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now()
 );
+-- P2-5 idempotent upgrades for the live DB (template + queued status).
+ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS template text NOT NULL DEFAULT 'classic';
+ALTER TABLE newsletters DROP CONSTRAINT IF EXISTS newsletters_status_check;
+ALTER TABLE newsletters ADD CONSTRAINT newsletters_status_check CHECK (status IN ('draft','queued','sent'));
 
 CREATE TABLE IF NOT EXISTS newsletter_recipients (
   id          bigserial PRIMARY KEY,
@@ -1109,6 +1114,32 @@ CREATE TABLE IF NOT EXISTS newsletter_recipients (
   active      boolean NOT NULL DEFAULT true,
   created_at  timestamptz NOT NULL DEFAULT now()
 );
+
+-- P2-5: parked send outbox. Issue sends AND auto-greeting emails are QUEUED here
+-- and NEVER reach a real recipient until the owner clicks Release (which is the
+-- only code path that calls Gmail — see lib/newsletter-outbox.ts). Mirrors the
+-- P1-D4 portal_deliveries gate. open_count/opened_at track the 1×1 pixel receipt.
+CREATE TABLE IF NOT EXISTS newsletter_outbox (
+  id            bigserial PRIMARY KEY,
+  kind          text NOT NULL DEFAULT 'issue' CHECK (kind IN ('issue','greeting')),
+  newsletter_id bigint REFERENCES newsletters(id) ON DELETE CASCADE,   -- NULL for greetings
+  recipient_id  bigint REFERENCES newsletter_recipients(id) ON DELETE SET NULL,
+  email         text NOT NULL,                 -- snapshot at enqueue
+  name          text NOT NULL DEFAULT '',
+  subject       text NOT NULL,
+  body          text NOT NULL,                 -- fully composed text at enqueue (audit-stable)
+  status        text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','released','skipped','failed')),
+  error         text,                          -- Gmail failure note, if any
+  track_token   text UNIQUE NOT NULL DEFAULT replace(gen_random_uuid()::text, '-', ''),
+  open_count    integer NOT NULL DEFAULT 0,
+  opened_at     timestamptz,
+  queued_at     timestamptz NOT NULL DEFAULT now(),
+  released_at   timestamptz
+);
+-- One issue-send per recipient, one greeting per address ever.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_nl_outbox_issue    ON newsletter_outbox(newsletter_id, email) WHERE kind = 'issue';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_nl_outbox_greeting ON newsletter_outbox(email) WHERE kind = 'greeting';
+CREATE INDEX IF NOT EXISTS idx_nl_outbox_queued ON newsletter_outbox(queued_at) WHERE status = 'queued';
 
 -- ─── SMS (two-way texting) ──────────────────────────────────────────────────
 -- Provider-agnostic SMS inbox mirroring the Gmail inbox. Populated only when a

@@ -5,6 +5,101 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P2-5 — Newsletter builder · **[x] DONE**
+
+**Templates + real edit + mailing-list send + auto-greeting + open receipts + AI
+assist — built on the existing scaffold, and CLOSED a real send-gate violation.**
+GATE honored: nothing emails a real person without an explicit owner Release.
+
+### Starting point
+A newsletter scaffold already existed and was committed (Phase-7): issue editor,
+AI `draftIntro`/`draftBlockForProject`, recipient list, `newsletters` +
+`newsletter_recipients` tables, nav entry. The **gap** vs the item was templates,
+auto-greeting, open receipts — and a **guardrail problem**: the old `sendIssue`
+looped active recipients and called `sendNewEmailAction` (real Gmail) behind only
+a `confirm()`. That is exactly the "send outward to a real list" path the GATE
+forbids, so it had to become a parked/owner-released flow.
+
+### What I built
+- **Templates ("design from a template").** `lib/newsletter-templates.ts` (pure,
+  client-safe): 3 templates — **Monthly letter** (classic), **Project spotlight**
+  (jobsite), **Seasonal checklist** — each with starter intro/blocks, a
+  `composeIssueEmail()` that styles the plain-text body per template, and
+  `greetingEmail()`. New `newsletters.template` column. NewsletterClient now shows
+  a **template picker** popover on "New", and Preview restyles per template.
+- **Parked send outbox (the gate).** New `newsletter_outbox` table + `lib/
+  newsletter-outbox.ts`. **Deleted `sendIssue`.** New flow: **Queue** parks one
+  `queued` row per active recipient and flips the issue draft→queued; the owner
+  then **Releases** each row from a new **Outbox** tab. `releaseOutboxItem` is the
+  ONLY Gmail caller in the whole feature — owner-gated, click-confirmed, guarded
+  against double-release (atomic `UPDATE … WHERE status IN ('queued','failed')`),
+  and **never auto-invoked** (grep-verified: no cron/hook/effect imports it).
+  Issue settles to `sent` only when ≥1 row released; a fully-skipped queue reverts
+  to `draft` (no "sent · 0" brick — Fable review fix).
+- **Auto-greeting on new contact.** `addRecipient` + `importClientRecipients`
+  enqueue a parked `greeting` row (one per email ever via a partial unique index;
+  import greets only newly-inserted rows, no backfill blast). Released only by Joe.
+- **Open/read receipts.** New `app/api/newsletter/open/[token]/route.ts` returns a
+  1×1 transparent GIF and bumps `open_count`/`opened_at` (unauthenticated, token-
+  scoped, never 404-leaks). `lib/gmail.ts sendNewEmail` gained an optional
+  `bodyHtml` → `multipart/alternative`; the release path builds the HTML body and
+  embeds the pixel. Won't fire in the sweep (nothing is released); the plumbing is
+  the deliverable. Outbox history shows "opened … · N×" per released row.
+- **AI assist** — existing `draftIntro`/`draftBlockForProject` carried over unchanged.
+
+### GATE / guardrails
+No outbound path runs without Joe: Queue/enqueue only INSERT `queued` rows; the
+sole Gmail call sits behind the owner-clicked Release. Grep gate confirmed
+`sendNewEmail(` callers = inbox action, mobile compose, and `releaseOutboxItem`
+only; `releaseOutboxItem` ← only `releaseNewsletterItem` (owner action). No build,
+no service restart, no port 3017.
+
+### Fable 5 — plan (Step 1) & review (Step 4)
+Plan (fable): reuse scaffold; mirror the P1-D4 parked-outbox doctrine; templates
+as a code registry with a `template` key; greeting queued & deduped; pixel route +
+`multipart/alternative`. I followed it. Review (fable): **"sound — the gate holds,
+ship-quality,"** with two substantive fixes I applied: (#1) the optimistic
+negative-id Outbox rows meant Queue→Release needed a browser reload — added an
+owner-gated `refreshOutbox()` re-read pulled after queue/release/skip/add-recipient
+so real ids appear immediately; (#2) skip-all bricked an issue as sent·0 — settle
+now reverts to draft when nothing was released. Also applied #5 (dropped the pixel's
+`display:none` so mail clients actually fetch it). Nits left: click-through receipts
+(open-pixel only), dev pixel points at prod URL (owner-click-only, negligible).
+
+### Files changed
+- `db/schema.sql` — `newsletters.template` col + widened status CHECK; new
+  `newsletter_outbox` table + 3 indexes (additive, idempotent; applied to the
+  shared DB twice cleanly).
+- `lib/newsletter-templates.ts` (new), `lib/newsletter-outbox.ts` (new).
+- `lib/actions/newsletter.ts` — deleted `sendIssue`; added `queueIssue`,
+  `releaseNewsletterItem`, `skipNewsletterItem`, `refreshOutbox`; template-seeded
+  `createIssue`; greeting hooks.
+- `lib/newsletter.ts` — `template`/`queued`/`OutboxItem` types; `readOutbox()`.
+- `lib/gmail.ts` — optional `bodyHtml` (multipart/alternative).
+- `components/newsletter/NewsletterClient.tsx` — template picker, Queue button,
+  Outbox tab (Release/Skip + receipts), queued lock state.
+- `app/api/newsletter/open/[token]/route.ts` (new); `app/api/newsletter/route.ts`
+  (stale comment fix).
+
+### Verify
+- `npx tsc --noEmit` clean. `npm run lint` 0 errors (11 pre-existing warnings,
+  all unrelated files).
+- Schema applied to the shared DB **twice** (both exit 0 — idempotent); confirmed
+  `newsletter_outbox` + `newsletters.template` exist.
+- **Transactional (ROLLBACK) SQL smoke test:** issue-enqueue deduped on re-insert,
+  greeting one-per-email, tokens auto-minted, pixel UPDATE bumped only the right
+  row's `open_count`/`opened_at`; ROLLBACK left 0 rows. GIF validated (GIF89a, 42B).
+- Did NOT drive a live send (guardrail) — nothing was Released.
+
+### Notes for Joe
+- The old one-click blast is gone. To actually send: create/edit an issue → Queue →
+  go to **Outbox** → Release each message (or Skip). Greetings for new contacts
+  wait in the same Outbox. This is the P2-5 GATE made real, not just a warning.
+- `createUser` (portal login creation) is intentionally NOT hooked to greetings — a
+  portal account isn't a mailing-list opt-in; use Add recipient / Import.
+
+---
+
 ## 2026-07-17 · P2-4 — Website content composer · **[x] DONE**
 
 **Replaced the mock Site tab with a real Website Content Composer that writes the

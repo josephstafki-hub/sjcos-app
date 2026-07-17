@@ -1,16 +1,19 @@
 "use server";
 
-// Newsletter write paths (Phase-7). Owner-gated. Issue CRUD, AI drafting of the
-// intro + per-project blocks (Qwen), recipient management, and sending the issue
-// to the recipient list via Gmail. Reads stay in lib/newsletter.ts.
+// Newsletter write paths (P2-5). Owner-gated. Issue CRUD, template seeding, AI
+// drafting of the intro + per-project blocks, recipient management + auto-greeting,
+// and a two-phase send: Queue parks the issue in newsletter_outbox, then the owner
+// Releases each row (the only path that touches Gmail — lib/newsletter-outbox.ts).
+// Nothing here ever sends to a real recipient on its own. Reads: lib/newsletter.ts.
 
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
-import { emit } from "@/lib/notify";
 import { ai } from "@/lib/ai";
-import { sendNewEmailAction } from "@/lib/actions/inbox";
-import type { NewsletterBlock } from "@/lib/newsletter";
+import { getTemplate } from "@/lib/newsletter-templates";
+import { enqueueIssue, enqueueGreeting, releaseOutboxItem, skipOutboxItem } from "@/lib/newsletter-outbox";
+import { readOutbox } from "@/lib/newsletter";
+import type { NewsletterBlock, OutboxItem } from "@/lib/newsletter";
 
 type Result<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
 
@@ -27,13 +30,16 @@ function cleanBlocks(blocks: unknown): NewsletterBlock[] {
     .filter((b) => b.heading || b.body);
 }
 
-/** Create a new draft issue titled for the current month. Returns its id. */
-export async function createIssue(): Promise<number> {
+/** Create a new draft issue from a template, seeding its starter intro/blocks.
+ *  Titled for the current month. Returns its id. */
+export async function createIssue(templateKey?: string): Promise<number> {
   await requireRole("owner");
+  const tpl = getTemplate(templateKey);
   const title = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(new Date());
   const row = await queryOne<{ id: number }>(
-    `INSERT INTO newsletters (title, status) VALUES ($1, 'draft') RETURNING id`,
-    [title],
+    `INSERT INTO newsletters (title, template, intro, blocks, status)
+     VALUES ($1, $2, $3, $4::jsonb, 'draft') RETURNING id`,
+    [title, tpl.key, tpl.starterIntro, JSON.stringify(tpl.starterBlocks)],
   );
   revalidatePath("/newsletter");
   return row!.id;
@@ -122,11 +128,20 @@ export async function addRecipient(email: string, name: string): Promise<Result>
   await requireRole("owner");
   const e = email.trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return { ok: false, error: "Enter a valid email." };
-  await query(
+  const row = await queryOne<{ id: number; name: string }>(
     `INSERT INTO newsletter_recipients (email, name) VALUES ($1, $2)
-     ON CONFLICT (email) DO UPDATE SET name = COALESCE(NULLIF(EXCLUDED.name, ''), newsletter_recipients.name), active = true`,
+     ON CONFLICT (email) DO UPDATE SET name = COALESCE(NULLIF(EXCLUDED.name, ''), newsletter_recipients.name), active = true
+     RETURNING id, name`,
     [e, name.trim().slice(0, 120)],
   );
+  // Auto-greeting: park a welcome email (one per address ever; owner releases it).
+  if (row) {
+    try {
+      await enqueueGreeting(row.id, e, row.name);
+    } catch {
+      /* best-effort — never block adding a recipient */
+    }
+  }
   revalidatePath("/newsletter");
   return { ok: true };
 }
@@ -143,72 +158,57 @@ export async function removeRecipient(id: number): Promise<Result> {
  *  Owner-only. */
 export async function importClientRecipients(): Promise<Result<number>> {
   await requireRole("owner");
-  const res = await query(
+  const inserted = await query<{ id: number; email: string; name: string }>(
     `INSERT INTO newsletter_recipients (email, name)
      SELECT lower(email), COALESCE(name, '') FROM users
       WHERE role = 'client' AND active = true AND email <> ''
-     ON CONFLICT (email) DO NOTHING`,
+     ON CONFLICT (email) DO NOTHING
+     RETURNING id, email, name`,
   );
-  revalidatePath("/newsletter");
-  return { ok: true, data: res.rowCount ?? 0 };
-}
-
-/** Compose the plain-text email body for an issue. */
-function composeEmail(intro: string, blocks: NewsletterBlock[]): string {
-  const parts: string[] = [];
-  if (intro.trim()) parts.push(intro.trim());
-  for (const b of blocks) {
-    const seg = [b.heading ? b.heading.toUpperCase() : "", b.body].filter(Boolean).join("\n");
-    if (seg) parts.push(seg);
-  }
-  parts.push("—\nSJ Carpentry LLC\nReply to this email any time.");
-  return parts.join("\n\n");
-}
-
-/** Send the issue to every active recipient via Gmail, then mark it sent.
- *  Owner-only. Best-effort per recipient; counts the successes. */
-export async function sendIssue(id: number): Promise<Result<{ sent: number; failed: number }>> {
-  await requireRole("owner");
-  const issue = await queryOne<{ title: string; intro: string; blocks: NewsletterBlock[]; status: string }>(
-    `SELECT title, intro, blocks, status FROM newsletters WHERE id = $1`,
-    [id],
-  );
-  if (!issue) return { ok: false, error: "Issue not found." };
-  if (issue.status === "sent") return { ok: false, error: "This issue was already sent." };
-
-  const recipients = (
-    await query<{ email: string }>(`SELECT email FROM newsletter_recipients WHERE active = true`)
-  ).rows;
-  if (recipients.length === 0) return { ok: false, error: "No active recipients — add some first." };
-
-  const body = composeEmail(issue.intro, Array.isArray(issue.blocks) ? issue.blocks : []);
-  const subject = issue.title;
-
-  let sent = 0;
-  let failed = 0;
-  for (const r of recipients) {
+  // Park a greeting for each NEWLY added contact only (no backfill blast).
+  for (const r of inserted.rows) {
     try {
-      const res = await sendNewEmailAction({ to: r.email, subject, body });
-      if (res.ok) sent++;
-      else failed++;
+      await enqueueGreeting(r.id, r.email, r.name);
     } catch {
-      failed++;
+      /* best-effort */
     }
   }
-
-  await query(
-    `UPDATE newsletters SET status = 'sent', sent_at = now(), recipient_count = $2, updated_at = now() WHERE id = $1`,
-    [id, sent],
-  );
-  await emit({
-    kind: "job",
-    tag: "Newsletter",
-    accent: "accent",
-    icon: "mail",
-    title: `Newsletter sent · ${issue.title}`,
-    subline: `Delivered to ${sent} recipient${sent === 1 ? "" : "s"}${failed ? ` · ${failed} failed` : ""}`,
-    href: "/newsletter",
-  });
   revalidatePath("/newsletter");
-  return { ok: true, data: { sent, failed } };
+  return { ok: true, data: inserted.rowCount ?? 0 };
+}
+
+/** QUEUE the issue for sending — parks one row per active recipient in the
+ *  newsletter_outbox and flips the issue to 'queued'. Nothing is emailed here;
+ *  the owner then Releases each row. Owner-only. */
+export async function queueIssue(id: number): Promise<Result<{ queued: number }>> {
+  await requireRole("owner");
+  const res = await enqueueIssue(id);
+  if (!res.ok) return { ok: false, error: res.error ?? "Could not queue." };
+  revalidatePath("/newsletter");
+  return { ok: true, data: { queued: res.queued ?? 0 } };
+}
+
+/** RELEASE one parked outbox row — this is the only path that emails a real
+ *  person (via Gmail). Owner-clicked only; never auto-invoked. */
+export async function releaseNewsletterItem(id: number): Promise<Result> {
+  await requireRole("owner");
+  const res = await releaseOutboxItem(id);
+  if (!res.ok) return { ok: false, error: res.error ?? "Release failed." };
+  revalidatePath("/newsletter");
+  return { ok: true };
+}
+
+/** SKIP a parked outbox row without sending (stale recipient, etc.). Owner-only. */
+export async function skipNewsletterItem(id: number): Promise<Result> {
+  await requireRole("owner");
+  await skipOutboxItem(id);
+  revalidatePath("/newsletter");
+  return { ok: true };
+}
+
+/** Re-read the parked outbox (owner-only) so the client can swap optimistic rows
+ *  for the real persisted ones after a queue/release/skip/greeting. */
+export async function refreshOutbox(): Promise<OutboxItem[]> {
+  await requireRole("owner");
+  return readOutbox();
 }

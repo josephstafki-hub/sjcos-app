@@ -76,7 +76,12 @@ export function warrantyContext(data: WarrantyData): string {
         .join("\n")}`,
     data.projects.length &&
       `Under warranty:\n${data.projects
-        .map((p) => `  - ${p.project} (${p.client}) · closed ${p.closed} · ${p.warranty}${p.flag ? ` · ${p.flag}` : ""}`)
+        .map(
+          (p) =>
+            `  - ${p.project} (${p.client}) · closed ${p.closed} · ${p.warranty}${p.flag ? ` · ${p.flag}` : ""}${
+              p.items && p.items.length ? ` · covers ${p.items.map((i) => `${i.label} (${i.expires})`).join(", ")}` : ""
+            }`,
+        )
         .join("\n")}`,
   ].filter(Boolean);
   return lines.join("\n");

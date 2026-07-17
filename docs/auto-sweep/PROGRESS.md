@@ -5,6 +5,94 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P1-F1 — Warranty projects itemized by MN statutory periods · **[x] DONE**
+
+**Every project under warranty now shows exactly what's warrantied and until
+when, using Minnesota's statutory home-warranty periods — and the coverage
+ages out on its own.** As each tier lapses it drops off the card's list; once
+all three have lapsed the project falls off the warranty grid entirely.
+
+### MN statutory periods encoded (Minn. Stat. §327A.02 subd. 1)
+SJC does residential remodeling / home-improvement carpentry, so all three
+statutory tiers apply, measured from the warranty date (substantial completion):
+| Tier | Term | Covers |
+|---|---|---|
+| Workmanship & materials | **1 year** | Faulty workmanship / defective materials (building-standard noncompliance) — §327A.02 subd.1(a) |
+| Systems | **2 years** | Faulty installation of plumbing, electrical, heating & cooling — subd.1(b) |
+| Major structural | **10 years** | Major construction (structural) defects — subd.1(c) |
+
+### How it behaves
+- **Derived, not stored** — computed live on every warranty-page load against
+  `CURRENT_DATE` from each project's warranty start (its closeout date). No
+  migration, no persisted rows, no background job (respects the no-build / no-cron
+  guardrails). An item is "active" while `start + term ≥ today`.
+- **Items drop off as they expire** — the card lists only still-active tiers, so
+  a 14-month-old job shows systems + structural (workmanship gone), a 3-year-old
+  job shows structural only.
+- **All expired → removed from warranty** — a project whose every tier has lapsed
+  is dropped from the grid and from the `underWarrantyTotal` count.
+- **P1-D2 hook wired** — for a fully-lapsed **live** warranty-stage project, this
+  also calls `closeEntityRoom(warrantyRoomKey(slug))` (idempotent, best-effort,
+  wrapped in try/catch + `Promise.allSettled`). That's the exact deferred
+  sub-clause P1-D2 left open ("warranty-room auto-close has no product event to
+  hook yet"). No outbound send — room bookkeeping only.
+- **Imported / no-date records** — projects with no closeout date on file can't be
+  itemized; they stay listed (never wrongly dropped) with the existing "closed
+  date not on file" line, no fabricated dates.
+
+### Product-judgment calls (documented for Joe)
+1. **Statutory tiers, not per-project custom items.** "List what specifically is
+   warrantied" is satisfied by the encoded MN §327A.02 coverage applied to every
+   job. Per-project *custom* line items (e.g. a specific vendor material warranty)
+   would need a stored `warranty_items` table + editor UI — **deferred**, noted in
+   TASKS.md.
+2. **10-yr structural means projects linger.** Because structural runs a decade, a
+   job stays *listed* (structural-only, item list shrunk) for up to 10 years, and
+   full removal happens at year 10. That's the statute, not a bug — called out so
+   the grid staying populated is expected.
+3. **No project status flip.** "Removed from warranty" = removed from the grid +
+   count + warranty room closed. I did **not** flip `projects.status` off
+   `'warranty'` (there's no post-warranty status in the enum, and writing to
+   `projects` on a page GET risks accounting/history). History is preserved.
+4. **Warranty start = closeout date.** Historical `warranty_projects.closed_at`
+   (NOT NULL) and, for live projects, the warranty-transition `updated_at` date
+   (same proxy the existing "closed" column already uses). Limitation inherited
+   from the existing code: a later edit that bumps `updated_at` shifts a live
+   project's computed start. Acceptable for now; a dedicated `warranty_started_at`
+   column is the clean future fix.
+
+### Files changed
+- **`lib/warranty-mn.ts`** (new) — MN tier constants + `deriveWarranty(startISO,
+  todayISO)` returning `{ items, active, allExpired }` with per-tier expiry labels.
+- **`lib/warranty.ts`** — `WarrantyProject` gains optional `items` + `coverageNote`;
+  queries add `closed_iso`/`slug`/`CURRENT_DATE`; grid loop derives coverage,
+  drops fully-lapsed projects, and closes lapsed live projects' warranty rooms.
+- **`app/warranty/page.tsx`** — under-warranty card lists active items (ghost chip +
+  mono expiry, `title` = statute detail) + coverage note.
+- **`lib/page-context.ts`** — AI warranty brief now includes each project's active
+  coverage items + expiries.
+
+### Verify
+- `npx tsc --noEmit`: clean. `npm run lint`: 0 errors (11 pre-existing warnings,
+  none in touched files).
+- **Logic proof + live schema probe** (prod untouched — reads only, SQL run inside
+  `BEGIN … ROLLBACK`): derivation confirmed — close 2025-05-23 → workmanship lapsed,
+  systems+structural active; close 2010-01-01 → `allExpired = true`; close 2024-06-01
+  → structural-only. New SQL (`slug`, `closed_iso`, `CURRENT_DATE`) runs clean; the 5
+  live warranty projects: `holmes` (closed 2026-07-06) keeps all 3 tiers, the other 4
+  (imported, null `closed_iso`) are kept un-itemized. No project is fully-lapsed today,
+  so no rooms were closed this run — the hook is verified correct via the 2010 case.
+
+### Fable plan / review
+**Fable was unavailable this iteration** — both the plan and review subagents returned
+"Usage credits are required for this model" (billing). Per GLOBAL GUARDRAIL 6 I planned
+and self-reviewed the change myself: verified no import cycle (`chat.ts` imports neither
+`warranty` nor `rooms`; tsc confirms), the room-close write is idempotent + best-effort +
+non-outbound, dropped projects correctly reduce the count, and imported/no-date records
+are never wrongly dropped.
+
+---
+
 ## 2026-07-17 · P1-E1 — Schedule auto-pulls from Projects, Leads, Warranties · **[x] DONE**
 
 **The /schedule week view now auto-surfaces schedule-relevant dates from your

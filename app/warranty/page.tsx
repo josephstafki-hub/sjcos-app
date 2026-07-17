@@ -64,6 +64,19 @@ export default async function WarrantyPage() {
                 <span className="font-mono text-[11px] text-ink-3">{p.closed}</span>
               </div>
               <div className="mt-0.5 text-[11px] text-ink-3">{p.warranty}</div>
+              {p.items && p.items.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {p.items.map((it) => (
+                    <div key={it.key} className="flex items-center justify-between gap-2" title={it.detail}>
+                      <Chip kind="ghost">{it.label}</Chip>
+                      <span className="font-mono text-[10px] text-ink-3">{it.expires}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {p.coverageNote && (
+                <div className="mt-1.5 text-[10px] leading-snug text-ink-3">{p.coverageNote}</div>
+              )}
               {p.flag && (
                 <Chip kind="flag" dot className="mt-2">
                   {p.flag}

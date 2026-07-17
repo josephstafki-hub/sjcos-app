@@ -5,6 +5,9 @@
 
 import { ai } from "./ai";
 import { query } from "./db";
+import { closeEntityRoom } from "./rooms";
+import { warrantyRoomKey } from "./chat";
+import { deriveWarranty, type DerivedWarrantyItem } from "./warranty-mn";
 
 /** Claim status dot — accent (in progress), flag (overdue), ghost (waiting). */
 export type ClaimDot = "accent" | "flag" | "ghost";
@@ -32,6 +35,11 @@ export interface WarrantyProject {
   warranty: string;
   /** Optional flag chip, e.g. "open claim" — also draws a red border. */
   flag?: string;
+  /** Still-covered MN statutory items (Minn. Stat. §327A.02); lapsed tiers are
+   *  omitted so the list shrinks as periods expire. */
+  items?: DerivedWarrantyItem[];
+  /** Shown when coverage can't be itemized (no start date on file). */
+  coverageNote?: string;
 }
 
 export interface WarrantyData {
@@ -59,12 +67,13 @@ interface ProjectRow {
   project: string;
   client: string;
   closed: string;
+  closed_iso: string | null;
   warranty: string;
   flag: string | null;
 }
 
 export async function getWarrantyData(): Promise<WarrantyData> {
-  const [claimsRes, tableProjectsRes, liveProjectsRes] = await Promise.all([
+  const [claimsRes, tableProjectsRes, liveProjectsRes, todayRes] = await Promise.all([
     query<
       ClaimRow & {
         opened_label: string | null;
@@ -88,17 +97,22 @@ export async function getWarrantyData(): Promise<WarrantyData> {
     query<ProjectRow>(`
       SELECT project, client,
              to_char(closed_at, 'FMMon FMDD YYYY') AS closed,
+             to_char(closed_at, 'YYYY-MM-DD')      AS closed_iso,
              warranty_label AS warranty,
              flag
       FROM warranty_projects
       ORDER BY closed_at DESC`),
-    query<{ project: string; client: string | null; closed: string | null }>(`
-      SELECT name AS project,
+    query<{ project: string; slug: string; client: string | null; closed: string | null; closed_iso: string | null }>(`
+      SELECT name AS project, slug,
              NULLIF(NULLIF(client_name, ''), name)  AS client,
              CASE WHEN updated_at::date > created_at::date
-                  THEN to_char(updated_at, 'FMMon FMDD YYYY') END AS closed
+                  THEN to_char(updated_at, 'FMMon FMDD YYYY') END AS closed,
+             CASE WHEN updated_at::date > created_at::date
+                  THEN to_char(updated_at, 'YYYY-MM-DD') END AS closed_iso
       FROM projects WHERE status = 'warranty' ORDER BY updated_at DESC`),
+    query<{ today: string }>(`SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today`),
   ]);
+  const todayISO = todayRes.rows[0]?.today ?? new Date().toISOString().slice(0, 10);
 
   const claims: WarrantyClaim[] = claimsRes.rows.map((r) => {
     // Prefer the real ack/resolve deadlines; fall back to legacy showcase text.
@@ -124,23 +138,66 @@ export async function getWarrantyData(): Promise<WarrantyData> {
   });
 
   // Under-warranty grid: legacy warranty_projects rows + live projects currently
-  // in the warranty stage (deduped by project name).
+  // in the warranty stage (deduped by project name). Each project's MN statutory
+  // coverage (Minn. Stat. §327A.02) is derived from its warranty start date;
+  // lapsed tiers drop off the item list, and a project whose every tier has
+  // lapsed is removed from the grid entirely (P1-F1).
   const seen = new Set<string>();
   const projects: WarrantyProject[] = [];
+  // Live warranty-stage projects whose coverage fully lapsed → their warranty
+  // chat room is auto-closed below (the P1-D2 hook that had no product event).
+  const expiredWarrantyRoomSlugs: string[] = [];
+
+  const noteFor = (derived: ReturnType<typeof deriveWarranty>): string | undefined =>
+    derived
+      ? undefined
+      : "Coverage dates not on file — add a closeout date to itemize MN warranty periods.";
+
   for (const r of tableProjectsRes.rows) {
+    const derived = deriveWarranty(r.closed_iso, todayISO);
+    if (derived?.allExpired) continue; // fully lapsed → out of warranty (no live room)
     seen.add(r.project);
-    projects.push({ project: r.project, client: r.client, closed: r.closed, warranty: r.warranty, flag: r.flag ?? undefined });
+    projects.push({
+      project: r.project,
+      client: r.client,
+      closed: r.closed,
+      warranty: r.warranty,
+      flag: r.flag ?? undefined,
+      items: derived?.active,
+      coverageNote: noteFor(derived),
+    });
   }
   // Imported historical folders have no real closed date (created = updated at
   // import time) and are named after the client — don't fabricate either field.
   for (const r of liveProjectsRes.rows) {
     if (seen.has(r.project)) continue;
+    const derived = deriveWarranty(r.closed_iso, todayISO);
+    if (derived?.allExpired) {
+      expiredWarrantyRoomSlugs.push(r.slug); // fully lapsed → close its warranty room
+      continue;
+    }
     projects.push({
       project: r.project,
       client: r.client ?? "Historical project",
       closed: r.closed ?? "Unknown",
       warranty: r.closed ? "Under warranty" : "Imported record — closed date not on file",
+      items: derived?.active,
+      // The imported-record warranty line already states the missing date, so no
+      // extra note; a live warranty-stage project always has a derivable date.
     });
+  }
+
+  // Auto-close the warranty rooms of projects that have fully aged out. Idempotent
+  // (closeEntityRoom no-ops once closed) and best-effort — room bookkeeping must
+  // never break the warranty page render.
+  if (expiredWarrantyRoomSlugs.length) {
+    try {
+      await Promise.allSettled(
+        expiredWarrantyRoomSlugs.map((slug) => closeEntityRoom(warrantyRoomKey(slug))),
+      );
+    } catch {
+      /* ignore — display already reflects the removal */
+    }
   }
 
   const overdue = claims.filter((c) => c.dot === "flag").length;

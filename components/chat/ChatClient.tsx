@@ -13,8 +13,18 @@ import {
   archiveChannel,
   addChannelAgent,
   removeChannelAgent,
+  addChannelTeamMember,
+  removeChannelTeamMember,
+  createTeamMember,
 } from "@/lib/actions/chat";
-import type { ChatChannel, ChatData, ChatMessage, ChannelMember, ChannelView } from "@/lib/chat";
+import type {
+  ChatChannel,
+  ChatData,
+  ChatMessage,
+  ChannelMember,
+  ChannelView,
+  TeamMember,
+} from "@/lib/chat";
 import { AGENT_ORDER, type DevAgent } from "@/lib/dev-agents-meta";
 
 // The AI teammates you can @-mention in any channel.
@@ -109,9 +119,61 @@ export function ChatClient({ data }: { data: ChatData }) {
     });
   };
 
+  // Internal-team roster — grows when the owner creates a teammate inline.
+  const [teamRoster, setTeamRoster] = useState(data.teamRoster);
+
+  const setTeamMembers = (key: string, teamMembers: TeamMember[]) =>
+    setViews((v) => ({ ...v, [key]: { ...v[key], teamMembers } }));
+
+  const addTeamMember = (m: TeamMember) => {
+    if (!view) return;
+    const key = selectedKey;
+    setTeamMembers(key, [...view.teamMembers, m]);
+    startTransition(async () => {
+      await addChannelTeamMember(key, m.slug);
+    });
+  };
+
+  const removeTeamMember = (slug: string) => {
+    if (!view) return;
+    const key = selectedKey;
+    setTeamMembers(key, view.teamMembers.filter((m) => m.slug !== slug));
+    startTransition(async () => {
+      await removeChannelTeamMember(key, slug);
+    });
+  };
+
+  // Create a new teammate and add them to the current channel (server-first —
+  // the canonical slug comes back from the action). Returns an error string, or
+  // null on success, so the popover can show it inline.
+  const createTeammateHandler = (name: string, roleLabel: string): Promise<string | null> => {
+    const key = selectedKey;
+    return new Promise((resolve) => {
+      startTransition(async () => {
+        const r = await createTeamMember(name, roleLabel, key);
+        if (!r.ok || !r.member) {
+          resolve(r.error ?? "Could not add teammate.");
+          return;
+        }
+        const m = r.member;
+        setTeamRoster((list) => (list.some((t) => t.slug === m.slug) ? list : [...list, m]));
+        setViews((v) => {
+          const cur = v[key];
+          if (!cur || cur.teamMembers.some((t) => t.slug === m.slug)) return v;
+          return { ...v, [key]: { ...cur, teamMembers: [...cur.teamMembers, m] } };
+        });
+        resolve(null);
+      });
+    });
+  };
+
   // Subs not yet in the current channel — the add-picker options.
   const available = view
     ? data.roster.filter((r) => !view.members.some((m) => m.slug === r.slug))
+    : [];
+  // Team members not yet in the current channel — the add-teammate options.
+  const availableTeam = view
+    ? teamRoster.filter((r) => !view.teamMembers.some((m) => m.slug === r.slug))
     : [];
 
   const selectChannel = (key: string) => {
@@ -209,6 +271,7 @@ export function ChatClient({ data }: { data: ChatData }) {
           description: ch.description || "Team channel",
           participants: ["JS"],
           members: [],
+          teamMembers: [],
           aiMembers: [],
           canManageMembers: true,
           canManageAi: true,
@@ -422,10 +485,15 @@ export function ChatClient({ data }: { data: ChatData }) {
                 <MembersPopover
                   members={view.members}
                   available={available}
+                  teamMembers={view.teamMembers}
+                  availableTeam={availableTeam}
                   aiMembers={view.aiMembers}
                   canManageAi={view.canManageAi}
                   onAdd={addMember}
                   onRemove={removeMember}
+                  onAddTeam={addTeamMember}
+                  onRemoveTeam={removeTeamMember}
+                  onCreateTeam={createTeammateHandler}
                   onAddAgent={addAgent}
                   onRemoveAgent={removeAgent}
                   onClose={() => setManaging(false)}
@@ -546,24 +614,53 @@ function ChannelItem({
 function MembersPopover({
   members,
   available,
+  teamMembers,
+  availableTeam,
   aiMembers,
   canManageAi,
   onAdd,
   onRemove,
+  onAddTeam,
+  onRemoveTeam,
+  onCreateTeam,
   onAddAgent,
   onRemoveAgent,
   onClose,
 }: {
   members: ChannelMember[];
   available: ChannelMember[];
+  teamMembers: TeamMember[];
+  availableTeam: TeamMember[];
   aiMembers: DevAgent[];
   canManageAi: boolean;
   onAdd: (m: ChannelMember) => void;
   onRemove: (slug: string) => void;
+  onAddTeam: (m: TeamMember) => void;
+  onRemoveTeam: (slug: string) => void;
+  onCreateTeam: (name: string, roleLabel: string) => Promise<string | null>;
   onAddAgent: (agent: DevAgent) => void;
   onRemoveAgent: (agent: DevAgent) => void;
   onClose: () => void;
 }) {
+  const [addingTeam, setAddingTeam] = useState(false);
+  const [teamName, setTeamName] = useState("");
+  const [teamRole, setTeamRole] = useState("");
+  const [teamError, setTeamError] = useState<string | null>(null);
+
+  const submitNewTeammate = async () => {
+    const name = teamName.trim();
+    if (!name) return;
+    setTeamError(null);
+    const err = await onCreateTeam(name, teamRole.trim());
+    if (err) {
+      setTeamError(err);
+      return;
+    }
+    setTeamName("");
+    setTeamRole("");
+    setAddingTeam(false);
+  };
+
   return (
     <>
       {/* Click-away backdrop. */}
@@ -617,6 +714,109 @@ function MembersPopover({
               ))}
             </div>
           </>
+        )}
+
+        {/* ─── Team ── SJC's own staff, added independently of subs (P1-D1). ── */}
+        <div className="my-1.5 h-px bg-rule" />
+        <div className="px-1 pb-1 font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-ink-3">
+          Team
+        </div>
+        <div className="flex flex-col gap-0.5">
+          {teamMembers.map((m) => (
+            <div key={m.slug} className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-paper-3">
+              <Avatar initials={m.initials} size="sm" kind="gray" />
+              <span className="flex-1 truncate text-[12px] text-ink-2">
+                {m.name.split(/\s+/)[0]}
+                {m.roleLabel ? ` · ${m.roleLabel}` : ""}
+              </span>
+              <button
+                onClick={() => onRemoveTeam(m.slug)}
+                aria-label={`Remove ${m.name}`}
+                className="flex-none rounded p-0.5 text-ink-3 hover:bg-flag-soft hover:text-flag"
+              >
+                <X className="size-3.5" strokeWidth={2} />
+              </button>
+            </div>
+          ))}
+          {teamMembers.length === 0 && !addingTeam && (
+            <p className="px-1.5 py-1 text-[11px] text-ink-3">No team members in this channel.</p>
+          )}
+        </div>
+
+        {availableTeam.length > 0 && (
+          <div className="mt-0.5 flex max-h-32 flex-col gap-0.5 overflow-y-auto">
+            {availableTeam.map((m) => (
+              <button
+                key={m.slug}
+                onClick={() => onAddTeam(m)}
+                className="flex items-center gap-2 rounded-md px-1.5 py-1 text-left hover:bg-paper-3"
+              >
+                <Avatar initials={m.initials} size="sm" kind="gray" />
+                <span className="flex-1 truncate text-[12px] text-ink-2">
+                  {m.name.split(/\s+/)[0]}
+                  {m.roleLabel ? ` · ${m.roleLabel}` : ""}
+                </span>
+                <Plus className="size-3.5 flex-none text-accent" strokeWidth={2} />
+              </button>
+            ))}
+          </div>
+        )}
+
+        {addingTeam ? (
+          <div className="mt-1 flex flex-col gap-1">
+            <input
+              autoFocus
+              value={teamName}
+              onChange={(e) => setTeamName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") submitNewTeammate();
+                if (e.key === "Escape") setAddingTeam(false);
+              }}
+              placeholder="Name"
+              className="rounded-md border border-rule bg-paper px-2 py-1 text-[12px] text-ink outline-none focus:border-accent"
+            />
+            <input
+              value={teamRole}
+              onChange={(e) => setTeamRole(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") submitNewTeammate();
+                if (e.key === "Escape") setAddingTeam(false);
+              }}
+              placeholder="Role (optional)"
+              className="rounded-md border border-rule bg-paper px-2 py-1 text-[12px] text-ink outline-none focus:border-accent"
+            />
+            {teamError && <p className="px-0.5 text-[11px] text-flag">{teamError}</p>}
+            <div className="flex gap-1">
+              <button
+                onClick={submitNewTeammate}
+                className="flex-1 rounded-md bg-accent px-2 py-1 text-[12px] font-medium text-paper hover:bg-accent-2"
+              >
+                Add
+              </button>
+              <button
+                onClick={() => {
+                  setAddingTeam(false);
+                  setTeamName("");
+                  setTeamRole("");
+                  setTeamError(null);
+                }}
+                className="rounded-md border border-rule px-2 py-1 text-[12px] text-ink-2 hover:bg-paper-3"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => {
+              setAddingTeam(true);
+              setTeamError(null);
+            }}
+            className="mt-0.5 flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-[12px] text-accent hover:bg-paper-3"
+          >
+            <Plus className="size-3.5 flex-none" strokeWidth={2} />
+            New teammate
+          </button>
         )}
 
         {canManageAi && (

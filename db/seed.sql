@@ -11,7 +11,8 @@ BEGIN;
 TRUNCATE leads, projects, subs, threads, notifications, compliance_items,
          warranty_projects, warranty_claims, schedule_blocks, daily_logs,
          files, app_settings, users, chat_messages, chat_reads,
-         chat_members, chat_channels, chat_ai_members, project_punch, catalog_items,
+         chat_members, chat_channels, chat_ai_members, team_members,
+         chat_team_members, project_punch, catalog_items,
          lead_activity, lead_intake, lead_estimates,
          invoices, retainers, project_selections, project_sections,
          project_mood, project_floorplans, project_subs,
@@ -91,6 +92,17 @@ SELECT c.key, a.agent
   FROM (VALUES ('field-daily'),('selections'),('bookkeeping'),('safety'),('marketing-queue')) AS c(key)
  CROSS JOIN (VALUES ('claude'),('qwen'),('hermes')) AS a(agent)
  WHERE NOT EXISTS (SELECT 1 FROM chat_ai_members x WHERE x.channel_key = c.key)
+ON CONFLICT DO NOTHING;
+
+-- Demo internal-team roster (dev only — the live roster is built inline in the
+-- app). Dana is dropped into #field-daily so the Team section has something to
+-- show in a fresh reseed.
+INSERT INTO team_members (slug, name, role_label) VALUES
+  ('dana-whitfield', 'Dana Whitfield', 'Office manager'),
+  ('leah-tran',      'Leah Tran',      'Estimator')
+ON CONFLICT (slug) DO NOTHING;
+INSERT INTO chat_team_members (channel_key, member_slug) VALUES
+  ('field-daily', 'dana-whitfield')
 ON CONFLICT DO NOTHING;
 
 -- ─── Material catalog ────────────────────────────────────────────────────────

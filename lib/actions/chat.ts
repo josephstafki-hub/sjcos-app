@@ -7,6 +7,7 @@ import { ai } from "@/lib/ai";
 import { emit } from "@/lib/notify";
 import { askHermes, chatReplyClaude } from "@/lib/dev-agents";
 import type { DevAgent } from "@/lib/dev-agents-meta";
+import { initialsOf, type TeamMember } from "@/lib/chat";
 
 /** How each AI teammate signs its chat posts. */
 const AGENT_IDENTITY: Record<DevAgent, { name: string; initials: string }> = {
@@ -252,6 +253,98 @@ export async function removeChannelAgent(
     );
     revalidatePath("/chat");
     return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+// ─── Team-member roster + membership (P1-D1) ────────────────────────────────
+
+/** Add a team member to a channel's membership. No-op-safe (idempotent). */
+export async function addChannelTeamMember(
+  channelKey: string,
+  slug: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireRole("owner");
+  if (channelKey.startsWith("dm:")) return { ok: false, error: "DMs have no members." };
+  try {
+    await query(
+      `INSERT INTO chat_team_members (channel_key, member_slug) VALUES ($1, $2)
+       ON CONFLICT (channel_key, member_slug) DO NOTHING`,
+      [channelKey, slug],
+    );
+    revalidatePath("/chat");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/** Remove a team member from a channel's membership. */
+export async function removeChannelTeamMember(
+  channelKey: string,
+  slug: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireRole("owner");
+  try {
+    await query(
+      `DELETE FROM chat_team_members WHERE channel_key = $1 AND member_slug = $2`,
+      [channelKey, slug],
+    );
+    revalidatePath("/chat");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/** Create a team member (the roster starts empty — the owner builds it inline
+ *  from the participants menu). Recreating a deactivated slug reactivates it.
+ *  If `channelKey` is given (and isn't a DM), also add them to that channel in
+ *  the same round trip — the create-and-add flow. Returns the full member so the
+ *  client can update state without a refetch. */
+export async function createTeamMember(
+  name: string,
+  roleLabel: string = "",
+  channelKey?: string,
+): Promise<{ ok: boolean; member?: TeamMember; error?: string }> {
+  await requireRole("owner");
+  const cleanName = name.trim();
+  const cleanRole = roleLabel.trim();
+  const slug = channelKeyFromName(cleanName);
+  if (!slug) return { ok: false, error: "Enter a name." };
+  try {
+    const existing = await query<{ active: boolean }>(
+      `SELECT active FROM team_members WHERE slug = $1`,
+      [slug],
+    );
+    if (existing.rows.length > 0) {
+      if (existing.rows[0].active) {
+        return { ok: false, error: "A teammate with that name already exists." };
+      }
+      // Deactivated → reactivate with the latest name/role.
+      await query(
+        `UPDATE team_members SET active = true, name = $2, role_label = $3 WHERE slug = $1`,
+        [slug, cleanName, cleanRole],
+      );
+    } else {
+      await query(
+        `INSERT INTO team_members (slug, name, role_label) VALUES ($1, $2, $3)`,
+        [slug, cleanName, cleanRole],
+      );
+    }
+    if (channelKey && !channelKey.startsWith("dm:")) {
+      await query(
+        `INSERT INTO chat_team_members (channel_key, member_slug) VALUES ($1, $2)
+         ON CONFLICT (channel_key, member_slug) DO NOTHING`,
+        [channelKey, slug],
+      );
+    }
+    revalidatePath("/chat");
+    return {
+      ok: true,
+      member: { slug, name: cleanName, initials: initialsOf(cleanName), roleLabel: cleanRole },
+    };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }

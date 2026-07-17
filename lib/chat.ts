@@ -42,7 +42,7 @@ export interface DirectMessage {
 export const dmKey = (subSlug: string) => `dm:${subSlug}`;
 
 /** "Marco Rivas" → "MR". */
-function initialsOf(name: string): string {
+export function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/);
   const first = parts[0]?.[0] ?? "";
   const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
@@ -72,6 +72,16 @@ export interface ChannelMember {
   trade: string;
 }
 
+/** An internal SJC staff member who can be a channel member — the team roster,
+ *  independent of subs (P1-D1). Display-only, no login (chat stays owner-run). */
+export interface TeamMember {
+  slug: string;
+  name: string;
+  initials: string;
+  /** e.g. "Office manager" — the team analog of a sub's trade. */
+  roleLabel: string;
+}
+
 export interface ChannelView {
   key: string;
   /** Display name, e.g. "# field-daily". */
@@ -81,6 +91,8 @@ export interface ChannelView {
   participants: string[];
   /** Sub members (owner is implicit, not listed here). Empty for DMs. */
   members: ChannelMember[];
+  /** Internal-team members (owner is implicit, not listed here). Empty for DMs. */
+  teamMembers: TeamMember[];
   /** AI models that respond in this channel (via @model_name). Rooms/DMs keep
    *  all three implicitly; bare channels list only their members. */
   aiMembers: DevAgent[];
@@ -104,6 +116,8 @@ export interface ChatData {
   views: Record<string, ChannelView>;
   /** Every sub — the pool the add-member picker draws from. */
   roster: ChannelMember[];
+  /** Every active team member — the pool the add-teammate picker draws from. */
+  teamRoster: TeamMember[];
   /** Channel selected on first paint. */
   selectedKey: string;
 }
@@ -145,14 +159,17 @@ function buildView(
   ch: ChatChannel,
   rows: MessageRow[],
   members: ChannelMember[],
+  teamMembers: TeamMember[],
   aiMembers: DevAgent[],
 ): ChannelView {
   // A bare channel (no `room:`/`dm:` prefix) has owner-editable AI membership;
   // project rooms keep all models implicitly.
   const isBare = !ch.key.includes(":");
-  // Avatar stack = owner (JS) + sub members + one AI chip if any model is in.
+  // Avatar stack = owner (JS) + team members + sub members + one AI chip if any
+  // model is in. Team leads (internal staff sit closest to the owner).
   const participants = [
     "JS",
+    ...teamMembers.map((m) => m.initials),
     ...members.map((m) => m.initials),
     ...(aiMembers.length ? ["AI"] : []),
   ];
@@ -163,6 +180,7 @@ function buildView(
     description: ch.description ?? "Team channel",
     participants: participants.slice(0, 6),
     members,
+    teamMembers,
     aiMembers,
     canManageMembers: true,
     canManageAi: isBare,
@@ -187,6 +205,7 @@ function buildDmView(
     description: `Direct message · ${d.trade}`,
     participants: ["JS", d.initials],
     members: [],
+    teamMembers: [],
     // DMs keep AI implicitly invocable (unchanged) but expose no membership UI.
     aiMembers: ALL_AGENTS,
     canManageMembers: false,
@@ -208,8 +227,17 @@ interface DmSubRow {
 }
 
 export async function getChatData(): Promise<ChatData> {
-  const [msgRes, readRes, subRes, memberRes, aiMemberRes, channelRes, roomRes] =
-    await Promise.all([
+  const [
+    msgRes,
+    readRes,
+    subRes,
+    memberRes,
+    aiMemberRes,
+    channelRes,
+    roomRes,
+    teamRes,
+    teamMemberRes,
+  ] = await Promise.all([
       query<MessageRow>(
         `SELECT channel_key, author_kind, author_name, author_initials, body, created_at
        FROM chat_messages ORDER BY created_at ASC`,
@@ -243,6 +271,13 @@ export async function getChatData(): Promise<ChatData> {
         WHERE status IN ('construction', 'closeout')
         ORDER BY progress DESC, name ASC
         LIMIT 12`,
+      ),
+      // The internal-team roster (active only) — drives the add-teammate picker.
+      query<{ slug: string; name: string; role_label: string }>(
+        `SELECT slug, name, role_label FROM team_members WHERE active ORDER BY name ASC`,
+      ),
+      query<{ channel_key: string; member_slug: string }>(
+        `SELECT channel_key, member_slug FROM chat_team_members`,
       ),
     ]);
 
@@ -307,6 +342,26 @@ export async function getChatData(): Promise<ChatData> {
     membersByChannel.set(r.channel_key, list);
   }
 
+  // Team roster, keyed by slug (mirrors the sub roster).
+  const teamRoster: TeamMember[] = teamRes.rows.map((t) => ({
+    slug: t.slug,
+    name: t.name,
+    initials: initialsOf(t.name),
+    roleLabel: t.role_label,
+  }));
+  const teamBySlug = new Map(teamRoster.map((m) => [m.slug, m]));
+
+  // channel_key → its team members (resolved against the team roster). A
+  // deactivated teammate drops out here because teamBySlug won't have them.
+  const teamByChannel = new Map<string, TeamMember[]>();
+  for (const r of teamMemberRes.rows) {
+    const m = teamBySlug.get(r.member_slug);
+    if (!m) continue;
+    const list = teamByChannel.get(r.channel_key) ?? [];
+    list.push(m);
+    teamByChannel.set(r.channel_key, list);
+  }
+
   const viewEntries = all.map(
     (ch) =>
       [
@@ -315,6 +370,7 @@ export async function getChatData(): Promise<ChatData> {
           ch,
           byChannel.get(ch.key) ?? [],
           membersByChannel.get(ch.key) ?? [],
+          teamByChannel.get(ch.key) ?? [],
           aiMembersFor(ch),
         ),
       ] as const,
@@ -349,6 +405,7 @@ export async function getChatData(): Promise<ChatData> {
     directs,
     views: Object.fromEntries([...viewEntries, ...dmViewEntries]),
     roster,
+    teamRoster,
     selectedKey: CHANNELS[0]?.key ?? ROOMS[0]?.key ?? directs[0]?.key ?? "",
   };
 }

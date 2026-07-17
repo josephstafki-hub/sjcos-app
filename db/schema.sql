@@ -491,6 +491,32 @@ SELECT c.key, a.agent
  WHERE NOT EXISTS (SELECT 1 FROM chat_ai_members x WHERE x.channel_key = c.key)
 ON CONFLICT DO NOTHING;
 
+-- Internal-team roster (P1-D1): SJC's own staff, who are neither subs nor
+-- clients. Display-only, no login — team chat stays owner-operated, exactly like
+-- the sub roster (chat_members). slug PK mirrors subs.slug so both rosters key
+-- the same way everywhere. Deactivate (active=false) rather than delete so past
+-- message attribution stays stable. If staff ever get their own logins that's a
+-- users.role change, not this table. A team member who posts is author_kind
+-- 'user' (renders gray), already covered by the chat_messages CHECK.
+CREATE TABLE IF NOT EXISTS team_members (
+  slug       text PRIMARY KEY,
+  name       text NOT NULL,
+  role_label text NOT NULL DEFAULT '',
+  active     boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Independent per-channel team membership (P1-D1), symmetric with chat_members
+-- (subs) and chat_ai_members (AI): team members are added to a channel/room on
+-- their own. The owner is an implicit member of every channel and is NOT stored.
+-- DMs (dm:<slug>) are 1:1 and don't use this table.
+CREATE TABLE IF NOT EXISTS chat_team_members (
+  channel_key text NOT NULL,
+  member_slug text NOT NULL REFERENCES team_members(slug) ON DELETE CASCADE,
+  added_at    timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (channel_key, member_slug)
+);
+
 -- ─── Project punch list ─────────────────────────────────────────────────────
 -- Per-project punch items; checkboxes on the project-detail Punch tab toggle
 -- `done`. Owner-gated writes via lib/actions/projects.ts.

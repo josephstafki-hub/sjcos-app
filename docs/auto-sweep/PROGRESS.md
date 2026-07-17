@@ -5,6 +5,95 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P1-D1 (finish) — Team Chat: independent team-member add · **[x] DONE**
+
+**This closes P1-D1.** Last iteration left it `[~]` because subs and AI models could be
+added to a channel independently but **team members couldn't** — there was no internal-staff
+roster anywhere in the product (the `users` table only knows owner / sub / client, and the
+only internal human is you, the owner, implicit in every channel). I built that missing
+roster and wired independent per-channel team membership, symmetric with how subs and AI
+already work. All three — **team members · subs · AI models** — can now be added to a channel
+independently.
+
+### What you can now do
+- Open a channel (or project room) → participants menu (the person-plus icon) → new **"Team"**
+  section. It lists the channel's team members (remove with ×), offers any roster teammates
+  not yet in the channel ("+"), and has a **"New teammate"** inline form (name + optional role)
+  to create a brand-new staff member and drop them into the channel in one step.
+- Team members are **independent** of subs and AI: adding a teammate doesn't touch the sub or
+  AI membership tables, and vice-versa. A channel can have any mix.
+- Team members show in the header avatar stack (owner → team → subs → AI chip), so you can see
+  at a glance who's in a channel.
+
+### Why an inline "New teammate" create (the key product call)
+The roster **starts empty** — SJC had no team-roster entity at all. If the only way to add a
+teammate were "pick from the roster," there'd be nothing to pick and the feature would be
+dead on arrival. So `createTeamMember` builds the roster **from where you need it** — the
+participants menu — and adds the person to the current channel in the same round trip. No
+separate admin page to maintain; you grow the team as you go. (If you later want a dedicated
+Team-management screen, that's a clean follow-on — the `team_members` table is already the
+backing store.)
+
+### How it's built
+- **DB (`db/schema.sql`, applied to the live DB idempotently):** new `team_members`
+  (slug PK — mirrors `subs.slug` so both rosters key the same way; name, role_label, active,
+  created_at) and `chat_team_members` (channel_key, member_slug FK `team_members` ON DELETE
+  CASCADE, PK). Owner stays implicit/unstored, exactly like subs. Both are `CREATE TABLE IF
+  NOT EXISTS`, purely additive — no ALTER, no TRUNCATE, safe to re-run; applied to live with
+  **0 rows** (nothing you see changed). `db/seed.sql` adds both to its TRUNCATE list and seeds
+  two demo teammates (dev only; the live roster is the empty one you build yourself).
+- **`lib/chat.ts`:** new `TeamMember` type; `ChannelView` gained `teamMembers`, `ChatData`
+  gained `teamRoster`; `getChatData` reads the active roster + memberships and resolves them
+  per channel (a **deactivated** teammate silently drops out — `WHERE active` + the
+  roster-resolution skip); `buildView` puts team initials in the participant stack (team
+  before subs); `initialsOf` exported for the action to reuse.
+- **`lib/actions/chat.ts`:** owner-gated `addChannelTeamMember` / `removeChannelTeamMember`
+  (mirror the sub pair, `dm:` guarded) and `createTeamMember(name, roleLabel?, channelKey?)` —
+  slugifies the name, rejects empty, errors on an existing **active** slug, **reactivates** a
+  deactivated one (fresh name/role, prior memberships resurface), and optionally adds to the
+  channel in the same call. Returns the full member so the client updates without a refetch.
+- **`components/chat/ChatClient.tsx`:** `teamRoster` state, optimistic add/remove handlers,
+  the server-first create-and-add handler (canonical slug echoed back), and the "Team" section
+  in `MembersPopover` (list + add-picker + inline create form with its own name/role inputs and
+  inline error).
+
+### Decisions you should know
+- **Team members are display/roster members, not logins.** They don't get accounts — team chat
+  stays owner-operated, identical to how subs are members today. If staff ever need their own
+  logins, that's a `users.role` change, a separate build.
+- **Remove ≠ delete.** Removing a teammate from a channel just drops the join row; deactivating
+  one (not exposed in UI yet — future roster admin) keeps history intact via `active=false`.
+- **Slug reuse:** teammate slugs use the same slugifier as channel keys, but they live in a
+  separate table and separate list, so there's no cross-collision that matters.
+
+### Fable's plan / review
+**Plan (Fable 5):** validated the two-table design and made two refinements I adopted — **slug
+PK** (not uuid) so team mirrors `subs.slug` everywhere, and **compute initials at read time**
+(don't store them), matching subs. Flagged the `"use server"` export constraint on the
+slugifier, the empty-roster bootstrap needing inline create, and rooms-vs-DMs via the existing
+`canManageMembers` flag. All folded in.
+**Review (Fable 5): SHIP** — no must-fix bugs. Traced JSX balance, the popover's new `useState`
+hooks (unconditional at top; component conditionally *mounted*, so hook order is stable, and
+state resets on channel switch), optimistic vs server-first correctness, the create/reactivate/
+dedupe/CASCADE paths, the `dm:` guards, and the participant-stack order/cap. Confirmed no
+outbound send, all actions owner-gated, nothing mutates at import/render. Only cosmetic notes
+(a teammate literally named to initials "JS" shares the owner's accent avatar in the stack;
+optimistic adds don't repaint the header stack until reload — both pre-existing sub/AI behavior).
+
+### Verify
+`npx tsc --noEmit` → exit 0. `npm run lint` → 0 errors (same 11 pre-existing warnings, none in
+touched files). New tables applied to the **live DB** (0 rows). Every SQL path — insert,
+idempotent re-add (0 rows), active-roster read, deactivate→drops from roster, reactivate→updates
+name/role, hard-delete→CASCADE clears the join — exercised in a **rolled-back transaction**
+against live data; nothing mutated. Not runtime-clicked in the live app (I don't restart :3017),
+but the data layer is proven and tsc/lint are green. No build run, service/:3017 untouched,
+nothing sent outward.
+
+**Files:** `db/schema.sql`, `db/seed.sql`, `lib/chat.ts`, `lib/actions/chat.ts`,
+`components/chat/ChatClient.tsx`.
+
+---
+
 ## 2026-07-17 · P1-D1 — Team Chat: create/remove channels + independent AI membership · **[~] PARTIAL**
 
 **Your Team Chat channels were hardcoded and the AI was in every channel whether you

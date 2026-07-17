@@ -5,6 +5,82 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P2-7 — Android apps · **[!] PARKED (buildable scope complete)**
+
+**EAS build config added → the app now has a real, no-Google-Play Android
+distribution path.** All work is in the **separate `/home/joe/sjcos-mobile` repo**
+(its own git, `main` — same as prior P2-3/P2-7 slices), committed by this sweep.
+
+### What this slice did (2 files, config + docs only)
+1. **CREATE `eas.json`** — the missing piece for cloud builds. Three profiles:
+   - **`preview`** (the point of this slice): `distribution:"internal"` +
+     `android.buildType:"apk"` → `eas build --platform android --profile preview`
+     produces a **signed, sideloadable APK with an EAS-hosted install URL/QR**.
+     Android internal distribution needs **no Google Play account at any step** —
+     Joe installs directly on the phone ("allow install unknown apps" once). Its
+     `env.EXPO_PUBLIC_API_BASE_URL` (an https placeholder) is inlined at build
+     time and correctly bypasses the LAN-HTTP fallback → **no cleartext config
+     needed** (respects the prior cleartext deferral).
+   - **`production`**: `android.buildType:"app-bundle"` (.aab for Play) + iOS
+     store default. Ready but parked (needs the Play account).
+   - **`development`**: dev-client/simulator profile — dormant until
+     `expo-dev-client` is installed (no new dep added this slice).
+   - `cli.appVersionSource:"local"` + `autoIncrement:false` → versions come from
+     the `app.json` `versionCode:1`/`buildNumber:"1"` committed in the prior slice.
+2. **EDIT `README.md`** — retitled "iOS app" → "mobile app (iOS + Android)";
+   replaced the iOS-only "Ship it" section with the full EAS path: one-time
+   `eas-cli`+`eas login`, the no-Play Android APK recipe, the parked Play `.aab`
+   path ($25 Google account), the iOS `.ipa` path ($99 Apple account), version-bump
+   guidance, and a **caveat** (added per Fable review) that the backend URL is
+   baked into the APK at build time — a rotating quick-tunnel URL will silently
+   brick an installed APK, so use the permanent https subdomain / a named tunnel;
+   a placeholder URL builds fine but login then fails (no LAN fallback once `env`
+   is set). Notes the first `eas build` writes `extra.eas.projectId` into app.json
+   (commit that diff) and that EAS generates the keystore server-side (`*.jks`
+   already gitignored).
+
+### Why marked `[!]` PARKED (not `[~]`)
+All **sweep-buildable** Android work is now done across the two P2-7 slices:
+cross-platform Expo code (P2-3), app id + versionCode + login status-bar fix
+(slice 1), and now EAS build config (this slice). Everything that remains needs
+**Joe or hardware this box doesn't have** — nothing the autonomous sweep can build:
+- **(a)** Google Play store distribution → **Google Play Developer account ($25
+  one-time, Joe-owned)** + Play service-account JSON for `submit`.
+- **(b)** on-device / emulator eyeball verify → no Android SDK/emulator here.
+- **(c)** `expo-dev-client` for the `development` profile and release-build
+  `usesCleartextTraffic` → the latter is deferred to the backend's https move
+  (Phase 8), which obsoletes it; dev/Expo Go already allow cleartext.
+
+### Fable 5 — plan (Step 1) & review (Step 4)
+- **Plan (Fable):** confirmed the CNG/managed repo has no `eas.json`/`projectId`
+  yet, specified the exact profile structure (internal APK vs production app-bundle),
+  the `appVersionSource:"local"` rationale, the projectId-on-first-build behavior,
+  and offline verification (JSON parse + `expo config` + tsc/lint, never run `eas`).
+- **Review (Fable):** **CLEAN — "ship it as-is."** Verified the `preview` profile
+  is exactly the no-Play-account path, every eas.json key is valid current EAS
+  schema (`buildType` enums `apk`/`app-bundle` correct, `production` correctly
+  defaults `distribution:"store"`), no guardrail violations (no build run, no dep
+  changes, tsc green), and cross-checked that `src/lib/config.ts` actually reads
+  `EXPO_PUBLIC_API_BASE_URL` so the baked env var works. Its one suggestion — a
+  rotating-tunnel-URL caveat — was **applied** to the README.
+
+### Verify (all green, in the mobile repo)
+- `node -e JSON.parse(eas.json)` → valid JSON.
+- `npx expo config --type public` → still resolves `android.package`,
+  `ios.bundleIdentifier`, `versionCode`, `buildNumber` (proves app.json untouched).
+- `npx tsc --noEmit` → clean.
+- `npm run lint` (expo lint) → exit 0.
+- **Did NOT run `eas build`** (would upload to the cloud) — config verified
+  offline only, per guardrail. No `extra.eas.projectId` appeared → confirms no
+  build was executed.
+
+### Files changed
+- `/home/joe/sjcos-mobile/eas.json` (new)
+- `/home/joe/sjcos-mobile/README.md` (retitled + Android ship path)
+- `docs/auto-sweep/{TASKS.md,PROGRESS.md}` (this repo — status → `[!]`, this entry)
+
+---
+
 ## 2026-07-17 · P2-7 — Android apps · **[~] PARTIAL (slice done, distribution parked)**
 
 **The mobile app is now a first-class, buildable Android app.** The app was

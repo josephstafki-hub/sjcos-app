@@ -5,6 +5,94 @@ Joe: this is your audit trail — every decision, park, and completion is record
 
 ---
 
+## 2026-07-17 · P2-7 — Android apps · **[~] PARTIAL (slice done, distribution parked)**
+
+**The mobile app is now a first-class, buildable Android app.** The app was
+already cross-platform Expo (P2-3 shipped the iPhone + iPad surface); "Android
+apps" ≠ rewrite — it was closing the concrete Android-specific gaps. All work is
+in the **separate `/home/joe/sjcos-mobile` repo** (its own git, `main` — same as
+prior P2-3 slices), committed by this sweep.
+
+### What was actually broken / missing for Android, and what I did
+1. **No application ID → the app could not be built on Android at all.** `app.json`
+   had an `android` block (adaptive icons, `predictiveBackGestureEnabled`) but
+   **no `android.package`** — a required application ID for any Android build
+   (EAS, dev-client, or release). Added `android.package` + `android.versionCode: 1`,
+   and for iOS parity (also missing since P2-3) `ios.bundleIdentifier` +
+   `ios.buildNumber: "1"`. All IDs = `com.sjcarpentryllc.sjcos` (reverse-DNS of
+   Joe's real domain sjcarpentryllc.com).
+2. **Login status-bar rendering bug (found in the Android audit).** `_layout.tsx`
+   mounts `<StatusBar style="dark" />` globally — correct dark icons for the cream
+   app pages. But `login.tsx` has a **dark forest-green background**, so the dark
+   icons were invisible there. Added a per-screen `<StatusBar style="light" />` in
+   login.tsx (expo-status-bar is a mount-order prop stack, last wins; login
+   unmounts via `router.replace`, so the global dark default cleanly re-applies).
+   Fixes both platforms; part of the Android polish pass.
+
+### Android-readiness audit (documented — no change needed)
+The shared native code was already cross-platform-clean: **no** iOS-only `shadow*`
+style props (so no Android elevation gaps — cards use borders), both modals
+(`compose-modal`, `thread-modal`) already pass `onRequestClose` (wires the Android
+**hardware back button**; `presentationStyle="pageSheet"` is simply ignored →
+full-screen on Android), `KeyboardAvoidingView behavior` correctly branches
+`ios ? "padding" : undefined`, `theme.ts` `fontSerif`/`fontMono` have android
+fallbacks, and `ui.tsx Screen` uses SafeAreaView `edges={["top",…]}` so the
+Android edge-to-edge status-bar inset is handled. Adaptive-icon + splash assets
+all present. Nothing to fix there.
+
+### Verify (all green, in the mobile repo)
+- `npx tsc --noEmit` → clean.
+- `npm run lint` (expo lint) → exit 0, no errors/warnings.
+- `npx expo config --type public` → resolves `android.package`,
+  `ios.bundleIdentifier`, `versionCode`, `buildNumber` — Expo's own schema
+  validation passed (catches malformed/invalid keys locally, no network).
+- **Buildability proof:** ran `npx expo prebuild --platform android --no-install`
+  in a throwaway copy (no Android SDK needed) → CNG generated a real Gradle
+  project with `applicationId 'com.sjcarpentryllc.sjcos'`, matching `namespace`,
+  and `versionCode 1`. Confirms the config actually produces a buildable Android
+  project. (Threw the copy away; the real repo has no `android/` dir — it's
+  CNG/managed and gitignored.)
+
+### Fable 5 — plan (Step 1) & review (Step 4)
+Both ran this iteration. **Plan (Fable):** confirmed the repo is CNG/managed (app
+IDs live only in app.json), verified `com.sjcarpentryllc.sjcos` is a valid Android
+package + iOS bundle id (lowercase segments, no Java keywords), confirmed
+`edgeToEdgeEnabled` is not a key in SDK 56 (always-on — don't add it), and the
+`expo-status-bar` last-mount-wins semantics. It added two cheap wins I adopted:
+the `versionCode`/`buildNumber` keys, and the `expo config` validation step.
+**Review (Fable): CLEAN — "correct, no regressions, `[~]` is the right marking."**
+It re-verified the StatusBar prop-stack against the package source (no flicker,
+no hydration issue, iOS+Android identical), confirmed `buildNumber` is a string /
+`versionCode` an integer (the two easy mistakes — both avoided), confirmed Expo
+Go ignores the new native IDs so the **existing P2-3 iPhone/iPad workflow is
+untouched**, and no guardrail surface (no comms/backend). Its one suggested
+hardening — actually run `expo prebuild` — I did (see above).
+
+### Decisions / parks for Joe
+- **Marked `[~]` not `[x]`** — the buildable-app scope is done, but real
+  distribution is owner-gated (mirrors the parked Apple Developer account from
+  P2-3): (a) **Google Play** distribution needs a Google Play Developer account
+  ($25 one-time, Joe-owned) + EAS build/keystore signing; (b) release-build
+  **cleartext HTTP** (`expo-build-properties` + `usesCleartextTraffic`) is deferred
+  — the app still points at the `http://192.168.1.38:3017` LAN backend, but a
+  permanent **https** subdomain is planned (Phase 8) which obsoletes the cleartext
+  workaround, and dev/Expo Go already allow cleartext; (c) on-device eyeball
+  verify of the login status-bar fix (no Android emulator/SDK on this box).
+- **App id `com.sjcarpentryllc.sjcos` is PERMANENT once published** to either
+  store — Joe can veto/change it before any store submission (which is itself
+  parked, so there's a natural review gate).
+
+### Guardrails
+No outbound anywhere (config + one screen). No `npm run build`/`next build`, no
+`sjcos.service` restart, no port 3017 (the mobile repo is fully separate).
+Mobile-repo-only commit on its `main`; sweep docs committed on
+`auto/todo-sweep-2026-07-14`.
+
+**Files changed (mobile repo `/home/joe/sjcos-mobile`):** `app.json`,
+`src/app/login.tsx`.
+
+---
+
 ## 2026-07-17 · P2-6 — Mobile browser site · **[x] DONE**
 
 **The web app is now usable in a mobile phone browser without regressing

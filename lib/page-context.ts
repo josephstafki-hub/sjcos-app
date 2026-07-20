@@ -108,3 +108,17 @@ export function todayContext(data: TodayData): string {
   ].filter(Boolean);
   return lines.join("\n");
 }
+
+/** Operator console context: todayContext plus the priority work_item ids agents
+ *  need for MCP calls (get_work_item / update_work_item_status take real
+ *  work_items ids). Only checkable priorities have real uuids — synthetic ids
+ *  (lead:slug, warranty:{id}, …) are never emitted here. (Operator spec §2.2.) */
+export function operatorContext(data: TodayData): string {
+  const ids = data.priorities
+    .filter((p) => p.checkable)
+    .map((p) => `  - ${p.rank} "${p.title}" -> work_item_id ${p.id}`)
+    .join("\n");
+  return [todayContext(data), ids && `Work item ids for the priorities above:\n${ids}`]
+    .filter(Boolean)
+    .join("\n");
+}

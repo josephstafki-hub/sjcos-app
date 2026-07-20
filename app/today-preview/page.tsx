@@ -1,21 +1,21 @@
 import { Shell } from "@/components/shell/Shell";
-import { TodayBody } from "@/components/today/TodayBody";
+import { OperatorBody } from "@/components/operator/OperatorBody";
 import { getTodayData } from "@/lib/today";
-import { todayContext } from "@/lib/page-context";
+import { operatorContext } from "@/lib/page-context";
 
 export const dynamic = "force-dynamic";
 
-// Temporary demo route: identical to /today, but with the Today v2 · Phase 7
-// model-emitted action chips turned ON, so Joe can try the chip experience for
-// a while before it replaces /today. When we're ready to ship it, flip
-// enableActionChips on the real /today page and delete this route + its nav
-// entry (Sidebar.tsx). See docs/today-interactive-plan.md.
+// Preview of the Operator Console — the three-panel redesign of working the
+// daily queue (Queue rail · agent chat · live Workbench). Built here at
+// /today-preview so Joe can trial it before it replaces /today. Spec:
+// docs/operator-console-plan.md. To promote: point /today at this body and
+// remove this route + its nav entry.
 export default async function TodayPreviewPage() {
   const data = await getTodayData();
 
   return (
-    <Shell breadcrumb={`${data.dateLabel} · Preview`} aiContext={todayContext(data)} embeddedAsk>
-      <TodayBody data={data} enableActionChips />
+    <Shell breadcrumb={`${data.dateLabel} · Operator preview`} aiContext={operatorContext(data)}>
+      <OperatorBody data={data} />
     </Shell>
   );
 }

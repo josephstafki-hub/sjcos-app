@@ -45,8 +45,9 @@ type NavItem = {
 
 const WORK: NavItem[] = [
   { label: "Today", href: "/today", icon: Home },
-  // Temporary: Today v2 · Phase 7 chip demo. Remove when it replaces /today.
-  { label: "Today", href: "/today-preview", icon: Sparkles, tag: "preview" },
+  // Temporary: Operator Console preview (three-panel redesign of /today).
+  // Remove when it replaces /today. Spec: docs/operator-console-plan.md.
+  { label: "Operator", href: "/today-preview", icon: Sparkles, tag: "preview" },
   { label: "Inbox", href: "/inbox", icon: Inbox },
   { label: "Messages", href: "/messages", icon: MessagesSquare },
   { label: "Team Chat", href: "/chat", icon: MessageSquare },

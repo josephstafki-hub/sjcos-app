@@ -94,7 +94,13 @@ export function todayContext(data: TodayData): string {
     data.headerChips.length &&
       `Headline metrics: ${data.headerChips.map((c) => c.label).join(" · ")}`,
     data.priorities.length &&
-      `Priorities:\n${data.priorities.map((p) => `  - [${p.tag}] ${p.title}${p.sub ? ` — ${p.sub}` : ""}`).join("\n")}`,
+      // work_item_id is included so a reply can propose action chips for a
+      // specific item (Today v2 · Phase 7 `sjcos-actions` block). Chips render
+      // only for ids that match a live queue card, so surfacing them here is
+      // what lets the general composer — not just hand-offs — produce chips.
+      `Priorities:\n${data.priorities
+        .map((p) => `  - [${p.tag}] ${p.title}${p.sub ? ` — ${p.sub}` : ""} (work_item_id: ${p.id})`)
+        .join("\n")}`,
     data.schedule.length &&
       `Today's schedule:\n${data.schedule.map((s) => `  - ${s.time} ${s.label}`).join("\n")}`,
     data.waiting.items.length &&

@@ -1,6 +1,6 @@
 # Today Page v2 — Interactive AI Feed (design + build plan)
 
-**Status:** built · Phases 1–6 + 8 complete (Phase 7 stretch not done) — 2026-07-10
+**Status:** built · Phases 1–8 complete (Phase 7 stretch done 2026-07-20) — 2026-07-10
 **Written:** 2026-07-10
 **Audience:** any agent/model executing this incrementally. Each phase is
 independently shippable, has exact file paths, contracts, and acceptance
@@ -513,6 +513,59 @@ Strip the block from the displayed message body. Add one line to the Qwen
 system prompt (`qwenChat` in `lib/ai.ts`) and to `doItDirective` telling
 models the block exists. If a model emits garbage, nothing renders — safe by
 construction.
+
+**DONE (2026-07-20):**
+- `lib/today-actions.ts` — pure, paranoid `parseModelActions(body)` → the ONLY
+  reader of the fence. First fence wins; non-array / bad-JSON / unknown-kind /
+  missing-field entries are dropped; results de-duped by `kind:id` and capped
+  at 6. On any error it still strips the fence from the shown text but returns
+  zero actions. Unit-tested (7 cases).
+- `components/today/ModelActionChips.tsx` — renders a chip only when its
+  `work_item_id` matches a card in the live `useTodayQueue()` snapshot (and,
+  for `mark_done`/`snooze`, that card is `checkable`). Handlers call the
+  existing `complete`/`snooze` context actions (owner-verified server-side);
+  `open` is a `router.push` to the card's href. The model picks WHICH item,
+  never WHAT is allowed.
+- `TodayFeed.tsx` — each assistant reply runs through `parseModelActions`; the
+  stripped body renders (bubble hidden if empty), chips render beneath.
+- `lib/ai.ts` — a self-gating `ACTIONS_HINT` system message added to
+  **`qwenChat` only** (NOT the shared `SYSTEM_PROMPT`, which `ollamaChat`'s
+  JSON calls use). It fires only when work_item_ids are in play → in practice
+  only on /today, so other Ask windows don't get raw fences.
+- `lib/today-directives.ts` — `doItDirective` now tells Hermes the block
+  exists for suggesting follow-up one-click steps on other items.
+
+Guardrail preserved: chips are still app-rendered; the model only names ids
+that must already be in the queue, and every action re-verifies owner + item
+server-side. Nothing client-facing, no `promoted_at` write.
+
+**Two things a live E2E (Qwen on /today, Playwright) surfaced and fixed:**
+1. `todayContext` (lib/page-context.ts) did NOT include work_item_ids, so a
+   model could never name a matching id from the general composer — chips
+   could only ever come from hand-off directives. Added `(work_item_id: …)`
+   to each priority line so the composer path works too.
+2. Qwen (7B) drifts on the fence label — it emitted the array in a plain
+   ```json fence, not ```sjcos-actions, so the block leaked as raw text and no
+   chip rendered. `parseModelActions` now falls back to ANY fenced block whose
+   content is entirely a valid action array (strict all-entries-valid), so a
+   ```json / unlabeled fence still works while ordinary JSON is left untouched.
+   Also: Qwen often replies with ONLY the block (no prose) — the feed hides the
+   empty bubble and shows a small "Suggested" label above the chips.
+
+Verified live: Qwen emitted mark_done + open chips keyed to real promoted
+items; fence stripped; chips rendered with correct icons/styling. (Chips were
+not clicked in the check — they act on real work_items; the handlers are the
+same Phase 2 server actions already shipped.)
+
+**Also wired Hermes (the feed's DEFAULT agent).** `ACTIONS_HINT` moved from a
+private const in lib/ai.ts to an exported const in lib/today-directives.ts, and
+is now added as a system message in BOTH `qwenChat` (lib/ai.ts) and
+`hermesChat` (lib/dev-agents.ts). Without this the default agent couldn't offer
+chips from the composer at all. Verified live: with "don't change anything,"
+Hermes wrote a prose recommendation and emitted 5 `open` chips, each matching a
+live promoted priority (chips whose id isn't in the client snapshot are
+silently dropped — the safe path). Hermes correctly offered only `open`
+(read-only) and declined to mark anything done.
 
 ---
 

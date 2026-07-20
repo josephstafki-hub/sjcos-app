@@ -11,6 +11,7 @@
 // without changing these signatures.
 
 import type { TriageVerdict } from "./types";
+import { ACTIONS_HINT } from "./today-directives";
 
 // ─── Method I/O types ─────────────────────────────────────────────────────
 
@@ -401,6 +402,7 @@ export async function qwenChat(turns: ChatTurn[], context?: string): Promise<str
         stream: false,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: ACTIONS_HINT },
           ...(context ? [{ role: "system", content: `Page the user is viewing:\n${context}` }] : []),
           ...turns,
         ],

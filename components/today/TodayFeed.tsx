@@ -8,9 +8,11 @@ import { newConversationAction, sendMessageAction } from "@/lib/actions/ai-chat"
 import type { ChatMessage } from "@/lib/ai-chat";
 import { AGENT_META, AGENT_ORDER, type DevAgent } from "@/lib/dev-agents-meta";
 import { doItDirective, prepDirective } from "@/lib/today-directives";
+import { parseModelActions } from "@/lib/today-actions";
 import type { TodayPriority } from "@/lib/today";
 import { useTodayQueue } from "./TodayQueueContext";
 import { PriorityCard } from "./PriorityCard";
+import { ModelActionChips } from "./ModelActionChips";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -278,15 +280,31 @@ export function TodayFeed({ brief, aiContext }: { brief: ReactNode; aiContext: s
               const subject = m.subjectWorkItemId
                 ? priorities.find((p) => p.id === m.subjectWorkItemId)
                 : undefined;
+              // Phase 7: a reply may end with a `sjcos-actions` block. Strip it
+              // from the shown text and turn any valid entries into chips
+              // (ModelActionChips filters to items in the live queue).
+              const { body: displayBody, actions } = parseModelActions(m.body);
               return (
                 <div key={m.id}>
-                  <div
-                    className={`whitespace-pre-wrap rounded-md bg-ai-soft px-3 py-2 text-[13px] leading-relaxed ${
-                      m.body.startsWith("⚠️") ? "text-flag" : "text-ai-2"
-                    }`}
-                  >
-                    {m.body}
-                  </div>
+                  {displayBody && (
+                    <div
+                      className={`whitespace-pre-wrap rounded-md bg-ai-soft px-3 py-2 text-[13px] leading-relaxed ${
+                        displayBody.startsWith("⚠️") ? "text-flag" : "text-ai-2"
+                      }`}
+                    >
+                      {displayBody}
+                    </div>
+                  )}
+                  {actions.length > 0 && (
+                    <div>
+                      {!displayBody && (
+                        <div className="mb-0.5 text-[11px] font-medium text-ink-3">
+                          Suggested
+                        </div>
+                      )}
+                      <ModelActionChips actions={actions} />
+                    </div>
+                  )}
                   {subject && (
                     <div className="mt-1.5">
                       <PriorityCard p={subject} onHandOff={handOff} />

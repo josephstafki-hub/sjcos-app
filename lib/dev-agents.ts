@@ -8,6 +8,7 @@ import path from "node:path";
 import { query, queryOne } from "@/lib/db";
 import { CLAUDE_DEFAULTS, type ClaudeOptions } from "@/lib/dev-agents-meta";
 import { insertConversation, insertMessage, getTurns } from "@/lib/ai-chat";
+import { ACTIONS_HINT } from "@/lib/today-directives";
 
 const execFileAsync = promisify(execFile);
 
@@ -155,6 +156,9 @@ export async function hermesChat(
 ): Promise<string> {
   const messages = [
     ...(context ? [{ role: "system", content: `SJC OS — page the user is viewing:\n${context}` }] : []),
+    // Today v2 · Phase 7: let Hermes (the feed's default agent) offer one-click
+    // chips too. Self-gating — only fires when work_item_ids are in context.
+    { role: "system", content: ACTIONS_HINT },
     ...turns,
   ];
   const { url, key } = await hermesConfig();

@@ -3,6 +3,21 @@
 // user turn of a chat conversation. Kept deterministic and out of the model's
 // hands — the app decides what the directive says; the agent only executes it.
 
+/** Today v2 · Phase 7. A system-message hint appended to the interactive chat
+ *  paths (qwenChat + hermesChat) so a model presenting the Today queue can offer
+ *  one-click buttons. Self-gating: it only applies when work_item_ids are in the
+ *  conversation, which today happens on /today (todayContext lists them). NOT
+ *  used on ollamaChat's JSON calls. Parsed by lib/today-actions.ts. */
+export const ACTIONS_HINT =
+  "If the conversation is about Joe's Today queue and you reference specific " +
+  "work items by their work_item_id, you MAY end your reply with a fenced " +
+  "```sjcos-actions block containing a JSON array of " +
+  '{"kind","work_item_id","label"} objects, where kind is one of ' +
+  '"mark_done", "snooze", or "open". The app turns each into a one-click ' +
+  "button for Joe. Only use work_item_ids that already appear in the " +
+  "conversation — never invent one — and omit the block entirely when no such " +
+  "action applies.";
+
 export interface DirectiveItem {
   id: string;
   title: string;
@@ -26,6 +41,12 @@ export function doItDirective(p: DirectiveItem): string {
     `send money documents, DO NOT send — prepare a draft with`,
     `submit_draft_for_approval (it sets the item to approval_needed) and tell me`,
     `what's ready for my approval. Reply with 2-4 sentences on what you did.`,
+    ``,
+    `If your reply suggests a further one-click step on another Today item, you`,
+    `may end with a fenced \`\`\`sjcos-actions block — a JSON array of`,
+    `{"kind","work_item_id","label"} objects (kind: mark_done | snooze | open).`,
+    `The app renders each as a button. Only reference work_item_ids you were`,
+    `given; omit the block if none applies.`,
   ].join("\n");
 }
 

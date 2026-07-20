@@ -20,7 +20,14 @@ const DOT: Record<string, string> = {
  *  deep-link (which renders Today behind the open command-bar popup). The
  *  interactive AI feed replaces the old embedded Ask bar + priorities list in
  *  both modes; only the ⌘K popup behavior differs between the two routes. */
-export function TodayBody({ data }: { data: TodayData }) {
+export function TodayBody({
+  data,
+  enableActionChips = false,
+}: {
+  data: TodayData;
+  /** Passed through to TodayFeed — see there. Preview-only for now. */
+  enableActionChips?: boolean;
+}) {
   // The AI brief bubble, rendered on the server (Suspense streams the text) and
   // passed into the client feed as its pinned first item.
   const brief = (
@@ -72,7 +79,11 @@ export function TodayBody({ data }: { data: TodayData }) {
       <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[1.4fr_1fr]">
         <TodayQueueProvider initialPriorities={data.priorities} initialWaiting={data.waiting}>
           {/* The interactive AI feed: brief + priority cards + chat */}
-          <TodayFeed brief={brief} aiContext={todayContext(data)} />
+          <TodayFeed
+            brief={brief}
+            aiContext={todayContext(data)}
+            enableActionChips={enableActionChips}
+          />
 
           {/* Right rail */}
           <aside className="flex flex-col gap-3">

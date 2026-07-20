@@ -22,7 +22,18 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  *  (create conversation → sendMessageAction → poll the run → append reply) but
  *  add hand-offs: a card can be handed to Hermes to complete via MCP, and when
  *  the turn lands the queue refreshes so the card checks off in place. */
-export function TodayFeed({ brief, aiContext }: { brief: ReactNode; aiContext: string }) {
+export function TodayFeed({
+  brief,
+  aiContext,
+  enableActionChips = false,
+}: {
+  brief: ReactNode;
+  aiContext: string;
+  /** Today v2 · Phase 7: render model-emitted action chips. Off on /today
+   *  (matches the shipped experience); on for the /today-preview demo route.
+   *  The fence is always stripped from replies regardless of this flag. */
+  enableActionChips?: boolean;
+}) {
   const { priorities, refresh } = useTodayQueue();
   const [agent, setAgent] = useState<DevAgent>("hermes");
   const [prompt, setPrompt] = useState("");
@@ -295,7 +306,7 @@ export function TodayFeed({ brief, aiContext }: { brief: ReactNode; aiContext: s
                       {displayBody}
                     </div>
                   )}
-                  {actions.length > 0 && (
+                  {enableActionChips && actions.length > 0 && (
                     <div>
                       {!displayBody && (
                         <div className="mb-0.5 text-[11px] font-medium text-ink-3">

@@ -20,7 +20,9 @@ const nextConfig: NextConfig = {
   // pdfkit reads its standard-14 .afm font metrics from its own package dir at
   // runtime; bundling it breaks that fs lookup. Keep it external so contract/SOW
   // PDF generation (lib/documents.ts) works under `next start`.
-  serverExternalPackages: ["pdfkit"],
+  // sharp is a native (libvips) binding — bundling it breaks the .node lookup.
+  // Used by lib/newsletter-image.ts to downscale newsletter photos.
+  serverExternalPackages: ["pdfkit", "sharp"],
 };
 
 export default nextConfig;

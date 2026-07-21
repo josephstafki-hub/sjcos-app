@@ -13,21 +13,49 @@ import { ai } from "@/lib/ai";
 import { getTemplate } from "@/lib/newsletter-templates";
 import { enqueueIssue, enqueueGreeting, releaseOutboxItem, skipOutboxItem } from "@/lib/newsletter-outbox";
 import { readOutbox } from "@/lib/newsletter";
-import type { NewsletterBlock, OutboxItem } from "@/lib/newsletter";
+import { normalizeSettings, type IssueSettings } from "@/lib/newsletter-design";
+import { enrollRecipient, enrollAllInSequence, listSequences, type Sequence } from "@/lib/newsletter-drip";
+import { storeBuffer } from "@/lib/upload-store";
+import { prepareNewsletterImage } from "@/lib/newsletter-image";
+import type { NewsletterBlock, BlockKind, OutboxItem } from "@/lib/newsletter";
 
 type Result<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
 
-/** Sanitize the blocks array coming from the client editor. */
+const BLOCK_KINDS: BlockKind[] = ["text", "image", "button", "divider", "quote"];
+
+/** Sanitize the blocks array coming from the client editor. Length-capped per
+ *  field and kind-validated; the renderer trusts whatever survives this. */
 function cleanBlocks(blocks: unknown): NewsletterBlock[] {
   if (!Array.isArray(blocks)) return [];
   return blocks
-    .map((b) => {
-      const heading = String((b as NewsletterBlock)?.heading ?? "").trim().slice(0, 200);
-      const body = String((b as NewsletterBlock)?.body ?? "").trim().slice(0, 4000);
-      const projectSlug = String((b as NewsletterBlock)?.projectSlug ?? "").trim().slice(0, 80) || undefined;
-      return { heading, body, projectSlug };
+    .slice(0, 60)
+    .map((raw) => {
+      const b = (raw ?? {}) as NewsletterBlock;
+      const kind: BlockKind = BLOCK_KINDS.includes(b.kind as BlockKind) ? (b.kind as BlockKind) : "text";
+      const str = (v: unknown, max: number) => String(v ?? "").trim().slice(0, max);
+      return {
+        kind,
+        heading: str(b.heading, 200),
+        body: str(b.body, 4000),
+        projectSlug: str(b.projectSlug, 80) || undefined,
+        imageToken: str(b.imageToken, 80) || undefined,
+        imageAlt: str(b.imageAlt, 200) || undefined,
+        caption: str(b.caption, 300) || undefined,
+        buttonLabel: str(b.buttonLabel, 60) || undefined,
+        buttonUrl: str(b.buttonUrl, 500) || undefined,
+        align: b.align === "left" ? ("left" as const) : ("center" as const),
+      };
     })
-    .filter((b) => b.heading || b.body);
+    // A divider carries no content and an image is defined by its token, so the
+    // old "drop anything without text" filter would have deleted both on save.
+    .filter(
+      (b) =>
+        b.kind === "divider" ||
+        (b.kind === "image" && b.imageToken) ||
+        (b.kind === "button" && b.buttonLabel && b.buttonUrl) ||
+        b.heading ||
+        b.body,
+    );
 }
 
 /** Create a new draft issue from a template, seeding its starter intro/blocks.
@@ -51,23 +79,121 @@ export async function saveIssue(
   title: string,
   intro: string,
   blocks: NewsletterBlock[],
+  settings?: IssueSettings,
 ): Promise<Result> {
   await requireRole("owner");
   const res = await query(
     `UPDATE newsletters
-        SET title = $2, intro = $3, blocks = $4::jsonb, updated_at = now()
+        SET title = $2, intro = $3, blocks = $4::jsonb, settings = $5::jsonb, updated_at = now()
       WHERE id = $1 AND status = 'draft'`,
-    [id, title.trim().slice(0, 200) || "Untitled issue", intro.trim().slice(0, 8000), JSON.stringify(cleanBlocks(blocks))],
+    [
+      id,
+      title.trim().slice(0, 200) || "Untitled issue",
+      intro.trim().slice(0, 8000),
+      JSON.stringify(cleanBlocks(blocks)),
+      JSON.stringify(normalizeSettings(settings)),
+    ],
   );
   if (res.rowCount === 0) return { ok: false, error: "Issue not found or already sent." };
   revalidatePath("/newsletter");
   return { ok: true };
 }
 
-/** Delete a draft issue. Owner-only. */
-export async function deleteIssue(id: number): Promise<Result> {
+/** Upload a photo for use inside an issue and publish it for email delivery.
+ *  Returns the public token the block stores. Owner-only.
+ *
+ *  Publishing is the point: the stored blob is owner-only like every other
+ *  upload, and this mints the one capability token that lets a recipient's mail
+ *  client fetch that single image (see app/api/newsletter/img/[token]). */
+export async function uploadIssueImage(form: FormData): Promise<Result<{ token: string }>> {
   await requireRole("owner");
-  await query(`DELETE FROM newsletters WHERE id = $1 AND status = 'draft'`, [id]);
+
+  const file = form.get("file");
+  if (!(file instanceof File) || file.size === 0) return { ok: false, error: "No file selected." };
+  if (!(file.type || "").startsWith("image/")) return { ok: false, error: "Only image files are allowed here." };
+  if (file.size > 25 * 1024 * 1024) return { ok: false, error: "That image is too large (max 25 MB)." };
+
+  // Downscale + strip EXIF before anything is written to disk — see
+  // lib/newsletter-image.ts for why this path re-encodes when /files does not.
+  const prepared = await prepareNewsletterImage(Buffer.from(await file.arrayBuffer()), file.name);
+  if (!prepared) return { ok: false, error: "That file isn't a readable image." };
+
+  const stored = await storeBuffer(prepared.bytes, {
+    filename: prepared.filename,
+    mime: prepared.mime,
+    idPrefix: "nl",
+    tag: "newsletter",
+    subtitle: `Newsletter photo · ${prepared.width}×${prepared.height}`,
+  });
+  if (!stored.ok) return { ok: false, error: stored.error };
+
+  const alt = String(form.get("alt") ?? "").trim().slice(0, 200);
+  const row = await queryOne<{ token: string }>(
+    `INSERT INTO newsletter_assets (file_id, alt) VALUES ($1, $2) RETURNING token`,
+    [stored.id, alt],
+  );
+  if (!row) return { ok: false, error: "Could not publish the image." };
+  return { ok: true, data: { token: row.token } };
+}
+
+/** Delete an issue. Owner-only.
+ *
+ *  Was draft-only, which made every queued or sent issue permanently
+ *  undeletable — and because the SQL matched no rows while the client removed the
+ *  card optimistically, deleting *looked* like it worked until the next reload.
+ *  Now any issue can be removed:
+ *    • queued — the parked outbox rows are dropped first, so nothing survives
+ *      that could still be Released. This is an un-queue plus a delete.
+ *    • sent   — allowed, but the delivery record is KEPT. The outbox FK is
+ *      ON DELETE CASCADE, so released rows are detached (newsletter_id → NULL)
+ *      before the delete; their frozen subject/body still says what was mailed
+ *      to whom. A tidy-up click must never destroy the audit trail.
+ *
+ *  `confirmSent` forces the caller to acknowledge it is removing a sent issue —
+ *  the client asks a different question for that case. */
+export async function deleteIssue(id: number, confirmSent = false): Promise<Result> {
+  await requireRole("owner");
+
+  // ── Validate FIRST, mutate second ──
+  // Every rejection below has to happen before the outbox is touched. An earlier
+  // version ran the sequence-step check after detaching/deleting outbox rows, so
+  // a *refused* delete still destroyed that issue's parked sends and unlinked its
+  // delivery history — the caller saw "can't delete", the data was already gone.
+  const issue = await queryOne<{ status: string }>(`SELECT status FROM newsletters WHERE id = $1`, [id]);
+  if (!issue) return { ok: false, error: "Issue not found." };
+  if (issue.status === "sent" && !confirmSent) {
+    return { ok: false, error: "This issue was already sent — confirm to remove it from the list." };
+  }
+  // Steps referencing it would cascade away, silently shortening a running
+  // sequence — surface that instead of doing it behind Joe's back.
+  const inUse = await queryOne<{ n: number }>(
+    `SELECT count(*)::int AS n FROM newsletter_sequence_steps WHERE newsletter_id = $1`,
+    [id],
+  );
+  if ((inUse?.n ?? 0) > 0) {
+    return { ok: false, error: "This issue is a step in an automation — remove it there first." };
+  }
+
+  // ── Mutate ──
+  // Two statements, ordered so that a failure between them is harmless. They are
+  // deliberately NOT combined into one statement with data-modifying CTEs: those
+  // sub-statements all see the same snapshot and can't observe each other, and
+  // the FK cascade fires as an after-trigger, so the detach below would race the
+  // cascade rather than reliably preceding it.
+  //
+  // 1. Detach the delivery record. The outbox FK is ON DELETE CASCADE and a sent
+  //    issue's rows ARE the proof of what was mailed to whom, so they're unlinked
+  //    before anything is deleted. If step 2 never runs, the worst case is
+  //    history detached from an issue that still exists — the rows keep their
+  //    frozen subject/body and nothing is lost.
+  await query(
+    `UPDATE newsletter_outbox SET newsletter_id = NULL
+      WHERE newsletter_id = $1 AND status IN ('released', 'skipped')`,
+    [id],
+  );
+  // 2. Delete the issue. The cascade now takes exactly the rows we want it to —
+  //    the queued/failed ones still attached, which were never emailed.
+  await query(`DELETE FROM newsletters WHERE id = $1`, [id]);
   revalidatePath("/newsletter");
   return { ok: true };
 }
@@ -135,9 +261,11 @@ export async function addRecipient(email: string, name: string): Promise<Result>
     [e, name.trim().slice(0, 120)],
   );
   // Auto-greeting: park a welcome email (one per address ever; owner releases it).
+  // Then enroll them in any ACTIVE drip sequence — that one DOES send on its own.
   if (row) {
     try {
       await enqueueGreeting(row.id, e, row.name);
+      await enrollRecipient(row.id);
     } catch {
       /* best-effort — never block adding a recipient */
     }
@@ -169,6 +297,7 @@ export async function importClientRecipients(): Promise<Result<number>> {
   for (const r of inserted.rows) {
     try {
       await enqueueGreeting(r.id, r.email, r.name);
+      await enrollRecipient(r.id);
     } catch {
       /* best-effort */
     }
@@ -211,4 +340,113 @@ export async function skipNewsletterItem(id: number): Promise<Result> {
 export async function refreshOutbox(): Promise<OutboxItem[]> {
   await requireRole("owner");
   return readOutbox();
+}
+
+// ─── Drip sequences ─────────────────────────────────────────────────────────
+// Unlike everything above, an ACTIVE sequence mails real people without a
+// Release click. The safety reasoning lives at the top of lib/newsletter-drip.ts;
+// the actions here just make sure a sequence can only ever be switched on
+// deliberately, by the owner, with its steps already in place.
+
+/** Create a new (inactive) sequence. Owner-only. */
+export async function createSequence(name: string): Promise<Result<number>> {
+  await requireRole("owner");
+  const row = await queryOne<{ id: number }>(
+    `INSERT INTO newsletter_sequences (name) VALUES ($1) RETURNING id`,
+    [name.trim().slice(0, 120) || "Welcome series"],
+  );
+  revalidatePath("/newsletter");
+  return { ok: true, data: row!.id };
+}
+
+export async function renameSequence(id: number, name: string): Promise<Result> {
+  await requireRole("owner");
+  await query(`UPDATE newsletter_sequences SET name = $2 WHERE id = $1`, [
+    id,
+    name.trim().slice(0, 120) || "Welcome series",
+  ]);
+  revalidatePath("/newsletter");
+  return { ok: true };
+}
+
+/** Turn a sequence on or off. Turning it ON is the moment automated sending
+ *  becomes possible, so it is guarded: a sequence with no steps can't be armed,
+ *  and every step must point at an issue with real content. Switching on also
+ *  enrolls the existing list with the clock starting NOW (see enrollAllInSequence
+ *  — back-dating would fire every past-due step immediately). */
+export async function setSequenceActive(id: number, active: boolean): Promise<Result<{ enrolled: number }>> {
+  await requireRole("owner");
+
+  if (active) {
+    const steps = await queryOne<{ n: number; empty: number }>(
+      `SELECT count(*)::int AS n,
+              count(*) FILTER (WHERE n.intro = '' AND n.blocks = '[]'::jsonb)::int AS empty
+         FROM newsletter_sequence_steps t
+         JOIN newsletters n ON n.id = t.newsletter_id
+        WHERE t.sequence_id = $1`,
+      [id],
+    );
+    if ((steps?.n ?? 0) === 0) return { ok: false, error: "Add at least one step before turning this on." };
+    if ((steps?.empty ?? 0) > 0) return { ok: false, error: "One of the steps is still an empty issue — write it first." };
+  }
+
+  await query(`UPDATE newsletter_sequences SET active = $2 WHERE id = $1`, [id, active]);
+  const enrolled = active ? await enrollAllInSequence(id) : 0;
+  revalidatePath("/newsletter");
+  return { ok: true, data: { enrolled } };
+}
+
+/** Delete a sequence and everything enrolled in it. Owner-only. */
+export async function deleteSequence(id: number): Promise<Result> {
+  await requireRole("owner");
+  await query(`DELETE FROM newsletter_sequences WHERE id = $1`, [id]);
+  revalidatePath("/newsletter");
+  return { ok: true };
+}
+
+/** Append an issue to a sequence as a step firing `delayDays` after signup. */
+export async function addSequenceStep(
+  sequenceId: number,
+  newsletterId: number,
+  delayDays: number,
+): Promise<Result> {
+  await requireRole("owner");
+  const days = Math.max(0, Math.min(3650, Math.round(Number(delayDays) || 0)));
+  const dupe = await queryOne<{ id: number }>(
+    `SELECT id FROM newsletter_sequence_steps WHERE sequence_id = $1 AND newsletter_id = $2`,
+    [sequenceId, newsletterId],
+  );
+  // The outbox's one-drip-per-(issue,email) index would silently swallow the
+  // second send anyway — reject it here where it can be explained instead.
+  if (dupe) return { ok: false, error: "That issue is already a step in this sequence." };
+  await query(
+    `INSERT INTO newsletter_sequence_steps (sequence_id, newsletter_id, delay_days, position)
+     VALUES ($1, $2, $3, COALESCE((SELECT max(position) + 1 FROM newsletter_sequence_steps WHERE sequence_id = $1), 0))`,
+    [sequenceId, newsletterId, days],
+  );
+  revalidatePath("/newsletter");
+  return { ok: true };
+}
+
+/** Re-time a step. Delays are absolute offsets from signup, so this only moves
+ *  the one step. Subscribers who already passed it are unaffected. */
+export async function updateSequenceStep(stepId: number, delayDays: number): Promise<Result> {
+  await requireRole("owner");
+  const days = Math.max(0, Math.min(3650, Math.round(Number(delayDays) || 0)));
+  await query(`UPDATE newsletter_sequence_steps SET delay_days = $2 WHERE id = $1`, [stepId, days]);
+  revalidatePath("/newsletter");
+  return { ok: true };
+}
+
+export async function removeSequenceStep(stepId: number): Promise<Result> {
+  await requireRole("owner");
+  await query(`DELETE FROM newsletter_sequence_steps WHERE id = $1`, [stepId]);
+  revalidatePath("/newsletter");
+  return { ok: true };
+}
+
+/** Re-read sequences after a mutation so the client can drop optimistic state. */
+export async function refreshSequences(): Promise<Sequence[]> {
+  await requireRole("owner");
+  return listSequences();
 }

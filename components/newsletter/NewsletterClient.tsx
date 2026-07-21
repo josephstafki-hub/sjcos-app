@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Plus, Sparkles, Trash2, X, Send, Users, Mail, Download, Check, Inbox, SkipForward, ArrowLeft } from "lucide-react";
+import { Plus, Sparkles, Trash2, Send, Users, Mail, Download, Check, Inbox, SkipForward, ArrowLeft } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import { AI_NAME } from "@/lib/ai-name";
 import { NEWSLETTER_TEMPLATES } from "@/lib/newsletter-templates";
+import { DEFAULT_SETTINGS } from "@/lib/newsletter-design";
+import { renderIssueHtml } from "@/lib/newsletter-render";
 import {
   createIssue,
   saveIssue,
@@ -19,9 +21,12 @@ import {
   skipNewsletterItem,
   refreshOutbox,
 } from "@/lib/actions/newsletter";
-import type { NewsletterData, NewsletterIssue, NewsletterBlock, Recipient, OutboxItem } from "@/lib/newsletter";
+import { BlockEditor, AddBlockBar } from "./BlockEditor";
+import { DesignPanel } from "./DesignPanel";
+import { SequencePanel } from "./SequencePanel";
+import type { NewsletterData, NewsletterIssue, NewsletterBlock, Recipient, OutboxItem, Sequence } from "@/lib/newsletter";
 
-type Mode = "Edit" | "Preview" | "Recipients" | "Outbox";
+type Mode = "Edit" | "Design" | "Preview" | "Recipients" | "Automations" | "Outbox";
 
 function monthTitle(): string {
   return new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(new Date());
@@ -31,6 +36,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
   const [issues, setIssues] = useState<NewsletterIssue[]>(data.issues);
   const [recipients, setRecipients] = useState<Recipient[]>(data.recipients);
   const [outbox, setOutbox] = useState<OutboxItem[]>(data.outbox);
+  const [sequences, setSequences] = useState<Sequence[]>(data.sequences);
   const [selectedId, setSelectedId] = useState<number | null>(data.selectedId);
   const [mode, setMode] = useState<Mode>("Edit");
   const [notice, setNotice] = useState<string | null>(null);
@@ -47,6 +53,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
   const locked = current?.status === "sent" || current?.status === "queued"; // no editing once queued
   const activeCount = recipients.filter((r) => r.active).length;
   const queuedCount = outbox.filter((o) => o.status === "queued").length;
+  const liveSequenceCount = sequences.filter((s) => s.active).length;
 
   function patchCurrent(patch: Partial<NewsletterIssue>) {
     if (selectedId == null) return;
@@ -69,6 +76,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
           intro: tpl.starterIntro,
           blocks: tpl.starterBlocks.map((b) => ({ ...b })),
           template: tpl.key,
+          settings: { ...DEFAULT_SETTINGS },
           status: "draft",
           recipientCount: 0,
           sentLabel: null,
@@ -86,7 +94,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
     if (!current) return;
     setNotice(null);
     start(async () => {
-      const res = await saveIssue(current.id, current.title, current.intro, current.blocks);
+      const res = await saveIssue(current.id, current.title, current.intro, current.blocks, current.settings);
       if (res.ok) {
         setSaved(true);
         setTimeout(() => setSaved(false), 1500);
@@ -94,12 +102,35 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
     });
   }
 
+  /** Delete an issue at any status. The old version asked one question, ignored
+   *  the server's answer, and removed the card from local state regardless — so a
+   *  refused delete looked like it worked until the page reloaded. Now the prompt
+   *  matches what's actually being destroyed and the list only changes on success. */
   function removeIssue(id: number) {
-    if (!confirm("Delete this draft issue?")) return;
+    const target = issues.find((i) => i.id === id);
+    if (!target) return;
+
+    const prompt =
+      target.status === "sent"
+        ? `"${target.title}" was already sent to ${target.recipientCount} recipient${target.recipientCount === 1 ? "" : "s"}.\n\n` +
+          `Remove it from this list? The delivery record in the Outbox is kept.`
+        : target.status === "queued"
+          ? `"${target.title}" has messages parked in the Outbox.\n\n` +
+            `Deleting it discards those too — nothing was emailed, so nothing is lost.`
+          : `Delete "${target.title}"?`;
+    if (!confirm(prompt)) return;
+
+    setNotice(null);
     start(async () => {
-      await deleteIssue(id);
+      const res = await deleteIssue(id, target.status === "sent");
+      if (!res.ok) {
+        setNotice(res.error);
+        return;
+      }
       setIssues((prev) => prev.filter((i) => i.id !== id));
       if (selectedId === id) setSelectedId(issues.find((i) => i.id !== id)?.id ?? null);
+      // A queued issue's parked rows went with it.
+      if (target.status !== "draft") setOutbox(await refreshOutbox());
     });
   }
 
@@ -248,28 +279,46 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
               No issues yet. Start one with “New”.
             </div>
           ) : (
+            // Row is a div, not a button: the delete control is itself a button
+            // and nesting one inside another is invalid HTML (and breaks its
+            // click handling). The title area stays the clickable target.
             issues.map((it) => (
-              <button
+              <div
                 key={it.id}
-                type="button"
-                onClick={() => {
-                  setSelectedId(it.id);
-                  setMobileEditor(true);
-                }}
-                className={`flex w-full items-center gap-1.5 rounded-md px-2.5 py-2 text-left ${
+                className={`group flex w-full items-center gap-1.5 rounded-md px-2.5 py-2 ${
                   it.id === selectedId ? "bg-accent-soft" : "hover:bg-paper"
                 }`}
               >
-                <div className="min-w-0 flex-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedId(it.id);
+                    setMobileEditor(true);
+                  }}
+                  className="min-w-0 flex-1 text-left"
+                >
                   <div className="truncate text-[13px] text-ink">{it.title}</div>
                   <div className="font-mono text-[10px] text-ink-3">
                     {it.status === "sent" ? `Sent · ${it.recipientCount}` : it.createdLabel}
                   </div>
-                </div>
+                </button>
                 <Chip kind={it.status === "sent" ? "money" : it.status === "queued" ? "accent" : "ghost"}>
                   {it.status === "sent" ? "SENT" : it.status === "queued" ? "QUEUED" : "DRAFT"}
                 </Chip>
-              </button>
+                {/* Always rendered, not hover-only: a control you can't find is
+                    the bug being fixed here, and hover-only affordances don't
+                    exist at all on a phone. */}
+                <button
+                  type="button"
+                  onClick={() => removeIssue(it.id)}
+                  disabled={pending}
+                  title={`Delete "${it.title}"`}
+                  aria-label={`Delete ${it.title}`}
+                  className="shrink-0 rounded p-1 text-ink-4 hover:bg-flag-soft hover:text-flag disabled:opacity-40"
+                >
+                  <Trash2 className="size-3.5" strokeWidth={1.5} />
+                </button>
+              </div>
             ))
           )}
         </div>
@@ -295,7 +344,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
           <>
             {/* Toolbar */}
             <div className="flex items-center gap-2 border-b border-rule px-5 py-2.5">
-              {(["Edit", "Preview", "Recipients", "Outbox"] as Mode[]).map((m) => (
+              {(["Edit", "Design", "Preview", "Recipients", "Automations", "Outbox"] as Mode[]).map((m) => (
                 <button
                   key={m}
                   type="button"
@@ -306,6 +355,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                 >
                   {m}
                   {m === "Recipients" ? ` · ${activeCount}` : ""}
+                  {m === "Automations" && liveSequenceCount ? ` · ${liveSequenceCount} on` : ""}
                   {m === "Outbox" && queuedCount ? ` · ${queuedCount}` : ""}
                 </button>
               ))}
@@ -382,94 +432,61 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                   <div className="space-y-3">
                     <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Sections</div>
                     {current.blocks.map((b, idx) => (
-                      <Card key={idx} className="p-3">
-                        <div className="flex items-center gap-2">
-                          <input
-                            value={b.heading}
-                            onChange={(e) => patchBlocks((bs) => bs.map((x, i) => (i === idx ? { ...x, heading: e.target.value } : x)))}
-                            disabled={locked}
-                            placeholder="Section heading"
-                            className="flex-1 rounded-md border border-transparent bg-transparent px-1 py-0.5 font-serif text-[15px] font-semibold text-ink outline-none hover:border-rule-soft focus:border-accent disabled:opacity-70"
-                          />
-                          {b.projectSlug && <Chip kind="ghost">{b.projectSlug}</Chip>}
-                          {!locked && (
-                            <button
-                              type="button"
-                              onClick={() => patchBlocks((bs) => bs.filter((_, i) => i !== idx))}
-                              className="text-ink-4 hover:text-flag"
-                              aria-label="Remove section"
-                            >
-                              <X className="size-3.5" strokeWidth={1.5} />
-                            </button>
-                          )}
-                        </div>
-                        <textarea
-                          value={b.body}
-                          onChange={(e) => patchBlocks((bs) => bs.map((x, i) => (i === idx ? { ...x, body: e.target.value } : x)))}
-                          disabled={locked}
-                          rows={3}
-                          placeholder="What happened, what you'd tell a client…"
-                          className="mt-1.5 w-full resize-y rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink-2 outline-none focus:border-accent disabled:bg-paper-2"
-                        />
-                      </Card>
+                      <BlockEditor
+                        key={idx}
+                        block={b}
+                        index={idx}
+                        total={current.blocks.length}
+                        locked={locked}
+                        onChange={(patch) =>
+                          patchBlocks((bs) => bs.map((x, i) => (i === idx ? { ...x, ...patch } : x)))
+                        }
+                        onRemove={() => patchBlocks((bs) => bs.filter((_, i) => i !== idx))}
+                        onMove={(dir) =>
+                          patchBlocks((bs) => {
+                            const to = idx + dir;
+                            if (to < 0 || to >= bs.length) return bs;
+                            const next = [...bs];
+                            [next[idx], next[to]] = [next[to], next[idx]];
+                            return next;
+                          })
+                        }
+                        onNotice={setNotice}
+                      />
                     ))}
 
                     {!locked && (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => patchBlocks((b) => [...b, { heading: "", body: "" }])}
-                          className="inline-flex items-center gap-1 rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2"
-                        >
-                          <Plus className="size-3.5" strokeWidth={2} /> Blank section
-                        </button>
-                        {data.recentJobs.length > 0 && (
-                          <select
-                            value=""
-                            onChange={(e) => addJobBlock(e.target.value)}
-                            disabled={pending}
-                            className="rounded-md border border-rule bg-paper px-2 py-1 text-[12px] text-ink-2 outline-none focus:border-accent"
-                          >
-                            <option value="">+ Add from a completed job…</option>
-                            {data.recentJobs.map((j) => (
-                              <option key={j.slug} value={j.slug}>{j.name}{j.city ? ` — ${j.city}` : ""}</option>
-                            ))}
-                          </select>
-                        )}
-                        {pending && <span className="text-[11px] text-ink-3">{AI_NAME} drafting…</span>}
-                      </div>
+                      <AddBlockBar
+                        pending={pending}
+                        recentJobs={data.recentJobs}
+                        onAdd={(block) => patchBlocks((b) => [...b, block])}
+                        onAddJob={addJobBlock}
+                      />
                     )}
                   </div>
                 </div>
               )}
 
-              {mode === "Preview" && (
-                <div className="mx-auto max-w-[580px] overflow-hidden rounded-lg border border-rule bg-card">
-                  {current.template !== "classic" && (
-                    <div className="bg-accent-soft px-6 py-3 font-serif text-[15px] font-semibold text-accent-2">
-                      SJ Carpentry LLC
-                    </div>
-                  )}
-                  <div className="p-6 pt-5">
-                    <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-3">
-                      {current.template === "classic" ? "SJ Carpentry LLC · " : ""}
-                      {current.title}
-                    </div>
-                    {current.intro && (
-                      <p className="mt-3 whitespace-pre-wrap text-[14px] leading-relaxed text-ink">{current.intro}</p>
-                    )}
-                    {current.blocks.map((b, i) => (
-                      <div key={i} className={`mt-5 ${current.template === "jobsite" ? "border-t border-rule pt-4" : ""}`}>
-                        {b.heading && <h3 className="font-serif text-[17px] font-semibold text-ink">{b.heading}</h3>}
-                        {b.body && <p className="mt-1 whitespace-pre-wrap text-[13.5px] leading-relaxed text-ink-2">{b.body}</p>}
-                      </div>
-                    ))}
-                    <div className="mt-6 border-t border-rule pt-3 font-mono text-[11px] text-ink-3">
-                      SJ Carpentry LLC · reply any time
-                    </div>
-                  </div>
-                </div>
+              {mode === "Design" && (
+                <DesignPanel
+                  settings={current.settings}
+                  locked={locked}
+                  onChange={(patch) => patchCurrent({ settings: { ...current.settings, ...patch } })}
+                />
               )}
+
+              {mode === "Automations" && (
+                <SequencePanel
+                  sequences={sequences}
+                  issues={issues}
+                  pending={pending}
+                  onChanged={setSequences}
+                  onNotice={setNotice}
+                  start={start}
+                />
+              )}
+
+              {mode === "Preview" && <IssuePreview issue={current} baseUrl={data.baseUrl} />}
 
               {mode === "Outbox" && (
                 <OutboxPanel outbox={outbox} pending={pending} onRelease={releaseItem} onSkip={skipItem} />
@@ -545,20 +562,84 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
               )}
             </div>
 
-            {!locked && mode === "Edit" && (
+            {/* Delete is available at every status now — a queued or sent issue
+                used to be stuck in the rail forever with no way to clear it.
+                Rendered as a real bordered button: as 11px grey text it read as
+                a caption and went unnoticed. The trash icon on each row in the
+                issues rail is the other, more obvious way in. */}
+            {(mode === "Edit" || mode === "Design") && (
               <div className="border-t border-rule px-5 py-2 text-right">
                 <button
                   type="button"
                   onClick={() => removeIssue(current.id)}
-                  className="text-[11px] text-ink-3 hover:text-flag"
+                  disabled={pending}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:border-flag hover:bg-flag-soft hover:text-flag disabled:opacity-50"
                 >
-                  Delete draft
+                  <Trash2 className="size-3.5" strokeWidth={1.5} />
+                  {current.status === "sent"
+                    ? "Remove from list"
+                    : current.status === "queued"
+                      ? "Discard queued issue"
+                      : "Delete draft"}
                 </button>
               </div>
             )}
           </>
         )}
       </section>
+    </div>
+  );
+}
+
+/** True-to-life preview: renders the SAME html the recipient will get, inside an
+ *  iframe. The iframe is the important part — email HTML is a self-contained
+ *  document with its own inline styling, and dropping it into the app's DOM would
+ *  let Tailwind's reset restyle it, so the preview would flatter the email and
+ *  hide exactly the layout problems it exists to catch. */
+function IssuePreview({ issue, baseUrl }: { issue: NewsletterIssue; baseUrl: string }) {
+  const [width, setWidth] = useState<"desktop" | "mobile">("desktop");
+
+  // The tracking pixel and unsubscribe link are deliberately omitted: there is no
+  // outbox row to attribute an open to, and no recipient to unsubscribe.
+  const html = renderIssueHtml(
+    { title: issue.title, intro: issue.intro, blocks: issue.blocks, settings: issue.settings },
+    { baseUrl },
+  );
+
+  return (
+    <div className="mx-auto max-w-[720px] space-y-3">
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Preview</span>
+        <div className="ml-auto flex gap-1">
+          {(["desktop", "mobile"] as const).map((w) => (
+            <button
+              key={w}
+              type="button"
+              onClick={() => setWidth(w)}
+              className={`rounded-md px-2 py-0.5 text-[11px] font-semibold capitalize ${
+                width === w ? "bg-ink text-paper" : "text-ink-3 hover:bg-paper-2"
+              }`}
+            >
+              {w}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="flex justify-center">
+        <iframe
+          title="Newsletter preview"
+          // sandbox with no allow-* : the preview must never run script or
+          // navigate the app, even though we generated the markup ourselves.
+          sandbox=""
+          srcDoc={`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="margin:0">${html}</body>`}
+          className="h-[70vh] rounded-lg border border-rule bg-white transition-all"
+          style={{ width: width === "mobile" ? 380 : "100%" }}
+        />
+      </div>
+      <p className="text-center text-[11px] text-ink-3">
+        Photos load from this server, so recipients see them only once the issue is sent from a
+        reachable address.
+      </p>
     </div>
   );
 }

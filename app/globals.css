@@ -126,3 +126,33 @@ body {
   color: var(--accent);
   font-weight: 600;
 }
+
+/* ──────────────────────────────────────────────────────────────
+   Phone: stop iOS Safari zooming on focus
+   ──────────────────────────────────────────────────────────────
+   iOS Safari auto-zooms the page whenever you focus a form control
+   whose font-size is under 16px, and does NOT zoom back out. The
+   app's UI type is 13px by design, so on a phone every tap into a
+   field — a schedule block, an inbox reply, a lead note — jerked
+   the layout to a zoomed state the user had to pinch out of.
+
+   Only form controls are bumped, and only on phones. Labels and the
+   rest of the UI keep their intended sizes, and desktop is wholly
+   untouched (the query never matches).
+
+   Deliberately NOT `maximum-scale=1` on the viewport: that also
+   stops the zoom, but by disabling pinch-zoom entirely, which is an
+   accessibility regression.
+
+   No `!important` needed — Tailwind v4 emits utilities inside
+   `@layer utilities`, and unlayered rules like this one beat any
+   layered rule regardless of specificity. That's what lets this
+   override the `text-[13px]` utilities on the inputs themselves.
+   ────────────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}

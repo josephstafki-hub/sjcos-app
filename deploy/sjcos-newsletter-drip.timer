@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the SJC OS newsletter drip sweep hourly
+
+[Timer]
+# Hourly at :10 — off the top of the hour so it isn't competing with the other
+# sweeps. Step delays are measured in days, so hourly resolution is plenty.
+OnCalendar=*-*-* *:10:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,7 @@
+[Unit]
+Description=SJC OS newsletter drip sweep (welcome sequences)
+After=sjcos.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/joe/bin/sjcos-newsletter-drip

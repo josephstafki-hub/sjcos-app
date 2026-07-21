@@ -71,8 +71,8 @@ export function ComplianceClient({
   return (
     <>
       {/* Header */}
-      <div className="mb-3.5 flex items-end gap-4">
-        <div className="flex-1">
+      <div className="mb-3.5 flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
+        <div className="min-w-0 flex-1">
           <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
             {eyebrow}
           </div>

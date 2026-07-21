@@ -29,7 +29,9 @@ export function ProjectsClient({ groups }: { groups: ProjectGroup[] }) {
 
   return (
     <>
-      <div className="mb-4 flex items-center gap-1.5">
+      {/* Wraps on phones — as a single non-wrapping row the last filter
+          ("Warranty") sat past the right edge with no way to scroll to it. */}
+      <div className="mb-4 flex flex-wrap items-center gap-1.5">
         {FILTERS.map((f) => (
           <button key={f.key} onClick={() => setFilter(f.key)} className="focus:outline-none">
             <Chip kind={filter === f.key ? "solid" : "ghost"}>{f.label}</Chip>
@@ -55,7 +57,10 @@ export function ProjectsClient({ groups }: { groups: ProjectGroup[] }) {
                 <Card className="flex items-center gap-3 p-3.5 transition-colors hover:bg-paper-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center gap-1.5">
-                      <span className="flex-none font-serif text-[16px] font-semibold text-ink">
+                      {/* Shrinks + truncates on narrow screens; `flex-none`
+                          here let long client names ("Jeffrey Plumbon / New
+                          Kingdom Healthcare") run under the chevron on phones. */}
+                      <span className="min-w-0 truncate font-serif text-[16px] font-semibold text-ink">
                         {p.name}
                       </span>
                       {/* long AI stage labels truncate instead of overflowing

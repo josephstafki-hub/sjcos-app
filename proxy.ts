@@ -74,5 +74,10 @@ export default async function proxy(req: NextRequest) {
 
 export const config = {
   // Run on everything except API routes, Next internals, and static assets.
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|svg|ico|webp)$).*)"],
+  // `manifest.webmanifest` must stay public: browsers fetch the PWA manifest
+  // with credentials omitted, so gating it would 307 the install to /login and
+  // silently break "Add to Home Screen".
+  matcher: [
+    "/((?!api|_next/static|_next/image|favicon.ico|manifest.webmanifest|.*\\.(?:png|jpg|jpeg|svg|ico|webp)$).*)",
+  ],
 };

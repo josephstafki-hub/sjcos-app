@@ -21,11 +21,12 @@ import { LeadScore } from "@/components/leads/LeadScore";
 import { LeadTasks } from "@/components/leads/LeadTasks";
 import { getLeadTasks } from "@/lib/lead-tasks";
 import { LeadEstimate } from "@/components/leads/LeadEstimate";
-import { ProjectDocuments } from "@/components/projects/ProjectDocuments";
+import { DocTypePanel } from "@/components/projects/DocTypePanel";
 import { listDocDrafts, listDocTemplates } from "@/lib/doc-drafts";
 import { AI_NAME } from "@/lib/ai-name";
 import { RecordOps } from "@/components/engine/RecordOps";
 import { getRecordOps } from "@/lib/record-ops";
+import { SendPreconButton } from "@/components/leads/SendPreconButton";
 
 export default async function LeadDetailPage({
   params,
@@ -40,7 +41,12 @@ export default async function LeadDetailPage({
   const score = await getLeadScore(slug);
   const tasks = await getLeadTasks(slug);
   const leadDocDrafts = await listDocDrafts({ leadSlug: slug });
-  const leadDocTemplates = listDocTemplates().filter((t) => t.scope === "both" || t.scope === "lead");
+  // rough_estimate has its own dedicated tab (LeadEstimate, backed by the
+  // lead_estimates singleton, not document_drafts) — excluded here so it's not
+  // duplicated as an always-visible, effectively-unused panel.
+  const leadDocTemplates = listDocTemplates().filter(
+    (t) => (t.scope === "both" || t.scope === "lead") && t.key !== "rough_estimate",
+  );
   // Open Engine + Brain data scoped to this one lead — the "Ops" tab.
   const ops = await getRecordOps("lead", slug);
 
@@ -139,6 +145,7 @@ export default async function LeadDetailPage({
             })}
           </div>
           )}
+          {!isLost && currentStageIdx >= stageIndex("rough_estimate") && <SendPreconButton />}
         </Card>
 
         <Card className="p-3">
@@ -273,7 +280,19 @@ export default async function LeadDetailPage({
     Tasks: <LeadTasks slug={lead.slug} tasks={tasks} />,
     Conversation: conversationPanel,
     "Rough estimate": estimatePanel,
-    Documents: <ProjectDocuments leadSlug={lead.slug} drafts={leadDocDrafts} templates={leadDocTemplates} />,
+    Documents: (
+      <div className="space-y-8">
+        {leadDocTemplates.map((t) => (
+          <DocTypePanel
+            key={t.key}
+            leadSlug={lead.slug}
+            templateKey={t.key}
+            manifest={t}
+            drafts={leadDocDrafts.filter((d) => d.template_key === t.key)}
+          />
+        ))}
+      </div>
+    ),
     Files: filesPanel,
     Activity: activityPanel,
   };

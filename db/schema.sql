@@ -1141,6 +1141,92 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_nl_outbox_issue    ON newsletter_outbox(new
 CREATE UNIQUE INDEX IF NOT EXISTS uq_nl_outbox_greeting ON newsletter_outbox(email) WHERE kind = 'greeting';
 CREATE INDEX IF NOT EXISTS idx_nl_outbox_queued ON newsletter_outbox(queued_at) WHERE status = 'queued';
 
+-- P7-N: one-click unsubscribe. Bulk mail needs a working opt-out to stay on the
+-- right side of CAN-SPAM and out of spam folders, and that matters more now that
+-- the drip sends without a human in the loop. Token is per-recipient and stable.
+ALTER TABLE newsletter_recipients ADD COLUMN IF NOT EXISTS unsub_token text
+  NOT NULL DEFAULT replace(gen_random_uuid()::text, '-', '');
+CREATE UNIQUE INDEX IF NOT EXISTS uq_nl_recipients_unsub ON newsletter_recipients(unsub_token);
+
+-- P7-N: rich issues. `settings` holds the per-issue design choices made in the
+-- editor (font stack key, accent color, logo on/off, footer copy) — jsonb so the
+-- design vocabulary can grow without a migration. Blocks gained a `kind`
+-- (text/image/button/divider/quote) the same way; see lib/newsletter-render.ts.
+ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS settings jsonb NOT NULL DEFAULT '{}';
+
+-- P7-N: images published for use inside a newsletter. Uploads normally live
+-- behind the owner-only /api/files/[id] route, which an email client can never
+-- authenticate to — so a block image gets an explicit, unguessable token here and
+-- is served publicly at /api/newsletter/img/[token]. Publishing is deliberate and
+-- per-image: nothing else in the files table becomes reachable.
+CREATE TABLE IF NOT EXISTS newsletter_assets (
+  id          bigserial PRIMARY KEY,
+  file_id     text NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  token       text UNIQUE NOT NULL DEFAULT replace(gen_random_uuid()::text, '-', ''),
+  alt         text NOT NULL DEFAULT '',
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_nl_assets_file ON newsletter_assets(file_id);
+
+-- ─── Newsletter drip sequences (P7-N) ───────────────────────────────────────
+-- A sequence is an ordered list of existing issues, each with a delay measured in
+-- days from the moment someone subscribes. New recipients are enrolled in every
+-- active sequence and walked forward one step at a time by the drip timer
+-- (/api/cron/newsletter-drip → lib/newsletter-drip.ts).
+--
+-- IMPORTANT — this is the ONE path in the newsletter feature that emails a real
+-- person without the owner clicking Release. That is deliberate and scoped: it
+-- fires ONLY for issues referenced by a sequence step, and only ever to the one
+-- subscriber whose step came due. Broadcast sends keep the manual Release gate.
+CREATE TABLE IF NOT EXISTS newsletter_sequences (
+  id          bigserial PRIMARY KEY,
+  name        text NOT NULL DEFAULT 'Welcome series',
+  active      boolean NOT NULL DEFAULT false,   -- off until the owner turns it on
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS newsletter_sequence_steps (
+  id            bigserial PRIMARY KEY,
+  sequence_id   bigint NOT NULL REFERENCES newsletter_sequences(id) ON DELETE CASCADE,
+  newsletter_id bigint NOT NULL REFERENCES newsletters(id) ON DELETE CASCADE,
+  -- Days after subscribing (not after the previous step) — an absolute offset, so
+  -- reordering or re-timing one step never silently shifts the ones behind it.
+  delay_days    integer NOT NULL DEFAULT 0 CHECK (delay_days >= 0 AND delay_days <= 3650),
+  position      integer NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_nl_steps_seq ON newsletter_sequence_steps(sequence_id, delay_days, position);
+
+CREATE TABLE IF NOT EXISTS newsletter_subscriptions (
+  id            bigserial PRIMARY KEY,
+  recipient_id  bigint NOT NULL REFERENCES newsletter_recipients(id) ON DELETE CASCADE,
+  sequence_id   bigint NOT NULL REFERENCES newsletter_sequences(id) ON DELETE CASCADE,
+  subscribed_at timestamptz NOT NULL DEFAULT now(),
+  -- How many steps have been delivered. The next due step is the (sent_steps+1)-th
+  -- by (delay_days, position); it fires once subscribed_at + delay_days has passed.
+  sent_steps    integer NOT NULL DEFAULT 0,
+  status        text NOT NULL DEFAULT 'active' CHECK (status IN ('active','done','cancelled')),
+  last_sent_at  timestamptz,
+  UNIQUE (recipient_id, sequence_id)
+);
+CREATE INDEX IF NOT EXISTS idx_nl_subs_due ON newsletter_subscriptions(sequence_id, subscribed_at) WHERE status = 'active';
+
+-- P7-N: the rendered HTML alternative, frozen at enqueue alongside `body`. Before
+-- rich content the HTML was derived from the text at release time; photos, logo
+-- and buttons can't be recovered from plain text, so it is stored explicitly.
+-- Keeping BOTH frozen preserves the audit property: what's in this row is
+-- byte-for-byte what was mailed. NULL on pre-P7-N rows → release falls back to
+-- deriving from text, so old queued rows still send correctly.
+ALTER TABLE newsletter_outbox ADD COLUMN IF NOT EXISTS body_html text;
+
+-- Drip sends are recorded in the outbox like everything else (audit parity), but
+-- with kind='drip' so they are visibly distinct from owner-released mail.
+ALTER TABLE newsletter_outbox DROP CONSTRAINT IF EXISTS newsletter_outbox_kind_check;
+ALTER TABLE newsletter_outbox ADD CONSTRAINT newsletter_outbox_kind_check
+  CHECK (kind IN ('issue','greeting','drip'));
+-- One drip send per (issue, email): the safety net that makes the timer's
+-- at-least-once retry behaviour idempotent — a re-run can never double-send.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_nl_outbox_drip ON newsletter_outbox(newsletter_id, email) WHERE kind = 'drip';
+
 -- ─── SMS (two-way texting) ──────────────────────────────────────────────────
 -- Provider-agnostic SMS inbox mirroring the Gmail inbox. Populated only when a
 -- provider (Twilio/Telnyx/SignalWire) is configured (see lib/sms.ts); until then
@@ -1880,3 +1966,35 @@ ALTER TABLE signature_requests DROP CONSTRAINT IF EXISTS signature_requests_doc_
 ALTER TABLE signature_requests ADD CONSTRAINT signature_requests_doc_type_check
   CHECK (doc_type IN ('design','estimate','contract','sow','change_order',
                       'completion','lien_waiver','precon','other')) NOT VALID;
+
+-- ─── Client portal invites (link-in access) ─────────────────────────────────
+-- The homeowner equivalent of sub_portal_invites. A client gets a link, not an
+-- account: /client-portal/enter?token=… trades the token for a normal session
+-- cookie (role=client, link_slug=<project slug>), so every existing
+-- requireRole("owner","client") check works unchanged.
+--
+-- SECURITY — a BEARER LINK, deliberately, the same trade as the sub flow:
+-- anyone holding the email reaches that one project's portal. It cannot reach
+-- owner surfaces or another project. Levers if a link leaks: expires_at, Revoke
+-- (status='dismissed'), users.active=false, and — unique to clients — the
+-- client CLAIMING the portal with a password, which refuses bearer entry from
+-- then on (users.portal_claimed_at).
+CREATE TABLE IF NOT EXISTS client_portal_invites (
+  id           bigserial PRIMARY KEY,
+  project_slug text NOT NULL REFERENCES projects(slug) ON DELETE CASCADE,
+  to_email     text,                              -- client email at issue time
+  to_name      text NOT NULL DEFAULT '',
+  token        text UNIQUE NOT NULL,              -- opaque bearer token
+  status       text NOT NULL DEFAULT 'active'
+                 CHECK (status IN ('active','dismissed')),
+  expires_at   timestamptz NOT NULL,
+  used_at      timestamptz,                       -- first successful entry (audit)
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (project_slug)
+);
+CREATE INDEX IF NOT EXISTS idx_client_invites_project
+  ON client_portal_invites(project_slug, status);
+
+-- Set when a client trades their bearer link for a real password. Non-null ⇒
+-- links are refused for that account and password login is the only way in.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS portal_claimed_at timestamptz;

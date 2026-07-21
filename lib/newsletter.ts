@@ -6,14 +6,31 @@ import "server-only";
 // lib/db); client components import only the types (`import type`).
 
 import { query } from "./db";
+import { normalizeSettings, type IssueSettings } from "./newsletter-design";
+import { listSequences, type Sequence } from "./newsletter-drip";
+import { baseUrl } from "./newsletter-outbox";
+
+export type { IssueSettings, Sequence };
 
 export type IssueStatus = "draft" | "queued" | "sent";
 
+/** What a block renders as. Absent = "text" (every block predating P7-N). */
+export type BlockKind = "text" | "image" | "button" | "divider" | "quote";
+
 export interface NewsletterBlock {
+  kind?: BlockKind;
   heading: string;
   body: string;
   /** Optional link back to the project this block celebrates. */
   projectSlug?: string;
+  /** kind='image': newsletter_assets.token, resolved to a public URL at render. */
+  imageToken?: string;
+  imageAlt?: string;
+  caption?: string;
+  /** kind='button'. */
+  buttonLabel?: string;
+  buttonUrl?: string;
+  align?: "left" | "center";
 }
 
 export interface NewsletterIssue {
@@ -23,6 +40,8 @@ export interface NewsletterIssue {
   blocks: NewsletterBlock[];
   /** Layout/style key (lib/newsletter-templates.ts). */
   template: string;
+  /** Per-issue design choices (lib/newsletter-design.ts). */
+  settings: IssueSettings;
   status: IssueStatus;
   recipientCount: number;
   sentLabel: string | null;
@@ -66,6 +85,12 @@ export interface NewsletterData {
   recipients: Recipient[];
   activeRecipientCount: number;
   outbox: OutboxItem[];
+  sequences: Sequence[];
+  /** Public origin used for image/logo URLs. Passed to the client so the Preview
+   *  resolves assets against the SAME base the outgoing email will use — a
+   *  preview built from window.location would silently work in dev and break the
+   *  moment the app is reached by another hostname. */
+  baseUrl: string;
 }
 
 interface IssueRow {
@@ -74,6 +99,7 @@ interface IssueRow {
   intro: string;
   blocks: NewsletterBlock[];
   template: string;
+  settings: unknown;
   status: IssueStatus;
   recipient_count: number;
   sent_label: string | null;
@@ -87,6 +113,7 @@ function rowToIssue(r: IssueRow): NewsletterIssue {
     intro: r.intro,
     blocks: Array.isArray(r.blocks) ? r.blocks : [],
     template: r.template || "classic",
+    settings: normalizeSettings(r.settings),
     status: r.status,
     recipientCount: r.recipient_count,
     sentLabel: r.sent_label,
@@ -138,7 +165,7 @@ export async function readOutbox(): Promise<OutboxItem[]> {
 
 export async function getNewsletterData(selectedId?: number): Promise<NewsletterData> {
   const { rows: issueRows } = await query<IssueRow>(
-    `SELECT id, title, intro, blocks, template, status, recipient_count,
+    `SELECT id, title, intro, blocks, template, settings, status, recipient_count,
             to_char(sent_at, 'FMMon FMDD, YYYY')    AS sent_label,
             to_char(created_at, 'FMMon FMDD, YYYY')  AS created_label
        FROM newsletters
@@ -166,8 +193,19 @@ export async function getNewsletterData(selectedId?: number): Promise<Newsletter
 
   const activeRecipientCount = recipients.filter((r) => r.active).length;
 
+  const sequences = await listSequences();
+
   const selected =
     selectedId && issues.some((i) => i.id === selectedId) ? selectedId : issues[0]?.id ?? null;
 
-  return { issues, selectedId: selected, recentJobs, recipients, activeRecipientCount, outbox };
+  return {
+    issues,
+    selectedId: selected,
+    recentJobs,
+    recipients,
+    activeRecipientCount,
+    outbox,
+    sequences,
+    baseUrl: baseUrl(),
+  };
 }

@@ -29,11 +29,12 @@ function homeForRole(role: Role): string {
   return "/today";
 }
 
-/** Reachable without a session. The sub-portal invite link is the sub's way IN —
- *  they have no cookie yet by definition, so bouncing it to /login would defeat
- *  the whole point. The route itself is the gate: it only mints a session for a
- *  valid, unexpired, undismissed token (app/sub-portal/enter/route.ts). */
-const PUBLIC_PATHS = ["/login", "/sub-portal/enter"];
+/** Reachable without a session. The portal invite links are the sub's and the
+ *  client's way IN — they have no cookie yet by definition, so bouncing them to
+ *  /login would defeat the whole point. The routes themselves are the gate:
+ *  each only mints a session for a valid, unexpired, undismissed token
+ *  (app/sub-portal/enter, app/client-portal/enter). */
+const PUBLIC_PATHS = ["/login", "/sub-portal/enter", "/client-portal/enter"];
 
 /** Routes a non-owner role is allowed to reach (besides /login). */
 function allowedFor(role: Role): string[] {

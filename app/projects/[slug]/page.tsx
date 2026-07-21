@@ -23,14 +23,12 @@ import { ProjectDailyLog } from "@/components/projects/ProjectDailyLog";
 import { ProjectFiles } from "@/components/projects/ProjectFiles";
 import { ProjectComms } from "@/components/projects/ProjectComms";
 import { ProjectSchedule } from "@/components/projects/ProjectSchedule";
-import { SignOffs } from "@/components/projects/SignOffs";
-import { ProjectDocuments } from "@/components/projects/ProjectDocuments";
+import { DocTypePanel } from "@/components/projects/DocTypePanel";
 import { listDocDrafts, listDocTemplates } from "@/lib/doc-drafts";
 import { ChangeOrders } from "@/components/projects/ChangeOrders";
 import { Closeout } from "@/components/projects/Closeout";
 import { Safety } from "@/components/projects/Safety";
 import { Incidents } from "@/components/projects/Incidents";
-import { getProjectSignatureRequests, getProjectSignerDefaults } from "@/lib/esign";
 import { getProjectChangeOrders } from "@/lib/change-orders";
 import { getCloseoutView } from "@/lib/closeout";
 import { getProjectPermits } from "@/lib/permits";
@@ -94,9 +92,7 @@ export default async function ProjectDetailPage({
     getQueuedSubInvites(slug),
   ]);
   const dailyLogs = await getProjectDailyLogs(slug);
-  const [signatureRequests, signerDefaults, estimates, costBook, changeOrders, closeoutView, orientations, approvalGate] = await Promise.all([
-    getProjectSignatureRequests(slug),
-    getProjectSignerDefaults(slug),
+  const [estimates, costBook, changeOrders, closeoutView, orientations, approvalGate] = await Promise.all([
     getProjectEstimates(slug),
     getCostBook(),
     getProjectChangeOrders(slug),
@@ -427,18 +423,6 @@ export default async function ProjectDetailPage({
       approvalGate={approvalGate}
     />
   );
-  // The old "Sign-offs" tab stacked these two: the paperwork generator and the
-  // e-signature queue for that paperwork. They're now the last two sections of
-  // Money, next to the estimate / invoices / change orders they're about.
-  const documentsPanel = <ProjectDocuments slug={slug} drafts={docDrafts} templates={docTemplates} />;
-  const signaturesPanel = (
-    <SignOffs
-      slug={slug}
-      requests={signatureRequests}
-      defaultSignerName={signerDefaults.name}
-      defaultSignerEmail={signerDefaults.email}
-    />
-  );
   const changeOrdersPanel = <ChangeOrders slug={slug} orders={changeOrders} />;
   const closeoutPanel = <Closeout slug={slug} view={closeoutView} />;
   const safetyPanel = (
@@ -449,10 +433,9 @@ export default async function ProjectDetailPage({
   const floorPanel = <FloorPlan slug={slug} versions={floorplans} />;
   const moodPanel = <MoodBoard slug={slug} boards={mood} catalog={moodCatalog} />;
 
-  // ── Money — the whole contract lifecycle behind one sub-nav: what the job was
-  //    priced at, what's been billed, what changed, and the paperwork + e-sign
-  //    for all three. These were five separate tabs (Estimate / Money / Change
-  //    orders / Sign-offs), and Sign-offs duplicated the other three's docs.
+  // ── Money — what the job was priced at, what's been billed, what changed.
+  //    Paperwork (contracts, change orders, etc.) + e-signing live in their own
+  //    top-level Documents tab now — see documentsTab below.
   const moneyTab = (
     <PanelSections
       tab="Money"
@@ -460,9 +443,29 @@ export default async function ProjectDetailPage({
         { label: "Estimate", node: estimatePanel },
         { label: "Invoices", node: moneyPanel },
         { label: "Change orders", node: changeOrdersPanel },
-        { label: "Documents", node: documentsPanel },
-        { label: "Signatures", node: signaturesPanel },
       ]}
+    />
+  );
+
+  // ── Documents — one sub-section per template type; each lists every draft of
+  //    that type (any status) with its own edit/delete/send. Promoted out of
+  //    Money so "the contract" isn't three clicks deep behind Estimate/Documents/
+  //    Signatures — a document's status chip (Draft/Sent/Signed) is now the only
+  //    "signed" label; there's no separate Signatures tab.
+  const documentsTab = (
+    <PanelSections
+      tab="Documents"
+      sections={docTemplates.map((t) => ({
+        label: t.title,
+        node: (
+          <DocTypePanel
+            slug={slug}
+            templateKey={t.key}
+            manifest={t}
+            drafts={docDrafts.filter((d) => d.template_key === t.key)}
+          />
+        ),
+      }))}
     />
   );
 
@@ -484,6 +487,7 @@ export default async function ProjectDetailPage({
     Mood: moodPanel,
     Selections: selectionsPanel,
     Money: moneyTab,
+    Documents: documentsTab,
     Schedule: schedulePanel,
     Subs: subsPanel,
     Files: filesPanel,

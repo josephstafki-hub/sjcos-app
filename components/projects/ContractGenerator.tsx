@@ -2,16 +2,21 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { FileText, FileSignature, Plus, Trash2, ChevronDown, Check, Circle } from "lucide-react";
+import { FileSignature, Plus, Trash2, ChevronDown, Check, Circle } from "lucide-react";
 import { Card } from "@/components/ui";
 import { fmtUsd } from "@/lib/cost-book-units";
 import type { ApprovalGateBase } from "@/lib/approval-gate-types";
 import { type DrawLine, defaultDrawSchedule, sumPercent, DRAW_TRIGGER_STATUSES } from "@/lib/draw-schedule";
-import { generateContract, generateSOW, updateDrawSchedule } from "@/lib/actions/documents";
+import { updateDrawSchedule } from "@/lib/actions/documents";
+import { TabLink } from "@/components/projects/TabNav";
 
-/** Draw-schedule editor + contract/SOW generation for an estimate. The PDF is
- *  sent to the client to e-sign; an editable .docx is saved to the project Files
- *  tab. Lives in the Estimate tab under the selected estimate. */
+/** Draw-schedule editor for an estimate — this schedule is the auto-sourced
+ *  "payment_schedule_table" field on the Contract template (Documents tab), so
+ *  editing it here is what the contract's payment schedule reflects. Actually
+ *  generating/sending the contract lives in Documents → Contract now (a link
+ *  below jumps there) — this card only owns the schedule + the pre-con
+ *  approval-gate status; it never itself sends anything. Lives in the Estimate
+ *  tab under the selected estimate. */
 export function ContractGenerator({
   slug,
   estimateId,
@@ -33,8 +38,6 @@ export function ContractGenerator({
   const [pending, startTransition] = useTransition();
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [genMsg, setGenMsg] = useState<string | null>(null);
-  const [override, setOverride] = useState(false);
 
   const gateItems = [
     { label: "Design sign-off", done: gate.design, detail: gate.designDetail },
@@ -46,7 +49,6 @@ export function ContractGenerator({
     },
   ];
   const gateReady = gateItems.every((g) => g.done);
-  const contractBlocked = !gateReady && !override;
 
   const totalPct = sumPercent(lines);
   const pctOk = Math.abs(totalPct - 100) <= 0.5;
@@ -76,21 +78,6 @@ export function ContractGenerator({
     });
   }
 
-  function generate(kind: "contract" | "sow") {
-    setError(null);
-    setGenMsg(null);
-    startTransition(async () => {
-      const res = kind === "contract" ? await generateContract(slug, estimateId, override) : await generateSOW(slug, estimateId);
-      if (res.ok) {
-        setGenMsg(
-          kind === "contract"
-            ? "Contract generated — PDF sent to the client to sign; editable .docx saved to Files."
-            : "Scope of Work generated — PDF sent to the client to sign; editable .docx saved to Files.",
-        );
-        router.refresh();
-      } else setError(res.error);
-    });
-  }
 
   const inputCls = "rounded-md border border-rule bg-paper px-2 py-1 text-[12px] text-ink outline-none focus:border-accent";
 
@@ -101,8 +88,8 @@ export function ContractGenerator({
         className="flex w-full items-center gap-2 border-b border-rule bg-paper-2 px-4 py-2.5 text-left"
       >
         <FileSignature className="size-4 text-accent" strokeWidth={1.75} />
-        <span className="flex-1 font-serif text-[14px] font-semibold text-ink">Contract &amp; documents</span>
-        <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3">Generate · e-sign</span>
+        <span className="flex-1 font-serif text-[14px] font-semibold text-ink">Payment / draw schedule</span>
+        <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3">Feeds the contract</span>
         <ChevronDown className={`size-4 text-ink-3 transition-transform ${open ? "rotate-180" : ""}`} strokeWidth={1.75} />
       </button>
 
@@ -194,38 +181,22 @@ export function ContractGenerator({
                 </div>
               ))}
             </div>
-            {!gateReady && (
-              <label className="mt-2 flex items-center gap-1.5 text-[11px] text-ink-3">
-                <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} />
-                Override the gate and generate the contract anyway
-              </label>
-            )}
+            <p className="mt-2 text-[11px] text-ink-3">
+              The contract (with this schedule as its payment table, plus the scope of work as Exhibit A) is
+              generated, edited, and sent from Documents. The gate blocks sending it there — not here — and can
+              be overridden from that screen if needed.
+            </p>
           </div>
 
-          {/* Generate */}
+          {/* Jump to the actual generator */}
           <div className="border-t border-rule-soft pt-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => generate("contract")}
-                disabled={pending || contractBlocked}
-                title={contractBlocked ? "Complete the approval gate (or override it) first" : undefined}
-                className="inline-flex items-center gap-1.5 rounded-md border border-accent bg-accent px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-accent-2 disabled:opacity-60"
-              >
-                <FileSignature className="size-3.5" strokeWidth={1.75} /> Generate contract
-              </button>
-              <button
-                onClick={() => generate("sow")}
-                disabled={pending}
-                className="inline-flex items-center gap-1.5 rounded-md border border-ink bg-card px-3 py-1.5 text-[12px] font-semibold text-ink hover:bg-paper-2 disabled:opacity-60"
-              >
-                <FileText className="size-3.5" strokeWidth={1.75} /> Generate Scope of Work
-              </button>
-            </div>
-            <p className="mt-2 text-[11px] text-ink-3">
-              The PDF is sent to the client to e-sign in their portal; an editable .docx is saved to the Files tab.
-              The Scope of Work narrative is drafted by AI from your line items.
-            </p>
-            {genMsg && <div className="mt-1.5 text-[12px] text-money">{genMsg}</div>}
+            <TabLink
+              tab="Documents"
+              section="Construction Contract"
+              className="inline-flex items-center gap-1.5 rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
+            >
+              <FileSignature className="size-3.5" strokeWidth={1.75} /> Open contract in Documents
+            </TabLink>
             {error && <div className="mt-1.5 text-[12px] text-flag">{error}</div>}
           </div>
         </div>

@@ -18,6 +18,8 @@ import {
   renderDocDraft,
   submitDocDraftForSignature,
   voidDocDraft,
+  deleteDocDraft,
+  unlockDocDraftForEdit,
   cloneDocDraft,
   getDocDraft,
 } from "@/lib/doc-drafts";
@@ -51,19 +53,42 @@ export async function renderDocDraftAction(id: number): Promise<R> {
   return res;
 }
 
-export async function submitDocDraftForSignatureAction(id: number): Promise<R> {
+/** Send for signature. Returns the delivery note on success so the UI can say
+ *  whether an email actually went out — "sent" must never be a lie. */
+export async function submitDocDraftForSignatureAction(
+  id: number,
+  override = false,
+): Promise<{ ok: true; delivery: { sent: boolean; note: string } } | { ok: false; error: string }> {
   const user = await requireRole("owner");
-  const res = await submitDocDraftForSignature(id, { id: user.id, name: user.name || "Owner" });
-  if (res.ok) {
-    revalidatePath("/projects");
-    revalidatePath("/client-portal");
-  }
-  return res;
+  const res = await submitDocDraftForSignature(id, { id: user.id, name: user.name || "Owner" }, override);
+  if (!res.ok) return res;
+  revalidatePath("/projects");
+  revalidatePath("/client-portal");
+  return { ok: true, delivery: res.delivery };
 }
 
 export async function voidDocDraftAction(id: number): Promise<R> {
   await requireRole("owner");
   const res = await voidDocDraft(id);
+  if (res.ok) revalidatePath("/projects");
+  return res;
+}
+
+/** Hard-delete a never-sent draft. Sent/signed drafts must be voided instead
+ *  (voidDocDraftAction) — deleteDocDraft refuses those, preserving the trail. */
+export async function deleteDocDraftAction(id: number): Promise<R> {
+  await requireRole("owner");
+  const res = await deleteDocDraft(id);
+  if (res.ok) revalidatePath("/projects");
+  return res;
+}
+
+/** Owner confirmed (client-side) that editing this sent/signed draft should
+ *  void its signature request. Resets the draft to 'draft' so it can reopen
+ *  in the editor. */
+export async function unlockDocDraftForEditAction(id: number): Promise<R & { voided?: boolean }> {
+  const user = await requireRole("owner");
+  const res = await unlockDocDraftForEdit(id, user.name || "Owner");
   if (res.ok) revalidatePath("/projects");
   return res;
 }

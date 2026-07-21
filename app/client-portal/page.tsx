@@ -14,6 +14,8 @@ import { ClientSignDocs } from "@/components/portal/ClientSignDocs";
 import { ClientUploads } from "@/components/portal/ClientUploads";
 import { ClientPunch } from "@/components/portal/ClientPunch";
 import { WarrantyClaimForm } from "@/components/portal/WarrantyClaimForm";
+import { ClaimAccount } from "@/components/portal/ClaimAccount";
+import { queryOne } from "@/lib/db";
 import { getClientSignatures } from "@/lib/esign";
 import { getClientWarranty } from "@/lib/warranty";
 
@@ -39,6 +41,21 @@ export default async function ClientPortalPage() {
   // Journal + header built from the real project and its daily logs.
   const data = buildClientPortalData(project, logs);
   if (user.role === "client") data.clientInitials = user.initials || data.clientInitials;
+
+  // Has this client traded their link for a real password yet? Drives the
+  // "create an account" offer in the sidebar. The synthetic address the link-in
+  // flow mints isn't a real one, so don't prefill the form with it.
+  const claimRow =
+    user.role === "client"
+      ? await queryOne<{ portal_claimed_at: Date | null; email: string }>(
+          `SELECT portal_claimed_at, email FROM users WHERE id = $1`,
+          [user.id],
+        )
+      : null;
+  const portalClaimed = !!claimRow?.portal_claimed_at;
+  const realEmail = claimRow?.email?.endsWith("@client-portal.invalid")
+    ? undefined
+    : claimRow?.email;
 
   const signDocs = slug ? await getClientSignatures(slug) : [];
   const toSignCount = signDocs.filter((d) => d.status === "sent").length;
@@ -158,6 +175,15 @@ export default async function ClientPortalPage() {
 
         {/* sidebar */}
         <aside className="overflow-y-auto border-l border-rule bg-paper-2 p-6">
+          {/* Only for a client who came in on a link and hasn't locked the
+              portal down yet. Owners previewing, and clients who already have a
+              password, never see it. */}
+          {user.role === "client" && !portalClaimed && (
+            <div className="mb-4">
+              <ClaimAccount defaultEmail={realEmail} />
+            </div>
+          )}
+
           {warranty && slug && (
             <>
               <Card kind="accent" className="mb-4 p-3">
@@ -194,12 +220,18 @@ export default async function ClientPortalPage() {
           )}
 
           <div className="my-4 border-t border-rule" />
-          <Eyebrow muted>Documents to sign</Eyebrow>
-          <ClientSignDocs docs={signDocs} />
+          {/* Anchor ids back the ?to= deep-links on an invite (lib/client-invites
+              PORTAL_TARGETS) — a "sign your contract" email lands right here. */}
+          <div id="documents" className="scroll-mt-4">
+            <Eyebrow muted>Documents to sign</Eyebrow>
+            <ClientSignDocs docs={signDocs} />
+          </div>
 
           <div className="my-4 border-t border-rule" />
-          <Eyebrow muted>Selections to review</Eyebrow>
-          <ClientSelections view={selections} />
+          <div id="selections" className="scroll-mt-4">
+            <Eyebrow muted>Selections to review</Eyebrow>
+            <ClientSelections view={selections} />
+          </div>
 
           {donePunch.length > 0 && (
             <>
@@ -212,7 +244,7 @@ export default async function ClientPortalPage() {
           )}
 
           {scheduleBlocks.length > 0 && (
-            <>
+            <div id="schedule" className="scroll-mt-4">
               <div className="my-4 border-t border-rule" />
               <Eyebrow muted>Schedule</Eyebrow>
               <div className="mt-2 flex flex-col gap-1.5">
@@ -231,7 +263,7 @@ export default async function ClientPortalPage() {
                   </div>
                 ))}
               </div>
-            </>
+            </div>
           )}
 
           <div className="my-4 border-t border-rule" />

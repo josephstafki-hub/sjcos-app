@@ -11,13 +11,16 @@ import { query } from "./db";
 import { relativeAge } from "./lead-activity";
 import { INTAKE_QUESTIONS } from "./lead-intake-questions";
 
-/** The lead pipeline stages, in order, ending at the signed pre-con contract. */
+/** The lead pipeline stages, in order, ending when the pre-con contract has
+ *  been sent to the client (signing happens after, via the document's own
+ *  e-sign status — the `precon_signed` key is kept as-is to avoid a stage
+ *  migration; only the label changed). */
 export const STAGES: { key: LeadStage; label: string }[] = [
   { key: "intake", label: "Intake" },
   { key: "qualified", label: "Qualified" },
   { key: "discovery_call", label: "Discovery call" },
   { key: "rough_estimate", label: "Rough estimate" },
-  { key: "precon_signed", label: "Pre-con signed" },
+  { key: "precon_signed", label: "Pre-con contract sent" },
 ];
 
 /** Terminal, off-pipeline stage for dead/declined/archived leads. Set only by an

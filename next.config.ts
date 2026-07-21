@@ -1,6 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // The live server (systemd `sjcos.service`) serves the prebuilt `.next`, and
+  // a dev/build run that shares that directory clobbers it mid-flight — the
+  // classic "half-built .next → dead hydration" failure. Setting SJC_DIST_DIR
+  // lets a throwaway preview server build into its own directory instead, so
+  // production stays untouched:
+  //   SJC_DIST_DIR=.next-preview npx next dev --port 3018
+  distDir: process.env.SJC_DIST_DIR || ".next",
   // Joe previews remotely through an ephemeral cloudflared tunnel, which is a
   // different origin than localhost. Next 16 dev otherwise blocks the browser
   // from loading /_next/* dev resources (the client JS chunks) cross-origin,

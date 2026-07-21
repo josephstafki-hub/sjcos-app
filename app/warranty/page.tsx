@@ -14,8 +14,8 @@ export default async function WarrantyPage() {
     <Shell breadcrumb="WARRANTY · CLOSED PROJECTS" aiContext={aiContext} embeddedAsk>
       <div className="mx-auto max-w-[1100px] px-7 pb-16 pt-6">
         {/* Header */}
-        <div className="mb-3.5 flex items-end gap-4">
-          <div className="flex-1">
+        <div className="mb-3.5 flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
+          <div className="min-w-0 flex-1">
             <Eyebrow>{data.eyebrow}</Eyebrow>
             <h1 className="mt-1 font-serif text-[34px] font-medium leading-none tracking-tight text-accent-2">
               Warranty

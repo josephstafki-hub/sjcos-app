@@ -15,7 +15,8 @@ export function CmdKPill() {
       onClick={() => {
         window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true }));
       }}
-      className="absolute bottom-3.5 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2.5 rounded-full bg-ink px-4 py-2 text-[13px] font-medium text-paper shadow-pill"
+      // bottom offset clears the iOS home indicator when installed.
+      className="absolute bottom-[max(0.875rem,env(safe-area-inset-bottom))] left-1/2 z-10 flex -translate-x-1/2 items-center gap-2.5 rounded-full bg-ink px-4 py-2 text-[13px] font-medium text-paper shadow-pill"
     >
       <span className="size-3.5 rounded-full border-[1.5px] border-ai bg-ai-soft" />
       <span>Ask {AI_NAME}</span>

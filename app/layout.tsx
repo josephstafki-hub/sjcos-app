@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Newsreader, Mulish, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -30,6 +30,22 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "SJC OS",
   description: "Business operating system for SJ Carpentry LLC",
+  // Installed-to-home-screen behavior on iOS, which ignores the web manifest's
+  // `display` field and reads these instead.
+  appleWebApp: {
+    capable: true,
+    title: "SJC OS",
+    statusBarStyle: "default",
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  // Let the app paint under the notch / home indicator; the shell uses
+  // safe-area insets so nothing important lands there.
+  viewportFit: "cover",
+  themeColor: "#283021", // forest — status bar tint when installed
 };
 
 export default function RootLayout({

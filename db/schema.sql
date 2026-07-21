@@ -1966,3 +1966,35 @@ ALTER TABLE signature_requests DROP CONSTRAINT IF EXISTS signature_requests_doc_
 ALTER TABLE signature_requests ADD CONSTRAINT signature_requests_doc_type_check
   CHECK (doc_type IN ('design','estimate','contract','sow','change_order',
                       'completion','lien_waiver','precon','other')) NOT VALID;
+
+-- ─── Client portal invites (link-in access) ─────────────────────────────────
+-- The homeowner equivalent of sub_portal_invites. A client gets a link, not an
+-- account: /client-portal/enter?token=… trades the token for a normal session
+-- cookie (role=client, link_slug=<project slug>), so every existing
+-- requireRole("owner","client") check works unchanged.
+--
+-- SECURITY — a BEARER LINK, deliberately, the same trade as the sub flow:
+-- anyone holding the email reaches that one project's portal. It cannot reach
+-- owner surfaces or another project. Levers if a link leaks: expires_at, Revoke
+-- (status='dismissed'), users.active=false, and — unique to clients — the
+-- client CLAIMING the portal with a password, which refuses bearer entry from
+-- then on (users.portal_claimed_at).
+CREATE TABLE IF NOT EXISTS client_portal_invites (
+  id           bigserial PRIMARY KEY,
+  project_slug text NOT NULL REFERENCES projects(slug) ON DELETE CASCADE,
+  to_email     text,                              -- client email at issue time
+  to_name      text NOT NULL DEFAULT '',
+  token        text UNIQUE NOT NULL,              -- opaque bearer token
+  status       text NOT NULL DEFAULT 'active'
+                 CHECK (status IN ('active','dismissed')),
+  expires_at   timestamptz NOT NULL,
+  used_at      timestamptz,                       -- first successful entry (audit)
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (project_slug)
+);
+CREATE INDEX IF NOT EXISTS idx_client_invites_project
+  ON client_portal_invites(project_slug, status);
+
+-- Set when a client trades their bearer link for a real password. Non-null ⇒
+-- links are refused for that account and password login is the only way in.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS portal_claimed_at timestamptz;

@@ -12,6 +12,7 @@ import { headers } from "next/headers";
 import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { emit } from "@/lib/notify";
+import { finalizeSignedDraft } from "@/lib/doc-drafts";
 import type { DocType } from "@/lib/esign-types";
 
 type Result = { ok: true; id?: number } | { ok: false; error: string };
@@ -159,6 +160,25 @@ export async function signSignatureRequest(id: number, formData: FormData): Prom
     [id, signedName, meta.ip, meta.ua],
   );
   await logEvent(id, "signed", signedName, `Signed "${doc.title}" (consent given)`, meta);
+
+  // A template draft (Documents tab) keys its status chip off document_drafts,
+  // not the signature_request — carry the signed state across so the owner sees
+  // "Signed" instead of a stuck "Sent for signature". No-op for legacy
+  // estimate-generated requests that have no draft row.
+  await query(
+    `UPDATE document_drafts SET status = 'signed', updated_at = now()
+      WHERE signature_request_id = $1`,
+    [id],
+  );
+
+  // Produce the executed copy (signature stamped in + certificate page). The
+  // binding signature is already recorded above, so this is an enhancement of
+  // the record, never a gate on it — a render failure must not fail the sign.
+  try {
+    await finalizeSignedDraft(id);
+  } catch (err) {
+    console.error(`[esign] executed-copy render failed for request ${id}:`, err);
+  }
 
   // If this request was generated from an estimate, approve it.
   if (doc.estimate_id) {

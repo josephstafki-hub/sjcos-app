@@ -53,8 +53,8 @@ export function NotificationsClient({ data }: { data: NotificationsData }) {
     <div className="flex h-full justify-center overflow-y-auto px-7 pb-16 pt-6">
       <div className="w-[720px] max-w-full">
         {/* Header */}
-        <div className="mb-3.5 flex items-end gap-4">
-          <div className="flex-1">
+        <div className="mb-3.5 flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
+          <div className="min-w-0 flex-1">
             <Eyebrow>
               {data.unread} unread · {data.decisionCount} need a decision
             </Eyebrow>

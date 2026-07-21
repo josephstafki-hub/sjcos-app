@@ -14,6 +14,7 @@ export const PROJECT_TABS = [
   "Mood",
   "Selections",
   "Money",
+  "Documents",
   "Schedule",
   "Subs",
   "Files",

@@ -33,8 +33,8 @@ export default async function SchedulePage({
     <Shell breadcrumb="SCHEDULE" hideCmd>
       <div className="h-full overflow-y-auto px-4 pb-16 pt-6 sm:px-7">
         {/* Header */}
-        <div className="mb-3.5 flex items-end gap-4">
-          <div className="flex-1">
+        <div className="mb-3.5 flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
+          <div className="min-w-0 flex-1">
             <Eyebrow>
               {data.weekLabel} · {data.rangeLabel}
             </Eyebrow>
@@ -45,7 +45,7 @@ export default async function SchedulePage({
               Every project calendar and standalone meeting, in one week view.
             </p>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5 sm:flex-nowrap">
             <Link
               href={hrefFor(offset - 1)}
               aria-label="Previous week"

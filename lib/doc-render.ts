@@ -31,6 +31,34 @@ function today(): string {
   return new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" }).format(new Date());
 }
 
+/** Date + time + zone, for signature timestamps (e.g. "July 21, 2026 at
+ *  4:58 PM CDT"). Central time — SJ Carpentry operates in Minnesota. */
+function fullTimestamp(d: Date): string {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "America/Chicago",
+    timeZoneName: "short",
+  }).format(d);
+}
+
+function shortStamp(d: Date): string {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "numeric",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "America/Chicago",
+    timeZoneName: "short",
+  }).format(d);
+}
+
+const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+
 function companyOf(v: FieldValues) {
   const s = (k: string) => (v[k] == null ? "" : String(v[k]));
   return {
@@ -44,10 +72,35 @@ function companyOf(v: FieldValues) {
 
 // ─── PDF ─────────────────────────────────────────────────────────────────────
 
-export function renderTemplatePdf(template: DocTemplate, values: FieldValues): Promise<Buffer> {
+/** A recorded electronic signature, used to render the completed ("executed")
+ *  copy of a document: the typed name is stamped onto the signer's signature
+ *  line and a Certificate of Electronic Signature page is appended. This is the
+ *  court-ready artifact — everything a dispute would ask for (who, when, that
+ *  consent was given, from where) lives on the certificate, not just in the DB. */
+export interface SignatureStamp {
+  /** Name the signer typed to sign. */
+  signerName: string;
+  signedAt: Date;
+  /** The signer affirmed the electronic-signature consent statement. */
+  consent: boolean;
+  ip?: string | null;
+  userAgent?: string | null;
+  /** A stable reference for the record, e.g. the contract number or request id. */
+  documentRef?: string;
+  /** Full audit trail (created / sent / signed …), newest last. */
+  events?: { label: string; actor: string; at: Date }[];
+}
+
+export function renderTemplatePdf(
+  template: DocTemplate,
+  values: FieldValues,
+  signature?: SignatureStamp,
+): Promise<Buffer> {
   const sections = template.build(values);
   const title = template.titleFor ? template.titleFor(values) : template.title;
-  const footerLine = `${template.key} v${template.version} · Generated ${today()}`;
+  const footerLine = signature
+    ? `${template.key} v${template.version} · Executed ${fullTimestamp(signature.signedAt)}`
+    : `${template.key} v${template.version} · Generated ${today()}`;
 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
@@ -70,9 +123,12 @@ export function renderTemplatePdf(template: DocTemplate, values: FieldValues): P
     companyHeader(doc, companyOf(values));
     docTitle(doc, title, template.subtitle);
 
-    for (const s of sections) renderPdfSection(doc, s, W, ensure);
+    for (const s of sections) renderPdfSection(doc, s, W, ensure, signature);
 
     if (template.docClass === "legal" && !template.attorneyReviewed) disclaimerBlock(doc, W);
+
+    // The executed copy carries an authoritative signature certificate.
+    if (signature) signatureCertificate(doc, W, title, signature);
 
     // Stamp the footer on every buffered page. Writing into the bottom margin
     // would otherwise make pdfkit auto-add a page per write — zero the bottom
@@ -126,7 +182,13 @@ function paragraph(doc: PDFKit.PDFDocument, runs: Run[], opts: { size?: number; 
   flowRuns(doc, runs, opts);
 }
 
-function renderPdfSection(doc: PDFKit.PDFDocument, s: TemplateSection, W: number, ensure: Ensure) {
+function renderPdfSection(
+  doc: PDFKit.PDFDocument,
+  s: TemplateSection,
+  W: number,
+  ensure: Ensure,
+  signature?: SignatureStamp,
+) {
   switch (s.kind) {
     case "heading": {
       ensure(30);
@@ -275,20 +337,36 @@ function renderPdfSection(doc: PDFKit.PDFDocument, s: TemplateSection, W: number
     case "signature_block": {
       doc.moveDown(0.4);
       for (const party of s.parties) {
-        ensure(60);
+        ensure(64);
+        // Party label is a small gray caption, not bold black text sitting
+        // right above the blank line — otherwise it reads as if the line
+        // were already filled in. The actual blank + its own small caption
+        // below is what should draw the eye.
         const who = party.name ? `${party.role} — ${party.name}` : party.role;
-        doc.font("Helvetica-Bold").fontSize(9).fillColor(INK).text(who, PAGE.margin, doc.y, { width: W });
-        doc.moveDown(1.1);
+        doc.font("Helvetica").fontSize(8).fillColor(GRAY).text(who.toUpperCase(), PAGE.margin, doc.y, { width: W });
+        doc.moveDown(1.3);
         const lineY = doc.y;
         const sigW = 260;
         const dateX = PAGE.margin + sigW + 30;
         const dateW = 150;
+        // On the executed copy, drop the typed signature + date onto the line of
+        // the party whose name matches the signer. The company/other parties'
+        // lines stay blank (they sign however they sign). Match is by name so we
+        // never stamp the wrong line; the certificate page is the authoritative
+        // record regardless.
+        const isSigner = !!(signature && party.name && norm(party.name) === norm(signature.signerName));
+        if (isSigner && signature) {
+          doc.font("Times-Italic").fontSize(15).fillColor(INK)
+            .text(signature.signerName, PAGE.margin + 2, lineY - 17, { width: sigW, lineBreak: false });
+          doc.font("Helvetica").fontSize(9).fillColor(INK)
+            .text(shortStamp(signature.signedAt), dateX + 2, lineY - 12, { width: dateW, lineBreak: false });
+        }
         doc.strokeColor("#999").lineWidth(0.8).moveTo(PAGE.margin, lineY).lineTo(PAGE.margin + sigW, lineY).stroke();
         doc.moveTo(dateX, lineY).lineTo(dateX + dateW, lineY).stroke();
-        doc.font("Helvetica").fontSize(8).fillColor(GRAY)
-          .text("Signature / Printed name", PAGE.margin, lineY + 3, { width: sigW });
-        doc.text("Date", dateX, lineY + 3, { width: dateW });
-        doc.fillColor(INK).moveDown(1.0);
+        doc.font("Helvetica-Oblique").fontSize(7.5).fillColor(GRAY)
+          .text(isSigner ? "Signed electronically" : "Signature / Printed name", PAGE.margin, lineY + 6, { width: sigW });
+        doc.text("Date", dateX, lineY + 6, { width: dateW });
+        doc.fillColor(INK).moveDown(1.1);
       }
       break;
     }
@@ -373,6 +451,73 @@ function disclaimerBlock(doc: PDFKit.PDFDocument, W: number) {
   doc.strokeColor("#d9d4c7").lineWidth(1).moveTo(PAGE.margin, doc.y).lineTo(PAGE.margin + W, doc.y).stroke();
   doc.moveDown(0.4);
   doc.font("Helvetica-Oblique").fontSize(8).fillColor(GRAY).text(LEGAL_DISCLAIMER, PAGE.margin, doc.y, { width: W, lineGap: 1.2 });
+  doc.fillColor(INK);
+}
+
+/** Certificate of Electronic Signature — its own page at the end of an executed
+ *  document. Records, in the document itself, everything a court or lender would
+ *  ask to see: who signed, the exact time, that they affirmed consent, and the
+ *  access details (IP, device) plus the full event trail. Modeled on the
+ *  "certificate of completion" pattern e-sign vendors attach. */
+function signatureCertificate(doc: PDFKit.PDFDocument, W: number, docTitleText: string, sig: SignatureStamp) {
+  doc.addPage();
+
+  doc.font("Helvetica-Bold").fontSize(14).fillColor(ACCENT_2)
+    .text("Certificate of Electronic Signature", PAGE.margin, doc.y, { width: W });
+  doc.moveDown(0.3);
+  doc.font("Helvetica").fontSize(8.5).fillColor(GRAY).text(
+    "This certificate is an authoritative record of the electronic signing of the document below. " +
+      "The signature was executed under the U.S. ESIGN Act (15 U.S.C. ch. 96) and the Minnesota " +
+      "Uniform Electronic Transactions Act (Minn. Stat. ch. 325L), which give an electronic " +
+      "signature the same legal effect as a handwritten one.",
+    PAGE.margin,
+    doc.y,
+    { width: W, lineGap: 1.5 },
+  );
+  doc.moveDown(0.8);
+  doc.strokeColor("#d9d4c7").lineWidth(1).moveTo(PAGE.margin, doc.y).lineTo(PAGE.margin + W, doc.y).stroke();
+  doc.moveDown(0.6);
+
+  const row = (label: string, value: string) => {
+    const labelW = 150;
+    const valW = W - labelW - 10;
+    const h = Math.max(
+      doc.font("Helvetica-Bold").fontSize(9).heightOfString(label, { width: labelW }),
+      doc.font("Helvetica").fontSize(9).heightOfString(value || "—", { width: valW }),
+    );
+    if (doc.y + h + 8 > doc.page.height - PAGE.margin - 16) doc.addPage();
+    const yy = doc.y;
+    doc.font("Helvetica-Bold").fontSize(9).fillColor(GRAY).text(label.toUpperCase(), PAGE.margin, yy, { width: labelW });
+    doc.font("Helvetica").fontSize(9).fillColor(INK).text(value || "—", PAGE.margin + labelW + 10, yy, { width: valW });
+    doc.y = yy + h + 7;
+  };
+
+  row("Document", docTitleText);
+  if (sig.documentRef) row("Reference", sig.documentRef);
+  row("Signed by", sig.signerName);
+  row("Signed", fullTimestamp(sig.signedAt));
+  row("Consent", sig.consent
+    ? "The signer affirmed: “I agree that typing my name and clicking Sign constitutes my legal electronic signature on this document.”"
+    : "Not recorded");
+  if (sig.ip) row("IP address", sig.ip);
+  if (sig.userAgent) row("Device / browser", sig.userAgent);
+
+  if (sig.events && sig.events.length > 0) {
+    doc.moveDown(0.5);
+    doc.strokeColor("#d9d4c7").lineWidth(1).moveTo(PAGE.margin, doc.y).lineTo(PAGE.margin + W, doc.y).stroke();
+    doc.moveDown(0.4);
+    doc.font("Helvetica-Bold").fontSize(9).fillColor(GRAY).text("AUDIT TRAIL", PAGE.margin, doc.y, { width: W });
+    doc.moveDown(0.3);
+    for (const e of sig.events) {
+      if (doc.y + 16 > doc.page.height - PAGE.margin - 16) doc.addPage();
+      const yy = doc.y;
+      doc.font("Helvetica").fontSize(8.5).fillColor(GRAY)
+        .text(shortStamp(e.at), PAGE.margin, yy, { width: 150, lineBreak: false });
+      doc.fillColor(INK)
+        .text(`${e.label}${e.actor ? ` — ${e.actor}` : ""}`, PAGE.margin + 160, yy, { width: W - 160 });
+      doc.y = Math.max(doc.y, yy + 12);
+    }
+  }
   doc.fillColor(INK);
 }
 

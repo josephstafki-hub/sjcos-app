@@ -94,7 +94,16 @@ try {
       const r = await client.query(
         `UPDATE work_items
             SET title = $2,
-                body = $3,
+                -- Inbox scans are source-derived and can lag Joe's operational
+                -- update. Once an agent has recorded work against a card, keep
+                -- the human/agent-refined body instead of clobbering it with the
+                -- same stale email summary on the next inbox cron pass.
+                body = CASE
+                  WHEN EXISTS (SELECT 1 FROM agent_runs ar WHERE ar.work_item_id = work_items.id)
+                    OR EXISTS (SELECT 1 FROM agent_receipts rr WHERE rr.work_item_id = work_items.id)
+                  THEN work_items.body
+                  ELSE $3
+                END,
                 priority = $4,
                 status = $5,
                 assignee_kind = 'human',

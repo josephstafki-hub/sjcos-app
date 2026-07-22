@@ -164,8 +164,12 @@ function renderBlock(b: NewsletterBlock, ctx: BlockCtx): string {
     // width/height omitted deliberately: the asset route doesn't know the intrinsic
     // size, and a wrong width attribute is worse than none. max-width keeps it in
     // the card; Outlook honors the width style on img.
-    const img =
+    let img =
       `<img src="${src}" alt="${alt}" style="display:block;width:100%;max-width:536px;height:auto;border:0;border-radius:4px">`;
+    // A linked image (e.g. pulled from a blog post) — the whole photo becomes
+    // the click target, same URL rule as a button block.
+    const linkHref = safeUrl(b.buttonUrl);
+    if (linkHref) img = `<a href="${linkHref}" style="border:0;text-decoration:none">${img}</a>`;
     const caption = b.caption?.trim()
       ? `<div style="margin:8px 0 0;font-family:${ctx.font};font-size:12px;line-height:1.5;color:#8a8a8a">${esc(b.caption.trim())}</div>`
       : "";
@@ -228,7 +232,10 @@ export function renderIssueText(issue: RenderableIssue, opts: RenderOpts): strin
       // An image is not nothing in the text part — describe it so the message
       // still reads coherently rather than jumping between paragraphs.
       const label = b.caption?.trim() || b.imageAlt?.trim() || b.heading?.trim();
-      if (label) parts.push(`[photo: ${label}]`);
+      const href = normalizeUrl(b.buttonUrl);
+      if (label && href) parts.push(`[photo: ${label}] ${href}`);
+      else if (label) parts.push(`[photo: ${label}]`);
+      else if (href) parts.push(href);
     } else if (kind === "button") {
       const href = normalizeUrl(b.buttonUrl);
       const label = (b.buttonLabel ?? "").trim();

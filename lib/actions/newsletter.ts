@@ -18,6 +18,7 @@ import { normalizeSettings, type IssueSettings } from "@/lib/newsletter-design";
 import { enrollRecipient, enrollAllInSequence, listSequences, type Sequence } from "@/lib/newsletter-drip";
 import { storeBuffer } from "@/lib/upload-store";
 import { prepareNewsletterImage } from "@/lib/newsletter-image";
+import { fetchLinkPreview } from "@/lib/link-preview";
 import type { NewsletterBlock, BlockKind, OutboxItem } from "@/lib/newsletter";
 
 /** Best-effort welcome-greeting park + drip-enroll for a newly (re)activated
@@ -168,6 +169,39 @@ export async function uploadIssueImage(form: FormData): Promise<Result<{ token: 
   );
   if (!row) return { ok: false, error: "Could not publish the image." };
   return { ok: true, data: { token: row.token } };
+}
+
+/** Fetch a page's preview image (og:image) + title and publish it the same
+ *  way an uploaded photo would be — same downscale/EXIF-strip/store path, so
+ *  a linked blog post's image behaves identically to one Joe uploaded by
+ *  hand. Owner-only. */
+export async function fetchLinkImage(url: string): Promise<Result<{ token: string; title: string }>> {
+  await requireRole("owner");
+  let preview: Awaited<ReturnType<typeof fetchLinkPreview>>;
+  try {
+    preview = await fetchLinkPreview(url);
+  } catch (e) {
+    return { ok: false, error: (e as Error)?.message || "Couldn't fetch a preview from that link." };
+  }
+
+  const prepared = await prepareNewsletterImage(preview.imageBytes, preview.imageFilename);
+  if (!prepared) return { ok: false, error: "That page's preview image isn't a readable image." };
+
+  const stored = await storeBuffer(prepared.bytes, {
+    filename: prepared.filename,
+    mime: prepared.mime,
+    idPrefix: "nl",
+    tag: "newsletter",
+    subtitle: `Newsletter photo · ${prepared.width}×${prepared.height} · from link`,
+  });
+  if (!stored.ok) return { ok: false, error: stored.error };
+
+  const row = await queryOne<{ token: string }>(
+    `INSERT INTO newsletter_assets (file_id, alt) VALUES ($1, $2) RETURNING token`,
+    [stored.id, preview.title.slice(0, 200)],
+  );
+  if (!row) return { ok: false, error: "Could not publish the image." };
+  return { ok: true, data: { token: row.token, title: preview.title } };
 }
 
 /** Delete an issue. Owner-only.

@@ -6,10 +6,10 @@
 // showing two textareas for everything.
 
 import { useRef, useState } from "react";
-import { ChevronDown, ChevronUp, ImagePlus, Loader2, Plus, X } from "lucide-react";
+import { ChevronDown, ChevronUp, ImagePlus, Link2, Loader2, Plus, X } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import { AI_NAME } from "@/lib/ai-name";
-import { uploadIssueImage } from "@/lib/actions/newsletter";
+import { uploadIssueImage, fetchLinkImage } from "@/lib/actions/newsletter";
 import type { BlockKind, NewsletterBlock, RecentJob } from "@/lib/newsletter";
 
 const input =
@@ -186,6 +186,8 @@ function ImageBlock({
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [linkUrl, setLinkUrl] = useState(block.buttonUrl ?? "");
 
   async function upload(file: File) {
     setBusy(true);
@@ -199,6 +201,30 @@ function ImageBlock({
       else onNotice(res.ok ? "Upload failed." : res.error);
     } catch {
       onNotice("Upload failed — try a smaller image.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function pullFromLink() {
+    const url = linkUrl.trim();
+    if (!url) return;
+    setBusy(true);
+    onNotice(null);
+    try {
+      const res = await fetchLinkImage(url);
+      if (res.ok && res.data) {
+        // The link becomes the click-through — tapping the photo opens the
+        // page it was pulled from, same as a button block's URL.
+        onChange({
+          imageToken: res.data.token,
+          imageAlt: block.imageAlt?.trim() || res.data.title,
+          buttonUrl: url,
+        });
+        setLinkOpen(false);
+      } else onNotice(res.ok ? "Couldn't fetch a preview from that link." : res.error);
+    } catch {
+      onNotice("Couldn't fetch a preview from that link.");
     } finally {
       setBusy(false);
     }
@@ -234,19 +260,55 @@ function ImageBlock({
               e.target.value = "";
             }}
           />
-          <button
-            type="button"
-            onClick={() => fileRef.current?.click()}
-            disabled={busy}
-            className="inline-flex items-center gap-1 rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-60"
-          >
-            {busy ? (
-              <Loader2 className="size-3.5 animate-spin" strokeWidth={1.5} />
-            ) : (
-              <ImagePlus className="size-3.5" strokeWidth={1.5} />
-            )}
-            {busy ? "Uploading…" : block.imageToken ? "Replace photo" : "Upload photo"}
-          </button>
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={busy}
+              className="inline-flex items-center gap-1 rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-60"
+            >
+              {busy ? (
+                <Loader2 className="size-3.5 animate-spin" strokeWidth={1.5} />
+              ) : (
+                <ImagePlus className="size-3.5" strokeWidth={1.5} />
+              )}
+              {busy ? "Working…" : block.imageToken ? "Replace photo" : "Upload photo"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setLinkOpen((o) => !o)}
+              disabled={busy}
+              className="inline-flex items-center gap-1 rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-60"
+            >
+              <Link2 className="size-3.5" strokeWidth={1.5} /> Pull from a link
+            </button>
+          </div>
+          {linkOpen && (
+            <div className="space-y-1">
+              <div className="flex gap-1.5">
+                <input
+                  value={linkUrl}
+                  onChange={(e) => setLinkUrl(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && pullFromLink()}
+                  disabled={busy}
+                  placeholder="sjcarpentryllc.com/blog/whatever-post"
+                  className={`${input} font-mono text-[12px]`}
+                />
+                <button
+                  type="button"
+                  onClick={pullFromLink}
+                  disabled={busy || !linkUrl.trim()}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
+                >
+                  Fetch
+                </button>
+              </div>
+              <p className="text-[11px] text-ink-3">
+                Pulls the page&apos;s preview image (og:image) and title. Tapping the photo will
+                open that link — same as a button block&apos;s URL.
+              </p>
+            </div>
+          )}
         </>
       )}
 
@@ -268,6 +330,23 @@ function ImageBlock({
         Most clients block images until the reader allows them — the description is what they see
         first.
       </p>
+
+      {block.buttonUrl && (
+        <div className="flex items-center gap-1.5 rounded-md bg-paper-2 px-2.5 py-1.5 text-[11px] text-ink-2">
+          <Link2 className="size-3 shrink-0 text-ink-4" strokeWidth={1.5} />
+          <span className="min-w-0 flex-1 truncate font-mono">{block.buttonUrl}</span>
+          {!locked && (
+            <button
+              type="button"
+              onClick={() => onChange({ buttonUrl: "" })}
+              className="shrink-0 text-ink-4 hover:text-flag"
+              aria-label="Remove link"
+            >
+              <X className="size-3" strokeWidth={2} />
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

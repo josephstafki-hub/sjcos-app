@@ -15,3 +15,20 @@ SJC OS is the source of truth:
 - Audit/proof of work belongs in SJC OS via `record_agent_run`, `record_skill_used`, and `record_receipt`.
 
 Do not treat `/home/joe/SJC OS Temp`, old CSV exports, or one-off local files as the operational source unless MCP is unavailable or the user explicitly asks for legacy/import evidence. Do not send client-facing emails/SMS/invoices/contracts through MCP; those stay owner-approved.
+
+# Newsletter (agent workflow)
+
+The client newsletter is operable by agents — from the in-app chat block on
+`/newsletter` (pick Claude / Qwen / Hermes in the rail) or from any MCP client via
+the `*_newsletter_*` tools (see `mcp/README.md`).
+
+What an agent MAY do: read the list, add / update / remove recipients, import
+client emails, compose issues (`create_newsletter_issue` → `update_newsletter_issue`),
+and **queue** an issue (`queue_newsletter_issue`). Adding a recipient parks a
+welcome greeting and enrolls them in any welcome drip the owner has armed.
+
+What stays owner-only (no tool exists, do not add one): **Release** — the click in
+`/newsletter` that actually mails a queued outbox row — and **arming a drip
+sequence** (`setSequenceActive`), the switch that lets a sequence send on its own.
+Queueing parks a send; it does not send. This keeps the standing rule intact:
+client-facing sends stay owner-approved.

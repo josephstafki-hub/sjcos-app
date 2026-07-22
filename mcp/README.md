@@ -47,6 +47,42 @@ All tools are parameterized SQL. **No raw-SQL tool** is exposed. Before working 
 non-trivial work item, an agent should `get_work_item` → `suggest_skill_for_work_item`
 → `get_skill`, then `record_skill_used` + `record_receipt` as it goes.
 
+## Newsletter tools (email list + issues)
+
+The client newsletter is drivable from any MCP client. **Reads** are direct
+SELECTs; **writes** go through the app's bearer-gated internal route
+(`/api/internal/newsletter`, authed with `CRON_SECRET`, audited to `agent_runs`).
+
+| Tool | Effect |
+|---|---|
+| `list_newsletter_recipients` | The email list (id, email, name, active) |
+| `list_newsletter_issues` | Issues with status / recipient_count / block_count |
+| `get_newsletter_issue` | One issue's full content (`id`) |
+| `list_newsletter_outbox` | Parked/sent rows — `queued` ones await Release |
+| `list_newsletter_sequences` | Drip sequences: active flag, subscribers, steps |
+| `add_newsletter_recipient` | Add/reactivate an email (`email`,`name?`); parks a welcome greeting + enrolls in any **armed** drip |
+| `update_newsletter_recipient` | Change name / active flag (`id` or `email`) |
+| `remove_newsletter_recipient` | Delete from the list (`id` or `email`) |
+| `import_client_newsletter_recipients` | Add every active client user's email |
+| `create_newsletter_issue` | New draft from a template (`template_key?`) |
+| `update_newsletter_issue` | Edit a **draft**'s `title`/`intro`/`blocks` |
+| `queue_newsletter_issue` | Park a copy per recipient in the outbox (`id`) |
+
+> **The send line — do not cross it.** These tools stop one click short of a real
+> inbox. `queue_newsletter_issue` PARKS the send; the owner Releases each outbox
+> row in `/newsletter` for anything to actually mail. `add_newsletter_recipient`
+> enrolls a contact in whatever welcome drip the owner has **already armed** — that
+> drip is the one pre-existing path that then sends on its own (guarded in
+> `lib/newsletter-drip.ts`); **arming a sequence is a human action in the app and
+> is deliberately NOT an MCP tool.** There is no `release`/`arm`/`send` tool, and
+> none should be added without the owner explicitly moving that line.
+
+**Typical agent flow:** `create_newsletter_issue` → `update_newsletter_issue`
+(title/intro/blocks, optionally from `list_projects` recent jobs) →
+`queue_newsletter_issue` → tell the owner to Release in `/newsletter`. To grow the
+list: `add_newsletter_recipient` (or `import_client_newsletter_recipients`), which
+also kicks off the welcome sequence for each new address if one is armed.
+
 ## Register with a client
 
 **Claude Code (CLI):**

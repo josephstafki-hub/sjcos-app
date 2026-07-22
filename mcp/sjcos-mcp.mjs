@@ -85,6 +85,31 @@ async function docDraftsCall(action, payload = {}) {
   }
 }
 
+/**
+ * Call the app's internal newsletter route (single source of truth for recipient
+ * management, issue compose/queue, and drip enrollment — the .mjs server can't
+ * import the TS render/queue modules). Trusted local caller, authed with
+ * CRON_SECRET. Defaults to the systemd service port (3017); override with
+ * APP_INTERNAL_URL. This route deliberately has NO 'release' / 'arm_sequence'
+ * action: queueing parks a send, but a real inbox is reached only when the owner
+ * clicks Release in the app, and turning a drip on stays a human action.
+ */
+async function newsletterCall(action, payload = {}) {
+  const base = envValue("APP_INTERNAL_URL") || "http://127.0.0.1:3017";
+  const secret = envValue("CRON_SECRET");
+  if (!secret) return { ok: false, error: "CRON_SECRET not set — cannot reach the app newsletter route." };
+  try {
+    const res = await fetch(`${base}/api/internal/newsletter`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
+      body: JSON.stringify({ action, ...payload }),
+    });
+    return await res.json();
+  } catch (e) {
+    return { ok: false, error: `App not reachable at ${base} (${e.message}). Is the sjcos service running?` };
+  }
+}
+
 async function rows(sql, params = []) {
   const r = await pool.query(sql, params);
   return r.rows;
@@ -1060,6 +1085,209 @@ server.registerTool(
     inputSchema: { id: z.number().int() },
   },
   async ({ id }) => json(await docDraftsCall("render", { id })),
+);
+
+// ─── Newsletter (email list + issues) ───────────────────────────────────────
+// Reads are direct SELECTs like every other read tool. Writes go THROUGH the
+// app's internal route (newsletterCall) so an agent reuses the exact compose /
+// queue / drip-enroll logic the browser uses.
+//
+// THE LINE, restated so no future tool crosses it by accident: there is no send
+// tool here. `queue_newsletter_issue` PARKS a copy per recipient in the outbox;
+// the owner still clicks Release in /newsletter for anything to reach a real
+// inbox. `add_newsletter_recipient` enrolls the contact into whatever welcome
+// drip the owner has already armed (the one path that then mails on its own —
+// pre-existing + guarded); arming a sequence is NOT exposed here. Do not add a
+// release/arm tool without the owner explicitly deciding to move that line.
+
+server.registerTool(
+  "list_newsletter_recipients",
+  {
+    title: "List newsletter recipients",
+    description: "The newsletter email list: id, email, name, active flag. Active-first.",
+    inputSchema: {},
+  },
+  async () =>
+    json(
+      await rows(
+        `SELECT id, email, name, active FROM newsletter_recipients ORDER BY active DESC, name, email`,
+      ),
+    ),
+);
+
+server.registerTool(
+  "list_newsletter_issues",
+  {
+    title: "List newsletter issues",
+    description:
+      "Newsletter issues with status (draft/queued/sent), recipient_count, and block_count. Newest first.",
+    inputSchema: {},
+  },
+  async () =>
+    json(
+      await rows(
+        `SELECT id, title, status, recipient_count,
+                jsonb_array_length(COALESCE(blocks,'[]'::jsonb)) AS block_count,
+                to_char(created_at, 'FMMon FMDD, YYYY') AS created_label
+           FROM newsletters ORDER BY created_at DESC, id DESC`,
+      ),
+    ),
+);
+
+server.registerTool(
+  "get_newsletter_issue",
+  {
+    title: "Get a newsletter issue",
+    description: "Full editable content of one issue: title, intro, blocks (JSON), template, status.",
+    inputSchema: { id: z.coerce.number().int() },
+  },
+  async ({ id }) => {
+    const r = await rows(
+      `SELECT id, title, intro, blocks, template, status, recipient_count FROM newsletters WHERE id = $1`,
+      [id],
+    );
+    return json(r[0] ?? { error: `No issue with id ${id}` });
+  },
+);
+
+server.registerTool(
+  "list_newsletter_outbox",
+  {
+    title: "List the newsletter outbox",
+    description:
+      "Parked/sent messages: kind (issue/greeting), the issue title, email, subject, status " +
+      "(queued/released/skipped/failed), open_count. 'queued' rows await the owner's Release.",
+    inputSchema: {},
+  },
+  async () =>
+    json(
+      await rows(
+        `SELECT o.id, o.kind, n.title AS issue_title, o.email, o.subject, o.status, o.error, o.open_count,
+                to_char(o.queued_at, 'FMMon FMDD, HH12:MI AM') AS queued_label
+           FROM newsletter_outbox o
+           LEFT JOIN newsletters n ON n.id = o.newsletter_id
+          ORDER BY (o.status = 'queued') DESC, o.queued_at DESC, o.id DESC`,
+      ),
+    ),
+);
+
+server.registerTool(
+  "list_newsletter_sequences",
+  {
+    title: "List welcome/drip sequences",
+    description:
+      "Drip sequences with their active flag, live subscriber count, and step count. `active=true` " +
+      "means the owner has armed it — new recipients auto-enroll and it mails on its own. Arming a " +
+      "sequence is a human action in the app; it is NOT an agent tool.",
+    inputSchema: {},
+  },
+  async () =>
+    json(
+      await rows(
+        `SELECT s.id, s.name, s.active,
+                (SELECT count(*)::int FROM newsletter_subscriptions x
+                  WHERE x.sequence_id = s.id AND x.status = 'active') AS subscribers,
+                (SELECT count(*)::int FROM newsletter_sequence_steps t
+                  WHERE t.sequence_id = s.id) AS steps
+           FROM newsletter_sequences s ORDER BY s.created_at DESC, s.id DESC`,
+      ),
+    ),
+);
+
+server.registerTool(
+  "add_newsletter_recipient",
+  {
+    title: "Add a newsletter recipient",
+    description:
+      "Add (or reactivate) an email on the list. Idempotent on email. Parks a one-time welcome " +
+      "greeting for the owner to Release, and enrolls the contact into every ACTIVE welcome drip — " +
+      "so this is how you 'start the welcome sequence for an email you add'. It only auto-sends if " +
+      "the owner has already armed a sequence; otherwise the greeting simply waits in the outbox.",
+    inputSchema: { email: z.string(), name: z.string().optional() },
+  },
+  async (a) => json(await newsletterCall("add_recipient", a)),
+);
+
+server.registerTool(
+  "update_newsletter_recipient",
+  {
+    title: "Update a newsletter recipient",
+    description:
+      "Change a recipient's name and/or active flag. Identify them by `id` or `email`. Setting " +
+      "active=false suppresses them from future sends without deleting their history.",
+    inputSchema: {
+      id: z.coerce.number().int().optional(),
+      email: z.string().optional(),
+      name: z.string().optional(),
+      active: z.boolean().optional(),
+    },
+  },
+  async (a) => json(await newsletterCall("update_recipient", a)),
+);
+
+server.registerTool(
+  "remove_newsletter_recipient",
+  {
+    title: "Remove a newsletter recipient",
+    description: "Delete a recipient from the list. Identify them by `id` or `email`.",
+    inputSchema: { id: z.coerce.number().int().optional(), email: z.string().optional() },
+  },
+  async (a) => json(await newsletterCall("remove_recipient", a)),
+);
+
+server.registerTool(
+  "import_client_newsletter_recipients",
+  {
+    title: "Import client emails to the newsletter",
+    description:
+      "Add every active client user's email onto the list. Parks a greeting + enrolls each NEWLY " +
+      "added contact (no backfill blast). Returns how many were added.",
+    inputSchema: {},
+  },
+  async () => json(await newsletterCall("import_client_recipients", {})),
+);
+
+server.registerTool(
+  "create_newsletter_issue",
+  {
+    title: "Create a newsletter issue",
+    description:
+      "Start a new DRAFT issue from a template (template_key: classic | jobsite | seasonal; " +
+      "default classic). Returns its id — then fill it with update_newsletter_issue.",
+    inputSchema: { template_key: z.string().optional() },
+  },
+  async (a) => json(await newsletterCall("create_issue", a)),
+);
+
+server.registerTool(
+  "update_newsletter_issue",
+  {
+    title: "Update a newsletter issue",
+    description:
+      "Edit a DRAFT issue's title, intro, and/or blocks (rejected once queued/sent). `blocks` is an " +
+      "array of { kind:'text'|'image'|'button'|'divider'|'quote', heading, body, projectSlug?, " +
+      "buttonLabel?, buttonUrl? }; omit `blocks` to leave content untouched.",
+    inputSchema: {
+      id: z.coerce.number().int(),
+      title: z.string().optional(),
+      intro: z.string().optional(),
+      blocks: z.array(z.any()).optional(),
+    },
+  },
+  async (a) => json(await newsletterCall("update_issue", a)),
+);
+
+server.registerTool(
+  "queue_newsletter_issue",
+  {
+    title: "Queue a newsletter issue for send",
+    description:
+      "Park a copy of the issue for every active recipient in the outbox and flip it to 'queued'. " +
+      "NOTHING is emailed here — the owner Releases each row in /newsletter. This is the agent's " +
+      "'send', and it deliberately stops one click short of a real inbox.",
+    inputSchema: { id: z.coerce.number().int() },
+  },
+  async ({ id }) => json(await newsletterCall("queue_issue", { id })),
 );
 
 const transport = new StdioServerTransport();

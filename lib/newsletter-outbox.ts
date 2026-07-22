@@ -28,11 +28,18 @@ export async function loadRenderableIssue(newsletterId: number) {
     settings: unknown;
     status: string;
     is_welcome: boolean;
-  }>(`SELECT title, intro, blocks, settings, status, is_welcome FROM newsletters WHERE id = $1`, [newsletterId]);
+    extra_recipients: unknown;
+  }>(
+    `SELECT title, intro, blocks, settings, status, is_welcome, extra_recipients FROM newsletters WHERE id = $1`,
+    [newsletterId],
+  );
   if (!row) return null;
   return {
     status: row.status,
     isWelcome: row.is_welcome,
+    extraRecipients: Array.isArray(row.extra_recipients)
+      ? (row.extra_recipients as { email: string; name: string }[])
+      : [],
     issue: {
       title: row.title,
       intro: row.intro,
@@ -63,7 +70,7 @@ export async function enqueueIssue(
   if (loaded.status === "sent") return { ok: false, error: "This issue was already sent." };
   if (loaded.status === "queued") return { ok: false, error: "This issue is already queued." };
 
-  const recipients = (
+  const targeted = (
     groupIds && groupIds.length > 0
       ? await query<{ id: number; email: string; name: string; unsub_token: string }>(
           `SELECT DISTINCT r.id, r.email, r.name, r.unsub_token
@@ -76,6 +83,16 @@ export async function enqueueIssue(
           `SELECT id, email, name, unsub_token FROM newsletter_recipients WHERE active = true`,
         )
   ).rows;
+
+  // One-time additions (this issue's extra_recipients) ride along as their own
+  // rows — recipient_id NULL (the column is nullable for exactly this), no
+  // unsubscribe token since they're not a tracked recipient. A duplicate of an
+  // already-targeted email is harmless: the (newsletter_id, email) unique index
+  // just no-ops the second INSERT below.
+  const recipients: { id: number | null; email: string; name: string; unsub_token: string }[] = [
+    ...targeted,
+    ...loaded.extraRecipients.map((e) => ({ id: null, email: e.email, name: e.name, unsub_token: "" })),
+  ];
   if (recipients.length === 0) return { ok: false, error: "No active recipients — add some first." };
 
   const subject = loaded.issue.title.trim() || "SJ Carpentry LLC";

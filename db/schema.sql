@@ -1255,6 +1255,12 @@ CREATE TABLE IF NOT EXISTS newsletter_recipient_groups (
 );
 CREATE INDEX IF NOT EXISTS idx_nl_recipient_groups_group ON newsletter_recipient_groups(group_id);
 
+-- Per-issue one-time additions: extra addresses that receive THIS issue only,
+-- without joining the permanent list. Lives on the issue (not the recipient
+-- table) since it's scoped to a single send, edited from that issue's own
+-- Recipients tab alongside its audience picks.
+ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS extra_recipients jsonb NOT NULL DEFAULT '[]';
+
 -- ─── SMS (two-way texting) ──────────────────────────────────────────────────
 -- Provider-agnostic SMS inbox mirroring the Gmail inbox. Populated only when a
 -- provider (Twilio/Telnyx/SignalWire) is configured (see lib/sms.ts); until then

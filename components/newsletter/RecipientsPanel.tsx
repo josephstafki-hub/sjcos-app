@@ -169,7 +169,10 @@ export function RecipientsPanel({
         </button>
       </div>
 
-      <Card className="overflow-hidden p-0">
+      {/* NOT overflow-hidden: a row's audience popover is position:absolute and
+          extends below its own row — clipping the Card here hid it entirely
+          (state toggled, nothing visible) rather than just squaring off corners. */}
+      <Card className="p-0">
         {recipients.length === 0 ? (
           <div className="px-4 py-6 text-center text-[12px] text-ink-3">No recipients yet.</div>
         ) : (

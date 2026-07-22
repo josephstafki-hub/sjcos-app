@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Plus, Sparkles, Trash2, Send, Mail, Check, Inbox, SkipForward, ArrowLeft, Star, ChevronDown } from "lucide-react";
+import { Plus, Sparkles, Trash2, Send, Mail, Check, Inbox, SkipForward, ArrowLeft, Star } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import { AI_NAME } from "@/lib/ai-name";
 import { NEWSLETTER_TEMPLATES } from "@/lib/newsletter-templates";
@@ -23,6 +23,7 @@ import { BlockEditor, AddBlockBar } from "./BlockEditor";
 import { DesignPanel } from "./DesignPanel";
 import { SequencePanel } from "./SequencePanel";
 import { RecipientsPanel } from "./RecipientsPanel";
+import { AudiencePanel } from "./AudiencePanel";
 import { AssistantChat } from "@/components/ai/AssistantChat";
 import type {
   NewsletterData,
@@ -48,6 +49,11 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
   const [sequences, setSequences] = useState<Sequence[]>(data.sequences);
   const [selectedId, setSelectedId] = useState<number | null>(data.selectedId);
   const [mode, setMode] = useState<Mode>("Edit");
+  // Contacts (the master list + audiences) is global, not scoped to a draft —
+  // Joe found it confusing that editing it lived inside a specific issue's tab
+  // bar. It now gets its own top-level view; the per-issue Recipients tab is
+  // just "which audience/one-time adds does THIS send go to".
+  const [view, setView] = useState<"issues" | "contacts">("issues");
   const [notice, setNotice] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -91,6 +97,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
           sentLabel: null,
           createdLabel: "just now",
           isWelcome: false,
+          extraRecipients: [],
         },
         ...prev,
       ]);
@@ -164,15 +171,23 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
     });
   }
 
-  // ── Audience (which groups a Queue targets; empty = everyone active) ──
+  // ── Audience (which groups + one-time adds a Queue targets; no groups = everyone active) ──
   const [queueGroupIds, setQueueGroupIds] = useState<number[]>([]);
-  const [audiencePicking, setAudiencePicking] = useState(false);
+  // Reset when switching issues — a stale audience pick from a different draft
+  // must never silently carry over to this one. Adjusting state mid-render on a
+  // prop change (rather than in an effect) is the pattern React recommends for
+  // exactly this case.
+  const [queueGroupsFor, setQueueGroupsFor] = useState<number | null>(selectedId);
+  if (queueGroupsFor !== selectedId) {
+    setQueueGroupsFor(selectedId);
+    setQueueGroupIds([]);
+  }
   const audienceCount =
-    queueGroupIds.length === 0
+    (queueGroupIds.length === 0
       ? activeCount
       : new Set(
           recipients.filter((r) => r.active && r.groupIds.some((g) => queueGroupIds.includes(g))).map((r) => r.id),
-        ).size;
+        ).size) + (current?.extraRecipients.length ?? 0);
 
   function queue() {
     if (!current) return;
@@ -258,7 +273,48 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
   }
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full flex-col">
+      <div className="flex shrink-0 items-center gap-1 border-b border-rule bg-paper-2 px-3 py-1.5">
+        <button
+          type="button"
+          onClick={() => setView("issues")}
+          className={`rounded-md px-2.5 py-1 text-[12px] font-semibold ${
+            view === "issues" ? "bg-ink text-paper" : "text-ink-3 hover:bg-paper"
+          }`}
+        >
+          Issues
+        </button>
+        <button
+          type="button"
+          onClick={() => setView("contacts")}
+          className={`rounded-md px-2.5 py-1 text-[12px] font-semibold ${
+            view === "contacts" ? "bg-ink text-paper" : "text-ink-3 hover:bg-paper"
+          }`}
+        >
+          Contacts · {activeCount}
+        </button>
+      </div>
+
+      {notice && (
+        <div className="shrink-0 border-b border-rule bg-paper-2 px-5 py-2 text-[12px] text-ink-2">{notice}</div>
+      )}
+
+      {view === "contacts" ? (
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          <RecipientsPanel
+            recipients={recipients}
+            setRecipients={setRecipients}
+            groups={groups}
+            setGroups={setGroups}
+            activeCount={activeCount}
+            pending={pending}
+            start={start}
+            onNotice={setNotice}
+            onOutboxRefresh={refreshOutboxAfterAdd}
+          />
+        </div>
+      ) : (
+      <div className="flex min-h-0 flex-1">
       {/* Issues rail */}
       <aside
         className={`w-full flex-none flex-col border-r border-rule bg-paper-2 lg:w-[240px] ${
@@ -393,7 +449,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                   }`}
                 >
                   {m}
-                  {m === "Recipients" ? ` · ${activeCount}` : ""}
+                  {m === "Recipients" ? ` · ${audienceCount}` : ""}
                   {m === "Automations" && liveSequenceCount ? ` · ${liveSequenceCount} on` : ""}
                   {m === "Outbox" && queuedCount ? ` · ${queuedCount}` : ""}
                 </button>
@@ -412,51 +468,14 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                 )}
                 {!locked && !current.isWelcome && (
                   <>
-                    {groups.length > 0 && (
-                      <div className="relative">
-                        <button
-                          type="button"
-                          onClick={() => setAudiencePicking((p) => !p)}
-                          disabled={pending}
-                          className="inline-flex items-center gap-1 rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-60"
-                        >
-                          {queueGroupIds.length === 0
-                            ? "Everyone"
-                            : `${queueGroupIds.length} audience${queueGroupIds.length === 1 ? "" : "s"}`}
-                          <ChevronDown className="size-3" strokeWidth={2} />
-                        </button>
-                        {audiencePicking && (
-                          <>
-                            <div className="fixed inset-0 z-10" onClick={() => setAudiencePicking(false)} />
-                            <div className="absolute right-0 top-9 z-20 w-[210px] rounded-lg border border-rule bg-card p-1.5 shadow-lg">
-                              <div className="px-2 pb-1 pt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
-                                Audience
-                              </div>
-                              {groups.map((g) => (
-                                <label
-                                  key={g.id}
-                                  className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] text-ink hover:bg-paper-2"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={queueGroupIds.includes(g.id)}
-                                    onChange={(e) =>
-                                      setQueueGroupIds((prev) =>
-                                        e.target.checked ? [...prev, g.id] : prev.filter((x) => x !== g.id),
-                                      )
-                                    }
-                                    className="size-3.5"
-                                  />
-                                  {g.name}
-                                </label>
-                              ))}
-                              <div className="px-2 pt-1 text-[10.5px] leading-snug text-ink-3">
-                                None selected = everyone active. In more than one still gets one copy.
-                              </div>
-                            </div>
-                          </>
-                        )}
-                      </div>
+                    {(queueGroupIds.length > 0 || current.extraRecipients.length > 0) && (
+                      <span className="text-[11px] text-ink-3">
+                        {queueGroupIds.length > 0
+                          ? `${queueGroupIds.length} audience${queueGroupIds.length === 1 ? "" : "s"}`
+                          : "Everyone"}
+                        {current.extraRecipients.length > 0 ? ` +${current.extraRecipients.length}` : ""} — set in
+                        Recipients
+                      </span>
                     )}
                     <button
                       type="button"
@@ -474,10 +493,6 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                 {sent && <Chip kind="money">Sent · {current.recipientCount}</Chip>}
               </div>
             </div>
-
-            {notice && (
-              <div className="border-b border-rule bg-paper-2 px-5 py-2 text-[12px] text-ink-2">{notice}</div>
-            )}
 
             {mode === "Assistant" ? (
               <div className="min-h-0 flex-1 overflow-hidden">
@@ -586,16 +601,16 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
               )}
 
               {mode === "Recipients" && (
-                <RecipientsPanel
-                  recipients={recipients}
-                  setRecipients={setRecipients}
+                <AudiencePanel
+                  issueId={current.id}
+                  extraRecipients={current.extraRecipients}
+                  onExtraRecipientsChange={(list) => patchCurrent({ extraRecipients: list })}
                   groups={groups}
-                  setGroups={setGroups}
-                  activeCount={activeCount}
+                  queueGroupIds={queueGroupIds}
+                  setQueueGroupIds={setQueueGroupIds}
                   pending={pending}
                   start={start}
-                  onNotice={setNotice}
-                  onOutboxRefresh={refreshOutboxAfterAdd}
+                  locked={locked}
                 />
               )}
             </div>
@@ -650,6 +665,8 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
           </>
         )}
       </section>
+      </div>
+      )}
     </div>
   );
 }

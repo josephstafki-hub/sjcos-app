@@ -50,6 +50,9 @@ export interface NewsletterIssue {
    *  partial-unique — at most one). Pinned in the rail; never queued/deleted
    *  through the normal broadcast flow. */
   isWelcome: boolean;
+  /** One-time addresses that get just THIS issue when queued — not added to
+   *  the recipient list. Edited from this issue's own Recipients tab. */
+  extraRecipients: { email: string; name: string }[];
 }
 
 /** A parked send (issue or greeting) awaiting the owner's Release. */
@@ -121,6 +124,7 @@ interface IssueRow {
   sent_label: string | null;
   created_label: string;
   is_welcome: boolean;
+  extra_recipients: unknown;
 }
 
 function rowToIssue(r: IssueRow): NewsletterIssue {
@@ -131,6 +135,7 @@ function rowToIssue(r: IssueRow): NewsletterIssue {
     blocks: Array.isArray(r.blocks) ? r.blocks : [],
     template: r.template || "classic",
     settings: normalizeSettings(r.settings),
+    extraRecipients: Array.isArray(r.extra_recipients) ? (r.extra_recipients as { email: string; name: string }[]) : [],
     status: r.status,
     recipientCount: r.recipient_count,
     sentLabel: r.sent_label,
@@ -183,7 +188,7 @@ export async function readOutbox(): Promise<OutboxItem[]> {
 
 export async function getNewsletterData(selectedId?: number): Promise<NewsletterData> {
   const { rows: issueRows } = await query<IssueRow>(
-    `SELECT id, title, intro, blocks, template, settings, status, recipient_count, is_welcome,
+    `SELECT id, title, intro, blocks, template, settings, status, recipient_count, is_welcome, extra_recipients,
             to_char(sent_at, 'FMMon FMDD, YYYY')    AS sent_label,
             to_char(created_at, 'FMMon FMDD, YYYY')  AS created_label
        FROM newsletters

@@ -111,6 +111,27 @@ export async function saveIssue(
   return { ok: true };
 }
 
+/** Persist this issue's one-time additions — extra addresses that get just THIS
+ *  send, never added to the recipient list. Draft-only, same as the rest of the
+ *  issue's content. Owner-only. */
+export async function setExtraRecipients(
+  id: number,
+  list: { email: string; name: string }[],
+): Promise<Result> {
+  await requireRole("owner");
+  const cleaned = list
+    .map((e) => ({ email: e.email.trim().toLowerCase().slice(0, 200), name: e.name.trim().slice(0, 120) }))
+    .filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e.email))
+    .slice(0, 200);
+  const res = await query(
+    `UPDATE newsletters SET extra_recipients = $2::jsonb, updated_at = now() WHERE id = $1 AND status = 'draft'`,
+    [id, JSON.stringify(cleaned)],
+  );
+  if (res.rowCount === 0) return { ok: false, error: "Issue not found or already sent." };
+  revalidatePath("/newsletter");
+  return { ok: true };
+}
+
 /** Upload a photo for use inside an issue and publish it for email delivery.
  *  Returns the public token the block stores. Owner-only.
  *

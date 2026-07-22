@@ -78,16 +78,30 @@ export function composeIssueEmail(
   return { subject: title.trim() || "SJ Carpentry LLC", body: parts.join("\n\n") };
 }
 
-/** Warm welcome copy sent (after owner release) when a new contact joins the list. */
-export function greetingEmail(name: string): { subject: string; body: string } {
+/** Built-in warm-welcome copy, used until the owner (or the newsletter chat
+ *  agent) saves an override in app_settings — see getGreetingTemplate in
+ *  lib/newsletter-outbox.ts. `{name}` is filled in by renderGreeting. */
+export const DEFAULT_GREETING_SUBJECT = "Welcome to SJ Carpentry — glad to have you";
+export const DEFAULT_GREETING_BODY =
+  `Hi {name},\n\n` +
+  `Thanks for joining the SJ Carpentry list — glad to have you here.\n\n` +
+  `From time to time we'll send a short note about projects we've just wrapped up, ` +
+  `seasonal home-maintenance tips, and what we've got going on. Nothing frequent, no spam — ` +
+  `just useful stuff from a real local crew.\n\n` +
+  `If you ever have a question, want an estimate, or just want to say hi, hit reply — it ` +
+  `goes straight to a person, not a bot.\n\n` +
+  `Talk soon,\n—\nSJ Carpentry LLC\nReply to this email any time.`;
+
+/** Fill the `{name}` placeholder in a (possibly owner-edited) greeting template. */
+export function renderGreeting(
+  subjectTpl: string,
+  bodyTpl: string,
+  name: string,
+): { subject: string; body: string } {
   const who = name.trim() || "there";
+  const fill = (s: string) => s.replace(/\{name\}/g, who);
   return {
-    subject: "Welcome from SJ Carpentry LLC",
-    body:
-      `Hi ${who},\n\n` +
-      `Thanks for joining our list — we're glad to have you. We'll send an occasional note ` +
-      `about projects we've finished, seasonal home tips, and what we're up to. No spam, ever, ` +
-      `and you can reply to any email to reach a real person here.\n\n` +
-      `—\nSJ Carpentry LLC\nReply to this email any time.`,
+    subject: fill(subjectTpl).trim() || DEFAULT_GREETING_SUBJECT,
+    body: fill(bodyTpl),
   };
 }

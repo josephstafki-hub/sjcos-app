@@ -11,7 +11,13 @@ import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { ai } from "@/lib/ai";
 import { getTemplate } from "@/lib/newsletter-templates";
-import { enqueueIssue, enqueueGreeting, releaseOutboxItem, skipOutboxItem } from "@/lib/newsletter-outbox";
+import {
+  enqueueIssue,
+  enqueueGreeting,
+  releaseOutboxItem,
+  skipOutboxItem,
+  setGreetingTemplate,
+} from "@/lib/newsletter-outbox";
 import { readOutbox } from "@/lib/newsletter";
 import { normalizeSettings, type IssueSettings } from "@/lib/newsletter-design";
 import { enrollRecipient, enrollAllInSequence, listSequences, type Sequence } from "@/lib/newsletter-drip";
@@ -272,6 +278,16 @@ export async function addRecipient(email: string, name: string): Promise<Result>
   }
   revalidatePath("/newsletter");
   return { ok: true };
+}
+
+/** Save the welcome-greeting template (subject/body, `{name}` placeholder). Takes
+ *  effect immediately for the NEXT contact added — already-parked outbox rows
+ *  keep the copy they were rendered with (audit-stable). Owner-only. */
+export async function updateGreetingTemplate(subject: string, body: string): Promise<Result<{ subject: string; body: string }>> {
+  await requireRole("owner");
+  const saved = await setGreetingTemplate(subject, body);
+  revalidatePath("/newsletter");
+  return { ok: true, data: saved };
 }
 
 /** Remove a recipient. Owner-only. */

@@ -8,8 +8,9 @@ import "server-only";
 // work for an MCP client.
 //
 // ─── THE SAFETY LINE (do not move it) ───────────────────────────────────────
-// This module can read the list, manage recipients, compose/queue issues, and
-// enroll a new contact into whatever drip the OWNER has already armed. It CANNOT
+// This module can read the list, manage recipients, compose/queue issues, edit
+// the welcome-greeting copy, and enroll a new contact into whatever drip the
+// OWNER has already armed. It CANNOT
 // send: there is no Release here and no setSequenceActive here. Queueing parks
 // rows in newsletter_outbox exactly like the Queue button — the owner still
 // clicks Release in /newsletter for a single byte to reach a real inbox. Adding
@@ -19,7 +20,7 @@ import "server-only";
 // human action in the app. Keep it that way.
 
 import { query, queryOne } from "./db";
-import { enqueueIssue, enqueueGreeting } from "./newsletter-outbox";
+import { enqueueIssue, enqueueGreeting, getGreetingTemplate, setGreetingTemplate } from "./newsletter-outbox";
 import { enrollRecipient } from "./newsletter-drip";
 import { getTemplate } from "./newsletter-templates";
 import type { NewsletterBlock, BlockKind } from "./newsletter";
@@ -178,6 +179,28 @@ export async function agentImportClientRecipients(): Promise<AgentResult<{ added
     }
   }
   return { ok: true, data: { added: inserted.rowCount ?? 0 } };
+}
+
+// ─── Welcome greeting ───────────────────────────────────────────────────────
+// The one-time welcome email parked (still owner-Released) whenever a contact
+// is added. DB-backed so an agent can actually revise the copy — the whole
+// point of this chat surface is that a wording tweak takes effect on the next
+// add, no rebuild/deploy required.
+
+/** Current greeting template (subject/body, `{name}` placeholder for the recipient's name). */
+export async function agentGetGreeting(): Promise<AgentResult<{ subject: string; body: string }>> {
+  return { ok: true, data: await getGreetingTemplate() };
+}
+
+/** Save a new greeting template. Use `{name}` where the recipient's name should go. */
+export async function agentUpdateGreeting(
+  subject: string,
+  body: string,
+): Promise<AgentResult<{ subject: string; body: string }>> {
+  if (!subject.trim() && !body.trim()) return { ok: false, error: "Pass a subject and/or body." };
+  const cur = await getGreetingTemplate();
+  const saved = await setGreetingTemplate(subject.trim() || cur.subject, body.trim() || cur.body);
+  return { ok: true, data: saved };
 }
 
 // ─── Issues ──────────────────────────────────────────────────────────────────

@@ -20,6 +20,7 @@ import {
   releaseNewsletterItem,
   skipNewsletterItem,
   refreshOutbox,
+  updateGreetingTemplate,
 } from "@/lib/actions/newsletter";
 import { BlockEditor, AddBlockBar } from "./BlockEditor";
 import { DesignPanel } from "./DesignPanel";
@@ -38,6 +39,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
   const [recipients, setRecipients] = useState<Recipient[]>(data.recipients);
   const [outbox, setOutbox] = useState<OutboxItem[]>(data.outbox);
   const [sequences, setSequences] = useState<Sequence[]>(data.sequences);
+  const [greeting, setGreeting] = useState(data.greeting);
   const [selectedId, setSelectedId] = useState<number | null>(data.selectedId);
   const [mode, setMode] = useState<Mode>("Edit");
   const [notice, setNotice] = useState<string | null>(null);
@@ -231,6 +233,20 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
         setNotice(`Imported ${res.data ?? 0} client email(s). Reload to see them in the list.`);
         setOutbox(await refreshOutbox()); // surface parked greetings for new contacts
       }
+    });
+  }
+
+  // ── Welcome greeting ── (DB-backed; takes effect on the next recipient added)
+  const [greetingDraft, setGreetingDraft] = useState(data.greeting);
+  const greetingDirty = greetingDraft.subject !== greeting.subject || greetingDraft.body !== greeting.body;
+  function saveGreeting() {
+    start(async () => {
+      const res = await updateGreetingTemplate(greetingDraft.subject, greetingDraft.body);
+      if (res.ok && res.data) {
+        setGreeting(res.data);
+        setGreetingDraft(res.data);
+        setNotice("Welcome email updated.");
+      } else if (!res.ok) setNotice(res.error);
     });
   }
 
@@ -563,6 +579,53 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                     >
                       <Plus className="size-3.5" strokeWidth={2} /> Add
                     </button>
+                  </div>
+
+                  <div className="border-t border-rule-soft pt-4">
+                    <div className="flex items-center gap-2">
+                      <Mail className="size-4 text-ink-3" strokeWidth={1.5} />
+                      <span className="text-[13px] font-semibold text-ink">Welcome email</span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-ink-3">
+                      Sent (after you Release it in the Outbox) to every new contact. Use{" "}
+                      <code className="rounded bg-paper-2 px-1 py-0.5 font-mono text-[10px]">{"{name}"}</code>{" "}
+                      for their name. Editable here or by asking the Assistant tab — changes apply to the
+                      next recipient added, no rebuild needed.
+                    </p>
+                    <div className="mt-2 space-y-2">
+                      <input
+                        value={greetingDraft.subject}
+                        onChange={(e) => setGreetingDraft((g) => ({ ...g, subject: e.target.value }))}
+                        placeholder="Subject"
+                        className="w-full rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+                      />
+                      <textarea
+                        value={greetingDraft.body}
+                        onChange={(e) => setGreetingDraft((g) => ({ ...g, body: e.target.value }))}
+                        rows={8}
+                        className="w-full resize-y rounded-md border border-rule bg-paper px-2.5 py-1.5 font-mono text-[12px] leading-relaxed text-ink outline-none focus:border-accent"
+                      />
+                      <div className="flex items-center justify-end gap-2">
+                        {greetingDirty && (
+                          <button
+                            type="button"
+                            onClick={() => setGreetingDraft(greeting)}
+                            disabled={pending}
+                            className="rounded-md px-2.5 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2 disabled:opacity-50"
+                          >
+                            Revert
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={saveGreeting}
+                          disabled={pending || !greetingDirty || !greetingDraft.subject.trim() || !greetingDraft.body.trim()}
+                          className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
+                        >
+                          <Check className="size-3.5" strokeWidth={2} /> Save
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}

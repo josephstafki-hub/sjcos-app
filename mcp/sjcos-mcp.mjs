@@ -1195,6 +1195,32 @@ server.registerTool(
 );
 
 server.registerTool(
+  "get_newsletter_greeting",
+  {
+    title: "Get the welcome-greeting email",
+    description:
+      "The one-time welcome email parked (still owner-Released) whenever a contact is added. " +
+      "Returns { subject, body } with a `{name}` placeholder. DB-backed — this is the live copy, " +
+      "not source code, so update_newsletter_greeting takes effect on the very next recipient added.",
+    inputSchema: {},
+  },
+  async () => json(await newsletterCall("get_greeting", {})),
+);
+
+server.registerTool(
+  "update_newsletter_greeting",
+  {
+    title: "Update the welcome-greeting email",
+    description:
+      "Rewrite the welcome email's subject and/or body. Use `{name}` where the recipient's name " +
+      "should go. Takes effect immediately for the next contact added; already-parked greetings in " +
+      "the Outbox keep the copy they were written with. Still owner-Released, like every greeting.",
+    inputSchema: { subject: z.string().optional(), body: z.string().optional() },
+  },
+  async (a) => json(await newsletterCall("update_greeting", a)),
+);
+
+server.registerTool(
   "add_newsletter_recipient",
   {
     title: "Add a newsletter recipient",

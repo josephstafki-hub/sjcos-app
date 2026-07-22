@@ -8,7 +8,7 @@ import "server-only";
 import { query } from "./db";
 import { normalizeSettings, type IssueSettings } from "./newsletter-design";
 import { listSequences, type Sequence } from "./newsletter-drip";
-import { baseUrl } from "./newsletter-outbox";
+import { baseUrl, getGreetingTemplate } from "./newsletter-outbox";
 
 export type { IssueSettings, Sequence };
 
@@ -91,6 +91,10 @@ export interface NewsletterData {
    *  preview built from window.location would silently work in dev and break the
    *  moment the app is reached by another hostname. */
   baseUrl: string;
+  /** The welcome-greeting template (subject/body, `{name}` placeholder) parked
+   *  for every new recipient. Owner-editable in the Recipients tab and by the
+   *  newsletter chat agent — DB-backed so an edit needs no rebuild. */
+  greeting: { subject: string; body: string };
 }
 
 interface IssueRow {
@@ -194,6 +198,7 @@ export async function getNewsletterData(selectedId?: number): Promise<Newsletter
   const activeRecipientCount = recipients.filter((r) => r.active).length;
 
   const sequences = await listSequences();
+  const greeting = await getGreetingTemplate();
 
   const selected =
     selectedId && issues.some((i) => i.id === selectedId) ? selectedId : issues[0]?.id ?? null;
@@ -207,5 +212,6 @@ export async function getNewsletterData(selectedId?: number): Promise<Newsletter
     outbox,
     sequences,
     baseUrl: baseUrl(),
+    greeting,
   };
 }

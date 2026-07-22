@@ -10,10 +10,41 @@
 
 import { query, queryOne } from "./db";
 import { sendNewEmail } from "./gmail";
-import { greetingEmail } from "./newsletter-templates";
+import { DEFAULT_GREETING_SUBJECT, DEFAULT_GREETING_BODY, renderGreeting } from "./newsletter-templates";
 import { normalizeSettings } from "./newsletter-design";
 import { renderIssueHtml, renderIssueText } from "./newsletter-render";
 import type { NewsletterBlock } from "./newsletter";
+
+const GREETING_SUBJECT_KEY = "newsletter.greeting_subject";
+const GREETING_BODY_KEY = "newsletter.greeting_body";
+
+/** The live welcome-greeting template (subject/body, `{name}` placeholder).
+ *  Owner-editable from the Recipients tab and from the newsletter chat agent
+ *  (MCP) — stored in app_settings so a copy tweak takes effect immediately,
+ *  with no rebuild/deploy. Falls back to the built-in default when unset. */
+export async function getGreetingTemplate(): Promise<{ subject: string; body: string }> {
+  const { rows } = await query<{ key: string; value: string }>(
+    `SELECT key, value FROM app_settings WHERE key IN ($1, $2)`,
+    [GREETING_SUBJECT_KEY, GREETING_BODY_KEY],
+  );
+  const map = new Map(rows.map((r) => [r.key, r.value]));
+  return {
+    subject: map.get(GREETING_SUBJECT_KEY) || DEFAULT_GREETING_SUBJECT,
+    body: map.get(GREETING_BODY_KEY) || DEFAULT_GREETING_BODY,
+  };
+}
+
+/** Save a new greeting template. Use `{name}` where the recipient's name goes. */
+export async function setGreetingTemplate(subject: string, body: string): Promise<{ subject: string; body: string }> {
+  const s = subject.trim().slice(0, 200) || DEFAULT_GREETING_SUBJECT;
+  const b = body.trim().slice(0, 4000) || DEFAULT_GREETING_BODY;
+  await query(
+    `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, now()), ($3, $4, now())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [GREETING_SUBJECT_KEY, s, GREETING_BODY_KEY, b],
+  );
+  return { subject: s, body: b };
+}
 
 export function baseUrl(): string {
   return (process.env.NEXT_PUBLIC_APP_URL ?? "https://os.sjcarpentryllc.com").replace(/\/$/, "");
@@ -94,7 +125,8 @@ export async function enqueueIssue(newsletterId: number): Promise<{ ok: boolean;
 /** Enqueue a parked welcome-greeting for a newly added contact. One per address
  *  ever (partial unique index). No-op if already queued/sent to that email. */
 export async function enqueueGreeting(recipientId: number, email: string, name: string): Promise<void> {
-  const { subject, body } = greetingEmail(name);
+  const tpl = await getGreetingTemplate();
+  const { subject, body } = renderGreeting(tpl.subject, tpl.body, name);
   await query(
     `INSERT INTO newsletter_outbox (kind, recipient_id, email, name, subject, body)
      VALUES ('greeting', $1, $2, $3, $4, $5)

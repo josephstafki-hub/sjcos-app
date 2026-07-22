@@ -60,6 +60,8 @@ SELECTs; **writes** go through the app's bearer-gated internal route
 | `get_newsletter_issue` | One issue's full content (`id`) |
 | `list_newsletter_outbox` | Parked/sent rows — `queued` ones await Release |
 | `list_newsletter_sequences` | Drip sequences: active flag, subscribers, steps |
+| `get_newsletter_greeting` | The welcome-greeting `{subject, body}` (`{name}` placeholder) — DB-backed, live copy |
+| `update_newsletter_greeting` | Rewrite the welcome-greeting `subject?`/`body?`; effective on the next recipient added |
 | `add_newsletter_recipient` | Add/reactivate an email (`email`,`name?`); parks a welcome greeting + enrolls in any **armed** drip |
 | `update_newsletter_recipient` | Change name / active flag (`id` or `email`) |
 | `remove_newsletter_recipient` | Delete from the list (`id` or `email`) |

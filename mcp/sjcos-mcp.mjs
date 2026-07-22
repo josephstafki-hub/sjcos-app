@@ -1195,29 +1195,29 @@ server.registerTool(
 );
 
 server.registerTool(
-  "get_newsletter_greeting",
+  "list_newsletter_groups",
   {
-    title: "Get the welcome-greeting email",
+    title: "List newsletter audiences",
     description:
-      "The one-time welcome email parked (still owner-Released) whenever a contact is added. " +
-      "Returns { subject, body } with a `{name}` placeholder. DB-backed — this is the live copy, " +
-      "not source code, so update_newsletter_greeting takes effect on the very next recipient added.",
+      "Named subsets of the recipient list (email groups), each with a live member count. Selectable " +
+      "as `group_ids` on queue_newsletter_issue to scope a send. Creating/renaming groups and assigning " +
+      "membership is a Recipients-tab action in the app, not exposed here yet.",
     inputSchema: {},
   },
-  async () => json(await newsletterCall("get_greeting", {})),
+  async () => json(await newsletterCall("list_groups", {})),
 );
 
 server.registerTool(
-  "update_newsletter_greeting",
+  "set_newsletter_welcome_issue",
   {
-    title: "Update the welcome-greeting email",
+    title: "Set (or unset) the welcome-email issue",
     description:
-      "Rewrite the welcome email's subject and/or body. Use `{name}` where the recipient's name " +
-      "should go. Takes effect immediately for the next contact added; already-parked greetings in " +
-      "the Outbox keep the copy they were written with. Still owner-Released, like every greeting.",
-    inputSchema: { subject: z.string().optional(), body: z.string().optional() },
+      "Mark an issue as THE welcome email sent to new contacts (or unmark it with on:false). It's just " +
+      "an issue with is_welcome=true — edit its content with update_newsletter_issue like any other. " +
+      "Marking a new one automatically displaces whatever issue was welcome before it: only one at a time.",
+    inputSchema: { id: z.coerce.number().int(), on: z.boolean().optional() },
   },
-  async (a) => json(await newsletterCall("update_greeting", a)),
+  async ({ id, on }) => json(await newsletterCall("set_welcome", { id, on })),
 );
 
 server.registerTool(
@@ -1308,12 +1308,14 @@ server.registerTool(
   {
     title: "Queue a newsletter issue for send",
     description:
-      "Park a copy of the issue for every active recipient in the outbox and flip it to 'queued'. " +
+      "Park a copy of the issue in the outbox and flip it to 'queued'. `group_ids`, if given, scopes " +
+      "the send to recipients in ANY of those audiences (list_newsletter_groups for ids) — a recipient " +
+      "in more than one selected group still gets exactly one copy. Omit for every active recipient. " +
       "NOTHING is emailed here — the owner Releases each row in /newsletter. This is the agent's " +
       "'send', and it deliberately stops one click short of a real inbox.",
-    inputSchema: { id: z.coerce.number().int() },
+    inputSchema: { id: z.coerce.number().int(), group_ids: z.array(z.coerce.number().int()).optional() },
   },
-  async ({ id }) => json(await newsletterCall("queue_issue", { id })),
+  async ({ id, group_ids }) => json(await newsletterCall("queue_issue", { id, group_ids })),
 );
 
 const transport = new StdioServerTransport();

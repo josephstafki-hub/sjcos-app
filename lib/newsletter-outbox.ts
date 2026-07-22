@@ -10,41 +10,9 @@
 
 import { query, queryOne } from "./db";
 import { sendNewEmail } from "./gmail";
-import { DEFAULT_GREETING_SUBJECT, DEFAULT_GREETING_BODY, renderGreeting } from "./newsletter-templates";
 import { normalizeSettings } from "./newsletter-design";
 import { renderIssueHtml, renderIssueText } from "./newsletter-render";
 import type { NewsletterBlock } from "./newsletter";
-
-const GREETING_SUBJECT_KEY = "newsletter.greeting_subject";
-const GREETING_BODY_KEY = "newsletter.greeting_body";
-
-/** The live welcome-greeting template (subject/body, `{name}` placeholder).
- *  Owner-editable from the Recipients tab and from the newsletter chat agent
- *  (MCP) — stored in app_settings so a copy tweak takes effect immediately,
- *  with no rebuild/deploy. Falls back to the built-in default when unset. */
-export async function getGreetingTemplate(): Promise<{ subject: string; body: string }> {
-  const { rows } = await query<{ key: string; value: string }>(
-    `SELECT key, value FROM app_settings WHERE key IN ($1, $2)`,
-    [GREETING_SUBJECT_KEY, GREETING_BODY_KEY],
-  );
-  const map = new Map(rows.map((r) => [r.key, r.value]));
-  return {
-    subject: map.get(GREETING_SUBJECT_KEY) || DEFAULT_GREETING_SUBJECT,
-    body: map.get(GREETING_BODY_KEY) || DEFAULT_GREETING_BODY,
-  };
-}
-
-/** Save a new greeting template. Use `{name}` where the recipient's name goes. */
-export async function setGreetingTemplate(subject: string, body: string): Promise<{ subject: string; body: string }> {
-  const s = subject.trim().slice(0, 200) || DEFAULT_GREETING_SUBJECT;
-  const b = body.trim().slice(0, 4000) || DEFAULT_GREETING_BODY;
-  await query(
-    `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, now()), ($3, $4, now())
-     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-    [GREETING_SUBJECT_KEY, s, GREETING_BODY_KEY, b],
-  );
-  return { subject: s, body: b };
-}
 
 export function baseUrl(): string {
   return (process.env.NEXT_PUBLIC_APP_URL ?? "https://os.sjcarpentryllc.com").replace(/\/$/, "");
@@ -59,10 +27,12 @@ export async function loadRenderableIssue(newsletterId: number) {
     blocks: NewsletterBlock[];
     settings: unknown;
     status: string;
-  }>(`SELECT title, intro, blocks, settings, status FROM newsletters WHERE id = $1`, [newsletterId]);
+    is_welcome: boolean;
+  }>(`SELECT title, intro, blocks, settings, status, is_welcome FROM newsletters WHERE id = $1`, [newsletterId]);
   if (!row) return null;
   return {
     status: row.status,
+    isWelcome: row.is_welcome,
     issue: {
       title: row.title,
       intro: row.intro,
@@ -72,18 +42,39 @@ export async function loadRenderableIssue(newsletterId: number) {
   };
 }
 
-/** Enqueue one issue-send row per active recipient and flip the issue to 'queued'.
- *  Idempotent per (issue, email). Returns how many rows are queued. */
-export async function enqueueIssue(newsletterId: number): Promise<{ ok: boolean; queued?: number; error?: string }> {
+/** Enqueue one issue-send row per targeted recipient and flip the issue to
+ *  'queued'. Idempotent per (issue, email). Returns how many rows are queued.
+ *
+ *  `groupIds`, when non-empty, scopes the send to active recipients belonging
+ *  to ANY of those audiences — DISTINCT on recipient id is the redundancy
+ *  screen: someone in two selected groups still gets exactly one email, while
+ *  their membership in both groups is untouched (this only reads
+ *  newsletter_recipient_groups, never writes it). Omitted/empty means every
+ *  active recipient, same as before audiences existed. */
+export async function enqueueIssue(
+  newsletterId: number,
+  groupIds?: number[],
+): Promise<{ ok: boolean; queued?: number; error?: string }> {
   const loaded = await loadRenderableIssue(newsletterId);
   if (!loaded) return { ok: false, error: "Issue not found." };
+  if (loaded.isWelcome) {
+    return { ok: false, error: "This is the welcome email — it sends automatically to new contacts, not through Queue." };
+  }
   if (loaded.status === "sent") return { ok: false, error: "This issue was already sent." };
   if (loaded.status === "queued") return { ok: false, error: "This issue is already queued." };
 
   const recipients = (
-    await query<{ id: number; email: string; name: string; unsub_token: string }>(
-      `SELECT id, email, name, unsub_token FROM newsletter_recipients WHERE active = true`,
-    )
+    groupIds && groupIds.length > 0
+      ? await query<{ id: number; email: string; name: string; unsub_token: string }>(
+          `SELECT DISTINCT r.id, r.email, r.name, r.unsub_token
+             FROM newsletter_recipients r
+             JOIN newsletter_recipient_groups g ON g.recipient_id = r.id
+            WHERE r.active = true AND g.group_id = ANY($1)`,
+          [groupIds],
+        )
+      : await query<{ id: number; email: string; name: string; unsub_token: string }>(
+          `SELECT id, email, name, unsub_token FROM newsletter_recipients WHERE active = true`,
+        )
   ).rows;
   if (recipients.length === 0) return { ok: false, error: "No active recipients — add some first." };
 
@@ -122,16 +113,42 @@ export async function enqueueIssue(newsletterId: number): Promise<{ ok: boolean;
   return { ok: true, queued };
 }
 
-/** Enqueue a parked welcome-greeting for a newly added contact. One per address
- *  ever (partial unique index). No-op if already queued/sent to that email. */
+/** Escape text landing inside HTML — used only for the `{name}` fill below,
+ *  since a recipient's name is untrusted input reaching a rendered email. */
+function escHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** Enqueue a parked welcome-greeting for a newly added contact, rendered from
+ *  the one issue flagged newsletters.is_welcome — same renderer, photos, and
+ *  buttons as any broadcast issue, just personalized. `{name}` in the title,
+ *  intro, or any block is filled with the recipient's name (or "there").
+ *  One per address ever (partial unique index). No-op if no welcome issue is
+ *  configured, or if already queued/sent to that email. */
 export async function enqueueGreeting(recipientId: number, email: string, name: string): Promise<void> {
-  const tpl = await getGreetingTemplate();
-  const { subject, body } = renderGreeting(tpl.subject, tpl.body, name);
+  const welcome = await queryOne<{ id: number }>(`SELECT id FROM newsletters WHERE is_welcome = true LIMIT 1`);
+  if (!welcome) return;
+  const loaded = await loadRenderableIssue(welcome.id);
+  if (!loaded) return;
+
+  const recip = await queryOne<{ unsub_token: string }>(
+    `SELECT unsub_token FROM newsletter_recipients WHERE id = $1`,
+    [recipientId],
+  );
+  const opts = { baseUrl: baseUrl(), unsubToken: recip?.unsub_token ?? "" };
+  const who = name.trim() || "there";
+  const fill = (s: string) => s.replace(/\{name\}/g, who);
+  const fillHtml = (s: string) => s.replace(/\{name\}/g, escHtml(who));
+
+  const subject = fill(loaded.issue.title.trim() || "SJ Carpentry LLC");
+  const text = fill(renderIssueText(loaded.issue, opts));
+  const html = fillHtml(renderIssueHtml(loaded.issue, opts));
+
   await query(
-    `INSERT INTO newsletter_outbox (kind, recipient_id, email, name, subject, body)
-     VALUES ('greeting', $1, $2, $3, $4, $5)
+    `INSERT INTO newsletter_outbox (kind, recipient_id, email, name, subject, body, body_html)
+     VALUES ('greeting', $1, $2, $3, $4, $5, $6)
      ON CONFLICT (email) WHERE kind = 'greeting' DO NOTHING`,
-    [recipientId, email.toLowerCase(), name.trim(), subject, body],
+    [recipientId, email.toLowerCase(), name.trim(), subject, text, html],
   );
 }
 

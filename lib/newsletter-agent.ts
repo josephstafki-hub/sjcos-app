@@ -8,19 +8,20 @@ import "server-only";
 // work for an MCP client.
 //
 // ─── THE SAFETY LINE (do not move it) ───────────────────────────────────────
-// This module can read the list, manage recipients, compose/queue issues, edit
-// the welcome-greeting copy, and enroll a new contact into whatever drip the
-// OWNER has already armed. It CANNOT
-// send: there is no Release here and no setSequenceActive here. Queueing parks
-// rows in newsletter_outbox exactly like the Queue button — the owner still
-// clicks Release in /newsletter for a single byte to reach a real inbox. Adding
-// a recipient enrolls them in ACTIVE sequences (the welcome drip the owner turned
+// This module can read the list, manage recipients, compose/queue issues (the
+// welcome email included — it's just the one issue with is_welcome=true, edited
+// through the same update_issue tool as any other), and enroll a new contact
+// into whatever drip the OWNER has already armed. It CANNOT send: there is no
+// Release here and no setSequenceActive here. Queueing parks rows in
+// newsletter_outbox exactly like the Queue button — the owner still clicks
+// Release in /newsletter for a single byte to reach a real inbox. Adding a
+// recipient enrolls them in ACTIVE sequences (the welcome drip the owner turned
 // on), which is the one path that then mails on its own — that is deliberate and
 // pre-existing (see lib/newsletter-drip.ts guards); arming a sequence stays a
 // human action in the app. Keep it that way.
 
 import { query, queryOne } from "./db";
-import { enqueueIssue, enqueueGreeting, getGreetingTemplate, setGreetingTemplate } from "./newsletter-outbox";
+import { enqueueIssue, enqueueGreeting } from "./newsletter-outbox";
 import { enrollRecipient } from "./newsletter-drip";
 import { getTemplate } from "./newsletter-templates";
 import type { NewsletterBlock, BlockKind } from "./newsletter";
@@ -181,37 +182,24 @@ export async function agentImportClientRecipients(): Promise<AgentResult<{ added
   return { ok: true, data: { added: inserted.rowCount ?? 0 } };
 }
 
-// ─── Welcome greeting ───────────────────────────────────────────────────────
-// The one-time welcome email parked (still owner-Released) whenever a contact
-// is added. DB-backed so an agent can actually revise the copy — the whole
-// point of this chat surface is that a wording tweak takes effect on the next
-// add, no rebuild/deploy required.
-
-/** Current greeting template (subject/body, `{name}` placeholder for the recipient's name). */
-export async function agentGetGreeting(): Promise<AgentResult<{ subject: string; body: string }>> {
-  return { ok: true, data: await getGreetingTemplate() };
-}
-
-/** Save a new greeting template. Use `{name}` where the recipient's name should go. */
-export async function agentUpdateGreeting(
-  subject: string,
-  body: string,
-): Promise<AgentResult<{ subject: string; body: string }>> {
-  if (!subject.trim() && !body.trim()) return { ok: false, error: "Pass a subject and/or body." };
-  const cur = await getGreetingTemplate();
-  const saved = await setGreetingTemplate(subject.trim() || cur.subject, body.trim() || cur.body);
-  return { ok: true, data: saved };
-}
-
 // ─── Issues ──────────────────────────────────────────────────────────────────
 
-/** Compact issue list for an agent to pick from. */
+/** Compact issue list for an agent to pick from. `is_welcome` marks the one
+ *  issue the welcome-greeting pipeline sends from — edit it like any other
+ *  draft via update_issue; it's excluded from queue_issue (see enqueueIssue). */
 export async function agentListIssues(): Promise<
-  { id: number; title: string; status: string; recipient_count: number; block_count: number }[]
+  { id: number; title: string; status: string; recipient_count: number; block_count: number; is_welcome: boolean }[]
 > {
   return (
-    await query<{ id: number; title: string; status: string; recipient_count: number; block_count: number }>(
-      `SELECT id, title, status, recipient_count,
+    await query<{
+      id: number;
+      title: string;
+      status: string;
+      recipient_count: number;
+      block_count: number;
+      is_welcome: boolean;
+    }>(
+      `SELECT id, title, status, recipient_count, is_welcome,
               jsonb_array_length(COALESCE(blocks, '[]'::jsonb)) AS block_count
          FROM newsletters ORDER BY created_at DESC, id DESC`,
     )
@@ -221,7 +209,7 @@ export async function agentListIssues(): Promise<
 /** Full editable content of one issue. */
 export async function agentGetIssue(id: number): Promise<AgentResult<Record<string, unknown>>> {
   const row = await queryOne<Record<string, unknown>>(
-    `SELECT id, title, intro, blocks, template, status, recipient_count FROM newsletters WHERE id = $1`,
+    `SELECT id, title, intro, blocks, template, status, recipient_count, is_welcome FROM newsletters WHERE id = $1`,
     [id],
   );
   if (!row) return { ok: false, error: "Issue not found." };
@@ -271,11 +259,42 @@ export async function agentUpdateIssue(
   return { ok: true };
 }
 
-/** QUEUE an issue: parks one row per active recipient in the outbox and flips the
- *  issue to 'queued'. NOTHING is emailed — the owner Releases each row in
- *  /newsletter. This is the agent's "send" and it stops one step short on purpose. */
-export async function agentQueueIssue(id: number): Promise<AgentResult<{ queued: number }>> {
-  const res = await enqueueIssue(id);
+/** QUEUE an issue: parks one row per targeted recipient in the outbox and flips
+ *  the issue to 'queued'. `groupIds`, when given, scopes the send to those
+ *  audiences (deduped so a multi-group member gets one copy); omitted or empty
+ *  means every active recipient. NOTHING is emailed — the owner Releases each
+ *  row in /newsletter. This is the agent's "send" and it stops one step short
+ *  on purpose. */
+export async function agentQueueIssue(id: number, groupIds?: number[]): Promise<AgentResult<{ queued: number }>> {
+  const res = await enqueueIssue(id, groupIds);
   if (!res.ok) return { ok: false, error: res.error ?? "Could not queue." };
   return { ok: true, data: { queued: res.queued ?? 0 } };
+}
+
+/** Mark (or unmark) an issue as THE welcome email sent to new contacts. Marking
+ *  a new one atomically displaces whatever was welcome before (the partial
+ *  unique index allows only one). */
+export async function agentSetWelcomeIssue(id: number, on: boolean): Promise<AgentResult> {
+  if (on) {
+    await query(`UPDATE newsletters SET is_welcome = (id = $1) WHERE is_welcome = true OR id = $1`, [id]);
+  } else {
+    await query(`UPDATE newsletters SET is_welcome = false WHERE id = $1`, [id]);
+  }
+  return { ok: true };
+}
+
+/** Audiences (email groups) recipients can belong to, with live member counts —
+ *  read-only here; creating/renaming/assigning membership stays a browser
+ *  action in the Recipients tab (lib/actions/newsletter.ts) for now. */
+export async function agentListGroups(): Promise<AgentResult<{ id: number; name: string; members: number }[]>> {
+  const rows = (
+    await query<{ id: number; name: string; members: number }>(
+      `SELECT g.id, g.name, count(m.recipient_id)::int AS members
+         FROM newsletter_groups g
+         LEFT JOIN newsletter_recipient_groups m ON m.group_id = g.id
+        GROUP BY g.id, g.name
+        ORDER BY g.name`,
+    )
+  ).rows;
+  return { ok: true, data: rows };
 }

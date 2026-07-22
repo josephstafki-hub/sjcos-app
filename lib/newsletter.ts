@@ -8,7 +8,7 @@ import "server-only";
 import { query } from "./db";
 import { normalizeSettings, type IssueSettings } from "./newsletter-design";
 import { listSequences, type Sequence } from "./newsletter-drip";
-import { baseUrl, getGreetingTemplate } from "./newsletter-outbox";
+import { baseUrl } from "./newsletter-outbox";
 
 export type { IssueSettings, Sequence };
 
@@ -46,6 +46,10 @@ export interface NewsletterIssue {
   recipientCount: number;
   sentLabel: string | null;
   createdLabel: string;
+  /** The one issue the welcome-greeting pipeline reads from (db: is_welcome,
+   *  partial-unique — at most one). Pinned in the rail; never queued/deleted
+   *  through the normal broadcast flow. */
+  isWelcome: boolean;
 }
 
 /** A parked send (issue or greeting) awaiting the owner's Release. */
@@ -76,6 +80,17 @@ export interface Recipient {
   email: string;
   name: string;
   active: boolean;
+  /** Audiences this recipient belongs to (newsletter_groups.id). A recipient can
+   *  be in any number — membership is independent of which groups a given send
+   *  targets (see enqueueIssue's DISTINCT dedup in lib/newsletter-outbox.ts). */
+  groupIds: number[];
+}
+
+/** A named audience recipients can belong to, selectable when queueing a
+ *  broadcast to scope the send to a subset of the list. */
+export interface NewsletterGroup {
+  id: number;
+  name: string;
 }
 
 export interface NewsletterData {
@@ -84,6 +99,7 @@ export interface NewsletterData {
   recentJobs: RecentJob[];
   recipients: Recipient[];
   activeRecipientCount: number;
+  groups: NewsletterGroup[];
   outbox: OutboxItem[];
   sequences: Sequence[];
   /** Public origin used for image/logo URLs. Passed to the client so the Preview
@@ -91,10 +107,6 @@ export interface NewsletterData {
    *  preview built from window.location would silently work in dev and break the
    *  moment the app is reached by another hostname. */
   baseUrl: string;
-  /** The welcome-greeting template (subject/body, `{name}` placeholder) parked
-   *  for every new recipient. Owner-editable in the Recipients tab and by the
-   *  newsletter chat agent — DB-backed so an edit needs no rebuild. */
-  greeting: { subject: string; body: string };
 }
 
 interface IssueRow {
@@ -108,6 +120,7 @@ interface IssueRow {
   recipient_count: number;
   sent_label: string | null;
   created_label: string;
+  is_welcome: boolean;
 }
 
 function rowToIssue(r: IssueRow): NewsletterIssue {
@@ -122,6 +135,7 @@ function rowToIssue(r: IssueRow): NewsletterIssue {
     recipientCount: r.recipient_count,
     sentLabel: r.sent_label,
     createdLabel: r.created_label,
+    isWelcome: r.is_welcome,
   };
 }
 
@@ -169,7 +183,7 @@ export async function readOutbox(): Promise<OutboxItem[]> {
 
 export async function getNewsletterData(selectedId?: number): Promise<NewsletterData> {
   const { rows: issueRows } = await query<IssueRow>(
-    `SELECT id, title, intro, blocks, template, settings, status, recipient_count,
+    `SELECT id, title, intro, blocks, template, settings, status, recipient_count, is_welcome,
             to_char(sent_at, 'FMMon FMDD, YYYY')    AS sent_label,
             to_char(created_at, 'FMMon FMDD, YYYY')  AS created_label
        FROM newsletters
@@ -189,16 +203,35 @@ export async function getNewsletterData(selectedId?: number): Promise<Newsletter
     )
   ).rows.map((r) => ({ slug: r.slug, name: r.name, city: r.city ?? "" }));
 
-  const recipients = (
+  const recipientRows = (
     await query<{ id: number; email: string; name: string; active: boolean }>(
       `SELECT id, email, name, active FROM newsletter_recipients ORDER BY active DESC, name, email`,
     )
   ).rows;
 
+  const membership = (
+    await query<{ recipient_id: number; group_id: number }>(
+      `SELECT recipient_id, group_id FROM newsletter_recipient_groups`,
+    )
+  ).rows;
+  const groupsByRecipient = new Map<number, number[]>();
+  for (const m of membership) {
+    const list = groupsByRecipient.get(m.recipient_id);
+    if (list) list.push(m.group_id);
+    else groupsByRecipient.set(m.recipient_id, [m.group_id]);
+  }
+  const recipients: Recipient[] = recipientRows.map((r) => ({
+    ...r,
+    groupIds: groupsByRecipient.get(r.id) ?? [],
+  }));
+
   const activeRecipientCount = recipients.filter((r) => r.active).length;
 
+  const groups = (
+    await query<{ id: number; name: string }>(`SELECT id, name FROM newsletter_groups ORDER BY name`)
+  ).rows;
+
   const sequences = await listSequences();
-  const greeting = await getGreetingTemplate();
 
   const selected =
     selectedId && issues.some((i) => i.id === selectedId) ? selectedId : issues[0]?.id ?? null;
@@ -209,9 +242,9 @@ export async function getNewsletterData(selectedId?: number): Promise<Newsletter
     recentJobs,
     recipients,
     activeRecipientCount,
+    groups,
     outbox,
     sequences,
     baseUrl: baseUrl(),
-    greeting,
   };
 }

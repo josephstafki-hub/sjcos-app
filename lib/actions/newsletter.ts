@@ -11,19 +11,25 @@ import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { ai } from "@/lib/ai";
 import { getTemplate } from "@/lib/newsletter-templates";
-import {
-  enqueueIssue,
-  enqueueGreeting,
-  releaseOutboxItem,
-  skipOutboxItem,
-  setGreetingTemplate,
-} from "@/lib/newsletter-outbox";
+import { enqueueIssue, enqueueGreeting, releaseOutboxItem, skipOutboxItem } from "@/lib/newsletter-outbox";
 import { readOutbox } from "@/lib/newsletter";
 import { normalizeSettings, type IssueSettings } from "@/lib/newsletter-design";
 import { enrollRecipient, enrollAllInSequence, listSequences, type Sequence } from "@/lib/newsletter-drip";
 import { storeBuffer } from "@/lib/upload-store";
 import { prepareNewsletterImage } from "@/lib/newsletter-image";
 import type { NewsletterBlock, BlockKind, OutboxItem } from "@/lib/newsletter";
+
+/** Best-effort welcome-greeting park + drip-enroll for a newly (re)activated
+ *  recipient. Shared by every "add a recipient" path so they all behave the
+ *  same — a queue hiccup here must never block the add itself. */
+async function afterRecipientAdded(id: number, email: string, name: string): Promise<void> {
+  try {
+    await enqueueGreeting(id, email, name);
+    await enrollRecipient(id);
+  } catch {
+    /* best-effort */
+  }
+}
 
 type Result<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
 
@@ -165,8 +171,14 @@ export async function deleteIssue(id: number, confirmSent = false): Promise<Resu
   // version ran the sequence-step check after detaching/deleting outbox rows, so
   // a *refused* delete still destroyed that issue's parked sends and unlinked its
   // delivery history — the caller saw "can't delete", the data was already gone.
-  const issue = await queryOne<{ status: string }>(`SELECT status FROM newsletters WHERE id = $1`, [id]);
+  const issue = await queryOne<{ status: string; is_welcome: boolean }>(
+    `SELECT status, is_welcome FROM newsletters WHERE id = $1`,
+    [id],
+  );
   if (!issue) return { ok: false, error: "Issue not found." };
+  if (issue.is_welcome) {
+    return { ok: false, error: "This is the welcome email sent to new contacts — it can't be deleted." };
+  }
   if (issue.status === "sent" && !confirmSent) {
     return { ok: false, error: "This issue was already sent — confirm to remove it from the list." };
   }
@@ -268,26 +280,34 @@ export async function addRecipient(email: string, name: string): Promise<Result>
   );
   // Auto-greeting: park a welcome email (one per address ever; owner releases it).
   // Then enroll them in any ACTIVE drip sequence — that one DOES send on its own.
-  if (row) {
-    try {
-      await enqueueGreeting(row.id, e, row.name);
-      await enrollRecipient(row.id);
-    } catch {
-      /* best-effort — never block adding a recipient */
-    }
-  }
+  if (row) await afterRecipientAdded(row.id, e, row.name);
   revalidatePath("/newsletter");
   return { ok: true };
 }
 
-/** Save the welcome-greeting template (subject/body, `{name}` placeholder). Takes
- *  effect immediately for the NEXT contact added — already-parked outbox rows
- *  keep the copy they were rendered with (audit-stable). Owner-only. */
-export async function updateGreetingTemplate(subject: string, body: string): Promise<Result<{ subject: string; body: string }>> {
+/** Parse a block of pasted text for email addresses and add each as a
+ *  recipient (idempotent per address) — a faster way in than one field at a
+ *  time when Joe has a client list to paste from somewhere else. Owner-only. */
+export async function addRecipientsBulk(text: string): Promise<Result<{ added: number }>> {
   await requireRole("owner");
-  const saved = await setGreetingTemplate(subject, body);
+  const found = text.match(/[^\s,;<>()"]+@[^\s,;<>()"]+\.[^\s,;<>()"]+/g) ?? [];
+  const emails = Array.from(new Set(found.map((e) => e.trim().toLowerCase()))).slice(0, 500);
+  if (emails.length === 0) return { ok: false, error: "No email addresses found in that text." };
+  let added = 0;
+  for (const e of emails) {
+    const row = await queryOne<{ id: number; name: string }>(
+      `INSERT INTO newsletter_recipients (email, name) VALUES ($1, '')
+       ON CONFLICT (email) DO UPDATE SET active = true
+       RETURNING id, name`,
+      [e],
+    );
+    if (row) {
+      added++;
+      await afterRecipientAdded(row.id, e, row.name);
+    }
+  }
   revalidatePath("/newsletter");
-  return { ok: true, data: saved };
+  return { ok: true, data: { added } };
 }
 
 /** Remove a recipient. Owner-only. */
@@ -310,24 +330,117 @@ export async function importClientRecipients(): Promise<Result<number>> {
      RETURNING id, email, name`,
   );
   // Park a greeting for each NEWLY added contact only (no backfill blast).
-  for (const r of inserted.rows) {
-    try {
-      await enqueueGreeting(r.id, r.email, r.name);
-      await enrollRecipient(r.id);
-    } catch {
-      /* best-effort */
-    }
-  }
+  for (const r of inserted.rows) await afterRecipientAdded(r.id, r.email, r.name);
   revalidatePath("/newsletter");
   return { ok: true, data: inserted.rowCount ?? 0 };
 }
 
-/** QUEUE the issue for sending — parks one row per active recipient in the
- *  newsletter_outbox and flips the issue to 'queued'. Nothing is emailed here;
- *  the owner then Releases each row. Owner-only. */
-export async function queueIssue(id: number): Promise<Result<{ queued: number }>> {
+/** Import a contact email for every project — the project's client-portal user
+ *  if one exists, else the originating lead's email (so projects that never got
+ *  a portal login still bring their client onto the list). One row per project;
+ *  a repeat client with several projects collapses to a single recipient.
+ *  Owner-only. */
+export async function importProjectRecipients(): Promise<Result<number>> {
   await requireRole("owner");
-  const res = await enqueueIssue(id);
+  const inserted = await query<{ id: number; email: string; name: string }>(
+    `INSERT INTO newsletter_recipients (email, name)
+     SELECT email, min(name) AS name FROM (
+       SELECT lower(COALESCE(u.email, l.email)) AS email,
+              COALESCE(NULLIF(p.client_name, ''), l.name, '') AS name
+         FROM projects p
+         LEFT JOIN users u ON u.role = 'client' AND u.active = true AND u.link_slug = p.slug
+         LEFT JOIN leads l ON l.id = p.lead_id
+        WHERE COALESCE(u.email, l.email) IS NOT NULL AND COALESCE(u.email, l.email) <> ''
+     ) x
+     GROUP BY email
+     ON CONFLICT (email) DO NOTHING
+     RETURNING id, email, name`,
+  );
+  for (const r of inserted.rows) await afterRecipientAdded(r.id, r.email, r.name);
+  revalidatePath("/newsletter");
+  return { ok: true, data: inserted.rowCount ?? 0 };
+}
+
+// ─── Audiences (email groups) ───────────────────────────────────────────────
+// Named subsets of the recipient list, selectable when queueing a broadcast to
+// scope the send. Membership is many-to-many (newsletter_recipient_groups);
+// the dedup that keeps a multi-group member from getting two copies lives in
+// enqueueIssue's DISTINCT (lib/newsletter-outbox.ts), not here — membership
+// itself is never altered by a send.
+
+/** Create a new audience. Owner-only. */
+export async function createGroup(name: string): Promise<Result<{ id: number; name: string }>> {
+  await requireRole("owner");
+  const n = name.trim().slice(0, 80);
+  if (!n) return { ok: false, error: "Name it first." };
+  const row = await queryOne<{ id: number; name: string }>(
+    `INSERT INTO newsletter_groups (name) VALUES ($1) RETURNING id, name`,
+    [n],
+  );
+  revalidatePath("/newsletter");
+  return { ok: true, data: row! };
+}
+
+export async function renameGroup(id: number, name: string): Promise<Result> {
+  await requireRole("owner");
+  const n = name.trim().slice(0, 80);
+  if (!n) return { ok: false, error: "Name it first." };
+  await query(`UPDATE newsletter_groups SET name = $2 WHERE id = $1`, [id, n]);
+  revalidatePath("/newsletter");
+  return { ok: true };
+}
+
+/** Delete an audience. Recipients keep their other memberships; this only
+ *  drops the (recipient, group) rows for the deleted group (FK cascade). */
+export async function deleteGroup(id: number): Promise<Result> {
+  await requireRole("owner");
+  await query(`DELETE FROM newsletter_groups WHERE id = $1`, [id]);
+  revalidatePath("/newsletter");
+  return { ok: true };
+}
+
+/** Add or remove one recipient from one audience. */
+export async function setRecipientGroup(recipientId: number, groupId: number, on: boolean): Promise<Result> {
+  await requireRole("owner");
+  if (on) {
+    await query(
+      `INSERT INTO newsletter_recipient_groups (recipient_id, group_id) VALUES ($1, $2)
+       ON CONFLICT DO NOTHING`,
+      [recipientId, groupId],
+    );
+  } else {
+    await query(
+      `DELETE FROM newsletter_recipient_groups WHERE recipient_id = $1 AND group_id = $2`,
+      [recipientId, groupId],
+    );
+  }
+  revalidatePath("/newsletter");
+  return { ok: true };
+}
+
+/** Mark (or unmark) an issue as THE welcome email — the one enqueueGreeting
+ *  reads from. Marking a new one atomically un-marks whatever was welcome
+ *  before it (the partial unique index only allows one), so this can never
+ *  leave two rows flagged even if the request races another. Owner-only. */
+export async function setWelcomeIssue(id: number, on: boolean): Promise<Result> {
+  await requireRole("owner");
+  if (on) {
+    await query(`UPDATE newsletters SET is_welcome = (id = $1) WHERE is_welcome = true OR id = $1`, [id]);
+  } else {
+    await query(`UPDATE newsletters SET is_welcome = false WHERE id = $1`, [id]);
+  }
+  revalidatePath("/newsletter");
+  return { ok: true };
+}
+
+/** QUEUE the issue for sending — parks one row per targeted recipient in the
+ *  newsletter_outbox and flips the issue to 'queued'. `groupIds`, when given,
+ *  scopes the send to those audiences (deduped — see enqueueIssue); omitted or
+ *  empty means every active recipient. Nothing is emailed here; the owner then
+ *  Releases each row. Owner-only. */
+export async function queueIssue(id: number, groupIds?: number[]): Promise<Result<{ queued: number }>> {
+  await requireRole("owner");
+  const res = await enqueueIssue(id, groupIds);
   if (!res.ok) return { ok: false, error: res.error ?? "Could not queue." };
   revalidatePath("/newsletter");
   return { ok: true, data: { queued: res.queued ?? 0 } };

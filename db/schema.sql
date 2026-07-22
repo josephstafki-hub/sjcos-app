@@ -1227,6 +1227,34 @@ ALTER TABLE newsletter_outbox ADD CONSTRAINT newsletter_outbox_kind_check
 -- at-least-once retry behaviour idempotent — a re-run can never double-send.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_nl_outbox_drip ON newsletter_outbox(newsletter_id, email) WHERE kind = 'drip';
 
+-- ─── Welcome email as a real issue ──────────────────────────────────────────
+-- The welcome greeting used to be plain text parked in app_settings; it's now
+-- a real newsletters row so it gets the same Edit/Design/Preview tabs, photos,
+-- and buttons as any other issue. is_welcome marks the one issue the greeting
+-- pipeline (enqueueGreeting) reads from — the partial unique index enforces
+-- "at most one" in the DB itself, not just app code. It is never queued via
+-- the normal broadcast Send flow; that stays draft/queued/sent for every other
+-- issue.
+ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS is_welcome boolean NOT NULL DEFAULT false;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_nl_one_welcome ON newsletters (is_welcome) WHERE is_welcome;
+
+-- ─── Email groups / audiences ───────────────────────────────────────────────
+-- Named groups a recipient can belong to (many-to-many) — used to scope a
+-- broadcast send to a subset of the list ("audience") at Queue time. Purely
+-- additive to the send path: selecting no groups queues to every active
+-- recipient, exactly like before groups existed.
+CREATE TABLE IF NOT EXISTS newsletter_groups (
+  id          bigserial PRIMARY KEY,
+  name        text NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS newsletter_recipient_groups (
+  recipient_id bigint NOT NULL REFERENCES newsletter_recipients(id) ON DELETE CASCADE,
+  group_id     bigint NOT NULL REFERENCES newsletter_groups(id) ON DELETE CASCADE,
+  PRIMARY KEY (recipient_id, group_id)
+);
+CREATE INDEX IF NOT EXISTS idx_nl_recipient_groups_group ON newsletter_recipient_groups(group_id);
+
 -- ─── SMS (two-way texting) ──────────────────────────────────────────────────
 -- Provider-agnostic SMS inbox mirroring the Gmail inbox. Populated only when a
 -- provider (Twilio/Telnyx/SignalWire) is configured (see lib/sms.ts); until then

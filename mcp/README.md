@@ -60,15 +60,20 @@ SELECTs; **writes** go through the app's bearer-gated internal route
 | `get_newsletter_issue` | One issue's full content (`id`) |
 | `list_newsletter_outbox` | Parked/sent rows — `queued` ones await Release |
 | `list_newsletter_sequences` | Drip sequences: active flag, subscribers, steps |
-| `get_newsletter_greeting` | The welcome-greeting `{subject, body}` (`{name}` placeholder) — DB-backed, live copy |
-| `update_newsletter_greeting` | Rewrite the welcome-greeting `subject?`/`body?`; effective on the next recipient added |
+| `list_newsletter_groups` | Audiences (email groups) with live member counts — pass ids to `queue_newsletter_issue` |
+| `set_newsletter_welcome_issue` | Mark/unmark an issue as THE welcome email (`id`, `on?`); displaces any prior one |
 | `add_newsletter_recipient` | Add/reactivate an email (`email`,`name?`); parks a welcome greeting + enrolls in any **armed** drip |
 | `update_newsletter_recipient` | Change name / active flag (`id` or `email`) |
 | `remove_newsletter_recipient` | Delete from the list (`id` or `email`) |
 | `import_client_newsletter_recipients` | Add every active client user's email |
 | `create_newsletter_issue` | New draft from a template (`template_key?`) |
-| `update_newsletter_issue` | Edit a **draft**'s `title`/`intro`/`blocks` |
-| `queue_newsletter_issue` | Park a copy per recipient in the outbox (`id`) |
+| `update_newsletter_issue` | Edit a **draft**'s `title`/`intro`/`blocks` — this is also how you write the welcome email's content |
+| `queue_newsletter_issue` | Park a copy in the outbox (`id`, `group_ids?` to scope to audiences, deduped) |
+
+The welcome email is not a separate template — it's just a normal issue with
+`is_welcome=true` (`set_newsletter_welcome_issue`), edited with
+`update_newsletter_issue` like any other draft. `{name}` in its title, intro, or
+any block is filled with the recipient's name when it's parked for them.
 
 > **The send line — do not cross it.** These tools stop one click short of a real
 > inbox. `queue_newsletter_issue` PARKS the send; the owner Releases each outbox
@@ -81,8 +86,9 @@ SELECTs; **writes** go through the app's bearer-gated internal route
 
 **Typical agent flow:** `create_newsletter_issue` → `update_newsletter_issue`
 (title/intro/blocks, optionally from `list_projects` recent jobs) →
-`queue_newsletter_issue` → tell the owner to Release in `/newsletter`. To grow the
-list: `add_newsletter_recipient` (or `import_client_newsletter_recipients`), which
+`queue_newsletter_issue` (optionally with `group_ids` to target an audience) →
+tell the owner to Release in `/newsletter`. To grow the list:
+`add_newsletter_recipient` (or `import_client_newsletter_recipients`), which
 also kicks off the welcome sequence for each new address if one is armed.
 
 ## Register with a client

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Plus, Sparkles, Trash2, Send, Users, Mail, Download, Check, Inbox, SkipForward, ArrowLeft } from "lucide-react";
+import { Plus, Sparkles, Trash2, Send, Mail, Check, Inbox, SkipForward, ArrowLeft, Star, ChevronDown } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import { AI_NAME } from "@/lib/ai-name";
 import { NEWSLETTER_TEMPLATES } from "@/lib/newsletter-templates";
@@ -13,20 +13,26 @@ import {
   deleteIssue,
   draftIntro,
   draftBlockForProject,
-  addRecipient,
-  removeRecipient,
-  importClientRecipients,
   queueIssue,
   releaseNewsletterItem,
   skipNewsletterItem,
   refreshOutbox,
-  updateGreetingTemplate,
+  setWelcomeIssue,
 } from "@/lib/actions/newsletter";
 import { BlockEditor, AddBlockBar } from "./BlockEditor";
 import { DesignPanel } from "./DesignPanel";
 import { SequencePanel } from "./SequencePanel";
+import { RecipientsPanel } from "./RecipientsPanel";
 import { AssistantChat } from "@/components/ai/AssistantChat";
-import type { NewsletterData, NewsletterIssue, NewsletterBlock, Recipient, OutboxItem, Sequence } from "@/lib/newsletter";
+import type {
+  NewsletterData,
+  NewsletterIssue,
+  NewsletterBlock,
+  Recipient,
+  NewsletterGroup,
+  OutboxItem,
+  Sequence,
+} from "@/lib/newsletter";
 
 type Mode = "Edit" | "Design" | "Preview" | "Recipients" | "Automations" | "Outbox" | "Assistant";
 
@@ -37,9 +43,9 @@ function monthTitle(): string {
 export function NewsletterClient({ data }: { data: NewsletterData }) {
   const [issues, setIssues] = useState<NewsletterIssue[]>(data.issues);
   const [recipients, setRecipients] = useState<Recipient[]>(data.recipients);
+  const [groups, setGroups] = useState<NewsletterGroup[]>(data.groups);
   const [outbox, setOutbox] = useState<OutboxItem[]>(data.outbox);
   const [sequences, setSequences] = useState<Sequence[]>(data.sequences);
-  const [greeting, setGreeting] = useState(data.greeting);
   const [selectedId, setSelectedId] = useState<number | null>(data.selectedId);
   const [mode, setMode] = useState<Mode>("Edit");
   const [notice, setNotice] = useState<string | null>(null);
@@ -84,6 +90,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
           recipientCount: 0,
           sentLabel: null,
           createdLabel: "just now",
+          isWelcome: false,
         },
         ...prev,
       ]);
@@ -157,21 +164,39 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
     });
   }
 
+  // ── Audience (which groups a Queue targets; empty = everyone active) ──
+  const [queueGroupIds, setQueueGroupIds] = useState<number[]>([]);
+  const [audiencePicking, setAudiencePicking] = useState(false);
+  const audienceCount =
+    queueGroupIds.length === 0
+      ? activeCount
+      : new Set(
+          recipients.filter((r) => r.active && r.groupIds.some((g) => queueGroupIds.includes(g))).map((r) => r.id),
+        ).size;
+
   function queue() {
     if (!current) return;
+    const audienceNote =
+      queueGroupIds.length === 0
+        ? "everyone active"
+        : groups
+            .filter((g) => queueGroupIds.includes(g.id))
+            .map((g) => g.name)
+            .join(", ");
     if (
       !confirm(
-        `Queue "${current.title}" for ${activeCount} recipient${activeCount === 1 ? "" : "s"}?\n\n` +
+        `Queue "${current.title}" for ${audienceCount} recipient${audienceCount === 1 ? "" : "s"} (${audienceNote})?\n\n` +
           `Nothing is emailed yet — each message waits in the Outbox until you Release it.`,
       )
     )
       return;
     setNotice(null);
     start(async () => {
-      const res = await queueIssue(current.id);
+      const res = await queueIssue(current.id, queueGroupIds.length ? queueGroupIds : undefined);
       if (res.ok) {
         patchCurrent({ status: "queued" });
         setMode("Outbox");
+        setQueueGroupIds([]);
         setNotice(`Queued ${res.data?.queued ?? 0} message(s). Release them below when you're ready.`);
         // Pull the real persisted rows (with real ids) so Release is enabled.
         setOutbox(await refreshOutbox());
@@ -200,53 +225,35 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
     });
   }
 
-  // ── Recipients ──
-  const [newEmail, setNewEmail] = useState("");
-  const [newName, setNewName] = useState("");
-  function addRcpt() {
-    const email = newEmail.trim();
-    if (!email) return;
+  function refreshOutboxAfterAdd() {
     start(async () => {
-      const res = await addRecipient(email, newName);
-      if (res.ok) {
-        setRecipients((prev) =>
-          prev.some((r) => r.email === email.toLowerCase())
-            ? prev
-            : [...prev, { id: -Date.now(), email: email.toLowerCase(), name: newName.trim(), active: true }],
-        );
-        setNewEmail("");
-        setNewName("");
-        setOutbox(await refreshOutbox()); // surface the parked welcome greeting
-      } else setNotice(res.error);
-    });
-  }
-  function rmRcpt(id: number) {
-    setRecipients((prev) => prev.filter((r) => r.id !== id));
-    start(async () => {
-      await removeRecipient(id);
-    });
-  }
-  function importClients() {
-    start(async () => {
-      const res = await importClientRecipients();
-      if (res.ok) {
-        setNotice(`Imported ${res.data ?? 0} client email(s). Reload to see them in the list.`);
-        setOutbox(await refreshOutbox()); // surface parked greetings for new contacts
-      }
+      setOutbox(await refreshOutbox());
     });
   }
 
-  // ── Welcome greeting ── (DB-backed; takes effect on the next recipient added)
-  const [greetingDraft, setGreetingDraft] = useState(data.greeting);
-  const greetingDirty = greetingDraft.subject !== greeting.subject || greetingDraft.body !== greeting.body;
-  function saveGreeting() {
+  // ── Welcome email (an issue flagged is_welcome — at most one at a time) ──
+  function promoteWelcome(id: number) {
+    const target = issues.find((i) => i.id === id);
+    const priorWelcome = issues.find((i) => i.isWelcome);
+    if (!target) return;
+    if (
+      priorWelcome &&
+      !confirm(`Make "${target.title}" the welcome email? It replaces "${priorWelcome.title}" in that role.`)
+    )
+      return;
+    setNotice(null);
+    setIssues((prev) => prev.map((i) => ({ ...i, isWelcome: i.id === id })));
     start(async () => {
-      const res = await updateGreetingTemplate(greetingDraft.subject, greetingDraft.body);
-      if (res.ok && res.data) {
-        setGreeting(res.data);
-        setGreetingDraft(res.data);
-        setNotice("Welcome email updated.");
-      } else if (!res.ok) setNotice(res.error);
+      const res = await setWelcomeIssue(id, true);
+      if (!res.ok) setNotice(res.error);
+    });
+  }
+  function demoteWelcome(id: number) {
+    setNotice(null);
+    setIssues((prev) => prev.map((i) => (i.id === id ? { ...i, isWelcome: false } : i)));
+    start(async () => {
+      const res = await setWelcomeIssue(id, false);
+      if (!res.ok) setNotice(res.error);
     });
   }
 
@@ -290,6 +297,13 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
             </>
           )}
         </div>
+        {!issues.some((i) => i.isWelcome) && (
+          <div className="border-b border-rule-soft bg-ai-soft/40 px-4 py-2 text-[11px] leading-snug text-ink-2">
+            No welcome email set — open a draft and use{" "}
+            <Star className="inline size-3 -translate-y-px" strokeWidth={1.5} /> to make it the one new
+            contacts get.
+          </div>
+        )}
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {issues.length === 0 ? (
             <div className="px-2 py-8 text-center text-[12px] text-ink-3">
@@ -314,27 +328,35 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                   }}
                   className="min-w-0 flex-1 text-left"
                 >
-                  <div className="truncate text-[13px] text-ink">{it.title}</div>
+                  <div className="flex items-center gap-1 truncate text-[13px] text-ink">
+                    {it.isWelcome && (
+                      <Star className="size-3 shrink-0 fill-ai text-ai" strokeWidth={1.5} aria-label="Welcome email" />
+                    )}
+                    <span className="truncate">{it.title}</span>
+                  </div>
                   <div className="font-mono text-[10px] text-ink-3">
                     {it.status === "sent" ? `Sent · ${it.recipientCount}` : it.createdLabel}
                   </div>
                 </button>
-                <Chip kind={it.status === "sent" ? "money" : it.status === "queued" ? "accent" : "ghost"}>
-                  {it.status === "sent" ? "SENT" : it.status === "queued" ? "QUEUED" : "DRAFT"}
+                <Chip kind={it.isWelcome ? "ai" : it.status === "sent" ? "money" : it.status === "queued" ? "accent" : "ghost"}>
+                  {it.isWelcome ? "WELCOME" : it.status === "sent" ? "SENT" : it.status === "queued" ? "QUEUED" : "DRAFT"}
                 </Chip>
                 {/* Always rendered, not hover-only: a control you can't find is
                     the bug being fixed here, and hover-only affordances don't
-                    exist at all on a phone. */}
-                <button
-                  type="button"
-                  onClick={() => removeIssue(it.id)}
-                  disabled={pending}
-                  title={`Delete "${it.title}"`}
-                  aria-label={`Delete ${it.title}`}
-                  className="shrink-0 rounded p-1 text-ink-4 hover:bg-flag-soft hover:text-flag disabled:opacity-40"
-                >
-                  <Trash2 className="size-3.5" strokeWidth={1.5} />
-                </button>
+                    exist at all on a phone. The welcome issue can't be deleted
+                    (server-enforced) — demote it first, so no button here. */}
+                {!it.isWelcome && (
+                  <button
+                    type="button"
+                    onClick={() => removeIssue(it.id)}
+                    disabled={pending}
+                    title={`Delete "${it.title}"`}
+                    aria-label={`Delete ${it.title}`}
+                    className="shrink-0 rounded p-1 text-ink-4 hover:bg-flag-soft hover:text-flag disabled:opacity-40"
+                  >
+                    <Trash2 className="size-3.5" strokeWidth={1.5} />
+                  </button>
+                )}
               </div>
             ))
           )}
@@ -388,17 +410,66 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                     {saved ? "Saved" : "Save"}
                   </button>
                 )}
-                {!locked && (
-                  <button
-                    type="button"
-                    onClick={queue}
-                    disabled={pending || activeCount === 0}
-                    title={activeCount === 0 ? "Add recipients first" : "Parks each message in the Outbox — nothing sends yet"}
-                    className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1 text-[12px] font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
-                  >
-                    <Send className="size-3.5" strokeWidth={1.5} /> Queue for {activeCount}
-                  </button>
+                {!locked && !current.isWelcome && (
+                  <>
+                    {groups.length > 0 && (
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setAudiencePicking((p) => !p)}
+                          disabled={pending}
+                          className="inline-flex items-center gap-1 rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-60"
+                        >
+                          {queueGroupIds.length === 0
+                            ? "Everyone"
+                            : `${queueGroupIds.length} audience${queueGroupIds.length === 1 ? "" : "s"}`}
+                          <ChevronDown className="size-3" strokeWidth={2} />
+                        </button>
+                        {audiencePicking && (
+                          <>
+                            <div className="fixed inset-0 z-10" onClick={() => setAudiencePicking(false)} />
+                            <div className="absolute right-0 top-9 z-20 w-[210px] rounded-lg border border-rule bg-card p-1.5 shadow-lg">
+                              <div className="px-2 pb-1 pt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+                                Audience
+                              </div>
+                              {groups.map((g) => (
+                                <label
+                                  key={g.id}
+                                  className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] text-ink hover:bg-paper-2"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={queueGroupIds.includes(g.id)}
+                                    onChange={(e) =>
+                                      setQueueGroupIds((prev) =>
+                                        e.target.checked ? [...prev, g.id] : prev.filter((x) => x !== g.id),
+                                      )
+                                    }
+                                    className="size-3.5"
+                                  />
+                                  {g.name}
+                                </label>
+                              ))}
+                              <div className="px-2 pt-1 text-[10.5px] leading-snug text-ink-3">
+                                None selected = everyone active. In more than one still gets one copy.
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={queue}
+                      disabled={pending || audienceCount === 0}
+                      title={audienceCount === 0 ? "Add recipients first" : "Parks each message in the Outbox — nothing sends yet"}
+                      className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1 text-[12px] font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
+                    >
+                      <Send className="size-3.5" strokeWidth={1.5} /> Queue for {audienceCount}
+                    </button>
+                  </>
                 )}
+                {current.isWelcome && <Chip kind="ai">Sends automatically to new contacts</Chip>}
                 {current.status === "queued" && <Chip kind="accent">Queued — release in Outbox</Chip>}
                 {sent && <Chip kind="money">Sent · {current.recipientCount}</Chip>}
               </div>
@@ -515,119 +586,17 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
               )}
 
               {mode === "Recipients" && (
-                <div className="mx-auto max-w-[560px] space-y-4">
-                  <div className="flex items-center gap-2">
-                    <Users className="size-4 text-ink-3" strokeWidth={1.5} />
-                    <span className="flex-1 text-[13px] text-ink-2">
-                      {activeCount} active recipient{activeCount === 1 ? "" : "s"}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={importClients}
-                      disabled={pending}
-                      className="inline-flex items-center gap-1 rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-60"
-                    >
-                      <Download className="size-3.5" strokeWidth={1.5} /> Import client emails
-                    </button>
-                  </div>
-
-                  <Card className="overflow-hidden p-0">
-                    {recipients.length === 0 ? (
-                      <div className="px-4 py-6 text-center text-[12px] text-ink-3">No recipients yet.</div>
-                    ) : (
-                      recipients.map((r, i) => (
-                        <div key={r.id} className={`flex items-center gap-3 px-4 py-2.5 ${i ? "border-t border-rule-soft" : ""}`}>
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate text-[13px] text-ink">{r.name || r.email}</div>
-                            {r.name && <div className="font-mono text-[10px] text-ink-3">{r.email}</div>}
-                          </div>
-                          {!r.active && <Chip kind="ghost">inactive</Chip>}
-                          <button type="button" onClick={() => rmRcpt(r.id)} className="text-ink-4 hover:text-flag" aria-label="Remove">
-                            <Trash2 className="size-3.5" strokeWidth={1.5} />
-                          </button>
-                        </div>
-                      ))
-                    )}
-                  </Card>
-
-                  <div className="flex items-end gap-2">
-                    <div className="flex-1">
-                      <label className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Email</label>
-                      <input
-                        value={newEmail}
-                        onChange={(e) => setNewEmail(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && addRcpt()}
-                        placeholder="client@email.com"
-                        className="mt-1 w-full rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <label className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Name · optional</label>
-                      <input
-                        value={newName}
-                        onChange={(e) => setNewName(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && addRcpt()}
-                        placeholder="Pat Henderson"
-                        className="mt-1 w-full rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={addRcpt}
-                      disabled={pending || !newEmail.trim()}
-                      className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
-                    >
-                      <Plus className="size-3.5" strokeWidth={2} /> Add
-                    </button>
-                  </div>
-
-                  <div className="border-t border-rule-soft pt-4">
-                    <div className="flex items-center gap-2">
-                      <Mail className="size-4 text-ink-3" strokeWidth={1.5} />
-                      <span className="text-[13px] font-semibold text-ink">Welcome email</span>
-                    </div>
-                    <p className="mt-1 text-[11px] text-ink-3">
-                      Sent (after you Release it in the Outbox) to every new contact. Use{" "}
-                      <code className="rounded bg-paper-2 px-1 py-0.5 font-mono text-[10px]">{"{name}"}</code>{" "}
-                      for their name. Editable here or by asking the Assistant tab — changes apply to the
-                      next recipient added, no rebuild needed.
-                    </p>
-                    <div className="mt-2 space-y-2">
-                      <input
-                        value={greetingDraft.subject}
-                        onChange={(e) => setGreetingDraft((g) => ({ ...g, subject: e.target.value }))}
-                        placeholder="Subject"
-                        className="w-full rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
-                      />
-                      <textarea
-                        value={greetingDraft.body}
-                        onChange={(e) => setGreetingDraft((g) => ({ ...g, body: e.target.value }))}
-                        rows={8}
-                        className="w-full resize-y rounded-md border border-rule bg-paper px-2.5 py-1.5 font-mono text-[12px] leading-relaxed text-ink outline-none focus:border-accent"
-                      />
-                      <div className="flex items-center justify-end gap-2">
-                        {greetingDirty && (
-                          <button
-                            type="button"
-                            onClick={() => setGreetingDraft(greeting)}
-                            disabled={pending}
-                            className="rounded-md px-2.5 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2 disabled:opacity-50"
-                          >
-                            Revert
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={saveGreeting}
-                          disabled={pending || !greetingDirty || !greetingDraft.subject.trim() || !greetingDraft.body.trim()}
-                          className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
-                        >
-                          <Check className="size-3.5" strokeWidth={2} /> Save
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                <RecipientsPanel
+                  recipients={recipients}
+                  setRecipients={setRecipients}
+                  groups={groups}
+                  setGroups={setGroups}
+                  activeCount={activeCount}
+                  pending={pending}
+                  start={start}
+                  onNotice={setNotice}
+                  onOutboxRefresh={refreshOutboxAfterAdd}
+                />
               )}
             </div>
             )}
@@ -636,22 +605,46 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                 used to be stuck in the rail forever with no way to clear it.
                 Rendered as a real bordered button: as 11px grey text it read as
                 a caption and went unnoticed. The trash icon on each row in the
-                issues rail is the other, more obvious way in. */}
+                issues rail is the other, more obvious way in. The welcome issue
+                can't be deleted at all (server-enforced) — demote it instead. */}
             {(mode === "Edit" || mode === "Design") && (
-              <div className="border-t border-rule px-5 py-2 text-right">
-                <button
-                  type="button"
-                  onClick={() => removeIssue(current.id)}
-                  disabled={pending}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:border-flag hover:bg-flag-soft hover:text-flag disabled:opacity-50"
-                >
-                  <Trash2 className="size-3.5" strokeWidth={1.5} />
-                  {current.status === "sent"
-                    ? "Remove from list"
-                    : current.status === "queued"
-                      ? "Discard queued issue"
-                      : "Delete draft"}
-                </button>
+              <div className="flex items-center justify-end gap-2 border-t border-rule px-5 py-2">
+                {current.isWelcome ? (
+                  <button
+                    type="button"
+                    onClick={() => demoteWelcome(current.id)}
+                    disabled={pending}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50"
+                  >
+                    <Star className="size-3.5" strokeWidth={1.5} /> Remove as welcome email
+                  </button>
+                ) : (
+                  <>
+                    {current.status === "draft" && (
+                      <button
+                        type="button"
+                        onClick={() => promoteWelcome(current.id)}
+                        disabled={pending}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50"
+                      >
+                        <Star className="size-3.5" strokeWidth={1.5} /> Set as welcome email
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeIssue(current.id)}
+                      disabled={pending}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:border-flag hover:bg-flag-soft hover:text-flag disabled:opacity-50"
+                    >
+                      <Trash2 className="size-3.5" strokeWidth={1.5} />
+                      {current.status === "sent"
+                        ? "Remove from list"
+                        : current.status === "queued"
+                          ? "Discard queued issue"
+                          : "Delete draft"}
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </>

@@ -5,11 +5,12 @@
 // local caller, not a browser session.
 //
 // SAFETY: this route exposes read/add/update/remove recipients, create/update/
-// queue issues, the welcome-greeting text, and client-import only. It has NO
-// 'release' and NO 'arm_sequence'
-// action — sending to a real inbox and turning a drip on stay owner-gated in
-// lib/actions/newsletter.ts and are unreachable from any agent. See the safety
-// note at the top of lib/newsletter-agent.ts.
+// queue issues (the welcome email included — it's just the issue flagged
+// is_welcome, edited like any other), audience reads, and client/project
+// import only. It has NO 'release' and NO 'arm_sequence' action — sending to a
+// real inbox and turning a drip on stay owner-gated in lib/actions/newsletter.ts
+// and are unreachable from any agent. See the safety note at the top of
+// lib/newsletter-agent.ts.
 
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
@@ -27,8 +28,8 @@ import {
   agentCreateIssue,
   agentUpdateIssue,
   agentQueueIssue,
-  agentGetGreeting,
-  agentUpdateGreeting,
+  agentSetWelcomeIssue,
+  agentListGroups,
 } from "@/lib/newsletter-agent";
 
 export const runtime = "nodejs";
@@ -60,7 +61,7 @@ const READ_ACTIONS = new Set([
   "get_issue",
   "list_outbox",
   "list_sequences",
-  "get_greeting",
+  "list_groups",
 ]);
 
 export async function POST(req: Request) {
@@ -99,9 +100,9 @@ export async function POST(req: Request) {
       case "list_sequences":
         result = { ok: true, sequences: await listSequences() };
         break;
-      case "get_greeting": {
-        const got = await agentGetGreeting();
-        result = got.ok ? { ok: true, greeting: got.data } : got;
+      case "list_groups": {
+        const got = await agentListGroups();
+        result = got.ok ? { ok: true, groups: got.data } : got;
         break;
       }
 
@@ -121,11 +122,6 @@ export async function POST(req: Request) {
       case "import_client_recipients":
         result = await agentImportClientRecipients();
         break;
-      case "update_greeting": {
-        const saved = await agentUpdateGreeting(str(body.subject) ?? "", str(body.body) ?? "");
-        result = saved.ok ? { ok: true, greeting: saved.data } : saved;
-        break;
-      }
 
       // ── Issue writes ──
       case "create_issue":
@@ -138,8 +134,13 @@ export async function POST(req: Request) {
           blocks: body.blocks,
         });
         break;
-      case "queue_issue":
-        result = await agentQueueIssue(Number(body.id));
+      case "queue_issue": {
+        const groupIds = Array.isArray(body.group_ids) ? body.group_ids.map(Number).filter((n) => !Number.isNaN(n)) : undefined;
+        result = await agentQueueIssue(Number(body.id), groupIds);
+        break;
+      }
+      case "set_welcome":
+        result = await agentSetWelcomeIssue(Number(body.id), body.on !== false);
         break;
 
       default:

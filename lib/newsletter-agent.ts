@@ -164,10 +164,26 @@ export async function agentRemoveRecipient(ref: {
 /** Import every active client user's email onto the list. Parks a greeting +
  *  enrolls each NEWLY added contact (no backfill blast). Mirrors importClientRecipients. */
 export async function agentImportClientRecipients(): Promise<AgentResult<{ added: number }>> {
+  // Mirrors importKnownRecipients in lib/actions/newsletter.ts: client-portal
+  // logins, leads, and each project's client email (or its lead's, as a
+  // fallback) — not just users.role='client', which is empty until someone
+  // claims a portal invite.
   const inserted = await query<{ id: number; email: string; name: string }>(
     `INSERT INTO newsletter_recipients (email, name)
-     SELECT lower(email), COALESCE(name, '') FROM users
-      WHERE role = 'client' AND active = true AND email <> ''
+     SELECT email, min(name) AS name FROM (
+       SELECT lower(email) AS email, COALESCE(name, '') AS name
+         FROM users WHERE role = 'client' AND active = true AND email <> ''
+       UNION ALL
+       SELECT lower(email), COALESCE(name, '') FROM leads WHERE email <> ''
+       UNION ALL
+       SELECT lower(client_email), COALESCE(NULLIF(client_name, ''), '')
+         FROM projects WHERE client_email <> ''
+       UNION ALL
+       SELECT lower(l.email), COALESCE(NULLIF(p.client_name, ''), l.name, '')
+         FROM projects p JOIN leads l ON l.id = p.lead_id
+        WHERE p.client_email = '' AND l.email <> ''
+     ) x
+     GROUP BY email
      ON CONFLICT (email) DO NOTHING
      RETURNING id, email, name`,
   );

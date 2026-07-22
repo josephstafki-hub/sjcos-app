@@ -142,6 +142,15 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS stage_label   text;
 -- emails go out on reaching the warranty stage, so re-flipping never re-sends.
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS closeout_outreach_at timestamptz;
 
+-- The client's email — projects had a name (client_name) but nowhere to put
+-- an address. Discovered missing when the newsletter's "import from projects"
+-- came up empty: none of the 49 existing projects have lead_id set (that link
+-- is only populated by the lead→project conversion flow), so there was no
+-- structured path to a client's email at all. Backfilled once from the
+-- original Houzz/Gmail import staging data (sjc_temp_lead_imports.raw) for
+-- the projects that came from it; blank for the rest until entered.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS client_email text NOT NULL DEFAULT '';
+
 -- Migrate the project lifecycle to the design's 9 stages (Review-round-3 S3).
 -- Drop the old CHECK first so legacy values can be remapped, then re-add it.
 ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_status_check;

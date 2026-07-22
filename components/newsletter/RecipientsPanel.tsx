@@ -7,15 +7,14 @@
 // send; the redundancy screen that keeps a multi-group member from getting two
 // copies of the same issue lives in enqueueIssue's DISTINCT (lib/newsletter-outbox.ts).
 
-import { useState, type Dispatch, type SetStateAction, type TransitionStartFunction } from "react";
-import { Plus, Trash2, Users, Download, FolderOpen, ClipboardPaste, Tag, X } from "lucide-react";
+import { useRef, useState, type Dispatch, type SetStateAction, type TransitionStartFunction } from "react";
+import { Plus, Trash2, Users, Download, Upload, ClipboardPaste, Tag, X } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import {
   addRecipient,
   addRecipientsBulk,
   removeRecipient,
-  importClientRecipients,
-  importProjectRecipients,
+  importKnownRecipients,
   createGroup,
   deleteGroup,
   setRecipientGroup,
@@ -90,23 +89,26 @@ export function RecipientsPanel({
     });
   }
 
-  function importClients() {
+  function importKnown() {
     start(async () => {
-      const res = await importClientRecipients();
+      const res = await importKnownRecipients();
       if (res.ok) {
-        onNotice(`Imported ${res.data ?? 0} client email(s). Reload to see them in the list.`);
+        onNotice(`Imported ${res.data ?? 0} email(s) from leads, projects, and client logins. Reload to see them in the list.`);
         onOutboxRefresh();
       }
     });
   }
 
-  function importProjects() {
-    start(async () => {
-      const res = await importProjectRecipients();
-      if (res.ok) {
-        onNotice(`Imported ${res.data ?? 0} project contact email(s). Reload to see them in the list.`);
-        onOutboxRefresh();
-      }
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  function importFile(file: File) {
+    file.text().then((text) => {
+      start(async () => {
+        const res = await addRecipientsBulk(text);
+        if (res.ok) {
+          onNotice(`Added ${res.data?.added ?? 0} email(s) found in "${file.name}". Reload to see them in the list.`);
+          onOutboxRefresh();
+        } else onNotice(res.error);
+      });
     });
   }
 
@@ -153,19 +155,32 @@ export function RecipientsPanel({
         </span>
         <button
           type="button"
-          onClick={importClients}
+          onClick={importKnown}
           disabled={pending}
+          title="Client-portal logins, leads, and each project's client email"
           className="inline-flex items-center gap-1 rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-60"
         >
-          <Download className="size-3.5" strokeWidth={1.5} /> Import client emails
+          <Download className="size-3.5" strokeWidth={1.5} /> Import from leads &amp; projects
         </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".csv,.txt,text/csv,text/plain"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) importFile(file);
+            e.target.value = "";
+          }}
+        />
         <button
           type="button"
-          onClick={importProjects}
+          onClick={() => fileInputRef.current?.click()}
           disabled={pending}
+          title="Upload a .csv or .txt file — any email addresses found in it are added"
           className="inline-flex items-center gap-1 rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-60"
         >
-          <FolderOpen className="size-3.5" strokeWidth={1.5} /> Import from projects
+          <Upload className="size-3.5" strokeWidth={1.5} /> Import from file
         </button>
       </div>
 

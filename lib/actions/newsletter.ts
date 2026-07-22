@@ -341,42 +341,39 @@ export async function removeRecipient(id: number): Promise<Result> {
 
 /** Import every client user's email as a recipient. Returns how many were added.
  *  Owner-only. */
-export async function importClientRecipients(): Promise<Result<number>> {
-  await requireRole("owner");
-  const inserted = await query<{ id: number; email: string; name: string }>(
-    `INSERT INTO newsletter_recipients (email, name)
-     SELECT lower(email), COALESCE(name, '') FROM users
-      WHERE role = 'client' AND active = true AND email <> ''
-     ON CONFLICT (email) DO NOTHING
-     RETURNING id, email, name`,
-  );
-  // Park a greeting for each NEWLY added contact only (no backfill blast).
-  for (const r of inserted.rows) await afterRecipientAdded(r.id, r.email, r.name);
-  revalidatePath("/newsletter");
-  return { ok: true, data: inserted.rowCount ?? 0 };
-}
-
-/** Import a contact email for every project — the project's client-portal user
- *  if one exists, else the originating lead's email (so projects that never got
- *  a portal login still bring their client onto the list). One row per project;
- *  a repeat client with several projects collapses to a single recipient.
+/** Import every email known to the business: client-portal logins, leads
+ *  (prospects included — not just signed clients), and each project's client
+ *  email (`projects.client_email`, falling back to the originating lead's
+ *  email for a project whose conversion set `lead_id` but not client_email
+ *  yet). One row per address; a repeat contact across sources collapses to a
+ *  single recipient. Was two separate buttons ("client emails" vs "from
+ *  projects") that read as the same thing and both came up empty — neither
+ *  `users.role='client'` nor `projects.lead_id` had any data in them; the
+ *  real emails were sitting in `projects.client_email` (backfilled once from
+ *  the original Houzz/Gmail import — see db/schema.sql) and `leads.email`.
  *  Owner-only. */
-export async function importProjectRecipients(): Promise<Result<number>> {
+export async function importKnownRecipients(): Promise<Result<number>> {
   await requireRole("owner");
   const inserted = await query<{ id: number; email: string; name: string }>(
     `INSERT INTO newsletter_recipients (email, name)
      SELECT email, min(name) AS name FROM (
-       SELECT lower(COALESCE(u.email, l.email)) AS email,
-              COALESCE(NULLIF(p.client_name, ''), l.name, '') AS name
-         FROM projects p
-         LEFT JOIN users u ON u.role = 'client' AND u.active = true AND u.link_slug = p.slug
-         LEFT JOIN leads l ON l.id = p.lead_id
-        WHERE COALESCE(u.email, l.email) IS NOT NULL AND COALESCE(u.email, l.email) <> ''
+       SELECT lower(email) AS email, COALESCE(name, '') AS name
+         FROM users WHERE role = 'client' AND active = true AND email <> ''
+       UNION ALL
+       SELECT lower(email), COALESCE(name, '') FROM leads WHERE email <> ''
+       UNION ALL
+       SELECT lower(client_email), COALESCE(NULLIF(client_name, ''), '')
+         FROM projects WHERE client_email <> ''
+       UNION ALL
+       SELECT lower(l.email), COALESCE(NULLIF(p.client_name, ''), l.name, '')
+         FROM projects p JOIN leads l ON l.id = p.lead_id
+        WHERE p.client_email = '' AND l.email <> ''
      ) x
      GROUP BY email
      ON CONFLICT (email) DO NOTHING
      RETURNING id, email, name`,
   );
+  // Park a greeting for each NEWLY added contact only (no backfill blast).
   for (const r of inserted.rows) await afterRecipientAdded(r.id, r.email, r.name);
   revalidatePath("/newsletter");
   return { ok: true, data: inserted.rowCount ?? 0 };

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, Trash2, Sparkles, FileSpreadsheet, Ruler, GitMerge } from "lucide-react";
+import { Plus, Pencil, Trash2, Sparkles, FileSpreadsheet, Ruler, GitMerge, ChevronLeft } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import { fmtUsd, unitLabel } from "@/lib/cost-book-units";
 import type { CostItem } from "@/lib/cost-book";
@@ -43,8 +43,11 @@ export function ProjectEstimate({
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
-  const [selectedId, setSelectedId] = useState<number | null>(estimates[0]?.id ?? null);
-  const [showNew, setShowNew] = useState(estimates.length === 0);
+  // null = the list view (every estimate as a row); an id = that estimate's
+  // generator is open. Mirrors DocTypePanel — you land on the list and click
+  // Edit to open one, then close back to the list.
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [showNew, setShowNew] = useState(false);
   const [showMerge, setShowMerge] = useState(false);
   const [mergeSel, setMergeSel] = useState<Set<number>>(new Set());
   const [mergeError, setMergeError] = useState<string | null>(null);
@@ -55,14 +58,14 @@ export function ProjectEstimate({
   const [suggesting, setSuggesting] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
 
-  const selected = estimates.find((e) => e.id === selectedId) ?? estimates[0] ?? null;
+  const selected = editingId != null ? estimates.find((e) => e.id === editingId) ?? null : null;
 
   function create(form: HTMLFormElement) {
     const fd = new FormData(form);
     startTransition(async () => {
       const res = await createEstimate(slug, fd);
       if (res.ok && res.id) {
-        setSelectedId(res.id);
+        setEditingId(res.id);
         setShowNew(false);
         form.reset();
         router.refresh();
@@ -93,7 +96,7 @@ export function ProjectEstimate({
       const res = await mergeEstimates(slug, ids, title);
       setMerging(false);
       if (res.ok && res.id) {
-        setSelectedId(res.id);
+        setEditingId(res.id);
         setShowMerge(false);
         setMergeSel(new Set());
         form.reset();
@@ -108,7 +111,7 @@ export function ProjectEstimate({
     if (!confirm("Delete this estimate and all its lines?")) return;
     startTransition(async () => {
       await deleteEstimate(slug, id);
-      setSelectedId(null);
+      setEditingId(null);
       router.refresh();
     });
   }
@@ -155,42 +158,39 @@ export function ProjectEstimate({
 
   return (
     <div className="max-w-[860px] space-y-4">
-      {/* Estimate selector + new */}
-      <div className="flex flex-wrap items-center gap-2">
-        {estimates.map((e) => (
+      {/* ── List view: every estimate as a row; Edit opens the generator ── */}
+      {!selected && (
+      <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-serif text-[17px] font-semibold text-ink">Estimates</h3>
+          <div className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
+            {estimates.length} estimate{estimates.length === 1 ? "" : "s"}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {estimates.length >= 2 && (
+            <button
+              onClick={() => {
+                setShowMerge((v) => !v);
+                setShowNew(false);
+                setMergeError(null);
+                setMergeSel(new Set());
+              }}
+              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[12px] font-semibold ${
+                showMerge ? "border-accent bg-accent-soft text-accent-2" : "border-rule bg-card text-ink-2 hover:bg-paper-2"
+              }`}
+            >
+              <GitMerge className="size-3" strokeWidth={1.75} /> Merge
+            </button>
+          )}
           <button
-            key={e.id}
-            onClick={() => { setSelectedId(e.id); setSuggestion(null); }}
-            className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-[12px] ${
-              selected?.id === e.id ? "border-accent bg-accent-soft text-accent-2" : "border-rule bg-card text-ink-2 hover:bg-paper-2"
-            }`}
+            onClick={() => { setShowNew((v) => !v); setShowMerge(false); }}
+            className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
           >
-            <span className="font-semibold">{e.title}</span>
-            <span className="font-mono text-[11px]">{fmtUsd(e.total)}</span>
-            <Chip kind={STATUS_KIND[e.status]}>{e.status}</Chip>
+            <Plus className="size-3" strokeWidth={2} /> New estimate
           </button>
-        ))}
-        <button
-          onClick={() => { setShowNew((v) => !v); setShowMerge(false); }}
-          className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
-        >
-          <Plus className="size-3" strokeWidth={2} /> New estimate
-        </button>
-        {estimates.length >= 2 && (
-          <button
-            onClick={() => {
-              setShowMerge((v) => !v);
-              setShowNew(false);
-              setMergeError(null);
-              setMergeSel(new Set());
-            }}
-            className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[12px] font-semibold ${
-              showMerge ? "border-accent bg-accent-soft text-accent-2" : "border-rule bg-card text-ink-2 hover:bg-paper-2"
-            }`}
-          >
-            <GitMerge className="size-3" strokeWidth={1.75} /> Merge
-          </button>
-        )}
+        </div>
       </div>
 
       {showMerge && (
@@ -265,14 +265,65 @@ export function ProjectEstimate({
         </Card>
       )}
 
-      {!selected ? (
+      {estimates.length === 0 ? (
         <Card kind="dashed" className="p-10 text-center">
           <FileSpreadsheet className="mx-auto size-5 text-ink-3" strokeWidth={1.5} />
           <div className="mt-2 font-serif text-[16px] font-semibold text-ink-2">No estimate yet</div>
           <div className="mt-1 text-[12px] text-ink-3">Create an estimate, then add lines from your cost book.</div>
         </Card>
       ) : (
+        <div className="space-y-2.5">
+          {estimates.map((e) => (
+            <Card key={e.id} className="p-3.5">
+              <div className="flex items-start gap-3">
+                <FileSpreadsheet className="mt-0.5 size-3.5 flex-none text-ink-3" strokeWidth={1.75} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="truncate font-serif text-[15px] font-semibold text-ink">{e.title}</span>
+                    <Chip kind="ghost">{RAIL_LABEL[e.rail]}</Chip>
+                    <Chip kind={STATUS_KIND[e.status]}>{e.status}</Chip>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-3 text-[11px] text-ink-3">
+                    <span>Created {e.createdAtLabel}</span>
+                    <span className="font-mono text-ink-2">{fmtUsd(e.total)}</span>
+                    <span>{e.lines.length} line{e.lines.length === 1 ? "" : "s"}</span>
+                  </div>
+                </div>
+                <div className="flex flex-none items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => { setEditingId(e.id); setSuggestion(null); }}
+                    className="rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink-3 hover:bg-paper-2"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeEstimate(e.id)}
+                    className="rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink-3 hover:bg-paper-2 hover:text-flag"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+      </div>
+      )}
+
+      {/* ── Generator view: the open estimate, with a way back to the list ── */}
+      {selected && (
         <>
+          <button
+            type="button"
+            onClick={() => setEditingId(null)}
+            className="inline-flex items-center gap-1 text-[12px] font-semibold text-ink-3 hover:text-ink"
+          >
+            <ChevronLeft className="size-3.5" strokeWidth={2} /> All estimates
+          </button>
+
           {/* Header + totals */}
           <Card className="p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -403,6 +454,23 @@ export function ProjectEstimate({
                 ))}
               </Card>
             ))
+          )}
+
+          {/* Live house-style Formal Estimate PDF — the same document the
+              estimate_doc generator produces. Keyed on the line signature so it
+              reloads after every save (router.refresh() feeds fresh props). */}
+          {selected.lines.length > 0 && (
+            <div>
+              <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+                Preview · what the client will see
+              </div>
+              <iframe
+                key={`${selected.total}|${selected.lines.map((l) => `${l.id}:${l.extended}`).join(",")}`}
+                src={`/api/projects/${slug}/estimates/${selected.id}/preview`}
+                title={`${selected.title} preview`}
+                className="h-[560px] w-full rounded-md border border-rule bg-paper"
+              />
+            </div>
           )}
 
           {selected.lines.length > 0 && (

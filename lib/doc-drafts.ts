@@ -141,6 +141,27 @@ export async function renderRoughEstimatePdf(leadSlug: string): Promise<Buffer |
   return renderTemplatePdf(template, values);
 }
 
+/** Render a project estimate to the same house-style Formal Estimate PDF the
+ *  `estimate_doc` document generator produces — a live preview for the estimator
+ *  (Money → Estimate). Rendered on the fly from the estimate's lines, no draft
+ *  row. Returns null if the estimate doesn't exist under `slug`, or it's not yet
+ *  renderable (e.g. no lines). Scoped by slug so one project can't preview
+ *  another's estimate by id. */
+export async function renderProjectEstimatePdf(slug: string, estimateId: number): Promise<Buffer | null> {
+  const template = getTemplate("estimate_doc");
+  if (!template) return null;
+  // Confirm the estimate belongs to this project before rendering.
+  const owns = await queryOne<{ id: string }>(
+    `SELECT e.id FROM estimates e JOIN projects p ON p.id = e.project_id
+      WHERE e.id = $1 AND p.slug = $2`,
+    [estimateId, slug],
+  );
+  if (!owns) return null;
+  const { values } = await resolveAutoFields("estimate_doc", { slug, estimateId });
+  if (!validateForRender(template, values).ok) return null;
+  return renderTemplatePdf(template, values);
+}
+
 // ─── Create ──────────────────────────────────────────────────────────────────
 
 export interface CreateResult {

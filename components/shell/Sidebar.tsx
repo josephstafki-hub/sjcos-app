@@ -13,6 +13,7 @@ import {
   FolderKanban,
   Calendar,
   HardHat,
+  Truck,
   FolderOpen,
   Globe,
   Mail,
@@ -55,6 +56,7 @@ const WORK: NavItem[] = [
   { label: "Projects", href: "/projects", icon: FolderKanban },
   { label: "Schedule", href: "/schedule", icon: Calendar },
   { label: "Subs", href: "/subs", icon: HardHat },
+  { label: "Vendors", href: "/vendors", icon: Truck },
   { label: "Files", href: "/files", icon: FolderOpen },
 ];
 

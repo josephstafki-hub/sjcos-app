@@ -26,6 +26,9 @@ import { ProjectSchedule } from "@/components/projects/ProjectSchedule";
 import { DocTypePanel } from "@/components/projects/DocTypePanel";
 import { listDocDrafts, listDocTemplates } from "@/lib/doc-drafts";
 import { ChangeOrders } from "@/components/projects/ChangeOrders";
+import { PurchaseOrders } from "@/components/projects/PurchaseOrders";
+import { getProjectPurchaseOrders } from "@/lib/purchase-orders";
+import { listVendors } from "@/lib/vendors";
 import { Closeout } from "@/components/projects/Closeout";
 import { Safety } from "@/components/projects/Safety";
 import { Incidents } from "@/components/projects/Incidents";
@@ -92,13 +95,15 @@ export default async function ProjectDetailPage({
     getQueuedSubInvites(slug),
   ]);
   const dailyLogs = await getProjectDailyLogs(slug);
-  const [estimates, costBook, changeOrders, closeoutView, orientations, approvalGate] = await Promise.all([
+  const [estimates, costBook, changeOrders, closeoutView, orientations, approvalGate, purchaseOrders, vendors] = await Promise.all([
     getProjectEstimates(slug),
     getCostBook(),
     getProjectChangeOrders(slug),
     getCloseoutView(slug),
     getProjectOrientations(slug),
     getApprovalGate(slug),
+    getProjectPurchaseOrders(slug),
+    listVendors(),
   ]);
   const incidents = await getProjectIncidents(slug);
   const permits = await getProjectPermits(slug);
@@ -424,6 +429,9 @@ export default async function ProjectDetailPage({
     />
   );
   const changeOrdersPanel = <ChangeOrders slug={slug} orders={changeOrders} />;
+  const purchaseOrdersPanel = (
+    <PurchaseOrders slug={slug} orders={purchaseOrders} vendors={vendors} assignedSubs={subsData.assigned} />
+  );
   const closeoutPanel = <Closeout slug={slug} view={closeoutView} />;
   const safetyPanel = (
     <Safety slug={slug} orientations={orientations} incidents={<Incidents slug={slug} incidents={incidents} />} />
@@ -443,6 +451,7 @@ export default async function ProjectDetailPage({
         { label: "Estimate", node: estimatePanel },
         { label: "Invoices", node: moneyPanel },
         { label: "Change orders", node: changeOrdersPanel },
+        { label: "Purchase orders", node: purchaseOrdersPanel },
       ]}
     />
   );

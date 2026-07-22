@@ -2032,3 +2032,62 @@ CREATE INDEX IF NOT EXISTS idx_client_invites_project
 -- Set when a client trades their bearer link for a real password. Non-null ⇒
 -- links are refused for that account and password login is the only way in.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS portal_claimed_at timestamptz;
+
+-- ─── Purchase orders (per-project) ─────────────────────────────────────────
+-- Materials-side procurement, the money-out counterpart to invoices. A PO goes
+-- to a saved vendor (materials supplier), an assigned sub, or a one-off entry
+-- typed once and not saved. vendor_name/email/phone are a snapshot at
+-- create-time (or the one-off entry itself) so the PO stays readable even if
+-- the vendor row is later edited or removed. Lines carry qty_ordered vs
+-- qty_received so partial/backorder shows up per line; the PO's own status is
+-- derived from its lines by lib/actions/purchase-orders.ts's recompute().
+CREATE TABLE IF NOT EXISTS vendors (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  slug        text UNIQUE NOT NULL,
+  name        text NOT NULL,
+  trade       text NOT NULL DEFAULT '',   -- e.g. "Lumber", "Cabinets", "Hardware"
+  email       text,
+  phone       text,
+  notes       text NOT NULL DEFAULT '',   -- owner's private notes on the vendor
+  fav         boolean NOT NULL DEFAULT false,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS purchase_orders (
+  id            bigserial PRIMARY KEY,
+  project_id    uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  po_number     text NOT NULL DEFAULT '',       -- display, e.g. "PO-001"
+  vendor_kind   text NOT NULL DEFAULT 'one_off'
+                  CHECK (vendor_kind IN ('vendor','sub','one_off')),
+  vendor_id     uuid REFERENCES vendors(id) ON DELETE SET NULL,
+  sub_slug      text REFERENCES subs(slug) ON DELETE SET NULL,
+  vendor_name   text NOT NULL DEFAULT '',       -- snapshot (or the one-off entry itself)
+  vendor_email  text NOT NULL DEFAULT '',
+  vendor_phone  text NOT NULL DEFAULT '',
+  title         text NOT NULL DEFAULT '',
+  notes         text NOT NULL DEFAULT '',
+  status        text NOT NULL DEFAULT 'draft'
+                  CHECK (status IN ('draft','queued','sent','partial','fulfilled','closed','void')),
+  subtotal      integer NOT NULL DEFAULT 0,     -- cents, Σ(extended) — recomputed from lines
+  created_by    uuid REFERENCES users(id) ON DELETE SET NULL,
+  sent_at       timestamptz,
+  fulfilled_at  timestamptz,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_po_project ON purchase_orders(project_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS purchase_order_lines (
+  id                bigserial PRIMARY KEY,
+  purchase_order_id bigint NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+  cost_item_id      bigint REFERENCES cost_items(id) ON DELETE SET NULL,
+  description       text NOT NULL DEFAULT '',
+  unit              text NOT NULL DEFAULT 'ea',
+  qty_ordered       numeric(12,2) NOT NULL DEFAULT 0,
+  qty_received      numeric(12,2) NOT NULL DEFAULT 0,
+  unit_cost         integer NOT NULL DEFAULT 0,  -- cents
+  extended          integer NOT NULL DEFAULT 0,  -- cents = qty_ordered * unit_cost
+  sort_order        integer NOT NULL DEFAULT 0,
+  created_at        timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_po_lines_po ON purchase_order_lines(purchase_order_id, sort_order);

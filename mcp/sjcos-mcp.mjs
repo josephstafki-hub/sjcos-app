@@ -15,8 +15,8 @@
 //
 // Tool surface (all tools are curated + parameterized — raw SQL is NEVER exposed):
 //   • Curated READ tools: parameterized SELECTs over leads/projects/subs/
-//     compliance/knowledge/work items/skills/runbooks + business_snapshot +
-//     get_today_queue (Joe's Today rail with per-item lanes).
+//     vendors/purchase orders/compliance/knowledge/work items/skills/runbooks +
+//     business_snapshot + get_today_queue (Joe's Today rail with per-item lanes).
 //   • Gated WRITE tools: capture_knowledge, create_work_item,
 //     update_work_item_status, snooze_work_item, submit_draft_for_approval,
 //     record_agent_run, record_receipt,
@@ -24,10 +24,13 @@
 //     they only touch internal records, an append-only audit trail, or land as
 //     proposals (skills land 'proposed', invisible to the library until an owner
 //     approves them in /engine).
-//   • NOT exposed: no destructive tools (no deletes/drops), no client-facing or
-//     financial sends (email/SMS/invoices/contracts stay owner-approved in the
-//     app), and no raw-SQL passthrough. Secrets are read from .env.local at
-//     runtime and never logged or returned in a tool result.
+//   • Draft/queue-only WRITE tools proxied through the app (doc drafts,
+//     newsletter, purchase orders): can create/edit/queue, never send — see the
+//     safety comment above each block for exactly where the line sits.
+//   • NOT exposed: no destructive tools (no deletes/drops), no client- or
+//     vendor-facing sends (email/SMS/invoices/contracts/POs stay owner-approved
+//     in the app), and no raw-SQL passthrough. Secrets are read from .env.local
+//     at runtime and never logged or returned in a tool result.
 
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -100,6 +103,29 @@ async function newsletterCall(action, payload = {}) {
   if (!secret) return { ok: false, error: "CRON_SECRET not set — cannot reach the app newsletter route." };
   try {
     const res = await fetch(`${base}/api/internal/newsletter`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
+      body: JSON.stringify({ action, ...payload }),
+    });
+    return await res.json();
+  } catch (e) {
+    return { ok: false, error: `App not reachable at ${base} (${e.message}). Is the sjcos service running?` };
+  }
+}
+
+/**
+ * Call the app's internal purchase-orders route (single source of truth for
+ * the subtotal/status recompute logic — the .mjs server can't import the TS
+ * module). Trusted local caller, authed with CRON_SECRET. This route
+ * deliberately has NO send/record-receipt/close/void action: emailing a
+ * vendor and receiving/closing out stay owner-gated in the app.
+ */
+async function poCall(action, payload = {}) {
+  const base = envValue("APP_INTERNAL_URL") || "http://127.0.0.1:3017";
+  const secret = envValue("CRON_SECRET");
+  if (!secret) return { ok: false, error: "CRON_SECRET not set — cannot reach the app purchase-orders route." };
+  try {
+    const res = await fetch(`${base}/api/internal/purchase-orders`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
       body: JSON.stringify({ action, ...payload }),
@@ -261,6 +287,62 @@ server.registerTool(
         trade ? [`%${trade}%`] : [],
       ),
     );
+  },
+);
+
+server.registerTool(
+  "list_vendors",
+  {
+    title: "List vendors",
+    description: "List materials suppliers (vendors), favorites first. Distinct from subs (labor).",
+    inputSchema: {},
+  },
+  async () =>
+    json(await rows(`SELECT id, slug, name, trade, email, phone, fav FROM vendors ORDER BY fav DESC, name`)),
+);
+
+server.registerTool(
+  "list_purchase_orders",
+  {
+    title: "List purchase orders",
+    description: "List a project's purchase orders (newest first), optionally filtered by status.",
+    inputSchema: { project_slug: z.string(), status: z.string().optional() },
+  },
+  async ({ project_slug, status }) => {
+    const params = [project_slug];
+    let where = `p.slug = $1`;
+    if (status) {
+      params.push(status);
+      where += ` AND po.status = $2`;
+    }
+    return json(
+      await rows(
+        `SELECT po.id, po.po_number, po.title, po.vendor_kind, po.vendor_name, po.vendor_email, po.status,
+                po.subtotal, po.created_at, po.sent_at
+           FROM purchase_orders po JOIN projects p ON p.id = po.project_id
+          WHERE ${where} ORDER BY po.created_at DESC`,
+        params,
+      ),
+    );
+  },
+);
+
+server.registerTool(
+  "get_purchase_order",
+  {
+    title: "Get a purchase order",
+    description: "Full detail for one purchase order by id, including its lines.",
+    inputSchema: { id: z.coerce.number().int() },
+  },
+  async ({ id }) => {
+    const po = await rows(`SELECT * FROM purchase_orders WHERE id = $1`, [id]);
+    if (po.length === 0) return json({ error: `No purchase order with id ${id}` });
+    const lines = await rows(
+      `SELECT id, description, unit, qty_ordered, qty_received, unit_cost, extended
+         FROM purchase_order_lines WHERE purchase_order_id = $1 ORDER BY sort_order, id`,
+      [id],
+    );
+    return json({ purchaseOrder: po[0], lines });
   },
 );
 
@@ -1316,6 +1398,106 @@ server.registerTool(
     inputSchema: { id: z.coerce.number().int(), group_ids: z.array(z.coerce.number().int()).optional() },
   },
   async ({ id, group_ids }) => json(await newsletterCall("queue_issue", { id, group_ids })),
+);
+
+// ─── Purchase orders (per-project procurement) ──────────────────────────────
+// Reads are direct SELECTs (list_purchase_orders/get_purchase_order/list_vendors
+// above). Writes go THROUGH the app's internal route (poCall) so an agent
+// reuses the exact subtotal/status recompute logic the browser uses.
+//
+// THE LINE, restated: there is no send tool here. create/update/add_line/
+// update_line/delete_line only ever touch a draft or queued PO; queue_purchase_
+// order just flags it "ready for review" — the owner still clicks "Send to
+// vendor" in the app for anything to reach a real inbox. Receiving progress and
+// closing out are also owner-only in the app (not exposed here) — do not add
+// send/record-receipt/close/void tools without Joe explicitly deciding to move
+// that line.
+
+server.registerTool(
+  "create_purchase_order",
+  {
+    title: "Create a draft purchase order",
+    description:
+      "Draft a PO on a project. vendor_kind is 'vendor' (pass vendor_id from list_vendors), 'sub' " +
+      "(pass sub_slug from list_subs — must be assigned to the project), or 'one_off' (just vendor_name/" +
+      "email/phone, not saved as a vendor). Does NOT send anything.",
+    inputSchema: {
+      project_slug: z.string(),
+      title: z.string(),
+      notes: z.string().optional(),
+      vendor_kind: z.enum(["vendor", "sub", "one_off"]).optional(),
+      vendor_id: z.string().optional(),
+      sub_slug: z.string().optional(),
+      vendor_name: z.string(),
+      vendor_email: z.string().optional(),
+      vendor_phone: z.string().optional(),
+    },
+  },
+  async (a) => json(await poCall("create", a)),
+);
+
+server.registerTool(
+  "update_purchase_order",
+  {
+    title: "Update a purchase order",
+    description: "Edit a draft/queued PO's title and/or notes (locked once sent).",
+    inputSchema: { id: z.coerce.number().int(), title: z.string().optional(), notes: z.string().optional() },
+  },
+  async (a) => json(await poCall("update", a)),
+);
+
+server.registerTool(
+  "add_purchase_order_line",
+  {
+    title: "Add a line to a purchase order",
+    description: "Add a line item. unit_cost is a dollar figure (e.g. \"12.50\" or \"$1,200\").",
+    inputSchema: {
+      po_id: z.coerce.number().int(),
+      description: z.string(),
+      unit: z.string().optional(),
+      qty_ordered: z.number(),
+      unit_cost: z.union([z.string(), z.number()]),
+    },
+  },
+  async (a) => json(await poCall("add_line", a)),
+);
+
+server.registerTool(
+  "update_purchase_order_line",
+  {
+    title: "Update a purchase order line",
+    description: "Edit one line's description/unit/qty/unit_cost. Omitted fields are left as-is.",
+    inputSchema: {
+      id: z.coerce.number().int(),
+      description: z.string().optional(),
+      unit: z.string().optional(),
+      qty_ordered: z.number().optional(),
+      unit_cost: z.union([z.string(), z.number()]).optional(),
+    },
+  },
+  async (a) => json(await poCall("update_line", a)),
+);
+
+server.registerTool(
+  "delete_purchase_order_line",
+  {
+    title: "Delete a purchase order line",
+    description: "Remove one line from its purchase order.",
+    inputSchema: { id: z.coerce.number().int() },
+  },
+  async ({ id }) => json(await poCall("delete_line", { id })),
+);
+
+server.registerTool(
+  "queue_purchase_order",
+  {
+    title: "Mark a purchase order ready to send",
+    description:
+      "Draft → queued: flags the PO ready for Joe's review. NOTHING is emailed — the owner still " +
+      "clicks 'Send to vendor' in the app for anything to reach a real inbox.",
+    inputSchema: { id: z.coerce.number().int() },
+  },
+  async ({ id }) => json(await poCall("queue", { id })),
 );
 
 const transport = new StdioServerTransport();

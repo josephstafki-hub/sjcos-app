@@ -17,8 +17,8 @@ export function AudiencePanel({
   extraRecipients,
   onExtraRecipientsChange,
   groups,
-  queueGroupIds,
-  setQueueGroupIds,
+  targetGroupIds,
+  setTargetGroupIds,
   pending,
   start,
   locked,
@@ -27,8 +27,11 @@ export function AudiencePanel({
   extraRecipients: { email: string; name: string }[];
   onExtraRecipientsChange: (list: { email: string; name: string }[]) => void;
   groups: NewsletterGroup[];
-  queueGroupIds: number[];
-  setQueueGroupIds: (fn: (prev: number[]) => number[]) => void;
+  /** Persisted on the issue — checking/unchecking saves immediately (see
+   *  setTargetGroupIds in NewsletterClient), so this always reflects the real
+   *  saved state, not a client-only guess that resets on reload. */
+  targetGroupIds: number[];
+  setTargetGroupIds: (fn: (prev: number[]) => number[]) => void;
   pending: boolean;
   start: TransitionStartFunction;
   locked: boolean;
@@ -83,9 +86,9 @@ export function AudiencePanel({
                 <input
                   type="checkbox"
                   disabled={locked}
-                  checked={queueGroupIds.includes(g.id)}
+                  checked={targetGroupIds.includes(g.id)}
                   onChange={(e) =>
-                    setQueueGroupIds((prev) => (e.target.checked ? [...prev, g.id] : prev.filter((x) => x !== g.id)))
+                    setTargetGroupIds((prev) => (e.target.checked ? [...prev, g.id] : prev.filter((x) => x !== g.id)))
                   }
                   className="size-3.5"
                 />

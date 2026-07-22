@@ -53,6 +53,13 @@ export interface NewsletterIssue {
   /** One-time addresses that get just THIS issue when queued — not added to
    *  the recipient list. Edited from this issue's own Recipients tab. */
   extraRecipients: { email: string; name: string }[];
+  /** Audiences (newsletter_groups.id) this issue targets when Queued — empty
+   *  means everyone active. Persisted on the issue (not just client state):
+   *  a checkbox that silently reset on reload read as "I checked this and it
+   *  did nothing" — checking/unchecking now saves immediately, same as
+   *  extraRecipients, so the selection survives a reload and unchecking is
+   *  the only thing that drops an audience from the target. */
+  targetGroupIds: number[];
 }
 
 /** A parked send (issue or greeting) awaiting the owner's Release. */
@@ -125,6 +132,7 @@ interface IssueRow {
   created_label: string;
   is_welcome: boolean;
   extra_recipients: unknown;
+  target_group_ids: unknown;
 }
 
 function rowToIssue(r: IssueRow): NewsletterIssue {
@@ -136,6 +144,7 @@ function rowToIssue(r: IssueRow): NewsletterIssue {
     template: r.template || "classic",
     settings: normalizeSettings(r.settings),
     extraRecipients: Array.isArray(r.extra_recipients) ? (r.extra_recipients as { email: string; name: string }[]) : [],
+    targetGroupIds: Array.isArray(r.target_group_ids) ? (r.target_group_ids as number[]) : [],
     status: r.status,
     recipientCount: r.recipient_count,
     sentLabel: r.sent_label,
@@ -188,7 +197,8 @@ export async function readOutbox(): Promise<OutboxItem[]> {
 
 export async function getNewsletterData(selectedId?: number): Promise<NewsletterData> {
   const { rows: issueRows } = await query<IssueRow>(
-    `SELECT id, title, intro, blocks, template, settings, status, recipient_count, is_welcome, extra_recipients,
+    `SELECT id, title, intro, blocks, template, settings, status, recipient_count, is_welcome,
+            extra_recipients, target_group_ids,
             to_char(sent_at, 'FMMon FMDD, YYYY')    AS sent_label,
             to_char(created_at, 'FMMon FMDD, YYYY')  AS created_label
        FROM newsletters

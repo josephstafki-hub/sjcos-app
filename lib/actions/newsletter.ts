@@ -134,6 +134,23 @@ export async function setExtraRecipients(
   return { ok: true };
 }
 
+/** Persist which audiences THIS issue targets when Queued (empty = everyone
+ *  active). Saved immediately on every check/uncheck — the whole point is
+ *  that the selection survives a reload instead of silently resetting, so
+ *  unchecking is the only thing that should ever drop an audience from the
+ *  target. Draft-only, same as the rest of the issue's content. Owner-only. */
+export async function setTargetGroupIds(id: number, groupIds: number[]): Promise<Result> {
+  await requireRole("owner");
+  const cleaned = Array.from(new Set(groupIds.map(Number).filter((n) => Number.isInteger(n) && n > 0)));
+  const res = await query(
+    `UPDATE newsletters SET target_group_ids = $2::jsonb, updated_at = now() WHERE id = $1 AND status = 'draft'`,
+    [id, JSON.stringify(cleaned)],
+  );
+  if (res.rowCount === 0) return { ok: false, error: "Issue not found or already sent." };
+  revalidatePath("/newsletter");
+  return { ok: true };
+}
+
 /** Upload a photo for use inside an issue and publish it for email delivery.
  *  Returns the public token the block stores. Owner-only.
  *
@@ -500,6 +517,29 @@ export async function releaseNewsletterItem(id: number): Promise<Result> {
   if (!res.ok) return { ok: false, error: res.error ?? "Release failed." };
   revalidatePath("/newsletter");
   return { ok: true };
+}
+
+/** RELEASE every queued/failed outbox row — the bulk version of clicking
+ *  Release on each one by hand, for when an audience send has more rows than
+ *  it's reasonable to click through one at a time. Same underlying send path
+ *  (releaseOutboxItem) and the same real-Gmail consequence; the caller (the
+ *  UI) is expected to confirm the count before calling this. A row that fails
+ *  to send is left 'failed' exactly like a single Release would, and doesn't
+ *  stop the rest from going out. Owner-only. */
+export async function releaseAllOutbox(): Promise<Result<{ released: number; failed: number }>> {
+  await requireRole("owner");
+  const pending = await query<{ id: number }>(
+    `SELECT id FROM newsletter_outbox WHERE status IN ('queued', 'failed') ORDER BY queued_at`,
+  );
+  let released = 0;
+  let failed = 0;
+  for (const row of pending.rows) {
+    const res = await releaseOutboxItem(row.id);
+    if (res.ok) released++;
+    else failed++;
+  }
+  revalidatePath("/newsletter");
+  return { ok: true, data: { released, failed } };
 }
 
 /** SKIP a parked outbox row without sending (stale recipient, etc.). Owner-only. */

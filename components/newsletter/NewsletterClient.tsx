@@ -15,9 +15,11 @@ import {
   draftBlockForProject,
   queueIssue,
   releaseNewsletterItem,
+  releaseAllOutbox,
   skipNewsletterItem,
   refreshOutbox,
   setWelcomeIssue,
+  setTargetGroupIds,
 } from "@/lib/actions/newsletter";
 import { BlockEditor, AddBlockBar } from "./BlockEditor";
 import { DesignPanel } from "./DesignPanel";
@@ -98,6 +100,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
           createdLabel: "just now",
           isWelcome: false,
           extraRecipients: [],
+          targetGroupIds: [],
         },
         ...prev,
       ]);
@@ -172,30 +175,34 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
   }
 
   // ── Audience (which groups + one-time adds a Queue targets; no groups = everyone active) ──
-  const [queueGroupIds, setQueueGroupIds] = useState<number[]>([]);
-  // Reset when switching issues — a stale audience pick from a different draft
-  // must never silently carry over to this one. Adjusting state mid-render on a
-  // prop change (rather than in an effect) is the pattern React recommends for
-  // exactly this case.
-  const [queueGroupsFor, setQueueGroupsFor] = useState<number | null>(selectedId);
-  if (queueGroupsFor !== selectedId) {
-    setQueueGroupsFor(selectedId);
-    setQueueGroupIds([]);
-  }
+  // Lives on the issue itself (current.targetGroupIds), not local component
+  // state — a checkbox that silently reset on every reload read as "I checked
+  // an audience and it did nothing." setTargetGroupIds saves on every toggle.
+  const targetGroupIds = current?.targetGroupIds ?? [];
   const audienceCount =
-    (queueGroupIds.length === 0
+    (targetGroupIds.length === 0
       ? activeCount
       : new Set(
-          recipients.filter((r) => r.active && r.groupIds.some((g) => queueGroupIds.includes(g))).map((r) => r.id),
+          recipients.filter((r) => r.active && r.groupIds.some((g) => targetGroupIds.includes(g))).map((r) => r.id),
         ).size) + (current?.extraRecipients.length ?? 0);
+
+  function setTargetGroups(fn: (prev: number[]) => number[]) {
+    if (!current) return;
+    const next = fn(current.targetGroupIds);
+    patchCurrent({ targetGroupIds: next });
+    start(async () => {
+      const res = await setTargetGroupIds(current.id, next);
+      if (!res.ok) setNotice(res.error);
+    });
+  }
 
   function queue() {
     if (!current) return;
     const audienceNote =
-      queueGroupIds.length === 0
+      targetGroupIds.length === 0
         ? "everyone active"
         : groups
-            .filter((g) => queueGroupIds.includes(g.id))
+            .filter((g) => targetGroupIds.includes(g.id))
             .map((g) => g.name)
             .join(", ");
     if (
@@ -207,11 +214,10 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
       return;
     setNotice(null);
     start(async () => {
-      const res = await queueIssue(current.id, queueGroupIds.length ? queueGroupIds : undefined);
+      const res = await queueIssue(current.id, targetGroupIds.length ? targetGroupIds : undefined);
       if (res.ok) {
         patchCurrent({ status: "queued" });
         setMode("Outbox");
-        setQueueGroupIds([]);
         setNotice(`Queued ${res.data?.queued ?? 0} message(s). Release them below when you're ready.`);
         // Pull the real persisted rows (with real ids) so Release is enabled.
         setOutbox(await refreshOutbox());
@@ -230,6 +236,21 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
         setNotice(res.error ?? "Release failed.");
         setOutbox(await refreshOutbox());
       }
+    });
+  }
+  function releaseAll() {
+    const n = outbox.filter((o) => o.status === "queued" || o.status === "failed").length;
+    if (n === 0) return;
+    if (!confirm(`Release all ${n} parked message${n === 1 ? "" : "s"} now? This emails every one of them for real via Gmail.`))
+      return;
+    setNotice(null);
+    start(async () => {
+      const res = await releaseAllOutbox();
+      if (res.ok) {
+        const { released, failed } = res.data ?? { released: 0, failed: 0 };
+        setNotice(failed > 0 ? `Released ${released}, ${failed} failed — left as failed to retry.` : `Released ${released}.`);
+      } else setNotice(res.error);
+      setOutbox(await refreshOutbox());
     });
   }
   function skipItem(item: OutboxItem) {
@@ -468,10 +489,10 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                 )}
                 {!locked && !current.isWelcome && (
                   <>
-                    {(queueGroupIds.length > 0 || current.extraRecipients.length > 0) && (
+                    {(targetGroupIds.length > 0 || current.extraRecipients.length > 0) && (
                       <span className="text-[11px] text-ink-3">
-                        {queueGroupIds.length > 0
-                          ? `${queueGroupIds.length} audience${queueGroupIds.length === 1 ? "" : "s"}`
+                        {targetGroupIds.length > 0
+                          ? `${targetGroupIds.length} audience${targetGroupIds.length === 1 ? "" : "s"}`
                           : "Everyone"}
                         {current.extraRecipients.length > 0 ? ` +${current.extraRecipients.length}` : ""} — set in
                         Recipients
@@ -597,7 +618,13 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
               {mode === "Preview" && <IssuePreview issue={current} baseUrl={data.baseUrl} />}
 
               {mode === "Outbox" && (
-                <OutboxPanel outbox={outbox} pending={pending} onRelease={releaseItem} onSkip={skipItem} />
+                <OutboxPanel
+                  outbox={outbox}
+                  pending={pending}
+                  onRelease={releaseItem}
+                  onReleaseAll={releaseAll}
+                  onSkip={skipItem}
+                />
               )}
 
               {mode === "Recipients" && (
@@ -606,8 +633,8 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                   extraRecipients={current.extraRecipients}
                   onExtraRecipientsChange={(list) => patchCurrent({ extraRecipients: list })}
                   groups={groups}
-                  queueGroupIds={queueGroupIds}
-                  setQueueGroupIds={setQueueGroupIds}
+                  targetGroupIds={targetGroupIds}
+                  setTargetGroupIds={setTargetGroups}
                   pending={pending}
                   start={start}
                   locked={locked}
@@ -759,11 +786,13 @@ function OutboxPanel({
   outbox,
   pending,
   onRelease,
+  onReleaseAll,
   onSkip,
 }: {
   outbox: OutboxItem[];
   pending: boolean;
   onRelease: (item: OutboxItem) => void;
+  onReleaseAll: () => void;
   onSkip: (item: OutboxItem) => void;
 }) {
   const pendingRows = outbox.filter((o) => o.status === "queued" || o.status === "failed");
@@ -782,7 +811,18 @@ function OutboxPanel({
       {pendingRows.length === 0 ? (
         <div className="px-2 py-8 text-center text-[12px] text-ink-3">Nothing waiting to send.</div>
       ) : (
-        <Card className="overflow-hidden p-0">
+        <>
+          <div className="text-right">
+            <button
+              type="button"
+              onClick={onReleaseAll}
+              disabled={pending}
+              className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
+            >
+              <Send className="size-3.5" strokeWidth={1.5} /> Release all {pendingRows.length}
+            </button>
+          </div>
+          <Card className="overflow-hidden p-0">
           {pendingRows.map((o, i) => (
             <div key={o.id} className={`px-4 py-3 ${i ? "border-t border-rule-soft" : ""}`}>
               <div className="flex items-center gap-2">
@@ -814,7 +854,8 @@ function OutboxPanel({
               {o.error && <div className="mt-1 text-[11px] text-flag">{o.error}</div>}
             </div>
           ))}
-        </Card>
+          </Card>
+        </>
       )}
 
       {doneRows.length > 0 && (

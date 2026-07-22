@@ -1274,6 +1274,12 @@ CREATE INDEX IF NOT EXISTS idx_nl_recipient_groups_group ON newsletter_recipient
 -- Recipients tab alongside its audience picks.
 ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS extra_recipients jsonb NOT NULL DEFAULT '[]';
 
+-- Which audiences (newsletter_groups.id) THIS issue targets when Queued —
+-- empty means everyone active. Was client-only React state that silently
+-- reset on every reload, which read as "I checked an audience and it did
+-- nothing" — persisted now for the same reason extra_recipients is.
+ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS target_group_ids jsonb NOT NULL DEFAULT '[]';
+
 -- ─── SMS (two-way texting) ──────────────────────────────────────────────────
 -- Provider-agnostic SMS inbox mirroring the Gmail inbox. Populated only when a
 -- provider (Twilio/Telnyx/SignalWire) is configured (see lib/sms.ts); until then

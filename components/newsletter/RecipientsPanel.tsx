@@ -8,12 +8,13 @@
 // copies of the same issue lives in enqueueIssue's DISTINCT (lib/newsletter-outbox.ts).
 
 import { useRef, useState, type Dispatch, type SetStateAction, type TransitionStartFunction } from "react";
-import { Plus, Trash2, Users, Download, Upload, ClipboardPaste, Tag, X } from "lucide-react";
+import { Plus, Trash2, Users, Download, Upload, ClipboardPaste, Tag, X, Search, UserPlus } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import {
   addRecipient,
   addRecipientsBulk,
   removeRecipient,
+  setRecipientActive,
   importKnownRecipients,
   createGroup,
   deleteGroup,
@@ -43,6 +44,7 @@ export function RecipientsPanel({
   /** Re-reads the outbox so a freshly-parked welcome greeting shows up. */
   onOutboxRefresh: () => void;
 }) {
+  const [search, setSearch] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [newName, setNewName] = useState("");
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -93,7 +95,11 @@ export function RecipientsPanel({
     start(async () => {
       const res = await importKnownRecipients();
       if (res.ok) {
-        onNotice(`Imported ${res.data ?? 0} email(s) from leads, projects, and client logins. Reload to see them in the list.`);
+        onNotice(
+          `Found ${res.data ?? 0} new contact(s) from leads, projects, and client logins — sorted into ` +
+            `Leads / Projects / Past projects below, but NOT added to any send. Search and tap "Add to list" ` +
+            `on the ones you actually want to mail. Reload to see them.`,
+        );
         onOutboxRefresh();
       }
     });
@@ -103,14 +109,32 @@ export function RecipientsPanel({
   function importFile(file: File) {
     file.text().then((text) => {
       start(async () => {
-        const res = await addRecipientsBulk(text);
+        const res = await addRecipientsBulk(text, false);
         if (res.ok) {
-          onNotice(`Added ${res.data?.added ?? 0} email(s) found in "${file.name}". Reload to see them in the list.`);
+          onNotice(
+            `Found ${res.data?.added ?? 0} new email(s) in "${file.name}" — not added to any send. Search and ` +
+              `tap "Add to list" on the ones you want. Reload to see them.`,
+          );
           onOutboxRefresh();
         } else onNotice(res.error);
       });
     });
   }
+
+  function toggleActive(r: Recipient) {
+    setRecipients((prev) => prev.map((x) => (x.id === r.id ? { ...x, active: !r.active } : x)));
+    start(async () => {
+      const res = await setRecipientActive(r.id, !r.active);
+      if (!res.ok) onNotice(res.error);
+      onOutboxRefresh();
+    });
+  }
+
+  const filtered = recipients.filter((r) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return r.email.includes(q) || r.name.toLowerCase().includes(q);
+  });
 
   function addGroup() {
     const name = newGroupName.trim();
@@ -151,7 +175,8 @@ export function RecipientsPanel({
       <div className="flex flex-wrap items-center gap-2">
         <Users className="size-4 text-ink-3" strokeWidth={1.5} />
         <span className="flex-1 text-[13px] text-ink-2">
-          {activeCount} active recipient{activeCount === 1 ? "" : "s"}
+          {activeCount} on the mailing list
+          <span className="text-ink-3"> · {recipients.length} contact{recipients.length === 1 ? "" : "s"} total</span>
         </span>
         <button
           type="button"
@@ -184,14 +209,26 @@ export function RecipientsPanel({
         </button>
       </div>
 
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-4" strokeWidth={1.5} />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search contacts by name or email…"
+          className="w-full rounded-md border border-rule bg-paper py-1.5 pl-8 pr-2.5 text-[13px] text-ink outline-none focus:border-accent"
+        />
+      </div>
+
       {/* NOT overflow-hidden: a row's audience popover is position:absolute and
           extends below its own row — clipping the Card here hid it entirely
           (state toggled, nothing visible) rather than just squaring off corners. */}
       <Card className="p-0">
-        {recipients.length === 0 ? (
-          <div className="px-4 py-6 text-center text-[12px] text-ink-3">No recipients yet.</div>
+        {filtered.length === 0 ? (
+          <div className="px-4 py-6 text-center text-[12px] text-ink-3">
+            {recipients.length === 0 ? "No contacts yet." : "No contacts match that search."}
+          </div>
         ) : (
-          recipients.map((r, i) => (
+          filtered.map((r, i) => (
             <div key={r.id} className={`relative flex items-center gap-3 px-4 py-2.5 ${i ? "border-t border-rule-soft" : ""}`}>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[13px] text-ink">{r.name || r.email}</div>
@@ -207,7 +244,27 @@ export function RecipientsPanel({
                   })}
                 </div>
               </div>
-              {!r.active && <Chip kind="ghost">inactive</Chip>}
+              {r.active ? (
+                <button
+                  type="button"
+                  onClick={() => toggleActive(r)}
+                  disabled={pending}
+                  title="Remove from the mailing list (keeps them as a searchable contact)"
+                  className="shrink-0"
+                >
+                  <Chip kind="money">on list</Chip>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => toggleActive(r)}
+                  disabled={pending}
+                  title="Add to the mailing list"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-rule px-2 py-0.5 text-[11px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50"
+                >
+                  <UserPlus className="size-3" strokeWidth={1.5} /> Add to list
+                </button>
+              )}
               {groups.length > 0 && (
                 <button
                   type="button"

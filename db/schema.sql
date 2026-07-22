@@ -1257,6 +1257,10 @@ CREATE TABLE IF NOT EXISTS newsletter_groups (
   name        text NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now()
 );
+-- Case-insensitive uniqueness so the "Leads"/"Projects"/"Past projects"
+-- auto-classification on import (lib/newsletter-import.ts) can get-or-create
+-- by name without ever spawning a duplicate group on a re-import.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_nl_groups_name ON newsletter_groups (lower(name));
 CREATE TABLE IF NOT EXISTS newsletter_recipient_groups (
   recipient_id bigint NOT NULL REFERENCES newsletter_recipients(id) ON DELETE CASCADE,
   group_id     bigint NOT NULL REFERENCES newsletter_groups(id) ON DELETE CASCADE,

@@ -12,6 +12,7 @@ import { requireRole } from "@/lib/dal";
 import { ai } from "@/lib/ai";
 import { getTemplate } from "@/lib/newsletter-templates";
 import { enqueueIssue, enqueueGreeting, releaseOutboxItem, skipOutboxItem } from "@/lib/newsletter-outbox";
+import { importKnownContacts } from "@/lib/newsletter-import";
 import { readOutbox } from "@/lib/newsletter";
 import { normalizeSettings, type IssueSettings } from "@/lib/newsletter-design";
 import { enrollRecipient, enrollAllInSequence, listSequences, type Sequence } from "@/lib/newsletter-drip";
@@ -306,25 +307,28 @@ export async function addRecipient(email: string, name: string): Promise<Result>
   return { ok: true };
 }
 
-/** Parse a block of pasted text for email addresses and add each as a
- *  recipient (idempotent per address) — a faster way in than one field at a
- *  time when Joe has a client list to paste from somewhere else. Owner-only. */
-export async function addRecipientsBulk(text: string): Promise<Result<{ added: number }>> {
+/** Parse a block of pasted text (or an uploaded file's contents) for email
+ *  addresses and add each as a recipient (idempotent per address). `active`
+ *  defaults true for a deliberate paste; the file-upload import passes false
+ *  so a bulk file lands searchable in Contacts rather than pre-targeting the
+ *  next send — matches how importKnownRecipients treats a bulk import.
+ *  Owner-only. */
+export async function addRecipientsBulk(text: string, active = true): Promise<Result<{ added: number }>> {
   await requireRole("owner");
   const found = text.match(/[^\s,;<>()"]+@[^\s,;<>()"]+\.[^\s,;<>()"]+/g) ?? [];
   const emails = Array.from(new Set(found.map((e) => e.trim().toLowerCase()))).slice(0, 500);
   if (emails.length === 0) return { ok: false, error: "No email addresses found in that text." };
   let added = 0;
   for (const e of emails) {
-    const row = await queryOne<{ id: number; name: string }>(
-      `INSERT INTO newsletter_recipients (email, name) VALUES ($1, '')
-       ON CONFLICT (email) DO UPDATE SET active = true
-       RETURNING id, name`,
-      [e],
+    const row = await queryOne<{ id: number; name: string; inserted: boolean }>(
+      `INSERT INTO newsletter_recipients (email, name, active) VALUES ($1, '', $2)
+       ON CONFLICT (email) DO UPDATE SET active = CASE WHEN $2 THEN true ELSE newsletter_recipients.active END
+       RETURNING id, name, (xmax = 0) AS inserted`,
+      [e, active],
     );
     if (row) {
-      added++;
-      await afterRecipientAdded(row.id, e, row.name);
+      if (row.inserted) added++;
+      if (active) await afterRecipientAdded(row.id, e, row.name);
     }
   }
   revalidatePath("/newsletter");
@@ -339,44 +343,34 @@ export async function removeRecipient(id: number): Promise<Result> {
   return { ok: true };
 }
 
-/** Import every client user's email as a recipient. Returns how many were added.
- *  Owner-only. */
-/** Import every email known to the business: client-portal logins, leads
- *  (prospects included — not just signed clients), and each project's client
- *  email (`projects.client_email`, falling back to the originating lead's
- *  email for a project whose conversion set `lead_id` but not client_email
- *  yet). One row per address; a repeat contact across sources collapses to a
- *  single recipient. Was two separate buttons ("client emails" vs "from
- *  projects") that read as the same thing and both came up empty — neither
- *  `users.role='client'` nor `projects.lead_id` had any data in them; the
- *  real emails were sitting in `projects.client_email` (backfilled once from
- *  the original Houzz/Gmail import — see db/schema.sql) and `leads.email`.
- *  Owner-only. */
+/** Add or drop a recipient from the actual send list without deleting them.
+ *  Activating (re)parks the welcome greeting + drip enrollment — idempotent,
+ *  so reactivating someone who's been through this before is harmless — since
+ *  going inactive→active IS "add this contact for real." Owner-only. */
+export async function setRecipientActive(id: number, active: boolean): Promise<Result> {
+  await requireRole("owner");
+  const row = await queryOne<{ email: string; name: string }>(
+    `UPDATE newsletter_recipients SET active = $2 WHERE id = $1 RETURNING email, name`,
+    [id, active],
+  );
+  if (!row) return { ok: false, error: "Recipient not found." };
+  if (active) await afterRecipientAdded(id, row.email, row.name);
+  revalidatePath("/newsletter");
+  return { ok: true };
+}
+
+/** Pull every known contact from leads, client-portal logins, and project
+ *  client emails into Contacts as INACTIVE, auto-classified into "Leads" /
+ *  "Projects" / "Past projects" audiences by source (lib/newsletter-import.ts).
+ *  Inactive means searchable in Contacts, NOT pre-targeted by the next send —
+ *  the first version of this landed everyone active=true, which silently put
+ *  every imported contact into "queue to everyone active" with no way to
+ *  tell them apart from someone who'd actually opted in. Owner-only. */
 export async function importKnownRecipients(): Promise<Result<number>> {
   await requireRole("owner");
-  const inserted = await query<{ id: number; email: string; name: string }>(
-    `INSERT INTO newsletter_recipients (email, name)
-     SELECT email, min(name) AS name FROM (
-       SELECT lower(email) AS email, COALESCE(name, '') AS name
-         FROM users WHERE role = 'client' AND active = true AND email <> ''
-       UNION ALL
-       SELECT lower(email), COALESCE(name, '') FROM leads WHERE email <> ''
-       UNION ALL
-       SELECT lower(client_email), COALESCE(NULLIF(client_name, ''), '')
-         FROM projects WHERE client_email <> ''
-       UNION ALL
-       SELECT lower(l.email), COALESCE(NULLIF(p.client_name, ''), l.name, '')
-         FROM projects p JOIN leads l ON l.id = p.lead_id
-        WHERE p.client_email = '' AND l.email <> ''
-     ) x
-     GROUP BY email
-     ON CONFLICT (email) DO NOTHING
-     RETURNING id, email, name`,
-  );
-  // Park a greeting for each NEWLY added contact only (no backfill blast).
-  for (const r of inserted.rows) await afterRecipientAdded(r.id, r.email, r.name);
+  const added = await importKnownContacts();
   revalidatePath("/newsletter");
-  return { ok: true, data: inserted.rowCount ?? 0 };
+  return { ok: true, data: added };
 }
 
 // ─── Audiences (email groups) ───────────────────────────────────────────────

@@ -76,7 +76,33 @@ export default async function ProjectDetailPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const [project, money, selections, mood, floorplans, catalog, projectFiles] = await Promise.all([
+  const [
+    project,
+    money,
+    selections,
+    mood,
+    floorplans,
+    catalog,
+    projectFiles,
+    commsThread,
+    scheduleBlocks,
+    scheduleTemplates,
+    subsData,
+    subInvites,
+    dailyLogs,
+    estimates,
+    costBook,
+    changeOrders,
+    closeoutView,
+    orientations,
+    approvalGate,
+    purchaseOrders,
+    vendors,
+    incidents,
+    permits,
+    docDrafts,
+    ops,
+  ] = await Promise.all([
     getProject(slug),
     getProjectMoney(slug),
     getProjectSelections(slug),
@@ -84,18 +110,12 @@ export default async function ProjectDetailPage({
     getProjectFloorplans(slug),
     getCatalogData(),
     getProjectFiles(slug),
-  ]);
-  const commsThread = await getPortalThread(portalChannel("client", slug));
-  const [scheduleBlocks, scheduleTemplates] = await Promise.all([
+    getPortalThread(portalChannel("client", slug)),
     getProjectScheduleBlocks(slug),
     getScheduleTemplates(),
-  ]);
-  const [subsData, subInvites] = await Promise.all([
     getProjectSubsData(slug),
     getQueuedSubInvites(slug),
-  ]);
-  const dailyLogs = await getProjectDailyLogs(slug);
-  const [estimates, costBook, changeOrders, closeoutView, orientations, approvalGate, purchaseOrders, vendors] = await Promise.all([
+    getProjectDailyLogs(slug),
     getProjectEstimates(slug),
     getCostBook(),
     getProjectChangeOrders(slug),
@@ -104,16 +124,15 @@ export default async function ProjectDetailPage({
     getApprovalGate(slug),
     getProjectPurchaseOrders(slug),
     listVendors(),
+    getProjectIncidents(slug),
+    getProjectPermits(slug),
+    listDocDrafts({ slug }),
+    // Open Engine + Brain data scoped to this one project (work queue, knowledge,
+    // receipts, stage-gate guidance) — the "Ops" tab.
+    getRecordOps("project", slug),
   ]);
-  const incidents = await getProjectIncidents(slug);
-  const permits = await getProjectPermits(slug);
-  const docDrafts = await listDocDrafts({ slug });
   const docTemplates = listDocTemplates().filter((t) => t.scope !== "lead");
   if (!project) notFound();
-
-  // Open Engine + Brain data scoped to this one project (work queue, knowledge,
-  // receipts, stage-gate guidance) — the "Ops" tab.
-  const ops = await getRecordOps("project", slug);
 
   const catalogOptions = catalog.materials.map((m) => ({ id: m.id, name: m.name }));
 

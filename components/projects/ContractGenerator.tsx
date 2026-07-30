@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useContext, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { FileSignature, Plus, Trash2, ChevronDown, Check, Circle } from "lucide-react";
 import { Card } from "@/components/ui";
@@ -8,15 +8,19 @@ import { fmtUsd } from "@/lib/cost-book-units";
 import type { ApprovalGateBase } from "@/lib/approval-gate-types";
 import { type DrawLine, defaultDrawSchedule, sumPercent, DRAW_TRIGGER_STATUSES } from "@/lib/draw-schedule";
 import { updateDrawSchedule } from "@/lib/actions/documents";
-import { TabLink } from "@/components/projects/TabNav";
+import { createDocDraftAction } from "@/lib/actions/doc-drafts";
+import { TabNavContext } from "@/components/projects/TabNav";
 
 /** Draw-schedule editor for an estimate — this schedule is the auto-sourced
  *  "payment_schedule_table" field on the Contract template (Documents tab), so
- *  editing it here is what the contract's payment schedule reflects. Actually
- *  generating/sending the contract lives in Documents → Contract now (a link
- *  below jumps there) — this card only owns the schedule + the pre-con
- *  approval-gate status; it never itself sends anything. Lives in the Estimate
- *  tab under the selected estimate. */
+ *  editing it here is what the contract's payment schedule reflects. The
+ *  "Create contract from this estimate" button creates the draft with this
+ *  estimateId wired in (so contract_total / payment_schedule_table /
+ *  sow_line_items_table auto-fill from resolveContract in lib/doc-templates/
+ *  fill.ts) and jumps to Documents → Contract to finish it — editing, AI
+ *  narrative, and sending stay over there; this card only owns the schedule +
+ *  the pre-con approval-gate status. Lives in the Estimate tab under the
+ *  selected estimate. */
 export function ContractGenerator({
   slug,
   estimateId,
@@ -33,9 +37,11 @@ export function ContractGenerator({
   estimateApproved: boolean;
 }) {
   const router = useRouter();
+  const goToTab = useContext(TabNavContext);
   const [open, setOpen] = useState(false);
   const [lines, setLines] = useState<DrawLine[]>(schedule ?? defaultDrawSchedule(10));
   const [pending, startTransition] = useTransition();
+  const [creating, startCreating] = useTransition();
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -75,6 +81,19 @@ export function ContractGenerator({
         setSavedMsg("Schedule saved.");
         router.refresh();
       } else setError(res.error);
+    });
+  }
+
+  function createContract() {
+    setError(null);
+    startCreating(async () => {
+      const res = await createDocDraftAction("contract", { slug, estimateId });
+      if (res.ok) {
+        router.refresh();
+        goToTab("Documents", "Construction Contract");
+      } else {
+        setError(res.error);
+      }
     });
   }
 
@@ -188,15 +207,21 @@ export function ContractGenerator({
             </p>
           </div>
 
-          {/* Jump to the actual generator */}
+          {/* Create the contract from this estimate, then jump to Documents to finish it */}
           <div className="border-t border-rule-soft pt-3">
-            <TabLink
-              tab="Documents"
-              section="Construction Contract"
-              className="inline-flex items-center gap-1.5 rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
+            <button
+              type="button"
+              onClick={createContract}
+              disabled={creating}
+              className="inline-flex items-center gap-1.5 rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-60"
             >
-              <FileSignature className="size-3.5" strokeWidth={1.75} /> Open contract in Documents
-            </TabLink>
+              <FileSignature className="size-3.5" strokeWidth={1.75} />
+              {creating ? "Creating…" : "Create contract from this estimate"}
+            </button>
+            <p className="mt-1.5 text-[11px] text-ink-3">
+              Pulls the contract total, this payment schedule, and the estimate&rsquo;s line items into a new
+              Construction Contract draft in Documents — scope-of-work narrative and sending happen there.
+            </p>
             {error && <div className="mt-1.5 text-[12px] text-flag">{error}</div>}
           </div>
         </div>

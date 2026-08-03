@@ -3,18 +3,39 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, ExternalLink, ImagePlus, LayoutGrid, Plus, X } from "lucide-react";
+import {
+  Check,
+  ExternalLink,
+  ImagePlus,
+  LayoutGrid,
+  Palette,
+  Plus,
+  Settings2,
+  Trash2,
+  Type,
+  X,
+} from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import { CATEGORIES } from "@/lib/catalog-categories";
 import type { MoodBoardData, MoodItem } from "@/lib/mood";
 import {
   addCatalogMoodItems,
   addMoodImage,
+  addMoodSwatch,
+  addMoodText,
+  createMoodBoard,
+  deleteMoodBoard,
+  duplicateMoodItem,
   removeMoodImage,
+  renameMoodBoard,
+  reorderMoodItem,
   saveMoodLayout,
+  updateMoodBoard,
+  updateMoodLabel,
   updateMoodNote,
+  updateMoodSwatch,
 } from "@/lib/actions/mood";
-import { MoodCanvas } from "./MoodCanvas";
+import { MoodCanvas, type MoodPatch } from "./MoodCanvas";
 
 /** Catalog item as the picker needs it. Declared here rather than reusing
  *  lib/catalog's Material so the client bundle never imports the db-coupled
@@ -39,11 +60,22 @@ interface RunOptions {
 
 const FIELD = "rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent";
 const LABEL = "font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3";
+const TOOL =
+  "inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50";
+
+/** A starting palette for swatches and board backgrounds — warm neutrals and
+ *  the greens/clays that show up most in this shop's finishes. */
+const PRESETS = [
+  "#f5f1e8", "#e8ddcb", "#d6c7ae", "#b9a687", "#8c7a5e",
+  "#2e3a24", "#4a5c3a", "#7d8f6a", "#a8b89a", "#ffffff",
+  "#3a3f44", "#6b7075", "#a9adb1", "#c9a227", "#9c5b3f",
+];
 
 /** Project Mood tab — a mood-board creator. One free-form canvas per room: pin
- *  items straight from the catalog (name/price/image snapshotted at pin time) or
- *  upload a reference image, then drag/resize them into a composition to show
- *  the client. Owner-only; images are served through the owner-only /api/files. */
+ *  items straight from the catalog (name/price/image snapshotted at pin time),
+ *  upload a reference image, drop a text block or a colour swatch, then drag,
+ *  resize, crop, rotate and restack them into a composition to show the client.
+ *  Owner-only; images are served through the owner-only /api/files. */
 export function MoodBoard({
   slug,
   boards,
@@ -58,13 +90,13 @@ export function MoodBoard({
   const [error, setError] = useState("");
   const [picker, setPicker] = useState(false);
   const [upload, setUpload] = useState(false);
-  const [noteFor, setNoteFor] = useState<MoodItem | null>(null);
-  /** A room the owner just created, which has no rows yet — boards come from the
-   *  DB, and a room only exists there once it holds a pin. Never cleared on a
-   *  successful pin: the room arrives in `boards` on the next render and `rooms`
-   *  dedupes it, so clearing eagerly would only drop the chip for the frame
-   *  between the write landing and the new props arriving — long enough to yank
-   *  the owner onto a different board mid-compose. */
+  const [textOpen, setTextOpen] = useState(false);
+  const [swatchOpen, setSwatchOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [editing, setEditing] = useState<MoodItem | null>(null);
+  /** A room the owner just created, held locally only for the frame between the
+   *  write landing and the new props arriving — createMoodBoard persists it, so
+   *  unlike before it no longer vanishes on reload. */
   const [draftRoom, setDraftRoom] = useState<string | null>(null);
   const [newRoom, setNewRoom] = useState(false);
   const [activeRoom, setActiveRoom] = useState<string | null>(null);
@@ -75,7 +107,8 @@ export function MoodBoard({
   }, [boards, draftRoom]);
 
   const room = (activeRoom && rooms.includes(activeRoom) ? activeRoom : rooms[0]) ?? null;
-  const items = boards.find((b) => b.room === room)?.items ?? [];
+  const board = boards.find((b) => b.room === room) ?? null;
+  const items = board?.items ?? [];
 
   // Single path for every mutation on this board. The actions revalidate on the
   // server, but the project page is dynamic (cookie auth), so nothing re-renders
@@ -104,26 +137,38 @@ export function MoodBoard({
     if (!rooms.includes(clean)) setDraftRoom(clean);
     setActiveRoom(clean);
     setNewRoom(false);
+    run(() => createMoodBoard(slug, clean), { fallback: "Could not create that board." });
   }
 
   // The catalog-sourced pins on the active board, for the spec list under the
   // canvas — scoped to this room so it reads as that room's product list.
-  const products = items.filter((i) => i.label);
+  const products = items.filter((i) => i.kind === "pin" && i.label);
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex-1">
-          <h3 className="font-serif text-[16px] font-semibold text-ink">Mood board</h3>
+          <h3 className="font-serif text-[16px] font-semibold text-ink">
+            {board?.title || "Mood board"}
+          </h3>
           <p className="mt-0.5 text-[12px] text-ink-3">
-            Pin items from the catalog, then drag and resize to compose the room.
+            Drag to move, corner to resize and crop, the stem above to rotate. Arrow keys nudge the
+            selected item; Delete removes it.
           </p>
         </div>
-        <button
-          onClick={() => setUpload(true)}
-          disabled={!room}
-          className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50"
-        >
+        <button onClick={() => setSettingsOpen(true)} disabled={!room} className={TOOL} title="Board settings">
+          <Settings2 className="size-3" strokeWidth={1.5} />
+          Board
+        </button>
+        <button onClick={() => setTextOpen(true)} disabled={!room} className={TOOL}>
+          <Type className="size-3" strokeWidth={1.5} />
+          Text
+        </button>
+        <button onClick={() => setSwatchOpen(true)} disabled={!room} className={TOOL}>
+          <Palette className="size-3" strokeWidth={1.5} />
+          Swatch
+        </button>
+        <button onClick={() => setUpload(true)} disabled={!room} className={TOOL}>
           <ImagePlus className="size-3" strokeWidth={1.5} />
           Upload image
         </button>
@@ -179,20 +224,24 @@ export function MoodBoard({
           <MoodCanvas
             items={items}
             pending={pending}
+            bgColor={board?.bgColor ?? ""}
             // The canvas keeps the dragged position in its own overrides map, so a
             // refetch per drag would be wasted work — just persist it.
-            onMove={(pos) =>
+            onMove={(pos: MoodPatch) =>
               run(() => saveMoodLayout(slug, [pos], pos.id), {
                 refresh: false,
                 fallback: "Could not save the layout.",
               })
             }
             onRemove={(id) => run(() => removeMoodImage(id))}
-            onEditNote={(item) => setNoteFor(item)}
+            onEditNote={(item) => setEditing(item)}
+            onLayer={(id, dir) => run(() => reorderMoodItem(id, dir), { fallback: "Could not restack that." })}
+            onDuplicate={(id) => run(() => duplicateMoodItem(id), { fallback: "Could not duplicate that." })}
           />
           {items.length === 0 && (
             <p className="-mt-2 text-center text-[12px] text-ink-3">
-              {room} is empty — add items from the catalog or upload a reference image.
+              {room} is empty — add items from the catalog, upload a reference image, or drop in text
+              and colour swatches.
             </p>
           )}
 
@@ -255,17 +304,101 @@ export function MoodBoard({
         />
       )}
 
-      {noteFor && (
-        <NoteModal
-          item={noteFor}
+      {textOpen && room && (
+        <TextModal
           pending={pending}
-          onClose={() => setNoteFor(null)}
-          onSave={(note) =>
-            run(() => updateMoodNote(noteFor.id, note), {
-              onSuccess: () => setNoteFor(null),
-              fallback: "Could not save the note.",
+          room={room}
+          onClose={() => setTextOpen(false)}
+          onAdd={(text) =>
+            run(() => addMoodText(slug, room, text), {
+              onSuccess: () => setTextOpen(false),
+              fallback: "Could not add that text.",
             })
           }
+        />
+      )}
+
+      {swatchOpen && room && (
+        <SwatchModal
+          pending={pending}
+          room={room}
+          onClose={() => setSwatchOpen(false)}
+          onAdd={(color, label) =>
+            run(() => addMoodSwatch(slug, room, color, label), {
+              onSuccess: () => setSwatchOpen(false),
+              fallback: "Could not add that swatch.",
+            })
+          }
+        />
+      )}
+
+      {settingsOpen && room && (
+        <BoardSettingsModal
+          pending={pending}
+          room={room}
+          title={board?.title ?? ""}
+          bgColor={board?.bgColor ?? ""}
+          onClose={() => setSettingsOpen(false)}
+          onSave={({ title, bgColor, rename }) =>
+            run(
+              async () => {
+                // Strictly sequential: the settings row is keyed by room name, so
+                // a rename that landed first would leave this write pointing at a
+                // room that no longer exists — and ensureBoard would helpfully
+                // resurrect it as a phantom empty board.
+                const saved = await updateMoodBoard(slug, room, { title, bgColor });
+                if (!saved.ok) return saved;
+                if (!rename || rename === room) return saved;
+                return renameMoodBoard(slug, room, rename);
+              },
+              {
+                onSuccess: () => {
+                  if (rename && rename !== room) {
+                    setDraftRoom(null);
+                    setActiveRoom(rename);
+                  }
+                  setSettingsOpen(false);
+                },
+                fallback: "Could not save the board.",
+              },
+            )
+          }
+          onDelete={() =>
+            run(() => deleteMoodBoard(slug, room), {
+              onSuccess: () => {
+                setDraftRoom(null);
+                setActiveRoom(null);
+                setSettingsOpen(false);
+              },
+              fallback: "Could not delete the board.",
+            })
+          }
+        />
+      )}
+
+      {editing && (
+        <EditModal
+          item={editing}
+          pending={pending}
+          onClose={() => setEditing(null)}
+          onSave={async ({ label, note, swatch }) => {
+            // Three independent columns behind one form — run them in sequence
+            // and stop at the first failure so the error is the real one.
+            run(
+              async () => {
+                if (label !== undefined) {
+                  const r = await updateMoodLabel(editing.id, label);
+                  if (!r.ok) return r;
+                }
+                if (swatch !== undefined) {
+                  const r = await updateMoodSwatch(editing.id, swatch);
+                  if (!r.ok) return r;
+                }
+                return updateMoodNote(editing.id, note);
+              },
+              { onSuccess: () => setEditing(null), fallback: "Could not save that." },
+            );
+          }}
         />
       )}
     </div>
@@ -447,7 +580,198 @@ function UploadModal({
   );
 }
 
-function NoteModal({
+/** A standalone text block — a heading, a client note, an instruction. */
+function TextModal({
+  pending,
+  room,
+  onClose,
+  onAdd,
+}: {
+  pending: boolean;
+  room: string;
+  onClose: () => void;
+  onAdd: (text: string) => void;
+}) {
+  const [text, setText] = useState("");
+  return (
+    <ModalShell title={`Add text to ${room}`} onClose={onClose}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onAdd(text);
+        }}
+        className="flex flex-col gap-3 p-4"
+      >
+        <label className="flex flex-col gap-1">
+          <span className={LABEL}>Text</span>
+          <textarea
+            autoFocus
+            rows={3}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            maxLength={200}
+            placeholder="Warm minimal — oak, brass, lime plaster"
+            className={`${FIELD} resize-none`}
+          />
+        </label>
+        <ModalActions pending={pending} onClose={onClose} submitLabel="Add" disabled={!text.trim()} />
+      </form>
+    </ModalShell>
+  );
+}
+
+/** A solid colour chip — paint, stain, grout. */
+function SwatchModal({
+  pending,
+  room,
+  onClose,
+  onAdd,
+}: {
+  pending: boolean;
+  room: string;
+  onClose: () => void;
+  onAdd: (color: string, label: string) => void;
+}) {
+  const [color, setColor] = useState("#e8ddcb");
+  const [label, setLabel] = useState("");
+  return (
+    <ModalShell title={`Add swatch to ${room}`} onClose={onClose}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onAdd(color, label);
+        }}
+        className="flex flex-col gap-3 p-4"
+      >
+        <ColorField label="Colour" value={color} onChange={setColor} />
+        <label className="flex flex-col gap-1">
+          <span className={LABEL}>Name (optional)</span>
+          <input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            maxLength={200}
+            placeholder="SW 7036 Accessible Beige"
+            className={FIELD}
+          />
+        </label>
+        <ModalActions pending={pending} onClose={onClose} submitLabel="Add" />
+      </form>
+    </ModalShell>
+  );
+}
+
+/** Per-board settings, plus rename and delete for the whole board. */
+function BoardSettingsModal({
+  pending,
+  room,
+  title,
+  bgColor,
+  onClose,
+  onSave,
+  onDelete,
+}: {
+  pending: boolean;
+  room: string;
+  title: string;
+  bgColor: string;
+  onClose: () => void;
+  onSave: (settings: { title: string; bgColor: string; rename: string }) => void;
+  onDelete: () => void;
+}) {
+  const [name, setName] = useState(room);
+  const [heading, setHeading] = useState(title);
+  const [bg, setBg] = useState(bgColor || "#f5f1e8");
+  const [useBg, setUseBg] = useState(Boolean(bgColor));
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  return (
+    <ModalShell title={`${room} board`} onClose={onClose}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSave({ title: heading, bgColor: useBg ? bg : "", rename: name.trim() });
+        }}
+        className="flex flex-col gap-3 p-4"
+      >
+        <label className="flex flex-col gap-1">
+          <span className={LABEL}>Room name</span>
+          <input
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            maxLength={60}
+            className={FIELD}
+          />
+          <span className="text-[11px] text-ink-3">
+            Renaming onto an existing board merges the two.
+          </span>
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className={LABEL}>Display title (optional)</span>
+          <input
+            value={heading}
+            onChange={(e) => setHeading(e.target.value)}
+            maxLength={200}
+            placeholder="Primary bath — warm minimal"
+            className={FIELD}
+          />
+        </label>
+
+        <div className="flex flex-col gap-1.5">
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={useBg} onChange={(e) => setUseBg(e.target.checked)} />
+            <span className={LABEL}>Background colour</span>
+          </label>
+          {useBg && <ColorField label="" value={bg} onChange={setBg} />}
+        </div>
+
+        <div className="mt-1 flex items-center justify-between gap-2">
+          {confirmDelete ? (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={onDelete}
+              className="inline-flex items-center gap-1 rounded-md border border-flag px-3 py-1.5 text-[12px] font-semibold text-flag hover:bg-flag/10 disabled:opacity-50"
+            >
+              <Trash2 className="size-3" strokeWidth={1.75} />
+              Delete board and everything on it
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(true)}
+              className="inline-flex items-center gap-1 text-[12px] font-semibold text-ink-3 hover:text-flag"
+            >
+              <Trash2 className="size-3" strokeWidth={1.75} />
+              Delete board
+            </button>
+          )}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={pending}
+              className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
+            >
+              <Check className="size-3" strokeWidth={1.75} />
+              Save
+            </button>
+          </div>
+        </div>
+      </form>
+    </ModalShell>
+  );
+}
+
+/** Edit an item: its caption, its note, and its colour when it's a swatch. */
+function EditModal({
   item,
   pending,
   onClose,
@@ -456,33 +780,105 @@ function NoteModal({
   item: MoodItem;
   pending: boolean;
   onClose: () => void;
-  onSave: (note: string) => void;
+  onSave: (v: { label?: string; note: string; swatch?: string }) => void;
 }) {
+  const [label, setLabel] = useState(item.label);
   const [note, setNote] = useState(item.note);
+  const [swatch, setSwatch] = useState(item.swatch || "#e8ddcb");
+  const isText = item.kind === "text";
+  const isSwatch = item.kind === "swatch";
+
   return (
-    <ModalShell title={item.label || "Note"} onClose={onClose}>
+    <ModalShell title={item.label || (isText ? "Text" : "Item")} onClose={onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          onSave(note);
+          onSave({
+            label,
+            note,
+            swatch: isSwatch ? swatch : undefined,
+          });
         }}
         className="flex flex-col gap-3 p-4"
       >
         <label className="flex flex-col gap-1">
-          <span className={LABEL}>Note</span>
+          <span className={LABEL}>{isText ? "Text" : "Caption"}</span>
           <textarea
             autoFocus
-            rows={3}
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            maxLength={500}
-            placeholder="Why this one — finish, feel, where it goes"
+            rows={isText ? 3 : 2}
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            maxLength={200}
+            placeholder={isText ? "Warm minimal — oak, brass, lime plaster" : "Name shown on the card"}
             className={`${FIELD} resize-none`}
           />
         </label>
+
+        {isSwatch && <ColorField label="Colour" value={swatch} onChange={setSwatch} />}
+
+        {!isText && (
+          <label className="flex flex-col gap-1">
+            <span className={LABEL}>Note</span>
+            <textarea
+              rows={3}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              maxLength={500}
+              placeholder="Why this one — finish, feel, where it goes"
+              className={`${FIELD} resize-none`}
+            />
+          </label>
+        )}
+
         <ModalActions pending={pending} onClose={onClose} submitLabel="Save" />
       </form>
     </ModalShell>
+  );
+}
+
+/** Native colour picker + hex field + the shop palette, kept in step. */
+function ColorField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (hex: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      {label && <span className={LABEL}>{label}</span>}
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="size-8 cursor-pointer rounded-md border border-rule bg-paper p-0.5"
+        />
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          maxLength={7}
+          spellCheck={false}
+          className={`${FIELD} w-[110px] font-mono uppercase`}
+        />
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {PRESETS.map((c) => (
+          <button
+            key={c}
+            type="button"
+            onClick={() => onChange(c)}
+            title={c}
+            style={{ background: c }}
+            className={`size-5 rounded border ${
+              c.toLowerCase() === value.toLowerCase() ? "border-accent ring-1 ring-accent" : "border-rule"
+            }`}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -515,7 +911,17 @@ function ModalShell({
   );
 }
 
-function ModalActions({ pending, onClose, submitLabel }: { pending: boolean; onClose: () => void; submitLabel: string }) {
+function ModalActions({
+  pending,
+  onClose,
+  submitLabel,
+  disabled,
+}: {
+  pending: boolean;
+  onClose: () => void;
+  submitLabel: string;
+  disabled?: boolean;
+}) {
   return (
     <div className="mt-1 flex items-center justify-end gap-2">
       <button
@@ -527,7 +933,7 @@ function ModalActions({ pending, onClose, submitLabel }: { pending: boolean; onC
       </button>
       <button
         type="submit"
-        disabled={pending}
+        disabled={pending || disabled}
         className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
       >
         <Check className="size-3" strokeWidth={1.75} />

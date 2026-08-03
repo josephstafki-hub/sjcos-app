@@ -756,6 +756,37 @@ ALTER TABLE project_mood ADD COLUMN IF NOT EXISTS pos_x real;
 ALTER TABLE project_mood ADD COLUMN IF NOT EXISTS pos_y real;
 ALTER TABLE project_mood ADD COLUMN IF NOT EXISTS pos_w real;
 
+-- Full canvas editing (free transform, text/swatch items, per-board settings).
+-- A board item is now one of three kinds:
+--   'pin'    — uploaded image or catalog snapshot (everything that existed before)
+--   'text'   — a standalone caption block, no image; the words live in `label`
+--   'swatch' — a solid colour chip; `swatch` holds '#rrggbb', `label` names it
+-- pos_h is the height fraction of board height. NULL means auto — the card is as
+-- tall as its image's natural aspect makes it, which is what every pre-existing
+-- pin does, so back-filling nothing keeps old boards pixel-identical. Once a
+-- height is set the image switches to object-cover, so a free resize crops
+-- rather than distorts. pos_rot is degrees, -180..180, about the card's centre.
+ALTER TABLE project_mood ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'pin';
+ALTER TABLE project_mood ADD COLUMN IF NOT EXISTS pos_h real;
+ALTER TABLE project_mood ADD COLUMN IF NOT EXISTS pos_rot real NOT NULL DEFAULT 0;
+ALTER TABLE project_mood ADD COLUMN IF NOT EXISTS swatch text NOT NULL DEFAULT '';
+ALTER TABLE project_mood DROP CONSTRAINT IF EXISTS project_mood_kind_check;
+ALTER TABLE project_mood ADD CONSTRAINT project_mood_kind_check
+  CHECK (kind IN ('pin','text','swatch'));
+
+-- Per-room board settings: display title and background colour. A row here also
+-- lets a board EXIST before it holds any pin — rooms used to be inferred purely
+-- from project_mood rows, so a freshly created empty room vanished on reload.
+CREATE TABLE IF NOT EXISTS project_mood_boards (
+  id         bigserial PRIMARY KEY,
+  project_id uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  room       text NOT NULL,
+  title      text NOT NULL DEFAULT '',
+  bg_color   text NOT NULL DEFAULT '',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (project_id, room)
+);
+
 -- ─── Design tools: floor-plan versions (Review-round-3 S5E) ─────────────────
 -- Versioned floor-plan files (image or PDF) per project, each with text notes.
 -- Viewer only — not a CAD editor. version increments per upload.

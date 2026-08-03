@@ -1,9 +1,11 @@
 "use server";
 
 // Mood board write paths (P1-B3). Owner-gated: pin catalog items or an uploaded
-// image to a room's board, move/resize pins on the canvas, edit a pin's note, or
-// remove one. Reads stay in lib/mood.ts. Images go through the shared upload
-// helper.
+// image to a room's board, drop a text block or a colour swatch, move/resize/
+// rotate items on the canvas, restack them, duplicate one, edit a caption or a
+// note, or remove one — plus per-room board settings (title, background) and
+// renaming/deleting a whole board. Reads stay in lib/mood.ts. Images go through
+// the shared upload helper.
 
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
@@ -22,14 +24,20 @@ type Result = { ok: boolean; error?: string };
 const toId = (v: unknown): number => Number(v);
 const isId = (n: number) => Number.isInteger(n) && n > 0;
 
-/** Layout bounds. A pin must keep most of itself on the board, and stay big
+/** Layout bounds. An item must keep most of itself on the board, and stay big
  *  enough to see and small enough to leave room for others. */
 const MIN_W = 0.08;
 const MAX_W = 0.6;
+const MIN_H = 0.06;
+const MAX_H = 0.9;
 const MAX_XY = 0.98;
 /** Guard against a pathological batch — a board is curated, not generated. */
 const MAX_LAYOUT_ITEMS = 200;
 const MAX_NOTE = 500;
+const MAX_LABEL = 200;
+const MAX_ROOM = 60;
+/** A board is a presentation surface, not a dumping ground. */
+const MAX_ITEMS_PER_BOARD = 300;
 
 async function projectBySlug(slug: string) {
   return queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [slug]);
@@ -45,7 +53,42 @@ async function nextSort(projectId: string, room: string): Promise<number> {
   return row?.next ?? 0;
 }
 
+/** Make sure the room has a settings row, so it survives as a board even while
+ *  it is empty. Every add path calls this. */
+async function ensureBoard(projectId: string, room: string): Promise<void> {
+  await query(
+    `INSERT INTO project_mood_boards (project_id, room) VALUES ($1, $2)
+     ON CONFLICT (project_id, room) DO NOTHING`,
+    [projectId, room],
+  );
+}
+
+async function boardFull(projectId: string, room: string): Promise<boolean> {
+  const row = await queryOne<{ n: string }>(
+    `SELECT COUNT(*) AS n FROM project_mood WHERE project_id = $1 AND room = $2`,
+    [projectId, room],
+  );
+  return Number(row?.n ?? 0) >= MAX_ITEMS_PER_BOARD;
+}
+
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+
+/** Normalize a rotation to -180..180 so it can't grow without bound as the
+ *  owner spins a card round and round. */
+function normRot(deg: number): number {
+  if (!Number.isFinite(deg)) return 0;
+  const wrapped = ((deg % 360) + 540) % 360 - 180;
+  return Math.round(wrapped * 10) / 10;
+}
+
+/** Colours land in a `style` attribute on the client, so only a literal hex
+ *  triple is stored — never arbitrary CSS. "" clears the colour. */
+function cleanColor(raw: unknown): string {
+  const c = String(raw ?? "").trim();
+  return /^#[0-9a-f]{6}$/i.test(c) ? c.toLowerCase() : "";
+}
+
+const cleanRoom = (raw: unknown) => String(raw ?? "").trim().slice(0, MAX_ROOM);
 
 /** Add an uploaded image to a room's board. The image is required (this is the
  *  upload path; catalog pins come in through addCatalogMoodItems). */
@@ -54,13 +97,15 @@ export async function addMoodImage(slug: string, formData: FormData): Promise<Re
   const project = await projectBySlug(slug);
   if (!project) return { ok: false, error: "Project not found." };
 
-  const room = String(formData.get("room") ?? "").trim() || "General";
+  const room = cleanRoom(formData.get("room")) || "General";
   const note = String(formData.get("note") ?? "").trim().slice(0, MAX_NOTE);
 
   const image = formData.get("image");
   if (!(image instanceof File) || image.size === 0) {
     return { ok: false, error: "Choose an image to add." };
   }
+  if (await boardFull(project.id, room)) return { ok: false, error: "This board is full." };
+
   const stored = await storeUpload(image, {
     idPrefix: "mood",
     imagesOnly: true,
@@ -69,9 +114,10 @@ export async function addMoodImage(slug: string, formData: FormData): Promise<Re
   });
   if (!stored.ok) return { ok: false, error: stored.error };
 
+  await ensureBoard(project.id, room);
   await query(
-    `INSERT INTO project_mood (project_id, room, image_file_id, note, sort_order)
-     VALUES ($1, $2, $3, $4, $5)`,
+    `INSERT INTO project_mood (project_id, room, kind, image_file_id, note, sort_order)
+     VALUES ($1, $2, 'pin', $3, $4, $5)`,
     [project.id, room, stored.id, note, await nextSort(project.id, room)],
   );
   revalidatePath(`/projects/${slug}`);
@@ -91,9 +137,10 @@ export async function addCatalogMoodItems(
   const project = await projectBySlug(slug);
   if (!project) return { ok: false, error: "Project not found." };
 
-  const boardRoom = room.trim() || "General";
+  const boardRoom = cleanRoom(room) || "General";
   const ids = [...new Set(catalogIds.map(toId))].filter(isId);
   if (ids.length === 0) return { ok: false, error: "Pick at least one catalog item." };
+  if (await boardFull(project.id, boardRoom)) return { ok: false, error: "This board is full." };
 
   const { rows } = await query<{
     id: number;
@@ -111,12 +158,13 @@ export async function addCatalogMoodItems(
   const byId = new Map(rows.map((r) => [toId(r.id), r]));
   const picked = ids.map((id) => byId.get(id)).filter((r) => r !== undefined);
 
+  await ensureBoard(project.id, boardRoom);
   let sort = await nextSort(project.id, boardRoom);
   for (const item of picked) {
     await query(
       `INSERT INTO project_mood
-         (project_id, room, image_file_id, catalog_id, label, price_label, sort_order)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+         (project_id, room, kind, image_file_id, catalog_id, label, price_label, sort_order)
+       VALUES ($1, $2, 'pin', $3, $4, $5, $6, $7)`,
       [project.id, boardRoom, item.image_file_id, item.id, item.name, item.price, sort++],
     );
   }
@@ -124,13 +172,71 @@ export async function addCatalogMoodItems(
   return { ok: true };
 }
 
-/** Persist canvas layout after a drag/resize. Positions are normalized 0..1 and
- *  clamped server-side. Only the moved pins are written, so two open tabs can't
- *  clobber each other's untouched pins. `frontId` is raised to the top of the
- *  room's z-order (the pin you just touched stays on top). */
+/** Drop a standalone text block on a board — a heading, a client note, a
+ *  "warm brass throughout" instruction. The words live in `label`. */
+export async function addMoodText(slug: string, room: string, text: string): Promise<Result> {
+  await requireRole("owner");
+  const project = await projectBySlug(slug);
+  if (!project) return { ok: false, error: "Project not found." };
+
+  const boardRoom = cleanRoom(room) || "General";
+  const label = text.trim().slice(0, MAX_LABEL);
+  if (!label) return { ok: false, error: "Type some text first." };
+  if (await boardFull(project.id, boardRoom)) return { ok: false, error: "This board is full." };
+
+  await ensureBoard(project.id, boardRoom);
+  await query(
+    `INSERT INTO project_mood (project_id, room, kind, label, sort_order)
+     VALUES ($1, $2, 'text', $3, $4)`,
+    [project.id, boardRoom, label, await nextSort(project.id, boardRoom)],
+  );
+  revalidatePath(`/projects/${slug}`);
+  return { ok: true };
+}
+
+/** Drop a solid colour chip on a board — paint, stain, tile grout. */
+export async function addMoodSwatch(
+  slug: string,
+  room: string,
+  color: string,
+  label: string,
+): Promise<Result> {
+  await requireRole("owner");
+  const project = await projectBySlug(slug);
+  if (!project) return { ok: false, error: "Project not found." };
+
+  const boardRoom = cleanRoom(room) || "General";
+  const hex = cleanColor(color);
+  if (!hex) return { ok: false, error: "Pick a colour first." };
+  if (await boardFull(project.id, boardRoom)) return { ok: false, error: "This board is full." };
+
+  await ensureBoard(project.id, boardRoom);
+  await query(
+    `INSERT INTO project_mood (project_id, room, kind, swatch, label, sort_order)
+     VALUES ($1, $2, 'swatch', $3, $4, $5)`,
+    [project.id, boardRoom, hex, label.trim().slice(0, MAX_LABEL), await nextSort(project.id, boardRoom)],
+  );
+  revalidatePath(`/projects/${slug}`);
+  return { ok: true };
+}
+
+export interface MoodLayoutPatch {
+  id: number;
+  x: number;
+  y: number;
+  w: number;
+  /** null = auto height (as tall as the content). */
+  h?: number | null;
+  rot?: number;
+}
+
+/** Persist canvas layout after a drag/resize/rotate. Positions are normalized
+ *  0..1 and clamped server-side. Only the moved items are written, so two open
+ *  tabs can't clobber each other's untouched items. `frontId` is raised to the
+ *  top of the room's z-order (the item you just touched stays on top). */
 export async function saveMoodLayout(
   slug: string,
-  items: { id: number; x: number; y: number; w: number }[],
+  items: MoodLayoutPatch[],
   frontId?: number,
 ): Promise<Result> {
   await requireRole("owner");
@@ -143,11 +249,25 @@ export async function saveMoodLayout(
     const id = toId(item.id);
     if (!isId(id)) continue;
     if (![item.x, item.y, item.w].every(Number.isFinite)) continue;
-    // Scoped by project_id so a pin id from another project can't be moved.
+    // A finite h sets an explicit height; null/undefined leaves it auto.
+    const h =
+      item.h === null || item.h === undefined || !Number.isFinite(item.h)
+        ? null
+        : clamp(item.h, MIN_H, MAX_H);
+    // Scoped by project_id so an item id from another project can't be moved.
     await query(
-      `UPDATE project_mood SET pos_x = $3, pos_y = $4, pos_w = $5
+      `UPDATE project_mood
+          SET pos_x = $3, pos_y = $4, pos_w = $5, pos_h = $6, pos_rot = $7
         WHERE id = $1 AND project_id = $2`,
-      [id, project.id, clamp(item.x, 0, MAX_XY), clamp(item.y, 0, MAX_XY), clamp(item.w, MIN_W, MAX_W)],
+      [
+        id,
+        project.id,
+        clamp(item.x, 0, MAX_XY),
+        clamp(item.y, 0, MAX_XY),
+        clamp(item.w, MIN_W, MAX_W),
+        h,
+        normRot(item.rot ?? 0),
+      ],
     );
   }
 
@@ -166,7 +286,61 @@ export async function saveMoodLayout(
   return { ok: true };
 }
 
-/** Edit a pin's note (owner only). */
+/** Explicit layering: send an item to the back of its board, or bring it to the
+ *  front. Dragging already raises an item; this is the way to push one down. */
+export async function reorderMoodItem(id: number, dir: "front" | "back"): Promise<Result> {
+  await requireRole("owner");
+  const row = await queryOne<{ slug: string }>(
+    `SELECT p.slug FROM project_mood m JOIN projects p ON p.id = m.project_id WHERE m.id = $1`,
+    [id],
+  );
+  if (!row) return { ok: false, error: "Item not found." };
+
+  const agg = dir === "front" ? "MAX(sort_order) + 1" : "MIN(sort_order) - 1";
+  await query(
+    `UPDATE project_mood m
+        SET sort_order = (SELECT COALESCE(${agg}, 0)
+                            FROM project_mood x
+                           WHERE x.project_id = m.project_id AND x.room = m.room)
+      WHERE m.id = $1`,
+    [id],
+  );
+  revalidatePath(`/projects/${row.slug}`);
+  return { ok: true };
+}
+
+/** Copy an item, offset slightly so the duplicate is visibly its own card and
+ *  can be dragged off the original. */
+export async function duplicateMoodItem(id: number): Promise<Result> {
+  await requireRole("owner");
+  const row = await queryOne<{ slug: string; project_id: string; room: string }>(
+    `SELECT p.slug, m.project_id, m.room
+       FROM project_mood m JOIN projects p ON p.id = m.project_id
+      WHERE m.id = $1`,
+    [id],
+  );
+  if (!row) return { ok: false, error: "Item not found." };
+  if (await boardFull(row.project_id, row.room)) return { ok: false, error: "This board is full." };
+
+  await query(
+    `INSERT INTO project_mood
+       (project_id, room, kind, image_file_id, catalog_id, label, price_label, swatch,
+        note, pos_x, pos_y, pos_w, pos_h, pos_rot, sort_order)
+     SELECT project_id, room, kind, image_file_id, catalog_id, label, price_label, swatch,
+            note,
+            LEAST(COALESCE(pos_x, 0.04) + 0.03, $2::real),
+            LEAST(COALESCE(pos_y, 0.05) + 0.03, $2::real),
+            COALESCE(pos_w, 0.21), pos_h, pos_rot,
+            (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM project_mood x
+              WHERE x.project_id = project_mood.project_id AND x.room = project_mood.room)
+       FROM project_mood WHERE id = $1`,
+    [id, MAX_XY],
+  );
+  revalidatePath(`/projects/${row.slug}`);
+  return { ok: true };
+}
+
+/** Edit an item's note (owner only). */
 export async function updateMoodNote(id: number, note: string): Promise<Result> {
   await requireRole("owner");
   const row = await queryOne<{ slug: string }>(
@@ -179,7 +353,39 @@ export async function updateMoodNote(id: number, note: string): Promise<Result> 
   return { ok: true };
 }
 
-/** Remove a pin from a board (owner only). */
+/** Edit an item's caption — the words on a text block, or the display name over
+ *  a swatch or a pin. */
+export async function updateMoodLabel(id: number, label: string): Promise<Result> {
+  await requireRole("owner");
+  const row = await queryOne<{ slug: string; kind: string }>(
+    `SELECT p.slug, m.kind FROM project_mood m JOIN projects p ON p.id = m.project_id WHERE m.id = $1`,
+    [id],
+  );
+  if (!row) return { ok: false, error: "Item not found." };
+  const clean = label.trim().slice(0, MAX_LABEL);
+  // A text block IS its label — emptying it would leave an invisible card.
+  if (!clean && row.kind === "text") return { ok: false, error: "Text can't be empty." };
+  await query(`UPDATE project_mood SET label = $2 WHERE id = $1`, [id, clean]);
+  revalidatePath(`/projects/${row.slug}`);
+  return { ok: true };
+}
+
+/** Recolour a swatch chip. */
+export async function updateMoodSwatch(id: number, color: string): Promise<Result> {
+  await requireRole("owner");
+  const row = await queryOne<{ slug: string }>(
+    `SELECT p.slug FROM project_mood m JOIN projects p ON p.id = m.project_id WHERE m.id = $1`,
+    [id],
+  );
+  if (!row) return { ok: false, error: "Item not found." };
+  const hex = cleanColor(color);
+  if (!hex) return { ok: false, error: "Pick a colour first." };
+  await query(`UPDATE project_mood SET swatch = $2 WHERE id = $1 AND kind = 'swatch'`, [id, hex]);
+  revalidatePath(`/projects/${row.slug}`);
+  return { ok: true };
+}
+
+/** Remove an item from a board (owner only). */
 export async function removeMoodImage(id: number): Promise<Result> {
   await requireRole("owner");
   const row = await queryOne<{ slug: string }>(
@@ -189,5 +395,90 @@ export async function removeMoodImage(id: number): Promise<Result> {
   if (!row) return { ok: false, error: "Item not found." };
   await query(`DELETE FROM project_mood WHERE id = $1`, [id]);
   revalidatePath(`/projects/${row.slug}`);
+  return { ok: true };
+}
+
+/** Create an empty board for a room. Without this a new room only existed in
+ *  client state and vanished on reload until something was pinned to it. */
+export async function createMoodBoard(slug: string, room: string): Promise<Result> {
+  await requireRole("owner");
+  const project = await projectBySlug(slug);
+  if (!project) return { ok: false, error: "Project not found." };
+  const clean = cleanRoom(room);
+  if (!clean) return { ok: false, error: "Name the board first." };
+  await ensureBoard(project.id, clean);
+  revalidatePath(`/projects/${slug}`);
+  return { ok: true };
+}
+
+/** Board settings: display title and background colour. An empty bgColor
+ *  restores the default dotted paper. */
+export async function updateMoodBoard(
+  slug: string,
+  room: string,
+  settings: { title?: string; bgColor?: string },
+): Promise<Result> {
+  await requireRole("owner");
+  const project = await projectBySlug(slug);
+  if (!project) return { ok: false, error: "Project not found." };
+  const clean = cleanRoom(room);
+  if (!clean) return { ok: false, error: "Board not found." };
+
+  await ensureBoard(project.id, clean);
+  await query(
+    `UPDATE project_mood_boards
+        SET title = COALESCE($3, title), bg_color = COALESCE($4, bg_color)
+      WHERE project_id = $1 AND room = $2`,
+    [
+      project.id,
+      clean,
+      settings.title === undefined ? null : settings.title.trim().slice(0, MAX_LABEL),
+      settings.bgColor === undefined ? null : cleanColor(settings.bgColor),
+    ],
+  );
+  revalidatePath(`/projects/${slug}`);
+  return { ok: true };
+}
+
+/** Rename a board. If a board already exists under the new name the two are
+ *  merged — the pins move across and the now-duplicate settings row is dropped,
+ *  which is friendlier than failing on a name the owner clearly wants. */
+export async function renameMoodBoard(slug: string, from: string, to: string): Promise<Result> {
+  await requireRole("owner");
+  const project = await projectBySlug(slug);
+  if (!project) return { ok: false, error: "Project not found." };
+  const src = cleanRoom(from);
+  const dst = cleanRoom(to);
+  if (!src || !dst) return { ok: false, error: "Name the board first." };
+  if (src === dst) return { ok: true };
+
+  await ensureBoard(project.id, dst);
+  // Move the pins first, then retire the old settings row. Re-sequence the
+  // moved pins onto the end of the destination's z-order so two merged boards
+  // don't end up with interleaved, colliding sort_order values.
+  await query(
+    `UPDATE project_mood m
+        SET room = $3,
+            sort_order = m.sort_order
+              + COALESCE((SELECT MAX(x.sort_order) + 1 FROM project_mood x
+                           WHERE x.project_id = m.project_id AND x.room = $3), 0)
+      WHERE m.project_id = $1 AND m.room = $2`,
+    [project.id, src, dst],
+  );
+  await query(`DELETE FROM project_mood_boards WHERE project_id = $1 AND room = $2`, [project.id, src]);
+  revalidatePath(`/projects/${slug}`);
+  return { ok: true };
+}
+
+/** Delete a whole board and everything pinned to it. */
+export async function deleteMoodBoard(slug: string, room: string): Promise<Result> {
+  await requireRole("owner");
+  const project = await projectBySlug(slug);
+  if (!project) return { ok: false, error: "Project not found." };
+  const clean = cleanRoom(room);
+  if (!clean) return { ok: false, error: "Board not found." };
+  await query(`DELETE FROM project_mood WHERE project_id = $1 AND room = $2`, [project.id, clean]);
+  await query(`DELETE FROM project_mood_boards WHERE project_id = $1 AND room = $2`, [project.id, clean]);
+  revalidatePath(`/projects/${slug}`);
   return { ok: true };
 }

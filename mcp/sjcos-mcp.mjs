@@ -33,13 +33,16 @@
 //     at runtime and never logged or returned in a tool result.
 
 import { readFileSync } from "node:fs";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { createServer as createHttpServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -145,6 +148,12 @@ function json(data) {
   return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
 }
 
+// Build a fully-registered MCP server. Called once for the stdio process, and
+// once per HTTP session: Streamable HTTP binds a transport to exactly one server,
+// so concurrent HTTP clients each need their own instance. The shared `pool` and
+// module-level helpers are reused across instances — only tool registration (a
+// handful of microseconds of zod schema setup) repeats.
+function buildServer() {
 const server = new McpServer({ name: "sjcos", version: "1.0.0" });
 
 server.registerTool(
@@ -1500,7 +1509,160 @@ server.registerTool(
   async ({ id }) => json(await poCall("queue", { id })),
 );
 
-const transport = new StdioServerTransport();
-await server.connect(transport);
-// stdio servers stay alive on the transport; nothing to log to stdout (it's the
-// JSON-RPC channel). Errors go to stderr.
+  return server;
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Transport. Two mutually-exclusive modes, chosen at startup:
+//   • stdio (default): an MCP client spawns this file and talks over stdin/stdout.
+//     Nothing is exposed on the network; this is the safe local default.
+//   • HTTP (set MCP_HTTP_PORT): run as a long-lived Streamable-HTTP service so an
+//     off-box / remote agent can connect. Every request is Bearer-gated against
+//     MCP_HTTP_TOKEN (a DISTINCT secret from CRON_SECRET). Bind loopback and let
+//     nginx terminate TLS + proxy a `/mcp` location to it, exactly like the app.
+//     The tool surface is identical — the same curated, no-raw-SQL, send-gated
+//     tools — so the DB blast radius does not change; the token just controls who
+//     can reach them.
+// ───────────────────────────────────────────────────────────────────────────
+
+// Deliberately process.env ONLY (not envValue's .env.local fallback): if this
+// fell back to the file, every plain stdio spawn (e.g. the `claude mcp add`
+// registration) would also read it and try to bind the port the systemd HTTP
+// service already holds, crashing the stdio session with EADDRINUSE. Only the
+// systemd unit sets this, via its own `Environment=MCP_HTTP_PORT=...` line.
+const httpPort = Number(process.env.MCP_HTTP_PORT || 0);
+
+if (!Number.isFinite(httpPort) || httpPort <= 0) {
+  // Default: a single server over stdio.
+  const server = buildServer();
+  await server.connect(new StdioServerTransport());
+  // stdio servers stay alive on the transport; nothing to log to stdout (it's the
+  // JSON-RPC channel). Errors go to stderr.
+} else {
+  startHttpServer(httpPort);
+}
+
+/**
+ * Constant-time Bearer check against MCP_HTTP_TOKEN. Fails closed when the token
+ * is unset. Deliberately its own secret — reusing CRON_SECRET would hand every
+ * remote MCP client the app's internal-route key.
+ */
+function httpAuthorized(req) {
+  const token = envValue("MCP_HTTP_TOKEN");
+  if (!token) return false;
+  const got = Buffer.from(req.headers["authorization"] || "");
+  const want = Buffer.from(`Bearer ${token}`);
+  return got.length === want.length && timingSafeEqual(got, want);
+}
+
+/** Read and JSON-parse a request body; Streamable HTTP wants the parsed body. */
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let raw = "";
+    req.on("data", (chunk) => {
+      raw += chunk;
+      if (raw.length > 8 * 1024 * 1024) reject(new Error("Request body too large"));
+    });
+    req.on("end", () => {
+      if (!raw) return resolve(undefined);
+      try {
+        resolve(JSON.parse(raw));
+      } catch (e) {
+        reject(e);
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+function rpcError(res, status, code, message, extraHeaders = {}) {
+  if (res.headersSent) return;
+  res.writeHead(status, { "content-type": "application/json", ...extraHeaders });
+  res.end(JSON.stringify({ jsonrpc: "2.0", error: { code, message }, id: null }));
+}
+
+function startHttpServer(port) {
+  if (!envValue("MCP_HTTP_TOKEN")) {
+    console.error(
+      "[sjcos-mcp] MCP_HTTP_PORT is set but MCP_HTTP_TOKEN is not — refusing to " +
+        "start an unauthenticated network server. Set MCP_HTTP_TOKEN and retry.",
+    );
+    process.exit(1);
+  }
+  const host = envValue("MCP_HTTP_HOST") || "127.0.0.1";
+
+  // Live sessions: sessionId -> transport. Streamable HTTP keeps one session per
+  // client; each has its own server (see buildServer) so requests never cross.
+  const transports = Object.create(null);
+
+  const httpServer = createHttpServer(async (req, res) => {
+    try {
+      const url = new URL(req.url || "/", `http://${req.headers.host || host}`);
+
+      // Unauthenticated liveness probe for nginx / systemd health checks.
+      if (req.method === "GET" && url.pathname === "/healthz") {
+        res.writeHead(200, { "content-type": "text/plain" });
+        res.end("ok");
+        return;
+      }
+
+      if (url.pathname !== "/mcp") {
+        rpcError(res, 404, -32601, "Not found");
+        return;
+      }
+
+      if (!httpAuthorized(req)) {
+        rpcError(res, 401, -32001, "Unauthorized", { "www-authenticate": "Bearer" });
+        return;
+      }
+
+      const sessionId = req.headers["mcp-session-id"];
+
+      if (req.method === "POST") {
+        const body = await readJsonBody(req);
+        let transport = sessionId ? transports[sessionId] : undefined;
+
+        if (!transport && isInitializeRequest(body)) {
+          // New session: dedicated server + transport, registered on init.
+          transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            onsessioninitialized: (sid) => {
+              transports[sid] = transport;
+            },
+          });
+          transport.onclose = () => {
+            if (transport.sessionId) delete transports[transport.sessionId];
+          };
+          const server = buildServer();
+          await server.connect(transport);
+        } else if (!transport) {
+          rpcError(res, 400, -32000, "No valid session — send an initialize request first.");
+          return;
+        }
+
+        await transport.handleRequest(req, res, body);
+        return;
+      }
+
+      if (req.method === "GET" || req.method === "DELETE") {
+        // GET opens the server->client SSE stream; DELETE terminates the session.
+        const transport = sessionId ? transports[sessionId] : undefined;
+        if (!transport) {
+          rpcError(res, 400, -32000, "Unknown or missing session id.");
+          return;
+        }
+        await transport.handleRequest(req, res);
+        return;
+      }
+
+      rpcError(res, 405, -32000, "Method not allowed", { allow: "GET, POST, DELETE" });
+    } catch (e) {
+      console.error("[sjcos-mcp] HTTP request error:", e?.message || e);
+      rpcError(res, 500, -32603, "Internal server error");
+    }
+  });
+
+  httpServer.listen(port, host, () => {
+    console.error(`[sjcos-mcp] Streamable HTTP transport listening on http://${host}:${port}/mcp`);
+  });
+}

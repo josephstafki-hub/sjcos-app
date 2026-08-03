@@ -151,8 +151,8 @@ the project on this box.
   `claude_desktop_config.json`. Works only if the desktop machine can see
   `/home/joe/sjcos-app` and reach Postgres. It **cannot** by default (Postgres is
   bound to localhost on the server — do not expose it to the LAN/internet). Use it
-  on the server, or stand up a small authenticated HTTP/MCP bridge later. Good for
-  read/search/ask: "what's due today?", "what do we know about Dan's selections?".
+  on the server, or connect over the authenticated **HTTP transport** (see below).
+  Good for read/search/ask: "what's due today?", "what do we know about Dan's selections?".
 - **Codex:** point its MCP/tool config at the same command. Use Codex for review/
   tests/SQL-safety, not as a long-running operator.
 - **Hermes (Telegram):** does not speak MCP directly yet. Near-term it keeps using
@@ -163,6 +163,56 @@ the project on this box.
 > **Placeholders, not secrets.** The config above contains no credentials — the
 > server reads `DATABASE_URL` from `.env.local` itself. Never put the DB password
 > in a client config or commit it.
+
+## HTTP transport (remote / off-box agents)
+
+By default the server runs over **stdio** — an MCP client spawns it locally and
+nothing is exposed on the network. To let an agent on another machine connect,
+run it instead as a long-lived **Streamable HTTP** service, gated by a bearer
+token. Same 58 tools, same curated/no-raw-SQL/send-gated safety model — the token
+only controls *who can reach* them.
+
+Set two env vars and start the process:
+
+| Env var | Meaning |
+| --- | --- |
+| `MCP_HTTP_PORT` | Port to listen on. **Its presence switches the server into HTTP mode.** Unset → stdio (the default). Read from `process.env` ONLY — never put it in `.env.local`, or every stdio spawn (the `claude mcp` registration) reads it too, tries to bind the port the systemd service already holds, and dies with EADDRINUSE. Set it in the systemd unit's `Environment=` line. |
+| `MCP_HTTP_TOKEN` | Bearer token required on every `/mcp` request. **Must be set** in HTTP mode — the server refuses to start without it (fail closed). Use a distinct secret, **not** `CRON_SECRET`. |
+| `MCP_HTTP_HOST` | Bind address. Defaults to `127.0.0.1` (loopback — put nginx in front for TLS). |
+
+```
+MCP_HTTP_PORT=3018 MCP_HTTP_TOKEN='<long-random-secret>' node /home/joe/sjcos-app/mcp/sjcos-mcp.mjs
+```
+
+Endpoints (all under `/mcp`, except the probe):
+- `POST /mcp` — JSON-RPC; an `initialize` request opens a session and returns an
+  `mcp-session-id` header the client echoes on subsequent calls.
+- `GET /mcp` — server→client SSE stream for an existing session.
+- `DELETE /mcp` — terminate a session.
+- `GET /healthz` — unauthenticated liveness probe (for nginx/systemd), returns `ok`.
+
+**Connect a client** (Claude Code):
+```
+claude mcp add --transport http sjcos https://os.sjcarpentryllc.com/mcp \
+  --header "Authorization: Bearer <MCP_HTTP_TOKEN>"
+```
+
+**Making it reachable / persistent (as deployed on this box):**
+1. Add `MCP_HTTP_TOKEN` to `.env.local` (the token may live there — both modes
+   want it; the PORT must not — see the table above).
+2. The user systemd unit `sjcos-mcp.service` sets `Environment=MCP_HTTP_PORT=3018`
+   and runs `ExecStart=/usr/local/bin/node %h/sjcos-app/mcp/sjcos-mcp.mjs`;
+   `systemctl --user enable --now sjcos-mcp.service`.
+3. nginx exposes it over `os.sjcarpentryllc.com` — see the two locations in
+   `deploy/mcp-nginx-location.conf` (also folded into `deploy/nginx-sjcos.conf`):
+   `location /mcp` forwards the client's own bearer header (Claude Code remote),
+   and a secret-path `location = /mcp-connect-<random>` injects the bearer
+   server-side for clients that can't send one (the claude.ai custom-connector
+   dialog only speaks OAuth-or-nothing). For the secret path, the unguessable
+   URL *is* the credential — rotate it and `MCP_HTTP_TOKEN` together.
+
+> Only the bearer token stands between a caller and the gated-write tools. Use a
+> long random secret, rotate it if leaked, and never commit it.
 
 ## Safety model
 

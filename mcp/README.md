@@ -120,6 +120,52 @@ are direct SELECTs; **writes** go through the app's bearer-gated internal route
 **Typical agent flow:** `create_purchase_order` → `add_purchase_order_line`
 (repeat per item) → `queue_purchase_order` → tell the owner it's ready to send.
 
+## Mood board tools (per-project, per-room inspiration)
+
+Mood boards are fully drivable from any MCP client — an agent can stand up a
+project's room programme, pin inspiration it sourced from the web, add the
+palette and the design direction, and compose the result. Lives in its own
+module, `mcp/mood-tools.mjs`, registered from `buildServer()`.
+
+| Tool | Effect |
+|---|---|
+| `list_mood_boards` | Every board on a project with its items, kinds and positions |
+| `create_mood_board` | Create an empty board for a room (idempotent) |
+| `set_mood_board_settings` | Board display `title` and/or `background_color` |
+| `add_mood_image_from_url` | Download a public image and pin it; records the source URL |
+| `add_mood_swatch` | Add a `#rrggbb` colour chip, optionally named |
+| `add_mood_text` | Add a standalone direction note |
+| `update_mood_item` | Edit an item's caption, note, or (swatch) colour |
+| `arrange_mood_board` | Compose a board — hero + masonry + palette band |
+
+**`arrange_mood_board` is not optional polish.** Items with no coordinates fall
+into the canvas's uniform auto grid, which reads as a contact sheet rather than
+a mood board. This lays a board out the way designers actually compose one: a
+dominant hero anchoring the top-left, supporting images masonry-packed at varied
+scale with slight rotation, and colour swatches clustered as a palette strip in
+a bottom band beside the direction text. Items are sized by visual **area** from
+each photo's true aspect ratio, so a portrait and a landscape shot carry equal
+weight. It is seeded per room, so re-running reproduces the same board instead
+of reshuffling one the owner has already dragged into place.
+
+> **Look before you pin.** `add_mood_image_from_url` fetches an agent-chosen URL
+> server-side, so it treats that URL as hostile: http(s) only, every resolved
+> address must be public (loopback, link-local, RFC1918 and CGNAT are refused,
+> which covers the cloud metadata endpoint), the content-type must be `image/*`,
+> and there is a 12 MB cap. None of that judges whether the picture is any
+> *good* — only an agent that has actually viewed the image can. Pinning
+> unverified images to a board a client will see is worse than an empty board.
+> Sourced images are tagged `MOOD · SOURCED` (vs `MOOD` for the client's own
+> pins) so the owner can always tell the two apart.
+
+> **No deletes.** Consistent with the safety model below, there is no tool to
+> remove a pin or a board. Mood items are cheap to re-add and expensive to lose,
+> so removal stays an owner action in the app.
+
+**Typical agent flow:** `create_mood_board` per room → `add_mood_image_from_url`
+(only for images you have looked at) + `add_mood_swatch` + `add_mood_text` →
+`arrange_mood_board` → tell the owner it's ready to review.
+
 ## Register with a client
 
 **Claude Code (CLI):**

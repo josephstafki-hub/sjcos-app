@@ -27,6 +27,10 @@
 //   • Draft/queue-only WRITE tools proxied through the app (doc drafts,
 //     newsletter, purchase orders): can create/edit/queue, never send — see the
 //     safety comment above each block for exactly where the line sits.
+//   • Mood board tools (mcp/mood-tools.mjs, registered at the end of
+//     buildServer): create per-room boards, pin sourced images, add swatches and
+//     direction text, and compose a board into a real mood-board layout. Owner-
+//     side only — a board is internal until the owner pushes selections.
 //   • NOT exposed: no destructive tools (no deletes/drops), no client- or
 //     vendor-facing sends (email/SMS/invoices/contracts/POs stay owner-approved
 //     in the app), and no raw-SQL passthrough. Secrets are read from .env.local
@@ -43,6 +47,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
+import { registerMoodTools } from "./mood-tools.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1874,6 +1879,11 @@ server.registerTool(
     return json({ ok: true, project: a.project_slug, created, reused });
   },
 );
+
+  // Mood boards live in their own module — same rules as everything above (no
+  // deletes, nothing client-facing), just kept separate to keep this file from
+  // growing without bound. See mcp/mood-tools.mjs.
+  registerMoodTools(server, { rows, json, uploadDir: path.join(__dirname, "..", "uploads") });
 
   return server;
 }

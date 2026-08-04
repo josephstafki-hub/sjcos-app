@@ -2,14 +2,14 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { getCurrentUser } from "@/lib/dal";
 import { queryOne } from "@/lib/db";
-import { resolveSelectionImage } from "@/lib/selections";
+import { resolveOptionImage } from "@/lib/selections";
 import { UPLOAD_DIR } from "@/lib/uploads";
 
-// Serves a selection's image to the owner OR the client whose project it is.
-// Distinct from the owner-only /api/files/[id] so clients can see selections
-// pushed to their portal without exposing the whole file browser. The route is
-// keyed by selection id (not file id) so authorization is by the selection's
-// project slug vs. the client's linkSlug.
+// Serves a selection OPTION's image to the owner OR the client whose project it
+// is. Distinct from the owner-only /api/files/[id] so clients can see the
+// options pushed to their portal without exposing the whole file browser. The
+// route is keyed by option id (not file id) so authorization is by the parent
+// decision's project slug vs. the client's linkSlug.
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -18,10 +18,10 @@ export async function GET(
   if (!user) return new Response("Unauthorized", { status: 401 });
 
   const { id } = await params;
-  const selId = Number(id);
-  if (!Number.isFinite(selId)) return new Response("Not found", { status: 404 });
+  const optionId = Number(id);
+  if (!Number.isFinite(optionId)) return new Response("Not found", { status: 404 });
 
-  const resolved = await resolveSelectionImage(selId);
+  const resolved = await resolveOptionImage(optionId);
   if (!resolved) return new Response("Not found", { status: 404 });
 
   if (user.role !== "owner" && !(user.role === "client" && user.linkSlug === resolved.slug)) {

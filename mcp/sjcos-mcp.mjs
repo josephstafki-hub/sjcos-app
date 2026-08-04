@@ -1509,7 +1509,396 @@ server.registerTool(
   async ({ id }) => json(await poCall("queue", { id })),
 );
 
+// ─── Selections board ───────────────────────────────────────────────────────
+// Safety: everything here lands as a DRAFT on the owner's board. There is
+// deliberately NO tool that pushes a decision to the client portal or records a
+// client's pick — sending options to a client and answering on their behalf both
+// stay owner-gated in the app, same line as newsletter Release and PO Send.
+// Deletes are not exposed either; an agent can build and refine a board, not
+// tear one down.
+
+server.registerTool(
+  "get_project_selections",
+  {
+    title: "Get a project's selections board",
+    description:
+      "The full selections tree for one project: rooms and sub-sections with budgets, the " +
+      "decisions filed under each (with allowance + status), and the options offered for each " +
+      "decision. Use this before adding anything so you don't duplicate rooms or decisions.",
+    inputSchema: { slug: z.string() },
+  },
+  async ({ slug }) => {
+    const projectId = await slugToId("projects", slug);
+    if (!projectId) return json({ error: `No project with slug "${slug}"` });
+    const [sections, items, options] = await Promise.all([
+      rows(
+        `SELECT id, parent_id, name, budget, sort_order FROM project_sections
+          WHERE project_id = $1 ORDER BY sort_order, id`,
+        [projectId],
+      ),
+      rows(
+        `SELECT id, section_id, area, choice, notes, allowance, status, chosen_option_id
+           FROM project_selections WHERE project_id = $1 ORDER BY sort_order, id`,
+        [projectId],
+      ),
+      rows(
+        `SELECT o.id, o.selection_id, o.name, o.brand, o.sku, o.product_url, o.price, o.note
+           FROM project_selection_options o
+           JOIN project_selections s ON s.id = o.selection_id
+          WHERE s.project_id = $1 ORDER BY o.sort_order, o.id`,
+        [projectId],
+      ),
+    ]);
+    return json({
+      project: slug,
+      sections,
+      decisions: items,
+      options,
+      summary: {
+        decisions: items.length,
+        open: items.filter((i) => i.status !== "approved").length,
+        without_options: items.filter((i) => !options.some((o) => o.selection_id === i.id)).length,
+      },
+    });
+  },
+);
+
+server.registerTool(
+  "create_selection_section",
+  {
+    title: "Create a selections room or sub-section",
+    description:
+      "Add a room (or, with parent_section_id, a sub-section of one) to a project's selections " +
+      "board. Nesting is one level deep — passing a sub-section as the parent files the new " +
+      "section under that sub-section's room instead. Budget is whole dollars.",
+    inputSchema: {
+      project_slug: z.string(),
+      name: z.string(),
+      budget: z.number().int().min(0).optional(),
+      parent_section_id: z.coerce.number().int().optional(),
+    },
+  },
+  async (a) => {
+    const projectId = await slugToId("projects", a.project_slug);
+    if (!projectId) return json({ error: `No project with slug "${a.project_slug}"` });
+    const parentId = await resolveSectionParent(projectId, a.parent_section_id);
+    const r = await rows(
+      `INSERT INTO project_sections (project_id, name, budget, parent_id, sort_order)
+       VALUES ($1,$2,$3,$4,(SELECT COALESCE(MAX(sort_order)+1,0) FROM project_sections WHERE project_id=$1))
+       RETURNING id`,
+      [projectId, a.name, a.budget ?? 0, parentId],
+    );
+    return json({ ok: true, id: r[0].id, parent_id: parentId });
+  },
+);
+
+server.registerTool(
+  "create_selection_item",
+  {
+    title: "Create a selection decision",
+    description:
+      "Add one decision that needs an answer — 'Kitchen faucet', 'Primary bath floor tile' — to a " +
+      "project's board. `area` names the decision itself, not the pick. `allowance` is what the " +
+      "budget carries for it (whole dollars). Lands as a draft; options are added separately and " +
+      "the owner is the one who sends it to the client.",
+    inputSchema: {
+      project_slug: z.string(),
+      area: z.string(),
+      section_id: z.coerce.number().int().optional(),
+      allowance: z.number().int().min(0).optional(),
+      spec: z.string().optional(),
+      notes: z.string().optional(),
+    },
+  },
+  async (a) => {
+    const projectId = await slugToId("projects", a.project_slug);
+    if (!projectId) return json({ error: `No project with slug "${a.project_slug}"` });
+    const sectionId = await scopedSectionId(projectId, a.section_id);
+    const r = await rows(
+      `INSERT INTO project_selections
+         (project_id, section_id, area, choice, notes, allowance, status, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,'draft',
+               (SELECT COALESCE(MAX(sort_order)+1,0) FROM project_selections WHERE project_id=$1))
+       RETURNING id`,
+      [projectId, sectionId, a.area, a.spec ?? "", a.notes ?? "", a.allowance ?? 0],
+    );
+    return json({ ok: true, id: r[0].id, section_id: sectionId });
+  },
+);
+
+server.registerTool(
+  "update_selection_item",
+  {
+    title: "Update a selection decision",
+    description:
+      "Edit a decision's name, spec note, internal notes, allowance, or section. Only the fields " +
+      "you pass change. Status and the client's pick are never touched here.",
+    inputSchema: {
+      id: z.coerce.number().int(),
+      area: z.string().optional(),
+      allowance: z.number().int().min(0).optional(),
+      spec: z.string().optional(),
+      notes: z.string().optional(),
+      section_id: z.coerce.number().int().optional(),
+    },
+  },
+  async (a) => {
+    const cur = await rows(`SELECT project_id FROM project_selections WHERE id = $1`, [a.id]);
+    if (cur.length === 0) return json({ error: `No selection with id ${a.id}` });
+    const sectionId =
+      a.section_id === undefined ? undefined : await scopedSectionId(cur[0].project_id, a.section_id);
+    await rows(
+      `UPDATE project_selections
+          SET area       = COALESCE($2, area),
+              choice     = COALESCE($3, choice),
+              notes      = COALESCE($4, notes),
+              allowance  = COALESCE($5, allowance),
+              section_id = COALESCE($6, section_id)
+        WHERE id = $1`,
+      [a.id, a.area ?? null, a.spec ?? null, a.notes ?? null, a.allowance ?? null, sectionId ?? null],
+    );
+    return json({ ok: true, id: a.id });
+  },
+);
+
+server.registerTool(
+  "add_selection_option",
+  {
+    title: "Add an option to a selection decision",
+    description:
+      "Hang one candidate product off a decision for the client to choose between. Two or three " +
+      "per decision is the useful number. Price is whole dollars. Images are NOT fetched here — " +
+      "the owner pastes the product link in the app and clicks Fetch, or uploads a photo.",
+    inputSchema: {
+      selection_id: z.coerce.number().int(),
+      name: z.string(),
+      brand: z.string().optional(),
+      sku: z.string().optional(),
+      product_url: z.string().optional(),
+      price: z.number().int().min(0).optional(),
+      note: z.string().optional(),
+    },
+  },
+  async (a) => {
+    const owner = await rows(`SELECT id FROM project_selections WHERE id = $1`, [a.selection_id]);
+    if (owner.length === 0) return json({ error: `No selection with id ${a.selection_id}` });
+    const r = await rows(
+      `INSERT INTO project_selection_options
+         (selection_id, name, brand, sku, product_url, price, note, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,
+               (SELECT COALESCE(MAX(sort_order)+1,0) FROM project_selection_options WHERE selection_id=$1))
+       RETURNING id`,
+      [
+        a.selection_id, a.name, a.brand ?? "", a.sku ?? "",
+        a.product_url ?? "", a.price ?? 0, a.note ?? "",
+      ],
+    );
+    return json({ ok: true, id: r[0].id });
+  },
+);
+
+server.registerTool(
+  "build_selection_plan",
+  {
+    title: "Build a whole selections plan at once",
+    description:
+      "Create an entire room → sub-section → decision → option tree in one transactional call. " +
+      "This is the tool to use after reading a project's plan set: one room per space, " +
+      "sub-sections where a room needs them, and every finish that needs a decision as an item. " +
+      "Idempotent by name — a room or decision that already exists at the same place is reused, " +
+      "not duplicated, so re-running after adding a page of plans only adds what's new. " +
+      "Everything lands as a draft for the owner to review; nothing reaches the client.",
+    inputSchema: {
+      project_slug: z.string(),
+      sections: z.array(
+        z.object({
+          name: z.string(),
+          budget: z.number().int().min(0).optional(),
+          items: z
+            .array(
+              z.object({
+                area: z.string(),
+                allowance: z.number().int().min(0).optional(),
+                spec: z.string().optional(),
+                notes: z.string().optional(),
+                options: z
+                  .array(
+                    z.object({
+                      name: z.string(),
+                      brand: z.string().optional(),
+                      sku: z.string().optional(),
+                      product_url: z.string().optional(),
+                      price: z.number().int().min(0).optional(),
+                      note: z.string().optional(),
+                    }),
+                  )
+                  .optional(),
+              }),
+            )
+            .optional(),
+          subsections: z
+            .array(
+              z.object({
+                name: z.string(),
+                budget: z.number().int().min(0).optional(),
+                items: z
+                  .array(
+                    z.object({
+                      area: z.string(),
+                      allowance: z.number().int().min(0).optional(),
+                      spec: z.string().optional(),
+                      notes: z.string().optional(),
+                      options: z
+                        .array(
+                          z.object({
+                            name: z.string(),
+                            brand: z.string().optional(),
+                            sku: z.string().optional(),
+                            product_url: z.string().optional(),
+                            price: z.number().int().min(0).optional(),
+                            note: z.string().optional(),
+                          }),
+                        )
+                        .optional(),
+                    }),
+                  )
+                  .optional(),
+              }),
+            )
+            .optional(),
+        }),
+      ),
+    },
+  },
+  async (a) => {
+    const projectId = await slugToId("projects", a.project_slug);
+    if (!projectId) return json({ error: `No project with slug "${a.project_slug}"` });
+
+    const client = await pool.connect();
+    const created = { sections: 0, subsections: 0, decisions: 0, options: 0 };
+    const reused = { sections: 0, decisions: 0 };
+    try {
+      await client.query("BEGIN");
+
+      // Reuse a section with the same name at the same level, so re-running the
+      // tool after reading another plan page tops the board up instead of
+      // building a second "Kitchen".
+      const upsertSection = async (name, budget, parentId) => {
+        const found = await client.query(
+          `SELECT id FROM project_sections
+            WHERE project_id = $1 AND lower(name) = lower($2)
+              AND parent_id IS NOT DISTINCT FROM $3
+            LIMIT 1`,
+          [projectId, name, parentId],
+        );
+        if (found.rows.length) {
+          if (budget) {
+            await client.query(`UPDATE project_sections SET budget = $2 WHERE id = $1`, [
+              found.rows[0].id, budget,
+            ]);
+          }
+          if (parentId === null) reused.sections++;
+          return found.rows[0].id;
+        }
+        const r = await client.query(
+          `INSERT INTO project_sections (project_id, name, budget, parent_id, sort_order)
+           VALUES ($1,$2,$3,$4,(SELECT COALESCE(MAX(sort_order)+1,0) FROM project_sections WHERE project_id=$1))
+           RETURNING id`,
+          [projectId, name, budget ?? 0, parentId],
+        );
+        if (parentId === null) created.sections++;
+        else created.subsections++;
+        return r.rows[0].id;
+      };
+
+      const addItems = async (items, sectionId) => {
+        for (const it of items ?? []) {
+          const found = await client.query(
+            `SELECT id FROM project_selections
+              WHERE project_id = $1 AND lower(area) = lower($2)
+                AND section_id IS NOT DISTINCT FROM $3
+              LIMIT 1`,
+            [projectId, it.area, sectionId],
+          );
+          let itemId;
+          if (found.rows.length) {
+            itemId = found.rows[0].id;
+            reused.decisions++;
+          } else {
+            const r = await client.query(
+              `INSERT INTO project_selections
+                 (project_id, section_id, area, choice, notes, allowance, status, sort_order)
+               VALUES ($1,$2,$3,$4,$5,$6,'draft',
+                       (SELECT COALESCE(MAX(sort_order)+1,0) FROM project_selections WHERE project_id=$1))
+               RETURNING id`,
+              [projectId, sectionId, it.area, it.spec ?? "", it.notes ?? "", it.allowance ?? 0],
+            );
+            itemId = r.rows[0].id;
+            created.decisions++;
+          }
+          for (const op of it.options ?? []) {
+            const dupe = await client.query(
+              `SELECT id FROM project_selection_options
+                WHERE selection_id = $1 AND lower(name) = lower($2) LIMIT 1`,
+              [itemId, op.name],
+            );
+            if (dupe.rows.length) continue;
+            await client.query(
+              `INSERT INTO project_selection_options
+                 (selection_id, name, brand, sku, product_url, price, note, sort_order)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,
+                       (SELECT COALESCE(MAX(sort_order)+1,0) FROM project_selection_options WHERE selection_id=$1))`,
+              [itemId, op.name, op.brand ?? "", op.sku ?? "", op.product_url ?? "", op.price ?? 0, op.note ?? ""],
+            );
+            created.options++;
+          }
+        }
+      };
+
+      for (const sec of a.sections) {
+        const sectionId = await upsertSection(sec.name, sec.budget, null);
+        await addItems(sec.items, sectionId);
+        for (const sub of sec.subsections ?? []) {
+          const subId = await upsertSection(sub.name, sub.budget, sectionId);
+          await addItems(sub.items, subId);
+        }
+      }
+
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK");
+      return json({ ok: false, error: e.message });
+    } finally {
+      client.release();
+    }
+    return json({ ok: true, project: a.project_slug, created, reused });
+  },
+);
+
   return server;
+}
+
+/** Normalise a parent-section id to one level of nesting: handing us a
+ *  sub-section files the new section under that sub-section's room instead. */
+async function resolveSectionParent(projectId, sectionId) {
+  if (!sectionId) return null;
+  const r = await rows(
+    `SELECT id, parent_id FROM project_sections WHERE id = $1 AND project_id = $2`,
+    [sectionId, projectId],
+  );
+  if (r.length === 0) return null;
+  return r[0].parent_id ?? r[0].id;
+}
+
+/** Confirm a section id belongs to this project; unknown ids fall back to
+ *  Ungrouped rather than leaking a decision into another project's room. */
+async function scopedSectionId(projectId, sectionId) {
+  if (!sectionId) return null;
+  const r = await rows(`SELECT id FROM project_sections WHERE id = $1 AND project_id = $2`, [
+    sectionId,
+    projectId,
+  ]);
+  return r[0]?.id ?? null;
 }
 
 // ───────────────────────────────────────────────────────────────────────────

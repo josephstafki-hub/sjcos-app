@@ -4,7 +4,7 @@ import { Avatar, Card, Chip, Eyebrow } from "@/components/ui";
 import { buildClientPortalData, getClientUploads } from "@/lib/client-portal";
 import { requireRole } from "@/lib/dal";
 import { getProject, getProjectDailyLogs } from "@/lib/projects";
-import { getClientSelections } from "@/lib/selections";
+import { getClientSelections, EMPTY_SELECTIONS_VIEW } from "@/lib/selections";
 import { getProjectMoney, usd } from "@/lib/money";
 import { getProjectScheduleBlocks } from "@/lib/schedule";
 import { getPortalThread, portalChannel } from "@/lib/portal-messages";
@@ -31,7 +31,7 @@ export default async function ClientPortalPage() {
     slug ? getProjectMoney(slug) : Promise.resolve(null),
     slug
       ? getClientSelections(slug)
-      : Promise.resolve({ groups: [], totalBudget: 0, totalSpent: 0, totalProposed: 0 }),
+      : Promise.resolve(EMPTY_SELECTIONS_VIEW),
     slug
       ? getPortalThread(portalChannel("client", slug))
       : Promise.resolve([]),

@@ -698,19 +698,27 @@ CREATE TABLE IF NOT EXISTS project_sections (
   sort_order    integer NOT NULL DEFAULT 0,
   created_at    timestamptz NOT NULL DEFAULT now()
 );
+-- Sections nest one level: a room ("Kitchen") owns sub-sections ("Cabinetry",
+-- "Plumbing fixtures"). CASCADE so removing a room takes its sub-sections too.
+ALTER TABLE project_sections ADD COLUMN IF NOT EXISTS parent_id bigint
+  REFERENCES project_sections(id) ON DELETE CASCADE;
 CREATE INDEX IF NOT EXISTS idx_sections_project ON project_sections(project_id, sort_order);
+CREATE INDEX IF NOT EXISTS idx_sections_parent ON project_sections(parent_id, sort_order);
 
 -- ─── Design tools: selections board (Review-round-3 S5C) ────────────────────
--- Per-project finish/product selections the owner curates and pushes to the
--- client portal for approval. Image is either an upload (image_file_id) or
--- inherited from the linked catalog item. status flows draft → pending (pushed)
--- → approved / declined (client decided). Selections optionally belong to a
--- section (room) and carry the option's price for budget roll-up (audit A4).
+-- A row here is a DECISION the client has to make — "Kitchen faucet" — not the
+-- pick itself. `area` names the decision; the candidate products live in
+-- project_selection_options and the client's answer is chosen_option_id.
+-- status flows draft → pending (pushed to the portal) → approved (an option was
+-- picked) / declined (client wants different options).
+-- Money: `allowance` is what the budget carries for this decision; the chosen
+-- option's price is what it actually costs, and the delta is what the client
+-- sees ("$200 over allowance").
 CREATE TABLE IF NOT EXISTS project_selections (
   id            bigserial PRIMARY KEY,
   project_id    uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  area          text NOT NULL DEFAULT '',         -- e.g. "Kitchen counters"
-  choice        text NOT NULL DEFAULT '',         -- the chosen product/finish
+  area          text NOT NULL DEFAULT '',         -- the decision, e.g. "Kitchen faucet"
+  choice        text NOT NULL DEFAULT '',         -- optional spec note ("wall-mount, 8in spread")
   catalog_id    bigint REFERENCES catalog_items(id) ON DELETE SET NULL,
   image_file_id text,                             -- own upload; else catalog image
   status        text NOT NULL DEFAULT 'draft'
@@ -724,6 +732,38 @@ CREATE TABLE IF NOT EXISTS project_selections (
 ALTER TABLE project_selections ADD COLUMN IF NOT EXISTS section_id bigint
   REFERENCES project_sections(id) ON DELETE SET NULL;
 ALTER TABLE project_selections ADD COLUMN IF NOT EXISTS price integer NOT NULL DEFAULT 0;
+-- Decision-level fields (Houzz-style items + options rework).
+ALTER TABLE project_selections ADD COLUMN IF NOT EXISTS allowance integer NOT NULL DEFAULT 0;
+ALTER TABLE project_selections ADD COLUMN IF NOT EXISTS notes text NOT NULL DEFAULT '';
+ALTER TABLE project_selections ADD COLUMN IF NOT EXISTS due_date date;
+ALTER TABLE project_selections ADD COLUMN IF NOT EXISTS chosen_option_id bigint;
+
+-- ─── Design tools: selection options ────────────────────────────────────────
+-- The candidate products under one decision. The owner curates two or three,
+-- pushes the decision, and the client picks exactly one (project_selections
+-- .chosen_option_id). Fields are filled either by pasting a product URL (the
+-- app pulls title/brand/price/image) or by hand when a vendor site won't answer.
+CREATE TABLE IF NOT EXISTS project_selection_options (
+  id            bigserial PRIMARY KEY,
+  selection_id  bigint NOT NULL REFERENCES project_selections(id) ON DELETE CASCADE,
+  name          text NOT NULL DEFAULT '',         -- "Delta Trinsic, matte black"
+  brand         text NOT NULL DEFAULT '',
+  sku           text NOT NULL DEFAULT '',
+  product_url   text NOT NULL DEFAULT '',
+  price         integer NOT NULL DEFAULT 0,       -- dollars
+  image_file_id text,                             -- own upload; else catalog image
+  catalog_id    bigint REFERENCES catalog_items(id) ON DELETE SET NULL,
+  note          text NOT NULL DEFAULT '',
+  sort_order    integer NOT NULL DEFAULT 0,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_selection_options_sel
+  ON project_selection_options(selection_id, sort_order);
+-- Added after the options table exists. SET NULL so deleting the picked option
+-- reopens the decision rather than deleting it.
+ALTER TABLE project_selections DROP CONSTRAINT IF EXISTS project_selections_chosen_option_fkey;
+ALTER TABLE project_selections ADD CONSTRAINT project_selections_chosen_option_fkey
+  FOREIGN KEY (chosen_option_id) REFERENCES project_selection_options(id) ON DELETE SET NULL;
 
 -- ─── Indexes for the common list queries ────────────────────────────────────
 -- ─── Design tools: mood boards (Review-round-3 S5D) ─────────────────────────

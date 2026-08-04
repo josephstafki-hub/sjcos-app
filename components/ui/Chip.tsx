@@ -50,7 +50,7 @@ export function Chip({ children, kind = "default", dot, className = "" }: ChipPr
         className,
       ].join(" ")}
     >
-      {dot && <span className={`size-1.5 rounded-full ${DOT_CLASSES[kind]}`} />}
+      {dot && <span className={`size-1.5 flex-none rounded-full ${DOT_CLASSES[kind]}`} />}
       {children}
     </span>
   );

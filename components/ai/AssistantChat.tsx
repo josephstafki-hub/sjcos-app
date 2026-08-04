@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Sparkles, ArrowUp, Pencil, Plus, Trash2, Archive, MessageSquare, Paperclip, X } from "lucide-react";
 import { Avatar, Card, VoiceButton } from "@/components/ui";
 import { mergeTranscript } from "@/lib/append-transcript";
@@ -15,6 +15,7 @@ import {
   deleteConversationAction,
 } from "@/lib/actions/ai-chat";
 import { useChatAttachments } from "@/components/ai/useChatAttachments";
+import { ASK_THREAD, recallThread, rememberThread } from "@/components/ai/threadMemory";
 import type { ConversationSummary, ChatMessage } from "@/lib/ai-chat";
 import {
   AGENT_META,
@@ -52,7 +53,12 @@ export function AssistantChat({
   const [activeId, setActiveId] = useState<string | null>(initialConversationId ?? null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
-  const [pending, startTransition] = useTransition();
+  // Plain state, deliberately not useTransition: a turn can run for minutes,
+  // React keeps a transition pending for its whole await chain, and every later
+  // transition — including the App Router's own soft navigation — is entangled
+  // behind it. That's what made clicking another page do nothing until the
+  // agent answered.
+  const [pending, setPending] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   // Live "what Claude is doing" log (streamed from the run's activity column)
   // and the per-run model/mode/effort selected for Claude turns.
@@ -66,6 +72,18 @@ export function AssistantChat({
   const [notice, setNotice] = useState<string>("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const meta = AGENT_META[agent];
+
+  // This mount's claim on the visible thread. A poll loop holds the token it
+  // started under and checks it, so leaving the page (or switching threads)
+  // stops the loop instead of letting it setState on a dead fiber and hit the
+  // server every 2s for another 16 minutes. The run itself finishes server-side
+  // regardless — reopening the thread picks it back up from dev_agent_runs.
+  const liveRef = useRef({ alive: true });
+  const claim = () => {
+    liveRef.current.alive = false;
+    liveRef.current = { alive: true };
+    return liveRef.current;
+  };
 
   const flashNotice = (msg: string) => {
     setNotice(msg);
@@ -96,10 +114,16 @@ export function AssistantChat({
   // its live activity and then appending its reply. 480 * 2s = 16min, just
   // past the failStaleRuns() backstop so a real Hermes turn always resolves
   // itself before the client gives up on it.
-  const pollClaude = useCallback(async (runId: string) => {
+  //
+  // `live` is the caller's claim on this thread (see `claim` above): once it's
+  // dead the loop is orphaned, so it stops and leaves the run to be resumed by
+  // the next mount, which finds it via the thread's pendingRunId.
+  const pollClaude = async (runId: string, live: { alive: boolean }) => {
     for (let i = 0; i < 480; i++) {
       await sleep(2000);
+      if (!live.alive) return;
       const p = await pollAgentRun(runId);
+      if (!live.alive) return;
       if (!p.ok) {
         setActivity("");
         setMessages((m) => [

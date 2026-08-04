@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import { Sparkles, ArrowUp, Pencil, Plus, Trash2, Archive, MessageSquare, Paperclip, X } from "lucide-react";
 import { Avatar, Card, VoiceButton } from "@/components/ui";
 import { mergeTranscript } from "@/lib/append-transcript";
@@ -184,9 +184,13 @@ export function AssistantChat({
   // thread was open when Joe last left this page. That reload is what shows a
   // reply that landed while he was elsewhere, and it resumes the poll for a run
   // that's still going. Unmount drops this mount's claim so any live poll stops.
+  //
+  // Only the opening state swap is inside startTransition — that's the sync
+  // part an effect isn't allowed to do bare. The load and any resumed poll are
+  // awaited past it, deliberately outside any transition (see `pending`).
   useEffect(() => {
     const id = initialConversationId ?? recallThread(ASK_THREAD);
-    if (id) void openConversation(id);
+    if (id) startTransition(() => void openConversation(id));
     return () => {
       liveRef.current.alive = false;
     };
@@ -394,7 +398,7 @@ export function AssistantChat({
               >
                 <MessageSquare className="size-3 flex-none text-ink-4" strokeWidth={1.5} />
                 <button
-                  onClick={() => openConversation(c.id)}
+                  onClick={() => void openConversation(c.id)}
                   className="min-w-0 flex-1 truncate text-left text-[12.5px] text-ink-2"
                   title={c.title}
                 >

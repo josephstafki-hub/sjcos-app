@@ -64,6 +64,27 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
   // Desktop keeps both panes — this only toggles below `lg`.
   const [mobileEditor, setMobileEditor] = useState(false);
   const [pending, start] = useTransition();
+  /** Issues with local edits not yet through Save. A background data sync (the
+   *  LiveUpdates poller refreshing after an agent write) keeps these local
+   *  copies instead of clobbering a half-written draft. */
+  const [dirtyIds, setDirtyIds] = useState<ReadonlySet<number>>(new Set());
+
+  // Adopt fresh server data whenever the page's server component re-renders —
+  // that's how an agent's MCP edit (new recipient, updated issue, drained
+  // outbox) lands here without a reload. Render-phase adjustment, not an
+  // effect (react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-
+  // when-a-prop-changes).
+  const [prevData, setPrevData] = useState(data);
+  if (prevData !== data) {
+    setPrevData(data);
+    setRecipients(data.recipients);
+    setGroups(data.groups);
+    setOutbox(data.outbox);
+    setSequences(data.sequences);
+    setIssues((prev) =>
+      data.issues.map((i) => (dirtyIds.has(i.id) ? (prev.find((p) => p.id === i.id) ?? i) : i)),
+    );
+  }
 
   const current = issues.find((i) => i.id === selectedId) ?? null;
   const sent = current?.status === "sent";
@@ -72,8 +93,13 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
   const queuedCount = outbox.filter((o) => o.status === "queued").length;
   const liveSequenceCount = sequences.filter((s) => s.active).length;
 
-  function patchCurrent(patch: Partial<NewsletterIssue>) {
+  /** `persisted` — the patch mirrors a write that already landed on the server
+   *  (queue status, audience toggle), so it doesn't make the draft dirty. */
+  function patchCurrent(patch: Partial<NewsletterIssue>, persisted = false) {
     if (selectedId == null) return;
+    if (!persisted) {
+      setDirtyIds((prev) => (prev.has(selectedId) ? prev : new Set(prev).add(selectedId)));
+    }
     setIssues((prev) => prev.map((i) => (i.id === selectedId ? { ...i, ...patch } : i)));
   }
   function patchBlocks(fn: (b: NewsletterBlock[]) => NewsletterBlock[]) {
@@ -116,6 +142,11 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
     start(async () => {
       const res = await saveIssue(current.id, current.title, current.intro, current.blocks, current.settings);
       if (res.ok) {
+        setDirtyIds((prev) => {
+          const next = new Set(prev);
+          next.delete(current.id);
+          return next;
+        });
         setSaved(true);
         setTimeout(() => setSaved(false), 1500);
       } else setNotice(res.error);
@@ -189,7 +220,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
   function setTargetGroups(fn: (prev: number[]) => number[]) {
     if (!current) return;
     const next = fn(current.targetGroupIds);
-    patchCurrent({ targetGroupIds: next });
+    patchCurrent({ targetGroupIds: next }, true);
     start(async () => {
       const res = await setTargetGroupIds(current.id, next);
       if (!res.ok) setNotice(res.error);
@@ -216,7 +247,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
     start(async () => {
       const res = await queueIssue(current.id, targetGroupIds.length ? targetGroupIds : undefined);
       if (res.ok) {
-        patchCurrent({ status: "queued" });
+        patchCurrent({ status: "queued" }, true);
         setMode("Outbox");
         setNotice(`Queued ${res.data?.queued ?? 0} message(s). Release them below when you're ready.`);
         // Pull the real persisted rows (with real ids) so Release is enabled.

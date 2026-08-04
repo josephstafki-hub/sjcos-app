@@ -2181,3 +2181,17 @@ CREATE TABLE IF NOT EXISTS purchase_order_lines (
   created_at        timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_po_lines_po ON purchase_order_lines(purchase_order_id, sort_order);
+
+-- ── Live updates ─────────────────────────────────────────────────────────────
+-- Append-only signal log: every INSERT/UPDATE/DELETE that goes through the
+-- app's query() helper (lib/db.ts) or the MCP server's rows() helper logs one
+-- row here. Open browser tabs poll MAX(id) (components/shell/LiveUpdates.tsx)
+-- and router.refresh() when it advances, so agent/MCP edits appear without a
+-- reload. Pruned opportunistically to the last 7 days by the bump helper.
+CREATE TABLE IF NOT EXISTS app_change_log (
+  id         bigserial PRIMARY KEY,
+  scope      text NOT NULL DEFAULT '',    -- table the write touched ('' = unknown)
+  source     text NOT NULL DEFAULT 'app', -- 'app' | 'mcp'
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_app_change_log_created ON app_change_log (created_at);

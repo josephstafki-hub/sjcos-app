@@ -144,8 +144,22 @@ async function poCall(action, payload = {}) {
   }
 }
 
+// Mirrors writeScope() in lib/db.ts — the app's query() helper does the same.
+const WRITE_SQL = /^\s*(insert\s+into|update|delete\s+from)\s+(?:only\s+)?"?([a-zA-Z_][a-zA-Z0-9_]*)"?/i;
+
 async function rows(sql, params = []) {
   const r = await pool.query(sql, params);
+  // Live-update signal: log writes to app_change_log so open browser tabs
+  // (LiveUpdates poller in the app) refresh without a reload. Awaited — the
+  // stdio MCP process can exit right after a tool returns, which would drop a
+  // fire-and-forget insert. Swallowed on error: a missing table (migration not
+  // applied yet) must not fail the tool call itself.
+  const m = WRITE_SQL.exec(sql);
+  if (m && (r.rowCount ?? 1) > 0 && m[2].toLowerCase() !== "app_change_log") {
+    await pool
+      .query(`INSERT INTO app_change_log (scope, source) VALUES ($1, $2)`, [m[2].toLowerCase(), "mcp"])
+      .catch(() => {});
+  }
   return r.rows;
 }
 /** Wrap a result set as MCP text content (pretty JSON). */

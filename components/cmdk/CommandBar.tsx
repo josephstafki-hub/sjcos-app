@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import {
   Sparkles,
@@ -94,7 +94,12 @@ export function CommandBar({
     uploadFromTransfer,
     removeAttachment,
   } = useChatAttachments(setError);
-  const [pending, startTransition] = useTransition();
+  // Plain state, deliberately not useTransition: a turn can run for minutes,
+  // React keeps a transition pending for its whole await chain, and every later
+  // transition — including the App Router's own soft navigation — is entangled
+  // behind it. That's what made clicking another page do nothing until the
+  // agent answered.
+  const [pending, setPending] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const pathname = usePathname();
@@ -197,10 +202,16 @@ export function CommandBar({
     // isn't rendered, so the selection would be invisible and sends would go
     // somewhere Joe can't see. Start clean instead.
     const usable = snap && agents.includes(snap.agent) ? snap : undefined;
-    // Restoring is a plain state swap, so keep it a sync transition: `pending`
-    // clears in the same commit that paints the thread. Were this the async
-    // transition below, pending would outlive that commit by a microtask and
-    // flash "…is thinking" on every visit to a page with a saved chat.
+    // Restoring is a plain state swap, and one sync transition puts it all in a
+    // single commit: the thread paints with `pending` already settled, so a page
+    // with a saved chat never flashes "…is thinking" on the way in.
+    //
+    // `pending` starts true only when there's a turn to resume — the poll below
+    // then carries it, so the "thinking…" line and the disabled controls come
+    // back as if the turn never paused. The poll itself is awaited outside any
+    // transition; parking one for the run's whole duration is what used to
+    // block navigating off the page (see the `pending` declaration).
+    const runId = usable?.pendingRunId;
     startTransition(() => {
       setAgent(usable?.agent ?? agents[0] ?? "claude");
       setConversationId(usable?.conversationId ?? null);
@@ -210,15 +221,14 @@ export function CommandBar({
       setActivity("");
       setError("");
       setElapsed(0);
+      setPending(Boolean(runId));
       setHydratedKey(storeKey);
     });
-    // A turn that was still running when we left. Async, so `pending` stays
-    // true for the poll's duration and the "thinking…" line and disabled
-    // controls come back as if the turn never paused.
-    const runId = usable?.pendingRunId;
     if (runId) {
-      startTransition(async () => {
-        await pollTurn(runId, live);
+      startTransition(() => {
+        void pollTurn(runId, live).finally(() => {
+          if (live.alive) setPending(false);
+        });
       });
     }
     return () => {
@@ -294,41 +304,50 @@ export function CommandBar({
       { id: `u-${Date.now()}`, role: "user", body: bodyNote, costUsd: null, createdAt: "", subjectWorkItemId: null },
     ]);
 
+    // Plain async work, not a transition — see the `pending` declaration.
+    // Navigating away mid-turn is fine: the run finishes server-side, this
+    // bar's thread is kept in the store, and the answer lands when you return.
     const live = liveRef.current;
-    startTransition(async () => {
-      let convId = conversationId;
-      if (!convId) {
-        convId = await newConversationAction(agent);
-        // Store write as well as state, for the same reason as the runId below:
-        // if Joe left while the thread was being opened, only the store write
-        // lands — and without it the next turn here would fork a second
-        // conversation instead of continuing this one.
-        setConversationId(convId);
-        setConversationRef(storeKey, convId);
+    void (async () => {
+      setPending(true);
+      try {
+        let convId = conversationId;
+        if (!convId) {
+          convId = await newConversationAction(agent);
+          // Store write as well as state, for the same reason as the runId
+          // below: if Joe left while the thread was being opened, only the
+          // store write lands — and without it the next turn here would fork a
+          // second conversation instead of continuing this one.
+          setConversationId(convId);
+          setConversationRef(storeKey, convId);
+        }
+        // 4th arg (claudeOptions) is undefined — this bar has no run controls,
+        // so startClaudeRun applies CLAUDE_DEFAULTS.
+        const r = await sendMessageAction(convId, q, ctx, undefined, files);
+        // Record the run before anything else, straight into the store rather
+        // than via state: if Joe navigated while the turn was starting, this
+        // bar is already gone and setState is a no-op, but the store write
+        // still lands and the next visit picks the run back up.
+        if (r.ok && r.kind === "pending") setPendingRun(storeKey, r.runId);
+        if (!live.alive) return;
+        if (!r.ok) {
+          // Re-stage the files: retyping a prompt is cheap, re-picking uploads
+          // isn't, and the turn never reached the model. Prepend rather than
+          // replace — anything staged while the turn was in flight is still live.
+          setAttachments((cur) => [...files, ...cur]);
+          setMessages((m) => [
+            ...m,
+            { id: `err-${Date.now()}`, role: "assistant", body: `⚠️ ${r.error}`, costUsd: null, createdAt: "", subjectWorkItemId: null },
+          ]);
+        } else if (r.kind === "answer") {
+          setMessages((m) => [...m, r.message]);
+        } else {
+          await pollTurn(r.runId, live);
+        }
+      } finally {
+        if (live.alive) setPending(false);
       }
-      // 4th arg (claudeOptions) is undefined — this bar has no run controls, so
-      // startClaudeRun applies CLAUDE_DEFAULTS.
-      const r = await sendMessageAction(convId, q, ctx, undefined, files);
-      if (!r.ok) {
-        // Re-stage the files: retyping a prompt is cheap, re-picking uploads
-        // isn't, and the turn never reached the model. Prepend rather than
-        // replace — anything staged while the turn was in flight is still live.
-        setAttachments((cur) => [...files, ...cur]);
-        setMessages((m) => [
-          ...m,
-          { id: `err-${Date.now()}`, role: "assistant", body: `⚠️ ${r.error}`, costUsd: null, createdAt: "", subjectWorkItemId: null },
-        ]);
-      } else if (r.kind === "answer") {
-        setMessages((m) => [...m, r.message]);
-      } else {
-        // Record the run before polling it, straight into the store rather than
-        // via state: if Joe navigated while the turn was starting, this bar is
-        // already gone and setState is a no-op, but the store write still lands
-        // and the next visit picks the run back up.
-        setPendingRun(storeKey, r.runId);
-        await pollTurn(r.runId, live);
-      }
-    });
+    })();
   };
 
   const jump = (href: string) => {

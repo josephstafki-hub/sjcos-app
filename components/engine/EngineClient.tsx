@@ -306,6 +306,16 @@ function KnowledgeTab({ initial }: { initial: KnowledgeItemView[] }) {
   const [pending, start] = useTransition();
   const captureRef = useRef<HTMLFormElement>(null);
 
+  // Fresh server props arrive when the LiveUpdates poller refreshes after an
+  // agent captures knowledge over MCP — adopt them unless a search is showing
+  // its own result set. Render-phase adjustment, not an effect (react.dev/
+  // learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes).
+  const [prevInitial, setPrevInitial] = useState(initial);
+  if (prevInitial !== initial) {
+    setPrevInitial(initial);
+    if (!q.trim()) setItems(initial);
+  }
+
   const runSearch = (query: string) =>
     start(async () => setItems(await searchKnowledgeAction(query)));
 

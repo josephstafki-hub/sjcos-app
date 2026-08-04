@@ -75,7 +75,7 @@ export function LeadsClient({ data }: { data: LeadsData }) {
         <div className="flex items-center gap-2 border-b border-rule bg-paper-2 px-4 py-2.5 font-mono text-[9.5px] font-medium uppercase tracking-[0.16em] text-ink-3">
           <span className="w-[200px]">Lead</span>
           <span className="hidden w-[150px] md:block">Scope</span>
-          <span className="w-[130px]">Stage</span>
+          <span className="w-[130px] md:w-[172px]">Stage</span>
           <span className="hidden w-[72px] md:block">Value</span>
           <div className="flex-1" />
           <span>AI take</span>
@@ -107,15 +107,19 @@ function LeadRow({ lead: l }: { lead: LeadListItem }) {
           <div className="text-[11px] text-ink-3">{l.ageDays}d since first contact</div>
         </div>
       </div>
-      <div className="hidden w-[150px] text-[12px] text-ink-2 md:block">{l.scope}</div>
-      <div className="w-[130px]">
-        <Chip kind={l.stageAdvanced ? "accent" : "ghost"}>{l.stageLabelText}</Chip>
+      <div className="hidden w-[150px] truncate text-[12px] text-ink-2 md:block">{l.scope}</div>
+      <div className="w-[130px] min-w-0 md:w-[172px]">
+        <Chip kind={l.stageAdvanced ? "accent" : "ghost"} className="max-w-full">
+          <span className="min-w-0 truncate">{l.stageLabelText}</span>
+        </Chip>
       </div>
-      <div className="hidden w-[72px] font-mono text-[12px] text-ink-2 md:block">{l.value}</div>
-      <div className="flex flex-1 justify-end">
+      <div className="hidden w-[72px] truncate font-mono text-[12px] text-ink-2 md:block">
+        {l.value}
+      </div>
+      <div className="flex min-w-0 flex-1 justify-end">
         {l.flag && (
-          <Chip kind={l.flag.kind} dot>
-            {l.flag.label}
+          <Chip kind={l.flag.kind} dot className="max-w-full">
+            <span className="min-w-0 truncate">{l.flag.label}</span>
           </Chip>
         )}
       </div>

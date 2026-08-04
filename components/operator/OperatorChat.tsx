@@ -1,9 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 import { Sparkles, Plus } from "lucide-react";
 import { pollAgentRun } from "@/lib/actions/dev-agents";
-import { newConversationAction, sendMessageAction } from "@/lib/actions/ai-chat";
+import {
+  loadConversationAction,
+  newConversationAction,
+  sendMessageAction,
+} from "@/lib/actions/ai-chat";
+import { OPERATOR_THREAD, recallThread, rememberThread } from "@/components/ai/threadMemory";
 import type { ChatMessage } from "@/lib/ai-chat";
 import { AGENT_META, AGENT_ORDER, type DevAgent } from "@/lib/dev-agents-meta";
 import { doItDirective, prepDirective } from "@/lib/today-directives";
@@ -45,20 +50,38 @@ export function OperatorChat({
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [pending, startTransition] = useTransition();
+  // Plain state, deliberately not useTransition: a turn can run for minutes,
+  // React keeps a transition pending for its whole await chain, and every later
+  // transition — including the App Router's own soft navigation — is entangled
+  // behind it. That's what made clicking another page do nothing until the
+  // agent answered.
+  const [pending, setPending] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const meta = AGENT_META[agent];
+
+  // This mount's claim on the visible thread. A poll loop holds the token it
+  // started under, so leaving the console stops it instead of letting it
+  // setState on a dead fiber and hit the server every 2s for another 16
+  // minutes. The run finishes server-side regardless and resumes on return.
+  const liveRef = useRef({ alive: true });
+  const claim = () => {
+    liveRef.current.alive = false;
+    liveRef.current = { alive: true };
+    return liveRef.current;
+  };
 
   const narration = queueNarration(priorities, { items: waiting, total: waiting.length });
 
   // Poll a backgrounded turn until it lands, then report run end + refresh the
   // queue (a completed hand-off checks its card off; free text can change any
   // item). Claude is polled identically to Qwen/Hermes.
-  const pollTurn = async (runId: string, subjectId?: string) => {
+  const pollTurn = async (runId: string, subjectId: string | undefined, live: { alive: boolean }) => {
     for (let i = 0; i < 480; i++) {
       await sleep(2000);
+      if (!live.alive) return;
       const p = await pollAgentRun(runId);
+      if (!live.alive) return;
       if (!p.ok) {
         setActivity("");
         setMessages((m) => [
@@ -107,8 +130,58 @@ export function OperatorChat({
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages.length, activity, pending]);
 
+  // Reopen the thread the console had going when Joe last left it. The
+  // transcript comes back from the database — which is what shows a reply that
+  // landed while he was on another page — and a run still in flight resumes its
+  // poll (and its workbench focus). Unmount drops the claim so the poll stops.
+  const reopen = async (id: string) => {
+    const live = claim();
+    setPending(true);
+    try {
+      const detail = await loadConversationAction(id);
+      if (!live.alive) return;
+      if (!detail) {
+        rememberThread(OPERATOR_THREAD, null);
+        return;
+      }
+      setAgent(detail.agent);
+      setConversationId(detail.id);
+      setMessages(detail.messages);
+      if (detail.pendingRunId) {
+        // A hand-off tags its user turn with the card it's about; carry that
+        // through so the resumed run still refreshes the queue and re-focuses
+        // the workbench on the right entity.
+        const subjectId = detail.messages[detail.messages.length - 1]?.subjectWorkItemId ?? undefined;
+        setElapsed(0);
+        onRunStart({
+          runId: detail.pendingRunId,
+          agent: detail.agent,
+          subjectId: subjectId ?? null,
+          startedAt: Date.now(),
+        });
+        await pollTurn(detail.pendingRunId, subjectId, live);
+      }
+    } finally {
+      if (live.alive) setPending(false);
+    }
+  };
+
+  // Only the opening state swap is inside startTransition — that's the sync
+  // part an effect isn't allowed to do bare. The load and any resumed poll are
+  // awaited past it, deliberately outside any transition (see `pending`).
+  useEffect(() => {
+    const id = recallThread(OPERATOR_THREAD);
+    if (id) startTransition(() => void reopen(id));
+    return () => {
+      liveRef.current.alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const newChat = () => {
     if (pending) return;
+    claim();
+    rememberThread(OPERATOR_THREAD, null);
     setConversationId(null);
     setMessages([]);
     setActivity("");
@@ -127,9 +200,11 @@ export function OperatorChat({
     convId: string,
     directive: string,
     runAgent: DevAgent,
-    subjectId?: string,
+    subjectId: string | undefined,
+    live: { alive: boolean },
   ) => {
     const r = await sendMessageAction(convId, directive, aiContext, undefined, undefined, subjectId);
+    if (!live.alive) return;
     if (!r.ok) {
       setMessages((m) => [
         ...m,
@@ -145,7 +220,22 @@ export function OperatorChat({
       return;
     }
     onRunStart({ runId: r.runId, agent: runAgent, subjectId: subjectId ?? null, startedAt: Date.now() });
-    await pollTurn(r.runId, subjectId);
+    await pollTurn(r.runId, subjectId, live);
+  };
+
+  /** Run a turn as plain async work rather than a transition — see the
+   *  `pending` declaration. Navigating away mid-turn is fine: the run finishes
+   *  server-side and the reply is in the thread when Joe comes back. */
+  const runTurn = (work: (live: { alive: boolean }) => Promise<void>) => {
+    const live = liveRef.current;
+    void (async () => {
+      setPending(true);
+      try {
+        await work(live);
+      } finally {
+        if (live.alive) setPending(false);
+      }
+    })();
   };
 
   const ask = () => {
@@ -157,13 +247,17 @@ export function OperatorChat({
     setElapsed(0);
     setActivity("");
     pushUser(q);
-    startTransition(async () => {
+    runTurn(async (live) => {
       let convId = conversationId;
       if (!convId) {
         convId = await newConversationAction(agent);
+        // Remembered directly as well as in state: if Joe left while the thread
+        // was being opened, setConversationId lands on an unmounted console, and
+        // without this the next visit would fork a second conversation.
+        rememberThread(OPERATOR_THREAD, convId);
         setConversationId(convId);
       }
-      await runSend(convId, q, agent);
+      await runSend(convId, q, agent, undefined, live);
     });
   };
 
@@ -173,35 +267,37 @@ export function OperatorChat({
     setError("");
     setNotice("");
     if (kind === "do") {
-      startTransition(async () => {
+      runTurn(async (live) => {
         let convId = conversationId;
         if (agent !== "hermes" || !convId) {
           setAgent("hermes");
           setNotice("Handing to Hermes…");
           setMessages([]);
           convId = await newConversationAction("hermes");
+          rememberThread(OPERATOR_THREAD, convId);
           setConversationId(convId);
         }
         setElapsed(0);
         setActivity("");
         pushUser(`✦ Have Hermes do it — ${p.title}`, p.id);
-        await runSend(convId, doItDirective(p), "hermes", p.id);
+        await runSend(convId, doItDirective(p), "hermes", p.id, live);
       });
       return;
     }
     const target: DevAgent = agent === "claude" ? "qwen" : agent;
-    startTransition(async () => {
+    runTurn(async (live) => {
       let convId = conversationId;
       if (agent === "claude" || !convId) {
         setAgent(target);
         convId = await newConversationAction(target);
+        rememberThread(OPERATOR_THREAD, convId);
         setConversationId(convId);
         setMessages([]);
       }
       setElapsed(0);
       setActivity("");
       pushUser(`✦ Prep me — ${p.title}`, p.id);
-      await runSend(convId, prepDirective(p), target, p.id);
+      await runSend(convId, prepDirective(p), target, p.id, live);
     });
   };
 
@@ -223,6 +319,10 @@ export function OperatorChat({
               key={a}
               onClick={() => {
                 if (pending) return;
+                // Each agent keeps its own thread, so this abandons the current
+                // one — drop the claim and the memory of it too.
+                claim();
+                rememberThread(OPERATOR_THREAD, null);
                 setAgent(a);
                 setConversationId(null);
                 setMessages([]);

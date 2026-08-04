@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import { Sparkles, ArrowUp, Pencil, Plus, Trash2, Archive, MessageSquare, Paperclip, X } from "lucide-react";
 import { Avatar, Card, VoiceButton } from "@/components/ui";
 import { mergeTranscript } from "@/lib/append-transcript";
@@ -15,6 +15,7 @@ import {
   deleteConversationAction,
 } from "@/lib/actions/ai-chat";
 import { useChatAttachments } from "@/components/ai/useChatAttachments";
+import { ASK_THREAD, recallThread, rememberThread } from "@/components/ai/threadMemory";
 import type { ConversationSummary, ChatMessage } from "@/lib/ai-chat";
 import {
   AGENT_META,
@@ -52,7 +53,12 @@ export function AssistantChat({
   const [activeId, setActiveId] = useState<string | null>(initialConversationId ?? null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
-  const [pending, startTransition] = useTransition();
+  // Plain state, deliberately not useTransition: a turn can run for minutes,
+  // React keeps a transition pending for its whole await chain, and every later
+  // transition — including the App Router's own soft navigation — is entangled
+  // behind it. That's what made clicking another page do nothing until the
+  // agent answered.
+  const [pending, setPending] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   // Live "what Claude is doing" log (streamed from the run's activity column)
   // and the per-run model/mode/effort selected for Claude turns.
@@ -66,6 +72,18 @@ export function AssistantChat({
   const [notice, setNotice] = useState<string>("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const meta = AGENT_META[agent];
+
+  // This mount's claim on the visible thread. A poll loop holds the token it
+  // started under and checks it, so leaving the page (or switching threads)
+  // stops the loop instead of letting it setState on a dead fiber and hit the
+  // server every 2s for another 16 minutes. The run itself finishes server-side
+  // regardless — reopening the thread picks it back up from dev_agent_runs.
+  const liveRef = useRef({ alive: true });
+  const claim = () => {
+    liveRef.current.alive = false;
+    liveRef.current = { alive: true };
+    return liveRef.current;
+  };
 
   const flashNotice = (msg: string) => {
     setNotice(msg);
@@ -96,10 +114,16 @@ export function AssistantChat({
   // its live activity and then appending its reply. 480 * 2s = 16min, just
   // past the failStaleRuns() backstop so a real Hermes turn always resolves
   // itself before the client gives up on it.
-  const pollClaude = useCallback(async (runId: string) => {
+  //
+  // `live` is the caller's claim on this thread (see `claim` above): once it's
+  // dead the loop is orphaned, so it stops and leaves the run to be resumed by
+  // the next mount, which finds it via the thread's pendingRunId.
+  const pollClaude = async (runId: string, live: { alive: boolean }) => {
     for (let i = 0; i < 480; i++) {
       await sleep(2000);
+      if (!live.alive) return;
       const p = await pollAgentRun(runId);
+      if (!live.alive) return;
       if (!p.ok) {
         setActivity("");
         setMessages((m) => [
@@ -119,26 +143,33 @@ export function AssistantChat({
       }
       setActivity(p.activity ?? "");
     }
-  }, []);
+  };
 
-  // Open a conversation: load its messages and resume any pending Claude run.
-  // All setState lives inside the transition callback (no synchronous setState
-  // for effect callers).
-  const openConversation = useCallback(
-    (id: string) => {
-      startTransition(async () => {
-        setActiveId(id);
-        setElapsed(0);
-        const detail = await loadConversationAction(id);
-        if (!detail) return;
-        setAgent(detail.agent);
-        setMessages(detail.messages);
-        scrollDown();
-        if (detail.pendingRunId) await pollClaude(detail.pendingRunId);
-      });
-    },
-    [pollClaude],
-  );
+  // Open a conversation: load its messages and resume any run still in flight.
+  // The messages come from the database, so a reply that landed while this
+  // thread wasn't on screen is already in what we load.
+  const openConversation = async (id: string) => {
+    const live = claim();
+    setPending(true);
+    setActiveId(id);
+    rememberThread(ASK_THREAD, id);
+    setElapsed(0);
+    setActivity("");
+    try {
+      const detail = await loadConversationAction(id);
+      if (!live.alive) return;
+      if (!detail) {
+        rememberThread(ASK_THREAD, null);
+        return;
+      }
+      setAgent(detail.agent);
+      setMessages(detail.messages);
+      scrollDown();
+      if (detail.pendingRunId) await pollClaude(detail.pendingRunId, live);
+    } finally {
+      if (live.alive) setPending(false);
+    }
+  };
 
   // Whenever the agent changes: list that agent's threads (async setState).
   useEffect(() => {
@@ -149,9 +180,20 @@ export function AssistantChat({
     };
   }, [agent]);
 
-  // Load the deep-linked conversation once on mount.
+  // On arrival: open the deep-linked thread (?c=), or failing that whatever
+  // thread was open when Joe last left this page. That reload is what shows a
+  // reply that landed while he was elsewhere, and it resumes the poll for a run
+  // that's still going. Unmount drops this mount's claim so any live poll stops.
+  //
+  // Only the opening state swap is inside startTransition — that's the sync
+  // part an effect isn't allowed to do bare. The load and any resumed poll are
+  // awaited past it, deliberately outside any transition (see `pending`).
   useEffect(() => {
-    if (initialConversationId) openConversation(initialConversationId);
+    const id = initialConversationId ?? recallThread(ASK_THREAD);
+    if (id) startTransition(() => void openConversation(id));
+    return () => {
+      liveRef.current.alive = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -166,6 +208,8 @@ export function AssistantChat({
 
   function switchAgent(a: DevAgent) {
     if (a === agent || pending) return;
+    claim();
+    rememberThread(ASK_THREAD, null);
     setAgent(a);
     setActiveId(null);
     setMessages([]);
@@ -175,6 +219,8 @@ export function AssistantChat({
 
   function newChat() {
     if (pending) return;
+    claim();
+    rememberThread(ASK_THREAD, null);
     setActiveId(null);
     setMessages([]);
     setInput("");
@@ -245,30 +291,45 @@ export function AssistantChat({
     ]);
     scrollDown();
 
-    startTransition(async () => {
-      let convId = activeId;
-      if (!convId) {
-        convId = await newConversationAction(sentAgent);
-        setActiveId(convId);
+    // Fire the turn as plain async work rather than a transition — see the
+    // `pending` declaration. Navigating away mid-turn is fine: the run finishes
+    // server-side and the reply is waiting in the thread when Joe comes back.
+    const live = liveRef.current;
+    void (async () => {
+      setPending(true);
+      try {
+        let convId = activeId;
+        if (!convId) {
+          convId = await newConversationAction(sentAgent);
+          // Straight to the thread memory as well as to state: if Joe left
+          // while the thread was being opened, setActiveId lands on an
+          // unmounted component, and without this the next visit would start a
+          // second conversation instead of returning to this one.
+          rememberThread(ASK_THREAD, convId);
+          setActiveId(convId);
+        }
+        const r = await sendMessageAction(convId, q, ctx, opts, files);
+        if (!live.alive) return;
+        if (!r.ok) {
+          // Re-stage the files: the turn never reached the model, and re-picking
+          // uploads is more annoying than retyping a prompt. Prepend rather than
+          // replace — anything staged while the turn was in flight is still live.
+          setAttachments((cur) => [...files, ...cur]);
+          setMessages((m) => [
+            ...m,
+            { id: `err-${Date.now()}`, role: "assistant", body: `⚠️ ${r.error}`, costUsd: null, createdAt: "", subjectWorkItemId: null },
+          ]);
+        } else if (r.kind === "answer") {
+          setMessages((m) => [...m, r.message]);
+          scrollDown();
+        } else {
+          await pollClaude(r.runId, live);
+        }
+        if (live.alive) await refreshList(sentAgent);
+      } finally {
+        if (live.alive) setPending(false);
       }
-      const r = await sendMessageAction(convId, q, ctx, opts, files);
-      if (!r.ok) {
-        // Re-stage the files: the turn never reached the model, and re-picking
-        // uploads is more annoying than retyping a prompt. Prepend rather than
-        // replace — anything staged while the turn was in flight is still live.
-        setAttachments((cur) => [...files, ...cur]);
-        setMessages((m) => [
-          ...m,
-          { id: `err-${Date.now()}`, role: "assistant", body: `⚠️ ${r.error}`, costUsd: null, createdAt: "", subjectWorkItemId: null },
-        ]);
-      } else if (r.kind === "answer") {
-        setMessages((m) => [...m, r.message]);
-        scrollDown();
-      } else {
-        await pollClaude(r.runId);
-      }
-      await refreshList(sentAgent);
-    });
+    })();
   }
 
   async function rename(id: string, current: string) {
@@ -337,7 +398,7 @@ export function AssistantChat({
               >
                 <MessageSquare className="size-3 flex-none text-ink-4" strokeWidth={1.5} />
                 <button
-                  onClick={() => openConversation(c.id)}
+                  onClick={() => void openConversation(c.id)}
                   className="min-w-0 flex-1 truncate text-left text-[12.5px] text-ink-2"
                   title={c.title}
                 >

@@ -5,6 +5,7 @@ import { Topbar } from "./Topbar";
 import { CmdKPill } from "./CmdKPill";
 import { CommandBar } from "@/components/cmdk/CommandBar";
 import { RouteTracker } from "./RouteTracker";
+import { LiveUpdates } from "./LiveUpdates";
 import { getCurrentUser } from "@/lib/dal";
 import { getUnreadCount } from "@/lib/notifications";
 
@@ -68,6 +69,7 @@ export async function Shell({
       </div>
       {!embeddedAsk && <CommandBar defaultOpen={cmdkOpen} aiContext={aiContext} />}
       <RouteTracker />
+      <LiveUpdates />
     </div>
   );
 }

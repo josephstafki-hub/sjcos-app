@@ -106,6 +106,18 @@ export function TodayQueueProvider({
     }
   };
 
+  // The page's server component re-renders with fresh lists whenever the
+  // LiveUpdates poller (or anything else) calls router.refresh() — adopt them,
+  // otherwise the queue would stay frozen at whatever this provider first
+  // mounted with. Render-phase adjustment, not an effect (react.dev/learn/
+  // you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes).
+  const [prevInitial, setPrevInitial] = useState({ initialPriorities, initialWaiting });
+  if (prevInitial.initialPriorities !== initialPriorities || prevInitial.initialWaiting !== initialWaiting) {
+    setPrevInitial({ initialPriorities, initialWaiting });
+    setPriorities(initialPriorities);
+    setWaiting(initialWaiting.items);
+  }
+
   // Refresh when the tab regains focus (Hermes may have worked items on the
   // Telegram/MCP side while Joe was away), throttled to ≥30s apart.
   useEffect(() => {

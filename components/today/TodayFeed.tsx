@@ -1,10 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
+import { startTransition, useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Sparkles, Plus } from "lucide-react";
 import { pollAgentRun } from "@/lib/actions/dev-agents";
-import { newConversationAction, sendMessageAction } from "@/lib/actions/ai-chat";
+import {
+  loadConversationAction,
+  newConversationAction,
+  sendMessageAction,
+} from "@/lib/actions/ai-chat";
+import { TODAY_THREAD, recallThread, rememberThread } from "@/components/ai/threadMemory";
 import type { ChatMessage } from "@/lib/ai-chat";
 import { AGENT_META, AGENT_ORDER, type DevAgent } from "@/lib/dev-agents-meta";
 import { doItDirective, prepDirective } from "@/lib/today-directives";
@@ -43,19 +48,37 @@ export function TodayFeed({
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [pending, startTransition] = useTransition();
+  // Plain state, deliberately not useTransition: a turn can run for minutes,
+  // React keeps a transition pending for its whole await chain, and every later
+  // transition — including the App Router's own soft navigation — is entangled
+  // behind it. That's what made clicking another page do nothing until the
+  // agent answered.
+  const [pending, setPending] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const meta = AGENT_META[agent];
 
+  // This mount's claim on the visible thread. A poll loop holds the token it
+  // started under, so leaving /today stops it instead of letting it setState on
+  // a dead fiber and hit the server every 2s for another 16 minutes. The run
+  // finishes server-side regardless and is resumed on the way back in.
+  const liveRef = useRef({ alive: true });
+  const claim = () => {
+    liveRef.current.alive = false;
+    liveRef.current = { alive: true };
+    return liveRef.current;
+  };
+
   // Poll a backgrounded Qwen/Hermes turn until it lands. When `subjectId` is
   // set (a card was handed off), refresh the queue on resolution — that's when
   // a Hermes-completed card checks off and the next backlog item swaps in.
-  const pollTurn = async (runId: string, subjectId?: string) => {
+  const pollTurn = async (runId: string, subjectId: string | undefined, live: { alive: boolean }) => {
     for (let i = 0; i < 480; i++) {
       await sleep(2000);
+      if (!live.alive) return;
       const p = await pollAgentRun(runId);
+      if (!live.alive) return;
       if (!p.ok) {
         setActivity("");
         setMessages((m) => [
@@ -102,8 +125,52 @@ export function TodayFeed({
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages.length, activity, pending]);
 
+  const reopen = async (id: string) => {
+    const live = claim();
+    setPending(true);
+    try {
+      const detail = await loadConversationAction(id);
+      if (!live.alive) return;
+      if (!detail) {
+        rememberThread(TODAY_THREAD, null);
+        return;
+      }
+      setAgent(detail.agent);
+      setConversationId(detail.id);
+      setMessages(detail.messages);
+      if (detail.pendingRunId) {
+        // A hand-off tags its user turn with the card it's about; carry that
+        // through so the resumed run still checks the card off when it lands.
+        const subjectId = detail.messages[detail.messages.length - 1]?.subjectWorkItemId ?? undefined;
+        setElapsed(0);
+        await pollTurn(detail.pendingRunId, subjectId, live);
+      }
+    } finally {
+      if (live.alive) setPending(false);
+    }
+  };
+
+  // Reopen the thread this feed had going when Joe last left /today. The
+  // transcript is reloaded from the database — which is what shows a reply that
+  // landed while he was on another page — and a run still in flight resumes its
+  // poll. Unmount drops this mount's claim so any live poll stops.
+  //
+  // Only the opening state swap is inside startTransition — that's the sync
+  // part an effect isn't allowed to do bare. The load and any resumed poll are
+  // awaited past it, deliberately outside any transition (see `pending`).
+  useEffect(() => {
+    const id = recallThread(TODAY_THREAD);
+    if (id) startTransition(() => void reopen(id));
+    return () => {
+      liveRef.current.alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const newChat = () => {
     if (pending) return;
+    claim();
+    rememberThread(TODAY_THREAD, null);
     setConversationId(null);
     setMessages([]);
     setActivity("");
@@ -119,8 +186,10 @@ export function TodayFeed({
 
   const finishSend = async (
     r: Awaited<ReturnType<typeof sendMessageAction>>,
-    subjectId?: string,
+    subjectId: string | undefined,
+    live: { alive: boolean },
   ) => {
+    if (!live.alive) return;
     if (!r.ok) {
       setMessages((m) => [
         ...m,
@@ -131,8 +200,23 @@ export function TodayFeed({
       setMessages((m) => [...m, { ...r.message, subjectWorkItemId: subjectId ?? r.message.subjectWorkItemId }]);
       if (subjectId) await refresh();
     } else {
-      await pollTurn(r.runId, subjectId);
+      await pollTurn(r.runId, subjectId, live);
     }
+  };
+
+  /** Run a turn as plain async work rather than a transition — see the
+   *  `pending` declaration. Navigating away mid-turn is fine: the run finishes
+   *  server-side and the reply is in the thread when Joe comes back. */
+  const runTurn = (work: (live: { alive: boolean }) => Promise<void>) => {
+    const live = liveRef.current;
+    void (async () => {
+      setPending(true);
+      try {
+        await work(live);
+      } finally {
+        if (live.alive) setPending(false);
+      }
+    })();
   };
 
   const ask = () => {
@@ -143,7 +227,7 @@ export function TodayFeed({
 
     if (agent === "claude") {
       // Claude is the builder — hand off to /ai like CommandBar does.
-      startTransition(async () => {
+      runTurn(async () => {
         try {
           const convId = await newConversationAction("claude");
           await sendMessageAction(convId, q, "/today");
@@ -160,14 +244,18 @@ export function TodayFeed({
     setActivity("");
     pushUser(q);
 
-    startTransition(async () => {
+    runTurn(async (live) => {
       let convId = conversationId;
       if (!convId) {
         convId = await newConversationAction(agent);
+        // Remembered directly as well as in state: if Joe left while the thread
+        // was being opened, setConversationId lands on an unmounted feed, and
+        // without this the next visit would fork a second conversation.
+        rememberThread(TODAY_THREAD, convId);
         setConversationId(convId);
       }
       const r = await sendMessageAction(convId, q, aiContext);
-      await finishSend(r);
+      await finishSend(r, undefined, live);
     });
   };
 
@@ -180,20 +268,21 @@ export function TodayFeed({
 
     if (kind === "do") {
       // Only Hermes has the MCP tools. Switch to a Hermes thread if needed.
-      startTransition(async () => {
+      runTurn(async (live) => {
         let convId = conversationId;
         if (agent !== "hermes" || !convId) {
           setAgent("hermes");
           setNotice("Handing to Hermes…");
           setMessages([]);
           convId = await newConversationAction("hermes");
+          rememberThread(TODAY_THREAD, convId);
           setConversationId(convId);
         }
         setElapsed(0);
         setActivity("");
         pushUser(`✦ Have Hermes do it — ${p.title}`, p.id);
         const r = await sendMessageAction(convId, doItDirective(p), aiContext, undefined, undefined, p.id);
-        await finishSend(r, p.id);
+        await finishSend(r, p.id, live);
       });
       return;
     }
@@ -201,11 +290,12 @@ export function TodayFeed({
     // "Prep me" — read-only context gathering. Runs on the selected local
     // agent (Claude → treat as Qwen, which has no MCP tools).
     const target: DevAgent = agent === "claude" ? "qwen" : agent;
-    startTransition(async () => {
+    runTurn(async (live) => {
       let convId = conversationId;
       if (agent === "claude" || !convId) {
         setAgent(target);
         convId = await newConversationAction(target);
+        rememberThread(TODAY_THREAD, convId);
         setConversationId(convId);
         setMessages([]);
       }
@@ -213,7 +303,7 @@ export function TodayFeed({
       setActivity("");
       pushUser(`✦ Prep me — ${p.title}`, p.id);
       const r = await sendMessageAction(convId, prepDirective(p), aiContext, undefined, undefined, p.id);
-      await finishSend(r, p.id);
+      await finishSend(r, p.id, live);
     });
   };
 
@@ -227,6 +317,10 @@ export function TodayFeed({
               key={a}
               onClick={() => {
                 if (pending) return;
+                // Each agent keeps its own thread, so this abandons the current
+                // one — drop the claim and the memory of it too.
+                claim();
+                rememberThread(TODAY_THREAD, null);
                 setAgent(a);
                 setConversationId(null);
                 setMessages([]);

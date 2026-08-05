@@ -1982,6 +1982,9 @@ CREATE TABLE IF NOT EXISTS dev_agent_runs (
   status       text NOT NULL DEFAULT 'pending'
                CHECK (status IN ('pending','running','done','error')),
   answer       text,
+  -- Cached spoken (TTS) form of the answer — markdown stripped / summarized
+  -- once, replayed cheaply (db/apply-orchestration-p1.mjs).
+  spoken_answer text,
   cost_usd     numeric,
   session_id   text,
   created_at   timestamptz NOT NULL DEFAULT now(),
@@ -2195,3 +2198,22 @@ CREATE TABLE IF NOT EXISTS app_change_log (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_app_change_log_created ON app_change_log (created_at);
+
+-- ── Run effects (orchestration) ──────────────────────────────────────────────
+-- Which entities an agent run touched. 'app' rows are exact (the app executed
+-- the action); 'hermes-reported' come from a ```sjcos-effects fence in the
+-- reply; 'hermes-inferred' are table-level correlations of app_change_log
+-- (source='mcp') rows inside the run's time window. Feeds the operator
+-- panel's live-action view and Claude's review digests.
+CREATE TABLE IF NOT EXISTS run_effects (
+  id          bigserial PRIMARY KEY,
+  run_id      uuid NOT NULL REFERENCES dev_agent_runs(id) ON DELETE CASCADE,
+  entity_kind text NOT NULL,               -- 'work_item','lead',… or a table name for inferred rows
+  entity_id   text,                        -- null when only the table is known
+  action      text NOT NULL DEFAULT 'touched',
+  source      text NOT NULL DEFAULT 'app'
+              CHECK (source IN ('app','hermes-reported','hermes-inferred','claude')),
+  detail      jsonb NOT NULL DEFAULT '{}',
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_run_effects_run ON run_effects (run_id);

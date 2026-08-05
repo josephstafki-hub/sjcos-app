@@ -7,6 +7,7 @@ import { requireRole } from "@/lib/dal";
 import { query, queryOne } from "@/lib/db";
 import { qwenChat } from "@/lib/ai";
 import { hermesChat, startClaudeRun } from "@/lib/dev-agents";
+import { finalizeHermesAnswer } from "@/lib/orchestrator/effects";
 import type { ClaudeOptions, DevAgent } from "@/lib/dev-agents-meta";
 import {
   listConversations,
@@ -181,10 +182,13 @@ export async function sendMessageAction(
 
     void (async () => {
       try {
-        const answer =
+        const raw =
           agent === "hermes"
             ? await hermesChat(turns, pageContext, conversationId)
             : await qwenChat(turns, pageContext);
+        // Hermes turns report/infer which entities they touched (run_effects);
+        // the fence is stripped before the reply is stored.
+        const answer = agent === "hermes" ? await finalizeHermesAnswer(runId, raw) : raw;
         await insertMessage(conversationId, "assistant", answer);
         await query(
           `UPDATE dev_agent_runs SET status = 'done', answer = $2, updated_at = now() WHERE id = $1`,

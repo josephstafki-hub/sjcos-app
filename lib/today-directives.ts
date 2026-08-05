@@ -18,6 +18,20 @@ export const ACTIONS_HINT =
   "conversation — never invent one — and omit the block entirely when no such " +
   "action applies.";
 
+/** Orchestration: ask Hermes to report what it changed so the app can point
+ *  the live view at it (parsed by lib/orchestrator/effects.ts — reported rows
+ *  enrich the table-level inference that runs regardless). Advisory only:
+ *  ignoring it costs precision, never correctness. */
+export const EFFECTS_HINT =
+  "If your reply describes work where you CHANGED data with your sjcos tools " +
+  "(created/updated/completed/queued something), end the reply with a fenced " +
+  "```sjcos-effects block containing a JSON array of " +
+  '{"entity_kind","entity_id","action"} objects — entity_kind like ' +
+  '"work_item", "lead", "project", "purchase_order", "newsletter_issue"; ' +
+  'entity_id the id or slug you touched; action one of "created", "updated", ' +
+  '"deleted", "status", "sent", "queued". The app uses it to show the change ' +
+  "on screen. Omit the block entirely for read-only replies.";
+
 export interface DirectiveItem {
   id: string;
   title: string;

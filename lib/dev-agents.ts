@@ -8,7 +8,8 @@ import path from "node:path";
 import { query, queryOne } from "@/lib/db";
 import { CLAUDE_DEFAULTS, type ClaudeOptions } from "@/lib/dev-agents-meta";
 import { insertConversation, insertMessage, getTurns } from "@/lib/ai-chat";
-import { ACTIONS_HINT } from "@/lib/today-directives";
+import { ACTIONS_HINT, EFFECTS_HINT } from "@/lib/today-directives";
+import { finalizeHermesAnswer } from "@/lib/orchestrator/effects";
 
 const execFileAsync = promisify(execFile);
 
@@ -159,6 +160,9 @@ export async function hermesChat(
     // Today v2 · Phase 7: let Hermes (the feed's default agent) offer one-click
     // chips too. Self-gating — only fires when work_item_ids are in context.
     { role: "system", content: ACTIONS_HINT },
+    // Orchestration: ask for a sjcos-effects fence on writes (stripped +
+    // recorded by lib/orchestrator/effects.ts at run completion).
+    { role: "system", content: EFFECTS_HINT },
     ...turns,
   ];
   const { url, key } = await hermesConfig();
@@ -385,7 +389,8 @@ async function runHermesTurnTracked(
       [turns[turns.length - 1]?.content ?? "", pageContext ?? null, conversationId, subjectWorkItemId],
     );
     runId = run!.id;
-    const answer = await hermesChat(turns, pageContext, conversationId);
+    const raw = await hermesChat(turns, pageContext, conversationId);
+    const answer = await finalizeHermesAnswer(runId, raw);
     await insertMessage(conversationId, "assistant", answer);
     await query(`UPDATE dev_agent_runs SET status = 'done', answer = $2, updated_at = now() WHERE id = $1`, [
       runId,

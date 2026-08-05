@@ -132,7 +132,7 @@ export function useAgentChat({
           ...m,
           { id: `err-${runId}`, role: "assistant", body: `⚠️ ${p.error}`, costUsd: null, createdAt: "", subjectWorkItemId: subjectId ?? null },
         ]);
-        postPanelMessage({ type: "run", phase: "end", runId, agent, subjectId: subjectId ?? null });
+        postPanelMessage({ type: "run", phase: "end", runId, agent, subjectId: subjectId ?? null }, { local: true });
         await settle();
         return;
       }
@@ -142,7 +142,7 @@ export function useAgentChat({
           ...m,
           { id: `run-${runId}`, role: "assistant", body: p.answer, costUsd: p.costUsd, createdAt: "", subjectWorkItemId: subjectId ?? null },
         ]);
-        postPanelMessage({ type: "run", phase: "end", runId, agent, subjectId: subjectId ?? null });
+        postPanelMessage({ type: "run", phase: "end", runId, agent, subjectId: subjectId ?? null }, { local: true });
         if (!p.answer.startsWith("⚠️")) cbRef.current.onAnswer?.(runId, p.answer);
         await settle();
         return;
@@ -161,7 +161,7 @@ export function useAgentChat({
 
   const startRun = (run: ActiveRun) => {
     cbRef.current.onRunStart?.(run);
-    postPanelMessage({ type: "run", phase: "start", runId: run.runId, agent: run.agent, subjectId: run.subjectId });
+    postPanelMessage({ type: "run", phase: "start", runId: run.runId, agent: run.agent, subjectId: run.subjectId }, { local: true });
   };
 
   /** Reopen a thread: transcript from the DB (which is what shows a reply that

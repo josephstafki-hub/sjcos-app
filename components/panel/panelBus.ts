@@ -24,6 +24,9 @@ export type PanelBusMessage =
   | { type: "nav-ack"; id: string }
   /** A run started/ended somewhere; other windows update chips/highlights. */
   | { type: "run"; phase: "start" | "end"; runId: string; agent: DevAgent; subjectId: string | null }
+  /** LiveUpdates saw new app_change_log rows — which tables were touched.
+   *  Feeds the live-action navigation (LiveActionNav). */
+  | { type: "changes"; scopes: string[] }
   /** A queue card hand-off raised outside the dock (e.g. /today cards). */
   | { type: "handoff"; priority: TodayPriority; kind: "do" | "prep" }
   /** The app view's page grounding changed (PageAiContext) — lets a detached

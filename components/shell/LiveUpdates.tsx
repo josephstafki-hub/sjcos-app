@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { pollLiveChanges } from "@/lib/actions/live";
+import { postPanelMessage } from "@/components/panel/panelBus";
 
 /** How often to ask "did anything change?" while the tab is visible. */
 const POLL_MS = 2_500;
@@ -39,11 +40,16 @@ export function LiveUpdates() {
 
       inFlight.current = true;
       try {
-        const { cursor: next } = await pollLiveChanges(cursor.current);
+        const { cursor: next, scopes } = await pollLiveChanges(cursor.current);
         failures.current = 0;
         if (cancelled) return;
         // First poll just sets the baseline — the page rendered fresh data on load.
-        if (cursor.current != null && next > cursor.current) needsRefresh.current = true;
+        if (cursor.current != null && next > cursor.current) {
+          needsRefresh.current = true;
+          // Tell the operator panel's live-action layer which tables moved —
+          // it decides whether the app view should jump there (LiveActionNav).
+          if (scopes.length) postPanelMessage({ type: "changes", scopes }, { local: true });
+        }
         cursor.current = next;
       } catch {
         // Network blip or redeploy: back off, keep the flag so nothing is lost.

@@ -1,5 +1,5 @@
 import { Shell } from "@/components/shell/Shell";
-import { WorkbenchPanel } from "@/components/panel/WorkbenchPanel";
+import { WorkbenchLive } from "@/components/panel/WorkbenchLive";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +19,7 @@ export default async function WorkbenchPage({
     <Shell breadcrumb="WORKBENCH">
       <div className="mx-auto max-w-[860px] px-4 py-6 sm:px-7">
         {s ? (
-          <WorkbenchPanel subjectId={s} runActive={false} />
+          <WorkbenchLive subjectId={s} />
         ) : (
           <p className="text-[13px] text-ink-3">
             Nothing to inspect yet — use a queue card&apos;s Inspect chip in the operator

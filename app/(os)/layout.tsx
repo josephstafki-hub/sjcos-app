@@ -4,6 +4,7 @@ import { RouteTracker } from "@/components/shell/RouteTracker";
 import { LiveUpdates } from "@/components/shell/LiveUpdates";
 import { PanelProvider } from "@/components/panel/PanelProvider";
 import { PanelHost } from "@/components/panel/PanelHost";
+import { LiveActionNav } from "@/components/panel/LiveActionNav";
 
 /**
  * The internal app's layout: owns the h-dvh frame and, for the owner, the
@@ -25,6 +26,7 @@ export default async function OsLayout({ children }: { children: ReactNode }) {
       {isOwner ? (
         <PanelProvider>
           <PanelHost>{children}</PanelHost>
+          <LiveActionNav />
         </PanelProvider>
       ) : (
         <div className="h-dvh overflow-hidden bg-paper">{children}</div>

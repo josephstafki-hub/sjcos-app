@@ -1,17 +1,16 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Mic, Square, Loader2 } from "lucide-react";
-import { useVoiceAvailable } from "@/lib/use-voice-available";
+import { useDictation } from "@/lib/use-dictation";
 
 // Records a short voice memo via MediaRecorder and posts it to /api/transcribe
-// (local whisper.cpp). Calls onText with the transcript. Self-gates on server
-// availability (useVoiceAvailable → GET /api/transcribe), so it's drop-in on any
-// composer without threading whisperAvailable() down as a prop — it simply
-// renders nothing when voice isn't set up. `compact` renders an icon-only button
-// sized to sit inside a chat composer next to the send/attach controls.
-
-type Phase = "idle" | "recording" | "transcribing";
+// (local whisper.cpp) — the record/transcribe core lives in useDictation, shared
+// with voice-mode surfaces. Calls onText with the transcript. Self-gates on
+// server availability (useVoiceAvailable → GET /api/transcribe), so it's drop-in
+// on any composer without threading whisperAvailable() down as a prop — it
+// simply renders nothing when voice isn't set up. `compact` renders an icon-only
+// button sized to sit inside a chat composer next to the send/attach controls.
 
 export function VoiceButton({
   onText,
@@ -20,60 +19,19 @@ export function VoiceButton({
   onText: (text: string) => void;
   compact?: boolean;
 }) {
-  const available = useVoiceAvailable();
-  const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState("");
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
+  const { state, start, stop, supported } = useDictation({ onText, onError: setError });
 
-  async function start() {
+  function begin() {
     setError("");
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const rec = new MediaRecorder(stream);
-      chunksRef.current = [];
-      rec.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-      rec.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" });
-        await transcribe(blob);
-      };
-      recorderRef.current = rec;
-      rec.start();
-      setPhase("recording");
-    } catch {
-      setError("Mic access denied.");
-    }
-  }
-
-  function stop() {
-    recorderRef.current?.stop();
-    setPhase("transcribing");
-  }
-
-  async function transcribe(blob: Blob) {
-    try {
-      const res = await fetch("/api/transcribe", { method: "POST", body: blob });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.text) {
-        onText(data.text as string);
-      } else {
-        setError(data.error || "Couldn't transcribe.");
-      }
-    } catch {
-      setError("Transcription failed.");
-    } finally {
-      setPhase("idle");
-    }
+    void start();
   }
 
   // Self-gate: render nothing until the probe confirms voice is set up.
-  if (available !== true) return null;
+  if (!supported) return null;
 
-  const busy = phase === "transcribing";
-  const recording = phase === "recording";
+  const busy = state === "transcribing";
+  const recording = state === "recording";
   const iconSize = compact ? "size-3.5" : "size-3";
   const icon = busy ? (
     <Loader2 className={`${iconSize} animate-spin`} strokeWidth={1.75} />
@@ -89,7 +47,7 @@ export function VoiceButton({
     return (
       <button
         type="button"
-        onClick={recording ? stop : start}
+        onClick={recording ? stop : begin}
         disabled={busy}
         aria-label={recording ? "Stop & transcribe" : "Dictate"}
         title={error || (recording ? "Stop & transcribe" : "Dictate")}
@@ -107,7 +65,7 @@ export function VoiceButton({
     <span className="inline-flex items-center gap-1.5">
       <button
         type="button"
-        onClick={recording ? stop : start}
+        onClick={recording ? stop : begin}
         disabled={busy}
         title={recording ? "Stop & transcribe" : "Dictate"}
         className={[

@@ -60,8 +60,10 @@ export function useVoiceRound({
   const spokenRunRef = useRef<string | null>(null);
   const sendRef = useRef(send);
   const onErrorRef = useRef(onError);
-  sendRef.current = send;
-  onErrorRef.current = onError;
+  useEffect(() => {
+    sendRef.current = send;
+    onErrorRef.current = onError;
+  });
 
   const dictation = useDictation({
     onText: (text) => void handleTranscript(text),
@@ -191,15 +193,18 @@ export function useVoiceRound({
   }
 
   // Escape aborts the round: stops playback and discards any recording. Wired
-  // through refs so the listener registers once and never sees stale state.
+  // through refs (assigned in an effect, per react-hooks/refs) so the listener
+  // registers once and never sees stale state.
   const phaseRef = useRef(phase);
   const haltRef = useRef(() => {});
-  phaseRef.current = phase;
-  haltRef.current = () => {
-    clearAudio();
-    dictation.cancel();
-    setStage("idle");
-  };
+  useEffect(() => {
+    phaseRef.current = phase;
+    haltRef.current = () => {
+      clearAudio();
+      dictation.cancel();
+      setStage("idle");
+    };
+  });
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {

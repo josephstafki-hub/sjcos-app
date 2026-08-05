@@ -99,8 +99,11 @@ export function useAgentChat({
 
   // Callbacks live in refs so the long-lived poll loop always calls the latest
   // render's handlers instead of the ones captured when the loop started.
+  // Assigned in an effect (not render) per the react-hooks/refs rule.
   const cbRef = useRef({ getPageContext, onRunStart, onRunEnd, onSettled });
-  cbRef.current = { getPageContext, onRunStart, onRunEnd, onSettled };
+  useEffect(() => {
+    cbRef.current = { getPageContext, onRunStart, onRunEnd, onSettled };
+  });
 
   const settle = async () => {
     cbRef.current.onRunEnd?.();
@@ -200,12 +203,14 @@ export function useAgentChat({
   // is localStorage-backed and reading it during render would desync hydration.
   useEffect(() => {
     const st = readPanelState();
-    setClaudeOptsState(st.claude);
-    if (st.conversationId) {
-      startTransition(() => void openConversation(st.conversationId!));
-    } else if (st.agent !== PANEL_DEFAULT_AGENT) {
-      setAgent(st.agent);
-    }
+    startTransition(() => {
+      setClaudeOptsState(st.claude);
+      if (st.conversationId) {
+        void openConversation(st.conversationId!);
+      } else if (st.agent !== PANEL_DEFAULT_AGENT) {
+        setAgent(st.agent);
+      }
+    });
     return () => {
       liveRef.current.alive = false;
     };

@@ -37,11 +37,15 @@ export interface PanelState {
   where: "docked" | "window";
 }
 
+export const PANEL_MIN_WIDTH = 320;
+export const PANEL_MAX_WIDTH = 720;
+export const PANEL_DEFAULT_WIDTH = 640;
+
 export const PANEL_DEFAULTS: PanelState = {
   conversationId: null,
   agent: "hermes",
   claude: CLAUDE_DEFAULTS,
-  width: 480,
+  width: PANEL_DEFAULT_WIDTH,
   collapsed: false,
   where: "docked",
 };

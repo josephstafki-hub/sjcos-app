@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useVoiceAvailable } from "@/lib/use-voice-available";
 
 // Reusable dictation core, extracted from components/ui/VoiceButton.tsx so
@@ -25,11 +25,14 @@ export function useDictation({
   const chunksRef = useRef<Blob[]>([]);
   const cancelledRef = useRef(false);
   // Latest callbacks by ref, so a start/stop captured in an async closure
-  // (e.g. Audio onended re-arming the mic) never calls a stale one.
+  // (e.g. Audio onended re-arming the mic) never calls a stale one. Assigned
+  // in an effect (not render) per the react-hooks/refs rule.
   const onTextRef = useRef(onText);
   const onErrorRef = useRef(onError);
-  onTextRef.current = onText;
-  onErrorRef.current = onError;
+  useEffect(() => {
+    onTextRef.current = onText;
+    onErrorRef.current = onError;
+  });
 
   async function start() {
     try {

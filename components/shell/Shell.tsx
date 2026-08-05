@@ -4,8 +4,6 @@ import { MobileNav } from "./MobileNav";
 import { Topbar } from "./Topbar";
 import { CmdKPill } from "./CmdKPill";
 import { CommandBar } from "@/components/cmdk/CommandBar";
-import { RouteTracker } from "./RouteTracker";
-import { LiveUpdates } from "./LiveUpdates";
 import { getCurrentUser } from "@/lib/dal";
 import { getUnreadCount } from "@/lib/notifications";
 
@@ -53,7 +51,9 @@ export async function Shell({
   };
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-paper">
+    // h-full, not h-dvh: the (os) layout owns the viewport frame now (it needs
+    // to, to fit the operator dock beside this Shell).
+    <div className="flex h-full overflow-hidden bg-paper">
       {/* Desktop rail — collapses into the Topbar hamburger drawer below lg. */}
       <div className="hidden flex-none lg:flex">
         <Sidebar user={sidebarUser} />
@@ -68,8 +68,6 @@ export async function Shell({
         {!hideCmd && !embeddedAsk && <CmdKPill />}
       </div>
       {!embeddedAsk && <CommandBar defaultOpen={cmdkOpen} aiContext={aiContext} />}
-      <RouteTracker />
-      <LiveUpdates />
     </div>
   );
 }

@@ -36,6 +36,7 @@ export type PanelBusMessage =
 const CHANNEL_NAME = "sjcos:panel:v1";
 
 let channel: BroadcastChannel | null = null;
+const localListeners = new Set<(msg: PanelBusMessage) => void>();
 
 function getChannel(): BroadcastChannel | null {
   if (typeof window === "undefined" || typeof BroadcastChannel === "undefined") return null;
@@ -43,24 +44,52 @@ function getChannel(): BroadcastChannel | null {
   return channel;
 }
 
-/** Fire-and-forget; drops silently where BroadcastChannel is unavailable. */
-export function postPanelMessage(msg: PanelBusMessage): void {
+/** Fire-and-forget; drops silently where BroadcastChannel is unavailable.
+ *  BroadcastChannel never delivers to the posting window, so senders that live
+ *  in the SAME window as their consumer (e.g. a /today card handing off to the
+ *  docked panel) pass `local: true` to also dispatch in-window. */
+export function postPanelMessage(msg: PanelBusMessage, opts?: { local?: boolean }): void {
   try {
     getChannel()?.postMessage(msg);
   } catch {
     // A closed channel or non-cloneable payload must never break the sender.
   }
+  if (opts?.local) for (const l of [...localListeners]) l(msg);
 }
 
-/** Subscribe to bus messages from *other* windows/tabs (BroadcastChannel never
- *  echoes to the poster). Returns an unsubscribe. */
+/** Subscribe to bus messages — from other windows/tabs, plus this window's own
+ *  `local: true` posts. Returns an unsubscribe. */
 export function subscribePanelBus(cb: (msg: PanelBusMessage) => void): () => void {
+  localListeners.add(cb);
   const ch = getChannel();
-  if (!ch) return () => {};
   const onMessage = (e: MessageEvent) => {
     const msg = e.data as PanelBusMessage | undefined;
     if (msg && typeof msg === "object" && typeof msg.type === "string") cb(msg);
   };
-  ch.addEventListener("message", onMessage);
-  return () => ch.removeEventListener("message", onMessage);
+  ch?.addEventListener("message", onMessage);
+  return () => {
+    localListeners.delete(cb);
+    ch?.removeEventListener("message", onMessage);
+  };
+}
+
+// ─── Hand-off relay ──────────────────────────────────────────────────────────
+// A card's "Have Hermes do it" can fire while the panel chat isn't mounted
+// (mobile sheet closed, panel window still opening). The last hand-off is
+// stashed so the chat can consume it on mount instead of losing it.
+
+let pendingHandoff: { priority: TodayPriority; kind: "do" | "prep" } | null = null;
+
+/** Raise a hand-off toward the panel chat, wherever it lives. */
+export function raiseHandOff(priority: TodayPriority, kind: "do" | "prep"): void {
+  pendingHandoff = { priority, kind };
+  postPanelMessage({ type: "handoff", priority, kind }, { local: true });
+}
+
+/** Claim the stashed hand-off (clears it). The mounted chat calls this both on
+ *  mount and when a bus handoff message arrives. */
+export function consumeHandOff(): { priority: TodayPriority; kind: "do" | "prep" } | null {
+  const h = pendingHandoff;
+  pendingHandoff = null;
+  return h;
 }

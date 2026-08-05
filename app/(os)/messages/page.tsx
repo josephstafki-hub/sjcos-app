@@ -8,7 +8,7 @@ export default async function MessagesPage() {
   const [threads, linkOptions] = await Promise.all([getSmsThreads(), getSmsLinkOptions()]);
 
   return (
-    <Shell breadcrumb="MESSAGES · SMS" hideCmd>
+    <Shell breadcrumb="MESSAGES · SMS">
       <MessagesClient threads={threads} linkOptions={linkOptions} configured={smsConfigured()} />
     </Shell>
   );

@@ -6,9 +6,8 @@ import { getCurrentUser } from "@/lib/dal";
 export default async function InboxPage() {
   const [data, user] = await Promise.all([getInboxData(), getCurrentUser()]);
 
-  // hideCmd: the reader's bottom composer occupies the spot the ⌘K pill floats in.
   return (
-    <Shell breadcrumb="INBOX · UNIFIED" hideCmd>
+    <Shell breadcrumb="INBOX · UNIFIED">
       <InboxClient data={data} ownerEmail={user?.email ?? ""} />
     </Shell>
   );

@@ -30,7 +30,7 @@ export default async function SchedulePage({
   const hrefFor = (o: number) => (o === 0 ? "/schedule" : `/schedule?w=${o}`);
 
   return (
-    <Shell breadcrumb="SCHEDULE" hideCmd>
+    <Shell breadcrumb="SCHEDULE">
       <div className="h-full overflow-y-auto px-4 pb-16 pt-6 sm:px-7">
         {/* Header */}
         <div className="mb-3.5 flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { PanelLeftClose, Sparkles, X } from "lucide-react";
+import { subscribePanelBus } from "./panelBus";
 import { usePanel } from "./PanelProvider";
 import { PanelDock } from "./PanelDock";
 import { Splitter } from "./Splitter";
@@ -20,6 +21,16 @@ export function PanelHost({ children }: { children: ReactNode }) {
   // width/collapsed, and a wrong-width flash is worse than the dock appearing
   // a frame late.
   const showDock = layout.ready && layout.where === "docked";
+
+  // A hand-off raised while the dock is hidden below lg (mobile) needs the
+  // sheet open so the chat can consume the stashed message.
+  useEffect(
+    () =>
+      subscribePanelBus((m) => {
+        if (m.type === "handoff") setSheetOpen(true);
+      }),
+    [],
+  );
 
   return (
     <div className="flex h-dvh overflow-hidden bg-paper">

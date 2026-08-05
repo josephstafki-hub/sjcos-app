@@ -2,8 +2,6 @@ import type { ReactNode } from "react";
 import { Sidebar } from "./Sidebar";
 import { MobileNav } from "./MobileNav";
 import { Topbar } from "./Topbar";
-import { CmdKPill } from "./CmdKPill";
-import { CommandBar } from "@/components/cmdk/CommandBar";
 import { PageAiContext } from "@/components/panel/PageAiContext";
 import { getCurrentUser } from "@/lib/dal";
 import { getUnreadCount } from "@/lib/notifications";
@@ -18,32 +16,19 @@ type ShellProps = {
   children: ReactNode;
   /** Small-caps mono breadcrumb shown in the topbar. */
   breadcrumb?: string;
-  /** Hide the ⌘K pill where it would conflict (Schedule, Files, Floor, CMS). */
-  hideCmd?: boolean;
-  /** Open the command bar on mount (the /cmdk deep-link). */
-  cmdkOpen?: boolean;
-  /** Structured text brief of this page's records — makes the Ask-Qwen bar
-   *  answer from what's in view (see lib/page-context.ts). */
+  /** Structured text brief of this page's records — published to the operator
+   *  panel so its turns answer from what's in view (see lib/page-context.ts). */
   aiContext?: string;
-  /** Page renders its own inline `<CommandBar embedded />` — suppress the
-   *  floating ⌘K pill and popup so there's exactly one Ask surface on screen. */
-  embeddedAsk?: boolean;
 };
 
 /**
  * Global frame for every internal page: forest-green sidebar + topbar + main
- * content slot, with the persistent ⌘K pill and the global command bar
- * (Ctrl/⌘+K from anywhere). Standalone surfaces (Client / Sub portal) use
- * their own chrome and do not wrap in Shell.
+ * content slot. Ask/AI chrome no longer lives here — the universal operator
+ * panel (components/panel, mounted by the (os) layout) is the one Ask surface;
+ * Shell just publishes the page's grounding to it. Standalone surfaces
+ * (Client / Sub portal) use their own chrome and do not wrap in Shell.
  */
-export async function Shell({
-  children,
-  breadcrumb,
-  hideCmd,
-  cmdkOpen,
-  aiContext,
-  embeddedAsk,
-}: ShellProps) {
+export async function Shell({ children, breadcrumb, aiContext }: ShellProps) {
   const [user, unread] = await Promise.all([getCurrentUser(), getUnreadCount()]);
   const sidebarUser = {
     name: user?.name ?? "—",
@@ -66,11 +51,7 @@ export async function Shell({
           leading={<MobileNav user={sidebarUser} />}
         />
         <div className="relative min-h-0 flex-1 overflow-auto">{children}</div>
-        {!hideCmd && !embeddedAsk && <CmdKPill />}
       </div>
-      {!embeddedAsk && <CommandBar defaultOpen={cmdkOpen} aiContext={aiContext} />}
-      {/* Publishes this page's grounding to the operator panel (see
-          components/panel/PageAiContext.tsx). */}
       <PageAiContext context={aiContext} />
     </div>
   );

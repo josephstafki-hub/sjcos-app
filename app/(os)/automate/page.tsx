@@ -7,7 +7,7 @@ export default async function AutomatePage() {
   await requireRole("owner");
 
   return (
-    <Shell breadcrumb="AUTOMATE · BUILDER" hideCmd>
+    <Shell breadcrumb="AUTOMATE · BUILDER">
       <AutomateClient />
     </Shell>
   );

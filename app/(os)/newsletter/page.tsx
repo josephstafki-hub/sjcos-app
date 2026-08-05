@@ -6,7 +6,7 @@ export default async function NewsletterPage() {
   const data = await getNewsletterData();
 
   return (
-    <Shell breadcrumb="NEWSLETTER" hideCmd>
+    <Shell breadcrumb="NEWSLETTER">
       <NewsletterClient data={data} />
     </Shell>
   );

@@ -4,7 +4,6 @@ import { notFound } from "next/navigation";
 import { FileText } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
 import { Card, Chip, Eyebrow } from "@/components/ui";
-import { CommandBar } from "@/components/cmdk/CommandBar";
 import { LeadTabs } from "@/components/leads/LeadTabs";
 import { getLead, STAGES, stageIndex, stageLabel, suggestedProjectName } from "@/lib/leads";
 import { getLeadScore } from "@/lib/intake";
@@ -298,15 +297,11 @@ export default async function LeadDetailPage({
   };
 
   return (
-    <Shell breadcrumb={`LEADS › ${lead.name.toUpperCase()}`} aiContext={leadContext(lead)} embeddedAsk>
+    <Shell breadcrumb={`LEADS › ${lead.name.toUpperCase()}`} aiContext={leadContext(lead)}>
       <div className="mx-auto max-w-[1100px] px-7 py-6">
         <Link href="/leads" className="text-[11px] text-ink-3 hover:text-ink-2">
           ← All leads
         </Link>
-
-        <div className="mt-3">
-          <CommandBar embedded aiContext={leadContext(lead)} agents={["claude", "hermes"]} />
-        </div>
 
         {/* Header */}
         <div className="mt-2 flex flex-wrap items-start gap-4">

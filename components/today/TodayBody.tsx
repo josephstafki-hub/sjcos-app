@@ -1,12 +1,11 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { AiBubble, Card, Chip } from "@/components/ui";
-import { TodayFeed } from "./TodayFeed";
+import { TodayCards } from "./TodayCards";
 import { WeekStrip } from "./WeekStrip";
 import { WaitingList, WaitingCount } from "./WaitingList";
 import { TodayQueueProvider } from "./TodayQueueContext";
 import { getTodayBrief, type BriefInput, type TodayData } from "@/lib/today";
-import { todayContext } from "@/lib/page-context";
 
 const DOT: Record<string, string> = {
   flag: "bg-flag",
@@ -16,18 +15,10 @@ const DOT: Record<string, string> = {
   ghost: "bg-ink-4",
 };
 
-/** Inner content of the Today dashboard. Shared by /today and the /cmdk
- *  deep-link (which renders Today behind the open command-bar popup). The
- *  interactive AI feed replaces the old embedded Ask bar + priorities list in
- *  both modes; only the ⌘K popup behavior differs between the two routes. */
-export function TodayBody({
-  data,
-  enableActionChips = false,
-}: {
-  data: TodayData;
-  /** Passed through to TodayFeed — see there. Preview-only for now. */
-  enableActionChips?: boolean;
-}) {
+/** Inner content of the Today dashboard: brief + priority cards + the day's
+ *  schedule/week rail. Chat moved to the universal operator panel — cards
+ *  hand off to it over the panel bus. */
+export function TodayBody({ data }: { data: TodayData }) {
   // The AI brief bubble, rendered on the server (Suspense streams the text) and
   // passed into the client feed as its pinned first item.
   const brief = (
@@ -80,12 +71,8 @@ export function TodayBody({
           so they stay grid siblings — see TodayQueueContext.tsx. */}
       <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[1.4fr_1fr]">
         <TodayQueueProvider initialPriorities={data.priorities} initialWaiting={data.waiting}>
-          {/* The interactive AI feed: brief + priority cards + chat */}
-          <TodayFeed
-            brief={brief}
-            aiContext={todayContext(data)}
-            enableActionChips={enableActionChips}
-          />
+          {/* Brief + priority cards; chat lives in the operator panel now. */}
+          <TodayCards brief={brief} />
 
           {/* Right rail */}
           <aside className="flex flex-col gap-3">

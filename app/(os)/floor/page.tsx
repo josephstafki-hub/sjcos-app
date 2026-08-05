@@ -33,7 +33,7 @@ export default async function FloorPlanPage() {
   const data = await getFloorData();
 
   return (
-    <Shell breadcrumb={`FLOOR PLAN › ${data.title.toUpperCase()}`} hideCmd>
+    <Shell breadcrumb={`FLOOR PLAN › ${data.title.toUpperCase()}`}>
       <div className="flex h-full">
         {/* ─── Tool palette ───────────────────────────────────────── */}
         <aside className="flex w-[72px] flex-none flex-col items-center gap-1.5 border-r border-rule bg-paper-2 px-1.5 py-2.5">

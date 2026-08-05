@@ -5,9 +5,8 @@ import { getChatData } from "@/lib/chat";
 export default async function ChatPage() {
   const data = await getChatData();
 
-  // hideCmd: the channel composer occupies the spot the ⌘K pill floats in.
   return (
-    <Shell breadcrumb="TEAM CHAT" hideCmd>
+    <Shell breadcrumb="TEAM CHAT">
       <ChatClient data={data} />
     </Shell>
   );

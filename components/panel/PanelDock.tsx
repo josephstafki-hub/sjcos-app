@@ -1,8 +1,9 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { QueueRail } from "@/components/operator/QueueRail";
+import { useRouter } from "next/navigation";
 import type { TodayPriority } from "@/lib/today";
+import { QueueRail } from "./QueueRail";
 import { PanelChat } from "./PanelChat";
 import type { ActiveRun } from "./useAgentChat";
 
@@ -14,13 +15,21 @@ const TWO_COLUMN_MIN = 560;
 /**
  * The operator panel: the old operator console's left + center columns as one
  * dock. Two columns (queue · chat) when the dock is wide enough, chat with
- * inline cards when not. The old far-right workbench column is gone — the app
- * view beside the dock now plays that role, live.
+ * inline cards when not. The old far-right workbench column is gone — a
+ * card's Inspect chip opens /workbench in the app view beside the dock, which
+ * now plays the live-action role.
  */
 export function PanelDock({ width }: { width: number }) {
   const [, setActiveRun] = useState<ActiveRun | null>(null);
+  const [focusedSubjectId, setFocusedSubjectId] = useState<string | null>(null);
   const handOffRef = useRef<((p: TodayPriority, kind: "do" | "prep") => void) | null>(null);
+  const router = useRouter();
   const twoCol = width >= TWO_COLUMN_MIN;
+
+  const inspect = (id: string) => {
+    setFocusedSubjectId(id);
+    router.push(`/workbench?s=${encodeURIComponent(id)}`);
+  };
 
   const chatPanel = (
     <PanelChat
@@ -40,6 +49,8 @@ export function PanelDock({ width }: { width: number }) {
       <QueueRail
         className="flex min-h-0"
         onHandOff={(p, k) => handOffRef.current?.(p, k)}
+        onInspect={inspect}
+        focusedSubjectId={focusedSubjectId}
       />
       {chatPanel}
     </div>

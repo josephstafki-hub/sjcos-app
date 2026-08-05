@@ -210,10 +210,19 @@ export function useAgentChat({
   // is localStorage-backed and reading it during render would desync hydration.
   useEffect(() => {
     const st = readPanelState();
+    // Old /ai deep links (?c=<conversation id>) now land on the panel: the
+    // redirect keeps the param, and it wins over the remembered thread once.
+    let deepLink: string | null = null;
+    try {
+      deepLink = new URLSearchParams(window.location.search).get("c");
+    } catch {
+      /* no location — fine */
+    }
     startTransition(() => {
       setClaudeOptsState(st.claude);
-      if (st.conversationId) {
-        void openConversation(st.conversationId!);
+      const open = deepLink ?? st.conversationId;
+      if (open) {
+        void openConversation(open);
       } else if (st.agent !== PANEL_DEFAULT_AGENT) {
         setAgent(st.agent);
       }

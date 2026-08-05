@@ -26,7 +26,6 @@ import { DesignPanel } from "./DesignPanel";
 import { SequencePanel } from "./SequencePanel";
 import { RecipientsPanel } from "./RecipientsPanel";
 import { AudiencePanel } from "./AudiencePanel";
-import { AssistantChat } from "@/components/ai/AssistantChat";
 import type {
   NewsletterData,
   NewsletterIssue,
@@ -37,7 +36,7 @@ import type {
   Sequence,
 } from "@/lib/newsletter";
 
-type Mode = "Edit" | "Design" | "Preview" | "Recipients" | "Automations" | "Outbox" | "Assistant";
+type Mode = "Edit" | "Design" | "Preview" | "Recipients" | "Automations" | "Outbox";
 
 function monthTitle(): string {
   return new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(new Date());
@@ -491,7 +490,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
           <>
             {/* Toolbar */}
             <div className="flex items-center gap-2 border-b border-rule px-5 py-2.5">
-              {(["Edit", "Design", "Preview", "Recipients", "Automations", "Outbox", "Assistant"] as Mode[]).map((m) => (
+              {(["Edit", "Design", "Preview", "Recipients", "Automations", "Outbox"] as Mode[]).map((m) => (
                 <button
                   key={m}
                   type="button"
@@ -546,11 +545,6 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
               </div>
             </div>
 
-            {mode === "Assistant" ? (
-              <div className="min-h-0 flex-1 overflow-hidden">
-                <NewsletterAssistant />
-              </div>
-            ) : (
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
               {mode === "Edit" && (
                 <div className="mx-auto max-w-[620px] space-y-4">
@@ -672,7 +666,6 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                 />
               )}
             </div>
-            )}
 
             {/* Delete is available at every status now — a queued or sent issue
                 used to be stuck in the rail forever with no way to clear it.
@@ -725,35 +718,6 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
       </section>
       </div>
       )}
-    </div>
-  );
-}
-
-/** The in-page AI chat for the newsletter. Wraps the shared multi-agent chat
- *  (Claude / Qwen / Hermes — pick a model in its rail) with newsletter-shaped
- *  starters and a one-line note on what an agent may do here. The same actions
- *  are exposed to any MCP client through the `*_newsletter_*` tools (see
- *  mcp/README.md). Sending still ends at the owner's Release click. */
-const NEWSLETTER_STARTERS = [
-  "Who's on the newsletter list right now?",
-  "Add a subscriber and start their welcome sequence.",
-  "Draft this month's issue from our recent jobs.",
-  "Queue the latest draft for release.",
-];
-
-function NewsletterAssistant() {
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex-none border-b border-rule bg-ai-soft/40 px-5 py-2.5 text-[12px] leading-relaxed text-ink-2">
-        Ask an assistant to read the list, add or update subscribers, compose and{" "}
-        <strong className="font-semibold">queue</strong> an issue, or enroll a new email in the welcome
-        drip. Pick a model in the rail. Actual sending still waits for your{" "}
-        <strong className="font-semibold">Release</strong> in the Outbox — the chat never mails a client on
-        its own. The same tools are available to any connected MCP agent.
-      </div>
-      <div className="min-h-0 flex-1">
-        <AssistantChat starters={NEWSLETTER_STARTERS} initialAgent="qwen" />
-      </div>
     </div>
   );
 }

@@ -26,7 +26,7 @@ import {
   archiveConversationAction,
   deleteConversationAction,
 } from "@/lib/actions/ai-chat";
-import { useChatAttachments } from "@/components/ai/useChatAttachments";
+import { useChatAttachments } from "./useChatAttachments";
 import type { ConversationSummary } from "@/lib/ai-chat";
 import {
   AGENT_META,
@@ -41,9 +41,12 @@ import {
 } from "@/lib/dev-agents-meta";
 import { doItDirective, prepDirective } from "@/lib/today-directives";
 import { queueNarration } from "@/lib/operator-narration";
+import { parseModelActions } from "@/lib/today-actions";
 import type { TodayPriority } from "@/lib/today";
 import { useTodayQueue } from "@/components/today/TodayQueueContext";
 import { PriorityCard } from "@/components/today/PriorityCard";
+import { ModelActionChips } from "@/components/today/ModelActionChips";
+import { consumeHandOff, subscribePanelBus } from "./panelBus";
 import { getPanelPageContext, getPanelPageRoute } from "./PageAiContext";
 import { startersForRoute } from "./panelStarters";
 import { useAgentChat, type ActiveRun } from "./useAgentChat";
@@ -192,10 +195,39 @@ export function PanelChat({
     });
   };
 
-  // Expose the live handOff closure to the sibling queue column via the dock.
+  // Expose the live handOff closure to the sibling queue column via the dock,
+  // and keep a latest-ref for the bus relay below.
+  const handOffRef = useRef(handOff);
   useEffect(() => {
     registerHandOff(handOff);
+    handOffRef.current = handOff;
   });
+
+  // Hand-offs raised outside this component — /today cards (same window,
+  // local echo) or another window entirely. The stash covers a hand-off fired
+  // before this chat mounted (e.g. mobile sheet opening in response to it).
+  useEffect(() => {
+    const stashed = consumeHandOff();
+    if (stashed) handOffRef.current(stashed.priority, stashed.kind);
+    return subscribePanelBus((m) => {
+      if (m.type !== "handoff") return;
+      consumeHandOff(); // claimed — clear the stash
+      handOffRef.current(m.priority, m.kind);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ⌘/Ctrl+K focuses the composer — the panel is the app's one Ask surface.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // ─── Thread history drawer ─────────────────────────────────────────────────
 
@@ -370,12 +402,20 @@ export function PanelChat({
         {(chat.messages.length > 0 || chat.notice) && (
           <div className="mt-4 flex flex-col gap-2.5 border-t border-rule pt-3">
             {chat.notice && <div className="text-[11px] font-medium text-ai-2">{chat.notice}</div>}
-            {chat.messages.map((m) =>
-              m.role === "user" ? (
-                <div key={m.id} className="whitespace-pre-wrap text-[12.5px] font-medium text-ink-2">
-                  {m.body}
-                </div>
-              ) : (
+            {chat.messages.map((m) => {
+              if (m.role === "user") {
+                return (
+                  <div key={m.id} className="whitespace-pre-wrap text-[12.5px] font-medium text-ink-2">
+                    {m.body}
+                  </div>
+                );
+              }
+              // Strip any sjcos-actions fence from display; the parsed actions
+              // render as app-validated chips (ModelActionChips only shows a
+              // chip when its id matches a live queue card — the model can
+              // name an item, never invent one).
+              const parsed = parseModelActions(m.body);
+              return (
                 <div key={m.id}>
                   {typeof m.costUsd === "number" && Number.isFinite(m.costUsd) && (
                     <div className="mb-0.5 text-[10.5px] font-medium text-ink-4">
@@ -387,11 +427,12 @@ export function PanelChat({
                       m.body.startsWith("⚠️") ? "text-flag" : "text-ai-2"
                     }`}
                   >
-                    {m.body}
+                    {parsed.body}
                   </div>
+                  <ModelActionChips actions={parsed.actions} />
                 </div>
-              ),
-            )}
+              );
+            })}
             {chat.pending && (
               <div className="text-[12px]">
                 <div className="text-ai-2">

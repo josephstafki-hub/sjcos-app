@@ -4,7 +4,6 @@ import { notFound } from "next/navigation";
 import { Check, DollarSign, Mail, FileText, ChevronRight } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
 import { AiBubble, AiStream, Card, Chip, Avatar, Eyebrow } from "@/components/ui";
-import { CommandBar } from "@/components/cmdk/CommandBar";
 import { ProjectTabs } from "@/components/projects/ProjectTabs";
 import { PanelSections } from "@/components/projects/PanelSections";
 import { TabLink } from "@/components/projects/TabNav";
@@ -536,9 +535,6 @@ export default async function ProjectDetailPage({
       <Link href="/projects" className="text-[11px] text-ink-3 hover:text-ink-2">
         ← All projects
       </Link>
-      <div className="mt-2.5">
-        <CommandBar embedded aiContext={projectAiContext} agents={["claude", "hermes"]} />
-      </div>
       <div className="mt-3 flex flex-wrap items-start gap-3.5">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
@@ -584,7 +580,6 @@ export default async function ProjectDetailPage({
     <Shell
       breadcrumb={`PROJECTS › ${project.name.toUpperCase()}`}
       aiContext={projectAiContext}
-      embeddedAsk
     >
       <ProjectTabs panels={panels} stageTab={stageToolTab(project.status)} header={headerBand} />
     </Shell>

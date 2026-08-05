@@ -6,7 +6,7 @@ export default async function SettingsPage() {
   const data = await getSettingsData();
 
   return (
-    <Shell breadcrumb="SETTINGS" hideCmd>
+    <Shell breadcrumb="SETTINGS">
       <SettingsClient data={data} />
     </Shell>
   );

@@ -5,9 +5,8 @@ import { getFilesData } from "@/lib/files";
 export default async function FilesPage() {
   const data = await getFilesData();
 
-  // hideCmd: the 3-pane fills the viewport; the ⌘K pill would overlap the list.
   return (
-    <Shell breadcrumb="FILES" hideCmd>
+    <Shell breadcrumb="FILES">
       <FilesClient data={data} />
     </Shell>
   );

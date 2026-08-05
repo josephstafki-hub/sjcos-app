@@ -27,13 +27,11 @@ import {
   BookOpen,
   UserRound,
   UserCheck,
-  Sparkles,
   LogOut,
 } from "lucide-react";
 import { Logo } from "./Logo";
 import { logout } from "@/lib/actions/auth";
 import { getNavCounts, type NavCounts } from "@/lib/actions/nav";
-import { AI_NAME } from "@/lib/ai-name";
 
 type NavItem = {
   label: string;
@@ -46,9 +44,6 @@ type NavItem = {
 
 const WORK: NavItem[] = [
   { label: "Today", href: "/today", icon: Home },
-  // Temporary: Operator Console preview (three-panel redesign of /today).
-  // Remove when it replaces /today. Spec: docs/operator-console-plan.md.
-  { label: "Operator", href: "/today-preview", icon: Sparkles, tag: "preview" },
   { label: "Inbox", href: "/inbox", icon: Inbox },
   { label: "Messages", href: "/messages", icon: MessagesSquare },
   { label: "Team Chat", href: "/chat", icon: MessageSquare },
@@ -207,20 +202,6 @@ export function Sidebar({ user }: { user: SidebarUser }) {
           <NavLink key={item.href} item={item} pathname={pathname} />
         ))}
       </div>
-
-      <Link
-        href="/ai"
-        className={[
-          "mt-1 flex flex-none items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors",
-          isActive(pathname, "/ai")
-            ? "bg-[rgba(191,208,166,0.18)]"
-            : "hover:bg-[rgba(255,255,255,0.07)]",
-        ].join(" ")}
-      >
-        <Sparkles className="size-3.5 flex-none text-[#BFD0A6]" strokeWidth={1.5} />
-        <span className="flex-1 text-[#BFD0A6]">Ask {AI_NAME}</span>
-        <span className="font-mono text-[9px] text-[rgba(241,236,225,0.38)]">⌘J</span>
-      </Link>
 
       <div className="mt-2.5 flex flex-none items-center gap-2 border-t border-[rgba(255,255,255,0.1)] px-1.5 pb-[max(0.125rem,env(safe-area-inset-bottom))] pt-2">
         <Link href="/settings" className="flex min-w-0 flex-1 items-center gap-2">

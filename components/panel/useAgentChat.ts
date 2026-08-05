@@ -1,0 +1,347 @@
+"use client";
+
+import { startTransition, useEffect, useRef, useState } from "react";
+import { pollAgentRun } from "@/lib/actions/dev-agents";
+import {
+  loadConversationAction,
+  newConversationAction,
+  sendMessageAction,
+  type ChatAttachment,
+} from "@/lib/actions/ai-chat";
+import type { ChatMessage } from "@/lib/ai-chat";
+import {
+  CLAUDE_DEFAULTS,
+  type ClaudeOptions,
+  type DevAgent,
+} from "@/lib/dev-agents-meta";
+import { postPanelMessage } from "./panelBus";
+import { readPanelState, writePanelState } from "./panelStore";
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** What run is live and which entity it's about — shared with whatever wants
+ *  to follow the run (workbench focus, app-view navigation, chips). */
+export interface ActiveRun {
+  runId: string;
+  agent: DevAgent;
+  subjectId: string | null; // work_items uuid OR synthetic "lead:slug" etc.
+  startedAt: number;
+}
+
+/** One turn to run. `directive` is what the model sees; `display` (default:
+ *  directive) is what the transcript shows — hand-offs send a long prompt but
+ *  show "✦ Have Hermes do it — …". Setting `agent` forces the turn onto that
+ *  agent, abandoning the current thread if it belongs to a different one. */
+export interface PanelSend {
+  directive: string;
+  display?: string;
+  agent?: DevAgent;
+  subjectId?: string;
+  notice?: string;
+  attachments?: ChatAttachment[];
+}
+
+export interface UseAgentChatOptions {
+  /** Read at send time, not captured — the panel outlives page navigation and
+   *  must ground each turn in the page the app view is on *now*. */
+  getPageContext: () => string | undefined;
+  onRunStart?: (run: ActiveRun) => void;
+  onRunEnd?: () => void;
+  /** After any settled turn (answer or error) — e.g. refresh the today queue. */
+  onSettled?: () => Promise<void> | void;
+}
+
+/**
+ * The one chat engine behind the universal panel — the send/poll loop that
+ * previously existed as four near-identical copies (OperatorChat, AssistantChat,
+ * CommandBar, TodayFeed). Extracted from OperatorChat, the richest copy.
+ *
+ * Hard-won rules carried over — keep them when touching this file:
+ *  1. `pending` is plain state, deliberately NOT useTransition: a turn can run
+ *     for minutes, React keeps a transition pending for its whole await chain,
+ *     and every later transition — including the App Router's own soft
+ *     navigation — is entangled behind it.
+ *  2. `liveRef` claim tokens: a poll loop holds the token it started under, so
+ *     unmounting/switching threads stops it instead of letting it setState on a
+ *     dead fiber and hit the server every 2s for another 16 minutes. The run
+ *     finishes server-side regardless and resumes on return.
+ *  3. Thread ids are written to panelStore directly inside the async send, not
+ *     mirrored from React state — a conversation created after the user
+ *     navigated away must still be remembered or the next mount forks a second
+ *     conversation.
+ *  4. Reopening a thread re-polls its `pendingRunId` (from the DB) and re-fires
+ *     onRunStart so run-followers re-focus after a remount or re-dock.
+ *  5. The poll ceiling is 480 × 2s — sized just past failStaleRuns()'s 15-minute
+ *     server-side backstop so the client outlives the reaper, never the reverse.
+ */
+export function useAgentChat({
+  getPageContext,
+  onRunStart,
+  onRunEnd,
+  onSettled,
+}: UseAgentChatOptions) {
+  const [agent, setAgent] = useState<DevAgent>(PANEL_DEFAULT_AGENT);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [activity, setActivity] = useState("");
+  const [elapsed, setElapsed] = useState(0);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [pending, setPending] = useState(false);
+  const [claudeOpts, setClaudeOptsState] = useState<ClaudeOptions>(CLAUDE_DEFAULTS);
+
+  const liveRef = useRef({ alive: true });
+  const claim = () => {
+    liveRef.current.alive = false;
+    liveRef.current = { alive: true };
+    return liveRef.current;
+  };
+
+  // Callbacks live in refs so the long-lived poll loop always calls the latest
+  // render's handlers instead of the ones captured when the loop started.
+  const cbRef = useRef({ getPageContext, onRunStart, onRunEnd, onSettled });
+  cbRef.current = { getPageContext, onRunStart, onRunEnd, onSettled };
+
+  const settle = async () => {
+    cbRef.current.onRunEnd?.();
+    await cbRef.current.onSettled?.();
+  };
+
+  const pollTurn = async (
+    runId: string,
+    subjectId: string | undefined,
+    live: { alive: boolean },
+  ) => {
+    for (let i = 0; i < 480; i++) {
+      await sleep(2000);
+      if (!live.alive) return;
+      const p = await pollAgentRun(runId);
+      if (!live.alive) return;
+      if (!p.ok) {
+        setActivity("");
+        setMessages((m) => [
+          ...m,
+          { id: `err-${runId}`, role: "assistant", body: `⚠️ ${p.error}`, costUsd: null, createdAt: "", subjectWorkItemId: subjectId ?? null },
+        ]);
+        postPanelMessage({ type: "run", phase: "end", runId, agent, subjectId: subjectId ?? null });
+        await settle();
+        return;
+      }
+      if (p.status === "done") {
+        setActivity("");
+        setMessages((m) => [
+          ...m,
+          { id: `run-${runId}`, role: "assistant", body: p.answer, costUsd: p.costUsd, createdAt: "", subjectWorkItemId: subjectId ?? null },
+        ]);
+        postPanelMessage({ type: "run", phase: "end", runId, agent, subjectId: subjectId ?? null });
+        await settle();
+        return;
+      }
+      setActivity(p.activity ?? "");
+    }
+    await settle();
+  };
+
+  useEffect(() => {
+    if (!pending) return;
+    const started = Date.now();
+    const t = setInterval(() => setElapsed(Math.round((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [pending]);
+
+  const startRun = (run: ActiveRun) => {
+    cbRef.current.onRunStart?.(run);
+    postPanelMessage({ type: "run", phase: "start", runId: run.runId, agent: run.agent, subjectId: run.subjectId });
+  };
+
+  /** Reopen a thread: transcript from the DB (which is what shows a reply that
+   *  landed while the panel was elsewhere), and a still-running turn resumes
+   *  its poll and its run focus. */
+  const openConversation = async (id: string) => {
+    const live = claim();
+    setPending(true);
+    setError("");
+    setNotice("");
+    setActivity("");
+    try {
+      const detail = await loadConversationAction(id);
+      if (!live.alive) return;
+      if (!detail) {
+        writePanelState({ conversationId: null });
+        setConversationId(null);
+        setMessages([]);
+        return;
+      }
+      setAgent(detail.agent);
+      setConversationId(detail.id);
+      setMessages(detail.messages);
+      writePanelState({ conversationId: detail.id, agent: detail.agent });
+      if (detail.pendingRunId) {
+        // A hand-off tags its user turn with the card it's about; carry that
+        // through so the resumed run still refreshes followers on the right
+        // entity.
+        const subjectId = detail.messages[detail.messages.length - 1]?.subjectWorkItemId ?? undefined;
+        setElapsed(0);
+        startRun({
+          runId: detail.pendingRunId,
+          agent: detail.agent,
+          subjectId: subjectId ?? null,
+          startedAt: Date.now(),
+        });
+        await pollTurn(detail.pendingRunId, subjectId, live);
+      }
+    } finally {
+      if (live.alive) setPending(false);
+    }
+  };
+
+  // On mount: adopt persisted prefs, then reopen whatever thread the panel had
+  // going. Prefs are adopted in an effect (not initial state) because the store
+  // is localStorage-backed and reading it during render would desync hydration.
+  useEffect(() => {
+    const st = readPanelState();
+    setClaudeOptsState(st.claude);
+    if (st.conversationId) {
+      startTransition(() => void openConversation(st.conversationId!));
+    } else if (st.agent !== PANEL_DEFAULT_AGENT) {
+      setAgent(st.agent);
+    }
+    return () => {
+      liveRef.current.alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const resetView = () => {
+    setMessages([]);
+    setActivity("");
+    setError("");
+    setNotice("");
+  };
+
+  const newChat = () => {
+    if (pending) return;
+    claim();
+    writePanelState({ conversationId: null });
+    setConversationId(null);
+    resetView();
+  };
+
+  /** Rail click: each agent keeps its own thread, so switching abandons the
+   *  current one — drop the claim and the memory of it too. */
+  const selectAgent = (a: DevAgent) => {
+    if (pending) return;
+    claim();
+    writePanelState({ conversationId: null, agent: a });
+    setAgent(a);
+    setConversationId(null);
+    resetView();
+  };
+
+  const setClaudeOpts = (patch: Partial<ClaudeOptions>) => {
+    setClaudeOptsState((prev) => {
+      const next = { ...prev, ...patch };
+      writePanelState({ claude: next });
+      return next;
+    });
+  };
+
+  const pushUser = (body: string, subjectId?: string) =>
+    setMessages((m) => [
+      ...m,
+      { id: `u-${Date.now()}`, role: "user", body, costUsd: null, createdAt: "", subjectWorkItemId: subjectId ?? null },
+    ]);
+
+  /** Run a turn as plain async work rather than a transition — see rule 1.
+   *  Navigating away mid-turn is fine: the run finishes server-side and the
+   *  reply is in the thread on return. */
+  const runTurn = (work: (live: { alive: boolean }) => Promise<void>) => {
+    const live = liveRef.current;
+    void (async () => {
+      setPending(true);
+      try {
+        await work(live);
+      } finally {
+        if (live.alive) setPending(false);
+      }
+    })();
+  };
+
+  /** The one entry point for turns — free text, hand-offs, starters. */
+  const submit = (spec: PanelSend) => {
+    if (pending) return;
+    if (!spec.directive.trim() && !spec.attachments?.length) return;
+    const from = agent;
+    const target = spec.agent ?? from;
+    const switching = target !== from;
+    setError("");
+    setNotice(spec.notice ?? "");
+    setElapsed(0);
+    setActivity("");
+    runTurn(async (live) => {
+      let convId = switching ? null : conversationId;
+      if (switching) {
+        setAgent(target);
+        setMessages([]);
+      }
+      pushUser(spec.display ?? spec.directive, spec.subjectId);
+      if (!convId) {
+        convId = await newConversationAction(target);
+        if (!live.alive) {
+          // Created after the panel went away — still remember it (rule 3).
+          writePanelState({ conversationId: convId, agent: target });
+          return;
+        }
+        writePanelState({ conversationId: convId, agent: target });
+        setConversationId(convId);
+      }
+      const r = await sendMessageAction(
+        convId,
+        spec.directive,
+        cbRef.current.getPageContext(),
+        target === "claude" ? claudeOpts : undefined,
+        spec.attachments,
+        spec.subjectId,
+      );
+      if (!live.alive) return;
+      if (!r.ok) {
+        setMessages((m) => [
+          ...m,
+          { id: `err-${Date.now()}`, role: "assistant", body: `⚠️ ${r.error}`, costUsd: null, createdAt: "", subjectWorkItemId: spec.subjectId ?? null },
+        ]);
+        await settle();
+        return;
+      }
+      if (r.kind === "answer") {
+        // Rare synchronous path — no run row to poll.
+        setMessages((m) => [...m, { ...r.message, subjectWorkItemId: spec.subjectId ?? r.message.subjectWorkItemId }]);
+        await settle();
+        return;
+      }
+      startRun({ runId: r.runId, agent: target, subjectId: spec.subjectId ?? null, startedAt: Date.now() });
+      await pollTurn(r.runId, spec.subjectId, live);
+    });
+  };
+
+  return {
+    agent,
+    selectAgent,
+    conversationId,
+    messages,
+    activity,
+    elapsed,
+    error,
+    notice,
+    pending,
+    claudeOpts,
+    setClaudeOpts,
+    submit,
+    newChat,
+    openConversation,
+  };
+}
+
+/** Deterministic first-render agent; the persisted choice is adopted in an
+ *  effect (hydration safety — see mount effect). Hermes is the default MCP
+ *  operator for OS work. */
+const PANEL_DEFAULT_AGENT: DevAgent = "hermes";

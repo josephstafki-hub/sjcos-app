@@ -8,6 +8,7 @@ import { query, queryOne } from "@/lib/db";
 import { qwenChat } from "@/lib/ai";
 import { hermesChat, startClaudeRun } from "@/lib/dev-agents";
 import { finalizeHermesAnswer } from "@/lib/orchestrator/effects";
+import { processQwenProposals } from "@/lib/orchestrator/proposals";
 import { routeMessage } from "@/lib/orchestrator/router";
 import type { ClaudeOptions, DevAgent, PanelAgent } from "@/lib/dev-agents-meta";
 import {
@@ -203,8 +204,12 @@ export async function sendMessageAction(
             ? await hermesChat(turns, pageContext, conversationId)
             : await qwenChat(turns, pageContext);
         // Hermes turns report/infer which entities they touched (run_effects);
-        // the fence is stripped before the reply is stored.
-        const answer = agent === "hermes" ? await finalizeHermesAnswer(runId, raw) : raw;
+        // Qwen turns run the pending-write pipeline (propose → Claude review →
+        // execute). Both strip their fences before the reply is stored.
+        const answer =
+          agent === "hermes"
+            ? await finalizeHermesAnswer(runId, raw)
+            : await processQwenProposals(runId, conversationId, text, raw);
         await insertMessage(conversationId, "assistant", answer);
         await query(
           `UPDATE dev_agent_runs SET status = 'done', answer = $2, updated_at = now() WHERE id = $1`,

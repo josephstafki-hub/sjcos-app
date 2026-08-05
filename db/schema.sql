@@ -2217,3 +2217,26 @@ CREATE TABLE IF NOT EXISTS run_effects (
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_run_effects_run ON run_effects (run_id);
+
+-- ── Qwen pending writes (orchestration) ──────────────────────────────────────
+-- Qwen has no tools: it proposes OS changes in a ```sjcos-proposal fence; each
+-- lands here held 'proposed'/'reviewing' until Claude's batched review, then
+-- executes through the app's whitelisted executors (lib/orchestrator/
+-- execute.ts). Rejections escalate to the Hermes ladder once it exists.
+CREATE TABLE IF NOT EXISTS agent_pending_actions (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  run_id          uuid NOT NULL REFERENCES dev_agent_runs(id) ON DELETE CASCADE,
+  conversation_id uuid REFERENCES ai_conversations(id) ON DELETE CASCADE,
+  kind            text NOT NULL,
+  payload         jsonb NOT NULL DEFAULT '{}',
+  entity_kind     text NOT NULL DEFAULT '',
+  entity_id       text,
+  status          text NOT NULL DEFAULT 'proposed'
+                  CHECK (status IN ('proposed','reviewing','approved','executed','failed','rejected','escalated','cancelled')),
+  review_note     text,
+  review_cost_usd numeric,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_agent_pending_run ON agent_pending_actions (run_id);
+CREATE INDEX IF NOT EXISTS idx_agent_pending_status ON agent_pending_actions (status, created_at DESC);

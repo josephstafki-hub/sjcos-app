@@ -11,7 +11,7 @@
 // without changing these signatures.
 
 import type { TriageVerdict } from "./types";
-import { ACTIONS_HINT } from "./today-directives";
+import { ACTIONS_HINT, PROPOSAL_HINT } from "./today-directives";
 
 // ─── Method I/O types ─────────────────────────────────────────────────────
 
@@ -403,6 +403,9 @@ export async function qwenChat(turns: ChatTurn[], context?: string): Promise<str
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "system", content: ACTIONS_HINT },
+          // Pending-write channel: Qwen proposes, Claude reviews, the app
+          // executes (lib/orchestrator/proposals.ts). Self-gating.
+          { role: "system", content: PROPOSAL_HINT },
           ...(context ? [{ role: "system", content: `Page the user is viewing:\n${context}` }] : []),
           ...turns,
         ],

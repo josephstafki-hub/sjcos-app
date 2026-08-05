@@ -226,13 +226,14 @@ const CLAUDE_CHAT_MODEL = process.env.DEV_CLAUDE_CHAT_MODEL ?? "sonnet";
 
 export async function chatReplyClaude(
   prompt: string,
-  opts?: { model?: string; timeoutMs?: number },
+  opts?: { model?: string; effort?: string; timeoutMs?: number },
 ): Promise<string> {
   const args = [
     "-p",
     prompt,
     "--output-format",
     "json",
+    ...(opts?.effort ? ["--effort", opts.effort] : []),
     "--model",
     opts?.model ?? CLAUDE_CHAT_MODEL,
     "--disallowedTools",

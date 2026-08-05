@@ -1,32 +1,20 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { PanelLeftClose, Sparkles } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { PanelLeftClose, Sparkles, X } from "lucide-react";
 import { usePanel } from "./PanelProvider";
 import { PanelDock } from "./PanelDock";
 import { Splitter } from "./Splitter";
-
-/** Read the app view's current route for page grounding. RouteTracker (mounted
- *  in the (os) layout) keeps this current; the dock reads it at send time so a
- *  turn is grounded in whatever page is on screen *now*. */
-function lastRouteContext(): string | undefined {
-  try {
-    const route = sessionStorage.getItem("sjcos:lastRoute");
-    return route ? `The owner is currently viewing the app page ${route}.` : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 /**
  * The one-monitor split: operator dock left, the real app right. The dock is
  * layout-persistent (chat state, poll loops and splitter width survive
  * navigation); the right side is ordinary app pages with their own Shell.
- * Below lg the dock hides entirely for now (the mobile sheet comes with
- * capability parity).
+ * Below lg the dock becomes a floating pill that opens a full-screen sheet.
  */
 export function PanelHost({ children }: { children: ReactNode }) {
   const { layout, setWidth, commitWidth, toggleCollapsed } = usePanel();
+  const [sheetOpen, setSheetOpen] = useState(false);
   // Render the dock only after the persisted layout is adopted (layout.ready
   // flips in PanelProvider's mount effect) — the server render can't know
   // width/collapsed, and a wrong-width flash is worse than the dock appearing
@@ -69,13 +57,47 @@ export function PanelHost({ children }: { children: ReactNode }) {
                 </button>
               </div>
               <div className="min-h-0 flex-1">
-                <PanelDock width={layout.width} getPageContext={lastRouteContext} />
+                <PanelDock width={layout.width} />
               </div>
             </aside>
             <Splitter width={layout.width} onResize={setWidth} onCommit={commitWidth} />
           </>
         ))}
+
       <div className="h-full min-w-0 flex-1">{children}</div>
+
+      {/* Small screens: the dock as a full-screen sheet behind a floating pill. */}
+      {showDock && !sheetOpen && (
+        <button
+          onClick={() => setSheetOpen(true)}
+          aria-label="Open operator panel"
+          className="fixed bottom-4 right-4 z-40 flex items-center gap-1.5 rounded-full border border-ai bg-paper px-3 py-2 text-[12px] font-medium text-ai-2 shadow-card lg:hidden"
+        >
+          <Sparkles className="size-4 text-ai" strokeWidth={1.5} /> Operator
+        </button>
+      )}
+      {showDock && sheetOpen && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-paper lg:hidden">
+          <div className="flex items-center gap-2 border-b border-rule px-3 py-2">
+            <Sparkles className="size-3.5 text-ai" strokeWidth={1.5} />
+            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
+              Operator
+            </span>
+            <div className="flex-1" />
+            <button
+              onClick={() => setSheetOpen(false)}
+              aria-label="Close operator panel"
+              className="rounded-md p-1 text-ink-3 hover:bg-paper-2"
+            >
+              <X className="size-4" strokeWidth={1.75} />
+            </button>
+          </div>
+          <div className="min-h-0 flex-1">
+            {/* Narrow width forces the single-column dock (inline queue cards). */}
+            <PanelDock width={400} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

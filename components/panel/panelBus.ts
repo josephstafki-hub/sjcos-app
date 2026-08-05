@@ -26,6 +26,9 @@ export type PanelBusMessage =
   | { type: "run"; phase: "start" | "end"; runId: string; agent: DevAgent; subjectId: string | null }
   /** A queue card hand-off raised outside the dock (e.g. /today cards). */
   | { type: "handoff"; priority: TodayPriority; kind: "do" | "prep" }
+  /** The app view's page grounding changed (PageAiContext) — lets a detached
+   *  panel window ground its turns in what the other window is showing. */
+  | { type: "page"; pathname: string; context?: string }
   /** Liveness of a detached /panel window (popout close detection). */
   | { type: "heartbeat"; role: "panel" }
   | { type: "panel-closed" };

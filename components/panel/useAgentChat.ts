@@ -49,6 +49,10 @@ export interface UseAgentChatOptions {
   onRunEnd?: () => void;
   /** After any settled turn (answer or error) — e.g. refresh the today queue. */
   onSettled?: () => Promise<void> | void;
+  /** A real (non-error) assistant answer landed — e.g. speak it aloud. */
+  onAnswer?: (id: string, body: string) => void;
+  /** The send itself failed before a run existed — e.g. re-stage attachments. */
+  onSendError?: (spec: PanelSend) => void;
 }
 
 /**
@@ -79,6 +83,8 @@ export function useAgentChat({
   onRunStart,
   onRunEnd,
   onSettled,
+  onAnswer,
+  onSendError,
 }: UseAgentChatOptions) {
   const [agent, setAgent] = useState<DevAgent>(PANEL_DEFAULT_AGENT);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -100,9 +106,9 @@ export function useAgentChat({
   // Callbacks live in refs so the long-lived poll loop always calls the latest
   // render's handlers instead of the ones captured when the loop started.
   // Assigned in an effect (not render) per the react-hooks/refs rule.
-  const cbRef = useRef({ getPageContext, onRunStart, onRunEnd, onSettled });
+  const cbRef = useRef({ getPageContext, onRunStart, onRunEnd, onSettled, onAnswer, onSendError });
   useEffect(() => {
-    cbRef.current = { getPageContext, onRunStart, onRunEnd, onSettled };
+    cbRef.current = { getPageContext, onRunStart, onRunEnd, onSettled, onAnswer, onSendError };
   });
 
   const settle = async () => {
@@ -137,6 +143,7 @@ export function useAgentChat({
           { id: `run-${runId}`, role: "assistant", body: p.answer, costUsd: p.costUsd, createdAt: "", subjectWorkItemId: subjectId ?? null },
         ]);
         postPanelMessage({ type: "run", phase: "end", runId, agent, subjectId: subjectId ?? null });
+        if (!p.answer.startsWith("⚠️")) cbRef.current.onAnswer?.(runId, p.answer);
         await settle();
         return;
       }
@@ -314,12 +321,14 @@ export function useAgentChat({
           ...m,
           { id: `err-${Date.now()}`, role: "assistant", body: `⚠️ ${r.error}`, costUsd: null, createdAt: "", subjectWorkItemId: spec.subjectId ?? null },
         ]);
+        cbRef.current.onSendError?.(spec);
         await settle();
         return;
       }
       if (r.kind === "answer") {
         // Rare synchronous path — no run row to poll.
         setMessages((m) => [...m, { ...r.message, subjectWorkItemId: spec.subjectId ?? r.message.subjectWorkItemId }]);
+        if (!r.message.body.startsWith("⚠️")) cbRef.current.onAnswer?.(r.message.id, r.message.body);
         await settle();
         return;
       }

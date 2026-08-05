@@ -17,20 +17,13 @@ const TWO_COLUMN_MIN = 560;
  * inline cards when not. The old far-right workbench column is gone — the app
  * view beside the dock now plays that role, live.
  */
-export function PanelDock({
-  width,
-  getPageContext,
-}: {
-  width: number;
-  getPageContext: () => string | undefined;
-}) {
+export function PanelDock({ width }: { width: number }) {
   const [, setActiveRun] = useState<ActiveRun | null>(null);
   const handOffRef = useRef<((p: TodayPriority, kind: "do" | "prep") => void) | null>(null);
   const twoCol = width >= TWO_COLUMN_MIN;
 
   const chatPanel = (
     <PanelChat
-      getPageContext={getPageContext}
       registerHandOff={(fn) => {
         handOffRef.current = fn;
       }}

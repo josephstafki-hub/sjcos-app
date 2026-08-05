@@ -4,6 +4,7 @@ import { MobileNav } from "./MobileNav";
 import { Topbar } from "./Topbar";
 import { CmdKPill } from "./CmdKPill";
 import { CommandBar } from "@/components/cmdk/CommandBar";
+import { PageAiContext } from "@/components/panel/PageAiContext";
 import { getCurrentUser } from "@/lib/dal";
 import { getUnreadCount } from "@/lib/notifications";
 
@@ -68,6 +69,9 @@ export async function Shell({
         {!hideCmd && !embeddedAsk && <CmdKPill />}
       </div>
       {!embeddedAsk && <CommandBar defaultOpen={cmdkOpen} aiContext={aiContext} />}
+      {/* Publishes this page's grounding to the operator panel (see
+          components/panel/PageAiContext.tsx). */}
+      <PageAiContext context={aiContext} />
     </div>
   );
 }

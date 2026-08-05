@@ -2,6 +2,19 @@
 
 All routes use Next.js App Router (path-based, not hash-based like the prototype).
 
+> **Universal operator panel (2026-08).** All internal Shell pages moved into
+> the `app/(os)/` route group (URLs unchanged); `app/(os)/layout.tsx` owns the
+> viewport and, for the owner, mounts the persistent operator panel
+> (`components/panel/`) beside the page content — queue + chat dock left, the
+> real app right, resizable, detachable to its own window via `/panel`.
+> Consolidations: `/ai` (with `?c=` passthrough), `/cmdk` and `/today-preview`
+> now redirect to `/today`; the ⌘K CommandBar/pill, AssistantChat and the
+> Today-feed/newsletter chats are gone — the panel is the one Ask surface.
+> New routes: `/panel` (panel-only window, no Shell) and
+> `/workbench?s=<subject>` (the old operator workbench as a full page).
+> Shell props are now just `breadcrumb` + `aiContext` (`hideCmd`/`cmdkOpen`/
+> `embeddedAsk` removed). Team chat `@` mentions are unchanged.
+
 ---
 
 ## Shell

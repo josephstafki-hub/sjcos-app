@@ -1,6 +1,13 @@
 # Operator Console (`/operator`) — Implementation Spec
 
-**Status:** plan only — nothing in this doc is built yet.
+**Status: promoted (2026-08).** The console shipped and then evolved past this
+spec: its queue + chat columns are now the persistent **universal operator
+panel** (`components/panel/`, mounted by `app/(os)/layout.tsx` — resizable
+dock, detachable `/panel` window, voice rounds, auto-routing with Claude
+review); the workbench column became the `/workbench` page; `/today-preview`
+redirects to `/today`. The chat-mechanics gotchas and §7 guardrails live on in
+`components/panel/useAgentChat.ts` and `lib/orchestrator/`. Kept for history —
+sections below describe the pre-promotion design. (Original status: plan only.)
 **Author intent:** written so a small model (Haiku-class or a local model) can build it phase-by-phase. Every phase lists exact files, signatures, and a "done when" checklist. **Read §7 Guardrails before writing any code.**
 
 **Working name:** `/operator` — "Operator Console". Sidebar label: **Operator**. (Matches the existing voice — Engine, Automate, Today — and avoids the gimmicky "Mission".)

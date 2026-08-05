@@ -218,7 +218,7 @@ async function main() {
   await client.connect();
 
   const { rows } = await client.query(
-    `SELECT prompt, page_context, conversation_id, model, mode, effort
+    `SELECT prompt, page_context, conversation_id, model, mode, effort, with_mcp
        FROM dev_agent_runs WHERE id = $1`,
     [RUN_ID],
   );
@@ -264,6 +264,10 @@ async function main() {
     // token tax. --strict-mcp-config with no --mcp-config = zero MCP servers.
     "--strict-mcp-config",
   ];
+  // Exception: a ladder TAKEOVER run (orchestrator) gets the sjcos business
+  // tools — Claude is finishing OS work Hermes couldn't. Rare by construction,
+  // so the schema token tax is acceptable there.
+  if (rows[0].with_mcp) args.push("--mcp-config", path.join(REPO, "mcp/sjcos-mcp.config.json"));
   if (resumeSession) args.push("--resume", resumeSession);
   if (model) args.push("--model", model);
   if (VALID_EFFORT.has(effort)) args.push("--effort", effort);

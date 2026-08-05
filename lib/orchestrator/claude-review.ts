@@ -80,6 +80,51 @@ export async function reviewProposals(
   }
 }
 
+export interface HermesVerdict {
+  verdict: "approve" | "retry" | "takeover";
+  feedback: string;
+  userNote: string;
+}
+
+/** Review one Hermes round of an orchestration task. Effort rises on later
+ *  rounds. Unparseable/failed review is NEVER a silent approve: the caller
+ *  treats null as retry-once-then-takeover. */
+export async function reviewHermesRound(
+  taskPrompt: string,
+  hermesReply: string,
+  effectsDigest: string,
+  round: number,
+): Promise<HermesVerdict | null> {
+  const prompt =
+    `You review work the Hermes agent just did for SJ Carpentry's business OS. Hermes executed ` +
+    `real MCP tools; the changes listed below already happened — your job is corrective: approve ` +
+    `if the task is genuinely complete and correct, or send it back with concrete, actionable ` +
+    `feedback (Hermes learns from it), or take over yourself only when Hermes clearly cannot ` +
+    `finish. Client-facing sends / money documents must never have been sent — drafts for ` +
+    `approval are correct behavior.\n\n` +
+    `The task:\n${taskPrompt.slice(0, 1500)}\n\n` +
+    `Hermes' reply (round ${round}):\n${hermesReply.slice(0, 2000)}\n\n` +
+    `Recorded changes this run:\n${effectsDigest || "(none recorded)"}\n\n` +
+    `Reply with ONE JSON object and nothing else:\n` +
+    `{"verdict":"approve"|"retry"|"takeover","feedback":"concrete points for Hermes","user_note":"one sentence for the owner"}`;
+  try {
+    const reply = await chatReplyClaude(prompt, {
+      model: REVIEW_MODEL,
+      effort: round >= 2 ? "medium" : "low",
+      timeoutMs: 120_000,
+    });
+    const parsed = extractJson<{ verdict?: string; feedback?: string; user_note?: string }>(reply);
+    if (!parsed || !["approve", "retry", "takeover"].includes(parsed.verdict ?? "")) return null;
+    return {
+      verdict: parsed.verdict as HermesVerdict["verdict"],
+      feedback: (parsed.feedback ?? "").slice(0, 1500),
+      userNote: (parsed.user_note ?? "").slice(0, 300),
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Route an ambiguous/risky message. Null = triage unavailable (CLI error,
  *  malformed reply) — the router falls back to the default operator. */
 export async function claudeTriage(

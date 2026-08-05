@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "sjcos": {
+      "command": "node",
+      "args": ["mcp/sjcos-mcp.mjs"]
+    }
+  }
+}

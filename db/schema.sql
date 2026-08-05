@@ -1985,6 +1985,9 @@ CREATE TABLE IF NOT EXISTS dev_agent_runs (
   -- Cached spoken (TTS) form of the answer — markdown stripped / summarized
   -- once, replayed cheaply (db/apply-orchestration-p1.mjs).
   spoken_answer text,
+  -- Ladder linkage + takeover MCP flag (db/apply-orchestration-p4.mjs).
+  orchestration_task_id uuid,
+  with_mcp     boolean NOT NULL DEFAULT false,
   cost_usd     numeric,
   session_id   text,
   created_at   timestamptz NOT NULL DEFAULT now(),
@@ -2240,3 +2243,34 @@ CREATE TABLE IF NOT EXISTS agent_pending_actions (
 );
 CREATE INDEX IF NOT EXISTS idx_agent_pending_run ON agent_pending_actions (run_id);
 CREATE INDEX IF NOT EXISTS idx_agent_pending_status ON agent_pending_actions (status, created_at DESC);
+
+-- ── Orchestration ladder (Claude ↔ Hermes) ───────────────────────────────────
+-- One task per piece of judged work: Hermes rounds with Claude review feedback
+-- (its session learns from the critique), then approval or a Claude takeover
+-- with the sjcos MCP tools. Events are the append-only audit trail. Applies to
+-- 'auto' conversations; pinning Hermes in the rail bypasses review.
+CREATE TABLE IF NOT EXISTS orchestration_tasks (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id uuid NOT NULL REFERENCES ai_conversations(id) ON DELETE CASCADE,
+  task_prompt     text NOT NULL,
+  status          text NOT NULL DEFAULT 'running'
+                  CHECK (status IN ('running','done','error','cancelled')),
+  stage           text NOT NULL DEFAULT 'hermes',   -- hermes | takeover | done
+  round           int  NOT NULL DEFAULT 0,
+  max_rounds      int  NOT NULL DEFAULT 3,
+  final_run_id    uuid REFERENCES dev_agent_runs(id) ON DELETE SET NULL,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS orchestration_events (
+  id         bigserial PRIMARY KEY,
+  task_id    uuid NOT NULL REFERENCES orchestration_tasks(id) ON DELETE CASCADE,
+  actor      text NOT NULL,   -- hermes | claude-review | claude-takeover
+  kind       text NOT NULL,   -- answered | approve | retry | takeover | started | done | error
+  run_id     uuid REFERENCES dev_agent_runs(id) ON DELETE SET NULL,
+  note       text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_orch_events_task ON orchestration_events (task_id, id);
+-- dev_agent_runs additions (apply-orchestration-p4): orchestration_task_id
+-- uuid REFERENCES orchestration_tasks, with_mcp boolean NOT NULL DEFAULT false.

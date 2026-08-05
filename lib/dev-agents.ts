@@ -283,12 +283,13 @@ export async function startClaudeRun(
   conversationId?: string,
   options?: Partial<ClaudeOptions>,
   subjectWorkItemId?: string,
+  extras?: { withMcp?: boolean; orchestrationTaskId?: string },
 ): Promise<string> {
   const { model, mode, effort } = { ...CLAUDE_DEFAULTS, ...options };
   const row = await queryOne<{ id: string }>(
     `INSERT INTO dev_agent_runs
-       (agent, prompt, page_context, status, conversation_id, model, mode, effort, subject_work_item_id)
-     VALUES ('claude', $1, $2, 'pending', $3, $4, $5, $6, $7)
+       (agent, prompt, page_context, status, conversation_id, model, mode, effort, subject_work_item_id, with_mcp, orchestration_task_id)
+     VALUES ('claude', $1, $2, 'pending', $3, $4, $5, $6, $7, $8, $9)
      RETURNING id`,
     [
       prompt,
@@ -298,6 +299,8 @@ export async function startClaudeRun(
       mode,
       effort,
       subjectWorkItemId ?? null,
+      extras?.withMcp ?? false,
+      extras?.orchestrationTaskId ?? null,
     ],
   );
   const id = row!.id;
@@ -508,7 +511,13 @@ export async function retryFailedApprovalPings(): Promise<{ retried: number }> {
  *  whose own in-process handler somehow never wrote its result). Called on
  *  poll so a dead run resolves to an error instead of spinning forever. Kept
  *  above HERMES_TIMEOUT_MS so a live Hermes turn always gets to report its
- *  own timeout error first — this is just the backstop. */
+ *  own timeout error first — this is just the backstop.
+ *
+ *  Keyed on updated_at (progress), not created_at: an orchestration-ladder
+ *  run legitimately outlives 15 minutes across its Hermes rounds + Claude
+ *  reviews, but it touches activity/updated_at at every stage — only a run
+ *  that has gone QUIET for 15 minutes is dead. failStaleTasks() (45 min) is
+ *  the task-level backstop above this. */
 export async function failStaleRuns(): Promise<void> {
   await query(
     `UPDATE dev_agent_runs
@@ -516,6 +525,6 @@ export async function failStaleRuns(): Promise<void> {
             answer = COALESCE(answer, 'The runner did not report back (timed out).'),
             updated_at = now()
       WHERE status IN ('pending','running')
-        AND created_at < now() - interval '15 minutes'`,
+        AND updated_at < now() - interval '15 minutes'`,
   );
 }

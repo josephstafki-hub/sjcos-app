@@ -2,6 +2,7 @@
 
 import { requireRole } from "@/lib/dal";
 import { getDevAgentRun, failStaleRuns } from "@/lib/dev-agents";
+import { failStaleTasks } from "@/lib/orchestrator/ladder";
 
 // dev_agent_runs polling. Backs every async agent turn started from the Ask
 // window / embedded command bar — Claude runs (detached CLI) and, since
@@ -16,6 +17,7 @@ export type PollResult =
 export async function pollAgentRun(runId: string): Promise<PollResult> {
   await requireRole("owner");
   await failStaleRuns();
+  await failStaleTasks();
   const run = await getDevAgentRun(runId);
   if (!run) return { ok: false, error: "That run no longer exists." };
   if (run.status === "error")

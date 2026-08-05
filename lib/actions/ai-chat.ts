@@ -8,8 +8,13 @@ import { query, queryOne } from "@/lib/db";
 import { qwenChat } from "@/lib/ai";
 import { hermesChat, startClaudeRun } from "@/lib/dev-agents";
 import { finalizeHermesAnswer } from "@/lib/orchestrator/effects";
-import { processQwenProposals } from "@/lib/orchestrator/proposals";
+import { escalateToHermesLadder, runHermesLadder } from "@/lib/orchestrator/ladder";
+import { processQwenProposals, setEscalateHook } from "@/lib/orchestrator/proposals";
 import { routeMessage } from "@/lib/orchestrator/router";
+
+// A Qwen proposal Claude holds re-routes to the Hermes ladder (registered here
+// because proposals.ts can't import ladder.ts without a cycle).
+setEscalateHook(escalateToHermesLadder);
 import type { ClaudeOptions, DevAgent, PanelAgent } from "@/lib/dev-agents-meta";
 import {
   listConversations,
@@ -199,17 +204,22 @@ export async function sendMessageAction(
 
     void (async () => {
       try {
-        const raw =
-          agent === "hermes"
-            ? await hermesChat(turns, pageContext, conversationId)
-            : await qwenChat(turns, pageContext);
-        // Hermes turns report/infer which entities they touched (run_effects);
-        // Qwen turns run the pending-write pipeline (propose → Claude review →
-        // execute). Both strip their fences before the reply is stored.
-        const answer =
-          agent === "hermes"
-            ? await finalizeHermesAnswer(runId, raw)
-            : await processQwenProposals(runId, conversationId, text, raw);
+        // Three completion pipelines:
+        //  - Hermes in an 'auto' thread → the full ladder (Claude reviews,
+        //    feedback rounds, possible takeover). Pinning Hermes in the rail
+        //    bypasses review — same escape hatch as routing.
+        //  - Hermes pinned → plain turn + effects bookkeeping.
+        //  - Qwen → pending-write pipeline (propose → Claude review → execute).
+        let answer: string;
+        if (agent === "hermes" && conv.agent === "auto") {
+          answer = await runHermesLadder({ runId, conversationId, taskPrompt: text, pageContext });
+        } else if (agent === "hermes") {
+          const raw = await hermesChat(turns, pageContext, conversationId);
+          answer = await finalizeHermesAnswer(runId, raw);
+        } else {
+          const raw = await qwenChat(turns, pageContext);
+          answer = await processQwenProposals(runId, conversationId, text, raw);
+        }
         await insertMessage(conversationId, "assistant", answer);
         await query(
           `UPDATE dev_agent_runs SET status = 'done', answer = $2, updated_at = now() WHERE id = $1`,

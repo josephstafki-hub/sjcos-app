@@ -76,8 +76,9 @@ export interface UseAgentChatOptions {
  *     conversation.
  *  4. Reopening a thread re-polls its `pendingRunId` (from the DB) and re-fires
  *     onRunStart so run-followers re-focus after a remount or re-dock.
- *  5. The poll ceiling is 480 × 2s — sized just past failStaleRuns()'s 15-minute
- *     server-side backstop so the client outlives the reaper, never the reverse.
+ *  5. The poll ceiling is 1440 × 2s — sized just past failStaleTasks()'s
+ *     45-minute ladder backstop so the client outlives the reapers, never the
+ *     reverse.
  */
 export function useAgentChat({
   getPageContext,
@@ -122,7 +123,10 @@ export function useAgentChat({
     subjectId: string | undefined,
     live: { alive: boolean },
   ) => {
-    for (let i = 0; i < 480; i++) {
+    // 1440 × 2s = 48 min — past failStaleTasks()'s 45-minute ladder backstop
+    // (a multi-round Hermes ladder with a Claude takeover is the long case),
+    // so the client outlives every server reaper, never the reverse.
+    for (let i = 0; i < 1440; i++) {
       await sleep(2000);
       if (!live.alive) return;
       const p = await pollAgentRun(runId);

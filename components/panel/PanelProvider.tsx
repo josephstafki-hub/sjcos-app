@@ -20,6 +20,9 @@ interface PanelContextValue {
   /** Drag end / double-click reset — persists and syncs other windows. */
   commitWidth: (w: number) => void;
   toggleCollapsed: () => void;
+  /** Dock ↔ popout transitions. Updates this window's state AND persists —
+   *  panelStore's own writes don't echo back to the writing window. */
+  setWhere: (where: "docked" | "window") => void;
 }
 
 const PanelContext = createContext<PanelContextValue | null>(null);
@@ -56,9 +59,13 @@ export function PanelProvider({ children }: { children: ReactNode }) {
       writePanelState({ collapsed: !l.collapsed });
       return { ...l, collapsed: !l.collapsed };
     });
+  const setWhere = (where: "docked" | "window") => {
+    writePanelState({ where });
+    setLayout((l) => ({ ...l, where }));
+  };
 
   return (
-    <PanelContext.Provider value={{ layout, setWidth, commitWidth, toggleCollapsed }}>
+    <PanelContext.Provider value={{ layout, setWidth, commitWidth, toggleCollapsed, setWhere }}>
       <PanelQueueProvider>{children}</PanelQueueProvider>
     </PanelContext.Provider>
   );

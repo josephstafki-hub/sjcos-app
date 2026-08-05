@@ -73,6 +73,39 @@ export function subscribePanelBus(cb: (msg: PanelBusMessage) => void): () => voi
   };
 }
 
+// ─── Panel-driven navigation ─────────────────────────────────────────────────
+// A detached panel window can't router.push the app — it asks over the bus and
+// an app window acks. No ack in time means no app window is listening, so the
+// panel spawns one (a named window, so repeated navs reuse it).
+
+let navSeq = 0;
+const pendingNavAcks = new Map<string, number>();
+
+/** From the panel window: ask the app view to show `href`. */
+export function requestAppNav(href: string): void {
+  const id = `nav-${Date.now()}-${++navSeq}`;
+  const timeout = window.setTimeout(() => {
+    pendingNavAcks.delete(id);
+    window.open(href, "sjcos-app");
+  }, 450);
+  pendingNavAcks.set(id, timeout);
+  postPanelMessage({ type: "nav", href, id });
+}
+
+/** From an app window: claim a nav so the panel doesn't spawn a new window. */
+export function ackAppNav(id: string): void {
+  postPanelMessage({ type: "nav-ack", id });
+}
+
+/** In the panel window: an app window took the nav — cancel the fallback. */
+export function resolveNavAck(id: string): void {
+  const t = pendingNavAcks.get(id);
+  if (t != null) {
+    clearTimeout(t);
+    pendingNavAcks.delete(id);
+  }
+}
+
 // ─── Hand-off relay ──────────────────────────────────────────────────────────
 // A card's "Have Hermes do it" can fire while the panel chat isn't mounted
 // (mobile sheet closed, panel window still opening). The last hand-off is

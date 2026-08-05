@@ -19,7 +19,15 @@ const TWO_COLUMN_MIN = 560;
  * card's Inspect chip opens /workbench in the app view beside the dock, which
  * now plays the live-action role.
  */
-export function PanelDock({ width }: { width: number }) {
+export function PanelDock({
+  width,
+  navigate,
+}: {
+  width: number;
+  /** How this dock reaches the app view. Docked: local router.push (default).
+   *  In the popout window: requestAppNav over the bus. */
+  navigate?: (href: string) => void;
+}) {
   const [, setActiveRun] = useState<ActiveRun | null>(null);
   const [focusedSubjectId, setFocusedSubjectId] = useState<string | null>(null);
   const handOffRef = useRef<((p: TodayPriority, kind: "do" | "prep") => void) | null>(null);
@@ -28,7 +36,9 @@ export function PanelDock({ width }: { width: number }) {
 
   const inspect = (id: string) => {
     setFocusedSubjectId(id);
-    router.push(`/workbench?s=${encodeURIComponent(id)}`);
+    const href = `/workbench?s=${encodeURIComponent(id)}`;
+    if (navigate) navigate(href);
+    else router.push(href);
   };
 
   const chatPanel = (

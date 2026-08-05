@@ -8,7 +8,8 @@ import { query, queryOne } from "@/lib/db";
 import { qwenChat } from "@/lib/ai";
 import { hermesChat, startClaudeRun } from "@/lib/dev-agents";
 import { finalizeHermesAnswer } from "@/lib/orchestrator/effects";
-import type { ClaudeOptions, DevAgent } from "@/lib/dev-agents-meta";
+import { routeMessage } from "@/lib/orchestrator/router";
+import type { ClaudeOptions, DevAgent, PanelAgent } from "@/lib/dev-agents-meta";
 import {
   listConversations,
   getConversation,
@@ -26,7 +27,7 @@ import {
 // detached runner persists the reply and resumes the CLI session.
 
 export async function listConversationsAction(
-  agent: DevAgent,
+  agent: PanelAgent,
   includeArchived = false,
 ): Promise<ConversationSummary[]> {
   await requireRole("owner");
@@ -38,7 +39,7 @@ export async function loadConversationAction(id: string): Promise<ConversationDe
   return getConversation(id);
 }
 
-export async function newConversationAction(agent: DevAgent): Promise<string> {
+export async function newConversationAction(agent: PanelAgent): Promise<string> {
   await requireRole("owner");
   return insertConversation(agent, "New chat");
 }
@@ -123,12 +124,24 @@ export async function sendMessageAction(
   const files = sanitizeAttachments(attachments);
   if (!text && !files.length) return { ok: false, error: "Ask something first." };
 
-  const conv = await queryOne<{ agent: DevAgent }>(
+  const conv = await queryOne<{ agent: PanelAgent }>(
     `SELECT agent FROM ai_conversations WHERE id = $1`,
     [conversationId],
   );
   if (!conv) return { ok: false, error: "That conversation no longer exists." };
-  const agent = conv.agent;
+
+  // "Auto" conversations have no pinned model — route this message. A pinned
+  // conversation IS the bypass: the router never sees it. The dev_agent_runs
+  // row records who actually ran, so the transcript stays honest.
+  let agent: DevAgent;
+  let routedVia: string | undefined;
+  if (conv.agent === "auto") {
+    const decision = await routeMessage(text, pageContext);
+    agent = decision.agent;
+    routedVia = decision.via;
+  } else {
+    agent = conv.agent;
+  }
 
   // Persist the user turn (with a paperclip note naming attachments) + title.
   // subjectWorkItemId marks a Today-feed hand-off (a card given to an agent).
@@ -172,11 +185,14 @@ export async function sendMessageAction(
     // server is a long-lived systemd process, not a serverless function that
     // would get torn down before the background work finishes.
     const label = agent === "hermes" ? "Hermes" : "Qwen";
+    const activity = routedVia
+      ? `Routed to ${label} (${routedVia}) — thinking…`
+      : `${label} is thinking…`;
     const run = await queryOne<{ id: string }>(
       `INSERT INTO dev_agent_runs (agent, prompt, page_context, status, conversation_id, activity, subject_work_item_id)
        VALUES ($1, $2, $3, 'running', $4, $5, $6)
        RETURNING id`,
-      [agent, text, pageContext ?? null, conversationId, `${label} is thinking…`, subjectWorkItemId ?? null],
+      [agent, text, pageContext ?? null, conversationId, activity, subjectWorkItemId ?? null],
     );
     const runId = run!.id;
 

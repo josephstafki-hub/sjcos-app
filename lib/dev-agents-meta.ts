@@ -4,8 +4,13 @@
 
 export type DevAgent = "claude" | "qwen" | "hermes";
 
+/** What a panel conversation can be pinned to: a concrete model, or "auto" —
+ *  the router (lib/orchestrator/router.ts) picks the model per message.
+ *  Picking a concrete agent in the rail IS the router bypass. */
+export type PanelAgent = DevAgent | "auto";
+
 export interface AgentMeta {
-  id: DevAgent;
+  id: PanelAgent;
   label: string;
   initials: string;
   /** One-line role note shown under the selector. */
@@ -14,7 +19,14 @@ export interface AgentMeta {
   async: boolean;
 }
 
-export const AGENT_META: Record<DevAgent, AgentMeta> = {
+export const AGENT_META: Record<PanelAgent, AgentMeta> = {
+  auto: {
+    id: "auto",
+    label: "Auto",
+    initials: "✦",
+    note: "Routes each message · Hermes works, Qwen chats, Claude codes & reviews",
+    async: false,
+  },
   claude: {
     id: "claude",
     label: "Claude",
@@ -38,7 +50,11 @@ export const AGENT_META: Record<DevAgent, AgentMeta> = {
   },
 };
 
-export const AGENT_ORDER: DevAgent[] = ["claude", "qwen", "hermes"];
+export const AGENT_ORDER: PanelAgent[] = ["auto", "claude", "qwen", "hermes"];
+
+/** Concrete models only — for surfaces where "auto" makes no sense (team-chat
+ *  channel members). */
+export const DEV_AGENT_ORDER: DevAgent[] = ["claude", "qwen", "hermes"];
 
 // ─── Inbox reply-draft model picker ──────────────────────────────────────────
 // The two grounded assistant models Joe can pick to draft an email reply. Claude

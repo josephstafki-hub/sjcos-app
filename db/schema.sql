@@ -1998,7 +1998,7 @@ CREATE INDEX IF NOT EXISTS dev_agent_runs_status_idx ON dev_agent_runs (status, 
 -- threads store the CLI session id so follow-ups resume with full context.
 CREATE TABLE IF NOT EXISTS ai_conversations (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  agent             text NOT NULL CHECK (agent IN ('claude','qwen','hermes')),
+  agent             text NOT NULL CHECK (agent IN ('claude','qwen','hermes','auto')),
   title             text NOT NULL DEFAULT 'New chat',
   claude_session_id text,
   archived          boolean NOT NULL DEFAULT false,

@@ -1,7 +1,7 @@
 import "server-only";
 
 import { query, queryOne } from "@/lib/db";
-import type { DevAgent } from "@/lib/dev-agents-meta";
+import type { PanelAgent } from "@/lib/dev-agents-meta";
 
 // Persisted AI chat: per-agent conversations + messages. Backs the /ai Ask
 // window so threads survive navigation, and keeps history separated by model.
@@ -9,7 +9,7 @@ import type { DevAgent } from "@/lib/dev-agents-meta";
 
 export interface ConversationSummary {
   id: string;
-  agent: DevAgent;
+  agent: PanelAgent;
   title: string;
   updatedAt: string;
   archived: boolean;
@@ -29,7 +29,7 @@ export interface ChatMessage {
 
 export interface ConversationDetail {
   id: string;
-  agent: DevAgent;
+  agent: PanelAgent;
   title: string;
   claudeSessionId: string | null;
   messages: ChatMessage[];
@@ -39,12 +39,12 @@ export interface ConversationDetail {
 
 /** Conversations for one agent, most-recent first. Archived optional. */
 export async function listConversations(
-  agent: DevAgent,
+  agent: PanelAgent,
   includeArchived = false,
 ): Promise<ConversationSummary[]> {
   const { rows } = await query<{
     id: string;
-    agent: DevAgent;
+    agent: PanelAgent;
     title: string;
     updated_at: string;
     archived: boolean;
@@ -69,7 +69,7 @@ export async function listConversations(
 export async function getConversation(id: string): Promise<ConversationDetail | null> {
   const conv = await queryOne<{
     id: string;
-    agent: DevAgent;
+    agent: PanelAgent;
     title: string;
     claude_session_id: string | null;
   }>(
@@ -130,7 +130,7 @@ export async function getTurns(
 }
 
 /** Insert a conversation. Title defaults to a trimmed first prompt. */
-export async function insertConversation(agent: DevAgent, title: string): Promise<string> {
+export async function insertConversation(agent: PanelAgent, title: string): Promise<string> {
   const row = await queryOne<{ id: string }>(
     `INSERT INTO ai_conversations (agent, title) VALUES ($1, $2) RETURNING id`,
     [agent, title.slice(0, 80) || "New chat"],

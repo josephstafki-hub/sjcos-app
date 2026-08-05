@@ -419,6 +419,20 @@ export async function qwenChat(turns: ChatTurn[], context?: string): Promise<str
   }
 }
 
+/** Orchestrator helper: one structured Ollama call, null on ANY failure — no
+ *  mock fallback, because the router treats null as "escalate", and a mocked
+ *  answer would silently swallow that signal. */
+export async function askOllamaJson<T>(
+  prompt: string,
+  schema: Record<string, unknown>,
+): Promise<T | null> {
+  try {
+    return JSON.parse(await ollamaChat(prompt, schema)) as T;
+  } catch {
+    return null;
+  }
+}
+
 /** Low-level chat call. Returns the assistant message content as a string. */
 async function ollamaChat(
   userPrompt: string,

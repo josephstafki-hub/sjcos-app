@@ -33,7 +33,7 @@ import type {
   ClientMember,
   PortalOutboxItem,
 } from "@/lib/chat";
-import { AGENT_ORDER, type DevAgent } from "@/lib/dev-agents-meta";
+import { DEV_AGENT_ORDER, type DevAgent } from "@/lib/dev-agents-meta";
 
 // The AI teammates you can @-mention in any channel.
 const CHAT_AGENTS: Record<DevAgent, { name: string; initials: string }> = {
@@ -477,7 +477,7 @@ export function ChatClient({ data }: { data: ChatData }) {
           members: [],
           teamMembers: [],
           clientMembers: [],
-          aiMembers: [...AGENT_ORDER],
+          aiMembers: [...DEV_AGENT_ORDER],
           canManageMembers: false,
           canManageAi: false,
           canManageClients: false,
@@ -1220,7 +1220,7 @@ function MembersPopover({
               AI models
             </div>
             <div className="flex flex-col gap-0.5">
-              {AGENT_ORDER.map((agent) => {
+              {DEV_AGENT_ORDER.map((agent) => {
                 const inChannel = aiMembers.includes(agent);
                 const meta = CHAT_AGENTS[agent];
                 return (

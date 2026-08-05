@@ -224,14 +224,17 @@ export async function askHermes(
 const CLAUDE_BIN = process.env.CLAUDE_BIN ?? `${process.env.HOME}/.local/bin/claude`;
 const CLAUDE_CHAT_MODEL = process.env.DEV_CLAUDE_CHAT_MODEL ?? "sonnet";
 
-export async function chatReplyClaude(prompt: string): Promise<string> {
+export async function chatReplyClaude(
+  prompt: string,
+  opts?: { model?: string; timeoutMs?: number },
+): Promise<string> {
   const args = [
     "-p",
     prompt,
     "--output-format",
     "json",
     "--model",
-    CLAUDE_CHAT_MODEL,
+    opts?.model ?? CLAUDE_CHAT_MODEL,
     "--disallowedTools",
     "Read Glob Grep Write Edit Bash WebFetch WebSearch",
     // No MCP servers — disallowedTools hides built-ins but MCP tool schemas
@@ -242,7 +245,7 @@ export async function chatReplyClaude(prompt: string): Promise<string> {
   try {
     ({ stdout } = await execFileAsync(CLAUDE_BIN, args, {
       cwd: process.cwd(),
-      timeout: 60_000,
+      timeout: opts?.timeoutMs ?? 60_000,
       maxBuffer: 8 * 1024 * 1024,
       env: process.env,
     }));

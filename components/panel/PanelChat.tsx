@@ -37,7 +37,7 @@ import {
   CLAUDE_EFFORT_OPTIONS,
   type ClaudeModel,
   type ClaudeEffort,
-  type DevAgent,
+  type PanelAgent,
 } from "@/lib/dev-agents-meta";
 import { doItDirective, prepDirective } from "@/lib/today-directives";
 import { queueNarration } from "@/lib/operator-narration";
@@ -186,7 +186,7 @@ export function PanelChat({
       });
       return;
     }
-    const target: DevAgent = chat.agent === "claude" ? "qwen" : chat.agent;
+    const target: PanelAgent = chat.agent === "claude" ? "qwen" : chat.agent;
     chat.submit({
       directive: prepDirective(p),
       display: `✦ Prep me — ${p.title}`,

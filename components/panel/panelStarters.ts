@@ -1,4 +1,4 @@
-import type { DevAgent } from "@/lib/dev-agents-meta";
+import type { PanelAgent } from "@/lib/dev-agents-meta";
 
 /**
  * Starter chips for an empty panel thread, aware of which app page is on
@@ -24,7 +24,7 @@ const NEWSLETTER_STARTERS = [
   "Queue the latest draft for release.",
 ];
 
-export function startersForRoute(pathname: string | null, agent: DevAgent): string[] {
+export function startersForRoute(pathname: string | null, agent: PanelAgent): string[] {
   if (agent === "claude") return CLAUDE_STARTERS;
   if (pathname?.startsWith("/newsletter")) return NEWSLETTER_STARTERS;
   return DEFAULT_STARTERS;

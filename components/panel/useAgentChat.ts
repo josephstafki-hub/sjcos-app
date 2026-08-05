@@ -13,6 +13,7 @@ import {
   CLAUDE_DEFAULTS,
   type ClaudeOptions,
   type DevAgent,
+  type PanelAgent,
 } from "@/lib/dev-agents-meta";
 import { postPanelMessage } from "./panelBus";
 import { readPanelState, writePanelState } from "./panelStore";
@@ -23,7 +24,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  *  to follow the run (workbench focus, app-view navigation, chips). */
 export interface ActiveRun {
   runId: string;
-  agent: DevAgent;
+  agent: PanelAgent;
   subjectId: string | null; // work_items uuid OR synthetic "lead:slug" etc.
   startedAt: number;
 }
@@ -35,7 +36,7 @@ export interface ActiveRun {
 export interface PanelSend {
   directive: string;
   display?: string;
-  agent?: DevAgent;
+  agent?: PanelAgent;
   subjectId?: string;
   notice?: string;
   attachments?: ChatAttachment[];
@@ -86,7 +87,7 @@ export function useAgentChat({
   onAnswer,
   onSendError,
 }: UseAgentChatOptions) {
-  const [agent, setAgent] = useState<DevAgent>(PANEL_DEFAULT_AGENT);
+  const [agent, setAgent] = useState<PanelAgent>(PANEL_DEFAULT_AGENT);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [activity, setActivity] = useState("");
@@ -250,7 +251,7 @@ export function useAgentChat({
 
   /** Rail click: each agent keeps its own thread, so switching abandons the
    *  current one — drop the claim and the memory of it too. */
-  const selectAgent = (a: DevAgent) => {
+  const selectAgent = (a: PanelAgent) => {
     if (pending) return;
     claim();
     writePanelState({ conversationId: null, agent: a });
@@ -320,7 +321,7 @@ export function useAgentChat({
         convId,
         spec.directive,
         cbRef.current.getPageContext(),
-        target === "claude" ? claudeOpts : undefined,
+        target === "claude" || target === "auto" ? claudeOpts : undefined,
         spec.attachments,
         spec.subjectId,
       );
@@ -365,6 +366,6 @@ export function useAgentChat({
 }
 
 /** Deterministic first-render agent; the persisted choice is adopted in an
- *  effect (hydration safety — see mount effect). Hermes is the default MCP
- *  operator for OS work. */
-const PANEL_DEFAULT_AGENT: DevAgent = "hermes";
+ *  effect (hydration safety — see mount effect). Auto = the router decides
+ *  per message (Hermes stays the workhorse for OS work). */
+const PANEL_DEFAULT_AGENT: PanelAgent = "auto";

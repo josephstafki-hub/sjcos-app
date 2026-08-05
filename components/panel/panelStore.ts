@@ -1,4 +1,4 @@
-import { CLAUDE_DEFAULTS, type ClaudeOptions, type DevAgent } from "@/lib/dev-agents-meta";
+import { CLAUDE_DEFAULTS, type ClaudeOptions, type PanelAgent } from "@/lib/dev-agents-meta";
 import { postPanelMessage, subscribePanelBus } from "./panelBus";
 
 /**
@@ -26,7 +26,7 @@ import { postPanelMessage, subscribePanelBus } from "./panelBus";
 export interface PanelState {
   /** The open thread; null = fresh chat. */
   conversationId: string | null;
-  agent: DevAgent;
+  agent: PanelAgent;
   claude: ClaudeOptions;
   /** Dock width in px (splitter). */
   width: number;
@@ -43,7 +43,7 @@ export const PANEL_DEFAULT_WIDTH = 640;
 
 export const PANEL_DEFAULTS: PanelState = {
   conversationId: null,
-  agent: "hermes",
+  agent: "auto",
   claude: CLAUDE_DEFAULTS,
   width: PANEL_DEFAULT_WIDTH,
   collapsed: false,

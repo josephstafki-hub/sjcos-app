@@ -1,4 +1,4 @@
-import type { DevAgent } from "@/lib/dev-agents-meta";
+import type { PanelAgent } from "@/lib/dev-agents-meta";
 import type { TodayPriority } from "@/lib/today";
 import type { PanelState } from "./panelStore";
 
@@ -23,7 +23,7 @@ export type PanelBusMessage =
   /** An app window took the nav — the panel doesn't need to open a window. */
   | { type: "nav-ack"; id: string }
   /** A run started/ended somewhere; other windows update chips/highlights. */
-  | { type: "run"; phase: "start" | "end"; runId: string; agent: DevAgent; subjectId: string | null }
+  | { type: "run"; phase: "start" | "end"; runId: string; agent: PanelAgent; subjectId: string | null }
   /** LiveUpdates saw new app_change_log rows — which tables were touched.
    *  Feeds the live-action navigation (LiveActionNav). */
   | { type: "changes"; scopes: string[] }

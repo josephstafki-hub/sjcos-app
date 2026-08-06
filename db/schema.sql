@@ -814,6 +814,15 @@ ALTER TABLE project_mood DROP CONSTRAINT IF EXISTS project_mood_kind_check;
 ALTER TABLE project_mood ADD CONSTRAINT project_mood_kind_check
   CHECK (kind IN ('pin','text','swatch'));
 
+-- Photoshop-style crop inside the frame. An image in a sized frame is
+-- object-cover; crop_x/crop_y pick WHICH part shows (the focal point, 0..1
+-- across the hidden overflow in each axis) and crop_zoom magnifies inside the
+-- frame (1 = plain cover fit, up to 4). Defaults reproduce the old fixed
+-- centre-crop exactly, so existing boards render pixel-identical.
+ALTER TABLE project_mood ADD COLUMN IF NOT EXISTS crop_x    real NOT NULL DEFAULT 0.5;
+ALTER TABLE project_mood ADD COLUMN IF NOT EXISTS crop_y    real NOT NULL DEFAULT 0.5;
+ALTER TABLE project_mood ADD COLUMN IF NOT EXISTS crop_zoom real NOT NULL DEFAULT 1;
+
 -- Per-room board settings: display title and background colour. A row here also
 -- lets a board EXIST before it holds any pin — rooms used to be inferred purely
 -- from project_mood rows, so a freshly created empty room vanished on reload.

@@ -72,6 +72,13 @@ export interface MoodItem {
   h: number | null;
   /** Rotation in degrees about the card's centre. */
   rot: number;
+  /** Crop focal point: which part of the image shows when the frame crops it.
+   *  0..1 across the hidden overflow in each axis; 0.5/0.5 is the centre crop
+   *  every image starts with. */
+  cropX: number;
+  cropY: number;
+  /** Crop zoom inside the frame: 1 = plain cover fit, up to 4× magnified. */
+  zoom: number;
   /** Stacking order (sort_order): the last pin dragged sits on top. */
   z: number;
 }
@@ -101,6 +108,9 @@ interface MoodRow {
   pos_w: number | null;
   pos_h: number | null;
   pos_rot: number | null;
+  crop_x: number | null;
+  crop_y: number | null;
+  crop_zoom: number | null;
   sort_order: number;
 }
 
@@ -124,7 +134,8 @@ export async function getProjectMood(slug: string): Promise<MoodBoardData[]> {
     query<MoodRow>(
       `SELECT m.id, m.room, m.kind, m.note, m.label, m.price_label, m.swatch,
               m.image_file_id, m.catalog_id, c.source_url,
-              m.pos_x, m.pos_y, m.pos_w, m.pos_h, m.pos_rot, m.sort_order
+              m.pos_x, m.pos_y, m.pos_w, m.pos_h, m.pos_rot,
+              m.crop_x, m.crop_y, m.crop_zoom, m.sort_order
          FROM project_mood m
          JOIN projects p ON p.id = m.project_id
          LEFT JOIN catalog_items c ON c.id = m.catalog_id
@@ -162,6 +173,9 @@ export async function getProjectMood(slug: string): Promise<MoodBoardData[]> {
       w: toNum(r.pos_w),
       h: toNum(r.pos_h),
       rot: toNum(r.pos_rot) ?? 0,
+      cropX: toNum(r.crop_x) ?? 0.5,
+      cropY: toNum(r.crop_y) ?? 0.5,
+      zoom: toNum(r.crop_zoom) ?? 1,
       z: r.sort_order,
     });
   }

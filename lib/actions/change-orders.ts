@@ -13,6 +13,8 @@ import { requireRole } from "@/lib/dal";
 import { getProjectSignerDefaults } from "@/lib/esign";
 import { emit } from "@/lib/notify";
 import { ai } from "@/lib/ai";
+import { renderInlineDocPdf } from "@/lib/documents";
+import { storeBuffer } from "@/lib/upload-store";
 import { coDollarsToCents, fmtCoUsd } from "@/lib/co-types";
 
 type Result = { ok: true; id?: number } | { ok: false; error: string };
@@ -101,12 +103,32 @@ export async function sendChangeOrder(slug: string, id: number): Promise<Result>
 
   const signer = await getProjectSignerDefaults(slug);
 
+  // Attach the letterhead PDF so the portal shows a printable document, not
+  // just body text. Best-effort — body-only if rendering fails.
+  let fileId: string | null = null;
+  const pdf = await renderInlineDocPdf({
+    title: co.title || "Change order",
+    subtitle: co.project_name,
+    body,
+  }).catch(() => null);
+  if (pdf) {
+    const stored = await storeBuffer(pdf, {
+      filename: `${co.title || "Change order"}.pdf`,
+      mime: "application/pdf",
+      idPrefix: "sig",
+      projectKey: slug,
+      tag: "CHANGE ORDER",
+      subtitle: "Change order — sent for signature",
+    });
+    if (stored.ok) fileId = stored.id;
+  }
+
   const ins = await queryOne<{ id: string }>(
     `INSERT INTO signature_requests
-       (project_id, change_order_id, doc_type, title, body, status, signer_name, signer_email, created_by, sent_at)
-     VALUES ($1, $2, 'change_order', $3, $4, 'sent', $5, $6, $7, now())
+       (project_id, change_order_id, doc_type, title, body, file_id, status, signer_name, signer_email, created_by, sent_at)
+     VALUES ($1, $2, 'change_order', $3, $4, $5, 'sent', $6, $7, $8, now())
      RETURNING id`,
-    [co.project_id, id, co.title, body, signer.name, signer.email, user.id],
+    [co.project_id, id, co.title, body, fileId, signer.name, signer.email, user.id],
   );
   const reqId = Number(ins!.id);
 

@@ -29,6 +29,17 @@ export function ClientSignDocs({ docs }: { docs: SignatureRequestView[] }) {
             strokeWidth={2}
           />
           <span className="min-w-0 flex-1 truncate text-ink-2">{d.title}</span>
+          {d.fileId && (
+            <a
+              href={`/api/portal/sign-doc/${d.id}`}
+              target="_blank"
+              rel="noopener"
+              className="inline-flex flex-none items-center gap-1 font-semibold text-accent-2 hover:underline"
+            >
+              <FileText className="size-3" strokeWidth={1.75} />
+              PDF
+            </a>
+          )}
           <Chip kind={d.status === "signed" ? "money" : "ghost"}>
             {d.status === "signed" ? "signed" : "declined"}
           </Chip>
@@ -89,20 +100,30 @@ function SignCard({ doc }: { doc: SignatureRequestView }) {
 
       {open && (
         <div className="mt-2.5 border-t border-rule-soft pt-2.5">
-          {doc.fileId && (
-            <a
-              href={`/api/portal/sign-doc/${doc.id}`}
-              target="_blank"
-              rel="noopener"
-              className="mb-2.5 inline-flex items-center gap-1.5 rounded-md border border-accent bg-accent-soft px-2.5 py-1.5 text-[12px] font-semibold text-accent-2 hover:bg-accent-soft/70"
-            >
-              <FileText className="size-3.5" strokeWidth={1.75} />
-              View document (PDF)
-            </a>
+          {doc.fileId ? (
+            <>
+              {/* The PDF IS the document — review it inline; the link opens the
+                  browser viewer for download/print. */}
+              <iframe
+                src={`/api/portal/sign-doc/${doc.id}#toolbar=1`}
+                title={doc.title}
+                className="h-[480px] w-full rounded border border-rule bg-card"
+              />
+              <a
+                href={`/api/portal/sign-doc/${doc.id}`}
+                target="_blank"
+                rel="noopener"
+                className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-accent bg-accent-soft px-2.5 py-1.5 text-[12px] font-semibold text-accent-2 hover:bg-accent-soft/70"
+              >
+                <FileText className="size-3.5" strokeWidth={1.75} />
+                Open · download · print
+              </a>
+            </>
+          ) : (
+            <div className="max-h-56 overflow-y-auto whitespace-pre-wrap rounded border border-rule bg-card p-2.5 font-mono text-[11px] leading-relaxed text-ink">
+              {doc.body}
+            </div>
           )}
-          <div className="max-h-56 overflow-y-auto whitespace-pre-wrap rounded border border-rule bg-card p-2.5 font-mono text-[11px] leading-relaxed text-ink">
-            {doc.body}
-          </div>
 
           {!declining ? (
             <>

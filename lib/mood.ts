@@ -82,6 +82,9 @@ export interface MoodBoardData {
   title: string;
   /** '#rrggbb' board background, or "" for the default dotted paper. */
   bgColor: string;
+  /** Set when the client approved this board from their portal. */
+  approvedName: string | null;
+  approvedLabel: string | null;
   items: MoodItem[];
 }
 
@@ -108,13 +111,46 @@ interface BoardRow {
   room: string;
   title: string;
   bg_color: string;
+  client_approved_name: string;
+  approved_label: string | null;
 }
 
 /** A project's mood boards, one per room (rooms sorted alphabetically). */
 export async function getProjectMood(slug: string): Promise<MoodBoardData[]> {
+  return loadMood(slug, (r) => `/api/files/${r.image_file_id}`);
+}
+
+/** Same boards for the client portal, read-only — images stream through the
+ *  client-authorized route, keyed by the mood ITEM id so the route authorizes
+ *  by the parent project's slug vs. the client's linkSlug. */
+export async function getClientProjectMood(slug: string): Promise<MoodBoardData[]> {
+  return loadMood(slug, (r) => `/api/portal/mood-image/${r.id}`);
+}
+
+/** Resolve a mood item's image file + project slug — used by the portal serve
+ *  route to authorize and stream. Null when the item has no image. */
+export async function resolveMoodImage(
+  itemId: number,
+): Promise<{ fileId: string; slug: string } | null> {
+  const { rows } = await query<{ image_file_id: string | null; slug: string }>(
+    `SELECT m.image_file_id, p.slug
+       FROM project_mood m JOIN projects p ON p.id = m.project_id
+      WHERE m.id = $1`,
+    [itemId],
+  );
+  const r = rows[0];
+  return r?.image_file_id ? { fileId: r.image_file_id, slug: r.slug } : null;
+}
+
+async function loadMood(
+  slug: string,
+  imageUrlFor: (r: Pick<MoodRow, "id" | "image_file_id">) => string,
+): Promise<MoodBoardData[]> {
   const [{ rows: boardRows }, { rows }] = await Promise.all([
     query<BoardRow>(
-      `SELECT b.room, b.title, b.bg_color
+      `SELECT b.room, b.title, b.bg_color,
+              b.client_approved_name,
+              to_char(b.client_approved_at, 'Mon FMDD, YYYY') AS approved_label
          FROM project_mood_boards b
          JOIN projects p ON p.id = b.project_id
         WHERE p.slug = $1
@@ -136,7 +172,14 @@ export async function getProjectMood(slug: string): Promise<MoodBoardData[]> {
 
   const byRoom = new Map<string, MoodBoardData>();
   for (const b of boardRows) {
-    byRoom.set(b.room, { room: b.room, title: b.title, bgColor: safeColor(b.bg_color), items: [] });
+    byRoom.set(b.room, {
+      room: b.room,
+      title: b.title,
+      bgColor: safeColor(b.bg_color),
+      approvedName: b.approved_label ? b.client_approved_name || null : null,
+      approvedLabel: b.approved_label,
+      items: [],
+    });
   }
 
   for (const r of rows) {
@@ -144,7 +187,7 @@ export async function getProjectMood(slug: string): Promise<MoodBoardData[]> {
     if (!board) {
       // A room with pins but no settings row — keep the board rather than
       // dropping every pin in it on the floor.
-      board = { room: r.room, title: "", bgColor: "", items: [] };
+      board = { room: r.room, title: "", bgColor: "", approvedName: null, approvedLabel: null, items: [] };
       byRoom.set(r.room, board);
     }
     board.items.push({
@@ -154,7 +197,7 @@ export async function getProjectMood(slug: string): Promise<MoodBoardData[]> {
       label: r.label,
       priceLabel: r.price_label,
       swatch: safeColor(r.swatch),
-      imageUrl: r.image_file_id ? `/api/files/${r.image_file_id}` : null,
+      imageUrl: r.image_file_id ? imageUrlFor(r) : null,
       catalogId: r.catalog_id === null ? null : toId(r.catalog_id),
       sourceUrl: safeUrl(r.source_url),
       x: toNum(r.pos_x),

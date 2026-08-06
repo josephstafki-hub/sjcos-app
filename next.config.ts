@@ -16,6 +16,11 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: [
     "sophisticated-soundtrack-welfare-cape.trycloudflare.com",
     "*.trycloudflare.com",
+    // Local portal-demo runs: the browser may land on 127.0.0.1 or the LAN IP
+    // instead of localhost; without these, dev hydration breaks and every
+    // server action (login included) fails with "Failed to fetch".
+    "127.0.0.1",
+    "10.0.0.174",
   ],
   // /files uploads go through a Server Action; the default request body cap is
   // 1MB, too small for job photos / scanned PDFs. Raise it for real uploads.

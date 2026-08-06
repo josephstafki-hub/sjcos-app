@@ -836,6 +836,11 @@ CREATE TABLE IF NOT EXISTS project_mood_boards (
   UNIQUE (project_id, room)
 );
 
+-- Client-portal approval of a board's direction (db/apply-portal-approvals.mjs).
+-- Same lightweight typed-name acknowledgment as project_floorplans.
+ALTER TABLE project_mood_boards ADD COLUMN IF NOT EXISTS client_approved_at timestamptz;
+ALTER TABLE project_mood_boards ADD COLUMN IF NOT EXISTS client_approved_name text NOT NULL DEFAULT '';
+
 -- ─── Design tools: floor-plan versions (Review-round-3 S5E) ─────────────────
 -- Versioned floor-plan files (image or PDF) per project, each with text notes.
 -- Viewer only — not a CAD editor. version increments per upload.
@@ -847,6 +852,12 @@ CREATE TABLE IF NOT EXISTS project_floorplans (
   notes       text NOT NULL DEFAULT '',
   created_at  timestamptz NOT NULL DEFAULT now()
 );
+
+-- Client-portal approval of a plan version (db/apply-portal-approvals.mjs). A
+-- lightweight in-portal acknowledgment with the typed name captured; contracts
+-- and money documents keep going through signature_requests instead.
+ALTER TABLE project_floorplans ADD COLUMN IF NOT EXISTS client_approved_at timestamptz;
+ALTER TABLE project_floorplans ADD COLUMN IF NOT EXISTS client_approved_name text NOT NULL DEFAULT '';
 
 -- Project ↔ sub assignments (the project Subs tab). A sub can be on many jobs;
 -- a job has many subs. Slug FK keeps it readable + matches the subs portal link.

@@ -31,10 +31,13 @@ export interface ClientInvite {
  *  a client somewhere arbitrary (open-redirect). */
 export const PORTAL_TARGETS = {
   home: "/client-portal",
-  documents: "/client-portal#documents",
-  selections: "/client-portal#selections",
-  schedule: "/client-portal#schedule",
-  messages: "/client-portal#messages",
+  plans: "/client-portal/plans",
+  mood: "/client-portal/mood",
+  documents: "/client-portal/documents",
+  selections: "/client-portal/selections",
+  money: "/client-portal/money",
+  schedule: "/client-portal/schedule",
+  messages: "/client-portal/messages",
   files: "/client-portal#files",
   warranty: "/client-portal#warranty",
 } as const;

@@ -40,15 +40,17 @@ export async function uploadClientFile(formData: FormData) {
   // Mark the file as the client's so the portal serve route authorizes them.
   await query(`UPDATE files SET client_slug = $1 WHERE id = $2`, [slug, stored.id]);
 
-  await emit({
-    kind: "job",
-    tag: "Client upload",
-    accent: "accent",
-    icon: "project",
-    title: `${user.name || "Client"} uploaded a file`,
-    subline: file.name.slice(0, 90),
-    href: `/projects/${slug}`,
-  });
+  if (user.role === "client") {
+    await emit({
+      kind: "job",
+      tag: "Client upload",
+      accent: "accent",
+      icon: "project",
+      title: `${user.name || "Client"} uploaded a file`,
+      subline: file.name.slice(0, 90),
+      href: `/projects/${slug}`,
+    });
+  }
 
   revalidatePath("/client-portal");
   revalidatePath(`/projects/${slug}`);
@@ -99,16 +101,19 @@ export async function sendPortalMessage(formData: FormData) {
   );
 
   // Let Joe know (best-effort). Subs route to /chat (a real DM surface);
-  // clients route to the notification feed.
-  await emit({
-    kind: "mention",
-    tag: "Portal",
-    icon: "chat",
-    accent: "ai",
-    title: `${name} sent a message`,
-    subline: body.length > 120 ? `${body.slice(0, 117)}…` : body,
-    href: surface === "sub" ? "/chat" : "/notifications",
-  });
+  // clients route to the notification feed. Never for the owner's own posts —
+  // Joe messaging a client must not notify Joe about his own message.
+  if (authorKind !== "owner") {
+    await emit({
+      kind: "mention",
+      tag: "Portal",
+      icon: "chat",
+      accent: "ai",
+      title: `${name} sent a message`,
+      subline: body.length > 120 ? `${body.slice(0, 117)}…` : body,
+      href: surface === "sub" ? "/chat" : "/notifications",
+    });
+  }
 
   revalidatePath(surface === "sub" ? "/sub-portal" : "/client-portal");
   revalidatePath("/chat");

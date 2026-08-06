@@ -11,6 +11,7 @@ import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { storeUpload } from "@/lib/upload-store";
+import { emit } from "@/lib/notify";
 
 type Result = { ok: boolean; error?: string };
 
@@ -406,6 +407,45 @@ export async function removeMoodImage(id: number): Promise<Result> {
   if (!row) return { ok: false, error: "Item not found." };
   await query(`DELETE FROM project_mood WHERE id = $1`, [id]);
   revalidatePath(`/projects/${row.slug}`);
+  return { ok: true };
+}
+
+/** Client approves a board's direction from their portal — the mood-board
+ *  counterpart of approveFloorplan (lib/actions/floorplans.ts). Typed-name
+ *  acknowledgment, scoped to the client's own project, first approval sticks.
+ *  Owner-role callers (previewing) may approve too but never self-notify. */
+export async function approveMoodBoard(room: string, formData: FormData): Promise<Result> {
+  const user = await requireRole("owner", "client");
+  const name = String(formData.get("approvedName") ?? "").trim();
+  if (!name) return { ok: false, error: "Type your name to approve." };
+
+  const slug = user.role === "client" ? user.linkSlug : String(formData.get("slug") ?? "");
+  if (!slug) return { ok: false, error: "No project linked to this account." };
+
+  const updated = await query(
+    `UPDATE project_mood_boards b
+        SET client_approved_at = now(), client_approved_name = $3
+       FROM projects p
+      WHERE p.id = b.project_id AND p.slug = $1 AND b.room = $2
+        AND b.client_approved_at IS NULL`,
+    [slug, room, name.slice(0, 120)],
+  );
+  if (updated.rowCount === 0) return { ok: false, error: "Board not found or already approved." };
+
+  if (user.role === "client") {
+    await emit({
+      kind: "decision",
+      tag: "Mood board",
+      accent: "accent",
+      icon: "project",
+      title: `${name} approved the ${room} mood board`,
+      subline: `Project ${slug}`,
+      href: `/projects/${slug}`,
+    });
+  }
+
+  revalidatePath("/client-portal/mood");
+  revalidatePath(`/projects/${slug}`);
   return { ok: true };
 }
 

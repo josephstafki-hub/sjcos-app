@@ -10,6 +10,10 @@ import {
   removeFloorplan,
 } from "@/lib/actions/floorplans";
 
+// Mirrors MAX_BYTES in lib/upload-store.ts. Can't import it — that module is
+// `server-only`, and this is a client component.
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+
 /** Project Floor tab — versioned floor-plan viewer. Owner uploads a plan image
  *  or PDF (each upload is a new version), switches between versions, edits each
  *  version's notes, and removes versions. Not a CAD editor. */
@@ -169,6 +173,7 @@ function UploadModal({
   onUpload: (formData: FormData) => void;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
+  const [tooBig, setTooBig] = useState("");
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink/30 p-4 pt-[12vh]" onClick={onClose}>
       <div className="w-full max-w-[460px] rounded-lg border border-rule bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -182,7 +187,19 @@ function UploadModal({
           ref={formRef}
           onSubmit={(e) => {
             e.preventDefault();
-            onUpload(new FormData(e.currentTarget));
+            const fd = new FormData(e.currentTarget);
+            // Stop oversized plans at the browser. Past the request-body cap the
+            // upload is truncated in transit, so the server never sees a whole
+            // file to reject politely — it just fails to parse the form.
+            const file = fd.get("file");
+            if (file instanceof File && file.size > MAX_UPLOAD_BYTES) {
+              setTooBig(
+                `That plan is ${(file.size / 1024 / 1024).toFixed(1)}MB — the limit is 25MB. Export it at a lower resolution and try again.`,
+              );
+              return;
+            }
+            setTooBig("");
+            onUpload(fd);
           }}
           className="flex flex-col gap-3 p-4"
         >
@@ -205,6 +222,8 @@ function UploadModal({
               className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
             />
           </label>
+
+          {tooBig && <div className="text-[12px] text-flag">{tooBig}</div>}
 
           <div className="mt-1 flex items-center justify-end gap-2">
             <button

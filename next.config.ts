@@ -23,6 +23,15 @@ const nextConfig: NextConfig = {
     serverActions: {
       bodySizeLimit: "25mb",
     },
+    // `proxy.ts` runs on nearly every route, and Next buffers a *clone* of the
+    // request body so both proxy and the route can read it — capped separately
+    // at 10MB by default. That cap bites first: a 10MB+ upload gets silently
+    // truncated mid-multipart, the Server Action's form parser dies on
+    // "Unexpected end of form", and the page throws before storeUpload's own
+    // friendly size check ever runs. Keep this in step with bodySizeLimit
+    // above, with MAX_BYTES in lib/upload-store.ts, and under nginx's
+    // `client_max_body_size 30M` (/etc/nginx/sites-available/sjcos).
+    proxyClientMaxBodySize: "25mb",
   },
   // pdfkit reads its standard-14 .afm font metrics from its own package dir at
   // runtime; bundling it breaks that fs lookup. Keep it external so contract/SOW

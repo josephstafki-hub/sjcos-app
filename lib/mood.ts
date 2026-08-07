@@ -72,6 +72,13 @@ export interface MoodItem {
   h: number | null;
   /** Rotation in degrees about the card's centre. */
   rot: number;
+  /** Crop focal point: which part of the image shows when the frame crops it.
+   *  0..1 across the hidden overflow in each axis; 0.5/0.5 is the centre crop
+   *  every image starts with. */
+  cropX: number;
+  cropY: number;
+  /** Crop zoom inside the frame: 1 = plain cover fit, up to 4× magnified. */
+  zoom: number;
   /** Stacking order (sort_order): the last pin dragged sits on top. */
   z: number;
 }
@@ -82,6 +89,9 @@ export interface MoodBoardData {
   title: string;
   /** '#rrggbb' board background, or "" for the default dotted paper. */
   bgColor: string;
+  /** Set when the client approved this board from their portal. */
+  approvedName: string | null;
+  approvedLabel: string | null;
   items: MoodItem[];
 }
 
@@ -101,6 +111,9 @@ interface MoodRow {
   pos_w: number | null;
   pos_h: number | null;
   pos_rot: number | null;
+  crop_x: number | null;
+  crop_y: number | null;
+  crop_zoom: number | null;
   sort_order: number;
 }
 
@@ -108,13 +121,46 @@ interface BoardRow {
   room: string;
   title: string;
   bg_color: string;
+  client_approved_name: string;
+  approved_label: string | null;
 }
 
 /** A project's mood boards, one per room (rooms sorted alphabetically). */
 export async function getProjectMood(slug: string): Promise<MoodBoardData[]> {
+  return loadMood(slug, (r) => `/api/files/${r.image_file_id}`);
+}
+
+/** Same boards for the client portal, read-only — images stream through the
+ *  client-authorized route, keyed by the mood ITEM id so the route authorizes
+ *  by the parent project's slug vs. the client's linkSlug. */
+export async function getClientProjectMood(slug: string): Promise<MoodBoardData[]> {
+  return loadMood(slug, (r) => `/api/portal/mood-image/${r.id}`);
+}
+
+/** Resolve a mood item's image file + project slug — used by the portal serve
+ *  route to authorize and stream. Null when the item has no image. */
+export async function resolveMoodImage(
+  itemId: number,
+): Promise<{ fileId: string; slug: string } | null> {
+  const { rows } = await query<{ image_file_id: string | null; slug: string }>(
+    `SELECT m.image_file_id, p.slug
+       FROM project_mood m JOIN projects p ON p.id = m.project_id
+      WHERE m.id = $1`,
+    [itemId],
+  );
+  const r = rows[0];
+  return r?.image_file_id ? { fileId: r.image_file_id, slug: r.slug } : null;
+}
+
+async function loadMood(
+  slug: string,
+  imageUrlFor: (r: Pick<MoodRow, "id" | "image_file_id">) => string,
+): Promise<MoodBoardData[]> {
   const [{ rows: boardRows }, { rows }] = await Promise.all([
     query<BoardRow>(
-      `SELECT b.room, b.title, b.bg_color
+      `SELECT b.room, b.title, b.bg_color,
+              b.client_approved_name,
+              to_char(b.client_approved_at, 'Mon FMDD, YYYY') AS approved_label
          FROM project_mood_boards b
          JOIN projects p ON p.id = b.project_id
         WHERE p.slug = $1
@@ -124,7 +170,8 @@ export async function getProjectMood(slug: string): Promise<MoodBoardData[]> {
     query<MoodRow>(
       `SELECT m.id, m.room, m.kind, m.note, m.label, m.price_label, m.swatch,
               m.image_file_id, m.catalog_id, c.source_url,
-              m.pos_x, m.pos_y, m.pos_w, m.pos_h, m.pos_rot, m.sort_order
+              m.pos_x, m.pos_y, m.pos_w, m.pos_h, m.pos_rot,
+              m.crop_x, m.crop_y, m.crop_zoom, m.sort_order
          FROM project_mood m
          JOIN projects p ON p.id = m.project_id
          LEFT JOIN catalog_items c ON c.id = m.catalog_id
@@ -136,7 +183,14 @@ export async function getProjectMood(slug: string): Promise<MoodBoardData[]> {
 
   const byRoom = new Map<string, MoodBoardData>();
   for (const b of boardRows) {
-    byRoom.set(b.room, { room: b.room, title: b.title, bgColor: safeColor(b.bg_color), items: [] });
+    byRoom.set(b.room, {
+      room: b.room,
+      title: b.title,
+      bgColor: safeColor(b.bg_color),
+      approvedName: b.approved_label ? b.client_approved_name || null : null,
+      approvedLabel: b.approved_label,
+      items: [],
+    });
   }
 
   for (const r of rows) {
@@ -144,7 +198,7 @@ export async function getProjectMood(slug: string): Promise<MoodBoardData[]> {
     if (!board) {
       // A room with pins but no settings row — keep the board rather than
       // dropping every pin in it on the floor.
-      board = { room: r.room, title: "", bgColor: "", items: [] };
+      board = { room: r.room, title: "", bgColor: "", approvedName: null, approvedLabel: null, items: [] };
       byRoom.set(r.room, board);
     }
     board.items.push({
@@ -154,7 +208,7 @@ export async function getProjectMood(slug: string): Promise<MoodBoardData[]> {
       label: r.label,
       priceLabel: r.price_label,
       swatch: safeColor(r.swatch),
-      imageUrl: r.image_file_id ? `/api/files/${r.image_file_id}` : null,
+      imageUrl: r.image_file_id ? imageUrlFor(r) : null,
       catalogId: r.catalog_id === null ? null : toId(r.catalog_id),
       sourceUrl: safeUrl(r.source_url),
       x: toNum(r.pos_x),
@@ -162,6 +216,9 @@ export async function getProjectMood(slug: string): Promise<MoodBoardData[]> {
       w: toNum(r.pos_w),
       h: toNum(r.pos_h),
       rot: toNum(r.pos_rot) ?? 0,
+      cropX: toNum(r.crop_x) ?? 0.5,
+      cropY: toNum(r.crop_y) ?? 0.5,
+      zoom: toNum(r.crop_zoom) ?? 1,
       z: r.sort_order,
     });
   }

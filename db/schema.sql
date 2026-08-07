@@ -814,6 +814,15 @@ ALTER TABLE project_mood DROP CONSTRAINT IF EXISTS project_mood_kind_check;
 ALTER TABLE project_mood ADD CONSTRAINT project_mood_kind_check
   CHECK (kind IN ('pin','text','swatch'));
 
+-- Photoshop-style crop inside the frame. An image in a sized frame is
+-- object-cover; crop_x/crop_y pick WHICH part shows (the focal point, 0..1
+-- across the hidden overflow in each axis) and crop_zoom magnifies inside the
+-- frame (1 = plain cover fit, up to 4). Defaults reproduce the old fixed
+-- centre-crop exactly, so existing boards render pixel-identical.
+ALTER TABLE project_mood ADD COLUMN IF NOT EXISTS crop_x    real NOT NULL DEFAULT 0.5;
+ALTER TABLE project_mood ADD COLUMN IF NOT EXISTS crop_y    real NOT NULL DEFAULT 0.5;
+ALTER TABLE project_mood ADD COLUMN IF NOT EXISTS crop_zoom real NOT NULL DEFAULT 1;
+
 -- Per-room board settings: display title and background colour. A row here also
 -- lets a board EXIST before it holds any pin — rooms used to be inferred purely
 -- from project_mood rows, so a freshly created empty room vanished on reload.
@@ -827,6 +836,11 @@ CREATE TABLE IF NOT EXISTS project_mood_boards (
   UNIQUE (project_id, room)
 );
 
+-- Client-portal approval of a board's direction (db/apply-portal-approvals.mjs).
+-- Same lightweight typed-name acknowledgment as project_floorplans.
+ALTER TABLE project_mood_boards ADD COLUMN IF NOT EXISTS client_approved_at timestamptz;
+ALTER TABLE project_mood_boards ADD COLUMN IF NOT EXISTS client_approved_name text NOT NULL DEFAULT '';
+
 -- ─── Design tools: floor-plan versions (Review-round-3 S5E) ─────────────────
 -- Versioned floor-plan files (image or PDF) per project, each with text notes.
 -- Viewer only — not a CAD editor. version increments per upload.
@@ -838,6 +852,12 @@ CREATE TABLE IF NOT EXISTS project_floorplans (
   notes       text NOT NULL DEFAULT '',
   created_at  timestamptz NOT NULL DEFAULT now()
 );
+
+-- Client-portal approval of a plan version (db/apply-portal-approvals.mjs). A
+-- lightweight in-portal acknowledgment with the typed name captured; contracts
+-- and money documents keep going through signature_requests instead.
+ALTER TABLE project_floorplans ADD COLUMN IF NOT EXISTS client_approved_at timestamptz;
+ALTER TABLE project_floorplans ADD COLUMN IF NOT EXISTS client_approved_name text NOT NULL DEFAULT '';
 
 -- Project ↔ sub assignments (the project Subs tab). A sub can be on many jobs;
 -- a job has many subs. Slug FK keeps it readable + matches the subs portal link.

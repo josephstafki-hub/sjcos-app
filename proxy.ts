@@ -36,10 +36,13 @@ function homeForRole(role: Role): string {
  *  (app/sub-portal/enter, app/client-portal/enter). */
 const PUBLIC_PATHS = ["/login", "/sub-portal/enter", "/client-portal/enter"];
 
-/** Routes a non-owner role is allowed to reach (besides /login). */
+/** Routes a non-owner role is allowed to reach (besides /login). /logout must
+ *  stay reachable for every role — it's the escape hatch for a stale session
+ *  (valid JWT, deleted user row), which would otherwise loop forever between
+ *  /login and the role home. */
 function allowedFor(role: Role): string[] {
-  if (role === "sub") return ["/sub-portal"];
-  if (role === "client") return ["/client-portal"];
+  if (role === "sub") return ["/sub-portal", "/logout"];
+  if (role === "client") return ["/client-portal", "/logout"];
   return []; // owner: everything
 }
 

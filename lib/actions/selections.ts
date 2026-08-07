@@ -565,18 +565,22 @@ export async function decideSelection(
     );
   }
 
-  await emit({
-    kind: "decision",
-    tag: "Decision",
-    accent: approve ? "accent" : "flag",
-    icon: "project",
-    flagged: !approve,
-    title: approve
-      ? `Client chose ${chosenLabel} — ${sel.area}`
-      : `Client declined the options — ${sel.area}`,
-    subline: approve ? sel.project_name : `${sel.project_name} · needs different options`,
-    href: `/projects/${sel.slug}`,
-  });
+  // A real client decision notifies Joe; an owner deciding from the preview
+  // (or the board) shouldn't read back as "Client chose…".
+  if (user.role === "client") {
+    await emit({
+      kind: "decision",
+      tag: "Decision",
+      accent: approve ? "accent" : "flag",
+      icon: "project",
+      flagged: !approve,
+      title: approve
+        ? `Client chose ${chosenLabel} — ${sel.area}`
+        : `Client declined the options — ${sel.area}`,
+      subline: approve ? sel.project_name : `${sel.project_name} · needs different options`,
+      href: `/projects/${sel.slug}`,
+    });
+  }
   revalidatePath(`/projects/${sel.slug}`);
   revalidatePath("/client-portal");
   revalidatePath("/notifications");

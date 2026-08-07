@@ -192,15 +192,19 @@ export async function signSignatureRequest(id: number, formData: FormData): Prom
     await query(`UPDATE change_orders SET status = 'approved' WHERE id = $1`, [doc.change_order_id]);
   }
 
-  await emit({
-    kind: "decision",
-    tag: "Signature",
-    icon: "star",
-    accent: "money",
-    title: `Signed: ${doc.title}`,
-    subline: `${signedName} signed electronically`,
-    href: `/projects/${slug}`,
-  });
+  // Only a real client signature notifies Joe — owner-preview signing is a
+  // test click, not news.
+  if (user.role === "client") {
+    await emit({
+      kind: "decision",
+      tag: "Signature",
+      icon: "star",
+      accent: "money",
+      title: `Signed: ${doc.title}`,
+      subline: `${signedName} signed electronically`,
+      href: `/projects/${slug}`,
+    });
+  }
 
   revalidatePath("/client-portal");
   revalidatePath(`/projects/${slug}`);
@@ -209,7 +213,7 @@ export async function signSignatureRequest(id: number, formData: FormData): Prom
 
 /** Client (or owner previewing): decline a sent request with a reason. */
 export async function declineSignatureRequest(id: number, formData: FormData): Promise<Result> {
-  await requireRole("owner", "client");
+  const user = await requireRole("owner", "client");
   const slug = await portalProjectSlug();
   if (!slug) return { ok: false, error: "No project linked to this account." };
 
@@ -234,16 +238,18 @@ export async function declineSignatureRequest(id: number, formData: FormData): P
     await query(`UPDATE change_orders SET status = 'declined' WHERE id = $1`, [doc.change_order_id]);
   }
 
-  await emit({
-    kind: "decision",
-    tag: "Signature",
-    icon: "mail",
-    accent: "flag",
-    flagged: true,
-    title: `Declined: ${doc.title}`,
-    subline: reason ? reason.slice(0, 120) : "Client declined to sign",
-    href: `/projects/${slug}`,
-  });
+  if (user.role === "client") {
+    await emit({
+      kind: "decision",
+      tag: "Signature",
+      icon: "mail",
+      accent: "flag",
+      flagged: true,
+      title: `Declined: ${doc.title}`,
+      subline: reason ? reason.slice(0, 120) : "Client declined to sign",
+      href: `/projects/${slug}`,
+    });
+  }
 
   revalidatePath("/client-portal");
   revalidatePath(`/projects/${slug}`);

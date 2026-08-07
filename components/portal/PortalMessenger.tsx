@@ -12,17 +12,21 @@ export function PortalMessenger({
   surface,
   thread,
   placeholder = "Message Joe…",
+  listMaxHClass = "max-h-[220px]",
 }: {
   surface: "client" | "sub";
   thread: PortalMessage[];
   placeholder?: string;
+  /** Cap on the thread list — the sidebar embed stays short, the full
+   *  Messages page gets room to breathe. */
+  listMaxHClass?: string;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
 
   return (
     <div className="mt-2 flex flex-col gap-2">
       {thread.length > 0 && (
-        <div className="flex max-h-[220px] flex-col gap-2 overflow-y-auto">
+        <div className={`flex ${listMaxHClass} flex-col gap-2 overflow-y-auto`}>
           {thread.map((m) => {
             const fromJoe = m.author !== "user";
             return (

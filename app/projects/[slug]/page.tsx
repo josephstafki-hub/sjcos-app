@@ -13,6 +13,8 @@ import { WeeklyStatusSend } from "@/components/projects/WeeklyStatusSend";
 import { PunchList } from "@/components/projects/PunchList";
 import { MoneyPanel } from "@/components/projects/MoneyPanel";
 import { SelectionsBoard } from "@/components/projects/SelectionsBoard";
+import { BiddingBoard } from "@/components/projects/BiddingBoard";
+import { getProjectBidding, listAllSubs } from "@/lib/bidding";
 import { MoodBoard } from "@/components/projects/MoodBoard";
 import { FloorPlan } from "@/components/projects/FloorPlan";
 import { getProject, getProjectFiles, getProjectSubsData, getProjectDailyLogs, getProjectWeeklyStatus, PROJECT_STATUSES, stageToolTab } from "@/lib/projects";
@@ -102,6 +104,8 @@ export default async function ProjectDetailPage({
     permits,
     docDrafts,
     ops,
+    bidding,
+    biddingRoster,
   ] = await Promise.all([
     getProject(slug),
     getProjectMoney(slug),
@@ -130,6 +134,8 @@ export default async function ProjectDetailPage({
     // Open Engine + Brain data scoped to this one project (work queue, knowledge,
     // receipts, stage-gate guidance) — the "Ops" tab.
     getRecordOps("project", slug),
+    getProjectBidding(slug),
+    listAllSubs(),
   ]);
   const docTemplates = listDocTemplates().filter((t) => t.scope !== "lead");
   if (!project) notFound();
@@ -432,6 +438,11 @@ export default async function ProjectDetailPage({
     <SelectionsBoard slug={slug} view={selections} catalog={catalogOptions} />
   );
 
+  // ── Bidding panel — packages by trade: packet files, recipients, compare ───
+  const biddingPanel = (
+    <BiddingBoard slug={slug} view={bidding} roster={biddingRoster} projectFiles={projectFiles} />
+  );
+
   // ── Comms panel — real owner ⇄ client thread (portal:<slug>) ───────────────
   const commsPanel = <ProjectComms slug={slug} thread={commsThread} />;
 
@@ -514,6 +525,7 @@ export default async function ProjectDetailPage({
     Floor: floorPanel,
     Mood: moodPanel,
     Selections: selectionsPanel,
+    Bidding: biddingPanel,
     Money: moneyTab,
     Documents: documentsTab,
     Schedule: schedulePanel,

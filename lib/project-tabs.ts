@@ -13,6 +13,7 @@ export const PROJECT_TABS = [
   "Floor",
   "Mood",
   "Selections",
+  "Bidding",
   "Money",
   "Documents",
   "Schedule",

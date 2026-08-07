@@ -223,6 +223,52 @@ Inferred from wireframes + SJC OS Master Plan. Align with existing `/admin` sche
 
 ---
 
+## Bidding (BidPackage → BidInvite → BidSubmission)
+
+```ts
+// bid_packages — one request for pricing on a category of work
+{
+  id: number                       // bigserial
+  projectId: string                // uuid FK → projects, CASCADE
+  title: string                    // "Framing — main house"
+  trade: string                    // groups the board + the recipient picker
+  scopeNotes: string               // shared cover scope every invited sub sees
+  dueDate?: Date
+  status: 'draft' | 'open' | 'awarded' | 'closed'
+  awardedInviteId?: number         // FK → bid_invites, SET NULL
+  sentAt?: Date
+}
+
+// bid_package_files — the packet (plans, takeoffs) out of the files table
+{ id, packageId, fileId, label, sortOrder }        // UNIQUE (packageId, fileId)
+
+// bid_invites — one per invited sub; `message` is the per-sub customization
+{
+  id: number
+  packageId: number
+  subSlug: string                  // FK → subs(slug)
+  message: string
+  status: 'draft' | 'sent' | 'viewed' | 'submitted' | 'declined' | 'awarded' | 'not_awarded'
+  sentAt?, viewedAt?, respondedAt?: Date
+}                                                  // UNIQUE (packageId, subSlug)
+
+// bid_submissions — the sub's answer; re-submitting bumps revision
+{ id, inviteId, total /* cents */, notes, exclusions, leadTime, revision, submittedAt }
+
+// bid_submission_lines — the breakdown that makes bids comparable
+{ id, submissionId, description, amount /* cents */, sortOrder }
+
+// bid_submission_files — the sub's own uploaded bid docs
+{ id, submissionId, fileId }
+```
+
+Bid Q&A threads live in `chat_messages` under channel `bid:<inviteId>`.
+Reads/ops: `lib/bidding.ts` · actions: `lib/actions/bidding.ts` · MCP:
+`mcp/bidding-tools.mjs` + `/api/internal/bidding` · migration:
+`db/apply-bidding.mjs`.
+
+---
+
 ## PostgreSQL notes
 
 - Use `JSONB` columns for array/object fields (photos, milestones, reliability stats) where a separate join table isn't needed

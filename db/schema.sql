@@ -2215,3 +2215,85 @@ CREATE TABLE IF NOT EXISTS app_change_log (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_app_change_log_created ON app_change_log (created_at);
+
+-- ── Bidding (project Bidding tab + sub portal) ───────────────────────────────
+-- A bid package is a request for pricing on one category of work: the packet
+-- (plans + takeoffs from files) goes out to several subs, each via an invite
+-- row that carries a per-sub note. Subs answer with submissions (total, line
+-- items, exclusions, uploaded docs) that compare side by side; awarding one
+-- invite closes the package. Money columns are CENTS.
+
+CREATE TABLE IF NOT EXISTS bid_packages (
+  id           bigserial PRIMARY KEY,
+  project_id   uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  title        text NOT NULL,
+  trade        text NOT NULL DEFAULT '',
+  scope_notes  text NOT NULL DEFAULT '',
+  due_date     date,
+  status       text NOT NULL DEFAULT 'draft'
+                 CHECK (status IN ('draft','open','awarded','closed')),
+  sent_at      timestamptz,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_bid_packages_project
+  ON bid_packages(project_id, trade, status);
+
+CREATE TABLE IF NOT EXISTS bid_package_files (
+  id          bigserial PRIMARY KEY,
+  package_id  bigint NOT NULL REFERENCES bid_packages(id) ON DELETE CASCADE,
+  file_id     text NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  label       text NOT NULL DEFAULT '',
+  sort_order  integer NOT NULL DEFAULT 0,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (package_id, file_id)
+);
+
+CREATE TABLE IF NOT EXISTS bid_invites (
+  id            bigserial PRIMARY KEY,
+  package_id    bigint NOT NULL REFERENCES bid_packages(id) ON DELETE CASCADE,
+  sub_slug      text NOT NULL REFERENCES subs(slug) ON DELETE CASCADE,
+  message       text NOT NULL DEFAULT '',
+  status        text NOT NULL DEFAULT 'draft'
+                  CHECK (status IN ('draft','sent','viewed','submitted','declined','awarded','not_awarded')),
+  sent_at       timestamptz,
+  viewed_at     timestamptz,
+  responded_at  timestamptz,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (package_id, sub_slug)
+);
+CREATE INDEX IF NOT EXISTS idx_bid_invites_sub ON bid_invites(sub_slug, status);
+
+CREATE TABLE IF NOT EXISTS bid_submissions (
+  id            bigserial PRIMARY KEY,
+  invite_id     bigint NOT NULL REFERENCES bid_invites(id) ON DELETE CASCADE,
+  total         integer NOT NULL DEFAULT 0,  -- cents
+  notes         text NOT NULL DEFAULT '',
+  exclusions    text NOT NULL DEFAULT '',
+  lead_time     text NOT NULL DEFAULT '',
+  revision      integer NOT NULL DEFAULT 1,
+  submitted_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (invite_id, revision)
+);
+
+CREATE TABLE IF NOT EXISTS bid_submission_lines (
+  id             bigserial PRIMARY KEY,
+  submission_id  bigint NOT NULL REFERENCES bid_submissions(id) ON DELETE CASCADE,
+  description    text NOT NULL,
+  amount         integer NOT NULL DEFAULT 0,  -- cents
+  sort_order     integer NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS bid_submission_files (
+  id             bigserial PRIMARY KEY,
+  submission_id  bigint NOT NULL REFERENCES bid_submissions(id) ON DELETE CASCADE,
+  file_id        text NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  created_at     timestamptz NOT NULL DEFAULT now()
+);
+
+-- Winner FK after bid_invites exists; SET NULL so removing the winning invite
+-- reopens the question instead of deleting the package.
+ALTER TABLE bid_packages ADD COLUMN IF NOT EXISTS awarded_invite_id bigint;
+ALTER TABLE bid_packages DROP CONSTRAINT IF EXISTS bid_packages_awarded_invite_fkey;
+ALTER TABLE bid_packages ADD CONSTRAINT bid_packages_awarded_invite_fkey
+  FOREIGN KEY (awarded_invite_id) REFERENCES bid_invites(id) ON DELETE SET NULL;

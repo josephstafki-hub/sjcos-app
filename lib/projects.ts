@@ -81,7 +81,7 @@ export function stageToolTab(status: ProjectStatus): ProjectTab {
     case "selections":
       return "Selections";
     case "bidding":
-      return "Subs";
+      return "Bidding";
     case "construction":
       return "Daily log";
     case "closeout":

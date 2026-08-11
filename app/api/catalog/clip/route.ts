@@ -86,6 +86,9 @@ export async function POST(req: Request) {
   const sku = str(body.sku, 120);
   const price = str(body.price, 120);
   const use = str(body.use, 120);
+  const description = str(body.description, 2000);
+  const msrp = str(body.msrp, 120);
+  const series = str(body.series, 120);
   const sourceUrl = str(body.url ?? body.sourceUrl, 1000);
   const categoryInput = str(body.category, 60);
   const category = (MATERIAL_CATEGORIES as readonly string[]).includes(categoryInput)
@@ -97,10 +100,11 @@ export async function POST(req: Request) {
 
   const { rows } = await query<{ id: number }>(
     `INSERT INTO catalog_items
-       (name, supplier, sku, category, use_label, price, image_file_id, source_url)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       (name, supplier, sku, category, use_label, price, description, msrp, series,
+        image_file_id, source_url)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      RETURNING id`,
-    [name, supplier, sku, category, use, price, imageFileId, sourceUrl],
+    [name, supplier, sku, category, use, price, description, msrp, series, imageFileId, sourceUrl],
   );
 
   revalidatePath("/catalog");

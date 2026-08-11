@@ -96,6 +96,33 @@ export function AddMaterialButton() {
                   />
                 </label>
               </div>
+              <div className="flex gap-3">
+                <label className="flex flex-1 flex-col gap-1">
+                  <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Series</span>
+                  <input
+                    name="series"
+                    placeholder="Venus Ivory"
+                    className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+                  />
+                </label>
+                <label className="flex w-[150px] flex-col gap-1">
+                  <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">MSRP</span>
+                  <input
+                    name="msrp"
+                    placeholder="$126.83"
+                    className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+                  />
+                </label>
+              </div>
+              <label className="flex flex-col gap-1">
+                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Description</span>
+                <textarea
+                  name="description"
+                  rows={2}
+                  placeholder="Wall cabinet, 30in, soft-close doors…"
+                  className="resize-none rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+                />
+              </label>
               <label className="flex flex-col gap-1">
                 <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Usage note</span>
                 <input

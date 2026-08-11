@@ -657,6 +657,17 @@ CREATE TABLE IF NOT EXISTS catalog_items (
 ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS image_file_id text;
 -- Source product-page URL captured by the browser-extension clipper (Phase 2 A).
 ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS source_url text NOT NULL DEFAULT '';
+-- Product description, list price, and series (the cabinet line, e.g.
+-- "Venus Ivory"). Display strings like `price` — no math is done on msrp.
+ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS description text NOT NULL DEFAULT '';
+ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS msrp text NOT NULL DEFAULT '';
+ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS series text NOT NULL DEFAULT '';
+-- One-time backfill: the FGT import stored the series in use_label as
+-- "<Series> series". The `series = ''` guard keeps re-runs no-ops.
+UPDATE catalog_items
+   SET series = regexp_replace(use_label, '\s+series$', '', 'i')
+ WHERE series = '' AND use_label ~* '\sseries$';
+CREATE INDEX IF NOT EXISTS idx_catalog_series ON catalog_items(series);
 
 -- ─── Money: invoices (Review-round-3 S5A) ──────────────────────────────────
 -- Native invoices (create/send/track). P&L still lives in QuickBooks; these

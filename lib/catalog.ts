@@ -22,6 +22,12 @@ export interface Material {
   use: string;
   /** Price display, e.g. "$185 / sq ft". */
   price: string;
+  /** Product description, or "". */
+  description: string;
+  /** Manufacturer list price display, e.g. "$126.83", or "". */
+  msrp: string;
+  /** Product line the item belongs to, e.g. "Venus Ivory", or "". */
+  series: string;
   /** files row id of the product image, or null. Served via /api/files/<id>. */
   imageId: string | null;
   /** Source product-page URL (browser-clipped items), or "". */
@@ -42,6 +48,9 @@ interface MaterialRow {
   category: string;
   use_label: string;
   price: string;
+  description: string;
+  msrp: string;
+  series: string;
   image_file_id: string | null;
   source_url: string;
 }
@@ -58,6 +67,9 @@ function rowToMaterial(r: MaterialRow): Material {
     category,
     use: r.use_label,
     price: r.price,
+    description: r.description ?? "",
+    msrp: r.msrp ?? "",
+    series: r.series ?? "",
     imageId: r.image_file_id,
     sourceUrl: r.source_url ?? "",
   };
@@ -65,7 +77,8 @@ function rowToMaterial(r: MaterialRow): Material {
 
 export async function getCatalogData(): Promise<CatalogData> {
   const { rows } = await query<MaterialRow>(
-    `SELECT id, name, supplier, sku, category, use_label, price, image_file_id, source_url
+    `SELECT id, name, supplier, sku, category, use_label, price, description, msrp, series,
+            image_file_id, source_url
        FROM catalog_items
        ORDER BY created_at DESC, id DESC`,
   );

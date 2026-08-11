@@ -8,6 +8,7 @@ import type { CatalogCategory, CatalogData } from "@/lib/catalog";
 
 export function CatalogClient({ data }: { data: CatalogData }) {
   const [category, setCategory] = useState<CatalogCategory>("All");
+  const [series, setSeries] = useState("All");
   const [removing, startRemove] = useTransition();
   const [pendingId, setPendingId] = useState<number | null>(null);
 
@@ -19,21 +20,48 @@ export function CatalogClient({ data }: { data: CatalogData }) {
     });
   }
 
-  const visible =
+  const inCategory =
     category === "All"
       ? data.materials
       : data.materials.filter((m) => m.category === category);
+
+  // Series chips are derived from the category-filtered set, so only lines that
+  // can actually match are offered (today that's the cabinet lines).
+  const seriesList = [...new Set(inCategory.map((m) => m.series).filter(Boolean))].sort();
+
+  const visible =
+    series === "All" ? inCategory : inCategory.filter((m) => m.series === series);
 
   return (
     <>
       {/* Category filter chips */}
       <div className="mb-4 flex flex-wrap items-center gap-1.5">
         {data.categories.map((c) => (
-          <button key={c} onClick={() => setCategory(c)}>
+          <button
+            key={c}
+            onClick={() => {
+              setCategory(c);
+              setSeries("All");
+            }}
+          >
             <Chip kind={category === c ? "solid" : "ghost"}>{c}</Chip>
           </button>
         ))}
       </div>
+
+      {/* Series filter chips */}
+      {seriesList.length >= 2 && (
+        <div className="-mt-2 mb-4 flex flex-wrap items-center gap-1.5">
+          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+            Series
+          </span>
+          {["All", ...seriesList].map((s) => (
+            <button key={s} onClick={() => setSeries(s)}>
+              <Chip kind={series === s ? "solid" : "ghost"}>{s}</Chip>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Material grid */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -66,8 +94,16 @@ export function CatalogClient({ data }: { data: CatalogData }) {
                 {m.name}
               </div>
               <div className="mt-0.5 text-[11px] text-ink-3">{m.supplier}</div>
+              {m.description && (
+                <div className="mt-1 line-clamp-2 text-[11px] leading-snug text-ink-2">
+                  {m.description}
+                </div>
+              )}
               <div className="mt-2 flex items-center gap-2">
                 <span className="flex-1 truncate font-mono text-[9px] text-ink-3">{m.sku}</span>
+                {m.msrp && (
+                  <span className="font-mono text-[10px] text-ink-3 line-through">{m.msrp}</span>
+                )}
                 <span className="font-mono text-[11px] font-semibold text-accent-2">{m.price}</span>
               </div>
               <div className="mt-1 text-[11px] text-money">{m.use}</div>

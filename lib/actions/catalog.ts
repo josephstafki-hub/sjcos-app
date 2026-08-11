@@ -19,6 +19,9 @@ export async function createMaterial(formData: FormData) {
   const sku = String(formData.get("sku") ?? "").trim();
   const price = String(formData.get("price") ?? "").trim();
   const use = String(formData.get("use") ?? "").trim();
+  const description = String(formData.get("description") ?? "").trim();
+  const msrp = String(formData.get("msrp") ?? "").trim();
+  const series = String(formData.get("series") ?? "").trim();
   const categoryInput = String(formData.get("category") ?? "");
   const category = (MATERIAL_CATEGORIES as readonly string[]).includes(categoryInput)
     ? categoryInput
@@ -37,9 +40,10 @@ export async function createMaterial(formData: FormData) {
   }
 
   await query(
-    `INSERT INTO catalog_items (name, supplier, sku, category, use_label, price, image_file_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [name, supplier, sku, category, use, price, imageFileId],
+    `INSERT INTO catalog_items
+       (name, supplier, sku, category, use_label, price, description, msrp, series, image_file_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [name, supplier, sku, category, use, price, description, msrp, series, imageFileId],
   );
 
   revalidatePath("/catalog");

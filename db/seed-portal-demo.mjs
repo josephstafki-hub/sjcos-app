@@ -301,18 +301,20 @@ try {
     [SLUG, CLIENT_EMAIL],
   );
 
-  /* Floor plans: Rev A approved earlier, Rev B awaiting approval. */
+  /* Floor plans: Rev A approved earlier, Rev B awaiting approval. Both
+     published — plans reach the portal only once published_at is set. */
   await sql(
-    `INSERT INTO project_floorplans (project_id, version, file_id, notes, created_at, client_approved_at, client_approved_name)
-     VALUES ($1, 1, 'demo-fp-1', 'Original layout from the site measure.', now() - interval '18 days', now() - interval '15 days', 'Dana Holt'),
-            ($1, 2, 'demo-fp-2', 'Rev B — pantry folded into the mudroom wall, island stretched to 8 ft. This is the version we''d build from.', now() - interval '2 days', NULL, '')`,
+    `INSERT INTO project_floorplans (project_id, version, file_id, notes, created_at, published_at, client_approved_at, client_approved_name)
+     VALUES ($1, 1, 'demo-fp-1', 'Original layout from the site measure.', now() - interval '18 days', now() - interval '18 days', now() - interval '15 days', 'Dana Holt'),
+            ($1, 2, 'demo-fp-2', 'Rev B — pantry folded into the mudroom wall, island stretched to 8 ft. This is the version we''d build from.', now() - interval '2 days', now() - interval '2 days', NULL, '')`,
     [pid],
   );
 
-  /* Mood board — one kitchen canvas with placed items. */
+  /* Mood board — one kitchen canvas with placed items, published to the
+     portal (boards are owner-only until published_at is set). */
   await sql(
-    `INSERT INTO project_mood_boards (project_id, room, title, bg_color)
-     VALUES ($1, 'Kitchen', 'Warm modern kitchen', '')`,
+    `INSERT INTO project_mood_boards (project_id, room, title, bg_color, published_at)
+     VALUES ($1, 'Kitchen', 'Warm modern kitchen', '', now() - interval '9 days')`,
     [pid],
   );
   const mood = [

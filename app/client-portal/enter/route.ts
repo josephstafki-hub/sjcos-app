@@ -51,20 +51,31 @@ export async function GET(request: Request) {
   // Reusable until it expires, NOT single-use: this link is the client's only
   // credential and the session cookie lasts 7 days. Burning it on first click
   // would lock them out on day 8 and mean a new link for every device.
+  //
+  // An invite scopes to a project OR a lead (the lead-stage portal). Either way
+  // the joined row must still exist — a dangling invite is as dead as an
+  // expired one.
   const invite = await queryOne<{
     id: string;
-    project_slug: string;
+    project_slug: string | null;
+    lead_slug: string | null;
     client_name: string | null;
   }>(
-    `SELECT i.id, i.project_slug, p.client_name
+    `SELECT i.id, i.project_slug, i.lead_slug,
+            COALESCE(p.client_name, l.name) AS client_name
        FROM client_portal_invites i
-       JOIN projects p ON p.slug = i.project_slug
-      WHERE i.token = $1 AND i.status <> 'dismissed' AND i.expires_at > now()`,
+       LEFT JOIN projects p ON p.slug = i.project_slug
+       LEFT JOIN leads l ON l.slug = i.lead_slug
+      WHERE i.token = $1 AND i.status <> 'dismissed' AND i.expires_at > now()
+        AND (p.slug IS NOT NULL OR l.slug IS NOT NULL)`,
     [token],
   );
   if (!invite) return bounce("expired");
 
   const name = invite.client_name || "Client";
+  // link_slug for the session user: project slug, or 'lead:<slug>' — the prefix
+  // keeps leads and projects apart in the shared users.link_slug column.
+  const linkSlug = invite.project_slug ?? `lead:${invite.lead_slug}`;
 
   const existing = await queryOne<{
     id: string;
@@ -73,7 +84,7 @@ export async function GET(request: Request) {
   }>(
     `SELECT id, active, portal_claimed_at FROM users
       WHERE role = 'client' AND link_slug = $1`,
-    [invite.project_slug],
+    [linkSlug],
   );
   // A deactivated account outranks the link.
   if (existing && !existing.active) return bounce("inactive");
@@ -87,12 +98,12 @@ export async function GET(request: Request) {
     // impossible without leaving a malformed hash for verifyPassword to meet.
     // Claiming the portal replaces this with a hash of their chosen password.
     const unusable = await hashPassword(randomBytes(32).toString("hex"));
-    const synthetic = `${invite.project_slug}@client-portal.invalid`;
+    const synthetic = `${invite.project_slug ?? `lead-${invite.lead_slug}`}@client-portal.invalid`;
     const row = await queryOne<{ id: string }>(
       `INSERT INTO users (email, password_hash, name, role, initials, link_slug)
        VALUES ($1, $2, $3, 'client', $4, $5)
        ON CONFLICT (email) DO NOTHING RETURNING id`,
-      [synthetic, unusable, name, clientInitials(name), invite.project_slug],
+      [synthetic, unusable, name, clientInitials(name), linkSlug],
     );
     userId = row?.id;
     // Synthetic address collided (a prior portal for this slug) — reuse it

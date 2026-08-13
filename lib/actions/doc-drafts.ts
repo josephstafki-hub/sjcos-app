@@ -22,7 +22,10 @@ import {
   unlockDocDraftForEdit,
   cloneDocDraft,
   getDocDraft,
+  setDocDraftClientVisible,
 } from "@/lib/doc-drafts";
+import { queryOne } from "@/lib/db";
+import { notifyDashboardPublish, type DeliveryNote } from "@/lib/portal-publish";
 import type { FillScope } from "@/lib/doc-templates/fill";
 
 type R = { ok: true } | { ok: false; error: string };
@@ -65,6 +68,34 @@ export async function submitDocDraftForSignatureAction(
   revalidatePath("/projects");
   revalidatePath("/client-portal");
   return { ok: true, delivery: res.delivery };
+}
+
+/** Publish/unpublish a document on the client dashboard. Publishing emails the
+ *  client a portal link (best-effort — the delivery note says what happened);
+ *  unpublishing just hides it again. */
+export async function setDocDraftVisibilityAction(
+  id: number,
+  visible: boolean,
+): Promise<{ ok: true; delivery: DeliveryNote | null } | { ok: false; error: string }> {
+  await requireRole("owner");
+  const res = await setDocDraftClientVisible(id, visible);
+  if (!res.ok) return res;
+
+  const { draft } = res;
+  const slug = draft.project_id
+    ? (await queryOne<{ slug: string }>(`SELECT slug FROM projects WHERE id = $1`, [draft.project_id]))?.slug
+    : null;
+  revalidateFor({ slug, leadSlug: draft.lead_slug });
+  revalidatePath("/client-portal/documents");
+
+  let delivery: DeliveryNote | null = null;
+  if (visible) {
+    const scope = slug ? { project: slug } : draft.lead_slug ? { lead: draft.lead_slug } : null;
+    if (scope) {
+      delivery = await notifyDashboardPublish(scope, { what: draft.title, section: "documents" });
+    }
+  }
+  return { ok: true, delivery };
 }
 
 export async function voidDocDraftAction(id: number): Promise<R> {

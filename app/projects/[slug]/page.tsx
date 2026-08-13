@@ -24,6 +24,8 @@ import { getQueuedSubInvites } from "@/lib/sub-invites";
 import { ProjectDailyLog } from "@/components/projects/ProjectDailyLog";
 import { ProjectFiles } from "@/components/projects/ProjectFiles";
 import { ProjectComms } from "@/components/projects/ProjectComms";
+import { PortalAccessPanel, type PortalInviteSummary } from "@/components/portal/PortalAccessPanel";
+import { getClientInvite } from "@/lib/client-invites";
 import { ProjectSchedule } from "@/components/projects/ProjectSchedule";
 import { DocTypePanel } from "@/components/projects/DocTypePanel";
 import { listDocDrafts, listDocTemplates } from "@/lib/doc-drafts";
@@ -139,6 +141,26 @@ export default async function ProjectDetailPage({
   ]);
   const docTemplates = listDocTemplates().filter((t) => t.scope !== "lead");
   if (!project) notFound();
+
+  // Client portal invite for the Comms tab's access panel.
+  const invite = await getClientInvite({ project: slug });
+  const inviteSummary: PortalInviteSummary = invite
+    ? {
+        status:
+          invite.status === "dismissed"
+            ? "dismissed"
+            : invite.expiresAt < new Date()
+              ? "expired"
+              : "active",
+        toEmail: invite.toEmail,
+        expiresLabel: invite.expiresAt.toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        }),
+        used: invite.usedAt !== null,
+      }
+    : { status: "none", toEmail: null, expiresLabel: null, used: false };
 
   const catalogOptions = catalog.materials.map((m) => ({ id: m.id, name: m.name }));
 
@@ -444,7 +466,12 @@ export default async function ProjectDetailPage({
   );
 
   // ── Comms panel — real owner ⇄ client thread (portal:<slug>) ───────────────
-  const commsPanel = <ProjectComms slug={slug} thread={commsThread} />;
+  const commsPanel = (
+    <div className="max-w-[680px] space-y-4">
+      <PortalAccessPanel scope={{ project: slug }} invite={inviteSummary} />
+      <ProjectComms slug={slug} thread={commsThread} />
+    </div>
+  );
 
   // ── Punch panel — real, interactive punch-list items (add/toggle/remove) ────
   const punchPanel = <PunchList slug={project.slug} items={project.punch} />;

@@ -4,11 +4,14 @@ import { Card, Chip, Eyebrow } from "@/components/ui";
 import {
   buildClientPortalData,
   getClientUploads,
-  getPortalBadges,
-  type PortalBadges,
+  getPortalBadgesForScope,
+  parseLinkSlug,
+  EMPTY_PORTAL_BADGES,
 } from "@/lib/client-portal";
 import { requireRole } from "@/lib/dal";
 import { getProject, getProjectDailyLogs } from "@/lib/projects";
+import { stageLabel } from "@/lib/leads";
+import type { LeadStage } from "@/lib/types";
 import { queryOne } from "@/lib/db";
 import { getClientWarranty } from "@/lib/warranty";
 import { ClientUploads } from "@/components/portal/ClientUploads";
@@ -19,20 +22,35 @@ import { ClaimAccount } from "@/components/portal/ClaimAccount";
 // Portal home: the project journal + everything currently waiting on the
 // client, each linking into its own section (nav in the layout). The deep
 // sections — plans, mood, selections, documents, money, schedule, messages —
-// live on their own routes.
+// live on their own routes. A lead-stage session gets the same page with the
+// lead's pipeline stage where the journal would be — the dashboard opens
+// before the project row exists.
 export default async function ClientPortalPage() {
   const user = await requireRole("owner", "client");
-  const slug = user.role === "client" ? user.linkSlug : null;
+  const scope = user.role === "client" ? parseLinkSlug(user.linkSlug) : null;
+  const slug = scope?.kind === "project" ? scope.slug : null;
 
-  const emptyBadges: PortalBadges = { decisions: 0, toSign: 0, due: 0, confirm: 0 };
-  const [project, logs, badges] = await Promise.all([
+  const [project, logs, badges, lead] = await Promise.all([
     slug ? getProject(slug) : Promise.resolve(null),
     slug ? getProjectDailyLogs(slug) : Promise.resolve([]),
-    slug ? getPortalBadges(slug) : Promise.resolve(emptyBadges),
+    scope ? getPortalBadgesForScope(scope) : Promise.resolve(EMPTY_PORTAL_BADGES),
+    scope?.kind === "lead"
+      ? queryOne<{ name: string; stage: LeadStage }>(
+          `SELECT name, stage FROM leads WHERE slug = $1`,
+          [scope.slug],
+        )
+      : Promise.resolve(null),
   ]);
 
   const data = buildClientPortalData(project, logs);
   if (user.role === "client") data.clientInitials = user.initials || data.clientInitials;
+  if (lead) {
+    // Lead-stage framing: no daily logs yet — the "journal" is where things
+    // stand in the pipeline and what to expect next.
+    data.project = lead.name;
+    data.greeting = "We're getting your project ready.";
+    data.statusChips = [{ label: stageLabel(lead.stage), kind: "accent", dot: true }];
+  }
 
   // Has this client traded their link for a real password yet? Drives the
   // "create an account" offer. The synthetic address the link-in flow mints
@@ -49,7 +67,10 @@ export default async function ClientPortalPage() {
     ? undefined
     : claimRow?.email;
 
-  const uploads = slug ? await getClientUploads(slug) : [];
+  // Uploads are keyed by the raw link slug (project slug or 'lead:<slug>'),
+  // matching what uploadClientFile stamps into files.client_slug.
+  const uploads =
+    user.role === "client" && user.linkSlug ? await getClientUploads(user.linkSlug) : [];
 
   // Warranty panel — only once the project has reached the warranty stage.
   const inWarranty = project?.status === "warranty";
@@ -104,7 +125,9 @@ export default async function ClientPortalPage() {
         <div className="flex flex-col gap-5">
           {data.entries.length === 0 ? (
             <p className="text-[13.5px] leading-relaxed text-ink-3">
-              No updates posted yet. As work gets logged on site, the latest will show up here.
+              {lead
+                ? "We're in the planning stage — estimates and paperwork land under Documents, and you can reach Joe any time in Messages. Once work starts, day-by-day updates will show up here."
+                : "No updates posted yet. As work gets logged on site, the latest will show up here."}
             </p>
           ) : (
             data.entries.map((e, i) => (

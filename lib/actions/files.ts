@@ -13,6 +13,7 @@ import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { UPLOAD_DIR } from "@/lib/uploads";
 import { storeUpload } from "@/lib/upload-store";
+import { notifyDashboardPublish, type DeliveryNote } from "@/lib/portal-publish";
 
 const MAX_BYTES = 25 * 1024 * 1024; // keep in step with next.config bodySizeLimit
 
@@ -139,6 +140,65 @@ export async function uploadProjectFile(
   if (!res.ok) return res;
   revalidatePath(`/projects/${slug}`);
   return { ok: true };
+}
+
+/** Upload a real file scoped to a lead (files.lead_slug = slug), shown on the
+ *  lead's Files tab and downloadable via /api/files/[id]. Owner-gated. */
+export async function uploadLeadFile(
+  slug: string,
+  formData: FormData,
+): Promise<UploadResult> {
+  await requireRole("owner");
+  const res = await storeUpload(formData.get("file"), {
+    idPrefix: "lead",
+    leadSlug: slug,
+    subtitle: `Lead file · ${slug}`,
+  });
+  if (!res.ok) return res;
+  revalidatePath(`/leads/${slug}`);
+  return { ok: true };
+}
+
+/** Publish/unpublish a file on the client dashboard (files.client_visible).
+ *  Works for project files (project_key) and lead files (lead_slug) alike.
+ *  Publishing emails the client a portal link; the note reports delivery. */
+export async function setFileClientVisibility(
+  id: string,
+  visible: boolean,
+): Promise<{ ok: true; delivery: DeliveryNote | null } | { ok: false; error: string }> {
+  await requireRole("owner");
+  const file = await queryOne<{
+    name: string;
+    project_key: string;
+    lead_slug: string | null;
+    storage_path: string | null;
+  }>(
+    `SELECT name, project_key, lead_slug, storage_path FROM files WHERE id = $1`,
+    [id],
+  );
+  if (!file) return { ok: false, error: "File not found." };
+  if (visible && !file.storage_path) {
+    return { ok: false, error: "This entry has no stored file to share." };
+  }
+  // Scope check: lead first (a lead-scoped file may carry an empty project_key,
+  // never a real one). project_key on a project file is the project slug.
+  const scope = file.lead_slug
+    ? ({ lead: file.lead_slug } as const)
+    : file.project_key
+      ? ({ project: file.project_key } as const)
+      : null;
+  if (!scope) return { ok: false, error: "This file isn't attached to a project or lead." };
+
+  await query(`UPDATE files SET client_visible = $2 WHERE id = $1`, [id, visible]);
+
+  if ("project" in scope) revalidatePath(`/projects/${scope.project}`);
+  else revalidatePath(`/leads/${scope.lead}`);
+  revalidatePath("/client-portal/documents");
+
+  const delivery = visible
+    ? await notifyDashboardPublish(scope, { what: file.name, section: "documents" })
+    : null;
+  return { ok: true, delivery };
 }
 
 interface FileSummaryRow {

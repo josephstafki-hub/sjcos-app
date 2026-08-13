@@ -1,8 +1,8 @@
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, FileText, Image as ImageIcon } from "lucide-react";
 import { Card, Chip, Eyebrow } from "@/components/ui";
 import type { ChipKind } from "@/components/ui";
-import { portalSlug } from "@/lib/client-portal";
-import { getClientSignatures } from "@/lib/esign";
+import { portalScope, getSharedDocs, getSharedFiles } from "@/lib/client-portal";
+import { getClientSignatures, getLeadClientSignatures } from "@/lib/esign";
 import { getProjectEstimates, type EstimateDetail } from "@/lib/estimates";
 import { getProjectChangeOrders } from "@/lib/change-orders";
 import { usd } from "@/lib/money";
@@ -10,19 +10,25 @@ import { ClientSignDocs } from "@/components/portal/ClientSignDocs";
 
 // Client-portal documents: one place for everything that needs (or carries) a
 // signature — contracts, estimates, change orders, and any other doc Joe
-// sends — plus readable detail on estimates and change orders. Signing and
-// declining go through the e-sign engine (signature_requests); approving an
-// estimate or CO happens by signing its linked request.
+// sends — plus readable detail on estimates and change orders, plus everything
+// Joe explicitly published to the dashboard (documents + files). Works for
+// both scopes: a lead-stage session sees its lead-scoped paperwork; estimates
+// and change orders are project machinery and appear once the project exists.
 export default async function PortalDocumentsPage() {
-  const slug = await portalSlug();
+  const scope = await portalScope();
+  const slug = scope?.kind === "project" ? scope.slug : null;
 
-  const [signDocs, estimates, changeOrders] = slug
-    ? await Promise.all([
-        getClientSignatures(slug),
-        getProjectEstimates(slug),
-        getProjectChangeOrders(slug),
-      ])
-    : [[], [], []];
+  const [signDocs, estimates, changeOrders, sharedDocs, sharedFiles] = await Promise.all([
+    scope
+      ? scope.kind === "project"
+        ? getClientSignatures(scope.slug)
+        : getLeadClientSignatures(scope.slug)
+      : Promise.resolve([]),
+    slug ? getProjectEstimates(slug) : Promise.resolve([]),
+    slug ? getProjectChangeOrders(slug) : Promise.resolve([]),
+    scope ? getSharedDocs(scope) : Promise.resolve([]),
+    scope ? getSharedFiles(scope) : Promise.resolve([]),
+  ]);
 
   // Clients never see internal drafts.
   const clientEstimates = estimates.filter((e) => e.status !== "draft");
@@ -47,6 +53,66 @@ export default async function PortalDocumentsPage() {
         <Eyebrow muted>To sign · history</Eyebrow>
         <ClientSignDocs docs={signDocs} />
       </div>
+
+      {sharedDocs.length > 0 && (
+        <>
+          <div className="my-5 border-t border-rule" />
+          <Eyebrow muted>Shared documents</Eyebrow>
+          <div className="mt-2 flex flex-col gap-2">
+            {sharedDocs.map((d) => (
+              <Card key={d.id} className="p-2.5">
+                <div className="flex items-center gap-2.5">
+                  <FileText className="size-3.5 flex-none text-ink-3" strokeWidth={1.5} />
+                  <span className="min-w-0 flex-1 truncate font-serif text-[13px] font-semibold text-ink">
+                    {d.title}
+                  </span>
+                  <span className="flex-none font-mono text-[10px] text-ink-3">{d.when}</span>
+                  {d.pdfFileId && (
+                    <a
+                      href={`/api/portal/project-file/${d.pdfFileId}`}
+                      target="_blank"
+                      rel="noopener"
+                      className="flex-none text-[11px] font-semibold text-accent-2 hover:underline"
+                    >
+                      Open PDF
+                    </a>
+                  )}
+                </div>
+              </Card>
+            ))}
+          </div>
+        </>
+      )}
+
+      {sharedFiles.length > 0 && (
+        <>
+          <div className="my-5 border-t border-rule" />
+          <Eyebrow muted>Shared files</Eyebrow>
+          <div className="mt-2 flex flex-col gap-2">
+            {sharedFiles.map((f) => (
+              <Card key={f.id} className="p-2.5">
+                <div className="flex items-center gap-2.5">
+                  {f.isImage ? (
+                    <ImageIcon className="size-3.5 flex-none text-ink-3" strokeWidth={1.5} />
+                  ) : (
+                    <FileText className="size-3.5 flex-none text-ink-3" strokeWidth={1.5} />
+                  )}
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{f.name}</span>
+                  <span className="flex-none font-mono text-[10px] text-ink-3">{f.sizeLabel}</span>
+                  <a
+                    href={`/api/portal/project-file/${f.id}`}
+                    target="_blank"
+                    rel="noopener"
+                    className="flex-none text-[11px] font-semibold text-accent-2 hover:underline"
+                  >
+                    Open
+                  </a>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </>
+      )}
 
       {clientEstimates.length > 0 && (
         <>

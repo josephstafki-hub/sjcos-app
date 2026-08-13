@@ -83,15 +83,27 @@ export interface MoodItem {
   z: number;
 }
 
+/** One client feedback note on a board. */
+export interface MoodFeedback {
+  id: number;
+  name: string;
+  body: string;
+  when: string;
+}
+
 export interface MoodBoardData {
   room: string;
   /** Display title shown above the canvas; falls back to the room name. */
   title: string;
   /** '#rrggbb' board background, or "" for the default dotted paper. */
   bgColor: string;
+  /** Owner published this board to the client dashboard. */
+  published: boolean;
   /** Set when the client approved this board from their portal. */
   approvedName: string | null;
   approvedLabel: string | null;
+  /** Client feedback notes, oldest first. */
+  feedback: MoodFeedback[];
   items: MoodItem[];
 }
 
@@ -121,6 +133,7 @@ interface BoardRow {
   room: string;
   title: string;
   bg_color: string;
+  published_at: Date | null;
   client_approved_name: string;
   approved_label: string | null;
 }
@@ -130,40 +143,46 @@ export async function getProjectMood(slug: string): Promise<MoodBoardData[]> {
   return loadMood(slug, (r) => `/api/files/${r.image_file_id}`);
 }
 
-/** Same boards for the client portal, read-only — images stream through the
- *  client-authorized route, keyed by the mood ITEM id so the route authorizes
- *  by the parent project's slug vs. the client's linkSlug. */
+/** PUBLISHED boards for the client portal, read-only — images stream through
+ *  the client-authorized route, keyed by the mood ITEM id so the route
+ *  authorizes by the parent project's slug vs. the client's linkSlug. */
 export async function getClientProjectMood(slug: string): Promise<MoodBoardData[]> {
-  return loadMood(slug, (r) => `/api/portal/mood-image/${r.id}`);
+  return loadMood(slug, (r) => `/api/portal/mood-image/${r.id}`, true);
 }
 
-/** Resolve a mood item's image file + project slug — used by the portal serve
- *  route to authorize and stream. Null when the item has no image. */
+/** Resolve a mood item's image file + project slug + its board's publish state
+ *  — used by the portal serve route to authorize and stream. Null when the item
+ *  has no image. An item whose room has no settings row counts as unpublished. */
 export async function resolveMoodImage(
   itemId: number,
-): Promise<{ fileId: string; slug: string } | null> {
-  const { rows } = await query<{ image_file_id: string | null; slug: string }>(
-    `SELECT m.image_file_id, p.slug
-       FROM project_mood m JOIN projects p ON p.id = m.project_id
+): Promise<{ fileId: string; slug: string; published: boolean } | null> {
+  const { rows } = await query<{ image_file_id: string | null; slug: string; published_at: Date | null }>(
+    `SELECT m.image_file_id, p.slug, b.published_at
+       FROM project_mood m
+       JOIN projects p ON p.id = m.project_id
+       LEFT JOIN project_mood_boards b ON b.project_id = m.project_id AND b.room = m.room
       WHERE m.id = $1`,
     [itemId],
   );
   const r = rows[0];
-  return r?.image_file_id ? { fileId: r.image_file_id, slug: r.slug } : null;
+  return r?.image_file_id
+    ? { fileId: r.image_file_id, slug: r.slug, published: r.published_at !== null }
+    : null;
 }
 
 async function loadMood(
   slug: string,
   imageUrlFor: (r: Pick<MoodRow, "id" | "image_file_id">) => string,
+  publishedOnly = false,
 ): Promise<MoodBoardData[]> {
-  const [{ rows: boardRows }, { rows }] = await Promise.all([
+  const [{ rows: boardRows }, { rows }, { rows: feedbackRows }] = await Promise.all([
     query<BoardRow>(
-      `SELECT b.room, b.title, b.bg_color,
+      `SELECT b.room, b.title, b.bg_color, b.published_at,
               b.client_approved_name,
               to_char(b.client_approved_at, 'Mon FMDD, YYYY') AS approved_label
          FROM project_mood_boards b
          JOIN projects p ON p.id = b.project_id
-        WHERE p.slug = $1
+        WHERE p.slug = $1${publishedOnly ? " AND b.published_at IS NOT NULL" : ""}
         ORDER BY b.room`,
       [slug],
     ),
@@ -179,6 +198,15 @@ async function loadMood(
         ORDER BY m.room, m.sort_order, m.id`,
       [slug],
     ),
+    query<{ id: number; room: string; author_name: string; body: string; when_label: string }>(
+      `SELECT fb.id, fb.room, fb.author_name, fb.body,
+              to_char(fb.created_at, 'Mon FMDD · HH12:MI AM') AS when_label
+         FROM project_mood_feedback fb
+         JOIN projects p ON p.id = fb.project_id
+        WHERE p.slug = $1
+        ORDER BY fb.created_at, fb.id`,
+      [slug],
+    ),
   ]);
 
   const byRoom = new Map<string, MoodBoardData>();
@@ -187,8 +215,10 @@ async function loadMood(
       room: b.room,
       title: b.title,
       bgColor: safeColor(b.bg_color),
+      published: b.published_at !== null,
       approvedName: b.approved_label ? b.client_approved_name || null : null,
       approvedLabel: b.approved_label,
+      feedback: [],
       items: [],
     });
   }
@@ -197,8 +227,10 @@ async function loadMood(
     let board = byRoom.get(r.room);
     if (!board) {
       // A room with pins but no settings row — keep the board rather than
-      // dropping every pin in it on the floor.
-      board = { room: r.room, title: "", bgColor: "", approvedName: null, approvedLabel: null, items: [] };
+      // dropping every pin in it on the floor. Never published (there's no
+      // settings row to carry the flag), so it stays out of the client view.
+      if (publishedOnly) continue;
+      board = { room: r.room, title: "", bgColor: "", published: false, approvedName: null, approvedLabel: null, feedback: [], items: [] };
       byRoom.set(r.room, board);
     }
     board.items.push({
@@ -220,6 +252,15 @@ async function loadMood(
       cropY: toNum(r.crop_y) ?? 0.5,
       zoom: toNum(r.crop_zoom) ?? 1,
       z: r.sort_order,
+    });
+  }
+
+  for (const f of feedbackRows) {
+    byRoom.get(f.room)?.feedback.push({
+      id: toId(f.id),
+      name: f.author_name,
+      body: f.body,
+      when: f.when_label,
     });
   }
 

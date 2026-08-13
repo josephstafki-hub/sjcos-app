@@ -396,6 +396,12 @@ CREATE INDEX IF NOT EXISTS idx_files_lead ON files(lead_slug);
 -- stay owner-only (served via /api/files, not the portal route).
 ALTER TABLE files ADD COLUMN IF NOT EXISTS client_slug  text;
 CREATE INDEX IF NOT EXISTS idx_files_client ON files(client_slug);
+-- Owner-controlled client visibility (db/apply-lead-portal-publish.mjs): a file
+-- the owner explicitly published to the client dashboard. Scope comes from
+-- project_key (project files) or lead_slug (lead files); the portal serve route
+-- checks this flag + scope. Distinct from client_slug, which marks files the
+-- client uploaded themselves (always visible to them).
+ALTER TABLE files ADD COLUMN IF NOT EXISTS client_visible boolean NOT NULL DEFAULT false;
 
 -- ─── App settings ─────────────────────────────────────────────────────────
 -- Single-row key/value store for the Settings screen toggles + profile fields.
@@ -852,6 +858,25 @@ CREATE TABLE IF NOT EXISTS project_mood_boards (
 ALTER TABLE project_mood_boards ADD COLUMN IF NOT EXISTS client_approved_at timestamptz;
 ALTER TABLE project_mood_boards ADD COLUMN IF NOT EXISTS client_approved_name text NOT NULL DEFAULT '';
 
+-- Per-board publish switch (db/apply-lead-portal-publish.mjs): a board reaches
+-- the client portal only once the owner publishes it. NULL = owner-only.
+ALTER TABLE project_mood_boards ADD COLUMN IF NOT EXISTS published_at timestamptz;
+
+-- Client feedback on a mood board (db/apply-lead-portal-publish.mjs) — the
+-- lightweight "closer, but warmer wood tones" note that isn't an approval.
+-- Keyed by room (like project_mood); rename/delete of a board moves/removes
+-- these rows in lib/actions/mood.ts.
+CREATE TABLE IF NOT EXISTS project_mood_feedback (
+  id           bigserial PRIMARY KEY,
+  project_id   uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  room         text NOT NULL,
+  author_name  text NOT NULL DEFAULT '',
+  body         text NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_mood_feedback_board
+  ON project_mood_feedback(project_id, room, created_at);
+
 -- ─── Design tools: floor-plan versions (Review-round-3 S5E) ─────────────────
 -- Versioned floor-plan files (image or PDF) per project, each with text notes.
 -- Viewer only — not a CAD editor. version increments per upload.
@@ -869,6 +894,10 @@ CREATE TABLE IF NOT EXISTS project_floorplans (
 -- and money documents keep going through signature_requests instead.
 ALTER TABLE project_floorplans ADD COLUMN IF NOT EXISTS client_approved_at timestamptz;
 ALTER TABLE project_floorplans ADD COLUMN IF NOT EXISTS client_approved_name text NOT NULL DEFAULT '';
+
+-- Per-version publish switch (db/apply-lead-portal-publish.mjs): a plan version
+-- reaches the client portal only once the owner publishes it. NULL = owner-only.
+ALTER TABLE project_floorplans ADD COLUMN IF NOT EXISTS published_at timestamptz;
 
 -- Project ↔ sub assignments (the project Subs tab). A sub can be on many jobs;
 -- a job has many subs. Slug FK keeps it readable + matches the subs portal link.
@@ -2115,6 +2144,12 @@ CREATE TABLE IF NOT EXISTS document_drafts (
 CREATE INDEX IF NOT EXISTS idx_doc_drafts_project ON document_drafts(project_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_doc_drafts_lead    ON document_drafts(lead_slug, created_at DESC);
 
+-- Owner-controlled client visibility (db/apply-lead-portal-publish.mjs): a
+-- rendered document the owner published to the client dashboard, independent of
+-- (and in addition to) the signature flow. The portal lists visible drafts and
+-- serves their PDFs through the scope-checked portal file route.
+ALTER TABLE document_drafts ADD COLUMN IF NOT EXISTS client_visible boolean NOT NULL DEFAULT false;
+
 -- Widen signature_requests doc_type for the new templates (adds 'precon').
 -- NOT VALID so an existing table with legacy rows re-constrains without a scan.
 ALTER TABLE signature_requests DROP CONSTRAINT IF EXISTS signature_requests_doc_type_check;
@@ -2149,6 +2184,25 @@ CREATE TABLE IF NOT EXISTS client_portal_invites (
 );
 CREATE INDEX IF NOT EXISTS idx_client_invites_project
   ON client_portal_invites(project_slug, status);
+
+-- Lead-stage portal (db/apply-lead-portal-publish.mjs): an invite now scopes to
+-- a project XOR a lead, so the dashboard can open during the lead stage
+-- (documents to review/sign, messages) and carry over on conversion. The users
+-- row minted for a lead-scoped invite gets link_slug = 'lead:<slug>' — the
+-- prefix keeps it from colliding with a project slug, and the conversion flow
+-- (lib/actions/leads.ts) rewrites it to the new project slug.
+ALTER TABLE client_portal_invites ALTER COLUMN project_slug DROP NOT NULL;
+ALTER TABLE client_portal_invites ADD COLUMN IF NOT EXISTS lead_slug text REFERENCES leads(slug) ON DELETE CASCADE;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_client_invites_lead
+  ON client_portal_invites(lead_slug) WHERE lead_slug IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_client_invites_lead
+  ON client_portal_invites(lead_slug, status);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'client_portal_invites_scope_xor') THEN
+    ALTER TABLE client_portal_invites ADD CONSTRAINT client_portal_invites_scope_xor
+      CHECK ((project_slug IS NULL) <> (lead_slug IS NULL));
+  END IF;
+END $$;
 
 -- Set when a client trades their bearer link for a real password. Non-null ⇒
 -- links are refused for that account and password login is the only way in.

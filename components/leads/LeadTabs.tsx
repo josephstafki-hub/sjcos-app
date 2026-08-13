@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { Tabs, Card } from "@/components/ui";
 
-const TAB_LABELS = ["Overview", "Ops", "Tasks", "Conversation", "Rough estimate", "Documents", "Files", "Activity"];
+const TAB_LABELS = ["Overview", "Ops", "Tasks", "Conversation", "Rough estimate", "Documents", "Files", "Client portal", "Activity"];
 
 /** Lets a panel rendered inside LeadTabs (e.g. a sidebar button in Overview)
  *  jump the tab bar to another tab, e.g. "Documents", without lifting state

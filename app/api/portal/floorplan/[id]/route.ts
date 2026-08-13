@@ -23,7 +23,12 @@ export async function GET(
   const resolved = await resolveFloorplanFile(versionId);
   if (!resolved) return new Response("Not found", { status: 404 });
 
-  if (user.role !== "owner" && !(user.role === "client" && user.linkSlug === resolved.slug)) {
+  // Clients only reach PUBLISHED versions of their own project — the id space
+  // is guessable, so the publish switch is enforced here, not just in the list.
+  if (
+    user.role !== "owner" &&
+    !(user.role === "client" && user.linkSlug === resolved.slug && resolved.published)
+  ) {
     return new Response("Forbidden", { status: 403 });
   }
 

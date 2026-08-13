@@ -3,7 +3,13 @@ import { Bell, ArrowLeft } from "lucide-react";
 import { Avatar, Chip } from "@/components/ui";
 import { requireRole } from "@/lib/dal";
 import { getProject } from "@/lib/projects";
-import { getPortalBadges, type PortalBadges } from "@/lib/client-portal";
+import { queryOne } from "@/lib/db";
+import {
+  EMPTY_PORTAL_BADGES,
+  getPortalBadgesForScope,
+  parseLinkSlug,
+  type PortalBadges,
+} from "@/lib/client-portal";
 import { PortalNav, type PortalNavItem } from "@/components/portal/PortalNav";
 import { LiveUpdates } from "@/components/shell/LiveUpdates";
 
@@ -11,30 +17,47 @@ import { LiveUpdates } from "@/components/shell/LiveUpdates";
 // Standalone surface — deliberately NOT wrapped in Shell (see Shell's
 // docstring); the portal has its own nav and its own live-update poller so a
 // client sees Joe's pushes (selections, docs, messages) without reloading.
+//
+// A lead-stage session (link_slug 'lead:<slug>') gets a trimmed nav — Home,
+// Documents, Messages — because plans, mood boards, selections, money, and
+// schedule are project machinery that doesn't exist yet. The nav grows on
+// conversion without the client doing anything.
 export default async function ClientPortalLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   const user = await requireRole("owner", "client");
-  const slug = user.role === "client" ? user.linkSlug : null;
+  const scope = user.role === "client" ? parseLinkSlug(user.linkSlug) : null;
 
-  const empty: PortalBadges = { decisions: 0, toSign: 0, due: 0, confirm: 0 };
-  const [project, badges] = await Promise.all([
-    slug ? getProject(slug) : Promise.resolve(null),
-    slug ? getPortalBadges(slug) : Promise.resolve(empty),
+  const [title, badges] = await Promise.all([
+    scope?.kind === "project"
+      ? getProject(scope.slug).then((p) => p?.name ?? null)
+      : scope?.kind === "lead"
+        ? queryOne<{ name: string }>(`SELECT name FROM leads WHERE slug = $1`, [scope.slug]).then(
+            (l) => (l ? `${l.name} · getting started` : null),
+          )
+        : Promise.resolve(null),
+    scope ? getPortalBadgesForScope(scope) : Promise.resolve<PortalBadges>(EMPTY_PORTAL_BADGES),
   ]);
 
-  const items: PortalNavItem[] = [
-    { href: "/client-portal", label: "Home" },
-    { href: "/client-portal/plans", label: "Floor plans" },
-    { href: "/client-portal/mood", label: "Mood boards" },
-    { href: "/client-portal/selections", label: "Selections", badge: badges.decisions },
-    { href: "/client-portal/documents", label: "Documents", badge: badges.toSign },
-    { href: "/client-portal/money", label: "Money", badge: badges.due },
-    { href: "/client-portal/schedule", label: "Schedule" },
-    { href: "/client-portal/messages", label: "Messages" },
-  ];
+  const items: PortalNavItem[] =
+    scope?.kind === "lead"
+      ? [
+          { href: "/client-portal", label: "Home" },
+          { href: "/client-portal/documents", label: "Documents", badge: badges.toSign },
+          { href: "/client-portal/messages", label: "Messages" },
+        ]
+      : [
+          { href: "/client-portal", label: "Home" },
+          { href: "/client-portal/plans", label: "Floor plans" },
+          { href: "/client-portal/mood", label: "Mood boards" },
+          { href: "/client-portal/selections", label: "Selections", badge: badges.decisions },
+          { href: "/client-portal/documents", label: "Documents", badge: badges.toSign },
+          { href: "/client-portal/money", label: "Money", badge: badges.due },
+          { href: "/client-portal/schedule", label: "Schedule" },
+          { href: "/client-portal/messages", label: "Messages" },
+        ];
 
   // Bell = everything currently waiting on the CLIENT (never their own past
   // actions): open decisions, docs to sign, punch items to confirm.
@@ -45,7 +68,7 @@ export default async function ClientPortalLayout({
       <header className="flex h-[50px] flex-none items-center gap-3 border-b border-rule bg-paper-2 px-7">
         <span className="font-serif text-[15px] font-semibold text-accent-2">SJ Carpentry</span>
         <span className="hidden font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3 sm:inline">
-          Client portal · {project?.name ?? "Your project"}
+          Client portal · {title ?? "Your project"}
         </span>
         <div className="flex-1" />
         {user.role === "owner" && (

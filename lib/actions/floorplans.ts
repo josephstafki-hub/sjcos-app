@@ -10,6 +10,7 @@ import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { storeUpload } from "@/lib/upload-store";
 import { emit } from "@/lib/notify";
+import { notifyDashboardPublish, type DeliveryNote } from "@/lib/portal-publish";
 
 type Result = { ok: boolean; error?: string };
 
@@ -72,6 +73,38 @@ export async function updateFloorplanNotes(id: number, notes: string): Promise<R
   return { ok: true };
 }
 
+/** Publish/unpublish a plan version on the client dashboard. Publishing emails
+ *  the client a portal link (best-effort; the delivery note says what
+ *  happened). Unpublishing just hides the version again. Owner only. */
+export async function setFloorplanPublished(
+  id: number,
+  publish: boolean,
+): Promise<{ ok: true; delivery: DeliveryNote | null } | { ok: false; error: string }> {
+  await requireRole("owner");
+  const row = await queryOne<{ slug: string; version: number }>(
+    `SELECT p.slug, fp.version
+       FROM project_floorplans fp JOIN projects p ON p.id = fp.project_id
+      WHERE fp.id = $1`,
+    [id],
+  );
+  if (!row) return { ok: false, error: "Version not found." };
+
+  await query(
+    `UPDATE project_floorplans SET published_at = ${publish ? "now()" : "NULL"} WHERE id = $1`,
+    [id],
+  );
+  revalidatePath(`/projects/${row.slug}`);
+  revalidatePath("/client-portal/plans");
+
+  const delivery = publish
+    ? await notifyDashboardPublish(
+        { project: row.slug },
+        { what: `floor plan v${row.version}`, section: "plans" },
+      )
+    : null;
+  return { ok: true, delivery };
+}
+
 /** Client approves a plan version from their portal. A lightweight typed-name
  *  acknowledgment (contracts and money docs go through the e-sign engine
  *  instead). Scoped to the client's own project; idempotent — the first
@@ -85,6 +118,14 @@ export async function approveFloorplan(id: number, formData: FormData): Promise<
   if (!row) return { ok: false, error: "Version not found." };
   if (user.role === "client" && user.linkSlug !== row.slug) {
     return { ok: false, error: "This plan is not on your project." };
+  }
+  // A client can only approve what's actually on their dashboard.
+  if (user.role === "client") {
+    const pub = await queryOne<{ published_at: Date | null }>(
+      `SELECT published_at FROM project_floorplans WHERE id = $1`,
+      [id],
+    );
+    if (!pub?.published_at) return { ok: false, error: "This version isn't shared with you." };
   }
 
   const updated = await query(

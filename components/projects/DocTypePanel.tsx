@@ -26,6 +26,7 @@ import {
   updateDocDraftFieldsAction,
   renderDocDraftAction,
   submitDocDraftForSignatureAction,
+  setDocDraftVisibilityAction,
   voidDocDraftAction,
   deleteDocDraftAction,
   unlockDocDraftForEditAction,
@@ -37,6 +38,7 @@ export interface DocDraftItem {
   template_key: string;
   title: string;
   status: string;
+  client_visible: boolean;
   field_values: Record<string, unknown>;
   fill_report: Record<string, string>;
   missing: string[];
@@ -84,6 +86,7 @@ export function DocTypePanel({
   const router = useRouter();
   const [editingId, setEditingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   function create() {
@@ -135,6 +138,21 @@ export function DocTypePanel({
     });
   }
 
+  /** Publish/unpublish a document on the client dashboard. Publishing emails
+   *  the client — surface the delivery note so "sent" is never a guess. */
+  function publish(d: DocDraftItem, to: boolean) {
+    setError(null);
+    setNotice(null);
+    startTransition(async () => {
+      const res = await setDocDraftVisibilityAction(d.id, to);
+      if (!res.ok) setError(res.error);
+      else {
+        setNotice(to ? (res.delivery?.note ?? "Published.") : "Removed from the client dashboard.");
+        router.refresh();
+      }
+    });
+  }
+
   const editing = editingId != null ? drafts.find((d) => d.id === editingId) ?? null : null;
 
   return (
@@ -159,6 +177,7 @@ export function DocTypePanel({
       </div>
 
       {error && <div className="text-[12px] text-flag">{error}</div>}
+      {notice && <div className="text-[12px] text-money">{notice}</div>}
 
       {editing ? (
         <DraftEditor key={editing.id} draft={editing} onClose={() => setEditingId(null)} />
@@ -173,7 +192,14 @@ export function DocTypePanel({
       ) : (
         <div className="space-y-2.5">
           {drafts.map((d) => (
-            <DraftRow key={d.id} draft={d} pending={pending} onEdit={() => edit(d)} onDelete={() => remove(d)} />
+            <DraftRow
+              key={d.id}
+              draft={d}
+              pending={pending}
+              onEdit={() => edit(d)}
+              onDelete={() => remove(d)}
+              onPublish={(to) => publish(d, to)}
+            />
           ))}
         </div>
       )}
@@ -193,14 +219,18 @@ function DraftRow({
   pending,
   onEdit,
   onDelete,
+  onPublish,
 }: {
   draft: DocDraftItem;
   pending: boolean;
   onEdit: () => void;
   onDelete: () => void;
+  onPublish: (to: boolean) => void;
 }) {
   const fileHref = (id: string | null) => (id ? `/api/files/${id}` : null);
   const sentOrSigned = draft.status === "submitted" || draft.status === "signed";
+  // Publishable once a PDF exists (rendered/submitted/signed) and not voided.
+  const canPublish = !!draft.pdf_file_id && draft.status !== "void";
 
   return (
     <Card className="p-3.5">
@@ -210,6 +240,11 @@ function DraftRow({
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="truncate font-serif text-[15px] font-semibold text-ink">{draft.title}</span>
             <Chip kind={STATUS_KIND[draft.status] ?? "ghost"}>{STATUS_LABEL[draft.status] ?? draft.status}</Chip>
+            {draft.client_visible && (
+              <Chip kind="money" dot>
+                On dashboard
+              </Chip>
+            )}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-3 text-[11px] text-ink-3">
             {draft.status === "signed" && draft.signedName ? (
@@ -238,6 +273,25 @@ function DraftRow({
           </div>
         </div>
         <div className="flex flex-none items-center gap-1.5">
+          {canPublish && (
+            <button
+              type="button"
+              onClick={() => onPublish(!draft.client_visible)}
+              disabled={pending}
+              title={
+                draft.client_visible
+                  ? "Remove from the client dashboard"
+                  : "Publish to the client dashboard (emails the client)"
+              }
+              className={
+                draft.client_visible
+                  ? "rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink-3 hover:bg-paper-2 disabled:opacity-60"
+                  : "rounded-md border border-accent bg-accent px-2 py-1 text-[11px] font-semibold text-white hover:bg-accent-2 disabled:opacity-60"
+              }
+            >
+              {draft.client_visible ? "Unpublish" : "Publish"}
+            </button>
+          )}
           <button
             type="button"
             onClick={onEdit}

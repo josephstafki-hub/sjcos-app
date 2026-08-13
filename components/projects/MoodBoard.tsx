@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import {
   Check,
   ExternalLink,
+  Eye,
+  EyeOff,
   ImagePlus,
   LayoutGrid,
   Palette,
@@ -30,6 +32,7 @@ import {
   renameMoodBoard,
   reorderMoodItem,
   saveMoodLayout,
+  setMoodBoardPublished,
   updateMoodBoard,
   updateMoodLabel,
   updateMoodNote,
@@ -90,6 +93,7 @@ export function MoodBoard({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [picker, setPicker] = useState(false);
   const [upload, setUpload] = useState(false);
   const [textOpen, setTextOpen] = useState(false);
@@ -168,6 +172,22 @@ export function MoodBoard({
   // canvas — scoped to this room so it reads as that room's product list.
   const products = items.filter((i) => i.kind === "pin" && i.label);
 
+  /** Publish/unpublish the active board on the client dashboard. Publishing
+   *  also emails the client — show what actually happened, not just "done". */
+  function publishBoard(to: boolean) {
+    if (!room) return;
+    setError("");
+    setNotice("");
+    startTransition(async () => {
+      const r = await setMoodBoardPublished(slug, room, to);
+      if (!r.ok) setError(r.error ?? "Something went wrong.");
+      else {
+        setNotice(to ? (r.delivery?.note ?? "Published.") : "Removed from the client dashboard.");
+        router.refresh();
+      }
+    });
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -181,6 +201,26 @@ export function MoodBoard({
             nudge the selected item; Delete removes it.
           </p>
         </div>
+        <button
+          onClick={() => publishBoard(!board?.published)}
+          disabled={!room || pending}
+          title={board?.published ? "Remove this board from the client dashboard" : "Publish this board to the client dashboard (emails the client)"}
+          className={
+            board?.published
+              ? TOOL
+              : "inline-flex items-center gap-1 rounded-md border border-accent bg-accent px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
+          }
+        >
+          {board?.published ? (
+            <>
+              <EyeOff className="size-3" strokeWidth={1.5} /> Unpublish
+            </>
+          ) : (
+            <>
+              <Eye className="size-3" strokeWidth={1.5} /> Publish
+            </>
+          )}
+        </button>
         <button onClick={() => setSettingsOpen(true)} disabled={!room} className={TOOL} title="Board settings">
           <Settings2 className="size-3" strokeWidth={1.5} />
           Board
@@ -217,6 +257,21 @@ export function MoodBoard({
       </div>
 
       {error && <div className="text-[12px] text-flag">{error}</div>}
+      {notice && <div className="text-[12px] text-money">{notice}</div>}
+
+      {/* Dashboard state for the active board. */}
+      {board && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Chip kind={board.published ? "money" : "ghost"} dot>
+            {board.published ? "On client dashboard" : "Hidden from client"}
+          </Chip>
+          {board.approvedLabel && (
+            <Chip kind="money" dot>
+              approved by {board.approvedName || "client"} · {board.approvedLabel}
+            </Chip>
+          )}
+        </div>
+      )}
 
       {/* Room chips — one board per room. */}
       <div className="flex flex-wrap items-center gap-1.5">
@@ -298,6 +353,22 @@ export function MoodBoard({
                         <ExternalLink className="size-3" strokeWidth={1.5} />
                       </a>
                     )}
+                  </div>
+                ))}
+              </Card>
+            </div>
+          )}
+
+          {board && board.feedback.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <span className={LABEL}>Client feedback on this board</span>
+              <Card className="divide-y divide-rule p-0">
+                {board.feedback.map((f) => (
+                  <div key={f.id} className="px-3 py-2">
+                    <p className="whitespace-pre-wrap text-[12.5px] leading-snug text-ink">{f.body}</p>
+                    <div className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-ink-3">
+                      {f.name} · {f.when}
+                    </div>
                   </div>
                 ))}
               </Card>

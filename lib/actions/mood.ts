@@ -12,6 +12,7 @@ import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { storeUpload } from "@/lib/upload-store";
 import { emit } from "@/lib/notify";
+import { notifyDashboardPublish, type DeliveryNote } from "@/lib/portal-publish";
 
 type Result = { ok: boolean; error?: string };
 
@@ -410,6 +411,82 @@ export async function removeMoodImage(id: number): Promise<Result> {
   return { ok: true };
 }
 
+/** Publish/unpublish a board on the client dashboard. Publishing emails the
+ *  client a portal link (best-effort; the delivery note reports what
+ *  happened). Unpublishing hides the board — and its images — again. */
+export async function setMoodBoardPublished(
+  slug: string,
+  room: string,
+  publish: boolean,
+): Promise<{ ok: true; delivery: DeliveryNote | null } | { ok: false; error: string }> {
+  await requireRole("owner");
+  const project = await projectBySlug(slug);
+  if (!project) return { ok: false, error: "Project not found." };
+
+  const updated = await query(
+    `UPDATE project_mood_boards SET published_at = ${publish ? "now()" : "NULL"}
+      WHERE project_id = $1 AND room = $2`,
+    [project.id, room],
+  );
+  if (updated.rowCount === 0) return { ok: false, error: "Board not found." };
+  revalidatePath(`/projects/${slug}`);
+  revalidatePath("/client-portal/mood");
+
+  const delivery = publish
+    ? await notifyDashboardPublish(
+        { project: slug },
+        { what: `the ${room} mood board`, section: "mood" },
+      )
+    : null;
+  return { ok: true, delivery };
+}
+
+/** Client leaves feedback on a board from their portal — the "closer, but
+ *  warmer wood tones" note that isn't an approval. Scoped to the client's own
+ *  project (never trusted from the form); owner-role callers (previewing) pass
+ *  the slug and never self-notify. */
+export async function addMoodFeedback(room: string, formData: FormData): Promise<Result> {
+  const user = await requireRole("owner", "client");
+  const body = String(formData.get("body") ?? "").trim().slice(0, MAX_NOTE);
+  if (!body) return { ok: false, error: "Write a note first." };
+
+  const slug = user.role === "client" ? user.linkSlug : String(formData.get("slug") ?? "");
+  if (!slug) return { ok: false, error: "No project linked to this account." };
+
+  const board = await queryOne<{ project_id: string; published_at: Date | null }>(
+    `SELECT b.project_id, b.published_at
+       FROM project_mood_boards b JOIN projects p ON p.id = b.project_id
+      WHERE p.slug = $1 AND b.room = $2`,
+    [slug, room],
+  );
+  if (!board) return { ok: false, error: "Board not found." };
+  if (user.role === "client" && !board.published_at) {
+    return { ok: false, error: "This board isn't shared with you." };
+  }
+
+  await query(
+    `INSERT INTO project_mood_feedback (project_id, room, author_name, body)
+     VALUES ($1, $2, $3, $4)`,
+    [board.project_id, room, (user.name || "Client").slice(0, 120), body],
+  );
+
+  if (user.role === "client") {
+    await emit({
+      kind: "mention",
+      tag: "Mood board",
+      accent: "ai",
+      icon: "chat",
+      title: `${user.name || "Client"} left feedback on the ${room} board`,
+      subline: body.length > 120 ? `${body.slice(0, 117)}…` : body,
+      href: `/projects/${slug}`,
+    });
+  }
+
+  revalidatePath("/client-portal/mood");
+  revalidatePath(`/projects/${slug}`);
+  return { ok: true };
+}
+
 /** Client approves a board's direction from their portal — the mood-board
  *  counterpart of approveFloorplan (lib/actions/floorplans.ts). Typed-name
  *  acknowledgment, scoped to the client's own project, first approval sticks.
@@ -422,12 +499,14 @@ export async function approveMoodBoard(room: string, formData: FormData): Promis
   const slug = user.role === "client" ? user.linkSlug : String(formData.get("slug") ?? "");
   if (!slug) return { ok: false, error: "No project linked to this account." };
 
+  // A client can only approve a board that's actually on their dashboard.
+  const publishedGuard = user.role === "client" ? "AND b.published_at IS NOT NULL" : "";
   const updated = await query(
     `UPDATE project_mood_boards b
         SET client_approved_at = now(), client_approved_name = $3
        FROM projects p
       WHERE p.id = b.project_id AND p.slug = $1 AND b.room = $2
-        AND b.client_approved_at IS NULL`,
+        AND b.client_approved_at IS NULL ${publishedGuard}`,
     [slug, room, name.slice(0, 120)],
   );
   if (updated.rowCount === 0) return { ok: false, error: "Board not found or already approved." };
@@ -516,6 +595,11 @@ export async function renameMoodBoard(slug: string, from: string, to: string): P
       WHERE m.project_id = $1 AND m.room = $2`,
     [project.id, src, dst],
   );
+  // Feedback follows the pins to the destination board.
+  await query(
+    `UPDATE project_mood_feedback SET room = $3 WHERE project_id = $1 AND room = $2`,
+    [project.id, src, dst],
+  );
   await query(`DELETE FROM project_mood_boards WHERE project_id = $1 AND room = $2`, [project.id, src]);
   revalidatePath(`/projects/${slug}`);
   return { ok: true };
@@ -529,6 +613,7 @@ export async function deleteMoodBoard(slug: string, room: string): Promise<Resul
   const clean = cleanRoom(room);
   if (!clean) return { ok: false, error: "Board not found." };
   await query(`DELETE FROM project_mood WHERE project_id = $1 AND room = $2`, [project.id, clean]);
+  await query(`DELETE FROM project_mood_feedback WHERE project_id = $1 AND room = $2`, [project.id, clean]);
   await query(`DELETE FROM project_mood_boards WHERE project_id = $1 AND room = $2`, [project.id, clean]);
   revalidatePath(`/projects/${slug}`);
   return { ok: true };

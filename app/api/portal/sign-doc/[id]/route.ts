@@ -20,16 +20,33 @@ export async function GET(
   const reqId = Number(id);
   if (!Number.isFinite(reqId)) return new Response("Not found", { status: 404 });
 
-  const sr = await queryOne<{ file_id: string | null; slug: string | null }>(
-    `SELECT sr.file_id, p.slug
+  // A request scopes to a project OR a lead (pre-project estimates/precon).
+  // The acceptable users.link_slug values: the project slug, 'lead:<slug>' for
+  // a lead-stage session, or — for a lead request whose lead has since
+  // converted — the converted project's slug (the client's link upgraded on
+  // conversion, the paperwork didn't move).
+  const sr = await queryOne<{
+    file_id: string | null;
+    slug: string | null;
+    lead_slug: string | null;
+    converted_slug: string | null;
+  }>(
+    `SELECT sr.file_id, p.slug, sr.lead_slug, cp.slug AS converted_slug
        FROM signature_requests sr
-       JOIN projects p ON p.id = sr.project_id
+       LEFT JOIN projects p ON p.id = sr.project_id
+       LEFT JOIN leads l ON l.slug = sr.lead_slug
+       LEFT JOIN projects cp ON cp.lead_id = l.id
       WHERE sr.id = $1`,
     [reqId],
   );
   if (!sr?.file_id) return new Response("Not found", { status: 404 });
 
-  if (user.role !== "owner" && !(user.role === "client" && user.linkSlug === sr.slug)) {
+  const allowed = [
+    sr.slug,
+    sr.lead_slug ? `lead:${sr.lead_slug}` : null,
+    sr.converted_slug,
+  ].filter(Boolean);
+  if (user.role !== "owner" && !(user.role === "client" && allowed.includes(user.linkSlug ?? ""))) {
     return new Response("Forbidden", { status: 403 });
   }
 

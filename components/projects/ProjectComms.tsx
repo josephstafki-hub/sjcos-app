@@ -2,15 +2,26 @@
 
 import { useRef } from "react";
 import { Card, SubmitButton } from "@/components/ui";
-import { sendProjectMessage } from "@/lib/actions/portal";
+import { sendProjectMessage, sendLeadPortalMessage } from "@/lib/actions/portal";
 import type { PortalMessage } from "@/lib/portal-messages";
 
-/** Project Comms tab — the real owner ⇄ client thread (portal:<slug>). The
- *  client sees the same conversation on their dashboard. Owner composer posts
- *  via sendProjectMessage; the form resets after submit. */
-export function ProjectComms({ slug, thread }: { slug: string; thread: PortalMessage[] }) {
+/** The real owner ⇄ client thread. Project Comms tab (portal:<slug>) or — via
+ *  leadSlug — the lead's Client portal tab (portal:lead:<slug>). The client
+ *  sees the same conversation on their dashboard. The form resets after
+ *  submit. */
+export function ProjectComms({
+  slug,
+  leadSlug,
+  thread,
+}: {
+  slug?: string;
+  leadSlug?: string;
+  thread: PortalMessage[];
+}) {
   const formRef = useRef<HTMLFormElement>(null);
-  const send = sendProjectMessage.bind(null, slug);
+  const send = leadSlug
+    ? sendLeadPortalMessage.bind(null, leadSlug)
+    : sendProjectMessage.bind(null, slug!);
 
   return (
     <Card className="max-w-[680px] overflow-hidden p-0">

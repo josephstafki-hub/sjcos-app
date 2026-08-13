@@ -1,12 +1,11 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { FileText } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
 import { Card, Chip, Eyebrow } from "@/components/ui";
 import { CommandBar } from "@/components/cmdk/CommandBar";
 import { LeadTabs } from "@/components/leads/LeadTabs";
-import { getLead, STAGES, stageIndex, stageLabel, suggestedProjectName } from "@/lib/leads";
+import { getLead, STAGES, stageIndex, suggestedProjectName } from "@/lib/leads";
 import { getLeadScore } from "@/lib/intake";
 import { leadContext } from "@/lib/page-context";
 import { getLeadActivity, type LeadActivityKind } from "@/lib/lead-activity";
@@ -22,7 +21,13 @@ import { LeadTasks } from "@/components/leads/LeadTasks";
 import { getLeadTasks } from "@/lib/lead-tasks";
 import { LeadEstimate } from "@/components/leads/LeadEstimate";
 import { DocTypePanel } from "@/components/projects/DocTypePanel";
+import { ProjectFiles } from "@/components/projects/ProjectFiles";
+import { ProjectComms } from "@/components/projects/ProjectComms";
+import { PortalAccessPanel, type PortalInviteSummary } from "@/components/portal/PortalAccessPanel";
 import { listDocDrafts, listDocTemplates } from "@/lib/doc-drafts";
+import { getLeadFiles } from "@/lib/projects";
+import { getClientInvite } from "@/lib/client-invites";
+import { getPortalThread, portalChannel } from "@/lib/portal-messages";
 import { AI_NAME } from "@/lib/ai-name";
 import { RecordOps } from "@/components/engine/RecordOps";
 import { getRecordOps } from "@/lib/record-ops";
@@ -49,6 +54,31 @@ export default async function LeadDetailPage({
   );
   // Open Engine + Brain data scoped to this one lead — the "Ops" tab.
   const ops = await getRecordOps("lead", slug);
+
+  // Client portal state for this lead: real uploaded files (with dashboard
+  // share toggles), the invite, and the portal chat thread.
+  const [leadFiles, invite, portalThread] = await Promise.all([
+    getLeadFiles(slug),
+    getClientInvite({ lead: slug }),
+    getPortalThread(portalChannel("client", `lead:${slug}`)),
+  ]);
+  const inviteSummary: PortalInviteSummary = invite
+    ? {
+        status:
+          invite.status === "dismissed"
+            ? "dismissed"
+            : invite.expiresAt < new Date()
+              ? "expired"
+              : "active",
+        toEmail: invite.toEmail,
+        expiresLabel: invite.expiresAt.toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        }),
+        used: invite.usedAt !== null,
+      }
+    : { status: "none", toEmail: lead.email || null, expiresLabel: null, used: false };
 
   const isLost = lead.stage === "lost";
   const currentStageIdx = stageIndex(lead.stage);
@@ -252,27 +282,19 @@ export default async function LeadDetailPage({
       emptyPanel("Conversation", "Messages with this lead land here once email + SMS are connected.")
     );
 
-  // ── Files panel — lead-scoped documents ────────────────────────────────────
-  const filesPanel =
-    lead.files.length > 0 ? (
-      <Card className="max-w-[640px] overflow-hidden p-0">
-        {lead.files.map((f, i) => (
-          <div
-            key={f.name}
-            className={`flex items-center gap-3 px-4 py-3 ${i ? "border-t border-rule-soft" : ""}`}
-          >
-            <FileText className="size-4 flex-none text-ink-3" strokeWidth={1.5} />
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-[13px] text-ink">{f.name}</div>
-              <div className="font-mono text-[10px] text-ink-3">{f.meta}</div>
-            </div>
-            {f.tag && <Chip kind="ai">{f.tag}</Chip>}
-          </div>
-        ))}
-      </Card>
-    ) : (
-      emptyPanel("Files", "Photos, measurements, and estimates attached to this lead show up here.")
-    );
+  // ── Files panel — REAL lead files (upload + dashboard share toggles), with
+  // the old curated names kept below as a muted reference index. ─────────────
+  const filesPanel = (
+    <ProjectFiles leadSlug={lead.slug} files={leadFiles} showcase={lead.files.map((f) => f.name)} />
+  );
+
+  // ── Client portal panel — access link management + the portal chat thread ──
+  const portalPanel = (
+    <div className="max-w-[680px] space-y-4">
+      <PortalAccessPanel scope={{ lead: lead.slug }} invite={inviteSummary} />
+      <ProjectComms leadSlug={lead.slug} thread={portalThread} />
+    </div>
+  );
 
   const panels: Record<string, ReactNode> = {
     Overview: overview,
@@ -294,6 +316,7 @@ export default async function LeadDetailPage({
       </div>
     ),
     Files: filesPanel,
+    "Client portal": portalPanel,
     Activity: activityPanel,
   };
 

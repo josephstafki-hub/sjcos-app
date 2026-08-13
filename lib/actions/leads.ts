@@ -533,6 +533,33 @@ export async function convertLeadToProject(slug: string, nameInput?: string) {
   );
   await logLeadActivity(slug, "note", `Converted to project "${projectName}"`);
 
+  // Carry any lead-stage client-portal access onto the new project: the minted
+  // users row (link_slug 'lead:<slug>' → project slug; synthetic email
+  // likewise) and the invite row move across, so a client who already has the
+  // dashboard keeps it — same link, more tabs. Their portal chat thread also
+  // follows (portal:lead:<slug> → portal:<pslug>). Best-effort — portal
+  // bookkeeping must never block the conversion.
+  try {
+    await query(
+      `UPDATE users
+          SET link_slug = $2,
+              email = CASE WHEN email = $3 THEN $4 ELSE email END
+        WHERE role = 'client' AND link_slug = $1`,
+      [`lead:${slug}`, pslug, `lead-${slug}@client-portal.invalid`, `${pslug}@client-portal.invalid`],
+    );
+    await query(
+      `UPDATE client_portal_invites SET project_slug = $2, lead_slug = NULL
+        WHERE lead_slug = $1`,
+      [slug, pslug],
+    );
+    await query(
+      `UPDATE chat_messages SET channel_key = $2 WHERE channel_key = $1`,
+      [`portal:lead:${slug}`, `portal:${pslug}`],
+    );
+  } catch {
+    /* portal carry-over must never block the conversion */
+  }
+
   // The conversation moves from the lead to the new project room (P1-D2): open
   // the project room, carry any participants added during the lead stage over,
   // then close the lead's. Best-effort — never block the convert.

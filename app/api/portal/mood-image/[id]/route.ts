@@ -22,7 +22,12 @@ export async function GET(
   const resolved = await resolveMoodImage(itemId);
   if (!resolved) return new Response("Not found", { status: 404 });
 
-  if (user.role !== "owner" && !(user.role === "client" && user.linkSlug === resolved.slug)) {
+  // Clients only reach items on PUBLISHED boards of their own project — item
+  // ids are guessable, so the publish switch is enforced here too.
+  if (
+    user.role !== "owner" &&
+    !(user.role === "client" && user.linkSlug === resolved.slug && resolved.published)
+  ) {
     return new Response("Forbidden", { status: 403 });
   }
 

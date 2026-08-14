@@ -439,6 +439,27 @@ export function InboxClient({
     run(fn);
   };
 
+  // Mark read/unread, optimistically: flip the row's bold treatment (and its
+  // UNREAD label, so the Unread mailbox filter agrees) before Gmail confirms.
+  const setReadSelected = (read: boolean) => {
+    if (!selected) return;
+    const id = selected.id;
+    const patch = (t: InboxThread): InboxThread => {
+      if (t.id !== id) return t;
+      const labelIds = read
+        ? t.labelIds?.filter((l) => l !== "UNREAD")
+        : t.labelIds?.includes("UNREAD")
+          ? t.labelIds
+          : [...(t.labelIds ?? []), "UNREAD"];
+      return { ...t, unread: !read, labelIds };
+    };
+    setThreads((ts) => ts.map(patch));
+    setRemoteData((prev) =>
+      prev ? { ...prev, threads: prev.threads.map(patch) } : prev,
+    );
+    menuAction(() => setThreadReadAction(id, read));
+  };
+
   // Archive, optimistically: drop the thread out of the inbox and into Done so
   // it leaves Needs reply / Inbox immediately instead of lingering until reload.
   // A snoozed thread stays snoozed (Gmail keeps SNOOZED through an archive).
@@ -791,16 +812,10 @@ export function InboxClient({
                         <MenuItem icon={Star} onClick={toggleStar}>
                           {selectedStarred ? "Unstar" : "Star"}
                         </MenuItem>
-                        <MenuItem
-                          icon={MailOpen}
-                          onClick={() => menuAction(() => setThreadReadAction(selected.id, true))}
-                        >
+                        <MenuItem icon={MailOpen} onClick={() => setReadSelected(true)}>
                           Mark as read
                         </MenuItem>
-                        <MenuItem
-                          icon={Mail}
-                          onClick={() => menuAction(() => setThreadReadAction(selected.id, false))}
-                        >
+                        <MenuItem icon={Mail} onClick={() => setReadSelected(false)}>
                           Mark as unread
                         </MenuItem>
                         <MenuItem
@@ -1036,6 +1051,9 @@ function ThreadRow({
   onSelect: () => void;
 }) {
   const Icon = CHANNEL_ICON[thread.channel];
+  // Email-client read/unread treatment: unread rows carry full-weight type and
+  // an accent dot; read rows recede to normal weight and lighter ink.
+  const unread = thread.unread ?? false;
   return (
     <button
       onClick={onSelect}
@@ -1052,14 +1070,30 @@ function ThreadRow({
         />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className="flex-1 truncate font-serif text-[13px] font-semibold text-ink">
+            <span
+              className={[
+                "flex-1 truncate font-serif text-[13px]",
+                unread ? "font-bold text-ink" : "font-normal text-ink-2",
+              ].join(" ")}
+            >
               {thread.fromName}
             </span>
+            {unread && <span className="size-1.5 flex-none rounded-full bg-accent" aria-label="Unread" />}
             <Icon className="size-2.5 flex-none text-ink-3" strokeWidth={1.5} />
-            <span className="font-mono text-[9px] text-ink-3">{thread.when}</span>
+            <span
+              className={`font-mono text-[9px] ${unread ? "font-medium text-accent-2" : "text-ink-3"}`}
+            >
+              {thread.when}
+            </span>
           </div>
-          <div className="mt-0.5 truncate text-[12px] text-ink-2">{thread.subject}</div>
-          <div className="mt-0.5 truncate text-[11px] text-ink-3">{thread.preview}</div>
+          <div
+            className={`mt-0.5 truncate text-[12px] ${unread ? "font-medium text-ink" : "text-ink-3"}`}
+          >
+            {thread.subject}
+          </div>
+          <div className={`mt-0.5 truncate text-[11px] ${unread ? "text-ink-2" : "text-ink-3"}`}>
+            {thread.preview}
+          </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-1">
             <Chip kind={thread.urgent ? "flag" : "ghost"}>{thread.tag}</Chip>
             {thread.labelNames?.map((name) => (

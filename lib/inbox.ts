@@ -76,6 +76,8 @@ export interface InboxThread {
   activeJob?: boolean;
   /** Gmail STARRED — drives pin/star UI and the starred treatment. */
   starred?: boolean;
+  /** Unread (Gmail UNREAD label / SMS unread flag) — bold row treatment. */
+  unread?: boolean;
   /** Resolved user-label display names, shown as chips on the row. */
   labelNames?: string[];
   /** Raw Gmail label ids, used by the label-rail filter. */
@@ -114,6 +116,7 @@ const THREADS: InboxThread[] = [
     inInbox: true,
     tag: "Chen lead",
     emphasis: "flag",
+    unread: true,
     aiVerdict: "needs your reply",
   },
   {
@@ -142,6 +145,7 @@ const THREADS: InboxThread[] = [
     inInbox: true,
     tag: "Tax",
     emphasis: "flag",
+    unread: true,
     urgent: true,
     aiVerdict: "deadline in 14 days",
   },
@@ -428,6 +432,7 @@ function rawToThread(r: RawGmailThread, labelMap: Map<string, string>): InboxThr
     emphasis: needsReply ? "flag" : r.starred ? "accent" : "ghost",
     aiVerdict: needsReply ? "needs your reply" : undefined,
     starred: r.starred,
+    unread: r.unread,
     labelNames: labelNames.length ? labelNames : undefined,
     labelIds: r.labelIds,
     category: r.category,
@@ -983,6 +988,7 @@ async function loadSmsThreads(): Promise<ChannelBuild> {
       view,
       tag: "SMS",
       emphasis: view === "needs_reply" ? "flag" : "ghost",
+      unread: r.unread,
       audience,
     });
     const conv = byThread.get(r.id) ?? [];

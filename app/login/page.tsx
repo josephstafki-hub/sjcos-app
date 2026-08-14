@@ -53,24 +53,6 @@ export default async function LoginPage({
         <div className="rounded-xl border border-rule bg-card p-6 shadow-sm">
           <LoginForm />
         </div>
-
-        <div className="mt-4 rounded-lg border border-dashed border-rule-soft bg-paper-2 px-4 py-3">
-          <div className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-ink-3">
-            Demo logins
-          </div>
-          <ul className="mt-1.5 space-y-0.5 text-[11px] text-ink-3">
-            <li>
-              <span className="text-ink-2">Owner</span> · josephstafki@sjcarpentryllc.com
-            </li>
-            <li>
-              <span className="text-ink-2">Sub</span> · marco@trade.demo
-            </li>
-            <li>
-              <span className="text-ink-2">Client</span> · henderson@client.demo
-            </li>
-            <li className="pt-0.5 text-ink-4">password for all: <code>sjcos</code></li>
-          </ul>
-        </div>
       </div>
     </div>
   );

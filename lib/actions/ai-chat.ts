@@ -11,6 +11,7 @@ import { finalizeHermesAnswer } from "@/lib/orchestrator/effects";
 import { escalateToHermesLadder, runHermesLadder } from "@/lib/orchestrator/ladder";
 import { processQwenProposals, setEscalateHook } from "@/lib/orchestrator/proposals";
 import { routeMessage } from "@/lib/orchestrator/router";
+import { conciergeTurn } from "@/lib/orchestrator/voice";
 
 // A Qwen proposal Claude holds re-routes to the Hermes ladder (registered here
 // because proposals.ts can't import ladder.ts without a cycle).
@@ -181,59 +182,18 @@ export async function sendMessageAction(
       turns[turns.length - 1].content += await inlineAttachmentText(files);
     }
 
-    // Run the turn in the background instead of awaiting it here. A Hermes turn
-    // that has to go look things up (e.g. "mark this todo done") can run an
-    // agentic tool loop for a couple of minutes — holding that as one open HTTP
-    // request is what was crashing the page (a proxy/browser gives up on a
-    // multi-minute request long before Hermes does). Claude already avoids this
-    // by running detached and having the client poll; do the same here via the
-    // same dev_agent_runs row, just run in-process (no CLI to spawn) since this
-    // server is a long-lived systemd process, not a serverless function that
-    // would get torn down before the background work finishes.
-    const label = agent === "hermes" ? "Hermes" : "Qwen";
-    const activity = routedVia
-      ? `Routed to ${label} (${routedVia}) — thinking…`
-      : `${label} is thinking…`;
-    const run = await queryOne<{ id: string }>(
-      `INSERT INTO dev_agent_runs (agent, prompt, page_context, status, conversation_id, activity, subject_work_item_id)
-       VALUES ($1, $2, $3, 'running', $4, $5, $6)
-       RETURNING id`,
-      [agent, text, pageContext ?? null, conversationId, activity, subjectWorkItemId ?? null],
-    );
-    const runId = run!.id;
-
-    void (async () => {
-      try {
-        // Three completion pipelines:
-        //  - Hermes in an 'auto' thread → the full ladder (Claude reviews,
-        //    feedback rounds, possible takeover). Pinning Hermes in the rail
-        //    bypasses review — same escape hatch as routing.
-        //  - Hermes pinned → plain turn + effects bookkeeping.
-        //  - Qwen → pending-write pipeline (propose → Claude review → execute).
-        let answer: string;
-        if (agent === "hermes" && conv.agent === "auto") {
-          answer = await runHermesLadder({ runId, conversationId, taskPrompt: text, pageContext });
-        } else if (agent === "hermes") {
-          const raw = await hermesChat(turns, pageContext, conversationId);
-          answer = await finalizeHermesAnswer(runId, raw);
-        } else {
-          const raw = await qwenChat(turns, pageContext);
-          answer = await processQwenProposals(runId, conversationId, text, raw, pageContext);
-        }
-        await insertMessage(conversationId, "assistant", answer);
-        await query(
-          `UPDATE dev_agent_runs SET status = 'done', answer = $2, updated_at = now() WHERE id = $1`,
-          [runId, answer],
-        );
-      } catch (err) {
-        const msg = `⚠️ ${(err as Error).message}`;
-        await insertMessage(conversationId, "assistant", msg);
-        await query(
-          `UPDATE dev_agent_runs SET status = 'error', answer = $2, updated_at = now() WHERE id = $1`,
-          [runId, msg],
-        );
-      }
-    })();
+    // Run the turn in the background (see startBackgroundTurn) and hand the
+    // client a run id to poll.
+    const runId = await startBackgroundTurn({
+      conversationId,
+      agent,
+      reviewed: conv.agent === "auto",
+      text,
+      turns,
+      pageContext,
+      subjectWorkItemId,
+      activity: routedVia ? `Routed to ${agent === "hermes" ? "Hermes" : "Qwen"} (${routedVia}) — thinking…` : undefined,
+    });
 
     return { ok: true, kind: "pending", runId, userMessageId: userMsg.id };
   } catch (err) {
@@ -270,4 +230,139 @@ export async function deleteConversationAction(id: string): Promise<{ ok: boolea
   await requireRole("owner");
   await query(`DELETE FROM ai_conversations WHERE id = $1`, [id]);
   return { ok: true };
+}
+
+// ─── Background turns ────────────────────────────────────────────────────────
+
+interface BackgroundTurn {
+  conversationId: string;
+  agent: "hermes" | "qwen";
+  /** True when this thread is 'auto' — Hermes runs the full Claude-reviewed
+   *  ladder. A pinned Hermes thread bypasses review (the escape hatch). */
+  reviewed: boolean;
+  /** The task as the run row records it (the transcript's user turn). */
+  text: string;
+  turns: { role: "user" | "assistant"; content: string }[];
+  pageContext?: string;
+  subjectWorkItemId?: string;
+  activity?: string;
+}
+
+/**
+ * Create the dev_agent_runs row and run a Qwen/Hermes turn in the background.
+ * A Hermes turn that has to go look things up ("mark this todo done") can run
+ * an agentic tool loop for minutes — holding that as one open HTTP request is
+ * what used to crash the page (proxy/browser give up long before Hermes does).
+ * Claude avoids this by running detached and being polled; Qwen/Hermes do the
+ * same via the same dev_agent_runs row, just in-process, because this server
+ * is a long-lived systemd process rather than a serverless function.
+ *
+ * Shared by the typed send path (sendMessageAction) and the voice concierge
+ * (voiceTurnAction) so a delegated task gets exactly the same pipeline —
+ * ladder, proposals review, effects — as a typed one.
+ */
+async function startBackgroundTurn(t: BackgroundTurn): Promise<string> {
+  const { conversationId, agent, reviewed, text, turns, pageContext, subjectWorkItemId } = t;
+  const label = agent === "hermes" ? "Hermes" : "Qwen";
+  const run = await queryOne<{ id: string }>(
+    `INSERT INTO dev_agent_runs (agent, prompt, page_context, status, conversation_id, activity, subject_work_item_id)
+     VALUES ($1, $2, $3, 'running', $4, $5, $6)
+     RETURNING id`,
+    [agent, text, pageContext ?? null, conversationId, t.activity ?? `${label} is thinking…`, subjectWorkItemId ?? null],
+  );
+  const runId = run!.id;
+
+  void (async () => {
+    try {
+      // Three completion pipelines:
+      //  - Hermes in an 'auto' thread → the full ladder (Claude reviews,
+      //    feedback rounds, possible takeover). Pinning Hermes in the rail
+      //    bypasses review — same escape hatch as routing.
+      //  - Hermes pinned → plain turn + effects bookkeeping.
+      //  - Qwen → pending-write pipeline (propose → Claude review → execute).
+      let answer: string;
+      if (agent === "hermes" && reviewed) {
+        answer = await runHermesLadder({ runId, conversationId, taskPrompt: text, pageContext });
+      } else if (agent === "hermes") {
+        const raw = await hermesChat(turns, pageContext, conversationId);
+        answer = await finalizeHermesAnswer(runId, raw);
+      } else {
+        const raw = await qwenChat(turns, pageContext);
+        answer = await processQwenProposals(runId, conversationId, text, raw, pageContext);
+      }
+      await insertMessage(conversationId, "assistant", answer);
+      await query(
+        `UPDATE dev_agent_runs SET status = 'done', answer = $2, updated_at = now() WHERE id = $1`,
+        [runId, answer],
+      );
+    } catch (err) {
+      const msg = `⚠️ ${(err as Error).message}`;
+      await insertMessage(conversationId, "assistant", msg);
+      await query(
+        `UPDATE dev_agent_runs SET status = 'error', answer = $2, updated_at = now() WHERE id = $1`,
+        [runId, msg],
+      );
+    }
+  })();
+
+  return runId;
+}
+
+// ─── Voice concierge ─────────────────────────────────────────────────────────
+
+export type VoiceTurnResult =
+  | { ok: true; speak: string; ackMessageId: string; runId?: string; delegatedTo?: "hermes" | "qwen" }
+  | { ok: false; error: string };
+
+/**
+ * A voice-mode turn: Claude answers out loud right away and, when the ask
+ * needs OS work, delegates it as a normal background run in this thread
+ * (polled by the client like any other; its result is spoken via
+ * POST /api/tts {runId}). Claude is the only voice Joe hears — Hermes/Qwen do
+ * work, Claude reports. Works in any thread regardless of the rail pin: a
+ * pinned Hermes/Qwen thread just fixes who the delegate is.
+ */
+export async function voiceTurnAction(
+  conversationId: string,
+  transcript: string,
+  pageContext?: string,
+): Promise<VoiceTurnResult> {
+  await requireRole("owner");
+  const text = transcript.trim();
+  if (!text) return { ok: false, error: "I didn't catch that." };
+
+  const conv = await queryOne<{ agent: PanelAgent }>(
+    `SELECT agent FROM ai_conversations WHERE id = $1`,
+    [conversationId],
+  );
+  if (!conv) return { ok: false, error: "That conversation no longer exists." };
+
+  const before = await getTurns(conversationId);
+  await insertMessage(conversationId, "user", text, { pageContext });
+  await autoTitleIfNeeded(conversationId, text);
+
+  const reply = await conciergeTurn(text, before, pageContext);
+  const ack = await insertMessage(conversationId, "assistant", `🗣 ${reply.speak}`);
+
+  if (!reply.delegate) return { ok: true, speak: reply.speak, ackMessageId: ack.id };
+
+  // Honor a pinned thread's agent; 'auto'/'claude' threads take Claude's pick.
+  const agent: "hermes" | "qwen" =
+    conv.agent === "hermes" || conv.agent === "qwen" ? conv.agent : reply.delegate.agent;
+  const turns = await getTurns(conversationId);
+  const runId = await startBackgroundTurn({
+    conversationId,
+    agent,
+    reviewed: conv.agent === "auto" || conv.agent === "claude",
+    text: reply.delegate.task,
+    turns,
+    // The delegate sees Joe's words in the transcript; Claude's precise task
+    // rides along as context so ids and intent survive the hand-off.
+    pageContext: `${pageContext ?? ""}
+
+Delegated by Claude (voice concierge) — do exactly this:
+${reply.delegate.task}`.trim(),
+    activity: `${agent === "hermes" ? "Hermes" : "Qwen"} is on it (delegated by Claude)…`,
+  });
+  return { ok: true, speak: reply.speak, ackMessageId: ack.id, runId, delegatedTo: agent };
 }

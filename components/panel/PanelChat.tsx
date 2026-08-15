@@ -96,7 +96,7 @@ export function PanelChat({
   } = useChatAttachments(flashNotice);
 
   const voice = useVoiceRound({
-    send: async (text) => submitText(text),
+    send: async (text) => submitVoice(text),
     onError: flashNotice,
   });
 
@@ -118,7 +118,9 @@ export function PanelChat({
     onRunStart,
     onRunEnd,
     onSettled: refresh,
-    onAnswer: (id, body) => voice.notifyAnswer(id, body),
+    // Claude's own voice reply is already plain speech; a delegated run's
+    // written answer gets condensed server-side into a spoken update.
+    onAnswer: (id, body, spoken) => (spoken ? voice.speak(id, body) : voice.speakRun(id)),
     onSendError: (spec) => {
       // Re-stage the files: the turn never reached the model, and re-picking
       // uploads is more annoying than retyping a prompt.
@@ -185,6 +187,14 @@ export function PanelChat({
     setPrompt("");
     setAttachments([]);
     chat.submit({ directive: q, display, attachments: files });
+  };
+
+  /** Voice-mode send: the transcript goes to the Claude concierge, which
+   *  speaks back immediately and delegates any OS work. */
+  const submitVoice = (text: string) => {
+    const q = text.trim();
+    if (!q || chat.pending) return;
+    chat.submit({ directive: q, voice: true });
   };
 
   // "Have Hermes do it" / "Prep me" — same directives as the operator console.
@@ -531,6 +541,10 @@ export function PanelChat({
         </div>
       )}
 
+      {/* Mobile voice bar: a big thumb-zone mic (hands-free rounds) — the
+          desktop composer keeps its compact button. */}
+      <VoiceBar voice={voice} />
+
       {/* Composer */}
       <form
         onSubmit={(e) => {
@@ -558,7 +572,9 @@ export function PanelChat({
           <Paperclip className={`size-4 ${uploading ? "animate-pulse" : ""}`} strokeWidth={1.75} />
         </button>
         <VoiceButton compact onText={(t) => setPrompt((cur) => mergeTranscript(cur, t))} />
-        <VoiceRoundButton voice={voice} />
+        <span className="hidden sm:contents">
+          <VoiceRoundButton voice={voice} />
+        </span>
         <input
           ref={inputRef}
           value={prompt}
@@ -596,19 +612,95 @@ export function PanelChat({
 function voicePlaceholder(phase: string): string {
   switch (phase) {
     case "recording":
-      return "Listening… tap the mic to send";
+      return "Listening… just talk, it sends when you pause";
     case "transcribing":
-      return "Transcribing…";
+      return "Got it…";
     case "waiting":
-      return "Waiting for the answer…";
+      return "Claude is thinking…";
     case "speaking":
-      return "Speaking — tap the mic to interrupt";
+      return "Claude is speaking — tap the mic to interrupt";
     default:
       return "Voice mode — tap the mic to talk";
   }
 }
 
-/** Push-to-talk round control: one button whose icon tracks the round phase,
+/** The mobile voice control: one large button in the thumb zone. Idle: tap to
+ *  start a hands-free conversation. Then the ring shows listening (with live
+ *  mic level), thinking, or Claude speaking; tap = send now / interrupt. The
+ *  exit chip ends voice mode. Small screens only — desktop keeps the compact
+ *  composer button. */
+function VoiceBar({ voice }: { voice: ReturnType<typeof useVoiceRound> }) {
+  if (!voice.supported) return null;
+  const p = voice.phase;
+  const label = !voice.voiceMode
+    ? "Talk to Claude"
+    : p === "recording"
+      ? "Listening…"
+      : p === "transcribing"
+        ? "Got it…"
+        : p === "waiting"
+          ? "Claude is thinking…"
+          : p === "speaking"
+            ? "Claude is speaking"
+            : "Tap to talk";
+  const ring =
+    p === "recording"
+      ? `0 0 0 ${6 + Math.round(voice.level * 26)}px rgba(179, 76, 56, 0.18)`
+      : p === "speaking"
+        ? "0 0 0 10px rgba(96, 122, 79, 0.18)"
+        : "none";
+  return (
+    <div className="flex items-center justify-between gap-3 border-t border-rule bg-paper-2 px-4 py-3 sm:hidden">
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[13px] font-medium text-ink-2">{label}</div>
+        <div className="truncate text-[11px] text-ink-4">
+          {!voice.voiceMode
+            ? "Hands-free — it sends when you pause"
+            : p === "recording"
+              ? "Pause to send · tap to send now"
+              : p === "speaking"
+                ? "Tap to interrupt"
+                : "Claude answers and delegates the work"}
+        </div>
+      </div>
+      {voice.voiceMode && (
+        <button
+          type="button"
+          onClick={() => voice.setVoiceMode(false)}
+          aria-label="Exit voice mode"
+          className="flex size-9 flex-none items-center justify-center rounded-full border border-rule text-ink-3"
+        >
+          <X className="size-4" strokeWidth={2} />
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={voice.micTap}
+        aria-label={label}
+        style={{ boxShadow: ring }}
+        className={`flex size-16 flex-none items-center justify-center rounded-full transition-[box-shadow,background-color] duration-150 ${
+          p === "recording"
+            ? "bg-flag text-paper"
+            : p === "speaking"
+              ? "bg-ai text-paper"
+              : p === "transcribing" || p === "waiting"
+                ? "bg-ai-soft text-ai-2"
+                : "bg-ink text-paper"
+        }`}
+      >
+        {p === "transcribing" || p === "waiting" ? (
+          <Loader2 className="size-7 animate-spin" strokeWidth={1.75} />
+        ) : p === "speaking" ? (
+          <Volume2 className="size-7" strokeWidth={1.75} />
+        ) : (
+          <Mic className="size-7" strokeWidth={1.75} />
+        )}
+      </button>
+    </div>
+  );
+}
+
+/** Desktop voice control: one button whose icon tracks the round phase,
  *  plus an exit chip while voice mode is on. Renders nothing when either half
  *  of the pipeline (whisper STT / Piper TTS) is unavailable. */
 function VoiceRoundButton({ voice }: { voice: ReturnType<typeof useVoiceRound> }) {
@@ -620,7 +712,7 @@ function VoiceRoundButton({ voice }: { voice: ReturnType<typeof useVoiceRound> }
         type="button"
         onClick={voice.micTap}
         aria-label="Start voice conversation"
-        title="Voice conversation — push to talk, spoken answers"
+        title="Voice conversation — hands-free, Claude answers out loud"
         className="flex size-7 flex-none items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-paper-2"
       >
         <AudioLines className="size-4" strokeWidth={1.75} />

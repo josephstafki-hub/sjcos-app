@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ExternalLink, PanelLeftClose, Sparkles, X } from "lucide-react";
+import { ExternalLink, Mic, PanelLeftClose, Sparkles, X } from "lucide-react";
 import { ackAppNav, subscribePanelBus } from "./panelBus";
 import { usePanel } from "./PanelProvider";
 import { PanelDock } from "./PanelDock";
@@ -138,9 +138,12 @@ export function PanelHost({ children }: { children: ReactNode }) {
         <button
           onClick={() => setSheetOpen(true)}
           aria-label="Open operator panel"
-          className="fixed bottom-4 right-4 z-40 flex items-center gap-1.5 rounded-full border border-ai bg-paper px-3 py-2 text-[12px] font-medium text-ai-2 shadow-card lg:hidden"
+          className="fixed bottom-5 right-4 z-40 flex items-center gap-2 rounded-full border border-ai bg-paper py-2 pl-3 pr-2 text-[13px] font-medium text-ai-2 shadow-card lg:hidden"
         >
           <Sparkles className="size-4 text-ai" strokeWidth={1.5} /> Operator
+          <span className="flex size-8 items-center justify-center rounded-full bg-ink text-paper">
+            <Mic className="size-4" strokeWidth={1.75} />
+          </span>
         </button>
       )}
       {showDock && sheetOpen && (

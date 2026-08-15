@@ -5,35 +5,46 @@ import { useDictation } from "@/lib/use-dictation";
 import { useVoiceAvailable } from "@/lib/use-voice-available";
 import { useTtsAvailable } from "@/lib/use-tts-available";
 
-// Push-to-talk conversation rounds for the AI operator panel (Phase B1). One
-// round: mic tap → record → transcribe (local whisper.cpp via useDictation) →
-// send(text) → wait for the run's answer → speak it (local Piper via POST
-// /api/tts) → re-arm the mic while voice mode stays on. The chat surface owns
-// the run lifecycle and calls notifyAnswer(runId, answerText) when the final
-// answer lands. Plain fetch + one shared Audio element per the house rule (no
-// SSE, no streaming). Mic tap while speaking is barge-in; Escape aborts.
+// Hands-free voice conversation for the operator panel. One tap starts a
+// round; from then on it's continuous: voice-activity detection ends each
+// utterance on silence and sends it (no send tap), the reply speaks, the mic
+// re-arms. Claude is the one voice: the surface calls speak(text) with the
+// concierge's immediate answer and, when a delegated run lands,
+// speakRun(runId) — the server condenses that run's outcome into a spoken
+// update (POST /api/tts {runId}). Plain fetch + one shared Audio element per
+// the house rule (no SSE, no streaming). Mic tap while speaking is barge-in;
+// Escape (desktop) aborts; the exit chip tears everything down.
+//
+// Phone realities handled here: iOS only lets an audio element play after a
+// user gesture, so the very first tap "unlocks" the shared element with a
+// silent clip and every later play() reuses it; a screen wake lock keeps the
+// phone from sleeping mid-conversation.
 
 export type VoiceRoundPhase = "idle" | "recording" | "transcribing" | "waiting" | "speaking";
 
 // Matches the server-side guard in lib/tts.ts.
 const SPEECH_MAX = 2000;
 
-/** Reduce markdown to speakable prose: drop fenced code blocks and table rows,
- *  unwrap links/emphasis/list markers, collapse whitespace, cap at the TTS
- *  limit. */
+// A sliver of silence as a WAV data URI — enough to unlock audio on iOS.
+const SILENT_WAV =
+  "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+
+/** Reduce markdown to speakable prose (fallback when the server hasn't
+ *  produced a spoken form): drop code/tables, unwrap links/emphasis/list
+ *  markers, collapse whitespace, cap at the TTS limit. */
 export function stripForSpeech(text: string): string {
   const out = text
-    .replace(/```[\s\S]*?```/g, " ") // fenced code blocks
-    .replace(/^\s*\|.*\|\s*$/gm, " ") // table rows
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1") // images → alt text
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1") // links → label
-    .replace(/`([^`]*)`/g, "$1") // inline code
-    .replace(/^#{1,6}\s+/gm, "") // headings
-    .replace(/^\s*>\s?/gm, "") // blockquotes
-    .replace(/^\s*([-*_]\s*){3,}$/gm, " ") // horizontal rules
-    .replace(/^\s*[-*+]\s+/gm, "") // bullet markers
-    .replace(/^\s*\d+\.\s+/gm, "") // numbered-list markers
-    .replace(/(\*\*|__|~~|\*|_)/g, "") // emphasis
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/^\s*\|.*\|\s*$/gm, " ")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*>\s?/gm, "")
+    .replace(/^\s*([-*_]\s*){3,}$/gm, " ")
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/^\s*\d+\.\s+/gm, "")
+    .replace(/(\*\*|__|~~|\*|_)/g, "")
     .replace(/\s+/g, " ")
     .trim();
   return out.length > SPEECH_MAX ? out.slice(0, SPEECH_MAX) : out;
@@ -43,7 +54,8 @@ export function useVoiceRound({
   send,
   onError,
 }: {
-  send: (text: string) => Promise<void>;
+  /** Deliver a transcript to the chat (voice path). */
+  send: (text: string) => Promise<void> | void;
   onError?: (message: string) => void;
 }) {
   const stt = useVoiceAvailable();
@@ -51,13 +63,15 @@ export function useVoiceRound({
   const supported = stt === true && tts === true;
 
   const [voiceMode, setVoiceModeState] = useState(false);
-  // Round stage outside the dictation machine: idle → waiting → speaking.
   const [stage, setStage] = useState<"idle" | "waiting" | "speaking">("idle");
+  const [level, setLevel] = useState(0);
 
   const voiceModeRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const urlRef = useRef<string | null>(null);
-  const spokenRunRef = useRef<string | null>(null);
+  const spokenRef = useRef<Set<string>>(new Set());
+  const queueRef = useRef<Promise<void>>(Promise.resolve());
+  const wakeRef = useRef<{ release: () => Promise<void> } | null>(null);
   const sendRef = useRef(send);
   const onErrorRef = useRef(onError);
   useEffect(() => {
@@ -68,6 +82,7 @@ export function useVoiceRound({
   const dictation = useDictation({
     onText: (text) => void handleTranscript(text),
     onError: (message) => onErrorRef.current?.(message),
+    onLevel: setLevel,
   });
 
   // While the dictation machine is active it owns the phase.
@@ -83,14 +98,35 @@ export function useVoiceRound({
     }
   }
 
-  /** Pause playback, detach handlers, revoke the object URL. */
+  // ─── audio ────────────────────────────────────────────────────────────────
+
+  function audio(): HTMLAudioElement {
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+      audioRef.current.setAttribute("playsinline", "true");
+    }
+    return audioRef.current;
+  }
+
+  /** Called inside the user's tap: play a silent clip so iOS lets later,
+   *  async play() calls through on the same element. */
+  function unlockAudio() {
+    try {
+      const a = audio();
+      a.src = SILENT_WAV;
+      void a.play().catch(() => {});
+    } catch {
+      /* not fatal */
+    }
+  }
+
   function clearAudio() {
-    const audio = audioRef.current;
-    if (audio) {
-      audio.onended = null;
-      audio.onerror = null;
-      audio.pause();
-      audio.removeAttribute("src");
+    const a = audioRef.current;
+    if (a) {
+      a.onended = null;
+      a.onerror = null;
+      a.pause();
+      a.removeAttribute("src");
     }
     if (urlRef.current) {
       URL.revokeObjectURL(urlRef.current);
@@ -98,48 +134,93 @@ export function useVoiceRound({
     }
   }
 
-  function play(blob: Blob) {
-    clearAudio();
-    if (!audioRef.current) audioRef.current = new Audio();
-    const audio = audioRef.current;
-    const url = URL.createObjectURL(blob);
-    urlRef.current = url;
-    audio.src = url;
-    audio.onended = () => {
+  /** Play one clip; resolves when it ends (or fails). */
+  function play(blob: Blob): Promise<void> {
+    return new Promise((resolve) => {
       clearAudio();
-      setStage("idle");
-      // Round complete — voice mode still on means we're conversing, so re-arm
-      // the mic for the next turn.
-      if (voiceModeRef.current) void dictation.start();
-    };
-    audio.onerror = () => {
-      clearAudio();
-      setStage("idle");
-      onErrorRef.current?.("Couldn't play the answer.");
-    };
-    setStage("speaking");
-    audio.play().catch(() => {
-      clearAudio();
-      setStage("idle");
-      onErrorRef.current?.("Couldn't play the answer.");
+      const a = audio();
+      const url = URL.createObjectURL(blob);
+      urlRef.current = url;
+      a.src = url;
+      a.onended = () => {
+        clearAudio();
+        resolve();
+      };
+      a.onerror = () => {
+        clearAudio();
+        onErrorRef.current?.("Couldn't play the answer.");
+        resolve();
+      };
+      setStage("speaking");
+      a.play().catch(() => {
+        clearAudio();
+        onErrorRef.current?.("Couldn't play the answer.");
+        resolve();
+      });
     });
   }
 
+  /** Utterances queue: an ack and a follow-up update never talk over each
+   *  other. After the LAST queued clip, re-arm the mic if voice mode is on. */
+  function enqueue(fetchClip: () => Promise<Blob | null>) {
+    queueRef.current = queueRef.current
+      .then(async () => {
+        if (!voiceModeRef.current) return;
+        const blob = await fetchClip();
+        if (!blob || !voiceModeRef.current) return;
+        await play(blob);
+      })
+      .catch(() => {})
+      .then(() => {
+        if (!voiceModeRef.current) return;
+        setStage("idle");
+        // The concierge may still be waiting on a delegated run; re-arm so Joe
+        // can keep talking meanwhile — the update queues behind whatever he
+        // says next rather than talking over him.
+        if (dictation.state === "idle") void dictation.start({ noSpeechMs: 8_000 });
+      });
+  }
+
+  async function ttsBlob(body: Record<string, string>): Promise<Blob | null> {
+    try {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        onErrorRef.current?.(data.error || "Couldn't speak the answer.");
+        return null;
+      }
+      return await res.blob();
+    } catch {
+      onErrorRef.current?.("Couldn't speak the answer.");
+      return null;
+    }
+  }
+
+  // ─── public controls ──────────────────────────────────────────────────────
+
   /** Mic tap: idle → start a round (turning voice mode on), recording → stop &
-   *  transcribe, speaking → barge-in (cut playback, start recording). Ignored
-   *  mid-transcribe / mid-wait. */
+   *  send now, speaking → barge-in (cut playback, start recording). Ignored
+   *  mid-transcribe. */
   function micTap() {
     if (!supported) return;
     if (dictation.state === "recording") {
       dictation.stop();
       return;
     }
-    if (dictation.state === "transcribing" || stage === "waiting") return;
+    if (dictation.state === "transcribing") return;
+    if (!voiceModeRef.current) {
+      unlockAudio();
+      void requestWakeLock();
+    }
     if (stage === "speaking") clearAudio(); // barge-in
     voiceModeRef.current = true;
     setVoiceModeState(true);
     setStage("idle");
-    void dictation.start();
+    void dictation.start({ noSpeechMs: 12_000 });
   }
 
   function stopSpeaking() {
@@ -148,47 +229,47 @@ export function useVoiceRound({
   }
 
   /** Turning voice mode off tears the whole round down: playback, recording,
-   *  and any transcript still in flight. */
+   *  queued clips, wake lock. */
   function setVoiceMode(on: boolean) {
     voiceModeRef.current = on;
     setVoiceModeState(on);
-    if (!on) {
-      dictation.cancel();
-      clearAudio();
-      setStage("idle");
-    }
-  }
-
-  /** Called by the chat surface when the run's final answer arrives. Speaks it
-   *  once per runId (text-only for now — a server-side runId path comes in a
-   *  later phase). TTS failures land back at idle with voice mode kept on. */
-  async function notifyAnswer(runId: string, fallbackText: string) {
-    if (!voiceModeRef.current) return;
-    if (spokenRunRef.current === runId) return;
-    spokenRunRef.current = runId;
-    const text = stripForSpeech(fallbackText);
-    if (!text) {
-      setStage("idle");
+    if (on) {
+      unlockAudio();
+      void requestWakeLock();
       return;
     }
+    dictation.cancel();
+    clearAudio();
+    setStage("idle");
+    void wakeRef.current?.release().catch(() => {});
+    wakeRef.current = null;
+  }
+
+  /** Speak text right now (the concierge's immediate answer). Once per id. */
+  function speak(id: string, text: string) {
+    if (!voiceModeRef.current || spokenRef.current.has(id)) return;
+    spokenRef.current.add(id);
+    const clean = stripForSpeech(text);
+    if (!clean) return;
+    enqueue(() => ttsBlob({ text: clean }));
+  }
+
+  /** Speak a finished run's outcome — the server condenses it (Claude) into a
+   *  spoken update and caches it on the run. Once per run. */
+  function speakRun(runId: string) {
+    if (!voiceModeRef.current || spokenRef.current.has(runId)) return;
+    spokenRef.current.add(runId);
+    enqueue(() => ttsBlob({ runId }));
+  }
+
+  async function requestWakeLock() {
     try {
-      const res = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setStage("idle");
-        onErrorRef.current?.(data.error || "Couldn't speak the answer.");
-        return;
-      }
-      const blob = await res.blob();
-      if (!voiceModeRef.current) return; // torn down while synthesizing
-      play(blob);
+      const nav = navigator as Navigator & {
+        wakeLock?: { request: (t: "screen") => Promise<{ release: () => Promise<void> }> };
+      };
+      if (nav.wakeLock && !wakeRef.current) wakeRef.current = await nav.wakeLock.request("screen");
     } catch {
-      setStage("idle");
-      onErrorRef.current?.("Couldn't speak the answer.");
+      /* unsupported / denied — fine */
     }
   }
 
@@ -216,8 +297,9 @@ export function useVoiceRound({
     return () => {
       window.removeEventListener("keydown", onKey);
       haltRef.current(); // unmount teardown
+      void wakeRef.current?.release().catch(() => {});
     };
   }, []);
 
-  return { phase, voiceMode, setVoiceMode, micTap, stopSpeaking, notifyAnswer, supported };
+  return { phase, level, voiceMode, setVoiceMode, micTap, stopSpeaking, speak, speakRun, supported };
 }

@@ -6,6 +6,7 @@ import {
   loadConversationAction,
   newConversationAction,
   sendMessageAction,
+  voiceTurnAction,
   type ChatAttachment,
 } from "@/lib/actions/ai-chat";
 import type { ChatMessage } from "@/lib/ai-chat";
@@ -42,6 +43,9 @@ export interface PanelSend {
   subjectId?: string;
   notice?: string;
   attachments?: ChatAttachment[];
+  /** Voice-mode turn: goes to the Claude concierge (speak-first, delegates
+   *  work in the background) instead of the typed router. */
+  voice?: boolean;
 }
 
 export interface UseAgentChatOptions {
@@ -52,8 +56,10 @@ export interface UseAgentChatOptions {
   onRunEnd?: () => void;
   /** After any settled turn (answer or error) — e.g. refresh the today queue. */
   onSettled?: () => Promise<void> | void;
-  /** A real (non-error) assistant answer landed — e.g. speak it aloud. */
-  onAnswer?: (id: string, body: string) => void;
+  /** A real (non-error) assistant answer landed. `spoken` marks the
+   *  concierge's own voice reply (already plain speech); a finished delegated
+   *  run's answer arrives with spoken=false — speak it via /api/tts {runId}. */
+  onAnswer?: (id: string, body: string, spoken: boolean) => void;
   /** The send itself failed before a run existed — e.g. re-stage attachments. */
   onSendError?: (spec: PanelSend) => void;
 }
@@ -150,7 +156,7 @@ export function useAgentChat({
           { id: `run-${runId}`, role: "assistant", body: p.answer, costUsd: p.costUsd, createdAt: "", subjectWorkItemId: subjectId ?? null },
         ]);
         postPanelMessage({ type: "run", phase: "end", runId, agent, subjectId: subjectId ?? null }, { local: true });
-        if (!p.answer.startsWith("⚠️")) cbRef.current.onAnswer?.(runId, p.answer);
+        if (!p.answer.startsWith("⚠️")) cbRef.current.onAnswer?.(runId, p.answer, false);
         // An orchestrator hand-off (e.g. Qwen's held proposal escalated to the
         // Hermes ladder) starts a follow-on run in the same thread — keep
         // following it so its answer lands live rather than on next reopen.
@@ -333,6 +339,33 @@ export function useAgentChat({
         writePanelState({ conversationId: convId, agent: target });
         setConversationId(convId);
       }
+      if (spec.voice) {
+        // Voice: Claude answers out loud right away; any OS work runs as a
+        // delegated background run in this thread that we then follow.
+        const v = await voiceTurnAction(convId, spec.directive, cbRef.current.getPageContext());
+        if (!live.alive) return;
+        if (!v.ok) {
+          setMessages((m) => [
+            ...m,
+            { id: `err-${Date.now()}`, role: "assistant", body: `⚠️ ${v.error}`, costUsd: null, createdAt: "", subjectWorkItemId: null },
+          ]);
+          await settle();
+          return;
+        }
+        setMessages((m) => [
+          ...m,
+          { id: v.ackMessageId, role: "assistant", body: `🗣 ${v.speak}`, costUsd: null, createdAt: "", subjectWorkItemId: null },
+        ]);
+        cbRef.current.onAnswer?.(v.ackMessageId, v.speak, true);
+        if (!v.runId) {
+          await settle();
+          return;
+        }
+        setNotice(`${v.delegatedTo === "qwen" ? "Qwen" : "Hermes"} is on it — Claude will report back.`);
+        startRun({ runId: v.runId, agent: v.delegatedTo ?? "hermes", subjectId: null, startedAt: Date.now() });
+        await pollTurn(v.runId, undefined, live);
+        return;
+      }
       const r = await sendMessageAction(
         convId,
         spec.directive,
@@ -354,7 +387,7 @@ export function useAgentChat({
       if (r.kind === "answer") {
         // Rare synchronous path — no run row to poll.
         setMessages((m) => [...m, { ...r.message, subjectWorkItemId: spec.subjectId ?? r.message.subjectWorkItemId }]);
-        if (!r.message.body.startsWith("⚠️")) cbRef.current.onAnswer?.(r.message.id, r.message.body);
+        if (!r.message.body.startsWith("⚠️")) cbRef.current.onAnswer?.(r.message.id, r.message.body, false);
         await settle();
         return;
       }

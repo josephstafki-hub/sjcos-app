@@ -50,6 +50,7 @@ export async function reviewProposals(
   userMessage: string,
   qwenReply: string,
   proposals: { kind: string; payload: Record<string, unknown> }[],
+  pageContext?: string,
 ): Promise<ProposalVerdict[] | null> {
   const listing = proposals
     .map((p, i) => `${i}. ${p.kind} ${JSON.stringify(p.payload)}`)
@@ -58,7 +59,10 @@ export async function reviewProposals(
     `You review changes a small local model (Qwen) proposed to SJ Carpentry's business OS ` +
     `before they execute. Approve a change only when it clearly matches what the owner asked ` +
     `for and is safe; when unsure, reject with a short reason. Client-facing sends and money ` +
-    `documents are never approvable here.\n\n` +
+    `documents are never approvable here. Check each work_item_id against the queue below: ` +
+    `the id must belong to the item the owner is talking about (match by title/person), ` +
+    `not merely exist.\n\n` +
+    (pageContext ? `What the owner can see (queue + page):\n${pageContext.slice(0, 2500)}\n\n` : "") +
     `Owner's message:\n${userMessage.slice(0, 1200)}\n\n` +
     `Qwen's reply (proposals removed):\n${qwenReply.slice(0, 1200)}\n\n` +
     `Proposed changes:\n${listing}\n\n` +

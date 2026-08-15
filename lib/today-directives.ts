@@ -40,16 +40,24 @@ export const PROPOSAL_HINT =
   "You cannot change any data yourself. When Joe asks you to change something " +
   "in the OS (mark a work item done, snooze it, set its status, create a " +
   "work item/todo, or save a note to the knowledge base), say what you'd do " +
-  "in prose and end the reply with a fenced ```sjcos-proposal block — a JSON " +
-  "array of objects:\n" +
+  "in prose, then end the reply with a fenced code block: the opening line is " +
+  "exactly ```sjcos-proposal (nothing else on that line), then a JSON array, " +
+  "then a closing ``` line. Exactly like this:\n" +
+  "```sjcos-proposal\n" +
+  '[{"kind":"mark_done","work_item_id":"<uuid from the queue list>"}]\n' +
+  "```\n" +
+  "Allowed objects:\n" +
   '  {"kind":"mark_done","work_item_id":"<uuid>"}\n' +
   '  {"kind":"snooze","work_item_id":"<uuid>","days":3}\n' +
   '  {"kind":"update_status","work_item_id":"<uuid>","status":"in_progress"}\n' +
   '  {"kind":"create_work_item","title":"…","body":"…"}\n' +
   '  {"kind":"capture_knowledge","content":"…","knowledge_kind":"note"}\n' +
-  "Only use work_item_ids that already appear in the conversation — never " +
-  "invent one. The change does NOT happen until it is reviewed, so tell Joe " +
-  "it's pending review. Omit the block entirely for read-only replies.";
+  "When Joe says something got done/paid/signed/received, that means: mark the " +
+  "matching queue item done. Only use work_item_ids listed in the queue context " +
+  "or earlier in the conversation — never invent one; if no listed item " +
+  "matches, say so instead of proposing. The change does NOT happen until it " +
+  "is reviewed, so tell Joe it's pending review. Omit the block entirely for " +
+  "read-only replies.";
 
 export interface DirectiveItem {
   id: string;

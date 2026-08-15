@@ -23,7 +23,7 @@ export interface RunEffect {
 
 export type EffectSource = "app" | "hermes-reported" | "hermes-inferred" | "claude";
 
-const EXPLICIT_FENCE_RE = /```sjcos-effects[^\S\n]*\n([\s\S]*?)```/i;
+const EXPLICIT_FENCE_RE = /```sjcos-effects[^\n]*\n([\s\S]*?)```/i;
 const KIND_RE = /^[a-z][a-z0-9_]{0,39}$/;
 const ID_RE = /^[\w.:\-\/]{1,120}$/;
 const ACTIONS = new Set(["created", "updated", "deleted", "status", "sent", "queued", "touched"]);

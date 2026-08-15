@@ -31,6 +31,14 @@ const OS_VERB_RE = /\b(find|check|look\s?up|go through|send|queue|import|prepare
 const OS_NOUN_RE = /\b(lead|client|project|job|estimate|invoice|receipt|purchase order|po\b|vendor|sub(contractor)?|work item|todo|task|queue|newsletter|issue|subscriber|selection|mood board|warranty|compliance|coi|schedule|knowledge|skill|runbook)\b/i;
 const MEMORY_RE = /\b(remember|memory|memorize|don'?t forget)\b/i;
 
+// Status reports — "the check was deposited", "they signed", "I finished X",
+// "that's done" — are writes in disguise: the right response is to close the
+// matching queue item. Joe talks to the panel this way constantly, so this
+// must never be mistaken for small talk. Light in-context write → Qwen
+// proposes (fast, free) with Claude's gate; a bad proposal escalates to Hermes.
+const STATUS_RE =
+  /\b(deposited|signed|paid|finished|completed|received|delivered|installed|arrived|closed( out)?|shipped|approved|confirmed|handled|resolved|took care of|taken care of|wrapped up|is done|are done|was done|got done|all set|is complete|are complete)\b/i;
+
 // Clear reads → Qwen (free, grounded, no tools to misuse).
 const READ_RE = /^(what|who|when|where|why|how|which|is|are|do|does|did|can|could|should|summar|explain|tell me|show me|give me|list)\b/i;
 const DRAFT_RE = /\b(draft|write( me)?|compose|reword|rewrite|summarize|shorten)\b/i;
@@ -52,6 +60,10 @@ export function routeByRules(text: string): RouteDecision | null {
     // tool-holder — but via triage so Claude frames the caution.
     if (RISK_RE.test(t)) return null;
     return { agent: "hermes", intent: "write", via: "rules", reason: "OS action verb + object" };
+  }
+  // A status report that isn't a question → close-the-item write via Qwen.
+  if (STATUS_RE.test(t) && !READ_RE.test(t) && !/\?\s*$/.test(t)) {
+    return { agent: "qwen", intent: "write", via: "rules", reason: "status report → mark done" };
   }
   if (!RISK_RE.test(t) && (READ_RE.test(t) || DRAFT_RE.test(t))) {
     return { agent: "qwen", intent: DRAFT_RE.test(t) ? "read" : "read", via: "rules", reason: "read/draft" };
@@ -93,7 +105,8 @@ export async function routeMessage(text: string, pageContext?: string): Promise<
     ["qwen", "hermes", "claude"].includes(c.agent) &&
     c.confidence >= 0.7 &&
     c.intent === "read" &&
-    !RISK_RE.test(text)
+    !RISK_RE.test(text) &&
+    !STATUS_RE.test(text) // a status report is never a plain read
   ) {
     return { agent: c.agent, intent: c.intent, via: "classifier", reason: `local classifier (${c.confidence.toFixed(2)})` };
   }

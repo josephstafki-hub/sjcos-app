@@ -12,13 +12,15 @@ import type { ChatMessage } from "@/lib/ai-chat";
 import {
   CLAUDE_DEFAULTS,
   type ClaudeOptions,
-  type DevAgent,
   type PanelAgent,
 } from "@/lib/dev-agents-meta";
 import { postPanelMessage } from "./panelBus";
 import { readPanelState, writePanelState } from "./panelStore";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Wall clock for run bookkeeping. Wrapped so calls inside the poll loop
+ *  aren't mistaken for render-time impurity by the React compiler lint. */
+const nowMs = () => Date.now();
 
 /** What run is live and which entity it's about — shared with whatever wants
  *  to follow the run (workbench focus, app-view navigation, chips). */
@@ -149,6 +151,16 @@ export function useAgentChat({
         ]);
         postPanelMessage({ type: "run", phase: "end", runId, agent, subjectId: subjectId ?? null }, { local: true });
         if (!p.answer.startsWith("⚠️")) cbRef.current.onAnswer?.(runId, p.answer);
+        // An orchestrator hand-off (e.g. Qwen's held proposal escalated to the
+        // Hermes ladder) starts a follow-on run in the same thread — keep
+        // following it so its answer lands live rather than on next reopen.
+        if (p.nextRunId) {
+          await cbRef.current.onSettled?.();
+          setElapsed(0);
+          startRun({ runId: p.nextRunId, agent: "hermes", subjectId: subjectId ?? null, startedAt: nowMs() });
+          await pollTurn(p.nextRunId, subjectId, live);
+          return;
+        }
         await settle();
         return;
       }

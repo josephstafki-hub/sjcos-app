@@ -271,6 +271,11 @@ export interface DevAgentRun {
   activity: string | null;
   costUsd: number | null;
   createdAt: string;
+  /** Set on a done run when a newer run is already in flight in the same
+   *  conversation — an orchestrator hand-off (e.g. Qwen's held proposal
+   *  escalated to Hermes) — so the panel keeps following the thread instead
+   *  of stopping at the first answer. */
+  nextRunId?: string;
 }
 
 /** Create a pending Claude run and kick off the detached runner. Returns the id
@@ -328,12 +333,24 @@ export async function getDevAgentRun(id: string): Promise<DevAgentRun | null> {
     activity: string | null;
     cost_usd: number | null;
     created_at: string;
+    conversation_id: string | null;
   }>(
-    `SELECT id, agent, status, answer, activity, cost_usd, created_at::text AS created_at
+    `SELECT id, agent, status, answer, activity, cost_usd, created_at::text AS created_at, conversation_id
        FROM dev_agent_runs WHERE id = $1`,
     [id],
   );
   if (!row) return null;
+  let nextRunId: string | undefined;
+  if (row.status === "done" && row.conversation_id) {
+    const next = await queryOne<{ id: string }>(
+      `SELECT id FROM dev_agent_runs
+        WHERE conversation_id = $1 AND id <> $2 AND status IN ('pending','running')
+          AND created_at >= (SELECT created_at FROM dev_agent_runs WHERE id = $2)
+        ORDER BY created_at ASC LIMIT 1`,
+      [row.conversation_id, id],
+    );
+    nextRunId = next?.id;
+  }
   return {
     id: row.id,
     agent: row.agent,
@@ -343,6 +360,7 @@ export async function getDevAgentRun(id: string): Promise<DevAgentRun | null> {
     // pg returns `numeric` as a string — coerce so the UI can .toFixed() it.
     costUsd: row.cost_usd == null ? null : Number(row.cost_usd),
     createdAt: row.created_at,
+    nextRunId,
   };
 }
 

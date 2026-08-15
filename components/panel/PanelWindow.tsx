@@ -9,6 +9,7 @@ import {
   subscribePanelBus,
 } from "./panelBus";
 import { subscribePanelState, writePanelState } from "./panelStore";
+import { LiveUpdates } from "@/components/shell/LiveUpdates";
 import { PanelQueueProvider } from "./PanelQueueProvider";
 import { PanelDock } from "./PanelDock";
 
@@ -99,6 +100,9 @@ export function PanelWindow() {
         <PanelQueueProvider>
           <PanelDock width={width} navigate={requestAppNav} />
         </PanelQueueProvider>
+        {/* The popout has no (os) layout, so it polls the change log itself —
+            that's what keeps its queue cards live while agents write. */}
+        <LiveUpdates />
       </div>
     </div>
   );

@@ -218,7 +218,7 @@ export async function sendMessageAction(
           answer = await finalizeHermesAnswer(runId, raw);
         } else {
           const raw = await qwenChat(turns, pageContext);
-          answer = await processQwenProposals(runId, conversationId, text, raw);
+          answer = await processQwenProposals(runId, conversationId, text, raw, pageContext);
         }
         await insertMessage(conversationId, "assistant", answer);
         await query(

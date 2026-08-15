@@ -48,6 +48,7 @@ import { PriorityCard } from "@/components/today/PriorityCard";
 import { ModelActionChips } from "@/components/today/ModelActionChips";
 import { consumeHandOff, subscribePanelBus } from "./panelBus";
 import { getPanelPageContext, getPanelPageRoute } from "./PageAiContext";
+import { queueContext } from "./queueContext";
 import { startersForRoute } from "./panelStarters";
 import { useAgentChat, type ActiveRun } from "./useAgentChat";
 
@@ -99,8 +100,21 @@ export function PanelChat({
     onError: flashNotice,
   });
 
+  // Every turn is grounded in the live queue (ids included) PLUS whatever
+  // page the app view is showing — read at send time via a ref so the poll
+  // loop never captures a stale queue.
+  const queueRef = useRef({ priorities, waiting });
+  useEffect(() => {
+    queueRef.current = { priorities, waiting };
+  });
+  const getPageContext = () => {
+    const q = queueContext(queueRef.current.priorities, queueRef.current.waiting);
+    const page = getPanelPageContext();
+    return page ? `${q}\n\n${page}` : q;
+  };
+
   const chat = useAgentChat({
-    getPageContext: getPanelPageContext,
+    getPageContext,
     onRunStart,
     onRunEnd,
     onSettled: refresh,

@@ -28,7 +28,10 @@ export interface PendingProposal {
   entityId: string | null;
 }
 
-const EXPLICIT_FENCE_RE = /```sjcos-proposal[^\S\n]*\n([\s\S]*?)```/i;
+// The fence line may carry stray words after the tag ("```sjcos-proposal
+// block" — Qwen copied that from an early hint) — anything up to the newline
+// is tolerated; the JSON must start on the next line.
+const EXPLICIT_FENCE_RE = /```sjcos-proposal[^\n]*\n([\s\S]*?)```/i;
 const UUID_RE = /^[0-9a-f-]{36}$/i;
 const MAX_PROPOSALS = 10;
 const WORK_ITEM_STATUSES = new Set([
@@ -121,9 +124,50 @@ export async function processQwenProposals(
   conversationId: string,
   userMessage: string,
   rawAnswer: string,
+  pageContext?: string,
 ): Promise<string> {
-  const { body, proposals } = parseModelProposals(rawAnswer);
-  if (!proposals.length) return body;
+  const { body, proposals: parsed } = parseModelProposals(rawAnswer);
+
+  // Guardrail: a proposal may only name a work item that was actually in
+  // view — the queue digest / page context sent with this turn, or an id
+  // Joe himself typed. Qwen once invented a well-formed uuid for an item it
+  // couldn't see; a whitelist makes that a no-op instead of a gamble.
+  const known = new Set<string>();
+  for (const src of [pageContext ?? "", userMessage]) {
+    for (const m of src.matchAll(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi)) {
+      known.add(m[0].toLowerCase());
+    }
+  }
+  const proposals: PendingProposal[] = [];
+  let unknownRefs = 0;
+  for (const p of parsed) {
+    const wid = p.payload.work_item_id as string | undefined;
+    if (wid && !known.has(wid.toLowerCase())) {
+      unknownRefs++;
+      continue;
+    }
+    proposals.push(p);
+  }
+
+  if (!proposals.length) {
+    // Nothing executable — but did Qwen CLAIM it was doing something? Then
+    // Joe expects an outcome, and silence (or a fabricated id) is the worst
+    // result. Hand the task to Hermes, which has real tools, via the ladder.
+    const claimed =
+      unknownRefs > 0 ||
+      /\b(i'?ll|i will|let'?s|i'?ve|i have|going to|marking|marked|updating|updated|snoozing|snoozed|creating|created|closing|closed)\b[^.\n]{0,80}\b(done|complete|completed|status|snooze|work item|item|todo|task|note|knowledge)\b/i.test(
+        body,
+      );
+    if (claimed && escalateHook) {
+      const why = unknownRefs
+        ? "Qwen referenced a work item that isn't in view (likely an invented id)."
+        : "Qwen described a change but produced no executable proposal.";
+      const escalated = await escalateHook({ runId, conversationId, userMessage, critique: why }).catch(() => null);
+      if (escalated) return `${body}\n\n🔁 Nothing was changed yet — ${why} Handing to Hermes to do it properly…`;
+      return `${body}\n\n⚠️ Nothing was changed — ${why}`;
+    }
+    return body;
+  }
 
   try {
     const ids: string[] = [];
@@ -140,7 +184,7 @@ export async function processQwenProposals(
       [runId, `Claude is reviewing ${proposals.length} proposed change${proposals.length > 1 ? "s" : ""}…`],
     );
 
-    const verdicts = await reviewProposals(userMessage, body, proposals);
+    const verdicts = await reviewProposals(userMessage, body, proposals, pageContext);
     if (!verdicts) {
       await query(
         `UPDATE agent_pending_actions SET status = 'proposed', review_note = 'review unavailable', updated_at = now()
@@ -151,6 +195,7 @@ export async function processQwenProposals(
     }
 
     const lines: string[] = [];
+    if (unknownRefs) lines.push(`🚫 Dropped ${unknownRefs} proposal${unknownRefs > 1 ? "s" : ""} naming an item that isn't in view.`);
     for (let i = 0; i < proposals.length; i++) {
       const p = proposals[i];
       const v = verdicts.find((x) => x.index === i);

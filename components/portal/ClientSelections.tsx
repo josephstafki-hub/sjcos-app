@@ -54,6 +54,8 @@ export function ClientSelections({ view }: { view: SelectionsView }) {
   }
 
   const over = view.totalBudget > 0 && view.totalBudget - view.totalSpent < 0;
+  const pct =
+    view.totalBudget > 0 ? Math.min(100, Math.round((view.totalSpent / view.totalBudget) * 100)) : 0;
 
   return (
     <div className="mt-2 flex flex-col gap-3">
@@ -68,10 +70,18 @@ export function ClientSelections({ view }: { view: SelectionsView }) {
       {view.totalBudget > 0 && (
         <Card kind="accent" className="p-2.5">
           <div className="flex items-baseline justify-between">
-            <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-ink-3">Budget so far</span>
+            <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-ink-3">
+              Your selections vs. budget
+            </span>
             <span className="text-[12px] font-semibold text-ink">
               {fmt(view.totalSpent)} <span className="font-normal text-ink-3">of {fmt(view.totalBudget)}</span>
             </span>
+          </div>
+          <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-paper-3">
+            <div
+              className={`h-full rounded-full ${over ? "bg-flag" : "bg-money"}`}
+              style={{ width: `${over ? 100 : pct}%` }}
+            />
           </div>
           <p className="mt-1 text-[11px]">
             <span className={over ? "text-flag" : "text-money"}>

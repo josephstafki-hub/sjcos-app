@@ -721,6 +721,10 @@ ALTER TABLE project_sections ADD COLUMN IF NOT EXISTS parent_id bigint
   REFERENCES project_sections(id) ON DELETE CASCADE;
 CREATE INDEX IF NOT EXISTS idx_sections_project ON project_sections(project_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_sections_parent ON project_sections(parent_id, sort_order);
+-- Overall selections budget for the project — what the client's running total
+-- is measured against on the portal. 0 = not set, in which case the board falls
+-- back to the sum of the room budgets.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS selections_budget integer NOT NULL DEFAULT 0;
 
 -- ─── Design tools: selections board (Review-round-3 S5C) ────────────────────
 -- A row here is a DECISION the client has to make — "Kitchen faucet" — not the

@@ -52,19 +52,28 @@ export async function conciergeTurn(
     (context ? `Context:\n${context.slice(0, 3000)}\n\n` : "") +
     (history ? `Recent conversation:\n${history}\n\n` : "") +
     `Joe just said: "${text.slice(0, 1000)}"\n\n` +
-    `Reply with ONE JSON object and nothing else: ` +
+    `Reply with ONE JSON object and nothing else — no code fences, no prose around it: ` +
     `{"speak":"…","delegate":{"agent":"hermes"|"qwen","task":"precise instruction incl. any work_item_id"}} ` +
     `— omit "delegate" when you answered directly.`;
   try {
     const raw = await chatReplyClaude(prompt, { model: VOICE_MODEL, timeoutMs: 45_000 });
     const parsed = extractJson<{ speak?: string; delegate?: { agent?: string; task?: string } }>(raw);
-    const speak = (parsed?.speak ?? "").trim() || raw.trim().slice(0, 300);
+    // Never speak raw JSON. If the object didn't parse, still try to pull the
+    // "speak" string out; if even that fails, use the text only when it
+    // doesn't look like JSON at all.
+    let speak = (parsed?.speak ?? "").trim();
+    if (!speak) {
+      const m = raw.match(/"speak"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+      if (m) speak = m[1].replace(/\\"/g, '"').trim();
+      else if (!/[{}[\]]/.test(raw)) speak = raw.trim().slice(0, 300);
+    }
+    if (!speak) speak = "Okay.";
     const d = parsed?.delegate;
     const delegate =
       d && (d.agent === "hermes" || d.agent === "qwen") && typeof d.task === "string" && d.task.trim()
         ? { agent: d.agent as "hermes" | "qwen", task: d.task.trim().slice(0, 1500) }
         : undefined;
-    return { speak: speak || "Okay.", delegate };
+    return { speak, delegate };
   } catch {
     // Voice must never go silent. Hand the raw ask to Hermes and say so.
     return {

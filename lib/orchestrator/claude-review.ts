@@ -12,13 +12,38 @@ import type { RoutedAgent, RouteIntent } from "./router";
 
 /** Pull the first JSON object out of a possibly-chatty reply. */
 export function extractJson<T>(reply: string): T | null {
-  const m = reply.match(/\{[\s\S]*?\}/);
-  if (!m) return null;
-  try {
-    return JSON.parse(m[0]) as T;
-  } catch {
-    return null;
+  // Models routinely wrap JSON in ```json fences and nest objects — a lazy
+  // `{…}` regex stops at the first `}` and breaks on any nesting (the voice
+  // concierge's {"speak", "delegate": {…}} did exactly that in prod). Strip
+  // fences, then take the first balanced object, string-aware.
+  const text = reply.replace(/```(?:json)?/gi, "");
+  const start = text.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        try {
+          return JSON.parse(text.slice(start, i + 1)) as T;
+        } catch {
+          return null;
+        }
+      }
+    }
   }
+  return null;
 }
 
 const TRIAGE_MODEL = process.env.ORCH_TRIAGE_MODEL ?? "haiku";

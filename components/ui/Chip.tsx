@@ -43,15 +43,19 @@ type ChipProps = {
 export function Chip({ children, kind = "default", dot, className = "" }: ChipProps) {
   return (
     <span
+      // Full text on hover when a label is long enough to get truncated below.
+      title={typeof children === "string" ? children : undefined}
       className={[
-        "inline-flex items-center gap-1 whitespace-nowrap rounded-full border",
+        "inline-flex min-w-0 max-w-full items-center gap-1 whitespace-nowrap rounded-full border",
         "px-2 py-px font-mono text-[9.5px] font-medium uppercase tracking-[0.08em]",
         KIND_CLASSES[kind],
         className,
       ].join(" ")}
     >
       {dot && <span className={`size-1.5 flex-none rounded-full ${DOT_CLASSES[kind]}`} />}
-      {children}
+      {/* Labels come straight from data (e.g. a project's sub_label can be a
+          whole sentence) — clip with an ellipsis rather than spill off-screen. */}
+      <span className="min-w-0 truncate">{children}</span>
     </span>
   );
 }

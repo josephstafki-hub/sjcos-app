@@ -123,8 +123,8 @@ export function SelectionsBoard({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-start gap-2">
-        <div className="flex-1">
+      <div className="flex flex-wrap items-start gap-2">
+        <div className="min-w-0 flex-1">
           <h3 className="font-serif text-[16px] font-semibold text-ink">Selections</h3>
           <p className="mt-0.5 text-[12px] text-ink-3">
             {view.totalDecisions > 0
@@ -161,7 +161,9 @@ export function SelectionsBoard({
             </>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+        {/* Three buttons + the copy don't fit side by side on a phone; the
+            group drops under the heading instead of running off the edge. */}
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             onClick={() => setBudgetModal(true)}
             title="Set the overall selections budget the client's running total is measured against"

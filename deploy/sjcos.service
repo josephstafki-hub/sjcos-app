@@ -17,8 +17,11 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=%h/sjcos-app
+# If a build was staged with `SJC_DIST_DIR=.next-staged npm run build`, swap it
+# in now (no-op otherwise). See deploy/promote-staged-build.sh.
+ExecStartPre=/usr/bin/bash %h/sjcos-app/deploy/promote-staged-build.sh %h/sjcos-app
 # Use the app's pinned Next binary; .env.local is auto-loaded by Next in prod.
-ExecStart=/usr/local/bin/node %h/sjcos-app/node_modules/.bin/next start --hostname 127.0.0.1 --port 3017
+ExecStart=/usr/bin/node %h/sjcos-app/node_modules/.bin/next start --hostname 127.0.0.1 --port 3017
 Environment=NODE_ENV=production
 Environment=PORT=3017
 Restart=always

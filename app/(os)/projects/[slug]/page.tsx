@@ -627,12 +627,12 @@ export default async function ProjectDetailPage({
   };
 
   const outlineBtn =
-    "inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-paper-2";
+    "inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-paper-2";
 
   const projectAiContext = projectContext(project);
 
   const headerBand = (
-    <div className="border-b border-rule bg-paper-2 px-7 py-4">
+    <div className="border-b border-rule bg-paper-2 px-4 py-4 sm:px-7">
       <Link href="/projects" className="text-[11px] text-ink-3 hover:text-ink-2">
         ← All projects
       </Link>
@@ -653,7 +653,9 @@ export default async function ProjectDetailPage({
           </h1>
           <div className="mt-1.5 text-[11px] text-ink-3">{project.subtitle}</div>
         </div>
-        <div className="flex items-center gap-1.5">
+        {/* Wraps as a group under the title on phones; buttons never squash
+            their labels onto two lines. */}
+        <div className="flex flex-wrap items-center gap-1.5">
           <TabLink tab="Daily log" className={outlineBtn}>
             <Check className="size-3" strokeWidth={1.75} />
             Log update
@@ -666,7 +668,7 @@ export default async function ProjectDetailPage({
             <form action={moveToNextStatus}>
               <button
                 type="submit"
-                className="rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
+                className="whitespace-nowrap rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
               >
                 Move to {nextStatus.label}
               </button>

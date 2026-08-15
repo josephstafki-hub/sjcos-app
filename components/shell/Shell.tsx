@@ -50,7 +50,11 @@ export async function Shell({ children, breadcrumb, aiContext }: ShellProps) {
           unread={unread}
           leading={<MobileNav user={sidebarUser} />}
         />
-        <div className="relative min-h-0 flex-1 overflow-auto">{children}</div>
+        {/* overflow-x-hidden: one over-wide element (a long status chip, a
+            toolbar that didn't wrap) must never make the whole page pan
+            sideways on a phone. Anything genuinely wide (tables) scrolls
+            inside its own overflow-x-auto wrapper. */}
+        <div className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto">{children}</div>
       </div>
       <PageAiContext context={aiContext} />
     </div>

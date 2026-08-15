@@ -63,6 +63,25 @@ async function nextSort(table: string, column: string, id: string | number): Pro
   return row?.next ?? 0;
 }
 
+// ─── Overall budget ──────────────────────────────────────────────────────────
+
+/** Set (or clear, with 0 / blank) the project-wide selections budget the client's
+ *  running total is measured against. Room and sub-section budgets stay as they
+ *  are; when this is unset the board falls back to their sum. */
+export async function setSelectionsBudget(slug: string, formData: FormData): Promise<Result> {
+  await requireRole("owner");
+  const project = await projectBySlug(slug);
+  if (!project) return { ok: false, error: "Project not found." };
+
+  await query(`UPDATE projects SET selections_budget = $2 WHERE id = $1`, [
+    project.id,
+    parseDollars(formData.get("budget")),
+  ]);
+  revalidatePath(`/projects/${slug}`);
+  revalidatePath("/client-portal/selections");
+  return { ok: true };
+}
+
 // ─── Sections (rooms, sub-sections, budgets) ─────────────────────────────────
 
 /** Add a budgeted section to a project's board. Pass parentId to nest it as a

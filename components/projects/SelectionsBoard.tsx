@@ -4,7 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Plus, X, Check, Send, Pencil, Trash2, FolderPlus, Link2, Loader2,
-  Undo2, ExternalLink, CircleDot,
+  Undo2, ExternalLink, CircleDot, Wallet,
 } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import type { ChipKind } from "@/components/ui/Chip";
@@ -15,6 +15,7 @@ import {
   addSelection, updateSelection, unpushSelection, removeSelection,
   addSection, updateSection, removeSection, pushSectionToClient, pushBoardToClient,
   addOption, updateOption, removeOption, prefillOptionFromUrl, decideSelection,
+  setSelectionsBudget,
 } from "@/lib/actions/selections";
 
 /** Lightweight catalog option for the add-picker (avoids importing the
@@ -91,6 +92,7 @@ export function SelectionsBoard({
   const [optionModal, setOptionModal] = useState<
     { selectionId: number; selectionName: string; option: SelectionOption | null } | null
   >(null);
+  const [budgetModal, setBudgetModal] = useState(false);
 
   const sectionOptions = pickerOptions(view.groups);
   const totalPushable = view.groups.reduce((n, g) => n + pushableCount(g), 0);
@@ -115,6 +117,9 @@ export function SelectionsBoard({
 
   const empty = view.groups.length === 0;
   const overBudget = view.totalBudget > 0 && view.totalBudget - view.totalSpent < 0;
+  const budgetPct =
+    view.totalBudget > 0 ? Math.min(100, Math.round((view.totalSpent / view.totalBudget) * 100)) : 0;
+  const overAllocated = view.overallBudget > 0 && view.allocatedBudget > view.overallBudget;
 
   return (
     <div className="flex flex-col gap-4">
@@ -122,27 +127,49 @@ export function SelectionsBoard({
         <div className="flex-1">
           <h3 className="font-serif text-[16px] font-semibold text-ink">Selections</h3>
           <p className="mt-0.5 text-[12px] text-ink-3">
-            {view.totalDecisions > 0 ? (
-              <>
-                {view.totalOpen} of {view.totalDecisions} decision{view.totalDecisions === 1 ? "" : "s"} still open
-                {view.totalBudget > 0 && (
-                  <>
-                    {" · "}
-                    {fmt(view.totalSpent)} committed of {fmt(view.totalBudget)}{" "}
-                    <span className={overBudget ? "text-flag" : "text-money"}>
-                      ({overBudget
-                        ? `${fmt(view.totalSpent - view.totalBudget)} over`
-                        : `${fmt(view.totalBudget - view.totalSpent)} left`})
-                    </span>
-                  </>
-                )}
-              </>
-            ) : (
-              "Lay out a room, then add every finish that needs a decision."
-            )}
+            {view.totalDecisions > 0
+              ? `${view.totalOpen} of ${view.totalDecisions} decision${view.totalDecisions === 1 ? "" : "s"} still open`
+              : "Lay out a room, then add every finish that needs a decision."}
           </p>
+          {view.totalBudget > 0 && (
+            <>
+              <div className="mt-1.5 h-1.5 w-full max-w-[320px] overflow-hidden rounded-full bg-paper-3">
+                <div
+                  className={`h-full rounded-full ${overBudget ? "bg-flag" : "bg-money"}`}
+                  style={{ width: `${overBudget ? 100 : budgetPct}%` }}
+                />
+              </div>
+              <p className="mt-1 text-[11px] text-ink-3">
+                {fmt(view.totalSpent)} committed of {fmt(view.totalBudget)}{" "}
+                <span className={overBudget ? "text-flag" : "text-money"}>
+                  ({overBudget
+                    ? `${fmt(view.totalSpent - view.totalBudget)} over`
+                    : `${fmt(view.totalBudget - view.totalSpent)} left`})
+                </span>
+                {view.totalProposed > 0 && <span> · {fmt(view.totalProposed)} still to decide</span>}
+                {view.overallBudget > 0 ? (
+                  view.allocatedBudget > 0 && (
+                    <span className={overAllocated ? "text-flag" : ""}>
+                      {" · "}rooms allocate {fmt(view.allocatedBudget)}
+                      {overAllocated && ` (${fmt(view.allocatedBudget - view.overallBudget)} over the overall)`}
+                    </span>
+                  )
+                ) : (
+                  <span> · sum of room budgets — set an overall to override</span>
+                )}
+              </p>
+            </>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            onClick={() => setBudgetModal(true)}
+            title="Set the overall selections budget the client's running total is measured against"
+            className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2"
+          >
+            <Wallet className="size-3" strokeWidth={1.5} />
+            {view.overallBudget > 0 ? `Budget ${fmt(view.overallBudget)}` : "Set budget"}
+          </button>
           {totalPushable > 0 && (
             <button
               disabled={pending}
@@ -222,6 +249,18 @@ export function SelectionsBoard({
           onClose={() => setEditSel(null)}
           onSubmit={(fd) =>
             run(() => updateSelection(editSel.id, fd), () => setEditSel(null), "Could not save the decision.")
+          }
+        />
+      )}
+
+      {budgetModal && (
+        <BudgetModal
+          pending={pending}
+          overallBudget={view.overallBudget}
+          allocatedBudget={view.allocatedBudget}
+          onClose={() => setBudgetModal(false)}
+          onSubmit={(fd) =>
+            run(() => setSelectionsBudget(slug, fd), () => setBudgetModal(false), "Could not save the budget.")
           }
         />
       )}
@@ -694,6 +733,53 @@ function SelectionModal({
           <textarea name="notes" rows={2} defaultValue={selection?.notes} placeholder="Order by Sept 1 — 6 week lead time" className={FIELD} />
         </label>
         <ModalActions pending={pending} onClose={onClose} submitLabel={selection ? "Save" : "Add"} />
+      </form>
+    </ModalShell>
+  );
+}
+
+/** Set the project-wide selections budget. Blank / 0 clears it, and the board
+ *  goes back to measuring against whatever the rooms add up to. */
+function BudgetModal({
+  pending,
+  overallBudget,
+  allocatedBudget,
+  onClose,
+  onSubmit,
+}: {
+  pending: boolean;
+  overallBudget: number;
+  allocatedBudget: number;
+  onClose: () => void;
+  onSubmit: (formData: FormData) => void;
+}) {
+  return (
+    <ModalShell title="Overall selections budget" onClose={onClose}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit(new FormData(e.currentTarget));
+        }}
+        className="flex flex-col gap-3 p-4"
+      >
+        <label className="flex flex-col gap-1">
+          <span className={LABEL}>Budget ($)</span>
+          <input
+            name="budget"
+            inputMode="numeric"
+            autoFocus
+            defaultValue={overallBudget ? String(overallBudget) : ""}
+            placeholder={allocatedBudget ? String(allocatedBudget) : "0"}
+            className={FIELD}
+          />
+        </label>
+        <p className="text-[11px] leading-snug text-ink-3">
+          Shown to the client as the figure their running total is measured against, on top of
+          the per-room budgets.
+          {allocatedBudget > 0 && <> Rooms currently add up to {fmt(allocatedBudget)}.</>}{" "}
+          Leave blank to use the room total.
+        </p>
+        <ModalActions pending={pending} onClose={onClose} submitLabel="Save" />
       </form>
     </ModalShell>
   );

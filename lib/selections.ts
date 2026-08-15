@@ -74,6 +74,12 @@ export interface SelectionGroup {
 
 export interface SelectionsView {
   groups: SelectionGroup[];
+  /** The project-wide selections budget the owner set explicitly (0 = unset). */
+  overallBudget: number;
+  /** Sum of the top-level room budgets — how much of the overall is parcelled out. */
+  allocatedBudget: number;
+  /** What the running total is measured against: the overall budget when set,
+   *  else the sum of room budgets. */
   totalBudget: number;
   totalAllowance: number;
   totalSpent: number;
@@ -87,6 +93,8 @@ export interface SelectionsView {
  *  drifts every time the view grows a field. */
 export const EMPTY_SELECTIONS_VIEW: SelectionsView = {
   groups: [],
+  overallBudget: 0,
+  allocatedBudget: 0,
   totalBudget: 0,
   totalAllowance: 0,
   totalSpent: 0,
@@ -218,10 +226,32 @@ function rollUp(group: SelectionGroup): SelectionGroup {
   };
 }
 
+/** Grand totals over the visible top-level groups. The budget the running total
+ *  is measured against is the explicit overall figure when the owner set one,
+ *  else whatever the rooms add up to. */
+function totals(groups: SelectionGroup[], overallBudget: number): SelectionsView {
+  const allocatedBudget = groups.reduce((n, g) => n + g.budget, 0);
+  return {
+    groups,
+    overallBudget,
+    allocatedBudget,
+    totalBudget: overallBudget > 0 ? overallBudget : allocatedBudget,
+    totalAllowance: groups.reduce((n, g) => n + g.allowance, 0),
+    totalSpent: groups.reduce((n, g) => n + g.spent, 0),
+    totalProposed: groups.reduce((n, g) => n + g.proposed, 0),
+    totalOpen: groups.reduce((n, g) => n + g.openCount, 0),
+    totalDecisions: groups.reduce((n, g) => n + g.totalCount, 0),
+  };
+}
+
 /** Assemble sections + decisions into a nested, rolled-up tree. Sections come in
  *  declared order; any decision without a section lands in an "Ungrouped" bucket
  *  appended last (only when it has members). */
-function group(sections: SectionRow[], selections: Selection[]): SelectionsView {
+function group(
+  sections: SectionRow[],
+  selections: Selection[],
+  overallBudget: number,
+): SelectionsView {
   const bySection = new Map<number | null, Selection[]>();
   for (const sel of selections) {
     const key = sel.sectionId ?? null;
@@ -280,15 +310,16 @@ function group(sections: SectionRow[], selections: Selection[]): SelectionsView 
     );
   }
 
-  return {
-    groups,
-    totalBudget: groups.reduce((n, g) => n + g.budget, 0),
-    totalAllowance: groups.reduce((n, g) => n + g.allowance, 0),
-    totalSpent: groups.reduce((n, g) => n + g.spent, 0),
-    totalProposed: groups.reduce((n, g) => n + g.proposed, 0),
-    totalOpen: groups.reduce((n, g) => n + g.openCount, 0),
-    totalDecisions: groups.reduce((n, g) => n + g.totalCount, 0),
-  };
+  return totals(groups, overallBudget);
+}
+
+/** The project's explicit overall selections budget (0 when unset / no project). */
+async function loadOverallBudget(slug: string): Promise<number> {
+  const { rows } = await query<{ selections_budget: number }>(
+    `SELECT selections_budget FROM projects WHERE slug = $1`,
+    [slug],
+  );
+  return Number(rows[0]?.selections_budget) || 0;
 }
 
 async function loadSections(slug: string): Promise<SectionRow[]> {
@@ -321,19 +352,25 @@ function withOptions(
  *  the owner-only /api/files route. Includes empty sections so the owner can lay
  *  out rooms and budget ahead of adding decisions. */
 export async function getProjectSelections(slug: string): Promise<SelectionsView> {
-  const [sections, items, options] = await Promise.all([
+  const [overallBudget, sections, items, options] = await Promise.all([
+    loadOverallBudget(slug),
     loadSections(slug),
     query<SelectionRow>(`${SELECT_ITEMS} WHERE p.slug = $1 ORDER BY s.sort_order, s.id`, [slug]),
     query<OptionRow>(`${SELECT_OPTIONS} WHERE p.slug = $1 ORDER BY o.sort_order, o.id`, [slug]),
   ]);
-  return group(sections, withOptions(items.rows, options.rows, (id) => `/api/portal/selection-image/${id}`));
+  return group(
+    sections,
+    withOptions(items.rows, options.rows, (id) => `/api/portal/selection-image/${id}`),
+    overallBudget,
+  );
 }
 
 /** Client portal: only pushed decisions (pending/approved/declined), grouped by
  *  section with budgets so the client sees the running total + remaining. Images
  *  go through the client-scoped portal route, keyed by option id. */
 export async function getClientSelections(slug: string): Promise<SelectionsView> {
-  const [sections, items, options] = await Promise.all([
+  const [overallBudget, sections, items, options] = await Promise.all([
+    loadOverallBudget(slug),
     loadSections(slug),
     query<SelectionRow>(
       `${SELECT_ITEMS} WHERE p.slug = $1 AND s.status <> 'draft' ORDER BY s.sort_order, s.id`,
@@ -348,20 +385,16 @@ export async function getClientSelections(slug: string): Promise<SelectionsView>
 
   // Drop sections that ended up empty for the client (all their decisions still
   // draft) and recompute grand totals over what remains visible.
-  const view = group(sections, selections);
+  const view = group(sections, selections, overallBudget);
   const nonEmpty = (g: SelectionGroup): SelectionGroup | null => {
     const children = g.children.map(nonEmpty).filter((c): c is SelectionGroup => c !== null);
     if (g.selections.length === 0 && children.length === 0) return null;
     return { ...g, children };
   };
-  view.groups = view.groups.map(nonEmpty).filter((g): g is SelectionGroup => g !== null);
-  view.totalBudget = view.groups.reduce((n, g) => n + g.budget, 0);
-  view.totalAllowance = view.groups.reduce((n, g) => n + g.allowance, 0);
-  view.totalSpent = view.groups.reduce((n, g) => n + g.spent, 0);
-  view.totalProposed = view.groups.reduce((n, g) => n + g.proposed, 0);
-  view.totalOpen = view.groups.reduce((n, g) => n + g.openCount, 0);
-  view.totalDecisions = view.groups.reduce((n, g) => n + g.totalCount, 0);
-  return view;
+  return totals(
+    view.groups.map(nonEmpty).filter((g): g is SelectionGroup => g !== null),
+    overallBudget,
+  );
 }
 
 /** Resolve the displayable file id for a selection OPTION (own upload or linked

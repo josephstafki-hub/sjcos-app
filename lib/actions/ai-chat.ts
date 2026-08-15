@@ -12,6 +12,7 @@ import { escalateToHermesLadder, runHermesLadder } from "@/lib/orchestrator/ladd
 import { processQwenProposals, setEscalateHook } from "@/lib/orchestrator/proposals";
 import { routeMessage } from "@/lib/orchestrator/router";
 import { conciergeTurn } from "@/lib/orchestrator/voice";
+import { hermesProgress, qwenProgress, runLog } from "@/lib/orchestrator/activity";
 
 // A Qwen proposal Claude holds re-routes to the Hermes ladder (registered here
 // because proposals.ts can't import ladder.ts without a cycle).
@@ -273,6 +274,8 @@ async function startBackgroundTurn(t: BackgroundTurn): Promise<string> {
   const runId = run!.id;
 
   void (async () => {
+    // Live "what it's doing" log — every stage appends; the panel shows it all.
+    const log = runLog(runId, [t.activity ?? `${label} is thinking…`]);
     try {
       // Three completion pipelines:
       //  - Hermes in an 'auto' thread → the full ladder (Claude reviews,
@@ -282,14 +285,17 @@ async function startBackgroundTurn(t: BackgroundTurn): Promise<string> {
       //  - Qwen → pending-write pipeline (propose → Claude review → execute).
       let answer: string;
       if (agent === "hermes" && reviewed) {
-        answer = await runHermesLadder({ runId, conversationId, taskPrompt: text, pageContext });
+        answer = await runHermesLadder({ runId, conversationId, taskPrompt: text, pageContext, log });
       } else if (agent === "hermes") {
-        const raw = await hermesChat(turns, pageContext, conversationId);
+        const raw = await hermesChat(turns, pageContext, conversationId, hermesProgress(log));
         answer = await finalizeHermesAnswer(runId, raw);
       } else {
-        const raw = await qwenChat(turns, pageContext);
+        const raw = await qwenChat(turns, pageContext, qwenProgress(log));
+        log.push("Checking for proposed changes…");
         answer = await processQwenProposals(runId, conversationId, text, raw, pageContext);
       }
+      log.push("Done.");
+      await log.flush();
       await insertMessage(conversationId, "assistant", answer);
       await query(
         `UPDATE dev_agent_runs SET status = 'done', answer = $2, updated_at = now() WHERE id = $1`,
@@ -297,6 +303,8 @@ async function startBackgroundTurn(t: BackgroundTurn): Promise<string> {
       );
     } catch (err) {
       const msg = `⚠️ ${(err as Error).message}`;
+      log.push(msg);
+      await log.flush();
       await insertMessage(conversationId, "assistant", msg);
       await query(
         `UPDATE dev_agent_runs SET status = 'error', answer = $2, updated_at = now() WHERE id = $1`,

@@ -22,11 +22,14 @@ const TWO_COLUMN_MIN = 560;
 export function PanelDock({
   width,
   navigate,
+  compact = false,
 }: {
   width: number;
   /** How this dock reaches the app view. Docked: local router.push (default).
    *  In the popout window: requestAppNav over the bus. */
   navigate?: (href: string) => void;
+  /** Mobile drawer over a page: chat only, no queue column or inline cards. */
+  compact?: boolean;
 }) {
   const [, setActiveRun] = useState<ActiveRun | null>(null);
   const [focusedSubjectId, setFocusedSubjectId] = useState<string | null>(null);
@@ -48,11 +51,12 @@ export function PanelDock({
       }}
       onRunStart={setActiveRun}
       onRunEnd={() => setActiveRun(null)}
-      showQueueCards={!twoCol}
+      showQueueCards={!twoCol && !compact}
+      compact={compact}
     />
   );
 
-  if (!twoCol) return <div className="h-full min-h-0 p-2">{chatPanel}</div>;
+  if (!twoCol || compact) return <div className="h-full min-h-0 p-2">{chatPanel}</div>;
 
   return (
     <div className="grid h-full min-h-0 grid-cols-[minmax(200px,2fr)_minmax(300px,3fr)] gap-2 p-2">

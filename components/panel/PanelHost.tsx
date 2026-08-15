@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
-import { ExternalLink, Mic, PanelLeftClose, Sparkles, X } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { ChevronDown, ChevronUp, ExternalLink, Mic, PanelLeftClose, Sparkles, X } from "lucide-react";
 import { ackAppNav, subscribePanelBus } from "./panelBus";
 import { usePanel } from "./PanelProvider";
 import { PanelDock } from "./PanelDock";
@@ -17,7 +17,14 @@ import { Splitter } from "./Splitter";
 export function PanelHost({ children }: { children: ReactNode }) {
   const { layout, setWidth, commitWidth, toggleCollapsed, setWhere } = usePanel();
   const [sheetOpen, setSheetOpen] = useState(false);
+  // Mobile: on the home page the operator is the whole screen (queue cards
+  // and all); on any other page it's a bottom drawer so most of the page Joe
+  // was on stays visible and usable — expandable to full when he wants it.
+  const [sheetFull, setSheetFull] = useState(false);
   const router = useRouter();
+  const pathname = usePathname();
+  const onHome = pathname === "/today" || pathname === "/";
+  const drawer = !onHome && !sheetFull;
   // Render the dock only after the persisted layout is adopted (layout.ready
   // flips in PanelProvider's mount effect) — the server render can't know
   // width/collapsed, and a wrong-width flash is worse than the dock appearing
@@ -147,13 +154,29 @@ export function PanelHost({ children }: { children: ReactNode }) {
         </button>
       )}
       {showDock && sheetOpen && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-paper lg:hidden">
+        <div
+          className={`fixed inset-x-0 bottom-0 z-50 flex flex-col bg-paper lg:hidden ${
+            drawer
+              ? "h-[46dvh] rounded-t-2xl border-t border-rule shadow-[0_-8px_24px_rgba(0,0,0,0.12)]"
+              : "top-0"
+          }`}
+        >
           <div className="flex items-center gap-2 border-b border-rule px-3 py-2">
             <Sparkles className="size-3.5 text-ai" strokeWidth={1.5} />
             <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
               Operator
             </span>
             <div className="flex-1" />
+            {!onHome && (
+              <button
+                onClick={() => setSheetFull((f) => !f)}
+                aria-label={sheetFull ? "Shrink to a drawer" : "Expand to full screen"}
+                title={sheetFull ? "Shrink to a drawer" : "Expand to full screen"}
+                className="rounded-md p-1 text-ink-3 hover:bg-paper-2"
+              >
+                {sheetFull ? <ChevronDown className="size-4" strokeWidth={1.75} /> : <ChevronUp className="size-4" strokeWidth={1.75} />}
+              </button>
+            )}
             <button
               onClick={() => setSheetOpen(false)}
               aria-label="Close operator panel"
@@ -163,8 +186,9 @@ export function PanelHost({ children }: { children: ReactNode }) {
             </button>
           </div>
           <div className="min-h-0 flex-1">
-            {/* Narrow width forces the single-column dock (inline queue cards). */}
-            <PanelDock width={400} />
+            {/* Narrow width forces the single-column dock; the drawer is
+                compact (conversation + composer only). */}
+            <PanelDock width={400} compact={drawer} />
           </div>
         </div>
       )}

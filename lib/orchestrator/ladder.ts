@@ -5,6 +5,7 @@ import { getTurns, insertMessage } from "@/lib/ai-chat";
 import { hermesChat, startClaudeRun, type ChatTurn } from "@/lib/dev-agents";
 import { finalizeHermesAnswer } from "./effects";
 import { reviewHermesRound } from "./claude-review";
+import { hermesProgress, runLog, type RunLog } from "./activity";
 
 // The Claude↔Hermes ladder: Hermes attempts OS work, Claude reviews the
 // result, feedback loops back into Hermes' own session (it learns from the
@@ -29,12 +30,9 @@ const TAKEOVER_POLL_MAX = 300;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function setActivity(runId: string, activity: string): Promise<void> {
-  await query(`UPDATE dev_agent_runs SET activity = $2, updated_at = now() WHERE id = $1`, [
-    runId,
-    activity,
-  ]);
-}
+// Ladder progress goes through the run's append log (lib/orchestrator/
+// activity.ts) so the panel shows the whole story — Hermes' tool calls, Claude
+// flagging, the retry — instead of one line replacing the last.
 
 async function addEvent(
   taskId: string,
@@ -68,6 +66,8 @@ export interface LadderInput {
   /** Present when this ladder is a Qwen escalation — Claude's critique of the
    *  rejected attempt, fed to Hermes as round-1 context. */
   initialFeedback?: string;
+  /** The run's live log (created by the caller when it owns the run row). */
+  log?: RunLog;
 }
 
 /**
@@ -77,6 +77,8 @@ export interface LadderInput {
  */
 export async function runHermesLadder(input: LadderInput): Promise<string> {
   const { runId, conversationId, taskPrompt, pageContext } = input;
+  const log = input.log ?? runLog(runId, ["Hermes is working…"]);
+  const setActivity = async (_runId: string, line: string) => log.push(line);
   let taskId: string | null = null;
   try {
     const task = await queryOne<{ id: string }>(
@@ -116,7 +118,7 @@ export async function runHermesLadder(input: LadderInput): Promise<string> {
 
     let raw: string;
     try {
-      raw = await hermesChat([...baseTurns, ...extra], pageContext, conversationId);
+      raw = await hermesChat([...baseTurns, ...extra], pageContext, conversationId, hermesProgress(log));
     } catch (err) {
       const msg = (err as Error).message;
       if (taskId) await addEvent(taskId, "hermes", "error", msg, runId);
@@ -139,6 +141,13 @@ export async function runHermesLadder(input: LadderInput): Promise<string> {
       verdict = { verdict: round < MAX_ROUNDS ? "retry" : "takeover", feedback: "Claude's review did not complete — redo the task carefully.", userNote: "" };
     }
     if (taskId) await addEvent(taskId, "claude-review", verdict.verdict, verdict.feedback || verdict.userNote, runId);
+    log.push(
+      verdict.verdict === "approve"
+        ? "✓ Claude approved."
+        : verdict.verdict === "retry"
+          ? `↩ Claude sent it back: ${verdict.feedback.slice(0, 160)}`
+          : `⤴ Claude is taking over: ${verdict.feedback.slice(0, 160)}`,
+    );
 
     if (verdict.verdict === "approve") {
       if (taskId) {
@@ -231,7 +240,8 @@ export async function runHermesLadder(input: LadderInput): Promise<string> {
         ? `🤝 Claude took this over.\n\n${answer}`
         : `⚠️ Claude's takeover failed: ${answer}\n\nHermes' last attempt:\n${lastAnswer}`;
     }
-    if (row.activity) await setActivity(runId, `Claude is taking over…\n${row.activity.split("\n").slice(-3).join("\n")}`);
+    // Mirror the takeover runner's latest line into this run's log.
+    if (row.activity) log.tail(`Claude: ${row.activity.split("\n").slice(-1)[0] ?? ""}`);
   }
   if (taskId) await query(`UPDATE orchestration_tasks SET status = 'error', updated_at = now() WHERE id = $1`, [taskId]).catch(() => {});
   return `${lastAnswer}\n\n⚠️ Claude's takeover did not report back in time. Its last critique of Hermes:\n${lastNote}`;
@@ -269,13 +279,17 @@ export async function escalateToHermesLadder(args: {
     );
     const newRunId = run!.id;
     void (async () => {
+      const log = runLog(newRunId, ["Handed to Hermes after Claude held Qwen's attempt…"]);
       try {
         const answer = await runHermesLadder({
           runId: newRunId,
           conversationId: args.conversationId,
           taskPrompt: args.userMessage,
           initialFeedback: args.critique,
+          log,
         });
+        log.push("Done.");
+        await log.flush();
         await insertMessage(args.conversationId, "assistant", answer);
         await query(
           `UPDATE dev_agent_runs SET status = 'done', answer = $2, updated_at = now() WHERE id = $1`,

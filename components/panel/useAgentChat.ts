@@ -105,6 +105,10 @@ export function useAgentChat({
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState(false);
   const [claudeOpts, setClaudeOptsState] = useState<ClaudeOptions>(CLAUDE_DEFAULTS);
+  /** What each finished run did — keyed by the reply message id, so the
+   *  transcript can keep a collapsible "what it did" under the answer. Client
+   *  memory only (the row keeps the canonical copy). */
+  const [logs, setLogs] = useState<Record<string, string>>({});
 
   const liveRef = useRef({ alive: true });
   const claim = () => {
@@ -151,6 +155,7 @@ export function useAgentChat({
       }
       if (p.status === "done") {
         setActivity("");
+        if (p.activity) setLogs((l) => ({ ...l, [`run-${runId}`]: p.activity! }));
         setMessages((m) => [
           ...m,
           { id: `run-${runId}`, role: "assistant", body: p.answer, costUsd: p.costUsd, createdAt: "", subjectWorkItemId: subjectId ?? null },
@@ -401,6 +406,7 @@ export function useAgentChat({
     selectAgent,
     conversationId,
     messages,
+    logs,
     activity,
     elapsed,
     error,

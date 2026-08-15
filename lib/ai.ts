@@ -388,7 +388,12 @@ export interface ChatTurn {
  *  system prompt and an optional page-context system note, then sends the full
  *  conversation so Qwen remembers earlier turns. Throws on failure (the caller
  *  decides how to surface it — unlike ai.ask which silently mocks). */
-export async function qwenChat(turns: ChatTurn[], context?: string): Promise<string> {
+export async function qwenChat(
+  turns: ChatTurn[],
+  context?: string,
+  /** Live progress: the answer so far, as Ollama streams tokens. */
+  onPartial?: (text: string) => void,
+): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
   try {
@@ -399,7 +404,9 @@ export async function qwenChat(turns: ChatTurn[], context?: string): Promise<str
       cache: "no-store",
       body: JSON.stringify({
         model: OLLAMA_MODEL,
-        stream: false,
+        // Streamed (NDJSON over one response) so the panel can show the answer
+        // taking shape instead of a spinner; assembled here into one string.
+        stream: true,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "system", content: ACTIONS_HINT },
@@ -413,10 +420,36 @@ export async function qwenChat(turns: ChatTurn[], context?: string): Promise<str
       }),
     });
     if (!res.ok) throw new Error(`ollama HTTP ${res.status}`);
-    const data = (await res.json()) as { message?: { content?: string } };
-    const answer = data.message?.content?.trim() ?? "";
-    if (!answer) throw new Error("Qwen returned an empty response.");
-    return answer;
+    if (!res.body) throw new Error("ollama returned no body");
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    let answer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl: number;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+        try {
+          const evt = JSON.parse(line) as { message?: { content?: string }; error?: string };
+          if (evt.error) throw new Error(evt.error);
+          const piece = evt.message?.content;
+          if (piece) {
+            answer += piece;
+            onPartial?.(answer);
+          }
+        } catch (e) {
+          if ((e as Error).message && !(e instanceof SyntaxError)) throw e;
+        }
+      }
+    }
+    const out = answer.trim();
+    if (!out) throw new Error("Qwen returned an empty response.");
+    return out;
   } finally {
     clearTimeout(timer);
   }

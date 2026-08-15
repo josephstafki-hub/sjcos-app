@@ -134,7 +134,7 @@ function pushActivity(line) {
   if (!line) return;
   if (activity[activity.length - 1] === line) return; // de-dupe consecutive
   activity.push(line);
-  if (activity.length > 40) activity.splice(0, activity.length - 40);
+  if (activity.length > 60) activity.splice(0, activity.length - 60);
   activityDirty = true;
 }
 
@@ -155,8 +155,18 @@ function handleEvent(evt) {
   if (evt?.session_id) lastSessionId = evt.session_id;
   if (evt?.type === "assistant" && Array.isArray(evt.message?.content)) {
     for (const block of evt.message.content) {
-      if (block.type === "thinking" || block.type === "redacted_thinking") {
+      if (block.type === "thinking") {
+        // Show as much of the reasoning as the stream gives us (a snippet),
+        // not just the fact that it's happening — Joe asked to see what the
+        // agents are thinking wherever they're allowed to show it.
+        const t = String(block.thinking ?? "").replace(/\s+/g, " ").trim();
+        pushActivity(t ? `Thinking: ${t.slice(0, 180)}${t.length > 180 ? "…" : ""}` : "Thinking…");
+      } else if (block.type === "redacted_thinking") {
         pushActivity("Thinking…");
+      } else if (block.type === "text") {
+        // Interim narration between tool calls ("Now I'll update the…").
+        const t = String(block.text ?? "").replace(/\s+/g, " ").trim();
+        if (t) pushActivity(`Claude: ${t.slice(0, 200)}${t.length > 200 ? "…" : ""}`);
       } else if (block.type === "tool_use") {
         pushActivity(describeTool(block.name, block.input));
       }

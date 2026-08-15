@@ -10,6 +10,7 @@ import { CLAUDE_DEFAULTS, type ClaudeOptions } from "@/lib/dev-agents-meta";
 import { insertConversation, insertMessage, getTurns } from "@/lib/ai-chat";
 import { ACTIONS_HINT, EFFECTS_HINT } from "@/lib/today-directives";
 import { finalizeHermesAnswer } from "@/lib/orchestrator/effects";
+import { hermesProgress, runLog } from "@/lib/orchestrator/activity";
 
 const execFileAsync = promisify(execFile);
 
@@ -115,6 +116,9 @@ function postJson(
   headers: Record<string, string>,
   body: string,
   timeoutMs: number,
+  /** Streaming hook: called with each decoded chunk as it arrives (only for
+   *  2xx responses); the full text is still returned at the end. */
+  onData?: (chunk: string) => void,
 ): Promise<{ status: number; text: string }> {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
@@ -129,7 +133,12 @@ function postJson(
       },
       (res) => {
         const chunks: Buffer[] = [];
-        res.on("data", (c: Buffer) => chunks.push(c));
+        const ok = (res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 300;
+        res.setEncoding("utf8");
+        res.on("data", (c: string) => {
+          chunks.push(Buffer.from(c, "utf8"));
+          if (ok && onData) onData(c);
+        });
         res.on("end", () =>
           resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString("utf8") }),
         );
@@ -150,10 +159,19 @@ function postJson(
  *  session to `sessionId` so the agent reuses the same session/sandbox across
  *  turns. `context` (the page the user is viewing) rides along as a system
  *  message; the agent's own persona/memory come from the gateway, not from us. */
+/** Live progress from a Hermes turn (the gateway streams these). */
+export interface HermesProgress {
+  /** A tool call started/finished — what Hermes is doing right now. */
+  onTool?: (evt: { tool: string; label?: string; emoji?: string; status: string }) => void;
+  /** The answer so far (grows as tokens stream). */
+  onPartial?: (text: string) => void;
+}
+
 export async function hermesChat(
   turns: ChatTurn[],
   context?: string,
   sessionId?: string,
+  progress?: HermesProgress,
 ): Promise<string> {
   const messages = [
     ...(context ? [{ role: "system", content: `SJC OS — page the user is viewing:\n${context}` }] : []),
@@ -176,13 +194,63 @@ export async function hermesChat(
   // Pin session continuity + sandbox reuse to this conversation.
   if (sessionId) headers["X-Hermes-Session-Id"] = `sjcos-${sessionId}`;
 
+  // Streamed (SSE-shaped chunks over one HTTP response — the gateway→app leg,
+  // not the browser; the house rule about SSE is for the browser). Streaming
+  // is what exposes the `hermes.tool.progress` events during the tool loop —
+  // the only window into what Hermes is doing for the minutes a turn can take
+  // — and it keeps the socket alive so the inactivity timeout stays honest.
+  let answer = "";
+  let sseBuf = "";
+  let sseEvent = "";
+  const onData = (chunk: string) => {
+    sseBuf += chunk;
+    let nl: number;
+    while ((nl = sseBuf.indexOf("\n")) >= 0) {
+      const line = sseBuf.slice(0, nl).replace(/\r$/, "");
+      sseBuf = sseBuf.slice(nl + 1);
+      if (line.startsWith("event:")) {
+        sseEvent = line.slice(6).trim();
+        continue;
+      }
+      if (!line.startsWith("data:")) {
+        if (line === "") sseEvent = "";
+        continue;
+      }
+      const data = line.slice(5).trim();
+      if (data === "[DONE]") continue;
+      let obj: Record<string, unknown>;
+      try {
+        obj = JSON.parse(data);
+      } catch {
+        continue;
+      }
+      if (sseEvent === "hermes.tool.progress") {
+        progress?.onTool?.({
+          tool: String(obj.tool ?? ""),
+          label: typeof obj.label === "string" ? obj.label : undefined,
+          emoji: typeof obj.emoji === "string" ? obj.emoji : undefined,
+          status: String(obj.status ?? ""),
+        });
+        sseEvent = "";
+        continue;
+      }
+      const choices = obj.choices as { delta?: { content?: string } }[] | undefined;
+      const delta = choices?.[0]?.delta?.content;
+      if (typeof delta === "string" && delta) {
+        answer += delta;
+        progress?.onPartial?.(answer);
+      }
+    }
+  };
+
   let res: { status: number; text: string };
   try {
     res = await postJson(
       `${url}/v1/chat/completions`,
       headers,
-      JSON.stringify({ model: HERMES_MODEL, messages, stream: false }),
+      JSON.stringify({ model: HERMES_MODEL, messages, stream: true }),
       HERMES_TIMEOUT_MS,
+      onData,
     );
   } catch (err) {
     const e = err as NodeJS.ErrnoException;
@@ -199,12 +267,19 @@ export async function hermesChat(
     if (res.status === 401) throw new Error("Hermes rejected the API key (401).");
     throw new Error(`Hermes agent HTTP ${res.status}${res.text ? `: ${res.text.slice(0, 200)}` : ""}`);
   }
-  const data = JSON.parse(res.text) as {
-    choices?: { message?: { content?: string } }[];
-  };
-  const answer = data.choices?.[0]?.message?.content?.trim() ?? "";
-  if (!answer) throw new Error("Hermes returned an empty response.");
-  return answer;
+  // Streamed content assembled above; a non-streaming JSON body (older
+  // gateway) is still understood as a fallback.
+  if (!answer.trim()) {
+    try {
+      const data = JSON.parse(res.text) as { choices?: { message?: { content?: string } }[] };
+      answer = data.choices?.[0]?.message?.content ?? "";
+    } catch {
+      /* streamed and empty */
+    }
+  }
+  const out = answer.trim();
+  if (!out) throw new Error("Hermes returned an empty response.");
+  return out;
 }
 
 /** Single-turn Hermes ask (team chat / one-offs). */
@@ -414,7 +489,10 @@ async function runHermesTurnTracked(
       [turns[turns.length - 1]?.content ?? "", pageContext ?? null, conversationId, subjectWorkItemId],
     );
     runId = run!.id;
-    const raw = await hermesChat(turns, pageContext, conversationId);
+    const log = runLog(runId, ["Hermes is thinking…"]);
+    const raw = await hermesChat(turns, pageContext, conversationId, hermesProgress(log));
+    log.push("Done.");
+    await log.flush();
     const answer = await finalizeHermesAnswer(runId, raw);
     await insertMessage(conversationId, "assistant", answer);
     await query(`UPDATE dev_agent_runs SET status = 'done', answer = $2, updated_at = now() WHERE id = $1`, [

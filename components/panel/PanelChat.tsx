@@ -66,11 +66,15 @@ export function PanelChat({
   onRunStart,
   onRunEnd,
   showQueueCards,
+  compact = false,
 }: {
   registerHandOff: (fn: (p: TodayPriority, kind: "do" | "prep") => void) => void;
   onRunStart: (run: ActiveRun) => void;
   onRunEnd: () => void;
   showQueueCards: boolean;
+  /** Mobile drawer over another page: no narration/cards/starters — just the
+   *  conversation and composer, so most of the page stays visible. */
+  compact?: boolean;
 }) {
   const { priorities, waiting, refresh } = useTodayQueue();
   const [prompt, setPrompt] = useState("");
@@ -392,11 +396,13 @@ export function PanelChat({
 
       {/* Scroll area: narration → starters/cards → transcript */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3">
-        <div className="whitespace-pre-wrap rounded-md bg-ai-soft px-3 py-2 text-[12.5px] leading-relaxed text-ai-2">
-          {narration}
-        </div>
+        {!compact && (
+          <div className="whitespace-pre-wrap rounded-md bg-ai-soft px-3 py-2 text-[12.5px] leading-relaxed text-ai-2">
+            {narration}
+          </div>
+        )}
 
-        {showQueueCards && (
+        {showQueueCards && !compact && (
           <div className="mt-3">
             <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
               Priorities
@@ -409,7 +415,7 @@ export function PanelChat({
           </div>
         )}
 
-        {chat.messages.length === 0 && (
+        {chat.messages.length === 0 && !compact && (
           <div className="mt-3 flex flex-wrap gap-1.5">
             {starters.map((s) => (
               <button
@@ -424,7 +430,7 @@ export function PanelChat({
         )}
 
         {(chat.messages.length > 0 || chat.notice) && (
-          <div className="mt-4 flex flex-col gap-2.5 border-t border-rule pt-3">
+          <div className={compact ? "flex flex-col gap-2.5" : "mt-4 flex flex-col gap-2.5 border-t border-rule pt-3"}>
             {chat.notice && <div className="text-[11px] font-medium text-ai-2">{chat.notice}</div>}
             {chat.messages.map((m) => {
               if (m.role === "user") {
@@ -454,6 +460,7 @@ export function PanelChat({
                     {parsed.body}
                   </div>
                   <ModelActionChips actions={parsed.actions} />
+                  {chat.logs[m.id] && <ActivityLog text={chat.logs[m.id]} done />}
                 </div>
               );
             })}
@@ -465,20 +472,7 @@ export function PanelChat({
                     : `${meta.label} is working`}
                   {chat.elapsed > 0 ? ` · ${chat.elapsed}s` : "…"}
                 </div>
-                {activityLines.length > 0 && (
-                  <div className="mt-1.5 space-y-0.5 border-l-2 border-rule pl-2.5">
-                    {activityLines.map((line, i) => (
-                      <div
-                        key={`${i}-${line}`}
-                        className={`truncate font-mono text-[11px] ${
-                          i === activityLines.length - 1 ? "text-ink-2" : "text-ink-4"
-                        }`}
-                      >
-                        {line}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {activityLines.length > 0 && <ActivityLog text={chat.activity} />}
               </div>
             )}
           </div>
@@ -543,7 +537,7 @@ export function PanelChat({
 
       {/* Mobile voice bar: a big thumb-zone mic (hands-free rounds) — the
           desktop composer keeps its compact button. */}
-      <VoiceBar voice={voice} />
+      <VoiceBar voice={voice} latest={chat.pending ? activityLines[activityLines.length - 1] : undefined} />
 
       {/* Composer */}
       <form
@@ -609,6 +603,48 @@ export function PanelChat({
   );
 }
 
+/**
+ * "What the agent is doing / did." Live: every line the run has logged so far
+ * (Hermes tool calls, the answer taking shape, Claude's reasoning snippets,
+ * ladder stages), monospaced, auto-scrolled to the newest, latest line
+ * highlighted. Done: the same log folded under the reply as a collapsible so
+ * the story stays available without cluttering the transcript.
+ */
+function ActivityLog({ text, done = false }: { text: string; done?: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const lines = text.split(String.fromCharCode(10)).filter(Boolean);
+  useEffect(() => {
+    if (!done) ref.current?.scrollTo({ top: ref.current.scrollHeight });
+  }, [text, done]);
+  if (!lines.length) return null;
+  const body = (
+    <div
+      ref={ref}
+      className={`space-y-0.5 overflow-y-auto border-l-2 border-rule pl-2.5 ${done ? "max-h-40" : "max-h-48"}`}
+    >
+      {lines.map((line, i) => (
+        <div
+          key={`${i}-${line}`}
+          className={`break-words font-mono text-[11px] leading-snug ${
+            !done && i === lines.length - 1 ? "text-ink-2" : "text-ink-4"
+          }`}
+        >
+          {line}
+        </div>
+      ))}
+    </div>
+  );
+  if (!done) return <div className="mt-1.5">{body}</div>;
+  return (
+    <details className="mt-1 group">
+      <summary className="cursor-pointer select-none text-[10.5px] font-medium text-ink-4 hover:text-ink-3">
+        What it did · {lines.length} step{lines.length === 1 ? "" : "s"}
+      </summary>
+      <div className="mt-1">{body}</div>
+    </details>
+  );
+}
+
 function voicePlaceholder(phase: string): string {
   switch (phase) {
     case "recording":
@@ -629,7 +665,7 @@ function voicePlaceholder(phase: string): string {
  *  mic level), thinking, or Claude speaking; tap = send now / interrupt. The
  *  exit chip ends voice mode. Small screens only — desktop keeps the compact
  *  composer button. */
-function VoiceBar({ voice }: { voice: ReturnType<typeof useVoiceRound> }) {
+function VoiceBar({ voice, latest }: { voice: ReturnType<typeof useVoiceRound>; latest?: string }) {
   if (!voice.supported) return null;
   const p = voice.phase;
   const label = !voice.voiceMode
@@ -660,7 +696,7 @@ function VoiceBar({ voice }: { voice: ReturnType<typeof useVoiceRound> }) {
               ? "Pause to send · tap to send now"
               : p === "speaking"
                 ? "Tap to interrupt"
-                : "Claude answers and delegates the work"}
+                : latest || "Claude answers and delegates the work"}
         </div>
       </div>
       {voice.voiceMode && (

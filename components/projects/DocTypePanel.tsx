@@ -44,6 +44,8 @@ export interface DocDraftItem {
   missing: string[];
   pdf_file_id: string | null;
   docx_file_id: string | null;
+  /** Linked signature request (once sent for signature); anchors ?focus= deep links. */
+  signature_request_id?: number | null;
   createdAtLabel: string;
   signerName: string;
   signedName: string | null;
@@ -233,7 +235,10 @@ function DraftRow({
   const canPublish = !!draft.pdf_file_id && draft.status !== "void";
 
   return (
-    <Card className="p-3.5">
+    <Card
+      className="p-3.5"
+      data-focus={draft.signature_request_id ? `signature-${draft.signature_request_id}` : `draft-${draft.id}`}
+    >
       <div className="flex items-start gap-3">
         <StatusIcon status={draft.status} />
         <div className="min-w-0 flex-1">

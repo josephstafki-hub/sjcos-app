@@ -362,33 +362,66 @@ export interface ProjectFile {
   modifiedLabel: string;
   /** Owner published this file to the client dashboard (files.client_visible). */
   clientVisible: boolean;
+  /** Uploaded by the client through their portal (files.client_slug). */
+  clientUpload: boolean;
+  /** "Client upload · Dana" / "PHOTO" — the row's stored subtitle or tag. */
+  subtitle: string;
+  /** Absolute upload time, e.g. "Aug 14, 3:12pm" — viewer caption. */
+  uploadedLabel: string;
+  /** Row came from the project's lead stage (still keyed by lead_slug). */
+  fromLead: boolean;
 }
 
-/** Real uploaded files for a project, newest first (uploads only — showcase
- *  rows have no storage_path). Scoped by project_key = slug. */
-export async function getProjectFiles(slug: string): Promise<ProjectFile[]> {
-  const { rows } = await query<{
-    id: string;
-    name: string;
-    type: "doc" | "img" | "folder";
-    size_label: string;
-    modified_label: string;
-    client_visible: boolean;
-  }>(
-    `SELECT id, name, type, size_label, modified_label, client_visible
-       FROM files
-      WHERE project_key = $1 AND storage_path IS NOT NULL
-      ORDER BY created_at DESC`,
-    [slug],
-  );
-  return rows.map((r) => ({
+const FILE_ROW_SELECT = `
+  f.id, f.name, f.type, f.size_label, f.modified_label, f.client_visible,
+  (f.client_slug IS NOT NULL) AS client_upload,
+  COALESCE(NULLIF(f.subtitle, ''), f.tag, '') AS subtitle,
+  to_char(f.created_at AT TIME ZONE 'America/Chicago', 'Mon FMDD, FMHH12:MIam') AS uploaded_label`;
+
+interface FileRow {
+  id: string;
+  name: string;
+  type: "doc" | "img" | "folder";
+  size_label: string;
+  modified_label: string;
+  client_visible: boolean;
+  client_upload: boolean;
+  subtitle: string;
+  uploaded_label: string;
+  from_lead?: boolean;
+}
+
+function fileRowToProjectFile(r: FileRow): ProjectFile {
+  return {
     id: r.id,
     name: r.name,
     type: r.type,
     sizeLabel: r.size_label,
     modifiedLabel: r.modified_label,
     clientVisible: r.client_visible,
-  }));
+    clientUpload: r.client_upload,
+    subtitle: r.subtitle,
+    uploadedLabel: r.uploaded_label,
+    fromLead: !!r.from_lead,
+  };
+}
+
+/** Real uploaded files for a project, newest first (uploads only — showcase
+ *  rows have no storage_path). Scoped by project_key = slug. */
+export async function getProjectFiles(slug: string): Promise<ProjectFile[]> {
+  // Includes files still keyed to the project's origin lead (uploaded during
+  // the lead stage) — conversion now re-keys them, but older rows may not be.
+  const { rows } = await query<FileRow>(
+    `SELECT ${FILE_ROW_SELECT},
+            (f.project_key IS DISTINCT FROM $1) AS from_lead
+       FROM files f
+      WHERE f.storage_path IS NOT NULL
+        AND (f.project_key = $1
+             OR f.lead_slug IN (SELECT l.slug FROM leads l JOIN projects p ON p.lead_id = l.id WHERE p.slug = $1))
+      ORDER BY f.created_at DESC`,
+    [slug],
+  );
+  return rows.map(fileRowToProjectFile);
 }
 
 /** Real uploaded files attached to a LEAD (files.lead_slug), newest first —
@@ -396,28 +429,14 @@ export async function getProjectFiles(slug: string): Promise<ProjectFile[]> {
  *  detail pages. Includes lead photos and client uploads from a lead-stage
  *  portal session. */
 export async function getLeadFiles(slug: string): Promise<ProjectFile[]> {
-  const { rows } = await query<{
-    id: string;
-    name: string;
-    type: "doc" | "img" | "folder";
-    size_label: string;
-    modified_label: string;
-    client_visible: boolean;
-  }>(
-    `SELECT id, name, type, size_label, modified_label, client_visible
-       FROM files
-      WHERE lead_slug = $1 AND storage_path IS NOT NULL
-      ORDER BY created_at DESC`,
+  const { rows } = await query<FileRow>(
+    `SELECT ${FILE_ROW_SELECT}
+       FROM files f
+      WHERE f.lead_slug = $1 AND f.storage_path IS NOT NULL
+      ORDER BY f.created_at DESC`,
     [slug],
   );
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    type: r.type,
-    sizeLabel: r.size_label,
-    modifiedLabel: r.modified_label,
-    clientVisible: r.client_visible,
-  }));
+  return rows.map(fileRowToProjectFile);
 }
 
 /** A sub assigned to a project, with the contact + COI info the Subs tab needs. */

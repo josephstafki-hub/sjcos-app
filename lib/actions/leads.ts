@@ -556,6 +556,17 @@ export async function convertLeadToProject(slug: string, nameInput?: string) {
       `UPDATE chat_messages SET channel_key = $2 WHERE channel_key = $1`,
       [`portal:lead:${slug}`, `portal:${pslug}`],
     );
+    // Files uploaded during the lead stage (lead photos, client uploads, docs)
+    // gain the project key so the project's Files tab sees them; lead_slug is
+    // kept so the lead page still does too. A client's own uploads follow
+    // their re-keyed portal user (client_slug 'lead:<slug>' → project slug).
+    await query(
+      `UPDATE files
+          SET project_key = $2,
+              client_slug = CASE WHEN client_slug = $3 THEN $2 ELSE client_slug END
+        WHERE lead_slug = $1 AND (project_key IS NULL OR project_key = '')`,
+      [slug, pslug, `lead:${slug}`],
+    );
   } catch {
     /* portal carry-over must never block the conversion */
   }

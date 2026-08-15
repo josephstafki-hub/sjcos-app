@@ -2445,3 +2445,28 @@ ALTER TABLE bid_packages ADD COLUMN IF NOT EXISTS awarded_invite_id bigint;
 ALTER TABLE bid_packages DROP CONSTRAINT IF EXISTS bid_packages_awarded_invite_fkey;
 ALTER TABLE bid_packages ADD CONSTRAINT bid_packages_awarded_invite_fkey
   FOREIGN KEY (awarded_invite_id) REFERENCES bid_invites(id) ON DELETE SET NULL;
+
+-- ── Client activity log (db/apply-client-activity.mjs) ─────────────────────
+-- One row per thing a client DID in their portal: opened it, uploaded a file,
+-- sent a message, approved a plan/board, decided a selection, signed or
+-- declined a document, confirmed a punch item, filed a warranty claim. Read by
+-- the owner-side "Client portal" tab (lead + project) so "what has the client
+-- done" is one list, not six tables. Scoped to a lead XOR a project; a project
+-- reads its origin lead's rows too (projects.lead_id) so lead-stage history
+-- follows the conversion. Notifications stay the inbox; this is the ledger.
+CREATE TABLE IF NOT EXISTS client_activity (
+  id           bigserial PRIMARY KEY,
+  lead_id      uuid REFERENCES leads(id) ON DELETE CASCADE,
+  project_id   uuid REFERENCES projects(id) ON DELETE CASCADE,
+  kind         text NOT NULL,        -- visit/upload/message/selection/mood_feedback/mood_approve/plan_approve/sign/decline/punch_confirm/warranty/claim
+  summary      text NOT NULL,        -- "Uploaded kitchen-before.jpg"
+  detail       text,                 -- optional second line (message excerpt, reason)
+  entity_kind  text,                 -- file/message/selection/mood_board/floorplan/signature/punch/warranty_claim
+  entity_id    text,                 -- id of that record (text: ids are mixed uuid/text/bigint)
+  actor_name   text NOT NULL DEFAULT '',
+  href         text,                 -- owner-side deep link (…?tab=X&focus=Y)
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  CHECK ((lead_id IS NULL) <> (project_id IS NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_client_activity_project ON client_activity(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_client_activity_lead    ON client_activity(lead_id, created_at DESC);

@@ -1,9 +1,7 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import { getCurrentUser } from "@/lib/dal";
 import { queryOne } from "@/lib/db";
 import { parseLinkSlug, originLeadSlug } from "@/lib/client-portal";
-import { UPLOAD_DIR } from "@/lib/uploads";
+import { serveFile } from "@/lib/file-serve";
 
 // Serves a portal-reachable file to the owner OR the scoped client. A client
 // may open a files row when any of these hold:
@@ -15,7 +13,7 @@ import { UPLOAD_DIR } from "@/lib/uploads";
 //      carry their own scope columns, so the draft row authorizes them.
 // Anything else stays owner-only on /api/files/[id].
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const user = await getCurrentUser();
@@ -45,7 +43,10 @@ export async function GET(
     // A project scope also reaches what was shared during its lead stage.
     const originLead = scope.kind === "project" ? await originLeadSlug(scope.slug) : null;
 
-    const ownUpload = !!file.client_slug && user.linkSlug === file.client_slug;
+    const ownUpload =
+      !!file.client_slug &&
+      (user.linkSlug === file.client_slug ||
+        (!!originLead && file.client_slug === `lead:${originLead}`));
     const publishedFile =
       file.client_visible &&
       (scope.kind === "project"
@@ -76,20 +77,5 @@ export async function GET(
     }
   }
 
-  const filePath = path.join(UPLOAD_DIR, path.basename(file.storage_path));
-  let bytes: Buffer;
-  try {
-    bytes = await readFile(filePath);
-  } catch {
-    return new Response("Not found", { status: 404 });
-  }
-
-  return new Response(new Uint8Array(bytes), {
-    headers: {
-      "Content-Type": file.mime_type || "application/octet-stream",
-      "Content-Disposition": `inline; filename="${encodeURIComponent(file.name)}"`,
-      "Content-Length": String(bytes.length),
-      "Cache-Control": "private, no-store",
-    },
-  });
+  return serveFile(req, id, { ...file, storage_path: file.storage_path });
 }

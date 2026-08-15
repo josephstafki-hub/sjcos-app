@@ -10,6 +10,7 @@ import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { storeUpload } from "@/lib/upload-store";
 import { emit } from "@/lib/notify";
+import { logClientActivity, ownerHref } from "@/lib/client-activity";
 import { notifyDashboardPublish, type DeliveryNote } from "@/lib/portal-publish";
 
 type Result = { ok: boolean; error?: string };
@@ -146,7 +147,17 @@ export async function approveFloorplan(id: number, formData: FormData): Promise<
       icon: "project",
       title: `${name} approved a floor plan`,
       subline: `Project ${row.slug}`,
-      href: `/projects/${row.slug}`,
+      href: ownerHref({ kind: "project", slug: row.slug }, { tab: "Floor", focus: `floorplan-${id}` }),
+    });
+    await logClientActivity({
+      scope: { kind: "project", slug: row.slug },
+      kind: "plan_approve",
+      summary: "Approved a floor plan version",
+      detail: `Signed as ${name}`,
+      entityKind: "floorplan",
+      entityId: id,
+      actorName: user.name || name,
+      href: ownerHref({ kind: "project", slug: row.slug }, { tab: "Floor", focus: `floorplan-${id}` }),
     });
   }
 

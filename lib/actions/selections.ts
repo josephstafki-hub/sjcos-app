@@ -15,6 +15,7 @@ import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { emit } from "@/lib/notify";
+import { logClientActivity, ownerHref } from "@/lib/client-activity";
 import { storeUpload } from "@/lib/upload-store";
 import { fetchProductDraft } from "@/lib/product-fetch";
 import { notifyDashboardPublish } from "@/lib/portal-publish";
@@ -611,7 +612,16 @@ export async function decideSelection(
         ? `Client chose ${chosenLabel} — ${sel.area}`
         : `Client declined the options — ${sel.area}`,
       subline: approve ? sel.project_name : `${sel.project_name} · needs different options`,
-      href: `/projects/${sel.slug}`,
+      href: ownerHref({ kind: "project", slug: sel.slug }, { tab: "Selections", focus: `selection-${id}` }),
+    });
+    await logClientActivity({
+      scope: { kind: "project", slug: sel.slug },
+      kind: "selection",
+      summary: approve ? `Chose ${chosenLabel} — ${sel.area}` : `Declined the options — ${sel.area}`,
+      entityKind: "selection",
+      entityId: id,
+      actorName: user.name,
+      href: ownerHref({ kind: "project", slug: sel.slug }, { tab: "Selections", focus: `selection-${id}` }),
     });
   }
   revalidatePath(`/projects/${sel.slug}`);

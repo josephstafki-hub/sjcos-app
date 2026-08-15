@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/dal";
 import { query, queryOne } from "@/lib/db";
 import { emit } from "@/lib/notify";
+import { logClientActivity } from "@/lib/client-activity";
 
 const PREVIEW_CLIENT_SLUG = "henderson"; // owner previewing the client portal
 
@@ -28,16 +29,19 @@ async function insertClaim(opts: {
   clientName: string;
   issue: string;
   source: string;
-}) {
+}): Promise<{ id: string | null; href: string }> {
   const now = new Date();
   const ack = iso(addWeekdays(now, 5));
   const resolve = iso(new Date(now.getTime() + 30 * 86400_000));
-  await query(
+  const ins = await queryOne<{ id: string }>(
     `INSERT INTO warranty_claims
        (project, client, issue, project_id, source, ack_deadline_at, resolve_deadline_at, dot)
-     VALUES ($1, $2, $3, $4, $5, $6::date, $7::date, 'accent')`,
+     VALUES ($1, $2, $3, $4, $5, $6::date, $7::date, 'accent')
+     RETURNING id::text AS id`,
     [opts.projectName, opts.clientName, opts.issue, opts.projectId, opts.source, ack, resolve],
   );
+  const id = ins?.id ?? null;
+  const href = id ? `/warranty?focus=claim-${id}` : "/warranty";
   await emit({
     kind: "decision",
     tag: "Warranty",
@@ -46,8 +50,9 @@ async function insertClaim(opts: {
     flagged: true,
     title: `New warranty claim · ${opts.projectName}`,
     subline: `${opts.issue.slice(0, 90)} — 5-day ack by ${ack}`,
-    href: "/warranty",
+    href,
   });
+  return { id, href };
 }
 
 /** Client (or owner previewing) submits a warranty claim from the portal. */
@@ -68,13 +73,25 @@ export async function submitWarrantyClaim(
   );
   if (!proj) return { ok: false, error: "Project not found." };
 
-  await insertClaim({
+  const claim = await insertClaim({
     projectId: proj.id,
     projectName: proj.name,
     clientName: proj.client_name || user.name || "Client",
     issue,
     source: "portal",
   });
+  if (user.role === "client") {
+    await logClientActivity({
+      scope: { kind: "project", slug: projectSlug },
+      kind: "warranty",
+      summary: "Submitted a warranty claim",
+      detail: issue,
+      entityKind: "warranty_claim",
+      entityId: claim.id,
+      actorName: user.name,
+      href: claim.href,
+    });
+  }
   revalidatePath("/warranty");
   revalidatePath("/client-portal");
   return { ok: true };

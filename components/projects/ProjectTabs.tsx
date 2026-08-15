@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { Suspense, useState, type ReactNode } from "react";
 import { Tabs, Card } from "@/components/ui";
+import { FocusScroll } from "@/components/shell/FocusScroll";
 import { PROJECT_TABS, type ProjectTab } from "@/lib/project-tabs";
 import { TabNavContext, SectionNavContext } from "./TabNav";
 
@@ -14,19 +15,40 @@ import { TabNavContext, SectionNavContext } from "./TabNav";
 export function ProjectTabs({
   panels,
   stageTab,
+  initialTab,
+  focus,
   header,
 }: {
   panels: Partial<Record<ProjectTab, ReactNode>>;
   stageTab?: ProjectTab;
+  /** Tab named by `?tab=` in the URL (deep link from a notification or the
+   *  activity ledger). Wins over stageTab when valid. */
+  initialTab?: string | null;
+  /** `?focus=` key — the [data-focus] record to scroll to and flash. */
+  focus?: string | null;
   /** Server-rendered header band, rendered inside the tab-nav provider so its
    *  controls (Log update / Send invoice) can jump to a tab. */
   header?: ReactNode;
 }) {
-  const initial = stageTab ? Math.max(0, PROJECT_TABS.indexOf(stageTab)) : 0;
+  const linked = initialTab ? PROJECT_TABS.indexOf(initialTab as ProjectTab) : -1;
+  const initial = linked >= 0 ? linked : stageTab ? Math.max(0, PROJECT_TABS.indexOf(stageTab)) : 0;
   const [active, setActive] = useState(initial);
   // Which section is open in each grouped tab (Money, Closeout); a tab absent
   // here shows its first section.
   const [sections, setSections] = useState<Record<string, string>>({});
+  // Render-phase sync (not an effect): a same-page deep link (activity row →
+  // ?tab=Mood&focus=…) re-renders with new props rather than remounting, so
+  // follow the link when it changes.
+  const linkKey = `${initialTab ?? ""}|${focus ?? ""}`;
+  const [seenLinkKey, setSeenLinkKey] = useState(linkKey);
+  if (linkKey !== seenLinkKey) {
+    setSeenLinkKey(linkKey);
+    if (linked >= 0) {
+      setActive(linked);
+      // Let PanelSections' ?focus= mapping pick the section again.
+      setSections({});
+    }
+  }
 
   function setSection(tab: string, section: string) {
     setSections((prev) => (prev[tab] === section ? prev : { ...prev, [tab]: section }));
@@ -45,6 +67,9 @@ export function ProjectTabs({
   return (
     <TabNavContext.Provider value={goToTab}>
       <SectionNavContext.Provider value={{ sections, setSection }}>
+        <Suspense fallback={null}>
+          <FocusScroll focus={focus} />
+        </Suspense>
         {header}
         <div className="border-b border-rule bg-paper-2 px-7">
           <Tabs tabs={[...PROJECT_TABS]} active={active} onSelect={setActive} />

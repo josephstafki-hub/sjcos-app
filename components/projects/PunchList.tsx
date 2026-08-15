@@ -76,6 +76,7 @@ export function PunchList({ slug, items }: { slug: string; items: PunchItem[] })
       {rows.map((p, i) => (
         <div
           key={p.id}
+          data-focus={`punch-${p.id}`}
           className={`group flex items-center gap-3 px-4 py-3 ${i ? "border-t border-rule-soft" : ""}`}
         >
           <button

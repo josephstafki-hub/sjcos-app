@@ -26,6 +26,11 @@ import { PortalAccessPanel, type PortalInviteSummary } from "@/components/portal
 import { listDocDrafts, listDocTemplates } from "@/lib/doc-drafts";
 import { getLeadFiles } from "@/lib/projects";
 import { getClientInvite } from "@/lib/client-invites";
+import { getClientActivity } from "@/lib/client-activity";
+import { getClientUploadsForOwner, getPublishedRoster } from "@/lib/portal-roster";
+import { ClientActivityFeed } from "@/components/portal-admin/ClientActivityFeed";
+import { PublishedRoster } from "@/components/portal-admin/PublishedRoster";
+import { StandaloneSections } from "@/components/projects/StandaloneSections";
 import { getPortalThread, portalChannel } from "@/lib/portal-messages";
 import { AI_NAME } from "@/lib/ai-name";
 import { RecordOps } from "@/components/engine/RecordOps";
@@ -34,10 +39,13 @@ import { SendPreconButton } from "@/components/leads/SendPreconButton";
 
 export default async function LeadDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ tab?: string; focus?: string }>;
 }) {
   const { slug } = await params;
+  const { tab: linkedTab, focus: linkedFocus } = await searchParams;
   const lead = await getLead(slug);
   if (!lead) notFound();
 
@@ -56,11 +64,16 @@ export default async function LeadDetailPage({
 
   // Client portal state for this lead: real uploaded files (with dashboard
   // share toggles), the invite, and the portal chat thread.
-  const [leadFiles, invite, portalThread] = await Promise.all([
-    getLeadFiles(slug),
-    getClientInvite({ lead: slug }),
-    getPortalThread(portalChannel("client", `lead:${slug}`)),
-  ]);
+  const leadScope = { kind: "lead", slug } as const;
+  const [leadFiles, invite, portalThread, clientActivity, clientUploads, publishedRoster] =
+    await Promise.all([
+      getLeadFiles(slug),
+      getClientInvite({ lead: slug }),
+      getPortalThread(portalChannel("client", `lead:${slug}`)),
+      getClientActivity(leadScope),
+      getClientUploadsForOwner(leadScope),
+      getPublishedRoster(leadScope),
+    ]);
   const inviteSummary: PortalInviteSummary = invite
     ? {
         status:
@@ -287,12 +300,44 @@ export default async function LeadDetailPage({
     <ProjectFiles leadSlug={lead.slug} files={leadFiles} showcase={lead.files.map((f) => f.name)} />
   );
 
-  // ── Client portal panel — access link management + the portal chat thread ──
+  // ── Client portal panel — what the client has done, the portal chat thread,
+  //    their uploads, what's published to them, and access-link management.
+  //    Same sections as the project's Client portal tab.
+  const recentClientActions = clientActivity.filter((r) => r.kind !== "visit").length;
   const portalPanel = (
-    <div className="max-w-[680px] space-y-4">
-      <PortalAccessPanel scope={{ lead: lead.slug }} invite={inviteSummary} />
-      <ProjectComms leadSlug={lead.slug} thread={portalThread} />
-    </div>
+    <StandaloneSections
+      tab="Client portal"
+      sections={[
+        {
+          label: `Activity${recentClientActions ? ` · ${recentClientActions}` : ""}`,
+          node: <ClientActivityFeed rows={clientActivity} />,
+        },
+        {
+          label: `Messages${portalThread.length ? ` · ${portalThread.length}` : ""}`,
+          node: <ProjectComms leadSlug={lead.slug} thread={portalThread} />,
+        },
+        {
+          label: `Uploads${clientUploads.length ? ` · ${clientUploads.length}` : ""}`,
+          node: (
+            <ProjectFiles
+              leadSlug={lead.slug}
+              files={clientUploads}
+              showcase={[]}
+              title={`${clientUploads.length} uploaded by the client`}
+            />
+          ),
+        },
+        {
+          label: `Published${publishedRoster.total ? ` · ${publishedRoster.total}` : ""}`,
+          node: <PublishedRoster roster={publishedRoster} base={`/leads/${lead.slug}`} />,
+        },
+        {
+          label: "Access",
+          node: <PortalAccessPanel scope={{ lead: lead.slug }} invite={inviteSummary} />,
+        },
+      ]}
+      focusSections={{ "activity-": "Activity", "message-": "Messages", "file-": "Uploads" }}
+    />
   );
 
   const panels: Record<string, ReactNode> = {
@@ -391,7 +436,7 @@ export default async function LeadDetailPage({
           </div>
         </div>
 
-        <LeadTabs panels={panels} />
+        <LeadTabs panels={panels} initialTab={linkedTab} focus={linkedFocus} />
       </div>
     </Shell>
   );

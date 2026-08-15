@@ -486,7 +486,10 @@ function SelectionRow({
   // A decision reads as a subheading over its option boxes, not a box of its
   // own — the visual hierarchy is room card → sub-section → decision → options.
   return (
-    <div className="border-t border-rule-soft pt-2.5 first:border-t-0 first:pt-0">
+    <div
+      data-focus={`selection-${s.id}`}
+      className="border-t border-rule-soft pt-2.5 first:border-t-0 first:pt-0"
+    >
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <span className="text-[13px] font-semibold text-ink">{s.area}</span>
         {s.allowance > 0 && (

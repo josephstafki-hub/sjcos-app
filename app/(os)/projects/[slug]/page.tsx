@@ -25,6 +25,10 @@ import { ProjectFiles } from "@/components/projects/ProjectFiles";
 import { ProjectComms } from "@/components/projects/ProjectComms";
 import { PortalAccessPanel, type PortalInviteSummary } from "@/components/portal/PortalAccessPanel";
 import { getClientInvite } from "@/lib/client-invites";
+import { getClientActivity } from "@/lib/client-activity";
+import { getClientUploadsForOwner, getPublishedRoster } from "@/lib/portal-roster";
+import { ClientActivityFeed } from "@/components/portal-admin/ClientActivityFeed";
+import { PublishedRoster } from "@/components/portal-admin/PublishedRoster";
 import { ProjectSchedule } from "@/components/projects/ProjectSchedule";
 import { DocTypePanel } from "@/components/projects/DocTypePanel";
 import { listDocDrafts, listDocTemplates } from "@/lib/doc-drafts";
@@ -75,10 +79,13 @@ function ViewTab({ tab, section }: { tab: ProjectTab; section?: string }) {
 
 export default async function ProjectDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ tab?: string; focus?: string }>;
 }) {
   const { slug } = await params;
+  const { tab: linkedTab, focus: linkedFocus } = await searchParams;
   const [
     project,
     money,
@@ -141,8 +148,15 @@ export default async function ProjectDetailPage({
   const docTemplates = listDocTemplates().filter((t) => t.scope !== "lead");
   if (!project) notFound();
 
-  // Client portal invite for the Comms tab's access panel.
-  const invite = await getClientInvite({ project: slug });
+  // Client portal tab: invite/access, the ledger of what the client has done,
+  // their uploads, and what's currently published to them.
+  const portalScopeObj = { kind: "project", slug } as const;
+  const [invite, clientActivity, clientUploads, publishedRoster] = await Promise.all([
+    getClientInvite({ project: slug }),
+    getClientActivity(portalScopeObj),
+    getClientUploadsForOwner(portalScopeObj),
+    getPublishedRoster(portalScopeObj),
+  ]);
   const inviteSummary: PortalInviteSummary = invite
     ? {
         status:
@@ -464,12 +478,49 @@ export default async function ProjectDetailPage({
     <BiddingBoard slug={slug} view={bidding} roster={biddingRoster} projectFiles={projectFiles} />
   );
 
-  // ── Comms panel — real owner ⇄ client thread (portal:<slug>) ───────────────
-  const commsPanel = (
-    <div className="max-w-[680px] space-y-4">
-      <PortalAccessPanel scope={{ project: slug }} invite={inviteSummary} />
-      <ProjectComms slug={slug} thread={commsThread} />
-    </div>
+  // ── Client portal tab — everything about the client's dashboard in one place:
+  //    Activity (what they've done, when), Messages (the real owner ⇄ client
+  //    thread, portal:<slug>), Uploads (their photos/files, in the viewer),
+  //    Published (what they can currently see), Access (invite link).
+  const recentClientActions = clientActivity.filter((r) => r.kind !== "visit").length;
+  const clientPortalTab = (
+    <PanelSections
+      tab="Client portal"
+      sections={[
+        {
+          label: `Activity${recentClientActions ? ` · ${recentClientActions}` : ""}`,
+          node: <ClientActivityFeed rows={clientActivity} />,
+        },
+        {
+          label: `Messages${commsThread.length ? ` · ${commsThread.length}` : ""}`,
+          node: <ProjectComms slug={slug} thread={commsThread} />,
+        },
+        {
+          label: `Uploads${clientUploads.length ? ` · ${clientUploads.length}` : ""}`,
+          node: (
+            <ProjectFiles
+              slug={slug}
+              files={clientUploads}
+              showcase={[]}
+              title={`${clientUploads.length} uploaded by the client`}
+            />
+          ),
+        },
+        {
+          label: `Published${publishedRoster.total ? ` · ${publishedRoster.total}` : ""}`,
+          node: <PublishedRoster roster={publishedRoster} base={`/projects/${slug}`} />,
+        },
+        {
+          label: "Access",
+          node: <PortalAccessPanel scope={{ project: slug }} invite={inviteSummary} />,
+        },
+      ]}
+      focusSections={{
+        "activity-": "Activity",
+        "message-": "Messages",
+        "file-": "Uploads",
+      }}
+    />
   );
 
   // ── Punch panel — real, interactive punch-list items (add/toggle/remove) ────
@@ -517,9 +568,19 @@ export default async function ProjectDetailPage({
   //    Money so "the contract" isn't three clicks deep behind Estimate/Documents/
   //    Signatures — a document's status chip (Draft/Sent/Signed) is now the only
   //    "signed" label; there's no separate Signatures tab.
+  // Deep links (?focus=signature-<id> / draft-<id>) open the template section
+  // that owns that draft.
+  const docFocusSections: Record<string, string> = {};
+  for (const t of docTemplates) {
+    for (const d of docDrafts.filter((x) => x.template_key === t.key)) {
+      docFocusSections[`draft-${d.id}`] = t.title;
+      if (d.signature_request_id) docFocusSections[`signature-${d.signature_request_id}`] = t.title;
+    }
+  }
   const documentsTab = (
     <PanelSections
       tab="Documents"
+      focusSections={docFocusSections}
       sections={docTemplates.map((t) => ({
         label: t.title,
         node: (
@@ -538,6 +599,7 @@ export default async function ProjectDetailPage({
   const closeoutTab = (
     <PanelSections
       tab="Closeout"
+      focusSections={{ "punch-": "Punch list" }}
       sections={[
         { label: "Punch list", node: punchPanel },
         { label: "Final docs", node: closeoutPanel },
@@ -558,7 +620,7 @@ export default async function ProjectDetailPage({
     Subs: subsPanel,
     Files: filesPanel,
     "Daily log": dailyLogPanel,
-    Comms: commsPanel,
+    "Client portal": clientPortalTab,
     Permits: <PermitPacket slug={slug} permits={permits} />,
     Closeout: closeoutTab,
     Safety: safetyPanel,
@@ -620,7 +682,13 @@ export default async function ProjectDetailPage({
       breadcrumb={`PROJECTS › ${project.name.toUpperCase()}`}
       aiContext={projectAiContext}
     >
-      <ProjectTabs panels={panels} stageTab={stageToolTab(project.status)} header={headerBand} />
+      <ProjectTabs
+        panels={panels}
+        stageTab={stageToolTab(project.status)}
+        initialTab={linkedTab}
+        focus={linkedFocus}
+        header={headerBand}
+      />
     </Shell>
   );
 }

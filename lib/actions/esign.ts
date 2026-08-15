@@ -12,6 +12,8 @@ import { headers } from "next/headers";
 import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { emit } from "@/lib/notify";
+import { logClientActivity, ownerHrefForLinkSlug } from "@/lib/client-activity";
+import type { PortalScope } from "@/lib/client-portal";
 import { finalizeSignedDraft } from "@/lib/doc-drafts";
 import type { DocType } from "@/lib/esign-types";
 
@@ -150,9 +152,14 @@ async function loadSignable(id: number, slug: string) {
 
 /** Owner-side link for a portal scope slug (project, or 'lead:<slug>'). */
 function ownerHrefForScope(slug: string): string {
+  return ownerHrefForLinkSlug(slug);
+}
+
+/** Portal scope object for a scope slug (project, or 'lead:<slug>'). */
+function scopeFor(slug: string): PortalScope {
   return slug.startsWith("lead:")
-    ? `/leads/${slug.slice("lead:".length)}`
-    : `/projects/${slug}`;
+    ? { kind: "lead", slug: slug.slice("lead:".length) }
+    : { kind: "project", slug };
 }
 
 /** Client (or owner previewing): sign a sent request. */
@@ -221,7 +228,17 @@ export async function signSignatureRequest(id: number, formData: FormData): Prom
       accent: "money",
       title: `Signed: ${doc.title}`,
       subline: `${signedName} signed electronically`,
-      href: ownerHrefForScope(slug),
+      href: ownerHrefForLinkSlug(slug, { tab: "Documents", focus: `signature-${id}` }),
+    });
+    await logClientActivity({
+      scope: scopeFor(slug),
+      kind: "sign",
+      summary: `Signed: ${doc.title}`,
+      detail: `Signed electronically as ${signedName}`,
+      entityKind: "signature",
+      entityId: id,
+      actorName: user.name || signedName,
+      href: ownerHrefForLinkSlug(slug, { tab: "Documents", focus: `signature-${id}` }),
     });
   }
 
@@ -266,7 +283,17 @@ export async function declineSignatureRequest(id: number, formData: FormData): P
       flagged: true,
       title: `Declined: ${doc.title}`,
       subline: reason ? reason.slice(0, 120) : "Client declined to sign",
-      href: ownerHrefForScope(slug),
+      href: ownerHrefForLinkSlug(slug, { tab: "Documents", focus: `signature-${id}` }),
+    });
+    await logClientActivity({
+      scope: scopeFor(slug),
+      kind: "decline",
+      summary: `Declined to sign: ${doc.title}`,
+      detail: reason || "No reason given",
+      entityKind: "signature",
+      entityId: id,
+      actorName: user.name,
+      href: ownerHrefForLinkSlug(slug, { tab: "Documents", focus: `signature-${id}` }),
     });
   }
 

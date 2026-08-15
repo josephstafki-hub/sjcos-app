@@ -126,7 +126,9 @@ function NotificationRow({ notification: n }: { notification: NotificationCard }
             <div className="flex items-center gap-1.5">
               <Chip kind={n.accent}>{n.tag}</Chip>
               <div className="flex-1" />
-              <span className="font-mono text-[10px] text-ink-3">{n.when}</span>
+              <span className="font-mono text-[10px] text-ink-3" title={n.whenAbsolute}>
+                {n.when}
+              </span>
             </div>
             <div className="mt-1 font-serif text-[14px] font-semibold text-ink">{n.title}</div>
             <div className="mt-0.5 text-[12px] text-ink-3">{n.subline}</div>

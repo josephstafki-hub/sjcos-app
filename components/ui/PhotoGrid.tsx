@@ -1,121 +1,88 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Lightbox, type LightboxPhoto } from "./Lightbox";
 
-// Clickable photo thumbnails that open a lightbox overlay (prev / next / esc).
-// The app has no real image URLs yet, so tiles render as themed placeholders;
-// the lightbox enlarges the same tile with a caption. Reusable across lead
-// detail, project files, etc. — pass a `count` (and optional `label`/`cols`).
+// Clickable photo thumbnails that open the Lightbox viewer (zoom / pan /
+// prev-next / download / filmstrip). Reusable across lead detail, project
+// files, the client-portal tab, etc.
+//
+// Two ways to feed it:
+//   • `photos` — full LightboxPhoto records (name, thumb, caption, …). Preferred.
+//   • legacy `count` + `srcs` — bare URLs; tiles without a URL render as themed
+//     placeholders (the showcase look from before real uploads existed).
 
 export function PhotoGrid({
   count,
   label = "Photo",
   cols = 3,
   srcs,
+  photos,
+  className = "mt-2",
 }: {
-  count: number;
+  count?: number;
   label?: string;
   cols?: number;
-  /** Real image URLs. When given, tiles + lightbox render actual photos. */
+  /** Real image URLs (legacy). When given, tiles + viewer render actual photos. */
   srcs?: string[];
+  /** Full photo records — drives tiles (thumb) and the viewer (src, caption). */
+  photos?: LightboxPhoto[];
+  className?: string;
 }) {
   const [open, setOpen] = useState<number | null>(null);
 
-  const close = useCallback(() => setOpen(null), []);
-  const step = useCallback(
-    (delta: number) => setOpen((cur) => (cur === null ? cur : (cur + delta + count) % count)),
-    [count],
-  );
+  const items: LightboxPhoto[] = useMemo(() => {
+    if (photos) return photos;
+    const n = count ?? srcs?.length ?? 0;
+    return Array.from({ length: n }, (_, i) => ({
+      id: String(i),
+      src: srcs?.[i] ?? "",
+      name: `${label} ${i + 1}`,
+    }));
+  }, [photos, count, srcs, label]);
 
-  useEffect(() => {
-    if (open === null) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") close();
-      else if (e.key === "ArrowRight") step(1);
-      else if (e.key === "ArrowLeft") step(-1);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, close, step]);
-
-  if (count <= 0) return null;
+  const total = items.length;
+  if (total <= 0) return null;
 
   return (
     <>
       <div
-        className="mt-2 grid gap-1"
+        className={`${className} grid gap-1`}
         style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
       >
-        {Array.from({ length: count }).map((_, i) => (
+        {items.map((p, i) => (
           <button
-            key={i}
+            key={p.id}
+            type="button"
             onClick={() => setOpen(i)}
-            aria-label={`${label} ${i + 1} of ${count}`}
+            aria-label={`${p.name} (${i + 1} of ${total})`}
+            title={p.name}
             className="aspect-square overflow-hidden rounded-[3px] border border-rule bg-paper-3 transition-colors hover:border-accent hover:bg-paper-2"
           >
-            {srcs?.[i] && (
+            {p.src && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={srcs[i]} alt={`${label} ${i + 1}`} className="size-full object-cover" />
+              <img
+                src={p.thumb ?? p.src}
+                alt={p.name}
+                loading="lazy"
+                className="size-full object-cover"
+              />
             )}
           </button>
         ))}
       </div>
 
-      {open !== null && (
+      {open !== null && items[open]?.src && (
+        <Lightbox photos={items} index={open} onClose={() => setOpen(null)} onIndexChange={setOpen} />
+      )}
+      {open !== null && !items[open]?.src && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-ink/70 p-6"
-          onClick={close}
+          onClick={() => setOpen(null)}
         >
-          <button
-            onClick={close}
-            aria-label="Close"
-            className="absolute right-5 top-5 text-paper/80 hover:text-paper"
-          >
-            <X className="size-6" strokeWidth={1.5} />
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              step(-1);
-            }}
-            aria-label="Previous"
-            className="absolute left-4 text-paper/70 hover:text-paper"
-          >
-            <ChevronLeft className="size-8" strokeWidth={1.5} />
-          </button>
-
-          <figure
-            className="flex w-full max-w-[680px] flex-col items-center"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {srcs?.[open] ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={srcs[open]}
-                alt={`${label} ${open + 1}`}
-                className="max-h-[78vh] w-auto max-w-full rounded-md border border-paper/15 object-contain"
-              />
-            ) : (
-              <div className="flex aspect-[4/3] w-full items-center justify-center rounded-md border border-paper/15 bg-paper-3/95 font-mono text-[12px] uppercase tracking-[0.16em] text-ink-3">
-                {label} {open + 1}
-              </div>
-            )}
-            <figcaption className="mt-3 font-mono text-[11px] uppercase tracking-[0.14em] text-paper/70">
-              {label} {open + 1} of {count}
-            </figcaption>
-          </figure>
-
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              step(1);
-            }}
-            aria-label="Next"
-            className="absolute right-4 text-paper/70 hover:text-paper"
-          >
-            <ChevronRight className="size-8" strokeWidth={1.5} />
-          </button>
+          <div className="flex aspect-[4/3] w-full max-w-[680px] items-center justify-center rounded-md border border-paper/15 bg-paper-3/95 font-mono text-[12px] uppercase tracking-[0.16em] text-ink-3">
+            {items[open]?.name}
+          </div>
         </div>
       )}
     </>

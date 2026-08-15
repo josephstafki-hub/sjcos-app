@@ -12,6 +12,7 @@ import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { storeUpload } from "@/lib/upload-store";
 import { emit } from "@/lib/notify";
+import { logClientActivity, ownerHref } from "@/lib/client-activity";
 import { notifyDashboardPublish, type DeliveryNote } from "@/lib/portal-publish";
 
 type Result = { ok: boolean; error?: string };
@@ -478,7 +479,17 @@ export async function addMoodFeedback(room: string, formData: FormData): Promise
       icon: "chat",
       title: `${user.name || "Client"} left feedback on the ${room} board`,
       subline: body.length > 120 ? `${body.slice(0, 117)}…` : body,
-      href: `/projects/${slug}`,
+      href: ownerHref({ kind: "project", slug }, { tab: "Mood", focus: `mood-${room}` }),
+    });
+    await logClientActivity({
+      scope: { kind: "project", slug },
+      kind: "mood_feedback",
+      summary: `Left feedback on the ${room} mood board`,
+      detail: body,
+      entityKind: "mood_board",
+      entityId: room,
+      actorName: user.name,
+      href: ownerHref({ kind: "project", slug }, { tab: "Mood", focus: `mood-${room}` }),
     });
   }
 
@@ -519,7 +530,17 @@ export async function approveMoodBoard(room: string, formData: FormData): Promis
       icon: "project",
       title: `${name} approved the ${room} mood board`,
       subline: `Project ${slug}`,
-      href: `/projects/${slug}`,
+      href: ownerHref({ kind: "project", slug }, { tab: "Mood", focus: `mood-${room}` }),
+    });
+    await logClientActivity({
+      scope: { kind: "project", slug },
+      kind: "mood_approve",
+      summary: `Approved the ${room} mood board`,
+      detail: `Signed as ${name}`,
+      entityKind: "mood_board",
+      entityId: room,
+      actorName: user.name || name,
+      href: ownerHref({ kind: "project", slug }, { tab: "Mood", focus: `mood-${room}` }),
     });
   }
 

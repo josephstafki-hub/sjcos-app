@@ -9,6 +9,7 @@
 import type { NotificationKind } from "./types";
 import { query } from "./db";
 import { syncComplianceNotifications } from "./notify";
+import { relativeAge, sqlAbsoluteLabel } from "./time";
 
 /** Display accent — drives the tag chip color and left icon tint. */
 export type NotifAccent = "flag" | "accent" | "ai" | "money" | "ghost";
@@ -24,8 +25,12 @@ export interface NotificationCard {
   accent: NotifAccent;
   title: string;
   subline: string;
-  /** Relative timestamp display, e.g. "Just now" / "5h 12m". */
+  /** Relative timestamp display computed from created_at, e.g. "just now" / "5h ago". */
   when: string;
+  /** Absolute timestamp for the tooltip, e.g. "Aug 14, 3:12pm". */
+  whenAbsolute: string;
+  /** ISO created_at, for clients that want to re-derive `when` on the fly. */
+  createdAt: string;
   /** Red border + flag tint. */
   flagged: boolean;
   href: string;
@@ -55,6 +60,9 @@ interface NotificationRow {
   title: string;
   subline: string | null;
   when_label: string | null;
+  age_seconds: number;
+  when_absolute: string;
+  created_at: string;
   flagged: boolean;
   href: string | null;
   read: boolean;
@@ -68,7 +76,9 @@ function rowToCard(r: NotificationRow): NotificationCard {
     accent: (r.accent ?? "ghost") as NotifAccent,
     title: r.title,
     subline: r.subline ?? "",
-    when: r.when_label ?? "",
+    when: relativeAge(r.age_seconds ?? 0),
+    whenAbsolute: r.when_absolute ?? "",
+    createdAt: r.created_at,
     flagged: r.flagged,
     href: r.href ?? "#",
     icon: (r.icon ?? "star") as NotifIcon,
@@ -91,7 +101,10 @@ export async function getNotificationsData(): Promise<NotificationsData> {
   await syncComplianceNotifications();
 
   const { rows } = await query<NotificationRow>(`
-    SELECT id, kind, tag, accent, icon, title, subline, when_label, flagged, href, read
+    SELECT id, kind, tag, accent, icon, title, subline, when_label, flagged, href, read,
+           EXTRACT(EPOCH FROM (now() - created_at))::int AS age_seconds,
+           ${sqlAbsoluteLabel("created_at")} AS when_absolute,
+           to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
     FROM notifications
     ORDER BY read ASC, created_at DESC
   `);

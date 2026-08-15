@@ -156,3 +156,16 @@ body {
     font-size: 16px;
   }
 }
+
+/* Deep-link focus flash: FocusScroll (components/shell/FocusScroll.tsx) adds
+   this to the [data-focus] element named by ?focus= so the eye lands on the
+   record a notification pointed at. Fades out on its own. */
+@keyframes focus-flash {
+  0%   { box-shadow: 0 0 0 3px var(--accent), 0 0 0 8px var(--accent-soft); background-color: var(--accent-soft); }
+  70%  { box-shadow: 0 0 0 3px var(--accent), 0 0 0 8px transparent; background-color: var(--accent-soft); }
+  100% { box-shadow: 0 0 0 0 transparent; background-color: transparent; }
+}
+.focus-flash {
+  animation: focus-flash 2.6s ease-out 1;
+  border-radius: 6px;
+}

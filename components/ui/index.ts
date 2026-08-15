@@ -13,3 +13,5 @@ export { PhotoGrid } from "./PhotoGrid";
 export { AckButton } from "./AckButton";
 export { SubmitButton } from "./SubmitButton";
 export { VoiceButton } from "./VoiceButton";
+export { Lightbox } from "./Lightbox";
+export type { LightboxPhoto } from "./Lightbox";

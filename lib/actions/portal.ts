@@ -7,11 +7,12 @@
 // so a portal user can only post into their own thread.
 
 import { revalidatePath } from "next/cache";
-import { query } from "@/lib/db";
+import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { portalChannel } from "@/lib/portal-messages";
 import { parseLinkSlug } from "@/lib/client-portal";
 import { emit } from "@/lib/notify";
+import { logClientActivity, ownerHref } from "@/lib/client-activity";
 import { storeUpload } from "@/lib/upload-store";
 
 const PREVIEW_SLUG = { client: "henderson", sub: "marco" } as const;
@@ -44,25 +45,35 @@ export async function uploadClientFile(formData: FormData) {
   // Mark the file as the client's so the portal serve route authorizes them.
   await query(`UPDATE files SET client_slug = $1 WHERE id = $2`, [linkSlug, stored.id]);
 
-  const ownerHref = scope.kind === "project" ? `/projects/${scope.slug}` : `/leads/${scope.slug}`;
+  const pageHref = ownerHref(scope);
+  const deepHref = ownerHref(scope, { tab: "Client portal", focus: `file-${stored.id}` });
   if (user.role === "client") {
     await emit({
       kind: "job",
       tag: "Client upload",
       accent: "accent",
       icon: "project",
-      title: `${user.name || "Client"} uploaded a file`,
+      title: `${user.name || "Client"} uploaded ${stored.type === "img" ? "a photo" : "a file"}`,
       subline: file.name.slice(0, 90),
-      href: ownerHref,
+      href: deepHref,
+    });
+    await logClientActivity({
+      scope,
+      kind: "upload",
+      summary: `Uploaded ${file.name.slice(0, 120)}`,
+      entityKind: "file",
+      entityId: stored.id,
+      actorName: user.name,
+      href: deepHref,
     });
   }
 
   revalidatePath("/client-portal");
-  revalidatePath(ownerHref);
+  revalidatePath(pageHref);
   return { ok: true };
 }
 
-/** Owner-side composer for the project Comms tab. Posts into the project's
+/** Owner-side composer for the project Client portal tab (Messages). Posts into the project's
  *  client portal thread (portal:<slug>) so owner ⇄ client talk in one place —
  *  the client sees it on their dashboard. Owner-gated. */
 export async function sendProjectMessage(slug: string, formData: FormData) {
@@ -117,16 +128,26 @@ export async function sendPortalMessage(formData: FormData) {
   const authorKind = user.role === "owner" ? "owner" : "user";
   const name = user.name || (surface === "sub" ? "Sub" : "Client");
 
-  await query(
+  const inserted = await queryOne<{ id: string }>(
     `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body)
-     VALUES ($1, $2, $3, $4, $5)`,
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING id::text AS id`,
     [channelKey, authorKind, name, user.initials || "", body],
   );
 
   // Let Joe know (best-effort). Subs route to /chat (a real DM surface);
-  // clients route to the notification feed. Never for the owner's own posts —
-  // Joe messaging a client must not notify Joe about his own message.
+  // clients route to the lead/project "Client portal" tab, where the thread
+  // lives. Never for the owner's own posts — Joe messaging a client must not
+  // notify Joe about his own message.
   if (authorKind !== "owner") {
+    const clientScope = surface === "client" ? parseLinkSlug(slug) : null;
+    const focus = inserted?.id ? `message-${inserted.id}` : null;
+    const href =
+      surface === "sub"
+        ? "/chat"
+        : clientScope
+          ? ownerHref(clientScope, { tab: "Client portal", focus })
+          : "/notifications";
     await emit({
       kind: "mention",
       tag: "Portal",
@@ -134,8 +155,21 @@ export async function sendPortalMessage(formData: FormData) {
       accent: "ai",
       title: `${name} sent a message`,
       subline: body.length > 120 ? `${body.slice(0, 117)}…` : body,
-      href: surface === "sub" ? "/chat" : "/notifications",
+      href,
     });
+    if (clientScope) {
+      await logClientActivity({
+        scope: clientScope,
+        kind: "message",
+        summary: "Sent a message",
+        detail: body,
+        entityKind: "message",
+        entityId: inserted?.id ?? null,
+        actorName: name,
+        href,
+      });
+      revalidatePath(ownerHref(clientScope));
+    }
   }
 
   revalidatePath(surface === "sub" ? "/sub-portal" : "/client-portal");

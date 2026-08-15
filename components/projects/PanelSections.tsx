@@ -1,6 +1,7 @@
 "use client";
 
 import { useContext, type ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
 import { SectionNavContext } from "./TabNav";
 
 /** Sub-nav for a tab that groups several panels under one lifecycle — Money
@@ -10,18 +11,37 @@ import { SectionNavContext } from "./TabNav";
  *  Like the tab bar itself, every section stays mounted and is hidden when
  *  inactive rather than swapping the subtree: remounting made the first click
  *  after a switch land on a node React was replacing, so it was silently lost. */
+function baseLabel(label: string): string {
+  return label.split(" · ")[0].trim();
+}
+
 export function PanelSections({
   tab,
   sections,
+  focusSections,
 }: {
   tab: string;
   sections: { label: string; node: ReactNode }[];
+  /** Which section owns a `?focus=` key, so a deep link lands on the right
+   *  sub-panel. Keys are exact focus keys ("signature-12") or prefixes ending
+   *  in "-" ("punch-"). Ignored once the owner clicks a section. */
+  focusSections?: Record<string, string>;
 }) {
   const { sections: open, setSection } = useContext(SectionNavContext);
+  const params = useSearchParams();
+  const focus = params.get("focus");
+  let linked: string | undefined;
+  if (focus && focusSections) {
+    const mapped =
+      focusSections[focus] ??
+      Object.entries(focusSections).find(([k]) => k.endsWith("-") && focus.startsWith(k))?.[1];
+    // Labels may carry a count suffix ("Uploads · 3"); match on the base name.
+    if (mapped) linked = sections.find((s) => baseLabel(s.label) === baseLabel(mapped))?.label;
+  }
   // Fall back to the first section rather than trusting the context: a TabLink
   // naming a section this tab doesn't have would otherwise hide all of them and
   // leave the tab blank.
-  const requested = open[tab];
+  const requested = open[tab] ?? linked;
   const active = sections.some((s) => s.label === requested) ? requested : sections[0]?.label;
 
   return (

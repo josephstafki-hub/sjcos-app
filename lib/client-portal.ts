@@ -50,11 +50,16 @@ export interface ClientUpload {
 /** Files the client uploaded (client_slug scoped), newest first. Served to the
  *  client via /api/portal/project-file/[id]. */
 export async function getClientUploads(slug: string): Promise<ClientUpload[]> {
+  // A project-scoped client also sees what they uploaded during the lead
+  // stage (conversion re-keys client_slug, but be tolerant of older rows).
+  const originLead = slug.startsWith("lead:") ? null : await originLeadSlug(slug);
   const { rows } = await query<{ id: string; name: string; type: string; when_label: string }>(
     `SELECT id, name, type, to_char(created_at, 'Mon FMDD') AS when_label
-       FROM files WHERE client_slug = $1
-      ORDER BY created_at DESC LIMIT 30`,
-    [slug],
+       FROM files
+      WHERE storage_path IS NOT NULL
+        AND (client_slug = $1 OR ($2::text IS NOT NULL AND client_slug = 'lead:' || $2))
+      ORDER BY created_at DESC LIMIT 60`,
+    [slug, originLead],
   );
   return rows.map((r) => ({ id: r.id, name: r.name, isImage: r.type === "img", when: r.when_label }));
 }

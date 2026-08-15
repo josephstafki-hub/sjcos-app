@@ -14,6 +14,8 @@
 
 import { z } from "zod";
 import { query, queryOne } from "@/lib/db";
+import { parseLinkSlug } from "@/lib/client-portal";
+import { logClientActivity, ownerHref } from "@/lib/client-activity";
 import { requireRole } from "@/lib/dal";
 import { hashPassword } from "@/lib/password";
 
@@ -74,10 +76,23 @@ export async function claimPortalAccount(
   // The bearer link is now dead weight — retire it so a forwarded copy of the
   // original email can't be used to poke at a portal its owner just locked.
   if (user.linkSlug) {
+    const scope = parseLinkSlug(user.linkSlug);
     await query(
-      `UPDATE client_portal_invites SET status = 'dismissed' WHERE project_slug = $1`,
-      [user.linkSlug],
+      scope?.kind === "lead"
+        ? `UPDATE client_portal_invites SET status = 'dismissed' WHERE lead_slug = $1`
+        : `UPDATE client_portal_invites SET status = 'dismissed' WHERE project_slug = $1`,
+      [scope?.kind === "lead" ? scope.slug : user.linkSlug],
     );
+    if (scope) {
+      await logClientActivity({
+        scope,
+        kind: "claim",
+        summary: "Claimed the portal with an email + password",
+        detail: email,
+        actorName: user.name,
+        href: ownerHref(scope, { tab: "Client portal" }),
+      });
+    }
   }
 
   // Deliberately NOT revalidating: the caller's session cookie is unchanged, so

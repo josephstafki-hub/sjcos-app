@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Check,
   ExternalLink,
@@ -112,7 +112,12 @@ export function MoodBoard({
    *  unlike before it no longer vanishes on reload. */
   const [draftRoom, setDraftRoom] = useState<string | null>(null);
   const [newRoom, setNewRoom] = useState(false);
-  const [activeRoom, setActiveRoom] = useState<string | null>(null);
+  // A deep link (?tab=Mood&focus=mood-<room>) opens on that room.
+  const searchParams = useSearchParams();
+  const linkedRoom = searchParams.get("focus")?.startsWith("mood-")
+    ? searchParams.get("focus")!.slice("mood-".length)
+    : null;
+  const [activeRoom, setActiveRoom] = useState<string | null>(linkedRoom);
 
   const rooms = useMemo(() => {
     const names = boards.map((b) => b.room);
@@ -189,7 +194,7 @@ export function MoodBoard({
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4" data-focus={room ? `mood-${room}` : undefined}>
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex-1">
           <h3 className="font-serif text-[16px] font-semibold text-ink">

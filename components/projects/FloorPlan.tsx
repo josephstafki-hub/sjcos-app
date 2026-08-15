@@ -130,6 +130,7 @@ export function FloorPlan({ slug, versions }: { slug: string; versions: Floorpla
             {versions.map((v) => (
               <button
                 key={v.id}
+                data-focus={`floorplan-${v.id}`}
                 onClick={() => setSelectedId(v.id)}
                 className={`flex items-center gap-2 rounded-md border px-2.5 py-2 text-left text-[12px] transition-colors ${
                   v.id === selected.id ? "border-accent bg-accent-soft" : "border-rule hover:bg-paper-2"

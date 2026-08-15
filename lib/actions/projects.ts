@@ -8,6 +8,7 @@ import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { PROJECT_STATUSES, projectStageLabel, getProjectWeeklyStatus } from "@/lib/projects";
 import { emit } from "@/lib/notify";
+import { logClientActivity, ownerHref } from "@/lib/client-activity";
 import { sendNewEmailAction } from "@/lib/actions/inbox";
 import { createMilestoneInvoice } from "@/lib/actions/money";
 import { sendCompletionOutreach } from "@/lib/actions/closeout";
@@ -264,6 +265,17 @@ export async function confirmPunchItem(
       WHERE id = $1 AND done = true`,
     [id],
   );
+  if (user.role === "client" && confirmed) {
+    await logClientActivity({
+      scope: { kind: "project", slug: row.slug },
+      kind: "punch_confirm",
+      summary: "Confirmed a punch-list item as fixed",
+      entityKind: "punch",
+      entityId: id,
+      actorName: user.name,
+      href: ownerHref({ kind: "project", slug: row.slug }, { tab: "Closeout", focus: `punch-${id}` }),
+    });
+  }
   revalidatePath("/client-portal");
   revalidatePath(`/projects/${row.slug}`);
   return { ok: true };

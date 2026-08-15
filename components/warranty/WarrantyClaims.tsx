@@ -54,7 +54,7 @@ export function WarrantyClaims({ claims }: { claims: WarrantyClaim[] }) {
       {shown.map((c) => {
         const isOpen = open === c.id;
         return (
-          <div key={c.id} className="border-b border-rule-soft last:border-b-0">
+          <div key={c.id} data-focus={`claim-${c.id}`} className="border-b border-rule-soft last:border-b-0">
             <button
               onClick={() => setOpen(isOpen ? null : c.id)}
               className="flex w-full flex-col gap-3 px-4 py-3.5 text-left transition-colors hover:bg-paper-2 sm:flex-row sm:items-start"

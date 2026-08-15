@@ -6,7 +6,7 @@ import { PortalMessenger } from "@/components/portal/PortalMessenger";
 // Client-portal messages: the full owner ⇄ client thread with the composer.
 // One thread per scope (chat_messages channel portal:<slug>, or
 // portal:lead:<slug> during the lead stage — the thread is renamed onto the
-// project on conversion); Joe sees it in the project's Comms tab / the lead's
+// project on conversion); Joe sees it in the project's / the lead's
 // Client portal tab and gets a notification on every send.
 export default async function PortalMessagesPage() {
   const scope = await portalScope();

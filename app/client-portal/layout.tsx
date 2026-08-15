@@ -12,6 +12,7 @@ import {
 } from "@/lib/client-portal";
 import { PortalNav, type PortalNavItem } from "@/components/portal/PortalNav";
 import { LiveUpdates } from "@/components/shell/LiveUpdates";
+import { logPortalVisit } from "@/lib/client-activity";
 
 // Client-portal chrome: slim header + section nav shared by every portal page.
 // Standalone surface — deliberately NOT wrapped in Shell (see Shell's
@@ -29,6 +30,11 @@ export default async function ClientPortalLayout({
 }) {
   const user = await requireRole("owner", "client");
   const scope = user.role === "client" ? parseLinkSlug(user.linkSlug) : null;
+
+  // "Client opened the portal" — once per day per client, into the activity
+  // ledger the owner reads on the lead/project Client portal tab. Best-effort;
+  // an owner previewing is not a visit.
+  if (scope) await logPortalVisit(scope, user.name);
 
   const [title, badges] = await Promise.all([
     scope?.kind === "project"

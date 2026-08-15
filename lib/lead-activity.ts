@@ -5,6 +5,7 @@
 // client component.
 
 import { query } from "./db";
+import { relativeAge } from "./time";
 
 export type LeadActivityKind =
   | "created"
@@ -31,18 +32,7 @@ interface RawRow {
   age_seconds: number;
 }
 
-/** Deterministic relative-time label (no locale → no hydration mismatch). */
-export function relativeAge(seconds: number): string {
-  if (seconds < 60) return "just now";
-  const mins = Math.floor(seconds / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  const months = Math.floor(days / 30);
-  return `${months}mo ago`;
-}
+export { relativeAge };
 
 /** The activity timeline for a lead, newest first. */
 export async function getLeadActivity(slug: string): Promise<LeadActivityRow[]> {

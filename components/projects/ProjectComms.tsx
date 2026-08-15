@@ -5,7 +5,7 @@ import { Card, SubmitButton } from "@/components/ui";
 import { sendProjectMessage, sendLeadPortalMessage } from "@/lib/actions/portal";
 import type { PortalMessage } from "@/lib/portal-messages";
 
-/** The real owner ⇄ client thread. Project Comms tab (portal:<slug>) or — via
+/** The real owner ⇄ client thread. Project Client portal tab (portal:<slug>) or — via
  *  leadSlug — the lead's Client portal tab (portal:lead:<slug>). The client
  *  sees the same conversation on their dashboard. The form resets after
  *  submit. */
@@ -38,7 +38,11 @@ export function ProjectComms({
           thread.map((m) => {
             const fromOwner = m.author !== "user";
             return (
-              <div key={m.id} className={`flex flex-col ${fromOwner ? "items-end" : "items-start"}`}>
+              <div
+                key={m.id}
+                data-focus={`message-${m.id}`}
+                className={`flex flex-col ${fromOwner ? "items-end" : "items-start"}`}
+              >
                 <div
                   className={[
                     "max-w-[80%] rounded-lg px-2.5 py-1.5 text-[12.5px] leading-snug",

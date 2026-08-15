@@ -4,6 +4,8 @@ import { getWarrantyData, getWarrantySummary, getWarrantyProjectOptions } from "
 import { warrantyContext } from "@/lib/page-context";
 import { WarrantyClaims } from "@/components/warranty/WarrantyClaims";
 import { AddClaimButton } from "@/components/warranty/AddClaimButton";
+import { FocusScroll } from "@/components/shell/FocusScroll";
+import { Suspense } from "react";
 
 export default async function WarrantyPage() {
   const [data, projectOptions] = await Promise.all([getWarrantyData(), getWarrantyProjectOptions()]);
@@ -11,6 +13,9 @@ export default async function WarrantyPage() {
 
   return (
     <Shell breadcrumb="WARRANTY · CLOSED PROJECTS" aiContext={aiContext}>
+      <Suspense fallback={null}>
+        <FocusScroll />
+      </Suspense>
       <div className="mx-auto max-w-[1100px] px-7 pb-16 pt-6">
         {/* Header */}
         <div className="mb-3.5 flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">

@@ -5,8 +5,8 @@
  *  renamed tab used to fail silently: `indexOf` returned -1 and the click just
  *  did nothing.
  *
- *  "Money" and "Closeout" group several panels behind a sub-nav; their sections
- *  are composed in `app/projects/[slug]/page.tsx`. */
+ *  "Money", "Documents", "Closeout" and "Client portal" group several panels
+ *  behind a sub-nav; their sections are composed in `app/projects/[slug]/page.tsx`. */
 export const PROJECT_TABS = [
   "Overview",
   "Ops",
@@ -20,7 +20,7 @@ export const PROJECT_TABS = [
   "Subs",
   "Files",
   "Daily log",
-  "Comms",
+  "Client portal",
   "Permits",
   "Closeout",
   "Safety",

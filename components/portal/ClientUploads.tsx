@@ -1,7 +1,8 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
-import { Upload, FileText, Image as ImageIcon } from "lucide-react";
+import { useMemo, useRef, useState, useTransition } from "react";
+import { Upload, FileText } from "lucide-react";
+import { Lightbox, type LightboxPhoto } from "@/components/ui";
 import { uploadClientFile } from "@/lib/actions/portal";
 
 interface UploadRow {
@@ -18,13 +19,46 @@ export function ClientUploads({ uploads }: { uploads: UploadRow[] }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState("");
   const [fileName, setFileName] = useState("");
+  const [viewer, setViewer] = useState<number | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
+
+  const photos: LightboxPhoto[] = useMemo(
+    () =>
+      uploads
+        .filter((u) => u.isImage)
+        .map((u) => ({
+          id: u.id,
+          src: `/api/portal/project-file/${u.id}`,
+          thumb: `/api/portal/project-file/${u.id}?w=320`,
+          name: u.name,
+          caption: `You shared this · ${u.when}`,
+        })),
+    [uploads],
+  );
+  const docs = uploads.filter((u) => !u.isImage);
 
   return (
     <div className="mt-2">
-      {uploads.length > 0 && (
+      {photos.length > 0 && (
+        <div className="mb-2 grid grid-cols-4 gap-1 sm:grid-cols-6">
+          {photos.map((p, i) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setViewer(i)}
+              title={p.name}
+              aria-label={`View ${p.name}`}
+              className="aspect-square overflow-hidden rounded-[3px] border border-rule bg-paper-3 hover:border-accent"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={p.thumb} alt={p.name} loading="lazy" className="size-full object-cover" />
+            </button>
+          ))}
+        </div>
+      )}
+      {docs.length > 0 && (
         <div className="mb-2 flex flex-col gap-1.5">
-          {uploads.map((u) => (
+          {docs.map((u) => (
             <a
               key={u.id}
               href={`/api/portal/project-file/${u.id}`}
@@ -32,16 +66,15 @@ export function ClientUploads({ uploads }: { uploads: UploadRow[] }) {
               rel="noopener"
               className="flex items-center gap-1.5 text-ink-2 hover:text-accent-2"
             >
-              {u.isImage ? (
-                <ImageIcon className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
-              ) : (
-                <FileText className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
-              )}
+              <FileText className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
               <span className="min-w-0 flex-1 truncate text-[12px]">{u.name}</span>
               <span className="font-mono text-[10px] text-ink-3">{u.when}</span>
             </a>
           ))}
         </div>
+      )}
+      {viewer !== null && photos[viewer] && (
+        <Lightbox photos={photos} index={viewer} onClose={() => setViewer(null)} onIndexChange={setViewer} />
       )}
 
       <form

@@ -21,7 +21,12 @@ export function LeadPhotos({
   const [uploading, startUpload] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  const srcs = photos.map((p) => `/api/files/${p.id}`);
+  const items = photos.map((p) => ({
+    id: p.id,
+    src: `/api/files/${p.id}`,
+    thumb: `/api/files/${p.id}?w=320`,
+    name: p.name,
+  }));
   const hasReal = photos.length > 0;
   const count = hasReal ? photos.length : placeholderCount;
 
@@ -67,7 +72,11 @@ export function LeadPhotos({
         <AddButton inputRef={inputRef} uploading={uploading} />
       </div>
       <input ref={inputRef} type="file" accept="image/*" multiple onChange={onPick} className="hidden" />
-      <PhotoGrid count={count} srcs={hasReal ? srcs : undefined} label="Site photo" />
+      {hasReal ? (
+        <PhotoGrid photos={items} label="Site photo" />
+      ) : (
+        <PhotoGrid count={count} label="Site photo" />
+      )}
       {error && <p className="mt-1 text-[11px] text-flag">{error}</p>}
     </Card>
   );

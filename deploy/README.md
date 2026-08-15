@@ -48,6 +48,24 @@ npm run build                  # do NOT run while sjcos.service is live if it sh
 systemctl --user restart sjcos.service
 ```
 
+### Zero-downtime variant — stage now, go live on the next restart
+
+`next.config.ts` honours `SJC_DIST_DIR`, and `sjcos.service` runs
+`deploy/promote-staged-build.sh` as `ExecStartPre`. So the app can keep serving
+the old build while the new one compiles beside it:
+
+```
+cd ~/sjcos-app
+git pull --ff-only
+SJC_DIST_DIR=.next-staged npm run build      # live .next untouched
+systemctl --user restart sjcos.service       # later, whenever: swaps .next-staged → .next
+```
+
+The promote step is a no-op unless `.next-staged/BUILD_ID` exists, and it parks
+the previous build at `~/sjcos-backups/next-rollback` (move it back + restart to
+roll back). Don't leave `.next-staged` lying around after a source change — a
+restart would promote a build of older code.
+
 ## Scheduler — daily reminders
 
 A systemd **user timer** runs the reminder sweep (`/api/cron/reminders`) once a

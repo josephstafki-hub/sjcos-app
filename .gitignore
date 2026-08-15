@@ -16,6 +16,7 @@
 # next.js
 /.next/
 /.next.rollback*/
+/.next-staged/
 # Side-build dist dirs (SJC_DIST_DIR). Must stay ignored: Tailwind's scanner
 # skips gitignored paths, and an unignored dist dir gets its binary Turbopack
 # cache scanned — stray bytes parse as a class name and emit invalid CSS, which

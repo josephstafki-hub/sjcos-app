@@ -1574,7 +1574,8 @@ server.registerTool(
   async ({ slug }) => {
     const projectId = await slugToId("projects", slug);
     if (!projectId) return json({ error: `No project with slug "${slug}"` });
-    const [sections, items, options] = await Promise.all([
+    const [budgetRow, sections, items, options] = await Promise.all([
+      rows(`SELECT selections_budget FROM projects WHERE id = $1`, [projectId]),
       rows(
         `SELECT id, parent_id, name, budget, sort_order FROM project_sections
           WHERE project_id = $1 ORDER BY sort_order, id`,
@@ -1593,8 +1594,29 @@ server.registerTool(
         [projectId],
       ),
     ]);
+    // Same roll-up the board shows: committed = chosen option price on approved
+    // decisions (allowance if the pick has no price); the budget the total is
+    // measured against is the overall figure when set, else the room budgets.
+    const overallBudget = Number(budgetRow[0]?.selections_budget) || 0;
+    const allocatedBudget = sections
+      .filter((s) => s.parent_id === null)
+      .reduce((n, s) => n + (Number(s.budget) || 0), 0);
+    const totalBudget = overallBudget > 0 ? overallBudget : allocatedBudget;
+    const committed = items
+      .filter((i) => i.status === "approved")
+      .reduce((n, i) => {
+        const pick = options.find((o) => o.id === i.chosen_option_id);
+        return n + ((pick && Number(pick.price)) || Number(i.allowance) || 0);
+      }, 0);
     return json({
       project: slug,
+      budget: {
+        overall: overallBudget,
+        allocated_to_rooms: allocatedBudget,
+        measured_against: totalBudget,
+        committed,
+        remaining: totalBudget - committed,
+      },
       sections,
       decisions: items,
       options,
@@ -1604,6 +1626,28 @@ server.registerTool(
         without_options: items.filter((i) => !options.some((o) => o.selection_id === i.id)).length,
       },
     });
+  },
+);
+
+server.registerTool(
+  "set_selections_budget",
+  {
+    title: "Set a project's overall selections budget",
+    description:
+      "Set the project-wide selections budget (whole dollars) that the client's running total of " +
+      "chosen options is measured against on the portal. Room and sub-section budgets are separate " +
+      "(create_selection_section / build_selection_plan); when this is 0 the board falls back to " +
+      "their sum. Pass 0 to clear it.",
+    inputSchema: {
+      project_slug: z.string(),
+      budget: z.number().int().min(0),
+    },
+  },
+  async (a) => {
+    const projectId = await slugToId("projects", a.project_slug);
+    if (!projectId) return json({ error: `No project with slug "${a.project_slug}"` });
+    await rows(`UPDATE projects SET selections_budget = $2 WHERE id = $1`, [projectId, a.budget]);
+    return json({ ok: true, project: a.project_slug, selections_budget: a.budget });
   },
 );
 

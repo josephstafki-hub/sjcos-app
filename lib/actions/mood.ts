@@ -11,6 +11,8 @@ import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { storeUpload } from "@/lib/upload-store";
+import { emit } from "@/lib/notify";
+import { notifyDashboardPublish, type DeliveryNote } from "@/lib/portal-publish";
 
 type Result = { ok: boolean; error?: string };
 
@@ -31,6 +33,8 @@ const MAX_W = 0.6;
 const MIN_H = 0.06;
 const MAX_H = 0.9;
 const MAX_XY = 0.98;
+/** Crop zoom: 1 = the plain cover fit, anything above magnifies inside the frame. */
+const MAX_ZOOM = 4;
 /** Guard against a pathological batch — a board is curated, not generated. */
 const MAX_LAYOUT_ITEMS = 200;
 const MAX_NOTE = 500;
@@ -228,6 +232,11 @@ export interface MoodLayoutPatch {
   /** null = auto height (as tall as the content). */
   h?: number | null;
   rot?: number;
+  /** Crop focal point (0..1 across the hidden overflow) and zoom (1..MAX_ZOOM).
+   *  0.5/0.5/1 is the untouched centre-cover crop every item starts with. */
+  cropX?: number;
+  cropY?: number;
+  zoom?: number;
 }
 
 /** Persist canvas layout after a drag/resize/rotate. Positions are normalized
@@ -257,7 +266,8 @@ export async function saveMoodLayout(
     // Scoped by project_id so an item id from another project can't be moved.
     await query(
       `UPDATE project_mood
-          SET pos_x = $3, pos_y = $4, pos_w = $5, pos_h = $6, pos_rot = $7
+          SET pos_x = $3, pos_y = $4, pos_w = $5, pos_h = $6, pos_rot = $7,
+              crop_x = $8, crop_y = $9, crop_zoom = $10
         WHERE id = $1 AND project_id = $2`,
       [
         id,
@@ -267,6 +277,9 @@ export async function saveMoodLayout(
         clamp(item.w, MIN_W, MAX_W),
         h,
         normRot(item.rot ?? 0),
+        Number.isFinite(item.cropX) ? clamp(item.cropX as number, 0, 1) : 0.5,
+        Number.isFinite(item.cropY) ? clamp(item.cropY as number, 0, 1) : 0.5,
+        Number.isFinite(item.zoom) ? clamp(item.zoom as number, 1, MAX_ZOOM) : 1,
       ],
     );
   }
@@ -325,12 +338,12 @@ export async function duplicateMoodItem(id: number): Promise<Result> {
   await query(
     `INSERT INTO project_mood
        (project_id, room, kind, image_file_id, catalog_id, label, price_label, swatch,
-        note, pos_x, pos_y, pos_w, pos_h, pos_rot, sort_order)
+        note, pos_x, pos_y, pos_w, pos_h, pos_rot, crop_x, crop_y, crop_zoom, sort_order)
      SELECT project_id, room, kind, image_file_id, catalog_id, label, price_label, swatch,
             note,
             LEAST(COALESCE(pos_x, 0.04) + 0.03, $2::real),
             LEAST(COALESCE(pos_y, 0.05) + 0.03, $2::real),
-            COALESCE(pos_w, 0.21), pos_h, pos_rot,
+            COALESCE(pos_w, 0.21), pos_h, pos_rot, crop_x, crop_y, crop_zoom,
             (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM project_mood x
               WHERE x.project_id = project_mood.project_id AND x.room = project_mood.room)
        FROM project_mood WHERE id = $1`,
@@ -395,6 +408,123 @@ export async function removeMoodImage(id: number): Promise<Result> {
   if (!row) return { ok: false, error: "Item not found." };
   await query(`DELETE FROM project_mood WHERE id = $1`, [id]);
   revalidatePath(`/projects/${row.slug}`);
+  return { ok: true };
+}
+
+/** Publish/unpublish a board on the client dashboard. Publishing emails the
+ *  client a portal link (best-effort; the delivery note reports what
+ *  happened). Unpublishing hides the board — and its images — again. */
+export async function setMoodBoardPublished(
+  slug: string,
+  room: string,
+  publish: boolean,
+): Promise<{ ok: true; delivery: DeliveryNote | null } | { ok: false; error: string }> {
+  await requireRole("owner");
+  const project = await projectBySlug(slug);
+  if (!project) return { ok: false, error: "Project not found." };
+
+  const updated = await query(
+    `UPDATE project_mood_boards SET published_at = ${publish ? "now()" : "NULL"}
+      WHERE project_id = $1 AND room = $2`,
+    [project.id, room],
+  );
+  if (updated.rowCount === 0) return { ok: false, error: "Board not found." };
+  revalidatePath(`/projects/${slug}`);
+  revalidatePath("/client-portal/mood");
+
+  const delivery = publish
+    ? await notifyDashboardPublish(
+        { project: slug },
+        { what: `the ${room} mood board`, section: "mood" },
+      )
+    : null;
+  return { ok: true, delivery };
+}
+
+/** Client leaves feedback on a board from their portal — the "closer, but
+ *  warmer wood tones" note that isn't an approval. Scoped to the client's own
+ *  project (never trusted from the form); owner-role callers (previewing) pass
+ *  the slug and never self-notify. */
+export async function addMoodFeedback(room: string, formData: FormData): Promise<Result> {
+  const user = await requireRole("owner", "client");
+  const body = String(formData.get("body") ?? "").trim().slice(0, MAX_NOTE);
+  if (!body) return { ok: false, error: "Write a note first." };
+
+  const slug = user.role === "client" ? user.linkSlug : String(formData.get("slug") ?? "");
+  if (!slug) return { ok: false, error: "No project linked to this account." };
+
+  const board = await queryOne<{ project_id: string; published_at: Date | null }>(
+    `SELECT b.project_id, b.published_at
+       FROM project_mood_boards b JOIN projects p ON p.id = b.project_id
+      WHERE p.slug = $1 AND b.room = $2`,
+    [slug, room],
+  );
+  if (!board) return { ok: false, error: "Board not found." };
+  if (user.role === "client" && !board.published_at) {
+    return { ok: false, error: "This board isn't shared with you." };
+  }
+
+  await query(
+    `INSERT INTO project_mood_feedback (project_id, room, author_name, body)
+     VALUES ($1, $2, $3, $4)`,
+    [board.project_id, room, (user.name || "Client").slice(0, 120), body],
+  );
+
+  if (user.role === "client") {
+    await emit({
+      kind: "mention",
+      tag: "Mood board",
+      accent: "ai",
+      icon: "chat",
+      title: `${user.name || "Client"} left feedback on the ${room} board`,
+      subline: body.length > 120 ? `${body.slice(0, 117)}…` : body,
+      href: `/projects/${slug}`,
+    });
+  }
+
+  revalidatePath("/client-portal/mood");
+  revalidatePath(`/projects/${slug}`);
+  return { ok: true };
+}
+
+/** Client approves a board's direction from their portal — the mood-board
+ *  counterpart of approveFloorplan (lib/actions/floorplans.ts). Typed-name
+ *  acknowledgment, scoped to the client's own project, first approval sticks.
+ *  Owner-role callers (previewing) may approve too but never self-notify. */
+export async function approveMoodBoard(room: string, formData: FormData): Promise<Result> {
+  const user = await requireRole("owner", "client");
+  const name = String(formData.get("approvedName") ?? "").trim();
+  if (!name) return { ok: false, error: "Type your name to approve." };
+
+  const slug = user.role === "client" ? user.linkSlug : String(formData.get("slug") ?? "");
+  if (!slug) return { ok: false, error: "No project linked to this account." };
+
+  // A client can only approve a board that's actually on their dashboard.
+  const publishedGuard = user.role === "client" ? "AND b.published_at IS NOT NULL" : "";
+  const updated = await query(
+    `UPDATE project_mood_boards b
+        SET client_approved_at = now(), client_approved_name = $3
+       FROM projects p
+      WHERE p.id = b.project_id AND p.slug = $1 AND b.room = $2
+        AND b.client_approved_at IS NULL ${publishedGuard}`,
+    [slug, room, name.slice(0, 120)],
+  );
+  if (updated.rowCount === 0) return { ok: false, error: "Board not found or already approved." };
+
+  if (user.role === "client") {
+    await emit({
+      kind: "decision",
+      tag: "Mood board",
+      accent: "accent",
+      icon: "project",
+      title: `${name} approved the ${room} mood board`,
+      subline: `Project ${slug}`,
+      href: `/projects/${slug}`,
+    });
+  }
+
+  revalidatePath("/client-portal/mood");
+  revalidatePath(`/projects/${slug}`);
   return { ok: true };
 }
 
@@ -465,6 +595,11 @@ export async function renameMoodBoard(slug: string, from: string, to: string): P
       WHERE m.project_id = $1 AND m.room = $2`,
     [project.id, src, dst],
   );
+  // Feedback follows the pins to the destination board.
+  await query(
+    `UPDATE project_mood_feedback SET room = $3 WHERE project_id = $1 AND room = $2`,
+    [project.id, src, dst],
+  );
   await query(`DELETE FROM project_mood_boards WHERE project_id = $1 AND room = $2`, [project.id, src]);
   revalidatePath(`/projects/${slug}`);
   return { ok: true };
@@ -478,6 +613,7 @@ export async function deleteMoodBoard(slug: string, room: string): Promise<Resul
   const clean = cleanRoom(room);
   if (!clean) return { ok: false, error: "Board not found." };
   await query(`DELETE FROM project_mood WHERE project_id = $1 AND room = $2`, [project.id, clean]);
+  await query(`DELETE FROM project_mood_feedback WHERE project_id = $1 AND room = $2`, [project.id, clean]);
   await query(`DELETE FROM project_mood_boards WHERE project_id = $1 AND room = $2`, [project.id, clean]);
   revalidatePath(`/projects/${slug}`);
   return { ok: true };

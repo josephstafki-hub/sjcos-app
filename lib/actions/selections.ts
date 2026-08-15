@@ -17,6 +17,7 @@ import { requireRole } from "@/lib/dal";
 import { emit } from "@/lib/notify";
 import { storeUpload } from "@/lib/upload-store";
 import { fetchProductDraft } from "@/lib/product-fetch";
+import { notifyDashboardPublish } from "@/lib/portal-publish";
 
 type Result = { ok: boolean; error?: string };
 
@@ -257,6 +258,11 @@ export async function pushSelectionToClient(id: number): Promise<Result> {
     subline: `${sel.project_name} · ${count.n} option${count.n === 1 ? "" : "s"} sent to the client portal`,
     href: `/projects/${sel.slug}`,
   });
+  // Publishing to the dashboard notifies the client (best-effort).
+  await notifyDashboardPublish(
+    { project: sel.slug },
+    { what: `a selection to decide: ${sel.area}`, section: "selections" },
+  );
   revalidatePath(`/projects/${sel.slug}`);
   revalidatePath("/notifications");
   return { ok: true };
@@ -289,6 +295,14 @@ async function emitPushed(count: number, subline: string, slug: string) {
     subline,
     href: `/projects/${slug}`,
   });
+  // Publishing to the dashboard notifies the client (best-effort).
+  await notifyDashboardPublish(
+    { project: slug },
+    {
+      what: count === 1 ? "a selection to decide" : `${count} selections to decide`,
+      section: "selections",
+    },
+  );
   revalidatePath(`/projects/${slug}`);
   revalidatePath("/client-portal");
   revalidatePath("/notifications");
@@ -565,18 +579,22 @@ export async function decideSelection(
     );
   }
 
-  await emit({
-    kind: "decision",
-    tag: "Decision",
-    accent: approve ? "accent" : "flag",
-    icon: "project",
-    flagged: !approve,
-    title: approve
-      ? `Client chose ${chosenLabel} — ${sel.area}`
-      : `Client declined the options — ${sel.area}`,
-    subline: approve ? sel.project_name : `${sel.project_name} · needs different options`,
-    href: `/projects/${sel.slug}`,
-  });
+  // A real client decision notifies Joe; an owner deciding from the preview
+  // (or the board) shouldn't read back as "Client chose…".
+  if (user.role === "client") {
+    await emit({
+      kind: "decision",
+      tag: "Decision",
+      accent: approve ? "accent" : "flag",
+      icon: "project",
+      flagged: !approve,
+      title: approve
+        ? `Client chose ${chosenLabel} — ${sel.area}`
+        : `Client declined the options — ${sel.area}`,
+      subline: approve ? sel.project_name : `${sel.project_name} · needs different options`,
+      href: `/projects/${sel.slug}`,
+    });
+  }
   revalidatePath(`/projects/${sel.slug}`);
   revalidatePath("/client-portal");
   revalidatePath("/notifications");

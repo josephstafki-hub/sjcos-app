@@ -52,10 +52,17 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   };
 });
 
-/** Require an authenticated user (redirects to /login otherwise). */
+/** Require an authenticated user (redirects to /login otherwise). A STALE
+ *  session — valid JWT but the users row is gone or deactivated — goes to
+ *  /logout instead: proxy.ts trusts the JWT and bounces /login back to the
+ *  role home, so redirecting to /login here would loop; /logout clears the
+ *  cookie and breaks out. */
 export async function requireUser(): Promise<CurrentUser> {
   const user = await getCurrentUser();
-  if (!user) redirect("/login");
+  if (!user) {
+    const session = await readSession();
+    redirect(session?.userId ? "/logout" : "/login");
+  }
   return user;
 }
 

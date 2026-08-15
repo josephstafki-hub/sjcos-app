@@ -2,12 +2,18 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { getCurrentUser } from "@/lib/dal";
 import { queryOne } from "@/lib/db";
+import { parseLinkSlug, originLeadSlug } from "@/lib/client-portal";
 import { UPLOAD_DIR } from "@/lib/uploads";
 
-// Serves a client-uploaded file (Phase-3 5-depth) to the owner OR the client
-// who uploaded it. Authorization is by files.client_slug vs. the client's
-// linkSlug — owner project files (no client_slug) stay owner-only on
-// /api/files/[id] and are never reachable here.
+// Serves a portal-reachable file to the owner OR the scoped client. A client
+// may open a files row when any of these hold:
+//   1. they uploaded it themselves (files.client_slug = their link_slug);
+//   2. the owner published it to their dashboard (files.client_visible = true,
+//      scoped by project_key / lead_slug);
+//   3. it's the PDF/DOCX behind a document draft the owner published
+//      (document_drafts.client_visible = true, same scope) — draft blobs don't
+//      carry their own scope columns, so the draft row authorizes them.
+// Anything else stays owner-only on /api/files/[id].
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -21,14 +27,53 @@ export async function GET(
     mime_type: string | null;
     name: string;
     client_slug: string | null;
+    client_visible: boolean;
+    project_key: string;
+    lead_slug: string | null;
   }>(
-    `SELECT storage_path, mime_type, name, client_slug FROM files WHERE id = $1`,
+    `SELECT storage_path, mime_type, name, client_slug, client_visible, project_key, lead_slug
+       FROM files WHERE id = $1`,
     [id],
   );
-  if (!file?.storage_path || !file.client_slug) return new Response("Not found", { status: 404 });
+  if (!file?.storage_path) return new Response("Not found", { status: 404 });
 
-  if (user.role !== "owner" && !(user.role === "client" && user.linkSlug === file.client_slug)) {
-    return new Response("Forbidden", { status: 403 });
+  if (user.role !== "owner") {
+    if (user.role !== "client") return new Response("Forbidden", { status: 403 });
+    const scope = parseLinkSlug(user.linkSlug);
+    if (!scope) return new Response("Forbidden", { status: 403 });
+
+    // A project scope also reaches what was shared during its lead stage.
+    const originLead = scope.kind === "project" ? await originLeadSlug(scope.slug) : null;
+
+    const ownUpload = !!file.client_slug && user.linkSlug === file.client_slug;
+    const publishedFile =
+      file.client_visible &&
+      (scope.kind === "project"
+        ? file.project_key === scope.slug || (!!originLead && file.lead_slug === originLead)
+        : file.lead_slug === scope.slug);
+
+    let publishedDraft = false;
+    if (!ownUpload && !publishedFile) {
+      const draft = await queryOne<{ id: string }>(
+        scope.kind === "project"
+          ? `SELECT d.id FROM document_drafts d
+              WHERE (d.pdf_file_id = $1 OR d.docx_file_id = $1)
+                AND d.client_visible = true AND d.status <> 'void'
+                AND (d.project_id = (SELECT id FROM projects WHERE slug = $2)
+                     OR ($3::text IS NOT NULL AND d.lead_slug = $3))
+              LIMIT 1`
+          : `SELECT d.id FROM document_drafts d
+              WHERE (d.pdf_file_id = $1 OR d.docx_file_id = $1)
+                AND d.client_visible = true AND d.status <> 'void' AND d.lead_slug = $2
+              LIMIT 1`,
+        scope.kind === "project" ? [id, scope.slug, originLead] : [id, scope.slug],
+      );
+      publishedDraft = !!draft;
+    }
+
+    if (!ownUpload && !publishedFile && !publishedDraft) {
+      return new Response("Forbidden", { status: 403 });
+    }
   }
 
   const filePath = path.join(UPLOAD_DIR, path.basename(file.storage_path));

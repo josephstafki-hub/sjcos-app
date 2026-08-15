@@ -319,6 +319,32 @@ export async function getCompanyDocInfo(): Promise<CompanyDocInfo> {
   };
 }
 
+/** Render an inline signature-request body (estimate/change-order/contract
+ *  text) onto company letterhead as a real PDF, so the client portal can
+ *  display, download, and print every signable document — even ones composed
+ *  as plain text. Used by the send paths as the attached review copy. */
+export async function renderInlineDocPdf(opts: {
+  title: string;
+  subtitle: string;
+  body: string;
+}): Promise<Buffer> {
+  const { company } = await getCompanyDocInfo();
+  return pdfToBuffer((doc) => {
+    companyHeader(doc, company);
+    docTitle(doc, opts.title, opts.subtitle);
+    doc.font("Helvetica").fontSize(10).fillColor(INK).text(opts.body, { lineGap: 3 });
+    doc.moveDown(1.2);
+    doc
+      .font("Helvetica")
+      .fontSize(8.5)
+      .fillColor(GRAY)
+      .text(
+        "This document is signed electronically through the SJ Carpentry client portal. " +
+          "The signature record — typed name, timestamp, and consent — is retained alongside this document.",
+      );
+  });
+}
+
 export interface CloseoutData {
   projectId: string;
   projectName: string;

@@ -124,16 +124,35 @@ async function portalProjectSlug(): Promise<string | null> {
   return user.role === "owner" ? PREVIEW_CLIENT_SLUG : user.linkSlug ?? null;
 }
 
-/** Verify a request belongs to the given project slug and is still awaiting
- *  signature. Returns the signer-facing title for messaging. */
+/** Verify a request belongs to the given portal scope and is still awaiting
+ *  signature. The scope slug is a project slug, or 'lead:<slug>' for a
+ *  lead-stage session (matching users.link_slug). Returns the signer-facing
+ *  title for messaging. */
 async function loadSignable(id: number, slug: string) {
+  const leadSlug = slug.startsWith("lead:") ? slug.slice("lead:".length) : null;
   return queryOne<{ title: string; status: string; estimate_id: string | null; change_order_id: string | null }>(
-    `SELECT sr.title, sr.status, sr.estimate_id, sr.change_order_id
-       FROM signature_requests sr
-       JOIN projects p ON p.id = sr.project_id
-      WHERE sr.id = $1 AND p.slug = $2`,
-    [id, slug],
+    leadSlug
+      ? `SELECT sr.title, sr.status, sr.estimate_id, sr.change_order_id
+           FROM signature_requests sr
+          WHERE sr.id = $1 AND sr.lead_slug = $2`
+      : // A project scope also reaches requests created during its lead stage —
+        // the client's link upgraded on conversion, the paperwork didn't move.
+        `SELECT sr.title, sr.status, sr.estimate_id, sr.change_order_id
+           FROM signature_requests sr
+          WHERE sr.id = $1
+            AND (sr.project_id = (SELECT id FROM projects WHERE slug = $2)
+                 OR sr.lead_slug = (SELECT l.slug FROM leads l
+                                      JOIN projects p ON p.lead_id = l.id
+                                     WHERE p.slug = $2))`,
+    [id, leadSlug ?? slug],
   );
+}
+
+/** Owner-side link for a portal scope slug (project, or 'lead:<slug>'). */
+function ownerHrefForScope(slug: string): string {
+  return slug.startsWith("lead:")
+    ? `/leads/${slug.slice("lead:".length)}`
+    : `/projects/${slug}`;
 }
 
 /** Client (or owner previewing): sign a sent request. */
@@ -192,24 +211,28 @@ export async function signSignatureRequest(id: number, formData: FormData): Prom
     await query(`UPDATE change_orders SET status = 'approved' WHERE id = $1`, [doc.change_order_id]);
   }
 
-  await emit({
-    kind: "decision",
-    tag: "Signature",
-    icon: "star",
-    accent: "money",
-    title: `Signed: ${doc.title}`,
-    subline: `${signedName} signed electronically`,
-    href: `/projects/${slug}`,
-  });
+  // Only a real client signature notifies Joe — owner-preview signing is a
+  // test click, not news.
+  if (user.role === "client") {
+    await emit({
+      kind: "decision",
+      tag: "Signature",
+      icon: "star",
+      accent: "money",
+      title: `Signed: ${doc.title}`,
+      subline: `${signedName} signed electronically`,
+      href: ownerHrefForScope(slug),
+    });
+  }
 
   revalidatePath("/client-portal");
-  revalidatePath(`/projects/${slug}`);
+  revalidatePath(ownerHrefForScope(slug));
   return { ok: true };
 }
 
 /** Client (or owner previewing): decline a sent request with a reason. */
 export async function declineSignatureRequest(id: number, formData: FormData): Promise<Result> {
-  await requireRole("owner", "client");
+  const user = await requireRole("owner", "client");
   const slug = await portalProjectSlug();
   if (!slug) return { ok: false, error: "No project linked to this account." };
 
@@ -234,18 +257,20 @@ export async function declineSignatureRequest(id: number, formData: FormData): P
     await query(`UPDATE change_orders SET status = 'declined' WHERE id = $1`, [doc.change_order_id]);
   }
 
-  await emit({
-    kind: "decision",
-    tag: "Signature",
-    icon: "mail",
-    accent: "flag",
-    flagged: true,
-    title: `Declined: ${doc.title}`,
-    subline: reason ? reason.slice(0, 120) : "Client declined to sign",
-    href: `/projects/${slug}`,
-  });
+  if (user.role === "client") {
+    await emit({
+      kind: "decision",
+      tag: "Signature",
+      icon: "mail",
+      accent: "flag",
+      flagged: true,
+      title: `Declined: ${doc.title}`,
+      subline: reason ? reason.slice(0, 120) : "Client declined to sign",
+      href: ownerHrefForScope(slug),
+    });
+  }
 
   revalidatePath("/client-portal");
-  revalidatePath(`/projects/${slug}`);
+  revalidatePath(ownerHrefForScope(slug));
   return { ok: true };
 }

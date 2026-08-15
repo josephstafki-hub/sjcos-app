@@ -77,18 +77,38 @@ export async function getProjectSignatureRequests(
   return rows.map(rowToView);
 }
 
-/** Non-draft, non-void requests a client sees in their portal (to sign + history). */
+/** Non-draft, non-void requests a client sees in their portal (to sign +
+ *  history). Includes requests from the project's originating lead, so a
+ *  precon signed during the lead stage stays in the history post-conversion. */
 export async function getClientSignatures(
   slug: string,
 ): Promise<SignatureRequestView[]> {
   const { rows } = await query<SigRow>(
     `SELECT ${SIG_SELECT}
        FROM signature_requests sr
-       JOIN projects p ON p.id = sr.project_id
-      WHERE p.slug = $1
+      WHERE (sr.project_id = (SELECT id FROM projects WHERE slug = $1)
+             OR sr.lead_slug = (SELECT l.slug FROM leads l
+                                  JOIN projects p ON p.lead_id = l.id
+                                 WHERE p.slug = $1))
         AND sr.status IN ('sent','signed','declined')
       ORDER BY (sr.status = 'sent') DESC, sr.created_at DESC`,
     [slug],
+  );
+  return rows.map(rowToView);
+}
+
+/** Same list for a lead-stage portal session — requests scoped by lead_slug
+ *  (pre-project estimates and precon agreements). */
+export async function getLeadClientSignatures(
+  leadSlug: string,
+): Promise<SignatureRequestView[]> {
+  const { rows } = await query<SigRow>(
+    `SELECT ${SIG_SELECT}
+       FROM signature_requests sr
+      WHERE sr.lead_slug = $1
+        AND sr.status IN ('sent','signed','declined')
+      ORDER BY (sr.status = 'sent') DESC, sr.created_at DESC`,
+    [leadSlug],
   );
   return rows.map(rowToView);
 }

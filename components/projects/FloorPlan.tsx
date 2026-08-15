@@ -1,14 +1,19 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { Plus, X, Check } from "lucide-react";
+import { Plus, X, Check, Eye, EyeOff } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import type { FloorplanVersion } from "@/lib/floorplans";
 import {
   uploadFloorplan,
   updateFloorplanNotes,
   removeFloorplan,
+  setFloorplanPublished,
 } from "@/lib/actions/floorplans";
+
+// Mirrors MAX_BYTES in lib/upload-store.ts. Can't import it — that module is
+// `server-only`, and this is a client component.
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 /** Project Floor tab — versioned floor-plan viewer. Owner uploads a plan image
  *  or PDF (each upload is a new version), switches between versions, edits each
@@ -16,6 +21,7 @@ import {
 export function FloorPlan({ slug, versions }: { slug: string; versions: FloorplanVersion[] }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [modal, setModal] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(versions[0]?.id ?? null);
 
@@ -26,6 +32,18 @@ export function FloorPlan({ slug, versions }: { slug: string; versions: Floorpla
     startTransition(async () => {
       const r = await fn();
       if (!r.ok) setError(r.error ?? "Something went wrong.");
+    });
+  }
+
+  /** Publish/unpublish a version on the client dashboard. Publishing also
+   *  emails the client — surface what actually happened, not just "done". */
+  function publish(id: number, to: boolean) {
+    setError("");
+    setNotice("");
+    startTransition(async () => {
+      const r = await setFloorplanPublished(id, to);
+      if (!r.ok) setError(r.error ?? "Something went wrong.");
+      else setNotice(to ? (r.delivery?.note ?? "Published.") : "Removed from the client dashboard.");
     });
   }
 
@@ -43,6 +61,7 @@ export function FloorPlan({ slug, versions }: { slug: string; versions: Floorpla
       </div>
 
       {error && <div className="text-[12px] text-flag">{error}</div>}
+      {notice && <div className="text-[12px] text-money">{notice}</div>}
 
       {!selected ? (
         <Card kind="dashed" className="p-8 text-center">
@@ -54,6 +73,37 @@ export function FloorPlan({ slug, versions }: { slug: string; versions: Floorpla
         <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[1fr_240px]">
           {/* Preview + notes for the selected version */}
           <div className="flex flex-col gap-3">
+            {/* Dashboard state + the publish switch for the selected version. */}
+            <div className="flex flex-wrap items-center gap-2">
+              <Chip kind={selected.published ? "money" : "ghost"} dot>
+                {selected.published ? "On client dashboard" : "Hidden from client"}
+              </Chip>
+              {selected.approvedLabel && (
+                <Chip kind="money" dot>
+                  client approved {selected.approvedLabel}
+                </Chip>
+              )}
+              <div className="flex-1" />
+              <button
+                onClick={() => publish(selected.id, !selected.published)}
+                disabled={pending}
+                className={
+                  selected.published
+                    ? "inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50"
+                    : "inline-flex items-center gap-1 rounded-md border border-accent bg-accent px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
+                }
+              >
+                {selected.published ? (
+                  <>
+                    <EyeOff className="size-3" strokeWidth={1.75} /> Remove from dashboard
+                  </>
+                ) : (
+                  <>
+                    <Eye className="size-3" strokeWidth={1.75} /> Publish to dashboard
+                  </>
+                )}
+              </button>
+            </div>
             <Card className="overflow-hidden p-0">
               {selected.isPdf ? (
                 <iframe
@@ -87,6 +137,11 @@ export function FloorPlan({ slug, versions }: { slug: string; versions: Floorpla
               >
                 <span className="font-mono font-semibold text-ink">v{v.version}</span>
                 <span className="flex-1 truncate text-ink-3">{v.uploaded}</span>
+                {v.published && (
+                  <span title="On client dashboard">
+                    <Eye className="size-3 text-money" strokeWidth={1.75} />
+                  </span>
+                )}
                 {v.isPdf && <Chip kind="ghost">PDF</Chip>}
                 <span
                   role="button"
@@ -169,6 +224,7 @@ function UploadModal({
   onUpload: (formData: FormData) => void;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
+  const [tooBig, setTooBig] = useState("");
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink/30 p-4 pt-[12vh]" onClick={onClose}>
       <div className="w-full max-w-[460px] rounded-lg border border-rule bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -182,7 +238,19 @@ function UploadModal({
           ref={formRef}
           onSubmit={(e) => {
             e.preventDefault();
-            onUpload(new FormData(e.currentTarget));
+            const fd = new FormData(e.currentTarget);
+            // Stop oversized plans at the browser. Past the request-body cap the
+            // upload is truncated in transit, so the server never sees a whole
+            // file to reject politely — it just fails to parse the form.
+            const file = fd.get("file");
+            if (file instanceof File && file.size > MAX_UPLOAD_BYTES) {
+              setTooBig(
+                `That plan is ${(file.size / 1024 / 1024).toFixed(1)}MB — the limit is 25MB. Export it at a lower resolution and try again.`,
+              );
+              return;
+            }
+            setTooBig("");
+            onUpload(fd);
           }}
           className="flex flex-col gap-3 p-4"
         >
@@ -205,6 +273,8 @@ function UploadModal({
               className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
             />
           </label>
+
+          {tooBig && <div className="text-[12px] text-flag">{tooBig}</div>}
 
           <div className="mt-1 flex items-center justify-end gap-2">
             <button

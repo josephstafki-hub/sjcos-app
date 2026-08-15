@@ -81,7 +81,7 @@ export function stageToolTab(status: ProjectStatus): ProjectTab {
     case "selections":
       return "Selections";
     case "bidding":
-      return "Subs";
+      return "Bidding";
     case "construction":
       return "Daily log";
     case "closeout":
@@ -360,6 +360,8 @@ export interface ProjectFile {
   type: "doc" | "img" | "folder";
   sizeLabel: string;
   modifiedLabel: string;
+  /** Owner published this file to the client dashboard (files.client_visible). */
+  clientVisible: boolean;
 }
 
 /** Real uploaded files for a project, newest first (uploads only — showcase
@@ -371,8 +373,9 @@ export async function getProjectFiles(slug: string): Promise<ProjectFile[]> {
     type: "doc" | "img" | "folder";
     size_label: string;
     modified_label: string;
+    client_visible: boolean;
   }>(
-    `SELECT id, name, type, size_label, modified_label
+    `SELECT id, name, type, size_label, modified_label, client_visible
        FROM files
       WHERE project_key = $1 AND storage_path IS NOT NULL
       ORDER BY created_at DESC`,
@@ -384,6 +387,36 @@ export async function getProjectFiles(slug: string): Promise<ProjectFile[]> {
     type: r.type,
     sizeLabel: r.size_label,
     modifiedLabel: r.modified_label,
+    clientVisible: r.client_visible,
+  }));
+}
+
+/** Real uploaded files attached to a LEAD (files.lead_slug), newest first —
+ *  same shape as getProjectFiles so the Files panel is shared between the two
+ *  detail pages. Includes lead photos and client uploads from a lead-stage
+ *  portal session. */
+export async function getLeadFiles(slug: string): Promise<ProjectFile[]> {
+  const { rows } = await query<{
+    id: string;
+    name: string;
+    type: "doc" | "img" | "folder";
+    size_label: string;
+    modified_label: string;
+    client_visible: boolean;
+  }>(
+    `SELECT id, name, type, size_label, modified_label, client_visible
+       FROM files
+      WHERE lead_slug = $1 AND storage_path IS NOT NULL
+      ORDER BY created_at DESC`,
+    [slug],
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    type: r.type,
+    sizeLabel: r.size_label,
+    modifiedLabel: r.modified_label,
+    clientVisible: r.client_visible,
   }));
 }
 

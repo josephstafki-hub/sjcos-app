@@ -396,6 +396,12 @@ CREATE INDEX IF NOT EXISTS idx_files_lead ON files(lead_slug);
 -- stay owner-only (served via /api/files, not the portal route).
 ALTER TABLE files ADD COLUMN IF NOT EXISTS client_slug  text;
 CREATE INDEX IF NOT EXISTS idx_files_client ON files(client_slug);
+-- Owner-controlled client visibility (db/apply-lead-portal-publish.mjs): a file
+-- the owner explicitly published to the client dashboard. Scope comes from
+-- project_key (project files) or lead_slug (lead files); the portal serve route
+-- checks this flag + scope. Distinct from client_slug, which marks files the
+-- client uploaded themselves (always visible to them).
+ALTER TABLE files ADD COLUMN IF NOT EXISTS client_visible boolean NOT NULL DEFAULT false;
 
 -- ─── App settings ─────────────────────────────────────────────────────────
 -- Single-row key/value store for the Settings screen toggles + profile fields.
@@ -657,6 +663,17 @@ CREATE TABLE IF NOT EXISTS catalog_items (
 ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS image_file_id text;
 -- Source product-page URL captured by the browser-extension clipper (Phase 2 A).
 ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS source_url text NOT NULL DEFAULT '';
+-- Product description, list price, and series (the cabinet line, e.g.
+-- "Venus Ivory"). Display strings like `price` — no math is done on msrp.
+ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS description text NOT NULL DEFAULT '';
+ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS msrp text NOT NULL DEFAULT '';
+ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS series text NOT NULL DEFAULT '';
+-- One-time backfill: the FGT import stored the series in use_label as
+-- "<Series> series". The `series = ''` guard keeps re-runs no-ops.
+UPDATE catalog_items
+   SET series = regexp_replace(use_label, '\s+series$', '', 'i')
+ WHERE series = '' AND use_label ~* '\sseries$';
+CREATE INDEX IF NOT EXISTS idx_catalog_series ON catalog_items(series);
 
 -- ─── Money: invoices (Review-round-3 S5A) ──────────────────────────────────
 -- Native invoices (create/send/track). P&L still lives in QuickBooks; these
@@ -814,6 +831,15 @@ ALTER TABLE project_mood DROP CONSTRAINT IF EXISTS project_mood_kind_check;
 ALTER TABLE project_mood ADD CONSTRAINT project_mood_kind_check
   CHECK (kind IN ('pin','text','swatch'));
 
+-- Photoshop-style crop inside the frame. An image in a sized frame is
+-- object-cover; crop_x/crop_y pick WHICH part shows (the focal point, 0..1
+-- across the hidden overflow in each axis) and crop_zoom magnifies inside the
+-- frame (1 = plain cover fit, up to 4). Defaults reproduce the old fixed
+-- centre-crop exactly, so existing boards render pixel-identical.
+ALTER TABLE project_mood ADD COLUMN IF NOT EXISTS crop_x    real NOT NULL DEFAULT 0.5;
+ALTER TABLE project_mood ADD COLUMN IF NOT EXISTS crop_y    real NOT NULL DEFAULT 0.5;
+ALTER TABLE project_mood ADD COLUMN IF NOT EXISTS crop_zoom real NOT NULL DEFAULT 1;
+
 -- Per-room board settings: display title and background colour. A row here also
 -- lets a board EXIST before it holds any pin — rooms used to be inferred purely
 -- from project_mood rows, so a freshly created empty room vanished on reload.
@@ -827,6 +853,30 @@ CREATE TABLE IF NOT EXISTS project_mood_boards (
   UNIQUE (project_id, room)
 );
 
+-- Client-portal approval of a board's direction (db/apply-portal-approvals.mjs).
+-- Same lightweight typed-name acknowledgment as project_floorplans.
+ALTER TABLE project_mood_boards ADD COLUMN IF NOT EXISTS client_approved_at timestamptz;
+ALTER TABLE project_mood_boards ADD COLUMN IF NOT EXISTS client_approved_name text NOT NULL DEFAULT '';
+
+-- Per-board publish switch (db/apply-lead-portal-publish.mjs): a board reaches
+-- the client portal only once the owner publishes it. NULL = owner-only.
+ALTER TABLE project_mood_boards ADD COLUMN IF NOT EXISTS published_at timestamptz;
+
+-- Client feedback on a mood board (db/apply-lead-portal-publish.mjs) — the
+-- lightweight "closer, but warmer wood tones" note that isn't an approval.
+-- Keyed by room (like project_mood); rename/delete of a board moves/removes
+-- these rows in lib/actions/mood.ts.
+CREATE TABLE IF NOT EXISTS project_mood_feedback (
+  id           bigserial PRIMARY KEY,
+  project_id   uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  room         text NOT NULL,
+  author_name  text NOT NULL DEFAULT '',
+  body         text NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_mood_feedback_board
+  ON project_mood_feedback(project_id, room, created_at);
+
 -- ─── Design tools: floor-plan versions (Review-round-3 S5E) ─────────────────
 -- Versioned floor-plan files (image or PDF) per project, each with text notes.
 -- Viewer only — not a CAD editor. version increments per upload.
@@ -838,6 +888,16 @@ CREATE TABLE IF NOT EXISTS project_floorplans (
   notes       text NOT NULL DEFAULT '',
   created_at  timestamptz NOT NULL DEFAULT now()
 );
+
+-- Client-portal approval of a plan version (db/apply-portal-approvals.mjs). A
+-- lightweight in-portal acknowledgment with the typed name captured; contracts
+-- and money documents keep going through signature_requests instead.
+ALTER TABLE project_floorplans ADD COLUMN IF NOT EXISTS client_approved_at timestamptz;
+ALTER TABLE project_floorplans ADD COLUMN IF NOT EXISTS client_approved_name text NOT NULL DEFAULT '';
+
+-- Per-version publish switch (db/apply-lead-portal-publish.mjs): a plan version
+-- reaches the client portal only once the owner publishes it. NULL = owner-only.
+ALTER TABLE project_floorplans ADD COLUMN IF NOT EXISTS published_at timestamptz;
 
 -- Project ↔ sub assignments (the project Subs tab). A sub can be on many jobs;
 -- a job has many subs. Slug FK keeps it readable + matches the subs portal link.
@@ -2090,6 +2150,12 @@ CREATE TABLE IF NOT EXISTS document_drafts (
 CREATE INDEX IF NOT EXISTS idx_doc_drafts_project ON document_drafts(project_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_doc_drafts_lead    ON document_drafts(lead_slug, created_at DESC);
 
+-- Owner-controlled client visibility (db/apply-lead-portal-publish.mjs): a
+-- rendered document the owner published to the client dashboard, independent of
+-- (and in addition to) the signature flow. The portal lists visible drafts and
+-- serves their PDFs through the scope-checked portal file route.
+ALTER TABLE document_drafts ADD COLUMN IF NOT EXISTS client_visible boolean NOT NULL DEFAULT false;
+
 -- Widen signature_requests doc_type for the new templates (adds 'precon').
 -- NOT VALID so an existing table with legacy rows re-constrains without a scan.
 ALTER TABLE signature_requests DROP CONSTRAINT IF EXISTS signature_requests_doc_type_check;
@@ -2124,6 +2190,25 @@ CREATE TABLE IF NOT EXISTS client_portal_invites (
 );
 CREATE INDEX IF NOT EXISTS idx_client_invites_project
   ON client_portal_invites(project_slug, status);
+
+-- Lead-stage portal (db/apply-lead-portal-publish.mjs): an invite now scopes to
+-- a project XOR a lead, so the dashboard can open during the lead stage
+-- (documents to review/sign, messages) and carry over on conversion. The users
+-- row minted for a lead-scoped invite gets link_slug = 'lead:<slug>' — the
+-- prefix keeps it from colliding with a project slug, and the conversion flow
+-- (lib/actions/leads.ts) rewrites it to the new project slug.
+ALTER TABLE client_portal_invites ALTER COLUMN project_slug DROP NOT NULL;
+ALTER TABLE client_portal_invites ADD COLUMN IF NOT EXISTS lead_slug text REFERENCES leads(slug) ON DELETE CASCADE;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_client_invites_lead
+  ON client_portal_invites(lead_slug) WHERE lead_slug IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_client_invites_lead
+  ON client_portal_invites(lead_slug, status);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'client_portal_invites_scope_xor') THEN
+    ALTER TABLE client_portal_invites ADD CONSTRAINT client_portal_invites_scope_xor
+      CHECK ((project_slug IS NULL) <> (lead_slug IS NULL));
+  END IF;
+END $$;
 
 -- Set when a client trades their bearer link for a real password. Non-null ⇒
 -- links are refused for that account and password login is the only way in.
@@ -2274,3 +2359,85 @@ CREATE TABLE IF NOT EXISTS orchestration_events (
 CREATE INDEX IF NOT EXISTS idx_orch_events_task ON orchestration_events (task_id, id);
 -- dev_agent_runs additions (apply-orchestration-p4): orchestration_task_id
 -- uuid REFERENCES orchestration_tasks, with_mcp boolean NOT NULL DEFAULT false.
+
+-- ── Bidding (project Bidding tab + sub portal) ───────────────────────────────
+-- A bid package is a request for pricing on one category of work: the packet
+-- (plans + takeoffs from files) goes out to several subs, each via an invite
+-- row that carries a per-sub note. Subs answer with submissions (total, line
+-- items, exclusions, uploaded docs) that compare side by side; awarding one
+-- invite closes the package. Money columns are CENTS.
+
+CREATE TABLE IF NOT EXISTS bid_packages (
+  id           bigserial PRIMARY KEY,
+  project_id   uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  title        text NOT NULL,
+  trade        text NOT NULL DEFAULT '',
+  scope_notes  text NOT NULL DEFAULT '',
+  due_date     date,
+  status       text NOT NULL DEFAULT 'draft'
+                 CHECK (status IN ('draft','open','awarded','closed')),
+  sent_at      timestamptz,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_bid_packages_project
+  ON bid_packages(project_id, trade, status);
+
+CREATE TABLE IF NOT EXISTS bid_package_files (
+  id          bigserial PRIMARY KEY,
+  package_id  bigint NOT NULL REFERENCES bid_packages(id) ON DELETE CASCADE,
+  file_id     text NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  label       text NOT NULL DEFAULT '',
+  sort_order  integer NOT NULL DEFAULT 0,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (package_id, file_id)
+);
+
+CREATE TABLE IF NOT EXISTS bid_invites (
+  id            bigserial PRIMARY KEY,
+  package_id    bigint NOT NULL REFERENCES bid_packages(id) ON DELETE CASCADE,
+  sub_slug      text NOT NULL REFERENCES subs(slug) ON DELETE CASCADE,
+  message       text NOT NULL DEFAULT '',
+  status        text NOT NULL DEFAULT 'draft'
+                  CHECK (status IN ('draft','sent','viewed','submitted','declined','awarded','not_awarded')),
+  sent_at       timestamptz,
+  viewed_at     timestamptz,
+  responded_at  timestamptz,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (package_id, sub_slug)
+);
+CREATE INDEX IF NOT EXISTS idx_bid_invites_sub ON bid_invites(sub_slug, status);
+
+CREATE TABLE IF NOT EXISTS bid_submissions (
+  id            bigserial PRIMARY KEY,
+  invite_id     bigint NOT NULL REFERENCES bid_invites(id) ON DELETE CASCADE,
+  total         integer NOT NULL DEFAULT 0,  -- cents
+  notes         text NOT NULL DEFAULT '',
+  exclusions    text NOT NULL DEFAULT '',
+  lead_time     text NOT NULL DEFAULT '',
+  revision      integer NOT NULL DEFAULT 1,
+  submitted_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (invite_id, revision)
+);
+
+CREATE TABLE IF NOT EXISTS bid_submission_lines (
+  id             bigserial PRIMARY KEY,
+  submission_id  bigint NOT NULL REFERENCES bid_submissions(id) ON DELETE CASCADE,
+  description    text NOT NULL,
+  amount         integer NOT NULL DEFAULT 0,  -- cents
+  sort_order     integer NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS bid_submission_files (
+  id             bigserial PRIMARY KEY,
+  submission_id  bigint NOT NULL REFERENCES bid_submissions(id) ON DELETE CASCADE,
+  file_id        text NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  created_at     timestamptz NOT NULL DEFAULT now()
+);
+
+-- Winner FK after bid_invites exists; SET NULL so removing the winning invite
+-- reopens the question instead of deleting the package.
+ALTER TABLE bid_packages ADD COLUMN IF NOT EXISTS awarded_invite_id bigint;
+ALTER TABLE bid_packages DROP CONSTRAINT IF EXISTS bid_packages_awarded_invite_fkey;
+ALTER TABLE bid_packages ADD CONSTRAINT bid_packages_awarded_invite_fkey
+  FOREIGN KEY (awarded_invite_id) REFERENCES bid_invites(id) ON DELETE SET NULL;

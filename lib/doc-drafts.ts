@@ -53,6 +53,7 @@ export interface DraftRow {
   field_values: FieldValues;
   fill_report: FillReport;
   status: string;
+  client_visible: boolean;
   pdf_file_id: string | null;
   docx_file_id: string | null;
   signature_request_id: number | null;
@@ -80,7 +81,7 @@ export interface DraftView extends DraftRow {
 // shown on the document row now that there's no separate Signatures tab.
 const DRAFT_SELECT = `
   d.id, d.project_id, d.lead_slug, d.template_key, d.template_version, d.title,
-  d.field_values, d.fill_report, d.status, d.pdf_file_id, d.docx_file_id,
+  d.field_values, d.fill_report, d.status, d.client_visible, d.pdf_file_id, d.docx_file_id,
   d.signature_request_id, d.created_via, d.created_at,
   sr.signer_name AS sig_signer_name, sr.signed_name AS sig_signed_name,
   sr.signed_at AS sig_signed_at, sr.sent_at AS sig_sent_at,
@@ -551,6 +552,7 @@ export async function submitDocDraftForSignature(
     signerName: signer.name,
     signerEmail: signer.email,
     projectSlug: slug,
+    leadSlug: draft.lead_slug,
   });
 
   return { ok: true, signatureRequestId: reqId, delivery };
@@ -565,6 +567,7 @@ async function emailDocForSignature(o: {
   signerName: string;
   signerEmail: string;
   projectSlug: string | null;
+  leadSlug: string | null;
 }): Promise<DeliveryNote> {
   if (!o.signerEmail.trim()) {
     return { sent: false, note: "No email on file for this client — nothing was sent. Add one, or copy the portal link from the project and send it yourself." };
@@ -572,12 +575,13 @@ async function emailDocForSignature(o: {
   if (!gmailConfigured()) {
     return { sent: false, note: "Gmail isn't connected, so no email went out. The document is waiting in their portal." };
   }
-  if (!o.projectSlug) {
-    return { sent: false, note: "Lead-scoped documents have no client portal yet — send this one manually." };
+  if (!o.projectSlug && !o.leadSlug) {
+    return { sent: false, note: "No project or lead behind this document — send it manually." };
   }
-
   try {
-    const invite = await ensureClientInvite(o.projectSlug);
+    const invite = await ensureClientInvite(
+      o.projectSlug ? { project: o.projectSlug } : { lead: o.leadSlug! },
+    );
     const link = inviteLink(invite.token, "documents");
     const first = o.signerName.split(/\s+/)[0] || "there";
 
@@ -620,6 +624,30 @@ async function leadSigner(leadSlug: string | null): Promise<{ name: string; emai
     [leadSlug],
   );
   return { name: l?.name ?? "", email: l?.email ?? "" };
+}
+
+// ─── Dashboard visibility ─────────────────────────────────────────────────────
+
+/** Publish/unpublish a draft on the client dashboard. Publishing requires a
+ *  rendered PDF — a visible document with nothing to open is a dead link. The
+ *  owner-gated action wraps this and sends the publish notification email. */
+export async function setDocDraftClientVisible(
+  id: number,
+  visible: boolean,
+): Promise<{ ok: true; draft: DraftRow } | DraftError> {
+  const draft = await loadDraft(id);
+  if (!draft) return { ok: false, error: `Draft ${id} not found.` };
+  if (visible && !draft.pdf_file_id) {
+    return { ok: false, error: "Render the document (Save & preview) before publishing it." };
+  }
+  if (visible && draft.status === "void") {
+    return { ok: false, error: "A voided document can't be published." };
+  }
+  await query(
+    `UPDATE document_drafts SET client_visible = $2, updated_at = now() WHERE id = $1`,
+    [id, visible],
+  );
+  return { ok: true, draft: { ...draft, client_visible: visible } };
 }
 
 // ─── Void / clone / delete ───────────────────────────────────────────────────

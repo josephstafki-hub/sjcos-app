@@ -48,6 +48,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { registerMoodTools } from "./mood-tools.mjs";
+import { registerBiddingTools } from "./bidding-tools.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -128,6 +129,30 @@ async function newsletterCall(action, payload = {}) {
  * deliberately has NO send/record-receipt/close/void action: emailing a
  * vendor and receiving/closing out stay owner-gated in the app.
  */
+/**
+ * Call the app's internal bidding route (single source of truth for publish/
+ * award/thread logic — portal visibility, parked invite emails, notifications).
+ * Trusted local caller, authed with CRON_SECRET. Note the different line here:
+ * send_package IS exposed (owner's explicit call for the bidding family) and is
+ * safe because it cannot transmit — it publishes to sub portals and parks
+ * invite emails on the Subs tab; only Joe's own mail client reaches an inbox.
+ */
+async function biddingCall(action, payload = {}) {
+  const base = envValue("APP_INTERNAL_URL") || "http://127.0.0.1:3017";
+  const secret = envValue("CRON_SECRET");
+  if (!secret) return { ok: false, error: "CRON_SECRET not set — cannot reach the app bidding route." };
+  try {
+    const res = await fetch(`${base}/api/internal/bidding`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
+      body: JSON.stringify({ action, ...payload }),
+    });
+    return await res.json();
+  } catch (e) {
+    return { ok: false, error: `App not reachable at ${base} (${e.message}). Is the sjcos service running?` };
+  }
+}
+
 async function poCall(action, payload = {}) {
   const base = envValue("APP_INTERNAL_URL") || "http://127.0.0.1:3017";
   const secret = envValue("CRON_SECRET");
@@ -1898,6 +1923,12 @@ server.registerTool(
   // deletes, nothing client-facing), just kept separate to keep this file from
   // growing without bound. See mcp/mood-tools.mjs.
   registerMoodTools(server, { rows, json, uploadDir: path.join(__dirname, "..", "uploads") });
+
+  // Bidding lives in its own module too. Unlike the other families, the owner
+  // explicitly opened the FULL surface to agents — including send and award —
+  // because "send" here only publishes to sub portals / parks invite emails;
+  // no code path in the app transmits email. See mcp/bidding-tools.mjs.
+  registerBiddingTools(server, { rows, json, biddingCall });
 
   return server;
 }

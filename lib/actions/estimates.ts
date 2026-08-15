@@ -13,6 +13,9 @@ import { getDefaultMarkup } from "@/lib/cost-book";
 import { getProjectSignerDefaults } from "@/lib/esign";
 import { emit } from "@/lib/notify";
 import { ai } from "@/lib/ai";
+import { renderProjectEstimatePdf } from "@/lib/doc-drafts";
+import { renderInlineDocPdf } from "@/lib/documents";
+import { storeBuffer } from "@/lib/upload-store";
 import type { EstimateRail } from "@/lib/estimates";
 
 type Result = { ok: true; id?: number } | { ok: false; error: string };
@@ -179,12 +182,35 @@ export async function sendEstimate(slug: string, estimateId: number): Promise<Re
 
   const signer = await getProjectSignerDefaults(slug);
 
+  // The client reviews (and downloads/prints) a real PDF in their portal.
+  // Prefer the estimate_doc template render; fall back to the inline body on
+  // letterhead; fall back to body-only if PDF generation fails entirely.
+  let fileId: string | null = null;
+  const pdf =
+    (await renderProjectEstimatePdf(slug, estimateId).catch(() => null)) ??
+    (await renderInlineDocPdf({
+      title: est.title || "Estimate",
+      subtitle: est.project_name,
+      body,
+    }).catch(() => null));
+  if (pdf) {
+    const stored = await storeBuffer(pdf, {
+      filename: `${est.title || "Estimate"}.pdf`,
+      mime: "application/pdf",
+      idPrefix: "sig",
+      projectKey: slug,
+      tag: "ESTIMATE",
+      subtitle: "Estimate — sent for signature",
+    });
+    if (stored.ok) fileId = stored.id;
+  }
+
   const ins = await queryOne<{ id: string }>(
     `INSERT INTO signature_requests
-       (project_id, estimate_id, doc_type, title, body, status, signer_name, signer_email, created_by, sent_at)
-     VALUES ($1, $2, 'estimate', $3, $4, 'sent', $5, $6, $7, now())
+       (project_id, estimate_id, doc_type, title, body, file_id, status, signer_name, signer_email, created_by, sent_at)
+     VALUES ($1, $2, 'estimate', $3, $4, $5, 'sent', $6, $7, $8, now())
      RETURNING id`,
-    [est.project_id, estimateId, est.title, body, signer.name, signer.email, user.id],
+    [est.project_id, estimateId, est.title, body, fileId, signer.name, signer.email, user.id],
   );
   const reqId = Number(ins!.id);
 

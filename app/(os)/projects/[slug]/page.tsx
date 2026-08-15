@@ -12,6 +12,8 @@ import { WeeklyStatusSend } from "@/components/projects/WeeklyStatusSend";
 import { PunchList } from "@/components/projects/PunchList";
 import { MoneyPanel } from "@/components/projects/MoneyPanel";
 import { SelectionsBoard } from "@/components/projects/SelectionsBoard";
+import { BiddingBoard } from "@/components/projects/BiddingBoard";
+import { getProjectBidding, listAllSubs } from "@/lib/bidding";
 import { MoodBoard } from "@/components/projects/MoodBoard";
 import { FloorPlan } from "@/components/projects/FloorPlan";
 import { getProject, getProjectFiles, getProjectSubsData, getProjectDailyLogs, getProjectWeeklyStatus, PROJECT_STATUSES, stageToolTab } from "@/lib/projects";
@@ -21,6 +23,8 @@ import { getQueuedSubInvites } from "@/lib/sub-invites";
 import { ProjectDailyLog } from "@/components/projects/ProjectDailyLog";
 import { ProjectFiles } from "@/components/projects/ProjectFiles";
 import { ProjectComms } from "@/components/projects/ProjectComms";
+import { PortalAccessPanel, type PortalInviteSummary } from "@/components/portal/PortalAccessPanel";
+import { getClientInvite } from "@/lib/client-invites";
 import { ProjectSchedule } from "@/components/projects/ProjectSchedule";
 import { DocTypePanel } from "@/components/projects/DocTypePanel";
 import { listDocDrafts, listDocTemplates } from "@/lib/doc-drafts";
@@ -101,6 +105,8 @@ export default async function ProjectDetailPage({
     permits,
     docDrafts,
     ops,
+    bidding,
+    biddingRoster,
   ] = await Promise.all([
     getProject(slug),
     getProjectMoney(slug),
@@ -129,9 +135,31 @@ export default async function ProjectDetailPage({
     // Open Engine + Brain data scoped to this one project (work queue, knowledge,
     // receipts, stage-gate guidance) — the "Ops" tab.
     getRecordOps("project", slug),
+    getProjectBidding(slug),
+    listAllSubs(),
   ]);
   const docTemplates = listDocTemplates().filter((t) => t.scope !== "lead");
   if (!project) notFound();
+
+  // Client portal invite for the Comms tab's access panel.
+  const invite = await getClientInvite({ project: slug });
+  const inviteSummary: PortalInviteSummary = invite
+    ? {
+        status:
+          invite.status === "dismissed"
+            ? "dismissed"
+            : invite.expiresAt < new Date()
+              ? "expired"
+              : "active",
+        toEmail: invite.toEmail,
+        expiresLabel: invite.expiresAt.toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        }),
+        used: invite.usedAt !== null,
+      }
+    : { status: "none", toEmail: null, expiresLabel: null, used: false };
 
   const catalogOptions = catalog.materials.map((m) => ({ id: m.id, name: m.name }));
 
@@ -431,8 +459,18 @@ export default async function ProjectDetailPage({
     <SelectionsBoard slug={slug} view={selections} catalog={catalogOptions} />
   );
 
+  // ── Bidding panel — packages by trade: packet files, recipients, compare ───
+  const biddingPanel = (
+    <BiddingBoard slug={slug} view={bidding} roster={biddingRoster} projectFiles={projectFiles} />
+  );
+
   // ── Comms panel — real owner ⇄ client thread (portal:<slug>) ───────────────
-  const commsPanel = <ProjectComms slug={slug} thread={commsThread} />;
+  const commsPanel = (
+    <div className="max-w-[680px] space-y-4">
+      <PortalAccessPanel scope={{ project: slug }} invite={inviteSummary} />
+      <ProjectComms slug={slug} thread={commsThread} />
+    </div>
+  );
 
   // ── Punch panel — real, interactive punch-list items (add/toggle/remove) ────
   const punchPanel = <PunchList slug={project.slug} items={project.punch} />;
@@ -513,6 +551,7 @@ export default async function ProjectDetailPage({
     Floor: floorPanel,
     Mood: moodPanel,
     Selections: selectionsPanel,
+    Bidding: biddingPanel,
     Money: moneyTab,
     Documents: documentsTab,
     Schedule: schedulePanel,

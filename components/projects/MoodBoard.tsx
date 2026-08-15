@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import {
   Check,
   ExternalLink,
+  Eye,
+  EyeOff,
   ImagePlus,
   LayoutGrid,
   Palette,
@@ -30,6 +32,7 @@ import {
   renameMoodBoard,
   reorderMoodItem,
   saveMoodLayout,
+  setMoodBoardPublished,
   updateMoodBoard,
   updateMoodLabel,
   updateMoodNote,
@@ -53,6 +56,8 @@ type Result = { ok: boolean; error?: string };
 
 interface RunOptions {
   onSuccess?: () => void;
+  /** Roll back an optimistic change when the write fails. */
+  onError?: () => void;
   fallback?: string;
   /** Skip the router refetch when the canvas already shows the change locally. */
   refresh?: boolean;
@@ -88,12 +93,20 @@ export function MoodBoard({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [picker, setPicker] = useState(false);
   const [upload, setUpload] = useState(false);
   const [textOpen, setTextOpen] = useState(false);
   const [swatchOpen, setSwatchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [editing, setEditing] = useState<MoodItem | null>(null);
+  /** Optimistically removed item ids. An item disappears the moment its X is
+   *  clicked and only comes back if the delete fails — waiting for the round
+   *  trip (and disabling the X while ANY save was in flight, which is what the
+   *  old `disabled={pending}` did) made removal feel broken. Ids are serial and
+   *  never reused, so entries can stay forever without hiding anything new. */
+  const [removed, setRemoved] = useState<Set<number>>(new Set());
   /** A room the owner just created, held locally only for the frame between the
    *  write landing and the new props arriving — createMoodBoard persists it, so
    *  unlike before it no longer vanishes on reload. */
@@ -108,7 +121,7 @@ export function MoodBoard({
 
   const room = (activeRoom && rooms.includes(activeRoom) ? activeRoom : rooms[0]) ?? null;
   const board = boards.find((b) => b.room === room) ?? null;
-  const items = board?.items ?? [];
+  const items = (board?.items ?? []).filter((i) => !removed.has(i.id));
 
   // Single path for every mutation on this board. The actions revalidate on the
   // server, but the project page is dynamic (cookie auth), so nothing re-renders
@@ -117,17 +130,32 @@ export function MoodBoard({
   // error so the owner's picks survive.
   function run(
     fn: () => Promise<Result>,
-    { onSuccess, fallback = "Something went wrong.", refresh = true }: RunOptions = {},
+    { onSuccess, onError, fallback = "Something went wrong.", refresh = true }: RunOptions = {},
   ) {
     setError("");
     startTransition(async () => {
       const r = await fn();
       if (!r.ok) {
         setError(r.error ?? fallback);
+        onError?.();
         return;
       }
       onSuccess?.();
       if (refresh) router.refresh();
+    });
+  }
+
+  /** Remove an item optimistically: hide it now, restore it if the write fails. */
+  function removeItem(id: number) {
+    setRemoved((cur) => new Set(cur).add(id));
+    run(() => removeMoodImage(id), {
+      fallback: "Could not remove that.",
+      onError: () =>
+        setRemoved((cur) => {
+          const next = new Set(cur);
+          next.delete(id);
+          return next;
+        }),
     });
   }
 
@@ -144,6 +172,22 @@ export function MoodBoard({
   // canvas — scoped to this room so it reads as that room's product list.
   const products = items.filter((i) => i.kind === "pin" && i.label);
 
+  /** Publish/unpublish the active board on the client dashboard. Publishing
+   *  also emails the client — show what actually happened, not just "done". */
+  function publishBoard(to: boolean) {
+    if (!room) return;
+    setError("");
+    setNotice("");
+    startTransition(async () => {
+      const r = await setMoodBoardPublished(slug, room, to);
+      if (!r.ok) setError(r.error ?? "Something went wrong.");
+      else {
+        setNotice(to ? (r.delivery?.note ?? "Published.") : "Removed from the client dashboard.");
+        router.refresh();
+      }
+    });
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -152,13 +196,43 @@ export function MoodBoard({
             {board?.title || "Mood board"}
           </h3>
           <p className="mt-0.5 text-[12px] text-ink-3">
-            Drag to move, corner to resize and crop, the stem above to rotate. Arrow keys nudge the
-            selected item; Delete removes it.
+            Drag to move, handles to resize (corners keep proportions, Shift frees them), the stem
+            above to rotate, the crop tool to pan and zoom an image inside its frame. Arrow keys
+            nudge the selected item; Delete removes it.
           </p>
         </div>
+        <button
+          onClick={() => publishBoard(!board?.published)}
+          disabled={!room || pending}
+          title={board?.published ? "Remove this board from the client dashboard" : "Publish this board to the client dashboard (emails the client)"}
+          className={
+            board?.published
+              ? TOOL
+              : "inline-flex items-center gap-1 rounded-md border border-accent bg-accent px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
+          }
+        >
+          {board?.published ? (
+            <>
+              <EyeOff className="size-3" strokeWidth={1.5} /> Unpublish
+            </>
+          ) : (
+            <>
+              <Eye className="size-3" strokeWidth={1.5} /> Publish
+            </>
+          )}
+        </button>
         <button onClick={() => setSettingsOpen(true)} disabled={!room} className={TOOL} title="Board settings">
           <Settings2 className="size-3" strokeWidth={1.5} />
           Board
+        </button>
+        <button
+          onClick={() => setDeleteOpen(true)}
+          disabled={!room}
+          title="Delete this board"
+          className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:border-flag hover:text-flag disabled:opacity-50"
+        >
+          <Trash2 className="size-3" strokeWidth={1.5} />
+          Delete
         </button>
         <button onClick={() => setTextOpen(true)} disabled={!room} className={TOOL}>
           <Type className="size-3" strokeWidth={1.5} />
@@ -183,6 +257,21 @@ export function MoodBoard({
       </div>
 
       {error && <div className="text-[12px] text-flag">{error}</div>}
+      {notice && <div className="text-[12px] text-money">{notice}</div>}
+
+      {/* Dashboard state for the active board. */}
+      {board && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Chip kind={board.published ? "money" : "ghost"} dot>
+            {board.published ? "On client dashboard" : "Hidden from client"}
+          </Chip>
+          {board.approvedLabel && (
+            <Chip kind="money" dot>
+              approved by {board.approvedName || "client"} · {board.approvedLabel}
+            </Chip>
+          )}
+        </div>
+      )}
 
       {/* Room chips — one board per room. */}
       <div className="flex flex-wrap items-center gap-1.5">
@@ -233,7 +322,7 @@ export function MoodBoard({
                 fallback: "Could not save the layout.",
               })
             }
-            onRemove={(id) => run(() => removeMoodImage(id))}
+            onRemove={removeItem}
             onEditNote={(item) => setEditing(item)}
             onLayer={(id, dir) => run(() => reorderMoodItem(id, dir), { fallback: "Could not restack that." })}
             onDuplicate={(id) => run(() => duplicateMoodItem(id), { fallback: "Could not duplicate that." })}
@@ -264,6 +353,22 @@ export function MoodBoard({
                         <ExternalLink className="size-3" strokeWidth={1.5} />
                       </a>
                     )}
+                  </div>
+                ))}
+              </Card>
+            </div>
+          )}
+
+          {board && board.feedback.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <span className={LABEL}>Client feedback on this board</span>
+              <Card className="divide-y divide-rule p-0">
+                {board.feedback.map((f) => (
+                  <div key={f.id} className="px-3 py-2">
+                    <p className="whitespace-pre-wrap text-[12.5px] leading-snug text-ink">{f.body}</p>
+                    <div className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-ink-3">
+                      {f.name} · {f.when}
+                    </div>
                   </div>
                 ))}
               </Card>
@@ -374,6 +479,45 @@ export function MoodBoard({
             })
           }
         />
+      )}
+
+      {deleteOpen && room && (
+        <ModalShell title={`Delete ${room}?`} onClose={() => setDeleteOpen(false)}>
+          <div className="flex flex-col gap-3 p-4">
+            <p className="text-[13px] text-ink-2">
+              This deletes the {room} board and all{" "}
+              {items.length === 1 ? "1 item" : `${items.length} items`} on it. Uploaded images stay
+              in Files; this can&apos;t be undone.
+            </p>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteOpen(false)}
+                className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() =>
+                  run(() => deleteMoodBoard(slug, room), {
+                    onSuccess: () => {
+                      setDraftRoom(null);
+                      setActiveRoom(null);
+                      setDeleteOpen(false);
+                    },
+                    fallback: "Could not delete the board.",
+                  })
+                }
+                className="inline-flex items-center gap-1 rounded-md border border-flag bg-flag px-3 py-1.5 text-[12px] font-semibold text-paper hover:opacity-90 disabled:opacity-50"
+              >
+                <Trash2 className="size-3" strokeWidth={1.75} />
+                Delete board
+              </button>
+            </div>
+          </div>
+        </ModalShell>
       )}
 
       {editing && (

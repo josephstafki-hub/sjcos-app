@@ -28,6 +28,8 @@ export interface StoreOpts {
   /** files.id prefix, e.g. "cat" / "sel" / "mood" / "fp". */
   idPrefix?: string;
   projectKey?: string;
+  /** Attach the file to a lead (files.lead_slug) instead of a project. */
+  leadSlug?: string;
   tag?: string;
   subtitle?: string;
   /** Reject non-image uploads. */
@@ -57,6 +59,7 @@ export async function storeUpload(file: unknown, opts: StoreOpts = {}): Promise<
     isImage,
     idPrefix: opts.idPrefix,
     projectKey: opts.projectKey,
+    leadSlug: opts.leadSlug,
     tag: opts.tag,
     subtitle: opts.subtitle,
   });
@@ -99,6 +102,7 @@ async function persistBlob(
     isImage: boolean;
     idPrefix?: string;
     projectKey?: string;
+    leadSlug?: string;
     tag?: string;
     subtitle?: string;
   },
@@ -114,12 +118,13 @@ async function persistBlob(
 
   await query(
     `INSERT INTO files
-       (id, project_key, type, name, tag, ai_origin, modified_label, size_label,
+       (id, project_key, lead_slug, type, name, tag, ai_origin, modified_label, size_label,
         subtitle, ai_tags, sort, storage_path, mime_type)
-     VALUES ($1, $2, $3, $4, $5, false, 'just now', $6, $7, '{}', -1, $8, $9)`,
+     VALUES ($1, $2, $3, $4, $5, $6, false, 'just now', $7, $8, '{}', -1, $9, $10)`,
     [
       id,
       o.projectKey ?? "",
+      o.leadSlug ?? null,
       type,
       o.original,
       o.tag ?? (ext ? `UPLOAD · ${ext}` : "UPLOAD"),

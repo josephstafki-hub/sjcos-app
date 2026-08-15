@@ -164,3 +164,26 @@ Defaults (override in `.env.local` if you move them):
 `WHISPER_BIN=~/.local/src/whisper.cpp/build/bin/whisper-cli`,
 `WHISPER_MODEL=~/.local/share/whisper-models/ggml-base.en.bin`, `FFMPEG_BIN=ffmpeg`.
 The pipeline is `ffmpeg -ar 16000 -ac 1 -c:a pcm_s16le` → `whisper-cli -nt -np -otxt`.
+
+## MCP HTTP service (`sjcos-mcp.service`)
+
+`deploy/sjcos-mcp.service` is the user unit for the bearer-gated Streamable
+HTTP MCP transport on `127.0.0.1:3018` (Hermes' `sjcos` tools). Install /
+update it with `cp deploy/sjcos-mcp.service ~/.config/systemd/user/ &&
+systemctl --user daemon-reload && systemctl --user restart sjcos-mcp.service`.
+Note the `ExecStart` node path is `/usr/bin/node` — an older copy pointed at
+`/usr/local/bin/node`, which vanished with a Node upgrade and left the unit
+crash-looping (`status=203/EXEC`) until 2026-08-15. Restart it after every
+deploy so newly added tools register.
+
+## Universal operator panel deploy notes (2026-08-15)
+
+- Migrations (idempotent): `node db/apply-orchestration-p1.mjs` … `p4.mjs`.
+- Piper TTS lives at `~/.local/bin/piper` (symlink into the extracted release
+  under `~/.local/src/piper/` — keep it a symlink; the bundled libs sit beside
+  the binary) with the `en_US-lessac-medium` voice in
+  `~/.local/share/piper-voices/`. Override with `PIPER_BIN` / `PIPER_VOICE`.
+- Do NOT leave old `.next*` build/backup directories inside the repo:
+  `tsconfig.json` includes `.next-preview/**/types`, so a stale
+  `validator.ts` there breaks `next build`'s typecheck against moved routes.
+  Park backups under `~/sjcos-backups/` instead.

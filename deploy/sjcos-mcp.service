@@ -1,0 +1,21 @@
+[Unit]
+Description=SJC OS — MCP Streamable HTTP transport (bearer-gated)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/sjcos-app
+# MCP_HTTP_PORT lives HERE, not in .env.local — the server reads it from
+# process.env only, so plain stdio spawns (the `claude mcp` registration) never
+# see it and never fight this service for the port. Setting it is what switches
+# the server from stdio into HTTP mode; the bearer token (MCP_HTTP_TOKEN) is
+# still read from sjcos-app/.env.local, and it refuses to start without one.
+Environment=MCP_HTTP_PORT=3018
+ExecStart=/usr/bin/node %h/sjcos-app/mcp/sjcos-mcp.mjs
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

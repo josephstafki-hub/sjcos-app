@@ -86,7 +86,7 @@ export function PanelHost({ children }: { children: ReactNode }) {
           <>
             <aside
               style={{ width: layout.width }}
-              className="hidden flex-none flex-col overflow-hidden border-r border-rule bg-paper-2 lg:flex"
+              className="hidden flex-none flex-col overflow-hidden bg-paper-2 lg:flex"
             >
               <div className="flex items-center gap-2 px-3 pt-2">
                 <Sparkles className="size-3.5 text-ai" strokeWidth={1.5} />

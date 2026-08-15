@@ -1,12 +1,13 @@
 "use client";
 
 import { useRef } from "react";
+import { GripVertical } from "lucide-react";
 import { PANEL_DEFAULT_WIDTH, PANEL_MAX_WIDTH, PANEL_MIN_WIDTH } from "./panelStore";
 
 const clamp = (w: number) => Math.min(PANEL_MAX_WIDTH, Math.max(PANEL_MIN_WIDTH, w));
 
 /** The dock/app divider. Hand-rolled — one axis, one divider; pointer capture
- *  keeps the drag alive when the cursor leaves the 6px strip. Double-click
+ *  keeps the drag alive when the cursor leaves the strip. Double-click
  *  resets to the default width. */
 export function Splitter({
   width,
@@ -44,6 +45,10 @@ export function Splitter({
     el.addEventListener("pointercancel", onUp);
   };
 
+  // A visible grab handle, not a hairline: a 10px strip in the page-2 tone
+  // with a centered grip glyph, tinted on hover/drag. An earlier 6px strip in
+  // the border color sat flush against the dock's own border and simply
+  // vanished — the only tell was the cursor.
   return (
     <div
       role="separator"
@@ -55,7 +60,11 @@ export function Splitter({
         onResize(PANEL_DEFAULT_WIDTH);
         onCommit(PANEL_DEFAULT_WIDTH);
       }}
-      className="hidden w-1.5 flex-none cursor-col-resize bg-rule/60 transition-colors hover:bg-ai lg:block"
-    />
+      className="group hidden w-2.5 flex-none cursor-col-resize select-none items-center justify-center border-x border-rule bg-paper-2 transition-colors hover:bg-ai-soft active:bg-ai-soft lg:flex"
+    >
+      <span className="flex h-12 w-full items-center justify-center rounded-sm bg-rule/70 text-ink-3 transition-colors group-hover:bg-ai group-hover:text-paper group-active:bg-ai group-active:text-paper">
+        <GripVertical className="size-3" strokeWidth={2} />
+      </span>
+    </div>
   );
 }

@@ -38,7 +38,7 @@ export interface PanelState {
 }
 
 export const PANEL_MIN_WIDTH = 320;
-export const PANEL_MAX_WIDTH = 720;
+export const PANEL_MAX_WIDTH = 1000;
 export const PANEL_DEFAULT_WIDTH = 640;
 
 export const PANEL_DEFAULTS: PanelState = {

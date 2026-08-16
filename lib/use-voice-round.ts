@@ -75,6 +75,15 @@ export function useVoiceRound({
   /** Set when a tap cut playback and started listening itself, so the queue
    *  tail doesn't re-arm the mic a second time (two recorders = a leak). */
   const bargedRef = useRef(false);
+  /** Live mirror of dictation.state for closures that outlive a render. */
+  const dictStateRef = useRef<"idle" | "recording" | "transcribing">("idle");
+  /** Background survival: a silent loop that keeps iOS treating the page as
+   *  an audio app while hidden (timers/polling keep running, the speech
+   *  element stays usable), plus clips iOS refused to play while hidden —
+   *  spoken the moment the page is visible again. */
+  const keepAliveRef = useRef<HTMLAudioElement | null>(null);
+  const deferredRef = useRef<Blob[]>([]);
+  const queueDepthRef = useRef(0);
   const spokenRef = useRef<Set<string>>(new Set());
   const queueRef = useRef<Promise<void>>(Promise.resolve());
   const wakeRef = useRef<{ release: () => Promise<void> } | null>(null);
@@ -89,6 +98,10 @@ export function useVoiceRound({
     onText: (text) => void handleTranscript(text),
     onError: (message) => onErrorRef.current?.(message),
     onLevel: setLevel,
+  });
+
+  useEffect(() => {
+    dictStateRef.current = dictation.state;
   });
 
   // While the dictation machine is active it owns the phase.
@@ -165,7 +178,13 @@ export function useVoiceRound({
       };
       setStage("speaking");
       a.play().catch(() => {
-        onErrorRef.current?.("Couldn't play the answer.");
+        if (typeof document !== "undefined" && document.hidden) {
+          // iOS refuses to start new audio while backgrounded — keep the clip
+          // and speak it when Joe comes back (see the visibility handler).
+          deferredRef.current.push(blob);
+        } else {
+          onErrorRef.current?.("Couldn't play the answer.");
+        }
         clearAudio();
       });
     });
@@ -174,6 +193,7 @@ export function useVoiceRound({
   /** Utterances queue: an ack and a follow-up update never talk over each
    *  other. After the LAST queued clip, re-arm the mic if voice mode is on. */
   function enqueue(fetchClip: () => Promise<Blob | null>) {
+    queueDepthRef.current += 1;
     queueRef.current = queueRef.current
       .then(async () => {
         if (!voiceModeRef.current) return;
@@ -183,17 +203,61 @@ export function useVoiceRound({
       })
       .catch(() => {})
       .then(() => {
+        queueDepthRef.current = Math.max(0, queueDepthRef.current - 1);
         if (!voiceModeRef.current) return;
         if (bargedRef.current) {
           bargedRef.current = false; // the tap already started listening
           return;
         }
         setStage("idle");
+        // Backgrounded: iOS mutes the mic, so listening is pointless — the
+        // visibility handler re-arms on return.
+        if (typeof document !== "undefined" && document.hidden) return;
         // The concierge may still be waiting on a delegated run; re-arm so Joe
         // can keep talking meanwhile — the update queues behind whatever he
         // says next rather than talking over him.
-        if (dictation.state === "idle") void dictation.start({ noSpeechMs: 8_000 });
+        if (dictStateRef.current === "idle") void dictation.start({ noSpeechMs: 8_000 });
       });
+  }
+
+  // ─── background survival ──────────────────────────────────────────────────
+
+  /** While hidden: loop a silent clip so iOS keeps treating the page as an
+   *  audio app (timers/polling keep running; the unlocked speech element can
+   *  keep talking) and register with the lock-screen media controls. */
+  function startKeepAlive() {
+    try {
+      if (!keepAliveRef.current) {
+        const k = new Audio("/silence-1s.wav");
+        k.loop = true;
+        k.volume = 0.01;
+        k.setAttribute("playsinline", "true");
+        keepAliveRef.current = k;
+      }
+      void keepAliveRef.current.play().catch(() => {});
+      const ms = (navigator as Navigator & { mediaSession?: MediaSession }).mediaSession;
+      if (ms) {
+        ms.metadata = new MediaMetadata({ title: "SJC OS · Operator", artist: "Voice session — Claude" });
+        // Lock-screen pause = end the voice session; play = no-op (the mic
+        // cannot run from the lock screen anyway).
+        try {
+          ms.setActionHandler("pause", () => setVoiceMode(false));
+          ms.setActionHandler("play", () => {});
+        } catch {
+          /* handler unsupported */
+        }
+      }
+    } catch {
+      /* no Audio / no MediaSession — survival degrades to resume-on-return */
+    }
+  }
+
+  function stopKeepAlive() {
+    const k = keepAliveRef.current;
+    if (k) {
+      k.pause();
+      k.currentTime = 0;
+    }
   }
 
   async function ttsBlob(body: Record<string, string>): Promise<Blob | null> {
@@ -222,11 +286,11 @@ export function useVoiceRound({
    *  mid-transcribe. */
   function micTap() {
     if (!supported) return;
-    if (dictation.state === "recording") {
+    if (dictStateRef.current === "recording") {
       dictation.stop();
       return;
     }
-    if (dictation.state === "transcribing") return;
+    if (dictStateRef.current === "transcribing") return;
     if (!voiceModeRef.current) {
       unlockAudio();
       void requestWakeLock();
@@ -281,6 +345,8 @@ export function useVoiceRound({
     }
     dictation.cancel();
     clearAudio();
+    stopKeepAlive();
+    deferredRef.current = [];
     setStage("idle");
     void wakeRef.current?.release().catch(() => {});
     wakeRef.current = null;
@@ -328,6 +394,39 @@ export function useVoiceRound({
     };
   });
 
+  // Background / foreground. The session is NOT torn down when the page is
+  // hidden (app switch, screen lock): a delegated run keeps going and its
+  // spoken update is delivered — live if iOS lets the unlocked audio element
+  // play, otherwise the moment the page is visible again. What cannot survive
+  // backgrounding on iOS is the microphone (muted while hidden), so listening
+  // resumes on return rather than in the background. Wired through a ref so
+  // the one listener always sees fresh closures.
+  const resumeRef = useRef(() => {});
+  useEffect(() => {
+    resumeRef.current = () => {
+      stopKeepAlive();
+      void requestWakeLock();
+      const parked = deferredRef.current;
+      deferredRef.current = [];
+      for (const blob of parked) enqueue(async () => blob);
+      // Nothing queued and nothing recording → straight back to listening.
+      if (!parked.length && queueDepthRef.current === 0 && dictStateRef.current === "idle") {
+        setStage("idle");
+        void dictation.start({ noSpeechMs: 8_000 });
+      }
+    };
+  });
+  useEffect(() => {
+    function onVisibility() {
+      if (!voiceModeRef.current) return;
+      if (document.hidden) startKeepAlive();
+      else resumeRef.current();
+    }
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
@@ -338,6 +437,7 @@ export function useVoiceRound({
     return () => {
       window.removeEventListener("keydown", onKey);
       haltRef.current(); // unmount teardown
+      stopKeepAlive();
       void wakeRef.current?.release().catch(() => {});
     };
   }, []);

@@ -40,7 +40,7 @@ import {
   type PanelAgent,
 } from "@/lib/dev-agents-meta";
 import { doItDirective, prepDirective } from "@/lib/today-directives";
-import { queueNarration } from "@/lib/operator-narration";
+import { queueNarration, spokenQueue } from "@/lib/operator-narration";
 import { parseModelActions } from "@/lib/today-actions";
 import type { TodayPriority } from "@/lib/today";
 import { useTodayQueue } from "@/components/today/TodayQueueContext";
@@ -537,7 +537,13 @@ export function PanelChat({
 
       {/* Mobile voice bar: a big thumb-zone mic (hands-free rounds) — the
           desktop composer keeps its compact button. */}
-      <VoiceBar voice={voice} latest={chat.pending ? activityLines[activityLines.length - 1] : undefined} />
+      <VoiceBar
+        voice={voice}
+        latest={chat.pending ? activityLines[activityLines.length - 1] : undefined}
+        // Mobile: the first tap opens the session with Claude reading the queue
+        // aloud, then listens. Later taps are plain talk / send / interrupt.
+        onStart={() => voice.startWithBriefing(spokenQueue(priorities, { items: waiting, total: waiting.length }))}
+      />
 
       {/* Composer */}
       <form
@@ -665,7 +671,16 @@ function voicePlaceholder(phase: string): string {
  *  mic level), thinking, or Claude speaking; tap = send now / interrupt. The
  *  exit chip ends voice mode. Small screens only — desktop keeps the compact
  *  composer button. */
-function VoiceBar({ voice, latest }: { voice: ReturnType<typeof useVoiceRound>; latest?: string }) {
+function VoiceBar({
+  voice,
+  latest,
+  onStart,
+}: {
+  voice: ReturnType<typeof useVoiceRound>;
+  latest?: string;
+  /** Session opener (first tap while voice mode is off). */
+  onStart: () => void;
+}) {
   if (!voice.supported) return null;
   const p = voice.phase;
   const label = !voice.voiceMode
@@ -691,7 +706,7 @@ function VoiceBar({ voice, latest }: { voice: ReturnType<typeof useVoiceRound>; 
         <div className="truncate text-[13px] font-medium text-ink-2">{label}</div>
         <div className="truncate text-[11px] text-ink-4">
           {!voice.voiceMode
-            ? "Hands-free — it sends when you pause"
+            ? "Claude reads your queue, then listens — hands-free"
             : p === "recording"
               ? "Pause to send · tap to send now"
               : p === "speaking"
@@ -711,7 +726,7 @@ function VoiceBar({ voice, latest }: { voice: ReturnType<typeof useVoiceRound>; 
       )}
       <button
         type="button"
-        onClick={voice.micTap}
+        onClick={voice.voiceMode ? voice.micTap : onStart}
         aria-label={label}
         style={{ boxShadow: ring }}
         className={`flex size-16 flex-none items-center justify-center rounded-full transition-[box-shadow,background-color] duration-150 ${

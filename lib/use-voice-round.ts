@@ -69,6 +69,12 @@ export function useVoiceRound({
   const voiceModeRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const urlRef = useRef<string | null>(null);
+  /** Resolver of the clip currently playing — an interrupt (barge-in, exit)
+   *  must settle it or the utterance queue stalls behind it forever. */
+  const playingRef = useRef<(() => void) | null>(null);
+  /** Set when a tap cut playback and started listening itself, so the queue
+   *  tail doesn't re-arm the mic a second time (two recorders = a leak). */
+  const bargedRef = useRef(false);
   const spokenRef = useRef<Set<string>>(new Set());
   const queueRef = useRef<Promise<void>>(Promise.resolve());
   const wakeRef = useRef<{ release: () => Promise<void> } | null>(null);
@@ -132,6 +138,9 @@ export function useVoiceRound({
       URL.revokeObjectURL(urlRef.current);
       urlRef.current = null;
     }
+    const r = playingRef.current;
+    playingRef.current = null;
+    r?.();
   }
 
   /** Play one clip; resolves when it ends (or fails). */
@@ -142,20 +151,22 @@ export function useVoiceRound({
       const url = URL.createObjectURL(blob);
       urlRef.current = url;
       a.src = url;
-      a.onended = () => {
-        clearAudio();
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
         resolve();
       };
+      playingRef.current = done;
+      a.onended = () => clearAudio();
       a.onerror = () => {
-        clearAudio();
         onErrorRef.current?.("Couldn't play the answer.");
-        resolve();
+        clearAudio();
       };
       setStage("speaking");
       a.play().catch(() => {
-        clearAudio();
         onErrorRef.current?.("Couldn't play the answer.");
-        resolve();
+        clearAudio();
       });
     });
   }
@@ -173,6 +184,10 @@ export function useVoiceRound({
       .catch(() => {})
       .then(() => {
         if (!voiceModeRef.current) return;
+        if (bargedRef.current) {
+          bargedRef.current = false; // the tap already started listening
+          return;
+        }
         setStage("idle");
         // The concierge may still be waiting on a delegated run; re-arm so Joe
         // can keep talking meanwhile — the update queues behind whatever he
@@ -216,11 +231,37 @@ export function useVoiceRound({
       unlockAudio();
       void requestWakeLock();
     }
-    if (stage === "speaking") clearAudio(); // barge-in
+    if (stage === "speaking") {
+      bargedRef.current = true; // this tap owns the next listen
+      clearAudio();
+    }
     voiceModeRef.current = true;
     setVoiceModeState(true);
     setStage("idle");
     void dictation.start({ noSpeechMs: 12_000 });
+  }
+
+  /** Start a voice session by SPEAKING first (e.g. a briefing of the queue),
+   *  then listening — the utterance queue re-arms the mic when the clip ends.
+   *  A mic tap during the briefing barges in and listens right away. If there's
+   *  nothing to say, it's just micTap(). Already-in-session taps: micTap(). */
+  function startWithBriefing(text: string) {
+    if (!supported) return;
+    if (voiceModeRef.current) {
+      micTap();
+      return;
+    }
+    const clean = stripForSpeech(text);
+    if (!clean) {
+      micTap();
+      return;
+    }
+    unlockAudio();
+    void requestWakeLock();
+    voiceModeRef.current = true;
+    setVoiceModeState(true);
+    setStage("waiting");
+    enqueue(() => ttsBlob({ text: clean }));
   }
 
   function stopSpeaking() {
@@ -301,5 +342,5 @@ export function useVoiceRound({
     };
   }, []);
 
-  return { phase, level, voiceMode, setVoiceMode, micTap, stopSpeaking, speak, speakRun, supported };
+  return { phase, level, voiceMode, setVoiceMode, micTap, startWithBriefing, stopSpeaking, speak, speakRun, supported };
 }

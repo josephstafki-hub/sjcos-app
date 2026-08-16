@@ -28,3 +28,24 @@ export function queueNarration(
     `Tell me which one to take — "do #2", or use the chips on a card. I'll draft anything client-facing for your approval instead of sending it.`,
   ].join("\n");
 }
+
+/** The queue as one breath of speech, for the mobile voice session opener:
+ *  numbered titles only (no tags, ids or lane notes — those are for eyes),
+ *  capped so it stays a briefing rather than a recital. */
+export function spokenQueue(
+  priorities: TodayPriority[],
+  waiting: { items: WaitingItem[]; total: number },
+): string {
+  const real = priorities.filter((p) => p.id !== "all-clear");
+  if (real.length === 0) {
+    return "You're all clear right now, nothing's promoted. What do you need?";
+  }
+  const top = real.slice(0, 5);
+  const items = top.map((p, i) => `${i + 1}. ${p.title.replace(/[*_`#]/g, "")}.`);
+  const more = real.length - top.length;
+  const tail =
+    (more > 0 ? ` And ${more} more after that.` : "") +
+    (waiting.total ? ` Plus ${waiting.total} waiting on you.` : "");
+  const lead = real.length === 1 ? "One priority today:" : `${real.length} priorities today.`;
+  return `${lead} ${items.join(" ")}${tail} What do you want to do?`;
+}

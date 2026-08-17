@@ -7,11 +7,11 @@ import {
   newConversationAction,
   sendMessageAction,
   voiceTurnAction,
-  type ChatAttachment,
 } from "@/lib/actions/ai-chat";
 import type { ChatMessage } from "@/lib/ai-chat";
 import {
   CLAUDE_DEFAULTS,
+  type ChatAttachment,
   type ClaudeOptions,
   type PanelAgent,
 } from "@/lib/dev-agents-meta";

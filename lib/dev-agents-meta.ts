@@ -4,6 +4,16 @@
 
 export type DevAgent = "claude" | "qwen" | "hermes";
 
+/** A file uploaded from the Ask composer: display name + absolute path under
+ *  uploads/ai-chat (lib/attachments.ts owns the dir and the reading). Lives
+ *  here (not in the "use server" action module) because client components
+ *  need the type and a type re-export from a "use server" file does not
+ *  survive Turbopack's server-action transform. */
+export interface ChatAttachment {
+  name: string;
+  path: string;
+}
+
 /** What a panel conversation can be pinned to: a concrete model, or "auto" —
  *  the router (lib/orchestrator/router.ts) picks the model per message.
  *  Picking a concrete agent in the rail IS the router bypass. */

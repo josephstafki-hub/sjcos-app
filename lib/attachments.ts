@@ -6,6 +6,7 @@ import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promise
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
+import type { ChatAttachment } from "@/lib/dev-agents-meta";
 
 const execFileAsync = promisify(execFile);
 
@@ -26,10 +27,7 @@ const execFileAsync = promisify(execFile);
 
 export const UPLOAD_DIR = path.join(process.cwd(), "uploads", "ai-chat");
 
-export interface ChatAttachment {
-  name: string;
-  path: string;
-}
+export type { ChatAttachment };
 
 export type AttachmentKind = "text" | "image" | "pdf" | "document" | "sheet" | "archive" | "binary";
 

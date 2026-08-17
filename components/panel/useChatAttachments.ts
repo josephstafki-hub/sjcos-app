@@ -1,7 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { uploadChatFilesAction, type ChatAttachment } from "@/lib/actions/ai-chat";
+import { uploadChatFilesAction } from "@/lib/actions/ai-chat";
+import type { ChatAttachment } from "@/lib/dev-agents-meta";
 
 /** Mirror of MAX_UPLOAD_BYTES in lib/actions/ai-chat.ts. Checked here too
  *  because Next's serverActions.bodySizeLimit (25mb, next.config.ts) measures

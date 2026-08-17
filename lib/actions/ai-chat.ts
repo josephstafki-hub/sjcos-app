@@ -14,12 +14,12 @@ import { routeMessage } from "@/lib/orchestrator/router";
 import { conciergeTurn } from "@/lib/orchestrator/voice";
 import { hermesProgress, qwenProgress, runLog } from "@/lib/orchestrator/activity";
 import { composeHermesTurn, composeQwenTurns, lastAnsweringAgent } from "@/lib/orchestrator/thread";
-import { UPLOAD_DIR, sanitizeAttachments, type ChatAttachment } from "@/lib/attachments";
+import { UPLOAD_DIR, sanitizeAttachments } from "@/lib/attachments";
 
 // A Qwen proposal Claude holds re-routes to the Hermes ladder (registered here
 // because proposals.ts can't import ladder.ts without a cycle).
 setEscalateHook(escalateToHermesLadder);
-import type { ClaudeOptions, DevAgent, PanelAgent } from "@/lib/dev-agents-meta";
+import type { ChatAttachment, ClaudeOptions, DevAgent, PanelAgent } from "@/lib/dev-agents-meta";
 import {
   listConversations,
   getConversation,
@@ -63,8 +63,6 @@ export async function newConversationAction(agent: PanelAgent): Promise<string> 
 // extracted text (and images only if OLLAMA_MODEL is a vision model).
 
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MB per file
-
-export type { ChatAttachment };
 
 export type UploadResult =
   | { ok: true; files: ChatAttachment[] }

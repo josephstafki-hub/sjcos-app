@@ -49,6 +49,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { registerMoodTools } from "./mood-tools.mjs";
 import { registerBiddingTools } from "./bidding-tools.mjs";
+import { registerChatgptTools } from "./chatgpt-tools.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1974,6 +1975,15 @@ server.registerTool(
   // no code path in the app transmits email. See mcp/bidding-tools.mjs.
   registerBiddingTools(server, { rows, json, biddingCall });
 
+  // `search` + `fetch`: the two tools ChatGPT's connector requires by name (it
+  // rejects a server without them). Read-only unified lookups over the same
+  // curated queries — see mcp/chatgpt-tools.mjs.
+  registerChatgptTools(server, {
+    rows,
+    json,
+    appUrl: envValue("NEXT_PUBLIC_APP_URL") || "https://os.sjcarpentryllc.com",
+  });
+
   return server;
 }
 
@@ -2124,7 +2134,15 @@ function startHttpServer(port) {
           const server = buildServer();
           await server.connect(transport);
         } else if (!transport) {
-          rpcError(res, 400, -32000, "No valid session — send an initialize request first.");
+          // Spec: a request carrying a session id the server no longer knows
+          // (typically: we restarted) MUST get 404 — that is the signal a
+          // client uses to re-initialize. A 400 here left ChatGPT / claude.ai
+          // stuck erroring after every deploy until the connector was re-added.
+          if (sessionId) {
+            rpcError(res, 404, -32001, "Session not found — send a new initialize request.");
+          } else {
+            rpcError(res, 400, -32000, "No valid session — send an initialize request first.");
+          }
           return;
         }
 
@@ -2136,7 +2154,9 @@ function startHttpServer(port) {
         // GET opens the server->client SSE stream; DELETE terminates the session.
         const transport = sessionId ? transports[sessionId] : undefined;
         if (!transport) {
-          rpcError(res, 400, -32000, "Unknown or missing session id.");
+          // Same rule: unknown id → 404 (re-init), no id at all → 400.
+          rpcError(res, sessionId ? 404 : 400, sessionId ? -32001 : -32000,
+            sessionId ? "Session not found — send a new initialize request." : "Missing session id.");
           return;
         }
         await transport.handleRequest(req, res);

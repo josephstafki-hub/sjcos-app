@@ -194,6 +194,20 @@ Note the `ExecStart` node path is `/usr/bin/node` — an older copy pointed at
 crash-looping (`status=203/EXEC`) until 2026-08-15. Restart it after every
 deploy so newly added tools register.
 
+Two nginx locations in `deploy/nginx-sjcos.conf` are load-bearing for the
+claude.ai / ChatGPT connectors and must be present in the LIVE
+`/etc/nginx/sites-available/sjcos` (certbot rewrites that copy, so diff it
+against the repo after any cert work): the `/.well-known/oauth*` +
+`/.well-known/openid-configuration` → `404` blocks (added to the repo
+2026-08-03 but found missing live on 2026-08-17 — connectors then see a
+307-to-login and treat the host as a broken OAuth server) and the secret
+`location = /mcp-connect-<random>` that injects the bearer. Don't `cp` the
+whole repo file over the live one (you'd lose the certbot TLS lines and the
+live secret path/token) — paste the missing `location` blocks into the live
+`server {}` block, then `sudo nginx -t && sudo systemctl reload nginx`. Check
+with `curl -sI https://os.sjcarpentryllc.com/.well-known/oauth-protected-resource`
+→ `404`.
+
 ## Universal operator panel deploy notes (2026-08-15)
 
 - Migrations (idempotent): `node db/apply-orchestration-p1.mjs` … `p4.mjs`.

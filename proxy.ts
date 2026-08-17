@@ -46,8 +46,18 @@ function allowedFor(role: Role): string[] {
   return []; // owner: everything
 }
 
+/** OAuth/OIDC discovery probes. MCP clients (claude.ai, ChatGPT connectors)
+ *  hit these before connecting to /mcp*; a 307 to /login reads as "this host
+ *  is an OAuth server" and the connector then fails dynamic client
+ *  registration instead of falling back to no-auth. nginx 404s them first
+ *  (deploy/nginx-sjcos.conf) — this is the backstop for a drifted nginx. */
+function isOauthDiscoveryProbe(path: string): boolean {
+  return path.startsWith("/.well-known/oauth") || path === "/.well-known/openid-configuration";
+}
+
 export default async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
+  if (isOauthDiscoveryProbe(path)) return new NextResponse(null, { status: 404 });
   const session = await readRole(req);
 
   // Unauthenticated → only the public paths are reachable.

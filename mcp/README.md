@@ -211,6 +211,23 @@ buttons run.
 `send_bid_package` → as bids land, `compare_bids` → brief the owner (or, when
 asked, `award_bid`).
 
+## `search` / `fetch` (ChatGPT connector contract)
+
+ChatGPT custom connectors (Settings → Connectors → Create, and the Responses
+API's `mcp` tool in connector mode) refuse any server that doesn't expose two
+tools named exactly `search` and `fetch` with OpenAI's result shape — the
+connector shows as unreachable / non-compliant even when the transport is fine.
+Both live in `mcp/chatgpt-tools.mjs`, are **read-only**, and are unified views
+over the same curated queries as the tools above (no new data access).
+
+| Tool | Effect |
+|---|---|
+| `search` | `{query}` → `{results:[{id,title,url,text}]}` across knowledge, projects, leads, subs, vendors and the open work queue. Ids are namespaced: `project:<slug>`, `lead:<slug>`, `sub:<slug>`, `vendor:<slug>`, `knowledge:<uuid>`, `work_item:<uuid>` |
+| `fetch` | `{id}` → `{id,title,text,url,metadata}` — the full record behind a search hit (a project also carries invoices, subs, money and recent knowledge) |
+
+Other clients can ignore them; the specific `list_*`/`get_*` tools are still
+the better fit for structured, filtered questions.
+
 ## Register with a client
 
 **Claude Code (CLI):**
@@ -292,7 +309,7 @@ claude mcp add --transport http sjcos https://os.sjcarpentryllc.com/mcp \
 1. Add `MCP_HTTP_TOKEN` to `.env.local` (the token may live there — both modes
    want it; the PORT must not — see the table above).
 2. The user systemd unit `sjcos-mcp.service` sets `Environment=MCP_HTTP_PORT=3018`
-   and runs `ExecStart=/usr/local/bin/node %h/sjcos-app/mcp/sjcos-mcp.mjs`;
+   and runs `ExecStart=/usr/bin/node %h/sjcos-app/mcp/sjcos-mcp.mjs`;
    `systemctl --user enable --now sjcos-mcp.service`.
 3. nginx exposes it over `os.sjcarpentryllc.com` — see the two locations in
    `deploy/mcp-nginx-location.conf` (also folded into `deploy/nginx-sjcos.conf`):
@@ -304,6 +321,25 @@ claude mcp add --transport http sjcos https://os.sjcarpentryllc.com/mcp \
 
 > Only the bearer token stands between a caller and the gated-write tools. Use a
 > long random secret, rotate it if leaked, and never commit it.
+
+**Connecting claude.ai / ChatGPT (no-auth connectors):** paste the secret path
+`https://os.sjcarpentryllc.com/mcp-connect-<random>` as the server URL and pick
+"No authentication". Two server-side details make that work and are easy to
+regress:
+
+- **OAuth-discovery probes must 404.** Both clients GET
+  `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`
+  and `/.well-known/openid-configuration` first; the app's auth middleware would
+  307 those to `/login`, which the connector reads as "this is an OAuth server"
+  and then fails dynamic client registration. nginx 404s them
+  (`deploy/nginx-sjcos.conf`) and `proxy.ts` 404s them as a backstop — verify
+  with `curl -sI https://os.sjcarpentryllc.com/.well-known/oauth-protected-resource`
+  (want `404`, not `307`).
+- **Sessions are in-memory.** A restart forgets every `mcp-session-id`; the
+  server answers those with **404** (per spec) so clients re-`initialize`
+  transparently. A 400 there — the old behaviour — left connectors erroring
+  after each deploy until they were removed and re-added.
+- ChatGPT additionally needs `search` + `fetch` (previous section).
 
 ## Safety model
 

@@ -147,7 +147,7 @@ export function useAgentChat({
         setActivity("");
         setMessages((m) => [
           ...m,
-          { id: `err-${runId}`, role: "assistant", body: `⚠️ ${p.error}`, costUsd: null, createdAt: "", subjectWorkItemId: subjectId ?? null },
+          { id: `err-${runId}`, role: "assistant", body: `⚠️ ${p.error}`, costUsd: null, createdAt: "", subjectWorkItemId: subjectId ?? null, agent: null, attachments: null },
         ]);
         postPanelMessage({ type: "run", phase: "end", runId, agent, subjectId: subjectId ?? null }, { local: true });
         await settle();
@@ -158,7 +158,7 @@ export function useAgentChat({
         if (p.activity) setLogs((l) => ({ ...l, [`run-${runId}`]: p.activity! }));
         setMessages((m) => [
           ...m,
-          { id: `run-${runId}`, role: "assistant", body: p.answer, costUsd: p.costUsd, createdAt: "", subjectWorkItemId: subjectId ?? null },
+          { id: `run-${runId}`, role: "assistant", body: p.answer, costUsd: p.costUsd, createdAt: "", subjectWorkItemId: subjectId ?? null, agent: p.agent ?? null, attachments: null },
         ]);
         postPanelMessage({ type: "run", phase: "end", runId, agent, subjectId: subjectId ?? null }, { local: true });
         if (!p.answer.startsWith("⚠️")) cbRef.current.onAnswer?.(runId, p.answer, false);
@@ -298,7 +298,7 @@ export function useAgentChat({
   const pushUser = (body: string, subjectId?: string) =>
     setMessages((m) => [
       ...m,
-      { id: `u-${Date.now()}`, role: "user", body, costUsd: null, createdAt: "", subjectWorkItemId: subjectId ?? null },
+      { id: `u-${Date.now()}`, role: "user", body, costUsd: null, createdAt: "", subjectWorkItemId: subjectId ?? null, agent: null, attachments: null },
     ]);
 
   /** Run a turn as plain async work rather than a transition — see rule 1.
@@ -352,14 +352,14 @@ export function useAgentChat({
         if (!v.ok) {
           setMessages((m) => [
             ...m,
-            { id: `err-${Date.now()}`, role: "assistant", body: `⚠️ ${v.error}`, costUsd: null, createdAt: "", subjectWorkItemId: null },
+            { id: `err-${Date.now()}`, role: "assistant", body: `⚠️ ${v.error}`, costUsd: null, createdAt: "", subjectWorkItemId: null, agent: null, attachments: null },
           ]);
           await settle();
           return;
         }
         setMessages((m) => [
           ...m,
-          { id: v.ackMessageId, role: "assistant", body: `🗣 ${v.speak}`, costUsd: null, createdAt: "", subjectWorkItemId: null },
+          { id: v.ackMessageId, role: "assistant", body: `🗣 ${v.speak}`, costUsd: null, createdAt: "", subjectWorkItemId: null, agent: "concierge", attachments: null },
         ]);
         cbRef.current.onAnswer?.(v.ackMessageId, v.speak, true);
         if (!v.runId) {
@@ -383,7 +383,7 @@ export function useAgentChat({
       if (!r.ok) {
         setMessages((m) => [
           ...m,
-          { id: `err-${Date.now()}`, role: "assistant", body: `⚠️ ${r.error}`, costUsd: null, createdAt: "", subjectWorkItemId: spec.subjectId ?? null },
+          { id: `err-${Date.now()}`, role: "assistant", body: `⚠️ ${r.error}`, costUsd: null, createdAt: "", subjectWorkItemId: spec.subjectId ?? null, agent: null, attachments: null },
         ]);
         cbRef.current.onSendError?.(spec);
         await settle();

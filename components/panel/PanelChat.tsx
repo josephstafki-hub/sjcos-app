@@ -52,6 +52,14 @@ import { queueContext } from "./queueContext";
 import { startersForRoute } from "./panelStarters";
 import { useAgentChat, type ActiveRun } from "./useAgentChat";
 
+/** Reply labels for Auto threads (message.agent → name). */
+const AGENT_LABELS: Record<string, string> = {
+  claude: "Claude",
+  qwen: "Qwen",
+  hermes: "Hermes",
+  concierge: "Claude · voice",
+};
+
 /**
  * The universal panel's chat — successor to OperatorChat, AssistantChat, the
  * ⌘K CommandBar and the Today/newsletter chats, in one surface. Engine:
@@ -445,11 +453,18 @@ export function PanelChat({
               // chip when its id matches a live queue card — the model can
               // name an item, never invent one).
               const parsed = parseModelActions(m.body);
+              // In an Auto thread the answering model changes turn to turn —
+              // label each reply so the transcript reads as the hand-offs
+              // actually happened.
+              const who = chat.agent === "auto" && m.agent ? AGENT_LABELS[m.agent] : undefined;
+              const hasCost = typeof m.costUsd === "number" && Number.isFinite(m.costUsd);
               return (
                 <div key={m.id}>
-                  {typeof m.costUsd === "number" && Number.isFinite(m.costUsd) && (
+                  {(who || hasCost) && (
                     <div className="mb-0.5 text-[10.5px] font-medium text-ink-4">
-                      ${m.costUsd.toFixed(2)}
+                      {who}
+                      {who && hasCost ? " · " : ""}
+                      {hasCost ? `$${(m.costUsd as number).toFixed(2)}` : ""}
                     </div>
                   )}
                   <div

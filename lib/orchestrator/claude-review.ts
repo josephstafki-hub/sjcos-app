@@ -1,7 +1,7 @@
 import "server-only";
 
 import { chatReplyClaude } from "@/lib/dev-agents";
-import type { RoutedAgent, RouteIntent } from "./router";
+import type { RoutedAgent, RouteIntent, RouteThread } from "./router";
 
 // Claude's synchronous judgment calls — triage now; proposal review and the
 // Hermes-round verdicts build on the same JSON-reply contract. All run the
@@ -159,6 +159,7 @@ export async function reviewHermesRound(
 export async function claudeTriage(
   text: string,
   pageContext?: string,
+  thread?: RouteThread,
 ): Promise<{ agent: RoutedAgent; intent: RouteIntent } | null> {
   const prompt =
     `You route messages from the owner of SJ Carpentry to one of three assistants. ` +
@@ -168,6 +169,12 @@ export async function claudeTriage(
     `Client-facing sends stay owner-approved — hermes drafts, never sends\n` +
     `- claude: edits the app's source code\n` +
     (pageContext ? `Owner is viewing:\n${pageContext.slice(0, 400)}\n` : "") +
+    (thread?.lastAgent
+      ? `This continues a thread; "${thread.lastAgent}" answered the previous turn` +
+        (thread.lastAnswer ? `:\n${thread.lastAnswer.slice(0, 400)}\n` : ".\n") +
+        `Keep it with "${thread.lastAgent}" when the message replies to or builds on that answer — ` +
+        `switch only if it clearly needs another assistant's capability.\n`
+      : "") +
     `Message:\n${text.slice(0, 1200)}`;
   try {
     const reply = await chatReplyClaude(prompt, { model: TRIAGE_MODEL, timeoutMs: 30_000 });

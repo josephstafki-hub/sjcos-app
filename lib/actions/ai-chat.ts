@@ -1,11 +1,11 @@
 "use server";
 
-import { mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { requireRole } from "@/lib/dal";
 import { query, queryOne } from "@/lib/db";
-import { qwenChat } from "@/lib/ai";
+import { isVisionModel, qwenChat } from "@/lib/ai";
 import { hermesChat, startClaudeRun } from "@/lib/dev-agents";
 import { finalizeHermesAnswer } from "@/lib/orchestrator/effects";
 import { escalateToHermesLadder, runHermesLadder } from "@/lib/orchestrator/ladder";
@@ -13,6 +13,8 @@ import { processQwenProposals, setEscalateHook } from "@/lib/orchestrator/propos
 import { routeMessage } from "@/lib/orchestrator/router";
 import { conciergeTurn } from "@/lib/orchestrator/voice";
 import { hermesProgress, qwenProgress, runLog } from "@/lib/orchestrator/activity";
+import { composeHermesTurn, composeQwenTurns, lastAnsweringAgent } from "@/lib/orchestrator/thread";
+import { UPLOAD_DIR, sanitizeAttachments, type ChatAttachment } from "@/lib/attachments";
 
 // A Qwen proposal Claude holds re-routes to the Hermes ladder (registered here
 // because proposals.ts can't import ladder.ts without a cycle).
@@ -53,18 +55,16 @@ export async function newConversationAction(agent: PanelAgent): Promise<string> 
 }
 
 // ─── File attachments (uploaded from the Ask composer) ───────────────────────
-// Saved under uploads/ai-chat/. Claude gets the absolute paths (it reads them
-// with its file tools); Qwen/Hermes have no filesystem access, so we inline the
-// text contents of readable files into the prompt.
+// Saved under uploads/ai-chat/ and recorded on the user message row, so a file
+// from turn 1 is still there for whoever answers turn 3. How each model reads
+// them lives in lib/attachments.ts: Claude gets the absolute paths (its Read
+// tool handles text/PDF/images); Hermes gets extracted text + images as
+// multimodal parts + the path (its terminal runs on this box); Qwen gets
+// extracted text (and images only if OLLAMA_MODEL is a vision model).
 
-const UPLOAD_DIR = path.join(process.cwd(), "uploads", "ai-chat");
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MB per file
-const MAX_INLINE_CHARS = 40_000; // per file, when inlining text for Qwen/Hermes
 
-export interface ChatAttachment {
-  name: string;
-  path: string;
-}
+export type { ChatAttachment };
 
 export type UploadResult =
   | { ok: true; files: ChatAttachment[] }
@@ -87,31 +87,6 @@ export async function uploadChatFilesAction(formData: FormData): Promise<UploadR
   return { ok: true, files: out };
 }
 
-/** Keep only attachments that live in our upload dir (guards path traversal). */
-function sanitizeAttachments(atts?: ChatAttachment[]): ChatAttachment[] {
-  return (atts ?? []).filter((a) => a?.path?.startsWith(UPLOAD_DIR + path.sep));
-}
-
-/** Inline readable text of attachments for the models without file access. */
-async function inlineAttachmentText(atts: ChatAttachment[]): Promise<string> {
-  const parts: string[] = [];
-  for (const a of atts) {
-    try {
-      const buf = await readFile(a.path);
-      const text = buf.toString("utf8");
-      if (text.includes("\u0000")) {
-        parts.push(`### ${a.name}\n(binary file — not shown)`);
-      } else {
-        const clipped = text.length > MAX_INLINE_CHARS ? text.slice(0, MAX_INLINE_CHARS) + "\n…(truncated)" : text;
-        parts.push(`### ${a.name}\n${clipped}`);
-      }
-    } catch {
-      parts.push(`### ${a.name}\n(could not read file)`);
-    }
-  }
-  return parts.length ? `\n\n[Attached files]\n${parts.join("\n\n")}` : "";
-}
-
 export type SendResult =
   | { ok: true; kind: "answer"; message: ChatMessage }
   | { ok: true; kind: "pending"; runId: string; userMessageId: string }
@@ -131,6 +106,8 @@ export async function sendMessageAction(
   const text = prompt.trim();
   const files = sanitizeAttachments(attachments);
   if (!text && !files.length) return { ok: false, error: "Ask something first." };
+  // What the model is asked (an attachment-only send still needs a sentence).
+  const taskText = text || `(no message — see the attached file${files.length > 1 ? "s" : ""}: ${files.map((f) => f.name).join(", ")})`;
 
   const conv = await queryOne<{ agent: PanelAgent }>(
     `SELECT agent FROM ai_conversations WHERE id = $1`,
@@ -139,19 +116,29 @@ export async function sendMessageAction(
   if (!conv) return { ok: false, error: "That conversation no longer exists." };
 
   // "Auto" conversations have no pinned model — route this message. A pinned
-  // conversation IS the bypass: the router never sees it. The dev_agent_runs
-  // row records who actually ran, so the transcript stays honest.
+  // conversation IS the bypass: the router never sees it. The router is told
+  // who answered last so a follow-up ("yes, do that", "the second one") stays
+  // with that agent instead of being re-routed cold; the dev_agent_runs row
+  // and the message's `agent` tag record who actually ran.
   let agent: DevAgent;
   let routedVia: string | undefined;
   if (conv.agent === "auto") {
-    const decision = await routeMessage(text, pageContext);
+    const lastAgent = await lastAnsweringAgent(conversationId);
+    const lastAnswer = lastAgent
+      ? (await queryOne<{ body: string }>(
+          `SELECT body FROM ai_messages WHERE conversation_id = $1 AND role = 'assistant' ORDER BY created_at DESC LIMIT 1`,
+          [conversationId],
+        ))?.body
+      : undefined;
+    const decision = await routeMessage(taskText, pageContext, { lastAgent, lastAnswer });
     agent = decision.agent;
     routedVia = decision.via;
   } else {
     agent = conv.agent;
   }
 
-  // Persist the user turn (with a paperclip note naming attachments) + title.
+  // Persist the user turn (with a paperclip note naming attachments, and the
+  // attachments themselves so later turns can still read them) + title.
   // subjectWorkItemId marks a Today-feed hand-off (a card given to an agent).
   // Blank line only when there's text to separate from — an attachment-only
   // send would otherwise persist with leading newlines the composer didn't show.
@@ -161,14 +148,16 @@ export async function sendMessageAction(
   const userMsg = await insertMessage(conversationId, "user", text + attachNote, {
     pageContext,
     subjectWorkItemId,
+    attachments: files,
   });
   await autoTitleIfNeeded(conversationId, text || files[0]?.name || "New chat");
 
   try {
     if (agent === "claude") {
       // Claude reads files itself — hand it the absolute paths in the prompt.
+      // (The runner adds the thread turns Claude hasn't seen, if any.)
       const claudePrompt = files.length
-        ? `${text}\n\nThe user attached these files (absolute paths — read them):\n${files
+        ? `${taskText}\n\nThe user attached these files (absolute paths — read them with your Read tool; it handles PDFs and images):\n${files
             .map((f) => `- ${f.path}`)
             .join("\n")}`
         : text;
@@ -177,23 +166,19 @@ export async function sendMessageAction(
       return { ok: true, kind: "pending", runId, userMessageId: userMsg.id };
     }
 
-    // Qwen/Hermes can't open files — inline their text into the latest turn.
-    const turns = await getTurns(conversationId); // includes the user turn just added
-    if (files.length && turns.length) {
-      turns[turns.length - 1].content += await inlineAttachmentText(files);
-    }
-
     // Run the turn in the background (see startBackgroundTurn) and hand the
     // client a run id to poll.
     const runId = await startBackgroundTurn({
       conversationId,
       agent,
       reviewed: conv.agent === "auto",
-      text,
-      turns,
+      text: taskText,
+      attachments: files,
       pageContext,
       subjectWorkItemId,
-      activity: routedVia ? `Routed to ${agent === "hermes" ? "Hermes" : "Qwen"} (${routedVia}) — thinking…` : undefined,
+      activity: routedVia
+        ? `${routedVia === "thread" ? "Staying with" : "Routed to"} ${agent === "hermes" ? "Hermes" : "Qwen"} (${routedVia}) — thinking…`
+        : undefined,
     });
 
     return { ok: true, kind: "pending", runId, userMessageId: userMsg.id };
@@ -203,6 +188,7 @@ export async function sendMessageAction(
       conversationId,
       "assistant",
       `⚠️ ${(err as Error).message}`,
+      { agent },
     );
     return { ok: true, kind: "answer", message };
   }
@@ -243,7 +229,8 @@ interface BackgroundTurn {
   reviewed: boolean;
   /** The task as the run row records it (the transcript's user turn). */
   text: string;
-  turns: { role: "user" | "assistant"; content: string }[];
+  /** Files uploaded with this turn (already persisted on the user message). */
+  attachments: ChatAttachment[];
   pageContext?: string;
   subjectWorkItemId?: string;
   activity?: string;
@@ -263,7 +250,7 @@ interface BackgroundTurn {
  * ladder, proposals review, effects — as a typed one.
  */
 async function startBackgroundTurn(t: BackgroundTurn): Promise<string> {
-  const { conversationId, agent, reviewed, text, turns, pageContext, subjectWorkItemId } = t;
+  const { conversationId, agent, reviewed, text, attachments, pageContext, subjectWorkItemId } = t;
   const label = agent === "hermes" ? "Hermes" : "Qwen";
   const run = await queryOne<{ id: string }>(
     `INSERT INTO dev_agent_runs (agent, prompt, page_context, status, conversation_id, activity, subject_work_item_id)
@@ -283,20 +270,31 @@ async function startBackgroundTurn(t: BackgroundTurn): Promise<string> {
       //    bypasses review — same escape hatch as routing.
       //  - Hermes pinned → plain turn + effects bookkeeping.
       //  - Qwen → pending-write pipeline (propose → Claude review → execute).
+      // Each pipeline builds the model's input from the thread itself
+      // (lib/orchestrator/thread.ts): Hermes gets the turns its gateway
+      // session hasn't seen + this turn's files as text/images; Qwen gets the
+      // whole thread with every turn's files inlined.
       let answer: string;
       if (agent === "hermes" && reviewed) {
-        answer = await runHermesLadder({ runId, conversationId, taskPrompt: text, pageContext, log });
+        answer = await runHermesLadder({ runId, conversationId, taskPrompt: text, attachments, pageContext, log });
       } else if (agent === "hermes") {
-        const raw = await hermesChat(turns, pageContext, conversationId, hermesProgress(log));
+        const turn = await composeHermesTurn(conversationId, { text, attachments });
+        const raw = await hermesChat(
+          [{ role: "user", content: turn.content, images: turn.images }],
+          pageContext,
+          conversationId,
+          hermesProgress(log),
+        );
         answer = await finalizeHermesAnswer(runId, raw);
       } else {
+        const turns = await composeQwenTurns(conversationId, { vision: isVisionModel() });
         const raw = await qwenChat(turns, pageContext, qwenProgress(log));
         log.push("Checking for proposed changes…");
         answer = await processQwenProposals(runId, conversationId, text, raw, pageContext);
       }
       log.push("Done.");
       await log.flush();
-      await insertMessage(conversationId, "assistant", answer);
+      await insertMessage(conversationId, "assistant", answer, { agent });
       await query(
         `UPDATE dev_agent_runs SET status = 'done', answer = $2, updated_at = now() WHERE id = $1`,
         [runId, answer],
@@ -305,7 +303,7 @@ async function startBackgroundTurn(t: BackgroundTurn): Promise<string> {
       const msg = `⚠️ ${(err as Error).message}`;
       log.push(msg);
       await log.flush();
-      await insertMessage(conversationId, "assistant", msg);
+      await insertMessage(conversationId, "assistant", msg, { agent });
       await query(
         `UPDATE dev_agent_runs SET status = 'error', answer = $2, updated_at = now() WHERE id = $1`,
         [runId, msg],
@@ -350,20 +348,19 @@ export async function voiceTurnAction(
   await autoTitleIfNeeded(conversationId, text);
 
   const reply = await conciergeTurn(text, before, pageContext);
-  const ack = await insertMessage(conversationId, "assistant", `🗣 ${reply.speak}`);
+  const ack = await insertMessage(conversationId, "assistant", `🗣 ${reply.speak}`, { agent: "concierge" });
 
   if (!reply.delegate) return { ok: true, speak: reply.speak, ackMessageId: ack.id };
 
   // Honor a pinned thread's agent; 'auto'/'claude' threads take Claude's pick.
   const agent: "hermes" | "qwen" =
     conv.agent === "hermes" || conv.agent === "qwen" ? conv.agent : reply.delegate.agent;
-  const turns = await getTurns(conversationId);
   const runId = await startBackgroundTurn({
     conversationId,
     agent,
     reviewed: conv.agent === "auto" || conv.agent === "claude",
     text: reply.delegate.task,
-    turns,
+    attachments: [],
     // The delegate sees Joe's words in the transcript; Claude's precise task
     // rides along as context so ids and intent survive the hand-off.
     pageContext: `${pageContext ?? ""}

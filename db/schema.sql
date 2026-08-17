@@ -2119,6 +2119,16 @@ ALTER TABLE ai_messages    ADD COLUMN IF NOT EXISTS subject_work_item_id uuid
 ALTER TABLE dev_agent_runs ADD COLUMN IF NOT EXISTS subject_work_item_id uuid
   REFERENCES work_items(id) ON DELETE SET NULL;
 
+-- Thread continuity for 'auto' conversations (db/apply-orchestration-p5.mjs):
+--   agent       → who wrote an assistant message ('claude'|'qwen'|'hermes',
+--                 'concierge' for the voice ack). Follow-ups stick to the last
+--                 answering agent, and each agent is shown the turns it hasn't
+--                 seen (its own session only holds its own turns).
+--   attachments → [{name,path}] on a user message so files uploaded on an
+--                 earlier turn stay readable by whoever answers later.
+ALTER TABLE ai_messages ADD COLUMN IF NOT EXISTS agent       text;
+ALTER TABLE ai_messages ADD COLUMN IF NOT EXISTS attachments jsonb;
+
 -- ─── Document templates (doc-templates plan) ───────────────────────────────
 -- The editable unit behind AI-fillable business documents (construction
 -- contract, precon agreement, lien release, completion cert, change order,

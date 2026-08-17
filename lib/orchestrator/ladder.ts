@@ -1,11 +1,13 @@
 import "server-only";
 
 import { query, queryOne } from "@/lib/db";
-import { getTurns, insertMessage } from "@/lib/ai-chat";
+import { insertMessage } from "@/lib/ai-chat";
 import { hermesChat, startClaudeRun, type ChatTurn } from "@/lib/dev-agents";
+import type { ChatAttachment } from "@/lib/attachments";
 import { finalizeHermesAnswer } from "./effects";
 import { reviewHermesRound } from "./claude-review";
 import { hermesProgress, runLog, type RunLog } from "./activity";
+import { composeHermesTurn } from "./thread";
 
 // The Claude↔Hermes ladder: Hermes attempts OS work, Claude reviews the
 // result, feedback loops back into Hermes' own session (it learns from the
@@ -62,6 +64,8 @@ export interface LadderInput {
   conversationId: string;
   /** What the owner asked for (the task being judged). */
   taskPrompt: string;
+  /** Files uploaded with the task (shown to Hermes as text/images + paths). */
+  attachments?: ChatAttachment[];
   pageContext?: string;
   /** Present when this ladder is a Qwen escalation — Claude's critique of the
    *  rejected attempt, fed to Hermes as round-1 context. */
@@ -92,18 +96,21 @@ export async function runHermesLadder(input: LadderInput): Promise<string> {
     // Migration not applied yet — degrade to a plain reviewed-less turn.
   }
 
-  const baseTurns: ChatTurn[] = (await getTurns(conversationId)) as ChatTurn[];
+  // Hermes' gateway session holds only Hermes' own turns and reads just the
+  // last user message we send — so that message carries the thread turns it
+  // hasn't seen (composeHermesTurn), the task, its files, and (on a Qwen
+  // escalation) Claude's critique of the first attempt.
+  const opening = await composeHermesTurn(conversationId, {
+    text: taskPrompt,
+    attachments: input.attachments ?? [],
+    note: input.initialFeedback
+      ? `[REVIEW] A smaller model attempted this and Claude held its work:\n` +
+        `${input.initialFeedback}\n\nPlease do the task properly with your sjcos tools now.`
+      : undefined,
+  });
+  const baseTurns: ChatTurn[] = [{ role: "user", content: opening.content, images: opening.images }];
   // Feedback exchanges live in memory only (see module comment).
-  const extra: ChatTurn[] = input.initialFeedback
-    ? [
-        {
-          role: "user",
-          content:
-            `[REVIEW] A smaller model attempted this and Claude held its work:\n` +
-            `${input.initialFeedback}\n\nPlease do the task properly with your sjcos tools now.`,
-        },
-      ]
-    : [];
+  const extra: ChatTurn[] = [];
 
   let lastAnswer = "";
   let lastNote = "";
@@ -118,7 +125,10 @@ export async function runHermesLadder(input: LadderInput): Promise<string> {
 
     let raw: string;
     try {
-      raw = await hermesChat([...baseTurns, ...extra], pageContext, conversationId, hermesProgress(log));
+      // Later rounds: the gateway reads only the last user message (the review
+      // note) and holds round 1 in its session — don't re-send image bytes.
+      const history = round === 1 ? baseTurns : baseTurns.map((t) => ({ role: t.role, content: t.content }));
+      raw = await hermesChat([...history, ...extra], pageContext, conversationId, hermesProgress(log));
     } catch (err) {
       const msg = (err as Error).message;
       if (taskId) await addEvent(taskId, "hermes", "error", msg, runId);
@@ -290,14 +300,14 @@ export async function escalateToHermesLadder(args: {
         });
         log.push("Done.");
         await log.flush();
-        await insertMessage(args.conversationId, "assistant", answer);
+        await insertMessage(args.conversationId, "assistant", answer, { agent: "hermes" });
         await query(
           `UPDATE dev_agent_runs SET status = 'done', answer = $2, updated_at = now() WHERE id = $1`,
           [newRunId, answer],
         );
       } catch (err) {
         const msg = `⚠️ ${(err as Error).message}`;
-        await insertMessage(args.conversationId, "assistant", msg).catch(() => {});
+        await insertMessage(args.conversationId, "assistant", msg, { agent: "hermes" }).catch(() => {});
         await query(
           `UPDATE dev_agent_runs SET status = 'error', answer = $2, updated_at = now() WHERE id = $1`,
           [newRunId, msg],

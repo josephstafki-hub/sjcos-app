@@ -56,14 +56,19 @@ const VALID_EFFORT = new Set(["low", "medium", "high", "xhigh", "max"]);
 const VALID_MODE = new Set(["acceptEdits", "plan", "auto", "bypassPermissions", "manual", "dontAsk"]);
 const permissionMode = (mode) => (VALID_MODE.has(mode) ? mode : "acceptEdits");
 
-// On a RESUMED session the CLI already holds the conversation, so we send only
-// the new turn (plus the current page, which may have changed).
-function resumePrompt(userPrompt, pageContext) {
+// On a RESUMED session the CLI already holds Claude's own turns, so we send
+// only the new turn (plus the current page, which may have changed) — and, in
+// an 'auto' thread, whatever other assistants said in between (`unseen`).
+function resumePrompt(userPrompt, pageContext, unseen) {
   const where = pageContext ? `(I'm now looking at route ${pageContext}.)\n` : "";
-  return where + userPrompt;
+  const between = unseen
+    ? `${unseen}\n\n(Those turns happened in this same chat thread since your last reply — ` +
+      `other assistants answered them. Joe's new message below may be replying to them.)\n\n`
+    : "";
+  return where + between + userPrompt;
 }
 
-function buildPrompt(userPrompt, pageContext, mode) {
+function buildPrompt(userPrompt, pageContext, mode, unseen) {
   const where = pageContext
     ? `The user is looking at this app route: ${pageContext}\n` +
       `Find the source that renders it (start from app${pageContext === "/" ? "/page.tsx" : pageContext + "/page.tsx"} and the components/lib it imports) before changing anything.\n\n`
@@ -83,7 +88,62 @@ function buildPrompt(userPrompt, pageContext, mode) {
     `and pointing you at things to fix.\n\n` +
     where +
     task +
+    (unseen
+      ? `\n\nThis chat thread already has history — other assistants (Hermes: business ops with tools; ` +
+        `Qwen: read-only Q&A) answered earlier turns and Joe may be replying to them:\n${unseen}`
+      : "") +
     `\n\nRequest: ${userPrompt}`
+  );
+}
+
+// ── thread continuity ────────────────────────────────────────────────────
+// Which turns of the persisted thread has Claude NOT seen? Everything after
+// the last assistant message Claude wrote (all of it, if Claude has never
+// answered here), up to but not including the user message being answered now
+// (that one is `prompt`). Files uploaded on those turns are listed by path —
+// Claude reads them itself. Mirrors lib/orchestrator/thread.ts for the other
+// agents; kept in plain SQL here because the runner can't import the app.
+const SPEAKER = { claude: "Claude", qwen: "Qwen", hermes: "Hermes", concierge: "Claude (voice)" };
+const TRANSCRIPT_MAX = 12_000;
+const TURN_MAX = 2_000;
+
+async function unseenTranscript(conversationId) {
+  if (!conversationId) return "";
+  let rows;
+  try {
+    ({ rows } = await client.query(
+      `SELECT role, body, agent, attachments FROM ai_messages
+        WHERE conversation_id = $1 ORDER BY created_at ASC`,
+      [conversationId],
+    ));
+  } catch {
+    return ""; // pre-migration schema — no continuity columns yet
+  }
+  let cur = -1;
+  for (let i = rows.length - 1; i >= 0; i--) if (rows[i].role === "user") { cur = i; break; }
+  if (cur < 0) return "";
+  let seen = -1;
+  for (let i = cur - 1; i >= 0; i--) if (rows[i].role === "assistant" && rows[i].agent === "claude") { seen = i; break; }
+  const turns = rows.slice(seen + 1, cur);
+  if (!turns.length) return "";
+  const lines = turns.map((m) => {
+    const who = m.role === "user" ? "Joe" : SPEAKER[m.agent] ?? "Assistant";
+    let body = m.body.length > TURN_MAX ? `${m.body.slice(0, TURN_MAX)}…` : m.body;
+    const files = Array.isArray(m.attachments) ? m.attachments : [];
+    if (files.length) body += `\n(files attached — read them: ${files.map((f) => f.path).join(", ")})`;
+    return `${who}: ${body}`;
+  });
+  let total = 0;
+  const kept = [];
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (total + lines[i].length > TRANSCRIPT_MAX && kept.length) break;
+    kept.unshift(lines[i]);
+    total += lines[i].length;
+  }
+  const dropped = lines.length - kept.length;
+  return (
+    `[Earlier in this thread${dropped ? ` — ${dropped} older turn(s) omitted` : ""}]\n` +
+    `${kept.join("\n\n")}\n[End of earlier context]`
   );
 }
 
@@ -254,9 +314,10 @@ async function main() {
     [RUN_ID],
   );
 
+  const unseen = await unseenTranscript(conversation_id);
   const promptText = resumeSession
-    ? resumePrompt(prompt, page_context)
-    : buildPrompt(prompt, page_context, mode);
+    ? resumePrompt(prompt, page_context, unseen)
+    : buildPrompt(prompt, page_context, mode, unseen);
 
   const args = [
     "-p",
@@ -321,9 +382,11 @@ async function main() {
 async function persistToConversation(conversationId, body, costUsd, sessionId) {
   if (!conversationId) return;
   try {
+    // Tagged 'claude' so the router keeps follow-ups here and the other
+    // agents know which turns are Claude's (lib/orchestrator/thread.ts).
     await client.query(
-      `INSERT INTO ai_messages (conversation_id, role, body, cost_usd)
-       VALUES ($1, 'assistant', $2, $3)`,
+      `INSERT INTO ai_messages (conversation_id, role, body, cost_usd, agent)
+       VALUES ($1, 'assistant', $2, $3, 'claude')`,
       [conversationId, body, costUsd ?? null],
     );
     await client.query(

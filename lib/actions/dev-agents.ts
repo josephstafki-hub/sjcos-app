@@ -11,7 +11,17 @@ import { failStaleTasks } from "@/lib/orchestrator/ladder";
 
 export type PollResult =
   | { ok: true; status: "pending" | "running"; activity: string | null }
-  | { ok: true; status: "done"; answer: string; costUsd: number | null; nextRunId?: string; activity: string | null }
+  | {
+      ok: true;
+      status: "done";
+      answer: string;
+      costUsd: number | null;
+      nextRunId?: string;
+      activity: string | null;
+      /** Who actually ran ('claude'|'qwen'|'hermes') — an 'auto' thread's
+       *  transcript labels the reply with it. */
+      agent: string;
+    }
   | { ok: false; error: string };
 
 export async function pollAgentRun(runId: string): Promise<PollResult> {
@@ -23,6 +33,6 @@ export async function pollAgentRun(runId: string): Promise<PollResult> {
   if (run.status === "error")
     return { ok: false, error: run.answer ?? "The agent run failed." };
   if (run.status === "done")
-    return { ok: true, status: "done", answer: run.answer ?? "(no output)", costUsd: run.costUsd, nextRunId: run.nextRunId, activity: run.activity };
+    return { ok: true, status: "done", answer: run.answer ?? "(no output)", costUsd: run.costUsd, nextRunId: run.nextRunId, activity: run.activity, agent: run.agent };
   return { ok: true, status: run.status, activity: run.activity };
 }

@@ -7,10 +7,12 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { query, queryOne } from "@/lib/db";
 import { CLAUDE_DEFAULTS, type ClaudeOptions } from "@/lib/dev-agents-meta";
-import { insertConversation, insertMessage, getTurns } from "@/lib/ai-chat";
+import { insertConversation, insertMessage } from "@/lib/ai-chat";
 import { ACTIONS_HINT, EFFECTS_HINT } from "@/lib/today-directives";
 import { finalizeHermesAnswer } from "@/lib/orchestrator/effects";
 import { hermesProgress, runLog } from "@/lib/orchestrator/activity";
+import { composeHermesTurn } from "@/lib/orchestrator/thread";
+import { imageDataUrl, type AttachmentImage } from "@/lib/attachments";
 
 const execFileAsync = promisify(execFile);
 
@@ -101,6 +103,22 @@ async function hermesConfig(): Promise<{ url: string; key: string }> {
 export interface ChatTurn {
   role: "user" | "assistant";
   content: string;
+  /** Images to show a vision-capable agent with this turn (Hermes' gateway
+   *  takes OpenAI-style data:image/… parts). */
+  images?: AttachmentImage[];
+}
+
+/** One OpenAI-style message for the Hermes gateway: plain string content, or
+ *  text + image_url parts when the turn carries images. */
+function hermesMessage(t: ChatTurn): { role: string; content: unknown } {
+  if (!t.images?.length) return { role: t.role, content: t.content };
+  return {
+    role: t.role,
+    content: [
+      { type: "text", text: t.content },
+      ...t.images.map((img) => ({ type: "image_url", image_url: { url: imageDataUrl(img) } })),
+    ],
+  };
 }
 
 /** POST JSON over plain node:http with a real full-request timeout. NOT using
@@ -154,11 +172,15 @@ function postJson(
   });
 }
 
-/** Multi-turn Hermes chat against the real agent gateway. Sends the whole
- *  conversation (the gateway expects OpenAI-style full history) and pins the
- *  session to `sessionId` so the agent reuses the same session/sandbox across
- *  turns. `context` (the page the user is viewing) rides along as a system
- *  message; the agent's own persona/memory come from the gateway, not from us. */
+/** Multi-turn Hermes chat against the real agent gateway. Pins the session to
+ *  `sessionId` so the agent reuses the same session/sandbox across turns.
+ *  NOTE: with a session id the gateway loads history from ITS OWN store and
+ *  reads only the LAST user message from `turns` — anything Hermes hasn't
+ *  seen (other agents' answers in an 'auto' thread, files from earlier turns)
+ *  must be folded into that message: see composeHermesTurn() in
+ *  lib/orchestrator/thread.ts. `context` (the page the user is viewing) rides
+ *  along as a system message; the agent's own persona/memory come from the
+ *  gateway, not from us. */
 /** Live progress from a Hermes turn (the gateway streams these). */
 export interface HermesProgress {
   /** A tool call started/finished — what Hermes is doing right now. */
@@ -181,7 +203,7 @@ export async function hermesChat(
     // Orchestration: ask for a sjcos-effects fence on writes (stripped +
     // recorded by lib/orchestrator/effects.ts at run completion).
     { role: "system", content: EFFECTS_HINT },
-    ...turns,
+    ...turns.map(hermesMessage),
   ];
   const { url, key } = await hermesConfig();
 
@@ -474,6 +496,7 @@ async function conversationForWorkItem(agent: ApprovalAgent, workItemId: string,
  *  the turn resolves. Runs in-process (long-lived server, not serverless). */
 async function runHermesTurnTracked(
   conversationId: string,
+  prompt: string,
   pageContext: string | undefined,
   subjectWorkItemId: string,
 ): Promise<void> {
@@ -481,27 +504,34 @@ async function runHermesTurnTracked(
   // never reject, or a DB hiccup here becomes an unhandled rejection.
   let runId: string | undefined;
   try {
-    const turns = await getTurns(conversationId);
     const run = await queryOne<{ id: string }>(
       `INSERT INTO dev_agent_runs (agent, prompt, page_context, status, conversation_id, activity, subject_work_item_id)
        VALUES ('hermes', $1, $2, 'running', $3, 'Hermes is thinking…', $4)
        RETURNING id`,
-      [turns[turns.length - 1]?.content ?? "", pageContext ?? null, conversationId, subjectWorkItemId],
+      [prompt, pageContext ?? null, conversationId, subjectWorkItemId],
     );
     runId = run!.id;
     const log = runLog(runId, ["Hermes is thinking…"]);
-    const raw = await hermesChat(turns, pageContext, conversationId, hermesProgress(log));
+    // The thread turns Hermes hasn't seen (its gateway session only holds its
+    // own) ride along with the ping — see lib/orchestrator/thread.ts.
+    const turn = await composeHermesTurn(conversationId, { text: prompt });
+    const raw = await hermesChat(
+      [{ role: "user", content: turn.content, images: turn.images }],
+      pageContext,
+      conversationId,
+      hermesProgress(log),
+    );
     log.push("Done.");
     await log.flush();
     const answer = await finalizeHermesAnswer(runId, raw);
-    await insertMessage(conversationId, "assistant", answer);
+    await insertMessage(conversationId, "assistant", answer, { agent: "hermes" });
     await query(`UPDATE dev_agent_runs SET status = 'done', answer = $2, updated_at = now() WHERE id = $1`, [
       runId,
       answer,
     ]);
   } catch (err) {
     const msg = `⚠️ ${(err as Error).message}`;
-    await insertMessage(conversationId, "assistant", msg).catch(() => {});
+    await insertMessage(conversationId, "assistant", msg, { agent: "hermes" }).catch(() => {});
     if (runId) {
       await query(`UPDATE dev_agent_runs SET status = 'error', answer = $2, updated_at = now() WHERE id = $1`, [
         runId,
@@ -535,13 +565,13 @@ export async function notifyAgentOwner(
     if (agent === "hermes") {
       // Not awaited past the DB insert: a live Hermes turn can run minutes of
       // tool calls, and the approve button can't sit there waiting on that.
-      void runHermesTurnTracked(conversationId, pageContext, workItemId);
+      void runHermesTurnTracked(conversationId, prompt, pageContext, workItemId);
       return;
     }
     try {
       await startClaudeRun(prompt, pageContext, conversationId, undefined, workItemId);
     } catch (err) {
-      await insertMessage(conversationId, "assistant", `⚠️ ${(err as Error).message}`).catch(() => {});
+      await insertMessage(conversationId, "assistant", `⚠️ ${(err as Error).message}`, { agent: "claude" }).catch(() => {});
     }
   } catch (err) {
     console.error("[dev-agents] notifyAgentOwner failed", err);
@@ -591,12 +621,12 @@ export async function retryFailedApprovalPings(): Promise<{ retried: number }> {
     if (agent === "hermes") {
       // Fire-and-forget, same reason as the initial ping: the cron script has
       // its own short timeout and shouldn't sit through a live Hermes turn.
-      void runHermesTurnTracked(r.conversation_id, undefined, r.work_item_id);
+      void runHermesTurnTracked(r.conversation_id, nudge, undefined, r.work_item_id);
     } else {
       try {
         await startClaudeRun(nudge, undefined, r.conversation_id, undefined, r.work_item_id);
       } catch (err) {
-        await insertMessage(r.conversation_id, "assistant", `⚠️ ${(err as Error).message}`);
+        await insertMessage(r.conversation_id, "assistant", `⚠️ ${(err as Error).message}`, { agent: "claude" });
       }
     }
   }

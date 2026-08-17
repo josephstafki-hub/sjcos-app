@@ -2,6 +2,7 @@ import "server-only";
 
 import { query, queryOne } from "@/lib/db";
 import type { PanelAgent } from "@/lib/dev-agents-meta";
+import type { ChatAttachment } from "@/lib/attachments";
 
 // Persisted AI chat: per-agent conversations + messages. Backs the /ai Ask
 // window so threads survive navigation, and keeps history separated by model.
@@ -25,6 +26,13 @@ export interface ChatMessage {
    *  agent), so the feed can render that card's chips under the reply and know
    *  which item to re-check when the turn lands. */
   subjectWorkItemId: string | null;
+  /** Who wrote an assistant message ('claude'|'qwen'|'hermes'; 'concierge'
+   *  for the voice ack). Null on user turns and pre-migration rows. In an
+   *  'auto' thread this is what the transcript labels and what the router
+   *  sticks follow-ups to. */
+  agent: string | null;
+  /** Files uploaded with a user turn (absolute paths under uploads/ai-chat). */
+  attachments: ChatAttachment[] | null;
 }
 
 export interface ConversationDetail {
@@ -85,8 +93,10 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
     cost_usd: number | null;
     created_at: string;
     subject_work_item_id: string | null;
+    agent: string | null;
+    attachments: ChatAttachment[] | null;
   }>(
-    `SELECT id, role, body, cost_usd, created_at::text AS created_at, subject_work_item_id
+    `SELECT id, role, body, cost_usd, created_at::text AS created_at, subject_work_item_id, agent, attachments
        FROM ai_messages WHERE conversation_id = $1 ORDER BY created_at ASC`,
     [id],
   );
@@ -111,13 +121,16 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
       costUsd: m.cost_usd == null ? null : Number(m.cost_usd),
       createdAt: m.created_at,
       subjectWorkItemId: m.subject_work_item_id,
+      agent: m.agent,
+      attachments: m.attachments,
     })),
     pendingRunId: pending?.id ?? null,
   };
 }
 
-/** Prior turns as model input (excludes the just-inserted user message when
- *  `beforeMessageId` is given — pass the new user msg id so it isn't doubled). */
+/** Prior turns as model input — the whole thread, oldest first, including
+ *  the user message just inserted for this turn. Plain text only; use
+ *  getThreadMessages() when you need who-answered / attachments. */
 export async function getTurns(
   conversationId: string,
 ): Promise<{ role: "user" | "assistant"; content: string }[]> {
@@ -127,6 +140,42 @@ export async function getTurns(
     [conversationId],
   );
   return rows.map((r) => ({ role: r.role, content: r.body }));
+}
+
+/** One thread message with the continuity fields (who answered, files). */
+export interface ThreadMessage {
+  id: string;
+  role: "user" | "assistant";
+  body: string;
+  agent: string | null;
+  attachments: ChatAttachment[];
+  createdAt: string;
+}
+
+/** The whole thread, oldest first, with agent + attachments — what the
+ *  orchestrator uses to work out which turns an agent hasn't seen yet
+ *  (lib/orchestrator/thread.ts). */
+export async function getThreadMessages(conversationId: string): Promise<ThreadMessage[]> {
+  const { rows } = await query<{
+    id: string;
+    role: "user" | "assistant";
+    body: string;
+    agent: string | null;
+    attachments: ChatAttachment[] | null;
+    created_at: string;
+  }>(
+    `SELECT id, role, body, agent, attachments, created_at::text AS created_at
+       FROM ai_messages WHERE conversation_id = $1 ORDER BY created_at ASC`,
+    [conversationId],
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    role: r.role,
+    body: r.body,
+    agent: r.agent,
+    attachments: Array.isArray(r.attachments) ? r.attachments : [],
+    createdAt: r.created_at,
+  }));
 }
 
 /** Insert a conversation. Title defaults to a trimmed first prompt. */
@@ -142,7 +191,16 @@ export async function insertMessage(
   conversationId: string,
   role: "user" | "assistant",
   body: string,
-  opts: { pageContext?: string; costUsd?: number; subjectWorkItemId?: string } = {},
+  opts: {
+    pageContext?: string;
+    costUsd?: number;
+    subjectWorkItemId?: string;
+    /** Assistant turns: which agent wrote it — always pass it, the router and
+     *  the per-agent "unseen turns" logic depend on it. */
+    agent?: string;
+    /** User turns: the files uploaded with this message. */
+    attachments?: ChatAttachment[];
+  } = {},
 ): Promise<ChatMessage> {
   const row = await queryOne<{
     id: string;
@@ -151,11 +209,22 @@ export async function insertMessage(
     cost_usd: number | null;
     created_at: string;
     subject_work_item_id: string | null;
+    agent: string | null;
+    attachments: ChatAttachment[] | null;
   }>(
-    `INSERT INTO ai_messages (conversation_id, role, body, page_context, cost_usd, subject_work_item_id)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     RETURNING id, role, body, cost_usd, created_at::text AS created_at, subject_work_item_id`,
-    [conversationId, role, body, opts.pageContext ?? null, opts.costUsd ?? null, opts.subjectWorkItemId ?? null],
+    `INSERT INTO ai_messages (conversation_id, role, body, page_context, cost_usd, subject_work_item_id, agent, attachments)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING id, role, body, cost_usd, created_at::text AS created_at, subject_work_item_id, agent, attachments`,
+    [
+      conversationId,
+      role,
+      body,
+      opts.pageContext ?? null,
+      opts.costUsd ?? null,
+      opts.subjectWorkItemId ?? null,
+      opts.agent ?? null,
+      opts.attachments?.length ? JSON.stringify(opts.attachments) : null,
+    ],
   );
   await query(`UPDATE ai_conversations SET updated_at = now() WHERE id = $1`, [conversationId]);
   return {
@@ -165,6 +234,8 @@ export async function insertMessage(
     costUsd: row!.cost_usd == null ? null : Number(row!.cost_usd),
     createdAt: row!.created_at,
     subjectWorkItemId: row!.subject_work_item_id,
+    agent: row!.agent,
+    attachments: row!.attachments,
   };
 }
 

@@ -382,6 +382,16 @@ const SYSTEM_PROMPT =
 export interface ChatTurn {
   role: "user" | "assistant";
   content: string;
+  /** Raw base64 images for a vision-capable Ollama model (see isVisionModel). */
+  images?: { mime: string; base64: string }[];
+}
+
+/** Whether OLLAMA_MODEL can take images. qwen2.5:7b-instruct (the default)
+ *  cannot; set OLLAMA_VISION=1 to force it on for a model this pattern misses. */
+export function isVisionModel(): boolean {
+  if (process.env.OLLAMA_VISION === "1") return true;
+  if (process.env.OLLAMA_VISION === "0") return false;
+  return /(-|:|^)(vl|vision|llava|bakllava|moondream|minicpm-v|gemma3|llama3\.2-vision|pixtral)/i.test(OLLAMA_MODEL);
 }
 
 /** Multi-turn Qwen chat for the persisted Ask window. Prepends the SJC OS
@@ -414,7 +424,11 @@ export async function qwenChat(
           // executes (lib/orchestrator/proposals.ts). Self-gating.
           { role: "system", content: PROPOSAL_HINT },
           ...(context ? [{ role: "system", content: `Page the user is viewing:\n${context}` }] : []),
-          ...turns,
+          ...turns.map((t) =>
+            t.images?.length && isVisionModel()
+              ? { role: t.role, content: t.content, images: t.images.map((i) => i.base64) }
+              : { role: t.role, content: t.content },
+          ),
         ],
         options: { temperature: 0.4 },
       }),

@@ -131,7 +131,7 @@ export function SelectionsBoard({
               ? `${view.totalOpen} of ${view.totalDecisions} decision${view.totalDecisions === 1 ? "" : "s"} still open`
               : "Lay out a room, then add every finish that needs a decision."}
           </p>
-          {view.totalBudget > 0 && (
+          {view.totalBudget > 0 ? (
             <>
               <div className="mt-1.5 h-1.5 w-full max-w-[320px] overflow-hidden rounded-full bg-paper-3">
                 <div
@@ -159,6 +159,16 @@ export function SelectionsBoard({
                 )}
               </p>
             </>
+          ) : (
+            // No budget anywhere yet: still show the running total so the number
+            // is never hidden, and point at where the budget gets set.
+            view.totalDecisions > 0 && (
+              <p className="mt-1 text-[11px] text-ink-3">
+                {fmt(view.totalSpent)} committed so far
+                {view.totalProposed > 0 && <span> · {fmt(view.totalProposed)} still to decide</span>}
+                <span> · no budget set — use Set budget, or give each room one</span>
+              </p>
+            )
           )}
         </div>
         {/* Three buttons + the copy don't fit side by side on a phone; the

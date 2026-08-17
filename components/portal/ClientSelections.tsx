@@ -67,7 +67,7 @@ export function ClientSelections({ view }: { view: SelectionsView }) {
         </div>
       )}
 
-      {view.totalBudget > 0 && (
+      {view.totalBudget > 0 ? (
         <Card kind="accent" className="p-2.5">
           <div className="flex items-baseline justify-between">
             <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-ink-3">
@@ -93,6 +93,20 @@ export function ClientSelections({ view }: { view: SelectionsView }) {
               <span className="text-ink-3"> · {fmt(view.totalProposed)} still to decide</span>
             )}
           </p>
+        </Card>
+      ) : (
+        // No budget set yet — still keep the running total in front of the
+        // client so a pick never disappears into the page.
+        <Card kind="accent" className="p-2.5">
+          <div className="flex items-baseline justify-between">
+            <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-ink-3">
+              Your selections so far
+            </span>
+            <span className="text-[12px] font-semibold text-ink">{fmt(view.totalSpent)}</span>
+          </div>
+          {view.totalProposed > 0 && (
+            <p className="mt-1 text-[11px] text-ink-3">{fmt(view.totalProposed)} still to decide</p>
+          )}
         </Card>
       )}
 

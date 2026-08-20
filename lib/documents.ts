@@ -128,8 +128,19 @@ export async function gatherDocData(estimateId: number, slug: string): Promise<D
   );
 
   const depositPct = Number(s.get("contract.deposit_pct")) || 10;
-  const drawSchedule =
-    parseDrawSchedule(est.draw_schedule) ?? defaultDrawSchedule(depositPct);
+  let drawSchedule = parseDrawSchedule(est.draw_schedule);
+  if (!drawSchedule) {
+    drawSchedule = defaultDrawSchedule(depositPct);
+    // Persist the fallback even though this is a read helper: whatever payment
+    // schedule gets rendered into a client-facing document MUST also exist on
+    // estimates.draw_schedule, because billMilestonesForStatus
+    // (lib/actions/projects.ts) skips estimates whose draw_schedule is NULL —
+    // otherwise the contract promises milestones that silently never auto-bill.
+    await query(`UPDATE estimates SET draw_schedule = $1::jsonb WHERE id = $2`, [
+      JSON.stringify(drawSchedule),
+      est.id,
+    ]);
+  }
 
   return {
     estimateId: Number(est.id),

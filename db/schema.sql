@@ -1661,6 +1661,30 @@ CREATE INDEX IF NOT EXISTS idx_work_items_lead      ON work_items(lead_id, creat
 CREATE INDEX IF NOT EXISTS idx_work_items_approval  ON work_items(approval_status) WHERE approval_status = 'requested';
 CREATE INDEX IF NOT EXISTS idx_work_items_created   ON work_items(created_at DESC);
 
+-- Detector layer (W1): stamped by the enrich_work_item MCP tool when an agent
+-- (Hermes) rewrites a detector-filed item's factual body into a readable brief.
+-- NULL on a detector item = still awaiting enrichment (see the
+-- needs_enrichment filter on list_work_items in mcp/sjcos-mcp.mjs).
+ALTER TABLE work_items ADD COLUMN IF NOT EXISTS enriched_at timestamptz;
+
+-- ─── Detector state (W1) ────────────────────────────────────────────────────
+-- One row per condition a deterministic detector (lib/detectors.ts) has ever
+-- seen, keyed by the underlying thing (thread/sub/estimate/record). While the
+-- condition holds, each hourly run bumps last_seen; when it clears, resolved_at
+-- is stamped and the linked work item is auto-closed. The PK is what makes
+-- detector runs idempotent: an unresolved row means "already filed, don't
+-- re-create".
+CREATE TABLE IF NOT EXISTS detector_state (
+  dedup_key    text PRIMARY KEY,           -- e.g. 'needs-reply:<gmail_thread_id>'
+  detector_key text NOT NULL,              -- e.g. 'needs-reply'
+  work_item_id uuid REFERENCES work_items(id) ON DELETE SET NULL,
+  first_seen   timestamptz NOT NULL DEFAULT now(),
+  last_seen    timestamptz NOT NULL DEFAULT now(),
+  resolved_at  timestamptz
+);
+CREATE INDEX IF NOT EXISTS idx_detector_state_open
+  ON detector_state(detector_key) WHERE resolved_at IS NULL;
+
 -- ─── Open Engine: agent_runs + agent_receipts ───────────────────────────────
 -- One row per automated/assisted AI run, with a receipt trail proving what
 -- changed (email id, calendar event, file path, DB row id, git SHA, …).

@@ -103,8 +103,9 @@ async function resolveRecord(kind: RecordKind, slug: string) {
 }
 
 /** Compute stage-gate guidance from stage_rules: the requirements for the next
- *  likely business stage(s). Guidance only — the UI never blocks on it. */
-async function computeStageGate(kind: RecordKind, currentStatus: string): Promise<StageGate> {
+ *  likely business stage(s). Guidance only — the UI never blocks on it.
+ *  Exported for the gate-stalled detector (lib/detectors.ts). */
+export async function computeStageGate(kind: RecordKind, currentStatus: string): Promise<StageGate> {
   const { rows } = await query<{
     stage: string; phase: string | null; sort_order: number; gate_requirements: string;
     maps_to_lead_stage: string | null; maps_to_project_status: string | null; is_terminal: boolean;

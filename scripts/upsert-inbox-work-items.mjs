@@ -15,8 +15,9 @@ function databaseUrl() {
 
 function usage() {
   console.error("Usage: node scripts/upsert-inbox-work-items.mjs todos.json");
-  console.error("todos.json must be the full current Today-page inbox list: an array of { title, body?, priority?, status?, lead_slug?, project_slug?, due_at?, source_id? }");
-  console.error("Any prior open inbox-cron email work_items omitted from the array are cancelled as stale.");
+  console.error("todos.json is the current inbox scan batch: an array of { title, body?, priority?, status?, lead_slug?, project_slug?, due_at?, source_id?, thread_id? }");
+  console.error("source_id should be the Gmail THREAD id (message ids change on every reply); thread_id is accepted as an explicit alias.");
+  console.error("This script never cancels items. Items absent from the batch keep a stale last_seen_in_scan_at and are aged out (14 days, if untouched) by runReminders() in lib/reminders.ts.");
   process.exit(2);
 }
 
@@ -53,6 +54,11 @@ const todos = raw.map((item, index) => {
     lead_slug: item.lead_slug || null,
     project_slug: item.project_slug || null,
     due_at: item.due_at || null,
+    // Gmail THREAD id, preferred for dedup + stored on the row (message ids
+    // change on every reply, which used to recreate the same task repeatedly).
+    thread_id: item.thread_id || null,
+    // Legacy per-message id — still matched transitionally so existing rows
+    // keyed by message id are found (and upgraded to the thread id).
     source_id: item.source_id || null,
   };
 });
@@ -68,14 +74,20 @@ async function slugToId(table, slug) {
 }
 
 const results = [];
-const activeIds = [];
-let staleCancelled = 0;
 try {
   await client.query("BEGIN");
   for (const todo of todos) {
     const leadId = await slugToId("leads", todo.lead_slug);
     const projectId = await slugToId("projects", todo.project_slug);
 
+    // The id we store going forward: the Gmail thread id when the scan provides
+    // one, else whatever id it sent (which should itself be the thread id).
+    const preferredId = todo.thread_id ?? todo.source_id;
+
+    // Dedup: prefer a thread-id match, then a legacy message-id match, then the
+    // title fallback (message ids change on every reply, so a title-only match
+    // is what keeps a long thread from spawning a new item per reply while old
+    // rows still carry message ids).
     const existing = await client.query(
       `SELECT id
          FROM work_items
@@ -83,11 +95,17 @@ try {
           AND source_kind = 'email'
           AND (
             ($1::text IS NOT NULL AND source_id = $1)
-            OR ($1::text IS NULL AND lower(title) = lower($2))
+            OR ($2::text IS NOT NULL AND source_id = $2)
+            OR lower(title) = lower($3)
           )
-        ORDER BY updated_at DESC
+        ORDER BY CASE
+                   WHEN $1::text IS NOT NULL AND source_id = $1 THEN 0
+                   WHEN $2::text IS NOT NULL AND source_id = $2 THEN 1
+                   ELSE 2
+                 END,
+                 updated_at DESC
         LIMIT 1`,
-      [todo.source_id, todo.title],
+      [todo.thread_id, todo.source_id, todo.title],
     );
 
     if (existing.rows[0]) {
@@ -113,39 +131,30 @@ try {
                 project_id = COALESCE($8, project_id),
                 source_id = COALESCE($9, source_id),
                 requires_approval = true,
+                last_seen_in_scan_at = now(),
                 updated_at = now()
           WHERE id = $1
           RETURNING id, title, priority, status`,
-        [existing.rows[0].id, todo.title, todo.body, todo.priority, todo.status, todo.due_at, leadId, projectId, todo.source_id],
+        [existing.rows[0].id, todo.title, todo.body, todo.priority, todo.status, todo.due_at, leadId, projectId, preferredId],
       );
       results.push({ action: "updated", ...r.rows[0] });
-      activeIds.push(r.rows[0].id);
     } else {
       const r = await client.query(
         `INSERT INTO work_items
            (title, body, status, priority, assignee_kind, assignee_key, due_at, lead_id, project_id,
-            source_kind, source_id, requires_approval, created_by)
-         VALUES ($1,$2,$3,$4,'human','human-joe',$5::timestamptz,$6,$7,'email',$8,true,'inbox-cron')
+            source_kind, source_id, requires_approval, created_by, last_seen_in_scan_at)
+         VALUES ($1,$2,$3,$4,'human','human-joe',$5::timestamptz,$6,$7,'email',$8,true,'inbox-cron',now())
          RETURNING id, title, priority, status`,
-        [todo.title, todo.body, todo.status, todo.priority, todo.due_at, leadId, projectId, todo.source_id],
+        [todo.title, todo.body, todo.status, todo.priority, todo.due_at, leadId, projectId, preferredId],
       );
       results.push({ action: "created", ...r.rows[0] });
-      activeIds.push(r.rows[0].id);
     }
   }
 
-  const stale = await client.query(
-    `UPDATE work_items
-        SET status = 'cancelled',
-            blocked_reason = 'Superseded by latest inbox scan',
-            updated_at = now()
-      WHERE status NOT IN ('done','cancelled')
-        AND source_kind = 'email'
-        AND created_by = 'inbox-cron'
-        AND NOT (id = ANY($1::uuid[]))`,
-    [activeIds],
-  );
-  staleCancelled = stale.rowCount ?? 0;
+  // Deliberately NO stale-cancel pass here: this script must never terminate a
+  // work item. Items missing from a scan simply keep an old last_seen_in_scan_at
+  // and are aged out (after 14 untouched days) by runReminders() in
+  // lib/reminders.ts.
 
   await client.query("COMMIT");
 } catch (err) {
@@ -155,4 +164,4 @@ try {
   await client.end();
 }
 
-console.log(JSON.stringify({ ok: true, count: results.length, stale_cancelled: staleCancelled, results }, null, 2));
+console.log(JSON.stringify({ ok: true, count: results.length, results }, null, 2));

@@ -189,10 +189,21 @@ The pipeline is `ffmpeg -ar 16000 -ac 1 -c:a pcm_s16le` → `whisper-cli -nt -np
 HTTP MCP transport on `127.0.0.1:3018` (Hermes' `sjcos` tools). Install /
 update it with `cp deploy/sjcos-mcp.service ~/.config/systemd/user/ &&
 systemctl --user daemon-reload && systemctl --user restart sjcos-mcp.service`.
-Note the `ExecStart` node path is `/usr/bin/node` — an older copy pointed at
-`/usr/local/bin/node`, which vanished with a Node upgrade and left the unit
-crash-looping (`status=203/EXEC`) until 2026-08-15. Restart it after every
-deploy so newly added tools register.
+`ExecStart` resolves node via `/usr/bin/env node` — never hardcode a binary
+path: an older copy pointed at `/usr/local/bin/node`, which vanished with a
+Node upgrade and left the unit crash-looping (`status=203/EXEC`) from Aug 3–15
+2026, unnoticed. Restart it after every deploy so newly added tools register.
+
+A watchdog timer backstops the service: `sjcos-mcp-watchdog.{sh,service,timer}`
+probes the unauthenticated `GET /healthz` on `127.0.0.1:3018` every 5 minutes;
+on failure it restarts `sjcos-mcp.service` and appends a timestamped line to
+`~/sjcos-app/logs/sjcos-mcp-watchdog.log`. Install (one-time):
+```
+install -m755 deploy/sjcos-mcp-watchdog.sh ~/bin/sjcos-mcp-watchdog
+cp deploy/sjcos-mcp-watchdog.service deploy/sjcos-mcp-watchdog.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now sjcos-mcp-watchdog.timer
+```
 
 Two nginx locations in `deploy/nginx-sjcos.conf` are load-bearing for the
 claude.ai / ChatGPT connectors and must be present in the LIVE

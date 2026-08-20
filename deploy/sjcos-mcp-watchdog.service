@@ -1,0 +1,7 @@
+[Unit]
+Description=SJC OS MCP watchdog (probe /healthz, restart on failure)
+After=sjcos-mcp.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/joe/bin/sjcos-mcp-watchdog

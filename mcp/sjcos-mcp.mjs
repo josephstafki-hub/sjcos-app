@@ -47,6 +47,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
+// Shared with the app's lane classifier (lib/today-triage.ts) — single
+// definition site for the triage-lane patterns.
+import { DEEP_RE, CHAT_RE } from "../lib/triage-lanes.mjs";
 import { registerMoodTools } from "./mood-tools.mjs";
 import { registerBiddingTools } from "./bidding-tools.mjs";
 import { registerChatgptTools } from "./chatgpt-tools.mjs";
@@ -1005,18 +1008,13 @@ server.registerTool(
 );
 
 // ─── Today queue (Today v2) ─────────────────────────────────────────────────
-// KEEP IN LOCKSTEP with lib/today-triage.ts (DEEP_RE / CHAT_RE). This .mjs
-// server can't import the TS module, so the lane rules are duplicated here — if
-// you change them in one place, change them in the other.
-const DEEP_RE_MJS =
-  /\b(estimate|invoice|draw|bill|payment|selection|contract|sign|proposal|permit|coi|insurance|upload|photo|drawing|plan|design|order|purchase|schedule the|change order)\b/;
-const CHAT_RE_MJS =
-  /\b(follow.?up|check.?in|reply|respond|draft|note|log|capture|summar|remind|status|update .*(status|log)|research|look.?up|find out|ask)\b/;
+// Lane patterns are shared with the app's classifier (lib/today-triage.ts) via
+// lib/triage-lanes.mjs — the single definition site for DEEP_RE / CHAT_RE.
 function laneForMjs(w) {
   if (["chat", "quick", "deep"].includes(w.effort_class)) return w.effort_class;
   const hay = `${w.title} ${w.body ?? ""}`.toLowerCase();
-  if (DEEP_RE_MJS.test(hay)) return "deep";
-  if (CHAT_RE_MJS.test(hay)) return "chat";
+  if (DEEP_RE.test(hay)) return "deep";
+  if (CHAT_RE.test(hay)) return "chat";
   return "quick";
 }
 

@@ -1647,6 +1647,12 @@ CREATE INDEX IF NOT EXISTS idx_work_items_promoted ON work_items(promoted_at)
 -- demoted item until its snooze window passes, without also blocking
 -- ordinary future-dated backlog items from ever auto-promoting.
 ALTER TABLE work_items ADD COLUMN IF NOT EXISTS snoozed_until timestamptz;
+
+-- Inbox sweep bookkeeping: stamped by scripts/upsert-inbox-work-items.mjs each
+-- time an item appears in the current scan batch. The sweep itself never
+-- cancels anything; untouched items with a stale last_seen_in_scan_at are aged
+-- out (14 days) by runReminders() in lib/reminders.ts instead.
+ALTER TABLE work_items ADD COLUMN IF NOT EXISTS last_seen_in_scan_at timestamptz;
 CREATE INDEX IF NOT EXISTS idx_work_items_status    ON work_items(status, priority, due_at);
 CREATE INDEX IF NOT EXISTS idx_work_items_due       ON work_items(due_at) WHERE status NOT IN ('done','cancelled');
 CREATE INDEX IF NOT EXISTS idx_work_items_assignee  ON work_items(assignee_key, status);

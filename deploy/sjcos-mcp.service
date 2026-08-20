@@ -12,9 +12,14 @@ WorkingDirectory=%h/sjcos-app
 # the server from stdio into HTTP mode; the bearer token (MCP_HTTP_TOKEN) is
 # still read from sjcos-app/.env.local, and it refuses to start without one.
 Environment=MCP_HTTP_PORT=3018
-ExecStart=/usr/bin/node %h/sjcos-app/mcp/sjcos-mcp.mjs
-Restart=always
-RestartSec=3
+# env-resolved node, NOT a hardcoded binary path: the Aug 3–15 2026 outage was a
+# 12-day 203/EXEC crash-loop from a stale /usr/local/bin/node that no longer
+# existed after a node upgrade. /usr/bin/env follows PATH to wherever node
+# currently lives. The sjcos-mcp-watchdog timer (curl /healthz every 5 min)
+# backstops anything Restart= can't recover.
+ExecStart=/usr/bin/env node %h/sjcos-app/mcp/sjcos-mcp.mjs
+Restart=on-failure
+RestartSec=30
 NoNewPrivileges=true
 
 [Install]

@@ -36,10 +36,23 @@ export interface ReminderRun {
   warranty: number;
   insurance: number;
   ar: number;
+  /** Inbox-cron email work_items auto-cancelled after 14 untouched days. */
+  inboxAgedOut: number;
+  /** Items past the age-out window but held because they have agent run/receipt
+   *  history — those are never cancelled automatically. */
+  inboxAgeOutHeld: number;
 }
 
 export async function runReminders(): Promise<ReminderRun> {
-  const out: ReminderRun = { compliance: 0, coi: 0, warranty: 0, insurance: 0, ar: 0 };
+  const out: ReminderRun = {
+    compliance: 0,
+    coi: 0,
+    warranty: 0,
+    insurance: 0,
+    ar: 0,
+    inboxAgedOut: 0,
+    inboxAgeOutHeld: 0,
+  };
 
   // ── Compliance items: 60 / 30-day heads-up (unresolved, future-dated) ──
   const comp = await query<{
@@ -213,6 +226,40 @@ export async function runReminders(): Promise<ReminderRun> {
       }
     }
   }
+
+  // ── Inbox work-item age-out ──
+  // The inbox sweep (scripts/upsert-inbox-work-items.mjs) only stamps
+  // last_seen_in_scan_at; it never cancels. This is the sole terminator for
+  // inbox-cron items: cancel ones that have dropped out of the scan for 14+
+  // days AND haven't been touched — but never anything an agent has recorded
+  // runs/receipts against (those are counted as held for the owner instead).
+  const aged = await query(
+    `UPDATE work_items wi
+        SET status = 'cancelled',
+            blocked_reason = 'Aged out: not seen in inbox scan for 14+ days and untouched',
+            updated_at = now()
+      WHERE wi.source_kind = 'email'
+        AND wi.created_by = 'inbox-cron'
+        AND wi.status NOT IN ('done','cancelled')
+        AND wi.last_seen_in_scan_at < now() - interval '14 days'
+        AND wi.updated_at < now() - interval '14 days'
+        AND NOT EXISTS (SELECT 1 FROM agent_runs ar WHERE ar.work_item_id = wi.id)
+        AND NOT EXISTS (SELECT 1 FROM agent_receipts rr WHERE rr.work_item_id = wi.id)`,
+  );
+  out.inboxAgedOut = aged.rowCount ?? 0;
+
+  const held = await query<{ n: number }>(
+    `SELECT count(*)::int AS n
+       FROM work_items wi
+      WHERE wi.source_kind = 'email'
+        AND wi.created_by = 'inbox-cron'
+        AND wi.status NOT IN ('done','cancelled')
+        AND wi.last_seen_in_scan_at < now() - interval '14 days'
+        AND wi.updated_at < now() - interval '14 days'
+        AND (EXISTS (SELECT 1 FROM agent_runs ar WHERE ar.work_item_id = wi.id)
+          OR EXISTS (SELECT 1 FROM agent_receipts rr WHERE rr.work_item_id = wi.id))`,
+  );
+  out.inboxAgeOutHeld = held.rows[0]?.n ?? 0;
 
   return out;
 }

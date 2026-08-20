@@ -15,7 +15,10 @@ import { queryOne } from "./db";
 import { sendNewEmail, gmailConfigured } from "./gmail";
 import {
   ensureClientInvite,
+  getPortalClaim,
   inviteLink,
+  portalBaseUrl,
+  portalTargetPath,
   type ClientInviteScope,
   type PortalTargetKey,
   scopeLinkSlug,
@@ -78,9 +81,19 @@ export async function notifyDashboardPublish(
       };
     }
 
-    const invite = await ensureClientInvite(scope);
-    const link = inviteLink(invite.token, o.section);
+    // A claimed portal refuses bearer links (app/client-portal/enter), so
+    // emailing one would send the client to a dead end. Link the section
+    // directly instead — they sign in with the account they set up.
+    const claim = await getPortalClaim(scope);
+    const link = claim
+      ? `${portalBaseUrl()}${portalTargetPath(o.section)}`
+      : inviteLink((await ensureClientInvite(scope)).token, o.section);
     const first = name.split(/\s+/)[0] || "there";
+    const howToGetIn = claim
+      ? `Sign in with your email and password (your account is under ${claim.email}). ` +
+        `From the dashboard you can also message me directly.`
+      : `That link signs you in — no account or password needed. It works for 30 days, ` +
+        `and from the dashboard you can also message me directly.`;
 
     await sendNewEmail({
       to: email,
@@ -88,8 +101,7 @@ export async function notifyDashboardPublish(
       bodyText:
         `Hi ${first},\n\n` +
         `I just added ${o.what} to your project dashboard — take a look when you get a minute:\n${link}\n\n` +
-        `That link signs you in — no account or password needed. It works for 30 days, ` +
-        `and from the dashboard you can also message me directly.\n\n` +
+        `${howToGetIn}\n\n` +
         `Any questions, just reply to this email.\n\nThanks,\nJoe\nSJ Carpentry`,
     });
     return { sent: true, note: `Published and emailed ${email}.` };

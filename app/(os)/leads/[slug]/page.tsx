@@ -25,7 +25,7 @@ import { ProjectComms } from "@/components/projects/ProjectComms";
 import { PortalAccessPanel, type PortalInviteSummary } from "@/components/portal/PortalAccessPanel";
 import { listDocDrafts, listDocTemplates } from "@/lib/doc-drafts";
 import { getLeadFiles } from "@/lib/projects";
-import { getClientInvite } from "@/lib/client-invites";
+import { getClientInvite, getPortalClaim } from "@/lib/client-invites";
 import { getClientActivity } from "@/lib/client-activity";
 import { getClientUploadsForOwner, getPublishedRoster } from "@/lib/portal-roster";
 import { ClientActivityFeed } from "@/components/portal-admin/ClientActivityFeed";
@@ -65,32 +65,37 @@ export default async function LeadDetailPage({
   // Client portal state for this lead: real uploaded files (with dashboard
   // share toggles), the invite, and the portal chat thread.
   const leadScope = { kind: "lead", slug } as const;
-  const [leadFiles, invite, portalThread, clientActivity, clientUploads, publishedRoster] =
+  const [leadFiles, invite, portalClaim, portalThread, clientActivity, clientUploads, publishedRoster] =
     await Promise.all([
       getLeadFiles(slug),
       getClientInvite({ lead: slug }),
+      getPortalClaim({ lead: slug }),
       getPortalThread(portalChannel("client", `lead:${slug}`)),
       getClientActivity(leadScope),
       getClientUploadsForOwner(leadScope),
       getPublishedRoster(leadScope),
     ]);
-  const inviteSummary: PortalInviteSummary = invite
-    ? {
-        status:
-          invite.status === "dismissed"
-            ? "dismissed"
-            : invite.expiresAt < new Date()
-              ? "expired"
-              : "active",
-        toEmail: invite.toEmail,
-        expiresLabel: invite.expiresAt.toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        }),
-        used: invite.usedAt !== null,
-      }
-    : { status: "none", toEmail: lead.email || null, expiresLabel: null, used: false };
+  const inviteSummary: PortalInviteSummary = {
+    ...(invite
+      ? {
+          status:
+            invite.status === "dismissed"
+              ? ("dismissed" as const)
+              : invite.expiresAt < new Date()
+                ? ("expired" as const)
+                : ("active" as const),
+          toEmail: invite.toEmail,
+          expiresLabel: invite.expiresAt.toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          }),
+          used: invite.usedAt !== null,
+        }
+      : { status: "none" as const, toEmail: lead.email || null, expiresLabel: null, used: false }),
+    claimed: portalClaim !== null,
+    claimedEmail: portalClaim?.email ?? null,
+  };
 
   const isLost = lead.stage === "lost";
   const currentStageIdx = stageIndex(lead.stage);

@@ -24,7 +24,7 @@ import { ProjectDailyLog } from "@/components/projects/ProjectDailyLog";
 import { ProjectFiles } from "@/components/projects/ProjectFiles";
 import { ProjectComms } from "@/components/projects/ProjectComms";
 import { PortalAccessPanel, type PortalInviteSummary } from "@/components/portal/PortalAccessPanel";
-import { getClientInvite } from "@/lib/client-invites";
+import { getClientInvite, getPortalClaim } from "@/lib/client-invites";
 import { getClientActivity } from "@/lib/client-activity";
 import { getClientUploadsForOwner, getPublishedRoster } from "@/lib/portal-roster";
 import { ClientActivityFeed } from "@/components/portal-admin/ClientActivityFeed";
@@ -151,29 +151,34 @@ export default async function ProjectDetailPage({
   // Client portal tab: invite/access, the ledger of what the client has done,
   // their uploads, and what's currently published to them.
   const portalScopeObj = { kind: "project", slug } as const;
-  const [invite, clientActivity, clientUploads, publishedRoster] = await Promise.all([
+  const [invite, portalClaim, clientActivity, clientUploads, publishedRoster] = await Promise.all([
     getClientInvite({ project: slug }),
+    getPortalClaim({ project: slug }),
     getClientActivity(portalScopeObj),
     getClientUploadsForOwner(portalScopeObj),
     getPublishedRoster(portalScopeObj),
   ]);
-  const inviteSummary: PortalInviteSummary = invite
-    ? {
-        status:
-          invite.status === "dismissed"
-            ? "dismissed"
-            : invite.expiresAt < new Date()
-              ? "expired"
-              : "active",
-        toEmail: invite.toEmail,
-        expiresLabel: invite.expiresAt.toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        }),
-        used: invite.usedAt !== null,
-      }
-    : { status: "none", toEmail: null, expiresLabel: null, used: false };
+  const inviteSummary: PortalInviteSummary = {
+    ...(invite
+      ? {
+          status:
+            invite.status === "dismissed"
+              ? ("dismissed" as const)
+              : invite.expiresAt < new Date()
+                ? ("expired" as const)
+                : ("active" as const),
+          toEmail: invite.toEmail,
+          expiresLabel: invite.expiresAt.toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          }),
+          used: invite.usedAt !== null,
+        }
+      : { status: "none" as const, toEmail: null, expiresLabel: null, used: false }),
+    claimed: portalClaim !== null,
+    claimedEmail: portalClaim?.email ?? null,
+  };
 
   const catalogOptions = catalog.materials.map((m) => ({ id: m.id, name: m.name }));
 

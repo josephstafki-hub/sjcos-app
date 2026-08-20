@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, Mail, RefreshCw, ShieldOff } from "lucide-react";
+import { Copy, KeyRound, Mail, RefreshCw, ShieldOff } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import type { ClientInviteScope } from "@/lib/client-invites";
 import {
@@ -10,6 +10,7 @@ import {
   rotatePortalInviteLink,
   emailPortalInvite,
   revokePortalInvite,
+  resetPortalAccess,
 } from "@/lib/actions/client-portal-admin";
 
 /** Summary of the scope's invite, computed server-side by the page. */
@@ -18,6 +19,10 @@ export interface PortalInviteSummary {
   toEmail: string | null;
   expiresLabel: string | null;
   used: boolean;
+  /** The client set a real password (users.portal_claimed_at) — the emailed
+   *  link is refused from then on and only password login works. */
+  claimed: boolean;
+  claimedEmail: string | null;
 }
 
 const STATUS_CHIP: Record<PortalInviteSummary["status"], { kind: "money" | "ghost" | "flag"; label: string }> = {
@@ -64,7 +69,9 @@ export function PortalAccessPanel({
     }
   }
 
-  const chip = STATUS_CHIP[invite.status];
+  const chip = invite.claimed
+    ? ({ kind: "money", label: "Account claimed" } as const)
+    : STATUS_CHIP[invite.status];
 
   return (
     <Card className="max-w-[680px] p-3.5">
@@ -77,12 +84,48 @@ export function PortalAccessPanel({
         <div className="flex-1" />
       </div>
       <p className="mt-1 text-[12px] leading-snug text-ink-3">
-        The client reaches their dashboard through a signed link — no account needed
-        {invite.toEmail ? ` (on file: ${invite.toEmail})` : ""}
-        {invite.expiresLabel ? ` · current link good through ${invite.expiresLabel}` : ""}.
+        {invite.claimed ? (
+          <>
+            The client locked this dashboard with a password — they sign in with{" "}
+            {invite.claimedEmail ?? "their email"} and the emailed link no longer works. If they
+            forget the password, Reset access puts the link back in charge.
+          </>
+        ) : (
+          <>
+            The client reaches their dashboard through a signed link — no account needed
+            {invite.toEmail ? ` (on file: ${invite.toEmail})` : ""}
+            {invite.expiresLabel ? ` · current link good through ${invite.expiresLabel}` : ""}.
+          </>
+        )}
       </p>
 
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+        {invite.claimed && (
+          <button
+            type="button"
+            disabled={pending}
+            title="Clears their password so the emailed link signs them in again; they can set a new password from the dashboard"
+            onClick={() => {
+              if (
+                !window.confirm(
+                  "Reset this client's portal access? Their password stops working and the emailed dashboard link takes over again.",
+                )
+              )
+                return;
+              run(async () => {
+                const res = await resetPortalAccess(scope);
+                if (!res.ok) return setError(res.error);
+                setNotice(
+                  "Access reset — the emailed dashboard link works again. Copy or email it if they need a fresh one.",
+                );
+              });
+            }}
+            className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
+          >
+            <KeyRound className="size-3" strokeWidth={1.75} /> Reset access
+          </button>
+        )}
+        {!invite.claimed && (
         <button
           type="button"
           disabled={pending}
@@ -91,6 +134,7 @@ export function PortalAccessPanel({
         >
           <Copy className="size-3" strokeWidth={1.75} /> Copy link
         </button>
+        )}
         <button
           type="button"
           disabled={pending}
@@ -105,16 +149,18 @@ export function PortalAccessPanel({
         >
           <Mail className="size-3" strokeWidth={1.75} /> Email invite
         </button>
-        <button
-          type="button"
-          disabled={pending}
-          title="Issue a fresh link — anything previously shared stops working"
-          onClick={() => run(() => copyLink(true))}
-          className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50"
-        >
-          <RefreshCw className="size-3" strokeWidth={1.75} /> Rotate
-        </button>
-        {invite.status === "active" && (
+        {!invite.claimed && (
+          <button
+            type="button"
+            disabled={pending}
+            title="Issue a fresh link — anything previously shared stops working"
+            onClick={() => run(() => copyLink(true))}
+            className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50"
+          >
+            <RefreshCw className="size-3" strokeWidth={1.75} /> Rotate
+          </button>
+        )}
+        {!invite.claimed && invite.status === "active" && (
           <button
             type="button"
             disabled={pending}

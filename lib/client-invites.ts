@@ -99,6 +99,22 @@ function rowToInvite(row: InviteRow): ClientInvite {
   };
 }
 
+/** Whether the scope's client account was CLAIMED (a real password set), and
+ *  the sign-in email if so. A claimed portal refuses bearer links at
+ *  /client-portal/enter — the owner panel and every send path that puts a link
+ *  in an email need to know which mode the portal is in. */
+export async function getPortalClaim(
+  scope: ClientInviteScope,
+): Promise<{ email: string; claimedAt: Date } | null> {
+  const row = await queryOne<{ email: string; portal_claimed_at: Date | null }>(
+    `SELECT email, portal_claimed_at FROM users
+      WHERE role = 'client' AND link_slug = $1 AND portal_claimed_at IS NOT NULL
+      LIMIT 1`,
+    [scopeLinkSlug(scope)],
+  );
+  return row?.portal_claimed_at ? { email: row.email, claimedAt: row.portal_claimed_at } : null;
+}
+
 /** The scope's current invite, if any. */
 export async function getClientInvite(scope: ClientInviteScope): Promise<ClientInvite | null> {
   const project = "project" in scope;

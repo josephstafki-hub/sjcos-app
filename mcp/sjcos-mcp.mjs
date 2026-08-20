@@ -569,17 +569,20 @@ server.registerTool(
       "hermes-telegram / claude-code-server / …), project_slug/lead_slug (use " +
       "these to find the to-do tied to the specific job/lead someone is talking " +
       "about instead of paging through the whole queue), and/or a due_before ISO " +
-      "date. Ordered by priority then due date.",
+      "date. needs_enrichment:true returns open detector-filed items whose " +
+      "factual body hasn't been rewritten yet (enrich each via enrich_work_item " +
+      "after reading its source). Ordered by priority then due date.",
     inputSchema: {
       status: z.string().optional(),
       assignee_key: z.string().optional(),
       project_slug: z.string().optional(),
       lead_slug: z.string().optional(),
       due_before: z.string().optional(),
+      needs_enrichment: z.boolean().optional(),
       limit: z.number().int().min(1).max(200).optional(),
     },
   },
-  async ({ status, assignee_key, project_slug, lead_slug, due_before, limit = 50 }) => {
+  async ({ status, assignee_key, project_slug, lead_slug, due_before, needs_enrichment, limit = 50 }) => {
     const conds = ["(l.id IS NULL OR l.stage <> 'lost' OR w.status IN ('done','cancelled'))"];
     const params = [];
     if (status) { params.push(status); conds.push(`w.status = $${params.length}`); }
@@ -587,13 +590,16 @@ server.registerTool(
     if (project_slug) { params.push(project_slug); conds.push(`p.slug = $${params.length}`); }
     if (lead_slug) { params.push(lead_slug); conds.push(`l.slug = $${params.length}`); }
     if (due_before) { params.push(due_before); conds.push(`w.due_at <= $${params.length}::timestamptz`); }
+    if (needs_enrichment) {
+      conds.push(`w.created_by LIKE 'detector:%' AND w.enriched_at IS NULL AND w.status NOT IN ('done','cancelled')`);
+    }
     const where = conds.length ? `WHERE ${conds.join(" AND ")}` : ``;
     params.push(limit);
     return json(
       await rows(
         `SELECT w.id, w.title, w.status, w.priority, w.assignee_kind, w.assignee_key, w.due_at,
                 w.expected_skill_slug, w.expected_runbook_slug, w.requires_approval, w.approval_status,
-                w.blocked_reason, p.slug AS project_slug, l.slug AS lead_slug
+                w.blocked_reason, w.created_by, w.enriched_at, p.slug AS project_slug, l.slug AS lead_slug
            FROM work_items w
            LEFT JOIN projects p ON p.id = w.project_id
            LEFT JOIN leads l ON l.id = w.lead_id
@@ -882,6 +888,54 @@ server.registerTool(
       [id, status, note ?? null],
     );
     return json(r[0] ? { ok: true, ...r[0] } : { ok: false, error: `No work item ${id}` });
+  },
+);
+
+// Enrichment is the ONLY write an agent gets on a detector-filed item's
+// content, and it is deliberately narrow: body + enriched_at only. Status,
+// priority, assignee, due date, and approval fields stay under the detector's
+// (and the owner's) control — the detector auto-resolves the item when the
+// underlying condition clears, and enrichment must never fight that.
+server.registerTool(
+  "enrich_work_item",
+  {
+    title: "Enrich a detector work item",
+    description:
+      "Rewrite a detector-filed work item's plain factual body into a short " +
+      "readable brief (2–3 sentences: what happened, what to do next, any " +
+      "deadline). Only valid on items created_by 'detector:*'; refuses others. " +
+      "The original factual body is preserved under '--- source facts ---'. " +
+      "Does NOT change status, priority, assignee, due date, or approvals.",
+    inputSchema: {
+      id: z.string(),
+      body: z.string(),
+      suggested_next_action: z.string().optional(),
+    },
+  },
+  async ({ id, body, suggested_next_action }) => {
+    const item = await rows(`SELECT id, body, created_by FROM work_items WHERE id = $1`, [id]);
+    if (item.length === 0) return json({ ok: false, error: `No work item ${id}` });
+    if (!/^detector:/.test(item[0].created_by)) {
+      return json({
+        ok: false,
+        error: `Refused: work item ${id} was created by "${item[0].created_by}", not a detector. enrich_work_item only rewrites detector-filed items.`,
+      });
+    }
+    // Re-enrichment keeps exactly one source-facts block: the detector's
+    // original body, not a stack of earlier briefs.
+    const marker = "\n\n--- source facts ---\n";
+    const prev = item[0].body ?? "";
+    const facts = prev.includes(marker) ? prev.slice(prev.indexOf(marker) + marker.length) : prev;
+    const next =
+      body.trim() +
+      (suggested_next_action ? `\n\nNext action: ${suggested_next_action.trim()}` : "") +
+      marker +
+      facts;
+    await rows(
+      `UPDATE work_items SET body = $2, enriched_at = now(), updated_at = now() WHERE id = $1`,
+      [id, next],
+    );
+    return json({ ok: true, id });
   },
 );
 

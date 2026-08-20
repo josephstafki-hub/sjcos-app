@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the SJC OS detector sweep hourly at :20
+
+[Timer]
+# :20 keeps clear of the newsletter drip (:10) and the :0/15 lead-thread sync.
+OnCalendar=*-*-* *:20:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

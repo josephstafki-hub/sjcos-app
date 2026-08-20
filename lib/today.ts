@@ -155,7 +155,10 @@ export interface TodayWorkItemRow {
 }
 
 /** Joe's open backlog: work_items assigned to him with a lead/project to
- *  anchor them. Shared between getTodayData() (the full list) and
+ *  anchor them — plus detector-filed items (lib/detectors.ts), which may have
+ *  no anchor (compliance, COI, W-9) but are Today's single source for those
+ *  domains now that the raw compliance/warranty candidate queries are gone.
+ *  Shared between getTodayData() (the full list) and
  *  checkPriorityCompletion() (the single next-up item), so "what's eligible"
  *  never drifts between the two. */
 export const OPEN_WORK_ITEMS_SQL = `
@@ -172,7 +175,8 @@ export const OPEN_WORK_ITEMS_SQL = `
      WHERE w.status NOT IN ('done','cancelled')
        AND w.assignee_kind = 'human'
        AND (w.assignee_key IS NULL OR w.assignee_key = 'human-joe')
-       AND (w.lead_id IS NOT NULL OR w.project_id IS NOT NULL)
+       AND (w.lead_id IS NOT NULL OR w.project_id IS NOT NULL
+            OR w.created_by LIKE 'detector:%')
        AND (l.id IS NULL OR l.stage <> 'lost')`;
 
 export const OPEN_WORK_ITEMS_ORDER_SQL = `
@@ -206,16 +210,6 @@ export function workItemCandidate(w: TodayWorkItemRow): Omit<TodayPriority, "ran
   };
 }
 
-interface TodayWarrantyClaimRow {
-  id: string;
-  project: string;
-  client: string;
-  issue: string;
-  step: string | null;
-  deadline: string | null;
-  dot: DotKind;
-}
-
 /** "$32,400" style dollars with thousands separators. */
 function dollars(n: number): string {
   return `$${Math.round(n).toLocaleString("en-US")}`;
@@ -227,12 +221,6 @@ interface FlaggedLeadRow {
   scope: string | null;
   flag_label: string | null;
 }
-interface ComplianceRow {
-  title: string;
-  step: string | null;
-  due: string;
-  days: number;
-}
 interface ScheduleRow {
   time_label: string;
   label: string;
@@ -241,12 +229,13 @@ interface ScheduleRow {
 
 /** The raw rows the Priorities/Waiting queue is built from. Fetched once and
  *  fed to buildQueue() so getTodayData() and getQueueSnapshot() share the exact
- *  same candidate pipeline (the ranking/promotion logic must never fork). */
+ *  same candidate pipeline (the ranking/promotion logic must never fork).
+ *  Compliance-due and warranty-claim rows are no longer candidate sources —
+ *  the W1 detectors (lib/detectors.ts) file those as work items, which
+ *  openWorkItems already carries; raw rows here would double-list them. */
 interface QueueSources {
   openWorkItems: TodayWorkItemRow[];
-  warrantyClaims: TodayWarrantyClaimRow[];
   flaggedLeadRows: FlaggedLeadRow[];
-  compliance: ComplianceRow[];
   scheduleRows: ScheduleRow[];
   projects: TodayProjectRow[];
 }
@@ -256,10 +245,10 @@ export interface QueueSnapshot {
   waiting: { items: WaitingItem[]; total: number };
 }
 
-/** Run the six queries that feed the queue. Shared by getTodayData() (which
+/** Run the four queries that feed the queue. Shared by getTodayData() (which
  *  also reuses projects/leads/schedule for header/brief) and getQueueSnapshot(). */
 async function fetchQueueSources(): Promise<QueueSources> {
-  const [projectsRes, leadsRes, workItemsRes, scheduleRes, complianceRes, warrantyClaimsRes] =
+  const [projectsRes, leadsRes, workItemsRes, scheduleRes] =
     await Promise.all([
       query<TodayProjectRow>(`
         SELECT slug, name, status, progress,
@@ -276,39 +265,12 @@ async function fetchQueueSources(): Promise<QueueSources> {
         SELECT time_label, label, tone
         FROM schedule_blocks WHERE block_date = CURRENT_DATE
         ORDER BY sort_min`),
-      query<ComplianceRow>(`
-        SELECT title, step, to_char(due_date, 'FMMon FMDD') AS due,
-               (due_date - CURRENT_DATE) AS days
-        FROM compliance_items
-        WHERE resolved = false AND due_date <= CURRENT_DATE + 14
-        ORDER BY due_date`),
-      query<TodayWarrantyClaimRow>(`
-        SELECT id, project, client, issue, step,
-               COALESCE(
-                 CASE WHEN acknowledged = false AND ack_deadline_at IS NOT NULL
-                      THEN 'ack by ' || to_char(ack_deadline_at, 'FMMon FMDD') END,
-                 CASE WHEN resolve_deadline_at IS NOT NULL
-                      THEN 'resolve by ' || to_char(resolve_deadline_at, 'FMMon FMDD') END,
-                 deadline_label
-               ) AS deadline,
-               CASE
-                 WHEN (acknowledged = false AND ack_deadline_at <= CURRENT_DATE + 1)
-                   OR (acknowledged = true AND resolve_deadline_at <= CURRENT_DATE + 5)
-                 THEN 'flag'
-                 WHEN dot IN ('accent','flag','ghost') THEN dot
-                 ELSE 'accent'
-               END AS dot
-          FROM warranty_claims
-         WHERE resolved = false
-         ORDER BY opened_at DESC`),
     ]);
   return {
     projects: projectsRes.rows,
     flaggedLeadRows: leadsRes.rows,
     openWorkItems: workItemsRes.rows,
     scheduleRows: scheduleRes.rows,
-    compliance: complianceRes.rows,
-    warrantyClaims: warrantyClaimsRes.rows,
   };
 }
 
@@ -319,8 +281,7 @@ async function fetchQueueSources(): Promise<QueueSources> {
 async function buildQueue(s: QueueSources): Promise<QueueSnapshot> {
   // ── Priorities: a 5-slot rail, ranked from real signals. Leads are always
   // first because new revenue beats internal/project follow-ups, then the
-  // rest keep their existing source order (work queue → warranty →
-  // compliance → schedule/job).
+  // rest keep their existing source order (work queue → schedule/job).
   //
   // Work-item candidates (Hermes's backlog) only occupy a slot once
   // `promoted_at` is set — see db/schema.sql. Non-work-item signals
@@ -349,21 +310,10 @@ async function buildQueue(s: QueueSources): Promise<QueueSnapshot> {
       waitingLabel: [kind, source, w.title].filter(Boolean).join(" — "),
     });
   }
-  for (const claim of s.warrantyClaims) {
-    candidates.push({
-      id: `warranty:${claim.id}`,
-      checkable: false,
-      lane: "deep",
-      promotedAt: null,
-      snoozedUntil: null,
-      tag: `WARRANTY · ${claim.project}`,
-      dot: claim.dot,
-      title: claim.issue,
-      sub: [claim.client, claim.deadline, claim.step].filter(Boolean).join(" · ") || "Warranty claim needs attention",
-      href: "/warranty",
-      waitingLabel: `Warranty — ${claim.project}: ${claim.issue}${claim.deadline ? ` (${claim.deadline})` : ""}`,
-    });
-  }
+  // Warranty-claim and compliance-due candidates used to be built from raw
+  // rows here; the W1 warranty-unacked + compliance-due detectors now file
+  // those as work items (already in openWorkItems above), so raw-row
+  // candidates would list the same condition twice.
   for (const l of s.flaggedLeadRows.filter((l) => !workItemLeadSlugs.has(l.slug))) {
     candidates.push({
       id: `lead:${l.slug}`,
@@ -377,21 +327,6 @@ async function buildQueue(s: QueueSources): Promise<QueueSnapshot> {
       sub: [l.flag_label, l.scope].filter(Boolean).join(" · ") || "Needs your attention",
       href: `/leads/${l.slug}`,
       waitingLabel: `Reply to ${l.name} — ${l.flag_label ?? "lead"}`,
-    });
-  }
-  for (const c of s.compliance.filter((c) => c.days <= 7)) {
-    candidates.push({
-      id: `compliance:${c.title}:${c.due}`,
-      checkable: false,
-      lane: "deep",
-      promotedAt: null,
-      snoozedUntil: null,
-      tag: "COMPLIANCE",
-      dot: c.days <= 3 ? "flag" : "accent",
-      title: c.title,
-      sub: `${c.step ?? "Action needed"} · due ${c.due}`,
-      href: "/compliance",
-      waitingLabel: `${c.title} (due ${c.due})`,
     });
   }
   const firstJobBlock = s.scheduleRows.find((b) => b.tone === "accent" || b.tone === "ai");

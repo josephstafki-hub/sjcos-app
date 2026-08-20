@@ -36,8 +36,10 @@ export interface LeadThreadSyncResult {
   dryRun: boolean;
 }
 
-/** First email address in a raw header value ("Name <a@b>" or "a@b"). */
-function extractEmail(raw: string): string {
+/** First email address in a raw header value ("Name <a@b>" or "a@b").
+ *  Exported for lib/detectors.ts, which reuses this module's thread-matching
+ *  approach for the needs-reply detector. */
+export function extractEmail(raw: string): string {
   const m = raw.match(/[^\s<>"]+@[^\s<>"]+/);
   return (m ? m[0] : "").toLowerCase();
 }

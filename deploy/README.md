@@ -151,6 +151,36 @@ journalctl --user -u sjcos-lead-thread-sync.service -n 20       # last result (J
 systemctl --user list-timers sjcos-lead-thread-sync.timer       # next run
 ```
 
+## Scheduler — hourly detector sweep (W1)
+
+A systemd **user timer** runs the detector layer (`/api/cron/detect`) hourly at
+**:20** (offset from the newsletter drip at :10 and the lead-thread sync at
+:0/15). Ten deterministic detectors (`lib/detectors.ts`) file work items for
+conditions like "client waiting 3+ days", "sent estimate unanswered 7+ days",
+"approved estimate with no draw schedule" — one item per underlying thing via
+the `detector_state` dedup table — and auto-resolve them when the condition
+clears. Max 30 work-item creations per run, so a first-run burst spreads over a
+few hours. Same auth pattern as the reminders cron.
+
+Pass `?dry=1` to compute + return what WOULD be filed/bumped/resolved without
+writing — review that output before enabling the timer, and reuse it any time
+a threshold changes.
+
+Install (one-time):
+```
+install -m755 deploy/sjcos-detect.sh ~/bin/sjcos-detect
+cp deploy/sjcos-detect.service deploy/sjcos-detect.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now sjcos-detect.timer
+```
+
+Run on demand / inspect:
+```
+systemctl --user start sjcos-detect.service           # trigger now
+journalctl --user -u sjcos-detect.service -n 20       # last result (JSON)
+systemctl --user list-timers sjcos-detect.timer       # next run
+```
+
 ## Voice daily logs — whisper.cpp (Phase-3 7-voice)
 
 Local, offline speech-to-text for the daily-log composers. `/api/transcribe`

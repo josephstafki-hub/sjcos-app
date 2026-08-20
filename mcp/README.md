@@ -23,7 +23,7 @@ It runs as its own process over **stdio**, separate from the Next app, and reads
 | `list_signature_requests` | E-sign requests (optional `project_slug`,`status`) |
 | `search_knowledge` | Full-text + fuzzy search of the knowledge base (`query`, optional `project_slug`/`lead_slug`/`kind`/`limit`) |
 | `fetch_knowledge` / `list_recent_knowledge` | One item by `id` / recent items (`days`,`kind`,…) |
-| `list_work_items` / `get_work_item` | The work queue (optional `status`,`assignee_key`,`due_before`) / one item + its runs & receipts |
+| `list_work_items` / `get_work_item` | The work queue (optional `status`,`assignee_key`,`due_before`,`needs_enrichment` — detector items awaiting an agent brief) / one item + its runs & receipts |
 | `get_today_queue` | Joe's `/today` rail: promoted priorities + waiting backlog, each with its lane (`chat`/`quick`/`deep`). READ-ONLY — promotion is app-owned |
 | `list_skills` / `get_skill` / `search_skills` | Skill library (approved unless `include_proposed`) / one skill + current body / search |
 | `suggest_skill_for_work_item` | The skill/runbook a work item expects, else best fuzzy matches |
@@ -39,6 +39,7 @@ Safe by construction — internal records, append-only audit, and proposals only
 | `capture_knowledge` | Save a knowledge item (dedup by fingerprint; optional receipt) |
 | `create_work_item` | Add to the queue (`requires_approval` defaults true) |
 | `update_work_item_status` | Move an item's status (done sets completed_at) |
+| `enrich_work_item` | Rewrite a **detector-filed** item's factual body into a readable brief (original kept under `--- source facts ---`); refuses non-detector items; never touches status/priority/assignee/due/approvals |
 | `snooze_work_item` | Push `due_at` out + clear app-owned promotion (`{id, days?, reason?}`); logs a receipt |
 | `submit_draft_for_approval` | Chat-lane item that needs a client-facing step: save the draft + set `approval_needed` (never sends) |
 | `record_agent_run` / `record_receipt` | Open/close a run; append proof-of-work |

@@ -1,0 +1,7 @@
+[Unit]
+Description=SJC OS hourly detector sweep (W1 — work-item filing + auto-resolve)
+After=sjcos.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/joe/bin/sjcos-detect

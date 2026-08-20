@@ -65,3 +65,4 @@ db/.cents-snapshot.json
 
 # session scratch (audit scripts, one-off runs)
 tmp/
+logs/

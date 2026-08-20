@@ -61,6 +61,7 @@ import {
   updateBidPackage,
   uploadBidFile,
 } from "@/lib/actions/bidding";
+import { useRemoved } from "@/lib/use-removed";
 
 type Result = { ok: boolean; error?: string };
 
@@ -120,14 +121,22 @@ export function BiddingBoard({
   const [modal, setModal] = useState<Modal>(null);
   const [tradeFilter, setTradeFilter] = useState<string | null>(null);
 
+  const { removed, hide, restore } = useRemoved();
+
   // Single path for every mutation (same contract as SelectionsBoard): the
   // project page is cookie-dynamic, so router.refresh() is what repaints.
-  function run(fn: () => Promise<Result>, onSuccess?: () => void, fallback = "Something went wrong.") {
+  function run(
+    fn: () => Promise<Result>,
+    onSuccess?: () => void,
+    fallback = "Something went wrong.",
+    onError?: () => void,
+  ) {
     setError("");
     startTransition(async () => {
       const r = await fn();
       if (!r.ok) {
         setError(r.error ?? fallback);
+        onError?.();
         return;
       }
       onSuccess?.();
@@ -135,20 +144,39 @@ export function BiddingBoard({
     });
   }
 
+  /** Delete optimistically: hide the row now, restore it only if the write fails. */
+  function removeRow(key: string, fn: () => Promise<Result>) {
+    hide(key);
+    run(fn, undefined, undefined, () => restore(key));
+  }
+
   const close = () => {
     setModal(null);
     setError("");
   };
 
+  // Optimistically-removed packages/invites/files drop out of the render the
+  // moment their delete is clicked; the refetch confirms a beat later.
+  const packages =
+    removed.size === 0
+      ? view.packages
+      : view.packages
+          .filter((p) => !removed.has(`pkg:${p.id}`))
+          .map((p) => ({
+            ...p,
+            invites: p.invites.filter((i) => !removed.has(`invite:${i.id}`)),
+            files: p.files.filter((f) => !removed.has(`file:${f.id}`)),
+          }));
+
   // Modals hold ids, not snapshots — a live-update refresh flows new props in
   // while a modal is open (e.g. a bid landing during compare).
-  const pkgById = (id: number) => view.packages.find((p) => p.id === id) ?? null;
+  const pkgById = (id: number) => packages.find((p) => p.id === id) ?? null;
   const inviteById = (pkgId: number, inviteId: number) =>
     pkgById(pkgId)?.invites.find((i) => i.id === inviteId) ?? null;
 
   const shown = tradeFilter
-    ? view.packages.filter((p) => (p.trade || "General") === tradeFilter)
-    : view.packages;
+    ? packages.filter((p) => (p.trade || "General") === tradeFilter)
+    : packages;
 
   // Group the board by trade so "receiving" reads by category of work.
   const groups = new Map<string, BidPackage[]>();
@@ -163,7 +191,7 @@ export function BiddingBoard({
         <div className="flex-1">
           <h3 className="font-serif text-[16px] font-semibold text-ink">Bidding</h3>
           <p className="mt-0.5 text-[12px] text-ink-3">
-            {view.packages.length > 0
+            {packages.length > 0
               ? "Packets out to subs, grouped by trade. Bids come back here and compare side by side."
               : "Send plans and takeoffs to a group of subs and collect their numbers in one place."}
           </p>
@@ -191,7 +219,7 @@ export function BiddingBoard({
         </div>
       )}
 
-      {view.packages.length === 0 && (
+      {packages.length === 0 && (
         <Card kind="dashed" className="p-6 text-center text-[13px] text-ink-3">
           No bid packages yet. Start one for a category of work — framing, HVAC, tile — attach the
           plans, and pick which subs price it.
@@ -214,9 +242,9 @@ export function BiddingBoard({
               onCompare={() => setModal({ kind: "compare", pkgId: pkg.id })}
               onSend={() => run(() => sendBidPackage(pkg.id))}
               onClose={() => run(() => closeBidPackage(pkg.id))}
-              onRemove={() => run(() => removeBidPackage(pkg.id))}
-              onRemoveInvite={(id) => run(() => removeBidInvite(id))}
-              onRemoveFile={(id) => run(() => removeBidFile(id))}
+              onRemove={() => removeRow(`pkg:${pkg.id}`, () => removeBidPackage(pkg.id))}
+              onRemoveInvite={(id) => removeRow(`invite:${id}`, () => removeBidInvite(id))}
+              onRemoveFile={(id) => removeRow(`file:${id}`, () => removeBidFile(id))}
             />
           ))}
         </div>
@@ -240,6 +268,7 @@ export function BiddingBoard({
           pending={pending}
           error={error}
           run={run}
+          onRemoveFile={(id) => removeRow(`file:${id}`, () => removeBidFile(id))}
           onClose={close}
         />
       )}
@@ -585,6 +614,7 @@ function FilesModal({
   pending,
   error,
   run,
+  onRemoveFile,
   onClose,
 }: {
   pkg: BidPackage;
@@ -592,6 +622,7 @@ function FilesModal({
   pending: boolean;
   error: string;
   run: RunFn;
+  onRemoveFile: (id: number) => void;
   onClose: () => void;
 }) {
   const attached = new Set(pkg.files.map((f) => f.fileId));
@@ -659,7 +690,7 @@ function FilesModal({
                   type="button"
                   className="text-ink-4 hover:text-flag"
                   title="Remove from packet"
-                  onClick={() => run(() => removeBidFile(f.id))}
+                  onClick={() => onRemoveFile(f.id)}
                 >
                   <X className="size-3.5" strokeWidth={1.75} />
                 </button>

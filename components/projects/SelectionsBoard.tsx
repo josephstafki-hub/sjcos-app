@@ -17,6 +17,7 @@ import {
   addOption, updateOption, removeOption, prefillOptionFromUrl, decideSelection,
   setSelectionsBudget,
 } from "@/lib/actions/selections";
+import { useRemoved } from "@/lib/use-removed";
 
 /** Lightweight catalog option for the add-picker (avoids importing the
  *  db-coupled lib/catalog value into the client bundle). */
@@ -59,6 +60,50 @@ function pickerOptions(
   );
 }
 
+/** Mirror the server's delete semantics locally so a removed row vanishes the
+ *  moment it's clicked instead of after the refetch: hidden options and
+ *  decisions drop out; a hidden section disappears with its sub-sections and
+ *  its decisions move to Ungrouped — exactly what the database CASCADE /
+ *  SET NULL does. Group roll-ups (spent, counts) are left as-is; they correct
+ *  themselves when the refresh lands a beat later. */
+function pruneRemoved(groups: SelectionGroup[], removed: Set<string>): SelectionGroup[] {
+  if (removed.size === 0) return groups;
+  const orphans: Selection[] = [];
+
+  const strip = (sels: Selection[]): Selection[] =>
+    sels
+      .filter((s) => !removed.has(`selection:${s.id}`))
+      .map((s) => ({ ...s, options: s.options.filter((o) => !removed.has(`option:${o.id}`)) }));
+
+  const collect = (g: SelectionGroup) => {
+    orphans.push(...strip(g.selections));
+    g.children.forEach(collect);
+  };
+
+  const walk = (gs: SelectionGroup[]): SelectionGroup[] =>
+    gs.flatMap((g) => {
+      if (g.id !== null && removed.has(`section:${g.id}`)) {
+        collect(g);
+        return [];
+      }
+      return [{ ...g, selections: strip(g.selections), children: walk(g.children) }];
+    });
+
+  const next = walk(groups);
+  if (orphans.length) {
+    const ungrouped = next.find((g) => g.id === null);
+    if (ungrouped) ungrouped.selections = [...ungrouped.selections, ...orphans];
+    else
+      next.push({
+        id: null, name: "Ungrouped", budget: 0, allowance: 0, spent: 0, proposed: 0,
+        remaining: 0, selections: orphans, children: [],
+        openCount: orphans.filter((s) => s.status !== "approved").length,
+        totalCount: orphans.length,
+      });
+  }
+  return next;
+}
+
 /** Draft decisions that actually have options — what a room/board send pushes.
  *  Ones with no options are skipped server-side too, so the counts agree. */
 function pushableCount(g: SelectionGroup): number {
@@ -93,21 +138,29 @@ export function SelectionsBoard({
     { selectionId: number; selectionName: string; option: SelectionOption | null } | null
   >(null);
   const [budgetModal, setBudgetModal] = useState(false);
+  const { removed, hide, restore } = useRemoved();
 
-  const sectionOptions = pickerOptions(view.groups);
-  const totalPushable = view.groups.reduce((n, g) => n + pushableCount(g), 0);
+  const groups = pruneRemoved(view.groups, removed);
+  const sectionOptions = pickerOptions(groups);
+  const totalPushable = groups.reduce((n, g) => n + pushableCount(g), 0);
 
   // Single path for every mutation on this board. The actions revalidate on the
   // server, but the project page is dynamic (cookie auth), so nothing re-renders
   // until the client router refetches — without router.refresh() a new section
   // lands in the DB and never shows up. On failure the modal stays open with the
   // error so the typed-in values survive.
-  function run(fn: () => Promise<Result>, onSuccess?: () => void, fallback = "Something went wrong.") {
+  function run(
+    fn: () => Promise<Result>,
+    onSuccess?: () => void,
+    fallback = "Something went wrong.",
+    onError?: () => void,
+  ) {
     setError("");
     startTransition(async () => {
       const r = await fn();
       if (!r.ok) {
         setError(r.error ?? fallback);
+        onError?.();
         return;
       }
       onSuccess?.();
@@ -115,7 +168,13 @@ export function SelectionsBoard({
     });
   }
 
-  const empty = view.groups.length === 0;
+  /** Delete optimistically: hide the row now, restore it only if the write fails. */
+  function removeRow(key: string, fn: () => Promise<Result>) {
+    hide(key);
+    run(fn, undefined, undefined, () => restore(key));
+  }
+
+  const empty = groups.length === 0;
   const overBudget = view.totalBudget > 0 && view.totalBudget - view.totalSpent < 0;
   const budgetPct =
     view.totalBudget > 0 ? Math.min(100, Math.round((view.totalSpent / view.totalBudget) * 100)) : 0;
@@ -212,7 +271,7 @@ export function SelectionsBoard({
           </div>
         </Card>
       ) : (
-        view.groups.map((g) => (
+        groups.map((g) => (
           <SectionBlock
             key={g.id ?? "ungrouped"}
             group={g}
@@ -221,10 +280,10 @@ export function SelectionsBoard({
             onAddSelection={(sectionId) => setAddSel({ sectionId })}
             onAddSub={(parentId) => setSectionModal({ id: null, name: "", budget: 0, parentId })}
             onEditSection={(s) => setSectionModal(s)}
-            onRemoveSection={(id) => run(() => removeSection(id))}
+            onRemoveSection={(id) => removeRow(`section:${id}`, () => removeSection(id))}
             onPushSection={(id) => run(() => pushSectionToClient(id))}
             onUnpush={(id) => run(() => unpushSelection(id))}
-            onRemove={(id) => run(() => removeSelection(id))}
+            onRemove={(id) => removeRow(`selection:${id}`, () => removeSelection(id))}
             onEdit={(s) => setEditSel(s)}
             onAddOption={(sel) =>
               setOptionModal({ selectionId: sel.id, selectionName: sel.area, option: null })
@@ -232,7 +291,7 @@ export function SelectionsBoard({
             onEditOption={(sel, opt) =>
               setOptionModal({ selectionId: sel.id, selectionName: sel.area, option: opt })
             }
-            onRemoveOption={(id) => run(() => removeOption(id))}
+            onRemoveOption={(id) => removeRow(`option:${id}`, () => removeOption(id))}
             onChoose={(selId, optId) => run(() => decideSelection(selId, true, optId))}
           />
         ))

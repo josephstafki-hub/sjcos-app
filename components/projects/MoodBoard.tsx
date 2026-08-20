@@ -38,6 +38,7 @@ import {
   updateMoodNote,
   updateMoodSwatch,
 } from "@/lib/actions/mood";
+import { useRemoved } from "@/lib/use-removed";
 import { MoodCanvas, type MoodPatch } from "./MoodCanvas";
 
 /** Catalog item as the picker needs it. Declared here rather than reusing
@@ -101,12 +102,13 @@ export function MoodBoard({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [editing, setEditing] = useState<MoodItem | null>(null);
-  /** Optimistically removed item ids. An item disappears the moment its X is
-   *  clicked and only comes back if the delete fails — waiting for the round
-   *  trip (and disabling the X while ANY save was in flight, which is what the
-   *  old `disabled={pending}` did) made removal feel broken. Ids are serial and
-   *  never reused, so entries can stay forever without hiding anything new. */
-  const [removed, setRemoved] = useState<Set<number>>(new Set());
+  /** Optimistically removed rows (`item:<id>` and `board:<room>`). A row
+   *  disappears the moment its delete is clicked and only comes back if the
+   *  write fails — waiting for the round trip (and disabling the X while ANY
+   *  save was in flight, which is what the old `disabled={pending}` did) made
+   *  removal feel broken. Item ids are serial and never reused; a board key is
+   *  the room NAME, so addRoom restores it in case a deleted room is recreated. */
+  const { removed, hide, restore } = useRemoved();
   /** A room the owner just created, held locally only for the frame between the
    *  write landing and the new props arriving — createMoodBoard persists it, so
    *  unlike before it no longer vanishes on reload. */
@@ -120,13 +122,13 @@ export function MoodBoard({
   const [activeRoom, setActiveRoom] = useState<string | null>(linkedRoom);
 
   const rooms = useMemo(() => {
-    const names = boards.map((b) => b.room);
+    const names = boards.map((b) => b.room).filter((r) => !removed.has(`board:${r}`));
     return draftRoom && !names.includes(draftRoom) ? [...names, draftRoom] : names;
-  }, [boards, draftRoom]);
+  }, [boards, draftRoom, removed]);
 
   const room = (activeRoom && rooms.includes(activeRoom) ? activeRoom : rooms[0]) ?? null;
   const board = boards.find((b) => b.room === room) ?? null;
-  const items = (board?.items ?? []).filter((i) => !removed.has(i.id));
+  const items = (board?.items ?? []).filter((i) => !removed.has(`item:${i.id}`));
 
   // Single path for every mutation on this board. The actions revalidate on the
   // server, but the project page is dynamic (cookie auth), so nothing re-renders
@@ -152,21 +154,32 @@ export function MoodBoard({
 
   /** Remove an item optimistically: hide it now, restore it if the write fails. */
   function removeItem(id: number) {
-    setRemoved((cur) => new Set(cur).add(id));
+    hide(`item:${id}`);
     run(() => removeMoodImage(id), {
       fallback: "Could not remove that.",
-      onError: () =>
-        setRemoved((cur) => {
-          const next = new Set(cur);
-          next.delete(id);
-          return next;
-        }),
+      onError: () => restore(`item:${id}`),
+    });
+  }
+
+  /** Delete a board optimistically: its room chip drops out now (the next room
+   *  takes focus) and only comes back if the delete fails. */
+  function deleteBoard(name: string) {
+    hide(`board:${name}`);
+    if (draftRoom === name) setDraftRoom(null);
+    setActiveRoom(null);
+    setSettingsOpen(false);
+    setDeleteOpen(false);
+    run(() => deleteMoodBoard(slug, name), {
+      fallback: "Could not delete the board.",
+      onError: () => restore(`board:${name}`),
     });
   }
 
   function addRoom(name: string) {
     const clean = name.trim();
     if (!clean) return;
+    // A recreated room must not stay hidden by an earlier optimistic delete.
+    restore(`board:${clean}`);
     if (!rooms.includes(clean)) setDraftRoom(clean);
     setActiveRoom(clean);
     setNewRoom(false);
@@ -473,16 +486,7 @@ export function MoodBoard({
               },
             )
           }
-          onDelete={() =>
-            run(() => deleteMoodBoard(slug, room), {
-              onSuccess: () => {
-                setDraftRoom(null);
-                setActiveRoom(null);
-                setSettingsOpen(false);
-              },
-              fallback: "Could not delete the board.",
-            })
-          }
+          onDelete={() => deleteBoard(room)}
         />
       )}
 
@@ -504,17 +508,7 @@ export function MoodBoard({
               </button>
               <button
                 type="button"
-                disabled={pending}
-                onClick={() =>
-                  run(() => deleteMoodBoard(slug, room), {
-                    onSuccess: () => {
-                      setDraftRoom(null);
-                      setActiveRoom(null);
-                      setDeleteOpen(false);
-                    },
-                    fallback: "Could not delete the board.",
-                  })
-                }
+                onClick={() => deleteBoard(room)}
                 className="inline-flex items-center gap-1 rounded-md border border-flag bg-flag px-3 py-1.5 text-[12px] font-semibold text-paper hover:opacity-90 disabled:opacity-50"
               >
                 <Trash2 className="size-3" strokeWidth={1.75} />

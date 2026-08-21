@@ -8,18 +8,18 @@
 //   ...
 //   registerBiddingTools(server, { rows, json, biddingCall });
 //
-// WHAT THIS EXPOSES: the owner's whole Bidding-tab surface — create a bid
-// package for a category of work, attach the project's plans/takeoffs, pick
-// recipients from the sub roster by trade, customize the per-sub note, SEND
-// (publish to sub portals), watch bids come back, compare them side by side,
-// message the bidders, and award a winner.
+// WHAT THIS EXPOSES: staging and reading the owner's Bidding-tab surface —
+// create a bid package for a category of work, attach the project's
+// plans/takeoffs, pick recipients from the sub roster by trade, customize the
+// per-sub note, watch recorded bids come back, compare them side by side, and
+// award a winner.
 //
-// THE LINE, AND WHY IT'S DIFFERENT HERE: the owner explicitly opened the full
-// bidding surface to agents, including send/award. That is safe to honor
-// because "send" in this app never transmits: it flips invites live in each
-// sub's portal and PARKS a portal-invite email on the project's Subs tab for
-// subs who can't log in yet. The only path to a sub's actual inbox is Joe's
-// own mail client. No tool here (and no code in the app) can email a sub.
+// THE LINE: there is NO send tool. Sending a bid package emails the packet
+// straight to each sub's inbox (the app's Gmail connector), and client-facing
+// sends stay owner-approved — so agents stage everything and Joe presses Send
+// on the Bidding tab. (Earlier, send was agent-callable because it only
+// published to sub portals; bids are email-only now, so the line moved back.)
+// Bid replies land in Joe's inbox and he records the numbers in the app.
 //
 // Deletes: only two, both draft-only and cheap to re-create (a packet-file row
 // and an unsent invite) — the same precedent as draft PO lines. Submitted bids
@@ -280,32 +280,6 @@ export function registerBiddingTools(server, { rows, json, biddingCall }) {
     },
   );
 
-  server.registerTool(
-    "get_bid_thread",
-    {
-      title: "Read a bid thread",
-      description:
-        "The per-invite Q&A thread between the office and one bidding sub (channel bid:<invite_id>).",
-      inputSchema: { invite_id: z.number().int() },
-    },
-    async ({ invite_id }) => {
-      try {
-        const invite = await inviteById(invite_id);
-        return json({
-          sub: invite.sub_name,
-          package: invite.title,
-          messages: await rows(
-            `SELECT author_kind, author_name, body, created_at FROM chat_messages
-              WHERE channel_key = $1 ORDER BY created_at, id LIMIT 50`,
-            [`bid:${Number(invite_id)}`],
-          ),
-        });
-      } catch (e) {
-        return fail(e);
-      }
-    },
-  );
-
   // ── WRITE (direct, internal-record) ────────────────────────────────────────
 
   server.registerTool(
@@ -313,8 +287,9 @@ export function registerBiddingTools(server, { rows, json, biddingCall }) {
     {
       title: "Create a bid package",
       description:
-        "Start a bid request for one category of work on a project. Lands as a DRAFT — invisible " +
-        "to subs until send_bid_package. Attach files and add invites next.",
+        "Start a bid request for one category of work on a project. Lands as a DRAFT — nothing " +
+        "reaches a sub until the owner emails it from the Bidding tab (there is no agent send). " +
+        "Attach files and add invites next.",
       inputSchema: {
         project_slug: z.string(),
         title: z.string().describe('What\'s being bid, e.g. "Framing — main house".'),
@@ -445,8 +420,8 @@ export function registerBiddingTools(server, { rows, json, biddingCall }) {
       title: "Add subs to a bid",
       description:
         "Invite subs (by slug — see list_subs, which includes each sub's trade for grouping) to a " +
-        "package. Lands as DRAFT invites; nothing reaches a sub until send_bid_package. Duplicates " +
-        "are ignored, so re-adding a whole trade group is safe.",
+        "package. Lands as DRAFT invites; nothing reaches a sub until the owner presses Send " +
+        "(which emails the packet). Duplicates are ignored, so re-adding a trade group is safe.",
       inputSchema: {
         package_id: z.number().int(),
         sub_slugs: z.array(z.string()).min(1).describe("e.g. every sub whose trade matches the package."),
@@ -520,7 +495,7 @@ export function registerBiddingTools(server, { rows, json, biddingCall }) {
     "close_bid_package",
     {
       title: "Close a bid package",
-      description: "End bidding without awarding (descoped, went another way). Subs see it closed.",
+      description: "End bidding without awarding (descoped, went another way).",
       inputSchema: { package_id: z.number().int() },
     },
     async ({ package_id }) => {
@@ -537,45 +512,14 @@ export function registerBiddingTools(server, { rows, json, biddingCall }) {
   // ── WRITE (through the app — same code path as the owner's buttons) ────────
 
   server.registerTool(
-    "send_bid_package",
-    {
-      title: "Send a bid package",
-      description:
-        "Publish every draft invite: the packet goes live in each sub's portal, and subs without " +
-        "portal access get an invite email PARKED on the project's Subs tab for the owner to " +
-        "transmit. NO EMAIL IS SENT by this tool — publishing to the portal is the whole effect. " +
-        "Refused while the packet has no files. Re-running sends to subs added since.",
-      inputSchema: { package_id: z.number().int() },
-    },
-    async ({ package_id }) => json(await biddingCall("send_package", { package_id })),
-  );
-
-  server.registerTool(
     "award_bid",
     {
       title: "Award a bid",
       description:
         "Pick the winner: that invite goes 'awarded', every other sub still in the running goes " +
-        "'not_awarded' (their portals say so), and the package closes. Only a submitted bid can win.",
+        "'not_awarded', and the package closes. Only a submitted (recorded) bid can win.",
       inputSchema: { invite_id: z.number().int() },
     },
     async ({ invite_id }) => json(await biddingCall("award_bid", { invite_id })),
-  );
-
-  server.registerTool(
-    "send_bid_message",
-    {
-      title: "Message a bidding sub",
-      description:
-        "Post into one sub's bid thread (they see it on their portal's bid card). Posts as the " +
-        "office AI, clearly labeled — not as Joe.",
-      inputSchema: {
-        invite_id: z.number().int(),
-        body: z.string().min(1),
-        author_name: z.string().optional().describe("Display name; defaults to 'SJC Office'."),
-      },
-    },
-    async ({ invite_id, body, author_name }) =>
-      json(await biddingCall("post_message", { invite_id, body, author_name })),
   );
 }

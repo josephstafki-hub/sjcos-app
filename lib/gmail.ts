@@ -481,8 +481,9 @@ function contentDispositionFilename(filename: string): string {
   return `filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
 }
 
-/** Build a base64url-encoded RFC-2822 plain-text message. */
-function buildRaw(
+/** Build the RFC-2822 message as a plain string (see buildRaw for the
+ *  base64url form the JSON endpoint wants). */
+function buildMime(
   to: string,
   subject: string,
   bodyText: string,
@@ -510,8 +511,7 @@ function buildRaw(
     : ["Content-Type: text/plain; charset=utf-8", "", bodyText];
 
   if (!attachments || attachments.length === 0) {
-    const mime = [`To: ${to}`, `Subject: ${encodeHeader(subject)}`, "MIME-Version: 1.0", ...bodyLines].join("\r\n");
-    return Buffer.from(mime).toString("base64url");
+    return [`To: ${to}`, `Subject: ${encodeHeader(subject)}`, "MIME-Version: 1.0", ...bodyLines].join("\r\n");
   }
 
   // multipart/mixed: the body part(s) + one part per attachment (base64, wrapped
@@ -537,7 +537,18 @@ function buildRaw(
     );
   }
   parts.push(`--${boundary}--`, "");
-  return Buffer.from(parts.join("\r\n")).toString("base64url");
+  return parts.join("\r\n");
+}
+
+/** buildMime, base64url-encoded for the JSON `raw` field. */
+function buildRaw(
+  to: string,
+  subject: string,
+  bodyText: string,
+  attachments?: MailAttachment[],
+  bodyHtml?: string,
+): string {
+  return Buffer.from(buildMime(to, subject, bodyText, attachments, bodyHtml)).toString("base64url");
 }
 
 /** Send a reply on an existing thread. Posts with the threadId so Gmail keeps
@@ -575,12 +586,21 @@ export async function sendNewEmail(opts: {
   attachments?: MailAttachment[];
   bodyHtml?: string;
 }): Promise<void> {
-  await gmail().users.messages.send({
-    userId: "me",
-    requestBody: {
-      raw: buildRaw(opts.to, opts.subject || "(no subject)", opts.bodyText, opts.attachments, opts.bodyHtml),
-    },
-  });
+  const mime = buildMime(opts.to, opts.subject || "(no subject)", opts.bodyText, opts.attachments, opts.bodyHtml);
+  // The JSON endpoint rejects large payloads, so anything attachment-heavy
+  // (e.g. a bid packet with a multi-MB plan set) goes through the media-upload
+  // path instead — that one takes the raw RFC-2822 bytes, no base64 field.
+  if (Buffer.byteLength(mime) > 4 * 1024 * 1024) {
+    await gmail().users.messages.send({
+      userId: "me",
+      media: { mimeType: "message/rfc822", body: mime },
+    });
+  } else {
+    await gmail().users.messages.send({
+      userId: "me",
+      requestBody: { raw: Buffer.from(mime).toString("base64url") },
+    });
+  }
 }
 
 // ─── Mutations (require the gmail.modify scope) ──────────────────────────────

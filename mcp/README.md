@@ -167,16 +167,18 @@ of reshuffling one the owner has already dragged into place.
 (only for images you have looked at) + `add_mood_swatch` + `add_mood_text` →
 `arrange_mood_board` → tell the owner it's ready to review.
 
-## Bidding tools (per-project bid packages → sub portals)
+## Bidding tools (per-project bid packages → email)
 
-The project Bidding tab is fully drivable from any MCP client — and this family
-is deliberately **wider** than the others: at the owner's explicit direction,
-agents get every human action on this surface, including send and award. Lives
-in its own module, `mcp/bidding-tools.mjs`. Reads and internal-record writes are
-direct SQL; `send_bid_package` / `award_bid` / `send_bid_message` go through the
+Bids are **email**: the owner's Send button emails the packet (scope, per-sub
+note, files attached) straight to each sub via the app's Gmail connector, subs
+reply to Joe's inbox, and Joe records the numbers on the board. Nothing
+bid-related touches the sub portal. Agents can stage everything short of
+sending — create the package, build the packet, pick recipients, tailor notes —
+and can read/compare/award. Lives in its own module, `mcp/bidding-tools.mjs`.
+Reads and internal-record writes are direct SQL; `award_bid` goes through the
 app's bearer-gated internal route (`/api/internal/bidding`, authed with
-`CRON_SECRET`, audited to `agent_runs`) so they run the exact code the owner's
-buttons run.
+`CRON_SECRET`, audited to `agent_runs`) so it runs the exact code the owner's
+button runs.
 
 | Tool | Effect |
 |---|---|
@@ -184,7 +186,6 @@ buttons run.
 | `get_bid_package` | One package in full: packet files, invites (per-sub notes, statuses), latest submissions |
 | `compare_bids` | Submitted bids low → high with deltas, line items, exclusions, lead times, docs |
 | `list_project_files` | The project's uploaded files — the pool `attach_bid_file` draws from |
-| `get_bid_thread` | The per-invite Q&A thread with one bidding sub |
 | `create_bid_package` | Start a DRAFT bid request for a category of work |
 | `update_bid_package` | Edit title / trade / scope notes / due date |
 | `attach_bid_file` | Put a project file in the packet, with the label the sub sees |
@@ -193,24 +194,21 @@ buttons run.
 | `set_bid_invite_message` | The per-sub note that customizes the packet for one recipient |
 | `remove_bid_invite` | Take a sub off — unsent invites only |
 | `close_bid_package` | End bidding without awarding |
-| `send_bid_package` | Publish: invites go live in each sub's portal; portal-invite emails are PARKED |
 | `award_bid` | Pick the winner; everyone else goes `not_awarded`; package closes |
-| `send_bid_message` | Post in a sub's bid thread, labeled as the office AI (never as Joe) |
 
-> **Where the send line sits for this family.** Joe explicitly opened send and
-> award to agents for bidding, so the line here is not "queue vs. release" — it
-> is **email transmission**, and it is enforced by construction rather than by
-> tool absence: `send_bid_package` flips invites live in sub portals and parks
-> portal-invite emails on the project's Subs tab, and there is **no code path
-> anywhere in the app that transmits email to a sub**. The only way a bid
-> request reaches an inbox is Joe sending the parked email from his own mail
-> client. Do not add a transmitting send.
+> **Where the send line sits for this family.** There is **no send tool**, and
+> the internal route refuses the send action outright. Sending a bid package
+> transmits real email to real subs (packet attached), and client-facing sends
+> stay owner-approved — the standing rule across newsletter/PO/documents.
+> (Historical note: send used to be agent-callable here because it only
+> published to sub portals and transmitted nothing; bids went email-only, so
+> the line moved back. Do not re-add an agent send.)
 
 **Typical agent flow:** `create_bid_package` → `list_project_files` +
 `attach_bid_file` (plans, takeoff) → `list_subs`, pick by trade →
 `add_bid_invites` → `set_bid_invite_message` where a sub needs tailoring →
-`send_bid_package` → as bids land, `compare_bids` → brief the owner (or, when
-asked, `award_bid`).
+tell Joe it's staged so he can press Send → as he records bids, `compare_bids`
+→ brief the owner (or, when asked, `award_bid`).
 
 ## `search` / `fetch` (ChatGPT connector contract)
 

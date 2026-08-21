@@ -9,9 +9,7 @@ import { whisperAvailable } from "@/lib/transcribe";
 import { requireRole } from "@/lib/dal";
 import { getSub } from "@/lib/subs";
 import { getPortalThread, portalChannel } from "@/lib/portal-messages";
-import { getSubBidInvites } from "@/lib/bidding";
 import { PortalMessenger } from "@/components/portal/PortalMessenger";
-import { SubBids } from "@/components/portal/SubBids";
 import { SubLogComposer } from "@/components/sub-portal/SubLogComposer";
 import { SubInvoiceSubmit } from "@/components/sub-portal/SubInvoiceSubmit";
 
@@ -35,7 +33,7 @@ export default async function SubPortalPage() {
   // Everything below is real + DB-backed: the "Talk to Joe" thread, the sub's
   // daily logs, submitted invoices, current assignment scope/dates, documents,
   // safety orientations, plus the owner's real phone.
-  const [thread, logs, subInvoices, assignment, subDocs, orientations, joePhone, bidInvites] = slug
+  const [thread, logs, subInvoices, assignment, subDocs, orientations, joePhone] = slug
     ? await Promise.all([
         getPortalThread(portalChannel("sub", slug)),
         getSubLogs(slug),
@@ -44,9 +42,8 @@ export default async function SubPortalPage() {
         getSubDocuments(slug),
         getSubOrientations(slug),
         getOwnerPhone(),
-        getSubBidInvites(slug),
       ])
-    : [[], [], [], null, [], [], null, []];
+    : [[], [], [], null, [], [], null];
 
   // Money summary from the sub's own invoices — awaiting/approved/paid totals.
   const sumBy = (status: "submitted" | "approved" | "paid") =>
@@ -99,7 +96,6 @@ export default async function SubPortalPage() {
         <div className="mt-4 grid grid-cols-1 gap-3.5 lg:grid-cols-[1.4fr_1fr]">
           {/* left column */}
           <div className="flex flex-col gap-3">
-            <SubBids invites={bidInvites} />
             {assignment && (assignment.scope || assignment.dateLabel) && (
               <Card className="border-accent/40 p-3.5">
                 <div className="flex items-center justify-between">

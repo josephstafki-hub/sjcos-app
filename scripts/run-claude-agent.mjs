@@ -335,9 +335,10 @@ async function main() {
     // token tax. --strict-mcp-config with no --mcp-config = zero MCP servers.
     "--strict-mcp-config",
   ];
-  // Exception: a ladder TAKEOVER run (orchestrator) gets the sjcos business
-  // tools — Claude is finishing OS work Hermes couldn't. Rare by construction,
-  // so the schema token tax is acceptable there.
+  // Exception: with_mcp runs get the sjcos business tools — a ladder TAKEOVER
+  // (Claude finishing OS work Hermes couldn't) or an Ask turn where Joe flipped
+  // the per-message "Business tools (sjcos)" toggle. Opt-in by construction,
+  // so the schema token tax is paid knowingly.
   if (rows[0].with_mcp) args.push("--mcp-config", path.join(REPO, "mcp/sjcos-mcp.config.json"));
   if (resumeSession) args.push("--resume", resumeSession);
   if (model) args.push("--model", model);

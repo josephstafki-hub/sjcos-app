@@ -91,7 +91,10 @@ export type SendResult =
   | { ok: false; error: string };
 
 /** Send a message in a conversation. `conversationId` may be a fresh one just
- *  created for the selected agent. */
+ *  created for the selected agent. `withMcp` is the Ask window's per-message
+ *  "Business tools (sjcos)" opt-in for a Claude turn — deliberately not part of
+ *  ClaudeOptions (which persist in panelStore) so the ~40 sjcos tool schemas
+ *  only get injected into the run that asked for them. */
 export async function sendMessageAction(
   conversationId: string,
   prompt: string,
@@ -99,6 +102,7 @@ export async function sendMessageAction(
   claudeOptions?: Partial<ClaudeOptions>,
   attachments?: ChatAttachment[],
   subjectWorkItemId?: string,
+  withMcp?: boolean,
 ): Promise<SendResult> {
   await requireRole("owner");
   const text = prompt.trim();
@@ -160,7 +164,14 @@ export async function sendMessageAction(
             .join("\n")}`
         : text;
       // Async: the detached runner persists the assistant reply + session id.
-      const runId = await startClaudeRun(claudePrompt, pageContext, conversationId, claudeOptions);
+      const runId = await startClaudeRun(
+        claudePrompt,
+        pageContext,
+        conversationId,
+        claudeOptions,
+        undefined,
+        withMcp ? { withMcp: true } : undefined,
+      );
       return { ok: true, kind: "pending", runId, userMessageId: userMsg.id };
     }
 

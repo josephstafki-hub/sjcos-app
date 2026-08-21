@@ -2,24 +2,19 @@
 
 // Bidding write paths. The owner assembles a package on the project's Bidding
 // tab (title + trade, packet files, recipients grouped by trade, a per-sub
-// note), sends it, and the invited subs answer from their portal — a total,
-// line items, exclusions, uploaded docs — or decline. Both sides can talk in a
-// per-invite thread. Reads live in lib/bidding.ts, which also owns the
-// send/award/message ops this file shares with the MCP bridge.
+// note) and sends it — Send EMAILS the packet straight to each sub (see
+// sendBidPackageOp). Bids come back to Joe's inbox; he records each number
+// here (recordBid / declineBidInvite) so the compare view can line them up.
+// Nothing bid-related touches the sub portal. Reads live in lib/bidding.ts,
+// which also owns the send/award ops shared with the MCP bridge (which refuses
+// send — transmitting email is owner-only).
 
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { emit } from "@/lib/notify";
 import { storeUpload } from "@/lib/upload-store";
-import {
-  awardBidOp,
-  bidChannel,
-  bidInviteById,
-  bidUsd,
-  postBidMessageOp,
-  sendBidPackageOp,
-} from "@/lib/bidding";
+import { awardBidOp, bidInviteById, bidUsd, sendBidPackageOp } from "@/lib/bidding";
 
 type Result = { ok: boolean; error?: string };
 
@@ -89,7 +84,6 @@ export async function updateBidPackage(packageId: number, formData: FormData): P
     ],
   );
   revalidatePath(`/projects/${pkg.slug}`);
-  revalidatePath("/sub-portal");
   return { ok: true };
 }
 
@@ -111,7 +105,6 @@ export async function removeBidPackage(packageId: number): Promise<Result> {
   }
   await query(`DELETE FROM bid_packages WHERE id = $1`, [packageId]);
   revalidatePath(`/projects/${pkg.slug}`);
-  revalidatePath("/sub-portal");
   return { ok: true };
 }
 
@@ -125,7 +118,6 @@ export async function closeBidPackage(packageId: number): Promise<Result> {
     [packageId],
   );
   revalidatePath(`/projects/${pkg.slug}`);
-  revalidatePath("/sub-portal");
   return { ok: true };
 }
 
@@ -159,7 +151,6 @@ export async function attachBidFiles(packageId: number, formData: FormData): Pro
     );
   }
   revalidatePath(`/projects/${pkg.slug}`);
-  revalidatePath("/sub-portal");
   return { ok: true };
 }
 
@@ -190,7 +181,6 @@ export async function uploadBidFile(packageId: number, formData: FormData): Prom
     [packageId, stored.id, label],
   );
   revalidatePath(`/projects/${pkg.slug}`);
-  revalidatePath("/sub-portal");
   return { ok: true };
 }
 
@@ -210,7 +200,6 @@ export async function labelBidFile(id: number, formData: FormData): Promise<Resu
     text(formData.get("label"), 120),
   ]);
   revalidatePath(`/projects/${row.slug}`);
-  revalidatePath("/sub-portal");
   return { ok: true };
 }
 
@@ -227,7 +216,6 @@ export async function removeBidFile(id: number): Promise<Result> {
   if (!row) return { ok: false, error: "Packet file not found." };
   await query(`DELETE FROM bid_package_files WHERE id = $1`, [id]);
   revalidatePath(`/projects/${row.slug}`);
-  revalidatePath("/sub-portal");
   return { ok: true };
 }
 
@@ -269,7 +257,6 @@ export async function updateBidInviteMessage(inviteId: number, formData: FormDat
     text(formData.get("message"), 2000),
   ]);
   revalidatePath(`/projects/${invite.slug}`);
-  revalidatePath("/sub-portal");
   return { ok: true };
 }
 
@@ -289,14 +276,16 @@ export async function removeBidInvite(inviteId: number): Promise<Result> {
 
 // ─── Send / award (owner) ────────────────────────────────────────────────────
 
+/** Emails the packet to every unsent sub (see sendBidPackageOp). Revalidates
+ *  even on a not-ok result: a partial send (some emailed, one bounced, one with
+ *  no address) reports the problem AND repaints the rows that did go out. */
 export async function sendBidPackage(packageId: number): Promise<Result> {
   await requireRole("owner");
   const result = await sendBidPackageOp(packageId);
-  if (!result.ok) return { ok: false, error: result.error };
   const pkg = await packageOwner(packageId);
   if (pkg) revalidatePath(`/projects/${pkg.slug}`);
-  revalidatePath("/sub-portal");
   revalidatePath("/notifications");
+  if (!result.ok) return { ok: false, error: result.error };
   return { ok: true };
 }
 
@@ -306,50 +295,31 @@ export async function awardBid(inviteId: number): Promise<Result> {
   if (!result.ok) return { ok: false, error: result.error };
   const invite = await bidInviteById(inviteId);
   if (invite) revalidatePath(`/projects/${invite.slug}`);
-  revalidatePath("/sub-portal");
   revalidatePath("/notifications");
   return { ok: true };
 }
 
-// ─── Bid threads (owner side) ────────────────────────────────────────────────
+// ─── Recording what comes back (owner) ───────────────────────────────────────
+//
+// Bids arrive as email replies, so the owner transcribes each one here. Same
+// tables the portal flow used to write, so compare/award are unchanged.
 
-export async function sendBidMessageAsOwner(inviteId: number, formData: FormData): Promise<Result> {
-  const user = await requireRole("owner");
-  const body = text(formData.get("body"), 4000);
-  const result = await postBidMessageOp(
-    inviteId,
-    { kind: "owner", name: user.name || "Joe", initials: user.initials || "JS" },
-    body,
-  );
-  if (!result.ok) return { ok: false, error: result.error };
+/** The invite must exist and have actually gone out. */
+async function requireSentInvite(inviteId: number) {
+  await requireRole("owner");
   const invite = await bidInviteById(inviteId);
-  if (invite) revalidatePath(`/projects/${invite.slug}`);
-  revalidatePath("/sub-portal");
-  return { ok: true };
-}
-
-// ─── The sub's side (portal) ─────────────────────────────────────────────────
-
-/** The invite must belong to the signed-in sub and be live. Owner passes too
- *  (previewing / acting on a sub's behalf over the phone). */
-async function requireInviteAccess(inviteId: number) {
-  const user = await requireRole("owner", "sub");
-  const invite = await bidInviteById(inviteId);
-  if (!invite) return { user, invite: null, error: "Bid invite not found." };
-  if (user.role === "sub" && user.linkSlug !== invite.sub_slug) {
-    return { user, invite: null, error: "Not authorized for this bid." };
-  }
+  if (!invite) return { invite: null, error: "Bid invite not found." };
   if (invite.status === "draft") {
-    return { user, invite: null, error: "This bid request isn't open yet." };
+    return { invite: null, error: "This invite hasn't been emailed yet." };
   }
-  return { user, invite, error: "" };
+  return { invite, error: "" };
 }
 
-/** Sub sends back a bid: a total (or line items that sum to one), optional
- *  exclusions / lead time / notes, and any uploaded documents. Re-submitting
- *  files a new revision — the owner's compare view reads the latest. */
-export async function submitBid(inviteId: number, formData: FormData): Promise<Result> {
-  const { invite, error } = await requireInviteAccess(inviteId);
+/** Record a bid that came back by email: a total (or line items that sum to
+ *  one), optional exclusions / lead time / notes, and the sub's emailed quote
+ *  as an upload. Re-recording files a new revision — compare reads the latest. */
+export async function recordBid(inviteId: number, formData: FormData): Promise<Result> {
+  const { invite, error } = await requireSentInvite(inviteId);
   if (!invite) return { ok: false, error };
   if (["awarded", "not_awarded"].includes(invite.status) || invite.package_status !== "open") {
     return { ok: false, error: "Bidding on this package has closed." };
@@ -421,16 +391,15 @@ export async function submitBid(inviteId: number, formData: FormData): Promise<R
     subline: `${invite.project_name} · ${invite.title}`,
     href: `/projects/${invite.slug}`,
   });
-  revalidatePath("/sub-portal");
   revalidatePath(`/projects/${invite.slug}`);
   revalidatePath("/notifications");
   return { ok: true };
 }
 
-/** Sub passes on the work. The optional reason lands in the bid thread so the
- *  owner knows whether to re-scope or just move on. */
+/** The sub passed (said so by email or phone). The optional reason rides the
+ *  notification so the owner's log says whether to re-scope or just move on. */
 export async function declineBidInvite(inviteId: number, formData: FormData): Promise<Result> {
-  const { user, invite, error } = await requireInviteAccess(inviteId);
+  const { invite, error } = await requireSentInvite(inviteId);
   if (!invite) return { ok: false, error };
   if (["submitted", "awarded", "not_awarded", "declined"].includes(invite.status)) {
     return { ok: false, error: "This bid has already been answered." };
@@ -441,13 +410,6 @@ export async function declineBidInvite(inviteId: number, formData: FormData): Pr
     [inviteId],
   );
   const reason = text(formData.get("reason"), 1000);
-  if (reason) {
-    await query(
-      `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body)
-       VALUES ($1, 'user', $2, $3, $4)`,
-      [bidChannel(inviteId), invite.sub_name, user.initials || "", reason],
-    );
-  }
 
   await emit({
     kind: "job",
@@ -459,34 +421,6 @@ export async function declineBidInvite(inviteId: number, formData: FormData): Pr
     subline: `${invite.project_name}${reason ? ` · "${reason.slice(0, 80)}"` : ""}`,
     href: `/projects/${invite.slug}`,
   });
-  revalidatePath("/sub-portal");
-  revalidatePath(`/projects/${invite.slug}`);
-  revalidatePath("/notifications");
-  return { ok: true };
-}
-
-/** Sub asks a question in the bid thread; the owner is notified. */
-export async function sendBidMessageAsSub(inviteId: number, formData: FormData): Promise<Result> {
-  const { user, invite, error } = await requireInviteAccess(inviteId);
-  if (!invite) return { ok: false, error };
-  const body = text(formData.get("body"), 4000);
-  if (!body) return { ok: false, error: "Write a message first." };
-
-  await query(
-    `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body)
-     VALUES ($1, 'user', $2, $3, $4)`,
-    [bidChannel(inviteId), invite.sub_name, user.initials || "", body],
-  );
-  await emit({
-    kind: "mention",
-    tag: "Bid",
-    icon: "chat",
-    accent: "ai",
-    title: `${invite.sub_name} asked about ${invite.title}`,
-    subline: body.length > 120 ? `${body.slice(0, 117)}…` : body,
-    href: `/projects/${invite.slug}`,
-  });
-  revalidatePath("/sub-portal");
   revalidatePath(`/projects/${invite.slug}`);
   revalidatePath("/notifications");
   return { ok: true };

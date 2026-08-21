@@ -1,20 +1,19 @@
 // Internal agent surface for bidding (MCP -> app bridge). The MCP server is
-// plain JS and can't import the TS ops, so send/award/message drive through
-// this route — the exact functions the owner's buttons call (lib/bidding.ts),
-// so portal publishing, parked invite emails, and notifications stay one
-// implementation. Guarded by a bearer token (CRON_SECRET), a trusted local
-// caller, not a browser session.
+// plain JS and can't import the TS ops, so award drives through this route —
+// the exact function the owner's button calls (lib/bidding.ts) — guarded by a
+// bearer token (CRON_SECRET), a trusted local caller, not a browser session.
 //
-// SCOPE NOTE: unlike newsletter/PO, bidding's send IS exposed to agents — the
-// owner explicitly moved that line for this family. What "send" does here is
-// publish to sub portals and PARK invite emails on the Subs tab; no code path
-// in the app transmits email, so the real send line (a message leaving for a
-// sub's inbox) still ends at Joe's own mail client.
+// SCOPE NOTE: send is REFUSED here. Sending a bid package now emails the
+// packet straight to each sub's inbox (sendBidPackageOp), and client-facing
+// sends stay owner-approved — agents stage the package (files, invites,
+// notes) and Joe presses Send on the Bidding tab. This moves the line back
+// from the earlier arrangement where agents could "send" because nothing
+// transmitted; now it does, so they can't.
 
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { query } from "@/lib/db";
-import { awardBidOp, postBidMessageOp, sendBidPackageOp } from "@/lib/bidding";
+import { awardBidOp } from "@/lib/bidding";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,21 +54,17 @@ export async function POST(req: Request) {
 
     switch (action) {
       case "send_package":
-        result = await sendBidPackageOp(Number(body.package_id));
+        // Owner-only: Send transmits real email to subs now. Refuse with an
+        // explanation an agent can relay instead of a bare 400.
+        result = {
+          ok: false,
+          error:
+            "Sending a bid package emails the subs directly, so Send is owner-only. " +
+            "The package is staged — ask Joe to press Send on the project's Bidding tab.",
+        };
         break;
       case "award_bid":
         result = await awardBidOp(Number(body.invite_id));
-        break;
-      case "post_message":
-        result = await postBidMessageOp(
-          Number(body.invite_id),
-          {
-            kind: "ai",
-            name: String(body.author_name ?? "SJC Office"),
-            initials: String(body.author_initials ?? "AI").slice(0, 3),
-          },
-          String(body.body ?? ""),
-        );
         break;
       default:
         return NextResponse.json({ ok: false, error: `Unknown action "${action}"` }, { status: 400 });
@@ -77,7 +72,6 @@ export async function POST(req: Request) {
 
     if (result.ok) {
       revalidatePath("/projects/[slug]", "page");
-      revalidatePath("/sub-portal");
       revalidatePath("/notifications");
       await audit(action, JSON.stringify(result).slice(0, 500));
     }

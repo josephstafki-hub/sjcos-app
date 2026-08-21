@@ -9,12 +9,13 @@
 //   3. Pick recipients  — the sub roster grouped by trade with one-click
 //                         group select; each sub can carry a personal note on
 //                         top of the shared scope.
-//   4. Send             — every draft invite publishes to that sub's portal;
-//                         subs without portal access get an invite email
-//                         PARKED on the Subs tab (Joe transmits those himself).
-//   5. Compare + award  — submitted bids line up side by side (totals, line
-//                         items, exclusions, lead time, docs) with the low
-//                         number flagged; awarding one closes the package.
+//   4. Send             — EMAILS the packet straight to each sub (scope +
+//                         per-sub note in the body, files attached). Bids are
+//                         email only; nothing touches the sub portal.
+//   5. Record + compare — replies land in Joe's inbox; he records each number
+//                         here ("Record bid"), they line up side by side with
+//                         the low number flagged, and awarding one closes the
+//                         package.
 //
 // Packages group by trade on the board and the recipient picker sorts by
 // trade, so "send the framing packet to my framing subs" is two clicks.
@@ -22,9 +23,9 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  BadgeDollarSign,
   Check,
   FileText,
-  MessageSquare,
   Paperclip,
   Pencil,
   Plus,
@@ -51,11 +52,12 @@ import {
   awardBid,
   closeBidPackage,
   createBidPackage,
+  declineBidInvite,
   labelBidFile,
+  recordBid,
   removeBidFile,
   removeBidInvite,
   removeBidPackage,
-  sendBidMessageAsOwner,
   sendBidPackage,
   updateBidInviteMessage,
   updateBidPackage,
@@ -101,7 +103,7 @@ type Modal =
   | { kind: "subs"; pkgId: number }
   | { kind: "note"; inviteId: number; pkgId: number }
   | { kind: "compare"; pkgId: number }
-  | { kind: "thread"; inviteId: number; pkgId: number }
+  | { kind: "record"; inviteId: number; pkgId: number }
   | null;
 
 export function BiddingBoard({
@@ -192,8 +194,8 @@ export function BiddingBoard({
           <h3 className="font-serif text-[16px] font-semibold text-ink">Bidding</h3>
           <p className="mt-0.5 text-[12px] text-ink-3">
             {packages.length > 0
-              ? "Packets out to subs, grouped by trade. Bids come back here and compare side by side."
-              : "Send plans and takeoffs to a group of subs and collect their numbers in one place."}
+              ? "Packets emailed to subs, grouped by trade. Record the numbers that come back and compare side by side."
+              : "Email plans and takeoffs to a group of subs and collect their numbers in one place."}
           </p>
         </div>
         <button className={BTN_SOLID} onClick={() => setModal({ kind: "pkg", pkg: null })}>
@@ -238,7 +240,7 @@ export function BiddingBoard({
               onFiles={() => setModal({ kind: "files", pkgId: pkg.id })}
               onSubs={() => setModal({ kind: "subs", pkgId: pkg.id })}
               onNote={(inviteId) => setModal({ kind: "note", inviteId, pkgId: pkg.id })}
-              onThread={(inviteId) => setModal({ kind: "thread", inviteId, pkgId: pkg.id })}
+              onRecord={(inviteId) => setModal({ kind: "record", inviteId, pkgId: pkg.id })}
               onCompare={() => setModal({ kind: "compare", pkgId: pkg.id })}
               onSend={() => run(() => sendBidPackage(pkg.id))}
               onClose={() => run(() => closeBidPackage(pkg.id))}
@@ -298,11 +300,10 @@ export function BiddingBoard({
           error={error}
           run={run}
           onClose={close}
-          onThread={(inviteId) => setModal({ kind: "thread", inviteId, pkgId: modal.pkgId })}
         />
       )}
-      {modal?.kind === "thread" && inviteById(modal.pkgId, modal.inviteId) && (
-        <ThreadModal
+      {modal?.kind === "record" && inviteById(modal.pkgId, modal.inviteId) && (
+        <RecordBidModal
           invite={inviteById(modal.pkgId, modal.inviteId)!}
           pending={pending}
           error={error}
@@ -323,7 +324,7 @@ function PackageCard({
   onFiles,
   onSubs,
   onNote,
-  onThread,
+  onRecord,
   onCompare,
   onSend,
   onClose,
@@ -337,7 +338,7 @@ function PackageCard({
   onFiles: () => void;
   onSubs: () => void;
   onNote: (inviteId: number) => void;
-  onThread: (inviteId: number) => void;
+  onRecord: (inviteId: number) => void;
   onCompare: () => void;
   onSend: () => void;
   onClose: () => void;
@@ -447,6 +448,9 @@ function PackageCard({
                       </span>
                     )}
                   </span>
+                  {inv.status === "draft" && !inv.subEmail && (
+                    <Chip kind="flag">no email</Chip>
+                  )}
                   <Chip kind="ghost">{inv.subTrade || "—"}</Chip>
                   <Chip kind={ic.kind} dot>
                     {ic.label}
@@ -462,14 +466,15 @@ function PackageCard({
                     <Pencil className="size-3.5" strokeWidth={1.5} />
                   </button>
                   <button
-                    className={`relative ${inv.status === "draft" ? "text-ink-4" : "text-ink-3 hover:text-ink"}`}
-                    title={inv.status === "draft" ? "Thread opens once sent" : "Message this sub"}
-                    onClick={() => inv.status !== "draft" && onThread(inv.id)}
+                    className={inv.status === "draft" ? "text-ink-4" : "text-ink-3 hover:text-money"}
+                    title={
+                      inv.status === "draft"
+                        ? "Record a bid once the request is emailed"
+                        : "Record the bid from their email reply (or mark them passed)"
+                    }
+                    onClick={() => inv.status !== "draft" && onRecord(inv.id)}
                   >
-                    <MessageSquare className="size-3.5" strokeWidth={1.5} />
-                    {inv.thread.length > 0 && (
-                      <span className="absolute -right-1 -top-1 size-1.5 rounded-full bg-ai" />
-                    )}
+                    <BadgeDollarSign className="size-3.5" strokeWidth={1.5} />
                   </button>
                   {inv.status === "draft" ? (
                     <button
@@ -501,8 +506,8 @@ function PackageCard({
           <button className={BTN_SOLID} disabled={pending} onClick={onSend}>
             <Send className="size-3" strokeWidth={1.75} />
             {pkg.status === "draft"
-              ? `Send to ${draftInvites} sub${draftInvites === 1 ? "" : "s"}`
-              : `Send to ${draftInvites} more`}
+              ? `Email to ${draftInvites} sub${draftInvites === 1 ? "" : "s"}`
+              : `Email ${draftInvites} more`}
           </button>
         )}
         {pkg.submittedCount > 0 && (
@@ -876,14 +881,12 @@ function CompareModal({
   error,
   run,
   onClose,
-  onThread,
 }: {
   pkg: BidPackage;
   pending: boolean;
   error: string;
   run: RunFn;
   onClose: () => void;
-  onThread: (inviteId: number) => void;
 }) {
   const bids = pkg.invites
     .filter((i) => i.submission && i.status !== "declined")
@@ -961,8 +964,8 @@ function CompareModal({
                   </div>
                 )}
 
-                <div className="mt-auto flex items-center gap-2 border-t border-rule-soft pt-2">
-                  {canAward && (
+                {canAward && (
+                  <div className="mt-auto flex items-center gap-2 border-t border-rule-soft pt-2">
                     <button
                       disabled={pending}
                       onClick={() => run(() => awardBid(inv.id))}
@@ -971,12 +974,8 @@ function CompareModal({
                       <Trophy className="size-3" strokeWidth={1.75} />
                       Award
                     </button>
-                  )}
-                  <button className={BTN_GHOST} onClick={() => onThread(inv.id)}>
-                    <MessageSquare className="size-3" strokeWidth={1.75} />
-                    Message
-                  </button>
-                </div>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -986,7 +985,11 @@ function CompareModal({
   );
 }
 
-function ThreadModal({
+/** Transcribe a bid that came back by email (or mark the sub as passed).
+ *  Same fields the compare cards show: total or line items, exclusions, lead
+ *  time, notes, plus the sub's emailed quote as an attachment. Recording again
+ *  files a new revision. */
+function RecordBidModal({
   invite,
   pending,
   error,
@@ -999,71 +1002,127 @@ function ThreadModal({
   run: RunFn;
   onClose: () => void;
 }) {
+  const [lineCount, setLineCount] = useState(0);
+  const [declining, setDeclining] = useState(false);
+  const answered = ["declined", "awarded", "not_awarded"].includes(invite.status);
+
+  if (declining) {
+    return (
+      <ModalShell title={`${invite.subName} passed`} onClose={onClose}>
+        <form
+          action={(fd) => run(() => declineBidInvite(invite.id, fd), onClose)}
+          className="flex flex-col gap-3 p-4"
+        >
+          <ModalError error={error} />
+          <label className="flex flex-col gap-1">
+            <span className={LABEL}>Why they passed (optional)</span>
+            <input name="reason" placeholder="Booked through fall, too far out…" className={INPUT} />
+          </label>
+          <div className="mt-1 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setDeclining(false)}
+              className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2"
+            >
+              Back
+            </button>
+            <button type="submit" disabled={pending} className={BTN_SOLID}>
+              <Check className="size-3" strokeWidth={1.75} />
+              Mark passed
+            </button>
+          </div>
+        </form>
+      </ModalShell>
+    );
+  }
+
   return (
-    <ModalShell title={`${invite.subName} · bid thread`} onClose={onClose}>
-      <div className="flex flex-col gap-2 p-4">
+    <ModalShell title={`Record bid · ${invite.subName}`} onClose={onClose}>
+      <form
+        action={(fd) => run(() => recordBid(invite.id, fd), onClose)}
+        className="flex flex-col gap-3 p-4"
+      >
         <ModalError error={error} />
-        {invite.thread.length === 0 && (
-          <p className="text-[12.5px] text-ink-3">No messages yet — questions from {invite.subName} land here.</p>
-        )}
-        {invite.thread.length > 0 && (
-          <div className="flex max-h-[260px] flex-col gap-2 overflow-y-auto">
-            {invite.thread.map((m) => {
-              const mine = m.author !== "user";
-              return (
-                <div key={m.id} className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
-                  <div
-                    className={[
-                      "max-w-[85%] rounded-lg px-2.5 py-1.5 text-[12px] leading-snug",
-                      mine ? "bg-accent text-ink" : "bg-paper-3 text-ink",
-                    ].join(" ")}
-                  >
-                    {m.body}
-                  </div>
-                  <span className="mt-0.5 font-mono text-[8.5px] uppercase tracking-[0.1em] text-ink-4">
-                    {mine ? (m.author === "ai" ? m.name : "You") : m.name} · {m.when}
-                  </span>
-                </div>
-              );
-            })}
+        <p className="text-[12px] text-ink-3">
+          Type in what {invite.subName} sent back by email
+          {invite.submission ? " — this files a new revision over their last number" : ""}.
+        </p>
+        <label className="flex flex-col gap-1">
+          <span className={LABEL}>Bid total</span>
+          <input
+            name="total"
+            inputMode="decimal"
+            defaultValue={invite.submission ? (invite.submission.total / 100).toString() : ""}
+            placeholder="18,500"
+            className={INPUT}
+          />
+        </label>
+        {lineCount > 0 && (
+          <div className="flex flex-col gap-1.5">
+            <span className={LABEL}>Line items (total can be left blank if these add up)</span>
+            {Array.from({ length: lineCount }, (_, i) => (
+              <div key={i} className="flex gap-2">
+                <input name="lineDesc" placeholder="Rough-in" className={`${INPUT} flex-1`} />
+                <input name="lineAmount" inputMode="decimal" placeholder="$" className={`${INPUT} w-[110px]`} />
+              </div>
+            ))}
           </div>
         )}
-        <MessageComposer
-          pending={pending}
-          onSend={(fd, reset) => run(() => sendBidMessageAsOwner(invite.id, fd), reset)}
-        />
-      </div>
+        <button
+          type="button"
+          onClick={() => setLineCount((n) => n + 1)}
+          className="self-start text-[11.5px] font-semibold text-accent-2 underline-offset-2 hover:underline"
+        >
+          + line item
+        </button>
+        <div className="flex gap-3">
+          <label className="flex flex-1 flex-col gap-1">
+            <span className={LABEL}>Lead time</span>
+            <input name="leadTime" placeholder="3 weeks out" className={INPUT} />
+          </label>
+        </div>
+        <label className="flex flex-col gap-1">
+          <span className={LABEL}>Exclusions</span>
+          <textarea name="exclusions" rows={2} placeholder="Fixtures, service upgrade…" className={`${INPUT} resize-y`} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className={LABEL}>Notes</span>
+          <textarea name="notes" rows={2} placeholder="Anything else from their reply…" className={`${INPUT} resize-y`} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className={LABEL}>Their quote / attachments (optional)</span>
+          <input
+            name="files"
+            type="file"
+            multiple
+            className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[12px] text-ink-2 outline-none file:mr-2 file:rounded file:border-0 file:bg-paper-3 file:px-2 file:py-1 file:text-[11px] file:text-ink-2"
+          />
+        </label>
+        <div className="mt-1 flex items-center gap-2">
+          {!answered && (
+            <button
+              type="button"
+              onClick={() => setDeclining(true)}
+              className="text-[11.5px] text-ink-3 underline-offset-2 hover:underline"
+            >
+              They passed on it
+            </button>
+          )}
+          <div className="flex-1" />
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2"
+          >
+            Cancel
+          </button>
+          <button type="submit" disabled={pending} className={BTN_SOLID}>
+            <BadgeDollarSign className="size-3" strokeWidth={1.75} />
+            {invite.submission ? "Record revision" : "Record bid"}
+          </button>
+        </div>
+      </form>
     </ModalShell>
-  );
-}
-
-function MessageComposer({
-  pending,
-  onSend,
-}: {
-  pending: boolean;
-  onSend: (fd: FormData, reset: () => void) => void;
-}) {
-  const [draft, setDraft] = useState("");
-  return (
-    <form
-      action={(fd) => onSend(fd, () => setDraft(""))}
-      className="flex flex-col gap-2"
-    >
-      <textarea
-        name="body"
-        required
-        rows={2}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        placeholder="Message this sub…"
-        className={`${INPUT} resize-none`}
-      />
-      <button type="submit" disabled={pending} className={`${BTN_SOLID} self-end`}>
-        <Send className="size-3" strokeWidth={1.75} />
-        Send
-      </button>
-    </form>
   );
 }
 

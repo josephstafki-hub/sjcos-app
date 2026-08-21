@@ -89,6 +89,10 @@ export function PanelChat({
   const [flash, setFlash] = useState("");
   const [threadsOpen, setThreadsOpen] = useState(false);
   const [threads, setThreads] = useState<ConversationSummary[]>([]);
+  // Per-message opt-in: attach the sjcos MCP server to the next Claude turn.
+  // Plain state, never written to panelStore, and reset after every send — the
+  // ~40 business tool schemas only enter context when this turn needs them.
+  const [withMcp, setWithMcp] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -198,7 +202,13 @@ export function PanelChat({
     const display = files.length ? `${q}${q ? "\n\n" : ""}📎 ${files.map((f) => f.name).join(", ")}` : q;
     setPrompt("");
     setAttachments([]);
-    chat.submit({ directive: q, display, attachments: files });
+    chat.submit({
+      directive: q,
+      display,
+      attachments: files,
+      withMcp: chat.agent === "claude" && withMcp ? true : undefined,
+    });
+    setWithMcp(false);
   };
 
   /** Voice-mode send: the transcript goes to the Claude concierge, which
@@ -520,6 +530,19 @@ export function PanelChat({
             options={CLAUDE_EFFORT_OPTIONS}
             onChange={(effort) => chat.setClaudeOpts({ effort: effort as ClaudeEffort })}
           />
+          <label
+            className="flex cursor-pointer items-center gap-1"
+            title="Give this message the sjcos business tools (leads, projects, invoices…). One message only — resets after send."
+          >
+            <input
+              type="checkbox"
+              checked={withMcp}
+              disabled={chat.pending}
+              onChange={(e) => setWithMcp(e.target.checked)}
+              className="size-3 accent-ai disabled:opacity-50"
+            />
+            <span className={withMcp ? "font-medium text-ai-2" : undefined}>Business tools (sjcos)</span>
+          </label>
           <span className="hidden text-ink-4/70 min-[520px]:inline">⇧Tab cycles · /model /effort /mode</span>
         </div>
       )}

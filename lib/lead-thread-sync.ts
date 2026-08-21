@@ -64,9 +64,13 @@ export async function syncLeadThreads(opts: { dryRun?: boolean; max?: number } =
     // (see lib/leads.ts stageIsLost). Their Gmail history is irrelevant to
     // "needs reply," and syncing would stomp a legitimate "Passed"/"Lost"
     // ghost badge, or worse, resurrect a dead lead as "Needs reply."
+    // Converted leads are likewise off-pipeline: their client's email now
+    // belongs to the project (the needs-reply detector routes it there), so
+    // flagging the hidden lead row would surface nowhere.
     query<LeadRow>(
       `SELECT slug, name, email, flag_kind, last_contact_at::text AS last_contact_at
-         FROM leads WHERE email IS NOT NULL AND email <> '' AND stage <> 'lost'`,
+         FROM leads WHERE email IS NOT NULL AND email <> '' AND stage <> 'lost'
+          AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.lead_id = leads.id)`,
     ),
     query<{ gmail_thread_id: string; link_slug: string }>(
       `SELECT gmail_thread_id, link_slug FROM thread_links WHERE link_type = 'lead'`,

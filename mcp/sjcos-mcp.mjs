@@ -215,7 +215,9 @@ server.registerTool(
   },
   async () => {
     const [leads, projects, subs, ar, compliance, work, approvals] = await Promise.all([
-      rows(`SELECT stage, count(*)::int AS n FROM leads GROUP BY stage ORDER BY stage`),
+      rows(`SELECT stage, count(*)::int AS n FROM leads
+             WHERE NOT EXISTS (SELECT 1 FROM projects p WHERE p.lead_id = leads.id)
+             GROUP BY stage ORDER BY stage`),
       rows(`SELECT status, count(*)::int AS n FROM projects GROUP BY status ORDER BY status`),
       rows(`SELECT count(*)::int AS subs FROM subs`),
       rows(`SELECT COALESCE(sum(amount),0)::int AS outstanding FROM invoices WHERE status = 'sent'`),
@@ -250,11 +252,14 @@ server.registerTool(
   "list_leads",
   {
     title: "List leads",
-    description: "List leads, optionally filtered by pipeline stage. Newest contact first.",
+    description:
+      "List leads, optionally filtered by pipeline stage. Newest contact first. " +
+      "Leads already converted to a project are excluded (use get_lead / list_projects for those).",
     inputSchema: { stage: z.string().optional(), limit: z.number().int().min(1).max(200).optional() },
   },
   async ({ stage, limit = 50 }) => {
-    const where = stage ? `WHERE stage = $1` : ``;
+    const notConverted = `NOT EXISTS (SELECT 1 FROM projects p WHERE p.lead_id = leads.id)`;
+    const where = stage ? `WHERE stage = $1 AND ${notConverted}` : `WHERE ${notConverted}`;
     const params = stage ? [stage, limit] : [limit];
     return json(
       await rows(

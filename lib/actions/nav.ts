@@ -42,7 +42,9 @@ async function inboxUnread(): Promise<number> {
 async function leadsNeedingAttention(): Promise<number> {
   try {
     const { rows } = await query<{ n: string }>(
-      `SELECT count(*) AS n FROM leads WHERE flag_kind = 'flag'`,
+      `SELECT count(*) AS n FROM leads
+        WHERE flag_kind = 'flag'
+          AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.lead_id = leads.id)`,
     );
     return Number(rows[0]?.n ?? 0);
   } catch {

@@ -405,7 +405,16 @@ export async function getLeadTriage(input: TriageInput): Promise<TriageResult> {
 }
 
 export async function getLeadsData(): Promise<LeadsData> {
-  const { rows } = await query<LeadRow>(`${LEAD_SELECT} ORDER BY hot DESC, last_contact_at DESC`);
+  // Converted leads are off the pipeline: once a project exists for a lead the
+  // row is kept (the project reads its intake/activity history) but the list,
+  // stage counts, and weighted total no longer include it. getLead() stays
+  // unfiltered so a converted lead's detail page still opens with its
+  // "view project" link.
+  const { rows } = await query<LeadRow>(
+    `${LEAD_SELECT}
+      WHERE NOT EXISTS (SELECT 1 FROM projects p WHERE p.lead_id = leads.id)
+      ORDER BY hot DESC, last_contact_at DESC`,
+  );
   const leads = rows.map(rowToItem);
 
   // "Active" excludes terminal lost/archived leads from the headline + weighting.

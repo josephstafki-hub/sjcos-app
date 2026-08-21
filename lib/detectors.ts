@@ -107,19 +107,35 @@ function needsReplyDetector(): Detector {
       fetchThreadPage(150),
       query<{ id: string; slug: string; name: string; email: string }>(
         `SELECT id, slug, name, email FROM leads
-          WHERE email IS NOT NULL AND email <> '' AND stage <> 'lost'`,
+          WHERE email IS NOT NULL AND email <> '' AND stage <> 'lost'
+            AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.lead_id = leads.id)`,
       ),
       query<{ gmail_thread_id: string; link_type: string; link_slug: string }>(
         `SELECT gmail_thread_id, link_type, link_slug FROM thread_links`,
       ),
-      query<{ id: string; slug: string; name: string; client_name: string }>(
-        `SELECT id, slug, name, client_name FROM projects WHERE status <> 'warranty'`,
+      // A converted lead is off the pipeline, so its client's email rides with
+      // the project instead: the origin lead's address matches unlinked
+      // threads to the project the lead became.
+      query<{
+        id: string; slug: string; name: string; client_name: string;
+        email: string | null; lead_slug: string | null;
+      }>(
+        `SELECT p.id, p.slug, p.name, p.client_name, l.email, l.slug AS lead_slug
+           FROM projects p LEFT JOIN leads l ON l.id = p.lead_id
+          WHERE p.status <> 'warranty'`,
       ),
     ]);
 
     const leadBySlug = new Map(leadRes.rows.map((l) => [l.slug, l]));
     const leadByEmail = new Map(leadRes.rows.map((l) => [l.email.toLowerCase(), l]));
     const projBySlug = new Map(projRes.rows.map((p) => [p.slug, p]));
+    const projByEmail = new Map(
+      projRes.rows.filter((p) => p.email).map((p) => [p.email!.toLowerCase(), p]),
+    );
+    // Origin-lead slug → project, for threads still linked to a converted lead.
+    const projByLeadSlug = new Map(
+      projRes.rows.filter((p) => p.lead_slug).map((p) => [p.lead_slug!, p]),
+    );
     const linked = new Map(linkRes.rows.map((r) => [r.gmail_thread_id, r]));
 
     const items: DetectedItem[] = [];
@@ -129,12 +145,21 @@ function needsReplyDetector(): Detector {
     for (const t of threads) {
       if (t.outbound) outboundThreadIds.add(t.id);
       const link = linked.get(t.id);
+      const email = (t.outbound ? extractEmail(t.toLine) : t.fromEmail).toLowerCase();
       const lead = link
         ? link.link_type === "lead"
           ? leadBySlug.get(link.link_slug)
           : undefined
-        : leadByEmail.get((t.outbound ? extractEmail(t.toLine) : t.fromEmail).toLowerCase());
-      const project = link?.link_type === "project" ? projBySlug.get(link.link_slug) : undefined;
+        : leadByEmail.get(email);
+      // A converted lead's threads resolve to its project — whether linked to
+      // the lead (projByLeadSlug) or matched by the client's email address.
+      const project = link
+        ? link.link_type === "project"
+          ? projBySlug.get(link.link_slug)
+          : projByLeadSlug.get(link.link_slug)
+        : lead
+          ? undefined
+          : projByEmail.get(email);
       if (!lead && !project) continue;
 
       // Newest-first: the first matched thread per record is its latest word.
@@ -600,7 +625,9 @@ function gateStalledDetector(): Detector {
           `SELECT id, slug, name, stage,
                   floor(extract(epoch FROM now() - updated_at) / 86400)::int AS days
              FROM leads
-            WHERE stage <> 'lost' AND updated_at < now() - interval '${GATE_STALLED_DAYS} days'`,
+            WHERE stage <> 'lost'
+              AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.lead_id = leads.id)
+              AND updated_at < now() - interval '${GATE_STALLED_DAYS} days'`,
         ),
         query<{ id: string; slug: string; name: string; status: string; days: number }>(
           `SELECT id, slug, name, status,
@@ -655,6 +682,7 @@ function gateStalledDetector(): Detector {
                  AND l.slug = split_part(ds.dedup_key, ':', 3)
                  AND l.stage = split_part(ds.dedup_key, ':', 4)
                  AND l.stage <> 'lost'
+                 AND NOT EXISTS (SELECT 1 FROM projects p2 WHERE p2.lead_id = l.id)
                  AND l.updated_at < now() - interval '${GATE_STALLED_DAYS} days')
             AND NOT EXISTS (
               SELECT 1 FROM projects p

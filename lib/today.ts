@@ -259,6 +259,7 @@ async function fetchQueueSources(): Promise<QueueSources> {
       query<FlaggedLeadRow>(`
         SELECT slug, name, scope, flag_label
         FROM leads WHERE flag_kind = 'flag' AND stage <> 'lost'
+          AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.lead_id = leads.id)
         ORDER BY updated_at DESC`),
       query<TodayWorkItemRow>(`${OPEN_WORK_ITEMS_SQL}${OPEN_WORK_ITEMS_ORDER_SQL}`),
       query<ScheduleRow>(`

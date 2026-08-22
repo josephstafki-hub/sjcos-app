@@ -32,9 +32,17 @@ function homeForRole(role: Role): string {
 /** Reachable without a session. The portal invite links are the sub's and the
  *  client's way IN — they have no cookie yet by definition, so bouncing them to
  *  /login would defeat the whole point. The routes themselves are the gate:
- *  each only mints a session for a valid, unexpired, undismissed token
+ *  each only mints a session for a valid, undismissed token
  *  (app/sub-portal/enter, app/client-portal/enter). */
 const PUBLIC_PATHS = ["/login", "/sub-portal/enter", "/client-portal/enter"];
+
+/** Portal surfaces whose visitors may have no password at all — a sub never
+ *  does, and a client only does once they claim the portal. When their session
+ *  lapses (7 days) a bookmark or a stale tab lands here with no cookie, and a
+ *  bare sign-in form is a dead end for them: the emailed link is their whole
+ *  credential. Tagging the bounce lets /login say "open the link Joe sent you",
+ *  which now always works — those links don't expire. */
+const LINK_CREDENTIAL_PATHS = ["/client-portal", "/sub-portal"];
 
 /** Routes a non-owner role is allowed to reach (besides /login). /logout must
  *  stay reachable for every role — it's the escape hatch for a stale session
@@ -65,6 +73,12 @@ export default async function proxy(req: NextRequest) {
     if (PUBLIC_PATHS.includes(path)) return NextResponse.next();
     const url = req.nextUrl.clone();
     url.pathname = "/login";
+    // Drop whatever query the old URL carried; the only param /login reads is
+    // the notice below, and forwarding a stale one would show the wrong copy.
+    url.search = "";
+    if (LINK_CREDENTIAL_PATHS.some((p) => path === p || path.startsWith(p + "/"))) {
+      url.searchParams.set("invite", "signedout");
+    }
     return NextResponse.redirect(url);
   }
 

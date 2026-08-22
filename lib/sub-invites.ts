@@ -12,12 +12,12 @@ import { randomBytes } from "node:crypto";
 import { query, queryOne } from "./db";
 import { emit } from "./notify";
 
-/** Days a portal link stays good. The clock is set at compose time, then RESET
- *  when Joe marks the invite handled (markSubInviteApproved) — that's the moment
- *  it actually reaches the sub, and the email promises "the next 30 days" from
- *  the sub's point of view. Without the reset, an invite parked for three weeks
- *  would hand them a link that dies in nine days. */
-const INVITE_TTL_DAYS = 30;
+// LINK LIFETIME — sub portal links do not expire (expires_at NULL). A sub who
+// gets pulled back onto a job next spring opens the same text they were sent in
+// the fall. This also retires a whole class of support call: an invite Joe
+// parked for three weeks used to hand the sub a link that was already partly
+// spent. The levers that kill a link are Dismiss (status='dismissed') and
+// users.active = false — both deliberate, both immediate.
 
 /** Public base URL for links that leave the app. Matches lib/settings.ts. */
 function appUrl(): string {
@@ -38,8 +38,7 @@ function composeInvite(subName: string, projectName: string, role: string, link:
     "Your sub portal is here — scope, dates, daily logs, invoices, and a direct line to me:",
     link,
     "",
-    "No account or password needed. The link signs you in and works for the next " +
-      `${INVITE_TTL_DAYS} days, so keep this email.`,
+    "No account or password needed. The link signs you in and it doesn't expire, so keep this email.",
     "",
     "— Joe Stafki",
     "SJ Carpentry LLC",
@@ -55,8 +54,8 @@ function composeInvite(subName: string, projectName: string, role: string, link:
  *  and the UNIQUE (sub_slug, project_id) below decides the rest. A *live* invite
  *  (queued or approved) wins — remove-then-reassign reuses the sub's existing
  *  link rather than minting a second one. A *dead* invite (dismissed, or aged
- *  past expires_at) is resurrected with a fresh token, because otherwise one
- *  Dismiss would lock that sub out of that project forever.
+ *  past a legacy expires_at) is resurrected with a fresh token, because
+ *  otherwise one Dismiss would lock that sub out of that project forever.
  *
  *  Best-effort: parking an invite is secondary to the assignment itself, so a
  *  failure here is logged, never thrown (same contract as notify.emit). */
@@ -89,7 +88,7 @@ export async function queueSubPortalInvite(projectId: string, subSlug: string): 
     const res = await query(
       `INSERT INTO sub_portal_invites
          (sub_slug, project_id, to_email, subject, body, token, expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6, now() + ($7 || ' days')::interval)
+       VALUES ($1, $2, $3, $4, $5, $6, NULL)
        ON CONFLICT (sub_slug, project_id) DO UPDATE
           SET token      = EXCLUDED.token,
               to_email   = EXCLUDED.to_email,
@@ -101,7 +100,7 @@ export async function queueSubPortalInvite(projectId: string, subSlug: string): 
               created_at = now()
         WHERE sub_portal_invites.status = 'dismissed'
            OR sub_portal_invites.expires_at <= now()`,
-      [subSlug, projectId, sub.email, subject, body, token, String(INVITE_TTL_DAYS)],
+      [subSlug, projectId, sub.email, subject, body, token],
     );
     // 0 rows = a live invite is already parked for this pairing; leave it be.
     // 1 row = fresh insert or a resurrected dead one — both deserve the ping.
@@ -121,15 +120,15 @@ export async function queueSubPortalInvite(projectId: string, subSlug: string): 
   }
 }
 
-/** Joe sent the parked invite himself and marked it handled. Restarts the link's
- *  TTL from now (see INVITE_TTL_DAYS) so the sub gets the full window the email
- *  promises. Records that he took it from here — it transmits nothing. */
+/** Joe sent the parked invite himself and marked it handled. Clears any expiry
+ *  the row was carrying — links don't expire, and a resurrected legacy row
+ *  shouldn't. Records that he took it from here — it transmits nothing. */
 export async function markSubInviteApproved(id: number): Promise<void> {
   await query(
     `UPDATE sub_portal_invites
-        SET status = 'approved', expires_at = now() + ($2 || ' days')::interval
+        SET status = 'approved', expires_at = NULL
       WHERE id = $1 AND status = 'queued'`,
-    [id, String(INVITE_TTL_DAYS)],
+    [id],
   );
 }
 
@@ -142,8 +141,9 @@ export interface QueuedSubInvite {
   subject: string;
   body: string;
   when: string;
-  /** Composed so long ago the link inside has died. Sending it now would bounce
-   *  the sub to /login — the panel says so instead of pretending it's good. */
+  /** A legacy link that died before links stopped expiring. Sending it now
+   *  would bounce the sub to /login — the panel says so instead of pretending
+   *  it's good. Always false for invites composed since. */
   expired: boolean;
 }
 
@@ -160,7 +160,7 @@ export async function getQueuedSubInvites(projectSlug: string): Promise<QueuedSu
   }>(
     `SELECT i.id, s.name AS sub_name, i.to_email, i.subject, i.body,
             to_char(i.created_at, 'FMMon FMDD') AS when_label,
-            (i.expires_at <= now()) AS expired
+            (i.expires_at IS NOT NULL AND i.expires_at <= now()) AS expired
        FROM sub_portal_invites i
        JOIN subs s ON s.slug = i.sub_slug
        JOIN projects p ON p.id = i.project_id

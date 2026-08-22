@@ -20,8 +20,13 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { query, queryOne } from "./db";
 
-/** How long a fresh invite link stays good. Matches the sub-portal window. */
-const INVITE_DAYS = 30;
+// LINK LIFETIME — portal links do not expire. The token is issued with
+// expires_at NULL and nothing in the app ever sets it; a client who digs the
+// email out of their archive two years into a warranty question still gets in.
+// The column stays (nullable) so a dated kill switch remains possible, but it
+// is opt-in now, not the default. Time was never the lever that mattered here:
+// Revoke, users.active = false, and the client claiming the portal with a
+// password are, and all three are immediate and deliberate.
 
 /** Who the invite (and the portal session behind it) is scoped to. */
 export type ClientInviteScope = { project: string } | { lead: string };
@@ -36,7 +41,9 @@ export interface ClientInvite {
   token: string;
   toEmail: string | null;
   toName: string;
-  expiresAt: Date;
+  /** null = never expires, which is what every link the app issues gets. A
+   *  date only appears on legacy rows predating the change. */
+  expiresAt: Date | null;
   usedAt: Date | null;
   status: "active" | "dismissed";
 }
@@ -83,7 +90,7 @@ interface InviteRow {
   token: string;
   to_email: string | null;
   to_name: string;
-  expires_at: Date;
+  expires_at: Date | null;
   used_at: Date | null;
   status: "active" | "dismissed";
 }
@@ -162,7 +169,7 @@ export async function issueClientInvite(scope: ClientInviteScope): Promise<Clien
   const slug = isProject ? scope.project : scope.lead;
   const row = await queryOne<InviteRow>(
     `INSERT INTO client_portal_invites (project_slug, lead_slug, to_email, to_name, token, expires_at, status)
-     VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' days')::interval, 'active')
+     VALUES ($1, $2, $3, $4, $5, NULL, 'active')
      ON CONFLICT (${isProject ? "project_slug" : "lead_slug"}) ${isProject ? "" : "WHERE lead_slug IS NOT NULL "}DO UPDATE
        SET token = EXCLUDED.token,
            to_email = EXCLUDED.to_email,
@@ -177,7 +184,6 @@ export async function issueClientInvite(scope: ClientInviteScope): Promise<Clien
       account?.email ?? fallbackEmail,
       name,
       token,
-      String(INVITE_DAYS),
     ],
   );
   return rowToInvite(row!);
@@ -187,7 +193,10 @@ export async function issueClientInvite(scope: ClientInviteScope): Promise<Clien
  *  yet. Used by any send path that needs a URL to put in an email. */
 export async function ensureClientInvite(scope: ClientInviteScope): Promise<ClientInvite> {
   const existing = await getClientInvite(scope);
-  if (existing && existing.status === "active" && existing.expiresAt > new Date()) {
+  // Live = active and not carrying a legacy expiry that has already passed.
+  // New invites have no expiry at all, so in practice status decides this.
+  const lapsed = existing?.expiresAt != null && existing.expiresAt <= new Date();
+  if (existing && existing.status === "active" && !lapsed) {
     return existing;
   }
   return issueClientInvite(scope);

@@ -1,14 +1,17 @@
 import "server-only";
 import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 import { cookies } from "next/headers";
+import { SESSION_COOKIE as COOKIE, sessionMaxAgeS, type Role } from "./session-window";
 
 // Stateless JWT session in an httpOnly cookie (Next 16 recommended pattern).
 // Payload holds only the minimum: user id + role. Signed with SESSION_SECRET.
+//
+// This file MINTS sessions (portal link traded, or password login). It does not
+// renew them — sessions slide, and the renewal happens in proxy.ts, because a
+// Server Component cannot write a cookie during render. Lifetimes live in
+// lib/session-window.ts so both sides use the same numbers.
 
-const COOKIE = "sjcos_session";
-const MAX_AGE_S = 7 * 24 * 60 * 60; // 7 days
-
-export type Role = "owner" | "sub" | "client";
+export type { Role };
 export interface SessionPayload extends JWTPayload {
   userId: string;
   role: Role;
@@ -22,7 +25,7 @@ export async function encrypt(payload: SessionPayload): Promise<string> {
   return new SignJWT(payload)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
-    .setExpirationTime("7d")
+    .setExpirationTime(Math.floor(Date.now() / 1000) + sessionMaxAgeS(payload.role))
     .sign(encodedKey);
 }
 
@@ -36,7 +39,10 @@ export async function decrypt(token: string | undefined): Promise<SessionPayload
   }
 }
 
-/** Issue a session cookie for a freshly-authenticated user. */
+/** Issue a session cookie for a freshly-authenticated user. The cookie's maxAge
+ *  and the JWT's own exp are both driven by sessionMaxAgeS() — they must agree,
+ *  or the browser keeps sending a token the server has already stopped
+ *  accepting (or worse, drops one the server would still take). */
 export async function createSession(userId: string, role: Role): Promise<void> {
   const token = await encrypt({ userId, role });
   const cookieStore = await cookies();
@@ -45,7 +51,7 @@ export async function createSession(userId: string, role: Role): Promise<void> {
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: MAX_AGE_S,
+    maxAge: sessionMaxAgeS(role),
   });
 }
 
@@ -60,4 +66,4 @@ export async function deleteSession(): Promise<void> {
   (await cookies()).delete(COOKIE);
 }
 
-export const SESSION_COOKIE = COOKIE;
+export { SESSION_COOKIE } from "./session-window";

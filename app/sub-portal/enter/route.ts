@@ -45,8 +45,8 @@ export async function GET(request: Request) {
   if (!token) return bounce("missing");
 
   // Reusable and unexpiring, NOT single-use: this link is the sub's only
-  // credential, and the session cookie lasts 7 days. Burning the token on first
-  // click would lock them out on day 8 and mean a new invite for every phone.
+  // credential. Burning the token on first click would mean a new invite for
+  // every phone, and another one every time their session lapses.
   // expires_at is NULL on everything the app issues — the date arm below only
   // still filters legacy rows.
   const invite = await queryOne<{ id: string; sub_slug: string; sub_name: string }>(

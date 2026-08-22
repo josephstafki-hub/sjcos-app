@@ -57,8 +57,8 @@ export async function GET(request: Request) {
   if (!token) return bounce("missing");
 
   // Reusable and unexpiring, NOT single-use: this link is the client's only
-  // credential and the session cookie lasts 7 days. Burning it on first click
-  // would lock them out on day 8 and mean a new link for every device.
+  // credential. Burning it on first click would mean a new link for every
+  // device, and another one every time their session lapses.
   //
   // expires_at is NULL on every link the app issues; the IS NULL arm is what
   // makes those work, and the date arm only still filters legacy rows.

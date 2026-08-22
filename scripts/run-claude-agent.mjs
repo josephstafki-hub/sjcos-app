@@ -1,12 +1,16 @@
 #!/usr/bin/env node
-// Detached runner for a single Claude dev-agent turn (Ask window → "Claude").
+// Detached runner for a single Claude turn (Ask window → "Claude").
 //
 // Invoked by lib/dev-agents.ts startClaudeRun() as:
 //     node scripts/run-claude-agent.mjs <dev_agent_runs.id>
-// cwd = the sjcos-app repo root. Runs headless `claude -p` with EDIT access via
-// the logged-in CLI (not the API), then writes the result back onto the row so
-// the chat can poll it. Full edit access is intentional: this is Joe's owner-only
-// dev channel for pointing Claude at a page and having it fix the code.
+// cwd = the sjcos-app repo root. Runs headless `claude -p` via the logged-in
+// CLI (not the API), then writes the result back onto the row so the chat can
+// poll it. Claude here is Joe's full in-app operator: it has the sjcos
+// business tools (every action any agent can take — leads, projects, bids,
+// POs, selections, newsletter, knowledge, work queue…) AND edit access to this
+// repo. Client-facing sends need Joe's express permission: a run-scoped owner
+// grant (dev_agent_runs.grant_id, from the Ask window's checkbox) or one Joe
+// approves on /engine/permissions — see lib/owner-grants.ts.
 //
 // We stream `--output-format stream-json` so the chat can show what Claude is
 // doing live (reading/editing/thinking) via the row's `activity` column, and
@@ -59,33 +63,54 @@ const permissionMode = (mode) => (VALID_MODE.has(mode) ? mode : "acceptEdits");
 // On a RESUMED session the CLI already holds Claude's own turns, so we send
 // only the new turn (plus the current page, which may have changed) — and, in
 // an 'auto' thread, whatever other assistants said in between (`unseen`).
-function resumePrompt(userPrompt, pageContext, unseen) {
+function resumePrompt(userPrompt, pageContext, unseen, grantId) {
   const where = pageContext ? `(I'm now looking at route ${pageContext}.)\n` : "";
   const between = unseen
     ? `${unseen}\n\n(Those turns happened in this same chat thread since your last reply — ` +
       `other assistants answered them. Joe's new message below may be replying to them.)\n\n`
     : "";
-  return where + between + userPrompt;
+  // Permission is per message: restate it (or its absence) on every turn so a
+  // grant from an earlier message is never assumed to still apply.
+  return where + between + `[${grantText(grantId)}]\n\n` + userPrompt;
 }
 
-function buildPrompt(userPrompt, pageContext, mode, unseen) {
+// The owner-grant paragraph: with a run grant, Claude may send what the
+// message asks for; without one, it stages and asks (or requests a grant).
+function grantText(grantId) {
+  return grantId
+    ? `EXPRESS PERMISSION: Joe ticked "Express permission (sends)" on this message. Owner grant id: ${grantId}. ` +
+      `Pass it as owner_grant_id to the send tools (send_bid_package, send_purchase_order, send_invoice, ` +
+      `release_newsletter_issue, send_document_for_signature, send_email…) for exactly the sends this message ` +
+      `asks for — nothing else. The grant expires with this turn and every use is audited.`
+    : `SENDS NEED PERMISSION: client-/vendor-facing sends (bid packages, POs, invoices, documents for signature, ` +
+      `newsletter release, one-off email) require an owner grant. Joe did not give one on this message, so stage ` +
+      `the work, then either tell Joe it's ready (he can re-send with "Express permission" ticked) or call ` +
+      `request_owner_permission with a specific reason and say you're waiting on his approval. Never try to ` +
+      `send around the grant.`;
+}
+
+function buildPrompt(userPrompt, pageContext, mode, unseen, grantId) {
   const where = pageContext
-    ? `The user is looking at this app route: ${pageContext}\n` +
-      `Find the source that renders it (start from app${pageContext === "/" ? "/page.tsx" : pageContext + "/page.tsx"} and the components/lib it imports) before changing anything.\n\n`
+    ? `Joe is looking at this app route: ${pageContext}\n` +
+      `If the request is about the code behind it, find the source that renders it (start from app${pageContext === "/" ? "/page.tsx" : pageContext + "/page.tsx"} and the components/lib it imports) before changing anything.\n\n`
     : "";
   const task =
     mode === "plan"
-      ? `You are in PLAN mode: investigate and propose a concrete plan, but do NOT edit any files. ` +
-        `Reply with a SHORT plain-text summary of what you'd change and which files.`
-      : `You have full edit access to this repo. Make the requested change directly by editing files. ` +
-        `Do NOT rebuild, deploy, or restart anything — Joe does that himself. When done, reply with a ` +
-        `SHORT plain-text summary (no markdown headers) of exactly what you changed and which files, ` +
-        `and remind him to rebuild to see it. If the request is a question rather than a change, just ` +
-        `answer it concisely.`;
+      ? `You are in PLAN mode: investigate and propose a concrete plan, but do NOT edit any files or change ` +
+        `business records. Reply with a SHORT plain-text summary of what you'd do.`
+      : `For business requests, act with the sjcos tools and report what you did (ids, names, amounts). For code ` +
+        `requests, you have full edit access to this repo: make the change directly, but do NOT rebuild, deploy, ` +
+        `or restart anything — Joe does that himself — and remind him to rebuild. Reply with a SHORT plain-text ` +
+        `summary (no markdown headers). If the request is a question, just answer it concisely.`;
   return (
-    `You are Claude, working inside the SJC OS codebase (repo root is your cwd) as Joe's ` +
-    `in-app development assistant. Joe is talking to you from a chat window in the running app ` +
-    `and pointing you at things to fix.\n\n` +
+    `You are Claude, Joe's in-app operator for SJC OS (SJ Carpentry's operating system). Joe is talking to you ` +
+    `from a chat window in the running app. You can do everything any agent here can do: the sjcos MCP tools ` +
+    `are the source of truth for leads, projects, subs, vendors, bids, purchase orders, invoices, selections, ` +
+    `mood boards, documents, newsletter, knowledge, skills and the work queue — use them for business work, ` +
+    `and record agent runs / receipts where the tools expect it. You ALSO have the repo (cwd) and edit access, ` +
+    `so code changes are fair game when that's what Joe wants.\n\n` +
+    grantText(grantId) +
+    `\n\n` +
     where +
     task +
     (unseen
@@ -185,8 +210,12 @@ function describeTool(name, input) {
     case "WebFetch":
     case "WebSearch":
       return "Searching the web";
-    default:
-      return name;
+    default: {
+      // sjcos business tools arrive as mcp__sjcos__<tool>; show the tool name
+      // so the chat reads "Using list_projects", "Using send_bid_package".
+      const m = /^mcp__.+?__(.+)$/.exec(name);
+      return m ? `Using ${m[1]}` : name;
+    }
   }
 }
 
@@ -288,7 +317,7 @@ async function main() {
   await client.connect();
 
   const { rows } = await client.query(
-    `SELECT prompt, page_context, conversation_id, model, mode, effort, with_mcp
+    `SELECT prompt, page_context, conversation_id, model, mode, effort, with_mcp, grant_id
        FROM dev_agent_runs WHERE id = $1`,
     [RUN_ID],
   );
@@ -315,9 +344,10 @@ async function main() {
   );
 
   const unseen = await unseenTranscript(conversation_id);
+  const grantId = rows[0].grant_id || null;
   const promptText = resumeSession
-    ? resumePrompt(prompt, page_context, unseen)
-    : buildPrompt(prompt, page_context, mode, unseen);
+    ? resumePrompt(prompt, page_context, unseen, grantId)
+    : buildPrompt(prompt, page_context, mode, unseen, grantId);
 
   const args = [
     "-p",
@@ -329,17 +359,13 @@ async function main() {
     permissionMode(mode),
     "--add-dir",
     REPO,
-    // Don't load the user's configured MCP servers (e.g. the `sjcos` business
-    // server): a code-editing dev agent never needs them, and their ~40 tool
-    // schemas would be injected into context on EVERY turn — a large, useless
-    // token tax. --strict-mcp-config with no --mcp-config = zero MCP servers.
+    // Only the MCP servers we name below — never the user's global config.
     "--strict-mcp-config",
   ];
-  // Exception: with_mcp runs get the sjcos business tools — a ladder TAKEOVER
-  // (Claude finishing OS work Hermes couldn't) or an Ask turn where Joe flipped
-  // the per-message "Business tools (sjcos)" toggle. Opt-in by construction,
-  // so the schema token tax is paid knowingly.
-  if (rows[0].with_mcp) args.push("--mcp-config", path.join(REPO, "mcp/sjcos-mcp.config.json"));
+  // Claude in the app is a full operator: every run gets the sjcos business
+  // tools (with_mcp defaults true in startClaudeRun). with_mcp=false is the
+  // explicit code-only escape hatch, which skips the tool-schema token cost.
+  if (rows[0].with_mcp !== false) args.push("--mcp-config", path.join(REPO, "mcp/sjcos-mcp.config.json"));
   if (resumeSession) args.push("--resume", resumeSession);
   if (model) args.push("--model", model);
   if (VALID_EFFORT.has(effort)) args.push("--effort", effort);

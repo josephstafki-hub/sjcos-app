@@ -13,6 +13,7 @@ import { finalizeHermesAnswer } from "@/lib/orchestrator/effects";
 import { hermesProgress, runLog } from "@/lib/orchestrator/activity";
 import { composeHermesTurn } from "@/lib/orchestrator/thread";
 import { imageDataUrl, type AttachmentImage } from "@/lib/attachments";
+import { mintRunGrant } from "@/lib/owner-grants";
 
 const execFileAsync = promisify(execFile);
 
@@ -378,14 +379,20 @@ export interface DevAgentRun {
 /** Create a pending Claude run and kick off the detached runner. Returns the id
  *  the chat polls with getDevAgentRun(). `conversationId` links it to a
  *  persisted thread so the runner can save the reply and resume the session.
- *  `options` are the per-run model/mode/effort chosen in the Ask window. */
+ *  `options` are the per-run model/mode/effort chosen in the Ask window.
+ *
+ *  Claude in the app is a full operator: every run gets the sjcos business
+ *  tools (with_mcp defaults true; pass withMcp:false for a code-only run).
+ *  `allowSends` is the Ask window's Express-permission checkbox — it mints a
+ *  run-scoped owner grant (lib/owner-grants.ts) the runner hands to Claude so
+ *  it can perform the client-facing sends this message asks for. */
 export async function startClaudeRun(
   prompt: string,
   pageContext?: string,
   conversationId?: string,
   options?: Partial<ClaudeOptions>,
   subjectWorkItemId?: string,
-  extras?: { withMcp?: boolean; orchestrationTaskId?: string },
+  extras?: { withMcp?: boolean; allowSends?: boolean; orchestrationTaskId?: string },
 ): Promise<string> {
   const { model, mode, effort } = { ...CLAUDE_DEFAULTS, ...options };
   const row = await queryOne<{ id: string }>(
@@ -401,11 +408,20 @@ export async function startClaudeRun(
       mode,
       effort,
       subjectWorkItemId ?? null,
-      extras?.withMcp ?? false,
+      extras?.withMcp ?? true,
       extras?.orchestrationTaskId ?? null,
     ],
   );
   const id = row!.id;
+
+  // Express permission for this one turn: the grant row is the owner's
+  // approval on record; the runner tells Claude its id and every gated send
+  // spends it (and is audited on it). Minted BEFORE the runner starts so the
+  // prompt can carry it.
+  if (extras?.allowSends) {
+    const grant = await mintRunGrant(id, conversationId ?? null, prompt);
+    await query(`UPDATE dev_agent_runs SET grant_id = $2 WHERE id = $1`, [id, grant.id]);
+  }
 
   // Detached: the agent run outlives this request. The runner reads the row,
   // executes `claude -p` with edit access, and writes the result back.

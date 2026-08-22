@@ -89,7 +89,9 @@ function strongSignal(text: string, lastAgent: RoutedAgent): RoutedAgent | null 
   if (MEMORY_RE.test(t)) return "hermes";
   // "Can you add it to the project?" is a polite write, not a read.
   const asksForAction = !READ_RE.test(t) || /^(can|could|would|will|please)\b/i.test(t);
-  if (lastAgent !== "hermes" && OS_VERB_RE.test(t) && OS_NOUN_RE.test(t) && asksForAction) return "hermes";
+  // Claude has the business tools too, so an OS write only pulls a thread away
+  // from Qwen (read-only) — never from Claude.
+  if (lastAgent === "qwen" && OS_VERB_RE.test(t) && OS_NOUN_RE.test(t) && asksForAction) return "hermes";
   return null;
 }
 
@@ -138,10 +140,9 @@ export async function routeMessage(
   thread?: RouteThread,
 ): Promise<RouteDecision> {
   const last = thread?.lastAgent ?? null;
-  // Claude (the dev agent) runs without the business tools, so it only keeps
-  // follow-ups that don't name a business object — those route normally.
-  const claudeCanKeep = last !== "claude" || !OS_NOUN_RE.test(text) || FILE_RE.test(text) || DEV_NOUN_RE.test(text);
-  if (last && claudeCanKeep && isFollowUp(text)) {
+  // Claude in the app has the business tools too (it can do anything an
+  // agent can), so a follow-up stays with whoever answered last.
+  if (last && isFollowUp(text)) {
     const strong = strongSignal(text, last);
     if (strong && strong !== last) {
       return { agent: strong, intent: strong === "claude" ? "code" : "write", via: "rules", reason: `follow-up, but needs ${strong}` };
@@ -168,7 +169,7 @@ export async function routeMessage(
     `Route a message from the owner of a carpentry business to one of three assistants:\n` +
     `- "qwen": questions, summaries, drafts — read-only, no tools\n` +
     `- "hermes": does business/OS work with tools (leads, projects, work items, POs, newsletter)\n` +
-    `- "claude": edits this web app's source code\n` +
+    `- "claude": edits this web app's source code; can also do business/OS work with tools, and is the one to pick when the owner names Claude or the task mixes code and business\n` +
     (pageContext ? `\nThe owner is viewing:\n${pageContext.slice(0, 500)}\n` : "") +
     threadHint +
     `\nMessage:\n${text.slice(0, 1000)}\n\n` +

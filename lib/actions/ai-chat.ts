@@ -91,10 +91,11 @@ export type SendResult =
   | { ok: false; error: string };
 
 /** Send a message in a conversation. `conversationId` may be a fresh one just
- *  created for the selected agent. `withMcp` is the Ask window's per-message
- *  "Business tools (sjcos)" opt-in for a Claude turn — deliberately not part of
- *  ClaudeOptions (which persist in panelStore) so the ~40 sjcos tool schemas
- *  only get injected into the run that asked for them. */
+ *  created for the selected agent. `allowSends` is the Ask window's per-message
+ *  "Express permission" checkbox for a Claude turn: it mints a run-scoped owner
+ *  grant (lib/owner-grants.ts) so Claude may perform the client-facing sends
+ *  the message asks for. Deliberately not part of ClaudeOptions (which persist
+ *  in panelStore) — permission must never outlive the message that gave it. */
 export async function sendMessageAction(
   conversationId: string,
   prompt: string,
@@ -102,7 +103,7 @@ export async function sendMessageAction(
   claudeOptions?: Partial<ClaudeOptions>,
   attachments?: ChatAttachment[],
   subjectWorkItemId?: string,
-  withMcp?: boolean,
+  allowSends?: boolean,
 ): Promise<SendResult> {
   await requireRole("owner");
   const text = prompt.trim();
@@ -170,7 +171,7 @@ export async function sendMessageAction(
         conversationId,
         claudeOptions,
         undefined,
-        withMcp ? { withMcp: true } : undefined,
+        allowSends ? { allowSends: true } : undefined,
       );
       return { ok: true, kind: "pending", runId, userMessageId: userMsg.id };
     }

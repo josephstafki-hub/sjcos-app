@@ -14,7 +14,13 @@ SJC OS is the source of truth:
 - Open Skills/runbooks live in SJC OS tools: `list_skills`, `get_skill`, `search_skills`, `list_runbooks`, `get_runbook`.
 - Audit/proof of work belongs in SJC OS via `record_agent_run`, `record_skill_used`, and `record_receipt`.
 
-Do not treat `/home/joe/SJC OS Temp`, old CSV exports, or one-off local files as the operational source unless MCP is unavailable or the user explicitly asks for legacy/import evidence. Do not send client-facing emails/SMS/invoices/contracts through MCP; those stay owner-approved.
+Do not treat `/home/joe/SJC OS Temp`, old CSV exports, or one-off local files as the operational source unless MCP is unavailable or the user explicitly asks for legacy/import evidence.
+
+Client-facing sends (emails, bid packages, POs, invoices, documents for signature, newsletter release) are owner-approved. The approval is an **owner grant** (`lib/owner-grants.ts`): without one, draft and stage, then ask — `request_owner_permission` files a Decision Joe approves on `/engine/permissions`. With a grant id (Joe ticked "Express permission" in the Ask window, approved your request, or minted one by hand), pass it as `owner_grant_id` to the matching `send_*` / `release_*` tool for exactly that target. Never route around the grant.
+
+# Claude in the app
+
+Claude in the Ask window is Joe's full in-app operator, not just a dev helper: every run loads the sjcos MCP tools alongside repo edit access, so it can take any action any agent can. The same grant rule applies to its sends.
 
 # Newsletter (agent workflow)
 
@@ -27,8 +33,8 @@ client emails, compose issues (`create_newsletter_issue` → `update_newsletter_
 and **queue** an issue (`queue_newsletter_issue`). Adding a recipient parks a
 welcome greeting and enrolls them in any welcome drip the owner has armed.
 
-What stays owner-only (no tool exists, do not add one): **Release** — the click in
-`/newsletter` that actually mails a queued outbox row — and **arming a drip
-sequence** (`setSequenceActive`), the switch that lets a sequence send on its own.
-Queueing parks a send; it does not send. This keeps the standing rule intact:
-client-facing sends stay owner-approved.
+**Release** — actually mailing a queued issue/outbox row — needs an owner grant:
+`release_newsletter_issue` / `release_newsletter_outbox_item` with an
+`owner_grant_id` (see the grant rule above). **Arming a drip sequence**
+(`setSequenceActive`) stays owner-only with no tool, do not add one. Queueing
+parks a send; it does not send.

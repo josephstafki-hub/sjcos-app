@@ -15,7 +15,7 @@ import { requireRole } from "@/lib/dal";
 import { ai } from "@/lib/ai";
 import { emit } from "@/lib/notify";
 import { usd, type InvoiceLine } from "@/lib/money";
-import { sendNewEmailAction } from "@/lib/actions/inbox";
+import { sendInvoiceOp } from "@/lib/send-ops";
 
 type Result = { ok: boolean; error?: string };
 
@@ -188,49 +188,14 @@ async function invoiceById(id: number) {
   );
 }
 
-/** Email a drafted invoice to the project's client, then mark it sent. */
+/** Email a drafted invoice to the project's client, then mark it sent. Send
+ *  core in lib/send-ops.ts; agents reach it only via an owner grant. */
 export async function sendInvoice(id: number): Promise<Result> {
   await requireRole("owner");
   const inv = await invoiceById(id);
   if (!inv) return { ok: false, error: "Invoice not found." };
-
-  const client = await queryOne<{ email: string; name: string }>(
-    `SELECT email, name FROM users WHERE link_slug = $1 AND role = 'client' AND active = true LIMIT 1`,
-    [inv.slug],
-  );
-  if (!client?.email) {
-    return { ok: false, error: "No client email on file for this project." };
-  }
-
-  const first = client.name.split(/\s+/)[0] || "there";
-  const lineText = (inv.line_items ?? [])
-    .map((l) => `  • ${l.label}: ${usd(l.amount)}`)
-    .join("\n");
-  const body =
-    `Hi ${first},\n\nPlease find the invoice for "${inv.milestone}" on the ` +
-    `${inv.project_name} project below.\n\n${lineText}\n\nTotal due: ${usd(inv.amount)}\n\n` +
-    `You can reply here with any questions. Thank you!\n\nBest,\nJoe\nSJ Carpentry`;
-
-  const res = await sendNewEmailAction({
-    to: client.email,
-    subject: `Invoice ${inv.number} — ${inv.project_name} (${inv.milestone})`,
-    body,
-  });
-  if (!res.ok) return { ok: false, error: res.error ?? "Could not send the invoice." };
-
-  await query(
-    `UPDATE invoices SET status = 'sent', sent_at = now() WHERE id = $1`,
-    [id],
-  );
-  await emit({
-    kind: "money",
-    tag: "Money",
-    accent: "money",
-    icon: "money",
-    title: `Invoice ${inv.number} sent · ${inv.project_name}`,
-    subline: `${usd(inv.amount)} · ${inv.milestone}`,
-    href: `/projects/${inv.slug}`,
-  });
+  const res = await sendInvoiceOp(id);
+  if (!res.ok) return res;
   revalidatePath(`/projects/${inv.slug}`);
   revalidatePath("/notifications");
   return { ok: true };

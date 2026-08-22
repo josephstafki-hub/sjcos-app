@@ -43,10 +43,11 @@ export interface PanelSend {
   subjectId?: string;
   notice?: string;
   attachments?: ChatAttachment[];
-  /** Attach the sjcos business tools (MCP) to this one Claude turn — the Ask
-   *  window's per-message opt-in toggle. Not part of claudeOpts on purpose:
+  /** Express permission: mint a run-scoped owner grant so Claude may perform
+   *  the client-facing sends this message asks for (lib/owner-grants.ts). The
+   *  Ask window's per-message checkbox. Not part of claudeOpts on purpose:
    *  those persist in panelStore, and this must never outlive the message. */
-  withMcp?: boolean;
+  allowSends?: boolean;
   /** Voice-mode turn: goes to the Claude concierge (speak-first, delegates
    *  work in the background) instead of the typed router. */
   voice?: boolean;
@@ -382,7 +383,7 @@ export function useAgentChat({
         target === "claude" || target === "auto" ? claudeOpts : undefined,
         spec.attachments,
         spec.subjectId,
-        spec.withMcp,
+        spec.allowSends,
       );
       if (!live.alive) return;
       if (!r.ok) {

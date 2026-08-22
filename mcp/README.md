@@ -111,12 +111,10 @@ are direct SELECTs; **writes** go through the app's bearer-gated internal route
 | `delete_purchase_order_line` | Remove a line (`id`) |
 | `queue_purchase_order` | Draft → queued: flag it ready for Joe's review (`id`) |
 
-> **The send line — do not cross it.** There is no `send`/`record_receipt`/
-> `close`/`void` tool. `queue_purchase_order` only flags a PO ready for review —
-> the owner still clicks **Send to vendor** in the app's Money → Purchase orders
-> section for anything to reach a real inbox, and receiving/closing out are also
-> owner-only there. Do not add tools for those without Joe explicitly moving
-> that line.
+> **The send line.** `queue_purchase_order` only flags a PO ready for review.
+> Emailing it needs an owner grant: `send_purchase_order` with an
+> `owner_grant_id` (see **Owner grants** below). Receiving/closing out/void
+> stay owner-only in the app — no tool, do not add one.
 
 **Typical agent flow:** `create_purchase_order` → `add_purchase_order_line`
 (repeat per item) → `queue_purchase_order` → tell the owner it's ready to send.
@@ -196,19 +194,45 @@ button runs.
 | `close_bid_package` | End bidding without awarding |
 | `award_bid` | Pick the winner; everyone else goes `not_awarded`; package closes |
 
-> **Where the send line sits for this family.** There is **no send tool**, and
-> the internal route refuses the send action outright. Sending a bid package
-> transmits real email to real subs (packet attached), and client-facing sends
-> stay owner-approved — the standing rule across newsletter/PO/documents.
-> (Historical note: send used to be agent-callable here because it only
-> published to sub portals and transmitted nothing; bids went email-only, so
-> the line moved back. Do not re-add an agent send.)
+> **Where the send line sits for this family.** Sending a bid package
+> transmits real email to real subs (packet attached), so it needs an owner
+> grant: `send_bid_package` with an `owner_grant_id` (see **Owner grants**
+> below). The bidding route itself still refuses an un-granted send.
 
 **Typical agent flow:** `create_bid_package` → `list_project_files` +
 `attach_bid_file` (plans, takeoff) → `list_subs`, pick by trade →
 `add_bid_invites` → `set_bid_invite_message` where a sub needs tailoring →
 tell Joe it's staged so he can press Send → as he records bids, `compare_bids`
 → brief the owner (or, when asked, `award_bid`).
+
+## Owner grants (express permission to send)
+
+Agents draft and stage on their own. Anything that reaches a real inbox needs
+an **owner grant** — Joe's express permission for one action on one target
+(`lib/owner-grants.ts`, `mcp/grants-tools.mjs`, `/engine/permissions`).
+
+| Tool | Effect |
+|---|---|
+| `request_owner_permission` | Ask: `action` + `target_id` + a specific `reason` → a Decision notification Joe approves/denies on `/engine/permissions`. Returns the grant id |
+| `check_owner_permission` | Poll a grant: requested / approved (live) / denied / revoked / spent, with its audit trail |
+| `list_owner_permissions` | Grants pending or currently usable |
+| `send_bid_package` | Email the packet to every unsent sub (`package_id`, `owner_grant_id`) |
+| `send_purchase_order` | Email a draft/queued PO to its vendor (`po_id`, `owner_grant_id`) |
+| `send_invoice` | Email a draft invoice to the client (`invoice_id`, `owner_grant_id`) |
+| `release_newsletter_issue` | Release every queued outbox row of an issue (`issue_id`, `owner_grant_id`) |
+| `release_newsletter_outbox_item` | Release one outbox row (`outbox_id`, `owner_grant_id`) |
+| `send_document_for_signature` | Submit a rendered draft for signature (`draft_id`, `owner_grant_id`, `override?`) |
+| `send_email` | One-off plain-text email from the business Gmail (`to`, `subject`, `body`, `owner_grant_id`); a grant may be pinned to one recipient |
+
+How a grant comes to exist: Joe ticks **Express permission (sends)** on an Ask-window
+message (a 20-minute, run-scoped grant Claude is told about in its prompt); Joe mints
+one by hand on `/engine/permissions` (any action, optional target / recipient, uses,
+expiry) and pastes the id to the agent; or an agent's `request_owner_permission` is
+approved there. The app spends the grant **atomically for the exact action + target
+before anything transmits** (`lib/agent-sends.ts`) and writes the outcome to the
+grant's audit + `agent_runs`. A grant that doesn't cover the call is refused with a
+reason the agent can relay. Arming a newsletter drip sequence and PO receiving/close
+remain owner-only with no tool.
 
 ## `search` / `fetch` (ChatGPT connector contract)
 
@@ -343,9 +367,10 @@ regress:
 ## Safety model
 
 - Read tools are parameterized SELECTs; no raw SQL.
-- Write tools only touch internal records / append-only audit / proposals. They
-  never send email, SMS, invoices, or contracts — those stay owner-approved in the
-  app.
+- Write tools only touch internal records / append-only audit / proposals.
+- Sends (email, bid packages, POs, invoices, documents, newsletter release) happen
+  only through the owner-grant tools, each spending a grant Joe created or approved
+  for that exact target — see **Owner grants** above.
 - Agent-proposed skills land `proposed` and are invisible to the library until Joe
   approves them at `/engine`.
 - Agent-written knowledge/memories are evidence by default and never act as

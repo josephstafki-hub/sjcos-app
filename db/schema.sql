@@ -2519,3 +2519,35 @@ CREATE TABLE IF NOT EXISTS client_activity (
 );
 CREATE INDEX IF NOT EXISTS idx_client_activity_project ON client_activity(project_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_client_activity_lead    ON client_activity(lead_id, created_at DESC);
+
+-- ── Owner grants: express permission for agent sends ─────────────────────────
+-- Agents can't send client-/vendor-facing email on their own. A grant is the
+-- owner saying "for THIS action (on THIS target), go ahead". Created by the
+-- owner (Ask-window "Express permission" checkbox → run-scoped grant, or
+-- /engine/permissions) or requested by an agent (request_owner_permission)
+-- and approved there. Gated sends consume a grant and append to its audit.
+-- (db/apply-owner-grants.mjs)
+CREATE TABLE IF NOT EXISTS owner_grants (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  status          text NOT NULL DEFAULT 'requested'
+                  CHECK (status IN ('requested','approved','denied','revoked')),
+  actions         text[] NOT NULL,              -- gated action names, or '{*}'
+  target_kind     text,                         -- optional narrowing (bid_package, purchase_order, …)
+  target_id       text,
+  scope           jsonb NOT NULL DEFAULT '{}'::jsonb, -- e.g. {"to":"x@y"} for send_email
+  reason          text NOT NULL DEFAULT '',
+  requested_by    text NOT NULL DEFAULT 'agent', -- 'owner' | agent name
+  conversation_id uuid,
+  run_id          uuid,
+  max_uses        integer NOT NULL DEFAULT 1,
+  uses            integer NOT NULL DEFAULT 0,
+  expires_at      timestamptz NOT NULL DEFAULT now() + interval '24 hours',
+  decided_at      timestamptz,
+  used_at         timestamptz,
+  audit           jsonb NOT NULL DEFAULT '[]'::jsonb, -- [{at, action, target, result}]
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS owner_grants_status_idx ON owner_grants (status, created_at DESC);
+-- Run-scoped grant minted by the Ask window's "Express permission" checkbox.
+ALTER TABLE dev_agent_runs ADD COLUMN IF NOT EXISTS grant_id uuid;

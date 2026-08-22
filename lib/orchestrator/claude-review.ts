@@ -166,8 +166,8 @@ export async function claudeTriage(
     `Reply with ONE JSON object and nothing else: {"agent":"qwen"|"hermes"|"claude","intent":"read"|"write"|"code"}.\n` +
     `- qwen: questions/summaries/drafts, read-only, no tools\n` +
     `- hermes: performs business operations with MCP tools (leads, projects, work items, POs, newsletter). ` +
-    `Client-facing sends stay owner-approved — hermes drafts, never sends\n` +
-    `- claude: edits the app's source code\n` +
+    `Client-facing sends need an owner grant (express permission) — hermes drafts and stages, and asks for one to send\n` +
+    `- claude: edits the app's source code; also has the business tools, so pick it when the owner names Claude or mixes code and business\n` +
     (pageContext ? `Owner is viewing:\n${pageContext.slice(0, 400)}\n` : "") +
     (thread?.lastAgent
       ? `This continues a thread; "${thread.lastAgent}" answered the previous turn` +

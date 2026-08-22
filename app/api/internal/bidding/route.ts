@@ -59,8 +59,9 @@ export async function POST(req: Request) {
         result = {
           ok: false,
           error:
-            "Sending a bid package emails the subs directly, so Send is owner-only. " +
-            "The package is staged — ask Joe to press Send on the project's Bidding tab.",
+            "Sending a bid package emails the subs directly, so it needs Joe's express permission: " +
+            "use send_bid_package with an owner_grant_id (ask via request_owner_permission), " +
+            "or tell Joe the package is staged so he can press Send on the Bidding tab.",
         };
         break;
       case "award_bid":

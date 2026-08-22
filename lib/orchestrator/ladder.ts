@@ -193,8 +193,9 @@ export async function runHermesLadder(input: LadderInput): Promise<string> {
   }
   const takeoverPrompt =
     `[ORCHESTRATOR TAKEOVER] Hermes could not complete this task after review. Finish it yourself ` +
-    `using the sjcos MCP tools. Client-facing sends and money documents stay owner-approved — ` +
-    `draft, never send.\n\n` +
+    `using the sjcos MCP tools. Client-facing sends and money documents need Joe's express permission: ` +
+    `draft and stage; to send, call request_owner_permission and wait for his approval (or use an ` +
+    `owner_grant_id Joe already gave).\n\n` +
     `The task:\n${taskPrompt}\n\n` +
     `Hermes' last attempt:\n${lastAnswer.slice(0, 2000)}\n\n` +
     `Claude's outstanding critique:\n${lastNote.slice(0, 1000)}\n\n` +

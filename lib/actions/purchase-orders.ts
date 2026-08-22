@@ -6,19 +6,17 @@
 // its lines after every line mutation; its status is recomputed from its
 // lines' qty_received after every receiving update.
 //
-// sendPurchaseOrder is the only place that emails a vendor (mirrors
-// sendInvoice) — it is called ONLY from the owner-clicked "Send" button in
-// components/projects/PurchaseOrders.tsx. queuePurchaseOrder just flags a
-// draft "ready for review" (mirrors queue_newsletter_issue): it is agent-safe
-// and reachable via MCP, but it never sends anything.
+// sendPurchaseOrder emails a vendor (mirrors sendInvoice) — it is called from
+// the owner-clicked "Send" button in components/projects/PurchaseOrders.tsx.
+// Agents can only send a PO by spending an owner grant (lib/owner-grants.ts →
+// MCP send_purchase_order). queuePurchaseOrder just flags a draft "ready for
+// review" (mirrors queue_newsletter_issue): it is agent-safe and never sends.
 
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
-import { emit } from "@/lib/notify";
-import { sendNewEmailAction } from "@/lib/actions/inbox";
-import { fmtPoUsd, poDollarsToCents, type PoVendorKind } from "@/lib/po-types";
-import { fmtUsd } from "@/lib/cost-book-units";
+import { sendPurchaseOrderOp } from "@/lib/send-ops";
+import { poDollarsToCents, type PoVendorKind } from "@/lib/po-types";
 import { recomputePurchaseOrder as recompute } from "@/lib/po-recompute";
 
 type Result = { ok: true; id?: number } | { ok: false; error: string };
@@ -188,73 +186,13 @@ export async function queuePurchaseOrder(slug: string, id: number): Promise<Resu
   return { ok: true };
 }
 
-/** Owner-only: email the PO to the vendor, then mark it sent. This is the one
- *  place a purchase order reaches a real inbox — there is deliberately no MCP
- *  tool for this action. */
+/** Owner-only: email the PO to the vendor, then mark it sent. The send core
+ *  lives in lib/send-ops.ts; the only other caller is the agent path, which
+ *  must first spend an owner grant (lib/agent-sends.ts). */
 export async function sendPurchaseOrder(slug: string, id: number): Promise<Result> {
-  const project = await projectBySlug(slug);
-  if (!project) return { ok: false, error: "Project not found." };
-
-  const po = await queryOne<{
-    id: string;
-    po_number: string;
-    title: string;
-    notes: string;
-    vendor_name: string;
-    vendor_email: string;
-    status: string;
-    subtotal: number;
-  }>(
-    `SELECT po.id, po.po_number, po.title, po.notes, po.vendor_name, po.vendor_email, po.status, po.subtotal
-       FROM purchase_orders po JOIN projects p ON p.id = po.project_id
-      WHERE po.id = $1 AND p.slug = $2`,
-    [id, slug],
-  );
-  if (!po) return { ok: false, error: "Purchase order not found." };
-  if (!["draft", "queued"].includes(po.status)) {
-    return { ok: false, error: "This purchase order has already been sent." };
-  }
-  if (!po.vendor_email) return { ok: false, error: "No vendor email on file for this purchase order." };
-
-  const { rows: lines } = await query<{
-    description: string;
-    unit: string;
-    qty_ordered: string;
-    unit_cost: number;
-    extended: number;
-  }>(
-    `SELECT description, unit, qty_ordered, unit_cost, extended
-       FROM purchase_order_lines WHERE purchase_order_id = $1 ORDER BY sort_order, id`,
-    [id],
-  );
-  if (lines.length === 0) return { ok: false, error: "Add at least one line before sending." };
-
-  const lineText = lines
-    .map((l) => `  • ${l.description}: ${Number(l.qty_ordered)} ${l.unit} × ${fmtUsd(l.unit_cost)} = ${fmtUsd(l.extended)}`)
-    .join("\n");
-  const body =
-    `${po.po_number} — ${po.title}\n${project.name}\n\n${lineText}\n\n` +
-    `Total: ${fmtPoUsd(po.subtotal)}\n\n` +
-    `${po.notes ? `${po.notes}\n\n` : ""}` +
-    `Please confirm receipt and expected delivery. Thank you!\n\nBest,\nJoe\nSJ Carpentry`;
-
-  const res = await sendNewEmailAction({
-    to: po.vendor_email,
-    subject: `Purchase Order ${po.po_number} — ${project.name}`,
-    body,
-  });
-  if (!res.ok) return { ok: false, error: res.error ?? "Could not send the purchase order." };
-
-  await query(`UPDATE purchase_orders SET status = 'sent', sent_at = now() WHERE id = $1`, [id]);
-  await emit({
-    kind: "money",
-    tag: "Money",
-    accent: "money",
-    icon: "money",
-    title: `PO ${po.po_number} sent · ${project.name}`,
-    subline: `${fmtPoUsd(po.subtotal)} · ${po.vendor_name}`,
-    href: `/projects/${slug}`,
-  });
+  await requireRole("owner");
+  const res = await sendPurchaseOrderOp(id, slug);
+  if (!res.ok) return res;
   revalidatePath(`/projects/${slug}`);
   revalidatePath("/notifications");
   return { ok: true };

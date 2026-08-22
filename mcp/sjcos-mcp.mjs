@@ -31,10 +31,16 @@
 //     buildServer): create per-room boards, pin sourced images, add swatches and
 //     direction text, and compose a board into a real mood-board layout. Owner-
 //     side only — a board is internal until the owner pushes selections.
-//   • NOT exposed: no destructive tools (no deletes/drops), no client- or
-//     vendor-facing sends (email/SMS/invoices/contracts/POs stay owner-approved
-//     in the app), and no raw-SQL passthrough. Secrets are read from .env.local
-//     at runtime and never logged or returned in a tool result.
+//   • Owner-granted SENDS (mcp/grants-tools.mjs): send_bid_package,
+//     send_purchase_order, send_invoice, release_newsletter_*,
+//     send_document_for_signature, send_email. Each REQUIRES an owner grant
+//     id — Joe's express permission for that action/target (Ask-window
+//     "Express permission" checkbox, /engine/permissions, or an agent's
+//     request_owner_permission that Joe approved). No grant, no send.
+//   • NOT exposed: no destructive tools (no deletes/drops), no un-granted
+//     client- or vendor-facing sends, and no raw-SQL passthrough. Secrets are
+//     read from .env.local at runtime and never logged or returned in a tool
+//     result.
 
 import { readFileSync } from "node:fs";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
@@ -53,6 +59,7 @@ import { DEEP_RE, CHAT_RE } from "../lib/triage-lanes.mjs";
 import { registerMoodTools } from "./mood-tools.mjs";
 import { registerBiddingTools } from "./bidding-tools.mjs";
 import { registerChatgptTools } from "./chatgpt-tools.mjs";
+import { registerGrantTools } from "./grants-tools.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -136,10 +143,8 @@ async function newsletterCall(action, payload = {}) {
 /**
  * Call the app's internal bidding route (single source of truth for publish/
  * award/thread logic — portal visibility, parked invite emails, notifications).
- * Trusted local caller, authed with CRON_SECRET. Note the different line here:
- * send_package IS exposed (owner's explicit call for the bidding family) and is
- * safe because it cannot transmit — it publishes to sub portals and parks
- * invite emails on the Subs tab; only Joe's own mail client reaches an inbox.
+ * Trusted local caller, authed with CRON_SECRET. The route refuses send_package
+ * (real email); sending goes through the owner-grant tools instead.
  */
 async function biddingCall(action, payload = {}) {
   const base = envValue("APP_INTERNAL_URL") || "http://127.0.0.1:3017";
@@ -147,6 +152,27 @@ async function biddingCall(action, payload = {}) {
   if (!secret) return { ok: false, error: "CRON_SECRET not set — cannot reach the app bidding route." };
   try {
     const res = await fetch(`${base}/api/internal/bidding`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
+      body: JSON.stringify({ action, ...payload }),
+    });
+    return await res.json();
+  } catch (e) {
+    return { ok: false, error: `App not reachable at ${base} (${e.message}). Is the sjcos service running?` };
+  }
+}
+
+/**
+ * Call the app's internal owner-grants route: request/check/list grants and
+ * PERFORM a granted send. The route spends the grant atomically for the exact
+ * action + target before anything transmits (lib/agent-sends.ts).
+ */
+async function grantsCall(action, payload = {}) {
+  const base = envValue("APP_INTERNAL_URL") || "http://127.0.0.1:3017";
+  const secret = envValue("CRON_SECRET");
+  if (!secret) return { ok: false, error: "CRON_SECRET not set — cannot reach the app owner-grants route." };
+  try {
+    const res = await fetch(`${base}/api/internal/owner-grants`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
       body: JSON.stringify({ action, ...payload }),
@@ -2026,11 +2052,14 @@ server.registerTool(
   // growing without bound. See mcp/mood-tools.mjs.
   registerMoodTools(server, { rows, json, uploadDir: path.join(__dirname, "..", "uploads") });
 
-  // Bidding lives in its own module too. Unlike the other families, the owner
-  // explicitly opened the FULL surface to agents — including send and award —
-  // because "send" here only publishes to sub portals / parks invite emails;
-  // no code path in the app transmits email. See mcp/bidding-tools.mjs.
+  // Bidding lives in its own module too: stage + award. Sending a package is
+  // real email, so it is NOT here — it's a granted send (below).
   registerBiddingTools(server, { rows, json, biddingCall });
+
+  // Owner-granted sends + the request/check/list tools around them. These are
+  // the only tools that can reach a real inbox, and each one needs an owner
+  // grant id for its exact target. See mcp/grants-tools.mjs.
+  registerGrantTools(server, { json, grantsCall });
 
   // `search` + `fetch`: the two tools ChatGPT's connector requires by name (it
   // rejects a server without them). Read-only unified lookups over the same

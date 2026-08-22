@@ -50,7 +50,7 @@ export function ClaimAccount({ defaultEmail }: { defaultEmail?: string }) {
           </div>
           <p className="mt-1 text-[12.5px] leading-relaxed text-ink-2">
             You don&rsquo;t need an account to use this portal — the link we sent you is enough, and
-            it keeps working for 30 days. Because it&rsquo;s just a link, though,{" "}
+            it keeps working and doesn&rsquo;t expire. Because it&rsquo;s just a link, though,{" "}
             <strong className="font-semibold text-ink">
               anyone you forward that email to can open this page too
             </strong>

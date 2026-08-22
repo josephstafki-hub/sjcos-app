@@ -92,8 +92,8 @@ export async function notifyDashboardPublish(
     const howToGetIn = claim
       ? `Sign in with your email and password (your account is under ${claim.email}). ` +
         `From the dashboard you can also message me directly.`
-      : `That link signs you in — no account or password needed. It works for 30 days, ` +
-        `and from the dashboard you can also message me directly.`;
+      : `That link signs you in — no account or password needed. It doesn't expire, so keep ` +
+        `the email — and from the dashboard you can also message me directly.`;
 
     await sendNewEmail({
       to: email,

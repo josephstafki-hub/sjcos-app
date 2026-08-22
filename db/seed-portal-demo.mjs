@@ -297,7 +297,7 @@ try {
   );
   await sql(
     `INSERT INTO client_portal_invites (project_slug, to_email, to_name, token, expires_at, status)
-     VALUES ($1, $2, 'Dana Holt', 'demo0aa1bb2cc3dd4ee5ff6007281994aabbccddeeff0011', now() + interval '30 days', 'active')`,
+     VALUES ($1, $2, 'Dana Holt', 'demo0aa1bb2cc3dd4ee5ff6007281994aabbccddeeff0011', NULL, 'active')`,
     [SLUG, CLIENT_EMAIL],
   );
 

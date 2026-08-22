@@ -94,7 +94,10 @@ export function PortalAccessPanel({
           <>
             The client reaches their dashboard through a signed link — no account needed
             {invite.toEmail ? ` (on file: ${invite.toEmail})` : ""}
-            {invite.expiresLabel ? ` · current link good through ${invite.expiresLabel}` : ""}.
+            {invite.expiresLabel
+              ? ` · current link good through ${invite.expiresLabel}`
+              : " · the link doesn't expire"}
+            .
           </>
         )}
       </p>

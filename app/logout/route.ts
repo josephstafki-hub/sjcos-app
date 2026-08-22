@@ -9,5 +9,12 @@ import { deleteSession } from "@/lib/session";
 // bounces back to /login — forever. requireUser() redirects here instead.
 export async function GET(req: Request) {
   await deleteSession();
-  return NextResponse.redirect(new URL("/login", req.url));
+  // Public host + the scheme the browser actually used, not req.url's — nginx
+  // terminates TLS and proxies plain http upstream, so req.url reads http://
+  // and redirecting there downgrades the hop. Same resolution as the portal
+  // enter routes.
+  const url = new URL(req.url);
+  const host = req.headers.get("x-forwarded-host") ?? url.host;
+  const proto = req.headers.get("x-forwarded-proto") ?? url.protocol.replace(":", "");
+  return NextResponse.redirect(new URL("/login", `${proto}://${host}`));
 }

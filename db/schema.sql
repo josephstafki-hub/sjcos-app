@@ -934,7 +934,8 @@ ALTER TABLE project_subs ADD COLUMN IF NOT EXISTS end_date   date;
 -- clickable link for Joe to send days later, so the plaintext credential lives
 -- in this row either way — hashing the column while body holds the same link
 -- would be theatre. Tradeoff, stated plainly: DB read access ⇒ ability to enter
--- one sub's portal. Bounded by expires_at, revocable via status='dismissed'.
+-- one sub's portal. Revocable via status='dismissed' or users.active=false —
+-- NOT time-bounded: expires_at is NULL on every link the app issues.
 CREATE TABLE IF NOT EXISTS sub_portal_invites (
   id          bigserial PRIMARY KEY,
   sub_slug    text NOT NULL REFERENCES subs(slug) ON DELETE CASCADE,
@@ -945,7 +946,7 @@ CREATE TABLE IF NOT EXISTS sub_portal_invites (
   token       text UNIQUE NOT NULL,              -- opaque bearer token for /sub-portal/enter
   status      text NOT NULL DEFAULT 'queued'
                 CHECK (status IN ('queued','approved','dismissed')),
-  expires_at  timestamptz NOT NULL,
+  expires_at  timestamptz,                       -- NULL = never expires (the norm)
   used_at     timestamptz,                       -- first successful portal entry (audit)
   created_at  timestamptz NOT NULL DEFAULT now(),
   UNIQUE (sub_slug, project_id)
@@ -2215,7 +2216,7 @@ ALTER TABLE signature_requests ADD CONSTRAINT signature_requests_doc_type_check
 --
 -- SECURITY — a BEARER LINK, deliberately, the same trade as the sub flow:
 -- anyone holding the email reaches that one project's portal. It cannot reach
--- owner surfaces or another project. Levers if a link leaks: expires_at, Revoke
+-- owner surfaces or another project. Levers if a link leaks: Revoke
 -- (status='dismissed'), users.active=false, and — unique to clients — the
 -- client CLAIMING the portal with a password, which refuses bearer entry from
 -- then on (users.portal_claimed_at).
@@ -2227,7 +2228,7 @@ CREATE TABLE IF NOT EXISTS client_portal_invites (
   token        text UNIQUE NOT NULL,              -- opaque bearer token
   status       text NOT NULL DEFAULT 'active'
                  CHECK (status IN ('active','dismissed')),
-  expires_at   timestamptz NOT NULL,
+  expires_at   timestamptz,                      -- NULL = never expires (the norm)
   used_at      timestamptz,                       -- first successful entry (audit)
   created_at   timestamptz NOT NULL DEFAULT now(),
   UNIQUE (project_slug)
@@ -2257,6 +2258,14 @@ END $$;
 -- Set when a client trades their bearer link for a real password. Non-null ⇒
 -- links are refused for that account and password login is the only way in.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS portal_claimed_at timestamptz;
+
+-- Portal links stopped expiring (db/apply-portal-link-window.mjs). expires_at
+-- is now nullable and NULL on everything the app issues — a client or sub who
+-- kept the email can always get back in, and killing a link means Revoke /
+-- Dismiss / users.active = false, which are deliberate rather than a clock.
+-- The column survives so a dated kill switch stays possible; nothing sets it.
+ALTER TABLE client_portal_invites ALTER COLUMN expires_at DROP NOT NULL;
+ALTER TABLE sub_portal_invites ALTER COLUMN expires_at DROP NOT NULL;
 
 -- ─── Purchase orders (per-project) ─────────────────────────────────────────
 -- Materials-side procurement, the money-out counterpart to invoices. A PO goes

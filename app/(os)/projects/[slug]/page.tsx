@@ -164,15 +164,18 @@ export default async function ProjectDetailPage({
           status:
             invite.status === "dismissed"
               ? ("dismissed" as const)
-              : invite.expiresAt < new Date()
+              : invite.expiresAt !== null && invite.expiresAt < new Date()
                 ? ("expired" as const)
                 : ("active" as const),
           toEmail: invite.toEmail,
-          expiresLabel: invite.expiresAt.toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-          }),
+          // null = the link doesn't expire, which is every link issued since
+          // portal links stopped having a clock. The panel words it that way.
+          expiresLabel:
+            invite.expiresAt?.toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            }) ?? null,
           used: invite.usedAt !== null,
         }
       : { status: "none" as const, toEmail: null, expiresLabel: null, used: false }),

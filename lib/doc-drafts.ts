@@ -605,7 +605,7 @@ async function emailDocForSignature(o: {
         `${o.draftTitle} is ready for your signature. A copy is attached for your records.\n\n` +
         `To sign it, open your project portal here:\n${link}\n\n` +
         `That link signs you in — there's no account to create and no password to remember. ` +
-        `It works for 30 days, and from the portal you can also see your selections, schedule, ` +
+        `It doesn't expire, and from the portal you can also see your selections, schedule, ` +
         `and message me directly. If you'd rather have a password so you can sign in from ` +
         `anywhere, there's a "Create an account" option once you're in.\n\n` +
         `Any questions, just reply to this email.\n\nThanks,\nJoe\nSJ Carpentry`,

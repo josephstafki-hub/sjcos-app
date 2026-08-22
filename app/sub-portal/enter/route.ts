@@ -9,9 +9,9 @@
 // enter that one sub's portal: their scope/dates, their own logs, invoices and
 // documents, and the message thread with Joe. It cannot reach owner surfaces or
 // another sub's data. That's the trade we're making for trade-partner UX (no
-// passwords for guys on a roof). The levers, if a link leaks: the invite's
-// 30-day expiry, Dismiss on the project Subs tab (revokes the token), and
-// users.active = false (hard stop, beats any link).
+// passwords for guys on a roof). The link does not expire, so the levers are
+// deliberate rather than clock-driven: Dismiss on the project Subs tab (revokes
+// the token) and users.active = false (hard stop, beats any link).
 
 import { NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
@@ -30,19 +30,31 @@ function subInitials(name: string): string {
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const token = url.searchParams.get("token");
+
+  // Redirect back to the host the sub actually reached us on, not the raw
+  // request origin — same reasoning as app/client-portal/enter. nginx forwards
+  // Host verbatim but terminates TLS, so request.url reads http://…; sending a
+  // phone from an https page to an http one is a mixed-content redirect and an
+  // extra hop at best. X-Forwarded-Proto is the scheme they actually used.
+  const fwdHost = request.headers.get("x-forwarded-host") ?? url.host;
+  const fwdProto = request.headers.get("x-forwarded-proto") ?? url.protocol.replace(":", "");
+  const origin = `${fwdProto}://${fwdHost}`;
   const bounce = (why: string) =>
-    NextResponse.redirect(new URL(`/login?invite=${why}`, url.origin));
+    NextResponse.redirect(new URL(`/login?invite=${why}`, origin));
 
   if (!token) return bounce("missing");
 
-  // Reusable until it expires, NOT single-use: this link is the sub's only
+  // Reusable and unexpiring, NOT single-use: this link is the sub's only
   // credential, and the session cookie lasts 7 days. Burning the token on first
   // click would lock them out on day 8 and mean a new invite for every phone.
+  // expires_at is NULL on everything the app issues — the date arm below only
+  // still filters legacy rows.
   const invite = await queryOne<{ id: string; sub_slug: string; sub_name: string }>(
     `SELECT i.id, i.sub_slug, s.name AS sub_name
        FROM sub_portal_invites i
        JOIN subs s ON s.slug = i.sub_slug
-      WHERE i.token = $1 AND i.status <> 'dismissed' AND i.expires_at > now()`,
+      WHERE i.token = $1 AND i.status <> 'dismissed'
+        AND (i.expires_at IS NULL OR i.expires_at > now())`,
     [token],
   );
   if (!invite) return bounce("expired");
@@ -95,5 +107,5 @@ export async function GET(request: Request) {
     invite.id,
   ]);
   await createSession(userId, "sub");
-  return NextResponse.redirect(new URL("/sub-portal", url.origin));
+  return NextResponse.redirect(new URL("/sub-portal", origin));
 }

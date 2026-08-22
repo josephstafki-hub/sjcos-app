@@ -10,7 +10,9 @@
 // for subs in app/sub-portal/enter. Anyone holding the email reaches that one
 // project's portal: its documents, selections, schedule, files and the message
 // thread with Joe. It cannot reach owner surfaces or another project's data.
-// The levers, if a link leaks: the 30-day expiry, Revoke on the project (which
+// The link does not expire — a client should never be locked out of their own
+// project because they took a season to answer. The levers, if one leaks, are
+// all deliberate rather than clock-driven: Revoke on the project (which
 // rotates/kills the token), users.active = false, and — unique to clients —
 // the client CLAIMING the portal with a password, after which this route
 // refuses the link entirely and only password login works.
@@ -40,21 +42,30 @@ export async function GET(request: Request) {
   // production) the request URL's host is the internal one (localhost:3018), so
   // redirecting there would bounce an off-network client to an address their
   // browser can't resolve. X-Forwarded-Host/Proto carry the public host.
-  const fwdHost = request.headers.get("x-forwarded-host");
-  const fwdProto = request.headers.get("x-forwarded-proto") ?? "https";
-  const origin = fwdHost ? `${fwdProto}://${fwdHost}` : url.origin;
+  //
+  // Host and proto are resolved SEPARATELY on purpose: nginx forwards Host
+  // verbatim without setting X-Forwarded-Host (deploy/nginx-sjcos.conf), so
+  // taking url.origin wholesale whenever that header is missing would hand back
+  // http:// — a mixed-content redirect off an https page, since nginx is where
+  // TLS terminates. X-Forwarded-Proto is the scheme the browser actually used.
+  const fwdHost = request.headers.get("x-forwarded-host") ?? url.host;
+  const fwdProto = request.headers.get("x-forwarded-proto") ?? url.protocol.replace(":", "");
+  const origin = `${fwdProto}://${fwdHost}`;
   const bounce = (why: string) =>
     NextResponse.redirect(new URL(`/login?invite=${why}`, origin));
 
   if (!token) return bounce("missing");
 
-  // Reusable until it expires, NOT single-use: this link is the client's only
+  // Reusable and unexpiring, NOT single-use: this link is the client's only
   // credential and the session cookie lasts 7 days. Burning it on first click
   // would lock them out on day 8 and mean a new link for every device.
   //
+  // expires_at is NULL on every link the app issues; the IS NULL arm is what
+  // makes those work, and the date arm only still filters legacy rows.
+  //
   // An invite scopes to a project OR a lead (the lead-stage portal). Either way
-  // the joined row must still exist — a dangling invite is as dead as an
-  // expired one.
+  // the joined row must still exist — a dangling invite is as dead as a
+  // revoked one.
   const invite = await queryOne<{
     id: string;
     project_slug: string | null;
@@ -66,7 +77,8 @@ export async function GET(request: Request) {
        FROM client_portal_invites i
        LEFT JOIN projects p ON p.slug = i.project_slug
        LEFT JOIN leads l ON l.slug = i.lead_slug
-      WHERE i.token = $1 AND i.status <> 'dismissed' AND i.expires_at > now()
+      WHERE i.token = $1 AND i.status <> 'dismissed'
+        AND (i.expires_at IS NULL OR i.expires_at > now())
         AND (p.slug IS NOT NULL OR l.slug IS NOT NULL)`,
     [token],
   );

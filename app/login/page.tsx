@@ -6,17 +6,26 @@ import { getCurrentUser, homeForRole } from "@/lib/dal";
 export const metadata = { title: "Sign in · SJC OS" };
 
 /** Why a portal link dumped someone here instead of into their portal.
- *  Set by app/sub-portal/enter/route.ts and app/client-portal/enter/route.ts.
+ *  Set by app/sub-portal/enter/route.ts and app/client-portal/enter/route.ts,
+ *  plus 'signedout' from proxy.ts when a lapsed session hits a portal URL.
  *  These people were promised "no account, no password" — landing them on a bare
  *  sign-in form with no explanation is how you get a phone call. */
 const INVITE_NOTICE: Record<string, string> = {
-  expired: "That job link has expired. Text Joe and he'll send you a fresh one.",
+  // 'expired' is the historical param name; portal links no longer expire, so
+  // reaching this means the link was revoked or its project/lead is gone.
+  expired: "That job link isn't working anymore. Text Joe and he'll send you a fresh one.",
   inactive: "That account is no longer active. Reach out to Joe if this looks wrong.",
   missing: "That job link is incomplete — try opening it straight from the email.",
   failed: "Something went wrong opening that job link. Text Joe and he'll sort it out.",
   claimed:
     "Your dashboard is protected by an account now, so the emailed link no longer signs you in. " +
     "Sign in below with the email and password you set up. Forgot the password? Text Joe and he'll reset your access.",
+  // Not a bad link — a lapsed session (the sign-in lasts a week) reaching a
+  // portal URL directly. Anyone without a password gets back in by reopening
+  // their link, which never expires, so point them at the email first.
+  signedout:
+    "You've been signed out. Open the link Joe emailed you and it'll sign you straight back in — " +
+    "that link doesn't expire. If you've set up a password, sign in below instead.",
 };
 
 /** Standalone login surface — no Shell. Already-authed users skip straight to

@@ -15,7 +15,7 @@
 //     Decision notification; Joe approves/denies on /engine/permissions.
 
 import { query, queryOne } from "@/lib/db";
-import { emit } from "@/lib/notify";
+import { notifyOwner } from "@/lib/notify-owner";
 
 export {
   GATED_ACTIONS,
@@ -141,15 +141,19 @@ export async function requestGrant(input: {
     expiresInMinutes: 24 * 60,
     status: "requested",
   });
-  await emit({
-    kind: "decision",
-    tag: "Permission",
-    accent: "ai",
-    icon: "shield",
-    flagged: true,
-    title: `${grant.requested_by} asks to: ${ACTION_LABEL[input.action]}${grant.target_id ? ` (${grant.target_id})` : ""}`,
-    subline: reason.slice(0, 160),
+  // notifyOwner writes the same Decision notification emit() used to (the
+  // `emit` overrides keep the established card copy) and, when the Telegram
+  // channel is configured, pushes to Joe's phone — a waiting agent is blocked
+  // on this decision, so grants skip the hourly push cap (not quiet hours).
+  await notifyOwner({
+    kind: "grant",
+    title: `Grant request: ${ACTION_LABEL[input.action]}${grant.target_id ? ` — ${grant.target_id}` : ""}`,
+    body: `Reason: ${reason.slice(0, 160)}`,
     href: "/engine/permissions",
+    emit: {
+      title: `${grant.requested_by} asks to: ${ACTION_LABEL[input.action]}${grant.target_id ? ` (${grant.target_id})` : ""}`,
+      subline: reason.slice(0, 160),
+    },
   });
   return { ok: true, grant };
 }

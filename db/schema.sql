@@ -2551,3 +2551,22 @@ CREATE TABLE IF NOT EXISTS owner_grants (
 CREATE INDEX IF NOT EXISTS owner_grants_status_idx ON owner_grants (status, created_at DESC);
 -- Run-scoped grant minted by the Ask window's "Express permission" checkbox.
 ALTER TABLE dev_agent_runs ADD COLUMN IF NOT EXISTS grant_id uuid;
+
+-- ── W3 owner push (lib/notify-owner.ts) ──────────────────────────────────────
+-- Pushes to Joe's phone parked through quiet hours / the hourly throttle until
+-- the push-drain cron transmits them. A row with sent_at set at insert time is
+-- the audit trail of an immediate send (the rolling-hour throttle counts them).
+CREATE TABLE IF NOT EXISTS push_outbox (
+  id         bigserial PRIMARY KEY,
+  kind       text NOT NULL CHECK (kind IN ('grant','urgent_item','agent_failure','stale_approval')),
+  title      text NOT NULL,
+  body       text,
+  href       text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  send_after timestamptz NOT NULL DEFAULT now(),
+  sent_at    timestamptz
+);
+CREATE INDEX IF NOT EXISTS idx_push_outbox_due
+  ON push_outbox(send_after) WHERE sent_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_push_outbox_sent
+  ON push_outbox(sent_at) WHERE sent_at IS NOT NULL;

@@ -8,6 +8,7 @@
 // grant decides, not the agent's say-so.
 
 import { query, queryOne } from "@/lib/db";
+import { notifyAgentFailure } from "@/lib/notify-owner";
 import { sendBidPackageOp } from "@/lib/bidding";
 import { sendInvoiceOp, sendPurchaseOrderOp } from "@/lib/send-ops";
 import { releaseOutboxItem } from "@/lib/newsletter-outbox";
@@ -56,6 +57,11 @@ async function audit(agent: string, action: string, target: string, result: Agen
         (result.ok ? result.summary : result.error).slice(0, 500),
       ],
     );
+    // W3: a failed granted send is a phone-worthy event (collapsed to one
+    // push per runtime per hour inside notifyAgentFailure; never throws).
+    if (!result.ok) {
+      await notifyAgentFailure(`mcp:${agent}`.slice(0, 80), result.error);
+    }
   } catch {
     /* best-effort */
   }

@@ -222,6 +222,28 @@ function json(data) {
   return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
 }
 
+// Shell-interpolation tripwire for free-text writes. Agents sometimes route a
+// tool call through a double-quoted shell string (a /tmp helper taking JSON as
+// an argv word, or psql -c "insert …"), where bash expands $1/$2/… to nothing
+// and "$2,200" arrives here as ",200". Once stored the amount is gone, so the
+// write gate rejects the signature outright — real prose never puts ",NNN"
+// straight after whitespace.
+const STRIPPED_DOLLAR_RE = /(^|\s),\d{3}\b/;
+/** Non-null iff any of the texts carries the stripped-dollar signature. */
+function strippedDollarError(...texts) {
+  if (!texts.some((t) => typeof t === "string" && STRIPPED_DOLLAR_RE.test(t)))
+    return null;
+  return json({
+    ok: false,
+    error:
+      'Rejected — nothing was written: the text contains ",NNN" right after whitespace, ' +
+      'the signature of a dollar amount whose "$N" prefix was eaten by shell interpolation ' +
+      '("$2,200" becomes ",200" inside double quotes). Re-send the call without a shell in ' +
+      "the middle: call the MCP tool directly, or pipe the JSON via stdin — " +
+      "printf '%s' '<json>' | node mcp/call-tool.mjs <tool> — never as a double-quoted argv word.",
+  });
+}
+
 // Build a fully-registered MCP server. Called once for the stdio process, and
 // once per HTTP session: Streamable HTTP binds a transport to exactly one server,
 // so concurrent HTTP clients each need their own instance. The shared `pool` and
@@ -832,6 +854,8 @@ server.registerTool(
     },
   },
   async ({ content, kind = "note", project_slug, lead_slug, source_uri, created_by = "agent", agent_run_id }) => {
+    const mangled = strippedDollarError(content);
+    if (mangled) return mangled;
     const fp = createHash("md5").update(content).digest("hex");
     const r = await rows(
       `INSERT INTO knowledge_items (content, kind, source, source_uri, project_id, lead_id, content_fingerprint, created_by)
@@ -875,6 +899,8 @@ server.registerTool(
     },
   },
   async (a) => {
+    const mangled = strippedDollarError(a.title, a.body);
+    if (mangled) return mangled;
     const r = await rows(
       `INSERT INTO work_items
          (title, body, priority, assignee_kind, assignee_key, due_at, project_id, lead_id,
@@ -909,6 +935,8 @@ server.registerTool(
     },
   },
   async ({ id, status, note }) => {
+    const mangled = strippedDollarError(note);
+    if (mangled) return mangled;
     const r = await rows(
       `UPDATE work_items
           SET status = $2,
@@ -944,6 +972,8 @@ server.registerTool(
     },
   },
   async ({ id, body, suggested_next_action }) => {
+    const mangled = strippedDollarError(body, suggested_next_action);
+    if (mangled) return mangled;
     const item = await rows(`SELECT id, body, created_by FROM work_items WHERE id = $1`, [id]);
     if (item.length === 0) return json({ ok: false, error: `No work item ${id}` });
     if (!/^detector:/.test(item[0].created_by)) {

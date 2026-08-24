@@ -4,7 +4,11 @@ import "server-only";
 // whether a condition exists. Each detector finds a condition (a thread owed a
 // reply, a silent sub, an unanswered estimate, …), files ONE work item keyed to
 // the underlying thing via detector_state, keeps it (bumping last_seen) while
-// the condition holds, and auto-resolves it when the condition clears. The
+// the condition holds, and auto-resolves it when the condition clears. When an
+// open work item already covers the underlying thing (sub-silent's source item,
+// any open item on a gate-stalled record), the detector ESCALATES that item —
+// priority +1 and an appended note, at most once per 7 days per item — instead
+// of filing a sibling, so one issue never occupies multiple queue slots. The
 // readable summary comes later: Hermes rewrites the factual body through the
 // enrich_work_item MCP tool (mcp/sjcos-mcp.mjs), never through this module.
 //
@@ -28,6 +32,7 @@ const COMPLIANCE_WINDOWS = [60, 30, 14];
 const WARRANTY_ACK_WINDOW = 2; // ack deadline ≤2 days out (mirrors reminders)
 const WARRANTY_RESOLVE_WINDOW = 5; // resolve deadline ≤5 days out
 const MAX_CREATES_PER_RUN = 30; // spreads a first-run burst over a few hours
+const ESCALATION_COOLDOWN_DAYS = 7; // a given item escalates at most once/7d per detector
 
 export interface DetectedItem {
   dedupKey: string;
@@ -46,6 +51,21 @@ export interface DetectedItem {
   sourceId?: string;
 }
 
+/** An existing open work item to escalate instead of filing a sibling:
+ *  priority bumped one step (low→normal→high→urgent, capped) and one factual
+ *  line appended to the body. Never touches status, assignee, or due date.
+ *  updated_at IS touched — deliberately, so clocks keyed to it restart. */
+export interface DetectedEscalation {
+  /** Guard key in detector_state (detector_key gets an `-esc` suffix so the
+   *  creation-key resolve() sweeps never see these rows). */
+  dedupKey: string;
+  workItemId: string;
+  /** The one line appended to the item's body, e.g. "[sub-silent] …". */
+  note: string;
+  /** For run-result reporting only. */
+  title: string;
+}
+
 export interface Detector {
   key: string;
   /** Everything currently matching the condition. Pure deterministic reads
@@ -53,6 +73,10 @@ export interface Detector {
   find(): Promise<DetectedItem[]>;
   /** dedup_keys among the open detector_state rows whose condition CLEARED. */
   resolve(): Promise<string[]>;
+  /** Conditions covered by an EXISTING open item: escalate it instead of
+   *  filing a sibling. Guarded to once per ESCALATION_COOLDOWN_DAYS per item
+   *  via detector_state last_seen. */
+  escalate?(): Promise<DetectedEscalation[]>;
 }
 
 export interface DetectorCounts {
@@ -60,6 +84,7 @@ export interface DetectorCounts {
   bumped: number;
   resolved: number;
   skipped: number;
+  escalated: number;
 }
 
 export interface DetectorRunResult {
@@ -68,6 +93,8 @@ export interface DetectorRunResult {
   detectors: Record<string, DetectorCounts>;
   /** Created (or, in dryRun, would-create) items. */
   created: { detector: string; dedupKey: string; title: string }[];
+  /** Escalated (or would-escalate) existing items: priority +1, note appended. */
+  escalated: { detector: string; dedupKey: string; workItemId: string; title: string; note: string }[];
   /** Auto-resolved (or would-resolve) dedup keys. */
   resolved: { detector: string; dedupKey: string }[];
   /** Not created: run cap hit, or an open source_kind='email' work item
@@ -219,39 +246,38 @@ function needsReplyDetector(): Detector {
 }
 
 // ─── 2 · sub-silent ─────────────────────────────────────────────────────────
-// Open waiting_on_sub work items untouched for SUB_SILENT_DAYS. (The second
-// clause — project_subs with no sub_logs/inbound email — waits until there's a
-// clean sub↔email link to key on.) Detector-filed items are excluded so a
-// waiting_on_sub item this layer created never files a chaser about itself.
+// Open waiting_on_sub work items untouched for SUB_SILENT_DAYS. The silent
+// item already occupies a queue slot, so this detector never files a sibling:
+// it ESCALATES the source item in place (priority +1, one appended
+// "[sub-silent]" line). The escalation touches updated_at, deliberately
+// resetting the silence clock, so a still-silent sub re-escalates naturally
+// every SUB_SILENT_DAYS (throttled by the shared 7-day escalation guard).
+// Detector-filed items are excluded so a waiting_on_sub item this layer (or a
+// sibling detector) created never chases itself. resolve() still clears the
+// legacy creation-keyed rows from the file-a-sibling era.
 function subSilentDetector(): Detector {
   return {
     key: "sub-silent",
     async find() {
+      return []; // escalation-only: the silent item IS the queue entry
+    },
+    async escalate() {
       const { rows } = await query<{
-        id: string; title: string; project_id: string | null; lead_id: string | null;
-        anchor: string | null; updated: string; days: number;
+        id: string; title: string; updated: string; days: number;
       }>(
-        `SELECT w.id, w.title, w.project_id, w.lead_id,
-                COALESCE(p.name, l.name) AS anchor,
+        `SELECT w.id, w.title,
                 to_char(w.updated_at, 'YYYY-MM-DD') AS updated,
                 floor(extract(epoch FROM now() - w.updated_at) / 86400)::int AS days
            FROM work_items w
-           LEFT JOIN projects p ON p.id = w.project_id
-           LEFT JOIN leads l ON l.id = w.lead_id
           WHERE w.status = 'waiting_on_sub'
             AND w.updated_at < now() - interval '${SUB_SILENT_DAYS} days'
             AND w.created_by NOT LIKE 'detector:%'`,
       );
       return rows.map((r) => ({
-        dedupKey: `sub-silent:${r.id}`,
+        dedupKey: `sub-silent-esc:${r.id}`,
+        workItemId: r.id,
         title: `Sub silent ${r.days} days: ${r.title}`,
-        priority: "normal" as const,
-        status: "waiting_on_human",
-        projectId: r.project_id ?? undefined,
-        leadId: r.lead_id ?? undefined,
-        body:
-          `Work item "${r.title}"${r.anchor ? ` (${r.anchor})` : ""} has been waiting on a sub ` +
-          `since ${r.updated} with no update (${r.days} days). Work item: ${r.id}. [detector:sub-silent]`,
+        note: `[sub-silent] No sub update since ${r.updated} (${r.days} days).`,
       }));
     },
     async resolve() {
@@ -616,58 +642,120 @@ function warrantyUnackedDetector(): Detector {
 // (stage_rules, via computeStageGate) still lies ahead of them. Keyed to the
 // current stage, so advancing a record retires the old key and restarts the
 // stall clock for the new stage.
+//
+// A record that ALREADY has an open work item gets no sibling: the stall
+// escalates that item instead — the open item with the highest priority
+// (tie → oldest due_at, then oldest created_at) takes a priority bump and a
+// "[gate-stalled]" line. Only a record with ZERO open items files a fresh
+// item, so a truly silent stall still surfaces. One scan feeds both find()
+// and escalate() so the split is computed exactly once per run.
 function gateStalledDetector(): Detector {
+  interface Scan { items: DetectedItem[]; escalations: DetectedEscalation[] }
+  let scanP: Promise<Scan> | null = null;
+  const scan = () => (scanP ??= doScan());
+
+  async function doScan(): Promise<Scan> {
+    const [leads, projects, openItems] = await Promise.all([
+      query<{ id: string; slug: string; name: string; stage: string; days: number }>(
+        `SELECT id, slug, name, stage,
+                floor(extract(epoch FROM now() - updated_at) / 86400)::int AS days
+           FROM leads
+          WHERE stage <> 'lost'
+            AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.lead_id = leads.id)
+            AND updated_at < now() - interval '${GATE_STALLED_DAYS} days'`,
+      ),
+      query<{ id: string; slug: string; name: string; status: string; days: number }>(
+        `SELECT id, slug, name, status,
+                floor(extract(epoch FROM now() - updated_at) / 86400)::int AS days
+           FROM projects
+          WHERE status <> 'warranty' AND updated_at < now() - interval '${GATE_STALLED_DAYS} days'`,
+      ),
+      // Best escalation target per project: highest priority, tie → oldest
+      // due_at (nulls last), then oldest created_at.
+      query<{ id: string; title: string; project_id: string }>(
+        `SELECT DISTINCT ON (w.project_id) w.id, w.title, w.project_id
+           FROM work_items w
+          WHERE w.status NOT IN ('done','cancelled') AND w.project_id IS NOT NULL
+          ORDER BY w.project_id,
+                   array_position(ARRAY['urgent','high','normal','low'], w.priority),
+                   w.due_at ASC NULLS LAST, w.created_at ASC`,
+      ),
+    ]);
+    // Same per lead (leads in the stalled list are pre-conversion, so their
+    // items ride on lead_id).
+    const openLeadItems = await query<{ id: string; title: string; lead_id: string }>(
+      `SELECT DISTINCT ON (w.lead_id) w.id, w.title, w.lead_id
+         FROM work_items w
+        WHERE w.status NOT IN ('done','cancelled') AND w.lead_id IS NOT NULL
+        ORDER BY w.lead_id,
+                 array_position(ARRAY['urgent','high','normal','low'], w.priority),
+                 w.due_at ASC NULLS LAST, w.created_at ASC`,
+    );
+    const targetByProject = new Map(openItems.rows.map((w) => [w.project_id, w]));
+    const targetByLead = new Map(openLeadItems.rows.map((w) => [w.lead_id, w]));
+
+    const items: DetectedItem[] = [];
+    const escalations: DetectedEscalation[] = [];
+    for (const l of leads.rows) {
+      const gate = await computeStageGate("lead", l.stage);
+      const next = gate.nextStages[0];
+      if (!next) continue;
+      const target = targetByLead.get(l.id);
+      if (target) {
+        escalations.push({
+          dedupKey: `gate-stalled-esc:${target.id}`,
+          workItemId: target.id,
+          title: `Lead stalled ${l.days} days in ${l.stage} — ${l.name}`,
+          note: `[gate-stalled] ${l.stage} for ${l.days} days; next gate: ${next.requirement}`,
+        });
+        continue;
+      }
+      items.push({
+        dedupKey: `gate:lead:${l.slug}:${l.stage}`,
+        title: `Lead stalled ${l.days} days in ${l.stage} — ${l.name}`,
+        priority: "normal",
+        status: "waiting_on_human",
+        leadId: l.id,
+        body:
+          `Lead "${l.name}" has sat in ${l.stage} for ${l.days} days. ` +
+          `Next gate (${next.stage}): ${next.requirement} Lead: /leads/${l.slug}. [detector:gate-stalled]`,
+      });
+    }
+    for (const p of projects.rows) {
+      const gate = await computeStageGate("project", p.status);
+      const next = gate.nextStages[0];
+      if (!next) continue;
+      const target = targetByProject.get(p.id);
+      if (target) {
+        escalations.push({
+          dedupKey: `gate-stalled-esc:${target.id}`,
+          workItemId: target.id,
+          title: `Project stalled ${p.days} days in ${p.status} — ${p.name}`,
+          note: `[gate-stalled] ${p.status} for ${p.days} days; next gate: ${next.requirement}`,
+        });
+        continue;
+      }
+      items.push({
+        dedupKey: `gate:project:${p.slug}:${p.status}`,
+        title: `Project stalled ${p.days} days in ${p.status} — ${p.name}`,
+        priority: "normal",
+        status: "waiting_on_human",
+        projectId: p.id,
+        body:
+          `Project "${p.name}" has sat in ${p.status} for ${p.days} days. ` +
+          `Next gate (${next.stage}): ${next.requirement} Project: /projects/${p.slug}. [detector:gate-stalled]`,
+      });
+    }
+    return { items, escalations };
+  }
+
   return {
     key: "gate-stalled",
     async find() {
-      const [leads, projects] = await Promise.all([
-        query<{ id: string; slug: string; name: string; stage: string; days: number }>(
-          `SELECT id, slug, name, stage,
-                  floor(extract(epoch FROM now() - updated_at) / 86400)::int AS days
-             FROM leads
-            WHERE stage <> 'lost'
-              AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.lead_id = leads.id)
-              AND updated_at < now() - interval '${GATE_STALLED_DAYS} days'`,
-        ),
-        query<{ id: string; slug: string; name: string; status: string; days: number }>(
-          `SELECT id, slug, name, status,
-                  floor(extract(epoch FROM now() - updated_at) / 86400)::int AS days
-             FROM projects
-            WHERE status <> 'warranty' AND updated_at < now() - interval '${GATE_STALLED_DAYS} days'`,
-        ),
-      ]);
-      const items: DetectedItem[] = [];
-      for (const l of leads.rows) {
-        const gate = await computeStageGate("lead", l.stage);
-        const next = gate.nextStages[0];
-        if (!next) continue;
-        items.push({
-          dedupKey: `gate:lead:${l.slug}:${l.stage}`,
-          title: `Lead stalled ${l.days} days in ${l.stage} — ${l.name}`,
-          priority: "normal",
-          status: "waiting_on_human",
-          leadId: l.id,
-          body:
-            `Lead "${l.name}" has sat in ${l.stage} for ${l.days} days. ` +
-            `Next gate (${next.stage}): ${next.requirement} Lead: /leads/${l.slug}. [detector:gate-stalled]`,
-        });
-      }
-      for (const p of projects.rows) {
-        const gate = await computeStageGate("project", p.status);
-        const next = gate.nextStages[0];
-        if (!next) continue;
-        items.push({
-          dedupKey: `gate:project:${p.slug}:${p.status}`,
-          title: `Project stalled ${p.days} days in ${p.status} — ${p.name}`,
-          priority: "normal",
-          status: "waiting_on_human",
-          projectId: p.id,
-          body:
-            `Project "${p.name}" has sat in ${p.status} for ${p.days} days. ` +
-            `Next gate (${next.stage}): ${next.requirement} Project: /projects/${p.slug}. [detector:gate-stalled]`,
-        });
-      }
-      return items;
+      return (await scan()).items;
+    },
+    async escalate() {
+      return (await scan()).escalations;
     },
     async resolve() {
       // Cleared when the record moved stage (key no longer matches), was
@@ -766,6 +854,7 @@ export async function runDetectors(opts: { dryRun?: boolean } = {}): Promise<Det
     capHit: false,
     detectors: {},
     created: [],
+    escalated: [],
     resolved: [],
     skipped: [],
   };
@@ -773,13 +862,15 @@ export async function runDetectors(opts: { dryRun?: boolean } = {}): Promise<Det
 
   for (const factory of REGISTRY) {
     const detector = factory();
-    const counts: DetectorCounts = { created: 0, bumped: 0, resolved: 0, skipped: 0 };
+    const counts: DetectorCounts = { created: 0, bumped: 0, resolved: 0, skipped: 0, escalated: 0 };
     result.detectors[detector.key] = counts;
 
     let items: DetectedItem[] = [];
+    let escalations: DetectedEscalation[] = [];
     let clearedKeys: string[] = [];
     try {
       items = await detector.find();
+      escalations = detector.escalate ? await detector.escalate() : [];
       clearedKeys = await detector.resolve();
     } catch (e) {
       // One broken detector (e.g. Gmail hiccup) must not sink the whole run.
@@ -869,6 +960,51 @@ export async function runDetectors(opts: { dryRun?: boolean } = {}): Promise<Det
                first_seen = now(), last_seen = now(), resolved_at = NULL`,
         [item.dedupKey, detector.key, inserted.rows[0].id],
       );
+    }
+
+    // ── escalate(): bump an existing item instead of filing a sibling ──
+    // Guarded per item per detector: detector_state rows under the `-esc`
+    // detector_key (kept out of the creation resolve() sweeps), throttled by
+    // last_seen to once per ESCALATION_COOLDOWN_DAYS. Priority and body only —
+    // status, assignee, and due date are never touched. updated_at IS set,
+    // deliberately: clocks keyed to it (sub-silent) restart on escalation.
+    if (escalations.length) {
+      const cooling = await query<{ dedup_key: string }>(
+        `SELECT dedup_key FROM detector_state
+          WHERE dedup_key = ANY($1::text[])
+            AND last_seen > now() - interval '${ESCALATION_COOLDOWN_DAYS} days'`,
+        [escalations.map((e) => e.dedupKey)],
+      );
+      const suppressed = new Set(cooling.rows.map((r) => r.dedup_key));
+      for (const esc of escalations) {
+        if (suppressed.has(esc.dedupKey)) continue; // still in cooldown
+        suppressed.add(esc.dedupKey); // two records → one target: bump once
+        counts.escalated++;
+        result.escalated.push({
+          detector: detector.key, dedupKey: esc.dedupKey,
+          workItemId: esc.workItemId, title: esc.title, note: esc.note,
+        });
+        if (dryRun) continue;
+        const bumped = await query<{ id: string }>(
+          `UPDATE work_items
+              SET priority = CASE priority WHEN 'low' THEN 'normal'
+                                           WHEN 'normal' THEN 'high'
+                                           ELSE 'urgent' END,
+                  body = body || E'\\n' || $2,
+                  updated_at = now()
+            WHERE id = $1 AND status NOT IN ('done','cancelled')
+            RETURNING id`,
+          [esc.workItemId, esc.note],
+        );
+        if (!bumped.rows.length) continue; // closed mid-run — claim nothing
+        await query(
+          `INSERT INTO detector_state (dedup_key, detector_key, work_item_id)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (dedup_key) DO UPDATE
+             SET work_item_id = EXCLUDED.work_item_id, last_seen = now()`,
+          [esc.dedupKey, `${detector.key}-esc`, esc.workItemId],
+        );
+      }
     }
 
     // ── resolve(): close out conditions that cleared ──

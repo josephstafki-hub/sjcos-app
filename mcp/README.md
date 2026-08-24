@@ -50,6 +50,22 @@ All tools are parameterized SQL. **No raw-SQL tool** is exposed. Before working 
 non-trivial work item, an agent should `get_work_item` → `suggest_skill_for_work_item`
 → `get_skill`, then `record_skill_used` + `record_receipt` as it goes.
 
+### Calling tools from a shell — use `call-tool.mjs`, args via **stdin**
+
+If you're driving this server from a shell instead of a native MCP client, use
+the bundled helper and pipe the JSON:
+
+```sh
+printf '%s' '{"slug":"molly-egan"}' | node mcp/call-tool.mjs get_project
+```
+
+Never pass the JSON as a double-quoted argv word (`node helper.mjs tool "{...}"`)
+and never inline prose into `psql -c "…"`: inside double quotes the shell expands
+`$1`/`$2`/… to nothing, so `"$2,200"` silently becomes `",200"` before it ever
+reaches the tool. This corrupted live data once; the free-text write tools now
+reject bodies bearing that stripped-dollar signature (`,NNN` after whitespace)
+with an error pointing back here.
+
 ## Newsletter tools (email list + issues)
 
 The client newsletter is drivable from any MCP client. **Reads** are direct

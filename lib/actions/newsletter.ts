@@ -584,6 +584,27 @@ export async function renameSequence(id: number, name: string): Promise<Result> 
   return { ok: true };
 }
 
+/** Scope a sequence to one audience (W4-L), or back to the whole list (null).
+ *  Frozen while the sequence is live, same as its steps: enrollment happened at
+ *  arming, so changing the audience mid-flight would silently mismatch who's
+ *  subscribed against who the sequence claims to target. */
+export async function setSequenceAudience(id: number, groupId: number | null): Promise<Result> {
+  await requireRole("owner");
+  const seq = await queryOne<{ active: boolean }>(
+    `SELECT active FROM newsletter_sequences WHERE id = $1`,
+    [id],
+  );
+  if (!seq) return { ok: false, error: "Sequence not found." };
+  if (seq.active) return { ok: false, error: "Turn this off to change its audience." };
+  if (groupId !== null) {
+    const group = await queryOne(`SELECT 1 FROM newsletter_groups WHERE id = $1`, [groupId]);
+    if (!group) return { ok: false, error: "Audience not found." };
+  }
+  await query(`UPDATE newsletter_sequences SET group_id = $2 WHERE id = $1`, [id, groupId]);
+  revalidatePath("/newsletter");
+  return { ok: true };
+}
+
 /** Turn a sequence on or off. Turning it ON is the moment automated sending
  *  becomes possible, so it is guarded: a sequence with no steps can't be armed,
  *  and every step must point at an issue with real content. Switching on also

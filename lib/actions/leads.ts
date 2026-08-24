@@ -18,6 +18,7 @@ import {
   compactEstimateValue,
 } from "@/lib/leads";
 import { logLeadActivity } from "@/lib/lead-activity";
+import { cancelLeadNurture } from "@/lib/newsletter-drip";
 import { openEntityRoom, closeEntityRoom, carryRoomMembership } from "@/lib/rooms";
 import { leadRoomKey, roomKey } from "@/lib/chat";
 import { scoreLead } from "@/lib/intake";
@@ -199,8 +200,8 @@ export async function sendReferralThankYou(slug: string): Promise<{ ok: boolean;
 /** Advance a lead to the next pipeline stage. No-op at the final stage. */
 export async function advanceLeadStage(slug: string) {
   await requireRole("owner");
-  const row = await queryOne<{ stage: LeadStage }>(
-    `SELECT stage FROM leads WHERE slug = $1`,
+  const row = await queryOne<{ stage: LeadStage; email: string | null }>(
+    `SELECT stage, email FROM leads WHERE slug = $1`,
     [slug],
   );
   if (!row) return;
@@ -214,15 +215,37 @@ export async function advanceLeadStage(slug: string) {
     [slug, next.key],
   );
   await logLeadActivity(slug, "stage", `Moved to ${stageLabel(next.key)}`);
+  await stopNurtureForStage(row.email, next.key);
   revalidatePath(`/leads/${slug}`);
   revalidatePath("/leads");
+}
+
+/** W4-L stop-on-engagement: a lead moving through the pipeline no longer needs
+ *  the automated nurture — a human is on it. Any move off intake cancels the
+ *  Leads-scoped drip ('lost' with its own reason); moving BACK to intake does
+ *  not, so reopening a lead never logs a bogus cancellation. Best-effort and
+ *  idempotent — safe to fire on every stage write. */
+async function stopNurtureForStage(email: string | null, stage: LeadStage): Promise<void> {
+  if (!email || stage === "intake") return;
+  try {
+    await cancelLeadNurture(
+      email,
+      stage === "lost" ? "marked lost" : `advanced to ${stageLabel(stage)}`,
+    );
+  } catch {
+    /* nurture cancel must never block a stage change */
+  }
 }
 
 /** Mark a lead lost / archived (terminal). Owner-gated. */
 export async function markLeadLost(slug: string) {
   await requireRole("owner");
-  await query(`UPDATE leads SET stage = 'lost', updated_at = now() WHERE slug = $1`, [slug]);
+  const row = await queryOne<{ email: string | null }>(
+    `UPDATE leads SET stage = 'lost', updated_at = now() WHERE slug = $1 RETURNING email`,
+    [slug],
+  );
   await logLeadActivity(slug, "stage", "Marked lost / archived");
+  if (row) await stopNurtureForStage(row.email, "lost");
   try {
     await closeEntityRoom(leadRoomKey(slug)); // lost → close the room (P1-D2)
   } catch {
@@ -618,11 +641,12 @@ export async function rescoreLead(
 export async function setLeadStage(slug: string, stage: LeadStage) {
   await requireRole("owner");
   if (!ALL_STAGES.some((s) => s.key === stage)) return;
-  await query(
-    `UPDATE leads SET stage = $2, updated_at = now() WHERE slug = $1`,
+  const row = await queryOne<{ email: string | null }>(
+    `UPDATE leads SET stage = $2, updated_at = now() WHERE slug = $1 RETURNING email`,
     [slug, stage],
   );
   await logLeadActivity(slug, "stage", `Moved to ${stageLabel(stage)}`);
+  if (row) await stopNurtureForStage(row.email, stage);
   // Keep the lead's room in sync (P1-D2): 'lost' closes it; any live stage
   // reopens it — but only for an unconverted lead (a converted lead's room was
   // deliberately closed at convert, its conversation moved to the project).

@@ -19,6 +19,7 @@ import "server-only";
 
 import { query } from "./db";
 import { gmailConfigured, fetchThreadPage } from "./gmail";
+import { cancelLeadNurture } from "./newsletter-drip";
 
 export interface LeadThreadSyncChange {
   slug: string;
@@ -125,6 +126,18 @@ export async function syncLeadThreads(opts: { dryRun?: boolean; max?: number } =
         `UPDATE leads SET flag_kind = $2, flag_label = $3, last_contact_at = $4 WHERE slug = $1`,
         [lead.slug, desiredFlagKind, desiredFlagKind ? "Needs reply" : null, msgAt.toISOString()],
       );
+      // W4-L stop-on-engagement: the client wrote — a nurture drip talking past
+      // a live conversation reads as a bot, so cancel it. Fires on every new
+      // inbound (not just a flag flip); cancelLeadNurture is idempotent and
+      // only logs when it actually cancelled something. Best-effort — the
+      // flag sync above must land regardless.
+      if (!t.outbound && lead.email) {
+        try {
+          await cancelLeadNurture(lead.email, "client replied");
+        } catch {
+          /* nurture cancel must never break the sync */
+        }
+      }
     }
   }
 

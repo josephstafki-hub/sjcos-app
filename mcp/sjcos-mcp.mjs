@@ -1550,20 +1550,23 @@ server.registerTool(
   {
     title: "List welcome/drip sequences",
     description:
-      "Drip sequences with their active flag, live subscriber count, and step count. `active=true` " +
-      "means the owner has armed it — new recipients auto-enroll and it mails on its own. Arming a " +
-      "sequence is a human action in the app; it is NOT an agent tool.",
+      "Drip sequences with their active flag, live subscriber count, step count, and audience group " +
+      "(`audience_group` NULL = the whole list; otherwise only members of that group ever enroll). " +
+      "`active=true` means the owner has armed it — new recipients auto-enroll and it mails on its " +
+      "own. Arming a sequence is a human action in the app; it is NOT an agent tool.",
     inputSchema: {},
   },
   async () =>
     json(
       await rows(
-        `SELECT s.id, s.name, s.active,
+        `SELECT s.id, s.name, s.active, g.name AS audience_group,
                 (SELECT count(*)::int FROM newsletter_subscriptions x
                   WHERE x.sequence_id = s.id AND x.status = 'active') AS subscribers,
                 (SELECT count(*)::int FROM newsletter_sequence_steps t
                   WHERE t.sequence_id = s.id) AS steps
-           FROM newsletter_sequences s ORDER BY s.created_at DESC, s.id DESC`,
+           FROM newsletter_sequences s
+           LEFT JOIN newsletter_groups g ON g.id = s.group_id
+          ORDER BY s.created_at DESC, s.id DESC`,
       ),
     ),
 );
@@ -1602,7 +1605,9 @@ server.registerTool(
       "Add (or reactivate) an email on the list. Idempotent on email. Parks a one-time welcome " +
       "greeting for the owner to Release, and enrolls the contact into every ACTIVE welcome drip — " +
       "so this is how you 'start the welcome sequence for an email you add'. It only auto-sends if " +
-      "the owner has already armed a sequence; otherwise the greeting simply waits in the outbox.",
+      "the owner has already armed a sequence; otherwise the greeting simply waits in the outbox. " +
+      "Enrollment respects each sequence's audience group: a sequence scoped to a group (see " +
+      "list_newsletter_sequences) only enrolls contacts who are members of that group.",
     inputSchema: { email: z.string(), name: z.string().optional() },
   },
   async (a) => json(await newsletterCall("add_recipient", a)),

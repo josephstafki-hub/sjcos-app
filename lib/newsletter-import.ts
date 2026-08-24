@@ -26,7 +26,9 @@ import { query, queryOne } from "./db";
 
 const PAST_STATUSES = ["closeout", "warranty"];
 
-async function getOrCreateGroup(name: string): Promise<number> {
+/** Get-or-create an audience by name (case-insensitive unique index). Also used
+ *  by the lead-nurture path (lib/newsletter-drip.ts) to find "Leads" by name. */
+export async function getOrCreateGroup(name: string): Promise<number> {
   const row = await queryOne<{ id: number }>(
     `INSERT INTO newsletter_groups (name) VALUES ($1)
      ON CONFLICT ((lower(name))) DO UPDATE SET name = newsletter_groups.name

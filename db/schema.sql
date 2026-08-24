@@ -1404,6 +1404,14 @@ CREATE TABLE IF NOT EXISTS newsletter_recipient_groups (
 );
 CREATE INDEX IF NOT EXISTS idx_nl_recipient_groups_group ON newsletter_recipient_groups(group_id);
 
+-- W4-L: a drip sequence can be scoped to one audience. NULL = the whole list
+-- (the original welcome-series behaviour, unchanged). With a group set, only
+-- members of that group are enrolled — at arming (enrollAllInSequence) and on
+-- add (enrollRecipient) alike. This is what lets a "Lead nurture" sequence run
+-- without also mailing every past client on the active list.
+ALTER TABLE newsletter_sequences ADD COLUMN IF NOT EXISTS group_id bigint
+  REFERENCES newsletter_groups(id) ON DELETE SET NULL;
+
 -- Per-issue one-time additions: extra addresses that receive THIS issue only,
 -- without joining the permanent list. Lives on the issue (not the recipient
 -- table) since it's scoped to a single send, edited from that issue's own

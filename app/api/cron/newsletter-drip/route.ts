@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { runDrip } from "@/lib/newsletter-drip";
+import { cancelScamLeadNurture, runDrip } from "@/lib/newsletter-drip";
 
 // POST/GET /api/cron/newsletter-drip — hourly drip sweep. Advances every welcome-
 // sequence subscription whose next step has come due and mails it.
@@ -22,8 +22,13 @@ async function handle(req: Request) {
   if (!authorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  // W4-L: scam-flagged leads come off the nurture BEFORE any step can send.
+  // The scam flag is agent-set data (no app write path to hook), so this sweep
+  // is the chokepoint — running it here, ahead of every send pass, is what
+  // guarantees a flagged lead never receives a nurture step.
+  const scamCancelled = await cancelScamLeadNurture();
   const result = await runDrip();
-  return NextResponse.json({ ok: true, ran_at: new Date().toISOString(), ...result });
+  return NextResponse.json({ ok: true, ran_at: new Date().toISOString(), scamCancelled, ...result });
 }
 
 export const GET = handle;

@@ -19,9 +19,10 @@ import {
   refreshSequences,
   removeSequenceStep,
   setSequenceActive,
+  setSequenceAudience,
   updateSequenceStep,
 } from "@/lib/actions/newsletter";
-import type { NewsletterIssue, Sequence } from "@/lib/newsletter";
+import type { NewsletterGroup, NewsletterIssue, Sequence } from "@/lib/newsletter";
 
 /** "the day they subscribe" reads better than "day 0" for the first step. */
 function delayLabel(days: number): string {
@@ -34,6 +35,7 @@ function delayLabel(days: number): string {
 export function SequencePanel({
   sequences,
   issues,
+  groups,
   pending,
   onChanged,
   onNotice,
@@ -41,6 +43,7 @@ export function SequencePanel({
 }: {
   sequences: Sequence[];
   issues: NewsletterIssue[];
+  groups: NewsletterGroup[];
   pending: boolean;
   onChanged: (next: Sequence[]) => void;
   onNotice: (msg: string | null) => void;
@@ -87,6 +90,7 @@ export function SequencePanel({
           key={seq.id}
           seq={seq}
           issues={issues}
+          groups={groups}
           pending={pending}
           run={run}
         />
@@ -128,11 +132,13 @@ export function SequencePanel({
 function SequenceCard({
   seq,
   issues,
+  groups,
   pending,
   run,
 }: {
   seq: Sequence;
   issues: NewsletterIssue[];
+  groups: NewsletterGroup[];
   pending: boolean;
   run: (fn: () => Promise<{ ok: boolean; error?: string }>, note?: string) => void;
   }) {
@@ -141,17 +147,22 @@ function SequenceCard({
 
   const usedIds = new Set(seq.steps.map((s) => s.newsletterId));
   const available = issues.filter((i) => !usedIds.has(i.id));
+  const audience = seq.groupId != null ? seq.groupName ?? "one audience" : null;
 
   function toggle() {
     if (!seq.active) {
-      const n = seq.subscriberCount;
+      const who = audience
+        ? `everyone you add to the "${audience}" audience`
+        : `everyone you add to the list`;
+      const existing = audience
+        ? `Your current active contacts in "${audience}"`
+        : `Your current active contacts`;
       if (
         !confirm(
           `Turn on "${seq.name}"?\n\n` +
-            `From now on, everyone you add to the list will be emailed these ${seq.steps.length} ` +
+            `From now on, ${who} will be emailed these ${seq.steps.length} ` +
             `issue(s) automatically, on this schedule, without another confirmation.\n\n` +
-            `Your ${n === 0 ? "existing" : n.toString()} current contacts will also be enrolled, ` +
-            `with their timers starting today.`,
+            `${existing} will also be enrolled, with their timers starting today.`,
         )
       )
         return;
@@ -169,7 +180,8 @@ function SequenceCard({
           <div className="truncate text-[14px] font-semibold text-ink">{seq.name}</div>
           <div className="font-mono text-[10px] text-ink-3">
             {seq.steps.length} step{seq.steps.length === 1 ? "" : "s"} ·{" "}
-            {seq.subscriberCount} active subscriber{seq.subscriberCount === 1 ? "" : "s"}
+            {seq.subscriberCount} active subscriber{seq.subscriberCount === 1 ? "" : "s"} ·{" "}
+            {audience ? `${audience} only` : "whole list"}
           </div>
         </div>
         {seq.active ? <Chip kind="flag">SENDING</Chip> : <Chip kind="ghost">OFF</Chip>}
@@ -197,6 +209,32 @@ function SequenceCard({
         >
           <Trash2 className="size-3.5" strokeWidth={1.5} />
         </button>
+      </div>
+
+      {/* Audience scope: who this automation is allowed to enroll. Frozen while
+          live for the same reason the steps are — enrollment happened at arming. */}
+      <div className="flex items-center gap-2 border-b border-rule-soft px-4 py-2.5">
+        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Audience</span>
+        <select
+          value={seq.groupId ?? ""}
+          disabled={pending || seq.active}
+          onChange={(e) =>
+            run(
+              () => setSequenceAudience(seq.id, e.target.value ? Number(e.target.value) : null),
+              e.target.value
+                ? `"${seq.name}" now enrolls only the selected audience.`
+                : `"${seq.name}" now enrolls the whole list.`,
+            )
+          }
+          className="min-w-0 flex-1 rounded-md border border-rule bg-paper px-2 py-1 text-[12px] text-ink-2 outline-none focus:border-accent disabled:bg-paper-2"
+        >
+          <option value="">Whole list (everyone active)</option>
+          {groups.map((g) => (
+            <option key={g.id} value={g.id}>
+              {g.name} only
+            </option>
+          ))}
+        </select>
       </div>
 
       {seq.steps.length === 0 ? (

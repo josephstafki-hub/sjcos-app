@@ -13,6 +13,7 @@ import { query, queryOne } from "./db";
 import { ai } from "./ai";
 import { AI_NAME } from "./ai-name";
 import { logLeadActivity } from "./lead-activity";
+import { enrollLeadNurtureAtIntake } from "./newsletter-drip";
 import { emit } from "./notify";
 import { openEntityRoom } from "./rooms";
 import { startRunbook } from "./runbook-engine";
@@ -189,6 +190,23 @@ export async function createInboundLead(
   }
 
   await logLeadActivity(slug, "created", `Lead received · ${source}`);
+
+  // W4-L: put the lead on the newsletter list, into the "Leads" audience, and
+  // into any armed Leads-scoped nurture sequence (first touch is the sequence's
+  // day-3 step — nothing sends at intake). Deterministic, no model in the loop;
+  // best-effort so a newsletter hiccup never blocks ingestion. Leads without an
+  // email are simply skipped, and an unsubscribed address stays unsubscribed
+  // (enrollLeadNurtureAtIntake never flips `active` back on).
+  if (email) {
+    try {
+      const nurture = await enrollLeadNurtureAtIntake(email, name);
+      if (nurture.enrolled) {
+        await logLeadActivity(slug, "note", "Enrolled in lead nurture (first touch day 3)", "SJC OS");
+      }
+    } catch {
+      /* nurture enrollment must never block ingestion */
+    }
+  }
 
   // Auto-create the lead's chat room (P1-D2) — same as the manual form, so the
   // highest-volume creation path (inbound) gets a room too. Best-effort.

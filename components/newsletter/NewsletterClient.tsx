@@ -633,6 +633,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                 <SequencePanel
                   sequences={sequences}
                   issues={issues}
+                  groups={groups}
                   pending={pending}
                   onChanged={setSequences}
                   onNotice={setNotice}

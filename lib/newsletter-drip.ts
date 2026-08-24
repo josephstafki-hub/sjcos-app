@@ -28,6 +28,7 @@ import "server-only";
 
 import { query, queryOne } from "./db";
 import { sendNewEmail } from "./gmail";
+import { getOrCreateGroup } from "./newsletter-import";
 import { renderIssueHtml, renderIssueText } from "./newsletter-render";
 import { baseUrl, loadRenderableIssue, withOpenPixel } from "./newsletter-outbox";
 
@@ -40,6 +41,10 @@ export interface Sequence {
   id: number;
   name: string;
   active: boolean;
+  /** Audience scope (W4-L): null = the whole active list; otherwise only
+   *  members of this newsletter_groups row are ever enrolled. */
+  groupId: number | null;
+  groupName: string | null;
   steps: SequenceStep[];
   subscriberCount: number;
 }
@@ -55,11 +60,19 @@ export interface SequenceStep {
 
 /** Read every sequence with its steps and live subscriber count. */
 export async function listSequences(): Promise<Sequence[]> {
-  const { rows: seqs } = await query<{ id: number; name: string; active: boolean; subs: number }>(
-    `SELECT s.id, s.name, s.active,
+  const { rows: seqs } = await query<{
+    id: number;
+    name: string;
+    active: boolean;
+    group_id: number | null;
+    group_name: string | null;
+    subs: number;
+  }>(
+    `SELECT s.id, s.name, s.active, s.group_id, g.name AS group_name,
             (SELECT count(*)::int FROM newsletter_subscriptions x
               WHERE x.sequence_id = s.id AND x.status = 'active') AS subs
        FROM newsletter_sequences s
+       LEFT JOIN newsletter_groups g ON g.id = s.group_id
       ORDER BY s.created_at DESC, s.id DESC`,
   );
   if (seqs.length === 0) return [];
@@ -83,6 +96,8 @@ export async function listSequences(): Promise<Sequence[]> {
     id: s.id,
     name: s.name,
     active: s.active,
+    groupId: s.group_id,
+    groupName: s.group_name,
     subscriberCount: s.subs,
     steps: steps
       .filter((t) => t.sequence_id === s.id)
@@ -97,26 +112,40 @@ export async function listSequences(): Promise<Sequence[]> {
   }));
 }
 
-/** Enroll a recipient in every ACTIVE sequence. Called when a contact is added.
- *  Idempotent per (recipient, sequence) via the unique constraint — re-adding an
- *  existing contact never restarts their series. */
+/** Enroll a recipient in every ACTIVE sequence whose audience includes them:
+ *  group-less sequences take anyone, group-scoped ones only their members
+ *  (W4-L). Called when a contact is added. Idempotent per (recipient, sequence)
+ *  via the unique constraint — re-adding an existing contact never restarts
+ *  their series. */
 export async function enrollRecipient(recipientId: number): Promise<void> {
   await query(
     `INSERT INTO newsletter_subscriptions (recipient_id, sequence_id)
-     SELECT $1, id FROM newsletter_sequences WHERE active = true
+     SELECT $1, s.id FROM newsletter_sequences s
+      WHERE s.active = true
+        AND (s.group_id IS NULL
+             OR EXISTS (SELECT 1 FROM newsletter_recipient_groups m
+                         WHERE m.recipient_id = $1 AND m.group_id = s.group_id))
      ON CONFLICT (recipient_id, sequence_id) DO NOTHING`,
     [recipientId],
   );
 }
 
-/** When a sequence is switched on, enroll everyone already on the list.
+/** When a sequence is switched on, enroll everyone already on the list — or,
+ *  for a group-scoped sequence, only the active members of that group (W4-L).
  *  Their clock starts NOW, not at the date they were originally added — otherwise
  *  turning a sequence on would instantly fire every past-due step at every
  *  existing contact at once. */
 export async function enrollAllInSequence(sequenceId: number): Promise<number> {
   const res = await query(
     `INSERT INTO newsletter_subscriptions (recipient_id, sequence_id, subscribed_at)
-     SELECT id, $1, now() FROM newsletter_recipients WHERE active = true
+     SELECT r.id, s.id, now()
+       FROM newsletter_sequences s
+       JOIN newsletter_recipients r
+         ON r.active = true
+        AND (s.group_id IS NULL
+             OR EXISTS (SELECT 1 FROM newsletter_recipient_groups m
+                         WHERE m.recipient_id = r.id AND m.group_id = s.group_id))
+      WHERE s.id = $1
      ON CONFLICT (recipient_id, sequence_id) DO NOTHING`,
     [sequenceId],
   );
@@ -236,6 +265,113 @@ export async function runDrip(): Promise<DripResult> {
   }
 
   return result;
+}
+
+// ─── Lead nurture (W4-L) ─────────────────────────────────────────────────────
+// Every inbound lead with an email is enrolled at intake into any armed
+// sequence scoped to the "Leads" audience (first touch is a step delay away —
+// day 3 by Joe's decision), and the nurture STOPS the moment the lead engages:
+// inbound reply, stage advance, lost, or scam. The sequence itself still ships
+// inactive and only the owner arms it in /newsletter — nothing here changes
+// the five guards above.
+
+const LEADS_GROUP_NAME = "Leads";
+
+/** Put a new inbound lead on the newsletter list and into any armed
+ *  Leads-scoped sequence. Deliberately gentler than addRecipient: an address
+ *  already on file keeps its `active` flag as-is, so someone who unsubscribed
+ *  is NOT resurrected by submitting the lead form again — they're skipped.
+ *  Group membership is still recorded either way (classification, not
+ *  consent — same as importKnownContacts). Returns whether the drip enrollment
+ *  actually ran. */
+export async function enrollLeadNurtureAtIntake(
+  email: string,
+  name: string,
+): Promise<{ enrolled: boolean; reason?: string }> {
+  const e = (email ?? "").trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return { enrolled: false, reason: "no valid email" };
+
+  const row = await queryOne<{ id: number; active: boolean }>(
+    `INSERT INTO newsletter_recipients (email, name) VALUES ($1, $2)
+     ON CONFLICT (email) DO UPDATE
+       SET name = COALESCE(NULLIF(newsletter_recipients.name, ''), EXCLUDED.name)
+     RETURNING id, active`,
+    [e, (name ?? "").trim().slice(0, 120)],
+  );
+  if (!row) return { enrolled: false, reason: "could not upsert recipient" };
+
+  const groupId = await getOrCreateGroup(LEADS_GROUP_NAME);
+  await query(
+    `INSERT INTO newsletter_recipient_groups (recipient_id, group_id) VALUES ($1, $2)
+     ON CONFLICT DO NOTHING`,
+    [row.id, groupId],
+  );
+
+  // The unsubscribe guard: an inactive recipient opted out (or was never opted
+  // in) — record the membership above but never re-enter them into a drip.
+  if (!row.active) return { enrolled: false, reason: "recipient inactive (unsubscribed)" };
+
+  await enrollRecipient(row.id);
+  return { enrolled: true };
+}
+
+/** Stop the lead nurture for one email address: cancel that recipient's active
+ *  subscriptions to sequences scoped to the Leads group, and log why on any
+ *  lead carrying the email. Sequences with no group (the welcome series) are
+ *  left alone — engaging as a lead is not unsubscribing. Returns how many
+ *  subscriptions were cancelled; idempotent, so callers fire it on every
+ *  trigger without checking first (nothing to cancel → no log line either). */
+export async function cancelLeadNurture(
+  email: string,
+  reason: string,
+  opts: { deactivateRecipient?: boolean } = {},
+): Promise<number> {
+  const e = (email ?? "").trim().toLowerCase();
+  if (!e) return 0;
+
+  const res = await query(
+    `UPDATE newsletter_subscriptions sub
+        SET status = 'cancelled'
+       FROM newsletter_recipients r, newsletter_sequences seq
+      WHERE sub.recipient_id = r.id
+        AND sub.sequence_id = seq.id
+        AND sub.status = 'active'
+        AND lower(r.email) = $1
+        AND seq.group_id IN (SELECT id FROM newsletter_groups WHERE lower(name) = lower($2))`,
+    [e, LEADS_GROUP_NAME],
+  );
+  const cancelled = res.rowCount ?? 0;
+  if (cancelled === 0) return 0;
+
+  // Scam leads also come off the list entirely — but only alongside an actual
+  // cancellation, so the hourly sweep can't fight a deliberate owner re-add.
+  if (opts.deactivateRecipient) {
+    await query(`UPDATE newsletter_recipients SET active = false WHERE lower(email) = $1`, [e]);
+  }
+
+  await query(
+    `INSERT INTO lead_activity (lead_id, kind, summary, actor)
+     SELECT id, 'note', $2, 'SJC OS' FROM leads WHERE lower(email) = $1`,
+    [e, `Lead nurture stopped — ${reason}`.slice(0, 300)],
+  );
+  return cancelled;
+}
+
+/** Sweep: stop (and delist) nurture for every scam-flagged lead. The scam flag
+ *  is set by agents writing leads.flag_label/flag_kind directly — there is no
+ *  app code path to hook — so the drip cron runs this before every send pass,
+ *  guaranteeing a lead flagged as scam can never receive a nurture step. */
+export async function cancelScamLeadNurture(): Promise<number> {
+  const { rows } = await query<{ email: string }>(
+    `SELECT DISTINCT lower(email) AS email FROM leads
+      WHERE email IS NOT NULL AND email <> ''
+        AND (flag_label ILIKE 'scam%' OR flag_kind = 'scam')`,
+  );
+  let cancelled = 0;
+  for (const r of rows) {
+    cancelled += await cancelLeadNurture(r.email, "marked scam", { deactivateRecipient: true });
+  }
+  return cancelled;
 }
 
 /** Move a subscription one step forward, closing it out once the last step lands. */

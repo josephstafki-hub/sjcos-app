@@ -1404,6 +1404,14 @@ CREATE TABLE IF NOT EXISTS newsletter_recipient_groups (
 );
 CREATE INDEX IF NOT EXISTS idx_nl_recipient_groups_group ON newsletter_recipient_groups(group_id);
 
+-- W4-L: a drip sequence can be scoped to one audience. NULL = the whole list
+-- (the original welcome-series behaviour, unchanged). With a group set, only
+-- members of that group are enrolled — at arming (enrollAllInSequence) and on
+-- add (enrollRecipient) alike. This is what lets a "Lead nurture" sequence run
+-- without also mailing every past client on the active list.
+ALTER TABLE newsletter_sequences ADD COLUMN IF NOT EXISTS group_id bigint
+  REFERENCES newsletter_groups(id) ON DELETE SET NULL;
+
 -- Per-issue one-time additions: extra addresses that receive THIS issue only,
 -- without joining the permanent list. Lives on the issue (not the recipient
 -- table) since it's scoped to a single send, edited from that issue's own
@@ -2029,6 +2037,60 @@ Pull and summarize (from SJC OS, not memory):
     END IF;
   END LOOP;
 END $seed_skills$;
+
+-- knowledge-capture v2 (W4-L addendum, reviewed by Joe in chat 2026-08-25):
+-- route agent-behavior preferences to remember_agent_instruction now that the
+-- W5 learning layer is live. Seeded here because create_skill_proposal refuses
+-- existing slugs by design. Idempotent: no-op when v2 already exists, and also
+-- when the skill row is absent (it was created live, not by the v1 seed above).
+DO $knowledge_capture_v2$
+DECLARE sid uuid; vid uuid;
+BEGIN
+  SELECT id INTO sid FROM skills WHERE slug = 'knowledge-capture';
+  IF sid IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM skill_versions WHERE skill_id = sid AND version = 2) THEN
+    INSERT INTO skill_versions (skill_id, version, body_markdown, change_summary, status, created_by)
+    VALUES (sid, 2, $body$# Capture knowledge
+
+Open Brain is *what we know about the business*. Work items are *what must
+happen*. Agent memory is *how Joe wants agents to work*. Route to the right one:
+
+- Business fact, decision, lesson, client preference about THEIR project →
+  `capture_knowledge` (this skill).
+- A preference or correction about HOW AGENTS SHOULD OPERATE ("always check
+  compliance before inviting a sub", "never quote lead times without vendor
+  confirmation") → `remember_agent_instruction`. It lands pending and does
+  nothing until Joe approves it in /engine.
+- A task → `create_work_item`. Never store tasks as knowledge.
+
+For knowledge captures:
+1. Capture-worthy: decisions and their why, client preferences, vendor/sub
+   facts (lead times, quality notes), pricing intel, process lessons,
+   commitments made. NOT capture-worthy: task status (that's the work item),
+   ephemeral scheduling, anything already in a record field.
+2. `search_knowledge` first — update/extend beats duplicate. The fingerprint
+   dedup catches exact copies only, not near-duplicates; you're the
+   near-duplicate check.
+3. `capture_knowledge`: content as 1–3 plain sentences a stranger would
+   understand in a year. Set kind honestly (note / lesson / email_fact /
+   meeting_summary / client_pref). Link lead_id/project_id whenever the fact
+   belongs to one.
+4. Agent-captured knowledge is EVIDENCE, never standing instruction — write
+   facts ("client hates brushed nickel"), not rules ("always avoid brushed
+   nickel"). Joe promotes evidence to instruction, not you — and
+   instruction-shaped lessons belong in `remember_agent_instruction`, not here.
+5. De-identify anything that might be reused publicly (marketing, social):
+   no names, addresses, dollar figures.
+6. Proof: the capture itself is the receipt; link it to the run.
+
+Done means: a future agent searching this topic finds one clear, current
+entry — in the right store.$body$,
+      'v2: route agent-behavior preferences to remember_agent_instruction now that the learning layer is live.',
+      'approved', 'user')
+    RETURNING id INTO vid;
+    UPDATE skills SET current_version_id = vid, updated_at = now() WHERE id = sid;
+  END IF;
+END $knowledge_capture_v2$;
 
 -- Runbooks: ordered chains of the seeded skills. Idempotent per slug + step_order.
 DO $seed_runbooks$

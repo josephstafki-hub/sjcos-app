@@ -15,6 +15,7 @@ import { sendCompletionOutreach } from "@/lib/actions/closeout";
 import { autoDraftSocialOnCompletion, autoDraftBlogOnCompletion } from "@/lib/actions/marketing";
 import { parseDrawSchedule } from "@/lib/draw-schedule";
 import { queueSubPortalInvite, markSubInviteApproved } from "@/lib/sub-invites";
+import { startRunbook } from "@/lib/runbook-engine";
 import {
   openEntityRoom,
   closeEntityRoom,
@@ -145,8 +146,8 @@ async function billMilestonesForStatus(slug: string, newStatus: string) {
 /** Advance a project to the next lifecycle stage. No-op at the final stage. */
 export async function advanceProjectStatus(slug: string) {
   await requireRole("owner");
-  const row = await queryOne<{ status: ProjectStatus; name: string }>(
-    `SELECT status, name FROM projects WHERE slug = $1`,
+  const row = await queryOne<{ id: string; status: ProjectStatus; name: string }>(
+    `SELECT id, status, name FROM projects WHERE slug = $1`,
     [slug],
   );
   if (!row) return;
@@ -165,6 +166,13 @@ export async function advanceProjectStatus(slug: string) {
   // On reaching the warranty stage, fire completion outreach once (P4-2) and
   // auto-draft a social post (P6-2) + a website blog post (P2-4).
   if (next.key === "warranty") {
+    // W6: auto-start the closeout runbook — the active-instance guard makes a
+    // re-flip refuse instead of doubling up. Best-effort.
+    try {
+      await startRunbook("completed-project-closeout", { projectId: row.id }, "auto:stage-change");
+    } catch {
+      /* runbook auto-start must never block the status change */
+    }
     if (await autoOutreachEnabled()) await sendCompletionOutreach(slug);
     try {
       await autoDraftSocialOnCompletion(slug);

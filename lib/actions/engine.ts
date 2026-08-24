@@ -8,6 +8,7 @@ import { query } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { WORK_STATUSES } from "@/lib/engine-constants";
 import { notifyAgentOwner } from "@/lib/dev-agents";
+import { maybeAdvanceRunbook, cancelRunbookInstance } from "@/lib/runbook-engine";
 import type { WorkItemStatus } from "@/lib/types";
 
 type Result = { ok: true } | { ok: false; error: string };
@@ -47,6 +48,7 @@ export async function setWorkItemStatus(id: string, status: WorkItemStatus, note
       WHERE id = $1`,
     [id, status, note ?? null],
   );
+  await maybeAdvanceRunbook(id); // W6: no-op unless this is a runbook step
   revalidatePath("/engine");
   revalidatePath("/today");
   return { ok: true };
@@ -76,6 +78,7 @@ export async function approveWorkItem(id: string): Promise<Result> {
   const { title, body, assignee_key, lead_slug, project_slug } = rows[0];
   const context = project_slug ? `project ${project_slug}` : lead_slug ? `lead ${lead_slug}` : undefined;
   await notifyAgentOwner(id, assignee_key, title, body, context);
+  await maybeAdvanceRunbook(id); // W6: a done-but-unapproved step advances on approval
   revalidatePath("/engine");
   return { ok: true };
 }
@@ -102,6 +105,15 @@ export async function rejectWorkItem(id: string): Promise<Result> {
       refs: [{ kind: "work_item", id, label: rows[0].title }],
     });
   }
+  await maybeAdvanceRunbook(id); // W6: rejecting a runbook step cancels its instance
+  revalidatePath("/engine");
+  return { ok: true };
+}
+
+/** Cancel a live runbook instance (W6). Owner-only — agents get no cancel tool. */
+export async function cancelRunbook(instanceId: string): Promise<Result> {
+  await requireRole("owner");
+  await cancelRunbookInstance(instanceId);
   revalidatePath("/engine");
   return { ok: true };
 }

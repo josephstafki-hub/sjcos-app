@@ -3,6 +3,7 @@
 import { requireRole } from "@/lib/dal";
 import { ai } from "@/lib/ai";
 import { query, queryOne } from "@/lib/db";
+import { maybeAdvanceRunbook } from "@/lib/runbook-engine";
 import {
   OPEN_WORK_ITEMS_SQL,
   OPEN_WORK_ITEMS_ORDER_SQL,
@@ -109,6 +110,7 @@ export async function completeTodayItem(workItemId: string): Promise<QueueSnapsh
         WHERE id = $1 AND status NOT IN ('done','cancelled')`,
       [workItemId],
     );
+    await maybeAdvanceRunbook(workItemId); // W6: no-op unless this is a runbook step
   }
   return getQueueSnapshot();
 }

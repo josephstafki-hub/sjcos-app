@@ -14,12 +14,14 @@ import type { EngineData, WorkItemView } from "@/lib/engine";
 import type { KnowledgeItemView } from "@/lib/brain";
 import type { SkillsLibrary, SkillView, RunbookView } from "@/lib/skills";
 import type { MemoriesData, MemoryRefView, MemoryView } from "@/lib/memories";
+import type { RunbookInstanceView } from "@/lib/runbook-engine";
 import type { WorkItemStatus, WorkItemPriority } from "@/lib/types";
 import {
   createWorkItem,
   setWorkItemStatus,
   approveWorkItem,
   rejectWorkItem,
+  cancelRunbook,
 } from "@/lib/actions/engine";
 import { captureKnowledge, deleteKnowledge, searchKnowledgeAction } from "@/lib/actions/brain";
 import { approveSkill, rejectSkill } from "@/lib/actions/skills";
@@ -72,11 +74,13 @@ export function EngineClient({
   knowledge,
   skills,
   memories,
+  activeRunbooks,
 }: {
   engine: EngineData;
   knowledge: KnowledgeItemView[];
   skills: SkillsLibrary;
   memories: MemoriesData;
+  activeRunbooks: RunbookInstanceView[];
 }) {
   const [tab, setTab] = useState<Tab>("queue");
 
@@ -90,6 +94,8 @@ export function EngineClient({
   return (
     <div>
       <EngineStatusStrip engine={engine} />
+
+      {activeRunbooks.length > 0 && <ActiveRunbooks instances={activeRunbooks} />}
 
       <div className="mb-4 mt-5 flex gap-1 border-b border-rule">
         {tabs.map((t) => (
@@ -167,6 +173,84 @@ function EngineStatusStrip({ engine }: { engine: EngineData }) {
         )}
       </Card>
     </div>
+  );
+}
+
+// ─── Active runbooks (W6 stepper) ────────────────────────────────────────────
+
+function runbookStatusChip(status: RunbookInstanceView["status"]): ChipKind {
+  if (status === "waiting_approval") return "flag";
+  if (status === "waiting_human") return "info";
+  return "accent";
+}
+
+const RUNBOOK_STATUS_LABEL: Record<RunbookInstanceView["status"], string> = {
+  running: "Running",
+  waiting_approval: "Waiting on approval",
+  waiting_human: "Waiting on Joe",
+  done: "Done",
+  cancelled: "Cancelled",
+};
+
+function ActiveRunbooks({ instances }: { instances: RunbookInstanceView[] }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+
+  return (
+    <section className="mt-4">
+      <div className="mb-2 flex items-center gap-2">
+        <Chip kind="ai" dot>Active runbooks</Chip>
+        <span className="font-mono text-[10px] text-ink-4">{instances.length}</span>
+      </div>
+      <div className="space-y-2">
+        {instances.map((i) => (
+          <Card key={i.id} kind="soft" className="p-3.5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Chip kind={runbookStatusChip(i.status)} dot>{RUNBOOK_STATUS_LABEL[i.status]}</Chip>
+                  <span className="font-mono text-[11px] text-ink-4">{i.runbookSlug}</span>
+                </div>
+                <div className="mt-1 text-[13.5px] font-semibold text-ink">
+                  {i.runbookTitle}
+                  {i.targetKind && i.targetSlug && (
+                    <>
+                      {" · "}
+                      <Link
+                        href={`/${i.targetKind === "lead" ? "leads" : "projects"}/${i.targetSlug}`}
+                        className="text-accent-2 hover:underline"
+                      >
+                        {i.targetName ?? i.targetSlug}
+                      </Link>
+                    </>
+                  )}
+                </div>
+                <div className="mt-0.5 text-[12px] text-ink-3">
+                  Step {i.currentStep} of {i.stepCount}
+                  {i.currentStepTitle ? `: ${i.currentStepTitle}` : ""}
+                </div>
+                <div className="mt-1 font-mono text-[10px] text-ink-4">
+                  started {i.startedAt.slice(0, 10)} · {i.startedBy}
+                </div>
+              </div>
+              <button
+                className={btnCls}
+                disabled={pending}
+                onClick={() => {
+                  if (!confirm(`Cancel "${i.runbookTitle}"? Its open step work item is cancelled too.`)) return;
+                  start(async () => {
+                    await cancelRunbook(i.id);
+                    router.refresh();
+                  });
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </Card>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -517,6 +601,7 @@ function RunbookCard({ runbook }: { runbook: RunbookView }) {
               <span className="flex-1">
                 {s.title}
                 {s.skillSlug && <span className="ml-1.5 font-mono text-[10px] text-accent-2">{s.skillSlug}</span>}
+                <span className="ml-1.5 font-mono text-[10px] text-ink-4">{s.assignedTo === "human" ? "Joe" : "agent"}</span>
                 {s.requiresHumanApproval && <Chip kind="flag" className="ml-1.5">approval</Chip>}
               </span>
             </li>

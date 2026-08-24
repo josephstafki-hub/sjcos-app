@@ -30,6 +30,8 @@ export interface RunbookStepView {
   skillSlug: string | null;
   expectedOutput: string;
   requiresHumanApproval: boolean;
+  /** W6 stepper: who works the spawned step work item — 'agent' or 'human' (Joe). */
+  assignedTo: "agent" | "human";
 }
 
 export interface RunbookView {
@@ -95,9 +97,9 @@ export async function getSkillsLibrary(): Promise<SkillsLibrary> {
     ),
     query<{
       runbook_id: string; step_order: number; title: string; skill_slug: string | null;
-      expected_output: string; requires_human_approval: boolean;
+      expected_output: string; requires_human_approval: boolean; assigned_to: string;
     }>(
-      `SELECT runbook_id, step_order, title, skill_slug, expected_output, requires_human_approval
+      `SELECT runbook_id, step_order, title, skill_slug, expected_output, requires_human_approval, assigned_to
          FROM runbook_steps ORDER BY runbook_id, step_order`,
     ),
   ]);
@@ -111,6 +113,7 @@ export async function getSkillsLibrary(): Promise<SkillsLibrary> {
       skillSlug: s.skill_slug,
       expectedOutput: s.expected_output,
       requiresHumanApproval: s.requires_human_approval,
+      assignedTo: s.assigned_to === "human" ? "human" : "agent",
     });
     stepsByRunbook.set(s.runbook_id, arr);
   }

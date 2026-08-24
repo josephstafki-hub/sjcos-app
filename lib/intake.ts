@@ -15,6 +15,7 @@ import { AI_NAME } from "./ai-name";
 import { logLeadActivity } from "./lead-activity";
 import { emit } from "./notify";
 import { openEntityRoom } from "./rooms";
+import { startRunbook } from "./runbook-engine";
 
 /** A flexible inbound lead. `name` is the only hard requirement; every other
  *  field is optional, and `extra` carries any additional key/value pairs the
@@ -219,6 +220,14 @@ export async function createInboundLead(
     subline: scope || source,
     href: `/leads/${slug}`,
   });
+
+  // W6: auto-start the intake runbook — spawns the Gate-1 triage work item and
+  // pings the agent. Best-effort; the duplicate guard makes a re-run refuse.
+  try {
+    await startRunbook("lead-intake-to-qualified-or-declined", { leadId }, "auto:new-lead");
+  } catch {
+    /* runbook auto-start must never block ingestion */
+  }
 
   return { slug, verdict };
 }

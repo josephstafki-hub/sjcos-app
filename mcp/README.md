@@ -37,6 +37,7 @@ Safe by construction — internal records, append-only audit, and proposals only
 
 | Tool | Effect |
 |---|---|
+| `import_lead` | Create an inbound lead (the path for web-lead emails Hermes parses from Joe's inbox): full intake funnel — scoring, intake rows, room, feed card — and auto-starts the lead-intake runbook. Refuses a duplicate email unless `allow_duplicate` |
 | `capture_knowledge` | Save a knowledge item (dedup by fingerprint; optional receipt) |
 | `create_work_item` | Add to the queue (`requires_approval` defaults true) |
 | `update_work_item_status` | Move an item's status (done sets completed_at) |

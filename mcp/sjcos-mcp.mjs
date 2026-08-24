@@ -202,6 +202,28 @@ function notifyOwnerCall(action, payload = {}) {
 }
 
 /**
+ * Call the app's internal leads route. Lead ingestion lives in lib/intake.ts
+ * (createInboundLead — intake rows, AI scoring, room, feed card, W6 runbook
+ * auto-start), which the .mjs server can't import. Trusted local caller,
+ * authed with CRON_SECRET — this is NOT the website's intake token.
+ */
+async function leadsCall(action, payload = {}) {
+  const base = envValue("APP_INTERNAL_URL") || "http://127.0.0.1:3017";
+  const secret = envValue("CRON_SECRET");
+  if (!secret) return { ok: false, error: "CRON_SECRET not set — cannot reach the app leads route." };
+  try {
+    const res = await fetch(`${base}/api/internal/leads`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
+      body: JSON.stringify({ action, ...payload }),
+    });
+    return await res.json();
+  } catch (e) {
+    return { ok: false, error: `App not reachable at ${base} (${e.message}). Is the sjcos service running?` };
+  }
+}
+
+/**
  * Call the app's internal runbooks route (W6 stepper). Starting a runbook and
  * advancing an instance live in lib/runbook-engine.ts (work-item spawn + agent
  * ping machinery the .mjs server can't import). Trusted local caller, authed
@@ -913,6 +935,44 @@ server.registerTool(
       );
     }
     return json({ ok: true, id, deduped: !id });
+  },
+);
+
+server.registerTool(
+  "import_lead",
+  {
+    title: "Import an inbound lead",
+    description:
+      "Create a new lead from an inbound inquiry — the intended path for web-lead " +
+      "emails that land in Joe's inbox: parse the email, then import it here. Runs " +
+      "the full intake funnel (flexible intake rows, AI scoring, chat room, owner " +
+      "feed card) and AUTO-STARTS the lead-intake runbook, which spawns the Gate-1 " +
+      "triage work item. Pass the client's answers as provided — do not invent " +
+      "fields they skipped. Unknown extra fields go in `extra`. Refuses when a " +
+      "non-lost lead with the same email exists (same inquiry → work that lead); " +
+      "override with allow_duplicate ONLY for a genuinely new project from the " +
+      "same person.",
+    inputSchema: {
+      name: z.string(),
+      email: z.string().optional(),
+      phone: z.string().optional(),
+      project: z.string().optional(),
+      budget: z.string().optional(),
+      timeline: z.string().optional(),
+      address: z.string().optional(),
+      message: z.string().optional(),
+      source: z.string().optional(),
+      extra: z.record(z.string()).optional(),
+      allow_duplicate: z.boolean().optional(),
+    },
+  },
+  async (a) => {
+    const mangled = strippedDollarError(
+      a.name, a.project, a.budget, a.message, a.timeline,
+      ...(a.extra ? Object.values(a.extra) : []),
+    );
+    if (mangled) return mangled;
+    return json(await leadsCall("import", a));
   },
 );
 

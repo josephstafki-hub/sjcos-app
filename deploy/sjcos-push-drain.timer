@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the SJC OS owner-push drain every 5 minutes at :02/:07/…
+
+[Timer]
+# :2/5 keeps clear of the newsletter drip (:10), the :0/15 lead-thread sync,
+# and the hourly detector sweep (:20).
+OnCalendar=*-*-* *:2/5:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

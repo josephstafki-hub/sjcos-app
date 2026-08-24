@@ -183,6 +183,23 @@ async function grantsCall(action, payload = {}) {
   }
 }
 
+/**
+ * Fire-and-forget report to the app's internal notify-owner route (W3 owner
+ * push). The MCP server runs outside the app process, so pushes to Joe's
+ * phone go through the app, which owns quiet hours / throttling / collapse.
+ * Best-effort by design: a push is secondary to the tool call that caused it.
+ */
+function notifyOwnerCall(action, payload = {}) {
+  const base = envValue("APP_INTERNAL_URL") || "http://127.0.0.1:3017";
+  const secret = envValue("CRON_SECRET");
+  if (!secret) return;
+  fetch(`${base}/api/internal/notify-owner`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
+    body: JSON.stringify({ action, ...payload }),
+  }).catch(() => {});
+}
+
 async function poCall(action, payload = {}) {
   const base = envValue("APP_INTERNAL_URL") || "http://127.0.0.1:3017";
   const secret = envValue("CRON_SECRET");
@@ -1029,6 +1046,14 @@ server.registerTool(
       [a.runtime_name, a.model ?? null, a.status ?? "started", a.input_summary ?? "",
        a.output_summary ?? "", a.error_summary ?? null, a.work_item_id ?? null, a.skill_slug ?? null, terminal],
     );
+    // W3: a failed run buzzes Joe's phone (the app collapses to one push per
+    // runtime per hour and applies quiet hours / throttling).
+    if (a.status === "failed") {
+      notifyOwnerCall("agent_failure", {
+        runtime_name: a.runtime_name,
+        error_summary: a.error_summary ?? a.output_summary ?? "",
+      });
+    }
     return json({ ok: true, id: r[0].id });
   },
 );

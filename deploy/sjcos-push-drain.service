@@ -1,0 +1,7 @@
+[Unit]
+Description=SJC OS owner-push drain (W3 — parked pushes + stale-approval nudges)
+After=sjcos.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/joe/bin/sjcos-push-drain

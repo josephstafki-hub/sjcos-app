@@ -17,6 +17,7 @@ import "server-only";
 // notifications. dryRun computes everything and writes nothing.
 
 import { query } from "./db";
+import { notifyOwner } from "./notify-owner";
 import { gmailConfigured, fetchThreadPage } from "./gmail";
 import { extractEmail } from "./lead-thread-sync";
 import { computeStageGate } from "./record-ops";
@@ -960,6 +961,11 @@ export async function runDetectors(opts: { dryRun?: boolean } = {}): Promise<Det
                first_seen = now(), last_seen = now(), resolved_at = NULL`,
         [item.dedupKey, detector.key, inserted.rows[0].id],
       );
+      // W3: an urgent filing is worth a buzz on Joe's phone, not just a queue
+      // row he'll see whenever he next opens /today. Never throws.
+      if (item.priority === "urgent") {
+        await notifyOwner({ kind: "urgent_item", title: item.title, href: "/today" });
+      }
     }
 
     // ── escalate(): bump an existing item instead of filing a sibling ──

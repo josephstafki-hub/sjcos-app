@@ -12,6 +12,7 @@
 
 import type { TriageVerdict } from "./types";
 import { ACTIONS_HINT, PROPOSAL_HINT } from "./today-directives";
+import { standingInstructionsBlock } from "./agent-memory";
 
 // ─── Method I/O types ─────────────────────────────────────────────────────
 
@@ -406,6 +407,9 @@ export async function qwenChat(
 ): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
+  // W5: Joe-approved standing instructions ride along on every turn so the
+  // in-app agents get them without an MCP round-trip. "" when none exist.
+  const standing = await standingInstructionsBlock();
   try {
     const res = await fetch(`${OLLAMA_HOST}/api/chat`, {
       method: "POST",
@@ -423,6 +427,7 @@ export async function qwenChat(
           // Pending-write channel: Qwen proposes, Claude reviews, the app
           // executes (lib/orchestrator/proposals.ts). Self-gating.
           { role: "system", content: PROPOSAL_HINT },
+          ...(standing ? [{ role: "system", content: standing }] : []),
           ...(context ? [{ role: "system", content: `Page the user is viewing:\n${context}` }] : []),
           ...turns.map((t) =>
             t.images?.length && isVisionModel()

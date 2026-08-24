@@ -1,5 +1,6 @@
 import "server-only";
 
+import { captureAgentMemory } from "@/lib/agent-memory";
 import { query, queryOne } from "@/lib/db";
 import { reviewProposals } from "./claude-review";
 import { executeProposal } from "./execute";
@@ -210,6 +211,22 @@ export async function processQwenProposals(
           `UPDATE agent_pending_actions SET status = $2, review_note = $3, updated_at = now() WHERE id = $1`,
           [ids[i], escalated ? "escalated" : "rejected", note],
         );
+        if (!escalated) {
+          // W5 learning layer: a rejected proposal is a signal about what NOT to propose.
+          await captureAgentMemory({
+            summary: `Rejected: Qwen proposal ${p.kind}${p.entityId ? ` on ${p.entityKind} ${p.entityId}` : ""}`,
+            content: [
+              `Qwen proposed ${p.kind} (${p.entityKind}${p.entityId ? ` ${p.entityId}` : ""}): ${JSON.stringify(p.payload).slice(0, 600)}`,
+              `Rejected in Claude review: ${note}`,
+            ].join("\n"),
+            memoryType: "observation",
+            runtimeName: "qwen-app",
+            refs: [
+              { kind: "pending_action", id: ids[i], label: `Qwen proposal ${p.kind}` },
+              ...(p.entityId ? [{ kind: p.entityKind, id: p.entityId, label: `${p.entityKind} ${p.entityId}` }] : []),
+            ],
+          });
+        }
         lines.push(
           escalated
             ? `🔁 Held by Claude (${note}) — handed to Hermes to do properly.`

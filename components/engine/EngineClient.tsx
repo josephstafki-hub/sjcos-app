@@ -13,6 +13,7 @@ import {
 import type { EngineData, WorkItemView } from "@/lib/engine";
 import type { KnowledgeItemView } from "@/lib/brain";
 import type { SkillsLibrary, SkillView, RunbookView } from "@/lib/skills";
+import type { MemoriesData, MemoryRefView, MemoryView } from "@/lib/memories";
 import type { WorkItemStatus, WorkItemPriority } from "@/lib/types";
 import {
   createWorkItem,
@@ -22,6 +23,13 @@ import {
 } from "@/lib/actions/engine";
 import { captureKnowledge, deleteKnowledge, searchKnowledgeAction } from "@/lib/actions/brain";
 import { approveSkill, rejectSkill } from "@/lib/actions/skills";
+import {
+  approveMemoryEvidence,
+  approveMemoryInstruction,
+  rejectMemory,
+  revokeMemoryInstruction,
+  setMemoryStaleAfter,
+} from "@/lib/actions/memories";
 
 const inputCls =
   "w-full rounded-md border border-rule bg-paper px-3 py-2 text-[13px] text-ink outline-none focus:border-accent";
@@ -49,7 +57,7 @@ const KNOWLEDGE_KINDS = [
   "followup_context", "admin_note",
 ];
 
-type Tab = "queue" | "knowledge" | "skills";
+type Tab = "queue" | "knowledge" | "skills" | "memories";
 
 const BUCKET_META: { key: QueueBucket; label: string; kind: ChipKind }[] = [
   { key: "approval", label: "Needs approval", kind: "flag" },
@@ -63,10 +71,12 @@ export function EngineClient({
   engine,
   knowledge,
   skills,
+  memories,
 }: {
   engine: EngineData;
   knowledge: KnowledgeItemView[];
   skills: SkillsLibrary;
+  memories: MemoriesData;
 }) {
   const [tab, setTab] = useState<Tab>("queue");
 
@@ -74,6 +84,7 @@ export function EngineClient({
     { key: "queue", label: "Work queue", count: engine.counts.total },
     { key: "knowledge", label: "Knowledge", count: knowledge.length },
     { key: "skills", label: "Skills & runbooks", count: skills.approved.length + skills.proposed.length },
+    { key: "memories", label: "Memories", count: memories.pending.length + memories.instructions.length },
   ];
 
   return (
@@ -101,6 +112,7 @@ export function EngineClient({
       {tab === "queue" && <QueueTab engine={engine} skills={skills} />}
       {tab === "knowledge" && <KnowledgeTab initial={knowledge} />}
       {tab === "skills" && <SkillsTab skills={skills} />}
+      {tab === "memories" && <MemoriesTab memories={memories} />}
     </div>
   );
 }
@@ -511,6 +523,151 @@ function RunbookCard({ runbook }: { runbook: RunbookView }) {
           ))}
         </ol>
       )}
+    </Card>
+  );
+}
+
+// ─── Memories tab ────────────────────────────────────────────────────────────
+// W5 learning layer: what agents noticed (denials, edits, rejections) waits
+// here for review; the approved-as-instruction list below is literally Joe's
+// standing orders to all agents (served via get_standing_instructions).
+
+function MemoriesTab({ memories }: { memories: MemoriesData }) {
+  return (
+    <div className="space-y-6">
+      {memories.pending.length > 0 && (
+        <section>
+          <div className="mb-2 flex items-center gap-2">
+            <Chip kind="flag" dot>Pending · needs review</Chip>
+            <span className="font-mono text-[10px] text-ink-4">{memories.pending.length}</span>
+          </div>
+          <div className="space-y-2">
+            {memories.pending.map((m) => <MemoryCard key={m.id} memory={m} review />)}
+          </div>
+        </section>
+      )}
+
+      <section>
+        <div className="mb-2 flex items-center gap-2">
+          <Chip kind="accent" dot>Standing orders to all agents</Chip>
+          <span className="font-mono text-[10px] text-ink-4">{memories.instructions.length}</span>
+        </div>
+        {memories.instructions.length === 0 ? (
+          <EmptyState
+            title="No standing instructions yet"
+            body="When you approve a pending memory as an instruction, it becomes a standing order every agent loads at the start of a pass — until you revoke it or it goes stale. Nothing an agent writes lands here without your click."
+          />
+        ) : (
+          <div className="space-y-2">
+            {memories.instructions.map((m) => <MemoryCard key={m.id} memory={m} />)}
+          </div>
+        )}
+      </section>
+
+      {memories.pending.length === 0 && (
+        <EmptyState
+          title="Nothing waiting for review"
+          body="Agents park lessons here automatically — a denied send, a draft you edited before approving, a rejected proposal, or a preference you told an agent to remember."
+        />
+      )}
+    </div>
+  );
+}
+
+function refHref(r: MemoryRefView): string | null {
+  if (r.uri) return r.uri;
+  if (!r.id) return null;
+  if (r.kind === "grant") return "/engine/permissions";
+  if (r.kind === "work_item") return "/engine";
+  if (r.kind === "lead") return `/leads/${r.id}`;
+  if (r.kind === "project") return `/projects/${r.id}`;
+  if (r.kind === "newsletter_issue") return "/newsletter";
+  return null;
+}
+
+function MemoryCard({ memory, review }: { memory: MemoryView; review?: boolean }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [stale, setStale] = useState(memory.staleAfter ? memory.staleAfter.slice(0, 10) : "");
+  const [pending, start] = useTransition();
+  const run = (fn: () => Promise<unknown>) => start(async () => { await fn(); router.refresh(); });
+
+  const captured = new Date(memory.createdAt).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+
+  return (
+    <Card kind={review ? "flag" : "default"} className="p-3.5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Chip kind="ghost">{memory.memoryType}</Chip>
+            {memory.runtimeName && <Chip kind="ai">{memory.runtimeName}</Chip>}
+            <span className="font-mono text-[10px] text-ink-4">captured {captured}</span>
+            {memory.confidence !== null && (
+              <span className="font-mono text-[10px] text-ink-4">conf {memory.confidence}</span>
+            )}
+          </div>
+          <div className="mt-1 text-[13.5px] font-semibold text-ink">{memory.summary}</div>
+          <button className="mt-1.5 text-[11px] text-accent-2 hover:underline" onClick={() => setOpen((v) => !v)}>
+            {open ? "Hide details" : "View details"}
+          </button>
+          {open && (
+            <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-rule bg-paper-2 p-3 font-mono text-[11.5px] leading-relaxed text-ink-2">
+              {memory.content}
+            </pre>
+          )}
+          {memory.refs.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+              {memory.refs.map((r, i) => {
+                const href = refHref(r);
+                return href ? (
+                  <Link key={i} href={href} className="font-mono text-[10px] text-accent-2 hover:underline">
+                    {r.label || `${r.kind} ${r.id ?? ""}`}
+                  </Link>
+                ) : (
+                  <span key={i} className="font-mono text-[10px] text-ink-4">
+                    {r.label || `${r.kind} ${r.id ?? ""}`}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        {review ? (
+          <div className="flex flex-none flex-col items-end gap-1.5">
+            <button className={btnPrimary} disabled={pending} onClick={() => run(() => approveMemoryInstruction(memory.id))}>
+              Approve as instruction
+            </button>
+            <button className={btnCls} disabled={pending} onClick={() => run(() => approveMemoryEvidence(memory.id))}>
+              Approve as evidence
+            </button>
+            <button className={btnCls} disabled={pending} onClick={() => run(() => rejectMemory(memory.id))}>
+              Reject
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-none flex-col items-end gap-1.5">
+            <button className={btnCls} disabled={pending} onClick={() => run(() => revokeMemoryInstruction(memory.id))}>
+              Revoke
+            </button>
+            <label className="text-[10px] text-ink-4">
+              stale after
+              <input
+                type="date"
+                value={stale}
+                disabled={pending}
+                onChange={(e) => {
+                  setStale(e.target.value);
+                  run(() => setMemoryStaleAfter(memory.id, e.target.value));
+                }}
+                className="ml-1 rounded-md border border-rule bg-paper px-1.5 py-0.5 text-[11px] text-ink-2"
+              />
+            </label>
+          </div>
+        )}
+      </div>
     </Card>
   );
 }

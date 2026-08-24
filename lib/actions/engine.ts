@@ -3,6 +3,7 @@
 // Open Engine write paths. Owner-gated. Reads stay in lib/engine.ts.
 
 import { revalidatePath } from "next/cache";
+import { captureAgentMemory } from "@/lib/agent-memory";
 import { query } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { WORK_STATUSES } from "@/lib/engine-constants";
@@ -81,10 +82,26 @@ export async function approveWorkItem(id: string): Promise<Result> {
 
 export async function rejectWorkItem(id: string): Promise<Result> {
   await requireRole("owner");
-  await query(
-    `UPDATE work_items SET approval_status = 'rejected', status = 'cancelled' WHERE id = $1`,
+  const { rows } = await query<{ title: string; body: string; assignee_key: string | null }>(
+    `UPDATE work_items SET approval_status = 'rejected', status = 'cancelled' WHERE id = $1
+     RETURNING title, body, assignee_key`,
     [id],
   );
+  if (rows[0]) {
+    // W5 learning layer: a rejection is a signal about what NOT to propose.
+    await captureAgentMemory({
+      summary: `Rejected: ${rows[0].title}`,
+      content: [
+        `Work item "${rows[0].title}" was rejected by Joe on /engine.`,
+        rows[0].body ? `What was proposed:\n${rows[0].body.slice(0, 1000)}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      memoryType: "observation",
+      runtimeName: rows[0].assignee_key ?? undefined,
+      refs: [{ kind: "work_item", id, label: rows[0].title }],
+    });
+  }
   revalidatePath("/engine");
   return { ok: true };
 }

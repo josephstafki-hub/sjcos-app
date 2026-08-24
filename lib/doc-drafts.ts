@@ -12,6 +12,8 @@ import "server-only";
 
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { captureAgentMemory } from "./agent-memory";
+import { fieldValuesText, materialDiff } from "./agent-draft-diff";
 import { query, queryOne } from "./db";
 import { storeBuffer } from "./upload-store";
 import { UPLOAD_DIR } from "./uploads";
@@ -288,14 +290,17 @@ export async function updateDocDraftFields(
   );
 
   // A rendered draft whose values changed becomes stale (re-render replaces files).
+  // An AI edit also refreshes the W5 snapshot — the baseline the signature-submit
+  // path diffs Joe's final values against.
   const stale = draft.status === "rendered";
   await query(
     `UPDATE document_drafts
         SET field_values = $2::jsonb, fill_report = $3::jsonb,
+            agent_submitted_snapshot = CASE WHEN $4 THEN $2::jsonb ELSE agent_submitted_snapshot END,
             status = CASE WHEN status = 'rendered' THEN 'draft' ELSE status END,
             updated_at = now()
       WHERE id = $1`,
-    [id, JSON.stringify(values), JSON.stringify(fillReport)],
+    [id, JSON.stringify(values), JSON.stringify(fillReport), actor === "ai"],
   );
   const missing = validateForRender(template, values).missing;
   return { ok: true, fillReport, rejected, missing, stale };
@@ -542,6 +547,35 @@ export async function submitDocDraftForSignature(
       WHERE id = $1`,
     [id, reqId],
   );
+
+  // W5 learning layer: Joe just approved this document. If he materially
+  // changed it after the AI last filled it, that edit is a preference worth
+  // remembering. The snapshot is consumed here so it can only fire once.
+  const snap = await queryOne<{ snap: Record<string, unknown> }>(
+    `WITH old AS (
+       SELECT id, agent_submitted_snapshot AS snap FROM document_drafts
+        WHERE id = $1 AND agent_submitted_snapshot IS NOT NULL FOR UPDATE
+     )
+     UPDATE document_drafts d SET agent_submitted_snapshot = NULL
+       FROM old WHERE d.id = old.id
+     RETURNING old.snap`,
+    [id],
+  );
+  if (snap?.snap) {
+    const diff = materialDiff(
+      fieldValuesText(snap.snap),
+      fieldValuesText(draft.field_values as Record<string, unknown>),
+    );
+    if (diff) {
+      await captureAgentMemory({
+        summary: `Joe edited the ${draft.template_key} draft "${draft.title}" before approval`,
+        content: `Changed lines (agent version → approved version):\n${diff}`,
+        memoryType: "preference",
+        projectId: draft.project_id ?? undefined,
+        refs: [{ kind: "document_draft", id: String(id), label: draft.title }],
+      });
+    }
+  }
 
   // Actually deliver it. Until this existed, "sent" only ever meant "a row says
   // sent" — the client had no way to learn a document was waiting. The email

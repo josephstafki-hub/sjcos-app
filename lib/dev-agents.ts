@@ -9,6 +9,7 @@ import { query, queryOne } from "@/lib/db";
 import { CLAUDE_DEFAULTS, type ClaudeOptions } from "@/lib/dev-agents-meta";
 import { insertConversation, insertMessage } from "@/lib/ai-chat";
 import { ACTIONS_HINT, EFFECTS_HINT } from "@/lib/today-directives";
+import { standingInstructionsBlock } from "@/lib/agent-memory";
 import { finalizeHermesAnswer } from "@/lib/orchestrator/effects";
 import { hermesProgress, runLog } from "@/lib/orchestrator/activity";
 import { composeHermesTurn } from "@/lib/orchestrator/thread";
@@ -196,6 +197,9 @@ export async function hermesChat(
   sessionId?: string,
   progress?: HermesProgress,
 ): Promise<string> {
+  // W5: Joe-approved standing instructions ride along on every turn so the
+  // in-app agents get them without an MCP round-trip. "" when none exist.
+  const standing = await standingInstructionsBlock();
   const messages = [
     ...(context ? [{ role: "system", content: `SJC OS — page the user is viewing:\n${context}` }] : []),
     // Today v2 · Phase 7: let Hermes (the feed's default agent) offer one-click
@@ -204,6 +208,7 @@ export async function hermesChat(
     // Orchestration: ask for a sjcos-effects fence on writes (stripped +
     // recorded by lib/orchestrator/effects.ts at run completion).
     { role: "system", content: EFFECTS_HINT },
+    ...(standing ? [{ role: "system", content: standing }] : []),
     ...turns.map(hermesMessage),
   ];
   const { url, key } = await hermesConfig();

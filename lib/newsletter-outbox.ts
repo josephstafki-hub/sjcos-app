@@ -8,6 +8,8 @@
 // P1-D4 portal_deliveries doctrine. Enqueue is best-effort — its callers wrap it
 // in try/catch so a queue hiccup never blocks adding a recipient or a save.
 
+import { captureAgentMemory } from "./agent-memory";
+import { issueText, materialDiff } from "./agent-draft-diff";
 import { query, queryOne } from "./db";
 import { sendNewEmail } from "./gmail";
 import { normalizeSettings } from "./newsletter-design";
@@ -229,8 +231,47 @@ export async function releaseOutboxItem(id: number): Promise<{ ok: boolean; erro
     );
     return { ok: false, error: "Gmail send failed — left as failed to retry." };
   }
+  await captureAgentEditMemory(row.newsletter_id);
   await settleIssueIfDrained(row.newsletter_id);
   return { ok: true };
+}
+
+/** W5 learning layer: on the FIRST released row of an issue, diff what went out
+ *  against what the agent queued (agent_submitted_snapshot, set in
+ *  agentQueueIssue). A material difference means Joe edited the issue before
+ *  releasing — park that as a pending preference memory. The snapshot is
+ *  consumed atomically so the per-recipient release loop captures at most once,
+ *  and an unedited release leaves no memory at all. */
+async function captureAgentEditMemory(newsletterId: number | null): Promise<void> {
+  if (!newsletterId) return;
+  try {
+    const row = await queryOne<{
+      snap: { title: string; intro: string; blocks: unknown };
+      title: string;
+      intro: string;
+      blocks: unknown;
+    }>(
+      `WITH old AS (
+         SELECT id, agent_submitted_snapshot AS snap, title, intro, blocks FROM newsletters
+          WHERE id = $1 AND agent_submitted_snapshot IS NOT NULL FOR UPDATE
+       )
+       UPDATE newsletters n SET agent_submitted_snapshot = NULL
+         FROM old WHERE n.id = old.id
+       RETURNING old.snap, old.title, old.intro, old.blocks`,
+      [newsletterId],
+    );
+    if (!row?.snap) return;
+    const diff = materialDiff(issueText(row.snap), issueText(row));
+    if (!diff) return;
+    await captureAgentMemory({
+      summary: `Joe edited newsletter issue "${row.title}" before release`,
+      content: `Changed lines (agent version → released version):\n${diff}`,
+      memoryType: "preference",
+      refs: [{ kind: "newsletter_issue", id: String(newsletterId), label: row.title }],
+    });
+  } catch (err) {
+    console.error("[agent-memory] newsletter edit capture failed:", err instanceof Error ? err.message : err);
+  }
 }
 
 /** SKIP — drop a queued/failed row without sending (stale recipient, etc.). */

@@ -562,15 +562,17 @@ async function runHermesTurnTracked(
   }
 }
 
-/** Ping a work item's owner agent that it just cleared approval, prompting it
- *  to go complete the action. Best-effort: the approval itself already
- *  committed by the time this runs, so a dispatch failure here logs and
- *  returns rather than failing the whole Approve click. */
-export async function notifyAgentOwner(
+/** Shared agent dispatch for a work item: persist `prompt` as a user turn in
+ *  the item's thread and hand it to the owning agent (Hermes turn in-process,
+ *  Claude run detached via the CLI runner). Best-effort: the state change that
+ *  prompted the ping already committed, so a dispatch failure logs and returns
+ *  rather than failing the caller (the retry sweep / the agent's scheduled
+ *  pass picks the item up later). No-op for human-owned items. */
+export async function pingAgentWorkItem(
   workItemId: string,
   assigneeKey: string | null,
   title: string,
-  body: string,
+  prompt: string,
   pageContext?: string,
 ): Promise<void> {
   const agent = approvalAgentFor(assigneeKey);
@@ -578,14 +580,11 @@ export async function notifyAgentOwner(
 
   try {
     const conversationId = await conversationForWorkItem(agent, workItemId, title);
-    const prompt =
-      `Work item approved: "${title}"${body ? `\n\n${body}` : ""}\n\n` +
-      `Joe just approved this — go ahead and complete it now.`;
     await insertMessage(conversationId, "user", prompt, { pageContext, subjectWorkItemId: workItemId });
 
     if (agent === "hermes") {
       // Not awaited past the DB insert: a live Hermes turn can run minutes of
-      // tool calls, and the approve button can't sit there waiting on that.
+      // tool calls, and the caller can't sit there waiting on that.
       void runHermesTurnTracked(conversationId, prompt, pageContext, workItemId);
       return;
     }
@@ -595,8 +594,23 @@ export async function notifyAgentOwner(
       await insertMessage(conversationId, "assistant", `⚠️ ${(err as Error).message}`, { agent: "claude" }).catch(() => {});
     }
   } catch (err) {
-    console.error("[dev-agents] notifyAgentOwner failed", err);
+    console.error("[dev-agents] pingAgentWorkItem failed", err);
   }
+}
+
+/** Ping a work item's owner agent that it just cleared approval, prompting it
+ *  to go complete the action. Best-effort — see pingAgentWorkItem. */
+export async function notifyAgentOwner(
+  workItemId: string,
+  assigneeKey: string | null,
+  title: string,
+  body: string,
+  pageContext?: string,
+): Promise<void> {
+  const prompt =
+    `Work item approved: "${title}"${body ? `\n\n${body}` : ""}\n\n` +
+    `Joe just approved this — go ahead and complete it now.`;
+  await pingAgentWorkItem(workItemId, assigneeKey, title, prompt, pageContext);
 }
 
 // Retries stop after this many attempts on one work item — the thread's last
@@ -605,11 +619,12 @@ export async function notifyAgentOwner(
 const MAX_APPROVAL_ATTEMPTS = 5;
 const APPROVAL_RETRY_AFTER = "15 minutes";
 
-/** Cron sweep (app/api/cron/agent-retries): find approved, still-open work
- *  items whose owner-agent ping errored out (every attempt so far, at least
- *  15 min ago) and nudge the same conversation again. Skips anything with a
- *  ping currently in flight (status 'pending'/'running') or already at the
- *  attempt cap. */
+/** Cron sweep (app/api/cron/agent-retries): find still-open agent work items
+ *  whose owner-agent ping errored out (every attempt so far, at least 15 min
+ *  ago) and nudge the same conversation again. Covers approved items and (W6)
+ *  runbook step items — except steps parked at approval_needed, where the ball
+ *  is in Joe's court, not the agent's. Skips anything with a ping currently in
+ *  flight (status 'pending'/'running') or already at the attempt cap. */
 export async function retryFailedApprovalPings(): Promise<{ retried: number }> {
   const { rows } = await query<{
     work_item_id: string;
@@ -621,7 +636,8 @@ export async function retryFailedApprovalPings(): Promise<{ retried: number }> {
     `SELECT w.id AS work_item_id, w.title, w.assignee_key, r.conversation_id, COUNT(r.id) AS attempts
        FROM work_items w
        JOIN dev_agent_runs r ON r.subject_work_item_id = w.id
-      WHERE w.approval_status = 'approved'
+      WHERE (w.approval_status = 'approved'
+             OR (w.runbook_instance_id IS NOT NULL AND w.status <> 'approval_needed'))
         AND w.status NOT IN ('done', 'cancelled')
         AND w.assignee_key IN ('hermes-telegram', 'claude-code-server')
       GROUP BY w.id, w.title, w.assignee_key, r.conversation_id
@@ -636,7 +652,7 @@ export async function retryFailedApprovalPings(): Promise<{ retried: number }> {
     if (!agent) continue;
     const attempt = Number(r.attempts) + 1;
     const nudge =
-      `Still waiting on approved work item "${r.title}" (retry ${attempt}/${MAX_APPROVAL_ATTEMPTS}). ` +
+      `Still waiting on work item "${r.title}" (retry ${attempt}/${MAX_APPROVAL_ATTEMPTS}). ` +
       `Please go complete it now.`;
     await insertMessage(r.conversation_id, "user", nudge, { subjectWorkItemId: r.work_item_id });
     if (agent === "hermes") {

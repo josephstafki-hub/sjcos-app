@@ -60,6 +60,7 @@ import { registerMoodTools } from "./mood-tools.mjs";
 import { registerBiddingTools } from "./bidding-tools.mjs";
 import { registerChatgptTools } from "./chatgpt-tools.mjs";
 import { registerGrantTools } from "./grants-tools.mjs";
+import { registerRunbookTools } from "./runbook-tools.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -198,6 +199,29 @@ function notifyOwnerCall(action, payload = {}) {
     headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
     body: JSON.stringify({ action, ...payload }),
   }).catch(() => {});
+}
+
+/**
+ * Call the app's internal runbooks route (W6 stepper). Starting a runbook and
+ * advancing an instance live in lib/runbook-engine.ts (work-item spawn + agent
+ * ping machinery the .mjs server can't import). Trusted local caller, authed
+ * with CRON_SECRET. The route deliberately has NO cancel action — cancelling
+ * an instance is owner-only in the app UI.
+ */
+async function runbooksCall(action, payload = {}) {
+  const base = envValue("APP_INTERNAL_URL") || "http://127.0.0.1:3017";
+  const secret = envValue("CRON_SECRET");
+  if (!secret) return { ok: false, error: "CRON_SECRET not set — cannot reach the app runbooks route." };
+  try {
+    const res = await fetch(`${base}/api/internal/runbooks`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
+      body: JSON.stringify({ action, ...payload }),
+    });
+    return await res.json();
+  } catch (e) {
+    return { ok: false, error: `App not reachable at ${base} (${e.message}). Is the sjcos service running?` };
+  }
 }
 
 async function poCall(action, payload = {}) {
@@ -960,10 +984,24 @@ server.registerTool(
               blocked_reason = CASE WHEN $2 IN ('blocked','waiting_on_human','waiting_on_client','waiting_on_sub')
                                     THEN $3 ELSE blocked_reason END,
               completed_at = CASE WHEN $2 = 'done' THEN now() ELSE completed_at END
-        WHERE id = $1 RETURNING id, status`,
+        WHERE id = $1 RETURNING id, status, runbook_instance_id`,
       [id, status, note ?? null],
     );
-    return json(r[0] ? { ok: true, ...r[0] } : { ok: false, error: `No work item ${id}` });
+    if (!r[0]) return json({ ok: false, error: `No work item ${id}` });
+    // W6: a status change on a runbook step advances its instance (spawns the
+    // next step / completes / cancels). Proxied to the app; best-effort — the
+    // status change above already committed either way.
+    if (r[0].runbook_instance_id) {
+      const adv = await runbooksCall("advance", { work_item_id: id });
+      return json({
+        ok: true,
+        id: r[0].id,
+        status: r[0].status,
+        runbook_advanced: adv?.ok === true,
+        ...(adv?.ok === true ? {} : { runbook_error: adv?.error ?? "advance failed" }),
+      });
+    }
+    return json({ ok: true, id: r[0].id, status: r[0].status });
   },
 );
 
@@ -1245,7 +1283,7 @@ server.registerTool(
   },
   async ({ work_item_id, draft, kind = "draft" }) => {
     const item = await rows(
-      `SELECT id, lead_id, project_id FROM work_items WHERE id = $1`,
+      `SELECT id, lead_id, project_id, runbook_instance_id FROM work_items WHERE id = $1`,
       [work_item_id],
     );
     if (!item[0]) return json({ ok: false, error: `No work item ${work_item_id}` });
@@ -1269,6 +1307,8 @@ server.registerTool(
        VALUES ($1,'draft',$2,$3)`,
       [work_item_id, knowledgeId ? `knowledge_items/${knowledgeId}` : null, `draft ready for approval (${kind})`],
     );
+    // W6: keep a runbook instance's status honest (→ waiting_approval).
+    if (item[0].runbook_instance_id) await runbooksCall("advance", { work_item_id });
     return json({ ok: true, knowledge_id: knowledgeId });
   },
 );
@@ -2211,6 +2251,11 @@ server.registerTool(
   // the only tools that can reach a real inbox, and each one needs an owner
   // grant id for its exact target. See mcp/grants-tools.mjs.
   registerGrantTools(server, { json, grantsCall });
+
+  // W6 runbook stepper: start a runbook + read live instances. Starting is
+  // proxied to the app (spawn + pings live in lib/runbook-engine.ts); reads are
+  // direct SQL. No cancel tool — owner-only in the UI. See mcp/runbook-tools.mjs.
+  registerRunbookTools(server, { rows, json, runbooksCall });
 
   // `search` + `fetch`: the two tools ChatGPT's connector requires by name (it
   // rejects a server without them). Read-only unified lookups over the same

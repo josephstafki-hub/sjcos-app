@@ -13,6 +13,7 @@ import { query } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { WORK_STATUSES } from "@/lib/engine-constants";
 import { notifyAgentOwner } from "@/lib/dev-agents";
+import { maybeAdvanceRunbook } from "@/lib/runbook-engine";
 import type { WorkItemStatus } from "@/lib/types";
 import type { RecordKind } from "@/lib/record-ops";
 
@@ -59,6 +60,7 @@ export async function setRecordWorkItemStatus(
   if (!rows[0]) return { ok: false, error: "Work item not found." };
   const receiptKind = status === "done" ? "work_item_completed" : "status_change";
   await writeReceipt(receiptKind, `${rows[0].title} → ${status}`, id);
+  await maybeAdvanceRunbook(id); // W6: no-op unless this is a runbook step
   revalidateRecord(kind, slug);
   return { ok: true };
 }
@@ -76,6 +78,7 @@ export async function approveRecordWorkItem(id: string, kind: RecordKind, slug: 
   const { title, body, assignee_key } = rows[0];
   await writeReceipt("approval", `Approved: ${title}`, id);
   await notifyAgentOwner(id, assignee_key, title, body, `${kind} ${slug}`);
+  await maybeAdvanceRunbook(id); // W6: a done-but-unapproved step advances on approval
   revalidateRecord(kind, slug);
   return { ok: true };
 }
@@ -105,6 +108,7 @@ export async function rejectRecordWorkItem(id: string, kind: RecordKind, slug: s
       { kind, id: slug, label: `${kind} ${slug}` },
     ],
   });
+  await maybeAdvanceRunbook(id); // W6: rejecting a runbook step cancels its instance
   revalidateRecord(kind, slug);
   return { ok: true };
 }

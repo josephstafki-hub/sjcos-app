@@ -5,6 +5,7 @@ import { getEngineData } from "@/lib/engine";
 import { getRecentKnowledge } from "@/lib/brain";
 import { getSkillsLibrary } from "@/lib/skills";
 import { getMemoriesData } from "@/lib/memories";
+import { getActiveRunbookInstances } from "@/lib/runbook-engine";
 import { EngineClient } from "@/components/engine/EngineClient";
 
 export const dynamic = "force-dynamic";
@@ -13,11 +14,12 @@ export default async function EnginePage() {
   // Owner-only: the operations engine coordinates AI runs + approvals.
   await requireRole("owner");
 
-  const [engine, knowledge, skills, memories] = await Promise.all([
+  const [engine, knowledge, skills, memories, activeRunbooks] = await Promise.all([
     getEngineData(),
     getRecentKnowledge(40),
     getSkillsLibrary(),
     getMemoriesData(),
+    getActiveRunbookInstances(),
   ]);
 
   const { counts } = engine;
@@ -47,6 +49,7 @@ export default async function EnginePage() {
           knowledge={knowledge}
           skills={skills}
           memories={memories}
+          activeRunbooks={activeRunbooks}
         />
       </div>
     </Shell>

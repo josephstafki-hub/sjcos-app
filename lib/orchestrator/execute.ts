@@ -1,6 +1,7 @@
 import "server-only";
 
 import { query, queryOne } from "@/lib/db";
+import { maybeAdvanceRunbook } from "@/lib/runbook-engine";
 import type { PendingProposal } from "./proposals";
 
 // The whitelisted executors behind approved Qwen proposals. Plain library
@@ -37,6 +38,7 @@ export async function executeProposal(p: PendingProposal): Promise<ExecuteResult
             WHERE id = $1 AND status NOT IN ('done','cancelled')`,
           [id],
         );
+        await maybeAdvanceRunbook(id); // W6: no-op unless this is a runbook step
         return { ok: true, summary: `Marked done: ${title}`, entityKind: "work_item", entityId: id };
       }
       case "snooze": {
@@ -66,6 +68,7 @@ export async function executeProposal(p: PendingProposal): Promise<ExecuteResult
             WHERE id = $1 AND status NOT IN ('done','cancelled')`,
           [id, status],
         );
+        await maybeAdvanceRunbook(id); // W6: no-op unless this is a runbook step
         return { ok: true, summary: `Status → ${status}: ${title}`, entityKind: "work_item", entityId: id };
       }
       case "create_work_item": {

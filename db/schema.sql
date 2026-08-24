@@ -2155,6 +2155,79 @@ ALTER TABLE ai_messages    ADD COLUMN IF NOT EXISTS subject_work_item_id uuid
 ALTER TABLE dev_agent_runs ADD COLUMN IF NOT EXISTS subject_work_item_id uuid
   REFERENCES work_items(id) ON DELETE SET NULL;
 
+-- ─── W6: Runbook stepper — live runbook instances ───────────────────────────
+-- A runbook_instance is one live walk through a runbook against one lead or
+-- project. The engine (lib/runbook-engine.ts) spawns exactly ONE work item per
+-- step; completing that item (plus Joe's approval when the step requires it)
+-- advances the instance to the next step or completes it. Definitions stay in
+-- runbooks/runbook_steps above — this is the live state.
+CREATE TABLE IF NOT EXISTS runbook_instances (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  runbook_id    uuid REFERENCES runbooks(id) ON DELETE SET NULL,
+  runbook_slug  text NOT NULL,
+  lead_id       uuid REFERENCES leads(id)    ON DELETE CASCADE,
+  project_id    uuid REFERENCES projects(id) ON DELETE CASCADE,
+  current_step  integer NOT NULL DEFAULT 1,
+  status        text NOT NULL DEFAULT 'running'
+                  CHECK (status IN ('running','waiting_approval','waiting_human',
+                                    'done','cancelled')),
+  started_by    text NOT NULL DEFAULT 'user',
+  started_at    timestamptz NOT NULL DEFAULT now(),
+  completed_at  timestamptz,
+  note          text NOT NULL DEFAULT ''
+);
+-- Duplicate guard: at most ONE non-terminal instance of a runbook per target.
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_runbook_instance_active_lead
+  ON runbook_instances (runbook_slug, lead_id)
+  WHERE lead_id IS NOT NULL AND status NOT IN ('done','cancelled');
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_runbook_instance_active_project
+  ON runbook_instances (runbook_slug, project_id)
+  WHERE project_id IS NOT NULL AND status NOT IN ('done','cancelled');
+CREATE INDEX IF NOT EXISTS idx_runbook_instances_status
+  ON runbook_instances (status, started_at DESC);
+
+-- Step work items point back at their instance + step so every completion path
+-- (owner UI, MCP, orchestrator proposals) can advance the stepper. NULL on
+-- ordinary work items — all runbook handling short-circuits on NULL.
+ALTER TABLE work_items ADD COLUMN IF NOT EXISTS runbook_instance_id uuid
+  REFERENCES runbook_instances(id) ON DELETE SET NULL;
+ALTER TABLE work_items ADD COLUMN IF NOT EXISTS runbook_step_order integer;
+CREATE INDEX IF NOT EXISTS idx_work_items_runbook_instance
+  ON work_items (runbook_instance_id) WHERE runbook_instance_id IS NOT NULL;
+
+-- Who works a step: 'agent' spawns an agent-assigned work item (immediate ping,
+-- scheduled-pass fallback); 'human' assigns Joe (owner push).
+ALTER TABLE runbook_steps ADD COLUMN IF NOT EXISTS assigned_to text NOT NULL
+  DEFAULT 'agent' CHECK (assigned_to IN ('agent','human'));
+
+-- W6 seed patch (idempotent; text + assignment only). Ruling 2026-08-24: the
+-- intake questions stay as they are and BOTH intake gates are judged by agent
+-- discretion — no rule-based gating on triage fields.
+UPDATE runbook_steps s SET assigned_to = v.assigned
+  FROM (VALUES
+    ('daily-sjc-operations-review',           1, 'agent'),
+    ('daily-sjc-operations-review',           2, 'agent'),
+    ('lead-intake-to-qualified-or-declined',  1, 'agent'),
+    ('lead-intake-to-qualified-or-declined',  2, 'agent'),
+    ('rough-estimate-to-site-visit',          1, 'agent'),
+    ('rough-estimate-to-site-visit',          2, 'human'),
+    ('active-project-followup-loop',          1, 'agent'),
+    ('active-project-followup-loop',          2, 'agent'),
+    ('completed-project-closeout',            1, 'agent'),
+    ('completed-project-closeout',            2, 'human')
+  ) AS v(rb_slug, ord, assigned), runbooks r
+ WHERE r.slug = v.rb_slug AND s.runbook_id = r.id AND s.step_order = v.ord;
+
+UPDATE runbook_steps s
+   SET expected_output = 'Gate 1, agent discretion: judge qualification from the intake answers as provided. Qualified, declined, or unclear — with reasons. The intake questions are sufficient as asked; do not demand fields the client skipped.'
+  FROM runbooks r
+ WHERE r.slug = 'lead-intake-to-qualified-or-declined' AND s.runbook_id = r.id AND s.step_order = 1;
+
+UPDATE runbook_steps s
+   SET expected_output = 'Gate 2 prep: draft the reply per the triage outcome. If advancing: ask for what a rough estimate needs — a detailed description of the work (as much as the client is able), photos, and rough measurements — plus anything Gate 1 found unclear. If declining: polite decline draft. Joe approves before anything is sent.'
+  FROM runbooks r
+ WHERE r.slug = 'lead-intake-to-qualified-or-declined' AND s.runbook_id = r.id AND s.step_order = 2;
+
 -- Thread continuity for 'auto' conversations (db/apply-orchestration-p5.mjs):
 --   agent       → who wrote an assistant message ('claude'|'qwen'|'hermes',
 --                 'concierge' for the voice ack). Follow-ups stick to the last

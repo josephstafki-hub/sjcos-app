@@ -35,6 +35,7 @@ import { getPortalThread, portalChannel } from "@/lib/portal-messages";
 import { AI_NAME } from "@/lib/ai-name";
 import { RecordOps } from "@/components/engine/RecordOps";
 import { getRecordOps } from "@/lib/record-ops";
+import { getActiveRunbookInstancesFor } from "@/lib/runbook-engine";
 import { SendPreconButton } from "@/components/leads/SendPreconButton";
 
 export default async function LeadDetailPage({
@@ -61,6 +62,8 @@ export default async function LeadDetailPage({
   );
   // Open Engine + Brain data scoped to this one lead — the "Ops" tab.
   const ops = await getRecordOps("lead", slug);
+  // W6: live runbook instance badge for the header.
+  const activeRunbooks = await getActiveRunbookInstancesFor("lead", slug);
 
   // Client portal state for this lead: real uploaded files (with dashboard
   // share toggles), the invite, and the portal chat thread.
@@ -391,6 +394,11 @@ export default async function LeadDetailPage({
                   Stage {currentStageIdx + 1} of {STAGES.length}
                 </Chip>
               )}
+              {activeRunbooks.map((r) => (
+                <Chip key={r.id} kind="ai" dot>
+                  {r.runbookTitle} · step {r.currentStep}/{r.stepCount}
+                </Chip>
+              ))}
             </div>
             <h1 className="mt-1.5 font-serif text-[30px] font-medium leading-none tracking-tight text-accent-2">
               {lead.name}

@@ -28,6 +28,7 @@ It runs as its own process over **stdio**, separate from the Next app, and reads
 | `list_skills` / `get_skill` / `search_skills` | Skill library (approved unless `include_proposed`) / one skill + current body / search |
 | `suggest_skill_for_work_item` | The skill/runbook a work item expects, else best fuzzy matches |
 | `list_runbooks` / `get_runbook` | Runbooks / one runbook + ordered steps |
+| `list_runbook_instances` / `get_runbook_instance` | W6 stepper: live/recent runbook runs; one run + its step work items |
 
 ## Write tools (gated / logged)
 
@@ -45,6 +46,7 @@ Safe by construction — internal records, append-only audit, and proposals only
 | `record_agent_run` / `record_receipt` | Open/close a run; append proof-of-work |
 | `create_skill_proposal` | Propose a skill → lands `proposed`, out of the library until Joe approves in `/engine` |
 | `record_skill_used` | Log that an agent followed a skill |
+| `start_runbook` | W6 stepper: start a runbook against one lead/project (spawns the step-1 work item + pings its assignee; refuses a duplicate live run). Completing a step's work item advances the run; cancelling an instance is owner-only in `/engine` |
 
 All tools are parameterized SQL. **No raw-SQL tool** is exposed. Before working a
 non-trivial work item, an agent should `get_work_item` → `suggest_skill_for_work_item`

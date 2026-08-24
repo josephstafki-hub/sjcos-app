@@ -60,6 +60,7 @@ import { advanceProjectStatus } from "@/lib/actions/projects";
 import { whisperAvailable } from "@/lib/transcribe";
 import { RecordOps } from "@/components/engine/RecordOps";
 import { getRecordOps } from "@/lib/record-ops";
+import { getActiveRunbookInstancesFor } from "@/lib/runbook-engine";
 
 const DOT: Record<string, string> = {
   accent: "bg-accent",
@@ -639,6 +640,9 @@ export default async function ProjectDetailPage({
 
   const projectAiContext = projectContext(project);
 
+  // W6: live runbook instance badge for the header band.
+  const activeRunbooks = await getActiveRunbookInstancesFor("project", slug);
+
   const headerBand = (
     <div className="border-b border-rule bg-paper-2 px-4 py-4 sm:px-7">
       <Link href="/projects" className="text-[11px] text-ink-3 hover:text-ink-2">
@@ -650,6 +654,11 @@ export default async function ProjectDetailPage({
             {project.statusChips.map((c) => (
               <Chip key={c.label} kind={c.kind} dot={c.dot}>
                 {c.label}
+              </Chip>
+            ))}
+            {activeRunbooks.map((r) => (
+              <Chip key={r.id} kind="ai" dot>
+                {r.runbookTitle} · step {r.currentStep}/{r.stepCount}
               </Chip>
             ))}
           </div>

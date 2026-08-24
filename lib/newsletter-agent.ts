@@ -259,6 +259,15 @@ export async function agentUpdateIssue(
 export async function agentQueueIssue(id: number, groupIds?: number[]): Promise<AgentResult<{ queued: number }>> {
   const res = await enqueueIssue(id, groupIds);
   if (!res.ok) return { ok: false, error: res.error ?? "Could not queue." };
+  // W5 learning layer: freeze what the AGENT queued, so the release path can
+  // diff what Joe actually sent against it (owner queueIssue takes no snapshot
+  // — Joe editing his own words is not a lesson).
+  await query(
+    `UPDATE newsletters
+        SET agent_submitted_snapshot = jsonb_build_object('title', title, 'intro', intro, 'blocks', blocks)
+      WHERE id = $1`,
+    [id],
+  );
   return { ok: true, data: { queued: res.queued ?? 0 } };
 }
 

@@ -2102,6 +2102,102 @@ server.registerTool(
   },
 );
 
+  // ─── Agent memories (W5 learning layer) ─────────────────────────────────────
+  // Standing instructions are the ONLY agent-memory rows with authority, and
+  // only Joe's click in /engine can mint one. Everything an agent writes here
+  // lands pending / evidence-only (the table's safe defaults) — these tools
+  // never set review_status, can_use_as_instruction, or confidence.
+
+  server.registerTool(
+    "get_standing_instructions",
+    {
+      title: "Get standing instructions",
+      description:
+        "Joe's standing instructions for how agents work. Load at the start of " +
+        "every pass and honor them. Read-only.",
+      inputSchema: {},
+    },
+    async () => {
+      const r = await rows(
+        `SELECT id, summary, content FROM agent_memories
+          WHERE review_status = 'approved' AND can_use_as_instruction = true
+            AND (stale_after IS NULL OR stale_after > now())
+          ORDER BY confidence DESC NULLS LAST, updated_at DESC
+          LIMIT 20`,
+      );
+      return json(r);
+    },
+  );
+
+  server.registerTool(
+    "remember_agent_instruction",
+    {
+      title: "Remember an agent-work preference",
+      description:
+        "Store a preference Joe explicitly told an agent to remember about HOW " +
+        "AGENTS WORK (business facts still go to capture_knowledge). It lands " +
+        "pending for Joe's review in /engine — it is NOT active the moment you " +
+        "call this; only his approval makes it a standing instruction.",
+      inputSchema: {
+        content: z.string(),
+        summary: z.string().optional(),
+        lead_slug: z.string().optional(),
+        project_slug: z.string().optional(),
+      },
+    },
+    async ({ content, summary, lead_slug, project_slug }) => {
+      const mangled = strippedDollarError(content);
+      if (mangled) return mangled;
+      const line = (summary ?? content).split("\n")[0].trim().slice(0, 200);
+      // Same near-duplicate guard as the app's capture hooks: a pending memory
+      // with this summary absorbs the repeat instead of spawning a sibling.
+      const existing = await rows(
+        `SELECT id FROM agent_memories
+          WHERE review_status = 'pending' AND summary = $1
+          ORDER BY created_at DESC LIMIT 1`,
+        [line],
+      );
+      if (existing[0]) {
+        await rows(`UPDATE agent_memories SET updated_at = now() WHERE id = $1`, [existing[0].id]);
+        return json({ ok: true, id: existing[0].id, deduped: true, status: "pending Joe's review in /engine" });
+      }
+      const r = await rows(
+        `INSERT INTO agent_memories (summary, content, memory_type, lead_id, project_id)
+         VALUES ($1, $2, 'preference', $3, $4) RETURNING id`,
+        [line, content, await slugToId("leads", lead_slug), await slugToId("projects", project_slug)],
+      );
+      return json({ ok: true, id: r[0].id, status: "pending Joe's review in /engine" });
+    },
+  );
+
+  server.registerTool(
+    "list_agent_memories",
+    {
+      title: "List agent memories",
+      description:
+        "Read-only list of agent memories (for the weekly distill pass, or Joe " +
+        "asking what's pending). Filter by review_status pending/approved/rejected.",
+      inputSchema: {
+        review_status: z.enum(["pending", "approved", "rejected"]).optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+      },
+    },
+    async ({ review_status, limit = 50 }) => {
+      const params = [];
+      let cond = "";
+      if (review_status) { params.push(review_status); cond = `WHERE review_status = $${params.length}`; }
+      params.push(limit);
+      const r = await rows(
+        `SELECT id, summary, content, memory_type, review_status, can_use_as_instruction,
+                confidence, stale_after, runtime_name, created_at
+           FROM agent_memories ${cond}
+          ORDER BY created_at DESC LIMIT $${params.length}`,
+        params,
+      );
+      return json(r);
+    },
+  );
+
   // Mood boards live in their own module — same rules as everything above (no
   // deletes, nothing client-facing), just kept separate to keep this file from
   // growing without bound. See mcp/mood-tools.mjs.

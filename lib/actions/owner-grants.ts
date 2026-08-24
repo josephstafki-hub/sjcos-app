@@ -5,8 +5,10 @@
 // Reads + the consume path stay in lib/owner-grants.ts.
 
 import { revalidatePath } from "next/cache";
+import { captureAgentMemory } from "@/lib/agent-memory";
 import { requireRole } from "@/lib/dal";
 import { ACTION_TARGET_KIND, createGrant, decideGrant, GATED_ACTIONS, type GatedAction } from "@/lib/owner-grants";
+import { ACTION_LABEL } from "@/lib/owner-grant-types";
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -23,10 +25,36 @@ export async function approveGrant(id: string): Promise<Result> {
   return { ok: true, id: g.id };
 }
 
-export async function denyGrant(id: string): Promise<Result> {
+export async function denyGrant(id: string, note?: string): Promise<Result> {
   await requireRole("owner");
   const g = await decideGrant(id, "denied");
   if (!g) return { ok: false, error: "That request is no longer pending." };
+  // W5 learning layer: a denial is a preference signal — park it for review.
+  const action = g.actions.includes("*")
+    ? "any send"
+    : g.actions.map((a) => ACTION_LABEL[a as keyof typeof ACTION_LABEL] ?? a).join(", ");
+  const to = typeof g.scope?.to === "string" ? ` to ${g.scope.to}` : "";
+  const target = g.target_id ? `${g.target_kind ?? "target"} ${g.target_id}${to}` : to.trim() || "no target";
+  const trimmedNote = note?.trim();
+  await captureAgentMemory({
+    summary: `Send denied: ${action} — ${target}`,
+    content: [
+      `${g.requested_by} asked for permission: ${action} — ${target}.`,
+      g.reason ? `Agent's reason: ${g.reason}` : null,
+      `Denied by Joe.`,
+      trimmedNote ? `Joe's note: ${trimmedNote}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    memoryType: "preference",
+    runtimeName: g.requested_by,
+    refs: [
+      { kind: "grant", id: g.id, label: `Permission request (${action})` },
+      ...(g.target_id
+        ? [{ kind: g.target_kind ?? "target", id: g.target_id, label: target }]
+        : []),
+    ],
+  });
   refresh();
   return { ok: true, id: g.id };
 }

@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/dal";
 import { getEngineData } from "@/lib/engine";
 import { getRecentKnowledge } from "@/lib/brain";
 import { getSkillsLibrary } from "@/lib/skills";
+import { getMemoriesData } from "@/lib/memories";
 import { EngineClient } from "@/components/engine/EngineClient";
 
 export const dynamic = "force-dynamic";
@@ -12,10 +13,11 @@ export default async function EnginePage() {
   // Owner-only: the operations engine coordinates AI runs + approvals.
   await requireRole("owner");
 
-  const [engine, knowledge, skills] = await Promise.all([
+  const [engine, knowledge, skills, memories] = await Promise.all([
     getEngineData(),
     getRecentKnowledge(40),
     getSkillsLibrary(),
+    getMemoriesData(),
   ]);
 
   const { counts } = engine;
@@ -27,7 +29,8 @@ export default async function EnginePage() {
           <Eyebrow>
             {counts.total} work item{counts.total === 1 ? "" : "s"} · {counts.approval} awaiting approval ·{" "}
             {counts.waiting} waiting · {skills.proposed.length} skill proposal
-            {skills.proposed.length === 1 ? "" : "s"}
+            {skills.proposed.length === 1 ? "" : "s"} · {memories.pending.length} memor
+            {memories.pending.length === 1 ? "y" : "ies"} pending
           </Eyebrow>
           <h1 className="mt-1 font-serif text-[34px] font-medium leading-none tracking-tight text-accent-2">
             Operations engine
@@ -43,6 +46,7 @@ export default async function EnginePage() {
           engine={engine}
           knowledge={knowledge}
           skills={skills}
+          memories={memories}
         />
       </div>
     </Shell>

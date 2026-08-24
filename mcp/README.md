@@ -66,6 +66,23 @@ reaches the tool. This corrupted live data once; the free-text write tools now
 reject bodies bearing that stripped-dollar signature (`,NNN` after whitespace)
 with an error pointing back here.
 
+## Agent memories (W5 learning layer)
+
+Direct SQL against `agent_memories`. Everything an agent writes lands
+**pending, evidence-only** (the table's safe defaults); only Joe's click in
+`/engine` → Memories can promote a row to a standing instruction. These tools
+never touch `review_status`, `can_use_as_instruction`, or `confidence`.
+
+| Tool | Purpose |
+|---|---|
+| `get_standing_instructions` | Joe's approved standing orders (≤20, unexpired) — load at the start of every pass and honor them; read-only |
+| `remember_agent_instruction` | Joe told you to remember a way of working → park it (optional `summary`, `lead_slug`, `project_slug`); lands **pending review**, NOT active on call. Business facts still go to `capture_knowledge` |
+| `list_agent_memories` | Read-only list (optional `review_status`, `limit`) — for the weekly distill pass or "what's pending" |
+
+The app also captures memories on its own (grant denials, drafts Joe edited
+before approving, rejected work items / skills / Qwen proposals), and injects
+the same standing-instructions block into in-app Hermes/Qwen chat turns.
+
 ## Newsletter tools (email list + issues)
 
 The client newsletter is drivable from any MCP client. **Reads** are direct

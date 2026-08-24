@@ -8,6 +8,7 @@
 
 import { createHash } from "node:crypto";
 import { revalidatePath } from "next/cache";
+import { captureAgentMemory } from "@/lib/agent-memory";
 import { query } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { WORK_STATUSES } from "@/lib/engine-constants";
@@ -81,12 +82,29 @@ export async function approveRecordWorkItem(id: string, kind: RecordKind, slug: 
 
 export async function rejectRecordWorkItem(id: string, kind: RecordKind, slug: string): Promise<Result> {
   await requireRole("owner");
-  const { rows } = await query<{ title: string }>(
-    `UPDATE work_items SET approval_status = 'rejected', status = 'cancelled' WHERE id = $1 RETURNING title`,
+  const { rows } = await query<{ title: string; body: string; assignee_key: string | null }>(
+    `UPDATE work_items SET approval_status = 'rejected', status = 'cancelled' WHERE id = $1
+     RETURNING title, body, assignee_key`,
     [id],
   );
   if (!rows[0]) return { ok: false, error: "Work item not found." };
   await writeReceipt("rejection", `Rejected: ${rows[0].title}`, id);
+  // W5 learning layer: a rejection is a signal about what NOT to propose.
+  await captureAgentMemory({
+    summary: `Rejected: ${rows[0].title}`,
+    content: [
+      `Work item "${rows[0].title}" was rejected by Joe on ${kind} ${slug}.`,
+      rows[0].body ? `What was proposed:\n${rows[0].body.slice(0, 1000)}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    memoryType: "observation",
+    runtimeName: rows[0].assignee_key ?? undefined,
+    refs: [
+      { kind: "work_item", id, label: rows[0].title },
+      { kind, id: slug, label: `${kind} ${slug}` },
+    ],
+  });
   revalidateRecord(kind, slug);
   return { ok: true };
 }

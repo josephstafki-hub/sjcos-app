@@ -1416,6 +1416,11 @@ ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS extra_recipients jsonb NOT NULL
 -- nothing" — persisted now for the same reason extra_recipients is.
 ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS target_group_ids jsonb NOT NULL DEFAULT '[]';
 
+-- W5 learning layer: {title, intro, blocks} as the AGENT queued it, so the
+-- release path can diff what Joe actually sent against what the agent wrote
+-- (edits become pending agent_memories). Consumed (nulled) on first release.
+ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS agent_submitted_snapshot jsonb;
+
 -- ─── SMS (two-way texting) ──────────────────────────────────────────────────
 -- Provider-agnostic SMS inbox mirroring the Gmail inbox. Populated only when a
 -- provider (Twilio/Telnyx/SignalWire) is configured (see lib/sms.ts); until then
@@ -2200,6 +2205,11 @@ CREATE INDEX IF NOT EXISTS idx_doc_drafts_lead    ON document_drafts(lead_slug, 
 -- (and in addition to) the signature flow. The portal lists visible drafts and
 -- serves their PDFs through the scope-checked portal file route.
 ALTER TABLE document_drafts ADD COLUMN IF NOT EXISTS client_visible boolean NOT NULL DEFAULT false;
+
+-- W5 learning layer: field_values as the AI last wrote them, so the signature-
+-- submit path can diff what Joe approved against what the agent filled in
+-- (edits become pending agent_memories). Consumed (nulled) at submit.
+ALTER TABLE document_drafts ADD COLUMN IF NOT EXISTS agent_submitted_snapshot jsonb;
 
 -- Widen signature_requests doc_type for the new templates (adds 'precon').
 -- NOT VALID so an existing table with legacy rows re-constrains without a scan.

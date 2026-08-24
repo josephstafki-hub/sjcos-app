@@ -69,32 +69,7 @@ export function PermissionsClient({ grants }: { grants: OwnerGrant[] }) {
         <Eyebrow>Requests</Eyebrow>
         <div className="mt-2 flex flex-col gap-2">
           {waiting.map((g) => (
-            <Card key={g.id} className="border-flag p-3">
-              <div className="flex items-start gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <Chip kind="ai">{g.requested_by}</Chip>
-                    {statusChip(g)}
-                    <div className="flex-1" />
-                    <span className="font-mono text-[10px] text-ink-3">{fmt(g.created_at)}</span>
-                  </div>
-                  <div className="mt-1 font-serif text-[14px] font-semibold text-ink">{describe(g)}</div>
-                  <div className="mt-0.5 text-[12px] text-ink-3">{g.reason}</div>
-                </div>
-                <div className="flex flex-none gap-1.5">
-                  <button className={btnCls} disabled={pending} onClick={() => run(() => denyGrant(g.id), "Denied.")}>
-                    Deny
-                  </button>
-                  <button
-                    className={primaryCls}
-                    disabled={pending}
-                    onClick={() => run(() => approveGrant(g.id), "Approved — the agent can send now.")}
-                  >
-                    Approve
-                  </button>
-                </div>
-              </div>
-            </Card>
+            <RequestCard key={g.id} g={g} pending={pending} run={run} />
           ))}
           {waiting.length === 0 && (
             <Card kind="dashed" className="p-6 text-center">
@@ -226,6 +201,53 @@ export function PermissionsClient({ grants }: { grants: OwnerGrant[] }) {
         </section>
       )}
     </div>
+  );
+}
+
+function RequestCard({
+  g,
+  pending,
+  run,
+}: {
+  g: OwnerGrant;
+  pending: boolean;
+  run: (fn: () => Promise<{ ok: boolean; error?: string; id?: string }>, okMsg?: string) => void;
+}) {
+  const [note, setNote] = useState("");
+  return (
+    <Card className="border-flag p-3">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <Chip kind="ai">{g.requested_by}</Chip>
+            {statusChip(g)}
+            <div className="flex-1" />
+            <span className="font-mono text-[10px] text-ink-3">{fmt(g.created_at)}</span>
+          </div>
+          <div className="mt-1 font-serif text-[14px] font-semibold text-ink">{describe(g)}</div>
+          <div className="mt-0.5 text-[12px] text-ink-3">{g.reason}</div>
+          <input
+            className={`${inputCls} mt-1.5`}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Why? (optional — if you deny, agents learn from this)"
+            maxLength={300}
+          />
+        </div>
+        <div className="flex flex-none gap-1.5">
+          <button className={btnCls} disabled={pending} onClick={() => run(() => denyGrant(g.id, note), "Denied.")}>
+            Deny
+          </button>
+          <button
+            className={primaryCls}
+            disabled={pending}
+            onClick={() => run(() => approveGrant(g.id), "Approved — the agent can send now.")}
+          >
+            Approve
+          </button>
+        </div>
+      </div>
+    </Card>
   );
 }
 

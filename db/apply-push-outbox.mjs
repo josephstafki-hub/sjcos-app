@@ -19,7 +19,7 @@ if (!url) throw new Error(`DATABASE_URL not found in ${envFile}`);
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS push_outbox (
      id         bigserial PRIMARY KEY,
-     kind       text NOT NULL CHECK (kind IN ('grant','urgent_item','agent_failure','stale_approval')),
+     kind       text NOT NULL CHECK (kind IN ('grant','urgent_item','agent_failure','stale_approval','sms_inbound','approval_needed')),
      title      text NOT NULL,
      body       text,
      href       text,
@@ -27,6 +27,11 @@ const STATEMENTS = [
      send_after timestamptz NOT NULL DEFAULT now(),
      sent_at    timestamptz
    )`,
+  // Re-assert the kind list on an existing table (adds approval_needed; keeps
+  // sms_inbound, which was added to the live constraint by the SMS seam).
+  `ALTER TABLE push_outbox DROP CONSTRAINT IF EXISTS push_outbox_kind_check`,
+  `ALTER TABLE push_outbox ADD CONSTRAINT push_outbox_kind_check
+     CHECK (kind IN ('grant','urgent_item','agent_failure','stale_approval','sms_inbound','approval_needed'))`,
   `CREATE INDEX IF NOT EXISTS idx_push_outbox_due
      ON push_outbox(send_after) WHERE sent_at IS NULL`,
   `CREATE INDEX IF NOT EXISTS idx_push_outbox_sent

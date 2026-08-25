@@ -1343,7 +1343,7 @@ server.registerTool(
   },
   async ({ work_item_id, draft, kind = "draft" }) => {
     const item = await rows(
-      `SELECT id, lead_id, project_id, runbook_instance_id FROM work_items WHERE id = $1`,
+      `SELECT id, title, lead_id, project_id, runbook_instance_id FROM work_items WHERE id = $1`,
       [work_item_id],
     );
     if (!item[0]) return json({ ok: false, error: `No work item ${work_item_id}` });
@@ -1367,6 +1367,11 @@ server.registerTool(
        VALUES ($1,'draft',$2,$3)`,
       [work_item_id, knowledgeId ? `knowledge_items/${knowledgeId}` : null, `draft ready for approval (${kind})`],
     );
+    // W3: immediate "draft ready — approve it" push so the request never sits
+    // invisible until the 4h stale nudge. This handler is the single writer of
+    // approval_status='requested', so the notify lives here and nowhere else;
+    // the app-side claim (apprpush:<id>) makes it once-per-item.
+    notifyOwnerCall("approval_needed", { work_item_id, title: item[0].title });
     // W6: keep a runbook instance's status honest (→ waiting_approval).
     if (item[0].runbook_instance_id) await runbooksCall("advance", { work_item_id });
     return json({ ok: true, knowledge_id: knowledgeId });

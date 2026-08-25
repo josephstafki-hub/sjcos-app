@@ -13,12 +13,23 @@
 // This route pushes to JOE only. It cannot address anyone else.
 
 import { NextResponse } from "next/server";
-import { notifyAgentFailure, notifyOwner, type OwnerPushKind } from "@/lib/notify-owner";
+import {
+  notifyAgentFailure,
+  notifyApprovalNeeded,
+  notifyOwner,
+  type OwnerPushKind,
+} from "@/lib/notify-owner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const KINDS: OwnerPushKind[] = ["grant", "urgent_item", "agent_failure", "stale_approval"];
+const KINDS: OwnerPushKind[] = [
+  "grant",
+  "urgent_item",
+  "agent_failure",
+  "stale_approval",
+  "approval_needed",
+];
 
 function authorized(req: Request): boolean {
   const secret = (process.env.CRON_SECRET ?? "").trim();
@@ -41,6 +52,20 @@ export async function POST(req: Request) {
   const str = (k: string) => (body[k] == null ? undefined : String(body[k]));
   try {
     switch (action) {
+      case "approval_needed": {
+        // Immediate "draft ready — approve it" push (one per work item, via
+        // the apprpush: reminder_log claim inside notifyApprovalNeeded).
+        const workItemId = str("work_item_id");
+        const title = str("title");
+        if (!workItemId || !title) {
+          return NextResponse.json(
+            { ok: false, error: "work_item_id and title required" },
+            { status: 400 },
+          );
+        }
+        await notifyApprovalNeeded(workItemId, title);
+        return NextResponse.json({ ok: true });
+      }
       case "agent_failure": {
         const runtime = str("runtime_name");
         if (!runtime) return NextResponse.json({ ok: false, error: "runtime_name required" }, { status: 400 });

@@ -222,15 +222,22 @@ export async function runBidFollowUps(): Promise<BidFollowUpResult> {
   for (const chase of CHASES) {
     if (budget <= 0) break;
     // chase.anchor is a compile-time constant from CHASES, never user input.
+    // The NOT EXISTS mirrors claim()'s re-claimability rule exactly — without
+    // it, LIMIT fills up with already-sent rows and starves the unsent tail.
     const { rows } = await query<ChaseRow>(
       `${CHASE_SELECT}
         WHERE i.status = ANY($1)
           AND i.${chase.anchor} IS NOT NULL
           AND i.${chase.anchor} + make_interval(days => $2) <= now()
           AND i.${chase.anchor} + make_interval(days => $3) > now()
+          AND NOT EXISTS (SELECT 1 FROM bid_invite_emails e
+                           WHERE e.invite_id = i.id AND e.kind = $5
+                             AND (e.status = 'sent'
+                                  OR (e.status = 'queued'
+                                      AND e.created_at > now() - interval '1 hour')))
         ORDER BY i.${chase.anchor}
         LIMIT $4`,
-      [chase.statuses, chase.minDays, chase.maxDays, budget],
+      [chase.statuses, chase.minDays, chase.maxDays, budget, chase.kind],
     );
     for (const r of rows) {
       const { subject, body } = compose(chase.kind, r);
@@ -255,7 +262,10 @@ export async function runBidFollowUps(): Promise<BidFollowUpResult> {
         WHERE i.status = 'submitted'
           AND i.responded_at > now() - interval '7 days'
           AND NOT EXISTS (SELECT 1 FROM bid_invite_emails e
-                           WHERE e.invite_id = i.id AND e.kind = 'thanks' AND e.status = 'sent')
+                           WHERE e.invite_id = i.id AND e.kind = 'thanks'
+                             AND (e.status = 'sent'
+                                  OR (e.status = 'queued'
+                                      AND e.created_at > now() - interval '1 hour')))
         ORDER BY i.responded_at
         LIMIT $1`,
       [budget],

@@ -61,6 +61,7 @@ import { registerBiddingTools } from "./bidding-tools.mjs";
 import { registerChatgptTools } from "./chatgpt-tools.mjs";
 import { registerGrantTools } from "./grants-tools.mjs";
 import { registerRunbookTools } from "./runbook-tools.mjs";
+import { registerAskOwner } from "./interact-tools.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -2321,6 +2322,13 @@ server.registerTool(
   // proxied to the app (spawn + pings live in lib/runbook-engine.ts); reads are
   // direct SQL. No cancel tool — owner-only in the UI. See mcp/runbook-tools.mjs.
   registerRunbookTools(server, { rows, json, runbooksCall });
+
+  // ask_owner: put a real question box (options, multi-select) in front of Joe
+  // inside the panel chat and BLOCK until he answers — any agent on this server
+  // (Hermes, claude.ai, the Claude runner) gets interactive questions. Rows in
+  // agent_interactions; the panel's run poll renders + answers them. See
+  // mcp/interact-tools.mjs.
+  registerAskOwner(server, { pool, json });
 
   // `search` + `fetch`: the two tools ChatGPT's connector requires by name (it
   // rejects a server without them). Read-only unified lookups over the same

@@ -16,6 +16,9 @@ import {
   Volume2,
   Loader2,
   ArrowUp,
+  Square,
+  ShieldQuestion,
+  CircleHelp,
 } from "lucide-react";
 import { VoiceButton } from "@/components/ui";
 import { mergeTranscript } from "@/lib/append-transcript";
@@ -26,11 +29,21 @@ import {
   archiveConversationAction,
   deleteConversationAction,
 } from "@/lib/actions/ai-chat";
+import { approveGrant, denyGrant } from "@/lib/actions/owner-grants";
+import type { PendingGrant } from "@/lib/actions/dev-agents";
+import type {
+  AgentInteraction,
+  InteractionQuestion,
+  InteractionResponse,
+  PermissionPayload,
+  QuestionPayload,
+} from "@/lib/agent-interactions";
 import { useChatAttachments } from "./useChatAttachments";
 import type { ConversationSummary } from "@/lib/ai-chat";
 import {
   AGENT_META,
   AGENT_ORDER,
+  CLAUDE_CONTEXT_WINDOW,
   CLAUDE_MODEL_OPTIONS,
   CLAUDE_MODE_OPTIONS,
   CLAUDE_MODE_VALUES,
@@ -161,12 +174,32 @@ export function PanelChat({
     flashNotice(`Mode → ${CLAUDE_MODE_OPTIONS.find((m) => m.value === next)?.label}`);
   };
 
-  //   /model opus · /effort high · /mode plan   (returns true if it handled it)
+  //   /model opus · /effort high · /mode plan · /mcp off · /session new ·
+  //   /stop   (returns true if it handled it)
   const handleSlash = (raw: string): boolean => {
-    const m = raw.match(/^\/(model|effort|mode)\s+(\S+)/i);
+    const m = raw.match(/^\/(model|effort|mode|mcp|tools|session|stop)(?:\s+(\S+))?/i);
     if (!m) return false;
     const cmd = m[1].toLowerCase();
-    const val = m[2].toLowerCase();
+    const val = (m[2] ?? "").toLowerCase();
+    if (cmd === "stop") {
+      chat.stop();
+      flashNotice("Stopping the run…");
+      return true;
+    }
+    if (cmd === "session") {
+      if (val === "new" || val === "fresh" || val === "") {
+        chat.freshSession();
+        flashNotice("Fresh CLI session — next Claude turn starts clean");
+        return true;
+      }
+    }
+    if (cmd === "mcp" || cmd === "tools") {
+      if (val === "on" || val === "off") {
+        chat.setClaudeOpts({ withMcp: val === "on" });
+        flashNotice(`Business tools (MCP) → ${val}`);
+        return true;
+      }
+    }
     if (cmd === "model" && CLAUDE_MODEL_OPTIONS.some((o) => o.value === val)) {
       chat.setClaudeOpts({ model: val as ClaudeModel });
       flashNotice(`Model → ${val}`);
@@ -193,11 +226,13 @@ export function PanelChat({
 
   const submitText = (raw: string) => {
     const q = raw.trim();
-    if (chat.pending || uploading) return;
-    if (chat.agent === "claude" && q.startsWith("/") && handleSlash(q)) {
+    // Slash commands work even mid-run (/stop is FOR mid-run) and in Auto
+    // threads (the options apply whenever Claude is the one who runs).
+    if ((chat.agent === "claude" || chat.agent === "auto") && q.startsWith("/") && handleSlash(q)) {
       setPrompt("");
       return;
     }
+    if (chat.pending || uploading) return;
     const files = attachments;
     if (!q && !files.length) return;
     const display = files.length ? `${q}${q ? "\n\n" : ""}📎 ${files.map((f) => f.name).join(", ")}` : q;
@@ -207,7 +242,8 @@ export function PanelChat({
       directive: q,
       display,
       attachments: files,
-      allowSends: chat.agent === "claude" && allowSends ? true : undefined,
+      // Auto counts too — the router may hand this turn to Claude.
+      allowSends: (chat.agent === "claude" || chat.agent === "auto") && allowSends ? true : undefined,
     });
     setAllowSends(false);
   };
@@ -469,13 +505,14 @@ export function PanelChat({
               // actually happened.
               const who = chat.agent === "auto" && m.agent ? AGENT_LABELS[m.agent] : undefined;
               const hasCost = typeof m.costUsd === "number" && Number.isFinite(m.costUsd);
+              const turns = (m.tokenUsage as { num_turns?: number } | null | undefined)?.num_turns;
               return (
                 <div key={m.id}>
-                  {(who || hasCost) && (
+                  {(who || hasCost || turns) && (
                     <div className="mb-0.5 text-[10.5px] font-medium text-ink-4">
-                      {who}
-                      {who && hasCost ? " · " : ""}
-                      {hasCost ? `$${(m.costUsd as number).toFixed(2)}` : ""}
+                      {[who, hasCost ? `$${(m.costUsd as number).toFixed(2)}` : null, turns ? `${turns} turns` : null]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </div>
                   )}
                   <div
@@ -490,25 +527,80 @@ export function PanelChat({
                 </div>
               );
             })}
+            {/* The agent is blocked on Joe: question boxes + tool approvals,
+                answered right here (the blocked call resumes within ~2s). */}
+            {chat.interactions.map((it) =>
+              it.kind === "question" ? (
+                <QuestionCard key={it.id} interaction={it} onRespond={chat.respond} onDismiss={chat.dismiss} />
+              ) : (
+                <ApprovalCard key={it.id} interaction={it} onRespond={chat.respond} />
+              ),
+            )}
+            {/* request_owner_permission → approve/deny inline instead of
+                leaving the chat for /engine/permissions. */}
+            {chat.grants.map((g) => (
+              <GrantCard key={g.id} grant={g} onDone={chat.dropGrant} />
+            ))}
             {chat.pending && (
               <div className="text-[12px]">
-                <div className="text-ai-2">
-                  {chat.agent === "claude" && chat.claudeOpts.mode === "plan"
-                    ? "Claude is planning"
-                    : `${meta.label} is working`}
-                  {chat.elapsed > 0 ? ` · ${chat.elapsed}s` : "…"}
+                <div className="flex items-center gap-2 text-ai-2">
+                  <span>
+                    {chat.interactions.length > 0 || chat.grants.length > 0
+                      ? `${meta.label === "Auto" ? "The agent" : meta.label} is waiting on you`
+                      : chat.agent === "claude" && chat.claudeOpts.mode === "plan"
+                        ? "Claude is planning"
+                        : `${meta.label} is working`}
+                    {chat.elapsed > 0 ? ` · ${chat.elapsed}s` : "…"}
+                  </span>
+                  {chat.activeRunId && (
+                    <button
+                      type="button"
+                      onClick={chat.stop}
+                      title="Stop this run (the agent is told it was stopped)"
+                      className="flex items-center gap-1 rounded border border-rule px-1.5 py-0.5 text-[10.5px] font-medium text-flag transition-colors hover:bg-paper-2"
+                    >
+                      <Square className="size-2.5 fill-current" strokeWidth={2} /> Stop
+                    </button>
+                  )}
                 </div>
                 {activityLines.length > 0 && <ActivityLog text={chat.activity} />}
               </div>
             )}
+            {/* Plan-mode hand-off: the plan just landed — one click flips to
+                Accept edits and tells Claude to build it. */}
+            {!chat.pending &&
+              chat.claudeOpts.mode === "plan" &&
+              (chat.agent === "claude" || chat.agent === "auto") &&
+              chat.messages.length > 0 &&
+              chat.messages[chat.messages.length - 1].role === "assistant" &&
+              chat.messages[chat.messages.length - 1].agent === "claude" &&
+              !chat.messages[chat.messages.length - 1].body.startsWith("⚠️") && (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      chat.setClaudeOpts({ mode: "acceptEdits" });
+                      chat.submit({
+                        directive:
+                          "Go ahead — implement the plan you proposed above. You are no longer in plan mode.",
+                        display: "✦ Approve plan — build it",
+                      });
+                    }}
+                    className="rounded-md bg-ink px-2.5 py-1 text-[11.5px] font-medium text-paper transition-colors hover:bg-[#232a1e]"
+                  >
+                    Approve plan → build it
+                  </button>
+                </div>
+              )}
           </div>
         )}
 
         {chat.error && <div className="mt-3 text-[13px] text-flag">{chat.error}</div>}
       </div>
 
-      {/* Claude run controls */}
-      {chat.agent === "claude" && (
+      {/* Claude run controls — also shown on Auto (they apply whenever the
+          router hands the turn to Claude). */}
+      {(chat.agent === "claude" || chat.agent === "auto") && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-rule px-3 py-1.5 text-[11px] text-ink-4">
           <OptSelect
             label="Model"
@@ -533,6 +625,19 @@ export function PanelChat({
           />
           <label
             className="flex cursor-pointer items-center gap-1"
+            title="Load the sjcos business tools into the Claude run. Off = code-only run (skips the tool-schema token cost)."
+          >
+            <input
+              type="checkbox"
+              checked={chat.claudeOpts.withMcp}
+              disabled={chat.pending}
+              onChange={(e) => chat.setClaudeOpts({ withMcp: e.target.checked })}
+              className="size-3 accent-ai disabled:opacity-50"
+            />
+            <span>Tools</span>
+          </label>
+          <label
+            className="flex cursor-pointer items-center gap-1"
             title="Express permission: let Claude actually SEND what this message asks for (bid packages, POs, invoices, documents, newsletter, one-off emails). One message only — resets after send; every send is audited on /engine/permissions."
           >
             <input
@@ -544,7 +649,22 @@ export function PanelChat({
             />
             <span className={allowSends ? "font-medium text-flag" : undefined}>Express permission (sends)</span>
           </label>
-          <span className="hidden text-ink-4/70 min-[520px]:inline">⇧Tab cycles · /model /effort /mode</span>
+          {chat.contextTokens != null && <ContextMeter tokens={chat.contextTokens} />}
+          {chat.claudeSessionId && !chat.pending && (
+            <span className="flex items-center gap-1" title={`CLI session ${chat.claudeSessionId} — Claude remembers this thread's files and context. "Fresh" starts the next turn clean.`}>
+              <span className="font-mono text-[10px] text-ink-4">session {chat.claudeSessionId.slice(0, 8)}</span>
+              <button
+                type="button"
+                onClick={chat.freshSession}
+                className="rounded border border-rule px-1 py-px text-[10px] text-ink-3 transition-colors hover:bg-paper-2"
+              >
+                Fresh
+              </button>
+            </span>
+          )}
+          <span className="hidden text-ink-4/70 min-[520px]:inline">
+            ⇧Tab cycles · /model /effort /mode /mcp /session /stop
+          </span>
         </div>
       )}
 
@@ -842,6 +962,261 @@ function VoiceRoundButton({ voice }: { voice: ReturnType<typeof useVoiceRound> }
         <X className="size-3" strokeWidth={2} />
       </button>
     </span>
+  );
+}
+
+/** Live context meter: how full the CLI session's window is. */
+function ContextMeter({ tokens }: { tokens: number }) {
+  const pct = Math.min(100, Math.round((tokens / CLAUDE_CONTEXT_WINDOW) * 100));
+  const k = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
+  return (
+    <span
+      className="flex items-center gap-1"
+      title={`Context: ${tokens.toLocaleString()} tokens of ~${k(CLAUDE_CONTEXT_WINDOW)} (${pct}%)`}
+    >
+      <span className="h-1.5 w-14 overflow-hidden rounded-full bg-paper-2">
+        <span
+          className={`block h-full rounded-full ${pct > 85 ? "bg-flag" : "bg-ai"}`}
+          style={{ width: `${Math.max(pct, 3)}%` }}
+        />
+      </span>
+      <span className="font-mono text-[10px]">{k(tokens)} ctx</span>
+    </span>
+  );
+}
+
+/**
+ * A question box from a blocked agent (the ask_owner MCP tool) — options,
+ * multi-select, free-text "Other". Answering resumes the agent within ~2s.
+ * Single-choice single-question boxes answer on click; anything richer gets
+ * an explicit Answer button.
+ */
+function QuestionCard({
+  interaction,
+  onRespond,
+  onDismiss,
+}: {
+  interaction: AgentInteraction;
+  onRespond: (id: string, response: InteractionResponse) => void;
+  onDismiss: (id: string) => void;
+}) {
+  const payload = interaction.payload as QuestionPayload;
+  const questions: InteractionQuestion[] = Array.isArray(payload.questions) ? payload.questions : [];
+  const [sel, setSel] = useState<string[][]>(() => questions.map(() => []));
+  const [others, setOthers] = useState<string[]>(() => questions.map(() => ""));
+
+  const respond = (finalSel: string[][]) =>
+    onRespond(interaction.id, {
+      kind: "question",
+      answers: questions.map((q, i) => ({
+        question: q.question,
+        choices: finalSel[i] ?? [],
+        other: others[i]?.trim() || undefined,
+      })),
+    });
+
+  const toggle = (qi: number, label: string, multi: boolean) => {
+    // The instant path: one question, single-select, nothing typed — click = answer.
+    if (!multi && questions.length === 1 && !others[0]?.trim()) {
+      respond([[label]]);
+      return;
+    }
+    setSel((cur) =>
+      cur.map((choices, i) => {
+        if (i !== qi) return choices;
+        if (!multi) return [label];
+        return choices.includes(label) ? choices.filter((c) => c !== label) : [...choices, label];
+      }),
+    );
+  };
+
+  const answerable = questions.every((q, i) => (sel[i]?.length ?? 0) > 0 || others[i]?.trim());
+  const needsButton = questions.length > 1 || questions.some((q) => q.multiSelect) || others.some((o) => o.trim());
+
+  return (
+    <div className="rounded-md border-[1.5px] border-ai bg-paper px-3 py-2.5">
+      <div className="mb-1.5 flex items-center gap-1.5 text-[10.5px] font-medium uppercase tracking-[0.1em] text-ai-2">
+        <CircleHelp className="size-3.5" strokeWidth={1.75} />
+        {interaction.agent === "claude" ? "Claude asks" : `${interaction.agent} asks`}
+        <span className="flex-1" />
+        <button
+          type="button"
+          onClick={() => onDismiss(interaction.id)}
+          aria-label="Dismiss question"
+          title="Dismiss — the agent is told to use its judgment"
+          className="rounded p-0.5 text-ink-4 hover:bg-paper-2"
+        >
+          <X className="size-3" strokeWidth={2} />
+        </button>
+      </div>
+      <div className="flex flex-col gap-2.5">
+        {questions.map((q, qi) => (
+          <div key={qi}>
+            {q.header && (
+              <span className="mb-1 inline-block rounded bg-ai-soft px-1.5 py-px font-mono text-[9.5px] uppercase tracking-wide text-ai-2">
+                {q.header}
+              </span>
+            )}
+            <div className="text-[13px] font-medium text-ink">{q.question}</div>
+            <div className="mt-1.5 flex flex-col gap-1">
+              {q.options.map((o) => {
+                const picked = sel[qi]?.includes(o.label);
+                return (
+                  <button
+                    key={o.label}
+                    type="button"
+                    onClick={() => toggle(qi, o.label, q.multiSelect ?? false)}
+                    className={`rounded-md border px-2.5 py-1.5 text-left transition-colors ${
+                      picked ? "border-ai bg-ai-soft" : "border-rule bg-paper hover:bg-paper-2"
+                    }`}
+                  >
+                    <span className="text-[12.5px] font-medium text-ink-2">
+                      {q.multiSelect ? (picked ? "☑ " : "☐ ") : ""}
+                      {o.label}
+                    </span>
+                    {o.description && <span className="block text-[11px] text-ink-4">{o.description}</span>}
+                  </button>
+                );
+              })}
+              {q.allowOther !== false && (
+                <input
+                  value={others[qi] ?? ""}
+                  onChange={(e) =>
+                    setOthers((cur) => cur.map((v, i) => (i === qi ? e.target.value : v)))
+                  }
+                  placeholder="Other — type your own answer…"
+                  className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[12.5px] text-ink outline-none placeholder:text-ink-4"
+                />
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      {needsButton && (
+        <button
+          type="button"
+          disabled={!answerable}
+          onClick={() => respond(sel)}
+          className="mt-2 rounded-md bg-ink px-2.5 py-1 text-[11.5px] font-medium text-paper transition-colors hover:bg-[#232a1e] disabled:opacity-40"
+        >
+          Answer
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A tool-use approval from a Claude run in "Ask me" mode — the CLI's
+ * permission prompt rendered in-app. Allow resumes the tool call; Deny blocks
+ * it (with an optional note Claude sees as the reason). No answer = the
+ * bridge denies after its timeout (fails closed).
+ */
+function ApprovalCard({
+  interaction,
+  onRespond,
+}: {
+  interaction: AgentInteraction;
+  onRespond: (id: string, response: InteractionResponse) => void;
+}) {
+  const p = interaction.payload as PermissionPayload;
+  const [note, setNote] = useState("");
+  return (
+    <div className="rounded-md border-[1.5px] border-flag/60 bg-paper px-3 py-2.5">
+      <div className="mb-1 flex items-center gap-1.5 text-[10.5px] font-medium uppercase tracking-[0.1em] text-flag">
+        <ShieldQuestion className="size-3.5" strokeWidth={1.75} />
+        Permission — {interaction.agent === "claude" ? "Claude" : interaction.agent} wants to
+      </div>
+      <div className="text-[13px] font-medium text-ink">{p.description || p.tool}</div>
+      {p.input && p.input !== "{}" && (
+        <details className="mt-1">
+          <summary className="cursor-pointer select-none text-[10.5px] text-ink-4 hover:text-ink-3">
+            {p.tool} — full input
+          </summary>
+          <pre className="mt-1 max-h-40 overflow-auto rounded bg-paper-2 p-2 font-mono text-[10.5px] leading-snug text-ink-2">
+            {p.input}
+          </pre>
+        </details>
+      )}
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => onRespond(interaction.id, { kind: "permission", decision: "allow" })}
+          className="rounded-md bg-ink px-2.5 py-1 text-[11.5px] font-medium text-paper transition-colors hover:bg-[#232a1e]"
+        >
+          Allow
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            onRespond(interaction.id, { kind: "permission", decision: "deny", note: note.trim() || undefined })
+          }
+          className="rounded-md border border-rule px-2.5 py-1 text-[11.5px] font-medium text-flag transition-colors hover:bg-paper-2"
+        >
+          Deny
+        </button>
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Tell it why / what to do instead (sent on Deny)…"
+          className="min-w-0 flex-1 rounded-md border border-rule bg-paper px-2 py-1 text-[11.5px] text-ink outline-none placeholder:text-ink-4"
+        />
+      </div>
+    </div>
+  );
+}
+
+/** An agent's request_owner_permission (owner grant), decidable inline —
+ *  same decision paths as /engine/permissions, just without leaving the chat. */
+function GrantCard({ grant, onDone }: { grant: PendingGrant; onDone: (id: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const decide = async (approve: boolean) => {
+    setBusy(true);
+    try {
+      if (approve) await approveGrant(grant.id);
+      else await denyGrant(grant.id, note.trim() || undefined);
+      onDone(grant.id);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="rounded-md border-[1.5px] border-flag/60 bg-paper px-3 py-2.5">
+      <div className="mb-1 flex items-center gap-1.5 text-[10.5px] font-medium uppercase tracking-[0.1em] text-flag">
+        <ShieldQuestion className="size-3.5" strokeWidth={1.75} />
+        Send permission — {grant.requestedBy} asks to
+      </div>
+      <div className="text-[13px] font-medium text-ink">
+        {grant.label}
+        {grant.targetId ? ` — ${grant.targetId}` : ""}
+      </div>
+      {grant.reason && <div className="mt-0.5 text-[12px] text-ink-3">{grant.reason}</div>}
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void decide(true)}
+          className="rounded-md bg-ink px-2.5 py-1 text-[11.5px] font-medium text-paper transition-colors hover:bg-[#232a1e] disabled:opacity-40"
+        >
+          Approve send
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void decide(false)}
+          className="rounded-md border border-rule px-2.5 py-1 text-[11.5px] font-medium text-flag transition-colors hover:bg-paper-2 disabled:opacity-40"
+        >
+          Deny
+        </button>
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Note (kept with a denial)…"
+          className="min-w-0 flex-1 rounded-md border border-rule bg-paper px-2 py-1 text-[11.5px] text-ink outline-none placeholder:text-ink-4"
+        />
+      </div>
+    </div>
   );
 }
 

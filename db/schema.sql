@@ -2738,3 +2738,47 @@ CREATE INDEX IF NOT EXISTS idx_push_outbox_due
   ON push_outbox(send_after) WHERE sent_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_push_outbox_sent
   ON push_outbox(sent_at) WHERE sent_at IS NOT NULL;
+
+-- ── Interactive agent runs: question boxes + in-app tool approvals ──────────
+-- One row = one thing an agent is waiting on Joe for, surfaced INSIDE the
+-- panel chat (components/panel/PanelChat.tsx) instead of a separate page.
+--   kind 'question'   — the ask_owner MCP tool (AskUserQuestion-shaped):
+--                       payload {questions:[{question,header,options:[{label,
+--                       description}],multi_select,allow_other}]}; the blocked
+--                       MCP call polls until Joe answers in the chat.
+--   kind 'permission' — the Claude CLI's permission prompt, routed through
+--                       mcp/interact-mcp.mjs (--permission-prompt-tool):
+--                       payload {tool,input,description}; response
+--                       {decision:'allow'|'deny',note}.
+-- run_id/conversation_id are set when the asker knows them (the detached
+-- Claude runner exports SJC_RUN_ID/SJC_CONVERSATION_ID); a Hermes/claude.ai
+-- ask lands with both NULL and the panel shows any recent pending row.
+CREATE TABLE IF NOT EXISTS agent_interactions (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  run_id          uuid REFERENCES dev_agent_runs(id) ON DELETE CASCADE,
+  conversation_id uuid REFERENCES ai_conversations(id) ON DELETE CASCADE,
+  agent           text NOT NULL DEFAULT 'agent',
+  kind            text NOT NULL CHECK (kind IN ('question','permission')),
+  payload         jsonb NOT NULL DEFAULT '{}'::jsonb,
+  status          text NOT NULL DEFAULT 'pending'
+                  CHECK (status IN ('pending','answered','dismissed','expired')),
+  response        jsonb,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  answered_at     timestamptz
+);
+CREATE INDEX IF NOT EXISTS agent_interactions_pending_idx
+  ON agent_interactions (status, created_at DESC);
+
+-- Interactive-run plumbing on the run row itself:
+--   pid            — the detached runner's process id (Stop button sends it
+--                    SIGTERM; the runner kills the CLI child and finishes the
+--                    row as '⏹ stopped').
+--   context_tokens — live context size from the CLI stream's per-message usage
+--                    (input + cache + output of the latest assistant event).
+--   token_usage    — the final result envelope's usage + modelUsage + num_turns
+--                    (context window, cache splits) for the transcript.
+ALTER TABLE dev_agent_runs
+  ADD COLUMN IF NOT EXISTS pid            integer,
+  ADD COLUMN IF NOT EXISTS context_tokens integer,
+  ADD COLUMN IF NOT EXISTS token_usage    jsonb;
+ALTER TABLE ai_messages ADD COLUMN IF NOT EXISTS token_usage jsonb;

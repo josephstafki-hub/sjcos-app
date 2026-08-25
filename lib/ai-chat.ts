@@ -33,6 +33,10 @@ export interface ChatMessage {
   agent: string | null;
   /** Files uploaded with a user turn (absolute paths under uploads/ai-chat). */
   attachments: ChatAttachment[] | null;
+  /** Claude runs: the result envelope's usage/modelUsage/num_turns, persisted
+   *  by the runner — the transcript's token/context read-out. Optional so the
+   *  panel's synthesized entries (errors, in-flight echoes) can omit it. */
+  tokenUsage?: Record<string, unknown> | null;
 }
 
 export interface ConversationDetail {
@@ -95,8 +99,9 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
     subject_work_item_id: string | null;
     agent: string | null;
     attachments: ChatAttachment[] | null;
+    token_usage: Record<string, unknown> | null;
   }>(
-    `SELECT id, role, body, cost_usd, created_at::text AS created_at, subject_work_item_id, agent, attachments
+    `SELECT id, role, body, cost_usd, created_at::text AS created_at, subject_work_item_id, agent, attachments, token_usage
        FROM ai_messages WHERE conversation_id = $1 ORDER BY created_at ASC`,
     [id],
   );
@@ -123,6 +128,7 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
       subjectWorkItemId: m.subject_work_item_id,
       agent: m.agent,
       attachments: m.attachments,
+      tokenUsage: m.token_usage,
     })),
     pendingRunId: pending?.id ?? null,
   };

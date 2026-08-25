@@ -83,15 +83,20 @@ export const DRAFT_MODEL_OPTIONS: { value: DraftModel; label: string; note: stri
 // (scripts/run-claude-agent.mjs) maps these to CLI flags / prompt directives.
 
 // Values map 1:1 to the installed CLI's flags (`claude --help`, v2.1.x):
-//   model  → --model alias        (fable | opus | sonnet)
-//   mode   → --permission-mode    (all six real modes below)
+//   model  → --model alias        (fable | opus | sonnet | haiku)
+//   mode   → --permission-mode    (the six real modes below), EXCEPT "ask",
+//            which is ours: CLI mode manual with every permission prompt
+//            routed INTO the panel chat (--permission-prompt-tool →
+//            mcp/interact-mcp.mjs) so Joe approves tool-by-tool like the
+//            terminal CLI. No answer = deny (fails closed).
 //   effort → --effort <level>     (low | medium | high | xhigh | max)
 // "default" means "pass no flag → use the CLI's configured session default".
 // Mode values ARE the exact --permission-mode strings so the runner can pass
 // them straight through (guarded by a whitelist).
-export type ClaudeModel = "default" | "sonnet" | "opus" | "fable";
+export type ClaudeModel = "default" | "haiku" | "sonnet" | "opus" | "fable";
 export type ClaudeMode =
   | "acceptEdits"
+  | "ask"
   | "plan"
   | "auto"
   | "bypassPermissions"
@@ -103,6 +108,9 @@ export interface ClaudeOptions {
   model: ClaudeModel;
   mode: ClaudeMode;
   effort: ClaudeEffort;
+  /** Load the sjcos business tools (MCP) into the run. Off = code-only run
+   *  that skips the tool-schema token cost. */
+  withMcp: boolean;
 }
 
 export const CLAUDE_DEFAULTS: ClaudeOptions = {
@@ -114,10 +122,12 @@ export const CLAUDE_DEFAULTS: ClaudeOptions = {
   model: "sonnet",
   mode: "acceptEdits",
   effort: "default",
+  withMcp: true,
 };
 
 export const CLAUDE_MODEL_OPTIONS: { value: ClaudeModel; label: string }[] = [
   { value: "default", label: "Default" },
+  { value: "haiku", label: "Haiku" },
   { value: "sonnet", label: "Sonnet" },
   { value: "opus", label: "Opus" },
   { value: "fable", label: "Fable" },
@@ -125,12 +135,17 @@ export const CLAUDE_MODEL_OPTIONS: { value: ClaudeModel; label: string }[] = [
 
 export const CLAUDE_MODE_OPTIONS: { value: ClaudeMode; label: string; note: string }[] = [
   { value: "acceptEdits", label: "Accept edits", note: "auto-accepts file edits" },
+  { value: "ask", label: "Ask me", note: "approve each action here in the chat" },
   { value: "plan", label: "Plan", note: "read-only · proposes, no edits" },
   { value: "auto", label: "Auto", note: "auto-runs, minimal prompts" },
   { value: "bypassPermissions", label: "Bypass", note: "never prompts · full access" },
   { value: "manual", label: "Manual", note: "asks before each action" },
   { value: "dontAsk", label: "Don't ask", note: "proceeds without confirming" },
 ];
+
+/** Context-window fallback for the meter when a run's usage hasn't reported
+ *  the real window yet (every current alias is 200k). */
+export const CLAUDE_CONTEXT_WINDOW = 200_000;
 
 /** The six --permission-mode strings the CLI accepts (runner whitelist). */
 export const CLAUDE_MODE_VALUES: ClaudeMode[] = CLAUDE_MODE_OPTIONS.map((m) => m.value);

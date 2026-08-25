@@ -374,6 +374,13 @@ export interface DevAgentRun {
   activity: string | null;
   costUsd: number | null;
   createdAt: string;
+  conversationId: string | null;
+  /** Live context size (tokens in the window) streamed by the Claude runner. */
+  contextTokens: number | null;
+  /** The final result envelope's usage/modelUsage/num_turns (done runs). */
+  tokenUsage: Record<string, unknown> | null;
+  /** CLI session id — the thread's resumable session. */
+  sessionId: string | null;
   /** Set on a done run when a newer run is already in flight in the same
    *  conversation — an orchestrator hand-off (e.g. Qwen's held proposal
    *  escalated to Hermes) — so the panel keeps following the thread instead
@@ -399,7 +406,7 @@ export async function startClaudeRun(
   subjectWorkItemId?: string,
   extras?: { withMcp?: boolean; allowSends?: boolean; orchestrationTaskId?: string },
 ): Promise<string> {
-  const { model, mode, effort } = { ...CLAUDE_DEFAULTS, ...options };
+  const { model, mode, effort, withMcp } = { ...CLAUDE_DEFAULTS, ...options };
   const row = await queryOne<{ id: string }>(
     `INSERT INTO dev_agent_runs
        (agent, prompt, page_context, status, conversation_id, model, mode, effort, subject_work_item_id, with_mcp, orchestration_task_id)
@@ -413,7 +420,8 @@ export async function startClaudeRun(
       mode,
       effort,
       subjectWorkItemId ?? null,
-      extras?.withMcp ?? true,
+      // extras wins (orchestrator callers), else the Ask window's Tools toggle.
+      extras?.withMcp ?? withMcp,
       extras?.orchestrationTaskId ?? null,
     ],
   );
@@ -452,8 +460,12 @@ export async function getDevAgentRun(id: string): Promise<DevAgentRun | null> {
     cost_usd: number | null;
     created_at: string;
     conversation_id: string | null;
+    context_tokens: number | null;
+    token_usage: Record<string, unknown> | null;
+    session_id: string | null;
   }>(
-    `SELECT id, agent, status, answer, activity, cost_usd, created_at::text AS created_at, conversation_id
+    `SELECT id, agent, status, answer, activity, cost_usd, created_at::text AS created_at, conversation_id,
+            context_tokens, token_usage, session_id
        FROM dev_agent_runs WHERE id = $1`,
     [id],
   );
@@ -478,8 +490,56 @@ export async function getDevAgentRun(id: string): Promise<DevAgentRun | null> {
     // pg returns `numeric` as a string — coerce so the UI can .toFixed() it.
     costUsd: row.cost_usd == null ? null : Number(row.cost_usd),
     createdAt: row.created_at,
+    conversationId: row.conversation_id,
+    contextTokens: row.context_tokens == null ? null : Number(row.context_tokens),
+    tokenUsage: row.token_usage,
+    sessionId: row.session_id,
     nextRunId,
   };
+}
+
+/**
+ * Stop a live run (the panel's ⏹ button). Claude runs are a detached runner
+ * process whose pid is on the row: verify the pid still belongs to OUR runner
+ * for THIS run (cmdline check — pids get recycled) and SIGTERM it; the runner
+ * kills the CLI and persists "⏹ Stopped by Joe." itself. In-process turns
+ * (Hermes/Qwen) and dead runners are settled directly on the row — their
+ * background pipeline's final write is guarded on status, so a stopped run
+ * stays stopped.
+ */
+export async function stopDevAgentRun(runId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const run = await queryOne<{
+    agent: string;
+    status: string;
+    pid: number | null;
+    conversation_id: string | null;
+  }>(`SELECT agent, status, pid, conversation_id FROM dev_agent_runs WHERE id = $1`, [runId]);
+  if (!run) return { ok: false, error: "That run no longer exists." };
+  if (run.status !== "pending" && run.status !== "running") return { ok: true };
+
+  if (run.agent === "claude" && run.pid) {
+    try {
+      const cmdline = await readFile(`/proc/${run.pid}/cmdline`, "utf8").catch(() => "");
+      if (cmdline.includes("run-claude-agent.mjs") && cmdline.includes(runId)) {
+        process.kill(run.pid, "SIGTERM");
+        return { ok: true };
+      }
+    } catch {
+      /* fall through to settling the row directly */
+    }
+  }
+
+  const msg = "⏹ Stopped by Joe.";
+  const updated = await queryOne<{ conversation_id: string | null }>(
+    `UPDATE dev_agent_runs SET status = 'error', answer = $2, updated_at = now()
+      WHERE id = $1 AND status IN ('pending','running')
+      RETURNING conversation_id`,
+    [runId, msg],
+  );
+  if (updated?.conversation_id) {
+    await insertMessage(updated.conversation_id, "assistant", msg, { agent: run.agent }).catch(() => {});
+  }
+  return { ok: true };
 }
 
 // ─── Approval → agent dispatch ───────────────────────────────────────────────
@@ -545,20 +605,25 @@ async function runHermesTurnTracked(
     log.push("Done.");
     await log.flush();
     const answer = await finalizeHermesAnswer(runId, raw);
-    await insertMessage(conversationId, "assistant", answer, { agent: "hermes" });
-    await query(`UPDATE dev_agent_runs SET status = 'done', answer = $2, updated_at = now() WHERE id = $1`, [
-      runId,
-      answer,
-    ]);
+    // Guarded on status: a run Joe ⏹-stopped is already 'error' — don't
+    // overwrite it or double-post the late reply.
+    const settled = await queryOne<{ id: string }>(
+      `UPDATE dev_agent_runs SET status = 'done', answer = $2, updated_at = now()
+        WHERE id = $1 AND status IN ('pending','running') RETURNING id`,
+      [runId, answer],
+    );
+    if (settled) await insertMessage(conversationId, "assistant", answer, { agent: "hermes" });
   } catch (err) {
     const msg = `⚠️ ${(err as Error).message}`;
-    await insertMessage(conversationId, "assistant", msg, { agent: "hermes" }).catch(() => {});
     if (runId) {
-      await query(`UPDATE dev_agent_runs SET status = 'error', answer = $2, updated_at = now() WHERE id = $1`, [
-        runId,
-        msg,
-      ]).catch(() => {});
+      const settled = await queryOne<{ id: string }>(
+        `UPDATE dev_agent_runs SET status = 'error', answer = $2, updated_at = now()
+          WHERE id = $1 AND status IN ('pending','running') RETURNING id`,
+        [runId, msg],
+      ).catch(() => null);
+      if (!settled) return;
     }
+    await insertMessage(conversationId, "assistant", msg, { agent: "hermes" }).catch(() => {});
   }
 }
 

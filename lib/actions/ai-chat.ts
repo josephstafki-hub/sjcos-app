@@ -204,6 +204,15 @@ export async function sendMessageAction(
   }
 }
 
+/** "Fresh session": drop the thread's CLI session so the next Claude turn
+ *  starts clean (full prompt, empty context) instead of resuming. The
+ *  transcript stays — only Claude's own memory of it resets. */
+export async function resetClaudeSessionAction(conversationId: string): Promise<{ ok: boolean }> {
+  await requireRole("owner");
+  await query(`UPDATE ai_conversations SET claude_session_id = NULL WHERE id = $1`, [conversationId]);
+  return { ok: true };
+}
+
 export async function renameConversationAction(id: string, title: string): Promise<{ ok: boolean }> {
   await requireRole("owner");
   const t = title.replace(/\s+/g, " ").trim().slice(0, 80);
@@ -304,20 +313,24 @@ async function startBackgroundTurn(t: BackgroundTurn): Promise<string> {
       }
       log.push("Done.");
       await log.flush();
-      await insertMessage(conversationId, "assistant", answer, { agent });
-      await query(
-        `UPDATE dev_agent_runs SET status = 'done', answer = $2, updated_at = now() WHERE id = $1`,
+      // Guarded on status: if Joe hit ⏹ Stop, the row is already 'error' and
+      // this late result must not overwrite it (or double-post a reply).
+      const settled = await queryOne<{ id: string }>(
+        `UPDATE dev_agent_runs SET status = 'done', answer = $2, updated_at = now()
+          WHERE id = $1 AND status IN ('pending','running') RETURNING id`,
         [runId, answer],
       );
+      if (settled) await insertMessage(conversationId, "assistant", answer, { agent });
     } catch (err) {
       const msg = `⚠️ ${(err as Error).message}`;
       log.push(msg);
       await log.flush();
-      await insertMessage(conversationId, "assistant", msg, { agent });
-      await query(
-        `UPDATE dev_agent_runs SET status = 'error', answer = $2, updated_at = now() WHERE id = $1`,
+      const settled = await queryOne<{ id: string }>(
+        `UPDATE dev_agent_runs SET status = 'error', answer = $2, updated_at = now()
+          WHERE id = $1 AND status IN ('pending','running') RETURNING id`,
         [runId, msg],
       );
+      if (settled) await insertMessage(conversationId, "assistant", msg, { agent });
     }
   })();
 

@@ -1,13 +1,21 @@
 "use client";
 
 import { startTransition, useEffect, useRef, useState } from "react";
-import { pollAgentRun } from "@/lib/actions/dev-agents";
+import {
+  answerInteractionAction,
+  dismissInteractionAction,
+  pollAgentRun,
+  stopAgentRun,
+  type PendingGrant,
+} from "@/lib/actions/dev-agents";
 import {
   loadConversationAction,
   newConversationAction,
+  resetClaudeSessionAction,
   sendMessageAction,
   voiceTurnAction,
 } from "@/lib/actions/ai-chat";
+import type { AgentInteraction, InteractionResponse } from "@/lib/agent-interactions";
 import type { ChatMessage } from "@/lib/ai-chat";
 import {
   CLAUDE_DEFAULTS,
@@ -114,6 +122,17 @@ export function useAgentChat({
    *  transcript can keep a collapsible "what it did" under the answer. Client
    *  memory only (the row keeps the canonical copy). */
   const [logs, setLogs] = useState<Record<string, string>>({});
+  // ── Interactive-run state (all fed by the poll) ────────────────────────────
+  /** Question boxes / tool approvals the live run is blocked on. */
+  const [interactions, setInteractions] = useState<AgentInteraction[]>([]);
+  /** request_owner_permission rows Joe can approve/deny inline. */
+  const [grants, setGrants] = useState<PendingGrant[]>([]);
+  /** Live context size (tokens) of the Claude session, null when unknown. */
+  const [contextTokens, setContextTokens] = useState<number | null>(null);
+  /** The run currently being polled — the ⏹ Stop target. */
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  /** The thread's resumable CLI session (shown as a chip; "Fresh" clears it). */
+  const [claudeSessionId, setClaudeSessionId] = useState<string | null>(null);
 
   const liveRef = useRef({ alive: true });
   const claim = () => {
@@ -131,6 +150,9 @@ export function useAgentChat({
   });
 
   const settle = async () => {
+    setInteractions([]);
+    setGrants([]);
+    setActiveRunId(null);
     cbRef.current.onRunEnd?.();
     await cbRef.current.onSettled?.();
   };
@@ -160,10 +182,14 @@ export function useAgentChat({
       }
       if (p.status === "done") {
         setActivity("");
+        setInteractions([]);
+        setGrants([]);
+        if (p.contextTokens != null) setContextTokens(p.contextTokens);
+        if (p.sessionId) setClaudeSessionId(p.sessionId);
         if (p.activity) setLogs((l) => ({ ...l, [`run-${runId}`]: p.activity! }));
         setMessages((m) => [
           ...m,
-          { id: `run-${runId}`, role: "assistant", body: p.answer, costUsd: p.costUsd, createdAt: "", subjectWorkItemId: subjectId ?? null, agent: p.agent ?? null, attachments: null },
+          { id: `run-${runId}`, role: "assistant", body: p.answer, costUsd: p.costUsd, createdAt: "", subjectWorkItemId: subjectId ?? null, agent: p.agent ?? null, attachments: null, tokenUsage: p.tokenUsage ?? null },
         ]);
         postPanelMessage({ type: "run", phase: "end", runId, agent, subjectId: subjectId ?? null }, { local: true });
         if (!p.answer.startsWith("⚠️")) cbRef.current.onAnswer?.(runId, p.answer, false);
@@ -181,6 +207,9 @@ export function useAgentChat({
         return;
       }
       setActivity(p.activity ?? "");
+      setInteractions(p.interactions);
+      setGrants(p.grants);
+      if (p.contextTokens != null) setContextTokens(p.contextTokens);
     }
     await settle();
   };
@@ -193,6 +222,7 @@ export function useAgentChat({
   }, [pending]);
 
   const startRun = (run: ActiveRun) => {
+    setActiveRunId(run.runId);
     cbRef.current.onRunStart?.(run);
     postPanelMessage({ type: "run", phase: "start", runId: run.runId, agent: run.agent, subjectId: run.subjectId }, { local: true });
   };
@@ -218,6 +248,8 @@ export function useAgentChat({
       setAgent(detail.agent);
       setConversationId(detail.id);
       setMessages(detail.messages);
+      setClaudeSessionId(detail.claudeSessionId);
+      setContextTokens(null);
       writePanelState({ conversationId: detail.id, agent: detail.agent });
       if (detail.pendingRunId) {
         // A hand-off tags its user turn with the card it's about; carry that
@@ -271,6 +303,10 @@ export function useAgentChat({
     setActivity("");
     setError("");
     setNotice("");
+    setInteractions([]);
+    setGrants([]);
+    setContextTokens(null);
+    setClaudeSessionId(null);
   };
 
   const newChat = () => {
@@ -298,6 +334,41 @@ export function useAgentChat({
       writePanelState({ claude: next });
       return next;
     });
+  };
+
+  // ── Interactive-run controls ───────────────────────────────────────────────
+
+  /** ⏹ Stop the live run. The poll loop keeps going: it sees the settled row
+   *  ("⏹ Stopped by Joe.") land as the run's error/answer within a tick. */
+  const stop = () => {
+    if (!activeRunId) return;
+    void stopAgentRun(activeRunId);
+  };
+
+  /** Answer a question box / permission prompt; the blocked agent resumes
+   *  within ~2s. Optimistically cleared — the next poll re-adds anything
+   *  genuinely still pending. */
+  const respond = (id: string, response: InteractionResponse) => {
+    setInteractions((cur) => cur.filter((i) => i.id !== id));
+    void answerInteractionAction(id, response);
+  };
+
+  /** Dismiss a question without answering (agent is told to use judgment). */
+  const dismiss = (id: string) => {
+    setInteractions((cur) => cur.filter((i) => i.id !== id));
+    void dismissInteractionAction(id);
+  };
+
+  /** Drop a grant card locally once Joe decided it (approve/deny happens via
+   *  lib/actions/owner-grants.ts in the component). */
+  const dropGrant = (id: string) => setGrants((cur) => cur.filter((g) => g.id !== id));
+
+  /** Fresh CLI session for this thread: next Claude turn starts clean. */
+  const freshSession = () => {
+    if (!conversationId) return;
+    setClaudeSessionId(null);
+    setContextTokens(null);
+    void resetClaudeSessionAction(conversationId);
   };
 
   const pushUser = (body: string, subjectId?: string) =>
@@ -423,6 +494,17 @@ export function useAgentChat({
     submit,
     newChat,
     openConversation,
+    // Interactive-run surface (question boxes, approvals, stop, context).
+    interactions,
+    grants,
+    contextTokens,
+    activeRunId,
+    claudeSessionId,
+    stop,
+    respond,
+    dismiss,
+    dropGrant,
+    freshSession,
   };
 }
 

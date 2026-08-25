@@ -45,9 +45,21 @@ const client = new pg.Client({ connectionString: envFromFile("DATABASE_URL") });
 async function finish(status, answer, costUsd) {
   await client.query(
     `UPDATE dev_agent_runs
-        SET status = $2, answer = $3, cost_usd = $4, updated_at = now()
+        SET status = $2, answer = $3, cost_usd = $4,
+            context_tokens = COALESCE($5, context_tokens),
+            token_usage = COALESCE($6::jsonb, token_usage),
+            session_id = COALESCE($7, session_id),
+            updated_at = now()
       WHERE id = $1`,
-    [RUN_ID, status, answer, costUsd ?? null],
+    [
+      RUN_ID,
+      status,
+      answer,
+      costUsd ?? null,
+      contextTokens,
+      finalUsage ? JSON.stringify(finalUsage) : null,
+      lastSessionId,
+    ],
   );
 }
 
@@ -57,8 +69,11 @@ async function finish(status, answer, costUsd) {
 const VALID_EFFORT = new Set(["low", "medium", "high", "xhigh", "max"]);
 // mode values are the exact --permission-mode strings; pass through when valid,
 // else fall back to acceptEdits (also maps the legacy "edit" value).
+// "ask" is OURS, not the CLI's: interactive in-app approvals — CLI mode
+// "manual" (asks before each action) with the prompts routed into the panel
+// chat via --permission-prompt-tool → mcp/interact-mcp.mjs approve_action.
 const VALID_MODE = new Set(["acceptEdits", "plan", "auto", "bypassPermissions", "manual", "dontAsk"]);
-const permissionMode = (mode) => (VALID_MODE.has(mode) ? mode : "acceptEdits");
+const permissionMode = (mode) => (mode === "ask" ? "manual" : VALID_MODE.has(mode) ? mode : "acceptEdits");
 
 // On a RESUMED session the CLI already holds Claude's own turns, so we send
 // only the new turn (plus the current page, which may have changed) — and, in
@@ -178,6 +193,10 @@ async function unseenTranscript(conversationId) {
 const activity = [];
 let activityDirty = false;
 let lastSessionId = null;
+// Live context size (per-message usage on each assistant stream event) and the
+// final result envelope's usage/modelUsage — the chat's token/context meter.
+let contextTokens = null;
+let finalUsage = null;
 
 function base(p) {
   if (!p) return "";
@@ -231,10 +250,12 @@ async function flushActivity() {
   if (!activityDirty) return;
   activityDirty = false;
   try {
-    await client.query(`UPDATE dev_agent_runs SET activity = $2, updated_at = now() WHERE id = $1`, [
-      RUN_ID,
-      activity.join("\n"),
-    ]);
+    await client.query(
+      `UPDATE dev_agent_runs
+          SET activity = $2, context_tokens = COALESCE($3, context_tokens), updated_at = now()
+        WHERE id = $1`,
+      [RUN_ID, activity.join("\n"), contextTokens],
+    );
   } catch {
     /* best-effort live progress; the final result is what matters */
   }
@@ -243,6 +264,18 @@ async function flushActivity() {
 function handleEvent(evt) {
   if (evt?.session_id) lastSessionId = evt.session_id;
   if (evt?.type === "assistant" && Array.isArray(evt.message?.content)) {
+    // Each assistant message carries the API usage of its request — input +
+    // cache reads/creation is what's sitting in the context window right now.
+    const u = evt.message?.usage;
+    if (u && typeof u === "object") {
+      const n = (v) => (typeof v === "number" ? v : 0);
+      const total =
+        n(u.input_tokens) + n(u.cache_read_input_tokens) + n(u.cache_creation_input_tokens) + n(u.output_tokens);
+      if (total > 0) {
+        contextTokens = total;
+        activityDirty = true; // piggyback on the next activity flush
+      }
+    }
     for (const block of evt.message.content) {
       if (block.type === "thinking") {
         // Show as much of the reasoning as the stream gives us (a snippet),
@@ -266,18 +299,56 @@ function handleEvent(evt) {
 
 let resultEvent = null;
 
+// Stop button: lib/actions/dev-agents.ts stopAgentRun() sends this process
+// SIGTERM (our pid is on the run row). Kill the CLI child; the close handler
+// turns that into a clean "stopped" rejection that main() persists.
+let currentChild = null;
+let stopRequested = false;
+process.on("SIGTERM", () => {
+  stopRequested = true;
+  if (currentChild) currentChild.kill("SIGKILL");
+});
+
 // Spawn `claude` and parse newline-delimited stream-json, invoking handleEvent
 // per event. Resolves once the process closes (or rejects on spawn error).
-function runClaude(args) {
+// The timeout is a sliding DEADLINE, not a fixed timer: while an in-app
+// interaction (question box / permission prompt) is pending, Claude is blocked
+// on Joe, so the clock pauses — and we bump updated_at so failStaleRuns()'s
+// 15-minute quiet reaper doesn't shoot a run that's just waiting on a human.
+function runClaude(args, childEnv, conversationId) {
   return new Promise((resolve, reject) => {
-    const child = spawn(CLAUDE_BIN, args, { cwd: REPO, env: process.env });
+    const child = spawn(CLAUDE_BIN, args, { cwd: REPO, env: childEnv });
+    currentChild = child;
     let buf = "";
     let stderr = "";
     let killed = false;
-    const timer = setTimeout(() => {
-      killed = true;
-      child.kill("SIGKILL");
-    }, TIMEOUT_MS);
+    let deadline = Date.now() + TIMEOUT_MS;
+    const guard = setInterval(() => {
+      void (async () => {
+        try {
+          const r = await client.query(
+            `SELECT 1 FROM agent_interactions
+              WHERE status = 'pending'
+                AND (run_id = $1 OR ($2::uuid IS NOT NULL AND conversation_id = $2))
+              LIMIT 1`,
+            [RUN_ID, conversationId ?? null],
+          );
+          if (r.rows.length) {
+            deadline = Date.now() + TIMEOUT_MS;
+            await client.query(
+              `UPDATE dev_agent_runs SET updated_at = now() WHERE id = $1 AND status = 'running'`,
+              [RUN_ID],
+            );
+          }
+        } catch {
+          /* keepalive is best-effort */
+        }
+        if (Date.now() > deadline && !killed && !stopRequested) {
+          killed = true;
+          child.kill("SIGKILL");
+        }
+      })();
+    }, 5000);
     const flushTimer = setInterval(() => void flushActivity(), 1000);
 
     child.stdout.on("data", (d) => {
@@ -298,14 +369,15 @@ function runClaude(args) {
       stderr += d.toString();
     });
     child.on("error", (e) => {
-      clearTimeout(timer);
+      clearInterval(guard);
       clearInterval(flushTimer);
       reject(e);
     });
     child.on("close", () => {
-      clearTimeout(timer);
+      clearInterval(guard);
       clearInterval(flushTimer);
-      if (killed) reject(Object.assign(new Error("timeout"), { killed: true }));
+      if (stopRequested) reject(Object.assign(new Error("stopped"), { stopped: true }));
+      else if (killed) reject(Object.assign(new Error("timeout"), { killed: true }));
       else resolve({ stderr });
     });
   });
@@ -338,9 +410,10 @@ async function main() {
     resumeSession = cr.rows[0]?.claude_session_id ?? null;
   }
 
+  // pid on the row = the Stop button's target (SIGTERM → we kill the CLI).
   await client.query(
-    `UPDATE dev_agent_runs SET status = 'running', updated_at = now() WHERE id = $1`,
-    [RUN_ID],
+    `UPDATE dev_agent_runs SET status = 'running', pid = $2, updated_at = now() WHERE id = $1`,
+    [RUN_ID, process.pid],
   );
 
   const unseen = await unseenTranscript(conversation_id);
@@ -365,14 +438,43 @@ async function main() {
   // Claude in the app is a full operator: every run gets the sjcos business
   // tools (with_mcp defaults true in startClaudeRun). with_mcp=false is the
   // explicit code-only escape hatch, which skips the tool-schema token cost.
-  if (rows[0].with_mcp !== false) args.push("--mcp-config", path.join(REPO, "mcp/sjcos-mcp.config.json"));
+  const mcpConfigs = [];
+  if (rows[0].with_mcp !== false) mcpConfigs.push(path.join(REPO, "mcp/sjcos-mcp.config.json"));
+  if (mode === "ask") {
+    // "Ask me": CLI mode manual + every permission prompt routed into the
+    // panel chat via the interact server's approve_action (fails closed).
+    mcpConfigs.push(
+      JSON.stringify({
+        mcpServers: { interact: { command: "node", args: [path.join(REPO, "mcp/interact-mcp.mjs")] } },
+      }),
+    );
+    args.push("--permission-prompt-tool", "mcp__interact__approve_action");
+  }
+  if (mcpConfigs.length) args.push("--mcp-config", ...mcpConfigs);
   if (resumeSession) args.push("--resume", resumeSession);
   if (model) args.push("--model", model);
   if (VALID_EFFORT.has(effort)) args.push("--effort", effort);
 
+  // The interact/sjcos MCP servers inherit this env: run/conversation tags put
+  // question boxes on the right chat thread, and the raised MCP tool timeout
+  // keeps a prompt blocked on Joe from being killed by the CLI's default.
+  const childEnv = {
+    ...process.env,
+    SJC_RUN_ID: RUN_ID,
+    ...(conversation_id ? { SJC_CONVERSATION_ID: conversation_id } : {}),
+    SJC_AGENT: "claude",
+    MCP_TOOL_TIMEOUT: process.env.MCP_TOOL_TIMEOUT ?? "600000",
+  };
+
   try {
-    await runClaude(args);
+    await runClaude(args, childEnv, conversation_id);
   } catch (err) {
+    if (err.stopped) {
+      const m = "⏹ Stopped by Joe.";
+      await finish("error", m);
+      await persistToConversation(conversation_id, m, null, lastSessionId);
+      return;
+    }
     if (err.killed) {
       const m = `Claude timed out after ${Math.round(TIMEOUT_MS / 1000)}s.`;
       await finish("error", m);
@@ -393,6 +495,18 @@ async function main() {
     return;
   }
 
+  // The result envelope's bookkeeping (tokens, cache splits, context window,
+  // turn count, denials) — persisted for the chat's context/usage display.
+  finalUsage = {
+    usage: resultEvent.usage ?? null,
+    modelUsage: resultEvent.modelUsage ?? null,
+    num_turns: resultEvent.num_turns ?? null,
+    duration_ms: resultEvent.duration_ms ?? null,
+    permission_denials: Array.isArray(resultEvent.permission_denials)
+      ? resultEvent.permission_denials.length
+      : null,
+  };
+
   if (resultEvent.is_error) {
     const msg = `Claude returned an error (${resultEvent.subtype ?? "unknown"}).`;
     await finish("error", msg, resultEvent.total_cost_usd);
@@ -412,9 +526,9 @@ async function persistToConversation(conversationId, body, costUsd, sessionId) {
     // Tagged 'claude' so the router keeps follow-ups here and the other
     // agents know which turns are Claude's (lib/orchestrator/thread.ts).
     await client.query(
-      `INSERT INTO ai_messages (conversation_id, role, body, cost_usd, agent)
-       VALUES ($1, 'assistant', $2, $3, 'claude')`,
-      [conversationId, body, costUsd ?? null],
+      `INSERT INTO ai_messages (conversation_id, role, body, cost_usd, agent, token_usage)
+       VALUES ($1, 'assistant', $2, $3, 'claude', $4::jsonb)`,
+      [conversationId, body, costUsd ?? null, finalUsage ? JSON.stringify(finalUsage) : null],
     );
     await client.query(
       `UPDATE ai_conversations

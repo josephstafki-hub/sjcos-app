@@ -270,6 +270,21 @@ grant's audit + `agent_runs`. A grant that doesn't cover the call is refused wit
 reason the agent can relay. Arming a newsletter drip sequence and PO receiving/close
 remain owner-only with no tool.
 
+## Interactive questions (`ask_owner`)
+
+`ask_owner` puts a real **question box** in front of Joe inside the app's panel
+chat — 1–4 questions, each with 2–6 options (headers, multi-select, free-text
+"Other") — and **blocks until he answers** (default 420s, `timeout_seconds` to
+tune). Rows live in `agent_interactions`; the panel's run poll renders them and
+answering resumes the blocked call within ~2s. Use it when genuinely blocked on
+a decision that is Joe's to make, not for facts you can look up. On timeout it
+returns a clear "no answer — use your judgment, take no irreversible action."
+
+The same table also backs the Claude runner's **"Ask me" mode**: tool-use
+permission prompts (`mcp/interact-mcp.mjs`, `--permission-prompt-tool`) render
+as inline Allow/Deny cards in the same chat. That server is private to the
+runner — other MCP clients only see `ask_owner`.
+
 ## `search` / `fetch` (ChatGPT connector contract)
 
 ChatGPT custom connectors (Settings → Connectors → Create, and the Responses

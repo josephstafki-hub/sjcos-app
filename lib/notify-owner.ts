@@ -17,7 +17,12 @@
 import { query, queryOne } from "./db";
 import { emit, type EmitInput } from "./notify";
 
-export type OwnerPushKind = "grant" | "urgent_item" | "agent_failure" | "stale_approval";
+export type OwnerPushKind =
+  | "grant"
+  | "urgent_item"
+  | "agent_failure"
+  | "stale_approval"
+  | "approval_needed";
 
 export interface NotifyOwnerInput {
   kind: OwnerPushKind;
@@ -79,6 +84,20 @@ function enabledChannels(): OwnerChannel[] {
   return Object.values(CHANNELS).filter((c) => c.enabled());
 }
 
+/** One line per channel so a dead channel is never silent — printed when this
+ *  module first loads in a process and by every push-drain run. */
+export function logChannelStatus(): void {
+  for (const [name, ch] of Object.entries(CHANNELS)) {
+    if (ch.enabled()) {
+      const chat = process.env.TELEGRAM_OWNER_CHAT_ID ?? "";
+      console.log(`notify-owner: ${name} ENABLED (chat …${chat.slice(-4)})`);
+    } else {
+      console.log(`notify-owner: ${name} DISABLED (missing env)`);
+    }
+  }
+}
+logChannelStatus();
+
 // ── Message text ─────────────────────────────────────────────────────────────
 
 function appUrl(): string {
@@ -99,6 +118,7 @@ const EMIT_DEFAULTS: Record<OwnerPushKind, Omit<EmitInput, "title">> = {
   urgent_item: { kind: "job", tag: "Urgent", accent: "flag", icon: "star", flagged: true },
   agent_failure: { kind: "job", tag: "Agent", accent: "flag", icon: "chat" },
   stale_approval: { kind: "decision", tag: "Approval", accent: "ai", icon: "shield", flagged: true },
+  approval_needed: { kind: "decision", tag: "Approval", accent: "ai", icon: "shield", flagged: true },
 };
 
 // ── Quiet hours + throttle gate (one round trip; all wall-clock math in
@@ -229,6 +249,27 @@ export async function notifyAgentFailure(
   }
 }
 
+/** Immediate push the moment a work item flips approval_status → 'requested'
+ *  (submit_draft_for_approval and any equivalent path) — a finished draft must
+ *  not sit invisible until the 4h stale nudge. One push per work item ever
+ *  (reminder_log claim), subject to quiet hours AND the hourly cap (approvals
+ *  are not cap-exempt like grants). Never throws. */
+export async function notifyApprovalNeeded(
+  workItemId: string,
+  title: string,
+  nowOverride?: Date,
+): Promise<void> {
+  try {
+    if (!(await claimOnce(`apprpush:${workItemId}`))) return;
+    await notifyOwner(
+      { kind: "approval_needed", title: `Approve: ${title}`, href: "/today" },
+      nowOverride,
+    );
+  } catch (err) {
+    console.error("[notify-owner] approval-needed notify failed", err);
+  }
+}
+
 // ── Drain (5-minute cron) ────────────────────────────────────────────────────
 
 export interface PushDrainResult {
@@ -261,13 +302,17 @@ export async function runPushDrain(
   const dry = Boolean(opts.dryRun);
   const now = opts.now ?? new Date();
   const enabled = enabledChannels().length > 0;
+  logChannelStatus();
   const g = await gate(now);
 
   const { rows: due } = await query<OutboxRow>(
     `SELECT id, kind, title, body, href
        FROM push_outbox
       WHERE sent_at IS NULL AND send_after <= $1
-      ORDER BY CASE kind WHEN 'grant' THEN 0 WHEN 'urgent_item' THEN 1 ELSE 2 END,
+      ORDER BY CASE kind WHEN 'grant' THEN 0
+                         WHEN 'urgent_item' THEN 1
+                         WHEN 'approval_needed' THEN 1
+                         ELSE 2 END,
                created_at`,
     [now],
   );
@@ -360,11 +405,14 @@ export async function runPushDrain(
     );
   }
 
+  // Keyed on approval_status, NOT status: a later update_work_item_status can
+  // overwrite status (e.g. → 'done') while the approval is still undecided —
+  // approval_status = 'requested' is the one column that means "waiting on Joe".
   const { rows: staleItems } = await query<{ id: string; title: string; hours: number }>(
     `SELECT id, title,
             floor(extract(epoch FROM $1::timestamptz - updated_at) / 3600)::int AS hours
        FROM work_items
-      WHERE status = 'approval_needed' AND updated_at < $1::timestamptz - interval '4 hours'`,
+      WHERE approval_status = 'requested' AND updated_at < $1::timestamptz - interval '4 hours'`,
     [now],
   );
   for (const item of staleItems) {

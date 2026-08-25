@@ -2726,7 +2726,7 @@ ALTER TABLE dev_agent_runs ADD COLUMN IF NOT EXISTS grant_id uuid;
 -- the audit trail of an immediate send (the rolling-hour throttle counts them).
 CREATE TABLE IF NOT EXISTS push_outbox (
   id         bigserial PRIMARY KEY,
-  kind       text NOT NULL CHECK (kind IN ('grant','urgent_item','agent_failure','stale_approval')),
+  kind       text NOT NULL CHECK (kind IN ('grant','urgent_item','agent_failure','stale_approval','sms_inbound','approval_needed')),
   title      text NOT NULL,
   body       text,
   href       text,

@@ -2597,9 +2597,10 @@ CREATE TABLE IF NOT EXISTS bid_invites (
   sub_slug      text NOT NULL REFERENCES subs(slug) ON DELETE CASCADE,
   message       text NOT NULL DEFAULT '',
   status        text NOT NULL DEFAULT 'draft'
-                  CHECK (status IN ('draft','sent','viewed','submitted','declined','awarded','not_awarded')),
+                  CHECK (status IN ('draft','sent','viewed','working','submitted','declined','awarded','not_awarded')),
   sent_at       timestamptz,
   viewed_at     timestamptz,
+  acked_at      timestamptz,  -- sub replied "working on it" (status 'working')
   responded_at  timestamptz,
   created_at    timestamptz NOT NULL DEFAULT now(),
   UNIQUE (package_id, sub_slug)
@@ -2639,6 +2640,28 @@ ALTER TABLE bid_packages ADD COLUMN IF NOT EXISTS awarded_invite_id bigint;
 ALTER TABLE bid_packages DROP CONSTRAINT IF EXISTS bid_packages_awarded_invite_fkey;
 ALTER TABLE bid_packages ADD CONSTRAINT bid_packages_awarded_invite_fkey
   FOREIGN KEY (awarded_invite_id) REFERENCES bid_invites(id) ON DELETE SET NULL;
+
+-- Bid follow-ups (db/apply-bid-follow-ups.mjs): auto chase emails + thank-you.
+-- follow_ups is the per-package arm switch (guard 1 in lib/bid-follow-ups.ts);
+-- live DBs backfilled pre-existing packages to false so nothing retroactively
+-- chases an old package. bid_invite_emails is the claim-before-send ledger —
+-- the unique (invite_id, kind) index is what makes the hourly sweep re-run and
+-- overlap safe (guard 4).
+ALTER TABLE bid_packages ADD COLUMN IF NOT EXISTS follow_ups boolean NOT NULL DEFAULT true;
+ALTER TABLE bid_invites  ADD COLUMN IF NOT EXISTS acked_at timestamptz;
+
+CREATE TABLE IF NOT EXISTS bid_invite_emails (
+  id          bigserial PRIMARY KEY,
+  invite_id   bigint NOT NULL REFERENCES bid_invites(id) ON DELETE CASCADE,
+  kind        text NOT NULL CHECK (kind IN ('reminder_1','reminder_2','working_nudge','thanks')),
+  status      text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','sent','failed')),
+  subject     text NOT NULL DEFAULT '',
+  body        text NOT NULL DEFAULT '',
+  error       text,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  sent_at     timestamptz,
+  UNIQUE (invite_id, kind)
+);
 
 -- ── Client activity log (db/apply-client-activity.mjs) ─────────────────────
 -- One row per thing a client DID in their portal: opened it, uploaded a file,

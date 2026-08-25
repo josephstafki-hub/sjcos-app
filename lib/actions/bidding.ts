@@ -14,7 +14,8 @@ import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { emit } from "@/lib/notify";
 import { storeUpload } from "@/lib/upload-store";
-import { awardBidOp, bidInviteById, bidUsd, sendBidPackageOp } from "@/lib/bidding";
+import { awardBidOp, bidInviteById, bidUsd, markBidWorkingOp, sendBidPackageOp } from "@/lib/bidding";
+import { sendBidThanks } from "@/lib/bid-follow-ups";
 
 type Result = { ok: boolean; error?: string };
 
@@ -82,6 +83,21 @@ export async function updateBidPackage(packageId: number, formData: FormData): P
       text(formData.get("scopeNotes"), 4000),
       text(formData.get("dueDate"), 10),
     ],
+  );
+  revalidatePath(`/projects/${pkg.slug}`);
+  return { ok: true };
+}
+
+/** Arm / disarm auto follow-ups for one package (chase nudges + thank-you —
+ *  lib/bid-follow-ups.ts). Off means the hourly sweep skips every invite on
+ *  the package and recordBid stops auto-thanking. */
+export async function setBidFollowUps(packageId: number, enabled: boolean): Promise<Result> {
+  await requireRole("owner");
+  const pkg = await packageOwner(packageId);
+  if (!pkg) return { ok: false, error: "Bid package not found." };
+  await query(
+    `UPDATE bid_packages SET follow_ups = $2, updated_at = now() WHERE id = $1`,
+    [packageId, enabled],
   );
   revalidatePath(`/projects/${pkg.slug}`);
   return { ok: true };
@@ -289,6 +305,19 @@ export async function sendBidPackage(packageId: number): Promise<Result> {
   return { ok: true };
 }
 
+/** The sub replied "we're on it" (email or phone) — record that so the auto
+ *  chase switches to the softer, later check-in instead of the did-you-get-it
+ *  nudges. */
+export async function markBidWorking(inviteId: number): Promise<Result> {
+  await requireRole("owner");
+  const result = await markBidWorkingOp(inviteId);
+  if (!result.ok) return { ok: false, error: result.error };
+  const invite = await bidInviteById(inviteId);
+  if (invite) revalidatePath(`/projects/${invite.slug}`);
+  revalidatePath("/notifications");
+  return { ok: true };
+}
+
 export async function awardBid(inviteId: number): Promise<Result> {
   await requireRole("owner");
   const result = await awardBidOp(inviteId);
@@ -381,6 +410,15 @@ export async function recordBid(inviteId: number, formData: FormData): Promise<R
     `UPDATE bid_invites SET status = 'submitted', responded_at = now() WHERE id = $1`,
     [inviteId],
   );
+
+  // Auto thank-you (only if the package's follow-ups switch is on). Best-effort:
+  // a Gmail hiccup here is retried by the hourly sweep, never surfaced as a
+  // failure of recording the bid itself.
+  try {
+    await sendBidThanks(inviteId);
+  } catch (err) {
+    console.error("[bidding] thank-you send failed", err);
+  }
 
   await emit({
     kind: "money",

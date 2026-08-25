@@ -181,6 +181,35 @@ journalctl --user -u sjcos-detect.service -n 20       # last result (JSON)
 systemctl --user list-timers sjcos-detect.timer       # next run
 ```
 
+## Scheduler — hourly bid follow-up sweep
+
+A systemd **user timer** runs the bid-chase sweep (`/api/cron/bid-follow-ups`)
+hourly at **:25**. Like the newsletter drip, this one can send email to real
+people (subs on an open bid package) without a Release click — the guards are
+documented at the top of `lib/bid-follow-ups.ts`. Per package it is armed by
+the "Auto follow-up" switch on the Bidding tab (new packages default ON;
+packages that predate the feature were backfilled OFF). Silent subs get nudges
+at day 2 and 5 after the packet was emailed, subs marked "working on it" get a
+softer check-in at day 4, and the sweep also retries any thank-you email that
+failed when Joe recorded a bid. Claim-before-send on `bid_invite_emails`
+(unique per invite + kind) makes re-runs and overlaps double-send-proof; max
+25 sends per run. Same auth pattern as the reminders cron.
+
+Install (one-time; DB first — `node db/apply-bid-follow-ups.mjs`):
+```
+install -m755 deploy/sjcos-bid-follow-ups.sh ~/bin/sjcos-bid-follow-ups
+cp deploy/sjcos-bid-follow-ups.service deploy/sjcos-bid-follow-ups.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now sjcos-bid-follow-ups.timer
+```
+
+Run on demand / inspect:
+```
+systemctl --user start sjcos-bid-follow-ups.service           # trigger now
+journalctl --user -u sjcos-bid-follow-ups.service -n 20       # last result (JSON)
+systemctl --user list-timers sjcos-bid-follow-ups.timer       # next run
+```
+
 ## Voice daily logs — whisper.cpp (Phase-3 7-voice)
 
 Local, offline speech-to-text for the daily-log composers. `/api/transcribe`

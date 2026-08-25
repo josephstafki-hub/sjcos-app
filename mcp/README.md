@@ -228,6 +228,7 @@ button runs.
 | `set_bid_invite_message` | The per-sub note that customizes the packet for one recipient |
 | `remove_bid_invite` | Take a sub off — unsent invites only |
 | `close_bid_package` | End bidding without awarding |
+| `mark_bid_working` | Sub replied "we're on it" — switches them to the softer auto follow-up |
 | `award_bid` | Pick the winner; everyone else goes `not_awarded`; package closes |
 
 > **Where the send line sits for this family.** Sending a bid package
@@ -239,7 +240,14 @@ button runs.
 `attach_bid_file` (plans, takeoff) → `list_subs`, pick by trade →
 `add_bid_invites` → `set_bid_invite_message` where a sub needs tailoring →
 tell Joe it's staged so he can press Send → as he records bids, `compare_bids`
-→ brief the owner (or, when asked, `award_bid`).
+→ brief the owner (or, when asked, `award_bid`). When a sub replies "we're
+working on it" (no number yet), `mark_bid_working` so the auto chase eases off.
+
+**Auto follow-ups** (`lib/bid-follow-ups.ts`): while a package's "Auto
+follow-up" switch is on, an hourly sweep nudges silent subs at day 2 and 5,
+checks in on "working" subs at day 4, and a thank-you goes out when Joe records
+a bid. Agents don't drive those sends — keeping invite statuses honest
+(`mark_bid_working`, recording declines) is what steers them.
 
 ## Owner grants (express permission to send)
 

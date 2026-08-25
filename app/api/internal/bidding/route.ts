@@ -13,7 +13,7 @@
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { query } from "@/lib/db";
-import { awardBidOp } from "@/lib/bidding";
+import { awardBidOp, markBidWorkingOp } from "@/lib/bidding";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,6 +66,11 @@ export async function POST(req: Request) {
         break;
       case "award_bid":
         result = await awardBidOp(Number(body.invite_id));
+        break;
+      case "mark_working":
+        // Internal record update (no email transmits): the sub said they're
+        // pricing it, so the auto chase switches to the softer check-in.
+        result = await markBidWorkingOp(Number(body.invite_id));
         break;
       default:
         return NextResponse.json({ ok: false, error: `Unknown action "${action}"` }, { status: 400 });

@@ -27,6 +27,8 @@ export type BidInviteStatus =
   | "draft"
   | "sent"
   | "viewed"
+  /** Sub replied that they're pricing it — chased softer, later. */
+  | "working"
   | "submitted"
   | "declined"
   | "awarded"
@@ -71,6 +73,9 @@ export interface BidInvite {
   status: BidInviteStatus;
   sentLabel: string;
   respondedLabel: string;
+  /** Last auto email that went to this sub ("nudged Aug 20" / "thanked Aug 22"),
+   *  "" if none — see lib/bid-follow-ups.ts. */
+  autoLabel: string;
   /** Latest revision, if a bid has been recorded. */
   submission: BidSubmission | null;
 }
@@ -85,6 +90,8 @@ export interface BidPackage {
   dueLabel: string;
   status: BidPackageStatus;
   sentLabel: string;
+  /** Auto follow-up arm switch: chase + thank-you emails (lib/bid-follow-ups.ts). */
+  followUps: boolean;
   awardedInviteId: number | null;
   files: BidFile[];
   invites: BidInvite[];
@@ -193,9 +200,10 @@ export async function getProjectBidding(slug: string): Promise<BiddingView> {
     due_label: string | null;
     status: BidPackageStatus;
     sent_label: string | null;
+    follow_ups: boolean;
     awarded_invite_id: string | null;
   }>(
-    `SELECT id, title, trade, scope_notes, status, awarded_invite_id,
+    `SELECT id, title, trade, scope_notes, status, follow_ups, awarded_invite_id,
             to_char(due_date, 'YYYY-MM-DD') AS due_date,
             to_char(due_date, 'FMMon FMDD') AS due_label,
             to_char(sent_at, 'FMMon FMDD')  AS sent_label
@@ -246,7 +254,26 @@ export async function getProjectBidding(slug: string): Promise<BiddingView> {
     ),
   ]);
 
-  const submissions = await latestSubmissions(invitesQ.rows.map((i) => Number(i.id)));
+  const inviteIds = invitesQ.rows.map((i) => Number(i.id));
+  const submissions = await latestSubmissions(inviteIds);
+
+  // Last auto email per invite (chase nudge or thank-you), for the board label.
+  const autoLabels = new Map<number, string>();
+  if (inviteIds.length > 0) {
+    const { rows: autos } = await query<{ invite_id: string; kind: string; when_label: string }>(
+      `SELECT DISTINCT ON (invite_id) invite_id, kind, to_char(sent_at, 'FMMon FMDD') AS when_label
+         FROM bid_invite_emails
+        WHERE invite_id = ANY($1::bigint[]) AND status = 'sent'
+        ORDER BY invite_id, sent_at DESC`,
+      [inviteIds],
+    );
+    for (const a of autos) {
+      autoLabels.set(
+        Number(a.invite_id),
+        `${a.kind === "thanks" ? "thanked" : "nudged"} ${a.when_label}`,
+      );
+    }
+  }
 
   const packages: BidPackage[] = pkgs.map((p) => {
     const pid = Number(p.id);
@@ -262,6 +289,7 @@ export async function getProjectBidding(slug: string): Promise<BiddingView> {
         status: i.status,
         sentLabel: i.sent_label ?? "",
         respondedLabel: i.responded_label ?? "",
+        autoLabel: autoLabels.get(Number(i.id)) ?? "",
         submission: submissions.get(Number(i.id)) ?? null,
       }));
     const totals = invites
@@ -276,6 +304,7 @@ export async function getProjectBidding(slug: string): Promise<BiddingView> {
       dueLabel: p.due_label ?? "",
       status: p.status,
       sentLabel: p.sent_label ?? "",
+      followUps: p.follow_ups,
       awardedInviteId: p.awarded_invite_id ? Number(p.awarded_invite_id) : null,
       files: filesQ.rows
         .filter((f) => Number(f.package_id) === pid)
@@ -520,6 +549,38 @@ export async function sendBidPackageOp(packageId: number): Promise<OpResult> {
   return { ok: true, sent: sent.length };
 }
 
+/** A sub replied that they're pricing it (said so by email or phone). The
+ *  invite flips 'working', which moves it off the checking-in nudges and onto
+ *  the softer "how's it coming" chase (lib/bid-follow-ups.ts). Shared by the
+ *  Bidding-tab button and the MCP bridge — an internal record update, so
+ *  agents triaging the inbox may set it when the reply lands. */
+export async function markBidWorkingOp(inviteId: number): Promise<OpResult> {
+  const invite = await bidInviteById(inviteId);
+  if (!invite) return { ok: false, error: "Bid invite not found." };
+  if (invite.status === "working") return { ok: true }; // idempotent
+  if (invite.status === "draft") {
+    return { ok: false, error: "This invite hasn't been emailed yet." };
+  }
+  if (!["sent", "viewed"].includes(invite.status)) {
+    return { ok: false, error: "This bid has already been answered." };
+  }
+
+  await query(
+    `UPDATE bid_invites SET status = 'working', acked_at = COALESCE(acked_at, now()) WHERE id = $1`,
+    [inviteId],
+  );
+  await emit({
+    kind: "job",
+    tag: "Bid",
+    accent: "accent",
+    icon: "mail",
+    title: `${invite.sub_name} is working on ${invite.title}`,
+    subline: invite.project_name,
+    href: `/projects/${invite.slug}`,
+  });
+  return { ok: true };
+}
+
 /** Pick a winner. The awarded invite flips 'awarded'; every other sub still in
  *  the running goes 'not_awarded' (declined stays declined); the package
  *  closes as 'awarded'. */
@@ -533,7 +594,7 @@ export async function awardBidOp(inviteId: number): Promise<OpResult> {
   await query(`UPDATE bid_invites SET status = 'awarded' WHERE id = $1`, [inviteId]);
   await query(
     `UPDATE bid_invites SET status = 'not_awarded'
-      WHERE package_id = $1 AND id <> $2 AND status IN ('sent','viewed','submitted')`,
+      WHERE package_id = $1 AND id <> $2 AND status IN ('sent','viewed','working','submitted')`,
     [invite.package_id, inviteId],
   );
   await query(

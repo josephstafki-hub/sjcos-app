@@ -26,6 +26,7 @@ import {
   BadgeDollarSign,
   Check,
   FileText,
+  Hammer,
   Paperclip,
   Pencil,
   Plus,
@@ -54,11 +55,13 @@ import {
   createBidPackage,
   declineBidInvite,
   labelBidFile,
+  markBidWorking,
   recordBid,
   removeBidFile,
   removeBidInvite,
   removeBidPackage,
   sendBidPackage,
+  setBidFollowUps,
   updateBidInviteMessage,
   updateBidPackage,
   uploadBidFile,
@@ -83,6 +86,7 @@ const INVITE_CHIP: Record<BidInviteStatus, { kind: ChipKind; label: string }> = 
   draft: { kind: "ghost", label: "Not sent" },
   sent: { kind: "info", label: "Sent" },
   viewed: { kind: "info", label: "Viewed" },
+  working: { kind: "accent", label: "Working on it" },
   submitted: { kind: "money", label: "Bid in" },
   declined: { kind: "flag", label: "Passed" },
   awarded: { kind: "money", label: "Awarded" },
@@ -243,6 +247,8 @@ export function BiddingBoard({
               onRecord={(inviteId) => setModal({ kind: "record", inviteId, pkgId: pkg.id })}
               onCompare={() => setModal({ kind: "compare", pkgId: pkg.id })}
               onSend={() => run(() => sendBidPackage(pkg.id))}
+              onWorking={(inviteId) => run(() => markBidWorking(inviteId))}
+              onToggleFollowUps={() => run(() => setBidFollowUps(pkg.id, !pkg.followUps))}
               onClose={() => run(() => closeBidPackage(pkg.id))}
               onRemove={() => removeRow(`pkg:${pkg.id}`, () => removeBidPackage(pkg.id))}
               onRemoveInvite={(id) => removeRow(`invite:${id}`, () => removeBidInvite(id))}
@@ -327,6 +333,8 @@ function PackageCard({
   onRecord,
   onCompare,
   onSend,
+  onWorking,
+  onToggleFollowUps,
   onClose,
   onRemove,
   onRemoveInvite,
@@ -341,6 +349,8 @@ function PackageCard({
   onRecord: (inviteId: number) => void;
   onCompare: () => void;
   onSend: () => void;
+  onWorking: (inviteId: number) => void;
+  onToggleFollowUps: () => void;
   onClose: () => void;
   onRemove: () => void;
   onRemoveInvite: (id: number) => void;
@@ -452,6 +462,11 @@ function PackageCard({
                     <Chip kind="flag">no email</Chip>
                   )}
                   <Chip kind="ghost">{inv.subTrade || "—"}</Chip>
+                  {inv.autoLabel && (
+                    <span className="font-mono text-[10px] text-ink-4" title="Auto follow-up email">
+                      {inv.autoLabel}
+                    </span>
+                  )}
                   <Chip kind={ic.kind} dot>
                     {ic.label}
                   </Chip>
@@ -464,6 +479,23 @@ function PackageCard({
                     onClick={() => onNote(inv.id)}
                   >
                     <Pencil className="size-3.5" strokeWidth={1.5} />
+                  </button>
+                  <button
+                    className={
+                      ["sent", "viewed"].includes(inv.status)
+                        ? "text-ink-3 hover:text-accent"
+                        : "text-ink-4"
+                    }
+                    title={
+                      ["sent", "viewed"].includes(inv.status)
+                        ? "They replied they're working on it — switches to the softer follow-up"
+                        : inv.status === "working"
+                          ? "Marked working on it"
+                          : "Mark working applies to a sent, unanswered invite"
+                    }
+                    onClick={() => ["sent", "viewed"].includes(inv.status) && onWorking(inv.id)}
+                  >
+                    <Hammer className="size-3.5" strokeWidth={1.5} />
                   </button>
                   <button
                     className={inv.status === "draft" ? "text-ink-4" : "text-ink-3 hover:text-money"}
@@ -523,6 +555,15 @@ function PackageCard({
           </span>
         )}
         <div className="flex-1" />
+        {live && (
+          <button
+            className="text-[11.5px] text-ink-3 underline-offset-2 hover:underline"
+            title="Auto emails while the package is open: nudge subs who haven't answered (day 2 & 5), check in on subs working on it (day 4), and thank each sub when their bid is recorded"
+            onClick={onToggleFollowUps}
+          >
+            Auto follow-up: {pkg.followUps ? "on" : "off"}
+          </button>
+        )}
         {pkg.status === "open" && (
           <button className="text-[11.5px] text-ink-3 underline-offset-2 hover:underline" onClick={onClose}>
             Close without awarding

@@ -171,7 +171,7 @@ export function registerBiddingTools(server, { rows, json, biddingCall }) {
       title: "Get a bid package",
       description:
         "Everything on one bid package: scope, packet files, every invited sub (with their " +
-        "per-sub note and status: draft|sent|viewed|submitted|declined|awarded|not_awarded), " +
+        "per-sub note and status: draft|sent|viewed|working|submitted|declined|awarded|not_awarded), " +
         "and each sub's latest submission with line items, exclusions, and uploaded docs.",
       inputSchema: { package_id: z.number().int().describe("From list_bid_packages.") },
     },
@@ -510,6 +510,19 @@ export function registerBiddingTools(server, { rows, json, biddingCall }) {
   );
 
   // ── WRITE (through the app — same code path as the owner's buttons) ────────
+
+  server.registerTool(
+    "mark_bid_working",
+    {
+      title: "Mark a bid invite 'working on it'",
+      description:
+        "The sub replied that they're pricing it (no number yet). Records that on the invite so " +
+        "the auto follow-up switches from the did-you-get-it nudges to a softer, later check-in. " +
+        "Internal record update — no email transmits. Only valid on a sent, unanswered invite.",
+      inputSchema: { invite_id: z.number().int() },
+    },
+    async ({ invite_id }) => json(await biddingCall("mark_working", { invite_id })),
+  );
 
   server.registerTool(
     "award_bid",

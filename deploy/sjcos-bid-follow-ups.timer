@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the SJC OS bid follow-up sweep hourly
+
+[Timer]
+# Hourly at :25 — offset from the newsletter drip (:10), the detector sweep
+# (:20), and the lead-thread sync (:00/:15). Chase delays are measured in days,
+# so hourly resolution is plenty.
+OnCalendar=*-*-* *:25:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

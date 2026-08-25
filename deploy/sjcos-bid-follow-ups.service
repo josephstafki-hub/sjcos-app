@@ -1,0 +1,7 @@
+[Unit]
+Description=SJC OS bid follow-up sweep (chase + thank-you emails)
+After=sjcos.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/joe/bin/sjcos-bid-follow-ups

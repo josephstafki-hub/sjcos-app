@@ -25,7 +25,9 @@ const REPO = process.cwd();
 const RUN_ID = process.argv[2];
 const CLAUDE_BIN = process.env.CLAUDE_BIN ?? `${process.env.HOME}/.local/bin/claude`;
 const ENV_MODEL = process.env.DEV_CLAUDE_MODEL ?? ""; // "" → the CLI's configured default
-const TIMEOUT_MS = Number(process.env.DEV_CLAUDE_TIMEOUT_MS ?? 480_000); // 8 min
+// 0 (the default) = NO runtime limit: a run goes until it finishes or Joe hits
+// Stop. Set DEV_CLAUDE_TIMEOUT_MS to reinstate a sliding-deadline kill.
+const TIMEOUT_MS = Number(process.env.DEV_CLAUDE_TIMEOUT_MS ?? 0);
 
 // ── env / db ────────────────────────────────────────────────────────────────
 function envFromFile(key) {
@@ -311,10 +313,12 @@ process.on("SIGTERM", () => {
 
 // Spawn `claude` and parse newline-delimited stream-json, invoking handleEvent
 // per event. Resolves once the process closes (or rejects on spawn error).
-// The timeout is a sliding DEADLINE, not a fixed timer: while an in-app
-// interaction (question box / permission prompt) is pending, Claude is blocked
-// on Joe, so the clock pauses — and we bump updated_at so failStaleRuns()'s
-// 15-minute quiet reaper doesn't shoot a run that's just waiting on a human.
+// By default there is NO runtime limit — the guard interval just heartbeats
+// updated_at so failStaleRuns()'s 15-minute quiet reaper only ever catches
+// runners whose PROCESS died, never a live run that's simply taking a while.
+// If DEV_CLAUDE_TIMEOUT_MS is set, it acts as a sliding DEADLINE, not a fixed
+// timer: while an in-app interaction (question box / permission prompt) is
+// pending, Claude is blocked on Joe, so the clock pauses.
 function runClaude(args, childEnv, conversationId) {
   return new Promise((resolve, reject) => {
     const child = spawn(CLAUDE_BIN, args, { cwd: REPO, env: childEnv });
@@ -322,30 +326,34 @@ function runClaude(args, childEnv, conversationId) {
     let buf = "";
     let stderr = "";
     let killed = false;
-    let deadline = Date.now() + TIMEOUT_MS;
+    let deadline = TIMEOUT_MS > 0 ? Date.now() + TIMEOUT_MS : Infinity;
     const guard = setInterval(() => {
       void (async () => {
         try {
-          const r = await client.query(
-            `SELECT 1 FROM agent_interactions
-              WHERE status = 'pending'
-                AND (run_id = $1 OR ($2::uuid IS NOT NULL AND conversation_id = $2))
-              LIMIT 1`,
-            [RUN_ID, conversationId ?? null],
+          await client.query(
+            `UPDATE dev_agent_runs SET updated_at = now() WHERE id = $1 AND status = 'running'`,
+            [RUN_ID],
           );
-          if (r.rows.length) {
-            deadline = Date.now() + TIMEOUT_MS;
-            await client.query(
-              `UPDATE dev_agent_runs SET updated_at = now() WHERE id = $1 AND status = 'running'`,
-              [RUN_ID],
-            );
-          }
         } catch {
           /* keepalive is best-effort */
         }
-        if (Date.now() > deadline && !killed && !stopRequested) {
-          killed = true;
-          child.kill("SIGKILL");
+        if (TIMEOUT_MS > 0) {
+          try {
+            const r = await client.query(
+              `SELECT 1 FROM agent_interactions
+                WHERE status = 'pending'
+                  AND (run_id = $1 OR ($2::uuid IS NOT NULL AND conversation_id = $2))
+                LIMIT 1`,
+              [RUN_ID, conversationId ?? null],
+            );
+            if (r.rows.length) deadline = Date.now() + TIMEOUT_MS;
+          } catch {
+            /* deadline slide is best-effort */
+          }
+          if (Date.now() > deadline && !killed && !stopRequested) {
+            killed = true;
+            child.kill("SIGKILL");
+          }
         }
       })();
     }, 5000);
@@ -457,13 +465,17 @@ async function main() {
 
   // The interact/sjcos MCP servers inherit this env: run/conversation tags put
   // question boxes on the right chat thread, and the raised MCP tool timeout
-  // keeps a prompt blocked on Joe from being killed by the CLI's default.
+  // (24 h — effectively unlimited) keeps a prompt blocked on Joe from being
+  // killed by the CLI's default, even if he answers hours later.
   const childEnv = {
     ...process.env,
     SJC_RUN_ID: RUN_ID,
     ...(conversation_id ? { SJC_CONVERSATION_ID: conversation_id } : {}),
     SJC_AGENT: "claude",
-    MCP_TOOL_TIMEOUT: process.env.MCP_TOOL_TIMEOUT ?? "600000",
+    MCP_TOOL_TIMEOUT: process.env.MCP_TOOL_TIMEOUT ?? "86400000",
+    // ask_owner question boxes may wait on Joe just as long (interact-tools).
+    SJC_ASK_DEFAULT_TIMEOUT_S: process.env.SJC_ASK_DEFAULT_TIMEOUT_S ?? "86000",
+    SJC_ASK_MAX_TIMEOUT_S: process.env.SJC_ASK_MAX_TIMEOUT_S ?? "86000",
   };
 
   try {

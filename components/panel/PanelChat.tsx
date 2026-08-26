@@ -7,10 +7,6 @@ import {
   History,
   Paperclip,
   X,
-  Pencil,
-  Archive,
-  Trash2,
-  MessageSquare,
   Mic,
   AudioLines,
   Volume2,
@@ -23,12 +19,6 @@ import {
 import { VoiceButton } from "@/components/ui";
 import { mergeTranscript } from "@/lib/append-transcript";
 import { useVoiceRound } from "@/lib/use-voice-round";
-import {
-  listConversationsAction,
-  renameConversationAction,
-  archiveConversationAction,
-  deleteConversationAction,
-} from "@/lib/actions/ai-chat";
 import { approveGrant, denyGrant } from "@/lib/actions/owner-grants";
 import type { PendingGrant } from "@/lib/actions/dev-agents";
 import type {
@@ -39,7 +29,7 @@ import type {
   QuestionPayload,
 } from "@/lib/agent-interactions";
 import { useChatAttachments } from "./useChatAttachments";
-import type { ConversationSummary } from "@/lib/ai-chat";
+import { ThreadList } from "./ThreadList";
 import {
   AGENT_META,
   AGENT_ORDER,
@@ -88,6 +78,7 @@ export function PanelChat({
   onRunEnd,
   showQueueCards,
   compact = false,
+  threadsRail = false,
 }: {
   registerHandOff: (fn: (p: TodayPriority, kind: "do" | "prep") => void) => void;
   onRunStart: (run: ActiveRun) => void;
@@ -96,12 +87,15 @@ export function PanelChat({
   /** Mobile drawer over another page: no narration/cards/starters — just the
    *  conversation and composer, so most of the page stays visible. */
   compact?: boolean;
+  /** Wide dock/popout: the thread list rides beside the chat as its own
+   *  always-visible column (T3-style); narrower docks keep the History
+   *  overlay drawer instead. */
+  threadsRail?: boolean;
 }) {
   const { priorities, waiting, refresh } = useTodayQueue();
   const [prompt, setPrompt] = useState("");
   const [flash, setFlash] = useState("");
   const [threadsOpen, setThreadsOpen] = useState(false);
-  const [threads, setThreads] = useState<ConversationSummary[]>([]);
   // Per-message express permission: the next Claude turn gets a short-lived
   // owner grant for client-facing sends (bid packages, POs, invoices, emails…).
   // Plain state, never written to panelStore, and reset after every send so a
@@ -297,7 +291,6 @@ export function PanelChat({
       consumeHandOff(); // claimed — clear the stash
       handOffRef.current(m.priority, m.kind);
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ⌘/Ctrl+K focuses the composer — the panel is the app's one Ask surface.
@@ -312,40 +305,30 @@ export function PanelChat({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // ─── Thread history drawer ─────────────────────────────────────────────────
+  // ─── Thread navigation (ThreadList: rail beside the chat, or drawer) ───────
 
-  const openThreads = async () => {
-    setThreadsOpen(true);
-    setThreads(await listConversationsAction(chat.agent));
+  const openThread = (id: string) => {
+    setThreadsOpen(false);
+    void chat.openConversation(id);
+    inputRef.current?.focus();
   };
 
-  const renameThread = async (id: string, current: string) => {
-    const next = window.prompt("Rename conversation", current);
-    if (next && next.trim()) {
-      await renameConversationAction(id, next.trim());
-      setThreads(await listConversationsAction(chat.agent));
-    }
+  const newThread = () => {
+    setThreadsOpen(false);
+    chat.newChat();
+    inputRef.current?.focus();
   };
 
-  const archiveThread = async (id: string) => {
-    await archiveConversationAction(id, true);
-    if (id === chat.conversationId) chat.newChat();
-    setThreads(await listConversationsAction(chat.agent));
-  };
-
-  const deleteThread = async (id: string) => {
-    if (!window.confirm("Delete this conversation permanently?")) return;
-    await deleteConversationAction(id);
-    if (id === chat.conversationId) chat.newChat();
-    setThreads(await listConversationsAction(chat.agent));
-  };
+  // Reload the list when the open thread changes or a turn settles (a fresh
+  // thread gets its real title on the first settled turn).
+  const threadsRefreshKey = `${chat.conversationId ?? ""}:${chat.pending ? 1 : 0}`;
 
   const activityLines = chat.activity ? chat.activity.split("\n").filter(Boolean).slice(-4) : [];
   const route = getPanelPageRoute();
   const starters = startersForRoute(route, chat.agent);
 
-  return (
-    <section className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-[10px] border-[1.5px] border-ai bg-paper shadow-card">
+  const chatSection = (
+    <section className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[10px] border-[1.5px] border-ai bg-paper shadow-card">
       {/* Header: agent picker + history + New chat */}
       <div className="flex items-center gap-2 border-b border-rule px-3 py-2">
         <div className="flex rounded-md border border-rule bg-paper-2 p-0.5">
@@ -372,80 +355,41 @@ export function PanelChat({
           </span>
         )}
         <div className="flex-1" />
-        <button
-          onClick={() => (threadsOpen ? setThreadsOpen(false) : void openThreads())}
-          disabled={chat.pending}
-          aria-label="Chat history"
-          title="Chat history"
-          className="rounded-md p-1 text-ink-3 transition-colors hover:bg-paper disabled:opacity-40"
-        >
-          <History className="size-3.5" strokeWidth={1.75} />
-        </button>
+        {!threadsRail && (
+          <button
+            onClick={() => setThreadsOpen((o) => !o)}
+            aria-label="Threads"
+            title="Threads"
+            className="rounded-md p-1 text-ink-3 transition-colors hover:bg-paper"
+          >
+            <History className="size-3.5" strokeWidth={1.75} />
+          </button>
+        )}
         {chat.messages.length > 0 && (
           <button
-            onClick={chat.newChat}
-            disabled={chat.pending}
+            onClick={newThread}
             aria-label="New chat"
             title="New chat"
-            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ink-3 transition-colors hover:bg-paper disabled:opacity-40"
+            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ink-3 transition-colors hover:bg-paper"
           >
             <Plus className="size-3" strokeWidth={2} /> New
           </button>
         )}
       </div>
 
-      {/* Thread history drawer — overlays the transcript */}
-      {threadsOpen && (
+      {/* Thread drawer — overlays the transcript on narrow docks/mobile */}
+      {!threadsRail && threadsOpen && (
         <div className="absolute inset-x-0 top-[41px] bottom-0 z-10 flex flex-col bg-paper">
-          <div className="flex items-center justify-between border-b border-rule px-3 py-2">
-            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
-              {meta.label} chats
-            </span>
-            <button
-              onClick={() => setThreadsOpen(false)}
-              aria-label="Close history"
-              className="rounded p-0.5 text-ink-3 hover:bg-paper-2"
-            >
-              <X className="size-3.5" strokeWidth={1.75} />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-1.5">
-            {threads.length === 0 ? (
-              <p className="px-2 py-3 text-[11.5px] text-ink-4">No {meta.label} chats yet.</p>
-            ) : (
-              threads.map((c) => (
-                <div
-                  key={c.id}
-                  className={`group flex items-center gap-1 rounded-md px-2 py-1.5 ${
-                    c.id === chat.conversationId ? "bg-card" : "hover:bg-card/60"
-                  }`}
-                >
-                  <MessageSquare className="size-3 flex-none text-ink-4" strokeWidth={1.5} />
-                  <button
-                    onClick={() => {
-                      setThreadsOpen(false);
-                      void chat.openConversation(c.id);
-                    }}
-                    className="min-w-0 flex-1 truncate text-left text-[12.5px] text-ink-2"
-                    title={c.title}
-                  >
-                    {c.title}
-                  </button>
-                  <div className="flex flex-none items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                    <button onClick={() => void renameThread(c.id, c.title)} aria-label="Rename" className="rounded p-0.5 hover:bg-paper-2">
-                      <Pencil className="size-3 text-ink-4" strokeWidth={1.5} />
-                    </button>
-                    <button onClick={() => void archiveThread(c.id)} aria-label="Archive" className="rounded p-0.5 hover:bg-paper-2">
-                      <Archive className="size-3 text-ink-4" strokeWidth={1.5} />
-                    </button>
-                    <button onClick={() => void deleteThread(c.id)} aria-label="Delete" className="rounded p-0.5 hover:bg-paper-2">
-                      <Trash2 className="size-3 text-flag" strokeWidth={1.5} />
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+          <ThreadList
+            variant="drawer"
+            className="min-h-0 flex-1"
+            currentId={chat.conversationId}
+            refreshKey={threadsRefreshKey}
+            onOpen={openThread}
+            onNew={newThread}
+            onClose={() => setThreadsOpen(false)}
+            onCurrentRemoved={newThread}
+          />
         </div>
       )}
 
@@ -765,6 +709,25 @@ export function PanelChat({
         </button>
       </form>
     </section>
+  );
+
+  if (!threadsRail) return chatSection;
+
+  // Wide dock / popout: the thread list is its own always-visible column
+  // beside the chat, T3-style — browse or start threads while a run works.
+  return (
+    <div className="flex h-full min-h-0 gap-2">
+      <ThreadList
+        variant="rail"
+        className="w-44 flex-none"
+        currentId={chat.conversationId}
+        refreshKey={threadsRefreshKey}
+        onOpen={openThread}
+        onNew={newThread}
+        onCurrentRemoved={newThread}
+      />
+      {chatSection}
+    </div>
   );
 }
 

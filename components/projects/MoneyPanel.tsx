@@ -45,8 +45,10 @@ export function MoneyPanel({ slug, money }: { slug: string; money: ProjectMoney 
     });
   }
 
+  // minmax(0,1fr), not 1fr: a raw 1fr track's minimum is its content's min-content
+  // width, so one long nowrap invoice line blows the whole column past the viewport.
   return (
-    <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[1fr_300px]">
+    <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[minmax(0,1fr)_300px]">
       {/* Invoices */}
       <div className="flex flex-col gap-3">
         <div className="flex items-center">
@@ -70,63 +72,68 @@ export function MoneyPanel({ slug, money }: { slug: string; money: ProjectMoney 
           <Card className="overflow-hidden p-0">
             {money.invoices.map((inv, i) => (
               <div key={inv.id} className={i ? "border-t border-rule-soft" : ""}>
-                <div className="flex items-center gap-3 px-4 pt-3">
+                {/* Wrapping row: when the column is narrow (phone, operator panel
+                    open) the amount/status/actions group drops to its own line
+                    instead of colliding with the milestone or clipping. */}
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 pt-3">
                   <span className="w-[64px] flex-none font-mono text-[11px] text-ink-3">{inv.number}</span>
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 basis-[140px]">
                     <div className="truncate text-[13px] text-ink">{inv.milestone}</div>
                     <div className="font-mono text-[10px] text-ink-3">{inv.statusLabel}</div>
                   </div>
-                  <span className="font-mono text-[12px] text-ink-2">{fmt(inv.amount)}</span>
-                  <Chip kind={STATUS_CHIP[inv.status]} dot>
-                    {inv.status}
-                  </Chip>
-                  <div className="flex w-[152px] items-center justify-end gap-1.5">
-                    {inv.lines.length > 0 && (
-                      <a
-                        href={`/api/projects/${slug}/invoices/${inv.id}/preview`}
-                        target="_blank"
-                        rel="noreferrer"
-                        title="Preview PDF — what the client receives"
-                        className="rounded-md border border-rule p-1 text-ink-3 hover:bg-paper-2 hover:text-ink"
-                      >
-                        <FileText className="size-3" strokeWidth={1.75} />
-                      </a>
-                    )}
-                    {inv.status === "draft" && (
-                      <>
-                        <button
-                          onClick={() => setEditing(inv)}
-                          title="Edit line items"
+                  <div className="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-1.5">
+                    <span className="font-mono text-[12px] text-ink-2">{fmt(inv.amount)}</span>
+                    <Chip kind={STATUS_CHIP[inv.status]} dot>
+                      {inv.status}
+                    </Chip>
+                    <div className="flex items-center justify-end gap-1.5">
+                      {inv.lines.length > 0 && (
+                        <a
+                          href={`/api/projects/${slug}/invoices/${inv.id}/preview`}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Preview PDF — what the client receives"
                           className="rounded-md border border-rule p-1 text-ink-3 hover:bg-paper-2 hover:text-ink"
                         >
-                          <Pencil className="size-3" strokeWidth={1.75} />
-                        </button>
+                          <FileText className="size-3" strokeWidth={1.75} />
+                        </a>
+                      )}
+                      {inv.status === "draft" && (
+                        <>
+                          <button
+                            onClick={() => setEditing(inv)}
+                            title="Edit line items"
+                            className="rounded-md border border-rule p-1 text-ink-3 hover:bg-paper-2 hover:text-ink"
+                          >
+                            <Pencil className="size-3" strokeWidth={1.75} />
+                          </button>
+                          <button
+                            disabled={pending}
+                            onClick={() => run(() => deleteInvoice(inv.id))}
+                            title="Delete draft"
+                            className="rounded-md border border-rule p-1 text-ink-3 hover:bg-paper-2 hover:text-flag disabled:opacity-50"
+                          >
+                            <Trash2 className="size-3" strokeWidth={1.75} />
+                          </button>
+                          <button
+                            disabled={pending}
+                            onClick={() => run(() => sendInvoice(inv.id))}
+                            className="rounded-md border border-accent bg-accent-soft px-2 py-1 text-[11px] font-semibold text-accent-2 hover:bg-accent-soft/70 disabled:opacity-50"
+                          >
+                            Send
+                          </button>
+                        </>
+                      )}
+                      {inv.status === "sent" && (
                         <button
                           disabled={pending}
-                          onClick={() => run(() => deleteInvoice(inv.id))}
-                          title="Delete draft"
-                          className="rounded-md border border-rule p-1 text-ink-3 hover:bg-paper-2 hover:text-flag disabled:opacity-50"
+                          onClick={() => run(() => markInvoicePaid(inv.id))}
+                          className="rounded-md border border-money/40 bg-money/10 px-2 py-1 text-[11px] font-semibold text-money hover:bg-money/20 disabled:opacity-50"
                         >
-                          <Trash2 className="size-3" strokeWidth={1.75} />
+                          Mark paid
                         </button>
-                        <button
-                          disabled={pending}
-                          onClick={() => run(() => sendInvoice(inv.id))}
-                          className="rounded-md border border-accent bg-accent-soft px-2 py-1 text-[11px] font-semibold text-accent-2 hover:bg-accent-soft/70 disabled:opacity-50"
-                        >
-                          Send
-                        </button>
-                      </>
-                    )}
-                    {inv.status === "sent" && (
-                      <button
-                        disabled={pending}
-                        onClick={() => run(() => markInvoicePaid(inv.id))}
-                        className="rounded-md border border-money/40 bg-money/10 px-2 py-1 text-[11px] font-semibold text-money hover:bg-money/20 disabled:opacity-50"
-                      >
-                        Mark paid
-                      </button>
-                    )}
+                      )}
+                    </div>
                   </div>
                 </div>
                 {/* read-only line breakdown */}

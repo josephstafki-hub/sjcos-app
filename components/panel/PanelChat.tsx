@@ -336,12 +336,17 @@ export function PanelChat({
             <button
               key={a}
               onClick={() => {
-                if (chat.pending) return;
                 chat.selectAgent(a);
                 inputRef.current?.focus();
               }}
-              disabled={chat.pending}
-              className={`rounded px-2.5 py-0.5 text-[11.5px] font-medium transition-colors disabled:opacity-50 ${
+              // Live mid-run: the current turn is left running in its own
+              // thread rather than blocking the rail (useAgentChat.detachRun).
+              title={
+                chat.pending && a !== chat.agent
+                  ? `Start a ${AGENT_META[a].label} chat — the turn in flight keeps running and its answer waits in that thread`
+                  : AGENT_META[a].label
+              }
+              className={`rounded px-2.5 py-0.5 text-[11.5px] font-medium transition-colors ${
                 a === chat.agent ? "bg-ink text-paper" : "text-ink-2 hover:bg-paper"
               }`}
             >
@@ -369,7 +374,11 @@ export function PanelChat({
           <button
             onClick={newThread}
             aria-label="New chat"
-            title="New chat"
+            title={
+              chat.pending
+                ? "New chat — the turn in flight keeps running; its answer waits in that thread"
+                : "New chat"
+            }
             className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ink-3 transition-colors hover:bg-paper"
           >
             <Plus className="size-3" strokeWidth={2} /> New

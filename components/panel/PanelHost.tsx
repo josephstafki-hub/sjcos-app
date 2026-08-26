@@ -75,12 +75,13 @@ export function PanelHost({ children }: { children: ReactNode }) {
   // (panelStore). Hand the open thread over explicitly on the URL — the panel's
   // ?c= deep link — or the popout would open a fresh chat instead of the one
   // Joe was just in. Re-docking is the reverse: each app tab goes back to its
-  // OWN thread, and anything the popout worked on is in History (with a live
-  // dot while it's still running).
+  // OWN thread, and anything the popout worked on is in the thread list (with
+  // its live dot while the run is still going).
   const detach = () => {
     const { conversationId } = readPanelState();
     const href = conversationId ? `/panel?c=${encodeURIComponent(conversationId)}` : "/panel";
-    const w = window.open(href, "sjcos-panel", "width=720,height=1000");
+    // Wide enough for the popout's three columns (threads · queue · chat).
+    const w = window.open(href, "sjcos-panel", "width=1100,height=1000");
     if (w) setWhere("window");
   };
 

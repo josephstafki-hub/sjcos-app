@@ -235,7 +235,13 @@ export function useAgentChat({
   const detachRun = (): boolean => {
     const wasLive = pending || activeRunId != null;
     claim();
+    // pending is cleared here because the abandoned loop's finally sees a dead
+    // claim and won't. Its question boxes, grants and stop target belong to the
+    // thread being left, not to whatever comes next.
     setPending(false);
+    setInteractions([]);
+    setGrants([]);
+    setActiveRunId(null);
     if (wasLive) cbRef.current.onRunEnd?.();
     return wasLive;
   };
@@ -330,11 +336,14 @@ export function useAgentChat({
     setNotice("");
     setInteractions([]);
     setGrants([]);
+    setActiveRunId(null);
     setContextTokens(null);
     setClaudeSessionId(null);
-    setActiveRunId(null);
   };
 
+  /** Start a fresh thread. Allowed mid-run on purpose: the run finishes
+   *  server-side and its reply lands in its own thread, marked live in the
+   *  thread list. */
   const newChat = () => {
     const leftRunning = detachRun();
     writePanelState({ conversationId: null });

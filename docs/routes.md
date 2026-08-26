@@ -1,130 +1,165 @@
 # SJC OS — Route + Component Map
 
-All routes use Next.js App Router (path-based, not hash-based like the prototype).
+*Verified against the tree 2026-08-25. All routes use the Next.js App Router
+(path-based, not hash-based like the prototype).*
 
-> **Universal operator panel (2026-08).** All internal Shell pages moved into
-> the `app/(os)/` route group (URLs unchanged); `app/(os)/layout.tsx` owns the
-> viewport and, for the owner, mounts the persistent operator panel
-> (`components/panel/`) beside the page content — queue + chat dock left, the
-> real app right, resizable, detachable to its own window via `/panel`.
-> Consolidations: `/ai` (with `?c=` passthrough), `/cmdk` and `/today-preview`
-> now redirect to `/today`; the ⌘K CommandBar/pill, AssistantChat and the
-> Today-feed/newsletter chats are gone — the panel is the one Ask surface.
-> New routes: `/panel` (panel-only window, no Shell) and
-> `/workbench?s=<subject>` (the old operator workbench as a full page).
-> Shell props are now just `breadcrumb` + `aiContext` (`hideCmd`/`cmdkOpen`/
-> `embeddedAsk` removed). Team chat `@` mentions are unchanged.
+## Layout groups (read first)
+
+```
+app/
+  layout.tsx            — root layout (fonts, body)
+  (os)/                 — ROUTE GROUP: every internal owner-facing page.
+    layout.tsx          —   owns the h-dvh viewport; for the owner, mounts the
+                            persistent operator panel beside the page content.
+                            Also hosts RouteTracker + LiveUpdates (one instance
+                            per session, not per page).
+    page.tsx            —   `/` → redirect to /today
+  login/                — standalone
+  panel/                — standalone: the panel in its own detached window
+  client-portal/        — standalone client surface (own chrome, no Shell)
+  sub-portal/           — standalone sub surface (own chrome, no Shell)
+  api/                  — route handlers
+```
+
+The `(os)` group is a **layout** boundary, not a URL segment: `/today` is served
+by `app/(os)/today/page.tsx`. A layout does not re-render on soft navigation,
+which is what lets the operator dock's chat state, poll loops, and splitter
+width survive page changes.
+
+**Universal operator panel (2026-08).** The panel (`components/panel/`) is the
+app's one Ask surface — queue + chat dock on the left, the real app on the
+right, resizable, detachable to `/panel`. The old ⌘K CommandBar/pill,
+`AssistantChat`, and the Today-feed/newsletter chats are gone; `/cmdk` and
+`/today-preview` are now redirects. `/workbench` is the old operator-console
+workbench column promoted to a full page.
 
 ---
 
 ## Shell
 
-Every internal page wraps in `Shell` (`components/shell/Shell.tsx`).
-Standalone pages (Client Portal, Sub Portal) use their own minimal chrome — no Shell.
+Internal pages wrap in `Shell` (`components/shell/Shell.tsx`): sidebar + topbar
++ main slot. Standalone pages (login, panel, Client Portal, Sub Portal) use
+their own chrome and do **not** wrap in Shell.
 
 ```
-Shell props:
-  active       — sidebar nav key (see values below)
-  breadcrumb   — string shown in topbar, e.g. "PROJECTS › HENDERSON KITCHEN"
-  hideCmd      — boolean; hides ⌘K pill (use on Schedule, Files, Floor plan, CMS preview)
+Shell props (that's all of them):
+  breadcrumb?  — small-caps mono string in the topbar, e.g. "PROJECTS › HENDERSON KITCHEN"
+  aiContext?   — text brief of this page's records, published to the operator
+                 panel so its turns answer from what's in view (lib/page-context.ts)
 ```
 
-Sidebar `active` values:
-`home` · `inbox` · `chat` · `leads` · `projects` · `sched` · `subs` · `files` ·
-`site` · `newsletter` · `catalog` · `compliance` · `warranty` · `books` ·
-`client` · `sub` · `ai` · `settings`
+There is no `active` prop any more — the sidebar derives its highlight from
+`usePathname()`. `hideCmd` / `cmdkOpen` / `embeddedAsk` were removed with the
+⌘K surface.
 
 ---
 
-## Route table
+## Route table — internal (`app/(os)/…`)
 
-| URL path              | Next.js file                                | Shell `active` | Phase |
-|-----------------------|---------------------------------------------|----------------|-------|
-| `/today`              | `app/today/page.tsx`                        | `home`         | 1.1   |
-| `/inbox`              | `app/inbox/page.tsx`                        | `inbox`        | 2.1   |
-| `/chat`               | `app/chat/page.tsx`                         | `chat`         | 2.2   |
-| `/leads`              | `app/leads/page.tsx`                        | `leads`        | 1.2   |
-| `/leads/[slug]`       | `app/leads/[slug]/page.tsx`                 | `leads`        | 1.3   |
-| `/projects`           | `app/projects/page.tsx`                     | `projects`     | 1.4   |
-| `/projects/[slug]`    | `app/projects/[slug]/page.tsx`              | `projects`     | 1.5   |
-| `/schedule`           | `app/schedule/page.tsx`                     | `sched`        | 3.1   |
-| `/subs`               | `app/subs/page.tsx`                         | `subs`         | 3.2   |
-| `/subs/[slug]`        | `app/subs/[slug]/page.tsx`                  | `subs`         | 3.3   |
-| `/files`              | `app/files/page.tsx`                        | `files`        | 3.4   |
-| `/site`               | `app/site/page.tsx`                         | `site`         | 4.1   |
-| `/newsletter`         | `app/newsletter/page.tsx`                   | `newsletter`   | 4.2   |
-| `/floor`              | `app/floor/page.tsx`                        | —              | 4.4   |
-| `/catalog`            | `app/catalog/page.tsx`                      | `catalog`      | 4.3   |
-| `/compliance`         | `app/compliance/page.tsx`                   | `compliance`   | 3.5   |
-| `/warranty`           | `app/warranty/page.tsx`                     | `warranty`     | 3.6   |
-| `/books`              | `app/books/page.tsx`                        | `books`        | —     |
-| `/client-portal`      | `app/client-portal/page.tsx`                | —              | 6.1   |
-| `/sub-portal`         | `app/sub-portal/page.tsx`                   | —              | 6.2   |
-| `/ai`                 | `app/ai/page.tsx`                           | `ai`           | 5.1   |
-| `/cmdk`               | `app/cmdk/page.tsx`                         | —              | 5.2   |
-| `/notifications`      | `app/notifications/page.tsx`                | —              | 2.3   |
-| `/search`             | `app/search/page.tsx`                       | —              | 5.3   |
-| `/settings`           | `app/settings/page.tsx`                     | `settings`     | 6.3   |
-| `/` (root)            | `app/page.tsx` → redirect to `/today`       | —              | 0.2   |
+Grouped as the sidebar groups them (`components/shell/Sidebar.tsx`).
+
+| URL path            | File under `app/(os)/`     | Notes |
+|---------------------|----------------------------|-------|
+| `/today`            | `today/page.tsx`           | The day's queue |
+| `/inbox`            | `inbox/page.tsx`           | Gmail |
+| `/messages`         | `messages/page.tsx`        | SMS — built, inert until a provider (`docs/sms-seam.md`) |
+| `/chat`             | `chat/page.tsx`            | Team chat (`@` mentions) |
+| `/leads`            | `leads/page.tsx`           | |
+| `/leads/[slug]`     | `leads/[slug]/page.tsx`    | |
+| `/projects`         | `projects/page.tsx`        | |
+| `/projects/[slug]`  | `projects/[slug]/page.tsx` | Tool tabs — see `lib/project-tabs.ts` |
+| `/schedule`         | `schedule/page.tsx`        | |
+| `/subs`             | `subs/page.tsx`            | |
+| `/subs/[slug]`      | `subs/[slug]/page.tsx`     | |
+| `/vendors`          | `vendors/page.tsx`         | Materials suppliers (distinct from subs) |
+| `/vendors/[slug]`   | `vendors/[slug]/page.tsx`  | |
+| `/files`            | `files/page.tsx`           | |
+| `/site`             | `site/page.tsx`            | Website CMS push |
+| `/newsletter`       | `newsletter/page.tsx`      | Issues, recipients, drips |
+| `/catalog`          | `catalog/page.tsx`         | Retail products (clipper target) |
+| `/cost-book`        | `cost-book/page.tsx`       | Reusable unit costs estimates pull from |
+| `/compliance`       | `compliance/page.tsx`      | |
+| `/warranty`         | `warranty/page.tsx`        | |
+| `/marketing`        | `marketing/page.tsx`       | |
+| `/automate`         | `automate/page.tsx`        | Claude-CLI builder |
+| `/engine`           | `engine/page.tsx`          | Work items, skills, runbooks |
+| `/engine/permissions` | `engine/permissions/page.tsx` | Owner grants / decisions |
+| `/workbench`        | `workbench/page.tsx`       | `?s=<subject>` — live entity workbench |
+| `/floor`            | `floor/page.tsx`           | Floor-plan viewer |
+| `/ai`               | `ai/page.tsx`              | `?c=` passthrough to a conversation |
+| `/notifications`    | `notifications/page.tsx`   | |
+| `/settings`         | `settings/page.tsx`        | |
+| `/cmdk`             | `cmdk/page.tsx`            | **redirect → `/today`** |
+| `/today-preview`    | `today-preview/page.tsx`   | **redirect → `/today`** |
+| `/` (root)          | `page.tsx`                 | **redirect → `/today`** |
+
+**`/books`** is in the sidebar as a **disabled `soon` item — there is no page.**
+The accounting epic is unbuilt (`docs/phase-5-accounting-plan.md`).
+
+## Route table — standalone
+
+| URL path | File | Notes |
+|---|---|---|
+| `/login` | `app/login/page.tsx` | |
+| `/panel` | `app/panel/page.tsx` | Panel-only window, no Shell |
+| `/client-portal` | `app/client-portal/page.tsx` | + `documents`, `messages`, `money`, `mood`, `plans`, `schedule`, `selections` |
+| `/sub-portal` | `app/sub-portal/page.tsx` | |
 
 ---
 
 ## API routes
 
-| Endpoint                    | Handler file                                    | Phase |
-|-----------------------------|-------------------------------------------------|-------|
-| `GET /api/today`            | `app/api/today/route.ts`                        | 1.1   |
-| `GET /api/leads`            | `app/api/leads/route.ts`                        | 1.2   |
-| `GET /api/leads/[slug]`     | `app/api/leads/[slug]/route.ts`                 | 1.3   |
-| `GET /api/projects`         | `app/api/projects/route.ts`                     | 1.4   |
-| `GET /api/projects/[slug]`  | `app/api/projects/[slug]/route.ts`              | 1.5   |
-| `GET /api/inbox`            | `app/api/inbox/route.ts`                        | 2.1   |
-| `GET /api/notifications`    | `app/api/notifications/route.ts`                | 2.3   |
-| `GET /api/schedule`         | `app/api/schedule/route.ts`                     | 3.1   |
-| `GET /api/subs`             | `app/api/subs/route.ts`                         | 3.2   |
-| `GET /api/subs/[slug]`      | `app/api/subs/[slug]/route.ts`                  | 3.3   |
-| `GET /api/compliance`       | `app/api/compliance/route.ts`                   | 3.5   |
-| `GET /api/warranty`         | `app/api/warranty/route.ts`                     | 3.6   |
-| `GET /api/catalog`          | `app/api/catalog/route.ts`                      | 4.3   |
+Route handlers live under `app/api/`. Rather than list every one (it drifts),
+the shape:
+
+| Family | Path | Auth |
+|---|---|---|
+| Record reads | `/api/{today,leads,projects,subs,inbox,schedule,compliance,warranty,catalog,files,notifications,site,newsletter}` | session cookie (owner) |
+| AI / voice | `/api/{ai,chat,transcribe,tts}` | session cookie |
+| Auth | `/api/auth/{login,me}` | — |
+| Cron sweeps | `/api/cron/{reminders,detect,agent-retries,bid-follow-ups,lead-thread-sync,newsletter-drip,push-drain}` | cron secret; driven by systemd timers |
+| Agent surface | `/api/internal/{bidding,doc-drafts,leads,newsletter,notify-owner,owner-grants,purchase-orders,runbooks}` | internal token — what the MCP server calls |
+| Mobile app | `/api/mobile/…` | token; consumed by `/home/joe/sjcos-mobile` |
+| Sessionless inbound | `/api/leads/intake`, `/api/catalog/clip`, `/api/sms/webhook`, `/api/inbox/oauth/*` | per-purpose bearer token / shared secret, **not** the session cookie |
+| Client-scoped serves | `/api/portal/{bid-file,floorplan,mood-image,project-file,selection-image,sign-doc}/[id]` | portal claim/bearer (`lib/client-portal.ts`) |
+| Newsletter tracking | `/api/newsletter/{img,open,unsubscribe}/[token]` | opaque per-recipient token |
+
+`proxy.ts` gates **page navigation** by role; it deliberately excludes `/api`,
+so every route handler does its own auth. Mutating server actions guard with
+`requireRole("owner")` from `lib/dal.ts`.
 
 ---
 
 ## Component structure
 
 ```
-app/
-  layout.tsx              — root layout (fonts, body)
-  page.tsx                — redirects to /today
-  today/page.tsx
-  leads/
-    page.tsx
-    [slug]/page.tsx
-  projects/
-    page.tsx
-    [slug]/page.tsx
-  ... (one folder per route)
-
 components/
   shell/
-    Shell.tsx             — composes Sidebar + Topbar + main slot
-    Sidebar.tsx           — forest-green nav panel
-    Topbar.tsx            — breadcrumb, search, bell, Ask
-    CmdKPill.tsx          — persistent bottom pill
-  ui/
-    index.ts              — barrel export
-    Card.tsx
-    Chip.tsx
-    Avatar.tsx
-    AiBubble.tsx
-    Tabs.tsx
-    Field.tsx
-    Eyebrow.tsx
+    Shell.tsx           — Sidebar + Topbar + main slot
+    Sidebar.tsx         — forest-green nav rail (groups: Work / Tools / External)
+    MobileNav.tsx       — the rail as a drawer below `lg`
+    Topbar.tsx          — breadcrumb, bell, mobile hamburger
+    RouteTracker.tsx    — current-route publisher for the panel
+    LiveUpdates.tsx     — server-push refresh
+  panel/                — the universal operator panel
+    PanelProvider/PanelHost/PanelDock/PanelWindow — mounting + docking
+    PanelChat + useAgentChat — the chat surface (question boxes, approvals,
+                              context meter, stop)
+    QueueRail + PanelQueueProvider — the Today queue column
+    WorkbenchPanel/WorkbenchLive  — live entity view
+  ui/                   — Card, Chip, Avatar, AiBubble, Tabs, Field, Eyebrow,
+                          SubmitButton, AiStream, PhotoGrid, … (barrel: index.ts)
+  <feature>/            — one folder per surface (leads, projects, engine,
+                          newsletter, cost-book, messages, portal, …)
 
 lib/
-  ai.ts                   — provider-agnostic AI service (mock → real)
-  db.ts                   — PostgreSQL connection pool
-  types.ts                — TypeScript interfaces
+  db.ts                 — PostgreSQL pool          types.ts   — shared interfaces
+  ai.ts                 — provider-agnostic AI      dal.ts     — session/role guards
+  dev-agents.ts         — Claude / Hermes runs
+  orchestrator/         — router + Claude↔Hermes review ladder
+  actions/              — server actions (owner-gated writes)
+  doc-templates/        — the legal-document templates
 
-db/
-  schema.sql              — initial DDL
+db/schema.sql           — the whole schema (single file, additive)
+mcp/sjcos-mcp.mjs       — the MCP server (see mcp/README.md)
 ```

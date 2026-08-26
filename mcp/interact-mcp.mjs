@@ -88,7 +88,9 @@ function describeAction(name, input) {
 }
 
 const PROMPT_POLL_MS = 1500;
-const PROMPT_TIMEOUT_MS = 540_000; // under the runner's raised MCP_TOOL_TIMEOUT
+// Just under the runner's raised MCP_TOOL_TIMEOUT (24 h) — an approval waits
+// on Joe with no practical limit; the run stays alive via the runner heartbeat.
+const PROMPT_TIMEOUT_MS = Number(process.env.SJC_PROMPT_TIMEOUT_MS ?? 86_000_000);
 
 const server = new McpServer({ name: "interact", version: "1.0.0" });
 

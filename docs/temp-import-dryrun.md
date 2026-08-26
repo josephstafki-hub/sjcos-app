@@ -1,9 +1,15 @@
 # Temp CRM → SJC OS migration (dry-run importer)
 
-The temp CRM tracker (`/home/joe/SJC OS Temp/data/leads.csv`) is the current live
-operational data. `scripts/import-temp-leads.mjs` migrates it into the official
-SJC OS database **safely and reversibly**. It stays a source-of-truth migration
-tool — the CSV becomes an import source, not the long-term truth.
+> **📌 The migration is DONE (2026-07) — this is now reference for a finished
+> one-off.** SJC OS Postgres is the source of truth. `/home/joe/SJC OS Temp`
+> still exists on disk but is **import/reference only**; do not treat its CSVs
+> as operational data (see `AGENTS.md`). The scripts described below still work
+> and `scripts/import-undo.mjs` still rolls the import back, but re-running the
+> import on live data would duplicate records — don't, without a reason.
+
+The temp CRM tracker (`/home/joe/SJC OS Temp/data/leads.csv`) *was* the live
+operational data. `scripts/import-temp-leads.mjs` migrated it into the official
+SJC OS database **safely and reversibly**.
 
 ## How to run
 

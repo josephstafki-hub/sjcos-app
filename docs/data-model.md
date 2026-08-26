@@ -1,5 +1,13 @@
 # SJC OS — Data Model
 
+> **📌 `db/schema.sql` is the source of truth — this doc is not.** These shapes
+> were inferred from the wireframes early in the build and cover only the
+> original core entities. The live schema has ~100 tables (work items, knowledge,
+> skills/runbooks, estimates, documents, bidding, newsletter, orchestration,
+> agent memory, owner grants, …) and differs in detail from what's below —
+> notably **all money is stored in cents**. Read this for the intent behind the
+> core records; read `db/schema.sql` for what actually exists.
+
 Inferred from wireframes + SJC OS Master Plan. Align with existing `/admin` schema where it overlaps.
 
 ---

@@ -54,8 +54,8 @@ export const DEV_AGENTS: DevAgent[] = ["claude", "qwen", "hermes"];
 // minutes. Turns run in the background and are polled (lib/actions/ai-chat.ts)
 // rather than held open as one HTTP request, so there's no UI reason to cut
 // this short — bounded mainly so a truly stuck run doesn't hang forever.
-// Keep in lockstep with the poll ceilings in CommandBar/AssistantChat and the
-// failStaleRuns() cutoff below (all sized to the same ~15 min budget).
+// Keep in lockstep with the panel's poll ceiling (useAgentChat's 1440 × 2s) and
+// the failStaleRuns() cutoff below (all sized to the same ~15 min budget).
 const HERMES_TIMEOUT_MS = Number(process.env.HERMES_AGENT_TIMEOUT_MS ?? 480_000);
 const HERMES_MODEL = "hermes-agent";
 // Stable scope for Hermes' long-term memory when chatting from SJC OS.
@@ -741,11 +741,12 @@ export async function retryFailedApprovalPings(): Promise<{ retried: number }> {
  *  above HERMES_TIMEOUT_MS so a live Hermes turn always gets to report its
  *  own timeout error first — this is just the backstop.
  *
- *  Keyed on updated_at (progress), not created_at: an orchestration-ladder
- *  run legitimately outlives 15 minutes across its Hermes rounds + Claude
- *  reviews, but it touches activity/updated_at at every stage — only a run
- *  that has gone QUIET for 15 minutes is dead. failStaleTasks() (45 min) is
- *  the task-level backstop above this. */
+ *  Keyed on updated_at (progress), not created_at: there is NO wall-clock
+ *  limit on how long a run may go. The Claude CLI runner heartbeats
+ *  updated_at every 5s while its process is alive (scripts/run-claude-agent
+ *  .mjs), and ladder runs touch activity/updated_at at every stage — only a
+ *  run that has gone QUIET for 15 minutes has a dead runner behind it.
+ *  failStaleTasks() (45 min quiet) is the task-level backstop above this. */
 export async function failStaleRuns(): Promise<void> {
   await query(
     `UPDATE dev_agent_runs

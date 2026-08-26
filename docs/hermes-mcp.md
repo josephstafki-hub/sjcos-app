@@ -1,10 +1,12 @@
 # Hermes ↔ SJC OS over MCP
 
-Hermes (the Telegram operator) should eventually stop reading the temp CRM CSV /
-files directly and instead go through the SJC OS **MCP server** (`mcp/sjcos-mcp.mjs`).
+Hermes (the Telegram operator) goes through the SJC OS **MCP server**
+(`mcp/sjcos-mcp.mjs`) rather than reading the temp CRM CSV / files directly.
 That makes SJC OS Postgres the single source of truth: Hermes reads the same work
 queue and knowledge base the app shows Joe, and writes back through the same
-gated, audited tools.
+gated, audited tools. *(This was written as a "should eventually"; it has since
+happened — Hermes is also one of the agents behind the in-app operator panel,
+routed to by `lib/orchestrator/router.ts`.)*
 
 > **Legacy note:** `/home/joe/SJC OS Temp` is now import/reference only. It is not
 > deleted, but it is no longer the operational source. New work lives in SJC OS.
@@ -25,9 +27,28 @@ gated, audited tools.
 | `list_skills` / `get_skill` | Load the operating procedure for a task before doing it |
 | `record_receipt` | Log proof of work (message sent id, file path, row changed) |
 
-These are curated + parameterized. There is **no raw-SQL tool**, and no
-client-facing send (email/SMS/invoice/contract) is exposed — those stay
-owner-approved in the app.
+These are curated + parameterized, and there is still **no raw-SQL tool**.
+
+> ### ⚠️ Corrected 2026-08-25 — sends ARE exposed now, behind owner grants
+>
+> This doc used to say no client-facing send was exposed at all. That changed:
+> the MCP surface now includes `send_email`, `send_invoice`,
+> `send_bid_package`, `send_purchase_order`, `send_document_for_signature`,
+> `release_newsletter_issue`, and `release_newsletter_outbox_item`.
+>
+> **They are not open.** Each one refuses unless it is handed an
+> `owner_grant_id` — Joe's express permission for **one action on one target**
+> (`lib/owner-grants.ts`, `mcp/grants-tools.mjs`). Without a grant, the correct
+> move is unchanged from what this doc describes: draft, stage, and ask.
+> `request_owner_permission` files a Decision Joe approves at
+> `/engine/permissions`; `ask_owner` (`mcp/interact-tools.mjs`) puts a question
+> box in front of him. **Never route around the grant.**
+>
+> Also added since this was written: bidding (`mcp/bidding-tools.mjs`), mood
+> boards, runbooks (`mcp/runbook-tools.mjs`), agent memories, and a
+> search/fetch pair for ChatGPT-style clients (`mcp/chatgpt-tools.mjs`).
+> **`mcp/README.md` is the current, authoritative tool list** — this doc is
+> about *how Hermes should work*, not what exists.
 
 ## Daily one-item-at-a-time review loop
 

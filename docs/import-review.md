@@ -1,6 +1,8 @@
 # Imported data review — temp CRM → SJC OS
 
-_Generated 2026-07-03 by `scripts/import-review.mjs` (read-only). Re-run to refresh._
+_Generated 2026-07-03 by `scripts/import-review.mjs` (read-only). **Re-run to refresh — the
+counts below are frozen at 2026-07-03 and are now well out of date.** The temp-CRM import
+itself is long finished; this is the review artifact from it._
 
 Source: `/home/joe/SJC OS Temp/data/leads.csv` (legacy/import reference only — SJC OS Postgres is now the source of truth).
 

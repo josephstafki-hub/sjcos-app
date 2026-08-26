@@ -1,7 +1,9 @@
 # Document Templates Plan — AI-fillable business documents
 
-**Status: Phases 1–5 + Phase 6 UI BUILT & VERIFIED (2026-07-10). Only the legacy-generator
-CUTOVER/deletion is deliberately deferred (see below).** This doc is written so another
+**Status: Phases 1–5 + Phase 6 UI BUILT & VERIFIED (2026-07-10), live on prod. Only the
+legacy-generator CUTOVER/deletion is deliberately deferred — still true as of 2026-08-25:
+`lib/documents.ts` still holds the inline completion-certificate / lien-waiver / demand-letter
+/ lien-package / permit renderers alongside the 8 registry templates (see below).** This doc is written so another
 model/session can execute it phase by phase without re-deriving context. Read it top to bottom
 before starting; each phase lists exact files.
 
@@ -48,8 +50,9 @@ Progress:
   `attachments`). Owner preview at `GET /api/leads/[slug]/rough-estimate`; "Preview PDF" button
   on the Rough estimate tab. Also fixed a `columns_table` renderer bug in `lib/doc-render.ts`
   (fixed 90px cols + single-line row advance → long cells overlapped; now adaptive widths +
-  per-row height from the tallest wrapped cell). NOTE: this rides on the doc-templates system,
-  so it only works once that system is deployed — it is NOT on prod yet.
+  per-row height from the tallest wrapped cell). ~~NOTE: this rides on the doc-templates
+  system, so it only works once that system is deployed — it is NOT on prod yet.~~
+  **Deployed since — the whole doc-templates system is on `main` and live.**
 
 **Deferred by design — legacy-generator CUTOVER + deletion (Phase 6 tail).** The new draft
 system runs ALONGSIDE the existing generators; nothing was rewired or deleted. Cutting

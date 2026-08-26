@@ -14,10 +14,6 @@ export interface ConversationSummary {
   title: string;
   updatedAt: string;
   archived: boolean;
-  /** A turn is still in flight in this thread — it may be running for another
-   *  tab, or one this tab stepped off (useAgentChat.detachRun). The history
-   *  drawer marks it so a background run is visible, not lost. */
-  running: boolean;
 }
 
 export interface ChatMessage {
@@ -64,20 +60,11 @@ export async function listConversations(
     title: string;
     updated_at: string;
     archived: boolean;
-    running: boolean;
   }>(
-    // The live-run join is a single semi-join over the handful of unsettled
-    // rows (dev_agent_runs_status_idx), not an EXISTS per conversation —
-    // dev_agent_runs has no conversation_id index.
-    `SELECT c.id, c.agent, c.title, c.updated_at::text AS updated_at, c.archived,
-            (live.conversation_id IS NOT NULL) AS running
-       FROM ai_conversations c
-       LEFT JOIN (
-         SELECT DISTINCT conversation_id FROM dev_agent_runs
-          WHERE status IN ('pending','running') AND conversation_id IS NOT NULL
-       ) live ON live.conversation_id = c.id
-      WHERE c.agent = $1 ${includeArchived ? "" : "AND c.archived = false"}
-      ORDER BY c.updated_at DESC
+    `SELECT id, agent, title, updated_at::text AS updated_at, archived
+       FROM ai_conversations
+      WHERE agent = $1 ${includeArchived ? "" : "AND archived = false"}
+      ORDER BY updated_at DESC
       LIMIT 100`,
     [agent],
   );
@@ -87,7 +74,42 @@ export async function listConversations(
     title: r.title,
     updatedAt: r.updated_at,
     archived: r.archived,
-    running: r.running,
+  }));
+}
+
+export interface ThreadListItem extends ConversationSummary {
+  /** A run is still pending/running in this thread right now. */
+  live: boolean;
+}
+
+/** Every thread across all agents, most-recent first — backs the panel's
+ *  thread rail/drawer. `live` marks threads with a run in flight so the list
+ *  can show which conversations are still working (a thread keeps running
+ *  server-side after Joe switches away). */
+export async function listAllConversations(includeArchived = false): Promise<ThreadListItem[]> {
+  const { rows } = await query<{
+    id: string;
+    agent: PanelAgent;
+    title: string;
+    updated_at: string;
+    archived: boolean;
+    live: boolean;
+  }>(
+    `SELECT c.id, c.agent, c.title, c.updated_at::text AS updated_at, c.archived,
+            EXISTS (SELECT 1 FROM dev_agent_runs r
+                     WHERE r.conversation_id = c.id AND r.status IN ('pending','running')) AS live
+       FROM ai_conversations c
+      ${includeArchived ? "" : "WHERE c.archived = false"}
+      ORDER BY c.updated_at DESC
+      LIMIT 100`,
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    agent: r.agent,
+    title: r.title,
+    updatedAt: r.updated_at,
+    archived: r.archived,
+    live: r.live,
   }));
 }
 

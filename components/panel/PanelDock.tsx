@@ -12,6 +12,12 @@ import type { ActiveRun } from "./useAgentChat";
  *  dock's own width, not a viewport breakpoint. */
 const TWO_COLUMN_MIN = 560;
 
+/** Dock width at which the thread list becomes its own always-visible column
+ *  beside the chat (T3-style: threads · queue · chat all at once — the popout
+ *  window opens this wide). Below it, threads live behind the chat header's
+ *  History toggle. */
+const THREADS_RAIL_MIN = 880;
+
 /**
  * The operator panel: the old operator console's left + center columns as one
  * dock. Two columns (queue · chat) when the dock is wide enough, chat with
@@ -53,13 +59,22 @@ export function PanelDock({
       onRunEnd={() => setActiveRun(null)}
       showQueueCards={!twoCol && !compact}
       compact={compact}
+      threadsRail={!compact && width >= THREADS_RAIL_MIN}
     />
   );
 
   if (!twoCol || compact) return <div className="h-full min-h-0 p-2">{chatPanel}</div>;
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-[minmax(200px,2fr)_minmax(300px,3fr)] gap-2 p-2">
+    <div
+      className={`grid h-full min-h-0 gap-2 p-2 ${
+        // With the thread rail inside the chat cell, the chat side needs the
+        // bigger share so the transcript keeps a usable width.
+        width >= THREADS_RAIL_MIN
+          ? "grid-cols-[minmax(200px,2fr)_minmax(480px,4fr)]"
+          : "grid-cols-[minmax(200px,2fr)_minmax(300px,3fr)]"
+      }`}
+    >
       <QueueRail
         className="flex min-h-0"
         onHandOff={(p, k) => handOffRef.current?.(p, k)}

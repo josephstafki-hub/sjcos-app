@@ -7,14 +7,17 @@ STARRED toggle and the ⋮ menu does Mark read/unread, Mark important, Archive
 and Trash via owner-gated server actions (`lib/actions/inbox.ts`
 modify/trash wrappers → `lib/gmail.ts` `modifyThread`/`trashThread`).
 **F: `GMAIL_SCOPES` is now `gmail.modify`+`gmail.send`** and the consent
-flow requests it. **The modify re-consent is DEFERRED TO DEPLOY** (Joe,
-2026-06-18): the live refresh token was minted with the old `readonly`+`send`
-scopes, so the E actions show a "Gmail needs modify access" notice until then
-(reads/sends keep working). Re-consenting now would need a throwaway
-redirect URI — the cloudflared quick tunnel is ephemeral and was dead at the
-time. Doing it once at deploy against the permanent
-`https://<domain>/api/inbox/oauth/callback` is the clean path. **→ folded
-into the Phase 8 deploy checklist.**
+flow requests it (`lib/gmail.ts`).
+
+> **✅ RESOLVED — the modify re-consent is done (confirmed by Joe 2026-08-25).**
+> This doc used to defer it because the only redirect URI available was an
+> ephemeral cloudflared tunnel. The app deployed, the permanent
+> `https://os.sjcarpentryllc.com/api/inbox/oauth/callback` was registered, and
+> the refresh token was re-minted with `modify` — **the E/F actions (star,
+> archive, mark read/unread, important, trash) all work in prod.** The
+> "Gmail needs modify access" string is just how `withGmail()`
+> (`lib/actions/inbox.ts`) translates a scope error at call time; if it ever
+> reappears, reconnect the inbox at Settings → Integrations and it clears.
 
 Not built (optional): the ⋮ "apply/remove label" submenu and Gmail category
 tabs (Joe skipped categories).

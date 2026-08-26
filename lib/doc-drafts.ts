@@ -165,6 +165,27 @@ export async function renderProjectEstimatePdf(slug: string, estimateId: number)
   return renderTemplatePdf(template, values);
 }
 
+/** Render a project invoice to the house-style Invoice PDF the `invoice_doc`
+ *  document generator produces — the send path attaches this to the client
+ *  email, mirroring how estimates go out. Rendered on the fly from the
+ *  invoices row, no draft row. Returns null if the invoice doesn't exist under
+ *  `slug` or isn't yet renderable. Scoped by slug so one project can't render
+ *  another's invoice by id. */
+export async function renderProjectInvoicePdf(slug: string, invoiceId: number): Promise<Buffer | null> {
+  const template = getTemplate("invoice_doc");
+  if (!template) return null;
+  // Confirm the invoice belongs to this project before rendering.
+  const owns = await queryOne<{ id: string }>(
+    `SELECT i.id FROM invoices i JOIN projects p ON p.id = i.project_id
+      WHERE i.id = $1 AND p.slug = $2`,
+    [invoiceId, slug],
+  );
+  if (!owns) return null;
+  const { values } = await resolveAutoFields("invoice_doc", { slug, invoiceId });
+  if (!validateForRender(template, values).ok) return null;
+  return renderTemplatePdf(template, values);
+}
+
 // ─── Create ──────────────────────────────────────────────────────────────────
 
 export interface CreateResult {

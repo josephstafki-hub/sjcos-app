@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Plus, X, DollarSign, Pencil, Trash2, Sparkles } from "lucide-react";
+import { Plus, X, DollarSign, Pencil, Trash2, Sparkles, FileText } from "lucide-react";
 import { Card, Chip, Eyebrow } from "@/components/ui";
 import type { ChipKind } from "@/components/ui/Chip";
 import type { ProjectMoney, InvoiceStatus, Invoice, InvoiceLine } from "@/lib/money";
@@ -80,7 +80,18 @@ export function MoneyPanel({ slug, money }: { slug: string; money: ProjectMoney 
                   <Chip kind={STATUS_CHIP[inv.status]} dot>
                     {inv.status}
                   </Chip>
-                  <div className="flex w-[130px] items-center justify-end gap-1.5">
+                  <div className="flex w-[152px] items-center justify-end gap-1.5">
+                    {inv.lines.length > 0 && (
+                      <a
+                        href={`/api/projects/${slug}/invoices/${inv.id}/preview`}
+                        target="_blank"
+                        rel="noreferrer"
+                        title="Preview PDF — what the client receives"
+                        className="rounded-md border border-rule p-1 text-ink-3 hover:bg-paper-2 hover:text-ink"
+                      >
+                        <FileText className="size-3" strokeWidth={1.75} />
+                      </a>
+                    )}
                     {inv.status === "draft" && (
                       <>
                         <button

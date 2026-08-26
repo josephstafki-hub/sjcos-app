@@ -236,6 +236,12 @@ export function useAgentChat({
     setError("");
     setNotice("");
     setActivity("");
+    // Switching away from a live run: its question boxes/grants/stop target
+    // belong to the abandoned thread, not the one being opened. The run keeps
+    // going server-side; reopening that thread resumes its poll (pendingRunId).
+    setInteractions([]);
+    setGrants([]);
+    setActiveRunId(null);
     try {
       const detail = await loadConversationAction(id);
       if (!live.alive) return;
@@ -305,16 +311,22 @@ export function useAgentChat({
     setNotice("");
     setInteractions([]);
     setGrants([]);
+    setActiveRunId(null);
     setContextTokens(null);
     setClaudeSessionId(null);
   };
 
+  /** Start a fresh thread. Allowed mid-run on purpose: claim() abandons the
+   *  poll (the run finishes server-side and its reply lands in its own thread,
+   *  marked live in the thread list), and pending is cleared here because the
+   *  abandoned loop's finally sees a dead claim and won't. */
   const newChat = () => {
-    if (pending) return;
     claim();
     writePanelState({ conversationId: null });
     setConversationId(null);
+    setPending(false);
     resetView();
+    cbRef.current.onRunEnd?.();
   };
 
   /** Rail click: each agent keeps its own thread, so switching abandons the

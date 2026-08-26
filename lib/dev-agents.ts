@@ -741,11 +741,12 @@ export async function retryFailedApprovalPings(): Promise<{ retried: number }> {
  *  above HERMES_TIMEOUT_MS so a live Hermes turn always gets to report its
  *  own timeout error first — this is just the backstop.
  *
- *  Keyed on updated_at (progress), not created_at: an orchestration-ladder
- *  run legitimately outlives 15 minutes across its Hermes rounds + Claude
- *  reviews, but it touches activity/updated_at at every stage — only a run
- *  that has gone QUIET for 15 minutes is dead. failStaleTasks() (45 min) is
- *  the task-level backstop above this. */
+ *  Keyed on updated_at (progress), not created_at: there is NO wall-clock
+ *  limit on how long a run may go. The Claude CLI runner heartbeats
+ *  updated_at every 5s while its process is alive (scripts/run-claude-agent
+ *  .mjs), and ladder runs touch activity/updated_at at every stage — only a
+ *  run that has gone QUIET for 15 minutes has a dead runner behind it.
+ *  failStaleTasks() (45 min quiet) is the task-level backstop above this. */
 export async function failStaleRuns(): Promise<void> {
   await query(
     `UPDATE dev_agent_runs

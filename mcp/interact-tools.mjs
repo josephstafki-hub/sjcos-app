@@ -18,10 +18,12 @@ import { z } from "zod";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const POLL_MS = 2000;
-// Under the Hermes gateway's 480s turn timeout and the CLI's MCP tool timeout
-// (the runner raises MCP_TOOL_TIMEOUT for its child).
-const DEFAULT_TIMEOUT_S = 420;
-const MAX_TIMEOUT_S = 540;
+// Defaults sit under the Hermes gateway's 480s turn timeout. The Claude CLI
+// runner exports SJC_ASK_DEFAULT_TIMEOUT_S / SJC_ASK_MAX_TIMEOUT_S (≈24 h,
+// under its raised MCP_TOOL_TIMEOUT) so a run through the CLI wrapper can
+// wait on Joe with no practical limit.
+const DEFAULT_TIMEOUT_S = Number(process.env.SJC_ASK_DEFAULT_TIMEOUT_S ?? 420);
+const MAX_TIMEOUT_S = Number(process.env.SJC_ASK_MAX_TIMEOUT_S ?? 540);
 
 const questionSchema = z.object({
   question: z.string().min(1).describe("The complete question. End with a question mark."),

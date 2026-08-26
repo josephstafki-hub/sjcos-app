@@ -71,7 +71,8 @@ export function PanelHost({ children }: { children: ReactNode }) {
   }, [layout.ready, layout.where]);
 
   const detach = () => {
-    const w = window.open("/panel", "sjcos-panel", "width=720,height=1000");
+    // Wide enough for the popout's three columns (threads · queue · chat).
+    const w = window.open("/panel", "sjcos-panel", "width=1100,height=1000");
     if (w) setWhere("window");
   };
 

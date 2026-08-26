@@ -25,10 +25,12 @@ import { composeHermesTurn } from "./thread";
 // NOT persisted as chat messages — the thread stays one ask, one answer.
 
 const MAX_ROUNDS = Number(process.env.ORCH_MAX_ROUNDS ?? 3);
-/** Server-side wait for a detached takeover run: 3s × 300 = 15 min, matched
- *  to failStaleRuns' cutoff so a dead runner resolves before we give up. */
+/** Server-side wait for a detached takeover run. No wall-clock cap: the run
+ *  goes as long as it needs. We only give up when the run's own updated_at
+ *  goes quiet past failStaleRuns' 15-minute cutoff — a live runner heartbeats
+ *  every 5s, so quiet means the runner process died. */
 const TAKEOVER_POLL_MS = 3_000;
-const TAKEOVER_POLL_MAX = 300;
+const TAKEOVER_STALE_MS = 16 * 60_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -217,10 +219,12 @@ export async function runHermesLadder(input: LadderInput): Promise<string> {
   }
   if (taskId) await addEvent(taskId, "claude-takeover", "started", "", takeoverRunId);
 
-  for (let i = 0; i < TAKEOVER_POLL_MAX; i++) {
+  for (;;) {
     await sleep(TAKEOVER_POLL_MS);
-    const row = await queryOne<{ status: string; answer: string | null; activity: string | null }>(
-      `SELECT status, answer, activity FROM dev_agent_runs WHERE id = $1`,
+    const row = await queryOne<{ status: string; answer: string | null; activity: string | null; quiet_ms: number }>(
+      `SELECT status, answer, activity,
+              EXTRACT(EPOCH FROM (now() - updated_at)) * 1000 AS quiet_ms
+         FROM dev_agent_runs WHERE id = $1`,
       [takeoverRunId],
     );
     if (!row) break;
@@ -251,20 +255,26 @@ export async function runHermesLadder(input: LadderInput): Promise<string> {
         ? `🤝 Claude took this over.\n\n${answer}`
         : `⚠️ Claude's takeover failed: ${answer}\n\nHermes' last attempt:\n${lastAnswer}`;
     }
-    // Mirror the takeover runner's latest line into this run's log.
+    // A live runner heartbeats updated_at every 5s — sustained quiet past the
+    // stale cutoff means the runner process is dead, not slow. Stop waiting.
+    if (Number(row.quiet_ms) > TAKEOVER_STALE_MS) break;
+    // Mirror the takeover runner's latest line into this run's log, and keep
+    // the task fresh so failStaleTasks() (quiet-based) leaves a live wait alone.
     if (row.activity) log.tail(`Claude: ${row.activity.split("\n").slice(-1)[0] ?? ""}`);
+    if (taskId) await query(`UPDATE orchestration_tasks SET updated_at = now() WHERE id = $1 AND status = 'running'`, [taskId]).catch(() => {});
   }
   if (taskId) await query(`UPDATE orchestration_tasks SET status = 'error', updated_at = now() WHERE id = $1`, [taskId]).catch(() => {});
-  return `${lastAnswer}\n\n⚠️ Claude's takeover did not report back in time. Its last critique of Hermes:\n${lastNote}`;
+  return `${lastAnswer}\n\n⚠️ Claude's takeover runner went quiet (crashed). Its last critique of Hermes:\n${lastNote}`;
 }
 
-/** Reap ladders whose driver died (crashed process mid-round). 45 minutes —
- *  the per-run 15-minute reap stays; a 3-round loop can legitimately run
- *  longer at the task level. */
+/** Reap ladders whose driver died (crashed process mid-round). Keyed on
+ *  updated_at (progress), NOT created_at — there is no wall-clock cap on how
+ *  long a ladder may run. Rounds and the takeover poll both bump updated_at,
+ *  so only a task that has gone QUIET for 45 minutes has a dead driver. */
 export async function failStaleTasks(): Promise<void> {
   await query(
     `UPDATE orchestration_tasks SET status = 'error', updated_at = now()
-      WHERE status = 'running' AND created_at < now() - interval '45 minutes'`,
+      WHERE status = 'running' AND updated_at < now() - interval '45 minutes'`,
   ).catch(() => {});
 }
 

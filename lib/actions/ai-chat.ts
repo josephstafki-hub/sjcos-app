@@ -22,6 +22,7 @@ setEscalateHook(escalateToHermesLadder);
 import type { ChatAttachment, ClaudeOptions, DevAgent, PanelAgent } from "@/lib/dev-agents-meta";
 import {
   listConversations,
+  listAllConversations,
   getConversation,
   getTurns,
   insertConversation,
@@ -30,6 +31,7 @@ import {
   type ConversationSummary,
   type ConversationDetail,
   type ChatMessage,
+  type ThreadListItem,
 } from "@/lib/ai-chat";
 
 // Persisted Ask-window actions. Owner-only. Qwen/Hermes answer inline (with
@@ -42,6 +44,14 @@ export async function listConversationsAction(
 ): Promise<ConversationSummary[]> {
   await requireRole("owner");
   return listConversations(agent, includeArchived);
+}
+
+/** All threads across agents for the panel's thread rail/drawer. */
+export async function listAllConversationsAction(
+  includeArchived = false,
+): Promise<ThreadListItem[]> {
+  await requireRole("owner");
+  return listAllConversations(includeArchived);
 }
 
 export async function loadConversationAction(id: string): Promise<ConversationDetail | null> {

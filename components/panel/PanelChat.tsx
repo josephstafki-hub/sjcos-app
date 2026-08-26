@@ -353,12 +353,17 @@ export function PanelChat({
             <button
               key={a}
               onClick={() => {
-                if (chat.pending) return;
                 chat.selectAgent(a);
                 inputRef.current?.focus();
               }}
-              disabled={chat.pending}
-              className={`rounded px-2.5 py-0.5 text-[11.5px] font-medium transition-colors disabled:opacity-50 ${
+              // Live mid-run: the current turn is left running in its own
+              // thread rather than blocking the rail (useAgentChat.detachRun).
+              title={
+                chat.pending && a !== chat.agent
+                  ? `Start a ${AGENT_META[a].label} chat — the turn in flight keeps running and its answer waits in that thread`
+                  : AGENT_META[a].label
+              }
+              className={`rounded px-2.5 py-0.5 text-[11.5px] font-medium transition-colors ${
                 a === chat.agent ? "bg-ink text-paper" : "text-ink-2 hover:bg-paper"
               }`}
             >
@@ -374,20 +379,22 @@ export function PanelChat({
         <div className="flex-1" />
         <button
           onClick={() => (threadsOpen ? setThreadsOpen(false) : void openThreads())}
-          disabled={chat.pending}
           aria-label="Chat history"
           title="Chat history"
-          className="rounded-md p-1 text-ink-3 transition-colors hover:bg-paper disabled:opacity-40"
+          className="rounded-md p-1 text-ink-3 transition-colors hover:bg-paper"
         >
           <History className="size-3.5" strokeWidth={1.75} />
         </button>
         {chat.messages.length > 0 && (
           <button
             onClick={chat.newChat}
-            disabled={chat.pending}
             aria-label="New chat"
-            title="New chat"
-            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ink-3 transition-colors hover:bg-paper disabled:opacity-40"
+            title={
+              chat.pending
+                ? "New chat — the turn in flight keeps running and its answer waits in this thread"
+                : "New chat"
+            }
+            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ink-3 transition-colors hover:bg-paper"
           >
             <Plus className="size-3" strokeWidth={2} /> New
           </button>
@@ -420,7 +427,15 @@ export function PanelChat({
                     c.id === chat.conversationId ? "bg-card" : "hover:bg-card/60"
                   }`}
                 >
-                  <MessageSquare className="size-3 flex-none text-ink-4" strokeWidth={1.5} />
+                  {c.running ? (
+                    <span
+                      className="size-1.5 flex-none animate-pulse rounded-full bg-ai"
+                      title="A turn is still running in this thread"
+                      aria-label="Running"
+                    />
+                  ) : (
+                    <MessageSquare className="size-3 flex-none text-ink-4" strokeWidth={1.5} />
+                  )}
                   <button
                     onClick={() => {
                       setThreadsOpen(false);

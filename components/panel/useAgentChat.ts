@@ -24,7 +24,7 @@ import {
   type PanelAgent,
 } from "@/lib/dev-agents-meta";
 import { postPanelMessage } from "./panelBus";
-import { readPanelState, writePanelState } from "./panelStore";
+import { adoptPanelSession, claimConversation, writePanelState } from "./panelStore";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Wall clock for run bookkeeping. Wrapped so calls inside the poll loop
@@ -227,10 +227,24 @@ export function useAgentChat({
     postPanelMessage({ type: "run", phase: "start", runId: run.runId, agent: run.agent, subjectId: run.subjectId }, { local: true });
   };
 
+  /** Step off a live turn WITHOUT stopping it. Dropping the poll claim (rule 2)
+   *  leaves the run to finish server-side — nothing is lost, and reopening the
+   *  thread re-attaches to it via pendingRunId (rule 4). This is what lets Joe
+   *  start a second session — another agent, another thread — instead of
+   *  waiting out a long run. ⏹ Stop is still the way to actually kill one. */
+  const detachRun = (): boolean => {
+    const wasLive = pending || activeRunId != null;
+    claim();
+    setPending(false);
+    if (wasLive) cbRef.current.onRunEnd?.();
+    return wasLive;
+  };
+
   /** Reopen a thread: transcript from the DB (which is what shows a reply that
    *  landed while the panel was elsewhere), and a still-running turn resumes
    *  its poll and its run focus. */
   const openConversation = async (id: string) => {
+    const leftRunning = detachRun();
     const live = claim();
     setPending(true);
     setError("");
@@ -251,6 +265,7 @@ export function useAgentChat({
       setClaudeSessionId(detail.claudeSessionId);
       setContextTokens(null);
       writePanelState({ conversationId: detail.id, agent: detail.agent });
+      if (leftRunning && !detail.pendingRunId) setNotice(LEFT_RUNNING_NOTICE);
       if (detail.pendingRunId) {
         // A hand-off tags its user turn with the card it's about; carry that
         // through so the resumed run still refreshes followers on the right
@@ -274,7 +289,7 @@ export function useAgentChat({
   // going. Prefs are adopted in an effect (not initial state) because the store
   // is localStorage-backed and reading it during render would desync hydration.
   useEffect(() => {
-    const st = readPanelState();
+    const st = adoptPanelSession();
     // Old /ai deep links (?c=<conversation id>) now land on the panel: the
     // redirect keeps the param, and it wins over the remembered thread once.
     let deepLink: string | null = null;
@@ -298,6 +313,16 @@ export function useAgentChat({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Hold this tab's claim on the open thread (panelStore): a new tab seeds onto
+  // a fresh chat instead of adopting — and re-polling — a thread that is
+  // mid-run here. Cheap localStorage stamp, three beats inside the TTL.
+  useEffect(() => {
+    if (!conversationId) return;
+    claimConversation(conversationId);
+    const t = setInterval(() => claimConversation(conversationId), 5000);
+    return () => clearInterval(t);
+  }, [conversationId]);
+
   const resetView = () => {
     setMessages([]);
     setActivity("");
@@ -307,25 +332,27 @@ export function useAgentChat({
     setGrants([]);
     setContextTokens(null);
     setClaudeSessionId(null);
+    setActiveRunId(null);
   };
 
   const newChat = () => {
-    if (pending) return;
-    claim();
+    const leftRunning = detachRun();
     writePanelState({ conversationId: null });
     setConversationId(null);
     resetView();
+    if (leftRunning) setNotice(LEFT_RUNNING_NOTICE);
   };
 
   /** Rail click: each agent keeps its own thread, so switching abandons the
-   *  current one — drop the claim and the memory of it too. */
+   *  current one — drop the claim and the memory of it too. Allowed mid-run:
+   *  the turn keeps going in its own thread (detachRun). */
   const selectAgent = (a: PanelAgent) => {
-    if (pending) return;
-    claim();
+    const leftRunning = detachRun();
     writePanelState({ conversationId: null, agent: a });
     setAgent(a);
     setConversationId(null);
     resetView();
+    if (leftRunning) setNotice(LEFT_RUNNING_NOTICE);
   };
 
   const setClaudeOpts = (patch: Partial<ClaudeOptions>) => {
@@ -507,6 +534,10 @@ export function useAgentChat({
     freshSession,
   };
 }
+
+/** Shown when Joe steps off a live turn to do something else — the run is not
+ *  cancelled, it just finishes without a watcher. */
+const LEFT_RUNNING_NOTICE = "Left running in the background — its answer will be waiting in that thread.";
 
 /** Deterministic first-render agent; the persisted choice is adopted in an
  *  effect (hydration safety — see mount effect). Auto = the router decides

@@ -14,6 +14,10 @@ export interface ConversationSummary {
   title: string;
   updatedAt: string;
   archived: boolean;
+  /** A turn is still in flight in this thread — it may be running for another
+   *  tab, or one this tab stepped off (useAgentChat.detachRun). The history
+   *  drawer marks it so a background run is visible, not lost. */
+  running: boolean;
 }
 
 export interface ChatMessage {
@@ -60,11 +64,20 @@ export async function listConversations(
     title: string;
     updated_at: string;
     archived: boolean;
+    running: boolean;
   }>(
-    `SELECT id, agent, title, updated_at::text AS updated_at, archived
-       FROM ai_conversations
-      WHERE agent = $1 ${includeArchived ? "" : "AND archived = false"}
-      ORDER BY updated_at DESC
+    // The live-run join is a single semi-join over the handful of unsettled
+    // rows (dev_agent_runs_status_idx), not an EXISTS per conversation —
+    // dev_agent_runs has no conversation_id index.
+    `SELECT c.id, c.agent, c.title, c.updated_at::text AS updated_at, c.archived,
+            (live.conversation_id IS NOT NULL) AS running
+       FROM ai_conversations c
+       LEFT JOIN (
+         SELECT DISTINCT conversation_id FROM dev_agent_runs
+          WHERE status IN ('pending','running') AND conversation_id IS NOT NULL
+       ) live ON live.conversation_id = c.id
+      WHERE c.agent = $1 ${includeArchived ? "" : "AND c.archived = false"}
+      ORDER BY c.updated_at DESC
       LIMIT 100`,
     [agent],
   );
@@ -74,6 +87,7 @@ export async function listConversations(
     title: r.title,
     updatedAt: r.updated_at,
     archived: r.archived,
+    running: r.running,
   }));
 }
 

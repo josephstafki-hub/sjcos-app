@@ -1,6 +1,6 @@
 # SMS two-way inbox — provider seam (scaffolded, inert)
 
-Status: **backend seam built, not live.** Two-way business SMS needs a paid
+Status (2026-08-25): **backend + `/messages` UI built; still not live.** Two-way business SMS needs a paid
 provider + A2P 10DLC registration, so nothing sends until that's set up. The
 seam mirrors `lib/ai.ts` / `lib/gmail.ts`: a provider is isolated behind a small
 interface and everything degrades gracefully when unconfigured.
@@ -16,13 +16,23 @@ interface and everything degrades gracefully when unconfigured.
 - **`app/api/sms/webhook/route.ts`** — inbound webhook. Returns **503** until
   configured; **401** without the `?secret=` matching `SMS_WEBHOOK_SECRET`.
 
-## What's NOT built yet (next, once a provider is picked)
-- The `/messages` inbox UI (thread list + conversation + composer), mirroring
-  the Gmail inbox. `revalidatePath("/messages")` calls already point at it.
-- Nav entry + unread badge (`getUnreadSmsCount()` is ready).
-- Thread↔record linking (leads/subs/clients/projects) — columns exist on
-  `sms_threads`; auto-classify like the Gmail inbox later.
-- telnyx / signalwire send implementations (slot into `sendViaProvider`).
+## Built since (2026-08-25 review)
+- **`/messages` UI** — `app/(os)/messages/page.tsx` + `components/messages/
+  MessagesClient.tsx`: thread list, conversation, composer, mirroring the Gmail
+  inbox. It renders a "not configured" state instead of a composer when
+  `smsConfigured()` is false, so nothing can fake a send.
+- **Nav entry + unread badge** — the Messages rail item, badged from
+  `getUnreadSmsCount()`.
+- **Thread↔record linking** — `getSmsLinkOptions()` backs an owner picker that
+  ties a thread to a lead / sub / client / project (`link_type` + `link_slug`).
+  Auto-classification (the Gmail-style AI pass) is still manual-only.
+
+## Still NOT built (needs the provider decision)
+- telnyx / signalwire send implementations (slot into `sendViaProvider`; Twilio
+  REST is already wired).
+- Automatic thread↔record classification.
+- **Nothing sends.** `sendSmsOnThread` refuses while `smsConfigured()` is false;
+  the webhook returns 503. That is the whole gate — see "To activate".
 
 ## To activate
 1. Pick a provider (Twilio / Telnyx / SignalWire) and buy a number (~$1–2/mo).
@@ -38,4 +48,5 @@ interface and everything degrades gracefully when unconfigured.
    ```
 4. Point the provider's inbound-message webhook at
    `https://os.sjcarpentryllc.com/api/sms/webhook?secret=<SMS_WEBHOOK_SECRET>`.
-5. Build the `/messages` UI and rebuild the prod service.
+5. Rebuild + restart the prod service. The `/messages` UI is already built —
+   it goes live the moment `smsConfigured()` flips true.

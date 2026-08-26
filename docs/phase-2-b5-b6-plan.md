@@ -1,6 +1,20 @@
 # Phase 2 — B5+B6 Mini-Plan: Contract / SOW generation
 *Drafted 2026-06-30. Generate a contract + Scope of Work from an approved estimate, as a polished document the client e-signs. Builds on B1–B4 + the Phase-1 e-sign.*
 
+> **✅ BUILT — Option C is what shipped (verified 2026-08-25).** Documents are
+> assembled deterministically in-app (pdfkit + the `docx` package) and the only
+> AI-written field is the scope narrative — exactly the hybrid recommended
+> below. The 🔴 key finding held: the Claude-CLI doc-skills path was never used.
+>
+> It has since grown past this mini-plan into a full template system —
+> **`lib/doc-templates/`** (8 templates: contract, precon, lien release,
+> completion cert, change order, estimate, invoice, rough estimate),
+> `lib/doc-render.ts`, `document_drafts`, and a token-guarded agent surface that
+> **cannot send**. Canonical legal text lives in
+> `docs/reference/doc-templates/*.md`. **Read `docs/doc-templates-plan.md`
+> instead of this file for anything current;** this one is the decision record
+> for why the documents are code-generated, not LLM-generated.
+
 ## 🔴 Key finding (changes the original P2-4 assumption)
 
 The plan-vs-build decision P2-4 said "polished .docx/.pdf via the production doc skills (sow/specs/pdf) through the Claude-CLI path." **Those skills are NOT installed on this server.** Verified:

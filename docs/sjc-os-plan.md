@@ -1,6 +1,14 @@
 # SJ Carpentry LLC — SJC OS Master Plan
 *Reference document for Claude. Last updated: 2026-04-22. Reflects full SJC OS vision — single platform replacing CRM, Houzz Pro, and QuickBooks.*
 
+> **📌 This is the original vision document (2026-04-22), not a status report.**
+> It describes what SJC OS is *for* — still the guiding intent, and worth reading
+> for that. It does **not** describe what is built: the app has been live since
+> 2026-06-26 and has both exceeded this plan (agents, MCP, owner grants, bidding,
+> newsletter, mobile app) and not yet reached parts of it (accounting/QuickBooks
+> replacement, payments). For the gap-by-gap comparison see
+> `docs/plan-vs-build.md`; for current status see `README.md`.
+
 ---
 
 ## What Is SJC OS

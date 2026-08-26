@@ -1,5 +1,20 @@
 # SJC OS + Open Brain / Open Engine / Open Skills Implementation Plan
 
+> **✅ BUILT — this plan was executed (verified 2026-08-25).** All three layers
+> live inside SJC OS Postgres as recommended: **Open Brain** = `knowledge_items`
+> (+ `search_knowledge` / `capture_knowledge`), **Open Engine** = `work_items`,
+> `status_ledgers`, `agent_runs` / `agent_receipts` and the `/engine` +
+> `/today` surfaces, **Open Skills** = `skills` / `skill_versions` /
+> `runbooks` / `runbook_steps` with the owner approval flow. The recommendation
+> in §1 — *don't* build a separate generic Open Brain — is what happened.
+>
+> Since built, it has grown: `agent_memories` (the learning layer),
+> `lib/runbook-engine.ts` (a real stepper), owner grants, and the
+> Claude↔Hermes orchestration ladder. **`db/schema.sql`, `mcp/README.md`, and
+> `docs/open-skills-authoring.md` are current; this file is the design record.**
+> The `/home/joe/SJC OS Temp` paths referenced below are **legacy/import-only**
+> now (see `AGENTS.md`).
+
 Prepared for Joseph / SJ Carpentry  
 Date: 2026-07-01  
 Primary server paths reviewed:

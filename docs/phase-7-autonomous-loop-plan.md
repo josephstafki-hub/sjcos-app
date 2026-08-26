@@ -1,5 +1,27 @@
 # Phase 7 — Autonomous task loop (A2) — mini-plan
 
+> ## ⚠️ SUPERSEDED (2026-08-25) — historical
+>
+> **This plan was never built as specced, and should not be built now.** The
+> capability it describes — the AI proposing work, Joe approving, the OS
+> executing — shipped instead as several other pieces, with a different shape
+> and stronger guardrails than the ones sketched below:
+>
+> | This plan's piece | What actually shipped |
+> |---|---|
+> | The `/today` "AI next action" card + loop | The **operator panel** (`components/panel/`) — one persistent chat/queue dock on every page. `/today` presents the queue; the panel works it. |
+> | Model picks one action from a catalog | **`lib/orchestrator/`** — a rules→Qwen→Claude message *router*, then the Claude↔Hermes review **ladder** (`ladder.ts`): Hermes attempts the work, Claude reviews it, feedback loops back until approved or Claude takes over. |
+> | `agent_steps` append-only audit table | **`agent_pending_actions`** (proposed→reviewing→approved→executed, with the review note + cost) plus `orchestration_tasks` / `orchestration_events`, `agent_runs`, `agent_receipts`, `run_effects`. |
+> | "Approve" button per proposed action | **In-panel approvals** (`lib/agent-interactions.ts`, `ask_owner`) and, for anything client-facing, **owner grants** (`lib/owner-grants.ts` → `/engine/permissions`) — a grant is minted for exactly one target and the `send_*` tools refuse without it. |
+> | Whitelisted action catalog | The MCP tool surface (`mcp/sjcos-mcp.mjs`) + owner-gated `lib/actions/*`. **No send tool works without a grant id.** |
+> | MAN-steps / "stop and prompt a human" (A3) | **`lib/runbook-engine.ts`** + `runbook_instances` / `runbook_steps`, and work-item statuses (`waiting_on_*`). |
+> | Unattended morning batch (open question 3) | The cron sweeps under `app/api/cron/*`, driven by systemd timers — each one narrow and auditable, not a general loop. |
+>
+> The guardrails in the section below were the right instincts and they survived
+> — they now live in code (owner grants, previews before send, no destructive
+> actions in the tool surface) rather than in this doc. Kept for that history.
+> **Original status line follows.**
+
 **Status: PLAN ONLY, not built.** This feature has the AI *take actions*, not just
 answer — so it needs Joe's sign-off on the guardrails before any code lands.
 Drafted 2026-07-02.

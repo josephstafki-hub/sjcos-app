@@ -1,6 +1,12 @@
 # Phase 5 — Full QuickBooks Replacement (Accounting Epic) — Sub-Plan v2
 
-*Status: **v2 — decisions locked 2026-07-05 · awaiting CPA packet answers · build not started.** Supersedes the 2026-07-01 draft. This is the roadmap's largest and highest-liability epic (`docs/plan-vs-build.md` §8). Do NOT ship the tax surfaces (5.6/5.7 output) until the CPA packet at the bottom is answered.*
+*Status: **v2 — decisions locked 2026-07-05 · awaiting CPA packet answers · build not started.**
+Re-checked **2026-08-25: still not started — and that is deliberate.** Joe's position: Books is a
+**future product**, not overdue work. Nothing has been built toward it — no ledger tables in
+`db/schema.sql`, no `/books` page (the sidebar item is a disabled "soon" chip), no payment
+processor anywhere. This plan stays on the shelf, ready, until Joe decides to start it. The 5.0 cents flip did land: money is stored in cents app-wide
+(`scripts/migrate-cents.mjs`). **The CPA packet at the bottom is still unanswered — that is the
+actual blocker, not engineering time.** Supersedes the 2026-07-01 draft. This is the roadmap's largest and highest-liability epic (`docs/plan-vs-build.md` §8). Do NOT ship the tax surfaces (5.6/5.7 output) until the CPA packet at the bottom is answered.*
 
 **Resume protocol:** this doc is the source of truth for the epic. Mark each sub-phase checkbox `[x] + commit hash` as it lands. One commit per sub-phase, push after each, deploy (stop `sjcos.service` → `npm run build` → restart, `XDG_RUNTIME_DIR=/run/user/1010`) after code phases. If a session dies, resume from this checklist.
 

@@ -1,6 +1,15 @@
 # SJC OS — Phase 2 Plan: The Estimating Spine
 *Drafted 2026-06-30. Covers plan-vs-build rows 3c, 3d, 4d, 5-sign, skills-prod, and the merge option. Sits on the Phase-1 foundations (e-sign, scheduler, MCP).*
 
+> **✅ BUILT (verified 2026-08-25) — kept as the design record.** The spine
+> shipped: `cost_items` + `/cost-book`, `estimates` + `estimate_lines` (with the
+> `design_build` / `plans` / **`merged`** rails in `lib/estimates.ts`), the
+> browser-extension catalog clipper (`browser-extension/`, `POST /api/catalog/clip`),
+> contract + SOW generation, draw schedules (`lib/draw-schedule.ts`), and portal
+> document signing (`/api/portal/sign-doc/[id]`). Money is **cents** throughout.
+> The document half went a different way than the "production doc skills" idea
+> here — see `docs/phase-2-b5-b6-plan.md` and `docs/doc-templates-plan.md`.
+
 ## Goal
 
 Turn SJC OS into the place an estimate is built and a contract comes out of:

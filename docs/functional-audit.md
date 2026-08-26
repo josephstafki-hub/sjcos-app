@@ -1,9 +1,18 @@
 # Functional audit — what's still demo vs. real (2026-06-19)
 
-Joe's call: **do not deploy until the app is completely functional.** This is a
-page-by-page audit of what currently works vs. what is showcase/read-only. Source
-of truth for the "make it real" round. Each gap lists the current state and what
-"done" means.
+> **📌 Historical snapshot (2026-06-19). Resolved — do not read as current state.**
+> This audit drove the pre-deploy "make it real" round; the app deployed on
+> 2026-06-26 and has changed enormously since. Everything numbered below is ✅
+> except item 7's placeholders, and those have moved too: **`/site` and
+> `/newsletter` are now real features**, and only **`/books`** (accounting —
+> `docs/phase-5-accounting-plan.md`) and the **floor-plan CAD designer** remain
+> deferred. For current status see `README.md`; for a gap-by-gap comparison
+> against the master plan see `docs/plan-vs-build.md`.
+
+Joe's call at the time: **do not deploy until the app is completely functional.**
+This is a page-by-page audit of what worked vs. what was showcase/read-only, and
+the source of truth for the "make it real" round. Each gap lists the state then
+and what "done" meant.
 
 Legend: ✅ real · 🟡 partial · ❌ demo/read-only.
 
@@ -152,6 +161,6 @@ Money + messaging (S6), Today (real metrics + reprioritize).
    `sub_invoices` (composer + submit + Joe notification + owner review on
    sub-detail Jobs tab).
 7. **Placeholder screens** (D) — `/site`, `/newsletter`, `/books`, full
-   floor-planner CAD. Still deferred by default. **NEXT — needs Joe's scope
-   call** before Phase 8 deploy.
-</content>
+   floor-planner CAD. *(Since resolved: `/site` and `/newsletter` were built;
+   `/books` and the floor-plan CAD designer are still deferred — see the note
+   at the top.)*

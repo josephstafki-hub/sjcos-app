@@ -1,5 +1,26 @@
 # SJC OS Autonomous Todo Sweep — Task Spec
 
+> ## ✅ SWEEP CLOSED 2026-07-17 — historical
+>
+> This was a one-off autonomous run against Joe's 2026-07-14 todo list. It is
+> **finished**: 29 items done, 3 parked for Joe, none unstarted. Nothing here is
+> live work — do not pick these up as a backlog, and do not follow the guardrails
+> at the bottom as current policy (they were scoped to that run's branch).
+>
+> **The parks have since moved on:**
+> - **P2-2 operator console** — Joe approved it. It was **built, shipped, and
+>   then evolved into the universal operator panel** (`components/panel/`).
+>   See `docs/operator-console-plan.md`. The Phase-0 mock
+>   (`docs/reference/operator-console-mock.html`) is now just a keepsake.
+> - **P2-3 / P2-7 mobile distribution** — **no longer parked; in progress as of
+>   2026-08-25.** The sweep left the code ready (cross-platform Expo, app ids,
+>   `eas.json` with a sideloadable-APK `preview` profile) and stopped at the
+>   store accounts. Joe has since picked that up. The Android cleartext deferral
+>   resolved itself — the backend is on HTTPS. Work lives in the separate
+>   `/home/joe/sjcos-mobile` repo.
+>
+> The sweep's branch `auto/todo-sweep-2026-07-14` still exists locally.
+
 Source: Joe's todo list (2026-07-14). Work these **in order**, top to bottom.
 Finish all of PRIORITY 1 before starting PRIORITY 2.
 
@@ -67,7 +88,11 @@ Update the checkbox here AND append a detailed entry to `PROGRESS.md` every iter
 
 ---
 
-## GLOBAL GUARDRAILS (apply to every item)
+## GLOBAL GUARDRAILS (applied to every item **of this closed sweep**)
+
+*Historical — these were the rules for the 2026-07-14 sweep's branch. Rules 1
+and 2 happen to still be true of this box in general (see `AGENTS.md` and
+`deploy/README.md`); rules 3–7 were run-specific.*
 1. **Never** run `npm run build` / `next build` in this repo — it corrupts the live `.next` and kills the running site.
 2. **Never** restart `sjcos.service` or touch the running process/port 3017.
 3. **Never** merge to `main` or deploy. Work only on branch `auto/todo-sweep-2026-07-14`.

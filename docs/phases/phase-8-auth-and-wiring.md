@@ -1,6 +1,13 @@
 # SJC OS — Wire up dead clickables + multi-user auth
 
-## ⏳ PROGRESS / RESUME POINT (2026-06-16)
+## ✅ COMPLETE — historical record
+
+> **Phase 8 is done and the app went live on 2026-06-26.** The resume point
+> below is kept as the build log. Current status lives in `README.md`; the
+> deploy runbook is `deploy/README.md`. **Two carryover boxes at the bottom of
+> this file were never ticked** — see the Deploy carryover checklist.
+
+### Original progress / resume point (2026-06-16)
 
 - **Phase A — DONE** (commit `0cda829`): users table + 4 seeded demo accounts
   (pw `sjcos`), `lib/{password,session,dal}.ts`, `lib/actions/auth.ts`, `/login`,
@@ -42,12 +49,12 @@ project work is AI swap → email (both now done) then the Phase 8 *deploy*
 (DNS+sudo, port). The old leads.csv import was dropped — leads imported fresh
 post-launch.
 
-**Dev server:** `next dev --port 3017` (log `/tmp/sjcos-dev.log`). **Tunnel:**
-https://welcome-cold-offerings-streaming.trycloudflare.com (cloudflared log
-`/tmp/cf-tunnel.log`; quick-tunnel URLs die on restart — relaunch `~/bin/cloudflared
-tunnel --no-autoupdate --url http://localhost:3017` and grab the new URL). **Demo
-logins:** owner josephstafki@sjcarpentryllc.com / sub marco@trade.demo / client
-henderson@client.demo — all pw `sjcos`.
+> **Stale as of 2026-08-25:** the cloudflared quick tunnel is long dead and
+> `:3017` is now **production** (`sjcos.service`), not a dev server — do **not**
+> run `next dev` or `npm run build` against it while the service is up. For a
+> side build set `SJC_DIST_DIR`. The demo sub/client logins
+> (marco@trade.demo, henderson@client.demo, pw `sjcos`) were seed accounts;
+> treat them as historical, not as live credentials.
 
 ## Context
 
@@ -173,7 +180,12 @@ This is large (4 phases). Recommend landing **A → B → C → D** as separate 
 each is testable on the tunnel before the next. Auth (A/B) is the architectural core and
 should land + be verified first.
 
-## Deploy carryover checklist (the actual go-live) — IN PROGRESS 2026-06-24
+## Deploy carryover checklist (the actual go-live) — ✅ SHIPPED 2026-06-26
+
+> **Closed out 2026-08-25:** Gmail is fully working, `modify` included — the
+> redirect-URI registration and the re-consent both happened. The only box left
+> open is the last one (the automation CLI's auth mode), which is a nice-to-have,
+> not a blocker.
 
 Target: **https://os.sjcarpentryllc.com**. Full deploy runbook + config artifacts live
 in `deploy/` (`README.md`, `nginx-sjcos.conf`, `sjcos.service`).
@@ -199,12 +211,11 @@ keeps us independent afterward).
       2026-09-24, auto-renew on). **https://os.sjcarpentryllc.com is LIVE** — public HTTPS
       /login 200, HTTP→HTTPS 301, root→/login 307, TLS verify ok. sjcos.service +
       ollama.service running (reboot-persistent via linger).
-- [ ] Register the prod redirect URI in Google Cloud Console → Credentials → the OAuth client. ← Joe, one-time
-- [ ] **Gmail `modify` re-consent (deferred from Phase 7.x E/F, 2026-06-18):** scopes are
-      already `gmail.modify`+`gmail.send`, but the live refresh token predates `modify`, so
-      inbox star/archive/mark-read/important/trash show a "needs modify access" notice until
-      this runs. Once the permanent redirect URI is registered: visit
-      `https://<domain>/api/inbox/oauth/start`, approve, paste the new `GMAIL_REFRESH_TOKEN`
-      into `.env.local`, restart. Reads/sends work throughout.
+- [x] Register the prod redirect URI in Google Cloud Console → Credentials → the OAuth client.
+- [x] **Gmail `modify` re-consent (deferred from Phase 7.x E/F, 2026-06-18)** — **done; confirmed
+      working by Joe 2026-08-25.** Scopes are `gmail.modify`+`gmail.send` and the live refresh
+      token carries them, so inbox star/archive/mark-read/important/trash all work. (If that
+      ever regresses, the fix is: visit `https://os.sjcarpentryllc.com/api/inbox/oauth/start`,
+      approve, paste the new `GMAIL_REFRESH_TOKEN` into `.env.local`, restart the service.)
 - [ ] Production Gmail auth: consider `ANTHROPIC_API_KEY`/`--bare` for the automation CLI path
       (currently runs under Joe's interactive login).

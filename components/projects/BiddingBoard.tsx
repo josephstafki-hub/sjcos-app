@@ -71,6 +71,12 @@ import { useRemoved } from "@/lib/use-removed";
 
 type Result = { ok: boolean; error?: string };
 
+/** "$12,500.50" → 1250050; mirrors parseCents in the action for the optimistic row. */
+const centsOf = (v: FormDataEntryValue | null) => {
+  const n = Number(String(v ?? "").replace(/[$,\s]/g, ""));
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : 0;
+};
+
 const usd = (cents: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(
     (cents || 0) / 100,
@@ -134,6 +140,10 @@ export function BiddingBoard({
   // that show the moment "Add subs" is clicked and fall away once the refetch
   // carries the real row for that sub (see `packages` below).
   const [added, setAdded] = useState<Map<number, BidInvite[]>>(new Map());
+  // Optimistically-answered invites (bid recorded / passed): the row flips to
+  // its new status + amount on submit and the override falls away once the
+  // refetched row matches it.
+  const [answered, setAnswered] = useState<Map<number, BidInvite>>(new Map());
   const [tradeFilter, setTradeFilter] = useState<string | null>(null);
 
   const { removed, hide, restore } = useRemoved();
@@ -194,6 +204,48 @@ export function BiddingBoard({
     run(() => addBidInvites(pkgId, fd), undefined, undefined, drop, startOptimistic);
   }
 
+  /** Answer an invite optimistically (bid in / passed): the row updates now,
+   *  the modal closes now, and the override is pulled with the error shown if
+   *  the write fails. */
+  function answerInvite(next: BidInvite, fn: () => Promise<Result>) {
+    setAnswered((cur) => new Map(cur).set(next.id, next));
+    const drop = () =>
+      setAnswered((cur) => {
+        const m = new Map(cur);
+        m.delete(next.id);
+        return m;
+      });
+    run(fn, undefined, undefined, drop, startOptimistic);
+  }
+
+  function recordLocal(invite: BidInvite, fd: FormData) {
+    const descs = fd.getAll("lineDesc").map((v) => String(v).trim());
+    const amounts = fd.getAll("lineAmount").map(centsOf);
+    const lines = descs
+      .map((description, i) => ({ description, amount: amounts[i] ?? 0 }))
+      .filter((l) => l.description || l.amount > 0);
+    const total = centsOf(fd.get("total")) || lines.reduce((s, l) => s + l.amount, 0);
+    answerInvite(
+      {
+        ...invite,
+        status: "submitted",
+        respondedLabel: "just now",
+        submission: {
+          id: -invite.id,
+          total,
+          notes: String(fd.get("notes") ?? ""),
+          exclusions: String(fd.get("exclusions") ?? ""),
+          leadTime: String(fd.get("leadTime") ?? ""),
+          revision: (invite.submission?.revision ?? 0) + 1,
+          whenLabel: "just now",
+          lines,
+          files: [],
+        },
+      },
+      () => recordBid(invite.id, fd),
+    );
+  }
+
   const close = () => {
     setModal(null);
     setError("");
@@ -202,7 +254,7 @@ export function BiddingBoard({
   // Optimistically-removed packages/invites/files drop out of the render the
   // moment their delete is clicked; the refetch confirms a beat later.
   const packages =
-    removed.size === 0 && added.size === 0
+    removed.size === 0 && added.size === 0 && answered.size === 0
       ? view.packages
       : view.packages
           .filter((p) => !removed.has(`pkg:${p.id}`))
@@ -212,9 +264,19 @@ export function BiddingBoard({
             // A placeholder survives only until the server row for that sub
             // arrives, so there's never a duplicate and nothing to clean up.
             const ghosts = (added.get(p.id) ?? []).filter((i) => !have.has(i.subSlug));
+            // Same idea for answered rows: the override wins only until the
+            // server row reports the same status and amount.
+            const settled = real.map((i) => {
+              const o = answered.get(i.id);
+              return o &&
+                (o.status !== i.status ||
+                  (o.submission?.total ?? null) !== (i.submission?.total ?? null))
+                ? o
+                : i;
+            });
             return {
               ...p,
-              invites: [...real, ...ghosts],
+              invites: [...settled, ...ghosts],
               files: p.files.filter((f) => !removed.has(`file:${f.id}`)),
             };
           });
@@ -354,9 +416,13 @@ export function BiddingBoard({
       {modal?.kind === "record" && inviteById(modal.pkgId, modal.inviteId) && (
         <RecordBidModal
           invite={inviteById(modal.pkgId, modal.inviteId)!}
-          pending={pending}
-          error={error}
-          run={run}
+          onRecord={(fd) => recordLocal(inviteById(modal.pkgId, modal.inviteId)!, fd)}
+          onDecline={(fd) => {
+            const inv = inviteById(modal.pkgId, modal.inviteId)!;
+            answerInvite({ ...inv, status: "declined", respondedLabel: "just now" }, () =>
+              declineBidInvite(inv.id, fd),
+            );
+          }}
           onClose={close}
         />
       )}
@@ -1078,15 +1144,14 @@ function CompareModal({
  *  files a new revision. */
 function RecordBidModal({
   invite,
-  pending,
-  error,
-  run,
+  onRecord,
+  onDecline,
   onClose,
 }: {
   invite: BidInvite;
-  pending: boolean;
-  error: string;
-  run: RunFn;
+  /** Both close the modal themselves — the board updates optimistically. */
+  onRecord: (fd: FormData) => void;
+  onDecline: (fd: FormData) => void;
   onClose: () => void;
 }) {
   const [lineCount, setLineCount] = useState(0);
@@ -1097,10 +1162,13 @@ function RecordBidModal({
     return (
       <ModalShell title={`${invite.subName} passed`} onClose={onClose}>
         <form
-          action={(fd) => run(() => declineBidInvite(invite.id, fd), onClose)}
+          onSubmit={(e) => {
+            e.preventDefault();
+            onDecline(new FormData(e.currentTarget));
+            onClose();
+          }}
           className="flex flex-col gap-3 p-4"
         >
-          <ModalError error={error} />
           <label className="flex flex-col gap-1">
             <span className={LABEL}>Why they passed (optional)</span>
             <input name="reason" placeholder="Booked through fall, too far out…" className={INPUT} />
@@ -1113,7 +1181,7 @@ function RecordBidModal({
             >
               Back
             </button>
-            <button type="submit" disabled={pending} className={BTN_SOLID}>
+            <button type="submit" className={BTN_SOLID}>
               <Check className="size-3" strokeWidth={1.75} />
               Mark passed
             </button>
@@ -1126,10 +1194,13 @@ function RecordBidModal({
   return (
     <ModalShell title={`Record bid · ${invite.subName}`} onClose={onClose}>
       <form
-        action={(fd) => run(() => recordBid(invite.id, fd), onClose)}
+        onSubmit={(e) => {
+          e.preventDefault();
+          onRecord(new FormData(e.currentTarget));
+          onClose();
+        }}
         className="flex flex-col gap-3 p-4"
       >
-        <ModalError error={error} />
         <p className="text-[12px] text-ink-3">
           Type in what {invite.subName} sent back by email
           {invite.submission ? " — this files a new revision over their last number" : ""}.
@@ -1203,7 +1274,7 @@ function RecordBidModal({
           >
             Cancel
           </button>
-          <button type="submit" disabled={pending} className={BTN_SOLID}>
+          <button type="submit" className={BTN_SOLID}>
             <BadgeDollarSign className="size-3" strokeWidth={1.75} />
             {invite.submission ? "Record revision" : "Record bid"}
           </button>

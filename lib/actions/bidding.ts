@@ -247,17 +247,13 @@ export async function addBidInvites(packageId: number, formData: FormData): Prom
   const slugs = formData.getAll("subSlug").map((v) => String(v)).filter(Boolean);
   if (slugs.length === 0) return { ok: false, error: "Pick at least one sub." };
 
-  const { rows: valid } = await query<{ slug: string }>(
-    `SELECT slug FROM subs WHERE slug = ANY($1)`,
-    [slugs],
+  // One round trip for the whole pick, not one per sub.
+  await query(
+    `INSERT INTO bid_invites (package_id, sub_slug)
+     SELECT $1, slug FROM subs WHERE slug = ANY($2)
+     ON CONFLICT (package_id, sub_slug) DO NOTHING`,
+    [packageId, slugs],
   );
-  for (const { slug: subSlug } of valid) {
-    await query(
-      `INSERT INTO bid_invites (package_id, sub_slug)
-       VALUES ($1, $2) ON CONFLICT (package_id, sub_slug) DO NOTHING`,
-      [packageId, subSlug],
-    );
-  }
   revalidatePath(`/projects/${pkg.slug}`);
   return { ok: true };
 }

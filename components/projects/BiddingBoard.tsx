@@ -46,6 +46,7 @@ interface RosterSub {
   slug: string;
   name: string;
   trade: string;
+  email?: string | null;
 }
 import {
   addBidInvites,
@@ -123,8 +124,16 @@ export function BiddingBoard({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  // Optimistic writes (removes, adding subs) get their own transition whose
+  // pending flag is ignored: the board already shows the result, so nothing
+  // should grey out while the write + router.refresh() round-trip finishes.
+  const [, startOptimistic] = useTransition();
   const [error, setError] = useState("");
   const [modal, setModal] = useState<Modal>(null);
+  // Optimistically-added invites per package: placeholder rows (negative ids)
+  // that show the moment "Add subs" is clicked and fall away once the refetch
+  // carries the real row for that sub (see `packages` below).
+  const [added, setAdded] = useState<Map<number, BidInvite[]>>(new Map());
   const [tradeFilter, setTradeFilter] = useState<string | null>(null);
 
   const { removed, hide, restore } = useRemoved();
@@ -136,9 +145,10 @@ export function BiddingBoard({
     onSuccess?: () => void,
     fallback = "Something went wrong.",
     onError?: () => void,
+    start = startTransition,
   ) {
     setError("");
-    startTransition(async () => {
+    start(async () => {
       const r = await fn();
       if (!r.ok) {
         setError(r.error ?? fallback);
@@ -153,7 +163,35 @@ export function BiddingBoard({
   /** Delete optimistically: hide the row now, restore it only if the write fails. */
   function removeRow(key: string, fn: () => Promise<Result>) {
     hide(key);
-    run(fn, undefined, undefined, () => restore(key));
+    run(fn, undefined, undefined, () => restore(key), startOptimistic);
+  }
+
+  /** Add subs optimistically: placeholder rows land now, the modal closes now,
+   *  and the placeholders are pulled (with the error shown) only if the write
+   *  fails. */
+  function addSubs(pkgId: number, subs: RosterSub[]) {
+    const placeholders: BidInvite[] = subs.map((s, i) => ({
+      id: -(pkgId * 1000 + i + 1),
+      subSlug: s.slug,
+      subName: s.name,
+      subTrade: s.trade,
+      subEmail: s.email ?? null,
+      message: "",
+      status: "draft",
+      sentLabel: "",
+      respondedLabel: "",
+      autoLabel: "",
+      submission: null,
+    }));
+    setAdded((cur) => new Map(cur).set(pkgId, [...(cur.get(pkgId) ?? []), ...placeholders]));
+    const fd = new FormData();
+    for (const s of subs) fd.append("subSlug", s.slug);
+    const drop = () =>
+      setAdded((cur) => {
+        const slugs = new Set(subs.map((s) => s.slug));
+        return new Map(cur).set(pkgId, (cur.get(pkgId) ?? []).filter((i) => !slugs.has(i.subSlug)));
+      });
+    run(() => addBidInvites(pkgId, fd), undefined, undefined, drop, startOptimistic);
   }
 
   const close = () => {
@@ -164,15 +202,22 @@ export function BiddingBoard({
   // Optimistically-removed packages/invites/files drop out of the render the
   // moment their delete is clicked; the refetch confirms a beat later.
   const packages =
-    removed.size === 0
+    removed.size === 0 && added.size === 0
       ? view.packages
       : view.packages
           .filter((p) => !removed.has(`pkg:${p.id}`))
-          .map((p) => ({
-            ...p,
-            invites: p.invites.filter((i) => !removed.has(`invite:${i.id}`)),
-            files: p.files.filter((f) => !removed.has(`file:${f.id}`)),
-          }));
+          .map((p) => {
+            const real = p.invites.filter((i) => !removed.has(`invite:${i.id}`));
+            const have = new Set(real.map((i) => i.subSlug));
+            // A placeholder survives only until the server row for that sub
+            // arrives, so there's never a duplicate and nothing to clean up.
+            const ghosts = (added.get(p.id) ?? []).filter((i) => !have.has(i.subSlug));
+            return {
+              ...p,
+              invites: [...real, ...ghosts],
+              files: p.files.filter((f) => !removed.has(`file:${f.id}`)),
+            };
+          });
 
   // Modals hold ids, not snapshots — a live-update refresh flows new props in
   // while a modal is open (e.g. a bid landing during compare).
@@ -284,9 +329,7 @@ export function BiddingBoard({
         <RecipientsModal
           pkg={pkgById(modal.pkgId)!}
           roster={roster}
-          pending={pending}
-          error={error}
-          run={run}
+          onAdd={(subs) => addSubs(modal.pkgId, subs)}
           onClose={close}
         />
       )}
@@ -473,6 +516,10 @@ function PackageCard({
                   <span className="w-[76px] text-right font-mono text-[12px] text-ink-2">
                     {inv.submission ? usd(inv.submission.total) : "—"}
                   </span>
+                  {inv.id < 0 ? (
+                    <span className="font-mono text-[10px] text-ink-4">saving…</span>
+                  ) : (
+                    <>
                   <button
                     className="text-ink-3 hover:text-ink"
                     title="Personal note for this sub"
@@ -518,6 +565,8 @@ function PackageCard({
                     </button>
                   ) : (
                     <span className="w-[14px]" />
+                  )}
+                    </>
                   )}
                 </div>
               );
@@ -752,16 +801,12 @@ function FilesModal({
 function RecipientsModal({
   pkg,
   roster,
-  pending,
-  error,
-  run,
+  onAdd,
   onClose,
 }: {
   pkg: BidPackage;
   roster: RosterSub[];
-  pending: boolean;
-  error: string;
-  run: RunFn;
+  onAdd: (subs: RosterSub[]) => void;
   onClose: () => void;
 }) {
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -807,13 +852,14 @@ function RecipientsModal({
   return (
     <ModalShell title={`Add subs · ${pkg.title}`} onClose={onClose}>
       <form
-        action={(fd) => {
-          for (const slug of picked) fd.append("subSlug", slug);
-          run(() => addBidInvites(pkg.id, fd), onClose);
+        onSubmit={(e) => {
+          // Optimistic: the parent shows placeholder rows and closes this
+          // modal right away; an error surfaces on the board if the write fails.
+          e.preventDefault();
+          onAdd(roster.filter((s) => picked.has(s.slug)));
         }}
         className="flex flex-col gap-3 p-4"
       >
-        <ModalError error={error} />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -870,7 +916,7 @@ function RecipientsModal({
           </p>
         )}
         <ModalActions
-          pending={pending || picked.size === 0}
+          pending={picked.size === 0}
           onClose={onClose}
           submitLabel={picked.size ? `Add ${picked.size} sub${picked.size === 1 ? "" : "s"}` : "Add subs"}
         />

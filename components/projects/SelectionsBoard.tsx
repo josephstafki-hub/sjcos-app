@@ -128,6 +128,11 @@ export function SelectionsBoard({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  // Removes get their own transition whose pending flag is deliberately ignored:
+  // the row is already hidden optimistically, so the rest of the board must stay
+  // clickable while the write + router.refresh() round-trip finishes. Sharing the
+  // modal transition greyed out every other remove button for seconds at a time.
+  const [, startRemoveTransition] = useTransition();
   const [error, setError] = useState("");
   const [addSel, setAddSel] = useState<{ sectionId: number | null } | null>(null);
   const [editSel, setEditSel] = useState<Selection | null>(null);
@@ -154,9 +159,10 @@ export function SelectionsBoard({
     onSuccess?: () => void,
     fallback = "Something went wrong.",
     onError?: () => void,
+    start = startTransition,
   ) {
     setError("");
-    startTransition(async () => {
+    start(async () => {
       const r = await fn();
       if (!r.ok) {
         setError(r.error ?? fallback);
@@ -171,7 +177,7 @@ export function SelectionsBoard({
   /** Delete optimistically: hide the row now, restore it only if the write fails. */
   function removeRow(key: string, fn: () => Promise<Result>) {
     hide(key);
-    run(fn, undefined, undefined, () => restore(key));
+    run(fn, undefined, undefined, () => restore(key), startRemoveTransition);
   }
 
   const empty = groups.length === 0;

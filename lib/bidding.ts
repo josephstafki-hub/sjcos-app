@@ -332,9 +332,11 @@ export async function getProjectBidding(slug: string): Promise<BiddingView> {
  *  not, favorites first within a trade. (getProjectSubsData's roster excludes
  *  already-assigned subs, which is wrong here: the framer already on the job
  *  is exactly who should price the next phase.) */
-export async function listAllSubs(): Promise<{ slug: string; name: string; trade: string }[]> {
-  const { rows } = await query<{ slug: string; name: string; trade: string }>(
-    `SELECT slug, name, trade FROM subs ORDER BY trade, fav DESC, name`,
+export async function listAllSubs(): Promise<
+  { slug: string; name: string; trade: string; email: string | null }[]
+> {
+  const { rows } = await query<{ slug: string; name: string; trade: string; email: string | null }>(
+    `SELECT slug, name, trade, email FROM subs ORDER BY trade, fav DESC, name`,
   );
   return rows;
 }

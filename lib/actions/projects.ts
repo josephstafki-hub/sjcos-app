@@ -420,6 +420,19 @@ export async function addProjectDailyLog(slug: string, formData: FormData) {
 
 /** Email this week's AI-drafted status to the project's client via Gmail, then
  *  emit a notification. Owner-gated. Replaces the old fake "Review" button. */
+/** Weekly-status draft for the project card, fetched by the client after the
+ *  page paints. It used to stream inside a Suspense slot on the server, but a
+ *  router.refresh() (every estimate-line save, punch toggle, …) runs in a React
+ *  transition, and a transition waits for already-visible Suspense content
+ *  instead of showing the skeleton — so each refresh sat behind a 10–20s CPU
+ *  Qwen call. Loading it from the client keeps the draft off that path. */
+export async function draftWeeklyStatus(slug: string): Promise<string> {
+  await requireRole("owner");
+  const project = await queryOne<{ name: string }>(`SELECT name FROM projects WHERE slug = $1`, [slug]);
+  if (!project) return "";
+  return getProjectWeeklyStatus(project.name);
+}
+
 export async function sendWeeklyStatusEmail(
   slug: string,
 ): Promise<{ ok: boolean; error?: string }> {

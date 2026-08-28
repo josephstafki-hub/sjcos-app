@@ -3,12 +3,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Check, DollarSign, Mail, FileText, ChevronRight, Phone, MapPin, User } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { AiBubble, AiStream, Card, Chip, Avatar, Eyebrow } from "@/components/ui";
+import { AiBubble, Card, Chip, Avatar, Eyebrow } from "@/components/ui";
 import { ProjectTabs } from "@/components/projects/ProjectTabs";
 import { PanelSections } from "@/components/projects/PanelSections";
 import { TabLink } from "@/components/projects/TabNav";
 import type { ProjectTab } from "@/lib/project-tabs";
 import { WeeklyStatusSend } from "@/components/projects/WeeklyStatusSend";
+import { WeeklyStatusDraft } from "@/components/projects/WeeklyStatusDraft";
 import { PunchList } from "@/components/projects/PunchList";
 import { MoneyPanel } from "@/components/projects/MoneyPanel";
 import { SelectionsBoard } from "@/components/projects/SelectionsBoard";
@@ -16,7 +17,7 @@ import { BiddingBoard } from "@/components/projects/BiddingBoard";
 import { getProjectBidding, listAllSubs } from "@/lib/bidding";
 import { MoodBoard } from "@/components/projects/MoodBoard";
 import { FloorPlan } from "@/components/projects/FloorPlan";
-import { getProject, getProjectFiles, getProjectSubsData, getProjectDailyLogs, getProjectWeeklyStatus, PROJECT_STATUSES, stageToolTab } from "@/lib/projects";
+import { getProject, getProjectFiles, getProjectSubsData, getProjectDailyLogs, PROJECT_STATUSES, stageToolTab } from "@/lib/projects";
 import { ProjectSubs } from "@/components/projects/ProjectSubs";
 import { SubInvitesPanel } from "@/components/projects/SubInvitesPanel";
 import { getQueuedSubInvites } from "@/lib/sub-invites";
@@ -324,7 +325,7 @@ export default async function ProjectDetailPage({
                   {project.weeklyStatus ? (
                     project.weeklyStatus
                   ) : (
-                    <AiStream load={() => getProjectWeeklyStatus(project.weeklyStatusName!)} />
+                    <WeeklyStatusDraft slug={slug} />
                   )}
                 </div>
               </div>

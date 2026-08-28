@@ -364,9 +364,20 @@ export async function getProject(slug: string): Promise<ProjectDetail | null> {
 /** The AI-drafted weekly-status line. Resolved separately from getProject() so
  *  it can stream inside a Suspense boundary instead of blocking the page. */
 export async function getProjectWeeklyStatus(name: string): Promise<string> {
+  const hit = weeklyStatusMemo.get(name);
+  if (hit && Date.now() - hit.at < WEEKLY_STATUS_TTL_MS) return hit.text;
   const draft = await ai.draft({ kind: "weekly_status", context: name });
-  return draft.body.split("\n").find((l) => l.trim()) ?? "";
+  const text = draft.body.split("\n").find((l) => l.trim()) ?? "";
+  weeklyStatusMemo.set(name, { text, at: Date.now() });
+  return text;
 }
+
+// Qwen runs on CPU here (10–20s a draft), and the draft is the same for a
+// project all day, so remember it per process. Without this every render —
+// including the router.refresh() after saving an estimate line — paid for a
+// fresh inference.
+const WEEKLY_STATUS_TTL_MS = 6 * 60 * 60 * 1000;
+const weeklyStatusMemo = new Map<string, { text: string; at: number }>();
 
 /** A real uploaded file scoped to a project (project_key = slug). Curated
  *  showcase names live on ProjectDetail.files; these are blobs on disk that

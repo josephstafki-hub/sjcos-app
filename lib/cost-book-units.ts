@@ -47,10 +47,14 @@ export function fmtUsd(cents: number): string {
   );
 }
 
-/** Parse a user-typed dollar string ("12.50", "$1,200") to integer cents. */
+/** Parse a user-typed dollar string ("12.50", "$1,200", "-3,200", "(3,200)")
+ *  to integer cents. Sign is preserved so credit lines survive a re-save. */
 export function dollarsToCents(input: string): number {
-  const n = parseFloat(String(input).replace(/[^0-9.]/g, ""));
-  return Number.isFinite(n) ? Math.round(n * 100) : 0;
+  const raw = String(input).trim();
+  const negative = /^\s*[-(]/.test(raw) || /^-?\$?\s*-/.test(raw);
+  const n = parseFloat(raw.replace(/[^0-9.]/g, ""));
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100) * (negative ? -1 : 1) || 0;
 }
 
 /** Cents → plain dollar string for prefilling an edit form ("12.50"). */

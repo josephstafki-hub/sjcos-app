@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Check, DollarSign, Mail, FileText, ChevronRight } from "lucide-react";
+import { Check, DollarSign, Mail, FileText, ChevronRight, Phone, MapPin, User } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
 import { AiBubble, AiStream, Card, Chip, Avatar, Eyebrow } from "@/components/ui";
 import { ProjectTabs } from "@/components/projects/ProjectTabs";
@@ -336,6 +336,52 @@ export default async function ProjectDetailPage({
 
       {/* Column 3 — right rail */}
       <div className="flex flex-col gap-3">
+        <Card className="p-3">
+          <div className="flex items-center">
+            <Eyebrow muted>Client</Eyebrow>
+            <span className="ml-auto">
+              <ViewTab tab="Client portal" />
+            </span>
+          </div>
+          <div className="mt-2 flex flex-col gap-1.5">
+            <div className="flex items-center gap-1.5">
+              <User className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
+              <span className="truncate font-serif text-[13px] font-semibold text-ink">
+                {project.client.name || "No client name on file"}
+              </span>
+            </div>
+            {project.client.email ? (
+              <a
+                href={`mailto:${project.client.email}`}
+                className="flex items-center gap-1.5 text-[12px] text-ink-2 hover:text-accent"
+              >
+                <Mail className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
+                <span className="truncate">{project.client.email}</span>
+              </a>
+            ) : (
+              <div className="flex items-center gap-1.5 text-[12px] text-ink-3">
+                <Mail className="size-3 flex-none" strokeWidth={1.5} />
+                <span>No email on file</span>
+              </div>
+            )}
+            {project.client.phone && (
+              <a
+                href={`tel:${project.client.phone.replace(/[^+\d]/g, "")}`}
+                className="flex items-center gap-1.5 text-[12px] text-ink-2 hover:text-accent"
+              >
+                <Phone className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
+                <span className="truncate">{project.client.phone}</span>
+              </a>
+            )}
+            {project.client.address && (
+              <div className="flex items-start gap-1.5 text-[12px] text-ink-2">
+                <MapPin className="mt-0.5 size-3 flex-none text-ink-3" strokeWidth={1.5} />
+                <span className="min-w-0">{project.client.address}</span>
+              </div>
+            )}
+          </div>
+        </Card>
+
         <Card className="p-3">
           <div className="flex items-center">
             <Eyebrow muted>Money</Eyebrow>

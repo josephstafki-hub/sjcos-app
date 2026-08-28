@@ -188,6 +188,10 @@ export interface ProjectDetail {
   selections: { area: string; choice: string; status: string; chip: ChipKind }[];
   comms: { from: string; role: "client" | "you" | "ai"; time: string; body: string }[];
   punch: { id: number; item: string; owner: string; done: boolean; clientConfirmed: boolean }[];
+  /** Client contact for the Overview rail. Name/email/address live on the
+   *  project row; phone (and any blank email/address) fall back to the linked
+   *  lead when there is one. */
+  client: { name: string; email: string | null; phone: string | null; address: string | null };
 }
 
 interface PunchRow {
@@ -299,6 +303,18 @@ export async function getProject(slug: string): Promise<ProjectDetail | null> {
     clientConfirmed: r.client_confirmed_at != null,
   }));
 
+  const contact = await query<{ name: string; email: string | null; phone: string | null; address: string | null }>(
+    `SELECT COALESCE(NULLIF(p.client_name, ''), l.name, '') AS name,
+            NULLIF(COALESCE(NULLIF(p.client_email, ''), l.email), '') AS email,
+            NULLIF(l.phone, '') AS phone,
+            NULLIF(COALESCE(NULLIF(p.address, ''), l.address), '') AS address
+       FROM projects p
+       LEFT JOIN leads l ON l.id = p.lead_id
+      WHERE p.slug = $1`,
+    [slug],
+  );
+  const client = contact.rows[0] ?? { name: "", email: null, phone: null, address: null };
+
   // The AI-drafted weekly status is NOT awaited here — that would block the page
   // on ~15s of CPU inference. Curated text shows immediately; otherwise the
   // draft streams via getProjectWeeklyStatus() inside a Suspense slot.
@@ -341,6 +357,7 @@ export async function getProject(slug: string): Promise<ProjectDetail | null> {
     selections: curated.selections ?? [],
     comms: curated.comms ?? [],
     punch,
+    client,
   };
 }
 

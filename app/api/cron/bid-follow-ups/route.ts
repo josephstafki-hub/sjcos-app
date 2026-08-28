@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { runBidFollowUps } from "@/lib/bid-follow-ups";
+import { previewBidFollowUps, runBidFollowUps } from "@/lib/bid-follow-ups";
 
 // POST/GET /api/cron/bid-follow-ups — hourly bid-chase sweep. Nudges subs who
 // haven't answered an open bid request (day 2 and day 5), sends the softer
@@ -11,6 +11,9 @@ import { runBidFollowUps } from "@/lib/bid-follow-ups";
 // lib/bid-follow-ups.ts. Same shared-secret protection as the other cron
 // routes (the proxy matcher excludes /api, so there is no session gate here)
 // and it fails closed when CRON_SECRET is unset.
+//
+// ?dry_run=1 (or =true) returns what the sweep would send — same SELECTs, all
+// guards — without claiming a ledger row or touching Gmail.
 export const dynamic = "force-dynamic";
 
 function authorized(req: Request): boolean {
@@ -23,6 +26,17 @@ function authorized(req: Request): boolean {
 async function handle(req: Request) {
   if (!authorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+  const dry = new URL(req.url).searchParams.get("dry_run");
+  if (dry === "1" || dry === "true") {
+    const would_send = await previewBidFollowUps();
+    return NextResponse.json({
+      ok: true,
+      dry_run: true,
+      ran_at: new Date().toISOString(),
+      count: would_send.length,
+      would_send,
+    });
   }
   const result = await runBidFollowUps();
   return NextResponse.json({ ok: true, ran_at: new Date().toISOString(), ...result });

@@ -27,8 +27,26 @@ import "server-only";
 //      concurrent run owns it)" and we skip — an overlapping or re-run sweep
 //      cannot double-send. Failed sends re-claim and retry next hour.
 //   5. MAX_SENDS_PER_RUN caps the blast radius of any mistake.
+//   6. Minimum spacing between chase emails to the same invite: none of
+//      reminder_1 / reminder_2 / working_nudge sends while another of those
+//      kinds was sent to that invite less than 3 days ago (REMINDER_SPACING).
+//      The windows in CHASES are back-to-back ([2,5) then [5,14)), so arming
+//      follow-ups late on an existing package (Mahowald, sent Aug 21, armed
+//      Aug 25) fired reminder_1 on day 4 and reminder_2 on day 5 — two nudges
+//      27 hours apart. This guard only spaces reminders that actually went
+//      out; if reminder_1's window was missed entirely, reminder_2 still sends
+//      on its own window. It lives in the sweep SQL (SPACING_GUARD) next to
+//      the other guards, not in JS.
 // Every send also emits a notification, so auto mail is always visible in the
 // feed, never silent.
+//
+// Dry run: there is no automated test for the sweep (no test runner in this
+// repo). To see what a sweep WOULD send without claiming or mailing anything:
+//   curl -H "Authorization: Bearer $CRON_SECRET" \
+//     "http://localhost:3017/api/cron/bid-follow-ups?dry_run=1"
+// which returns { dry_run: true, would_send: [{ invite_id, kind, sub_name,
+// email, title }] } — the same SELECTs the live sweep runs, guards 1–3 and 6
+// included, with nothing written.
 
 import { query, queryOne } from "./db";
 import { gmailConfigured, sendNewEmail } from "./gmail";
@@ -37,6 +55,11 @@ import { emit } from "./notify";
 /** Hard ceiling per timer run. Bid lists are a handful of subs, so a healthy
  *  sweep sends far fewer; hitting this cap means something is wrong. */
 const MAX_SENDS_PER_RUN = 25;
+
+/** Guard 6: minimum gap between any two chase emails to the same invite.
+ *  Postgres interval literal, interpolated into SPACING_GUARD (a constant,
+ *  never user input). */
+const REMINDER_SPACING = "3 days";
 
 export type BidEmailKind = "reminder_1" | "reminder_2" | "working_nudge" | "thanks";
 
@@ -203,11 +226,101 @@ const CHASE_SELECT = `
     JOIN projects p ON p.id = b.project_id
     JOIN subs s ON s.slug = i.sub_slug AND COALESCE(btrim(s.email), '') <> ''`;
 
+/** Guard 6, as a WHERE fragment for the chase sweep (not for thank-yous —
+ *  a thanks is a reply to a bid, not a chase, and must never be spaced out).
+ *  Blocks the row when any chase kind was SENT to this invite within
+ *  REMINDER_SPACING. Only 'sent' rows count: a failed or stale-queued reminder
+ *  never spaces anything, and a reminder whose window was missed leaves no row
+ *  at all, so the later reminder still sends on its own window. */
+const SPACING_GUARD = `
+          AND NOT EXISTS (SELECT 1 FROM bid_invite_emails prev
+                           WHERE prev.invite_id = i.id
+                             AND prev.kind IN ('reminder_1', 'reminder_2', 'working_nudge')
+                             AND prev.status = 'sent'
+                             AND prev.sent_at > now() - interval '${REMINDER_SPACING}')`;
+
 export interface BidFollowUpResult {
   sent: number;
   failed: number;
   skipped: number;
   byKind: Record<string, number>;
+}
+
+/** One row a dry run would have sent. */
+export interface BidFollowUpPreview {
+  invite_id: number;
+  kind: BidEmailKind;
+  sub_name: string;
+  email: string;
+  title: string;
+  project_name: string;
+}
+
+/** The chase sweep's SELECT for one kind: every guard (1–3, 6) plus the
+ *  claim-mirror NOT EXISTS, in one query. Shared by the live sweep and the
+ *  dry run so the preview can never drift from what actually sends. */
+async function dueChaseRows(chase: (typeof CHASES)[number], limit: number): Promise<ChaseRow[]> {
+  // chase.anchor is a compile-time constant from CHASES, never user input.
+  // The NOT EXISTS mirrors claim()'s re-claimability rule exactly — without
+  // it, LIMIT fills up with already-sent rows and starves the unsent tail.
+  const { rows } = await query<ChaseRow>(
+    `${CHASE_SELECT}
+      WHERE i.status = ANY($1)
+        AND i.${chase.anchor} IS NOT NULL
+        AND i.${chase.anchor} + make_interval(days => $2) <= now()
+        AND i.${chase.anchor} + make_interval(days => $3) > now()
+        AND NOT EXISTS (SELECT 1 FROM bid_invite_emails e
+                         WHERE e.invite_id = i.id AND e.kind = $5
+                           AND (e.status = 'sent'
+                                OR (e.status = 'queued'
+                                    AND e.created_at > now() - interval '1 hour')))
+        ${SPACING_GUARD}
+      ORDER BY i.${chase.anchor}
+      LIMIT $4`,
+    [chase.statuses, chase.minDays, chase.maxDays, limit, chase.kind],
+  );
+  return rows;
+}
+
+/** Thank-you catch-up SELECT: recordBid sends thanks inline; the sweep only
+ *  picks up invites where that attempt failed (or never ran), recent ones only.
+ *  Guard 6 deliberately does not apply here. */
+async function dueThanksRows(limit: number): Promise<ChaseRow[]> {
+  const { rows } = await query<ChaseRow>(
+    `${CHASE_SELECT}
+      WHERE i.status = 'submitted'
+        AND i.responded_at > now() - interval '7 days'
+        AND NOT EXISTS (SELECT 1 FROM bid_invite_emails e
+                         WHERE e.invite_id = i.id AND e.kind = 'thanks'
+                           AND (e.status = 'sent'
+                                OR (e.status = 'queued'
+                                    AND e.created_at > now() - interval '1 hour')))
+      ORDER BY i.responded_at
+      LIMIT $1`,
+    [limit],
+  );
+  return rows;
+}
+
+/** Dry run: the exact rows the next sweep would try to send, with nothing
+ *  claimed or mailed. Ignores the Gmail check so it works anywhere the DB does. */
+export async function previewBidFollowUps(): Promise<BidFollowUpPreview[]> {
+  const out: BidFollowUpPreview[] = [];
+  const pick = (kind: BidEmailKind, rows: ChaseRow[]) => {
+    for (const r of rows) {
+      out.push({
+        invite_id: Number(r.invite_id),
+        kind,
+        sub_name: r.sub_name,
+        email: r.email,
+        title: r.title,
+        project_name: r.project_name,
+      });
+    }
+  };
+  for (const chase of CHASES) pick(chase.kind, await dueChaseRows(chase, MAX_SENDS_PER_RUN));
+  pick("thanks", await dueThanksRows(MAX_SENDS_PER_RUN));
+  return out;
 }
 
 /** The hourly sweep: send every due chase email and any thank-you that failed
@@ -221,24 +334,7 @@ export async function runBidFollowUps(): Promise<BidFollowUpResult> {
 
   for (const chase of CHASES) {
     if (budget <= 0) break;
-    // chase.anchor is a compile-time constant from CHASES, never user input.
-    // The NOT EXISTS mirrors claim()'s re-claimability rule exactly — without
-    // it, LIMIT fills up with already-sent rows and starves the unsent tail.
-    const { rows } = await query<ChaseRow>(
-      `${CHASE_SELECT}
-        WHERE i.status = ANY($1)
-          AND i.${chase.anchor} IS NOT NULL
-          AND i.${chase.anchor} + make_interval(days => $2) <= now()
-          AND i.${chase.anchor} + make_interval(days => $3) > now()
-          AND NOT EXISTS (SELECT 1 FROM bid_invite_emails e
-                           WHERE e.invite_id = i.id AND e.kind = $5
-                             AND (e.status = 'sent'
-                                  OR (e.status = 'queued'
-                                      AND e.created_at > now() - interval '1 hour')))
-        ORDER BY i.${chase.anchor}
-        LIMIT $4`,
-      [chase.statuses, chase.minDays, chase.maxDays, budget, chase.kind],
-    );
+    const rows = await dueChaseRows(chase, budget);
     for (const r of rows) {
       const { subject, body } = compose(chase.kind, r);
       const claimId = await claim(Number(r.invite_id), chase.kind, subject, body);
@@ -254,22 +350,9 @@ export async function runBidFollowUps(): Promise<BidFollowUpResult> {
     }
   }
 
-  // Thank-you catch-up: recordBid sends this inline; the sweep only picks up
-  // invites where that attempt failed (or never ran), and only recent ones.
+  // Thank-you catch-up (see dueThanksRows).
   if (budget > 0) {
-    const { rows } = await query<ChaseRow>(
-      `${CHASE_SELECT}
-        WHERE i.status = 'submitted'
-          AND i.responded_at > now() - interval '7 days'
-          AND NOT EXISTS (SELECT 1 FROM bid_invite_emails e
-                           WHERE e.invite_id = i.id AND e.kind = 'thanks'
-                             AND (e.status = 'sent'
-                                  OR (e.status = 'queued'
-                                      AND e.created_at > now() - interval '1 hour')))
-        ORDER BY i.responded_at
-        LIMIT $1`,
-      [budget],
-    );
+    const rows = await dueThanksRows(budget);
     for (const r of rows) {
       const { subject, body } = compose("thanks", r);
       const claimId = await claim(Number(r.invite_id), "thanks", subject, body);

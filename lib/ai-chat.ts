@@ -77,6 +77,42 @@ export async function listConversations(
   }));
 }
 
+export interface ThreadListItem extends ConversationSummary {
+  /** A run is still pending/running in this thread right now. */
+  live: boolean;
+}
+
+/** Every thread across all agents, most-recent first — backs the panel's
+ *  thread rail/drawer. `live` marks threads with a run in flight so the list
+ *  can show which conversations are still working (a thread keeps running
+ *  server-side after Joe switches away). */
+export async function listAllConversations(includeArchived = false): Promise<ThreadListItem[]> {
+  const { rows } = await query<{
+    id: string;
+    agent: PanelAgent;
+    title: string;
+    updated_at: string;
+    archived: boolean;
+    live: boolean;
+  }>(
+    `SELECT c.id, c.agent, c.title, c.updated_at::text AS updated_at, c.archived,
+            EXISTS (SELECT 1 FROM dev_agent_runs r
+                     WHERE r.conversation_id = c.id AND r.status IN ('pending','running')) AS live
+       FROM ai_conversations c
+      ${includeArchived ? "" : "WHERE c.archived = false"}
+      ORDER BY c.updated_at DESC
+      LIMIT 100`,
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    agent: r.agent,
+    title: r.title,
+    updatedAt: r.updated_at,
+    archived: r.archived,
+    live: r.live,
+  }));
+}
+
 /** Full thread with messages + any in-flight Claude run. */
 export async function getConversation(id: string): Promise<ConversationDetail | null> {
   const conv = await queryOne<{

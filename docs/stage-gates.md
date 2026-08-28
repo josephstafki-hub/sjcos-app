@@ -3,7 +3,14 @@
 > Source of truth: mirrored from the temp CRM tracker's `stage_gates.md` and
 > encoded as machine-readable rows in the **`stage_rules`** table (see
 > `db/schema.sql`, Open Brain/Engine/Skills section). This doc is the human-
-> readable narrative; the table is what agents query.
+> readable narrative; the table is what the code reads.
+>
+> *Accuracy note (2026-08-25): `stage_rules` is still live and correct, but
+> nothing queries it directly over MCP. It is consumed in-app by
+> `computeStageGate()` (`lib/record-ops.ts`) — which powers the Ops-tab "what's
+> needed to advance" guidance — and by the gate-stalled detector
+> (`lib/detectors.ts`). The guidance is advisory: **the UI never blocks a stage
+> change on a gate.***
 
 ## Why a crosswalk instead of new enum values
 

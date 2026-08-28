@@ -9,6 +9,9 @@
 import { query, queryOne } from "@/lib/db";
 import { emit } from "@/lib/notify";
 import { gmailConfigured, sendNewEmail } from "@/lib/gmail";
+import { renderProjectInvoicePdf } from "@/lib/doc-drafts";
+import { renderInlineDocPdf } from "@/lib/documents";
+import { storeBuffer } from "@/lib/upload-store";
 import { usd, type InvoiceLine } from "@/lib/money";
 import { fmtPoUsd } from "@/lib/po-types";
 import { fmtUsd } from "@/lib/cost-book-units";
@@ -118,9 +121,22 @@ export async function sendInvoiceOp(id: number): Promise<SendOpResult> {
 
   const first = client.name.split(/\s+/)[0] || "there";
   const lineText = (inv.line_items ?? []).map((l) => `  • ${l.label}: ${usd(l.amount)}`).join("\n");
+
+  // Like the estimate send: attach a real line-item PDF. Prefer the invoice_doc
+  // template render; fall back to the line items on letterhead; fall back to a
+  // body-only email if PDF generation fails entirely.
+  const pdf =
+    (await renderProjectInvoicePdf(inv.slug, id).catch(() => null)) ??
+    (await renderInlineDocPdf({
+      title: `Invoice ${inv.number}`,
+      subtitle: `${inv.project_name} — ${inv.milestone}`,
+      body: `${lineText}\n\nTotal due: ${usd(inv.amount)}`,
+    }).catch(() => null));
+
   const body =
-    `Hi ${first},\n\nPlease find the invoice for "${inv.milestone}" on the ` +
-    `${inv.project_name} project below.\n\n${lineText}\n\nTotal due: ${usd(inv.amount)}\n\n` +
+    `Hi ${first},\n\nPlease find invoice ${inv.number} for "${inv.milestone}" on the ` +
+    `${inv.project_name} project ${pdf ? "attached. A summary is below." : "below."}\n\n` +
+    `${lineText}\n\nTotal due: ${usd(inv.amount)}\n\n` +
     `You can reply here with any questions. Thank you!\n\nBest,\nJoe\nSJ Carpentry`;
 
   try {
@@ -128,9 +144,24 @@ export async function sendInvoiceOp(id: number): Promise<SendOpResult> {
       to: client.email.trim(),
       subject: `Invoice ${inv.number} — ${inv.project_name} (${inv.milestone})`,
       bodyText: body,
+      attachments: pdf
+        ? [{ filename: `Invoice ${inv.number}.pdf`, mimeType: "application/pdf", content: pdf }]
+        : undefined,
     });
   } catch (err) {
     return { ok: false, error: (err as Error).message || "Could not send the invoice." };
+  }
+
+  // Keep the sent copy in the project Files, same as an estimate's review PDF.
+  if (pdf) {
+    await storeBuffer(pdf, {
+      filename: `${inv.project_name} — Invoice ${inv.number}.pdf`,
+      mime: "application/pdf",
+      idPrefix: "doc",
+      projectKey: inv.slug,
+      tag: "INVOICE",
+      subtitle: `Invoice — sent to client · ${inv.milestone}`,
+    });
   }
 
   await query(`UPDATE invoices SET status = 'sent', sent_at = now() WHERE id = $1`, [id]);

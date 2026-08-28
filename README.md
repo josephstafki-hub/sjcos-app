@@ -1,34 +1,57 @@
-# SJC OS — Build Plan
+# SJC OS — Build Plan (Phases 0–8, complete)
 
 **What:** Single-pane business operating system for SJ Carpentry LLC.
 Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjcarpentryllc.com.
 
-**Stack:** Next.js 16 · TypeScript · Tailwind CSS v4 · PostgreSQL 16 · PM2 + Nginx
-**Server:** 192.168.1.38 (local) / 73.94.192.119 (public) · Accessed via browser from Windows machine
+**Stack:** Next.js 16 · TypeScript · Tailwind CSS v4 · PostgreSQL 16 · nginx + systemd (`sjcos.service`)
+**Server:** this box — 192.168.1.38 (local) / 73.94.192.119 (public). Live at **https://os.sjcarpentryllc.com**
 **Design source:** `/home/joe/SJC-OS/design_handoff_sjc_os/` — build to `SJC OS - Website Theme.html` + `website-theme.css`
 
 ---
 
-## Current Status
+## Status (updated 2026-08-25)
 
-> **Phases 0–6 — all mock-UI screens** · ✅ complete (30 screens) · **Phase 7.2 read APIs** done. **Phase 7-A write/CRUD** done (leads/projects/subs/notifications/compliance via Server Actions in `lib/actions/`). **Phase 7-B** done — schedule/warranty/files now DB-backed (warranty_projects, warranty_claims, schedule_blocks, daily_logs, files tables); settings toggles persist via app_settings. **The whole app is now DB-backed + writable.**
+> **Phases 0–8 below are all complete and this file is now the historical record
+> of that first build.** SJC OS is in **production** — deployed under systemd
+> (not PM2; see `deploy/README.md`), serving real business data, with real AI
+> (local Qwen via Ollama + Claude/Hermes agents), a real Gmail inbox, and client
+> and sub portals in use.
 >
-> **Phase 7-C (fill placeholder tabs) — ✅ complete.** Every detail screen ships real tabs (curated data + empty states): Sub 5/5, Lead 6/6, Project 9/9, Settings 8/8.
+> **Work since Phase 8 is not tracked here.** It landed as its own epics, each
+> with its own doc:
 >
-> **Phase 8 (wire dead clickables + multi-user auth) — IN PROGRESS.** Plan + live resume point: [`docs/phases/phase-8-auth-and-wiring.md`](docs/phases/phase-8-auth-and-wiring.md). **8-A auth ✅** (login/sessions/roles/logout; demo logins owner+sub+client, pw `sjcos`). **8-B portals+team — partial** (role-gated identity-scoped portals; live Team & roles; editable Profile + add-user still TODO). **8-C interactivity / 8-D action backends — not started.**
+> | Shipped since Phase 8 | Where it's documented |
+> |---|---|
+> | Estimating spine — cost book, estimates, contract/SOW generation, e-sign | `docs/phase-2-estimating-plan.md`, `docs/phase-2-b5-b6-plan.md` |
+> | AI-fillable legal document templates | `docs/doc-templates-plan.md` (+ `docs/reference/doc-templates/`) |
+> | Open Brain / Open Engine / Open Skills (knowledge, work items, skills, runbooks) | `docs/open-brain-engine-plan.md`, `docs/open-skills-authoring.md`, `docs/stage-gates.md` |
+> | MCP server — AI-agnostic structured DB access | `mcp/README.md`, `docs/hermes-mcp.md` |
+> | `/today` v2 interactive AI feed | `docs/today-interactive-plan.md` |
+> | Universal operator panel (queue + chat dock, `/panel`, `/workbench`) | `docs/operator-console-plan.md`, `docs/routes.md` |
+> | Newsletter, marketing, lead nurture drips, bidding + bid follow-ups | `AGENTS.md`, `mcp/README.md` |
+> | Owner grants, owner push (Telegram), agent memories, runbook stepper | `AGENTS.md`, `db/schema.sql` |
 >
-> **Then (deferred, agreed order):** **7.3 AI swap** → **7.x email** (`/inbox`) → **deploy (very last)**. `/site`, `/newsletter`, `/books` stay placeholders. **Lead import (old 7.1) is dropped** — leads will be collected/imported fresh after the project ships.
+> **Deliberately not built:** the accounting epic — Books is a **future
+> product**, not overdue work. `/books` is a disabled "soon" nav item, there are
+> no ledger tables, and there is no payment processing (no Stripe/Plaid). The
+> plan is written and waiting: `docs/phase-5-accounting-plan.md`. Two-way SMS has a built backend + `/messages` UI but
+> **does not send** until a provider + 10DLC registration exist
+> (`docs/sms-seam.md`).
+>
+> For a gap-by-gap comparison against the original master plan, see
+> `docs/plan-vs-build.md` (a 2026-06-30 snapshot with a roll-up of what has
+> landed since).
 
 ---
 
 ## How to use this file
 
-- Checkboxes track what's done. Check them off as each item is completed.
-- "Status" line above always reflects the active phase.
+- This is the Phase 0–8 checklist as it stood when that build finished. Treat it
+  as history, not as the current backlog.
 - Per-phase detail (decisions made, deferred items, notes) lives in `docs/phases/`.
 - Design tokens reference: `docs/design-tokens.md`
-- Route + component map: `docs/routes.md`
-
+- Route + component map: `docs/routes.md` (kept current)
+- Agent/operating rules for this repo: `AGENTS.md`
 ---
 
 ## Phase 0 — Foundation
@@ -258,22 +281,29 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 - [x] `/api/today` — real daily brief *(header metrics + brief inputs from leads/projects rows; priorities/schedule/waiting stay curated until those tables exist)*
 - [x] `/api/leads` + `/api/leads/[slug]` — read from Lead table *(list + detail DB-backed; curated detail content merged per slug)*
 - [x] `/api/projects` + `/api/projects/[slug]` — read from Project table *(list + detail DB-backed; computed summary)*
-- [ ] `/api/inbox` — stub for email/SMS unification (Postmark + Twilio later) *(threads table empty; stays mock until integration)*
+- [x] `/api/inbox` — real, backed by the Gmail integration (see 7.x below)
 - [x] `/api/subs` + `/api/subs/[slug]` — read from Sub table *(list + detail DB-backed)*
 - [x] `/api/compliance` — reads compliance_items, buckets windows by days-until-due
 - [x] `/api/notifications` — reads notifications table
 
-### 7.3 Real AI (swap in when ready) — *final-three step 1*
-- [ ] Decide: local LLM via Ollama, or Anthropic API *(needs Joe: provider + API key, or Ollama install)*
-- [ ] Implement chosen provider in `lib/ai.ts` — zero screen-code changes required
-- [ ] Preserve the mock as a fallback (`AI_PROVIDER=mock`) for offline/dev
-- [ ] Test each AI method (brief, triage, draft, summarize, suggest) + the passthrough-focus / kind-aware branches
+### 7.3 Real AI (swap in when ready) — ✅ done
+- [x] Decide: local LLM via Ollama, or Anthropic API — **both**: Ollama (`qwen2.5:7b-instruct`) is the free in-page AI; Claude and Hermes run as agents
+- [x] Implement chosen provider in `lib/ai.ts` — zero screen-code changes required
+- [x] Preserve the mock as a fallback (`AI_PROVIDER=mock`) for offline/dev
+- [x] Test each AI method (brief, triage, draft, summarize, suggest) + the passthrough-focus / kind-aware branches
 
-### 7.x Email unification (`/inbox`) — *final-three step 2*
-- [ ] Decide provider (Postmark inbound + Twilio SMS, or alternative) *(needs Joe)*
-- [ ] Add `threads` ingestion + a `messages` table; backfill seed
-- [ ] Convert `lib/inbox.ts` off mock onto `query()` (last remaining mock lib)
-- [ ] Wire AI triage/draft to real thread bodies
+> Since grown well past a single provider swap: `lib/dev-agents.ts` (Claude/Hermes
+> runs), `lib/orchestrator/` (the Claude↔Hermes review ladder + message router
+> behind the panel's "Auto"), and `lib/agent-memory.ts` (the learning layer).
+
+### 7.x Email unification (`/inbox`) — ✅ done
+- [x] Decide provider — **Gmail API** (OAuth, `gmail.modify` + `gmail.send`), not Postmark
+- [x] Real thread ingestion (`lib/gmail.ts`); `thread_links` ties threads to records
+- [x] Convert `lib/inbox.ts` off mock onto real Gmail reads
+- [x] Wire AI triage/draft to real thread bodies
+
+> Interactivity + Gmail parity detail: `docs/phases/phase-7x-inbox-interactivity.md`.
+> SMS is a separate surface (`/messages`) and is built-but-inert — `docs/sms-seam.md`.
 
 ---
 
@@ -309,22 +339,34 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 
 ---
 
-## Phase 8 — Production Deployment
+## Phase 8 — Production Deployment — ✅ live
 
-- [ ] `npm run build` passes clean
-- [ ] PM2 config (`ecosystem.config.js`) — app name `sjcos`, port 3001, auto-restart
-- [ ] Nginx config — proxy `sjcos.local` (or subdomain) → port 3001
-- [ ] Environment variables in `.env.local` — `DATABASE_URL`, `AI_PROVIDER`, etc.
-- [ ] Smoke-test all routes in production build
-- [ ] PM2 startup configured so app survives server reboot
+Shipped **differently from the sketch below**: systemd replaced PM2, and the app
+listens on **:3017**, not :3001 (:3001 was already taken on this shared box).
+Authoritative runbook: **`deploy/README.md`** + `deploy/sjcos.service`.
+
+- [x] `npm run build` passes clean
+- [x] ~~PM2 config (`ecosystem.config.js`)~~ → **systemd user service `sjcos.service`** (`loginctl enable-linger joe` for reboot persistence)
+- [x] Nginx config — proxy `os.sjcarpentryllc.com` (TLS via certbot) → `127.0.0.1:3017`
+- [x] Environment variables in `.env.local` — `DATABASE_URL`, `AI_PROVIDER`, etc.
+- [x] Smoke-test all routes in production build *(see `docs/qa-2026-07-04.md`)*
+- [x] Survives server reboot
+
+> ⚠️ **Never `npm run build` while the service is running** — `next start`
+> respawns into a half-written `.next` and the live site breaks. Build, *then*
+> `systemctl --user restart sjcos.service`. Phase 8 auth/wiring detail:
+> `docs/phases/phase-8-auth-and-wiring.md`.
 
 ---
 
-## Deferred (out of scope this round)
+## Deferred as of Phase 8 — where each one landed
 
-- **Books / accounting deep-dive** — QuickBooks stays as source of truth; only A/R surface and compliance calendar in SJC OS
-- **Mobile** — desktop-first for now
-- **Real email/SMS integration** — Postmark + Twilio wired in a later phase
-- **Google Drive mirror** — Files module uses local storage initially
-- **Plaid / Stripe / QuickBooks sync**
-- **Floor Plan editor internals** — structural shell only in Phase 4
+| Deferred item | Status now (2026-08-25) |
+|---|---|
+| **Books / accounting deep-dive** | Still deferred. `/books` is a disabled "soon" nav item; no ledger tables. Plan: `docs/phase-5-accounting-plan.md` (CPA packet still unanswered). |
+| **Mobile** | Built, and **distribution is in progress (2026-08-25)** — an Expo/React Native app in its own repo, `/home/joe/sjcos-mobile`, backed by the `/api/mobile/*` routes here. iPhone/iPad/Android all supported in code; EAS build config is in place. |
+| **Real email integration** | ✅ Live via Gmail (not Postmark). |
+| **Real SMS integration** | Backend + `/messages` UI built, **inert** — needs a paid provider + A2P 10DLC. `docs/sms-seam.md`. |
+| **Google Drive mirror** | Not built; Files still uses local storage (`lib/upload-store.ts`). |
+| **Plaid / Stripe / QuickBooks sync** | Not built. Folded into the accounting epic. |
+| **Floor Plan editor internals** | Viewer + versioned published plans built (`lib/floorplans.ts`); the *designer/editor* is still deferred. |

@@ -2,6 +2,15 @@
 
 *Run 2026-07-01 against the full app (55 routes, Phases 1–4 + 6 complete). Two passes. Live at os.sjcarpentryllc.com.*
 
+> **📌 Historical snapshot (2026-07-01).** The one finding was fixed and
+> deployed at the time (commit `e2596b4`). The app has grown a lot of new
+> surface since — owner grants, the MCP/agent tool surface, the operator panel,
+> newsletter/bidding sends, the portal claim model — **none of which this audit
+> covered**. Treat it as a record of that pass, not as current assurance. The
+> patterns it establishes are still the rules: every mutating server action
+> guards with `requireRole("owner")`, and `proxy.ts` gates page navigation only,
+> so route handlers must authenticate themselves.
+
 ## Summary
 
 One real finding (missing owner-guards on early server actions) — **fixed, deployed, pushed** (commit `e2596b4`). Everything else audited came back clean. No injection, XSS, path traversal, ambiguous SQL, SSR-blocking AI, or unguarded serve routes.

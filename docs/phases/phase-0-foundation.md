@@ -1,6 +1,6 @@
 # Phase 0 — Foundation
 
-**Status:** ✅ complete (2026-06-13). All of 0.1–0.5 done. App renders end-to-end at `/today`; AI service + Postgres data layer scaffolded. Next phase: 1.1 Today screen.
+**Status:** ✅ complete (2026-06-13). *Historical — the app is long past this phase and is in production; see `README.md` for current status.* All of 0.1–0.5 done. App renders end-to-end at `/today`; AI service + Postgres data layer scaffolded. Next phase: 1.1 Today screen.
 
 ---
 
@@ -13,7 +13,7 @@ When this phase is done: visiting the app in a browser shows the forest-green si
 
 ## Decisions to make before starting
 
-- [x] ~~Dev port: run on `:3001`~~ — **`:3001` is already taken** by another user's `siteme-server` on this shared box. Verified the build on `:3017` for now. Pick a permanent free port before Phase 8 deploy (PM2/Nginx config still references 3001 — needs updating).
+- [x] ~~Dev port: run on `:3001`~~ — **`:3001` is already taken** by another user's `siteme-server` on this shared box, so the build moved to `:3017`. **Resolved: `:3017` is the permanent port**, and the deploy went out on **systemd, not PM2** (`deploy/sjcos.service`; nginx proxies `os.sjcarpentryllc.com` → `127.0.0.1:3017`). See `deploy/README.md`.
 - [x] Routing: App Router confirmed (already scaffolded).
 - [x] Tailwind: v4 token mapping lives in `globals.css` via `@theme inline`, not `tailwind.config.ts`.
 

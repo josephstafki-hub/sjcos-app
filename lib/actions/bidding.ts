@@ -10,6 +10,7 @@
 // send — transmitting email is owner-only).
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { query, queryOne } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { emit } from "@/lib/notify";
@@ -247,17 +248,13 @@ export async function addBidInvites(packageId: number, formData: FormData): Prom
   const slugs = formData.getAll("subSlug").map((v) => String(v)).filter(Boolean);
   if (slugs.length === 0) return { ok: false, error: "Pick at least one sub." };
 
-  const { rows: valid } = await query<{ slug: string }>(
-    `SELECT slug FROM subs WHERE slug = ANY($1)`,
-    [slugs],
+  // One round trip for the whole pick, not one per sub.
+  await query(
+    `INSERT INTO bid_invites (package_id, sub_slug)
+     SELECT $1, slug FROM subs WHERE slug = ANY($2)
+     ON CONFLICT (package_id, sub_slug) DO NOTHING`,
+    [packageId, slugs],
   );
-  for (const { slug: subSlug } of valid) {
-    await query(
-      `INSERT INTO bid_invites (package_id, sub_slug)
-       VALUES ($1, $2) ON CONFLICT (package_id, sub_slug) DO NOTHING`,
-      [packageId, subSlug],
-    );
-  }
   revalidatePath(`/projects/${pkg.slug}`);
   return { ok: true };
 }
@@ -383,11 +380,12 @@ export async function recordBid(inviteId: number, formData: FormData): Promise<R
   );
   const submissionId = Number(subRows[0].id);
 
-  for (const [i, line] of lines.entries()) {
+  if (lines.length) {
     await query(
       `INSERT INTO bid_submission_lines (submission_id, description, amount, sort_order)
-       VALUES ($1, $2, $3, $4)`,
-      [submissionId, line.description, line.amount, i],
+       SELECT $1, d, a, i - 1
+       FROM unnest($2::text[], $3::bigint[]) WITH ORDINALITY AS t(d, a, i)`,
+      [submissionId, lines.map((l) => l.description), lines.map((l) => l.amount)],
     );
   }
 
@@ -411,14 +409,17 @@ export async function recordBid(inviteId: number, formData: FormData): Promise<R
     [inviteId],
   );
 
-  // Auto thank-you (only if the package's follow-ups switch is on). Best-effort:
-  // a Gmail hiccup here is retried by the hourly sweep, never surfaced as a
-  // failure of recording the bid itself.
-  try {
-    await sendBidThanks(inviteId);
-  } catch (err) {
-    console.error("[bidding] thank-you send failed", err);
-  }
+  // Auto thank-you (only if the package's follow-ups switch is on). Best-effort
+  // and deferred past the response: a Gmail round trip was what made "record a
+  // bid" hang for seconds, and a hiccup here is retried by the hourly sweep,
+  // never surfaced as a failure of recording the bid itself.
+  after(async () => {
+    try {
+      await sendBidThanks(inviteId);
+    } catch (err) {
+      console.error("[bidding] thank-you send failed", err);
+    }
+  });
 
   await emit({
     kind: "money",

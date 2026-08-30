@@ -78,6 +78,13 @@ const permissionMode = (mode) => (mode === "ask" ? "manual" : VALID_MODE.has(mod
 // On a RESUMED session the CLI already holds Claude's own turns, so we send
 // only the new turn (plus the current page, which may have changed) — and, in
 // an 'auto' thread, whatever other assistants said in between (`unseen`).
+// On a denied tool call Claude must ask, not refuse: Joe approves from chat.
+const PERMISSION_GUIDE =
+  `PERMISSIONS: you already have the sjcos business tools. If any tool call comes back denied or ` +
+  `"requested permissions … not granted", do NOT give up or answer without the data — Joe approves actions ` +
+  `from this chat. Say in one line exactly which action was blocked, ask him to approve it (or to switch ` +
+  `the mode / tick Express permission for sends), and meanwhile finish everything you can without it.`;
+
 function resumePrompt(userPrompt, pageContext, unseen, grantId) {
   const where = pageContext ? `(I'm now looking at route ${pageContext}.)\n` : "";
   const between = unseen
@@ -86,7 +93,7 @@ function resumePrompt(userPrompt, pageContext, unseen, grantId) {
     : "";
   // Permission is per message: restate it (or its absence) on every turn so a
   // grant from an earlier message is never assumed to still apply.
-  return where + between + `[${grantText(grantId)}]\n\n` + userPrompt;
+  return where + between + `[${grantText(grantId)}]\n\n` + `[${PERMISSION_GUIDE}]\n\n` + userPrompt;
 }
 
 // The owner-grant paragraph: with a run grant, Claude may send what the
@@ -126,6 +133,10 @@ function buildPrompt(userPrompt, pageContext, mode, unseen, grantId) {
     `so code changes are fair game when that's what Joe wants.\n\n` +
     grantText(grantId) +
     `\n\n` +
+    PERMISSION_GUIDE +
+    `
+
+` +
     where +
     task +
     (unseen
@@ -441,23 +452,23 @@ async function main() {
   const mcpConfigs = [];
   const withMcp = rows[0].with_mcp !== false;
   if (withMcp) mcpConfigs.push(path.join(REPO, "mcp/sjcos-mcp.config.json"));
-  // Pre-approve the sjcos tools. Headless `-p` has nobody to answer a
-  // permission prompt, so in every mode short of auto/bypass the CLI silently
-  // denies each mcp__sjcos__* call ("requested permissions … but you haven't
-  // granted it yet") and Claude reports "no MCP permissions". The tools are
-  // safe to pre-approve: client-facing sends are gated inside them by owner
-  // grants. "Ask me" is the exception — there Joe approves each call in chat.
-  if (withMcp && mode !== "ask") args.push("--allowedTools", "mcp__sjcos");
-  if (mode === "ask") {
-    // "Ask me": CLI mode manual + every permission prompt routed into the
-    // panel chat via the interact server's approve_action (fails closed).
-    mcpConfigs.push(
-      JSON.stringify({
-        mcpServers: { interact: { command: "node", args: [path.join(REPO, "mcp/interact-mcp.mjs")] } },
-      }),
-    );
-    args.push("--permission-prompt-tool", "mcp__interact__approve_action");
-  }
+  // Every in-app session has general business-tool access: pre-approve the
+  // whole sjcos server in every mode. Headless `-p` has nobody to answer a
+  // permission prompt, so without this the CLI silently denies each
+  // mcp__sjcos__* call and Claude reports "no MCP permissions". Safe: the
+  // client-facing sends are gated inside the tools by owner grants.
+  if (withMcp) args.push("--allowedTools", "mcp__sjcos");
+  // Anything NOT pre-approved (Bash, edits outside the mode's allowance, …)
+  // must become a question for Joe rather than a silent denial: route the
+  // CLI's permission prompt into the panel chat via the interact server's
+  // approve_action in every mode (auto/bypass simply never invoke it). "Ask
+  // me" additionally runs CLI mode manual so every action is prompted.
+  mcpConfigs.push(
+    JSON.stringify({
+      mcpServers: { interact: { command: "node", args: [path.join(REPO, "mcp/interact-mcp.mjs")] } },
+    }),
+  );
+  args.push("--permission-prompt-tool", "mcp__interact__approve_action");
   if (mcpConfigs.length) args.push("--mcp-config", ...mcpConfigs);
   if (resumeSession) args.push("--resume", resumeSession);
   if (model) args.push("--model", model);

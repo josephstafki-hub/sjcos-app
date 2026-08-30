@@ -85,10 +85,12 @@ export const DRAFT_MODEL_OPTIONS: { value: DraftModel; label: string; note: stri
 // Values map 1:1 to the installed CLI's flags (`claude --help`, v2.1.x):
 //   model  → --model alias        (fable | opus | sonnet | haiku)
 //   mode   → --permission-mode    (the six real modes below), EXCEPT "ask",
-//            which is ours: CLI mode manual with every permission prompt
-//            routed INTO the panel chat (--permission-prompt-tool →
-//            mcp/interact-mcp.mjs) so Joe approves tool-by-tool like the
-//            terminal CLI. No answer = deny (fails closed).
+//            which is ours: CLI mode manual (every action prompted).
+//            In EVERY mode the sjcos tools are pre-approved (--allowedTools
+//            mcp__sjcos) and any other permission prompt is routed INTO the
+//            panel chat (--permission-prompt-tool → mcp/interact-mcp.mjs) so
+//            Joe approves it there instead of the headless CLI silently
+//            denying. No answer = deny (fails closed).
 //   effort → --effort <level>     (low | medium | high | xhigh | max)
 // "default" means "pass no flag → use the CLI's configured session default".
 // Mode values ARE the exact --permission-mode strings so the runner can pass

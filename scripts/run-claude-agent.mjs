@@ -447,7 +447,15 @@ async function main() {
   // tools (with_mcp defaults true in startClaudeRun). with_mcp=false is the
   // explicit code-only escape hatch, which skips the tool-schema token cost.
   const mcpConfigs = [];
-  if (rows[0].with_mcp !== false) mcpConfigs.push(path.join(REPO, "mcp/sjcos-mcp.config.json"));
+  const withMcp = rows[0].with_mcp !== false;
+  if (withMcp) mcpConfigs.push(path.join(REPO, "mcp/sjcos-mcp.config.json"));
+  // Pre-approve the sjcos tools. Headless `-p` has nobody to answer a
+  // permission prompt, so in every mode short of auto/bypass the CLI silently
+  // denies each mcp__sjcos__* call ("requested permissions … but you haven't
+  // granted it yet") and Claude reports "no MCP permissions". The tools are
+  // safe to pre-approve: client-facing sends are gated inside them by owner
+  // grants. "Ask me" is the exception — there Joe approves each call in chat.
+  if (withMcp && mode !== "ask") args.push("--allowedTools", "mcp__sjcos");
   if (mode === "ask") {
     // "Ask me": CLI mode manual + every permission prompt routed into the
     // panel chat via the interact server's approve_action (fails closed).

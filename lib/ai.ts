@@ -480,10 +480,9 @@ export async function qwenChat(
 export async function askOllamaJson<T>(
   prompt: string,
   schema: Record<string, unknown>,
-  opts: { temperature?: number } = {},
 ): Promise<T | null> {
   try {
-    return JSON.parse(await ollamaChat(prompt, schema, opts)) as T;
+    return JSON.parse(await ollamaChat(prompt, schema)) as T;
   } catch {
     return null;
   }
@@ -493,7 +492,6 @@ export async function askOllamaJson<T>(
 async function ollamaChat(
   userPrompt: string,
   schema?: Record<string, unknown>,
-  opts: { temperature?: number } = {},
 ): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
@@ -512,9 +510,7 @@ async function ollamaChat(
           { role: "user", content: userPrompt },
         ],
         ...(schema ? { format: schema } : {}),
-        // Classification callers pin temperature to 0 so the same inbound
-        // gets the same read on a retry; drafting keeps the default warmth.
-        options: { temperature: opts.temperature ?? 0.4 },
+        options: { temperature: 0.4 },
       }),
     });
     if (!res.ok) {

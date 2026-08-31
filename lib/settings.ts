@@ -79,6 +79,8 @@ export interface SettingsData {
   }[];
   integrations: Integration[];
   aiToggles: AiToggle[];
+  /** Which agent drafts the same-day first response to inbound leads. */
+  leadFirstResponseModel: "claude" | "hermes";
   notifyToggles: AiToggle[];
   /** Company / contract boilerplate used by generated contracts + SOWs (B5). */
   companyDocs: {
@@ -220,6 +222,7 @@ export async function getSettingsData(): Promise<SettingsData> {
       { name: "Google Drive", sub: "Doc archive (deferred)", connected: false },
       { name: "Stripe", sub: "Card payments", connected: false },
     ],
+    leadFirstResponseModel: get("ai.leadFirstResponseModel") === "hermes" ? "hermes" : "claude",
     aiToggles: AI_TOGGLES.map((t) => ({
       key: t.key,
       label: t.label,

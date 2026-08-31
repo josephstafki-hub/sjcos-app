@@ -4,7 +4,7 @@ import "server-only";
 //
 // Every lead that arrives through createInboundLead (website form, Hermes
 // email import, anything hitting /api/leads/intake) gets exactly one of four
-// outcomes, decided deterministically from what they sent plus Qwen's read of
+// outcomes, decided deterministically from what they sent plus the agent's read of
 // the inbound:
 //
 //   rough_estimate  clear description + photos + measurements → we can price
@@ -22,10 +22,15 @@ import "server-only";
 //
 // Send policy: the draft is staged on the lead page for Joe to send unless the
 // owner has armed "ai.leadFirstResponseAutoSend" in Settings — then the three
-// mailable branches go out on their own; human_review never does. Either way
-// the copy comes from the fixed templates below (Joe's voice, one clear ask);
-// the model only contributes the classification and a one-line personalised
-// opening, so a small local model can't wander off-script.
+// mailable branches go out on their own; human_review never does.
+//
+// Who writes it: Claude (single-turn `claude -p`, no tools, ~5s) or Hermes
+// (the agent gateway), chosen in Settings → AI ("ai.leadFirstResponseModel",
+// default Claude). Never the local Qwen — Joe's call, 2026-08-31. The model
+// does two things per lead: a structured read of the inbound (clarity / fit /
+// project label) that feeds the deterministic branch rules below, and then the
+// full email for the branch, written against a fixed brief (process facts +
+// voice rules) so it says the right things in Joe's voice.
 //
 // Idempotency: the unique lead_id on lead_first_responses is the claim. The
 // immediate path (Next `after()` at intake) and the 10-minute sweep race for
@@ -33,8 +38,8 @@ import "server-only";
 // stale 'drafting' row the sweep re-claims after 10 minutes.
 
 import { query, queryOne } from "./db";
-import { askOllamaJson } from "./ai";
 import { AI_NAME } from "./ai-name";
+import { askHermes, chatReplyClaude } from "./dev-agents";
 import { gmailConfigured, sendNewEmail } from "./gmail";
 import { logLeadActivity } from "./lead-activity";
 import { cancelLeadNurture } from "./newsletter-drip";
@@ -52,6 +57,16 @@ export type FirstResponseStatus =
   | "failed";
 
 export const AUTO_SEND_SETTING_KEY = "ai.leadFirstResponseAutoSend";
+export const MODEL_SETTING_KEY = "ai.leadFirstResponseModel";
+
+export type FirstResponseModel = "claude" | "hermes";
+export const MODEL_LABEL: Record<FirstResponseModel, string> = { claude: "Claude", hermes: "Hermes" };
+
+/** Which agent drafts first responses (Settings → AI). Claude unless Joe picked Hermes. */
+export async function firstResponseModel(): Promise<FirstResponseModel> {
+  const r = await queryOne<{ value: string }>(`SELECT value FROM app_settings WHERE key = $1`, [MODEL_SETTING_KEY]);
+  return r?.value === "hermes" ? "hermes" : "claude";
+}
 
 export const BRANCH_LABEL: Record<FirstResponseBranch, string> = {
   rough_estimate: "Rough estimate",
@@ -73,13 +88,13 @@ export interface FirstResponseSignals {
   triageVerdict: "go" | "hold" | "pass" | null;
 }
 
-/** What the model contributes: a read of the inbound + one personalised line. */
+/** The model's structured read of the inbound (feeds the branch rules). */
 export interface FirstResponseAiRead {
+  model: FirstResponseModel;
   clarity: "clear" | "partial" | "unclear";
   fit: "fit" | "unsure" | "not_fit";
   fit_reason: string;
   project_label: string;
-  opening: string;
 }
 
 export interface LeadFirstResponse {
@@ -188,51 +203,89 @@ export function readSignals(ctx: Pick<LeadCtx, "scope" | "intake" | "files" | "t
   };
 }
 
-// ─── The model's read ────────────────────────────────────────────────────────
+// ─── Talking to the model ────────────────────────────────────────────────────
 
-const AI_SCHEMA = {
-  type: "object",
-  properties: {
-    clarity: { type: "string", enum: ["clear", "partial", "unclear"] },
-    fit: { type: "string", enum: ["fit", "unsure", "not_fit"] },
-    fit_reason: { type: "string" },
-    project_label: { type: "string" },
-    opening: { type: "string" },
-  },
-  required: ["clarity", "fit", "fit_reason", "project_label", "opening"],
-};
+const MOCK = process.env.LEAD_FIRST_RESPONSE_MOCK === "1"; // dev/tests: no agent calls
+
+/** Pull a JSON object out of an agent's prose answer (fences, preamble,
+ *  trailing remarks all tolerated). Null when there's no parseable object. */
+export function parseJsonObject<T>(text: string): T | null {
+  const cleaned = text.replace(/```(?:json)?/gi, "").trim();
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try {
+    return JSON.parse(cleaned.slice(start, end + 1)) as T;
+  } catch {
+    return null;
+  }
+}
+
+const HERMES_GUARD =
+  "This is research and writing only: do NOT create work items, capture knowledge, " +
+  "submit drafts for approval, look up unrelated records, or send anything. Answer with the JSON only.";
+
+/** One structured ask to the chosen agent. Claude: single-turn `claude -p`,
+ *  every tool disabled. Hermes: the agent gateway, pinned to a per-lead
+ *  session so one lead's facts never bleed into another's. Null = the agent
+ *  was unavailable or didn't return usable JSON; the caller decides between
+ *  retrying later and handing the lead to a human. */
+async function askModelJson<T>(model: FirstResponseModel, prompt: string, sessionId: string): Promise<T | null> {
+  let text: string;
+  try {
+    text =
+      model === "hermes"
+        ? await askHermes(`${prompt}\n\n${HERMES_GUARD}`, undefined, sessionId)
+        : await chatReplyClaude(prompt, { timeoutMs: 120_000 });
+  } catch {
+    return null;
+  }
+  return parseJsonObject<T>(text);
+}
+
+const BAD_LABEL_RE = /^(?:n\/?a|none|unknown|unclear|not sure|tbd|-*)$/i;
+
+function cleanLabel(raw: string): string | null {
+  const label = raw.trim().toLowerCase().replace(/[.!"]+/g, "").replace(/\s+/g, " ");
+  if (!label || BAD_LABEL_RE.test(label) || label.split(" ").length > 7) return null;
+  return label;
+}
 
 function fallbackLabel(scope: string): string {
   const words = scope.trim().toLowerCase().replace(/[^a-z0-9\s-]/g, " ").split(/\s+/).filter(Boolean);
   return words.length ? words.slice(0, 5).join(" ") : "your project";
 }
 
-/** Ask the local model for its read. Returns null when the model is down or
- *  answers with something unusable — the caller decides whether to retry
- *  later or hand the lead to a human. Under the mock provider (dev/tests) the
- *  read is derived from the signals so the flow runs without a model. */
+function detailsBlock(ctx: Pick<LeadCtx, "intake">): string {
+  return ctx.intake
+    .filter((p) => p.value.trim())
+    .map((p) => `- ${p.label}: ${p.value.slice(0, 1500)}`)
+    .join("\n");
+}
+
+// ─── Step 1: the model's read ────────────────────────────────────────────────
+
+/** Ask the chosen agent to read the inbound. Under LEAD_FIRST_RESPONSE_MOCK=1
+ *  the read is derived from the signals so the flow runs without an agent. */
 export async function readInboundWithModel(
-  ctx: Pick<LeadCtx, "name" | "source" | "scope" | "intake">,
+  ctx: Pick<LeadCtx, "id" | "name" | "source" | "scope" | "intake">,
   signals: FirstResponseSignals,
+  model: FirstResponseModel,
 ): Promise<FirstResponseAiRead | null> {
-  if ((process.env.AI_PROVIDER ?? "mock") !== "ollama") {
+  if (MOCK) {
     return {
+      model,
       clarity: signals.descriptionChars >= 120 ? "clear" : signals.hasDescription ? "partial" : "unclear",
       fit: "fit",
-      fit_reason: "mock provider",
+      fit_reason: "mock",
       project_label: fallbackLabel(ctx.scope),
-      opening: `Thanks for reaching out about ${fallbackLabel(ctx.scope)}.`,
     };
   }
 
-  const details = ctx.intake
-    .filter((p) => p.value.trim())
-    .map((p) => `- ${p.label}: ${p.value.slice(0, 1200)}`)
-    .join("\n");
   const prompt =
     `You are reading a new inbound lead for SJ Carpentry LLC, a residential carpentry and ` +
     `remodeling firm (kitchens, baths, basements, decks, garages, additions, finish carpentry). ` +
-    `Return JSON with these fields.\n\n` +
+    `Return ONLY a JSON object with these keys — no markdown, no commentary:\n\n` +
     `clarity — could a carpenter put a rough ballpark range on this from the description alone?\n` +
     `  "clear": we know the space, the work wanted, and roughly how big it is.\n` +
     `  "partial": we get the general idea but the details are thin.\n` +
@@ -244,62 +297,131 @@ export async function readInboundWithModel(
     `owner should look before anyone replies.\n` +
     `fit_reason — one short sentence.\n` +
     `project_label — 2 to 6 plain lowercase words naming the project ("kitchen remodel", ` +
-    `"basement finish", "deck rebuild"), or "your project" if unclear.\n` +
-    `opening — ONE or TWO short sentences written as Joe, the owner, replying to this person and ` +
-    `acknowledging what they specifically asked about. Plain-spoken and warm, no corporate filler, ` +
-    `no exclamation marks, no pricing, no dates, no promises, no questions. Do not use their name, ` +
-    `do not greet, and do not sign off — the greeting and signature are added separately.\n\n` +
+    `"basement finish", "deck rebuild"), or "your project" if unclear.\n\n` +
     `Lead: ${ctx.name}\nSource: ${ctx.source ?? "unknown"}\nProject: ${ctx.scope || "(blank)"}\n` +
-    `Details:\n${details || "(none beyond the above)"}`;
+    `Details:\n${detailsBlock(ctx) || "(none beyond the above)"}`;
 
-  const out = await askOllamaJson<Partial<FirstResponseAiRead>>(prompt, AI_SCHEMA, { temperature: 0 });
+  const out = await askModelJson<Partial<FirstResponseAiRead>>(model, prompt, `lead-first-response-${ctx.id}`);
   if (!out) return null;
   const clarity = out.clarity === "clear" || out.clarity === "partial" || out.clarity === "unclear" ? out.clarity : null;
   const fit = out.fit === "fit" || out.fit === "unsure" || out.fit === "not_fit" ? out.fit : null;
   if (!clarity || !fit) return null;
-  const label = cleanLabel(String(out.project_label ?? "")) ?? fallbackLabel(ctx.scope);
-  const opening = cleanOpening(String(out.opening ?? ""), ctx.name);
   return {
+    model,
     clarity,
     fit,
     fit_reason: String(out.fit_reason ?? "").trim().slice(0, 300),
-    project_label: label,
-    opening: opening ?? `Thanks for reaching out about ${label}.`,
+    project_label: cleanLabel(String(out.project_label ?? "")) ?? fallbackLabel(ctx.scope),
   };
 }
 
-const BAD_LABEL_RE = /^(?:n\/?a|none|unknown|unclear|not sure|tbd|-*)$/i;
+// ─── Step 2: the email ───────────────────────────────────────────────────────
+// The brief is fixed — what each branch must say, the process facts, and the
+// voice rules (client-followup-draft skill: short, plain-spoken, one clear
+// ask, no corporate filler). The agent writes the words.
 
-function cleanLabel(raw: string): string | null {
-  const label = raw.trim().toLowerCase().replace(/[.!"]+/g, "").replace(/\s+/g, " ");
-  if (!label || BAD_LABEL_RE.test(label) || label.split(" ").length > 7) return null;
-  return label;
+const PROCESS_FACTS =
+  `How SJ Carpentry works (use these facts; do not invent others):\n` +
+  `- A rough estimate is a ballpark range for the work described — not a firm bid — so both ` +
+  `sides know they're in the right neighborhood before anyone spends time on details. Joe sends ` +
+  `it within a few business days of having enough to go on.\n` +
+  `- After the rough estimate, if the range works for the client: a site visit to walk the space ` +
+  `and nail down details, then a pre-construction agreement (design, selections, and a firm ` +
+  `scope and price), then the build.\n` +
+  `- A discovery call is a short phone call, 15–20 minutes, to talk through what they're ` +
+  `picturing, what's there now, and whether we're the right fit. To set one up the client ` +
+  `replies with a couple of days and times that work (weekdays are best) and Joe confirms one.\n` +
+  `- Phone photos and rough measurements (length, width, ceiling height, or the overall size ` +
+  `of the area) are what Joe needs to put a rough number on a project.`;
+
+const VOICE_RULES =
+  `Voice: Joe, the owner, writing personally. Short, plain-spoken, practical, casual — no ` +
+  `corporate filler, no exclamation marks, no emojis, no bullet-point walls. Acknowledge what ` +
+  `they specifically asked about. One clear next step. Never quote prices, ranges, dates, or ` +
+  `availability; never promise anything beyond the process facts. Plain text only (no markdown). ` +
+  `Under 200 words. Start with "Hi <first name>," and end with:\nJoe\nSJ Carpentry`;
+
+const MISSING_ASK: Record<MissingItem, string> = {
+  photos: "a few photos of the space (phone photos are fine)",
+  measurements: "rough measurements — length, width, and ceiling height, or the overall size of the area",
+  detail: "a bit more detail on what's there now and what they'd like done",
+};
+
+function branchBrief(branch: Exclude<FirstResponseBranch, "human_review">, missing: MissingItem[]): string {
+  switch (branch) {
+    case "rough_estimate":
+      return (
+        `This reply's job: tell them they've given you enough to work with, so the next step is a ` +
+        `rough estimate. Explain what a rough estimate is and isn't, that it's coming within a few ` +
+        `business days, and walk through the process after that (site visit → pre-construction ` +
+        `agreement → build) in a sentence or two. Invite them to reply if anything changes or they ` +
+        `want to send more photos or details. Do not quote any numbers.`
+      );
+    case "missing_info":
+      return (
+        `This reply's job: to put a rough number on it you need ` +
+        `${missing.map((m) => MISSING_ASK[m]).join("; ") || "photos and rough measurements"}. ` +
+        `Ask for exactly those things and nothing else, say they can reply with whatever they have, ` +
+        `and offer a short discovery call as the alternative — ask for a couple of days and times ` +
+        `that work.`
+      );
+    case "discovery_call":
+      return (
+        `This reply's job: you can't tell yet what they need, so don't guess at the project. ` +
+        `Suggest a short discovery call as the best next step, say in a sentence what it's for, and ` +
+        `ask for a couple of days and times that work. Mention photos are welcome if they have any.`
+      );
+  }
 }
 
-/** Tidy the model's one-liner so it sits under a templated "Hi <first>,":
- *  drop a greeting or a leading "Thanks, <name>." (the name is already in the
- *  salutation), no exclamation marks, single spaces. Null = unusable. */
-export function cleanOpening(raw: string, name: string): string | null {
-  const first = firstName(name);
-  let s = raw.trim().replace(/\s+/g, " ");
-  s = s.replace(/^(?:hi|hello|hey)\b[^,.!]*[,.!]?\s*/i, "");
-  s = s.replace(
-    new RegExp(`^(thanks|thank you)[,]?\\s+${first.replace(/[^a-z]/gi, "")}[,.!]?\\s*(\\w?)`, "i"),
-    (_m, _t, c: string) => `Thanks — ${c.toLowerCase()}`,
-  );
-  // "Got it, Tom." → "Got it." — the salutation already carries the name.
-  if (first !== "there") s = s.replace(new RegExp(`,?\\s*\\b${first.replace(/[^a-z]/gi, "")}\\b[,]?`, "gi"), "");
-  s = s.replace(/!+/g, ".").replace(/\s+([.,])/g, "$1").replace(/\.{2,}/g, ".");
-  // The template carries the ask; a question in the opening would double it.
-  s = s
-    .split(/(?<=[.?])\s+/)
-    .filter((sentence) => sentence && !sentence.trim().endsWith("?"))
-    .join(" ")
+export interface DraftedEmail {
+  subject: string;
+  body: string;
+}
+
+/** Ask the chosen agent to write the email for a branch. Null when the agent
+ *  was unavailable or the answer wasn't a usable email. */
+export async function draftWithModel(
+  model: FirstResponseModel,
+  branch: Exclude<FirstResponseBranch, "human_review">,
+  ctx: Pick<LeadCtx, "id" | "name" | "source" | "scope" | "intake">,
+  signals: FirstResponseSignals,
+  read: FirstResponseAiRead | null,
+  missing: MissingItem[],
+): Promise<DraftedEmail | null> {
+  const label = read?.project_label ?? fallbackLabel(ctx.scope);
+  if (MOCK) {
+    return {
+      subject: `Your ${label} — ${BRANCH_LABEL[branch].toLowerCase()}`,
+      body: `Hi ${firstName(ctx.name)},\n\n(mock ${branch} draft for ${label})\n\nJoe\nSJ Carpentry`,
+    };
+  }
+
+  const prompt =
+    `Write Joe's first reply to a new inbound lead for SJ Carpentry LLC (residential carpentry ` +
+    `and remodeling).\n\n${VOICE_RULES}\n\n${PROCESS_FACTS}\n\n` +
+    `${branchBrief(branch, missing)}\n\n` +
+    `Lead: ${ctx.name} (address them as ${firstName(ctx.name)})\nSource: ${ctx.source ?? "unknown"}\n` +
+    `Project: ${label}\nWhat they sent:\n${detailsBlock(ctx) || "(nothing beyond the above)"}\n` +
+    `They included photos: ${signals.hasPhotos ? "yes" : "no"}. They included measurements: ` +
+    `${signals.hasMeasurements ? "yes" : "no"}.\n\n` +
+    `Return ONLY a JSON object {"subject": string, "body": string} — no markdown, no commentary. ` +
+    `Subject: short and specific, no "Re:". Body: the full email text with real line breaks.`;
+
+  const out = await askModelJson<Partial<DraftedEmail>>(model, prompt, `lead-first-response-${ctx.id}`);
+  if (!out) return null;
+  const subject = String(out.subject ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+  const body = String(out.body ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/```/g, "")
     .trim();
-  s = s.replace(/\s*—\s*$/, ".");
-  if (s && !/[.]$/.test(s)) s += ".";
-  s = s.charAt(0).toUpperCase() + s.slice(1);
-  return s.length >= 12 && s.length <= 400 ? s : null;
+  if (subject.length < 3 || body.length < 80 || body.length > 3000) return null;
+  return { subject, body };
+}
+
+function firstName(name: string): string {
+  const first = name.trim().split(/\s+/)[0] ?? "";
+  return /^[A-Za-z][A-Za-z'-]*$/.test(first) ? first : "there";
 }
 
 // ─── Decision ────────────────────────────────────────────────────────────────
@@ -336,79 +458,6 @@ const MISSING_LABEL: Record<MissingItem, string> = {
   measurements: "measurements",
   detail: "more scope detail",
 };
-
-// ─── Copy ────────────────────────────────────────────────────────────────────
-// Fixed templates in Joe's voice (see the client-followup-draft skill: short,
-// plain-spoken, one clear ask, no corporate filler). The only model-written
-// text is `opening`.
-
-const SIGN_OFF = "Joe\nSJ Carpentry";
-
-function firstName(name: string): string {
-  const first = name.trim().split(/\s+/)[0] ?? "";
-  return /^[A-Za-z][A-Za-z'-]*$/.test(first) ? first : "there";
-}
-
-export function composeFirstResponse(
-  branch: Exclude<FirstResponseBranch, "human_review">,
-  input: { name: string; label: string; opening: string; missing: MissingItem[] },
-): { subject: string; body: string } {
-  const hi = `Hi ${firstName(input.name)},`;
-  const label = input.label || "your project";
-  const opening = input.opening.trim();
-
-  if (branch === "rough_estimate") {
-    return {
-      subject: `Your ${label} — next step is a rough estimate`,
-      body:
-        `${hi}\n\n${opening}\n\n` +
-        `You gave me enough to work with, so the next step is a rough estimate. Here's what that means: ` +
-        `I'll put together a ballpark range for the work you described — not a firm bid, but a realistic ` +
-        `number so we both know we're in the right neighborhood before anyone spends time on details. ` +
-        `You'll have it from me within a few business days.\n\n` +
-        `From there the process is simple:\n` +
-        `  1. Rough estimate — a ballpark range based on what you've sent.\n` +
-        `  2. Site visit — if the range works for you, we walk the space together and nail down the details.\n` +
-        `  3. Pre-construction agreement — design, selections, and a firm scope and price.\n` +
-        `  4. Build.\n\n` +
-        `If anything changes on your end, or you want to send more photos or details, just reply to this email.\n\n` +
-        `Talk soon,\n${SIGN_OFF}`,
-    };
-  }
-
-  if (branch === "missing_info") {
-    const asks: string[] = [];
-    if (input.missing.includes("photos")) asks.push("A few photos of the space — phone photos are fine");
-    if (input.missing.includes("measurements")) {
-      asks.push("Rough measurements — length, width, and ceiling height, or the overall size of the area");
-    }
-    if (input.missing.includes("detail")) asks.push("A bit more detail on what you'd like done and what's there now");
-    if (asks.length === 0) asks.push("A few photos and rough measurements of the space");
-    return {
-      subject: `Your ${label} — a couple of things I need`,
-      body:
-        `${hi}\n\n${opening}\n\n` +
-        `To put a rough number on it, I need a few things:\n` +
-        asks.map((a) => `  • ${a}`).join("\n") +
-        `\n\nReply to this email with whatever you have. If it's easier to just talk it through, I'm happy ` +
-        `to set up a short discovery call — send me a couple of days and times that work for you and I'll ` +
-        `confirm one.\n\n` +
-        `Thanks,\n${SIGN_OFF}`,
-    };
-  }
-
-  return {
-    subject: `Your project — let's talk it through`,
-    body:
-      `${hi}\n\n${opening}\n\n` +
-      `The best next step is a short discovery call — 15 or 20 minutes to talk through what you're ` +
-      `picturing, what's there now, and roughly what you'd like it to be. It helps me understand the ` +
-      `project and tell you honestly whether we're the right fit.\n\n` +
-      `Reply with a couple of days and times that work for you (weekdays are best) and I'll confirm one. ` +
-      `If you have any photos of the space, feel free to attach them.\n\n` +
-      `Thanks,\n${SIGN_OFF}`,
-  };
-}
 
 // ─── Persistence helpers ─────────────────────────────────────────────────────
 
@@ -541,18 +590,23 @@ export async function runLeadFirstResponse(leadId: string, opts: { force?: boole
   if (ctx.emailed && !force) return skip("this lead has already been emailed");
 
   const signals = readSignals(ctx);
+  const model = await firstResponseModel();
+  const who = MODEL_LABEL[model];
+
+  // Agent hiccup on a fresh lead: release the claim so the sweep tries again
+  // in ten minutes instead of dumping a same-day lead on Joe prematurely.
+  const releaseForRetry = async (what: string): Promise<RunOutcome> => {
+    await query(`DELETE FROM lead_first_responses WHERE id = $1 AND status = 'drafting'`, [rowId]);
+    return { status: "retry", reason: `${who} ${what} — will retry` };
+  };
+
   let ai: FirstResponseAiRead | null = null;
   try {
-    ai = await readInboundWithModel(ctx, signals);
+    ai = await readInboundWithModel(ctx, signals, model);
   } catch {
     ai = null;
   }
-  if (!ai && !force && ctx.age_hours < 4) {
-    // Model hiccup on a fresh lead: release the claim so the sweep tries again
-    // in ten minutes instead of dumping a same-day lead on Joe prematurely.
-    await query(`DELETE FROM lead_first_responses WHERE id = $1 AND status = 'drafting'`, [rowId]);
-    return { status: "retry", reason: "model unavailable — will retry" };
-  }
+  if (!ai && !force && ctx.age_hours < 4) return releaseForRetry("unavailable");
 
   const decision = decideBranch(signals, ai);
 
@@ -565,7 +619,7 @@ export async function runLeadFirstResponse(leadId: string, opts: { force?: boole
       reason: decision.reason,
       missing: [],
     });
-    await logLeadActivity(ctx.slug, "note", `First response held for a human — ${decision.reason}`, AI_NAME);
+    await logLeadActivity(ctx.slug, "note", `First response held for a human — ${decision.reason}`, ai ? who : AI_NAME);
     await fileHumanReviewWorkItem(ctx, rowId, decision.reason);
     await notifyOwner({
       kind: "urgent_item",
@@ -576,12 +630,21 @@ export async function runLeadFirstResponse(leadId: string, opts: { force?: boole
     return { status: "human_review", reason: decision.reason };
   }
 
-  const draft = composeFirstResponse(decision.branch, {
-    name: ctx.name,
-    label: ai?.project_label ?? fallbackLabel(ctx.scope),
-    opening: ai?.opening ?? `Thanks for reaching out about ${fallbackLabel(ctx.scope)}.`,
-    missing: decision.missing,
-  });
+  let draft: DraftedEmail | null = null;
+  try {
+    draft = await draftWithModel(model, decision.branch, ctx, signals, ai, decision.missing);
+  } catch {
+    draft = null;
+  }
+  if (!draft) {
+    if (!force && ctx.age_hours < 4) return releaseForRetry("couldn't draft");
+    const reason = `${who} couldn't write the ${BRANCH_LABEL[decision.branch].toLowerCase()} reply.`;
+    await finish(rowId, { branch: "human_review", status: "human_review", signals, ai: ai ?? undefined, reason, missing: [] });
+    await logLeadActivity(ctx.slug, "note", `First response held for a human — ${reason}`, AI_NAME);
+    await fileHumanReviewWorkItem(ctx, rowId, reason);
+    await notifyOwner({ kind: "urgent_item", title: `New lead needs a human reply — ${ctx.name}`, body: reason, href: `/leads/${ctx.slug}` });
+    return { status: "human_review", reason };
+  }
   await finish(rowId, {
     branch: decision.branch,
     status: "pending",
@@ -592,12 +655,7 @@ export async function runLeadFirstResponse(leadId: string, opts: { force?: boole
     ai: ai ?? undefined,
     reason: decision.reason,
   });
-  await logLeadActivity(
-    ctx.slug,
-    "note",
-    `First response drafted — ${BRANCH_LABEL[decision.branch]}. ${decision.reason}`,
-    AI_NAME,
-  );
+  await logLeadActivity(ctx.slug, "note", `First response drafted — ${BRANCH_LABEL[decision.branch]}. ${decision.reason}`, who);
 
   if (await autoSendArmed()) {
     const sent = await sendLeadFirstResponse(ctx.slug, { auto: true });
@@ -608,60 +666,54 @@ export async function runLeadFirstResponse(leadId: string, opts: { force?: boole
   await notifyOwner({
     kind: "approval_needed",
     title: `First response ready to send — ${ctx.name}`,
-    body: `${BRANCH_LABEL[decision.branch]} · ${decision.reason}`,
+    body: `${BRANCH_LABEL[decision.branch]} · drafted by ${who}. ${decision.reason}`,
     href: `/leads/${ctx.slug}`,
   });
   return { status: "pending", branch: decision.branch };
 }
 
-/** Owner picked a branch by hand (human_review row, or a redo with a different
- *  read): compose from the stored model read and park it as pending. */
+/** Owner picked a branch by hand (human-review holds, or a redo with a
+ *  different read): have the agent write that branch's email and park it as
+ *  pending. Reuses the stored read; re-reads the signals from the lead. */
 export async function draftLeadFirstResponseAs(
   slug: string,
   branch: Exclude<FirstResponseBranch, "human_review">,
 ): Promise<{ ok: true; response: LeadFirstResponse } | { ok: false; error: string }> {
-  const row = await queryOne<Row & { name: string; scope: string }>(
-    `SELECT r.*, l.name, l.scope FROM lead_first_responses r JOIN leads l ON l.id = r.lead_id WHERE l.slug = $1`,
+  const row = await queryOne<Row>(
+    `SELECT r.* FROM lead_first_responses r JOIN leads l ON l.id = r.lead_id WHERE l.slug = $1`,
     [slug],
   );
   if (!row) return { ok: false, error: "No first-response row yet — run the draft first." };
   if (row.status === "sent") return { ok: false, error: "The first response has already been sent." };
-  const signals = { ...readSignalsFallback(), ...(row.signals ?? {}) } as FirstResponseSignals;
+  const ctx = await loadLead(row.lead_id);
+  if (!ctx) return { ok: false, error: "Lead not found." };
+  const signals = readSignals(ctx);
   const missing: MissingItem[] = [];
   if (branch === "missing_info") {
     if (!signals.hasPhotos) missing.push("photos");
     if (!signals.hasMeasurements) missing.push("measurements");
     if (row.ai?.clarity !== "clear") missing.push("detail");
   }
-  const draft = composeFirstResponse(branch, {
-    name: row.name,
-    label: row.ai?.project_label ?? fallbackLabel(row.scope),
-    opening: row.ai?.opening ?? `Thanks for reaching out about ${fallbackLabel(row.scope)}.`,
-    missing,
-  });
+  const model = row.ai?.model ?? (await firstResponseModel());
+  let draft: DraftedEmail | null = null;
+  try {
+    draft = await draftWithModel(model, branch, ctx, signals, row.ai, missing);
+  } catch {
+    draft = null;
+  }
+  if (!draft) return { ok: false, error: `${MODEL_LABEL[model]} couldn't write that reply right now — try again.` };
   await finish(row.id, {
     branch,
     status: "pending",
     subject: draft.subject,
     body: draft.body,
     missing,
-    reason: `Branch picked by Joe: ${BRANCH_LABEL[branch]}.`,
+    signals,
+    reason: `Branch picked by Joe: ${BRANCH_LABEL[branch]} — drafted by ${MODEL_LABEL[model]}.`,
   });
+  await logLeadActivity(ctx.slug, "note", `First response redrafted as ${BRANCH_LABEL[branch]}`, MODEL_LABEL[model]);
   const fresh = await getLeadFirstResponse(slug);
   return fresh ? { ok: true, response: fresh } : { ok: false, error: "Could not reload the draft." };
-}
-
-function readSignalsFallback(): FirstResponseSignals {
-  return {
-    descriptionChars: 0,
-    hasDescription: false,
-    hasPhotos: false,
-    hasMeasurements: false,
-    hasBudget: false,
-    hasTimeline: false,
-    hasAddress: false,
-    triageVerdict: null,
-  };
 }
 
 // ─── Sending ─────────────────────────────────────────────────────────────────

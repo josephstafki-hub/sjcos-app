@@ -40,7 +40,7 @@ export async function dismissFirstResponseAction(slug: string): Promise<Result> 
   return reload(slug);
 }
 
-/** Re-run the classify + draft from scratch (model call; ~30s on local Qwen). */
+/** Re-run the read + draft from scratch (two agent calls; ~10–20s with Claude). */
 export async function redraftFirstResponseAction(slug: string): Promise<Result> {
   await requireRole("owner");
   const lead = await queryOne<{ id: string }>(`SELECT id FROM leads WHERE slug = $1`, [slug]);

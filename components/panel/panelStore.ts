@@ -35,6 +35,9 @@ export interface PanelState {
    *  across tabs on purpose — that's what makes every app window drop its
    *  dock when the panel moves to the second monitor. */
   where: "docked" | "window";
+  /** Let a live run steer the app view to what it's working on
+   *  (LiveActionNav). Desktop only regardless — small screens never follow. */
+  follow: boolean;
 }
 
 export const PANEL_MIN_WIDTH = 320;
@@ -48,6 +51,7 @@ export const PANEL_DEFAULTS: PanelState = {
   width: PANEL_DEFAULT_WIDTH,
   collapsed: false,
   where: "docked",
+  follow: true,
 };
 
 const KEY = "sjcos:panel:state:v1";

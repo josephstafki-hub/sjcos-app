@@ -162,6 +162,14 @@ export function useAgentChat({
     subjectId: string | undefined,
     live: { alive: boolean },
   ) => {
+    // Where the run is working (run_effects → poll.focus); relayed on the bus
+    // whenever it moves so the app view can follow (LiveActionNav).
+    let lastFocusHref: string | null = null;
+    const relayFocus = (focus: { href: string; label: string } | null) => {
+      if (!focus || focus.href === lastFocusHref) return;
+      lastFocusHref = focus.href;
+      postPanelMessage({ type: "focus", runId, href: focus.href, label: focus.label }, { local: true });
+    };
     // 1440 × 2s = 48 min — past failStaleTasks()'s 45-minute ladder backstop
     // (a multi-round Hermes ladder with a Claude takeover is the long case),
     // so the client outlives every server reaper, never the reverse.
@@ -170,6 +178,7 @@ export function useAgentChat({
       if (!live.alive) return;
       const p = await pollAgentRun(runId);
       if (!live.alive) return;
+      if (p.ok) relayFocus(p.focus);
       if (!p.ok) {
         setActivity("");
         setMessages((m) => [

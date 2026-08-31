@@ -25,8 +25,13 @@ export type PanelBusMessage =
   /** A run started/ended somewhere; other windows update chips/highlights. */
   | { type: "run"; phase: "start" | "end"; runId: string; agent: PanelAgent; subjectId: string | null }
   /** LiveUpdates saw new app_change_log rows — which tables were touched.
-   *  Feeds the live-action navigation (LiveActionNav). */
-  | { type: "changes"; scopes: string[] }
+   *  `agentScopes` is the subset written by an agent over MCP (source='mcp');
+   *  the rest is the app itself (Joe in another tab, cron timers). Feeds the
+   *  live-action navigation (LiveActionNav). */
+  | { type: "changes"; scopes: string[]; agentScopes: string[] }
+  /** A live run's poll learned which entity the agent is working on (from
+   *  run_effects, see lib/run-focus.ts) — the app view may show it. */
+  | { type: "focus"; runId: string; href: string; label: string }
   /** A queue card hand-off raised outside the dock (e.g. /today cards). */
   | { type: "handoff"; priority: TodayPriority; kind: "do" | "prep" }
   /** The app view's page grounding changed (PageAiContext) — lets a detached
@@ -60,18 +65,24 @@ export function postPanelMessage(msg: PanelBusMessage, opts?: { local?: boolean 
   if (opts?.local) for (const l of [...localListeners]) l(msg);
 }
 
-/** Subscribe to bus messages — from other windows/tabs, plus this window's own
- *  `local: true` posts. Returns an unsubscribe. */
-export function subscribePanelBus(cb: (msg: PanelBusMessage) => void): () => void {
-  localListeners.add(cb);
+export type PanelBusOrigin = "local" | "remote";
+
+/** Subscribe to bus messages — from other windows/tabs (`origin: "remote"`),
+ *  plus this window's own `local: true` posts (`origin: "local"`). Returns an
+ *  unsubscribe. */
+export function subscribePanelBus(
+  cb: (msg: PanelBusMessage, origin: PanelBusOrigin) => void,
+): () => void {
+  const local = (msg: PanelBusMessage) => cb(msg, "local");
+  localListeners.add(local);
   const ch = getChannel();
   const onMessage = (e: MessageEvent) => {
     const msg = e.data as PanelBusMessage | undefined;
-    if (msg && typeof msg === "object" && typeof msg.type === "string") cb(msg);
+    if (msg && typeof msg === "object" && typeof msg.type === "string") cb(msg, "remote");
   };
   ch?.addEventListener("message", onMessage);
   return () => {
-    localListeners.delete(cb);
+    localListeners.delete(local);
     ch?.removeEventListener("message", onMessage);
   };
 }

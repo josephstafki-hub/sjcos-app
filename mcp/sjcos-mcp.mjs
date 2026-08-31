@@ -397,11 +397,20 @@ server.registerTool(
     const lead = await rows(`SELECT * FROM leads WHERE slug = $1`, [slug]);
     if (lead.length === 0) return json({ error: `No lead with slug "${slug}"` });
     const id = lead[0].id;
-    const [intake, activity] = await Promise.all([
+    const [intake, activity, firstResponse] = await Promise.all([
       rows(`SELECT sort_order, question, answer FROM lead_intake WHERE lead_id = $1 ORDER BY sort_order`, [id]),
       rows(`SELECT kind, summary, actor, created_at FROM lead_activity WHERE lead_id = $1 ORDER BY created_at DESC LIMIT 20`, [id]),
+      // The app's same-day first response (lib/lead-first-response.ts). status
+      // 'sent' = the lead has already heard from us — don't draft a second
+      // intro reply; 'pending' = a draft is waiting for Joe on the lead page;
+      // 'human_review' = the app held it and Joe (or you) must read it.
+      rows(
+        `SELECT branch, status, subject, reason, auto_sent, sent_at, updated_at
+           FROM lead_first_responses WHERE lead_id = $1`,
+        [id],
+      ).catch(() => []),
     ]);
-    return json({ lead: lead[0], intake, activity });
+    return json({ lead: lead[0], intake, activity, first_response: firstResponse[0] ?? null });
   },
 );
 

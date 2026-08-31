@@ -60,7 +60,13 @@ export async function POST(req: Request) {
   }
 
   const str = (v: unknown, max = 400) =>
-    typeof v === "string" ? v.trim().slice(0, max) : "";
+    typeof v === "string"
+      ? v.trim().slice(0, max)
+      : Array.isArray(v)
+        ? // e.g. photos: [url, url] → one comma-joined intake row (the first-
+          // response classifier reads it as "photos included").
+          v.filter((x) => typeof x === "string").map((x) => (x as string).trim()).filter(Boolean).join(", ").slice(0, 2000)
+        : "";
 
   const name = str(body.name, 200);
   if (!name) return json({ error: "name is required" }, 400);

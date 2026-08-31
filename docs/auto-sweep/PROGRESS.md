@@ -1,6 +1,11 @@
 # Autonomous Sweep — Progress Log
 
-Newest entries at top. Each iteration appends one block.
+> **Closed 2026-07-17 — historical audit trail, no longer appended to.** The
+> sweep finished (see `TASKS.md` for the closing summary and where the parked
+> items went). Nothing below reflects current state; several things it describes
+> have since been rebuilt or superseded.
+
+Newest entries at top. Each iteration appended one block.
 Joe: this is your audit trail — every decision, park, and completion is recorded here.
 
 ---

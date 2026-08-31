@@ -229,7 +229,7 @@ function ClientDecision({
           className="inline-flex items-center gap-1 self-start rounded-md border border-rule px-2 py-1 text-[11px] font-semibold text-ink-3 hover:bg-paper-2 hover:text-flag disabled:opacity-50"
         >
           <X className="size-3" strokeWidth={1.75} />
-          None of these — show me others
+          None of these
         </button>
       )}
     </Card>

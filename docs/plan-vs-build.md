@@ -1,6 +1,58 @@
 # SJC OS — Plan vs. Build Comparison
 *Generated 2026-06-30 by verifying the live codebase against `docs/sjc-os-plan.md` (plan dated 2026-04-22).*
 
+> ## 📌 This is a 2026-06-30 snapshot — read this roll-up first (2026-08-25)
+>
+> The per-row ✅/🟡/❌ **status** columns below describe the codebase as it was on
+> **2026-06-30**. Most of them are now wrong. The **decisions** (KEEP / BUILD /
+> DEFER) are still the record of what Joe chose, and are worth keeping.
+>
+> **Nearly all of the BUILD list has since landed:** e-sign · MCP server ·
+> scheduler (systemd cron sweeps) · catalog clipper · cost book + estimates +
+> merge · contract/SOW generation · portal document signing · change orders ·
+> milestone/progress invoicing + draw schedules · schedule auto-gen from
+> templates · voice daily logs (Whisper) · sub scope/dates/docs + COI reminders ·
+> client uploads + portal schedule · closeout docs + completion outreach ·
+> warranty workflow · safety orientations + incident reports · per-policy
+> insurance · compliance auto-reminders · Day-15 demand letter + Day-30 lien
+> package · inbox↔record linking · social/blog AI drafting · referral tracking +
+> thank-you.
+>
+> **BUILD items still open:** the **accounting epic** (§8) — deliberately so;
+> Books is a future product, not overdue work (no ledger tables, `/books` is a
+> disabled nav item; see `docs/phase-5-accounting-plan.md`) — and **two-way
+> SMS**, which is built but inert pending a provider + 10DLC
+> (`docs/sms-seam.md`).
+>
+> **A lot of the DEFER list came back and shipped too:**
+>
+> | Deferred item | Status 2026-08-25 |
+> |---|---|
+> | A2 autonomous task loop | Shipped in a different shape — the operator panel + `lib/orchestrator/` review ladder + `agent_pending_actions`. See `docs/phase-7-autonomous-loop-plan.md` (superseded). |
+> | A3 MAN-step engine | ✅ `lib/runbook-engine.ts` + `runbook_instances` / `runbook_steps`, and `waiting_on_*` work-item statuses. |
+> | A5 learning layer | ✅ `agent_memories` (capture / review / inject), `lib/agent-memory.ts`. |
+> | 2a web-form lead intake | ✅ `POST /api/leads/intake` (token-auth, sessionless). |
+> | 2b lead Tasks tab | ✅ `lib/lead-tasks.ts`. |
+> | 2c 5-question qualification | ✅ `lead_qualification` + `lib/lead-intake-questions.ts`. |
+> | 4a approval gate | ✅ `lib/approval-gate.ts` (design + selections + estimate legs). |
+> | 4b AI draw schedule | ✅ `lib/draw-schedule.ts`, fed into the contract. |
+> | 8-ar A/R + dunning | ✅ `lib/actions/collections.ts`. |
+> | §11 website push | ✅ `/site`. |
+> | 10 newsletter | ✅ Issues, recipients, groups, drip sequences, outbox — owner-grant gated on release. |
+> | permit-packet | ✅ `lib/permits.ts` + `lib/actions/permit.ts`. |
+> | 3a floor-plan **designer** | ❌ still deferred. A versioned *viewer* shipped (`lib/floorplans.ts`); there is no editor. |
+> | 5-pay / 8-pay payment processing | ❌ still deferred. No Stripe/Plaid anywhere. |
+> | 7 job costing | ❌ still deferred — depends on the accounting epic. |
+> | cash-flow-optimizer | ❌ still deferred. |
+>
+> **A1 re-evaluate ("is Qwen good enough?") was answered by adding models, not
+> replacing one:** Qwen still does the free in-page AI, and Claude + Hermes run
+> as agents behind the panel, auto-routed per message (`lib/orchestrator/router.ts`).
+>
+> Beyond the plan entirely: owner grants + `/engine/permissions`, owner push over
+> Telegram, the bidding/bid-package system with auto follow-ups, mood boards,
+> vendors, and the Expo mobile app (`/home/joe/sjcos-mobile`).
+
 **Legend:** ✅ Built (real & functional) · 🟡 Partial (exists but limited / showcase / shallow) · ❌ Not built · 🔀 Differs from plan
 
 **Decision column** is for Joe + Claude to fill in: `KEEP` (accept as-is) · `BUILD` (close the gap) · `DEFER` · `DROP` (cut from plan).

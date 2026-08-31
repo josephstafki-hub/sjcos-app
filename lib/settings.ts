@@ -37,6 +37,11 @@ const AI_TOGGLES: { key: string; label: string; default: boolean }[] = [
   { key: "ai.weeklyStatusEmails", label: "Auto-generate weekly client status emails (review before send)", default: true },
   { key: "ai.autoPublishSocial", label: "Auto-publish social posts on job completion", default: false },
   { key: "ai.sendBeforeReview", label: "Send before drafts are reviewed", default: false },
+  {
+    key: "ai.leadFirstResponseAutoSend",
+    label: "Auto-send the first response to new inbound leads (off = drafts wait on the lead page)",
+    default: false,
+  },
 ];
 
 /** Per-channel notification toggles. Persist via app_settings under "notify.*"
@@ -74,6 +79,8 @@ export interface SettingsData {
   }[];
   integrations: Integration[];
   aiToggles: AiToggle[];
+  /** Which agent drafts the same-day first response to inbound leads. */
+  leadFirstResponseModel: "claude" | "hermes";
   notifyToggles: AiToggle[];
   /** Company / contract boilerplate used by generated contracts + SOWs (B5). */
   companyDocs: {
@@ -215,6 +222,7 @@ export async function getSettingsData(): Promise<SettingsData> {
       { name: "Google Drive", sub: "Doc archive (deferred)", connected: false },
       { name: "Stripe", sub: "Card payments", connected: false },
     ],
+    leadFirstResponseModel: get("ai.leadFirstResponseModel") === "hermes" ? "hermes" : "claude",
     aiToggles: AI_TOGGLES.map((t) => ({
       key: t.key,
       label: t.label,

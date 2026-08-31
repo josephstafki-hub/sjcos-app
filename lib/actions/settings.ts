@@ -40,6 +40,15 @@ export async function setAiToggle(key: string, on: boolean) {
   await upsertToggle(key, on, "ai.");
 }
 
+/** Which agent drafts the same-day first response to inbound leads
+ *  (lib/lead-first-response.ts). Whitelisted — never Qwen. */
+export async function setLeadFirstResponseModel(model: string) {
+  await requireRole("owner");
+  if (model !== "claude" && model !== "hermes") return;
+  await upsertSetting("ai.leadFirstResponseModel", model);
+  revalidatePath("/settings");
+}
+
 /** Upsert a boolean notification setting by key (namespace "notify."). */
 export async function setNotifyToggle(key: string, on: boolean) {
   await upsertToggle(key, on, "notify.");

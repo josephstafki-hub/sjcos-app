@@ -71,7 +71,7 @@ export function SubInvoiceSubmit({ slug }: { slug: string }) {
         className="inline-flex items-center justify-center gap-1 rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
       >
         <Send className="size-3" strokeWidth={1.75} />
-        {pending ? "Submitting…" : "Submit to Joe"}
+        {pending ? "Submitting…" : "Submit invoice"}
       </button>
       {error && <div className="text-[11px] text-flag">{error}</div>}
     </form>

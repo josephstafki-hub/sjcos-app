@@ -41,8 +41,13 @@ export function PanelSections({
   // Fall back to the first section rather than trusting the context: a TabLink
   // naming a section this tab doesn't have would otherwise hide all of them and
   // leave the tab blank.
+  // Match on the base name: labels carry live counts ("Messages · 3") that
+  // change after a send/upload re-render, and an exact match would fall back
+  // to the first section and jump the owner to Activity mid-conversation.
   const requested = open[tab] ?? linked;
-  const active = sections.some((s) => s.label === requested) ? requested : sections[0]?.label;
+  const active =
+    (requested && sections.find((s) => baseLabel(s.label) === baseLabel(requested))?.label) ??
+    sections[0]?.label;
 
   return (
     <div>

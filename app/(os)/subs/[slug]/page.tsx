@@ -3,7 +3,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Phone, MessageSquare, Sparkles, Check } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { AiBubble, AiStream, AckButton, Avatar, Card, Chip, Eyebrow, Field } from "@/components/ui";
+import { AiBubble, AiStream, Avatar, Card, Chip, Eyebrow, Field } from "@/components/ui";
+import { AssignToJobButton } from "@/components/subs/AssignToJobButton";
+import { getScheduleProjects } from "@/lib/schedule";
 import { SubTabs } from "@/components/subs/SubTabs";
 import { SubNotes } from "@/components/subs/SubNotes";
 import { getSub, getSubSummary } from "@/lib/subs";
@@ -31,10 +33,11 @@ export default async function SubDetailPage({
   if (!sub) notFound();
 
   // Real records the sub posted from their portal (logs + submitted invoices).
-  const [subLogs, subInvoices, subDocs] = await Promise.all([
+  const [subLogs, subInvoices, subDocs, projects] = await Promise.all([
     getSubLogs(slug),
     getSubInvoices(slug),
     getSubDocuments(slug),
+    getScheduleProjects(),
   ]);
 
   const overview = (
@@ -310,7 +313,7 @@ export default async function SubDetailPage({
             </h1>
             <div className="mt-1.5 text-[11px] text-ink-3">{sub.contact}</div>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             {sub.phone ? (
               <a
                 href={`tel:${sub.phone.replace(/[^\d+]/g, "")}`}
@@ -332,7 +335,11 @@ export default async function SubDetailPage({
               <MessageSquare className="size-3" strokeWidth={1.5} />
               Chat
             </Link>
-            <AckButton variant="ink" label="Assign to job" ackLabel="Assignment started" />
+            <AssignToJobButton
+              subSlug={slug}
+              defaultRole={sub.tradeLine}
+              projects={projects.map((p) => ({ slug: p.slug, name: p.name }))}
+            />
           </div>
         </div>
 

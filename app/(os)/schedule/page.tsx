@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Plus, Sparkles } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { AckButton, AiStream, Card, Chip, Eyebrow } from "@/components/ui";
+import { Card, Chip, Eyebrow } from "@/components/ui";
+import { AutoLogButton } from "@/components/schedule/AutoLogButton";
 import { ScheduleBlockModal } from "@/components/schedule/ScheduleBlockModal";
 import { LogCard } from "@/components/schedule/LogCard";
 import { ConflictBubble } from "@/components/schedule/ConflictBubble";
@@ -23,9 +24,12 @@ export default async function SchedulePage({
 }) {
   const { w } = await searchParams;
   const offset = Math.trunc(Number(w)) || 0;
-  const [data, projects] = await Promise.all([
+  const [data, projects, conflictNote] = await Promise.all([
     getScheduleData(offset),
     getScheduleProjects(),
+    // Deterministic (one SQL pass, no model call) — cheap to await here, and it
+    // lets the bubble show its Flag button only on an actual clash.
+    getScheduleConflict(),
   ]);
   const hrefFor = (o: number) => (o === 0 ? "/schedule" : `/schedule?w=${o}`);
 
@@ -87,9 +91,9 @@ export default async function SchedulePage({
           </div>
         </div>
 
-        {/* AI conflict note */}
-        <ConflictBubble>
-          <AiStream load={() => getScheduleConflict()} />
+        {/* Conflict note */}
+        <ConflictBubble conflict={conflictNote.startsWith("Double-booked")}>
+          {conflictNote}
         </ConflictBubble>
 
         {/* 5-day strip */}
@@ -173,7 +177,7 @@ export default async function SchedulePage({
             <Chip kind="ghost">
               {data.logs.loggedCount} of {data.logs.total} logged
             </Chip>
-            <AckButton icon={<Sparkles className="size-3" strokeWidth={1.75} />} label="Auto-log from photos" ackLabel="Drafting logs…" />
+            <AutoLogButton />
           </div>
 
           <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-5">

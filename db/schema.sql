@@ -2782,3 +2782,31 @@ ALTER TABLE dev_agent_runs
   ADD COLUMN IF NOT EXISTS context_tokens integer,
   ADD COLUMN IF NOT EXISTS token_usage    jsonb;
 ALTER TABLE ai_messages ADD COLUMN IF NOT EXISTS token_usage jsonb;
+
+-- ── Lead first response (same-day AI-drafted reply to a new inbound lead) ─────
+-- One row per lead. Created by lib/lead-first-response.ts right after intake
+-- (Next `after()`), or by the 10-min sweep (app/api/cron/lead-first-response)
+-- when the immediate run was missed. `branch` is the deterministic decision
+-- (signals + Qwen's read of the inbound); `status` tracks the row through
+-- drafting → pending (owner review) | sent | dismissed | human_review | skipped.
+-- The unique lead_id is the idempotency claim: whoever inserts the 'drafting'
+-- row owns the run, so the immediate path and the sweep can never double-send.
+CREATE TABLE IF NOT EXISTS lead_first_responses (
+  id          bigserial PRIMARY KEY,
+  lead_id     uuid NOT NULL UNIQUE REFERENCES leads(id) ON DELETE CASCADE,
+  branch      text NOT NULL DEFAULT 'human_review'
+                CHECK (branch IN ('rough_estimate','missing_info','discovery_call','human_review')),
+  status      text NOT NULL DEFAULT 'drafting'
+                CHECK (status IN ('drafting','pending','sent','dismissed','human_review','skipped','failed')),
+  subject     text NOT NULL DEFAULT '',
+  body        text NOT NULL DEFAULT '',
+  missing     jsonb NOT NULL DEFAULT '[]',   -- what we asked for (missing_info branch)
+  signals     jsonb NOT NULL DEFAULT '{}',   -- deterministic reads: photos/measurements/…
+  ai          jsonb,                         -- raw model output (clarity/fit/opening/…)
+  reason      text NOT NULL DEFAULT '',      -- why this branch / why human review / skip
+  auto_sent   boolean NOT NULL DEFAULT false,
+  sent_at     timestamptz,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_lead_first_responses_status ON lead_first_responses(status, updated_at);

@@ -1,0 +1,7 @@
+[Unit]
+Description=SJC OS same-day lead first response sweep
+After=sjcos.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/joe/bin/sjcos-lead-first-response

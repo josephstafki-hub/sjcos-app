@@ -1,28 +1,48 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import { Check } from "lucide-react";
 import { AiBubble } from "@/components/ui";
+import { flagScheduleConflict } from "@/lib/actions/schedule";
 
-/** The AI scheduling-conflict note with working Apply / Ignore controls. There's
- *  no structured reschedule to commit yet, so Apply acknowledges (the owner will
- *  action it) and Ignore dismisses — both resolve the note out of the way rather
- *  than sitting inert. The note is passed as children so it can be a streamed
- *  (Suspense) server slot — see AiStream. */
-export function ConflictBubble({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<"open" | "applied" | "ignored">("open");
+/** The scheduling-conflict note. "Flag for follow-up" (only shown when the
+ *  week actually has a clash) rechecks server-side and parks a real work item
+ *  in Open Engine (deduped), so the flag survives the page; Dismiss hides the
+ *  note for this visit — it comes back while the conflict still exists, which
+ *  is the point. `conflict` mirrors the server's own "is this a clash" test. */
+export function ConflictBubble({ conflict, children }: { conflict: boolean; children: ReactNode }) {
+  const [state, setState] = useState<"open" | "flagged" | "dismissed">("open");
+  const [note, setNote] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
 
-  if (state === "ignored") return null;
+  if (state === "dismissed") return null;
 
-  if (state === "applied") {
+  if (state === "flagged") {
     return (
       <AiBubble className="mb-3.5">
         <span className="inline-flex items-center gap-1.5">
           <Check className="size-4 flex-none text-ai-2" strokeWidth={2} />
-          Noted — flagged for rescheduling. The conflicting blocks are marked for follow-up.
+          {note}
         </span>
       </AiBubble>
     );
+  }
+
+  function flag() {
+    startTransition(async () => {
+      const res = await flagScheduleConflict();
+      if (res.ok) {
+        setNote(
+          res.queued
+            ? "Flagged — a work item is in your Engine queue to resolve it."
+            : "Already flagged — the open work item was updated with this week's clash.",
+        );
+        setState("flagged");
+      } else {
+        setNote(res.error);
+        setState("flagged");
+      }
+    });
   }
 
   return (
@@ -30,17 +50,20 @@ export function ConflictBubble({ children }: { children: ReactNode }) {
       className="mb-3.5"
       actions={
         <>
+          {conflict && (
+            <button
+              onClick={flag}
+              disabled={pending}
+              className="rounded-md bg-ai px-2.5 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-ai-2 disabled:opacity-60"
+            >
+              {pending ? "Flagging…" : "Flag for follow-up"}
+            </button>
+          )}
           <button
-            onClick={() => setState("applied")}
-            className="rounded-md bg-ai px-2.5 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-ai-2"
-          >
-            Apply
-          </button>
-          <button
-            onClick={() => setState("ignored")}
+            onClick={() => setState("dismissed")}
             className="rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink-2"
           >
-            Ignore
+            Dismiss
           </button>
         </>
       }

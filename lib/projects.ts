@@ -188,6 +188,10 @@ export interface ProjectDetail {
   selections: { area: string; choice: string; status: string; chip: ChipKind }[];
   comms: { from: string; role: "client" | "you" | "ai"; time: string; body: string }[];
   punch: { id: number; item: string; owner: string; done: boolean; clientConfirmed: boolean }[];
+  /** Client contact for the Overview rail. Name/email/address live on the
+   *  project row; phone (and any blank email/address) fall back to the linked
+   *  lead when there is one. */
+  client: { name: string; email: string | null; phone: string | null; address: string | null };
 }
 
 interface PunchRow {
@@ -299,6 +303,18 @@ export async function getProject(slug: string): Promise<ProjectDetail | null> {
     clientConfirmed: r.client_confirmed_at != null,
   }));
 
+  const contact = await query<{ name: string; email: string | null; phone: string | null; address: string | null }>(
+    `SELECT COALESCE(NULLIF(p.client_name, ''), l.name, '') AS name,
+            NULLIF(COALESCE(NULLIF(p.client_email, ''), l.email), '') AS email,
+            NULLIF(l.phone, '') AS phone,
+            NULLIF(COALESCE(NULLIF(p.address, ''), l.address), '') AS address
+       FROM projects p
+       LEFT JOIN leads l ON l.id = p.lead_id
+      WHERE p.slug = $1`,
+    [slug],
+  );
+  const client = contact.rows[0] ?? { name: "", email: null, phone: null, address: null };
+
   // The AI-drafted weekly status is NOT awaited here — that would block the page
   // on ~15s of CPU inference. Curated text shows immediately; otherwise the
   // draft streams via getProjectWeeklyStatus() inside a Suspense slot.
@@ -341,15 +357,27 @@ export async function getProject(slug: string): Promise<ProjectDetail | null> {
     selections: curated.selections ?? [],
     comms: curated.comms ?? [],
     punch,
+    client,
   };
 }
 
 /** The AI-drafted weekly-status line. Resolved separately from getProject() so
  *  it can stream inside a Suspense boundary instead of blocking the page. */
 export async function getProjectWeeklyStatus(name: string): Promise<string> {
+  const hit = weeklyStatusMemo.get(name);
+  if (hit && Date.now() - hit.at < WEEKLY_STATUS_TTL_MS) return hit.text;
   const draft = await ai.draft({ kind: "weekly_status", context: name });
-  return draft.body.split("\n").find((l) => l.trim()) ?? "";
+  const text = draft.body.split("\n").find((l) => l.trim()) ?? "";
+  weeklyStatusMemo.set(name, { text, at: Date.now() });
+  return text;
 }
+
+// Qwen runs on CPU here (10–20s a draft), and the draft is the same for a
+// project all day, so remember it per process. Without this every render —
+// including the router.refresh() after saving an estimate line — paid for a
+// fresh inference.
+const WEEKLY_STATUS_TTL_MS = 6 * 60 * 60 * 1000;
+const weeklyStatusMemo = new Map<string, { text: string; at: number }>();
 
 /** A real uploaded file scoped to a project (project_key = slug). Curated
  *  showcase names live on ProjectDetail.files; these are blobs on disk that

@@ -1,7 +1,33 @@
 # Today Page v2 — Interactive AI Feed (design + build plan)
 
-**Status:** built · Phases 1–8 complete (Phase 7 stretch done 2026-07-20) — 2026-07-10
+**Status:** built · Phases 1–8 complete (Phase 7 stretch done 2026-07-20).
+**Partly superseded 2026-08** — see the note below before following this doc.
 **Written:** 2026-07-10
+
+> ### Where this landed (checked 2026-08-25)
+>
+> Everything here shipped, and then the **chat half moved out of the page**. The
+> universal operator panel (`components/panel/`, mounted by `app/(os)/layout.tsx`)
+> is now the app's one Ask surface, so the in-page Today chat/feed described
+> below **no longer exists**:
+>
+> - **Gone from `/today`:** the embedded chat column and its model picker.
+>   `components/today/TodayBody.tsx` is now brief + priority cards + the
+>   week/schedule rail and the Waiting-on-me rail. Chat happens in the panel,
+>   which sees the page via `todayContext()` (`lib/page-context.ts`).
+> - **Survived, and still accurate below:** the queue model and rails
+>   (`lib/today.ts`, `TodayQueueContext`, `PriorityCard`, `WaitingList`), the
+>   owner-verified action handlers (`lib/actions/today.ts`), directives
+>   (`lib/today-directives.ts`), lane triage (`lib/today-triage.ts`), and the
+>   **Phase 7 model-emitted action chips** — `lib/today-actions.ts` still parses
+>   the ```` ```sjcos-actions ```` fence and `components/today/ModelActionChips.tsx`
+>   still renders it, but its consumer is now `components/panel/PanelChat.tsx`,
+>   not a Today-page chat.
+> - **Read `docs/operator-console-plan.md`** for the surface that replaced the
+>   chat column.
+>
+> So: trust this doc for the *queue and action semantics*; ignore its
+> chat-surface layout.
 **Audience:** any agent/model executing this incrementally. Each phase is
 independently shippable, has exact file paths, contracts, and acceptance
 checks. Do the phases IN ORDER. Don't invent extra scope.

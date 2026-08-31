@@ -1,10 +1,10 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Plus, X, Check, Send, Pencil, Trash2, FolderPlus, Link2, Loader2,
-  Undo2, ExternalLink, CircleDot, Wallet,
+  Undo2, ExternalLink, CircleDot, Wallet, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown,
 } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import type { ChipKind } from "@/components/ui/Chip";
@@ -128,6 +128,11 @@ export function SelectionsBoard({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  // Removes get their own transition whose pending flag is deliberately ignored:
+  // the row is already hidden optimistically, so the rest of the board must stay
+  // clickable while the write + router.refresh() round-trip finishes. Sharing the
+  // modal transition greyed out every other remove button for seconds at a time.
+  const [, startRemoveTransition] = useTransition();
   const [error, setError] = useState("");
   const [addSel, setAddSel] = useState<{ sectionId: number | null } | null>(null);
   const [editSel, setEditSel] = useState<Selection | null>(null);
@@ -144,6 +149,24 @@ export function SelectionsBoard({
   const sectionOptions = pickerOptions(groups);
   const totalPushable = groups.reduce((n, g) => n + pushableCount(g), 0);
 
+  // Which rooms / sub-sections are folded up. Persisted per project so a long
+  // board stays the way Joe left it across refreshes and router.refresh() calls
+  // after every mutation. Read from localStorage after mount so SSR and the
+  // first client render agree.
+  const collapseKey = `sjc:selections:${slug}:collapsed`;
+  const collapsed = useCollapsedSet(collapseKey);
+  function saveCollapsed(next: Set<string>) {
+    writeCollapsed(collapseKey, next);
+  }
+  function toggleCollapsed(key: string) {
+    const next = new Set(collapsed);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    saveCollapsed(next);
+  }
+  const allKeys = allGroupKeys(groups);
+  const anyExpanded = allKeys.some((k) => !collapsed.has(k));
+
   // Single path for every mutation on this board. The actions revalidate on the
   // server, but the project page is dynamic (cookie auth), so nothing re-renders
   // until the client router refetches — without router.refresh() a new section
@@ -154,9 +177,10 @@ export function SelectionsBoard({
     onSuccess?: () => void,
     fallback = "Something went wrong.",
     onError?: () => void,
+    start = startTransition,
   ) {
     setError("");
-    startTransition(async () => {
+    start(async () => {
       const r = await fn();
       if (!r.ok) {
         setError(r.error ?? fallback);
@@ -171,7 +195,7 @@ export function SelectionsBoard({
   /** Delete optimistically: hide the row now, restore it only if the write fails. */
   function removeRow(key: string, fn: () => Promise<Result>) {
     hide(key);
-    run(fn, undefined, undefined, () => restore(key));
+    run(fn, undefined, undefined, () => restore(key), startRemoveTransition);
   }
 
   const empty = groups.length === 0;
@@ -249,7 +273,7 @@ export function SelectionsBoard({
               className="inline-flex items-center gap-1 rounded-md border border-accent bg-accent-soft px-2.5 py-1 text-[12px] font-semibold text-accent-2 hover:bg-accent-soft/70 disabled:opacity-50"
             >
               <Send className="size-3" strokeWidth={1.75} />
-              Send board
+              Send to client
             </button>
           )}
           <button
@@ -259,6 +283,20 @@ export function SelectionsBoard({
             <FolderPlus className="size-3" strokeWidth={1.5} />
             Add room
           </button>
+          {!empty && (
+            <button
+              onClick={() => saveCollapsed(anyExpanded ? new Set(allKeys) : new Set())}
+              title={anyExpanded ? "Fold every room up to its header" : "Open every room"}
+              className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2"
+            >
+              {anyExpanded ? (
+                <ChevronsDownUp className="size-3" strokeWidth={1.5} />
+              ) : (
+                <ChevronsUpDown className="size-3" strokeWidth={1.5} />
+              )}
+              {anyExpanded ? "Collapse all" : "Expand all"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -277,6 +315,8 @@ export function SelectionsBoard({
             group={g}
             depth={0}
             pending={pending}
+            collapsed={collapsed}
+            onToggleCollapse={toggleCollapsed}
             onAddSelection={(sectionId) => setAddSel({ sectionId })}
             onAddSub={(parentId) => setSectionModal({ id: null, name: "", budget: 0, parentId })}
             onEditSection={(s) => setSectionModal(s)}
@@ -375,9 +415,73 @@ export function SelectionsBoard({
   );
 }
 
+// Collapse state lives in localStorage and is read through useSyncExternalStore
+// so the server render (nothing collapsed) and the hydrated client agree, and
+// every board on the page sees the same set without a setState-in-effect.
+const EMPTY_SET: Set<string> = new Set();
+const collapseCache = new Map<string, { raw: string | null; set: Set<string> }>();
+const collapseListeners = new Set<() => void>();
+
+function readCollapsed(key: string): Set<string> {
+  if (typeof window === "undefined") return EMPTY_SET;
+  let raw: string | null = null;
+  try {
+    raw = window.localStorage.getItem(key);
+  } catch {
+    /* ignore */
+  }
+  const hit = collapseCache.get(key);
+  if (hit && hit.raw === raw) return hit.set;
+  let set = EMPTY_SET;
+  if (raw) {
+    try {
+      set = new Set(JSON.parse(raw) as string[]);
+    } catch {
+      /* ignore */
+    }
+  }
+  collapseCache.set(key, { raw, set });
+  return set;
+}
+
+function writeCollapsed(key: string, next: Set<string>) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify([...next]));
+  } catch {
+    /* ignore */
+  }
+  collapseListeners.forEach((fn) => fn());
+}
+
+function useCollapsedSet(key: string): Set<string> {
+  return useSyncExternalStore(
+    (fn) => {
+      collapseListeners.add(fn);
+      window.addEventListener("storage", fn);
+      return () => {
+        collapseListeners.delete(fn);
+        window.removeEventListener("storage", fn);
+      };
+    },
+    () => readCollapsed(key),
+    () => EMPTY_SET,
+  );
+}
+
+/** Stable key for a group's collapse state — DB ids for sections, a sentinel for Ungrouped. */
+function groupKey(g: SelectionGroup): string {
+  return g.id === null ? "ungrouped" : String(g.id);
+}
+
+function allGroupKeys(groups: SelectionGroup[]): string[] {
+  return groups.flatMap((g) => [groupKey(g), ...allGroupKeys(g.children)]);
+}
+
 // ─── Section (room / sub-section) ────────────────────────────────────────────
 
 interface SectionHandlers {
+  collapsed: Set<string>;
+  onToggleCollapse: (key: string) => void;
   onAddSelection: (sectionId: number | null) => void;
   onAddSub: (parentId: number) => void;
   onEditSection: (s: { id: number; name: string; budget: number; parentId: number | null }) => void;
@@ -403,20 +507,32 @@ function SectionBlock({
   const isUngrouped = g.id === null;
   const isSub = depth > 0;
   const pushable = pushableCount(g);
+  const key = groupKey(g);
+  const open = !h.collapsed.has(key);
+  const Chevron = open ? ChevronDown : ChevronRight;
 
   const header = (
     <div className="flex items-start gap-2">
       <div className="flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <h4
-            className={
-              isSub
-                ? "font-mono text-[11px] uppercase tracking-[0.08em] text-ink-2"
-                : "font-serif text-[14px] font-semibold text-ink"
-            }
+          <button
+            type="button"
+            onClick={() => h.onToggleCollapse(key)}
+            aria-expanded={open}
+            title={open ? "Collapse" : "Expand"}
+            className="-ml-1 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-left hover:bg-paper-2"
           >
-            {g.name}
-          </h4>
+            <Chevron className="size-3.5 shrink-0 text-ink-3" strokeWidth={1.75} />
+            <h4
+              className={
+                isSub
+                  ? "font-mono text-[11px] uppercase tracking-[0.08em] text-ink-2"
+                  : "font-serif text-[14px] font-semibold text-ink"
+              }
+            >
+              {g.name}
+            </h4>
+          </button>
           {g.budget > 0 && (
             <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">
               budget {fmt(g.budget)}
@@ -428,7 +544,7 @@ function SectionBlock({
             </span>
           )}
         </div>
-        {g.budget > 0 && (
+        {g.budget > 0 && open && (
           <>
             <div className="mt-1.5 h-1.5 w-full max-w-[260px] overflow-hidden rounded-full bg-paper-3">
               <div
@@ -528,12 +644,12 @@ function SectionBlock({
   return isSub ? (
     <div className="flex flex-col gap-2.5">
       {header}
-      {body}
+      {open && body}
     </div>
   ) : (
     <Card className="flex flex-col gap-3 p-3">
       {header}
-      {body}
+      {open && body}
     </Card>
   );
 }
@@ -708,7 +824,7 @@ function OptionCard({
                 className="inline-flex items-center gap-1 rounded border border-rule px-1.5 py-0.5 text-[10px] font-semibold text-ink-3 hover:border-money hover:text-money disabled:opacity-50"
               >
                 <CircleDot className="size-2.5" strokeWidth={2} />
-                Pick
+                Record client&apos;s pick
               </button>
             )
           )}

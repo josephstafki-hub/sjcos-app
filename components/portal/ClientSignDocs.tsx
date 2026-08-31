@@ -116,7 +116,7 @@ function SignCard({ doc }: { doc: SignatureRequestView }) {
                 className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-accent bg-accent-soft px-2.5 py-1.5 text-[12px] font-semibold text-accent-2 hover:bg-accent-soft/70"
               >
                 <FileText className="size-3.5" strokeWidth={1.75} />
-                Open · download · print
+                Open PDF
               </a>
             </>
           ) : (

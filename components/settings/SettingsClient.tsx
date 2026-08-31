@@ -4,7 +4,14 @@ import { useState, useTransition } from "react";
 import { Plus, X } from "lucide-react";
 import { Avatar, Card, Chip, Eyebrow, Field, SubmitButton } from "@/components/ui";
 import type { SettingsData } from "@/lib/settings";
-import { setAiToggle, setNotifyToggle, updateProfile, updateCompanyDocs, updateBillingRates } from "@/lib/actions/settings";
+import {
+  setAiToggle,
+  setLeadFirstResponseModel,
+  setNotifyToggle,
+  updateProfile,
+  updateCompanyDocs,
+  updateBillingRates,
+} from "@/lib/actions/settings";
 import { createUser, setUserActive } from "@/lib/actions/users";
 import { ClipTokenCard } from "./ClipTokenCard";
 import { IntakeTokenCard } from "./IntakeTokenCard";
@@ -140,6 +147,33 @@ function AddUserButton() {
         </div>
       )}
     </>
+  );
+}
+
+/** Which agent writes the same-day first response to new inbound leads. Claude
+ *  (single-turn, no tools, ~5s) or Hermes (the agent gateway). Never Qwen. */
+function FirstResponseModelPicker({ initial }: { initial: "claude" | "hermes" }) {
+  const [model, setModel] = useState(initial);
+  const [pending, startTransition] = useTransition();
+  return (
+    <div className="flex w-full items-center gap-3 border-t border-rule-soft py-1.5">
+      <span className="flex-1 text-[13px] text-ink">Who drafts the first response to new inbound leads</span>
+      <select
+        value={model}
+        disabled={pending}
+        onChange={(e) => {
+          const next = e.target.value === "hermes" ? "hermes" : "claude";
+          setModel(next);
+          startTransition(async () => {
+            await setLeadFirstResponseModel(next);
+          });
+        }}
+        className="rounded-md border border-rule bg-card px-2 py-1 text-[12px] text-ink disabled:opacity-60"
+      >
+        <option value="claude">Claude</option>
+        <option value="hermes">Hermes</option>
+      </select>
+    </div>
   );
 }
 
@@ -402,6 +436,7 @@ export function SettingsClient({ data }: { data: SettingsData }) {
               {data.aiToggles.map((t) => (
                 <Toggle key={t.key} settingKey={t.key} label={t.label} on={t.on} action={setAiToggle} />
               ))}
+              <FirstResponseModelPicker initial={data.leadFirstResponseModel} />
             </div>
           </>
         )}

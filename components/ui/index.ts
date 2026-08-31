@@ -10,7 +10,6 @@ export { Tabs } from "./Tabs";
 export { Field } from "./Field";
 export { Eyebrow } from "./Eyebrow";
 export { PhotoGrid } from "./PhotoGrid";
-export { AckButton } from "./AckButton";
 export { SubmitButton } from "./SubmitButton";
 export { VoiceButton } from "./VoiceButton";
 export { Lightbox } from "./Lightbox";

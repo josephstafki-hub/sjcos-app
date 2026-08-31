@@ -549,7 +549,7 @@ export async function gatherReplyContext(raw: RawGmailThread): Promise<{
  *  read-and-write-text operation only — it never sends anything. */
 export async function draftReplyForThread(
   threadId: string,
-  model: DraftModel = "qwen",
+  model: DraftModel = "hermes",
 ): Promise<{ summary: string; body: string; toEmail: string; subject: string }> {
   const raw = (await fetchThreads(50)).find((t) => t.id === threadId);
   if (!raw) return { summary: "", body: "", toEmail: "", subject: "" };

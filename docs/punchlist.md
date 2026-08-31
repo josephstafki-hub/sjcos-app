@@ -1,7 +1,12 @@
 # SJC OS — review punch list
 
+> **📌 Historical snapshot (2026-06-18/19) — closed.** Every item on this list
+> was fixed before the 2026-06-26 deploy. Kept for the root-cause notes (the
+> AI-streaming fix, the double-submit fix, the real nav counts), which still
+> describe how those parts of the app work. Not a live backlog.
+
 Joe's page-by-page review (started 2026-06-18). Headlines captured here as he
-reviews; detail added per page. Status: ⬜ todo · �doing · ✅ done.
+reviewed; detail added per page. Status: ⬜ todo · 🟡 doing · ✅ done.
 
 ## Global
 - ✅ **Site is slow.** Root cause: AI pages blocked SSR on local Qwen (CPU,

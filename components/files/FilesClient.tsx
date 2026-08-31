@@ -12,12 +12,10 @@ import {
   Plus,
   Eye,
   Download,
-  Share2,
   Sparkles,
-  X,
   type LucideIcon,
 } from "lucide-react";
-import { AiBubble, AckButton, Card, Chip } from "@/components/ui";
+import { AiBubble, Card, Chip } from "@/components/ui";
 import { summarizeFile, uploadFile } from "@/lib/actions/files";
 import type { FilesData, FileRow, FileType } from "@/lib/files";
 
@@ -58,7 +56,6 @@ export function FilesClient({ data }: { data: FilesData }) {
   const [typeFilter, setTypeFilter] = useState("All");
   const [view, setView] = useState<"list" | "grid">("list");
   const [summary, setSummary] = useState<string | null>(null);
-  const [opened, setOpened] = useState(false);
   const [pending, startSummarize] = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, startUpload] = useTransition();
@@ -316,41 +313,29 @@ export function FilesClient({ data }: { data: FilesData }) {
 
             <div className="flex flex-wrap gap-1.5">
               {preview.hasBlob ? (
-                <a
-                  href={`/api/files/${effectiveId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink transition-colors hover:bg-paper-3"
-                >
-                  <Eye className="size-3" strokeWidth={1.5} />
-                  Open
-                </a>
+                <>
+                  <a
+                    href={`/api/files/${effectiveId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink transition-colors hover:bg-paper-3"
+                  >
+                    <Eye className="size-3" strokeWidth={1.5} />
+                    Open
+                  </a>
+                  <a
+                    href={`/api/files/${effectiveId}`}
+                    download
+                    className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink transition-colors hover:bg-paper-3"
+                  >
+                    <Download className="size-3" strokeWidth={1.5} />
+                    Download
+                  </a>
+                </>
               ) : (
-                <button
-                  onClick={() => setOpened(true)}
-                  className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink transition-colors hover:bg-paper-3"
-                >
-                  <Eye className="size-3" strokeWidth={1.5} />
-                  Open
-                </button>
-              )}
-              {preview.hasBlob ? (
-                <a
-                  href={`/api/files/${effectiveId}`}
-                  download
-                  className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink transition-colors hover:bg-paper-3"
-                >
-                  <Download className="size-3" strokeWidth={1.5} />
-                  Download
-                </a>
-              ) : (
-                <AckButton
-                  variant="subtle"
-                  icon={<Share2 className="size-3" strokeWidth={1.75} />}
-                  label="Share"
-                  ackLabel="Link copied"
-                  className="px-2 py-1 text-[11px]"
-                />
+                <span className="inline-flex items-center gap-1 rounded-md border border-dashed border-rule px-2 py-1 text-[11px] text-ink-4">
+                  Reference entry — no stored file
+                </span>
               )}
               <button
                 onClick={runSummarize}
@@ -369,32 +354,6 @@ export function FilesClient({ data }: { data: FilesData }) {
         )}
       </aside>
 
-      {/* Open overlay — enlarged document preview (no real blob to stream yet). */}
-      {opened && preview && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/70 p-6"
-          onClick={() => setOpened(false)}
-        >
-          <button
-            onClick={() => setOpened(false)}
-            aria-label="Close"
-            className="absolute right-5 top-5 text-paper/80 hover:text-paper"
-          >
-            <X className="size-6" strokeWidth={1.5} />
-          </button>
-          <figure
-            className="flex w-full max-w-[620px] flex-col items-center"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex aspect-[8.5/11] w-full max-w-[460px] items-center justify-center rounded border border-paper/15 bg-paper-3/95 px-6 text-center font-mono text-[12px] uppercase tracking-[0.12em] text-ink-3">
-              {preview.thumbLabel}
-            </div>
-            <figcaption className="mt-3 font-mono text-[11px] uppercase tracking-[0.14em] text-paper/70">
-              {preview.name} · {preview.subtitle}
-            </figcaption>
-          </figure>
-        </div>
-      )}
     </div>
   );
 }

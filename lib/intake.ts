@@ -9,10 +9,12 @@ import "server-only";
 // Server-only (imports lib/db → pg). Never import a value from here into a
 // client component.
 
+import { after } from "next/server";
 import { query, queryOne } from "./db";
 import { ai } from "./ai";
 import { AI_NAME } from "./ai-name";
 import { logLeadActivity } from "./lead-activity";
+import { runLeadFirstResponse } from "./lead-first-response";
 import { enrollLeadNurtureAtIntake } from "./newsletter-drip";
 import { emit } from "./notify";
 import { openEntityRoom } from "./rooms";
@@ -245,6 +247,18 @@ export async function createInboundLead(
     await startRunbook("lead-intake-to-qualified-or-declined", { leadId }, "auto:new-lead");
   } catch {
     /* runbook auto-start must never block ingestion */
+  }
+
+  // Same-day first response (lib/lead-first-response.ts): classify + draft
+  // after the response goes back to the form, so the model's ~30s doesn't
+  // hold the submitter. `after()` needs a request scope; outside one (a
+  // script calling this directly) fall back to a detached promise. The
+  // 10-minute sweep (/api/cron/lead-first-response) catches anything missed.
+  const firstResponse = () => runLeadFirstResponse(leadId).catch(() => undefined);
+  try {
+    after(firstResponse);
+  } catch {
+    void firstResponse();
   }
 
   return { slug, verdict };

@@ -16,6 +16,8 @@ import { ThankReferrerButton } from "@/components/leads/ThankReferrerButton";
 import { LeadPhotos } from "@/components/leads/LeadPhotos";
 import { LeadIntake } from "@/components/leads/LeadIntake";
 import { LeadScore } from "@/components/leads/LeadScore";
+import { LeadFirstResponse } from "@/components/leads/LeadFirstResponse";
+import { getLeadFirstResponse } from "@/lib/lead-first-response";
 import { LeadTasks } from "@/components/leads/LeadTasks";
 import { getLeadTasks } from "@/lib/lead-tasks";
 import { LeadEstimate } from "@/components/leads/LeadEstimate";
@@ -52,6 +54,7 @@ export default async function LeadDetailPage({
 
   const activity = await getLeadActivity(slug);
   const score = await getLeadScore(slug);
+  const firstResponse = await getLeadFirstResponse(slug);
   const tasks = await getLeadTasks(slug);
   const leadDocDrafts = await listDocDrafts({ leadSlug: slug });
   // rough_estimate has its own dedicated tab (LeadEstimate, backed by the
@@ -127,6 +130,8 @@ export default async function LeadDetailPage({
       {/* Main column */}
       <div className="flex flex-col gap-3.5">
         <LeadScore slug={lead.slug} initial={score} />
+
+        <LeadFirstResponse slug={lead.slug} initial={firstResponse} hasEmail={!!lead.email} />
 
         <LeadIntake slug={lead.slug} items={lead.intake} />
 

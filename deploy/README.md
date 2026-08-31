@@ -289,3 +289,20 @@ with `curl -sI https://os.sjcarpentryllc.com/.well-known/oauth-protected-resourc
   `tsconfig.json` includes `.next-preview/**/types`, so a stale
   `validator.ts` there breaks `next build`'s typecheck against moved routes.
   Park backups under `~/sjcos-backups/` instead.
+
+## Scheduler — same-day lead first response sweep
+
+The same-day first response to a new inbound lead (`lib/lead-first-response.ts`)
+normally runs right at intake. A systemd **user timer** every 10 minutes
+(`/api/cron/lead-first-response`) is the safety net for anything missed — model
+down, restart mid-draft. It only *mails* when the owner has armed
+"Auto-send the first response to new inbound leads" in Settings → AI; otherwise
+it stages drafts on the lead page. One-time DB step: `node db/apply-lead-first-response.mjs`.
+
+Install (one-time):
+```
+install -m755 deploy/sjcos-lead-first-response.sh ~/bin/sjcos-lead-first-response
+cp deploy/sjcos-lead-first-response.service deploy/sjcos-lead-first-response.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now sjcos-lead-first-response.timer
+```

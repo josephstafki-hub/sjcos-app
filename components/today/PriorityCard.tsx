@@ -80,7 +80,7 @@ export function PriorityCard({
               disabled={busy}
               className="inline-flex items-center gap-1 rounded-md border border-ai/40 bg-ai-soft px-2 py-0.5 text-[11px] font-semibold text-ai-2 transition-colors hover:bg-ai/15 disabled:opacity-50"
             >
-              <Sparkles className="size-3" strokeWidth={1.5} /> Have Hermes do it
+              <Sparkles className="size-3" strokeWidth={1.5} /> Have AI do it
             </button>
           )}
           {showPrep && (
@@ -89,7 +89,7 @@ export function PriorityCard({
               disabled={busy}
               className="inline-flex items-center gap-1 rounded-md border border-ai/40 bg-ai-soft px-2 py-0.5 text-[11px] font-semibold text-ai-2 transition-colors hover:bg-ai/15 disabled:opacity-50"
             >
-              <Sparkles className="size-3" strokeWidth={1.5} /> Prep me
+              <Sparkles className="size-3" strokeWidth={1.5} /> Prep me a summary
             </button>
           )}
           {showOpen && (

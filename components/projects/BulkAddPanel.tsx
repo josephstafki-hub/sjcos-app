@@ -2,17 +2,17 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { FileText, Ruler } from "lucide-react";
+import { FileText, ListPlus } from "lucide-react";
 import { Card } from "@/components/ui";
 import { fmtUsd, unitLabel } from "@/lib/cost-book-units";
 import type { CostItem } from "@/lib/cost-book";
 import type { FloorplanVersion } from "@/lib/floorplans";
 import { addTakeoffLines } from "@/lib/actions/estimates";
 
-/** Quick takeoff: enter quantities against many cost-book items at once, with the
+/** Bulk add: enter quantities against many cost-book items at once, with the
  *  uploaded plan(s) shown for reference. Adds all entered rows as estimate lines
  *  in one pass. On-PDF click-to-measure is deferred — this is manual entry. */
-export function TakeoffPanel({
+export function BulkAddPanel({
   estimateId,
   slug,
   costItems,
@@ -65,7 +65,7 @@ export function TakeoffPanel({
   return (
     <Card className="p-4">
       <div className="mb-3 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
-        <Ruler className="size-3.5" strokeWidth={1.75} /> Quick takeoff
+        <ListPlus className="size-3.5" strokeWidth={1.75} /> Bulk add from cost book
       </div>
 
       {/* Plan reference */}

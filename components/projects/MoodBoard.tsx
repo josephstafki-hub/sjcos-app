@@ -241,7 +241,7 @@ export function MoodBoard({
         </button>
         <button onClick={() => setSettingsOpen(true)} disabled={!room} className={TOOL} title="Board settings">
           <Settings2 className="size-3" strokeWidth={1.5} />
-          Board
+          Settings
         </button>
         <button
           onClick={() => setDeleteOpen(true)}
@@ -673,7 +673,7 @@ function CatalogPicker({
               className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
             >
               <Check className="size-3" strokeWidth={1.75} />
-              Pin {picked.length > 0 ? picked.length : ""}
+              Add {picked.length > 0 ? picked.length : ""} to board
             </button>
           </div>
         </>

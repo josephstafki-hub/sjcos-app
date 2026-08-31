@@ -1183,7 +1183,7 @@ function RecordBidModal({
             </button>
             <button type="submit" className={BTN_SOLID}>
               <Check className="size-3" strokeWidth={1.75} />
-              Mark passed
+              Mark declined
             </button>
           </div>
         </form>
@@ -1263,7 +1263,7 @@ function RecordBidModal({
               onClick={() => setDeclining(true)}
               className="text-[11.5px] text-ink-3 underline-offset-2 hover:underline"
             >
-              They passed on it
+              Mark declined…
             </button>
           )}
           <div className="flex-1" />

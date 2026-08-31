@@ -1,5 +1,5 @@
 import { Shell } from "@/components/shell/Shell";
-import { AiBubble, AiStream, AckButton, Card, Chip, Eyebrow } from "@/components/ui";
+import { AiBubble, AiStream, Card, Chip, Eyebrow } from "@/components/ui";
 import { getWarrantyData, getWarrantySummary, getWarrantyProjectOptions } from "@/lib/warranty";
 import { warrantyContext } from "@/lib/page-context";
 import { WarrantyClaims } from "@/components/warranty/WarrantyClaims";
@@ -18,14 +18,16 @@ export default async function WarrantyPage() {
       </Suspense>
       <div className="mx-auto max-w-[1100px] px-7 pb-16 pt-6">
         {/* Header */}
-        <div className="mb-3.5 flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
-          <div className="min-w-0 flex-1">
+        {/* flex-wrap (not a fixed two-column row): in a narrow content column
+            the chip group drops below the title instead of overlapping it. */}
+        <div className="mb-3.5 flex flex-wrap items-end gap-3">
+          <div className="min-w-0">
             <Eyebrow>{data.eyebrow}</Eyebrow>
             <h1 className="mt-1 font-serif text-[34px] font-medium leading-none tracking-tight text-accent-2">
               Warranty
             </h1>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="ml-auto flex flex-wrap items-center gap-1.5">
             {data.filters.map((f, i) => (
               <Chip key={f} kind={i === 0 ? "solid" : "ghost"}>
                 {f}
@@ -38,13 +40,22 @@ export default async function WarrantyPage() {
         {/* AI claim summary */}
         <AiBubble
           className="mb-3.5"
-          actions={<AckButton label="Open claim" ackLabel="Flagged for review" />}
+          actions={
+            <a
+              href="#claims"
+              className="rounded-md bg-ai px-2.5 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-ai-2"
+            >
+              View claims
+            </a>
+          }
         >
           <AiStream load={() => getWarrantySummary(data.summaryInput)} />
         </AiBubble>
 
         {/* Active claims */}
-        <WarrantyClaims claims={data.claims} />
+        <div id="claims" className="scroll-mt-4">
+          <WarrantyClaims claims={data.claims} />
+        </div>
 
         {/* Under-warranty grid */}
         <h2 className="mb-2.5 font-serif text-[15px] font-semibold text-ink">

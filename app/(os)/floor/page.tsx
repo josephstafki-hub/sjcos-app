@@ -1,33 +1,9 @@
-import {
-  MousePointer2,
-  Minus,
-  DoorOpen,
-  RectangleHorizontal,
-  Ruler,
-  Grid2x2,
-  Box as BoxIcon,
-  Droplet,
-  Plug,
-  StickyNote,
-  Sparkles,
-  type LucideIcon,
-} from "lucide-react";
+import Link from "next/link";
+import { LibraryBig } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
 import { Card, Chip, Field } from "@/components/ui";
+import { ToolPalette } from "@/components/floor/ToolPalette";
 import { getFloorData } from "@/lib/floor";
-
-const TOOL_ICON: Record<string, LucideIcon> = {
-  select: MousePointer2,
-  wall: Minus,
-  door: DoorOpen,
-  window: RectangleHorizontal,
-  measure: Ruler,
-  cabinet: Grid2x2,
-  appliance: BoxIcon,
-  plumb: Droplet,
-  elec: Plug,
-  note: StickyNote,
-};
 
 export default async function FloorPlanPage() {
   const data = await getFloorData();
@@ -36,27 +12,7 @@ export default async function FloorPlanPage() {
     <Shell breadcrumb={`FLOOR PLAN › ${data.title.toUpperCase()}`}>
       <div className="flex h-full">
         {/* ─── Tool palette ───────────────────────────────────────── */}
-        <aside className="flex w-[72px] flex-none flex-col items-center gap-1.5 border-r border-rule bg-paper-2 px-1.5 py-2.5">
-          {data.tools.map((t, i) => {
-            const Icon = TOOL_ICON[t.icon];
-            const active = i === 0;
-            return (
-              <button
-                key={t.label}
-                title={`${t.label} (${t.key})`}
-                className={[
-                  "flex w-[52px] flex-col items-center gap-0.5 rounded-md border py-1.5 transition-colors",
-                  active
-                    ? "border-ink bg-ink text-paper"
-                    : "border-rule bg-paper text-ink-2 hover:bg-paper-3",
-                ].join(" ")}
-              >
-                <Icon className="size-4" strokeWidth={1.5} />
-                <span className="font-mono text-[9px]">{t.key}</span>
-              </button>
-            );
-          })}
-        </aside>
+        <ToolPalette tools={data.tools} />
 
         {/* ─── Canvas ─────────────────────────────────────────────── */}
         <section className="flex min-w-0 flex-1 flex-col">
@@ -71,10 +27,13 @@ export default async function FloorPlanPage() {
               <Chip kind="ghost">Snap 1&quot;</Chip>
               <Chip kind="ghost">Scale 1/4&quot;</Chip>
               <Chip kind="ghost">100%</Chip>
-              <button className="inline-flex items-center gap-1 rounded-md border border-ai bg-ai px-2.5 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-ai-2">
-                <Sparkles className="size-3" strokeWidth={1.5} />
-                Pull from catalog
-              </button>
+              <Link
+                href="/catalog"
+                className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-2 transition-colors hover:bg-paper-2"
+              >
+                <LibraryBig className="size-3" strokeWidth={1.5} />
+                Browse catalog
+              </Link>
             </div>
           </div>
 
@@ -169,10 +128,13 @@ export default async function FloorPlanPage() {
               </Card>
             ))}
           </div>
-          <button className="mt-2.5 flex w-full items-center justify-center gap-1 rounded-md border border-ai bg-ai px-2.5 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-ai-2">
-            <Sparkles className="size-3" strokeWidth={1.5} />
-            Push to selections
-          </button>
+          <Link
+            href="/catalog"
+            className="mt-2.5 flex w-full items-center justify-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1.5 text-[12px] font-semibold text-ink-2 transition-colors hover:bg-paper-2"
+          >
+            <LibraryBig className="size-3" strokeWidth={1.5} />
+            Browse the full catalog
+          </Link>
         </aside>
       </div>
     </Shell>

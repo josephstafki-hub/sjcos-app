@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Plus, Sparkles, Trash2, Send, Mail, Check, Inbox, SkipForward, ArrowLeft, Star } from "lucide-react";
+import { Plus, Sparkles, Trash2, Send, Mail, Check, Inbox, ArrowLeft, Star } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import { AI_NAME } from "@/lib/ai-name";
 import { NEWSLETTER_TEMPLATES } from "@/lib/newsletter-templates";
@@ -535,7 +535,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                       title={audienceCount === 0 ? "Add recipients first" : "Parks each message in the Outbox — nothing sends yet"}
                       className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1 text-[12px] font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
                     >
-                      <Send className="size-3.5" strokeWidth={1.5} /> Queue for {audienceCount}
+                      <Inbox className="size-3.5" strokeWidth={1.5} /> Queue for {audienceCount}
                     </button>
                   </>
                 )}
@@ -800,7 +800,7 @@ function OutboxPanel({
         <Inbox className="mt-0.5 size-4 text-accent-2" strokeWidth={1.5} />
         <p className="text-[12px] leading-snug text-ink-2">
           Everything here is <b>parked</b> — no email has been sent. Review each message and press{" "}
-          <b>Release</b> to actually email that person via Gmail, or <b>Skip</b> to drop it.
+          <b>Release</b> to actually email that person via Gmail, or <b>Discard</b> to drop it.
         </p>
       </div>
 
@@ -835,7 +835,7 @@ function OutboxPanel({
                   disabled={pending}
                   className="inline-flex items-center gap-1 rounded-md border border-rule px-2 py-1 text-[11px] font-semibold text-ink-3 hover:bg-paper-2 disabled:opacity-50"
                 >
-                  <SkipForward className="size-3" strokeWidth={1.5} /> Skip
+                  <Trash2 className="size-3" strokeWidth={1.5} /> Discard
                 </button>
                 <button
                   type="button"

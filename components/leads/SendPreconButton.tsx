@@ -13,7 +13,7 @@ export function SendPreconButton() {
       onClick={() => switchTab("Documents")}
       className="mt-2.5 w-full rounded-md border border-accent bg-accent px-2.5 py-1.5 text-[12px] font-semibold text-white hover:bg-accent-2"
     >
-      Send pre-con contract →
+      Pre-con contract →
     </button>
   );
 }

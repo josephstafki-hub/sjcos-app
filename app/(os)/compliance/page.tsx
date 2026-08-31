@@ -1,5 +1,5 @@
 import { Shell } from "@/components/shell/Shell";
-import { AiBubble, AiStream, AckButton } from "@/components/ui";
+import { AiBubble, AiStream } from "@/components/ui";
 import { getComplianceData, getComplianceSummary } from "@/lib/compliance";
 import { ComplianceClient } from "@/components/compliance/ComplianceClient";
 import { InsuranceSection } from "@/components/insurance/InsuranceSection";
@@ -19,7 +19,14 @@ export default async function CompliancePage() {
           aiSlot={
             <AiBubble
               className="mb-3.5"
-              actions={<AckButton label="Open both" ackLabel="Flagged for review" />}
+              actions={
+                <a
+                  href="#compliance-timeline"
+                  className="rounded-md bg-ai px-2.5 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-ai-2"
+                >
+                  View timeline
+                </a>
+              }
             >
               <AiStream load={() => getComplianceSummary(data.summaryInput)} />
             </AiBubble>

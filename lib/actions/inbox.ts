@@ -223,8 +223,9 @@ export async function draftReplyAction(
   await requireRole("owner");
   if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
   // Whitelist the model — never trust the client string. Anything but the
-  // explicit "hermes" choice drafts with Qwen (the fast local default).
-  const m: DraftModel = model === "hermes" ? "hermes" : "qwen";
+  // explicit "qwen" choice drafts with Hermes (grounded; Qwen is never used
+  // for client-facing writing by default).
+  const m: DraftModel = model === "qwen" ? "qwen" : "hermes";
   try {
     const d = await draftReplyForThread(threadId, m);
     return { ok: true, ...d };

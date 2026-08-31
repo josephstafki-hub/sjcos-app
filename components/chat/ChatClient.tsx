@@ -683,7 +683,7 @@ export function ChatClient({ data }: { data: ChatData }) {
                       disabled={outboxPending === d.id}
                       className="rounded px-1.5 py-0.5 text-[10px] text-ink-3 transition-colors hover:bg-paper-3 hover:text-ink-2 disabled:opacity-50"
                     >
-                      Skip
+                      Discard
                     </button>
                   </div>
                 </div>

@@ -723,10 +723,10 @@ function MemoryCard({ memory, review }: { memory: MemoryView; review?: boolean }
         {review ? (
           <div className="flex flex-none flex-col items-end gap-1.5">
             <button className={btnPrimary} disabled={pending} onClick={() => run(() => approveMemoryInstruction(memory.id))}>
-              Approve as instruction
+              Approve as rule
             </button>
             <button className={btnCls} disabled={pending} onClick={() => run(() => approveMemoryEvidence(memory.id))}>
-              Approve as evidence
+              Approve as example
             </button>
             <button className={btnCls} disabled={pending} onClick={() => run(() => rejectMemory(memory.id))}>
               Reject

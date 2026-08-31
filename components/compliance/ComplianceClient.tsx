@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState, useTransition, type ReactNode } from "react";
-import { Sparkles } from "lucide-react";
-import { AckButton, Card, Chip } from "@/components/ui";
-import { resolveComplianceItem } from "@/lib/actions/compliance";
+import { Check, Sparkles } from "lucide-react";
+import { Card, Chip } from "@/components/ui";
+import { resolveComplianceItem, queueRenewalRequests } from "@/lib/actions/compliance";
 import type {
   ComplianceDot,
   ComplianceWindowCard,
@@ -70,9 +70,10 @@ export function ComplianceClient({
 
   return (
     <>
-      {/* Header */}
-      <div className="mb-3.5 flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
-        <div className="min-w-0 flex-1">
+      {/* Header — flex-wrap so the chip group drops below the title in a
+          narrow content column instead of overlapping it. */}
+      <div className="mb-3.5 flex flex-wrap items-end gap-3">
+        <div className="min-w-0">
           <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
             {eyebrow}
           </div>
@@ -80,17 +81,13 @@ export function ComplianceClient({
             Compliance
           </h1>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="ml-auto flex flex-wrap items-center gap-1.5">
           {filters.map((f) => (
             <button key={f} onClick={() => setActive(f)}>
               <Chip kind={f === active ? "solid" : "ghost"}>{f}</Chip>
             </button>
           ))}
-          <AckButton
-            icon={<Sparkles className="size-3" strokeWidth={1.75} />}
-            label="Auto-collect docs"
-            ackLabel="Requesting renewals…"
-          />
+          <CollectRenewalsButton />
         </div>
       </div>
 
@@ -127,7 +124,7 @@ export function ComplianceClient({
       </div>
 
       {/* Year-ahead timeline */}
-      <Card className="overflow-hidden p-0">
+      <Card id="compliance-timeline" className="scroll-mt-4 overflow-hidden p-0">
         <div className="border-b border-rule bg-paper-2 px-4 py-2.5">
           <h2 className="font-serif text-[14px] font-semibold text-ink">
             Year ahead · timeline
@@ -189,5 +186,42 @@ export function ComplianceClient({
         )}
       </Card>
     </>
+  );
+}
+
+/** Header action: queue one Engine work item per unresolved compliance item due
+ *  in the next 45 days. Internal only — nothing is emailed from here. */
+function CollectRenewalsButton() {
+  const [pending, startTransition] = useTransition();
+  const [note, setNote] = useState<string | null>(null);
+
+  function run() {
+    setNote(null);
+    startTransition(async () => {
+      const res = await queueRenewalRequests();
+      if (!res.ok) setNote(res.error);
+      else if (res.queued === 0 && res.alreadyQueued === 0) setNote("Nothing due in the next 45 days");
+      else if (res.queued === 0) setNote("Already queued");
+      else setNote(`${res.queued} queued to Engine`);
+    });
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <button
+        onClick={run}
+        disabled={pending}
+        className="inline-flex items-center gap-1 rounded-md border border-ai bg-ai px-2.5 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-ai-2 disabled:opacity-60"
+      >
+        <Sparkles className="size-3" strokeWidth={1.75} />
+        {pending ? "Queueing…" : "Collect renewals"}
+      </button>
+      {note && (
+        <span className="inline-flex items-center gap-1 text-[11px] text-ink-3">
+          <Check className="size-3 text-money" strokeWidth={2} />
+          {note}
+        </span>
+      )}
+    </span>
   );
 }

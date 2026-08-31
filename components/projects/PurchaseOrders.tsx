@@ -473,7 +473,7 @@ export function PurchaseOrders({
                   disabled={pending}
                   className="inline-flex items-center gap-1 rounded-md border border-money/40 bg-money/10 px-2.5 py-1 text-[12px] font-semibold text-money hover:bg-money/20 disabled:opacity-60"
                 >
-                  Close out
+                  Mark complete
                 </button>
               )}
               {selected.status !== "void" && selected.status !== "closed" && (

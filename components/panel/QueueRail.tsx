@@ -46,7 +46,7 @@ export function QueueRail({
                     }`}
                     title="Show this record in the Workbench"
                   >
-                    <Search className="size-3" strokeWidth={1.75} /> Inspect
+                    <Search className="size-3" strokeWidth={1.75} /> View
                   </button>
                 </div>
               )}

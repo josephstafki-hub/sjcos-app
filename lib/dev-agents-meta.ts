@@ -66,17 +66,11 @@ export const AGENT_ORDER: PanelAgent[] = ["auto", "claude", "qwen", "hermes"];
  *  channel members). */
 export const DEV_AGENT_ORDER: DevAgent[] = ["claude", "qwen", "hermes"];
 
-// ─── Inbox reply-draft model picker ──────────────────────────────────────────
-// The two grounded assistant models Joe can pick to draft an email reply. Claude
-// is deliberately excluded — it's the async, dev-only code-editing agent, wrong
-// tool for writing a client email. Kept here (not in the "use server" action
-// module) so the "use client" inbox can import the type + options.
+// ─── Inbox reply-draft model ─────────────────────────────────────────────────
+// The models that can draft an email reply. The inbox UI no longer surfaces a
+// picker — model names never appear in role labels (see lib/ai-name.ts) — and
+// always drafts with Hermes; "qwen" remains a valid value for internal callers.
 export type DraftModel = "qwen" | "hermes";
-
-export const DRAFT_MODEL_OPTIONS: { value: DraftModel; label: string; note: string }[] = [
-  { value: "qwen", label: "Qwen", note: "Fast · local · grounded in your data" },
-  { value: "hermes", label: "Hermes", note: "Deeper business context · slower" },
-];
 
 // ─── Claude run controls (Ask window selectors) ──────────────────────────────
 // Client-safe so the "use client" chat can render the pickers. The runner

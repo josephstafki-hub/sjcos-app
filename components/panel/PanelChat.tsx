@@ -536,12 +536,12 @@ export function PanelChat({
                       chat.submit({
                         directive:
                           "Go ahead — implement the plan you proposed above. You are no longer in plan mode.",
-                        display: "✦ Approve plan — build it",
+                        display: "✦ Approve plan — go ahead",
                       });
                     }}
                     className="rounded-md bg-ink px-2.5 py-1 text-[11.5px] font-medium text-paper transition-colors hover:bg-[#232a1e]"
                   >
-                    Approve plan → build it
+                    Approve plan & go
                   </button>
                 </div>
               )}
@@ -611,7 +611,7 @@ export function PanelChat({
                 onClick={chat.freshSession}
                 className="rounded border border-rule px-1 py-px text-[10px] text-ink-3 transition-colors hover:bg-paper-2"
               >
-                Fresh
+                New session
               </button>
             </span>
           )}

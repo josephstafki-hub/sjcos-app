@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, Trash2, Sparkles, FileSpreadsheet, Ruler, GitMerge, ChevronLeft } from "lucide-react";
+import { Plus, Pencil, Trash2, Sparkles, FileSpreadsheet, ListPlus, GitMerge, ChevronLeft } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import { fmtUsd, unitLabel } from "@/lib/cost-book-units";
 import type { CostItem } from "@/lib/cost-book";
@@ -11,7 +11,7 @@ import type { ApprovalGateBase } from "@/lib/approval-gate-types";
 import type { EstimateDetail, EstimateLineView, EstimateStatus } from "@/lib/estimates";
 import { createEstimate, deleteEstimate, deleteEstimateLine, suggestEstimate, sendEstimate, mergeEstimates } from "@/lib/actions/estimates";
 import { EstimateLineModal } from "./EstimateLineModal";
-import { TakeoffPanel } from "./TakeoffPanel";
+import { BulkAddPanel } from "./BulkAddPanel";
 import { ContractGenerator } from "./ContractGenerator";
 
 const RAIL_LABEL: Record<string, string> = {
@@ -52,7 +52,7 @@ export function ProjectEstimate({
   const [mergeSel, setMergeSel] = useState<Set<number>>(new Set());
   const [mergeError, setMergeError] = useState<string | null>(null);
   const [merging, setMerging] = useState(false);
-  const [takeoff, setTakeoff] = useState(false);
+  const [bulkAdd, setBulkAdd] = useState(false);
   const [lineModal, setLineModal] = useState<{ mode: "add" | "edit"; line?: EstimateLineView } | null>(null);
   const [suggestion, setSuggestion] = useState<{ lines: { label: string; value: string }[]; total: string } | null>(null);
   const [suggesting, setSuggesting] = useState(false);
@@ -350,12 +350,12 @@ export function ProjectEstimate({
                 <Plus className="size-3" strokeWidth={2} /> Add line
               </button>
               <button
-                onClick={() => setTakeoff((v) => !v)}
+                onClick={() => setBulkAdd((v) => !v)}
                 className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[12px] font-semibold ${
-                  takeoff ? "border-accent bg-accent-soft text-accent-2" : "border-rule bg-card text-ink-2 hover:bg-paper-2"
+                  bulkAdd ? "border-accent bg-accent-soft text-accent-2" : "border-rule bg-card text-ink-2 hover:bg-paper-2"
                 }`}
               >
-                <Ruler className="size-3" strokeWidth={1.75} /> Takeoff
+                <ListPlus className="size-3" strokeWidth={1.75} /> Bulk add
               </button>
               <button
                 onClick={runSuggest}
@@ -409,13 +409,13 @@ export function ProjectEstimate({
             )}
           </Card>
 
-          {takeoff && (
-            <TakeoffPanel
+          {bulkAdd && (
+            <BulkAddPanel
               estimateId={selected.id}
               slug={slug}
               costItems={costItems}
               floorplans={floorplans}
-              onDone={() => setTakeoff(false)}
+              onDone={() => setBulkAdd(false)}
             />
           )}
 

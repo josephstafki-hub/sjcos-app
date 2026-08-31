@@ -273,7 +273,7 @@ export function SelectionsBoard({
               className="inline-flex items-center gap-1 rounded-md border border-accent bg-accent-soft px-2.5 py-1 text-[12px] font-semibold text-accent-2 hover:bg-accent-soft/70 disabled:opacity-50"
             >
               <Send className="size-3" strokeWidth={1.75} />
-              Send board
+              Send to client
             </button>
           )}
           <button
@@ -824,7 +824,7 @@ function OptionCard({
                 className="inline-flex items-center gap-1 rounded border border-rule px-1.5 py-0.5 text-[10px] font-semibold text-ink-3 hover:border-money hover:text-money disabled:opacity-50"
               >
                 <CircleDot className="size-2.5" strokeWidth={2} />
-                Pick
+                Record client&apos;s pick
               </button>
             )
           )}

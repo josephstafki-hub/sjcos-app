@@ -8,6 +8,8 @@ export interface PanelLayout {
   width: number;
   collapsed: boolean;
   where: "docked" | "window";
+  /** Runs may navigate the app view to what they're working on. */
+  follow: boolean;
   /** False until the first client effect adopts the persisted state — the
    *  server render uses defaults (hydration safety, see panelStore). */
   ready: boolean;
@@ -23,6 +25,7 @@ interface PanelContextValue {
   /** Dock ↔ popout transitions. Updates this window's state AND persists —
    *  panelStore's own writes don't echo back to the writing window. */
   setWhere: (where: "docked" | "window") => void;
+  setFollow: (follow: boolean) => void;
 }
 
 const PanelContext = createContext<PanelContextValue | null>(null);
@@ -35,6 +38,7 @@ export function PanelProvider({ children }: { children: ReactNode }) {
     width: PANEL_DEFAULTS.width,
     collapsed: PANEL_DEFAULTS.collapsed,
     where: PANEL_DEFAULTS.where,
+    follow: PANEL_DEFAULTS.follow,
     ready: false,
   });
 
@@ -42,7 +46,7 @@ export function PanelProvider({ children }: { children: ReactNode }) {
     const adopt = () => {
       const st = readPanelState();
       startTransition(() =>
-        setLayout({ width: st.width, collapsed: st.collapsed, where: st.where, ready: true }),
+        setLayout({ width: st.width, collapsed: st.collapsed, where: st.where, follow: st.follow, ready: true }),
       );
     };
     adopt();
@@ -63,9 +67,13 @@ export function PanelProvider({ children }: { children: ReactNode }) {
     writePanelState({ where });
     setLayout((l) => ({ ...l, where }));
   };
+  const setFollow = (follow: boolean) => {
+    writePanelState({ follow });
+    setLayout((l) => ({ ...l, follow }));
+  };
 
   return (
-    <PanelContext.Provider value={{ layout, setWidth, commitWidth, toggleCollapsed, setWhere }}>
+    <PanelContext.Provider value={{ layout, setWidth, commitWidth, toggleCollapsed, setWhere, setFollow }}>
       <PanelQueueProvider>{children}</PanelQueueProvider>
     </PanelContext.Provider>
   );

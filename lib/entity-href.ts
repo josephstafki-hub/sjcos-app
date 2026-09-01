@@ -41,6 +41,14 @@ const IGNORED = new Set([
   "sessions",
 ]);
 
+/** Where a live run is working right now, resolved from its run_effects
+ *  (lib/run-focus.ts) — an exact page, unlike the table-level hrefForScope. */
+export interface RunFocus {
+  href: string;
+  /** Human label for the chip: "Miller kitchen · Documents". */
+  label: string;
+}
+
 export function hrefForScope(scope: string): string | null {
   if (!scope || IGNORED.has(scope)) return null;
   return SCOPE_HREF[scope] ?? null;

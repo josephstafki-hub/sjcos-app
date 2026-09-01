@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { ChevronDown, ChevronUp, ExternalLink, Mic, PanelLeftClose, Sparkles, X } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, Eye, EyeOff, Mic, PanelLeftClose, Sparkles, X } from "lucide-react";
 import { ackAppNav, subscribePanelBus } from "./panelBus";
 import { usePanel } from "./PanelProvider";
 import { readPanelState } from "./panelStore";
@@ -16,7 +16,7 @@ import { Splitter } from "./Splitter";
  * Below lg the dock becomes a floating pill that opens a full-screen sheet.
  */
 export function PanelHost({ children }: { children: ReactNode }) {
-  const { layout, setWidth, commitWidth, toggleCollapsed, setWhere } = usePanel();
+  const { layout, setWidth, commitWidth, toggleCollapsed, setWhere, setFollow } = usePanel();
   const [sheetOpen, setSheetOpen] = useState(false);
   // Mobile: on the home page the operator is the whole screen (queue cards
   // and all); on any other page it's a bottom drawer so most of the page Joe
@@ -112,6 +112,19 @@ export function PanelHost({ children }: { children: ReactNode }) {
                 </span>
                 <div className="flex-1" />
                 <button
+                  onClick={() => setFollow(!layout.follow)}
+                  aria-pressed={layout.follow}
+                  aria-label={layout.follow ? "Stop following agent actions" : "Follow agent actions"}
+                  title={
+                    layout.follow
+                      ? "Following: a run you start opens what it's working on in the app view. Click to stop."
+                      : "Not following: runs only offer a chip. Click to follow again."
+                  }
+                  className={`rounded-md p-1 transition-colors hover:bg-paper ${layout.follow ? "text-ai" : "text-ink-4"}`}
+                >
+                  {layout.follow ? <Eye className="size-3.5" strokeWidth={1.75} /> : <EyeOff className="size-3.5" strokeWidth={1.75} />}
+                </button>
+                <button
                   onClick={detach}
                   aria-label="Pop out to its own window"
                   title="Pop out to its own window (second monitor)"
@@ -136,7 +149,11 @@ export function PanelHost({ children }: { children: ReactNode }) {
           </>
         ))}
 
-      <div className="h-full min-w-0 flex-1">{children}</div>
+      {/* data-app-view: LiveActionNav counts only interaction inside the app
+          view as "Joe is busy here" — typing in the dock must not block it. */}
+      <div className="h-full min-w-0 flex-1" data-app-view>
+        {children}
+      </div>
 
       {/* Detached: a slim pill to bring the dock home (the popout closes
           itself when it sees the state flip). */}

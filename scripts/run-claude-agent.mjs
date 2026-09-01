@@ -274,8 +274,127 @@ async function flushActivity() {
   }
 }
 
+// ── run effects (live-action focus) ──────────────────────────────────────
+// Every sjcos tool call names the entity it works on — project_slug,
+// lead_slug, work_item_id, a draft id it just created… Recorded to run_effects
+// (source 'claude', exact rows) as the calls stream by, so the operator panel
+// can open that page while the run is still going (lib/run-focus.ts resolves
+// the latest row to an href; LiveActionNav follows it). Best-effort telemetry:
+// bounded, deduped, never fails the run.
+const MAX_EFFECTS = 80;
+let effectCount = 0;
+let lastEffectKey = "";
+/** tool_use_id → { tool, input } so a tool_result can be read back. */
+const pendingToolUses = new Map();
+/** Read-only / plumbing tools that say nothing about where the work is. */
+const NO_FOCUS_TOOL =
+  /^(list_|search|fetch|record_|check_|ask_owner|request_owner|remember_|business_snapshot|get_today_queue|get_skill|get_runbook|get_standing|suggest_skill|capture_knowledge|create_skill_proposal|import_client_newsletter|compare_bids)/;
+/** Tool-name hints for which project tab the work lands on. */
+const PROJECT_TAB_HINT = [
+  [/document|render_document/, "documents"],
+  [/selection/, "selections"],
+  [/mood/, "mood"],
+  [/bid/, "bidding"],
+  [/purchase_order/, "money"],
+  [/daily_log/, "daily_log"],
+  [/project_file/, "files"],
+];
+function projectKind(tool) {
+  for (const [re, tab] of PROJECT_TAB_HINT) if (re.test(tool)) return `project_${tab}`;
+  return "project";
+}
+function recordEffect(kind, id, action) {
+  const ref = id == null ? "" : String(id).trim();
+  if (!ref || ref.length > 120 || effectCount >= MAX_EFFECTS) return;
+  const key = `${kind}:${ref}`;
+  if (key === lastEffectKey) return;
+  lastEffectKey = key;
+  effectCount += 1;
+  client
+    .query(
+      `INSERT INTO run_effects (run_id, entity_kind, entity_id, action, source)
+       VALUES ($1, $2, $3, $4, 'claude')`,
+      [RUN_ID, kind, ref, action],
+    )
+    .catch(() => {});
+}
+/** Effects visible from a tool call's arguments (what it's working on). */
+function effectsFromInput(tool, input) {
+  const p = input && typeof input === "object" ? input : {};
+  const action = /^(create_|import_|add_|start_)/.test(tool) ? "created" : /^get_/.test(tool) ? "touched" : "updated";
+  if (typeof p.project_slug === "string") recordEffect(projectKind(tool), p.project_slug, action);
+  else if (typeof p.project_id === "string") recordEffect(projectKind(tool), p.project_id, action);
+  if (typeof p.lead_slug === "string") recordEffect("lead", p.lead_slug, action);
+  else if (typeof p.lead_id === "string") recordEffect("lead", p.lead_id, action);
+  if (typeof p.work_item_id === "string") recordEffect("work_item", p.work_item_id, action);
+  if (typeof p.vendor_id === "string" && /vendor/.test(tool)) recordEffect("vendor", p.vendor_id, action);
+  if (p.po_id != null) recordEffect("purchase_order", p.po_id, action);
+  if (p.id != null && !/line/.test(tool)) {
+    if (/document_draft/.test(tool)) recordEffect("document_draft", p.id, action);
+    else if (/purchase_order/.test(tool)) recordEffect("purchase_order", p.id, action);
+    else if (/bid/.test(tool)) recordEffect("bid_package", p.id, action);
+    else if (/newsletter_issue/.test(tool)) recordEffect("newsletter_issue", p.id, action);
+    else if (/work_item/.test(tool)) recordEffect("work_item", p.id, action);
+  }
+}
+/** Effects only known once the tool answered (the id/slug of a new record). */
+function effectsFromResult(tool, text) {
+  let r;
+  try {
+    r = JSON.parse(text);
+  } catch {
+    return;
+  }
+  if (!r || typeof r !== "object" || r.ok === false) return;
+  const pick = (...vals) => vals.find((v) => typeof v === "string" || typeof v === "number");
+  if (tool === "import_lead") recordEffect("lead", pick(r.slug, r.lead?.slug, r.lead_slug), "created");
+  else if (tool === "create_document_draft") recordEffect("document_draft", pick(r.id, r.draft?.id, r.draft_id), "created");
+  else if (tool === "create_work_item") recordEffect("work_item", pick(r.id, r.work_item?.id), "created");
+  else if (tool === "create_purchase_order") recordEffect("purchase_order", pick(r.id, r.po?.id, r.purchase_order?.id), "created");
+  else if (tool === "create_bid_package") recordEffect("bid_package", pick(r.id, r.package?.id), "created");
+  else if (tool === "create_newsletter_issue") recordEffect("newsletter_issue", pick(r.id, r.issue?.id), "created");
+}
+function onToolUse(block) {
+  const m = /^mcp__sjcos__(.+)$/.exec(block.name ?? "");
+  if (!m) return;
+  const tool = m[1];
+  if (NO_FOCUS_TOOL.test(tool)) return;
+  if (block.id) {
+    pendingToolUses.set(block.id, { tool, input: block.input });
+    if (pendingToolUses.size > 50) pendingToolUses.delete(pendingToolUses.keys().next().value);
+  }
+  try {
+    effectsFromInput(tool, block.input);
+  } catch {
+    /* telemetry */
+  }
+}
+function onToolResult(block) {
+  const use = block.tool_use_id ? pendingToolUses.get(block.tool_use_id) : null;
+  if (!use) return;
+  pendingToolUses.delete(block.tool_use_id);
+  if (block.is_error) return;
+  const text = Array.isArray(block.content)
+    ? block.content.map((c) => (c && c.type === "text" ? c.text : "")).join("")
+    : typeof block.content === "string"
+      ? block.content
+      : "";
+  if (!text) return;
+  try {
+    effectsFromResult(use.tool, text);
+  } catch {
+    /* telemetry */
+  }
+}
+
 function handleEvent(evt) {
   if (evt?.session_id) lastSessionId = evt.session_id;
+  // Tool results come back as user-role messages in the stream.
+  if (evt?.type === "user" && Array.isArray(evt.message?.content)) {
+    for (const block of evt.message.content) {
+      if (block?.type === "tool_result") onToolResult(block);
+    }
+  }
   if (evt?.type === "assistant" && Array.isArray(evt.message?.content)) {
     // Each assistant message carries the API usage of its request — input +
     // cache reads/creation is what's sitting in the context window right now.
@@ -304,6 +423,7 @@ function handleEvent(evt) {
         if (t) pushActivity(`Claude: ${t.slice(0, 200)}${t.length > 200 ? "…" : ""}`);
       } else if (block.type === "tool_use") {
         pushActivity(describeTool(block.name, block.input));
+        onToolUse(block);
       }
     }
   }

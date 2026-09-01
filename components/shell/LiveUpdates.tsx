@@ -40,7 +40,7 @@ export function LiveUpdates() {
 
       inFlight.current = true;
       try {
-        const { cursor: next, scopes } = await pollLiveChanges(cursor.current);
+        const { cursor: next, scopes, agentScopes } = await pollLiveChanges(cursor.current);
         failures.current = 0;
         if (cancelled) return;
         // First poll just sets the baseline — the page rendered fresh data on load.
@@ -48,7 +48,7 @@ export function LiveUpdates() {
           needsRefresh.current = true;
           // Tell the operator panel's live-action layer which tables moved —
           // it decides whether the app view should jump there (LiveActionNav).
-          if (scopes.length) postPanelMessage({ type: "changes", scopes }, { local: true });
+          if (scopes.length) postPanelMessage({ type: "changes", scopes, agentScopes }, { local: true });
         }
         cursor.current = next;
       } catch {

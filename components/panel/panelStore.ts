@@ -53,13 +53,16 @@ export interface PanelState {
    *  across tabs on purpose — that's what makes every app window drop its
    *  dock when the panel moves to the second monitor. */
   where: "docked" | "window";
+  /** Let a live run steer the app view to what it's working on
+   *  (LiveActionNav). Shared. Desktop only regardless — small screens never follow. */
+  follow: boolean;
 }
 
 /** The per-tab slice of PanelState. */
 export type PanelSession = Pick<PanelState, "conversationId" | "agent" | "claude">;
 
 const SESSION_KEYS = ["conversationId", "agent", "claude"] as const;
-const LAYOUT_KEYS = ["width", "collapsed", "where"] as const;
+const LAYOUT_KEYS = ["width", "collapsed", "where", "follow"] as const;
 
 export const PANEL_MIN_WIDTH = 320;
 export const PANEL_MAX_WIDTH = 1000;
@@ -72,6 +75,7 @@ export const PANEL_DEFAULTS: PanelState = {
   width: PANEL_DEFAULT_WIDTH,
   collapsed: false,
   where: "docked",
+  follow: true,
 };
 
 /** Shared: layout for every window, plus a mirror of the last session used —

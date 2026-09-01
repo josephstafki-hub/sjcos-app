@@ -12,6 +12,8 @@ import {
 } from "@/lib/agent-interactions";
 import { query } from "@/lib/db";
 import { ACTION_LABEL } from "@/lib/owner-grant-types";
+import { getRunFocus } from "@/lib/run-focus";
+import type { RunFocus } from "@/lib/entity-href";
 
 // dev_agent_runs polling. Backs every async agent turn started from the Ask
 // window / embedded command bar — Claude runs (detached CLI) and, since
@@ -24,6 +26,9 @@ import { ACTION_LABEL } from "@/lib/owner-grant-types";
 //                  Claude CLI's permission prompt) from agent_interactions.
 //   grants       — pending request_owner_permission rows (owner_grants
 //                  'requested'), approvable right in the chat.
+//   focus        — the page for whatever entity the run touched last
+//                  (run_effects → lib/run-focus.ts), so the app view can
+//                  follow the work (LiveActionNav).
 // Plus the live context size (tokens) the Claude runner streams.
 
 /** A request_owner_permission the panel can approve/deny inline. */
@@ -48,6 +53,7 @@ export type PollResult =
       interactions: AgentInteraction[];
       /** Permission requests (owner grants) waiting on Joe. */
       grants: PendingGrant[];
+      focus: RunFocus | null;
     }
   | {
       ok: true;
@@ -64,6 +70,7 @@ export type PollResult =
       tokenUsage: Record<string, unknown> | null;
       /** The thread's resumable CLI session id. */
       sessionId: string | null;
+      focus: RunFocus | null;
     }
   | { ok: false; error: string };
 
@@ -118,10 +125,12 @@ export async function pollAgentRun(runId: string): Promise<PollResult> {
       contextTokens: run.contextTokens,
       tokenUsage: run.tokenUsage,
       sessionId: run.sessionId,
+      focus: await getRunFocus(runId),
     };
-  const [interactions, grants] = await Promise.all([
+  const [interactions, grants, focus] = await Promise.all([
     listPendingInteractions(runId, run.conversationId),
     pendingGrants(runId, run.conversationId),
+    getRunFocus(runId),
   ]);
   return {
     ok: true,
@@ -130,6 +139,7 @@ export async function pollAgentRun(runId: string): Promise<PollResult> {
     contextTokens: run.contextTokens,
     interactions,
     grants,
+    focus,
   };
 }
 

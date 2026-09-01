@@ -4,6 +4,7 @@
 
 import { revalidatePath } from "next/cache";
 import { captureAgentMemory } from "@/lib/agent-memory";
+import { reopenApprovalAfterFailedSend, sendApprovedClientDraft } from "@/lib/approved-draft-send";
 import { query } from "@/lib/db";
 import { requireRole } from "@/lib/dal";
 import { WORK_STATUSES } from "@/lib/engine-constants";
@@ -77,7 +78,17 @@ export async function approveWorkItem(id: string): Promise<Result> {
   if (!rows[0]) return { ok: false, error: "Work item not found." };
   const { title, body, assignee_key, lead_slug, project_slug } = rows[0];
   const context = project_slug ? `project ${project_slug}` : lead_slug ? `lead ${lead_slug}` : undefined;
-  await notifyAgentOwner(id, assignee_key, title, body, context);
+  // If the staged draft is an email to this lead, the approval sends it —
+  // otherwise the assignee agent gets pinged to complete the item as before.
+  const send = await sendApprovedClientDraft(id);
+  if (send.outcome === "failed") {
+    await reopenApprovalAfterFailedSend(id, send.error);
+    revalidatePath("/engine");
+    return { ok: false, error: `Approved, but the email did not send: ${send.error}` };
+  }
+  if (send.outcome !== "sent") {
+    await notifyAgentOwner(id, assignee_key, title, body, context);
+  }
   await maybeAdvanceRunbook(id); // W6: a done-but-unapproved step advances on approval
   revalidatePath("/engine");
   return { ok: true };

@@ -360,7 +360,12 @@ export async function chatReplyClaude(
     else throw new Error(`Claude CLI failed: ${e.message}`);
   }
   const env = JSON.parse(stdout) as { is_error: boolean; result: string; subtype?: string };
-  if (env.is_error) throw new Error(`Claude error (${env.subtype ?? "unknown"}).`);
+  // The CLI can report is_error:true with subtype "success" (e.g. expired CLI
+  // login) — the real error text is in `result`, so surface that, not the label.
+  if (env.is_error || (env.subtype && env.subtype !== "success")) {
+    const detail = (env.result || "").trim();
+    throw new Error(detail ? `Claude error: ${detail.slice(0, 300)}` : `Claude error (${env.subtype ?? "unknown"}).`);
+  }
   return (env.result || "").trim();
 }
 

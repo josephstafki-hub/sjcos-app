@@ -420,7 +420,13 @@ function handleEvent(evt) {
       } else if (block.type === "text") {
         // Interim narration between tool calls ("Now I'll update the…").
         const t = String(block.text ?? "").replace(/\s+/g, " ").trim();
-        if (t) pushActivity(`Claude: ${t.slice(0, 200)}${t.length > 200 ? "…" : ""}`);
+        if (t) {
+          // On failures the CLI emits a synthetic assistant message with the
+          // real error and a result envelope that lacks it — keep the last
+          // text so the error path below can show what actually happened.
+          lastAssistantText = t;
+          pushActivity(`Claude: ${t.slice(0, 200)}${t.length > 200 ? "…" : ""}`);
+        }
       } else if (block.type === "tool_use") {
         pushActivity(describeTool(block.name, block.input));
         onToolUse(block);
@@ -431,6 +437,7 @@ function handleEvent(evt) {
 }
 
 let resultEvent = null;
+let lastAssistantText = "";
 
 // Stop button: lib/actions/dev-agents.ts stopAgentRun() sends this process
 // SIGTERM (our pid is on the run row). Kill the CLI child; the close handler
@@ -658,8 +665,15 @@ async function main() {
       : null,
   };
 
-  if (resultEvent.is_error) {
-    const msg = `Claude returned an error (${resultEvent.subtype ?? "unknown"}).`;
+  // The CLI's subtype is unreliable — auth failures arrive as is_error:true
+  // with subtype "success", and the real error text rides in `result` or the
+  // final synthetic assistant message. Show that text, never just the label.
+  const subtype = resultEvent.subtype ?? "unknown";
+  if (resultEvent.is_error || subtype !== "success") {
+    const detail = String(resultEvent.result || lastAssistantText || "").trim();
+    const msg = detail
+      ? `Claude run failed: ${detail.slice(0, 600)}`
+      : `Claude returned an error (${subtype}).`;
     await finish("error", msg, resultEvent.total_cost_usd);
     await persistToConversation(conversation_id, `⚠️ ${msg}`, resultEvent.total_cost_usd, resultEvent.session_id);
     return;

@@ -54,7 +54,7 @@ export interface PanelState {
    *  dock when the panel moves to the second monitor. */
   where: "docked" | "window";
   /** Let a live run steer the app view to what it's working on
-   *  (LiveActionNav). Desktop only regardless — small screens never follow. */
+   *  (LiveActionNav). Shared. Desktop only regardless — small screens never follow. */
   follow: boolean;
 }
 
@@ -62,7 +62,7 @@ export interface PanelState {
 export type PanelSession = Pick<PanelState, "conversationId" | "agent" | "claude">;
 
 const SESSION_KEYS = ["conversationId", "agent", "claude"] as const;
-const LAYOUT_KEYS = ["width", "collapsed", "where"] as const;
+const LAYOUT_KEYS = ["width", "collapsed", "where", "follow"] as const;
 
 export const PANEL_MIN_WIDTH = 320;
 export const PANEL_MAX_WIDTH = 1000;

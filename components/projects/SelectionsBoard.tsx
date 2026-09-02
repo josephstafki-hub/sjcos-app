@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState, useSyncExternalStore, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Plus, X, Check, Send, Pencil, Trash2, FolderPlus, Link2, Loader2,
   Undo2, ExternalLink, CircleDot, Wallet, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown,
@@ -149,10 +149,11 @@ export function SelectionsBoard({
   const sectionOptions = pickerOptions(groups);
   const totalPushable = groups.reduce((n, g) => n + pushableCount(g), 0);
 
-  // Which rooms / sub-sections are folded up. Persisted per project so a long
-  // board stays the way Joe left it across refreshes and router.refresh() calls
-  // after every mutation. Read from localStorage after mount so SSR and the
-  // first client render agree.
+  // Which levels are folded up — the board itself, rooms / sub-sections, and
+  // individual decisions all share one set (see BOARD_KEY / groupKey /
+  // selectionKey). Persisted per project so a long board stays the way Joe
+  // left it across refreshes and router.refresh() calls after every mutation.
+  // Read from localStorage after mount so SSR and the first client render agree.
   const collapseKey = `sjc:selections:${slug}:collapsed`;
   const collapsed = useCollapsedSet(collapseKey);
   function saveCollapsed(next: Set<string>) {
@@ -164,8 +165,36 @@ export function SelectionsBoard({
     else next.add(key);
     saveCollapsed(next);
   }
+  const boardOpen = !collapsed.has(BOARD_KEY);
   const allKeys = allGroupKeys(groups);
   const anyExpanded = allKeys.some((k) => !collapsed.has(k));
+  // Collapse all folds every room to its header (decisions inside stay however
+  // they were); Expand all opens everything, decisions and the board included.
+  function collapseAll() {
+    saveCollapsed(new Set([...collapsed, ...allKeys]));
+  }
+  function expandAll() {
+    saveCollapsed(new Set());
+  }
+
+  // A deep link (?focus=selection-<id>, from the activity ledger or the
+  // published roster) has to land on a visible row, so unfold the board, the
+  // room path and the decision itself before FocusScroll goes looking for it.
+  // Keyed on the path string rather than the groups array so a refresh after
+  // Joe re-folds that room doesn't pop it open again.
+  const focus = useSearchParams().get("focus");
+  const focusId = focus?.match(/^selection-(\d+)$/)?.[1];
+  const focusPath = focusId ? pathToSelection(view.groups, Number(focusId)) : null;
+  const focusPathKey = focusPath?.join("/") ?? "";
+  useEffect(() => {
+    if (!focusId || !focusPathKey) return;
+    const keys = [BOARD_KEY, ...focusPathKey.split("/"), selectionKey(Number(focusId))];
+    const cur = readCollapsed(collapseKey);
+    if (!keys.some((k) => cur.has(k))) return;
+    const next = new Set(cur);
+    keys.forEach((k) => next.delete(k));
+    writeCollapsed(collapseKey, next);
+  }, [focusId, focusPathKey, collapseKey]);
 
   // Single path for every mutation on this board. The actions revalidate on the
   // server, but the project page is dynamic (cookie auth), so nothing re-renders
@@ -208,7 +237,24 @@ export function SelectionsBoard({
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-start gap-2">
         <div className="min-w-0 flex-1">
-          <h3 className="font-serif text-[16px] font-semibold text-ink">Selections</h3>
+          {empty ? (
+            <h3 className="font-serif text-[16px] font-semibold text-ink">Selections</h3>
+          ) : (
+            <button
+              type="button"
+              onClick={() => toggleCollapsed(BOARD_KEY)}
+              aria-expanded={boardOpen}
+              title={boardOpen ? "Collapse the board" : "Expand the board"}
+              className="-ml-1 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-left hover:bg-paper-2"
+            >
+              {boardOpen ? (
+                <ChevronDown className="size-4 shrink-0 text-ink-3" strokeWidth={1.75} />
+              ) : (
+                <ChevronRight className="size-4 shrink-0 text-ink-3" strokeWidth={1.75} />
+              )}
+              <h3 className="font-serif text-[16px] font-semibold text-ink">Selections</h3>
+            </button>
+          )}
           <p className="mt-0.5 text-[12px] text-ink-3">
             {view.totalDecisions > 0
               ? `${view.totalOpen} of ${view.totalDecisions} decision${view.totalDecisions === 1 ? "" : "s"} still open`
@@ -283,10 +329,10 @@ export function SelectionsBoard({
             <FolderPlus className="size-3" strokeWidth={1.5} />
             Add room
           </button>
-          {!empty && (
+          {!empty && boardOpen && (
             <button
-              onClick={() => saveCollapsed(anyExpanded ? new Set(allKeys) : new Set())}
-              title={anyExpanded ? "Fold every room up to its header" : "Open every room"}
+              onClick={anyExpanded ? collapseAll : expandAll}
+              title={anyExpanded ? "Fold every room up to its header" : "Open every room and decision"}
               className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2"
             >
               {anyExpanded ? (
@@ -309,6 +355,7 @@ export function SelectionsBoard({
           </div>
         </Card>
       ) : (
+        boardOpen &&
         groups.map((g) => (
           <SectionBlock
             key={g.id ?? "ungrouped"}
@@ -475,6 +522,25 @@ function groupKey(g: SelectionGroup): string {
 
 function allGroupKeys(groups: SelectionGroup[]): string[] {
   return groups.flatMap((g) => [groupKey(g), ...allGroupKeys(g.children)]);
+}
+
+/** Collapse key for the whole board (everything under the Selections heading). */
+const BOARD_KEY = "board";
+
+/** Collapse key for one decision — its options fold under the title row. */
+function selectionKey(id: number): string {
+  return `sel:${id}`;
+}
+
+/** Group keys from the top of the board down to the group holding a decision,
+ *  or null if the decision isn't on the board (removed, or another project). */
+function pathToSelection(groups: SelectionGroup[], id: number): string[] | null {
+  for (const g of groups) {
+    if (g.selections.some((s) => s.id === id)) return [groupKey(g)];
+    const below = pathToSelection(g.children, id);
+    if (below) return [groupKey(g), ...below];
+  }
+  return null;
 }
 
 // ─── Section (room / sub-section) ────────────────────────────────────────────
@@ -659,6 +725,8 @@ function SectionBlock({
 function SelectionRow({
   s,
   pending,
+  collapsed,
+  onToggleCollapse,
   onUnpush,
   onRemove,
   onEdit,
@@ -669,16 +737,29 @@ function SelectionRow({
 }: { s: Selection; pending: boolean } & SectionHandlers) {
   const chosen = s.options.find((o) => o.id === s.chosenOptionId) ?? null;
   const delta = chosen && s.allowance > 0 ? chosen.price - s.allowance : 0;
+  const key = selectionKey(s.id);
+  const open = !collapsed.has(key);
+  const Chevron = open ? ChevronDown : ChevronRight;
 
   // A decision reads as a subheading over its option boxes, not a box of its
   // own — the visual hierarchy is room card → sub-section → decision → options.
+  // Folded, only the title row stays: name, allowance, status and the buttons.
   return (
     <div
       data-focus={`selection-${s.id}`}
       className="border-t border-rule-soft pt-2.5 first:border-t-0 first:pt-0"
     >
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <span className="text-[13px] font-semibold text-ink">{s.area}</span>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <button
+          type="button"
+          onClick={() => onToggleCollapse(key)}
+          aria-expanded={open}
+          title={open ? "Collapse" : "Expand"}
+          className="-ml-1 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-left hover:bg-paper-2"
+        >
+          <Chevron className="size-3.5 shrink-0 text-ink-3" strokeWidth={1.75} />
+          <span className="text-[13px] font-semibold text-ink">{s.area}</span>
+        </button>
         {s.allowance > 0 && (
           <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">
             allowance {fmt(s.allowance)}
@@ -687,6 +768,13 @@ function SelectionRow({
         <Chip kind={STATUS_CHIP[s.status]} dot>
           {STATUS_LABEL[s.status]}
         </Chip>
+        {!open && (
+          <span className="text-[11px] text-ink-3">
+            {chosen
+              ? `chose ${chosen.name}`
+              : `${s.options.length} option${s.options.length === 1 ? "" : "s"}`}
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-1.5">
           {s.status !== "draft" && (
             <button
@@ -716,49 +804,53 @@ function SelectionRow({
         </div>
       </div>
 
-      {(s.choice || s.notes) && (
-        <p className="mt-1 text-[12px] leading-snug text-ink-2">
-          {s.choice}
-          {s.choice && s.notes ? " · " : ""}
-          <span className="text-ink-3">{s.notes}</span>
-        </p>
-      )}
-
-      {chosen && (
-        <p className="mt-1 text-[12px] text-money">
-          Client chose {chosen.name}
-          {chosen.price > 0 && ` · ${fmt(chosen.price)}`}
-          {delta !== 0 && (
-            <span className={delta > 0 ? "text-flag" : "text-money"}>
-              {" "}
-              ({delta > 0 ? `${fmt(delta)} over` : `${fmt(-delta)} under`} allowance)
-            </span>
+      {open && (
+        <>
+          {(s.choice || s.notes) && (
+            <p className="mt-1 text-[12px] leading-snug text-ink-2">
+              {s.choice}
+              {s.choice && s.notes ? " · " : ""}
+              <span className="text-ink-3">{s.notes}</span>
+            </p>
           )}
-        </p>
-      )}
 
-      <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4">
-        {s.options.map((o) => (
-          <OptionCard
-            key={o.id}
-            o={o}
-            allowance={s.allowance}
-            isChosen={o.id === s.chosenOptionId}
-            canChoose={s.status === "pending" || s.status === "approved"}
-            pending={pending}
-            onEdit={() => onEditOption(s, o)}
-            onRemove={() => onRemoveOption(o.id)}
-            onChoose={() => onChoose(s.id, o.id)}
-          />
-        ))}
-        <button
-          onClick={() => onAddOption(s)}
-          className="flex min-h-[120px] flex-col items-center justify-center gap-1 rounded-md border border-dashed border-rule text-ink-3 hover:border-accent hover:bg-accent-soft/30 hover:text-accent-2"
-        >
-          <Plus className="size-4" strokeWidth={1.5} />
-          <span className="text-[11px] font-semibold">Add option</span>
-        </button>
-      </div>
+          {chosen && (
+            <p className="mt-1 text-[12px] text-money">
+              Client chose {chosen.name}
+              {chosen.price > 0 && ` · ${fmt(chosen.price)}`}
+              {delta !== 0 && (
+                <span className={delta > 0 ? "text-flag" : "text-money"}>
+                  {" "}
+                  ({delta > 0 ? `${fmt(delta)} over` : `${fmt(-delta)} under`} allowance)
+                </span>
+              )}
+            </p>
+          )}
+
+          <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4">
+            {s.options.map((o) => (
+              <OptionCard
+                key={o.id}
+                o={o}
+                allowance={s.allowance}
+                isChosen={o.id === s.chosenOptionId}
+                canChoose={s.status === "pending" || s.status === "approved"}
+                pending={pending}
+                onEdit={() => onEditOption(s, o)}
+                onRemove={() => onRemoveOption(o.id)}
+                onChoose={() => onChoose(s.id, o.id)}
+              />
+            ))}
+            <button
+              onClick={() => onAddOption(s)}
+              className="flex min-h-[120px] flex-col items-center justify-center gap-1 rounded-md border border-dashed border-rule text-ink-3 hover:border-accent hover:bg-accent-soft/30 hover:text-accent-2"
+            >
+              <Plus className="size-4" strokeWidth={1.5} />
+              <span className="text-[11px] font-semibold">Add option</span>
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

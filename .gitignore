@@ -41,7 +41,7 @@ yarn-error.log*
 .env*
 
 # user file uploads (/files) — real blobs stored on the server, not in git
-/uploads/
+/uploads
 
 # AI-generated email drafts — client content, kept on the server, not in git
 /drafts/

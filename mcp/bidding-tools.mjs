@@ -25,14 +25,37 @@
 // and an unsent invite) — the same precedent as draft PO lines. Submitted bids
 // are business records; nothing here can touch them.
 
+import { createHmac } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 
 const t = (v, max = 300) => String(v ?? "").trim().slice(0, max);
 
-export function registerBiddingTools(server, { rows, json, biddingCall, uploadDir }) {
+export function registerBiddingTools(server, { rows, json, biddingCall, uploadDir, envValue }) {
   const fail = (e) => ({ content: [{ type: "text", text: `Error: ${e.message}` }], isError: true });
+
+  /** Downscaled jpeg image block for an original image buffer. `.rotate()`
+   *  honors EXIF orientation and sharp strips metadata (incl. GPS) unless
+   *  asked to keep it — same as the app's thumbnail path. */
+  const toImageBlock = async (original, width) => {
+    const w = Math.min(1280, Math.max(160, Math.round(Number(width) || 1024)));
+    let sharp;
+    try { sharp = (await import("sharp")).default; }
+    catch { throw new Error("Image resizing is unavailable on this server (sharp not installed)."); }
+    const out = await sharp(original, { failOn: "none" })
+      .rotate()
+      .resize({ width: w, withoutEnlargement: true })
+      .jpeg({ quality: 80 })
+      .toBuffer();
+    return { block: { type: "image", data: out.toString("base64"), mimeType: "image/jpeg" }, width: w };
+  };
+
+  const readStored = (f) =>
+    // storage_path is DB-controlled; basename-guard against traversal anyway
+    // (same stance as lib/file-serve.ts).
+    readFile(path.join(uploadDir, path.basename(f.storage_path)))
+      .catch(() => { throw new Error(`'${f.name}' is missing on disk.`); });
 
   const projectBySlug = async (slug) => {
     const r = await rows(`SELECT id, slug, name FROM projects WHERE slug = $1`, [t(slug, 80)]);
@@ -313,27 +336,79 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
           throw new Error(
             `'${f.name}' is ${f.mime_type || "not an image"} — only image files can be viewed.`,
           );
-        // storage_path is DB-controlled; basename-guard against traversal anyway
-        // (same stance as lib/file-serve.ts).
-        const original = await readFile(path.join(uploadDir, path.basename(f.storage_path)))
-          .catch(() => { throw new Error(`'${f.name}' is missing on disk.`); });
-        const w = Math.min(1280, Math.max(160, Math.round(Number(width) || 1024)));
-        let sharp;
-        try { sharp = (await import("sharp")).default; }
-        catch { throw new Error("Image resizing is unavailable on this server (sharp not installed)."); }
-        // .rotate() honors EXIF orientation and sharp strips metadata (incl. GPS)
-        // unless asked to keep it — same as the app's thumbnail path.
-        const out = await sharp(original, { failOn: "none" })
-          .rotate()
-          .resize({ width: w, withoutEnlargement: true })
-          .jpeg({ quality: 80 })
-          .toBuffer();
+        const { block, width: w } = await toImageBlock(await readStored(f), width);
         return {
           content: [
-            { type: "image", data: out.toString("base64"), mimeType: "image/jpeg" },
+            block,
             { type: "text", text: JSON.stringify({ file_id: f.id, name: f.name, max_width: w }) },
           ],
         };
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_project_file",
+    {
+      title: "Get a project file",
+      description:
+        "Fetch one uploaded file by id (ids come from list_project_files). Images default to " +
+        "format 'base64': the actual pixels as an inline image block. format 'url' works for " +
+        "ANY file type including PDFs: a short-lived signed link that serves the original " +
+        "bytes with no login — use it when your client can't take an inline image, or to hand " +
+        "a plan/invoice PDF to something that fetches URLs. The link expires (default 15 min); " +
+        "mint a fresh one instead of storing it, and don't put it anywhere client-facing.",
+      inputSchema: {
+        file_id: z.string().describe("A file id from list_project_files."),
+        format: z.enum(["base64", "url"]).optional()
+          .describe("Default: base64 for images, url for everything else."),
+        expires_minutes: z.number().int().optional()
+          .describe("URL lifetime in minutes, 1–60 (default 15). url format only."),
+        width: z.number().int().optional()
+          .describe("Max pixel width for base64, 160–1280 (default 1024)."),
+      },
+    },
+    async ({ file_id, format, expires_minutes, width }) => {
+      try {
+        const found = await rows(
+          `SELECT id, name, mime_type, size_label, project_key, storage_path FROM files
+            WHERE id = $1 AND storage_path IS NOT NULL`,
+          [t(file_id, 80)],
+        );
+        if (!found.length)
+          throw new Error("No stored file with that id. Use list_project_files to find ids.");
+        const f = found[0];
+        const isImage = String(f.mime_type || "").startsWith("image/");
+        const mode = format || (isImage ? "base64" : "url");
+        const meta = {
+          file_id: f.id, name: f.name, mime_type: f.mime_type,
+          size_label: f.size_label, project_slug: f.project_key || null,
+        };
+
+        if (mode === "base64") {
+          if (!isImage)
+            throw new Error(
+              `'${f.name}' is ${f.mime_type || "not an image"} — base64 is images-only; use format "url".`,
+            );
+          const { block, width: w } = await toImageBlock(await readStored(f), width);
+          return { content: [block, { type: "text", text: JSON.stringify({ ...meta, max_width: w }) }] };
+        }
+
+        const secret = envValue("SESSION_SECRET");
+        if (!secret) throw new Error("SESSION_SECRET not set — cannot sign URLs.");
+        const minutes = Math.min(60, Math.max(1, Math.round(Number(expires_minutes) || 15)));
+        const exp = Math.floor(Date.now() / 1000) + minutes * 60;
+        // Same derivation as lib/file-sign.ts — keep the two in sync.
+        const key = createHmac("sha256", secret).update("sjc-file-url-v1").digest();
+        const sig = createHmac("sha256", key).update(`${f.id}:${exp}`).digest("hex");
+        const base = (envValue("NEXT_PUBLIC_APP_URL") || "https://os.sjcarpentryllc.com").replace(/\/$/, "");
+        return json({
+          ...meta,
+          url: `${base}/api/files/${encodeURIComponent(f.id)}?exp=${exp}&sig=${sig}`,
+          expires_at: new Date(exp * 1000).toISOString(),
+        });
       } catch (e) {
         return fail(e);
       }

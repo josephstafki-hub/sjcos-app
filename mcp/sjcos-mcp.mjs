@@ -2332,7 +2332,7 @@ server.registerTool(
   // Bidding lives in its own module too: stage + award. Sending a package is
   // real email, so it is NOT here — it's a granted send (below).
   registerBiddingTools(server, {
-    rows, json, biddingCall,
+    rows, json, biddingCall, envValue,
     uploadDir: path.join(__dirname, "..", "uploads"),
   });
 

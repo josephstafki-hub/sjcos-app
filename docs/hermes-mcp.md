@@ -121,6 +121,11 @@ The app's feed refreshes and checks the card off — that's the loop closing.
   to `approval_needed` and saves the draft; Joe reviews and sends from the app.
 - `snooze_work_item(id, days?, reason?)` only when Joe asks or the item literally
   can't proceed yet — always state the reason.
+- **Scheduled to-dos wait for their day** (Joe, 2026-09-02). Any work item with
+  a `due_at` on a later day is snoozed until 00:00 Central of that day and held
+  out of Today's Priorities — enforced by a table trigger, so it applies to
+  every writer (you, detectors, the app). When you schedule something, set
+  `due_at` to the day it should be worked; don't try to keep it visible early.
 
 ## Register the server with Hermes (placeholders only)
 

@@ -67,6 +67,7 @@ export type BidEmailKind = "reminder_1" | "reminder_2" | "working_nudge" | "than
 interface ChaseRow {
   invite_id: number;
   sub_name: string;
+  sub_notes: string | null;
   email: string;
   title: string;
   due_label: string | null;
@@ -90,13 +91,18 @@ const CHASES: {
   { kind: "working_nudge", anchor: "acked_at", statuses: ["working"], minDays: 4, maxDays: 14 },
 ];
 
-function firstName(name: string): string {
+function firstName(name: string, notes?: string | null): string {
+  const contact = notes?.match(/(?:^|\n)Greeting contact:\s*([^\.\n]+)/i)?.[1]?.trim();
+  if (contact) {
+    if (/\band\b/i.test(contact)) return contact.replace(/\s+[A-Z][a-z]+$/, "");
+    return contact.split(/\s+/)[0] || contact;
+  }
   return name.split(/\s+/)[0] || name;
 }
 
 /** Plain text, same voice as the original bid request (composeBidEmail). */
 function compose(kind: BidEmailKind, r: ChaseRow): { subject: string; body: string } {
-  const hi = `Hi ${firstName(r.sub_name)},`;
+  const hi = `Hi ${firstName(r.sub_name, r.sub_notes)},`;
   const sig = ["— Joe Stafki", "SJ Carpentry LLC"];
   const due = r.due_label;
 
@@ -217,7 +223,7 @@ async function deliver(claimId: number, kind: BidEmailKind, r: ChaseRow): Promis
 }
 
 const CHASE_SELECT = `
-  SELECT i.id AS invite_id, s.name AS sub_name, btrim(s.email) AS email,
+  SELECT i.id AS invite_id, s.name AS sub_name, s.notes AS sub_notes, btrim(s.email) AS email,
          b.title, p.name AS project_name, p.slug,
          to_char(b.due_date, 'FMMon FMDD') AS due_label,
          to_char(i.sent_at,  'FMMon FMDD') AS sent_label

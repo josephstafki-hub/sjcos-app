@@ -39,10 +39,10 @@ Safe by construction — internal records, append-only audit, and proposals only
 |---|---|
 | `import_lead` | Create an inbound lead (the path for web-lead emails Hermes parses from Joe's inbox): full intake funnel — scoring, intake rows, room, feed card — and auto-starts the lead-intake runbook. Refuses a duplicate email unless `allow_duplicate` |
 | `capture_knowledge` | Save a knowledge item (dedup by fingerprint; optional receipt) |
-| `create_work_item` | Add to the queue (`requires_approval` defaults true) |
+| `create_work_item` | Add to the queue (`requires_approval` defaults true). A `due_at` on a later day snoozes the item until 00:00 Central that day — scheduled to-dos wait for their day (table trigger, applies to every writer) |
 | `update_work_item_status` | Move an item's status (done sets completed_at) |
 | `enrich_work_item` | Rewrite a **detector-filed** item's factual body into a readable brief (original kept under `--- source facts ---`); refuses non-detector items; never touches status/priority/assignee/due/approvals |
-| `snooze_work_item` | Push `due_at` out + clear app-owned promotion (`{id, days?, reason?}`); logs a receipt |
+| `snooze_work_item` | Push `due_at` out + clear app-owned promotion (`{id, days?, reason?}`); snooze lands on 00:00 Central of the new due day; logs a receipt |
 | `submit_draft_for_approval` | Chat-lane item that needs a client-facing step: save the draft + set `approval_needed` (never sends) |
 | `record_agent_run` / `record_receipt` | Open/close a run; append proof-of-work |
 | `create_skill_proposal` | Propose a skill → lands `proposed`, out of the library until Joe approves in `/engine` |

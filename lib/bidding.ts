@@ -398,13 +398,23 @@ export async function bidInviteById(id: number): Promise<InviteJoin | null> {
 const MAX_PACKET_BYTES = 22 * 1024 * 1024;
 
 /** The bid request email itself — plain text, packet attached. */
+function bidGreetingName(subName: string, notes?: string | null): string {
+  const contact = notes?.match(/(?:^|\n)Greeting contact:\s*([^\.\n]+)/i)?.[1]?.trim();
+  if (contact) {
+    if (/\band\b/i.test(contact)) return contact.replace(/\s+[A-Z][a-z]+$/, "");
+    return contact.split(/\s+/)[0] || contact;
+  }
+  return subName.split(/\s+/)[0] || subName;
+}
+
 function composeBidEmail(
   subName: string,
+  subNotes: string | null,
   pkg: PackageJoin,
   personalNote: string,
   fileLabels: string[],
 ): { subject: string; body: string } {
-  const firstName = subName.split(/\s+/)[0] || subName;
+  const firstName = bidGreetingName(subName, subNotes);
   const subject = `Bid request: ${pkg.title} — ${pkg.project_name}`;
   const body = [
     `Hi ${firstName},`,
@@ -483,9 +493,10 @@ export async function sendBidPackageOp(packageId: number): Promise<OpResult> {
     id: string;
     message: string;
     sub_name: string;
+    sub_notes: string | null;
     email: string | null;
   }>(
-    `SELECT i.id, i.message, s.name AS sub_name, s.email
+    `SELECT i.id, i.message, s.name AS sub_name, s.notes AS sub_notes, s.email
        FROM bid_invites i JOIN subs s ON s.slug = i.sub_slug
       WHERE i.package_id = $1 AND i.status = 'draft'
       ORDER BY s.name`,
@@ -509,7 +520,7 @@ export async function sendBidPackageOp(packageId: number): Promise<OpResult> {
   const failed: string[] = [];
   let firstFailure = "";
   for (const d of sendable) {
-    const { subject, body } = composeBidEmail(d.sub_name, pkg, d.message.trim(), fileLabels);
+    const { subject, body } = composeBidEmail(d.sub_name, d.sub_notes, pkg, d.message.trim(), fileLabels);
     try {
       await sendNewEmail({ to: (d.email ?? "").trim(), subject, bodyText: body, attachments });
     } catch (err) {

@@ -373,8 +373,11 @@ async function buildQueue(s: QueueSources): Promise<QueueSnapshot> {
   // snooze window passes — otherwise a demoted item with no other backlog
   // competing for its lead-first slot gets immediately re-promoted into the
   // very slot it just vacated, which reads as two cards swapping places
-  // instead of the snoozed one leaving Priorities. Ordinary future due_at
-  // (never snoozed) doesn't gate promotion — only snoozedUntil does.
+  // instead of the snoozed one leaving Priorities. Only snoozedUntil gates
+  // promotion here — but a future due_at always carries one: the
+  // trg_work_items_snooze_until_due trigger (db/schema.sql) snoozes any item
+  // scheduled for a later day until 00:00 Central of that day, so scheduled
+  // to-dos never surface early (Joe's rule, 2026-09-02).
   const now = Date.now();
   const pool = ranked.filter(
     (c) => c.checkable && !c.promotedAt && (!c.snoozedUntil || new Date(c.snoozedUntil).getTime() <= now),

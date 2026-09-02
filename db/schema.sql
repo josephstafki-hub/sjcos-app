@@ -1658,9 +1658,48 @@ CREATE INDEX IF NOT EXISTS idx_work_items_promoted ON work_items(promoted_at)
 
 -- Today page: "Snooze 3d" sets snoozed_until (separate from due_at, which
 -- keeps its normal meaning) so the auto-promotion pool can exclude a just-
--- demoted item until its snooze window passes, without also blocking
--- ordinary future-dated backlog items from ever auto-promoting.
+-- demoted item until its snooze window passes.
 ALTER TABLE work_items ADD COLUMN IF NOT EXISTS snoozed_until timestamptz;
+
+-- Scheduled to-dos wait for their day (Joe's rule, 2026-09-02): whenever a
+-- work item gets a due date on a future day — created or moved, by ANY writer
+-- (MCP create_work_item / snooze_work_item, detectors, /engine + record forms,
+-- Hermes, raw SQL) — it is snoozed until 00:00 America/Chicago of that day and
+-- dropped out of the Priorities rail (promoted_at = NULL). Moving the due date
+-- back to today or earlier lifts the snooze. Lives on the table so no code
+-- path can forget it. Migration: db/apply-scheduled-snooze.mjs (also
+-- backfills open future-dated items).
+CREATE OR REPLACE FUNCTION work_item_due_day_start(due timestamptz) RETURNS timestamptz
+LANGUAGE sql STABLE AS $$
+  SELECT CASE
+    WHEN due IS NULL THEN NULL
+    -- A date-only due ("2026-09-08") lands at midnight of the session zone;
+    -- take the calendar date as written instead of shifting it into Central.
+    WHEN due = date_trunc('day', due) THEN (due::date)::timestamp AT TIME ZONE 'America/Chicago'
+    ELSE date_trunc('day', due AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago'
+  END
+$$;
+CREATE OR REPLACE FUNCTION work_items_snooze_until_due() RETURNS trigger AS $$
+DECLARE day_start timestamptz;
+BEGIN
+  IF NEW.due_at IS NULL OR NEW.status IN ('done','cancelled') THEN RETURN NEW; END IF;
+  IF TG_OP = 'UPDATE' AND NEW.due_at IS NOT DISTINCT FROM OLD.due_at THEN RETURN NEW; END IF;
+  day_start := work_item_due_day_start(NEW.due_at);
+  IF day_start > now() THEN
+    -- Scheduled for a later day: hold it in the backlog until that morning.
+    NEW.snoozed_until := day_start;
+    NEW.promoted_at := NULL;
+  ELSIF NEW.snoozed_until IS NOT NULL AND NEW.snoozed_until > now() THEN
+    -- Due moved back to today/past: lift the snooze so it surfaces now.
+    NEW.snoozed_until := NULL;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trg_work_items_snooze_until_due ON work_items;
+CREATE TRIGGER trg_work_items_snooze_until_due
+  BEFORE INSERT OR UPDATE OF due_at ON work_items
+  FOR EACH ROW EXECUTE FUNCTION work_items_snooze_until_due();
 
 -- Inbox sweep bookkeeping: stamped by scripts/upsert-inbox-work-items.mjs each
 -- time an item appears in the current scan batch. The sweep itself never

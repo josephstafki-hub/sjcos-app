@@ -993,7 +993,11 @@ server.registerTool(
     description:
       "Add an item to the SJC OS work queue. requires_approval defaults true. " +
       "Optionally link project/lead slug, set assignee_key, due date, and the " +
-      "expected skill/runbook the worker should load.",
+      "expected skill/runbook the worker should load. Scheduling rule: a due_at " +
+      "on a later day snoozes the item until 00:00 Central of that day (table " +
+      "trigger) — scheduled to-dos stay in the backlog and surface on Today the " +
+      "morning they're due, never before. Set due_at to schedule; leave it " +
+      "empty for do-it-now work.",
     inputSchema: {
       title: z.string(),
       body: z.string().optional(),
@@ -1308,7 +1312,9 @@ server.registerTool(
     description:
       "Push a work item's due date out and drop it back to the Waiting-on-me " +
       "backlog (clears app-owned promotion). Use ONLY when Joe asks or the item " +
-      "literally can't proceed yet — state the reason. Logs a receipt.",
+      "literally can't proceed yet — state the reason. Logs a receipt. The " +
+      "snooze lands on 00:00 Central of the new due day (scheduled to-dos wait " +
+      "for their day); to hold an item past 30 days, set due_at instead.",
     inputSchema: {
       id: z.string(),
       days: z.number().int().min(1).max(30).optional(),

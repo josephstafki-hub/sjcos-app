@@ -2331,7 +2331,10 @@ server.registerTool(
 
   // Bidding lives in its own module too: stage + award. Sending a package is
   // real email, so it is NOT here — it's a granted send (below).
-  registerBiddingTools(server, { rows, json, biddingCall });
+  registerBiddingTools(server, {
+    rows, json, biddingCall,
+    uploadDir: path.join(__dirname, "..", "uploads"),
+  });
 
   // Owner-granted sends + the request/check/list tools around them. These are
   // the only tools that can reach a real inbox, and each one needs an owner

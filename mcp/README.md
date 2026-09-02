@@ -220,6 +220,7 @@ button runs.
 | `get_bid_package` | One package in full: packet files, invites (per-sub notes, statuses), latest submissions |
 | `compare_bids` | Submitted bids low → high with deltas, line items, exclusions, lead times, docs |
 | `list_project_files` | The project's uploaded files — the pool `attach_bid_file` draws from |
+| `view_project_image` | The actual pixels of an uploaded project image (downscaled), so an agent can look at photos/plan snapshots |
 | `create_bid_package` | Start a DRAFT bid request for a category of work |
 | `update_bid_package` | Edit title / trade / scope notes / due date |
 | `attach_bid_file` | Put a project file in the packet, with the label the sub sees |

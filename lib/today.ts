@@ -139,6 +139,10 @@ interface TodayProjectRow {
    *  action is already on the calendar, so the "Keep X moving" job card
    *  waits for that day instead of nagging today (Joe, 2026-09-02). */
   scheduled_ahead: boolean;
+  /** True when the project has any open work item (any status, any assignee).
+   *  A tracked job doesn't need a second "Keep X moving" card — the to-do
+   *  (or its waiting_on_client state) already says where it stands. */
+  tracked: boolean;
 }
 
 export interface TodayWorkItemRow {
@@ -269,7 +273,10 @@ async function fetchQueueSources(): Promise<QueueSources> {
                (contract_value - collected_to_date) AS outstanding,
                EXISTS (SELECT 1 FROM schedule_blocks b
                         WHERE b.project_id = projects.id
-                          AND b.block_date > CURRENT_DATE) AS scheduled_ahead
+                          AND b.block_date > CURRENT_DATE) AS scheduled_ahead,
+               EXISTS (SELECT 1 FROM work_items w
+                        WHERE w.project_id = projects.id
+                          AND w.status NOT IN ('done','cancelled')) AS tracked
         FROM projects
         WHERE status IN ('construction', 'closeout')
         ORDER BY (status = 'construction') DESC, progress DESC, name`),
@@ -363,12 +370,16 @@ async function buildQueue(s: QueueSources): Promise<QueueSnapshot> {
       waitingLabel: `On site — ${firstJobBlock.label} (${firstJobBlock.time_label})`,
     });
   }
-  // Job signal: the top construction job with nothing on the calendar yet.
-  // A job whose next block is on a later day is "snoozed until its scheduled
-  // date" — same rule as scheduled to-dos (they wait for their day) — so it
-  // stays off Priorities/Waiting and the card falls to the next unscheduled
-  // job (or nobody, if every active job is on the calendar).
-  const topActive = s.projects.find((p) => p.status === "construction" && !p.scheduled_ahead);
+  // Job signal: the top construction job that is neither on the calendar nor
+  // tracked by an open to-do — i.e. a job that would otherwise fall through
+  // the cracks. A job whose next block is on a later day is "snoozed until
+  // its scheduled date" (same rule as scheduled to-dos), and a job with any
+  // open work item is already represented (or deliberately parked as
+  // waiting_on_client), so neither gets a "Keep X moving" nudge (Joe,
+  // 2026-09-02). If every active job is scheduled or tracked, no card.
+  const topActive = s.projects.find(
+    (p) => p.status === "construction" && !p.scheduled_ahead && !p.tracked,
+  );
   if (topActive) {
     candidates.push({
       id: `job:${topActive.slug}`,

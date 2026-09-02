@@ -135,6 +135,10 @@ interface TodayProjectRow {
   status: string;
   progress: number;
   outstanding: number;
+  /** True when the project has a schedule block on a later day — its next
+   *  action is already on the calendar, so the "Keep X moving" job card
+   *  waits for that day instead of nagging today (Joe, 2026-09-02). */
+  scheduled_ahead: boolean;
 }
 
 export interface TodayWorkItemRow {
@@ -161,6 +165,15 @@ export interface TodayWorkItemRow {
  *  Shared between getTodayData() (the full list) and
  *  checkPriorityCompletion() (the single next-up item), so "what's eligible"
  *  never drifts between the two. */
+// Items whose ball is in the client's court (status waiting_on_client) are
+// not "waiting on me": they stay off Priorities and the backlog until someone
+// moves them back to queued/in_progress (Joe, 2026-09-02: "I don't want that
+// card on here, it's waiting on him"). They remain visible on /engine.
+// Snoozed items (snoozed_until in the future) are likewise off Today entirely —
+// not just out of auto-promotion. A scheduled to-do carries a snooze until
+// 00:00 Central of its due day (trg_work_items_snooze_until_due), so a job's
+// task list only surfaces day by day as each task comes up (Joe, 2026-09-02:
+// "I don't want to see those until the day each task is scheduled").
 export const OPEN_WORK_ITEMS_SQL = `
     SELECT w.id, w.title, left(NULLIF(w.body, ''), 140) AS body,
            w.status, w.priority, w.effort_class,
@@ -172,7 +185,8 @@ export const OPEN_WORK_ITEMS_SQL = `
       FROM work_items w
       LEFT JOIN projects p ON p.id = w.project_id
       LEFT JOIN leads l ON l.id = w.lead_id
-     WHERE w.status NOT IN ('done','cancelled')
+     WHERE w.status NOT IN ('done','cancelled','waiting_on_client')
+       AND (w.snoozed_until IS NULL OR w.snoozed_until <= now())
        AND w.assignee_kind = 'human'
        AND (w.assignee_key IS NULL OR w.assignee_key = 'human-joe')
        AND (w.lead_id IS NOT NULL OR w.project_id IS NOT NULL
@@ -252,7 +266,10 @@ async function fetchQueueSources(): Promise<QueueSources> {
     await Promise.all([
       query<TodayProjectRow>(`
         SELECT slug, name, status, progress,
-               (contract_value - collected_to_date) AS outstanding
+               (contract_value - collected_to_date) AS outstanding,
+               EXISTS (SELECT 1 FROM schedule_blocks b
+                        WHERE b.project_id = projects.id
+                          AND b.block_date > CURRENT_DATE) AS scheduled_ahead
         FROM projects
         WHERE status IN ('construction', 'closeout')
         ORDER BY (status = 'construction') DESC, progress DESC, name`),
@@ -346,7 +363,12 @@ async function buildQueue(s: QueueSources): Promise<QueueSnapshot> {
       waitingLabel: `On site — ${firstJobBlock.label} (${firstJobBlock.time_label})`,
     });
   }
-  const topActive = s.projects.find((p) => p.status === "construction");
+  // Job signal: the top construction job with nothing on the calendar yet.
+  // A job whose next block is on a later day is "snoozed until its scheduled
+  // date" — same rule as scheduled to-dos (they wait for their day) — so it
+  // stays off Priorities/Waiting and the card falls to the next unscheduled
+  // job (or nobody, if every active job is on the calendar).
+  const topActive = s.projects.find((p) => p.status === "construction" && !p.scheduled_ahead);
   if (topActive) {
     candidates.push({
       id: `job:${topActive.slug}`,

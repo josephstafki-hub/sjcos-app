@@ -6,7 +6,7 @@
 //
 //   import { registerBiddingTools } from "./bidding-tools.mjs";
 //   ...
-//   registerBiddingTools(server, { rows, json, biddingCall });
+//   registerBiddingTools(server, { rows, json, biddingCall, uploadDir });
 //
 // WHAT THIS EXPOSES: staging and reading the owner's Bidding-tab surface —
 // create a bid package for a category of work, attach the project's
@@ -25,11 +25,13 @@
 // and an unsent invite) — the same precedent as draft PO lines. Submitted bids
 // are business records; nothing here can touch them.
 
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { z } from "zod";
 
 const t = (v, max = 300) => String(v ?? "").trim().slice(0, max);
 
-export function registerBiddingTools(server, { rows, json, biddingCall }) {
+export function registerBiddingTools(server, { rows, json, biddingCall, uploadDir }) {
   const fail = (e) => ({ content: [{ type: "text", text: `Error: ${e.message}` }], isError: true });
 
   const projectBySlug = async (slug) => {
@@ -260,7 +262,8 @@ export function registerBiddingTools(server, { rows, json, biddingCall }) {
       title: "List project files",
       description:
         "Uploaded files on a project (plans, takeoff PDFs, photos) — the pool attach_bid_file " +
-        "draws from. Returns file ids with names, types, and sizes.",
+        "draws from. Returns file ids with names, types, and sizes; rows with an image/* " +
+        "mime_type can be looked at with view_project_image.",
       inputSchema: { project_slug: z.string() },
     },
     async ({ project_slug }) => {
@@ -268,12 +271,69 @@ export function registerBiddingTools(server, { rows, json, biddingCall }) {
         const project = await projectBySlug(project_slug);
         return json(
           await rows(
-            `SELECT id, name, type, tag, size_label, created_at FROM files
+            `SELECT id, name, type, tag, size_label, mime_type, created_at FROM files
               WHERE project_key = $1 AND storage_path IS NOT NULL
               ORDER BY created_at DESC`,
             [project.slug],
           ),
         );
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "view_project_image",
+    {
+      title: "View a project image",
+      description:
+        "Return the actual pixels of an uploaded project image (photos, plan snapshots, mood " +
+        "pins — any files row with an image/* mime_type; see list_project_files) so an agent " +
+        "can look at it. Downscaled and re-encoded to keep responses small; PDFs and other " +
+        "non-image files can't be viewed this way.",
+      inputSchema: {
+        project_slug: z.string(),
+        file_id: z.string().describe("A file id from list_project_files."),
+        width: z.number().int().optional()
+          .describe("Max pixel width, 160–1280 (default 1024). Ask for 1280 to read fine detail."),
+      },
+    },
+    async ({ project_slug, file_id, width }) => {
+      try {
+        const project = await projectBySlug(project_slug);
+        const found = await rows(
+          `SELECT id, name, mime_type, storage_path FROM files
+            WHERE id = $1 AND project_key = $2 AND storage_path IS NOT NULL`,
+          [t(file_id, 80), project.slug],
+        );
+        if (!found.length) throw new Error("That file doesn't belong to this project.");
+        const f = found[0];
+        if (!String(f.mime_type || "").startsWith("image/"))
+          throw new Error(
+            `'${f.name}' is ${f.mime_type || "not an image"} — only image files can be viewed.`,
+          );
+        // storage_path is DB-controlled; basename-guard against traversal anyway
+        // (same stance as lib/file-serve.ts).
+        const original = await readFile(path.join(uploadDir, path.basename(f.storage_path)))
+          .catch(() => { throw new Error(`'${f.name}' is missing on disk.`); });
+        const w = Math.min(1280, Math.max(160, Math.round(Number(width) || 1024)));
+        let sharp;
+        try { sharp = (await import("sharp")).default; }
+        catch { throw new Error("Image resizing is unavailable on this server (sharp not installed)."); }
+        // .rotate() honors EXIF orientation and sharp strips metadata (incl. GPS)
+        // unless asked to keep it — same as the app's thumbnail path.
+        const out = await sharp(original, { failOn: "none" })
+          .rotate()
+          .resize({ width: w, withoutEnlargement: true })
+          .jpeg({ quality: 80 })
+          .toBuffer();
+        return {
+          content: [
+            { type: "image", data: out.toString("base64"), mimeType: "image/jpeg" },
+            { type: "text", text: JSON.stringify({ file_id: f.id, name: f.name, max_width: w }) },
+          ],
+        };
       } catch (e) {
         return fail(e);
       }

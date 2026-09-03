@@ -63,6 +63,7 @@ test("vetting body is AEGIS / STANDARD", () => {
 test("campaign body honours the rulings and passes its own asserts", () => {
   const c = campaignBody(GOOD, "BRAND1");
   assert.equal(c.usecase, "MIXED");
+  assert.deepEqual(c.subUsecases, ["CUSTOMER_CARE", "ACCOUNT_NOTIFICATION", "DELIVERY_NOTIFICATION"]);
   assert.equal(c.embeddedLink, true);
   assert.equal(c.numberPool, false);
   assert.equal(c.ageGated, false);
@@ -83,6 +84,10 @@ test("campaign asserts catch contradicting samples", () => {
   assert.ok(assertCampaignBody(noLink).errors.some((e) => /embeddedLink/.test(e)));
   const noStop = { ...c, sample1: "Hi Sarah, delivery moved to Thursday morning." };
   assert.ok(assertCampaignBody(noStop).errors.some((e) => /sample1 has no opt-out/.test(e)));
+  const noSubs = { ...c, subUsecases: [] };
+  assert.ok(assertCampaignBody(noSubs).errors.some((e) => /2–5 subUsecases/.test(e)), "empty subUsecases must be rejected (TCR_FAILED 2026-09-03)");
+  const oneSub = { ...c, subUsecases: ["CUSTOMER_CARE"] };
+  assert.ok(assertCampaignBody(oneSub).errors.some((e) => /2–5 subUsecases/.test(e)));
   const wrongCase = { ...c, usecase: "LOW_VOLUME" };
   assert.ok(assertCampaignBody(wrongCase).errors.some((e) => /MIXED/.test(e)));
 });

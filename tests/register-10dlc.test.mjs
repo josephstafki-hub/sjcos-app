@@ -109,6 +109,7 @@ test("with a brandId: vetting + campaign dry runs print their bodies", () => {
   assert.equal(c.status, 0, c.stderr);
   assert.match(c.stdout, /"brandId": "BRAND123"/);
   assert.match(c.stdout, /"usecase": "MIXED"/);
+  assert.match(c.stdout, /"subUsecases": \[\s*"CUSTOMER_CARE",\s*"ACCOUNT_NOTIFICATION",\s*"DELIVERY_NOTIFICATION"\s*\]/);
   assert.match(c.stdout, /"embeddedLink": true/);
   assert.match(c.stdout, /"optoutKeywords": "STOP,UNSUBSCRIBE"/);
   assert.match(c.stdout, /DRY RUN/);

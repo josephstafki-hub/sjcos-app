@@ -33,7 +33,7 @@
 //     side only — a board is internal until the owner pushes selections.
 //   • Owner-granted SENDS (mcp/grants-tools.mjs): send_bid_package,
 //     send_purchase_order, send_invoice, release_newsletter_*,
-//     send_document_for_signature, send_email. Each REQUIRES an owner grant
+//     send_document_for_signature, send_email, send_sms, place_call. Each REQUIRES an owner grant
 //     id — Joe's express permission for that action/target (Ask-window
 //     "Express permission" checkbox, /engine/permissions, or an agent's
 //     request_owner_permission that Joe approved). No grant, no send.
@@ -60,6 +60,7 @@ import { registerMoodTools } from "./mood-tools.mjs";
 import { registerBiddingTools } from "./bidding-tools.mjs";
 import { registerChatgptTools } from "./chatgpt-tools.mjs";
 import { registerGrantTools } from "./grants-tools.mjs";
+import { registerCommsTools } from "./comms-tools.mjs";
 import { registerRunbookTools } from "./runbook-tools.mjs";
 import { registerAskOwner } from "./interact-tools.mjs";
 
@@ -2340,6 +2341,10 @@ server.registerTool(
   // the only tools that can reach a real inbox, and each one needs an owner
   // grant id for its exact target. See mcp/grants-tools.mjs.
   registerGrantTools(server, { json, grantsCall });
+
+  // SMS threads + phone calls, READ ONLY here (texting and dialing are the
+  // granted send_sms / place_call tools above). See mcp/comms-tools.mjs.
+  registerCommsTools(server, { rows, json });
 
   // W6 runbook stepper: start a runbook + read live instances. Starting is
   // proxied to the app (spawn + pings live in lib/runbook-engine.ts); reads are

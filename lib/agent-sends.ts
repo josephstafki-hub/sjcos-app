@@ -14,6 +14,8 @@ import { sendInvoiceOp, sendPurchaseOrderOp } from "@/lib/send-ops";
 import { releaseOutboxItem } from "@/lib/newsletter-outbox";
 import { submitDocDraftForSignature } from "@/lib/doc-drafts";
 import { gmailConfigured, sendNewEmail } from "@/lib/gmail";
+import { sendSms } from "@/lib/sms";
+import { placeCall } from "@/lib/voice";
 import {
   ACTION_TARGET_KIND,
   consumeGrant,
@@ -30,6 +32,10 @@ export interface AgentSendInput {
   target?: string | number | null;
   /** send_email only. */
   email?: { to: string; subject: string; body: string };
+  /** send_sms only. */
+  sms?: { to: string; body: string };
+  /** place_call only. */
+  call?: { to: string; contact_name?: string | null };
   /** send_document_for_signature only: proceed past the "fields missing" gate. */
   override?: boolean;
   /** Who is acting (for the audit line). */
@@ -102,6 +108,29 @@ export async function performGrantedAction(input: AgentSendInput): Promise<Agent
   const agent = (input.agent ?? "agent").slice(0, 40);
   const kind = ACTION_TARGET_KIND[action];
 
+  // Texts and calls spend the grant INSIDE lib/sms.ts / lib/voice.ts (the one
+  // provider path the owner's own buttons use too), so they don't go through
+  // the generic consume/refund below — those modules refund on failure and
+  // write the grant audit themselves.
+  if (action === "send_sms") {
+    const to = (input.sms?.to ?? "").trim();
+    const body = (input.sms?.body ?? "").trim();
+    if (!to) return { ok: false, error: "send_sms needs a `to` phone number." };
+    if (!body) return { ok: false, error: "send_sms needs a body." };
+    const r = await sendSms({ to, body, grantId: input.grantId, actor: `mcp:${agent}` });
+    const result: AgentSendResult = r.ok ? { ok: true, summary: r.summary, thread_id: r.threadId } : { ok: false, error: r.error };
+    await audit(agent, action, `phone:${to}`, result);
+    return result;
+  }
+  if (action === "place_call") {
+    const to = (input.call?.to ?? "").trim();
+    if (!to) return { ok: false, error: "place_call needs a `to` phone number." };
+    const r = await placeCall({ to, grantId: input.grantId, actor: `mcp:${agent}`, contactName: input.call?.contact_name ?? null });
+    const result: AgentSendResult = r.ok ? { ok: true, summary: r.summary, call_id: r.callId } : { ok: false, error: r.error };
+    await audit(agent, action, `phone:${to}`, result);
+    return result;
+  }
+
   // Resolve the target BEFORE spending the grant so a typo doesn't burn a use.
   let targetId: string;
   let to: string | undefined;
@@ -150,6 +179,11 @@ export async function performGrantedAction(input: AgentSendInput): Promise<Agent
           : { ok: false, error: r.error };
         break;
       }
+      case "send_sms":
+      case "place_call":
+        // Handled above; unreachable.
+        result = { ok: false, error: "unreachable" };
+        break;
       case "send_email": {
         if (!gmailConfigured()) {
           result = { ok: false, error: "Gmail is not connected." };

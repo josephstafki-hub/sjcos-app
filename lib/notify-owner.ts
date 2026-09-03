@@ -22,7 +22,12 @@ export type OwnerPushKind =
   | "urgent_item"
   | "agent_failure"
   | "stale_approval"
-  | "approval_needed";
+  | "approval_needed"
+  // Comms (lib/sms.ts, lib/voice.ts, lib/comms-health.ts): an inbound text,
+  // a call outcome / call notes, and a provider/timer failure.
+  | "sms_inbound"
+  | "voice_call"
+  | "comms";
 
 export interface NotifyOwnerInput {
   kind: OwnerPushKind;
@@ -119,6 +124,9 @@ const EMIT_DEFAULTS: Record<OwnerPushKind, Omit<EmitInput, "title">> = {
   agent_failure: { kind: "job", tag: "Agent", accent: "flag", icon: "chat" },
   stale_approval: { kind: "decision", tag: "Approval", accent: "ai", icon: "shield", flagged: true },
   approval_needed: { kind: "decision", tag: "Approval", accent: "ai", icon: "shield", flagged: true },
+  sms_inbound: { kind: "mention", tag: "Text", accent: "accent", icon: "chat" },
+  voice_call: { kind: "job", tag: "Call", accent: "accent", icon: "chat" },
+  comms: { kind: "job", tag: "Comms", accent: "flag", icon: "shield", flagged: true },
 };
 
 // ── Quiet hours + throttle gate (one round trip; all wall-clock math in

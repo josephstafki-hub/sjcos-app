@@ -1,68 +1,73 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { revalidatePath } from "next/cache";
-import { smsConfigured, recordInboundSms } from "@/lib/sms";
+import { verifyTelnyxSignature } from "@/lib/comms/telnyx-signature";
+import { parseMessagingEvent } from "@/lib/comms/sms-inbound";
+import { smsConfig, smsStatus, recordInboundSms, applyDeliveryReceipt } from "@/lib/sms";
+import { touchWebhookStamp } from "@/lib/comms-shared";
+import { reportCommsFailure } from "@/lib/comms-health";
 
-// POST /api/sms/webhook — inbound SMS from the provider (Twilio/Telnyx/etc).
-// The provider POSTs a form-encoded delivery for each incoming text; we record
-// it against the counterparty's thread. The proxy matcher excludes /api so no
-// session redirect fires. Protected by a shared secret in the query string
-// (?secret=…) matching SMS_WEBHOOK_SECRET — fail-closed. Returns empty TwiML so
-// Twilio doesn't auto-reply.
+// POST /api/sms/webhook — Telnyx messaging webhook (API V2, Ed25519-signed).
+// Public URL: https://os.sjcarpentryllc.com/api/sms/webhook — configured on
+// the "SJC OS" messaging profile in the Telnyx portal. Do not rename without
+// saying so.
 //
-// INERT until SMS is configured: returns 503 so a misfire is obvious.
+// Order of operations, deliberately:
+//   1. Fail closed: SMS misconfigured → 503 naming what's missing (Telnyx
+//      retries; the startup check has already filed a work item).
+//   2. RAW body as text, THEN verify the signature (section 5 of the build
+//      prompt). Any failure → 401, logged, body never processed.
+//   3. Acknowledge with 200 immediately — including for event types we don't
+//      handle — and do the work in `after()`. Telnyx retries non-200s, so a
+//      slow MMS download must never turn into a duplicate delivery.
+//
+// The proxy matcher excludes /api, so no session redirect fires here.
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
-
-function twiml() {
-  return new NextResponse(EMPTY_TWIML, {
-    status: 200,
-    headers: { "Content-Type": "text/xml" },
-  });
-}
-
 export async function POST(req: Request) {
-  if (!smsConfigured()) {
-    return NextResponse.json({ error: "SMS not configured" }, { status: 503 });
+  const cfg = smsConfig();
+  if (!cfg) {
+    const s = smsStatus();
+    console.error(`[sms:webhook] refused — ${s.enabled ? s.problems.join("; ") : "SMS_PROVIDER unset"}`);
+    return NextResponse.json({ error: "SMS not configured", problems: s.problems }, { status: 503 });
   }
 
-  const secret = (process.env.SMS_WEBHOOK_SECRET ?? "").trim();
-  const presented = new URL(req.url).searchParams.get("secret") ?? "";
-  if (!secret || presented !== secret) {
+  const rawBody = await req.text();
+  const verdict = verifyTelnyxSignature({
+    rawBody,
+    timestamp: req.headers.get("telnyx-timestamp"),
+    signature: req.headers.get("telnyx-signature-ed25519"),
+    publicKeyB64: cfg.publicKey,
+  });
+  if (!verdict.ok) {
+    console.error(`[sms:webhook] signature rejected: ${verdict.reason}`);
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  // Providers post application/x-www-form-urlencoded (Twilio: From, Body,
-  // MessageSid). Parse leniently so a JSON provider also works.
-  let from = "";
-  let body = "";
-  let sid: string | null = null;
-  const ctype = req.headers.get("content-type") ?? "";
+  let parsed: unknown;
   try {
-    if (ctype.includes("application/json")) {
-      const j = (await req.json()) as Record<string, unknown>;
-      from = String(j.from ?? j.From ?? "");
-      body = String(j.body ?? j.Body ?? j.text ?? "");
-      sid = (j.sid ?? j.MessageSid ?? j.id ?? null) as string | null;
-    } else {
-      const form = await req.formData();
-      from = String(form.get("From") ?? form.get("from") ?? "");
-      body = String(form.get("Body") ?? form.get("body") ?? "");
-      sid = (form.get("MessageSid") ?? form.get("sid")) as string | null;
-    }
+    parsed = JSON.parse(rawBody);
   } catch {
-    return NextResponse.json({ error: "invalid body" }, { status: 400 });
+    return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
   }
+  const ev = parseMessagingEvent(parsed);
+  touchWebhookStamp("sms");
+  if (!ev) return NextResponse.json({ ok: true, ignored: "not a messaging event" });
 
-  if (!from) return NextResponse.json({ error: "missing sender" }, { status: 400 });
+  after(async () => {
+    try {
+      if (ev.eventType === "message.received" && ev.direction !== "outbound") {
+        const r = await recordInboundSms(ev);
+        if (!r.duplicate) revalidatePath("/messages");
+      } else if (ev.eventType === "message.sent" || ev.eventType === "message.finalized") {
+        const r = await applyDeliveryReceipt(ev);
+        if (r.matched) revalidatePath("/messages");
+      }
+      // Anything else (e.g. future event types) is acknowledged and ignored.
+    } catch (err) {
+      await reportCommsFailure("sms-webhook", err, { detail: `event ${ev.eventType} ${ev.eventId ?? ""}`.trim(), href: "/messages" });
+    }
+  });
 
-  try {
-    await recordInboundSms({ from, body, providerSid: sid });
-    revalidatePath("/messages");
-  } catch (err) {
-    console.error(`[sms:webhook] failed to record inbound — ${(err as Error).message}`);
-    return NextResponse.json({ error: "record failed" }, { status: 500 });
-  }
-
-  return twiml();
+  return NextResponse.json({ ok: true, event: ev.eventType });
 }

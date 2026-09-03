@@ -29,6 +29,9 @@ const KINDS: OwnerPushKind[] = [
   "agent_failure",
   "stale_approval",
   "approval_needed",
+  "sms_inbound",
+  "voice_call",
+  "comms",
 ];
 
 function authorized(req: Request): boolean {

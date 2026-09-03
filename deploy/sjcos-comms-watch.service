@@ -1,0 +1,7 @@
+[Unit]
+Description=SJC OS comms watch (10DLC registration status + SMS/voice health)
+After=sjcos.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/joe/bin/sjcos-comms-watch

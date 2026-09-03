@@ -1458,6 +1458,111 @@ CREATE TABLE IF NOT EXISTS sms_messages (
 CREATE UNIQUE INDEX IF NOT EXISTS uq_sms_messages_sid ON sms_messages(provider_sid) WHERE provider_sid IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_sms_messages_thread ON sms_messages(thread_id, created_at);
 
+-- ─── Two-way SMS + voice on Telnyx (db/apply-comms-sms-voice.mjs, 2026-09-02) ──
+-- Opt-out state is honoured locally (STOP/UNSUBSCRIBE → opted_out; START/YES
+-- → back in) so agents stop drafting to the contact and the UI shows it; the
+-- carrier blocks them too, but the OS must know. business_number is which of
+-- OUR numbers the thread lives on (one today, more after the Google Voice
+-- port). 'vendor' joins the link types.
+ALTER TABLE sms_threads DROP CONSTRAINT IF EXISTS sms_threads_link_type_check;
+ALTER TABLE sms_threads ADD CONSTRAINT sms_threads_link_type_check
+  CHECK (link_type IN ('lead','sub','client','project','vendor'));
+ALTER TABLE sms_threads ADD COLUMN IF NOT EXISTS opted_out        boolean NOT NULL DEFAULT false;
+ALTER TABLE sms_threads ADD COLUMN IF NOT EXISTS opted_out_at     timestamptz;
+ALTER TABLE sms_threads ADD COLUMN IF NOT EXISTS opted_in_at      timestamptz;
+ALTER TABLE sms_threads ADD COLUMN IF NOT EXISTS last_inbound_at  timestamptz;
+ALTER TABLE sms_threads ADD COLUMN IF NOT EXISTS last_outbound_at timestamptz;
+ALTER TABLE sms_threads ADD COLUMN IF NOT EXISTS business_number  text;
+-- MMS attachments are downloaded and re-stored as files rows (Telnyx media
+-- URLs expire): media = [{file_id, mime, name, size}]. Delivery receipts
+-- (message.sent / message.finalized) update status + error_*; failure_kind is
+-- the classified reason ('campaign_not_registered' while 10DLC is pending).
+ALTER TABLE sms_messages ADD COLUMN IF NOT EXISTS media        jsonb NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE sms_messages ADD COLUMN IF NOT EXISTS from_number  text;
+ALTER TABLE sms_messages ADD COLUMN IF NOT EXISTS to_number    text;
+ALTER TABLE sms_messages ADD COLUMN IF NOT EXISTS error_code   text;
+ALTER TABLE sms_messages ADD COLUMN IF NOT EXISTS error_detail text;
+ALTER TABLE sms_messages ADD COLUMN IF NOT EXISTS failure_kind text;
+ALTER TABLE sms_messages ADD COLUMN IF NOT EXISTS sent_by      text;   -- 'owner' | 'mcp:<agent>' | 'system:help'
+ALTER TABLE sms_messages ADD COLUMN IF NOT EXISTS grant_id     uuid;   -- owner grant spent for this send
+ALTER TABLE sms_messages ADD COLUMN IF NOT EXISTS keyword      text;   -- opt_out / help / opt_in when the inbound was a keyword
+ALTER TABLE sms_messages ADD COLUMN IF NOT EXISTS updated_at   timestamptz NOT NULL DEFAULT now();
+
+-- One row per phone call: inbound forward-to-cell (+ voicemail fallback) and
+-- click-to-call placed from the OS. Legs are Telnyx call_control_ids; the
+-- recording is a files row under uploads/ (dual channel mp3), the transcript
+-- comes from Telnyx's post-recording transcription, and notes are the
+-- orchestrator-reviewed AI call notes (lib/call-notes.ts). Client data —
+-- stays in Postgres / on Joe's box, never in the repo or a log line.
+CREATE TABLE IF NOT EXISTS calls (
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  direction            text NOT NULL CHECK (direction IN ('inbound','outbound')),
+  provider             text NOT NULL DEFAULT 'telnyx',
+  call_session_id      text,
+  counterparty_leg_id  text,
+  owner_leg_id         text,
+  counterparty_number  text NOT NULL,             -- E.164, the client/sub/vendor side
+  business_number      text NOT NULL,             -- our number on this call
+  owner_number         text,                      -- Joe's cell for this call
+  contact_name         text,
+  link_type            text CHECK (link_type IN ('lead','sub','client','project','vendor')),
+  link_slug            text,
+  lead_id              uuid REFERENCES leads(id)      ON DELETE SET NULL,
+  project_id           uuid REFERENCES projects(id)   ON DELETE SET NULL,
+  status               text NOT NULL DEFAULT 'ringing'
+                         CHECK (status IN ('ringing','bridged','voicemail','completed','missed','no_answer','failed')),
+  outcome              text CHECK (outcome IN ('answered','voicemail','missed','no_answer','failed')),
+  bridged              boolean NOT NULL DEFAULT false,
+  voicemail            boolean NOT NULL DEFAULT false,
+  recording            boolean NOT NULL DEFAULT false,
+  ended                boolean NOT NULL DEFAULT false,
+  started_at           timestamptz NOT NULL DEFAULT now(),
+  answered_at          timestamptz,
+  ended_at             timestamptz,
+  duration_s           integer,
+  hangup_cause         text,
+  recording_status     text NOT NULL DEFAULT 'none'
+                         CHECK (recording_status IN ('none','recording','saved','failed')),
+  recording_id         text,
+  recording_file_id    text REFERENCES files(id) ON DELETE SET NULL,
+  recording_channels   text,
+  recording_error      text,
+  transcript           text,
+  transcript_status    text NOT NULL DEFAULT 'none'
+                         CHECK (transcript_status IN ('none','pending','done','failed')),
+  transcript_engine    text,
+  notes                jsonb,                      -- structured AI notes (summary, decisions, action items, flags)
+  notes_text           text,                       -- the rendered note as filed to Open Brain
+  notes_status         text NOT NULL DEFAULT 'none'
+                         CHECK (notes_status IN ('none','pending','done','failed','skipped')),
+  notes_error          text,
+  notes_attempts       integer NOT NULL DEFAULT 0,
+  knowledge_item_id    uuid,
+  work_item_id         uuid REFERENCES work_items(id) ON DELETE SET NULL,  -- voicemail callback item
+  grant_id             uuid,                       -- owner grant spent for a click-to-call
+  placed_by            text,                       -- 'owner' | 'mcp:<agent>' for outbound
+  error                text,
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  updated_at           timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_calls_started ON calls(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_calls_counterparty ON calls(counterparty_number);
+CREATE INDEX IF NOT EXISTS idx_calls_open ON calls(ended) WHERE ended = false;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_calls_session ON calls(call_session_id) WHERE call_session_id IS NOT NULL;
+-- Call Control webhook trail per call; event_id UNIQUE dedups Telnyx retries.
+CREATE TABLE IF NOT EXISTS call_events (
+  id           bigserial PRIMARY KEY,
+  call_id      uuid REFERENCES calls(id) ON DELETE CASCADE,
+  event_id     text UNIQUE,
+  event_type   text NOT NULL,
+  leg_id       text,
+  note         text NOT NULL DEFAULT '',
+  payload      jsonb NOT NULL DEFAULT '{}'::jsonb,
+  occurred_at  timestamptz,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_call_events_call ON call_events(call_id, id);
+
 -- ─── updated_at touch trigger ───────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger AS $$
 BEGIN
@@ -2765,7 +2870,7 @@ ALTER TABLE dev_agent_runs ADD COLUMN IF NOT EXISTS grant_id uuid;
 -- the audit trail of an immediate send (the rolling-hour throttle counts them).
 CREATE TABLE IF NOT EXISTS push_outbox (
   id         bigserial PRIMARY KEY,
-  kind       text NOT NULL CHECK (kind IN ('grant','urgent_item','agent_failure','stale_approval','sms_inbound','approval_needed')),
+  kind       text NOT NULL CHECK (kind IN ('grant','urgent_item','agent_failure','stale_approval','sms_inbound','approval_needed','voice_call','comms')),
   title      text NOT NULL,
   body       text,
   href       text,
@@ -2777,6 +2882,10 @@ CREATE INDEX IF NOT EXISTS idx_push_outbox_due
   ON push_outbox(send_after) WHERE sent_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_push_outbox_sent
   ON push_outbox(sent_at) WHERE sent_at IS NOT NULL;
+-- Comms push kinds (db/apply-comms-sms-voice.mjs): re-point the CHECK on existing DBs.
+ALTER TABLE push_outbox DROP CONSTRAINT IF EXISTS push_outbox_kind_check;
+ALTER TABLE push_outbox ADD CONSTRAINT push_outbox_kind_check
+  CHECK (kind IN ('grant','urgent_item','agent_failure','stale_approval','sms_inbound','approval_needed','voice_call','comms'));
 
 -- ── Interactive agent runs: question boxes + in-app tool approvals ──────────
 -- One row = one thing an agent is waiting on Joe for, surfaced INSIDE the

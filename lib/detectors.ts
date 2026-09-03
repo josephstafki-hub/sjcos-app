@@ -21,6 +21,7 @@ import { notifyOwner } from "./notify-owner";
 import { gmailConfigured, fetchThreadPage } from "./gmail";
 import { extractEmail } from "./lead-thread-sync";
 import { computeStageGate } from "./record-ops";
+import { linkIds } from "./comms-shared";
 
 // ─── Thresholds (tune here; locked 2026-08-19) ──────────────────────────────
 const CLIENT_REPLY_DAYS = 3; // client message with no reply from us
@@ -835,6 +836,72 @@ function poUnacknowledgedDetector(): Detector {
 // Fresh instances per run so per-run caches (the needs-reply Gmail scan) never
 // leak across runs. Registry order is also cap order: when the 30-creation cap
 // hits mid-run, earlier detectors got there first.
+
+// ─── 11 · sms-unanswered ────────────────────────────────────────────────────
+// An inbound text (not a STOP/HELP/START keyword) that has sat unanswered for
+// SMS_REPLY_HOURS. The thread's unread flag + last_inbound_at / last_outbound_at
+// stamps (lib/sms.ts) are the whole condition, so this is one SQL read. Keyed
+// per (thread, latest inbound message) — a new text after we replied is a new
+// item. Clears when Joe replies (an outbound after the inbound) or opens and
+// marks the thread read.
+const SMS_REPLY_HOURS = 4;
+function smsUnansweredDetector(): Detector {
+  return {
+    key: "sms-unanswered",
+    async find() {
+      const { rows } = await query<{
+        id: number; phone: string; contact_name: string | null; link_type: string | null; link_slug: string | null;
+        last_inbound_at: string; hours: number; msg_id: number; body: string;
+      }>(
+        `SELECT t.id, t.phone, t.contact_name, t.link_type, t.link_slug, t.last_inbound_at::text AS last_inbound_at,
+                floor(extract(epoch FROM now() - t.last_inbound_at) / 3600)::int AS hours,
+                m.id AS msg_id, m.body
+           FROM sms_threads t
+           JOIN LATERAL (
+             SELECT id, body FROM sms_messages
+              WHERE thread_id = t.id AND direction = 'in' AND keyword IS NULL
+              ORDER BY created_at DESC, id DESC LIMIT 1
+           ) m ON true
+          WHERE t.unread = true AND t.opted_out = false
+            AND t.last_inbound_at IS NOT NULL
+            AND t.last_inbound_at < now() - make_interval(hours => $1)
+            AND (t.last_outbound_at IS NULL OR t.last_outbound_at < t.last_inbound_at)`,
+        [SMS_REPLY_HOURS],
+      );
+      const items: DetectedItem[] = [];
+      for (const r of rows) {
+        const ids = await linkIds(r.link_type, r.link_slug);
+        const who = r.contact_name || r.phone;
+        items.push({
+          dedupKey: `sms-unanswered:${r.id}:${r.msg_id}`,
+          title: `Reply to ${who}'s text — unanswered ${r.hours}h`,
+          priority: "high",
+          status: "waiting_on_human",
+          leadId: ids.leadId ?? undefined,
+          projectId: ids.projectId ?? undefined,
+          sourceId: String(r.id),
+          expectedSkillSlug: "client-followup-draft",
+          body:
+            `Text from ${who} at ${r.last_inbound_at.slice(0, 16)} has no reply. ` +
+            `"${r.body.replace(/\s+/g, " ").slice(0, 200)}". Reply from /messages (thread ${r.id}). [detector:sms-unanswered]`,
+        });
+      }
+      return items;
+    },
+    async resolve() {
+      const { rows } = await query<{ dedup_key: string }>(
+        `SELECT ds.dedup_key
+           FROM detector_state ds
+           LEFT JOIN sms_threads t ON t.id = NULLIF(split_part(ds.dedup_key, ':', 2), '')::bigint
+          WHERE ds.detector_key = 'sms-unanswered' AND ds.resolved_at IS NULL
+            AND (t.id IS NULL OR t.unread = false OR t.opted_out = true
+                 OR (t.last_outbound_at IS NOT NULL AND t.last_outbound_at >= t.last_inbound_at))`,
+      );
+      return rows.map((r) => r.dedup_key);
+    },
+  };
+}
+
 const REGISTRY: (() => Detector)[] = [
   needsReplyDetector,
   subSilentDetector,
@@ -846,6 +913,7 @@ const REGISTRY: (() => Detector)[] = [
   warrantyUnackedDetector,
   gateStalledDetector,
   poUnacknowledgedDetector,
+  smsUnansweredDetector,
 ];
 
 export async function runDetectors(opts: { dryRun?: boolean } = {}): Promise<DetectorRunResult> {

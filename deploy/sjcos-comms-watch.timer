@@ -1,0 +1,9 @@
+[Unit]
+Description=Run the SJC OS comms watch (10DLC status + SMS/voice health) daily at 09:05
+
+[Timer]
+OnCalendar=*-*-* 09:05:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

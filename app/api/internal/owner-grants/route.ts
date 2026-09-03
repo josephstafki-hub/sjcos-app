@@ -83,6 +83,8 @@ export async function POST(req: Request) {
       }
       case "perform": {
         const email = body.email && typeof body.email === "object" ? (body.email as Record<string, unknown>) : undefined;
+        const sms = body.sms && typeof body.sms === "object" ? (body.sms as Record<string, unknown>) : undefined;
+        const call = body.call && typeof body.call === "object" ? (body.call as Record<string, unknown>) : undefined;
         const r = await performGrantedAction({
           action: str("gated_action") ?? "",
           grantId: str("grant_id") ?? "",
@@ -90,6 +92,8 @@ export async function POST(req: Request) {
           email: email
             ? { to: String(email.to ?? ""), subject: String(email.subject ?? ""), body: String(email.body ?? "") }
             : undefined,
+          sms: sms ? { to: String(sms.to ?? ""), body: String(sms.body ?? "") } : undefined,
+          call: call ? { to: String(call.to ?? ""), contact_name: call.contact_name == null ? null : String(call.contact_name) } : undefined,
           override: Boolean(body.override),
           agent: str("agent") ?? "agent",
         });
@@ -98,6 +102,8 @@ export async function POST(req: Request) {
           revalidatePath("/newsletter");
           revalidatePath("/notifications");
           revalidatePath("/engine/permissions");
+          revalidatePath("/messages");
+          revalidatePath("/calls");
         }
         return NextResponse.json(r, { status: r.ok ? 200 : 400 });
       }

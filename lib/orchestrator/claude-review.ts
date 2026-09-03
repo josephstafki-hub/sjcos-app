@@ -189,3 +189,34 @@ export async function claudeTriage(
     return null;
   }
 }
+
+export interface CallNotesVerdict {
+  verdict: "approve" | "retry";
+  feedback: string;
+}
+
+/** Review AI call notes (lib/call-notes.ts) against the transcript: every
+ *  claim must be supported, every commitment / action item / price /
+ *  schedule mention must be captured. Sonnet, low effort. Null = review
+ *  unavailable — the caller treats that as RETRY, never approve. */
+export async function reviewCallNotes(
+  transcript: string,
+  notes: { summary: string; decisions: unknown[]; action_items: unknown[]; flags: unknown[] },
+): Promise<CallNotesVerdict | null> {
+  const prompt =
+    `You review call notes a smaller model drafted for SJ Carpentry's owner from a recorded call transcript. ` +
+    `Approve only if the notes are faithful (nothing invented, no wrong names/numbers/dates) AND complete: every ` +
+    `commitment is in decisions with who made it, every to-do is in action_items with an owner, and every scope, ` +
+    `price or schedule discussion is flagged. Otherwise send it back with concrete points.\n\n` +
+    `Transcript:\n${transcript.slice(0, 20000)}\n\n` +
+    `Draft notes:\n${JSON.stringify(notes).slice(0, 6000)}\n\n` +
+    `Reply with ONE JSON object and nothing else: {"verdict":"approve"|"retry","feedback":"concrete points, empty if approving"}`;
+  try {
+    const reply = await chatReplyClaude(prompt, { model: REVIEW_MODEL, effort: "low", timeoutMs: 120_000 });
+    const parsed = extractJson<{ verdict?: string; feedback?: string }>(reply);
+    if (!parsed || !["approve", "retry"].includes(parsed.verdict ?? "")) return null;
+    return { verdict: parsed.verdict as "approve" | "retry", feedback: (parsed.feedback ?? "").slice(0, 1500) };
+  } catch {
+    return null;
+  }
+}

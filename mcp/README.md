@@ -280,6 +280,34 @@ grant's audit + `agent_runs`. A grant that doesn't cover the call is refused wit
 reason the agent can relay. Arming a newsletter drip sequence and PO receiving/close
 remain owner-only with no tool.
 
+## SMS + phone calls (Telnyx)
+
+Two-way texting and voice on the business number (see `docs/comms.md`).
+
+Read-only (`mcp/comms-tools.mjs`):
+
+- `list_sms_threads` — conversations: counterparty, linked record, `unread`
+  (inbound awaiting reply), `opted_out` (they texted STOP — do not draft to them).
+- `get_sms_thread` — one thread's messages (direction, status, delivery errors,
+  MMS file ids). Read before asking to reply.
+- `list_calls` / `get_call` — calls with outcome (answered / voicemail / missed /
+  no_answer / failed), transcript, and the reviewed AI call notes (summary,
+  decisions, action items, scope/price/schedule flags). Use the notes to file
+  work items or draft follow-ups for approval — never to change a stage.
+
+Granted (`mcp/grants-tools.mjs`, each REQUIRES `owner_grant_id`):
+
+- `send_sms` — one text from the business number. The app normalizes 10-digit US
+  numbers, refuses opted-out contacts with a reason, and files a work item on
+  provider failure — including "10DLC campaign not yet approved" while carrier
+  review is pending (expected for 1–3 weeks after registration).
+- `place_call` — click-to-call: Joe's cell rings FIRST; when he answers the OS
+  dials the number and bridges, records, transcribes and writes notes. Only when
+  Joe asked to be connected now.
+
+Ask with `request_owner_permission` (action `send_sms` / `place_call`, target the
++E.164 number). A grant may be pinned to one number.
+
 ## Interactive questions (`ask_owner`)
 
 `ask_owner` puts a real **question box** in front of Joe inside the app's panel

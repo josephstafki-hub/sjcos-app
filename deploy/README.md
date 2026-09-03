@@ -306,3 +306,46 @@ cp deploy/sjcos-lead-first-response.service deploy/sjcos-lead-first-response.tim
 systemctl --user daemon-reload
 systemctl --user enable --now sjcos-lead-first-response.timer
 ```
+
+## Scheduler — comms watch (10DLC registration status + SMS/voice health)
+
+The fifth systemd **user timer**, daily at 09:05 (`/api/cron/comms-watch`). Three
+things per run, each of which files a work item and pushes Joe on trouble:
+
+1. **10DLC registration watch** — polls the Telnyx brand (vetting score, status)
+   and campaign (carrier status) that `scripts/register-10dlc.mjs` created, diffs
+   against the last stored snapshot, and on any change pushes + files. A
+   rejection is filed **urgent**. Polling, not Telnyx webhooks, on purpose.
+2. **Comms health** — env validation naming every missing `SMS_*` / `VOICE_*`
+   var, Telnyx reachability for the messaging profile and the Call Control app,
+   webhook freshness. Same report as `GET /api/comms/health` (CRON_SECRET bearer).
+3. **Stale call sweep** — transcripts that never arrived, calls that never hung up.
+
+Same auth pattern as the other timers (`CRON_SECRET`, fail closed).
+
+Install (one-time):
+```
+install -m755 deploy/sjcos-comms-watch.sh ~/bin/sjcos-comms-watch
+cp deploy/sjcos-comms-watch.service deploy/sjcos-comms-watch.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now sjcos-comms-watch.timer
+```
+
+Run on demand / inspect:
+```
+systemctl --user start sjcos-comms-watch.service           # trigger now
+journalctl --user -u sjcos-comms-watch.service -n 20       # last result (JSON)
+curl -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:3017/api/comms/health
+```
+
+The two public webhook URLs Joe configures in the Telnyx portal (do not rename):
+
+| Purpose   | Route file                        | Public URL                                        |
+| --------- | --------------------------------- | ------------------------------------------------- |
+| Messaging | `app/api/sms/webhook/route.ts`    | `https://os.sjcarpentryllc.com/api/sms/webhook`   |
+| Voice     | `app/api/voice/webhook/route.ts`  | `https://os.sjcarpentryllc.com/api/voice/webhook` |
+
+Both are Telnyx API V2 and signed with the same Ed25519 public key
+(`SMS_PUBLIC_KEY`). Full env list, flows and the 10DLC script: `docs/comms.md`.
+Migration for this feature: `node db/apply-comms-sms-voice.mjs` (idempotent),
+then restart `sjcos.service` **and** `sjcos-mcp.service` (new MCP tools).

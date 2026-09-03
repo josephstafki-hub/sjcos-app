@@ -33,6 +33,8 @@ const GATED = [
   "release_newsletter_outbox_item",
   "send_document_for_signature",
   "send_email",
+  "send_sms",
+  "place_call",
 ];
 
 export function registerGrantTools(server, { json, grantsCall }) {
@@ -78,7 +80,7 @@ export function registerGrantTools(server, { json, grantsCall }) {
         target_id: z
           .string()
           .optional()
-          .describe("The record id (bid package / PO / invoice / draft / issue / outbox row id) or, for send_email, the recipient address."),
+          .describe("The record id (bid package / PO / invoice / draft / issue / outbox row id), for send_email the recipient address, for send_sms / place_call the +E.164 phone number."),
         reason: z.string().describe("What you want to send and why, in one or two sentences — Joe reads this."),
         conversation_id: z.string().uuid().optional().describe("Ask-window thread id, if you know it."),
       },
@@ -226,5 +228,46 @@ export function registerGrantTools(server, { json, grantsCall }) {
     },
     async ({ to, subject, body, owner_grant_id }) =>
       perform("send_email", { grant_id: owner_grant_id, email: { to, subject, body } }),
+  );
+
+  // ── SMS + voice (Telnyx). Same line: no grant, nothing transmits. ────────
+
+  server.registerTool(
+    "send_sms",
+    {
+      title: "Send a text message (needs owner grant)",
+      description:
+        "Send ONE SMS from the business number to a client, sub or vendor. REQUIRES owner_grant_id " +
+        "for action send_sms on that +E.164 number (a grant may be pinned to one number). The app " +
+        "refuses opted-out contacts (STOP) with a clear reason, normalizes 10-digit US numbers to " +
+        "+1, and files a work item on any provider failure — including '10DLC campaign not yet " +
+        "approved' while carrier review is pending. Keep it short and plain; include 'Reply STOP to " +
+        "opt out' on first contact. Read the thread first with get_sms_thread.",
+      inputSchema: {
+        to: z.string().describe("Recipient phone, +E.164 preferred (10-digit US accepted)."),
+        body: z.string().min(1).max(1600).describe("Plain text. Portal links are fine."),
+        owner_grant_id: uuid,
+      },
+    },
+    async ({ to, body, owner_grant_id }) => perform("send_sms", { grant_id: owner_grant_id, sms: { to, body } }),
+  );
+
+  server.registerTool(
+    "place_call",
+    {
+      title: "Place a phone call for Joe (needs owner grant)",
+      description:
+        "Click-to-call: the OS rings JOE'S CELL FIRST; when he answers it dials the number and " +
+        "bridges them, recording + transcribing the call and producing AI call notes afterwards. " +
+        "REQUIRES owner_grant_id for action place_call on that +E.164 number. Only use when Joe " +
+        "asked to be connected to someone now — never to 'check in' on your own initiative.",
+      inputSchema: {
+        to: z.string().describe("Number to dial, +E.164 preferred."),
+        contact_name: z.string().max(120).optional().describe("Who it is, for the call record and the spoken 'no answer' line."),
+        owner_grant_id: uuid,
+      },
+    },
+    async ({ to, contact_name, owner_grant_id }) =>
+      perform("place_call", { grant_id: owner_grant_id, call: { to, contact_name: contact_name ?? null } }),
   );
 }

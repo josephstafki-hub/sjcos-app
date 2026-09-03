@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { MessageSquare, Phone, Send, AlertCircle, ExternalLink, Plus, X, ArrowLeft } from "lucide-react";
+import { MessageSquare, Phone, PhoneCall, Send, AlertCircle, ExternalLink, Plus, X, ArrowLeft, Ban, Paperclip } from "lucide-react";
 import { Chip } from "@/components/ui";
 import {
   loadSmsThread,
@@ -9,7 +9,9 @@ import {
   startSmsThread,
   linkSmsThread,
   unlinkSmsThread,
+  setSmsOptOut,
 } from "@/lib/actions/sms";
+import { placeCallAction } from "@/lib/actions/calls";
 import type { SmsThreadSummary, SmsMessage, SmsLinkOptions } from "@/lib/sms";
 
 /** Record path for the "open record" link (link_type → route segment). */
@@ -18,6 +20,7 @@ const LINK_ROUTE: Record<string, string> = {
   sub: "subs",
   project: "projects",
   client: "projects",
+  vendor: "vendors",
 };
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -41,10 +44,14 @@ export function MessagesClient({
   threads: initialThreads,
   linkOptions,
   configured,
+  problems,
+  voiceConfigured,
 }: {
   threads: SmsThreadSummary[];
   linkOptions: SmsLinkOptions;
   configured: boolean;
+  problems: string[];
+  voiceConfigured: boolean;
 }) {
   const [threads, setThreads] = useState(initialThreads);
   const [selectedId, setSelectedId] = useState<number | null>(initialThreads[0]?.id ?? null);
@@ -58,6 +65,7 @@ export function MessagesClient({
   const [newBody, setNewBody] = useState("");
   const [composeErr, setComposeErr] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [dialing, setDialing] = useState(false);
   // On phones the rail + conversation can't sit side by side; show one at a time
   // (opening a thread reveals the conversation, the back button returns to the
   // list). Desktop keeps both panes — this only toggles below `lg`.
@@ -92,16 +100,19 @@ export function MessagesClient({
       body,
       status: "sending",
       createdAt: new Date().toISOString(),
+      media: [],
+      errorDetail: null,
+      failureKind: null,
+      keyword: null,
+      sentBy: "owner",
     };
     setMessages((prev) => [...prev, optimistic]);
     setDraft("");
     start(async () => {
       const res = await sendSmsReply(selectedId, body);
-      if (res.ok) {
-        const data = await loadSmsThread(selectedId);
-        setMessages(data?.messages ?? []);
-      } else {
-        setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
+      const data = await loadSmsThread(selectedId);
+      setMessages(data?.messages ?? []);
+      if (!res.ok) {
         setDraft(body);
         setNotice(res.error ?? "Could not send.");
       }
@@ -124,6 +135,26 @@ export function MessagesClient({
     });
   }
 
+  function toggleOptOut(t: SmsThreadSummary) {
+    const next = !t.optedOut;
+    if (next && !confirm(`Mark ${threadTitle(t)} as opted out? The OS will refuse to text them until they send START (or you undo this).`)) return;
+    setThreads((prev) => prev.map((x) => (x.id === t.id ? { ...x, optedOut: next, optedOutAt: next ? new Date().toISOString() : null } : x)));
+    start(async () => {
+      await setSmsOptOut(t.id, next);
+    });
+  }
+
+  function callSelected() {
+    if (!selected || dialing) return;
+    setDialing(true);
+    setNotice(null);
+    start(async () => {
+      const r = await placeCallAction(selected.phone, selected.contactName);
+      setDialing(false);
+      setNotice(r.ok ? "Calling: your cell rings first, then the OS dials them and connects you. Notes land on /calls." : r.error ?? "Could not place the call.");
+    });
+  }
+
   function startNew() {
     if (sending) return;
     setComposeErr(null);
@@ -131,7 +162,7 @@ export function MessagesClient({
     start(async () => {
       const res = await startSmsThread(newPhone, newBody, newName);
       setSending(false);
-      if (res.ok && res.threadId != null) {
+      if (res.threadId != null) {
         const id = res.threadId;
         // Add the thread to the rail if it's new, then open it.
         setThreads((prev) =>
@@ -146,6 +177,8 @@ export function MessagesClient({
                   linkSlug: null,
                   unread: false,
                   lastMessageAt: new Date().toISOString(),
+                  optedOut: false,
+                  optedOutAt: null,
                 },
                 ...prev,
               ],
@@ -155,11 +188,14 @@ export function MessagesClient({
         setNewName("");
         setNewBody("");
         openThread(id);
+        if (!res.ok) setNotice(res.error ?? "Could not send.");
       } else {
         setComposeErr(res.error ?? "Could not start the conversation.");
       }
     });
   }
+
+  const composerDisabled = !configured || Boolean(selected?.optedOut);
 
   return (
     <div className="flex h-full">
@@ -190,9 +226,9 @@ export function MessagesClient({
               <AlertCircle className="size-3.5 text-flag" strokeWidth={1.5} /> SMS not connected
             </div>
             <p className="mt-1 text-[11px] leading-relaxed text-ink-3">
-              Texting needs a provider (Twilio/Telnyx) + 10DLC registration. Set the{" "}
-              <code className="font-mono">SMS_*</code> env vars to go live — see{" "}
-              <code className="font-mono">docs/sms-seam.md</code>.
+              {problems.length
+                ? problems.join("; ")
+                : "Texting runs on Telnyx. Set the SMS_* env vars and restart to go live — see docs/comms.md. Outbound texts also wait on 10DLC campaign approval (scripts/register-10dlc.mjs)."}
             </p>
           </div>
         )}
@@ -200,7 +236,7 @@ export function MessagesClient({
         <div className="min-h-0 flex-1 overflow-y-auto">
           {threads.length === 0 ? (
             <div className="px-4 py-10 text-center text-[12px] text-ink-3">
-              No conversations yet. Inbound texts appear here once a provider is connected.
+              No conversations yet. Inbound texts to the business number appear here.
             </div>
           ) : (
             threads.map((t) => (
@@ -220,9 +256,8 @@ export function MessagesClient({
                     <span className={`truncate text-[13px] ${t.unread ? "font-semibold text-ink" : "text-ink-2"}`}>
                       {threadTitle(t)}
                     </span>
-                    {t.linkType && (
-                      <Chip kind="ghost">{t.linkType}</Chip>
-                    )}
+                    {t.linkType && <Chip kind="ghost">{t.linkType}</Chip>}
+                    {t.optedOut && <Chip kind="flag">opted out</Chip>}
                   </div>
                   <div className="font-mono text-[10px] text-ink-3">{fmtWhen(t.lastMessageAt)}</div>
                 </div>
@@ -250,8 +285,32 @@ export function MessagesClient({
               <Phone className="size-3.5 text-ink-3" strokeWidth={1.5} />
               <span className="font-serif text-[15px] font-semibold text-ink">{threadTitle(selected)}</span>
               <span className="font-mono text-[11px] text-ink-3">{selected.phone}</span>
+              {selected.optedOut && (
+                <Chip kind="flag">opted out{selected.optedOutAt ? ` ${selected.optedOutAt.slice(0, 10)}` : ""}</Chip>
+              )}
 
               <div className="ml-auto flex items-center gap-1.5">
+                {voiceConfigured && (
+                  <button
+                    type="button"
+                    onClick={callSelected}
+                    disabled={dialing}
+                    title="Ring my cell, then call them"
+                    className="inline-flex items-center gap-1 rounded-md border border-rule bg-paper px-2 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50"
+                  >
+                    <PhoneCall className="size-3.5" strokeWidth={1.5} /> {dialing ? "Ringing…" : "Call"}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => toggleOptOut(selected)}
+                  title={selected.optedOut ? "Clear the local opt-out (they asked in person)" : "Mark as opted out"}
+                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[12px] ${
+                    selected.optedOut ? "border-flag text-flag hover:bg-flag-soft" : "border-rule text-ink-3 hover:bg-paper-2"
+                  }`}
+                >
+                  <Ban className="size-3.5" strokeWidth={1.5} /> {selected.optedOut ? "Opt back in" : "Opt out"}
+                </button>
                 <span className="hidden font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3 sm:inline">Linked to</span>
                 <select
                   value={selected.linkType && selected.linkSlug ? `${selected.linkType}:${selected.linkSlug}` : ""}
@@ -280,6 +339,13 @@ export function MessagesClient({
                       ))}
                     </optgroup>
                   )}
+                  {linkOptions.vendors.length > 0 && (
+                    <optgroup label="Vendors">
+                      {linkOptions.vendors.map((o) => (
+                        <option key={`vendor:${o.slug}`} value={`vendor:${o.slug}`}>{o.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
                 {selected.linkType && selected.linkSlug && LINK_ROUTE[selected.linkType] && (
                   <a
@@ -304,19 +370,42 @@ export function MessagesClient({
                     <div
                       className={`max-w-[68%] rounded-2xl px-3.5 py-2 text-[13px] ${
                         m.direction === "out"
-                          ? "rounded-br-sm bg-accent text-white"
+                          ? m.status === "failed"
+                            ? "rounded-br-sm border border-flag/50 bg-flag-soft text-ink"
+                            : "rounded-br-sm bg-accent text-white"
                           : "rounded-bl-sm border border-rule bg-card text-ink"
                       }`}
                     >
-                      <div className="whitespace-pre-wrap break-words">{m.body}</div>
+                      {m.media.length > 0 && (
+                        <div className="mb-1.5 flex flex-wrap gap-1.5">
+                          {m.media.map((a) =>
+                            a.mime.startsWith("image/") ? (
+                              <a key={a.file_id} href={`/api/files/${a.file_id}`} target="_blank" rel="noreferrer">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={`/api/files/${a.file_id}?w=320`} alt={a.name} className="max-h-48 rounded-lg" />
+                              </a>
+                            ) : (
+                              <a key={a.file_id} href={`/api/files/${a.file_id}?download=1`} className="inline-flex items-center gap-1 rounded-md border border-rule bg-paper px-2 py-1 text-[11px] text-ink-2">
+                                <Paperclip className="size-3" strokeWidth={1.5} /> {a.name}
+                              </a>
+                            ),
+                          )}
+                        </div>
+                      )}
+                      {m.body && <div className="whitespace-pre-wrap break-words">{m.body}</div>}
                       <div
                         className={`mt-0.5 font-mono text-[9px] ${
-                          m.direction === "out" ? "text-white/70" : "text-ink-3"
+                          m.direction === "out" && m.status !== "failed" ? "text-white/70" : "text-ink-3"
                         }`}
                       >
                         {fmtWhen(m.createdAt)}
-                        {m.direction === "out" && m.status !== "sent" && ` · ${m.status}`}
+                        {m.keyword && ` · ${m.keyword.replace("_", " ")}`}
+                        {m.sentBy === "system:help" && " · auto-reply"}
+                        {m.direction === "out" && m.status !== "sent" && m.status !== "delivered" && ` · ${m.status}`}
                       </div>
+                      {m.direction === "out" && m.status === "failed" && m.errorDetail && (
+                        <div className="mt-1 text-[11px] text-flag">{m.errorDetail}</div>
+                      )}
                     </div>
                   </div>
                 ))
@@ -325,6 +414,12 @@ export function MessagesClient({
 
             {notice && (
               <div className="border-t border-rule bg-flag-soft px-5 py-2 text-[12px] text-flag">{notice}</div>
+            )}
+            {selected.optedOut && (
+              <div className="border-t border-rule bg-paper-2 px-5 py-2 text-[12px] text-ink-2">
+                <Ban className="mr-1 inline size-3.5 text-flag" strokeWidth={1.5} />
+                {threadTitle(selected)} opted out (STOP). The OS will not text them until they send START. Calling is still fine.
+              </div>
             )}
 
             {/* Composer */}
@@ -339,14 +434,14 @@ export function MessagesClient({
                   }
                 }}
                 rows={1}
-                placeholder={configured ? "Type a text…" : "SMS not connected — set up a provider to send"}
-                disabled={!configured}
+                placeholder={!configured ? "SMS not connected" : selected.optedOut ? "Contact opted out — texting blocked" : "Type a text…"}
+                disabled={composerDisabled}
                 className="max-h-32 min-h-[38px] flex-1 resize-y rounded-lg border border-rule bg-paper px-3 py-2 text-[13px] text-ink outline-none focus:border-accent disabled:bg-paper-2 disabled:text-ink-3"
               />
               <button
                 type="button"
                 onClick={send}
-                disabled={!configured || !draft.trim()}
+                disabled={composerDisabled || !draft.trim()}
                 className="inline-flex h-[38px] flex-none items-center gap-1.5 rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
               >
                 <Send className="size-3.5" strokeWidth={1.5} /> Send
@@ -390,7 +485,7 @@ export function MessagesClient({
             {!configured && (
               <div className="mt-3 flex items-start gap-1.5 rounded-md border border-dashed border-rule bg-paper px-2.5 py-2 text-[11px] text-ink-3">
                 <AlertCircle className="mt-0.5 size-3.5 flex-none text-flag" strokeWidth={1.5} />
-                Connect a provider to send. You can compose now, but sending is disabled until SMS is set up.
+                SMS is not connected. You can compose now, but sending is disabled until Telnyx is configured.
               </div>
             )}
 
@@ -421,7 +516,7 @@ export function MessagesClient({
                   value={newBody}
                   onChange={(e) => setNewBody(e.target.value)}
                   rows={3}
-                  placeholder="Type your text…"
+                  placeholder="Type your text… (first contact: end with 'Reply STOP to opt out')"
                   className="mt-1 w-full resize-y rounded-md border border-rule bg-paper px-2.5 py-2 text-[13px] text-ink outline-none focus:border-accent"
                 />
               </div>

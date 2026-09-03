@@ -21,21 +21,19 @@ export {
   GATED_ACTIONS,
   ACTION_LABEL,
   ACTION_TARGET_KIND,
+  grantCovers,
+  isGatedAction,
   type GatedAction,
   type GrantStatus,
   type OwnerGrant,
 } from "@/lib/owner-grant-types";
-import { GATED_ACTIONS, ACTION_LABEL, ACTION_TARGET_KIND, type GatedAction, type GrantStatus, type OwnerGrant } from "@/lib/owner-grant-types";
+import { GATED_ACTIONS, ACTION_LABEL, ACTION_TARGET_KIND, grantCovers, isGatedAction, type GatedAction, type GrantStatus, type OwnerGrant } from "@/lib/owner-grant-types";
 
 const ISO = (col: string) => `to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
 const COLS = `id, status, actions, target_kind, target_id, scope, reason, requested_by,
   conversation_id, run_id, max_uses, uses,
   ${ISO("expires_at")} AS expires_at, ${ISO("decided_at")} AS decided_at,
   ${ISO("used_at")} AS used_at, audit, ${ISO("created_at")} AS created_at`;
-
-export function isGatedAction(a: string): a is GatedAction {
-  return (GATED_ACTIONS as readonly string[]).includes(a);
-}
 
 /** Is a grant currently spendable (approved, unexpired, uses left)? */
 export function grantLive(g: OwnerGrant): boolean {
@@ -179,28 +177,11 @@ export async function consumeGrant(
   target: { kind: string; id: string; to?: string },
 ): Promise<{ ok: true; grant: OwnerGrant } | { ok: false; error: string }> {
   const g = await getGrant(grantId);
-  if (!g) {
-    return { ok: false, error: "No such owner grant. Ask Joe for express permission first (request_owner_permission)." };
-  }
-  if (g.status === "requested") {
-    return { ok: false, error: "That permission is still waiting for Joe's approval on /engine/permissions." };
-  }
-  if (g.status !== "approved") return { ok: false, error: `That permission was ${g.status}.` };
-  if (new Date(g.expires_at).getTime() <= Date.now()) return { ok: false, error: "That permission has expired — ask again." };
-  if (g.uses >= g.max_uses) return { ok: false, error: "That permission has already been used up." };
-  if (!g.actions.includes("*") && !g.actions.includes(action)) {
-    return { ok: false, error: `That permission covers ${g.actions.join(", ")}, not ${action}.` };
-  }
-  if (g.target_kind && g.target_kind !== target.kind) {
-    return { ok: false, error: `That permission is for a ${g.target_kind}, not a ${target.kind}.` };
-  }
-  if (g.target_id && g.target_id.toLowerCase() !== target.id.toLowerCase()) {
-    return { ok: false, error: `That permission is for ${g.target_kind ?? "target"} ${g.target_id} only.` };
-  }
-  const scopeTo = typeof g.scope?.to === "string" ? g.scope.to.toLowerCase() : "";
-  if (scopeTo && target.to && scopeTo !== target.to.toLowerCase()) {
-    return { ok: false, error: `That permission only allows sending to ${String(g.scope.to)}.` };
-  }
+  // The decision is the pure rule in lib/owner-grant-types.ts (unit-tested);
+  // the UPDATE below re-checks status/uses/expiry so two concurrent spends
+  // can't both succeed.
+  const covers = grantCovers(g, action, target);
+  if (!covers.ok) return covers;
   const entry = { at: new Date().toISOString(), action, target: `${target.kind}:${target.id}`, result: "pending" };
   const updated = await queryOne<OwnerGrant>(
     `UPDATE owner_grants

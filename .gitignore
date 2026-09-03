@@ -66,3 +66,6 @@ db/.cents-snapshot.json
 # session scratch (audit scripts, one-off runs)
 tmp/
 logs/
+
+# 10DLC registration state (brand/campaign ids written by scripts/register-10dlc.mjs)
+.10dlc-state.json

@@ -19,6 +19,7 @@ import { enrollLeadNurtureAtIntake } from "./newsletter-drip";
 import { emit } from "./notify";
 import { openEntityRoom } from "./rooms";
 import { startRunbook } from "./runbook-engine";
+import { isAffirmative, sendOptInConfirmation, smsConfigured } from "./sms";
 
 /** A flexible inbound lead. `name` is the only hard requirement; every other
  *  field is optional, and `extra` carries any additional key/value pairs the
@@ -259,6 +260,24 @@ export async function createInboundLead(
     after(firstResponse);
   } catch {
     void firstResponse();
+  }
+
+  // SMS opt-in (10DLC message flow): the website form's consent checkbox
+  // arrives as `text_subscribed`. Ticked + a phone number → the registered
+  // confirmation text goes out at once (lib/sms.ts sendOptInConfirmation, a
+  // compliance auto-response, no grant) and the lead's timeline records the
+  // consent. Unticked or absent → nothing; the OS never assumes consent.
+  const consentRaw = Object.entries(lead.extra ?? {}).find(([k]) => /^(text|sms)_?(subscribed|consent|opt_?in)$/i.test(k))?.[1];
+  if (phone && isAffirmative(consentRaw)) {
+    await logLeadActivity(slug, "note", `SMS consent given on the website form (${phone})`, "SJC OS").catch(() => undefined);
+    if (smsConfigured()) {
+      const confirm = () => sendOptInConfirmation(phone, name, "website form").catch(() => undefined);
+      try {
+        after(confirm);
+      } catch {
+        void confirm();
+      }
+    }
   }
 
   return { slug, verdict };

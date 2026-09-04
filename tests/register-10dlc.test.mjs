@@ -29,6 +29,7 @@ const GOOD = {
   TENDLC_EMAIL: "joe@example.com",
   TENDLC_WEBSITE: "https://example.com",
   TENDLC_VERTICAL: "CONSTRUCTION",
+  TENDLC_OPTIN_SCREENSHOT_URL: "https://os.example.com/compliance/sms-opt-in-form.png",
   SMS_MESSAGING_PROFILE_ID: "profile-1",
   NEXT_PUBLIC_APP_URL: "https://os.example.com",
 };

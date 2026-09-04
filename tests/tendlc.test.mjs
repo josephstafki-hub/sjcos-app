@@ -27,6 +27,7 @@ export const GOOD = {
   TENDLC_EMAIL: "joe@example.com",
   TENDLC_WEBSITE: "https://example.com",
   TENDLC_VERTICAL: "CONSTRUCTION",
+  TENDLC_OPTIN_SCREENSHOT_URL: "https://os.example.com/compliance/sms-opt-in-form.png",
 };
 
 test("valid env passes", () => {
@@ -76,6 +77,26 @@ test("campaign body honours the rulings and passes its own asserts", () => {
   assert.equal(c.helpMessage, helpMessageFrom(GOOD));
   assert.match(c.helpMessage, /612-555-1234/);
   assert.match(c.helpMessage, /STOP/);
+  // TELNYX_FAILED 2026-09-03: the flow must name the opt-in mechanism.
+  assert.match(c.messageFlow, /start-a-project-conversation/);
+  assert.match(c.messageFlow, /screenshot: https:\/\/os\.example\.com/);
+  assert.match(c.messageFlow, /unchecked by default/);
+  assert.match(c.messageFlow, /Message frequency may vary/);
+  assert.match(c.messageFlow, /Reply STOP/);
+  assert.match(c.messageFlow, /Reply HELP/);
+  assert.match(c.messageFlow, /confirmation SMS/);
+  assert.ok(c.messageFlow.length <= 2048, `messageFlow ${c.messageFlow.length} chars`);
+  assert.equal(c.privacyPolicyLink, "https://www.sjcarpentryllc.com/privacy-policy");
+  assert.equal(c.termsAndConditionsLink, undefined);
+  assert.ok(c.optinMessage.length <= 160);
+  for (const need of [/frequency/i, /rates/i, /STOP/, /HELP/, /SJ Carpentry LLC/]) assert.match(c.optinMessage, need);
+});
+
+test("campaign asserts refuse a flow without the form URL or screenshot", () => {
+  const noShot = campaignBody({ ...GOOD, TENDLC_OPTIN_SCREENSHOT_URL: "" }, "BRAND1");
+  assert.ok(assertCampaignBody(noShot).errors.some((e) => /screenshot/.test(e)));
+  const vague = { ...campaignBody(GOOD, "BRAND1"), messageFlow: "Customers give us their numbers during intake and consent to project texts. Opt out via STOP at any time, HELP for help; rates and frequency vary." };
+  assert.ok(assertCampaignBody(vague).errors.some((e) => /opt-in form URL/.test(e)));
 });
 
 test("campaign asserts catch contradicting samples", () => {

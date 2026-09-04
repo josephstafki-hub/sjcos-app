@@ -66,6 +66,9 @@ TENDLC_COUNTRY=US
 TENDLC_EMAIL=
 TENDLC_WEBSITE=                    # https://
 TENDLC_VERTICAL=CONSTRUCTION
+TENDLC_OPTIN_SCREENSHOT_URL=       # https URL of a screenshot of the website's SMS consent checkbox (required by the campaign stage)
+# optional: TENDLC_OPTIN_FORM_URL (default https://www.sjcarpentryllc.com/start-a-project-conversation),
+#           TENDLC_PRIVACY_POLICY_URL (default https://www.sjcarpentryllc.com/privacy-policy)
 ```
 
 Optional tuning (defaults in parentheses): `VOICE_RING_SECONDS` (25),
@@ -190,6 +193,18 @@ Dry run is the default (prints the exact body, sends nothing). Ids land in
 `.10dlc-state.json` (gitignored); a stage with an id refuses without `--force`.
 Local validation first: EIN `^\d{2}-\d{7}$`, E.164 phone, https website, no P.O.
 box. Trial accounts print "account is on trial, 10DLC unavailable, upgrade first".
+**Opt-in (consent).** Telnyx rejected the first two submissions (2026-09-03):
+MIXED needs 2–5 sub-usecases, and the message flow must name the opt-in
+mechanism. The flow now quotes the website form (URL, unchecked checkbox
+label, full disclosure, privacy link), a screenshot link
+(`TENDLC_OPTIN_SCREENSHOT_URL`), the confirmation text, and a verbal script for
+existing clients/subs. All of that copy lives in `lib/comms/tendlc.mjs`
+(`OPTIN_*`); the website must display `OPTIN_DISCLOSURE` verbatim
+(`docs/sms-opt-in-form.md` is the hand-off for the web developer), and the OS
+sends `OPTIN_CONFIRMATION` automatically when `/api/leads/intake` receives
+`text_subscribed` affirmative with a phone (`lib/sms.ts sendOptInConfirmation`,
+a compliance auto-response like the HELP reply, no grant).
+
 Bodies live in `lib/comms/tendlc.mjs` (shared with the watch): PRIVATE_PROFIT,
 usecase MIXED, embeddedLink true, numberPool false, ageGated false, keywords
 `START,YES` / `STOP,UNSUBSCRIBE` / `HELP,INFO`; asserts that a sample has a URL

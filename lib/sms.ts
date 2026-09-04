@@ -31,7 +31,7 @@ import {
   type KeywordAction,
   type ParsedMessagingEvent,
 } from "./comms/sms-inbound";
-import { helpMessageFrom } from "./comms/tendlc.mjs";
+import { helpMessageFrom, OPTIN_CONFIRMATION } from "./comms/tendlc.mjs";
 import { sendTelnyxMessage, downloadMedia, TelnyxError } from "./telnyx";
 import { storeBuffer } from "./upload-store";
 import { notifyOwner } from "./notify-owner";
@@ -481,4 +481,50 @@ export async function sendHelpReply(threadId: number, to: string): Promise<void>
     );
     if (kind !== "campaign_not_registered") await reportCommsFailure("sms-send", err, { detail: `HELP auto-reply to ${to}` });
   }
+}
+
+// ─── Opt-in confirmation ─────────────────────────────────────────────────────
+
+/** The confirmation text the 10DLC message flow promises: sent the moment a
+ *  contact opts in (website form checkbox via /api/leads/intake, or Joe
+ *  recording verbal consent). Like the HELP reply this is a compliance
+ *  auto-response with fixed registered wording (lib/comms/tendlc.mjs
+ *  OPTIN_CONFIRMATION), not an agent message, so it carries no grant. Marks
+ *  the thread opted in. Never throws. */
+export async function sendOptInConfirmation(
+  phone: string,
+  contactName?: string | null,
+  source = "website form",
+): Promise<{ ok: boolean; error?: string }> {
+  const cfg = smsConfig();
+  if (!cfg) return { ok: false, error: notConfiguredError() };
+  const norm = normalizeE164(phone);
+  if (!norm.ok) return { ok: false, error: norm.error };
+  const to = norm.e164;
+  const threadId = await upsertSmsThread(to, contactName, cfg.fromNumber);
+  await query(`UPDATE sms_threads SET opted_out = false, opted_in_at = now() WHERE id = $1`, [threadId]);
+  const text = OPTIN_CONFIRMATION as string;
+  const msg = await queryOne<{ id: number }>(
+    `INSERT INTO sms_messages (thread_id, direction, body, status, from_number, to_number, sent_by)
+     VALUES ($1, 'out', $2, 'queued', $3, $4, $5) RETURNING id`,
+    [threadId, text, cfg.fromNumber, to, `system:optin:${source}`.slice(0, 80)],
+  );
+  try {
+    const sent = await sendTelnyxMessage(cfg, { to, text });
+    await query(`UPDATE sms_messages SET provider_sid = $2, status = $3, updated_at = now() WHERE id = $1`, [msg!.id, sent.id, sent.toStatus ?? "queued"]);
+    await query(`UPDATE sms_threads SET last_message_at = now(), last_outbound_at = now() WHERE id = $1`, [threadId]);
+    return { ok: true };
+  } catch (err) {
+    const errors = err instanceof TelnyxError ? err.errors : [{ code: "", title: "", detail: (err as Error).message }];
+    const kind = classifySendFailure(errors);
+    const detail = describeSendFailure(kind, errors);
+    await query(`UPDATE sms_messages SET status = 'failed', error_detail = $2, failure_kind = $3, updated_at = now() WHERE id = $1`, [msg!.id, detail, kind]);
+    if (kind !== "campaign_not_registered") await reportCommsFailure("sms-send", err, { detail: `opt-in confirmation to ${to}` });
+    return { ok: false, error: detail };
+  }
+}
+
+/** True for the ways a form encodes a ticked checkbox. */
+export function isAffirmative(v: string | null | undefined): boolean {
+  return /^(yes|y|true|on|1|checked)$/i.test((v ?? "").trim());
 }

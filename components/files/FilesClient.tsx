@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { AiBubble, Card, Chip } from "@/components/ui";
 import { summarizeFile, uploadFile } from "@/lib/actions/files";
+import { runAction } from "@/lib/run-action";
 import type { FilesData, FileRow, FileType } from "@/lib/files";
 
 const TYPE_ICON: Record<FileType, LucideIcon> = {
@@ -59,19 +60,16 @@ export function FilesClient({ data }: { data: FilesData }) {
   const [pending, startSummarize] = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, startUpload] = useTransition();
-  const [uploadError, setUploadError] = useState<string | null>(null);
 
   function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-picking the same file
     if (!file) return;
-    setUploadError(null);
     const fd = new FormData();
     fd.append("file", file);
     fd.append("project_key", folder.projectKey ?? "");
     startUpload(async () => {
-      const res = await uploadFile(fd);
-      if (!res.ok) setUploadError(res.error);
+      await runAction(() => uploadFile(fd), { fallback: "Couldn't upload the file." });
     });
   }
 
@@ -199,9 +197,6 @@ export function FilesClient({ data }: { data: FilesData }) {
               {uploading ? "Uploading…" : "Upload"}
             </button>
           </div>
-          {uploadError && (
-            <div className="mt-1 text-[11px] text-flag">{uploadError}</div>
-          )}
           <div className="mt-2 flex flex-wrap gap-1">
             {data.typeFilters.map((t) => {
               const isAi = t === "AI tags";

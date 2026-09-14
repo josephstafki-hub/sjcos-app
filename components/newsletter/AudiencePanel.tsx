@@ -10,6 +10,7 @@
 import { useState, type TransitionStartFunction } from "react";
 import { Plus, Trash2, Tag } from "lucide-react";
 import { setExtraRecipients } from "@/lib/actions/newsletter";
+import { runAction } from "@/lib/run-action";
 import type { NewsletterGroup } from "@/lib/newsletter";
 
 export function AudiencePanel({
@@ -39,23 +40,27 @@ export function AudiencePanel({
   const [oneOffEmail, setOneOffEmail] = useState("");
   const [oneOffName, setOneOffName] = useState("");
 
+  /** Optimistic: the list updates now and rolls back if the save fails
+   *  (runAction toasts the failure). */
+  function persist(next: { email: string; name: string }[]) {
+    const prev = extraRecipients;
+    onExtraRecipientsChange(next);
+    start(async () => {
+      await runAction(() => setExtraRecipients(issueId, next), {
+        fallback: "Could not save the one-time recipients.",
+        onError: () => onExtraRecipientsChange(prev),
+      });
+    });
+  }
   function addOneOff() {
     const email = oneOffEmail.trim().toLowerCase();
     if (!email || extraRecipients.some((e) => e.email === email)) return;
-    const next = [...extraRecipients, { email, name: oneOffName.trim() }];
-    onExtraRecipientsChange(next);
+    persist([...extraRecipients, { email, name: oneOffName.trim() }]);
     setOneOffEmail("");
     setOneOffName("");
-    start(async () => {
-      await setExtraRecipients(issueId, next);
-    });
   }
   function removeOneOff(email: string) {
-    const next = extraRecipients.filter((e) => e.email !== email);
-    onExtraRecipientsChange(next);
-    start(async () => {
-      await setExtraRecipients(issueId, next);
-    });
+    persist(extraRecipients.filter((e) => e.email !== email));
   }
 
   return (

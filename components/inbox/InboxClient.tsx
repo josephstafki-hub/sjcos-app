@@ -44,6 +44,7 @@ import {
   linkThread,
   unlinkThread,
 } from "@/lib/actions/inbox";
+import { runAction } from "@/lib/run-action";
 import type { ThreadChannel, ThreadStatus, SystemViewKey } from "@/lib/types";
 import { SYSTEM_VIEWS } from "@/lib/types";
 import { AI_NAME } from "@/lib/ai-name";
@@ -277,7 +278,9 @@ export function InboxClient({
           t.id === id ? { ...t, linkedType: undefined, linkedSlug: undefined, projectSlug: undefined, projectLabel: undefined } : t,
         ),
       );
-      startTransition(async () => { await unlinkThread(id); });
+      startTransition(async () => {
+        await runAction(() => unlinkThread(id), { fallback: "Couldn't unlink the thread." });
+      });
       return;
     }
     const [type, slug] = next.split(":") as ["project" | "lead", string];
@@ -298,7 +301,9 @@ export function InboxClient({
           : t,
       ),
     );
-    startTransition(async () => { await linkThread(id, type, slug); });
+    startTransition(async () => {
+      await runAction(() => linkThread(id, type, slug), { fallback: "Couldn't link the thread." });
+    });
   }
 
   // Open a server-fetched lens (a Gmail label or a system mailbox): fetch its
@@ -318,7 +323,7 @@ export function InboxClient({
     setRemoteData(null);
     setRemoteLoading(true);
     startTransition(async () => {
-      const r = await loader();
+      const r = await runAction(loader, { fallback: "Couldn't load that view." });
       if (r.ok && r.threads) {
         setReaders((prev) => ({ ...prev, ...(r.readers ?? {}) }));
         setRemoteData({ key, threads: r.threads, pageToken: r.nextPageToken });
@@ -349,11 +354,15 @@ export function InboxClient({
     if (!moreToken || loadingMore) return;
     setLoadingMore(true);
     startTransition(async () => {
-      const r = onRemote
-        ? lens.kind === "label"
-          ? await loadLabelInboxAction(lens.id, moreToken)
-          : await loadSystemViewAction((lens as { view: SystemViewKey }).view, moreToken)
-        : await loadMoreInboxAction(moreToken);
+      const r = await runAction(
+        () =>
+          onRemote
+            ? lens.kind === "label"
+              ? loadLabelInboxAction(lens.id, moreToken)
+              : loadSystemViewAction((lens as { view: SystemViewKey }).view, moreToken)
+            : loadMoreInboxAction(moreToken),
+        { fallback: "Couldn't load more." },
+      );
       if (r.ok && r.threads) {
         setReaders((prev) => ({ ...prev, ...(r.readers ?? {}) }));
         if (onRemote) {
@@ -423,7 +432,7 @@ export function InboxClient({
   const run = (fn: () => Promise<{ ok: boolean; error?: string }>) =>
     startTransition(async () => {
       setNotice(null);
-      const r = await fn();
+      const r = await runAction(fn, { fallback: "Couldn't complete that action." });
       if (!r.ok) setNotice(r.error ?? "Couldn't complete that action.");
     });
 
@@ -930,7 +939,7 @@ function ComposeModal({
   function send() {
     setError("");
     startSend(async () => {
-      const res = await sendNewEmailAction({ to, subject, body });
+      const res = await runAction(() => sendNewEmailAction({ to, subject, body }), { fallback: "Send failed." });
       if (res.ok) {
         setSent(true);
         setTimeout(onClose, 900);
@@ -1146,7 +1155,7 @@ function ReaderBody({ reader, threadId }: { reader: ThreadReader; threadId: stri
   function generate() {
     setError("");
     startDraft(async () => {
-      const r = await draftReplyAction(threadId, "hermes");
+      const r = await runAction(() => draftReplyAction(threadId, "hermes"), { fallback: "Could not draft a reply." });
       if (r.ok) {
         setDraft(r.body ?? "");
         setMeta({ toEmail: r.toEmail ?? "", subject: r.subject ?? reader.subject });
@@ -1159,12 +1168,16 @@ function ReaderBody({ reader, threadId }: { reader: ThreadReader; threadId: stri
   function send() {
     setError("");
     startSend(async () => {
-      const res = await sendReplyAction({
-        threadId,
-        toEmail: meta?.toEmail ?? "",
-        subject: meta?.subject ?? reader.subject,
-        body: draft,
-      });
+      const res = await runAction(
+        () =>
+          sendReplyAction({
+            threadId,
+            toEmail: meta?.toEmail ?? "",
+            subject: meta?.subject ?? reader.subject,
+            body: draft,
+          }),
+        { fallback: "Send failed." },
+      );
       if (res.ok) setSent(true);
       else setError(res.error ?? "Send failed.");
     });

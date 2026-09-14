@@ -10,6 +10,7 @@ import type { FloorplanVersion } from "@/lib/floorplans";
 import type { ApprovalGateBase } from "@/lib/approval-gate-types";
 import type { EstimateDetail, EstimateLineView, EstimateStatus } from "@/lib/estimates";
 import { createEstimate, deleteEstimate, deleteEstimateLine, suggestEstimate, sendEstimate, mergeEstimates } from "@/lib/actions/estimates";
+import { runAction } from "@/lib/run-action";
 import { EstimateLineModal } from "./EstimateLineModal";
 import { BulkAddPanel } from "./BulkAddPanel";
 import { ContractGenerator } from "./ContractGenerator";
@@ -63,7 +64,7 @@ export function ProjectEstimate({
   function create(form: HTMLFormElement) {
     const fd = new FormData(form);
     startTransition(async () => {
-      const res = await createEstimate(slug, fd);
+      const res = await runAction(() => createEstimate(slug, fd), { fallback: "Couldn't create the estimate." });
       if (res.ok && res.id) {
         setEditingId(res.id);
         setShowNew(false);
@@ -93,7 +94,7 @@ export function ProjectEstimate({
     setMergeError(null);
     setMerging(true);
     startTransition(async () => {
-      const res = await mergeEstimates(slug, ids, title);
+      const res = await runAction(() => mergeEstimates(slug, ids, title), { fallback: "Couldn't merge the estimates." });
       setMerging(false);
       if (res.ok && res.id) {
         setEditingId(res.id);
@@ -110,7 +111,7 @@ export function ProjectEstimate({
   function removeEstimate(id: number) {
     if (!confirm("Delete this estimate and all its lines?")) return;
     startTransition(async () => {
-      await deleteEstimate(slug, id);
+      await runAction(() => deleteEstimate(slug, id), { fallback: "Couldn't delete the estimate." });
       setEditingId(null);
       router.refresh();
     });
@@ -118,7 +119,7 @@ export function ProjectEstimate({
 
   function removeLine(lineId: number) {
     startTransition(async () => {
-      await deleteEstimateLine(lineId, slug);
+      await runAction(() => deleteEstimateLine(lineId, slug), { fallback: "Couldn't delete the line." });
       router.refresh();
     });
   }
@@ -127,7 +128,7 @@ export function ProjectEstimate({
     if (!selected) return;
     setSendError(null);
     startTransition(async () => {
-      const res = await sendEstimate(slug, selected.id);
+      const res = await runAction(() => sendEstimate(slug, selected.id), { fallback: "Couldn't send the estimate." });
       if (res.ok) router.refresh();
       else setSendError(res.error);
     });
@@ -137,7 +138,7 @@ export function ProjectEstimate({
     if (!selected) return;
     setSuggesting(true);
     startTransition(async () => {
-      const res = await suggestEstimate(slug, "");
+      const res = await runAction(() => suggestEstimate(slug, ""), { fallback: "Couldn't suggest a scope." });
       if (res.ok) setSuggestion({ lines: res.lines, total: res.total });
       setSuggesting(false);
     });

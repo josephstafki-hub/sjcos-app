@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { getWorkbenchAction } from "@/lib/actions/workbench";
+import { runAction } from "@/lib/run-action";
 import type { WorkbenchSnapshot, EntityRef } from "@/lib/workbench";
 
 // Operator Console · right panel (spec §4.5). Polls the focused entity every 3s
@@ -48,10 +49,10 @@ export function WorkbenchPanel({
     let cancelled = false;
 
     const tick = async () => {
-      const r = await getWorkbenchAction(subjectId);
+      const r = await runAction(() => getWorkbenchAction(subjectId), { fallback: "Couldn't load the record." });
       if (cancelled) return;
       if (!r.ok) {
-        setError(r.error);
+        setError(r.error ?? "Couldn't load the record.");
         return;
       }
       setError("");

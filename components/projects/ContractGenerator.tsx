@@ -9,6 +9,7 @@ import type { ApprovalGateBase } from "@/lib/approval-gate-types";
 import { type DrawLine, defaultDrawSchedule, sumPercent, DRAW_TRIGGER_STATUSES } from "@/lib/draw-schedule";
 import { updateDrawSchedule } from "@/lib/actions/documents";
 import { createDocDraftAction } from "@/lib/actions/doc-drafts";
+import { runAction } from "@/lib/run-action";
 import { TabNavContext } from "@/components/projects/TabNav";
 
 /** Draw-schedule editor for an estimate — this schedule is the auto-sourced
@@ -76,7 +77,7 @@ export function ContractGenerator({
     setError(null);
     setSavedMsg(null);
     startTransition(async () => {
-      const res = await updateDrawSchedule(slug, estimateId, lines);
+      const res = await runAction(() => updateDrawSchedule(slug, estimateId, lines), { fallback: "Couldn't save the schedule." });
       if (res.ok) {
         setSavedMsg("Schedule saved.");
         router.refresh();
@@ -87,7 +88,7 @@ export function ContractGenerator({
   function createContract() {
     setError(null);
     startCreating(async () => {
-      const res = await createDocDraftAction("contract", { slug, estimateId });
+      const res = await runAction(() => createDocDraftAction("contract", { slug, estimateId }), { fallback: "Couldn't create the contract." });
       if (res.ok) {
         router.refresh();
         goToTab("Documents", "Construction Contract");

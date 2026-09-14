@@ -21,6 +21,7 @@ import {
   setWelcomeIssue,
   setTargetGroupIds,
 } from "@/lib/actions/newsletter";
+import { runAction } from "@/lib/run-action";
 import { BlockEditor, AddBlockBar } from "./BlockEditor";
 import { DesignPanel } from "./DesignPanel";
 import { SequencePanel } from "./SequencePanel";
@@ -139,7 +140,10 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
     if (!current) return;
     setNotice(null);
     start(async () => {
-      const res = await saveIssue(current.id, current.title, current.intro, current.blocks, current.settings);
+      const res = await runAction(
+        () => saveIssue(current.id, current.title, current.intro, current.blocks, current.settings),
+        { fallback: "Could not save the issue." },
+      );
       if (res.ok) {
         setDirtyIds((prev) => {
           const next = new Set(prev);
@@ -148,7 +152,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
         });
         setSaved(true);
         setTimeout(() => setSaved(false), 1500);
-      } else setNotice(res.error);
+      }
     });
   }
 
@@ -172,11 +176,10 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
 
     setNotice(null);
     start(async () => {
-      const res = await deleteIssue(id, target.status === "sent");
-      if (!res.ok) {
-        setNotice(res.error);
-        return;
-      }
+      const res = await runAction(() => deleteIssue(id, target.status === "sent"), {
+        fallback: "Could not delete the issue.",
+      });
+      if (!res.ok) return;
       setIssues((prev) => prev.filter((i) => i.id !== id));
       if (selectedId === id) setSelectedId(issues.find((i) => i.id !== id)?.id ?? null);
       // A queued issue's parked rows went with it.
@@ -188,9 +191,9 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
     if (!current) return;
     setNotice(null);
     start(async () => {
-      const res = await draftIntro(current.id);
+      const res = await runAction(() => draftIntro(current.id), { fallback: "Could not draft the intro." });
       if (res.ok && res.data) patchCurrent({ intro: res.data });
-      else setNotice(res.ok ? "No draft returned." : res.error);
+      else if (res.ok) setNotice("No draft returned.");
     });
   }
 
@@ -198,9 +201,9 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
     if (!slug) return;
     setNotice(null);
     start(async () => {
-      const res = await draftBlockForProject(slug);
+      const res = await runAction(() => draftBlockForProject(slug), { fallback: "Could not draft that section." });
       if (res.ok && res.data) patchBlocks((b) => [...b, res.data!]);
-      else setNotice(res.ok ? "No draft returned." : res.error);
+      else if (res.ok) setNotice("No draft returned.");
     });
   }
 
@@ -218,11 +221,15 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
 
   function setTargetGroups(fn: (prev: number[]) => number[]) {
     if (!current) return;
-    const next = fn(current.targetGroupIds);
+    const prev = current.targetGroupIds;
+    const next = fn(prev);
     patchCurrent({ targetGroupIds: next }, true);
     start(async () => {
-      const res = await setTargetGroupIds(current.id, next);
-      if (!res.ok) setNotice(res.error);
+      // Optimistic: roll the checkbox back if the save fails (runAction toasts).
+      await runAction(() => setTargetGroupIds(current.id, next), {
+        fallback: "Could not save the audience.",
+        onError: () => patchCurrent({ targetGroupIds: prev }, true),
+      });
     });
   }
 
@@ -244,14 +251,17 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
       return;
     setNotice(null);
     start(async () => {
-      const res = await queueIssue(current.id, targetGroupIds.length ? targetGroupIds : undefined);
+      const res = await runAction(
+        () => queueIssue(current.id, targetGroupIds.length ? targetGroupIds : undefined),
+        { fallback: "Could not queue the issue." },
+      );
       if (res.ok) {
         patchCurrent({ status: "queued" }, true);
         setMode("Outbox");
         setNotice(`Queued ${res.data?.queued ?? 0} message(s). Release them below when you're ready.`);
         // Pull the real persisted rows (with real ids) so Release is enabled.
         setOutbox(await refreshOutbox());
-      } else setNotice(res.error);
+      }
     });
   }
 
@@ -259,13 +269,9 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
     if (!confirm(`Release now? This emails ${item.email} for real via Gmail.`)) return;
     setNotice(null);
     start(async () => {
-      const res = await releaseNewsletterItem(item.id);
-      if (res.ok) {
-        setOutbox(await refreshOutbox());
-      } else {
-        setNotice(res.error ?? "Release failed.");
-        setOutbox(await refreshOutbox());
-      }
+      await runAction(() => releaseNewsletterItem(item.id), { fallback: "Release failed." });
+      // Either way re-read: a failed release is left as `failed` for retry.
+      setOutbox(await refreshOutbox());
     });
   }
   function releaseAll() {
@@ -275,18 +281,19 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
       return;
     setNotice(null);
     start(async () => {
-      const res = await releaseAllOutbox();
+      const res = await runAction(() => releaseAllOutbox(), { fallback: "Release failed." });
       if (res.ok) {
         const { released, failed } = res.data ?? { released: 0, failed: 0 };
         setNotice(failed > 0 ? `Released ${released}, ${failed} failed — left as failed to retry.` : `Released ${released}.`);
-      } else setNotice(res.error);
+      }
       setOutbox(await refreshOutbox());
     });
   }
   function skipItem(item: OutboxItem) {
     setOutbox((prev) => prev.map((o) => (o.id === item.id ? { ...o, status: "skipped" } : o)));
     start(async () => {
-      await skipNewsletterItem(item.id);
+      await runAction(() => skipNewsletterItem(item.id), { fallback: "Could not skip that message." });
+      // Re-read either way; a failed skip reverts the optimistic row.
       setOutbox(await refreshOutbox());
     });
   }
@@ -308,18 +315,25 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
     )
       return;
     setNotice(null);
-    setIssues((prev) => prev.map((i) => ({ ...i, isWelcome: i.id === id })));
+    // Optimistic: the star moves now and moves back if the write fails.
+    const prev = issues;
+    setIssues((cur) => cur.map((i) => ({ ...i, isWelcome: i.id === id })));
     start(async () => {
-      const res = await setWelcomeIssue(id, true);
-      if (!res.ok) setNotice(res.error);
+      await runAction(() => setWelcomeIssue(id, true), {
+        fallback: "Could not set the welcome email.",
+        onError: () => setIssues(prev),
+      });
     });
   }
   function demoteWelcome(id: number) {
     setNotice(null);
-    setIssues((prev) => prev.map((i) => (i.id === id ? { ...i, isWelcome: false } : i)));
+    const prev = issues;
+    setIssues((cur) => cur.map((i) => (i.id === id ? { ...i, isWelcome: false } : i)));
     start(async () => {
-      const res = await setWelcomeIssue(id, false);
-      if (!res.ok) setNotice(res.error);
+      await runAction(() => setWelcomeIssue(id, false), {
+        fallback: "Could not clear the welcome email.",
+        onError: () => setIssues(prev),
+      });
     });
   }
 

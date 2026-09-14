@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { Upload, FileText } from "lucide-react";
 import { Lightbox, type LightboxPhoto } from "@/components/ui";
 import { uploadClientFile } from "@/lib/actions/portal";
+import { runAction } from "@/lib/run-action";
 
 interface UploadRow {
   id: string;
@@ -85,7 +86,7 @@ export function ClientUploads({ uploads }: { uploads: UploadRow[] }) {
           const fd = new FormData(e.currentTarget);
           startTransition(async () => {
             setError("");
-            const r = await uploadClientFile(fd);
+            const r = await runAction(() => uploadClientFile(fd), { fallback: "Could not upload." });
             if (r?.ok) {
               formRef.current?.reset();
               setFileName("");

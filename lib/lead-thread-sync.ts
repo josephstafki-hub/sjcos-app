@@ -14,11 +14,20 @@ import "server-only";
 //   - opportunistic: nothing wired in yet — the periodic timer is sufficient
 //     for v1; see docs/reference note in the cron route.
 //
-// dryRun computes + returns what WOULD change without writing anything, so
-// the feature can be sanity-checked before the timer runs unattended.
+// Quota: this used to pull 150 full-body threads in one Promise.all every
+// quarter hour, which burned Gmail's per-minute unit budget and made any real
+// send in that minute fail ("Quota exceeded … Units per minute per user").
+// Now it fetches headers only (format: "metadata"), 5 at a time, and after
+// the first successful run only threads with a message newer than the stored
+// watermark (app_settings 'lead_thread_sync.last_ok_at'). A quiet run is a
+// threads.list plus a handful of metadata gets.
+//
+// dryRun computes + returns what WOULD change without writing anything (and
+// leaves the watermark alone), so the feature can be sanity-checked before
+// the timer runs unattended.
 
-import { query } from "./db";
-import { gmailConfigured, fetchThreadPage } from "./gmail";
+import { query, queryOne } from "./db";
+import { gmailConfigured, fetchThreadMetadata, gmailCallsSoFar } from "./gmail";
 import { cancelLeadNurture } from "./newsletter-drip";
 
 export interface LeadThreadSyncChange {
@@ -35,6 +44,13 @@ export interface LeadThreadSyncResult {
   matchedThreads: number;
   changes: LeadThreadSyncChange[];
   dryRun: boolean;
+  /** "incremental" when a watermark narrowed the scan, "full" otherwise. */
+  mode: "full" | "incremental" | "skipped";
+  /** ISO watermark the scan started from (null on a full scan). */
+  since: string | null;
+  /** Metered Gmail API calls this run made (including any retries). */
+  gmailCalls: number;
+  elapsedMs: number;
 }
 
 /** First email address in a raw header value ("Name <a@b>" or "a@b").
@@ -53,14 +69,62 @@ interface LeadRow {
   last_contact_at: string | null;
 }
 
-export async function syncLeadThreads(opts: { dryRun?: boolean; max?: number } = {}): Promise<LeadThreadSyncResult> {
+// ─── Watermark ───────────────────────────────────────────────────────────────
+//
+// Same app_settings key/value stamp the comms health check and the 10DLC
+// watch use (lib/comms-shared.ts). Stored as the ISO instant a successful,
+// non-dry run STARTED, minus nothing — the overlap below is applied at read
+// time so a clock skew between this box and Gmail can't hide a message.
+
+const WATERMARK_KEY = "lead_thread_sync.last_ok_at";
+/** Re-scan this far behind the watermark: Gmail's `after:` has one-second
+ *  granularity and internalDate can lag delivery by a little. */
+const WATERMARK_OVERLAP_MS = 10 * 60 * 1000;
+/** A watermark older than this is treated as absent (full scan) — e.g. the
+ *  timer was off for days and a 150-thread cap would miss things anyway. */
+const WATERMARK_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
+
+async function readWatermark(): Promise<number | null> {
+  try {
+    const r = await queryOne<{ value: string }>(`SELECT value FROM app_settings WHERE key = $1`, [WATERMARK_KEY]);
+    const t = r?.value ? Date.parse(r.value) : NaN;
+    if (!Number.isFinite(t)) return null;
+    if (Date.now() - t > WATERMARK_MAX_AGE_MS) return null;
+    return t;
+  } catch {
+    return null;
+  }
+}
+
+async function writeWatermark(atMs: number): Promise<void> {
+  await query(
+    `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, now())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [WATERMARK_KEY, new Date(atMs).toISOString()],
+  );
+}
+
+export async function syncLeadThreads(
+  opts: { dryRun?: boolean; max?: number; /** Ignore the watermark and rescan the newest `max` threads. */ full?: boolean } = {},
+): Promise<LeadThreadSyncResult> {
   const dryRun = opts.dryRun ?? false;
+  const startedAt = Date.now();
+  const callsBefore = gmailCallsSoFar();
+  const finish = (partial: Omit<LeadThreadSyncResult, "gmailCalls" | "elapsedMs">): LeadThreadSyncResult => ({
+    ...partial,
+    gmailCalls: gmailCallsSoFar() - callsBefore,
+    elapsedMs: Date.now() - startedAt,
+  });
+
   if (!gmailConfigured()) {
-    return { configured: false, scanned: 0, matchedThreads: 0, changes: [], dryRun };
+    return finish({ configured: false, scanned: 0, matchedThreads: 0, changes: [], dryRun, mode: "skipped", since: null });
   }
 
-  const [{ threads }, leadRows, linkRows] = await Promise.all([
-    fetchThreadPage(opts.max ?? 150),
+  const watermark = opts.full ? null : await readWatermark();
+  const since = watermark ? watermark - WATERMARK_OVERLAP_MS : null;
+
+  const [threads, leadRows, linkRows] = await Promise.all([
+    fetchThreadMetadata({ max: opts.max ?? 150, since, concurrency: 5 }),
     // Exclude 'lost' leads — they're off-pipeline by explicit owner action
     // (see lib/leads.ts stageIsLost). Their Gmail history is irrelevant to
     // "needs reply," and syncing would stomp a legitimate "Passed"/"Lost"
@@ -141,5 +205,19 @@ export async function syncLeadThreads(opts: { dryRun?: boolean; max?: number } =
     }
   }
 
-  return { configured: true, scanned: threads.length, matchedThreads, changes, dryRun };
+  // Only a completed, writing run advances the watermark; a dry run or a
+  // thrown quota error leaves it where it was so the next run re-covers the
+  // window. Stamped with the run's START so anything that arrived mid-run is
+  // inside the next window.
+  if (!dryRun) await writeWatermark(startedAt);
+
+  return finish({
+    configured: true,
+    scanned: threads.length,
+    matchedThreads,
+    changes,
+    dryRun,
+    mode: since ? "incremental" : "full",
+    since: since ? new Date(since).toISOString() : null,
+  });
 }

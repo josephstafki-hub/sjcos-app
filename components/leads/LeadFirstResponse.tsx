@@ -11,6 +11,7 @@ import {
 } from "@/lib/actions/lead-first-response";
 import type { FirstResponseBranch, LeadFirstResponse as Row } from "@/lib/lead-first-response";
 import { AI_NAME } from "@/lib/ai-name";
+import { runAction } from "@/lib/run-action";
 
 const BRANCH: Record<FirstResponseBranch, { label: string; kind: "money" | "info" | "accent" | "flag" }> = {
   rough_estimate: { label: "Rough estimate", kind: "money" },
@@ -50,7 +51,7 @@ export function LeadFirstResponse({ slug, initial, hasEmail }: { slug: string; i
   }
   const run = (fn: () => Promise<{ ok: true; response: Row | null } | { ok: false; error: string }>) => {
     setError(null);
-    start(async () => apply(await fn()));
+    start(async () => apply(await runAction(fn)));
   };
 
   const signals = row?.signals ?? {};

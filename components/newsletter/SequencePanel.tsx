@@ -22,6 +22,7 @@ import {
   setSequenceAudience,
   updateSequenceStep,
 } from "@/lib/actions/newsletter";
+import { runAction } from "@/lib/run-action";
 import type { NewsletterGroup, NewsletterIssue, Sequence } from "@/lib/newsletter";
 
 /** "the day they subscribe" reads better than "day 0" for the first step. */
@@ -53,16 +54,12 @@ export function SequencePanel({
 
   /** Every mutation re-reads from the server rather than patching local state —
    *  the step ordering and subscriber counts are computed in SQL, so guessing
-   *  them here would drift. */
+   *  them here would drift. runAction raises the site-wide toast on failure. */
   function run(fn: () => Promise<{ ok: boolean; error?: string }>, note?: string) {
     onNotice(null);
     start(async () => {
-      const res = await fn();
-      if (!res.ok) {
-        onNotice(res.error ?? "That didn't work.");
-      } else if (note) {
-        onNotice(note);
-      }
+      const res = await runAction(fn, { fallback: "That didn't work." });
+      if (res.ok && note) onNotice(note);
       onChanged(await refreshSequences());
     });
   }

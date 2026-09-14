@@ -13,6 +13,7 @@ import {
   updateBillingRates,
 } from "@/lib/actions/settings";
 import { createUser, setUserActive } from "@/lib/actions/users";
+import { runAction } from "@/lib/run-action";
 import { ClipTokenCard } from "./ClipTokenCard";
 import { IntakeTokenCard } from "./IntakeTokenCard";
 
@@ -59,7 +60,7 @@ function AddUserButton() {
   const val = (k: string) => vals[k] ?? "";
 
   async function handle(formData: FormData) {
-    const res = await createUser(formData);
+    const res = await runAction(() => createUser(formData), { fallback: "Couldn't add the user." });
     if (res.ok) {
       setError(null);
       setVals({});
@@ -70,7 +71,7 @@ function AddUserButton() {
         if (typeof v === "string") kept[k] = v;
       });
       setVals(kept);
-      setError(res.error);
+      setError(res.error ?? "Couldn't add the user.");
     }
   }
 
@@ -165,7 +166,7 @@ function FirstResponseModelPicker({ initial }: { initial: "claude" | "hermes" })
           const next = e.target.value === "hermes" ? "hermes" : "claude";
           setModel(next);
           startTransition(async () => {
-            await setLeadFirstResponseModel(next);
+            await runAction(() => setLeadFirstResponseModel(next), { fallback: "Couldn't save the first-response model." });
           });
         }}
         className="rounded-md border border-rule bg-card px-2 py-1 text-[12px] text-ink disabled:opacity-60"
@@ -195,7 +196,7 @@ function Toggle({
     const next = !on;
     setOn(next); // optimistic
     startTransition(async () => {
-      await action(settingKey, next);
+      await runAction(() => action(settingKey, next), { fallback: "Couldn't save that setting." });
     });
   }
 

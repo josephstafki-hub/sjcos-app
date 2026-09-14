@@ -6,6 +6,7 @@ import { FileEdit, Plus, X, Check, Clock, Ban, Sparkles, Trash2 } from "lucide-r
 import { Card, Chip } from "@/components/ui";
 import { CO_STATUS_LABEL, CO_STATUS_KIND, type CoStatus, type ChangeOrderView } from "@/lib/co-types";
 import { createChangeOrder, draftChangeOrder, sendChangeOrder, deleteChangeOrder } from "@/lib/actions/change-orders";
+import { runAction } from "@/lib/run-action";
 
 function StatusIcon({ status }: { status: CoStatus }) {
   if (status === "approved") return <Check className="size-3.5 text-money" strokeWidth={2} />;
@@ -41,7 +42,7 @@ export function ChangeOrders({ slug, orders }: { slug: string; orders: ChangeOrd
     fd.set("price", price);
     setError(null);
     startTransition(async () => {
-      const res = await createChangeOrder(slug, fd);
+      const res = await runAction(() => createChangeOrder(slug, fd), { fallback: "Couldn't save the change order." });
       if (res.ok) {
         reset();
         setOpen(false);
@@ -66,7 +67,7 @@ export function ChangeOrders({ slug, orders }: { slug: string; orders: ChangeOrd
 
   function send(id: number) {
     startTransition(async () => {
-      const res = await sendChangeOrder(slug, id);
+      const res = await runAction(() => sendChangeOrder(slug, id), { fallback: "Couldn't send the change order." });
       if (!res.ok) setError(res.error);
       router.refresh();
     });
@@ -74,7 +75,7 @@ export function ChangeOrders({ slug, orders }: { slug: string; orders: ChangeOrd
 
   function remove(id: number) {
     startTransition(async () => {
-      await deleteChangeOrder(slug, id);
+      await runAction(() => deleteChangeOrder(slug, id), { fallback: "Couldn't delete the change order." });
       router.refresh();
     });
   }

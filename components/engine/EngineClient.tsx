@@ -25,6 +25,7 @@ import {
 } from "@/lib/actions/engine";
 import { captureKnowledge, deleteKnowledge, searchKnowledgeAction } from "@/lib/actions/brain";
 import { approveSkill, rejectSkill } from "@/lib/actions/skills";
+import { runAction, type ActionLike } from "@/lib/run-action";
 import {
   approveMemoryEvidence,
   approveMemoryInstruction,
@@ -239,7 +240,7 @@ function ActiveRunbooks({ instances }: { instances: RunbookInstanceView[] }) {
                 onClick={() => {
                   if (!confirm(`Cancel "${i.runbookTitle}"? Its open step work item is cancelled too.`)) return;
                   start(async () => {
-                    await cancelRunbook(i.id);
+                    await runAction(() => cancelRunbook(i.id), { fallback: "Could not cancel that runbook." });
                     router.refresh();
                   });
                 }}
@@ -279,12 +280,12 @@ function QueueTab({ engine, skills }: { engine: EngineData; skills: SkillsLibrar
             ref={formRef}
             action={(fd) =>
               start(async () => {
-                const r = await createWorkItem(fd);
+                const r = await runAction(() => createWorkItem(fd), { fallback: "Could not create the work item." });
                 if (r.ok) {
                   formRef.current?.reset();
                   setShowNew(false);
                   router.refresh();
-                } else alert(r.error);
+                }
               })
             }
             className="space-y-3"
@@ -347,7 +348,7 @@ function QueueTab({ engine, skills }: { engine: EngineData; skills: SkillsLibrar
 function WorkItemCard({ item }: { item: WorkItemView }) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  const run = (fn: () => Promise<unknown>) => start(async () => { await fn(); router.refresh(); });
+  const run = (fn: () => Promise<ActionLike>) => start(async () => { await runAction(fn); router.refresh(); });
 
   return (
     <Card kind={item.bucket === "approval" ? "flag" : "default"} className="p-3.5">
@@ -457,7 +458,12 @@ function KnowledgeTab({ initial }: { initial: KnowledgeItemView[] }) {
                     </div>
                     <button
                       className="flex-none text-[11px] text-ink-4 hover:text-flag"
-                      onClick={() => start(async () => { await deleteKnowledge(k.id); setItems((xs) => xs.filter((x) => x.id !== k.id)); router.refresh(); })}
+                      onClick={() => start(async () => {
+                        const r = await runAction(() => deleteKnowledge(k.id), { fallback: "Could not delete that." });
+                        if (!r.ok) return;
+                        setItems((xs) => xs.filter((x) => x.id !== k.id));
+                        router.refresh();
+                      })}
                     >
                       Delete
                     </button>
@@ -476,9 +482,8 @@ function KnowledgeTab({ initial }: { initial: KnowledgeItemView[] }) {
             ref={captureRef}
             action={(fd) =>
               start(async () => {
-                const r = await captureKnowledge(fd);
+                const r = await runAction(() => captureKnowledge(fd), { fallback: "Could not save that." });
                 if (r.ok) { captureRef.current?.reset(); runSearch(""); setQ(""); router.refresh(); }
-                else alert(r.error);
               })
             }
             className="mt-2 space-y-2.5"
@@ -548,7 +553,7 @@ function SkillCard({ skill, review }: { skill: SkillView; review?: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, start] = useTransition();
-  const run = (fn: () => Promise<unknown>) => start(async () => { await fn(); router.refresh(); });
+  const run = (fn: () => Promise<ActionLike>) => start(async () => { await runAction(fn); router.refresh(); });
 
   return (
     <Card kind={review ? "flag" : "default"} className="p-3.5">
@@ -675,7 +680,7 @@ function MemoryCard({ memory, review }: { memory: MemoryView; review?: boolean }
   const [open, setOpen] = useState(false);
   const [stale, setStale] = useState(memory.staleAfter ? memory.staleAfter.slice(0, 10) : "");
   const [pending, start] = useTransition();
-  const run = (fn: () => Promise<unknown>) => start(async () => { await fn(); router.refresh(); });
+  const run = (fn: () => Promise<ActionLike>) => start(async () => { await runAction(fn); router.refresh(); });
 
   const captured = new Date(memory.createdAt).toLocaleDateString(undefined, {
     month: "short",

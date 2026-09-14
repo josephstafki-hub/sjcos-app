@@ -6,6 +6,7 @@ import { HardHat, Sparkles, Trash2, Check } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import type { SafetyOrientation } from "@/lib/safety";
 import { generateSafetyOrientation, deleteSafetyOrientation } from "@/lib/actions/safety";
+import { runAction } from "@/lib/run-action";
 
 /** Project Safety tab — generate AI jobsite safety orientations per trade and
  *  see who's acknowledged them. (Incident reports render below in P4-5.) */
@@ -26,7 +27,7 @@ export function Safety({
   function generate() {
     setError("");
     startTransition(async () => {
-      const res = await generateSafetyOrientation(slug, trade);
+      const res = await runAction(() => generateSafetyOrientation(slug, trade), { fallback: "Couldn't generate." });
       if (!res.ok) setError(res.error ?? "Couldn't generate.");
       else router.refresh();
     });
@@ -34,7 +35,7 @@ export function Safety({
 
   function remove(id: number) {
     startTransition(async () => {
-      await deleteSafetyOrientation(slug, id);
+      await runAction(() => deleteSafetyOrientation(slug, id), { fallback: "Couldn't delete the orientation." });
       router.refresh();
     });
   }

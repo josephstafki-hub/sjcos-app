@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Card, Chip } from "@/components/ui";
 import { resolveWarrantyClaim, acknowledgeWarrantyClaim } from "@/lib/actions/warranty";
+import { runAction } from "@/lib/run-action";
 import type { ClaimDot, WarrantyClaim } from "@/lib/warranty";
 
 const DOT: Record<ClaimDot, string> = {
@@ -16,23 +17,20 @@ const DOT: Record<ClaimDot, string> = {
 export function WarrantyClaims({ claims }: { claims: WarrantyClaim[] }) {
   const [open, setOpen] = useState<string | null>(null);
   const [resolved, setResolved] = useState<Set<string>>(new Set());
-  const [notice, setNotice] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   const shown = claims.filter((c) => !resolved.has(c.id));
 
   const resolve = (id: string) => {
     setResolved((s) => new Set(s).add(id));
-    setNotice(null);
     startTransition(async () => {
-      const r = await resolveWarrantyClaim(id);
+      const r = await runAction(() => resolveWarrantyClaim(id), { fallback: "Couldn't resolve that claim." });
       if (!r.ok) {
         setResolved((s) => {
           const n = new Set(s);
           n.delete(id);
           return n;
         });
-        setNotice(r.error ?? "Couldn't resolve that claim.");
       }
     });
   };
@@ -44,12 +42,6 @@ export function WarrantyClaims({ claims }: { claims: WarrantyClaim[] }) {
           Active claims · {shown.length}
         </h2>
       </div>
-
-      {notice && (
-        <div className="border-b border-rule-soft bg-flag-soft px-4 py-2 text-[12px] text-flag">
-          {notice}
-        </div>
-      )}
 
       {shown.map((c) => {
         const isOpen = open === c.id;
@@ -93,7 +85,11 @@ export function WarrantyClaims({ claims }: { claims: WarrantyClaim[] }) {
                 </div>
                 <div className="flex flex-none gap-2">
                   <button
-                    onClick={() => startTransition(async () => { await acknowledgeWarrantyClaim(c.id); })}
+                    onClick={() =>
+                      startTransition(async () => {
+                        await runAction(() => acknowledgeWarrantyClaim(c.id), { fallback: "Couldn't acknowledge that claim." });
+                      })
+                    }
                     className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-2 transition-colors hover:bg-paper hover:text-ink"
                   >
                     Acknowledge

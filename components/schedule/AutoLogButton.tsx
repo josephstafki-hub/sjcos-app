@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Sparkles, Check } from "lucide-react";
 import { autoLogTodayFromPhotos } from "@/lib/actions/schedule";
+import { runAction } from "@/lib/run-action";
 
 /** Header action on /schedule: drafts today's daily-log entries from today's
  *  uploaded site photos (one per project that has photos but no log yet). */
@@ -13,9 +14,9 @@ export function AutoLogButton() {
   function run() {
     setNote(null);
     startTransition(async () => {
-      const res = await autoLogTodayFromPhotos();
-      if (!res.ok) setNote(res.error);
-      else if (res.drafted === 0) setNote("No new photos today");
+      const res = await runAction(() => autoLogTodayFromPhotos(), { fallback: "Could not draft today's logs." });
+      if (!res.ok) return;
+      if (res.drafted === 0) setNote("No new photos today");
       else setNote(`Drafted ${res.drafted} log${res.drafted === 1 ? "" : "s"}: ${res.projects.join(", ")}`);
     });
   }

@@ -4,6 +4,7 @@ import { useState, useTransition, type ReactNode } from "react";
 import { Check } from "lucide-react";
 import { AiBubble } from "@/components/ui";
 import { flagScheduleConflict } from "@/lib/actions/schedule";
+import { runAction } from "@/lib/run-action";
 
 /** The scheduling-conflict note. "Flag for follow-up" (only shown when the
  *  week actually has a clash) rechecks server-side and parks a real work item
@@ -30,7 +31,7 @@ export function ConflictBubble({ conflict, children }: { conflict: boolean; chil
 
   function flag() {
     startTransition(async () => {
-      const res = await flagScheduleConflict();
+      const res = await runAction(() => flagScheduleConflict(), { fallback: "Couldn't flag the conflict." });
       if (res.ok) {
         setNote(
           res.queued
@@ -39,7 +40,7 @@ export function ConflictBubble({ conflict, children }: { conflict: boolean; chil
         );
         setState("flagged");
       } else {
-        setNote(res.error);
+        setNote(res.error ?? "Couldn't flag the conflict.");
         setState("flagged");
       }
     });

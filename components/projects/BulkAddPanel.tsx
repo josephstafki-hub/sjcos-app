@@ -8,6 +8,7 @@ import { fmtUsd, unitLabel } from "@/lib/cost-book-units";
 import type { CostItem } from "@/lib/cost-book";
 import type { FloorplanVersion } from "@/lib/floorplans";
 import { addTakeoffLines } from "@/lib/actions/estimates";
+import { runAction } from "@/lib/run-action";
 
 /** Bulk add: enter quantities against many cost-book items at once, with the
  *  uploaded plan(s) shown for reference. Adds all entered rows as estimate lines
@@ -48,7 +49,7 @@ export function BulkAddPanel({
     setError(null);
     setSaving(true);
     startTransition(async () => {
-      const res = await addTakeoffLines(estimateId, slug, section, entries);
+      const res = await runAction(() => addTakeoffLines(estimateId, slug, section, entries), { fallback: "Couldn't add the lines." });
       setSaving(false);
       if (res.ok) {
         setQtys({});

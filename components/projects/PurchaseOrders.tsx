@@ -20,6 +20,7 @@ import {
   deletePurchaseOrder,
 } from "@/lib/actions/purchase-orders";
 import { createVendorInline } from "@/lib/actions/vendors";
+import { runAction } from "@/lib/run-action";
 
 const inputCls =
   "w-full rounded-md border border-rule bg-card px-2.5 py-1.5 text-[13px] text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none";
@@ -184,13 +185,26 @@ export function PurchaseOrders({
     setError(null);
   }
 
+  /** Header-button writes share one shape: runAction toasts any failure, the
+   *  card's inline line mirrors it, then refresh. */
+  function mutate(fn: () => Promise<{ ok: boolean; error?: string }>, fallback: string) {
+    startTransition(async () => {
+      const res = await runAction(fn, { fallback });
+      if (!res.ok) setError(res.error ?? fallback);
+      router.refresh();
+    });
+  }
+
   function submitNew(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     startTransition(async () => {
       let vf = vendorFields;
       if (vf.vendorKind === "one_off" && saveAsVendor && vf.vendorName.trim()) {
-        const vres = await createVendorInline({ name: vf.vendorName, email: vf.vendorEmail, phone: vf.vendorPhone });
+        const vres = await runAction(
+          () => createVendorInline({ name: vf.vendorName, email: vf.vendorEmail, phone: vf.vendorPhone }),
+          { fallback: "Couldn't save the vendor." },
+        );
         if (vres.ok && vres.id) vf = { ...vf, vendorKind: "vendor", vendorId: vres.id };
       }
       const fd = new FormData();
@@ -202,7 +216,7 @@ export function PurchaseOrders({
       fd.set("vendorName", vf.vendorName);
       fd.set("vendorEmail", vf.vendorEmail);
       fd.set("vendorPhone", vf.vendorPhone);
-      const res = await createPurchaseOrder(slug, fd);
+      const res = await runAction(() => createPurchaseOrder(slug, fd), { fallback: "Couldn't create the purchase order." });
       if (res.ok && res.id) {
         setEditingId(res.id);
         setShowNew(false);
@@ -217,58 +231,38 @@ export function PurchaseOrders({
   function remove(id: number) {
     if (!confirm("Delete this purchase order and all its lines?")) return;
     startTransition(async () => {
-      await deletePurchaseOrder(slug, id);
+      await runAction(() => deletePurchaseOrder(slug, id), { fallback: "Couldn't delete the purchase order." });
       setEditingId(null);
       router.refresh();
     });
   }
 
   function queue(id: number) {
-    startTransition(async () => {
-      const res = await queuePurchaseOrder(slug, id);
-      if (!res.ok) setError(res.error);
-      router.refresh();
-    });
+    mutate(() => queuePurchaseOrder(slug, id), "Couldn't mark the purchase order ready.");
   }
 
   function send(id: number) {
-    startTransition(async () => {
-      const res = await sendPurchaseOrder(slug, id);
-      if (!res.ok) setError(res.error);
-      router.refresh();
-    });
+    mutate(() => sendPurchaseOrder(slug, id), "Couldn't send the purchase order.");
   }
 
   function close(id: number) {
-    startTransition(async () => {
-      const res = await closePurchaseOrder(slug, id);
-      if (!res.ok) setError(res.error);
-      router.refresh();
-    });
+    mutate(() => closePurchaseOrder(slug, id), "Couldn't close the purchase order.");
   }
 
   function voidPo(id: number) {
     if (!confirm("Cancel this purchase order?")) return;
-    startTransition(async () => {
-      const res = await voidPurchaseOrder(slug, id);
-      if (!res.ok) setError(res.error);
-      router.refresh();
-    });
+    mutate(() => voidPurchaseOrder(slug, id), "Couldn't void the purchase order.");
   }
 
   function removeLine(lineId: number) {
     startTransition(async () => {
-      await deletePOLine(lineId, slug);
+      await runAction(() => deletePOLine(lineId, slug), { fallback: "Couldn't delete the line." });
       router.refresh();
     });
   }
 
   function receive(lineId: number, qty: number) {
-    startTransition(async () => {
-      const res = await recordReceipt(lineId, slug, qty);
-      if (!res.ok) setError(res.error);
-      router.refresh();
-    });
+    mutate(() => recordReceipt(lineId, slug, qty), "Couldn't record the receipt.");
   }
 
   function submitLine(e: FormEvent<HTMLFormElement>) {
@@ -280,7 +274,10 @@ export function PurchaseOrders({
     fd.set("qtyOrdered", lineModal.qty);
     fd.set("unitCost", lineModal.unitCost);
     startTransition(async () => {
-      const res = lineModal.mode === "add" ? await addPOLine(selected.id, slug, fd) : await updatePOLine(lineModal.lineId!, slug, fd);
+      const res = await runAction(
+        () => (lineModal.mode === "add" ? addPOLine(selected.id, slug, fd) : updatePOLine(lineModal.lineId!, slug, fd)),
+        { fallback: "Couldn't save the line." },
+      );
       if (res.ok) {
         setLineModal(null);
         router.refresh();

@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { HardHat, Check } from "lucide-react";
 import { Chip } from "@/components/ui";
 import { acknowledgeOrientation } from "@/lib/actions/safety";
+import { runAction } from "@/lib/run-action";
 import type { SubOrientation } from "@/lib/safety";
 
 /** Sub-portal safety card — read the jobsite orientation(s) for the current
@@ -15,9 +16,17 @@ export function SubSafety({ orientations }: { orientations: SubOrientation[] }) 
   const [pending, startTransition] = useTransition();
 
   function ack(id: number) {
-    setAcked((s) => new Set(s).add(id)); // optimistic
+    setAcked((s) => new Set(s).add(id)); // optimistic — rolled back below on failure
     startTransition(async () => {
-      await acknowledgeOrientation(id);
+      await runAction(() => acknowledgeOrientation(id), {
+        fallback: "Could not record the acknowledgment.",
+        onError: () =>
+          setAcked((s) => {
+            const next = new Set(s);
+            next.delete(id);
+            return next;
+          }),
+      });
     });
   }
 

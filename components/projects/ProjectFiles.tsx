@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { FileText, Upload, Download, Eye, EyeOff, User } from "lucide-react";
 import { Card, Lightbox, type LightboxPhoto } from "@/components/ui";
 import { uploadProjectFile, uploadLeadFile, setFileClientVisibility } from "@/lib/actions/files";
+import { runAction } from "@/lib/run-action";
 import type { ProjectFile } from "@/lib/projects";
 
 /** Real Files tab, shared by projects (slug) and leads (leadSlug) — upload a
@@ -33,7 +34,7 @@ export function ProjectFiles({
   title?: string;
 }) {
   const [rows, setRows] = useState(files);
-  const [error, setError] = useState<string | null>(null);
+  // Failures toast via runAction; only the success notice stays inline.
   const [notice, setNotice] = useState<string | null>(null);
   const [uploading, startUpload] = useTransition();
   const [toggling, startToggle] = useTransition();
@@ -62,12 +63,14 @@ export function ProjectFiles({
     const picked = Array.from(e.target.files ?? []);
     e.target.value = "";
     if (!picked.length) return;
-    setError(null);
     startUpload(async () => {
       for (const file of picked) {
         const fd = new FormData();
         fd.append("file", file);
-        const res = leadSlug ? await uploadLeadFile(leadSlug, fd) : await uploadProjectFile(slug!, fd);
+        const res = await runAction(
+          () => (leadSlug ? uploadLeadFile(leadSlug, fd) : uploadProjectFile(slug!, fd)),
+          { fallback: `Couldn't upload "${file.name}".` },
+        );
         if (res.ok) {
           // Optimistic row so it appears before the refresh lands.
           setRows((prev) => [
@@ -86,7 +89,6 @@ export function ProjectFiles({
             ...prev,
           ]);
         } else {
-          setError(res.error);
           break;
         }
       }
@@ -97,15 +99,13 @@ export function ProjectFiles({
   /** Flip a file's dashboard visibility. Publishing emails the client — show
    *  the delivery note so the owner knows whether anything actually went out. */
   function toggleShare(f: ProjectFile) {
-    setError(null);
     setNotice(null);
     const to = !f.clientVisible;
     startToggle(async () => {
-      const res = await setFileClientVisibility(f.id, to);
-      if (!res.ok) {
-        setError(res.error);
-        return;
-      }
+      const res = await runAction(() => setFileClientVisibility(f.id, to), {
+        fallback: to ? "Couldn't publish the file." : "Couldn't unpublish the file.",
+      });
+      if (!res.ok) return;
       setRows((prev) => prev.map((r) => (r.id === f.id ? { ...r, clientVisible: to } : r)));
       setNotice(to ? (res.delivery?.note ?? "Published.") : `"${f.name}" removed from the client dashboard.`);
       router.refresh();
@@ -269,7 +269,6 @@ export function ProjectFiles({
         )}
       </Card>
 
-      {error && <p className="mt-2 text-[12px] text-flag">{error}</p>}
       {notice && <p className="mt-2 text-[12px] text-money">{notice}</p>}
 
       {!photosOnly && showcase.length > 0 && (

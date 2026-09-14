@@ -10,6 +10,7 @@ import { ChevronDown, ChevronUp, ImagePlus, Link2, Loader2, Plus, X } from "luci
 import { Card, Chip } from "@/components/ui";
 import { AI_NAME } from "@/lib/ai-name";
 import { uploadIssueImage, fetchLinkImage } from "@/lib/actions/newsletter";
+import { runAction } from "@/lib/run-action";
 import type { BlockKind, NewsletterBlock, RecentJob } from "@/lib/newsletter";
 
 const input =
@@ -196,11 +197,10 @@ function ImageBlock({
       const form = new FormData();
       form.append("file", file);
       form.append("alt", block.imageAlt ?? "");
-      const res = await uploadIssueImage(form);
+      // runAction toasts a failed or thrown upload (never throws itself).
+      const res = await runAction(() => uploadIssueImage(form), { fallback: "Upload failed — try a smaller image." });
       if (res.ok && res.data) onChange({ imageToken: res.data.token });
-      else onNotice(res.ok ? "Upload failed." : res.error);
-    } catch {
-      onNotice("Upload failed — try a smaller image.");
+      else if (res.ok) onNotice("Upload failed.");
     } finally {
       setBusy(false);
     }
@@ -212,7 +212,9 @@ function ImageBlock({
     setBusy(true);
     onNotice(null);
     try {
-      const res = await fetchLinkImage(url);
+      const res = await runAction(() => fetchLinkImage(url), {
+        fallback: "Couldn't fetch a preview from that link.",
+      });
       if (res.ok && res.data) {
         // The link becomes the click-through — tapping the photo opens the
         // page it was pulled from, same as a button block's URL.
@@ -222,9 +224,7 @@ function ImageBlock({
           buttonUrl: url,
         });
         setLinkOpen(false);
-      } else onNotice(res.ok ? "Couldn't fetch a preview from that link." : res.error);
-    } catch {
-      onNotice("Couldn't fetch a preview from that link.");
+      } else if (res.ok) onNotice("Couldn't fetch a preview from that link.");
     } finally {
       setBusy(false);
     }

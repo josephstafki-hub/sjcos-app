@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { Upload, FileText, Check } from "lucide-react";
 import { Eyebrow, Chip } from "@/components/ui";
 import { uploadSubDocument } from "@/lib/actions/sub-docs";
+import { runAction } from "@/lib/run-action";
 import { SUB_DOC_TYPES } from "@/lib/sub-doc-types";
 
 interface DocRow {
@@ -50,7 +51,7 @@ export function SubDocs({ slug, docs }: { slug: string; docs: DocRow[] }) {
           const fd = new FormData(e.currentTarget);
           startTransition(async () => {
             setError("");
-            const r = await uploadSubDocument(slug, fd);
+            const r = await runAction(() => uploadSubDocument(slug, fd), { fallback: "Could not upload." });
             if (r.ok) {
               formRef.current?.reset();
               setFileName("");

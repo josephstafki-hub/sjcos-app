@@ -6,6 +6,7 @@ import { FileCheck, FileText, ScrollText, Check } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import type { CloseoutView } from "@/lib/closeout";
 import { generateCompletionCertificate, generateLienWaiver } from "@/lib/actions/closeout";
+import { runAction } from "@/lib/run-action";
 
 const WAIVER_CHIP: Record<string, "money" | "accent" | "flag" | "ghost"> = {
   signed: "money",
@@ -21,18 +22,17 @@ export function Closeout({ slug, view }: { slug: string; view: CloseoutView }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [busy, setBusy] = useState<"cert" | "waiver" | null>(null);
-  const [error, setError] = useState("");
 
+  // Failures toast via runAction; there's no inline error line here.
   function generate(kind: "cert" | "waiver") {
-    setError("");
     setBusy(kind);
     startTransition(async () => {
-      const res = kind === "cert"
-        ? await generateCompletionCertificate(slug)
-        : await generateLienWaiver(slug);
+      const res = await runAction(
+        () => (kind === "cert" ? generateCompletionCertificate(slug) : generateLienWaiver(slug)),
+        { fallback: kind === "cert" ? "Couldn't generate the certificate." : "Couldn't generate the lien waiver." },
+      );
       setBusy(null);
-      if (!res.ok) setError(res.error);
-      else router.refresh();
+      if (res.ok) router.refresh();
     });
   }
 
@@ -77,8 +77,6 @@ export function Closeout({ slug, view }: { slug: string; view: CloseoutView }) {
           </div>
         </Card>
       </div>
-
-      {error && <div className="text-[12px] text-flag">{error}</div>}
 
       {view.outreachSent && (
         <div className="flex items-center gap-1.5 text-[12px] text-money">

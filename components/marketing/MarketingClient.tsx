@@ -6,6 +6,7 @@ import { Megaphone, Sparkles, Copy, Check, Trash2, Send } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import type { MarketingDraft } from "@/lib/marketing";
 import { generateDraft, updateDraft, markPosted, deleteDraft } from "@/lib/actions/marketing";
+import { runAction } from "@/lib/run-action";
 
 /** /marketing — AI-drafted social + blog posts. Owner generates from a project,
  *  edits inline, copies, and marks posted (manual posting — no social API). */
@@ -29,7 +30,7 @@ export function MarketingClient({
     }
     setError("");
     startTransition(async () => {
-      const r = await generateDraft(slug, kind);
+      const r = await runAction(() => generateDraft(slug, kind), { fallback: "Couldn't draft." });
       if (!r.ok) setError(r.error ?? "Couldn't draft.");
       else router.refresh();
     });
@@ -104,19 +105,19 @@ function DraftCard({ draft }: { draft: MarketingDraft }) {
   }
   function save() {
     startTransition(async () => {
-      await updateDraft(draft.id, body);
+      await runAction(() => updateDraft(draft.id, body), { fallback: "Couldn't save the edits." });
       router.refresh();
     });
   }
   function post() {
     startTransition(async () => {
-      await markPosted(draft.id);
+      await runAction(() => markPosted(draft.id), { fallback: "Couldn't mark it posted." });
       router.refresh();
     });
   }
   function remove() {
     startTransition(async () => {
-      await deleteDraft(draft.id);
+      await runAction(() => deleteDraft(draft.id), { fallback: "Couldn't delete the draft." });
       router.refresh();
     });
   }

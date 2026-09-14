@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { FileText, Download, FileStack } from "lucide-react";
 import { Card } from "@/components/ui";
 import { generatePermitPacket } from "@/lib/actions/permit";
+import { runAction } from "@/lib/run-action";
 import type { PermitFile } from "@/lib/permits";
 
 /** Permits tab: generate a building-permit application packet PDF and list the
@@ -17,7 +18,7 @@ export function PermitPacket({ slug, permits }: { slug: string; permits: PermitF
   function generate() {
     setError(null);
     start(async () => {
-      const res = await generatePermitPacket(slug);
+      const res = await runAction(() => generatePermitPacket(slug), { fallback: "Couldn't generate the permit packet." });
       if (res.ok) {
         // The server revalidates; reflect the new packet immediately.
         setRows((prev) => [

@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Card, Chip, Eyebrow } from "@/components/ui";
 import { ACTION_LABEL, GATED_ACTIONS, type OwnerGrant } from "@/lib/owner-grant-types";
 import { approveGrant, createGrantAction, denyGrant, revokeGrant } from "@/lib/actions/owner-grants";
+import { runAction } from "@/lib/run-action";
 
 const inputCls =
   "w-full rounded-md border border-rule bg-paper px-3 py-2 text-[13px] text-ink outline-none focus:border-accent";
@@ -44,10 +45,12 @@ export function PermissionsClient({ grants }: { grants: OwnerGrant[] }) {
   const [notice, setNotice] = useState("");
   const [copied, setCopied] = useState("");
 
+  // runAction raises the site-wide toast on failure; the notice line only
+  // carries the success message.
   const run = (fn: () => Promise<{ ok: boolean; error?: string; id?: string }>, okMsg?: string) =>
     start(async () => {
-      const r = await fn();
-      setNotice(r.ok ? okMsg ?? "" : r.error ?? "Something went wrong.");
+      const r = await runAction(fn);
+      setNotice(r.ok ? okMsg ?? "" : "");
     });
 
   const copy = (id: string) => {

@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useRef, useTransition } from "react";
 import { ImagePlus } from "lucide-react";
 import { Card, Eyebrow, PhotoGrid } from "@/components/ui";
 import { uploadLeadPhoto } from "@/lib/actions/files";
+import { runAction } from "@/lib/run-action";
 
 /** Lead photos: real uploaded images (click to open the lightbox) plus an
  *  owner "Add photos" control. `placeholderCount` keeps the showcase grid for
@@ -19,7 +20,6 @@ export function LeadPhotos({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, startUpload] = useTransition();
-  const [error, setError] = useState<string | null>(null);
 
   const items = photos.map((p) => ({
     id: p.id,
@@ -34,16 +34,12 @@ export function LeadPhotos({
     const files = Array.from(e.target.files ?? []);
     e.target.value = "";
     if (!files.length) return;
-    setError(null);
     startUpload(async () => {
       for (const file of files) {
         const fd = new FormData();
         fd.append("file", file);
-        const res = await uploadLeadPhoto(slug, fd);
-        if (!res.ok) {
-          setError(res.error);
-          break;
-        }
+        const res = await runAction(() => uploadLeadPhoto(slug, fd));
+        if (!res.ok) break;
       }
     });
   }
@@ -59,7 +55,6 @@ export function LeadPhotos({
         </div>
         <input ref={inputRef} type="file" accept="image/*" multiple onChange={onPick} className="hidden" />
         <p className="mt-2 text-[12px] text-ink-3">No photos yet — add site or intake photos.</p>
-        {error && <p className="mt-1 text-[11px] text-flag">{error}</p>}
       </Card>
     );
   }
@@ -77,7 +72,6 @@ export function LeadPhotos({
       ) : (
         <PhotoGrid count={count} label="Site photo" />
       )}
-      {error && <p className="mt-1 text-[11px] text-flag">{error}</p>}
     </Card>
   );
 }

@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Star, Pencil } from "lucide-react";
 import { updateVendor, toggleVendorFav } from "@/lib/actions/vendors";
+import { runAction } from "@/lib/run-action";
 
 const inputCls =
   "rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent";
@@ -30,7 +31,7 @@ export function VendorHeaderEdit({
 
   function toggleFav() {
     startTransition(async () => {
-      await toggleVendorFav(slug);
+      await runAction(() => toggleVendorFav(slug), { fallback: "Couldn't update the favorite." });
       router.refresh();
     });
   }
@@ -38,12 +39,12 @@ export function VendorHeaderEdit({
   function submit(fd: FormData) {
     setError(null);
     startTransition(async () => {
-      const res = await updateVendor(slug, fd);
+      const res = await runAction(() => updateVendor(slug, fd), { fallback: "Couldn't save the vendor." });
       if (res.ok) {
         setEditing(false);
         router.refresh();
       } else {
-        setError(res.error);
+        setError(res.error ?? "Couldn't save the vendor.");
       }
     });
   }

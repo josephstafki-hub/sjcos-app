@@ -136,6 +136,123 @@ function gmail(): gmail_v1.Gmail {
   return google.gmail({ version: "v1", auth: oauthClient() });
 }
 
+// ─── Rate-limit handling ─────────────────────────────────────────────────────
+//
+// Gmail meters "Units per minute per user" (threads.get = 10 units, list = 10,
+// send = 100). A burst of full-thread fetches from a timer can burn the whole
+// minute, and any real send that lands in that window fails with
+// "Quota exceeded … rateLimitExceeded". Every metered call below goes through
+// withGmailRetry so a collision backs off and recovers instead of surfacing.
+
+/** Thrown once the retry budget for a rate-limited Gmail call is exhausted.
+ *  Callers (cron guards, send paths) can `instanceof` this to tell a quota
+ *  hit from a real failure. */
+export class GmailRateLimitError extends Error {
+  readonly attempts: number;
+  readonly label: string;
+  constructor(label: string, attempts: number, cause: unknown) {
+    super(
+      `Gmail rate limit hit (${label}) after ${attempts} attempt${attempts === 1 ? "" : "s"}: ${errorMessage(cause)}`,
+      { cause },
+    );
+    this.name = "GmailRateLimitError";
+    this.attempts = attempts;
+    this.label = label;
+  }
+}
+
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
+/** True for a 403/429 whose reason is a per-user/per-minute rate limit — the
+ *  transient kind worth retrying. Daily-quota exhaustion (`dailyLimitExceeded`)
+ *  and auth failures are deliberately NOT matched: retrying those is noise. */
+export function isGmailRateLimit(err: unknown): boolean {
+  if (err instanceof GmailRateLimitError) return true;
+  if (!err || typeof err !== "object") return false;
+  const e = err as {
+    status?: number;
+    code?: number | string;
+    message?: string;
+    errors?: { reason?: string }[];
+    response?: { status?: number; data?: { error?: { errors?: { reason?: string }[]; status?: string } } };
+  };
+  // Gmail's per-minute quota message is unambiguous whatever the wrapper
+  // reports as status (googleapis surfaces it as code 429, older builds 403).
+  if (/Quota exceeded for quota metric .*per minute/i.test(e.message ?? "")) return true;
+  const status = e.status ?? e.response?.status ?? Number(e.code);
+  if (status !== 403 && status !== 429) return false;
+  const reasons = [
+    ...(e.errors ?? []).map((x) => x.reason ?? ""),
+    ...(e.response?.data?.error?.errors ?? []).map((x) => x.reason ?? ""),
+    e.response?.data?.error?.status ?? "",
+  ];
+  if (reasons.some((r) => /rateLimitExceeded|userRateLimitExceeded|RESOURCE_EXHAUSTED/i.test(r))) return true;
+  return /Quota exceeded|rate ?limit/i.test(e.message ?? "");
+}
+
+const RETRY_ATTEMPTS = 3;
+const RETRY_BASE_MS = 1500;
+
+/** Process-wide tally of metered Gmail calls (every call through
+ *  withGmailRetry, including retries). Read it before/after a job to report
+ *  how many API hits the job cost — see syncLeadThreads' `gmailCalls`. */
+let gmailCallCount = 0;
+export function gmailCallsSoFar(): number {
+  return gmailCallCount;
+}
+
+/** Run one Gmail API call with exponential backoff on rate-limit responses:
+ *  up to RETRY_ATTEMPTS tries (1.5s, 3s, 6s + jitter), then a typed
+ *  GmailRateLimitError. Non-rate-limit errors propagate untouched on the
+ *  first failure. */
+export async function withGmailRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
+    gmailCallCount++;
+    try {
+      return await fn();
+    } catch (err) {
+      if (!isGmailRateLimit(err)) throw err;
+      lastErr = err;
+      if (attempt === RETRY_ATTEMPTS) break;
+      const wait = RETRY_BASE_MS * 2 ** (attempt - 1) + Math.floor(Math.random() * 500);
+      console.warn(`[gmail] rate limited on ${label} (attempt ${attempt}/${RETRY_ATTEMPTS}); retrying in ${wait}ms`);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  throw new GmailRateLimitError(label, RETRY_ATTEMPTS, lastErr);
+}
+
+/** Map with at most `limit` promises in flight (p-limit without the dep).
+ *  Results keep input order; the first rejection rejects the whole map once
+ *  in-flight work settles. */
+export async function mapLimit<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const failures: unknown[] = [];
+  async function worker() {
+    while (failures.length === 0) {
+      const i = next++;
+      if (i >= items.length) return;
+      try {
+        out[i] = await fn(items[i], i);
+      } catch (err) {
+        failures.push(err);
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, worker));
+  if (failures.length > 0) throw failures[0];
+  return out;
+}
+
 function header(
   msg: gmail_v1.Schema$Message | undefined,
   name: string,
@@ -298,7 +415,9 @@ function sanitizeEmailHtml(html: string): string {
  *  lazily (on thread open) so the inbox list fetch stays cheap. */
 export async function fetchThreadHtml(threadId: string): Promise<string> {
   const api = gmail();
-  const { data } = await api.users.threads.get({ userId: "me", id: threadId, format: "full" });
+  const { data } = await withGmailRetry("threads.get", () =>
+    api.users.threads.get({ userId: "me", id: threadId, format: "full" }),
+  );
   const msgs = data.messages ?? [];
   const latest = msgs[msgs.length - 1];
   if (!latest?.payload) return "";
@@ -338,7 +457,8 @@ export async function fetchThreadHtml(threadId: string): Promise<string> {
 let profileEmailCache: string | null = null;
 export async function fetchProfileEmail(): Promise<string> {
   if (profileEmailCache) return profileEmailCache;
-  const { data } = await gmail().users.getProfile({ userId: "me" });
+  const api = gmail();
+  const { data } = await withGmailRetry("getProfile", () => api.users.getProfile({ userId: "me" }));
   profileEmailCache = (data.emailAddress ?? "").toLowerCase();
   return profileEmailCache;
 }
@@ -409,24 +529,28 @@ export async function fetchThreadPage(
 ): Promise<{ threads: RawGmailThread[]; nextPageToken?: string }> {
   const api = gmail();
   const me = await fetchProfileEmail();
-  const list = await api.users.threads.list({
-    userId: "me",
-    maxResults: max,
-    q,
-    // Scope to a single Gmail label when given (clicking a label in the rail);
-    // Gmail ANDs labelIds with q, so this returns that label's mail server-side.
-    ...(labelId ? { labelIds: [labelId] } : {}),
-    pageToken,
-  });
+  const list = await withGmailRetry("threads.list", () =>
+    api.users.threads.list({
+      userId: "me",
+      maxResults: max,
+      q,
+      // Scope to a single Gmail label when given (clicking a label in the rail);
+      // Gmail ANDs labelIds with q, so this returns that label's mail server-side.
+      ...(labelId ? { labelIds: [labelId] } : {}),
+      pageToken,
+    }),
+  );
   const ids = (list.data.threads ?? []).map((t) => t.id!).filter(Boolean);
 
   const threads = await Promise.all(
     ids.map(async (id) => {
-      const { data } = await api.users.threads.get({
-        userId: "me",
-        id,
-        format: "full",
-      });
+      const { data } = await withGmailRetry("threads.get", () =>
+        api.users.threads.get({
+          userId: "me",
+          id,
+          format: "full",
+        }),
+      );
       const msgs = data.messages ?? [];
       const latest = msgs[msgs.length - 1];
       // Union every label id across the thread so a single read/starred/snoozed
@@ -460,6 +584,73 @@ export async function fetchThreadPage(
     threads: threads.sort((a, b) => b.date - a.date),
     nextPageToken: list.data.nextPageToken ?? undefined,
   };
+}
+
+/** Header-only view of a thread — what the lead/needs-reply syncs need to
+ *  decide "was the last word theirs or ours". No body, no snippet. */
+export interface RawGmailThreadMeta {
+  id: string;
+  fromName: string;
+  fromEmail: string;
+  toLine: string;
+  subject: string;
+  /** Epoch ms of the latest message. */
+  date: number;
+  /** True when the latest message was sent BY the account owner (outbound). */
+  outbound: boolean;
+  /** Union of every label id across the thread's messages. */
+  labelIds: string[];
+}
+
+/** Metadata-only thread scan for the timer-driven syncs. Each thread costs one
+ *  `threads.get` with `format: "metadata"` (headers + labelIds + internalDate,
+ *  no MIME payload) and at most `concurrency` are in flight at once, so a run
+ *  never burns the per-minute quota the way the old 150-way `format: "full"`
+ *  Promise.all did. `since` (epoch ms) narrows the list to threads with a
+ *  message newer than that instant via Gmail's `after:` operator (second
+ *  granularity), which is what makes an incremental run a handful of calls.
+ *  Newest-first, like fetchThreadPage. */
+export async function fetchThreadMetadata(opts: {
+  max?: number;
+  /** Epoch ms; only threads with a message after this instant. */
+  since?: number | null;
+  q?: string;
+  concurrency?: number;
+} = {}): Promise<RawGmailThreadMeta[]> {
+  const api = gmail();
+  const me = await fetchProfileEmail();
+  const baseQ = opts.q ?? "-in:spam -in:trash";
+  const q = opts.since ? `${baseQ} after:${Math.floor(opts.since / 1000)}` : baseQ;
+  const list = await withGmailRetry("threads.list", () =>
+    api.users.threads.list({ userId: "me", maxResults: opts.max ?? 150, q }),
+  );
+  const ids = (list.data.threads ?? []).map((t) => t.id!).filter(Boolean);
+
+  const threads = await mapLimit(ids, opts.concurrency ?? 5, async (id) => {
+    const { data } = await withGmailRetry("threads.get(metadata)", () =>
+      api.users.threads.get({
+        userId: "me",
+        id,
+        format: "metadata",
+        metadataHeaders: ["From", "To", "Subject", "Date"],
+      }),
+    );
+    const msgs = data.messages ?? [];
+    const latest = msgs[msgs.length - 1];
+    const labelIds = Array.from(new Set(msgs.flatMap((m) => m.labelIds ?? [])));
+    const { name, email } = parseFrom(header(latest, "From"));
+    return {
+      id,
+      fromName: name,
+      fromEmail: email,
+      toLine: header(latest, "To"),
+      subject: header(latest, "Subject") || "(no subject)",
+      date: Number(latest?.internalDate ?? Date.now()),
+      outbound: email.toLowerCase() === me,
+      labelIds,
+    } satisfies RawGmailThreadMeta;
+  });
+  return threads.sort((a, b) => b.date - a.date);
 }
 
 // ─── Sending ─────────────────────────────────────────────────────────────────
@@ -562,13 +753,16 @@ export async function sendReply(opts: {
   const subject = opts.subject.startsWith("Re:")
     ? opts.subject
     : `Re: ${opts.subject}`;
-  await gmail().users.messages.send({
-    userId: "me",
-    requestBody: {
-      raw: buildRaw(opts.toEmail, subject, opts.bodyText),
-      threadId: opts.threadId,
-    },
-  });
+  const api = gmail();
+  await withGmailRetry("messages.send", () =>
+    api.users.messages.send({
+      userId: "me",
+      requestBody: {
+        raw: buildRaw(opts.toEmail, subject, opts.bodyText),
+        threadId: opts.threadId,
+      },
+    }),
+  );
 }
 
 /** Compose and send a brand-new email (not part of an existing thread). */
@@ -590,16 +784,21 @@ export async function sendNewEmail(opts: {
   // The JSON endpoint rejects large payloads, so anything attachment-heavy
   // (e.g. a bid packet with a multi-MB plan set) goes through the media-upload
   // path instead — that one takes the raw RFC-2822 bytes, no base64 field.
+  const api = gmail();
   if (Buffer.byteLength(mime) > 4 * 1024 * 1024) {
-    await gmail().users.messages.send({
-      userId: "me",
-      media: { mimeType: "message/rfc822", body: mime },
-    });
+    await withGmailRetry("messages.send(media)", () =>
+      api.users.messages.send({
+        userId: "me",
+        media: { mimeType: "message/rfc822", body: mime },
+      }),
+    );
   } else {
-    await gmail().users.messages.send({
-      userId: "me",
-      requestBody: { raw: Buffer.from(mime).toString("base64url") },
-    });
+    await withGmailRetry("messages.send", () =>
+      api.users.messages.send({
+        userId: "me",
+        requestBody: { raw: Buffer.from(mime).toString("base64url") },
+      }),
+    );
   }
 }
 

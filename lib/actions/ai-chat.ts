@@ -15,6 +15,27 @@ import { conciergeTurn } from "@/lib/orchestrator/voice";
 import { hermesProgress, qwenProgress, runLog } from "@/lib/orchestrator/activity";
 import { composeHermesTurn, composeQwenTurns, lastAnsweringAgent } from "@/lib/orchestrator/thread";
 import { UPLOAD_DIR, sanitizeAttachments } from "@/lib/attachments";
+import {
+  bindFolder,
+  createFolder,
+  deleteFolder,
+  ensureFolderForEntity,
+  fileThreadUnderEntity,
+  folderContextLine,
+  listArchivedThreads,
+  listThreadRail,
+  moveThread,
+  renameFolder,
+  setFolderArchived,
+  setFolderCollapsed,
+  setThreadArchived,
+  setThreadPinned,
+  settleThread,
+  touchThreadActivity,
+  unsettleThread,
+  type ThreadRail,
+} from "@/lib/thread-folders";
+import type { FolderEntityRef, RailThread } from "@/lib/thread-rail";
 
 // A Qwen proposal Claude holds re-routes to the Hermes ladder (registered here
 // because proposals.ts can't import ladder.ts without a cycle).
@@ -59,9 +80,17 @@ export async function loadConversationAction(id: string): Promise<ConversationDe
   return getConversation(id);
 }
 
-export async function newConversationAction(agent: PanelAgent): Promise<string> {
+/** Start a thread. Where it files (docs/thread-folders-plan.md §3.6): the
+ *  tab's scoped folder wins, else the job whose page the app view is on
+ *  (its folder is created on first use), else Unfiled. */
+export async function newConversationAction(
+  agent: PanelAgent,
+  where?: { folderId?: string | null; entity?: FolderEntityRef | null },
+): Promise<string> {
   await requireRole("owner");
-  return insertConversation(agent, "New chat");
+  let folderId: string | null = where?.folderId ?? null;
+  if (!folderId && where?.entity) folderId = await ensureFolderForEntity(where.entity).catch(() => null);
+  return insertConversation(agent, "New chat", folderId);
 }
 
 // ─── File attachments (uploaded from the Ask composer) ───────────────────────
@@ -158,6 +187,13 @@ export async function sendMessageAction(
   const attachNote = files.length
     ? `${text ? "\n\n" : ""}📎 ${files.map((f) => f.name).join(", ")}`
     : "";
+  // A real message is activity: it clears a settled/keep-active override and
+  // re-anchors the thread in the rail only if it was parked (lib/thread-folders).
+  await touchThreadActivity(conversationId);
+  // The job this thread is filed under rides along with the page grounding so
+  // the agent knows what "the kitchen" refers to even off the project's page.
+  const folderLine = await folderContextLine(conversationId).catch(() => null);
+  if (folderLine) pageContext = pageContext ? `${folderLine}\n\n${pageContext}` : folderLine;
   const userMsg = await insertMessage(conversationId, "user", text + attachNote, {
     pageContext,
     subjectWorkItemId,
@@ -230,16 +266,115 @@ export async function renameConversationAction(id: string, title: string): Promi
   return { ok: true };
 }
 
+/** Archive hides the thread (kept under "Show archived"); refused while a run
+ *  is live. Restore un-hides it. */
 export async function archiveConversationAction(
   id: string,
   archived: boolean,
-): Promise<{ ok: boolean }> {
+): Promise<{ ok: boolean; error?: string }> {
   await requireRole("owner");
-  await query(`UPDATE ai_conversations SET archived = $2, updated_at = now() WHERE id = $1`, [
-    id,
-    archived,
-  ]);
+  const r = await setThreadArchived(id, archived);
+  return r.ok ? { ok: true } : { ok: false, error: r.error };
+}
+
+// ─── Thread rail: lifecycle + folders (docs/thread-folders-plan.md) ──────────
+// Thin owner-gated wrappers over lib/thread-folders.ts. The rail re-partitions
+// client-side (lib/thread-rail.ts) and reloads after each mutation.
+
+export async function listThreadRailAction(): Promise<ThreadRail> {
+  await requireRole("owner");
+  return listThreadRail();
+}
+
+export async function listArchivedThreadsAction(): Promise<RailThread[]> {
+  await requireRole("owner");
+  return listArchivedThreads();
+}
+
+/** ✓ "I'm done with this" → Settled shelf. Refused while working/blocked. */
+export async function settleConversationAction(id: string): Promise<{ ok: boolean; error?: string }> {
+  await requireRole("owner");
+  const r = await settleThread(id);
+  return r.ok ? { ok: true } : { ok: false, error: r.error };
+}
+
+/** ↶ back to the active list, and auto-settle leaves it alone from now on. */
+export async function unsettleConversationAction(id: string): Promise<{ ok: boolean }> {
+  await requireRole("owner");
+  await unsettleThread(id);
   return { ok: true };
+}
+
+export async function pinConversationAction(id: string, pinned: boolean): Promise<{ ok: boolean }> {
+  await requireRole("owner");
+  await setThreadPinned(id, pinned);
+  return { ok: true };
+}
+
+/** Move a thread into a folder (null = Unfiled). */
+export async function moveConversationAction(id: string, folderId: string | null): Promise<{ ok: boolean }> {
+  await requireRole("owner");
+  await moveThread(id, folderId);
+  return { ok: true };
+}
+
+/** The "File under Larson kitchen?" chip: into that job's folder (created on
+ *  first use). */
+export async function fileConversationUnderAction(
+  id: string,
+  entity: FolderEntityRef,
+): Promise<{ ok: boolean; folderId: string | null }> {
+  await requireRole("owner");
+  const folderId = await fileThreadUnderEntity(id, entity);
+  return { ok: folderId != null, folderId };
+}
+
+export async function createFolderAction(name: string): Promise<{ ok: boolean; id: string }> {
+  await requireRole("owner");
+  return { ok: true, id: await createFolder(name) };
+}
+
+/** A folder for a job (project/lead page), created on first use. */
+export async function ensureEntityFolderAction(entity: FolderEntityRef): Promise<{ ok: boolean; id: string | null }> {
+  await requireRole("owner");
+  const id = await ensureFolderForEntity(entity);
+  return { ok: id != null, id };
+}
+
+export async function renameFolderAction(id: string, name: string): Promise<{ ok: boolean }> {
+  await requireRole("owner");
+  await renameFolder(id, name);
+  return { ok: true };
+}
+
+/** Link a folder to a job (null unlinks). A slug or uuid of a project / lead /
+ *  vendor / sub. */
+export async function bindFolderAction(
+  id: string,
+  entity: FolderEntityRef | null,
+): Promise<{ ok: boolean; error?: string; existingFolderId?: string }> {
+  await requireRole("owner");
+  const r = await bindFolder(id, entity);
+  return r.ok ? { ok: true } : { ok: false, error: r.error, existingFolderId: r.existingFolderId };
+}
+
+export async function setFolderCollapsedAction(id: string, collapsed: boolean): Promise<{ ok: boolean }> {
+  await requireRole("owner");
+  await setFolderCollapsed(id, collapsed);
+  return { ok: true };
+}
+
+export async function archiveFolderAction(id: string, archived: boolean): Promise<{ ok: boolean; error?: string }> {
+  await requireRole("owner");
+  const r = await setFolderArchived(id, archived);
+  return r.ok ? { ok: true } : { ok: false, error: r.error };
+}
+
+/** Delete the folder; its threads become Unfiled. */
+export async function deleteFolderAction(id: string): Promise<{ ok: boolean; error?: string }> {
+  await requireRole("owner");
+  const r = await deleteFolder(id);
+  return r.ok ? { ok: true } : { ok: false, error: r.error };
 }
 
 export async function deleteConversationAction(id: string): Promise<{ ok: boolean }> {
@@ -376,6 +511,9 @@ export async function voiceTurnAction(
   );
   if (!conv) return { ok: false, error: "That conversation no longer exists." };
 
+  await touchThreadActivity(conversationId);
+  const folderLine = await folderContextLine(conversationId).catch(() => null);
+  if (folderLine) pageContext = pageContext ? `${folderLine}\n\n${pageContext}` : folderLine;
   const before = await getTurns(conversationId);
   await insertMessage(conversationId, "user", text, { pageContext });
   await autoTitleIfNeeded(conversationId, text);

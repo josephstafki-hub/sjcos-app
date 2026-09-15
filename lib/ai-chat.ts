@@ -44,6 +44,9 @@ export interface ConversationDetail {
   agent: PanelAgent;
   title: string;
   claudeSessionId: string | null;
+  /** The folder (job) this thread is filed under, for the chat header chip. */
+  folderId: string | null;
+  folderName: string | null;
   messages: ChatMessage[];
   /** A Claude run still in flight for this thread (so the UI resumes polling). */
   pendingRunId: string | null;
@@ -63,7 +66,7 @@ export async function listConversations(
   }>(
     `SELECT id, agent, title, updated_at::text AS updated_at, archived
        FROM ai_conversations
-      WHERE agent = $1 ${includeArchived ? "" : "AND archived = false"}
+      WHERE agent = $1 ${includeArchived ? "" : "AND archived_at IS NULL"}
       ORDER BY updated_at DESC
       LIMIT 100`,
     [agent],
@@ -99,7 +102,7 @@ export async function listAllConversations(includeArchived = false): Promise<Thr
             EXISTS (SELECT 1 FROM dev_agent_runs r
                      WHERE r.conversation_id = c.id AND r.status IN ('pending','running')) AS live
        FROM ai_conversations c
-      ${includeArchived ? "" : "WHERE c.archived = false"}
+      ${includeArchived ? "" : "WHERE c.archived_at IS NULL"}
       ORDER BY c.updated_at DESC
       LIMIT 100`,
   );
@@ -120,8 +123,20 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
     agent: PanelAgent;
     title: string;
     claude_session_id: string | null;
+    folder_id: string | null;
+    folder_name: string | null;
   }>(
-    `SELECT id, agent, title, claude_session_id FROM ai_conversations WHERE id = $1`,
+    `SELECT c.id, c.agent, c.title, c.claude_session_id, c.folder_id,
+            CASE WHEN f.id IS NULL THEN NULL
+                 WHEN f.name <> '' THEN f.name
+                 ELSE COALESCE(p.name, l.name, v.name, s.name, f.entity_id) END AS folder_name
+       FROM ai_conversations c
+       LEFT JOIN ai_folders f ON f.id = c.folder_id
+       LEFT JOIN projects p ON f.entity_kind = 'project' AND (p.slug = f.entity_id OR p.id::text = f.entity_id)
+       LEFT JOIN leads l ON f.entity_kind = 'lead' AND (l.slug = f.entity_id OR l.id::text = f.entity_id)
+       LEFT JOIN vendors v ON f.entity_kind = 'vendor' AND (v.slug = f.entity_id OR v.id::text = f.entity_id)
+       LEFT JOIN subs s ON f.entity_kind = 'sub' AND (s.slug = f.entity_id OR s.id::text = f.entity_id)
+      WHERE c.id = $1`,
     [id],
   );
   if (!conv) return null;
@@ -154,6 +169,8 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
     agent: conv.agent,
     title: conv.title,
     claudeSessionId: conv.claude_session_id,
+    folderId: conv.folder_id,
+    folderName: conv.folder_name,
     messages: messages.map((m) => ({
       id: m.id,
       role: m.role,
@@ -220,11 +237,16 @@ export async function getThreadMessages(conversationId: string): Promise<ThreadM
   }));
 }
 
-/** Insert a conversation. Title defaults to a trimmed first prompt. */
-export async function insertConversation(agent: PanelAgent, title: string): Promise<string> {
+/** Insert a conversation. Title defaults to a trimmed first prompt.
+ *  `folderId` files it under a job folder from the start (lib/thread-folders). */
+export async function insertConversation(
+  agent: PanelAgent,
+  title: string,
+  folderId: string | null = null,
+): Promise<string> {
   const row = await queryOne<{ id: string }>(
-    `INSERT INTO ai_conversations (agent, title) VALUES ($1, $2) RETURNING id`,
-    [agent, title.slice(0, 80) || "New chat"],
+    `INSERT INTO ai_conversations (agent, title, folder_id, last_activity_at) VALUES ($1, $2, $3, now()) RETURNING id`,
+    [agent, title.slice(0, 80) || "New chat", folderId],
   );
   return row!.id;
 }
@@ -268,7 +290,9 @@ export async function insertMessage(
       opts.attachments?.length ? JSON.stringify(opts.attachments) : null,
     ],
   );
-  await query(`UPDATE ai_conversations SET updated_at = now() WHERE id = $1`, [conversationId]);
+  // last_activity_at is the auto-settle clock and the settled shelf's sort key
+  // (lib/thread-folders.ts) — every persisted turn moves it.
+  await query(`UPDATE ai_conversations SET updated_at = now(), last_activity_at = now() WHERE id = $1`, [conversationId]);
   return {
     id: row!.id,
     role: row!.role,

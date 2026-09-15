@@ -45,6 +45,9 @@ export interface PanelState {
   agent: PanelAgent;
   /** Per tab: model/mode/effort apply to the turns this tab sends. */
   claude: ClaudeOptions;
+  /** Per tab: the thread rail is scoped to one folder (job); null = all.
+   *  New chats started while scoped file under it. */
+  folderId: string | null;
   /** Dock width in px (splitter). Shared. */
   width: number;
   /** Shared. */
@@ -59,9 +62,9 @@ export interface PanelState {
 }
 
 /** The per-tab slice of PanelState. */
-export type PanelSession = Pick<PanelState, "conversationId" | "agent" | "claude">;
+export type PanelSession = Pick<PanelState, "conversationId" | "agent" | "claude" | "folderId">;
 
-const SESSION_KEYS = ["conversationId", "agent", "claude"] as const;
+const SESSION_KEYS = ["conversationId", "agent", "claude", "folderId"] as const;
 const LAYOUT_KEYS = ["width", "collapsed", "where", "follow"] as const;
 
 export const PANEL_MIN_WIDTH = 320;
@@ -72,6 +75,7 @@ export const PANEL_DEFAULTS: PanelState = {
   conversationId: null,
   agent: "auto",
   claude: CLAUDE_DEFAULTS,
+  folderId: null,
   width: PANEL_DEFAULT_WIDTH,
   collapsed: false,
   where: "docked",
@@ -118,6 +122,7 @@ function readTabSession(): PanelSession | null {
       conversationId: parsed.conversationId ?? null,
       agent: parsed.agent ?? PANEL_DEFAULTS.agent,
       claude: { ...CLAUDE_DEFAULTS, ...(parsed.claude ?? {}) },
+      folderId: parsed.folderId ?? null,
     };
   } catch {
     return null;
@@ -153,7 +158,12 @@ export function writePanelState(patch: Partial<PanelState>): PanelState {
   const touchesSession = SESSION_KEYS.some((k) => k in patch);
   const touchesLayout = LAYOUT_KEYS.some((k) => k in patch);
   if (touchesSession) {
-    writeTabSession({ conversationId: next.conversationId, agent: next.agent, claude: next.claude });
+    writeTabSession({
+      conversationId: next.conversationId,
+      agent: next.agent,
+      claude: next.claude,
+      folderId: next.folderId,
+    });
     if ("conversationId" in patch) claimConversation(next.conversationId);
   }
   try {
@@ -253,8 +263,8 @@ function isClaimedElsewhere(id: string): boolean {
  */
 export function adoptPanelSession(): PanelSession {
   if (typeof window === "undefined") {
-    const { conversationId, agent, claude } = PANEL_DEFAULTS;
-    return { conversationId, agent, claude };
+    const { conversationId, agent, claude, folderId } = PANEL_DEFAULTS;
+    return { conversationId, agent, claude, folderId };
   }
   const existing = readTabSession();
   if (existing) {
@@ -267,8 +277,61 @@ export function adoptPanelSession(): PanelSession {
       seed.conversationId && !isClaimedElsewhere(seed.conversationId) ? seed.conversationId : null,
     agent: seed.agent,
     claude: seed.claude,
+    // Folder scope is a per-tab working context, never inherited.
+    folderId: null,
   };
   writeTabSession(session);
   claimConversation(session.conversationId);
   return session;
+}
+
+// ─── Run-seen registry ───────────────────────────────────────────────────────
+// The thread rail shows an unseen completion ("Done — unread" / "Failed") on a
+// thread whose last run finished while this tab was elsewhere, T3-style. What
+// counts as seen is per tab (sessionStorage): opening the thread here marks
+// its latest run seen; another tab keeps its own view. Capped so it can't grow
+// without bound across a long day.
+
+const SEEN_KEY = "sjcos:panel:seen:v1";
+const SEEN_MAX = 300;
+/** Per tab: when this tab first opened the panel — runs that finished before
+ *  it are history, not news. Survives reload (sessionStorage), dies with the tab. */
+const TAB_STARTED_KEY = "sjcos:panel:started:v1";
+
+export function panelTabStartedAt(): number {
+  if (typeof window === "undefined") return Date.now();
+  try {
+    const raw = window.sessionStorage.getItem(TAB_STARTED_KEY);
+    if (raw && Number.isFinite(Number(raw))) return Number(raw);
+    const now = Date.now();
+    window.sessionStorage.setItem(TAB_STARTED_KEY, String(now));
+    return now;
+  } catch {
+    return Date.now();
+  }
+}
+
+function readSeen(): string[] {
+  try {
+    const raw = window.sessionStorage.getItem(SEEN_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function isRunSeen(runId: string): boolean {
+  if (typeof window === "undefined") return true;
+  return readSeen().includes(runId);
+}
+
+export function markRunSeen(runId: string | null | undefined): void {
+  if (typeof window === "undefined" || !runId) return;
+  const cur = readSeen().filter((id) => id !== runId);
+  cur.push(runId);
+  try {
+    window.sessionStorage.setItem(SEEN_KEY, JSON.stringify(cur.slice(-SEEN_MAX)));
+  } catch {
+    // Without the registry every completion shows as unread — harmless.
+  }
 }

@@ -13,6 +13,7 @@ import {
 import { query } from "@/lib/db";
 import { ACTION_LABEL } from "@/lib/owner-grant-types";
 import { getRunFocus } from "@/lib/run-focus";
+import { autoSettleQuietThreads } from "@/lib/thread-folders";
 import type { RunFocus } from "@/lib/entity-href";
 
 // dev_agent_runs polling. Backs every async agent turn started from the Ask
@@ -109,6 +110,9 @@ export async function pollAgentRun(runId: string): Promise<PollResult> {
   await requireRole("owner");
   await failStaleRuns();
   await failStaleTasks();
+  // Thread auto-settle rides the same heartbeat (throttled to once a minute
+  // in-process); the agent-retries cron covers hours with no panel open.
+  await autoSettleQuietThreads().catch(() => {});
   const run = await getDevAgentRun(runId);
   if (!run) return { ok: false, error: "That run no longer exists." };
   if (run.status === "error")

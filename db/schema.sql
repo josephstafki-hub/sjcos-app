@@ -2958,3 +2958,48 @@ CREATE TABLE IF NOT EXISTS lead_first_responses (
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_lead_first_responses_status ON lead_first_responses(status, updated_at);
+
+-- ── Panel threads v2: folders, settled/archive lifecycle, pins ───────────────
+-- (docs/thread-folders-plan.md; db/apply-thread-folders.mjs applies this to a
+-- live DB.) A folder is a nameable group of panel conversations — typically
+-- one per job — optionally BOUND to one SJC OS entity (a project or a lead) so
+-- its name follows the entity and every thread opened from that entity's page
+-- files under it. Free folders ("Admin / bookkeeping") have no entity.
+CREATE TABLE IF NOT EXISTS ai_folders (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name         text NOT NULL DEFAULT '',
+  entity_kind  text CHECK (entity_kind IN ('project','lead','vendor','sub')),
+  entity_id    text,                       -- slug or uuid as text (same as run_effects)
+  collapsed    boolean NOT NULL DEFAULT false,
+  sort_key     text,                       -- manual order (fractional index); NULL = by activity
+  archived_at  timestamptz,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+-- One folder per entity; any number of free folders.
+CREATE UNIQUE INDEX IF NOT EXISTS ai_folders_entity_idx
+  ON ai_folders (entity_kind, entity_id) WHERE entity_id IS NOT NULL;
+
+-- Thread lifecycle, mirroring T3 Code's sidebar model:
+--   settled_override  'settled' → in the Settled shelf; 'active' → Joe said
+--                     "keep active" (auto-settle skips it); NULL → neutral.
+--   settled_at        when the work ENDED (last activity), the shelf's sort key.
+--   unsettled_at      re-entry stamp — the ONLY thing that re-anchors a thread
+--                     in the active list (activity never reorders it).
+--   archived_at       hidden from the rail, kept (successor to `archived`).
+--   pinned_at / pin_order_key   pinned block on top, manual order.
+--   snoozed_until / snoozed_at  reserved (stretch); not read yet.
+--   last_activity_at  last user/assistant message — the auto-settle clock.
+ALTER TABLE ai_conversations
+  ADD COLUMN IF NOT EXISTS folder_id        uuid REFERENCES ai_folders(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS settled_override text CHECK (settled_override IN ('settled','active')),
+  ADD COLUMN IF NOT EXISTS settled_at       timestamptz,
+  ADD COLUMN IF NOT EXISTS unsettled_at     timestamptz,
+  ADD COLUMN IF NOT EXISTS archived_at      timestamptz,
+  ADD COLUMN IF NOT EXISTS pinned_at        timestamptz,
+  ADD COLUMN IF NOT EXISTS pin_order_key    text,
+  ADD COLUMN IF NOT EXISTS snoozed_until    timestamptz,
+  ADD COLUMN IF NOT EXISTS snoozed_at       timestamptz,
+  ADD COLUMN IF NOT EXISTS last_activity_at timestamptz;
+CREATE INDEX IF NOT EXISTS ai_conversations_rail_idx
+  ON ai_conversations (archived_at, folder_id, settled_override, created_at DESC);

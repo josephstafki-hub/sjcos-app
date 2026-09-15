@@ -143,6 +143,7 @@ export function PanelChat({
 
   const chat = useAgentChat({
     getPageContext,
+    getPageRoute: getPanelPageRoute,
     onRunStart,
     onRunEnd,
     onSettled: refresh,
@@ -333,9 +334,10 @@ export function PanelChat({
     inputRef.current?.focus();
   };
 
-  const newThread = () => {
+  const newThread = (folderId?: string | null) => {
     setThreadsOpen(false);
-    chat.newChat();
+    if (folderId) chat.newChatIn(folderId);
+    else chat.newChat();
     inputRef.current?.focus();
   };
 
@@ -374,6 +376,14 @@ export function PanelChat({
             </button>
           ))}
         </div>
+        {chat.folderName && (
+          <span
+            className="hidden max-w-36 truncate rounded-full bg-paper-2 px-1.5 py-px font-mono text-[10px] text-ink-3 min-[460px]:inline"
+            title="The job this thread is filed under — the agent is told"
+          >
+            {chat.folderName}
+          </span>
+        )}
         {route && (
           <span className="hidden truncate font-mono text-[10.5px] text-ink-4 min-[460px]:inline" title="The page the app view is showing — turns are grounded in it">
             {route}
@@ -392,7 +402,7 @@ export function PanelChat({
         )}
         {chat.messages.length > 0 && (
           <button
-            onClick={newThread}
+            onClick={() => newThread()}
             aria-label="New chat"
             title={
               chat.pending
@@ -414,10 +424,13 @@ export function PanelChat({
             className="min-h-0 flex-1"
             currentId={chat.conversationId}
             refreshKey={threadsRefreshKey}
+            scopeFolderId={chat.folderScope}
+            onScopeChange={chat.setFolderScope}
+            pageRoute={route}
             onOpen={openThread}
             onNew={newThread}
             onClose={() => setThreadsOpen(false)}
-            onCurrentRemoved={newThread}
+            onCurrentRemoved={() => newThread()}
           />
         </div>
       )}
@@ -771,12 +784,15 @@ export function PanelChat({
     <div className="flex h-full min-h-0 gap-2">
       <ThreadList
         variant="rail"
-        className="w-44 flex-none"
+        className="w-52 flex-none"
         currentId={chat.conversationId}
         refreshKey={threadsRefreshKey}
+        scopeFolderId={chat.folderScope}
+        onScopeChange={chat.setFolderScope}
+        pageRoute={route}
         onOpen={openThread}
         onNew={newThread}
-        onCurrentRemoved={newThread}
+        onCurrentRemoved={() => newThread()}
       />
       {chatSection}
     </div>

@@ -24,6 +24,9 @@ export type PanelBusMessage =
   | { type: "nav-ack"; id: string }
   /** A run started/ended somewhere; other windows update chips/highlights. */
   | { type: "run"; phase: "start" | "end"; runId: string; agent: PanelAgent; subjectId: string | null }
+  /** Threads/folders changed (settle, pin, move, folder edits) — every rail
+   *  reloads so two windows show the same shelves. */
+  | { type: "threads" }
   /** LiveUpdates saw new app_change_log rows — which tables were touched.
    *  `agentScopes` is the subset written by an agent over MCP (source='mcp');
    *  the rest is the app itself (Joe in another tab, cron timers). Feeds the

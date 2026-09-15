@@ -129,6 +129,10 @@ export function useAgentChat({
   const [grants, setGrants] = useState<PendingGrant[]>([]);
   /** Live context size (tokens) of the Claude session, null when unknown. */
   const [contextTokens, setContextTokens] = useState<number | null>(null);
+  /** The window (tokens) the last finished run actually ran with — from the
+   *  result envelope's modelUsage.contextWindow. Null until a run reports it
+   *  (the meter then falls back to the picker's model + context choice). */
+  const [contextWindow, setContextWindow] = useState<number | null>(null);
   /** The run currently being polled — the ⏹ Stop target. */
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   /** The thread's resumable CLI session (shown as a chip; "Fresh" clears it). */
@@ -194,6 +198,8 @@ export function useAgentChat({
         setInteractions([]);
         setGrants([]);
         if (p.contextTokens != null) setContextTokens(p.contextTokens);
+        const reported = reportedContextWindow(p.tokenUsage);
+        if (reported != null) setContextWindow(reported);
         if (p.sessionId) setClaudeSessionId(p.sessionId);
         if (p.activity) setLogs((l) => ({ ...l, [`run-${runId}`]: p.activity! }));
         setMessages((m) => [
@@ -374,6 +380,9 @@ export function useAgentChat({
   };
 
   const setClaudeOpts = (patch: Partial<ClaudeOptions>) => {
+    // A model / window change means the last run's reported window no longer
+    // describes the next turn — let the meter go back to the picker's guess.
+    if (patch.model !== undefined || patch.context !== undefined) setContextWindow(null);
     setClaudeOptsState((prev) => {
       const next = { ...prev, ...patch };
       writePanelState({ claude: next });
@@ -413,6 +422,7 @@ export function useAgentChat({
     if (!conversationId) return;
     setClaudeSessionId(null);
     setContextTokens(null);
+    setContextWindow(null);
     void resetClaudeSessionAction(conversationId);
   };
 
@@ -543,6 +553,7 @@ export function useAgentChat({
     interactions,
     grants,
     contextTokens,
+    contextWindow,
     activeRunId,
     claudeSessionId,
     stop,
@@ -551,6 +562,20 @@ export function useAgentChat({
     dropGrant,
     freshSession,
   };
+}
+
+/** The largest contextWindow the CLI reported in a result envelope's
+ *  modelUsage (one entry per model the run touched; the main model's window is
+ *  the one that matters and it is the largest). */
+function reportedContextWindow(tokenUsage: Record<string, unknown> | null | undefined): number | null {
+  const mu = tokenUsage?.modelUsage;
+  if (!mu || typeof mu !== "object") return null;
+  let best: number | null = null;
+  for (const entry of Object.values(mu as Record<string, unknown>)) {
+    const w = (entry as { contextWindow?: unknown } | null)?.contextWindow;
+    if (typeof w === "number" && w > 0 && (best == null || w > best)) best = w;
+  }
+  return best;
 }
 
 /** Shown when Joe steps off a live turn to do something else — the run is not

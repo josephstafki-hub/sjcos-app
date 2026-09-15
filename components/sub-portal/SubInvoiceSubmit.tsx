@@ -3,6 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { Plus, Send, X } from "lucide-react";
 import { submitSubInvoice } from "@/lib/actions/sub-portal";
+import { runAction } from "@/lib/run-action";
 
 /** Real "Submit final invoice" control for the sub portal — an amount + note
  *  that persists to sub_invoices and notifies Joe. Replaces the showcase
@@ -33,7 +34,7 @@ export function SubInvoiceSubmit({ slug }: { slug: string }) {
         const fd = new FormData(e.currentTarget);
         startTransition(async () => {
           setError("");
-          const r = await submitSubInvoice(slug, fd);
+          const r = await runAction(() => submitSubInvoice(slug, fd), { fallback: "Could not submit the invoice." });
           if (r.ok) {
             setOpen(false);
             formRef.current?.reset();

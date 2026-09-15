@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
+import { runAction } from "@/lib/run-action";
 import { CATEGORIES } from "@/lib/catalog-categories";
 import type { MoodBoardData, MoodItem } from "@/lib/mood";
 import {
@@ -93,7 +94,6 @@ export function MoodBoard({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [picker, setPicker] = useState(false);
   const [upload, setUpload] = useState(false);
@@ -133,17 +133,15 @@ export function MoodBoard({
   // Single path for every mutation on this board. The actions revalidate on the
   // server, but the project page is dynamic (cookie auth), so nothing re-renders
   // until the client router refetches — without router.refresh() a pinned item
-  // lands in the DB and never shows up. On failure the modal stays open with the
-  // error so the owner's picks survive.
+  // lands in the DB and never shows up. runAction raises the site-wide toast on
+  // failure; the modal stays open so the owner's picks survive.
   function run(
     fn: () => Promise<Result>,
     { onSuccess, onError, fallback = "Something went wrong.", refresh = true }: RunOptions = {},
   ) {
-    setError("");
     startTransition(async () => {
-      const r = await fn();
+      const r = await runAction(fn, { fallback });
       if (!r.ok) {
-        setError(r.error ?? fallback);
         onError?.();
         return;
       }
@@ -194,12 +192,10 @@ export function MoodBoard({
    *  also emails the client — show what actually happened, not just "done". */
   function publishBoard(to: boolean) {
     if (!room) return;
-    setError("");
     setNotice("");
     startTransition(async () => {
-      const r = await setMoodBoardPublished(slug, room, to);
-      if (!r.ok) setError(r.error ?? "Something went wrong.");
-      else {
+      const r = await runAction(() => setMoodBoardPublished(slug, room, to));
+      if (r.ok) {
         setNotice(to ? (r.delivery?.note ?? "Published.") : "Removed from the client dashboard.");
         router.refresh();
       }
@@ -274,7 +270,6 @@ export function MoodBoard({
         </button>
       </div>
 
-      {error && <div className="text-[12px] text-flag">{error}</div>}
       {notice && <div className="text-[12px] text-money">{notice}</div>}
 
       {/* Dashboard state for the active board. */}

@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { PhoneCall, PhoneIncoming, PhoneOutgoing, Voicemail, AlertCircle, ExternalLink, Plus, X, ArrowLeft, FileText } from "lucide-react";
 import { Chip } from "@/components/ui";
 import { loadCall, placeCallAction, type CallDetail } from "@/lib/actions/calls";
+import { runAction } from "@/lib/run-action";
 import type { CallRow } from "@/lib/voice";
 
 const LINK_ROUTE: Record<string, string> = { lead: "leads", sub: "subs", project: "projects", client: "projects", vendor: "vendors" };
@@ -95,7 +96,7 @@ export function CallsClient({
     setComposeErr(null);
     setDialing(true);
     start(async () => {
-      const r = await placeCallAction(newPhone, newName);
+      const r = await runAction(() => placeCallAction(newPhone, newName), { fallback: "Could not place the call." });
       setDialing(false);
       if (r.ok && r.callId) {
         setComposeOpen(false);

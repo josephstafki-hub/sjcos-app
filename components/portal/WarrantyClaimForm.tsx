@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { ShieldCheck, Send } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import { submitWarrantyClaim } from "@/lib/actions/warranty";
+import { runAction } from "@/lib/run-action";
 import type { ClientWarranty } from "@/lib/warranty";
 
 const STATUS_CHIP: Record<string, "money" | "accent" | "ghost"> = {
@@ -37,7 +38,7 @@ export function WarrantyClaimForm({ slug, data }: { slug: string; data: ClientWa
           const fd = new FormData(e.currentTarget);
           startTransition(async () => {
             setError("");
-            const r = await submitWarrantyClaim(slug, fd);
+            const r = await runAction(() => submitWarrantyClaim(slug, fd), { fallback: "Couldn't submit the claim." });
             if (r.ok) {
               formRef.current?.reset();
               setSent(true);

@@ -20,6 +20,7 @@ import {
   deleteGroup,
   setRecipientGroup,
 } from "@/lib/actions/newsletter";
+import { runAction } from "@/lib/run-action";
 import type { Recipient, NewsletterGroup } from "@/lib/newsletter";
 
 export function RecipientsPanel({
@@ -56,7 +57,7 @@ export function RecipientsPanel({
     const email = newEmail.trim();
     if (!email) return;
     start(async () => {
-      const res = await addRecipient(email, newName);
+      const res = await runAction(() => addRecipient(email, newName), { fallback: "Could not add that contact." });
       if (res.ok) {
         setRecipients((prev) =>
           prev.some((r) => r.email === email.toLowerCase())
@@ -66,14 +67,19 @@ export function RecipientsPanel({
         setNewEmail("");
         setNewName("");
         onOutboxRefresh();
-      } else onNotice(res.error);
+      }
     });
   }
 
+  /** Optimistic: the row drops now and comes back only if the delete fails. */
   function rmRcpt(id: number) {
-    setRecipients((prev) => prev.filter((r) => r.id !== id));
+    const prev = recipients;
+    setRecipients((cur) => cur.filter((r) => r.id !== id));
     start(async () => {
-      await removeRecipient(id);
+      await runAction(() => removeRecipient(id), {
+        fallback: "Could not remove that contact.",
+        onError: () => setRecipients(prev),
+      });
     });
   }
 
@@ -81,19 +87,19 @@ export function RecipientsPanel({
     const text = bulkText.trim();
     if (!text) return;
     start(async () => {
-      const res = await addRecipientsBulk(text);
+      const res = await runAction(() => addRecipientsBulk(text), { fallback: "Could not add those emails." });
       if (res.ok) {
         onNotice(`Added ${res.data?.added ?? 0} email(s). Reload to see them in the list.`);
         setBulkText("");
         setBulkOpen(false);
         onOutboxRefresh();
-      } else onNotice(res.error);
+      }
     });
   }
 
   function importKnown() {
     start(async () => {
-      const res = await importKnownRecipients();
+      const res = await runAction(() => importKnownRecipients(), { fallback: "Could not import contacts." });
       if (res.ok) {
         onNotice(
           `Found ${res.data ?? 0} new contact(s) from leads, projects, and client logins — sorted into ` +
@@ -109,23 +115,26 @@ export function RecipientsPanel({
   function importFile(file: File) {
     file.text().then((text) => {
       start(async () => {
-        const res = await addRecipientsBulk(text, false);
+        const res = await runAction(() => addRecipientsBulk(text, false), { fallback: "Could not read that file." });
         if (res.ok) {
           onNotice(
             `Found ${res.data?.added ?? 0} new email(s) in "${file.name}" — not added to any send. Search and ` +
               `tap "Add to list" on the ones you want. Reload to see them.`,
           );
           onOutboxRefresh();
-        } else onNotice(res.error);
+        }
       });
     });
   }
 
+  /** Optimistic: the chip flips now and flips back if the write fails. */
   function toggleActive(r: Recipient) {
     setRecipients((prev) => prev.map((x) => (x.id === r.id ? { ...x, active: !r.active } : x)));
     start(async () => {
-      const res = await setRecipientActive(r.id, !r.active);
-      if (!res.ok) onNotice(res.error);
+      await runAction(() => setRecipientActive(r.id, !r.active), {
+        fallback: "Could not update that contact.",
+        onError: () => setRecipients((prev) => prev.map((x) => (x.id === r.id ? { ...x, active: r.active } : x))),
+      });
       onOutboxRefresh();
     });
   }
@@ -140,20 +149,29 @@ export function RecipientsPanel({
     const name = newGroupName.trim();
     if (!name) return;
     start(async () => {
-      const res = await createGroup(name);
+      const res = await runAction(() => createGroup(name), { fallback: "Could not create that audience." });
       if (res.ok && res.data) {
         setGroups((prev) => [...prev, res.data!].sort((a, b) => a.name.localeCompare(b.name)));
         setNewGroupName("");
-      } else if (!res.ok) onNotice(res.error);
+      }
     });
   }
 
   function rmGroup(id: number, name: string) {
     if (!confirm(`Delete the "${name}" audience? Recipients stay on the list — this only removes the group.`)) return;
+    // Optimistic: the chip and memberships go now, and come back if the delete fails.
+    const prevGroups = groups;
+    const prevRecipients = recipients;
     setGroups((prev) => prev.filter((g) => g.id !== id));
     setRecipients((prev) => prev.map((r) => ({ ...r, groupIds: r.groupIds.filter((g) => g !== id) })));
     start(async () => {
-      await deleteGroup(id);
+      await runAction(() => deleteGroup(id), {
+        fallback: "Could not delete that audience.",
+        onError: () => {
+          setGroups(prevGroups);
+          setRecipients(prevRecipients);
+        },
+      });
     });
   }
 
@@ -166,7 +184,17 @@ export function RecipientsPanel({
       ),
     );
     start(async () => {
-      await setRecipientGroup(recipientId, groupId, on);
+      await runAction(() => setRecipientGroup(recipientId, groupId, on), {
+        fallback: "Could not update that audience.",
+        onError: () =>
+          setRecipients((prev) =>
+            prev.map((r) =>
+              r.id === recipientId
+                ? { ...r, groupIds: on ? r.groupIds.filter((g) => g !== groupId) : [...r.groupIds, groupId] }
+                : r,
+            ),
+          ),
+      });
     });
   }
 

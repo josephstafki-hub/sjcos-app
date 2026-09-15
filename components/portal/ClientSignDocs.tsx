@@ -5,6 +5,7 @@ import { Check, FileSignature, ChevronDown, FileText } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import { docTypeLabel, type SignatureRequestView } from "@/lib/esign-types";
 import { signSignatureRequest, declineSignatureRequest } from "@/lib/actions/esign";
+import { runAction } from "@/lib/run-action";
 
 /** Client-portal "Documents to sign" section. Pending requests expand into a
  *  review-and-sign panel (read the document, consent, type name → Sign), with a
@@ -66,7 +67,7 @@ function SignCard({ doc }: { doc: SignatureRequestView }) {
     fd.set("signedName", name.trim());
     fd.set("consent", "on");
     startTransition(async () => {
-      const res = await signSignatureRequest(doc.id, fd);
+      const res = await runAction(() => signSignatureRequest(doc.id, fd));
       if (!res.ok) setError(res.error);
       // success → revalidatePath refreshes the server component
     });
@@ -76,7 +77,7 @@ function SignCard({ doc }: { doc: SignatureRequestView }) {
     const fd = new FormData();
     fd.set("reason", reason.trim());
     startTransition(async () => {
-      const res = await declineSignatureRequest(doc.id, fd);
+      const res = await runAction(() => declineSignatureRequest(doc.id, fd));
       if (!res.ok) setError(res.error);
     });
   }

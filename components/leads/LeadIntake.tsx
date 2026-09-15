@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Check, Pencil } from "lucide-react";
 import { Card } from "@/components/ui";
 import { saveIntakeAnswer } from "@/lib/actions/leads";
+import { runAction } from "@/lib/run-action";
 
 type Item = { label: string; value: string };
 
@@ -38,7 +39,7 @@ function IntakeField({ slug, label, value }: { slug: string; label: string; valu
   function commit() {
     if (!dirty) return;
     start(async () => {
-      const res = await saveIntakeAnswer(slug, label, val);
+      const res = await runAction(() => saveIntakeAnswer(slug, label, val), { fallback: "Could not save that answer." });
       if (res.ok) {
         setDirty(false);
         setSaved(true);

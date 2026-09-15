@@ -23,6 +23,7 @@ import {
   releasePortalDelivery,
   skipPortalDelivery,
 } from "@/lib/actions/chat";
+import { runAction } from "@/lib/run-action";
 import type {
   ChatChannel,
   ChatData,
@@ -115,7 +116,7 @@ export function ChatClient({ data }: { data: ChatData }) {
     const key = selectedKey;
     setMembers(key, [...view.members, m]);
     startTransition(async () => {
-      await addChannelMember(key, m.slug);
+      await runAction(() => addChannelMember(key, m.slug), { fallback: "Couldn't add the member." });
     });
   };
 
@@ -124,7 +125,7 @@ export function ChatClient({ data }: { data: ChatData }) {
     const key = selectedKey;
     setMembers(key, view.members.filter((m) => m.slug !== slug));
     startTransition(async () => {
-      await removeChannelMember(key, slug);
+      await runAction(() => removeChannelMember(key, slug), { fallback: "Couldn't remove the member." });
     });
   };
 
@@ -133,7 +134,7 @@ export function ChatClient({ data }: { data: ChatData }) {
     const key = selectedKey;
     setAiMembers(key, [...view.aiMembers, agent]);
     startTransition(async () => {
-      await addChannelAgent(key, agent);
+      await runAction(() => addChannelAgent(key, agent), { fallback: "Couldn't add the agent." });
     });
   };
 
@@ -142,7 +143,7 @@ export function ChatClient({ data }: { data: ChatData }) {
     const key = selectedKey;
     setAiMembers(key, view.aiMembers.filter((a) => a !== agent));
     startTransition(async () => {
-      await removeChannelAgent(key, agent);
+      await runAction(() => removeChannelAgent(key, agent), { fallback: "Couldn't remove the agent." });
     });
   };
 
@@ -157,7 +158,7 @@ export function ChatClient({ data }: { data: ChatData }) {
     const key = selectedKey;
     setTeamMembers(key, [...view.teamMembers, m]);
     startTransition(async () => {
-      await addChannelTeamMember(key, m.slug);
+      await runAction(() => addChannelTeamMember(key, m.slug), { fallback: "Couldn't add the teammate." });
     });
   };
 
@@ -166,7 +167,7 @@ export function ChatClient({ data }: { data: ChatData }) {
     const key = selectedKey;
     setTeamMembers(key, view.teamMembers.filter((m) => m.slug !== slug));
     startTransition(async () => {
-      await removeChannelTeamMember(key, slug);
+      await runAction(() => removeChannelTeamMember(key, slug), { fallback: "Couldn't remove the teammate." });
     });
   };
 
@@ -177,7 +178,7 @@ export function ChatClient({ data }: { data: ChatData }) {
     const key = selectedKey;
     return new Promise((resolve) => {
       startTransition(async () => {
-        const r = await createTeamMember(name, roleLabel, key);
+        const r = await runAction(() => createTeamMember(name, roleLabel, key), { fallback: "Could not add teammate." });
         if (!r.ok || !r.member) {
           resolve(r.error ?? "Could not add teammate.");
           return;
@@ -204,7 +205,7 @@ export function ChatClient({ data }: { data: ChatData }) {
     const key = selectedKey;
     return new Promise((resolve) => {
       startTransition(async () => {
-        const r = await addClientToRoom(key, name, email);
+        const r = await runAction(() => addClientToRoom(key, name, email), { fallback: "Could not add client." });
         if (!r.ok || !r.client) {
           resolve(r.error ?? "Could not add client.");
           return;
@@ -226,7 +227,7 @@ export function ChatClient({ data }: { data: ChatData }) {
     const key = selectedKey;
     setClientMembers(key, view.clientMembers.filter((c) => c.id !== id));
     startTransition(async () => {
-      await removeClientFromRoom(key, id);
+      await runAction(() => removeClientFromRoom(key, id), { fallback: "Couldn't remove the client." });
     });
   };
 
@@ -279,8 +280,9 @@ export function ChatClient({ data }: { data: ChatData }) {
         : (mentioned as DevAgent)
       : null;
     startTransition(async () => {
-      const sent = await sendChatMessage(key, text);
-      if (sent.queued?.length) setOutbox((list) => [...sent.queued!, ...list]);
+      const sent = await runAction(() => sendChatMessage(key, text), { fallback: "Couldn't send the message." });
+      const sentQueued = "queued" in sent ? sent.queued : undefined;
+      if (sentQueued?.length) setOutbox((list) => [...sentQueued, ...list]);
       if (agent) {
         const id = CHAT_AGENTS[agent];
         // Skip the round-trip when we already know the model isn't a member.
@@ -294,9 +296,10 @@ export function ChatClient({ data }: { data: ChatData }) {
           return;
         }
         setTyping(id.name);
-        const r = await askAgentInChannel(key, agent);
+        const r = await runAction(() => askAgentInChannel(key, agent), { fallback: `${id.name} couldn't answer.` });
         setTyping(null);
-        if (r.queued?.length) setOutbox((list) => [...r.queued!, ...list]);
+        const askQueued = "queued" in r ? r.queued : undefined;
+        if (askQueued?.length) setOutbox((list) => [...askQueued, ...list]);
         if (r.ok && r.reply) {
           append(key, {
             initials: id.initials,
@@ -320,7 +323,7 @@ export function ChatClient({ data }: { data: ChatData }) {
     setOutboxError(null);
     setOutboxPending(id);
     startTransition(async () => {
-      const r = await releasePortalDelivery(id);
+      const r = await runAction(() => releasePortalDelivery(id), { fallback: "Could not release." });
       setOutboxPending(null);
       if (r.ok) setOutbox((list) => list.filter((d) => d.id !== id));
       else setOutboxError(r.error ?? "Could not release.");
@@ -331,7 +334,7 @@ export function ChatClient({ data }: { data: ChatData }) {
     setOutboxError(null);
     setOutboxPending(id);
     startTransition(async () => {
-      const r = await skipPortalDelivery(id);
+      const r = await runAction(() => skipPortalDelivery(id), { fallback: "Could not skip." });
       setOutboxPending(null);
       if (r.ok) setOutbox((list) => list.filter((d) => d.id !== id));
       else setOutboxError(r.error ?? "Could not skip.");
@@ -343,7 +346,7 @@ export function ChatClient({ data }: { data: ChatData }) {
     if (!name) return;
     setCreateError(null);
     startTransition(async () => {
-      const r = await createChannel(name);
+      const r = await runAction(() => createChannel(name), { fallback: "Could not create channel." });
       if (!r.ok || !r.channel) {
         setCreateError(r.error ?? "Could not create channel.");
         return;
@@ -391,7 +394,7 @@ export function ChatClient({ data }: { data: ChatData }) {
     }
     setChannels(remaining);
     startTransition(async () => {
-      await archiveChannel(key);
+      await runAction(() => archiveChannel(key), { fallback: "Couldn't remove the channel." });
     });
   };
 
@@ -452,7 +455,7 @@ export function ChatClient({ data }: { data: ChatData }) {
       return;
     }
     startTransition(async () => {
-      const r = await openDirectMessage(o.partyType, o.slug, o.name, o.subtitle);
+      const r = await runAction(() => openDirectMessage(o.partyType, o.slug, o.name, o.subtitle), { fallback: "Could not open direct message." });
       if (!r.ok || !r.dm) {
         setDmError(r.error ?? "Could not open direct message.");
         return;

@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition, type ReactNode } from "react";
 import { Check, Sparkles } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import { resolveComplianceItem, queueRenewalRequests } from "@/lib/actions/compliance";
+import { runAction } from "@/lib/run-action";
 import type {
   ComplianceDot,
   ComplianceWindowCard,
@@ -61,10 +62,20 @@ export function ComplianceClient({
     (r) => matches(r.kind) && !resolved.has(r.id),
   );
 
+  // Optimistic: the row drops out now and comes back only if the write fails
+  // (runAction toasts the failure).
   const resolve = (id: string) => {
     setResolved((s) => new Set(s).add(id));
     startTransition(async () => {
-      await resolveComplianceItem(id);
+      await runAction(() => resolveComplianceItem(id), {
+        fallback: "Could not resolve that item.",
+        onError: () =>
+          setResolved((s) => {
+            const next = new Set(s);
+            next.delete(id);
+            return next;
+          }),
+      });
     });
   };
 
@@ -198,9 +209,9 @@ function CollectRenewalsButton() {
   function run() {
     setNote(null);
     startTransition(async () => {
-      const res = await queueRenewalRequests();
-      if (!res.ok) setNote(res.error);
-      else if (res.queued === 0 && res.alreadyQueued === 0) setNote("Nothing due in the next 45 days");
+      const res = await runAction(() => queueRenewalRequests(), { fallback: "Could not queue the renewals." });
+      if (!res.ok) return;
+      if (res.queued === 0 && res.alreadyQueued === 0) setNote("Nothing due in the next 45 days");
       else if (res.queued === 0) setNote("Already queued");
       else setNote(`${res.queued} queued to Engine`);
     });

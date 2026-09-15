@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Phone, Mail, X, Copy, Check, Pencil } from "lucide-react";
 import { sendNewEmailAction } from "@/lib/actions/inbox";
 import { updateLeadContact } from "@/lib/actions/leads";
+import { runAction } from "@/lib/run-action";
 
 const BTN =
   "inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-paper-2";
@@ -128,7 +129,7 @@ function EditContactModal({
   function save() {
     setError(null);
     startSave(async () => {
-      const res = await updateLeadContact(slug, em, ph);
+      const res = await runAction(() => updateLeadContact(slug, em, ph), { fallback: "Could not save." });
       if (res.ok) {
         setSaved(true);
         setTimeout(onClose, 700);
@@ -200,7 +201,7 @@ function ComposeModal({ name, email, onClose }: { name: string; email: string; o
   function send() {
     setError(null);
     startSend(async () => {
-      const res = await sendNewEmailAction({ to: email, subject, body });
+      const res = await runAction(() => sendNewEmailAction({ to: email, subject, body }), { fallback: "Could not send." });
       if (res.ok) {
         setSent(true);
         setTimeout(onClose, 900);

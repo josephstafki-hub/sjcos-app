@@ -18,6 +18,7 @@ import {
   setSelectionsBudget,
 } from "@/lib/actions/selections";
 import { useRemoved } from "@/lib/use-removed";
+import { runAction } from "@/lib/run-action";
 
 /** Lightweight catalog option for the add-picker (avoids importing the
  *  db-coupled lib/catalog value into the client bundle). */
@@ -133,7 +134,6 @@ export function SelectionsBoard({
   // clickable while the write + router.refresh() round-trip finishes. Sharing the
   // modal transition greyed out every other remove button for seconds at a time.
   const [, startRemoveTransition] = useTransition();
-  const [error, setError] = useState("");
   const [addSel, setAddSel] = useState<{ sectionId: number | null } | null>(null);
   const [editSel, setEditSel] = useState<Selection | null>(null);
   const [sectionModal, setSectionModal] = useState<
@@ -199,8 +199,8 @@ export function SelectionsBoard({
   // Single path for every mutation on this board. The actions revalidate on the
   // server, but the project page is dynamic (cookie auth), so nothing re-renders
   // until the client router refetches — without router.refresh() a new section
-  // lands in the DB and never shows up. On failure the modal stays open with the
-  // error so the typed-in values survive.
+  // lands in the DB and never shows up. runAction raises the site-wide toast on
+  // failure; the modal stays open so the typed-in values survive.
   function run(
     fn: () => Promise<Result>,
     onSuccess?: () => void,
@@ -208,11 +208,9 @@ export function SelectionsBoard({
     onError?: () => void,
     start = startTransition,
   ) {
-    setError("");
     start(async () => {
-      const r = await fn();
+      const r = await runAction(fn, { fallback });
       if (!r.ok) {
-        setError(r.error ?? fallback);
         onError?.();
         return;
       }
@@ -345,8 +343,6 @@ export function SelectionsBoard({
           )}
         </div>
       </div>
-
-      {error && <div className="text-[12px] text-flag">{error}</div>}
 
       {empty ? (
         <Card kind="dashed" className="p-8 text-center">

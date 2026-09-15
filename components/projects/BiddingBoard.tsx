@@ -22,6 +22,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { runAction } from "@/lib/run-action";
 import {
   BadgeDollarSign,
   Check,
@@ -150,6 +151,9 @@ export function BiddingBoard({
 
   // Single path for every mutation (same contract as SelectionsBoard): the
   // project page is cookie-dynamic, so router.refresh() is what repaints.
+  // runAction raises the site-wide toast on failure (and never throws); the
+  // local `error` state stays only so the open modal can show the message
+  // inline next to its fields.
   function run(
     fn: () => Promise<Result>,
     onSuccess?: () => void,
@@ -159,7 +163,7 @@ export function BiddingBoard({
   ) {
     setError("");
     start(async () => {
-      const r = await fn();
+      const r = await runAction(fn, { fallback });
       if (!r.ok) {
         setError(r.error ?? fallback);
         onError?.();
@@ -314,10 +318,6 @@ export function BiddingBoard({
           New bid package
         </button>
       </div>
-
-      {error && !modal && (
-        <div className="rounded-md border border-flag/40 bg-flag-soft px-3 py-2 text-[12px] text-flag">{error}</div>
-      )}
 
       {view.trades.length > 1 && (
         <div className="flex flex-wrap items-center gap-1.5">

@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, X } from "lucide-react";
 import { createWarrantyClaim } from "@/lib/actions/warranty";
+import { runAction } from "@/lib/run-action";
 
 /** Owner "Log a claim" button + modal for the /warranty page (phone/email/
  *  walk-through intake). Submits createWarrantyClaim. */
@@ -44,7 +45,7 @@ export function AddClaimButton({ projects }: { projects: { slug: string; name: s
                 const fd = new FormData(e.currentTarget);
                 startTransition(async () => {
                   setError("");
-                  const r = await createWarrantyClaim(fd);
+                  const r = await runAction(() => createWarrantyClaim(fd), { fallback: "Couldn't log the claim." });
                   if (r.ok) {
                     setOpen(false);
                     router.refresh();

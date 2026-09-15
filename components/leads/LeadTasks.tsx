@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Check, Plus, X, Calendar } from "lucide-react";
 import { Card } from "@/components/ui";
 import { addLeadTask, setLeadTaskDone, deleteLeadTask } from "@/lib/actions/lead-tasks";
+import { runAction } from "@/lib/run-action";
 import type { LeadTask } from "@/lib/lead-tasks";
 
 /** Per-lead follow-up checklist. Checkboxes toggle done (optimistic, persisted);
@@ -23,11 +24,11 @@ export function LeadTasks({ slug, tasks }: { slug: string; tasks: LeadTask[] }) 
       ),
     );
     start(async () => {
-      try {
-        await setLeadTaskDone(id, next, slug);
-      } catch {
-        setRows((prev) => prev.map((r) => (r.id === id ? { ...r, done: !next } : r)));
-      }
+      // Optimistic: runAction toasts a failed/thrown write; roll the box back.
+      await runAction(() => setLeadTaskDone(id, next, slug), {
+        fallback: "Could not update that task.",
+        onError: () => setRows((prev) => prev.map((r) => (r.id === id ? { ...r, done: !next } : r))),
+      });
     });
   }
 
@@ -37,7 +38,12 @@ export function LeadTasks({ slug, tasks }: { slug: string; tasks: LeadTask[] }) 
     setAdding(true);
     start(async () => {
       try {
-        const created = await addLeadTask(slug, text, due);
+        // addLeadTask answers the row (or null), not a Result — wrap it so a
+        // thrown failure still toasts.
+        const r = await runAction(async () => ({ ok: true as const, task: await addLeadTask(slug, text, due) }), {
+          fallback: "Could not add the task.",
+        });
+        const created = r.ok ? r.task : null;
         if (created) {
           setRows((prev) => [...prev, created]);
           setTitle("");
@@ -53,11 +59,10 @@ export function LeadTasks({ slug, tasks }: { slug: string; tasks: LeadTask[] }) 
     const prev = rows;
     setRows((r) => r.filter((x) => x.id !== id));
     start(async () => {
-      try {
-        await deleteLeadTask(id, slug);
-      } catch {
-        setRows(prev);
-      }
+      await runAction(() => deleteLeadTask(id, slug), {
+        fallback: "Could not delete that task.",
+        onError: () => setRows(prev),
+      });
     });
   }
 

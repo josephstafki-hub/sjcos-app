@@ -5,6 +5,7 @@ import { Check, FileText } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import type { FloorplanVersion } from "@/lib/floorplans";
 import { approveFloorplan } from "@/lib/actions/floorplans";
+import { runAction } from "@/lib/run-action";
 
 /** Client-portal floor plans. The current version renders full width with an
  *  approve-by-typed-name affordance; superseded versions collapse into a
@@ -64,7 +65,7 @@ function PlanCard({
     const fd = new FormData();
     fd.set("approvedName", name.trim());
     startTransition(async () => {
-      const res = await approveFloorplan(plan.id, fd);
+      const res = await runAction(() => approveFloorplan(plan.id, fd));
       if (!res.ok) setError(res.error ?? "Something went wrong.");
     });
   }

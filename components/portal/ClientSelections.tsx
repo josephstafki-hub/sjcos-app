@@ -8,6 +8,7 @@ import type {
   Selection, SelectionOption, SelectionStatus, SelectionsView, SelectionGroup,
 } from "@/lib/selections";
 import { decideSelection } from "@/lib/actions/selections";
+import { runAction } from "@/lib/run-action";
 
 const STATUS_CHIP: Record<SelectionStatus, ChipKind> = {
   draft: "ghost",
@@ -36,7 +37,7 @@ export function ClientSelections({ view }: { view: SelectionsView }) {
   function choose(id: number, optionId: number) {
     setError("");
     startTransition(async () => {
-      const r = await decideSelection(id, true, optionId);
+      const r = await runAction(() => decideSelection(id, true, optionId));
       if (!r.ok) setError(r.error ?? "Something went wrong.");
     });
   }
@@ -44,7 +45,7 @@ export function ClientSelections({ view }: { view: SelectionsView }) {
   function declineAll(id: number) {
     setError("");
     startTransition(async () => {
-      const r = await decideSelection(id, false);
+      const r = await runAction(() => decideSelection(id, false));
       if (!r.ok) setError(r.error ?? "Something went wrong.");
     });
   }

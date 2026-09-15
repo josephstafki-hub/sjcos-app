@@ -32,6 +32,7 @@ import {
   unlockDocDraftForEditAction,
   draftDocNarrative,
 } from "@/lib/actions/doc-drafts";
+import { runAction } from "@/lib/run-action";
 
 export interface DocDraftItem {
   id: number;
@@ -87,19 +88,19 @@ export function DocTypePanel({
 }) {
   const router = useRouter();
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  // Failures toast via runAction; there's no inline error line at this level.
   function create() {
-    setError(null);
     startTransition(async () => {
-      const res = await createDocDraftAction(templateKey, leadSlug ? { leadSlug } : { slug });
+      const res = await runAction(
+        () => createDocDraftAction(templateKey, leadSlug ? { leadSlug } : { slug }),
+        { fallback: "Couldn't create the document." },
+      );
       if (res.ok && "id" in res) {
         setEditingId(res.id as number);
         router.refresh();
-      } else if (!res.ok) {
-        setError(res.error);
       }
     });
   }
@@ -111,14 +112,11 @@ export function DocTypePanel({
           "the signature request. The client will need to sign a new version. Continue?",
       );
       if (!ok) return;
-      setError(null);
       startTransition(async () => {
-        const res = await unlockDocDraftForEditAction(d.id);
+        const res = await runAction(() => unlockDocDraftForEditAction(d.id), { fallback: "Couldn't unlock the document." });
         if (res.ok) {
           setEditingId(d.id);
           router.refresh();
-        } else {
-          setError(res.error);
         }
       });
       return;
@@ -132,10 +130,10 @@ export function DocTypePanel({
       ? "This document has been sent/signed — it can't be deleted, only voided (the record is kept). Void it?"
       : "Delete this document draft? This can't be undone.";
     if (!window.confirm(msg)) return;
-    setError(null);
     startTransition(async () => {
-      const res = sent ? await voidDocDraftAction(d.id) : await deleteDocDraftAction(d.id);
-      if (!res.ok) setError(res.error);
+      await runAction(() => (sent ? voidDocDraftAction(d.id) : deleteDocDraftAction(d.id)), {
+        fallback: sent ? "Couldn't void the document." : "Couldn't delete the document.",
+      });
       router.refresh();
     });
   }
@@ -143,15 +141,14 @@ export function DocTypePanel({
   /** Publish/unpublish a document on the client dashboard. Publishing emails
    *  the client — surface the delivery note so "sent" is never a guess. */
   function publish(d: DocDraftItem, to: boolean) {
-    setError(null);
     setNotice(null);
     startTransition(async () => {
-      const res = await setDocDraftVisibilityAction(d.id, to);
-      if (!res.ok) setError(res.error);
-      else {
-        setNotice(to ? (res.delivery?.note ?? "Published.") : "Removed from the client dashboard.");
-        router.refresh();
-      }
+      const res = await runAction(() => setDocDraftVisibilityAction(d.id, to), {
+        fallback: to ? "Couldn't publish the document." : "Couldn't unpublish the document.",
+      });
+      if (!res.ok) return;
+      setNotice(to ? (res.delivery?.note ?? "Published.") : "Removed from the client dashboard.");
+      router.refresh();
     });
   }
 
@@ -178,7 +175,6 @@ export function DocTypePanel({
         )}
       </div>
 
-      {error && <div className="text-[12px] text-flag">{error}</div>}
       {notice && <div className="text-[12px] text-money">{notice}</div>}
 
       {editing ? (
@@ -354,9 +350,9 @@ function DraftEditor({ draft, onClose }: { draft: DocDraftItem; onClose: () => v
     setError(null);
     const edits = buildEdits(new FormData(e.currentTarget));
     startSave(async () => {
-      const res1 = await updateDocDraftFieldsAction(draft.id, edits);
+      const res1 = await runAction(() => updateDocDraftFieldsAction(draft.id, edits), { fallback: "Couldn't save the fields." });
       if (!res1.ok) return setError(res1.error);
-      const res2 = await renderDocDraftAction(draft.id);
+      const res2 = await runAction(() => renderDocDraftAction(draft.id), { fallback: "Couldn't render the preview." });
       if (!res2.ok) setError(res2.error);
       setPreviewVer((v) => v + 1);
       router.refresh();
@@ -366,7 +362,7 @@ function DraftEditor({ draft, onClose }: { draft: DocDraftItem; onClose: () => v
   function draftAi(fieldKey: string) {
     setError(null);
     startDraftAi(async () => {
-      const res = await draftDocNarrative(draft.id, fieldKey);
+      const res = await runAction(() => draftDocNarrative(draft.id, fieldKey), { fallback: "Couldn't draft that field." });
       if (!res.ok) setError(res.error);
       else router.refresh();
     });
@@ -376,7 +372,7 @@ function DraftEditor({ draft, onClose }: { draft: DocDraftItem; onClose: () => v
     setError(null);
     setDelivery(null);
     startSend(async () => {
-      const res = await submitDocDraftForSignatureAction(draft.id, override);
+      const res = await runAction(() => submitDocDraftForSignatureAction(draft.id, override), { fallback: "Couldn't send the document." });
       if (!res.ok) setError(res.error);
       else {
         setDelivery(res.delivery);

@@ -5,6 +5,7 @@ import { Sparkles, RefreshCw } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import { rescoreLead } from "@/lib/actions/leads";
 import { AI_NAME } from "@/lib/ai-name";
+import { runAction } from "@/lib/run-action";
 
 type Verdict = "go" | "hold" | "pass";
 type Score = { verdict: Verdict; confidence: number; rationale: string };
@@ -21,20 +22,16 @@ const VERDICT: Record<Verdict, { label: string; kind: "money" | "info" | "flag" 
 export function LeadScore({ slug, initial }: { slug: string; initial: Score | null }) {
   const [score, setScore] = useState<Score | null>(initial);
   const [pending, start] = useTransition();
-  const [error, setError] = useState<string | null>(null);
 
   function rescore() {
-    setError(null);
     start(async () => {
-      const res = await rescoreLead(slug);
+      const res = await runAction(() => rescoreLead(slug), { fallback: "Could not score this lead." });
       if (res.ok && res.verdict) {
         setScore((prev) => ({
           verdict: res.verdict!,
           confidence: prev?.confidence ?? 0,
           rationale: res.rationale ?? "",
         }));
-      } else {
-        setError(res.error ?? "Could not score this lead.");
       }
     });
   }
@@ -69,7 +66,6 @@ export function LeadScore({ slug, initial }: { slug: string; initial: Score | nu
           Not scored yet — leads score automatically on arrival. Re-run it here if the model was down.
         </p>
       )}
-      {error && <p className="mt-1.5 text-[12px] text-flag">{error}</p>}
     </Card>
   );
 }

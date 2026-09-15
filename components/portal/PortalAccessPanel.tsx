@@ -12,6 +12,7 @@ import {
   revokePortalInvite,
   resetPortalAccess,
 } from "@/lib/actions/client-portal-admin";
+import { runAction } from "@/lib/run-action";
 
 /** Summary of the scope's invite, computed server-side by the page. */
 export interface PortalInviteSummary {
@@ -46,11 +47,11 @@ export function PortalAccessPanel({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [notice, setNotice] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
+  // Failures surface through runAction's site-wide toast; the inline line
+  // below the buttons only carries the success notice.
   function run(fn: () => Promise<void>) {
     setNotice(null);
-    setError(null);
     startTransition(async () => {
       await fn();
       router.refresh();
@@ -58,8 +59,10 @@ export function PortalAccessPanel({
   }
 
   async function copyLink(rotate: boolean) {
-    const res = rotate ? await rotatePortalInviteLink(scope) : await getPortalInviteLink(scope);
-    if (!res.ok) return setError(res.error);
+    const res = await runAction(() => (rotate ? rotatePortalInviteLink(scope) : getPortalInviteLink(scope)), {
+      fallback: "Could not get the portal link.",
+    });
+    if (!res.ok) return;
     try {
       await navigator.clipboard.writeText(res.link);
       setNotice(rotate ? "New link copied — the old one is dead." : "Portal link copied.");
@@ -116,8 +119,8 @@ export function PortalAccessPanel({
               )
                 return;
               run(async () => {
-                const res = await resetPortalAccess(scope);
-                if (!res.ok) return setError(res.error);
+                const res = await runAction(() => resetPortalAccess(scope), { fallback: "Could not reset access." });
+                if (!res.ok) return;
                 setNotice(
                   "Access reset — the emailed dashboard link works again. Copy or email it if they need a fresh one.",
                 );
@@ -143,9 +146,8 @@ export function PortalAccessPanel({
           disabled={pending}
           onClick={() =>
             run(async () => {
-              const res = await emailPortalInvite(scope);
-              if (!res.ok) setError(res.error);
-              else setNotice(res.delivery.note);
+              const res = await runAction(() => emailPortalInvite(scope), { fallback: "Could not send the invite." });
+              if (res.ok) setNotice(res.delivery.note);
             })
           }
           className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50"
@@ -169,8 +171,8 @@ export function PortalAccessPanel({
             disabled={pending}
             onClick={() =>
               run(async () => {
-                await revokePortalInvite(scope);
-                setNotice("Link revoked — the dashboard is closed until you issue a new one.");
+                const res = await runAction(() => revokePortalInvite(scope), { fallback: "Could not revoke the link." });
+                if (res.ok) setNotice("Link revoked — the dashboard is closed until you issue a new one.");
               })
             }
             className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-3 hover:border-flag hover:text-flag disabled:opacity-50"
@@ -180,7 +182,6 @@ export function PortalAccessPanel({
         )}
       </div>
 
-      {error && <div className="mt-2 text-[12px] text-flag">{error}</div>}
       {notice && <div className="mt-2 break-all text-[12px] text-money">{notice}</div>}
     </Card>
   );

@@ -7,6 +7,7 @@ import { COST_UNITS, centsToInput } from "@/lib/cost-book-units";
 import type { CostItem } from "@/lib/cost-book";
 import type { EstimateLineView } from "@/lib/estimates";
 import { addEstimateLine, updateEstimateLine } from "@/lib/actions/estimates";
+import { runAction } from "@/lib/run-action";
 
 export function EstimateLineModal({
   estimateId,
@@ -57,10 +58,10 @@ export function EstimateLineModal({
     const fd = new FormData(e.currentTarget);
     setError(null);
     startTransition(async () => {
-      const res =
-        mode === "edit" && line
-          ? await updateEstimateLine(line.id, slug, fd)
-          : await addEstimateLine(estimateId, slug, fd);
+      const res = await runAction(
+        () => (mode === "edit" && line ? updateEstimateLine(line.id, slug, fd) : addEstimateLine(estimateId, slug, fd)),
+        { fallback: "Couldn't save the line." },
+      );
       if (res.ok) {
         onClose();
         router.refresh();

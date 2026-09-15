@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Check } from "lucide-react";
 import { Card } from "@/components/ui";
 import { confirmPunchItem } from "@/lib/actions/projects";
+import { runAction } from "@/lib/run-action";
 
 interface PunchItem {
   id: number;
@@ -29,7 +30,7 @@ export function ClientPunch({ items }: { items: PunchItem[] }) {
     setError(null);
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, clientConfirmed: next } : r)));
     startTransition(async () => {
-      const res = await confirmPunchItem(id, next);
+      const res = await runAction(() => confirmPunchItem(id, next));
       if (!res.ok) {
         setRows((prev) => prev.map((r) => (r.id === id ? { ...r, clientConfirmed: !next } : r)));
         setError(res.error);

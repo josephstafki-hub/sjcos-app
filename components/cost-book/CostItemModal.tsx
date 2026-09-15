@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { COST_UNITS, COST_CATEGORIES, centsToInput } from "@/lib/cost-book-units";
 import { createCostItem, updateCostItem } from "@/lib/actions/cost-book";
+import { runAction } from "@/lib/run-action";
 import type { CostItem } from "@/lib/cost-book";
 
 /** Shared add/edit modal for a cost-book item. */
@@ -26,13 +27,15 @@ export function CostItemModal({
     const fd = new FormData(e.currentTarget);
     setError(null);
     startTransition(async () => {
-      const res =
-        mode === "edit" && item ? await updateCostItem(item.id, fd) : await createCostItem(fd);
+      const res = await runAction(
+        () => (mode === "edit" && item ? updateCostItem(item.id, fd) : createCostItem(fd)),
+        { fallback: "Couldn't save the cost item." },
+      );
       if (res.ok) {
         onClose();
         router.refresh();
       } else {
-        setError(res.error);
+        setError(res.error ?? "Couldn't save the cost item.");
       }
     });
   }

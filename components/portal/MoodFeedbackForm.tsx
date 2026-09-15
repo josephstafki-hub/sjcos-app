@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { MessageSquare } from "lucide-react";
 import { addMoodFeedback } from "@/lib/actions/mood";
+import { runAction } from "@/lib/run-action";
 
 /** Per-board feedback composer for the portal mood page. Posts a short note
  *  ("closer — warmer wood tones?") straight onto the board; Joe sees it on the
@@ -19,7 +20,7 @@ export function MoodFeedbackForm({ room }: { room: string }) {
     const fd = new FormData();
     fd.set("body", body.trim());
     startTransition(async () => {
-      const res = await addMoodFeedback(room, fd);
+      const res = await runAction(() => addMoodFeedback(room, fd));
       if (!res.ok) setError(res.error ?? "Something went wrong.");
       else setBody("");
     });

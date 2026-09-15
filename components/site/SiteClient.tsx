@@ -8,6 +8,7 @@ import { Card, Chip, VoiceButton } from "@/components/ui";
 import { mergeTranscript } from "@/lib/append-transcript";
 import type { BlogPost, ComposerProject } from "@/lib/site";
 import { generateDraft, updateDraft, markPosted, deleteDraft } from "@/lib/actions/marketing";
+import { runAction } from "@/lib/run-action";
 
 // Website Content Composer (P2-4). Replaces the old mock CMS Site tab. Writes the
 // blog post about a completed project (a blog draft also auto-generates on
@@ -41,7 +42,7 @@ export function SiteClient({
     }
     setError("");
     startTransition(async () => {
-      const r = await generateDraft(slug, "blog");
+      const r = await runAction(() => generateDraft(slug, "blog"), { fallback: "Couldn't draft." });
       if (!r.ok) setError(r.error ?? "Couldn't draft.");
       else {
         setMobileEditor(true);
@@ -200,19 +201,19 @@ function PostEditor({ post, project }: { post: BlogPost; project?: ComposerProje
   }
   function save() {
     startTransition(async () => {
-      await updateDraft(post.id, body);
+      await runAction(() => updateDraft(post.id, body), { fallback: "Couldn't save the edits." });
       router.refresh();
     });
   }
   function post_() {
     startTransition(async () => {
-      await markPosted(post.id);
+      await runAction(() => markPosted(post.id), { fallback: "Couldn't mark it posted." });
       router.refresh();
     });
   }
   function remove() {
     startTransition(async () => {
-      await deleteDraft(post.id);
+      await runAction(() => deleteDraft(post.id), { fallback: "Couldn't delete the post." });
       router.refresh();
     });
   }

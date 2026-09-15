@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Newsreader, Mulish, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import { ToastProvider } from "@/components/ui/Toast";
 
 // Serif — all headings, display, editorial italic
 const newsreader = Newsreader({
@@ -58,7 +59,11 @@ export default function RootLayout({
       lang="en"
       className={`${newsreader.variable} ${mulish.variable} ${jetbrainsMono.variable} antialiased`}
     >
-      <body>{children}</body>
+      <body>
+        {/* Site-wide error/success popups — see components/ui/Toast.tsx and
+            lib/run-action.ts. Mounted once here so every page shares it. */}
+        <ToastProvider>{children}</ToastProvider>
+      </body>
     </html>
   );
 }

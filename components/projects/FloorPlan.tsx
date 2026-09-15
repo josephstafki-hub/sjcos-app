@@ -3,6 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { Plus, X, Check, Eye, EyeOff } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
+import { runAction } from "@/lib/run-action";
 import type { FloorplanVersion } from "@/lib/floorplans";
 import {
   uploadFloorplan,
@@ -20,30 +21,27 @@ const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
  *  version's notes, and removes versions. Not a CAD editor. */
 export function FloorPlan({ slug, versions }: { slug: string; versions: FloorplanVersion[] }) {
   const [pending, startTransition] = useTransition();
-  const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [modal, setModal] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(versions[0]?.id ?? null);
 
   const selected = versions.find((v) => v.id === selectedId) ?? versions[0] ?? null;
 
-  function run(fn: () => Promise<{ ok: boolean; error?: string }>) {
-    setError("");
+  // runAction raises the site-wide toast on failure (and never throws).
+  function run(fn: () => Promise<{ ok: boolean; error?: string }>, fallback?: string, onSuccess?: () => void) {
     startTransition(async () => {
-      const r = await fn();
-      if (!r.ok) setError(r.error ?? "Something went wrong.");
+      const r = await runAction(fn, { fallback });
+      if (r.ok) onSuccess?.();
     });
   }
 
   /** Publish/unpublish a version on the client dashboard. Publishing also
    *  emails the client — surface what actually happened, not just "done". */
   function publish(id: number, to: boolean) {
-    setError("");
     setNotice("");
     startTransition(async () => {
-      const r = await setFloorplanPublished(id, to);
-      if (!r.ok) setError(r.error ?? "Something went wrong.");
-      else setNotice(to ? (r.delivery?.note ?? "Published.") : "Removed from the client dashboard.");
+      const r = await runAction(() => setFloorplanPublished(id, to));
+      if (r.ok) setNotice(to ? (r.delivery?.note ?? "Published.") : "Removed from the client dashboard.");
     });
   }
 
@@ -60,7 +58,6 @@ export function FloorPlan({ slug, versions }: { slug: string; versions: Floorpla
         </button>
       </div>
 
-      {error && <div className="text-[12px] text-flag">{error}</div>}
       {notice && <div className="text-[12px] text-money">{notice}</div>}
 
       {!selected ? (
@@ -166,14 +163,7 @@ export function FloorPlan({ slug, versions }: { slug: string; versions: Floorpla
         <UploadModal
           pending={pending}
           onClose={() => setModal(false)}
-          onUpload={(fd) =>
-            startTransition(async () => {
-              setError("");
-              const res = await uploadFloorplan(slug, fd);
-              if (res.ok) setModal(false);
-              else setError(res.error ?? "Could not upload the plan.");
-            })
-          }
+          onUpload={(fd) => run(() => uploadFloorplan(slug, fd), "Could not upload the plan.", () => setModal(false))}
         />
       )}
     </div>

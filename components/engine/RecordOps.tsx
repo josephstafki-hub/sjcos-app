@@ -18,6 +18,7 @@ import {
   addRecordWorkItem,
   captureRecordKnowledge,
 } from "@/lib/actions/record-ops";
+import { runAction, type ActionLike } from "@/lib/run-action";
 
 const inputCls =
   "w-full rounded-md border border-rule bg-paper px-3 py-2 text-[13px] text-ink outline-none focus:border-accent";
@@ -130,9 +131,8 @@ function WorkQueue({ ops }: { ops: RecordOps }) {
             ref={formRef}
             action={(fd) =>
               start(async () => {
-                const r = await addRecordWorkItem(fd);
+                const r = await runAction(() => addRecordWorkItem(fd), { fallback: "Could not add the work item." });
                 if (r.ok) { formRef.current?.reset(); setShowNew(false); router.refresh(); }
-                else alert(r.error);
               })
             }
             className="space-y-2.5"
@@ -179,7 +179,7 @@ function WorkQueue({ ops }: { ops: RecordOps }) {
 function WorkItemCard({ item, kind, slug }: { item: RecordWorkItem; kind: RecordOps["kind"]; slug: string }) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  const run = (fn: () => Promise<unknown>) => start(async () => { await fn(); router.refresh(); });
+  const run = (fn: () => Promise<ActionLike>) => start(async () => { await runAction(fn); router.refresh(); });
 
   return (
     <Card kind={item.bucket === "approval" ? "flag" : "default"} className="p-3">
@@ -270,9 +270,8 @@ function AddNote({ kind, slug, recordId }: { kind: RecordOps["kind"]; slug: stri
         ref={ref}
         action={(fd) =>
           start(async () => {
-            const r = await captureRecordKnowledge(fd);
+            const r = await runAction(() => captureRecordKnowledge(fd), { fallback: "Could not save the note." });
             if (r.ok) { ref.current?.reset(); router.refresh(); }
-            else alert(r.error);
           })
         }
         className="mt-2 space-y-2.5"

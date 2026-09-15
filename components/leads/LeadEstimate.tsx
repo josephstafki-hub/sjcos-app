@@ -6,6 +6,7 @@ import { Sparkles, Send, RefreshCw, FileText, Plus, X, Save } from "lucide-react
 import { Card, Chip } from "@/components/ui";
 import { AI_NAME } from "@/lib/ai-name";
 import { draftEstimate, saveEstimateLines, saveEstimateNotes, sendEstimate } from "@/lib/actions/leads";
+import { runAction } from "@/lib/run-action";
 
 type Line = { label: string; value: string };
 type Estimate = {
@@ -47,15 +48,17 @@ export function LeadEstimate({
   function draft() {
     setError(null);
     startDraft(async () => {
-      const res = await draftEstimate(slug);
+      const res = await runAction(() => draftEstimate(slug), { fallback: "Could not draft." });
       if (!res.ok) setError(res.error ?? "Could not draft.");
       else router.refresh();
     });
   }
 
   async function persist() {
-    const res = await saveEstimateLines(slug, lines, total);
-    if (notes !== (estimate?.notes ?? "")) await saveEstimateNotes(slug, notes);
+    const res = await runAction(() => saveEstimateLines(slug, lines, total), { fallback: "Could not save." });
+    if (notes !== (estimate?.notes ?? "")) {
+      await runAction(() => saveEstimateNotes(slug, notes), { fallback: "Could not save the notes." });
+    }
     return res;
   }
 
@@ -76,7 +79,7 @@ export function LeadEstimate({
       // Persist edits first so the emailed PDF matches what's on screen.
       const saved = await persist();
       if (!saved.ok) return setError(saved.error ?? "Could not save.");
-      const res = await sendEstimate(slug);
+      const res = await runAction(() => sendEstimate(slug), { fallback: "Could not send." });
       if (res.ok) setSentOk(true);
       else setError(res.error ?? "Could not send.");
     });

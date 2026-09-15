@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Plus, X, DollarSign, Pencil, Trash2, Sparkles, FileText } from "lucide-react";
+import { runAction } from "@/lib/run-action";
 import { Card, Chip, Eyebrow } from "@/components/ui";
 import type { ChipKind } from "@/components/ui/Chip";
 import type { ProjectMoney, InvoiceStatus, Invoice, InvoiceLine } from "@/lib/money";
@@ -33,15 +34,15 @@ type Result = { ok: boolean; error?: string };
  *  drafts the line items, or start blank and fill them in). */
 export function MoneyPanel({ slug, money }: { slug: string; money: ProjectMoney }) {
   const [pending, startTransition] = useTransition();
-  const [error, setError] = useState("");
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState<Invoice | null>(null);
 
-  function run(fn: () => Promise<Result>) {
-    setError("");
+  // runAction raises the site-wide toast on failure; a modal stays open on
+  // failure so the typed-in values survive.
+  function run(fn: () => Promise<Result>, fallback?: string, onSuccess?: () => void) {
     startTransition(async () => {
-      const r = await fn();
-      if (!r.ok) setError(r.error ?? "Something went wrong.");
+      const r = await runAction(fn, { fallback });
+      if (r.ok) onSuccess?.();
     });
   }
 
@@ -61,8 +62,6 @@ export function MoneyPanel({ slug, money }: { slug: string; money: ProjectMoney 
             New invoice
           </button>
         </div>
-
-        {error && <div className="text-[12px] text-flag">{error}</div>}
 
         {money.invoices.length === 0 ? (
           <Card kind="dashed" className="p-8 text-center">
@@ -198,12 +197,9 @@ export function MoneyPanel({ slug, money }: { slug: string; money: ProjectMoney 
           pending={pending}
           onClose={() => setModal(false)}
           onCreate={(milestone, notes, mode) =>
-            startTransition(async () => {
-              setError("");
-              const res = await createInvoice(slug, { milestone, notes, mode });
-              if (res.ok) setModal(false);
-              else setError(res.error ?? "Could not create the invoice.");
-            })
+            run(() => createInvoice(slug, { milestone, notes, mode }), "Could not create the invoice.", () =>
+              setModal(false),
+            )
           }
         />
       )}
@@ -214,12 +210,9 @@ export function MoneyPanel({ slug, money }: { slug: string; money: ProjectMoney 
           pending={pending}
           onClose={() => setEditing(null)}
           onSave={(milestone, lines) =>
-            startTransition(async () => {
-              setError("");
-              const res = await updateInvoice(editing.id, { milestone, lines });
-              if (res.ok) setEditing(null);
-              else setError(res.error ?? "Could not save the invoice.");
-            })
+            run(() => updateInvoice(editing.id, { milestone, lines }), "Could not save the invoice.", () =>
+              setEditing(null),
+            )
           }
         />
       )}

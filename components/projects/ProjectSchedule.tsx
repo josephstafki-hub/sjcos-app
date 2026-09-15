@@ -6,6 +6,7 @@ import { Plus, X, Wand2 } from "lucide-react";
 import { Card } from "@/components/ui";
 import { createProjectScheduleBlock, deleteScheduleBlock } from "@/lib/actions/schedule";
 import { generateScheduleFromTemplate } from "@/lib/actions/schedule-templates";
+import { runAction } from "@/lib/run-action";
 
 interface Block {
   id: string;
@@ -58,7 +59,7 @@ export function ProjectSchedule({
     }
     setGenMsg("");
     startGen(async () => {
-      const res = await generateScheduleFromTemplate(slug, templateId, genStart);
+      const res = await runAction(() => generateScheduleFromTemplate(slug, templateId, genStart), { fallback: "Couldn't generate the schedule." });
       if (res.ok) {
         setGenMsg(res.created > 0 ? `Added ${res.created} block${res.created === 1 ? "" : "s"}.` : "Already up to date.");
         setGenOpen(false);

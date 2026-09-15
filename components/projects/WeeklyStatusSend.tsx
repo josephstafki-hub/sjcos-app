@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Check, Mail } from "lucide-react";
 import { sendWeeklyStatusEmail } from "@/lib/actions/projects";
+import { runAction } from "@/lib/run-action";
 
 /** Real "Send to client" control for the drafted weekly-status email. Emails
  *  the AI draft to the project's client via Gmail (replaces the old fake
@@ -15,7 +16,7 @@ export function WeeklyStatusSend({ slug }: { slug: string }) {
   function send() {
     setError("");
     startTransition(async () => {
-      const r = await sendWeeklyStatusEmail(slug);
+      const r = await runAction(() => sendWeeklyStatusEmail(slug), { fallback: "Could not send." });
       if (r.ok) setDone(true);
       else setError(r.error ?? "Could not send.");
     });

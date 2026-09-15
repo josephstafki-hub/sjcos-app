@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Gift, Check, Send } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import { sendReferralThankYou } from "@/lib/actions/leads";
+import { runAction } from "@/lib/run-action";
 
 /** Referral card on lead detail — shows who referred the lead and lets the owner
  *  (re)send a thank-you. Auto-thanks fire on creation for referral leads with an
@@ -23,19 +24,15 @@ export function ThankReferrerButton({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [sent, setSent] = useState(thanked);
-  const [error, setError] = useState("");
 
   if (!referrerName && !referrerEmail) return null;
 
   function thank() {
-    setError("");
     startTransition(async () => {
-      const r = await sendReferralThankYou(slug);
+      const r = await runAction(() => sendReferralThankYou(slug), { fallback: "Couldn't send." });
       if (r.ok) {
         setSent(true);
         router.refresh();
-      } else {
-        setError(r.error ?? "Couldn't send.");
       }
     });
   }
@@ -67,7 +64,6 @@ export function ThankReferrerButton({
           <span className="text-[11px] text-ink-3">Add a referrer email to send thanks.</span>
         )}
       </div>
-      {error && <div className="mt-1 text-[11px] text-flag">{error}</div>}
     </Card>
   );
 }

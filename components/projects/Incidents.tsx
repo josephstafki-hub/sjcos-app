@@ -7,6 +7,7 @@ import { Card, Chip } from "@/components/ui";
 import type { IncidentReport } from "@/lib/safety";
 import { SEVERITIES } from "@/lib/incident-types";
 import { createIncidentReport } from "@/lib/actions/safety";
+import { runAction } from "@/lib/run-action";
 
 const SEV_CHIP: Record<string, "flag" | "accent" | "ghost"> = {
   serious: "flag",
@@ -52,7 +53,7 @@ export function Incidents({ slug, incidents }: { slug: string; incidents: Incide
               const fd = new FormData(e.currentTarget);
               startTransition(async () => {
                 setError("");
-                const r = await createIncidentReport(slug, fd);
+                const r = await runAction(() => createIncidentReport(slug, fd), { fallback: "Couldn't create the report." });
                 if (r.ok) {
                   formRef.current?.reset();
                   setOpen(false);

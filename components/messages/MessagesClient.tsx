@@ -12,6 +12,7 @@ import {
   setSmsOptOut,
 } from "@/lib/actions/sms";
 import { placeCallAction } from "@/lib/actions/calls";
+import { runAction } from "@/lib/run-action";
 import type { SmsThreadSummary, SmsMessage, SmsLinkOptions } from "@/lib/sms";
 
 /** Record path for the "open record" link (link_type → route segment). */
@@ -109,7 +110,7 @@ export function MessagesClient({
     setMessages((prev) => [...prev, optimistic]);
     setDraft("");
     start(async () => {
-      const res = await sendSmsReply(selectedId, body);
+      const res = await runAction(() => sendSmsReply(selectedId, body), { fallback: "Could not send." });
       const data = await loadSmsThread(selectedId);
       setMessages(data?.messages ?? []);
       if (!res.ok) {
@@ -130,8 +131,8 @@ export function MessagesClient({
       ),
     );
     start(async () => {
-      if (value) await linkSmsThread(id, type, slug);
-      else await unlinkSmsThread(id);
+      if (value) await runAction(() => linkSmsThread(id, type, slug), { fallback: "Couldn't link the thread." });
+      else await runAction(() => unlinkSmsThread(id), { fallback: "Couldn't unlink the thread." });
     });
   }
 
@@ -140,7 +141,7 @@ export function MessagesClient({
     if (next && !confirm(`Mark ${threadTitle(t)} as opted out? The OS will refuse to text them until they send START (or you undo this).`)) return;
     setThreads((prev) => prev.map((x) => (x.id === t.id ? { ...x, optedOut: next, optedOutAt: next ? new Date().toISOString() : null } : x)));
     start(async () => {
-      await setSmsOptOut(t.id, next);
+      await runAction(() => setSmsOptOut(t.id, next), { fallback: "Couldn't update the opt-out." });
     });
   }
 
@@ -149,7 +150,7 @@ export function MessagesClient({
     setDialing(true);
     setNotice(null);
     start(async () => {
-      const r = await placeCallAction(selected.phone, selected.contactName);
+      const r = await runAction(() => placeCallAction(selected.phone, selected.contactName), { fallback: "Could not place the call." });
       setDialing(false);
       setNotice(r.ok ? "Calling: your cell rings first, then the OS dials them and connects you. Notes land on /calls." : r.error ?? "Could not place the call.");
     });
@@ -160,10 +161,11 @@ export function MessagesClient({
     setComposeErr(null);
     setSending(true);
     start(async () => {
-      const res = await startSmsThread(newPhone, newBody, newName);
+      const res = await runAction(() => startSmsThread(newPhone, newBody, newName), { fallback: "Could not start the conversation." });
       setSending(false);
-      if (res.threadId != null) {
-        const id = res.threadId;
+      const threadId = "threadId" in res ? res.threadId : undefined;
+      if (threadId != null) {
+        const id = threadId;
         // Add the thread to the rail if it's new, then open it.
         setThreads((prev) =>
           prev.some((t) => t.id === id)

@@ -5,6 +5,7 @@ import { ImagePlus, Send } from "lucide-react";
 import { VoiceButton } from "@/components/ui";
 import { appendTranscript } from "@/lib/append-transcript";
 import { submitSubLog } from "@/lib/actions/sub-portal";
+import { runAction } from "@/lib/run-action";
 
 /** Real "Log your day" composer for the sub portal — a note + optional photo
  *  that persists to sub_logs and notifies Joe. Replaces the showcase AckButtons.
@@ -25,7 +26,7 @@ export function SubLogComposer({ slug, voiceEnabled = false }: { slug: string; v
         const fd = new FormData(e.currentTarget);
         startTransition(async () => {
           setError("");
-          const r = await submitSubLog(slug, fd);
+          const r = await runAction(() => submitSubLog(slug, fd), { fallback: "Could not log your day." });
           if (r.ok) {
             formRef.current?.reset();
             setFileName("");

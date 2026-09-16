@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Sparkles, PanelLeft } from "lucide-react";
 import {
   postPanelMessage,
@@ -20,30 +20,63 @@ import { PanelDock } from "./PanelDock";
  *  - turns every in-window link click and Inspect into a bus nav request, so
  *    the APP window navigates instead of this one (with a window.open fallback
  *    when no app window answers);
- *  - closes itself when any window re-docks the panel, and announces
- *    panel-closed on the way out so docks come home immediately.
+ *  - answers app-window pings, so liveness doesn't depend on our own timers
+ *    (browsers throttle them to ~1/min when this window is hidden/occluded);
+ *  - closes itself only on a deliberate re-dock (pill / Dock back), announcing
+ *    panel-closed on the way out so docks come home immediately. A bare
+ *    `where: "docked"` flip with no redock message means an app window's
+ *    watchdog gave up on us — we're clearly alive, so we take the role back.
  * Chat state needs no hand-over in either direction — threads and runs are
  * DB-backed and the dock resumes them via the panel store + pendingRunId.
  */
 export function PanelWindow() {
   const [width, setWidth] = useState(720);
+  // Set once a deliberate re-dock is underway, so the matching state flip
+  // isn't mistaken for a watchdog false alarm and re-claimed.
+  const closingRef = useRef(false);
 
   // Claim + heartbeat + closure signalling.
   useEffect(() => {
     writePanelState({ where: "window" });
-    const beat = setInterval(() => postPanelMessage({ type: "heartbeat", role: "panel" }), 2000);
+    const beatNow = () => postPanelMessage({ type: "heartbeat", role: "panel" });
+    const beat = setInterval(beatNow, 2000);
     const onHide = () => postPanelMessage({ type: "panel-closed" });
     window.addEventListener("pagehide", onHide);
-    const unState = subscribePanelState((s) => {
-      // Someone re-docked (an app window's pill) — this window is done.
-      if (s.where === "docked") window.close();
-    });
+    // Coming back from a throttled/frozen stretch: beat right away so any
+    // app window that was counting unanswered pings resets before it acts.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") beatNow();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", beatNow);
     const unBus = subscribePanelBus((m) => {
       if (m.type === "nav-ack") resolveNavAck(m.id);
+      else if (m.type === "ping") beatNow();
+      else if (m.type === "redock") {
+        closingRef.current = true;
+        window.close();
+      }
+    });
+    let reclaim: number | null = null;
+    const unState = subscribePanelState((s) => {
+      if (s.where !== "docked" || closingRef.current || reclaim != null) return;
+      // Nobody asked us to dock (no redock message) — an app window's watchdog
+      // mis-read a throttled heartbeat as a dead popout. Take the role back.
+      // Deferred: the storage-event echo of a deliberate re-dock can land
+      // before its `redock` bus message, so give that message a beat to arrive.
+      reclaim = window.setTimeout(() => {
+        reclaim = null;
+        if (closingRef.current) return;
+        writePanelState({ where: "window" });
+        beatNow();
+      }, 400);
     });
     return () => {
       clearInterval(beat);
       window.removeEventListener("pagehide", onHide);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", beatNow);
+      if (reclaim != null) clearTimeout(reclaim);
       unState();
       unBus();
     };
@@ -84,8 +117,9 @@ export function PanelWindow() {
         <div className="flex-1" />
         <button
           onClick={() => {
-            // Flipping the store re-docks every app window; our own state
-            // subscription then closes this window.
+            // Flipping the store re-docks every app window. Mark ourselves
+            // closing first so the state flip isn't re-claimed.
+            closingRef.current = true;
             writePanelState({ where: "docked" });
             postPanelMessage({ type: "panel-closed" });
             window.close();

@@ -40,9 +40,19 @@ export type PanelBusMessage =
   /** The app view's page grounding changed (PageAiContext) — lets a detached
    *  panel window ground its turns in what the other window is showing. */
   | { type: "page"; pathname: string; context?: string }
-  /** Liveness of a detached /panel window (popout close detection). */
+  /** Liveness of a detached /panel window (popout close detection). An app
+   *  window pings; the popout answers with a heartbeat (and also beats on its
+   *  own timer). Ping/answer is used because message handlers keep running in
+   *  a background/occluded window while its timers get throttled to once a
+   *  minute — a timer-only heartbeat looked like a dead popout after a few
+   *  quiet minutes. */
+  | { type: "ping"; role: "app" }
   | { type: "heartbeat"; role: "panel" }
-  | { type: "panel-closed" };
+  | { type: "panel-closed" }
+  /** Joe deliberately brought the panel home (pill / Dock back). Only this
+   *  closes a live popout — a plain `where: "docked"` state flip is treated as
+   *  a watchdog false alarm and the popout re-claims its role. */
+  | { type: "redock" };
 
 const CHANNEL_NAME = "sjcos:panel:v1";
 

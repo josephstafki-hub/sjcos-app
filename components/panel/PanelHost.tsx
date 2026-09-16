@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ChevronDown, ChevronUp, ExternalLink, Eye, EyeOff, Mic, PanelLeftClose, Sparkles, X } from "lucide-react";
-import { ackAppNav, subscribePanelBus } from "./panelBus";
+import { ackAppNav, postPanelMessage, subscribePanelBus } from "./panelBus";
 import { usePanel } from "./PanelProvider";
 import { readPanelState } from "./panelStore";
 import { PanelDock } from "./PanelDock";
@@ -43,27 +43,42 @@ export function PanelHost({ children }: { children: ReactNode }) {
   );
 
   // App-window duties toward a detached panel: take its navigation requests,
-  // and watch its heartbeat — when the popout dies (closed, crashed, or was
+  // and watch its liveness — when the popout dies (closed, crashed, or was
   // already gone when this window loaded) the dock comes home. The bus posts
   // don't echo to their sender, so this never reacts to this window's own
   // writes.
+  //
+  // Liveness is ping → heartbeat, counted in unanswered pings rather than
+  // wall-clock silence: both windows' timers get throttled to ~1/min when
+  // hidden or occluded, so "no beat for 6s" fired after a few idle minutes and
+  // yanked a perfectly live popout home. Message handlers aren't throttled, so
+  // a live popout answers a ping promptly even in the background; a closed
+  // one can't. Three unanswered pings ≈ 15s in the foreground, a few minutes
+  // when this window is itself throttled (nobody's looking at it then anyway).
+  // A normal close still comes home instantly via panel-closed (pagehide), and
+  // if this watchdog ever does misfire the popout notices and re-claims.
   useEffect(() => {
-    let lastBeat = Date.now();
+    let unanswered = 0;
     const un = subscribePanelBus((m) => {
       if (m.type === "nav") {
         ackAppNav(m.id);
         router.push(m.href);
       } else if (m.type === "heartbeat" && m.role === "panel") {
-        lastBeat = Date.now();
+        unanswered = 0;
       } else if (m.type === "panel-closed") {
         setWhere("docked");
       }
     });
     const watchdog = setInterval(() => {
-      if (layout.ready && layout.where === "window" && Date.now() - lastBeat > 6500) {
+      if (!layout.ready || layout.where !== "window") return;
+      if (unanswered >= 3) {
+        unanswered = 0;
         setWhere("docked");
+        return;
       }
-    }, 2000);
+      unanswered += 1;
+      postPanelMessage({ type: "ping", role: "app" });
+    }, 5000);
     return () => {
       un();
       clearInterval(watchdog);
@@ -159,7 +174,12 @@ export function PanelHost({ children }: { children: ReactNode }) {
           itself when it sees the state flip). */}
       {layout.ready && layout.where === "window" && (
         <button
-          onClick={() => setWhere("docked")}
+          onClick={() => {
+            // Order matters: the popout closes on `redock`, and must see it
+            // before the state flip or it reads the flip as a false alarm.
+            postPanelMessage({ type: "redock" });
+            setWhere("docked");
+          }}
           title="Bring the operator panel back into this window"
           className="fixed bottom-4 left-4 z-40 hidden items-center gap-1.5 rounded-full border border-rule bg-paper px-3 py-1.5 text-[11.5px] font-medium text-ink-2 shadow-card hover:bg-paper-2 lg:flex"
         >

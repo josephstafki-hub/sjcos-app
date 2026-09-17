@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { hasAccess } from "@/lib/api-auth";
 import path from "node:path";
 import { getCurrentUser } from "@/lib/dal";
 import { queryOne } from "@/lib/db";
@@ -24,7 +25,7 @@ export async function GET(
   const resolved = await resolveOptionImage(optionId);
   if (!resolved) return new Response("Not found", { status: 404 });
 
-  if (user.role !== "owner" && !(user.role === "client" && user.linkSlug === resolved.slug)) {
+  if (!hasAccess(user, "projects") && !(user.role === "client" && user.linkSlug === resolved.slug)) {
     return new Response("Forbidden", { status: 403 });
   }
 

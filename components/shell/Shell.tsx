@@ -1,13 +1,17 @@
 import type { ReactNode } from "react";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { Sidebar } from "./Sidebar";
 import { MobileNav } from "./MobileNav";
 import { Topbar } from "./Topbar";
 import { PageAiContext } from "@/components/panel/PageAiContext";
-import { getCurrentUser } from "@/lib/dal";
+import { canOpen, getCurrentUser, homeFor } from "@/lib/dal";
 import { getUnreadCount } from "@/lib/notifications";
+import { PATH_HEADER } from "@/lib/session-window";
 
 const ROLE_LABEL: Record<string, string> = {
   owner: "Owner · all roles",
+  staff: "Team member",
   sub: "Subcontractor",
   client: "Client",
 };
@@ -29,11 +33,24 @@ type ShellProps = {
  * (Client / Sub portal) use their own chrome and do not wrap in Shell.
  */
 export async function Shell({ children, breadcrumb, aiContext }: ShellProps) {
-  const [user, unread] = await Promise.all([getCurrentUser(), getUnreadCount()]);
+  const [user, unread, hdrs] = await Promise.all([getCurrentUser(), getUnreadCount(), headers()]);
+
+  // Staff area enforcement, against the DB row (not the cookie): proxy.ts
+  // already filtered on the token's copy, but a revoked area must bite on the
+  // very next render — and Shell is rendered for every internal page,
+  // including soft navigations that never re-run the (os) layout.
+  if (user?.role === "staff") {
+    const path = hdrs.get(PATH_HEADER);
+    if (path && !canOpen(user, path)) redirect(homeFor(user));
+  }
+
   const sidebarUser = {
     name: user?.name ?? "—",
     initials: user?.initials || "?",
     roleLabel: user ? (ROLE_LABEL[user.role] ?? user.role) : "",
+    // Owner sees every rail item (null = no filter); staff only the areas
+    // they hold — Sidebar filters with lib/permissions, which is client-safe.
+    staffPerms: user?.role === "staff" ? user.permissions : null,
   };
 
   return (

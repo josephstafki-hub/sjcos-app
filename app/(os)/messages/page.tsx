@@ -2,12 +2,12 @@ import { Shell } from "@/components/shell/Shell";
 import { MessagesClient } from "@/components/messages/MessagesClient";
 import { getSmsThreads, getSmsLinkOptions, smsConfigured, smsStatus } from "@/lib/sms";
 import { voiceConfigured } from "@/lib/voice";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 
 export const dynamic = "force-dynamic";
 
 export default async function MessagesPage() {
-  await requireRole("owner");
+  await requireAccess("comms");
   const [threads, linkOptions] = await Promise.all([getSmsThreads(), getSmsLinkOptions()]);
   const status = smsStatus();
 

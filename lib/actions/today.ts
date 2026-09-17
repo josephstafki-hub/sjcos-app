@@ -1,6 +1,6 @@
 "use server";
 
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { ai } from "@/lib/ai";
 import { query, queryOne } from "@/lib/db";
 import { maybeAdvanceRunbook } from "@/lib/runbook-engine";
@@ -19,7 +19,7 @@ import {
  *  numbers); degrades to the original order if the model gives nothing usable
  *  (e.g. the mock provider), so the button is always safe to press. */
 export async function reprioritizeToday(titles: string[]): Promise<string[]> {
-  await requireRole("owner");
+  await requireAccess("today");
   if (titles.length <= 1) return titles;
 
   const numbered = titles.map((t, i) => `${i + 1}. ${t}`).join("\n");
@@ -59,7 +59,7 @@ export interface PrioritySwapResult {
  *  page reload. If the item isn't done yet, the caller should just navigate
  *  to its href as normal. */
 export async function checkPriorityCompletion(workItemId: string): Promise<PrioritySwapResult> {
-  await requireRole("owner");
+  await requireAccess("today");
 
   const { rows } = await query<{ status: string }>(
     `SELECT status FROM work_items WHERE id = $1`,
@@ -91,7 +91,7 @@ export async function checkPriorityCompletion(workItemId: string): Promise<Prior
 
 /** Re-read the live Priorities + Waiting queue (no schedule/brief/header). */
 export async function refreshTodayQueue(): Promise<QueueSnapshot> {
-  await requireRole("owner");
+  await requireAccess("today");
   return getQueueSnapshot();
 }
 
@@ -99,7 +99,7 @@ export async function refreshTodayQueue(): Promise<QueueSnapshot> {
  *  the fresh queue (the freed slot backfills inside getQueueSnapshot). Skips
  *  the write if the item is already done/cancelled. */
 export async function completeTodayItem(workItemId: string): Promise<QueueSnapshot> {
-  await requireRole("owner");
+  await requireAccess("today");
   const cur = await queryOne<{ status: string }>(
     `SELECT status FROM work_items WHERE id = $1`,
     [workItemId],
@@ -121,7 +121,7 @@ export async function completeTodayItem(workItemId: string): Promise<QueueSnapsh
  *  backfills from the rest of the backlog. No-op write if the item is already
  *  done/cancelled. */
 export async function snoozeTodayItem(workItemId: string, days = 3): Promise<QueueSnapshot> {
-  await requireRole("owner");
+  await requireAccess("today");
   const n = Math.min(30, Math.max(1, Math.round(days)));
   await query(
     `UPDATE work_items

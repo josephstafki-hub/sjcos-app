@@ -8,7 +8,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { query, queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import {
   STAGES,
   ALL_STAGES,
@@ -109,7 +109,7 @@ async function deliverReferralThanks(lead: {
 
 /** Create a lead from the "New lead" form, then open its detail page. */
 export async function createLead(formData: FormData) {
-  await requireRole("owner");
+  await requireAccess("leads");
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
   const scope = String(formData.get("scope") ?? "").trim();
@@ -173,7 +173,7 @@ export async function createLead(formData: FormData) {
 
 /** Owner: manually (re)send a referral thank-you for a lead. */
 export async function sendReferralThankYou(slug: string): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("leads");
   const lead = await queryOne<{
     slug: string;
     name: string;
@@ -199,7 +199,7 @@ export async function sendReferralThankYou(slug: string): Promise<{ ok: boolean;
 
 /** Advance a lead to the next pipeline stage. No-op at the final stage. */
 export async function advanceLeadStage(slug: string) {
-  await requireRole("owner");
+  await requireAccess("leads");
   const row = await queryOne<{ stage: LeadStage; email: string | null }>(
     `SELECT stage, email FROM leads WHERE slug = $1`,
     [slug],
@@ -239,7 +239,7 @@ async function stopNurtureForStage(email: string | null, stage: LeadStage): Prom
 
 /** Mark a lead lost / archived (terminal). Owner-gated. */
 export async function markLeadLost(slug: string) {
-  await requireRole("owner");
+  await requireAccess("leads");
   const row = await queryOne<{ email: string | null }>(
     `UPDATE leads SET stage = 'lost', updated_at = now() WHERE slug = $1 RETURNING email`,
     [slug],
@@ -258,7 +258,7 @@ export async function markLeadLost(slug: string) {
 
 /** Reopen a lost/archived lead back into the pipeline at intake. Owner-gated. */
 export async function reopenLead(slug: string) {
-  await requireRole("owner");
+  await requireAccess("leads");
   const row = await queryOne<{ name: string; converted: boolean }>(
     `SELECT l.name, EXISTS (SELECT 1 FROM projects p WHERE p.lead_id = l.id) AS converted
        FROM leads l WHERE l.slug = $1`,
@@ -283,7 +283,7 @@ export async function reopenLead(slug: string) {
 /** Delete a lead, then return to the list. Any project linked via lead_id is
  *  detached automatically (FK is ON DELETE SET NULL). Owner-only. */
 export async function deleteLead(slug: string) {
-  await requireRole("owner");
+  await requireAccess("leads");
   await query(`DELETE FROM leads WHERE slug = $1`, [slug]);
   try {
     await closeEntityRoom(leadRoomKey(slug)); // close (keep transcript), don't delete
@@ -303,7 +303,7 @@ export async function saveIntakeAnswer(
   question: string,
   answer: string,
 ): Promise<{ ok: boolean }> {
-  await requireRole("owner");
+  await requireAccess("leads");
   const q = question.trim();
   if (!q) return { ok: false };
   const canonical = INTAKE_QUESTIONS.indexOf(q as (typeof INTAKE_QUESTIONS)[number]);
@@ -326,7 +326,7 @@ export async function updateLeadContact(
   email: string,
   phone: string,
 ): Promise<{ ok: boolean }> {
-  await requireRole("owner");
+  await requireAccess("leads");
   const res = await query(
     `UPDATE leads SET email = NULLIF($2, ''), phone = NULLIF($3, ''), updated_at = now()
       WHERE slug = $1`,
@@ -343,7 +343,7 @@ export async function updateLeadContact(
  *  measurements, material picks, prior assumptions), saving it as a draft
  *  (overwrites any prior draft). Owner-gated. */
 export async function draftEstimate(slug: string): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("leads");
   const lead = await queryOne<{ id: string; name: string; scope: string }>(
     `SELECT id, name, scope FROM leads WHERE slug = $1`,
     [slug],
@@ -406,7 +406,7 @@ export async function saveEstimateLines(
   lines: EstimateLine[],
   total: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("leads");
   const clean = (Array.isArray(lines) ? lines : [])
     .map((l) => ({ label: String(l?.label ?? "").trim(), value: String(l?.value ?? "").trim() }))
     .filter((l) => l.label || l.value);
@@ -434,7 +434,7 @@ export async function saveEstimateLines(
 
 /** Persist the owner's notes that steer the rough estimate. Owner-gated. */
 export async function saveEstimateNotes(slug: string, notes: string): Promise<{ ok: boolean }> {
-  await requireRole("owner");
+  await requireAccess("leads");
   const res = await query(
     `INSERT INTO lead_estimates (lead_id, notes)
      SELECT id, $2 FROM leads WHERE slug = $1
@@ -448,7 +448,7 @@ export async function saveEstimateNotes(slug: string, notes: string): Promise<{ 
 
 /** Email the rough estimate to the lead via Gmail and mark it sent. Owner-gated. */
 export async function sendEstimate(slug: string): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("leads");
   const lead = await queryOne<{ id: string; name: string; email: string | null }>(
     `SELECT id, name, email FROM leads WHERE slug = $1`,
     [slug],
@@ -510,7 +510,7 @@ export async function sendEstimate(slug: string): Promise<{ ok: boolean; error?:
  *  existing project. Owner-gated. `nameInput` is the owner-confirmed project
  *  name from the convert dialog; falls back to the suggested-name heuristic. */
 export async function convertLeadToProject(slug: string, nameInput?: string) {
-  await requireRole("owner");
+  await requireAccess("leads");
   const lead = await queryOne<{
     id: string;
     name: string;
@@ -628,7 +628,7 @@ export async function convertLeadToProject(slug: string, nameInput?: string) {
 export async function rescoreLead(
   slug: string,
 ): Promise<{ ok: boolean; verdict?: "go" | "hold" | "pass"; rationale?: string; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("leads");
   const score = await scoreLead(slug);
   if (!score) return { ok: false, error: "Lead not found." };
   await logLeadActivity(slug, "note", `Re-scored ${score.verdict.toUpperCase()} — ${score.rationale}`, AI_NAME);
@@ -639,7 +639,7 @@ export async function rescoreLead(
 
 /** Set a lead to an explicit stage (used by a stage picker). */
 export async function setLeadStage(slug: string, stage: LeadStage) {
-  await requireRole("owner");
+  await requireAccess("leads");
   if (!ALL_STAGES.some((s) => s.key === stage)) return;
   const row = await queryOne<{ email: string | null }>(
     `UPDATE leads SET stage = $2, updated_at = now() WHERE slug = $1 RETURNING email`,

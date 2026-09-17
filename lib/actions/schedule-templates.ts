@@ -8,7 +8,7 @@
 
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 
 type Result = { ok: true; created: number } | { ok: false; error: string };
 
@@ -34,7 +34,7 @@ export async function generateScheduleFromTemplate(
   templateId: number,
   startDate: string,
 ): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
 
   const proj = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [slug]);
   if (!proj) return { ok: false, error: "Project not found." };

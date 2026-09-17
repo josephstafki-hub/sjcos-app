@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { hasAccess } from "@/lib/api-auth";
 import { getCurrentUser } from "@/lib/dal";
 import { synthesizeSpeech, piperAvailable } from "@/lib/tts";
 import { spokenUpdateForRun } from "@/lib/orchestrator/voice";
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  if (user.role !== "owner" && user.role !== "sub") {
+  if (user.role !== "owner" && user.role !== "staff" && user.role !== "sub") {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   return NextResponse.json({ available: piperAvailable() });
@@ -25,7 +26,7 @@ export async function GET() {
 export async function POST(req: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  if (user.role !== "owner" && user.role !== "sub") {
+  if (user.role !== "owner" && user.role !== "staff" && user.role !== "sub") {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
@@ -42,7 +43,7 @@ export async function POST(req: Request) {
   // { runId }: speak a finished run's outcome — Claude condenses the agent's
   // written answer into a spoken update (cached in dev_agent_runs.spoken_answer).
   if (runId) {
-    if (user.role !== "owner") return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    if (!hasAccess(user, "ai")) return NextResponse.json({ error: "forbidden" }, { status: 403 });
     const spoken = await spokenUpdateForRun(runId);
     if (!spoken) return NextResponse.json({ error: "Nothing to say for that run yet." }, { status: 422 });
     text = spoken;

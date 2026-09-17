@@ -4,14 +4,14 @@
 
 import { revalidatePath } from "next/cache";
 import { query } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { storeUpload } from "@/lib/upload-store";
 import { MATERIAL_CATEGORIES } from "@/lib/catalog-categories";
 
 /** Add a material to the catalog from the "Add material" form. An optional
  *  product image is stored via the shared uploads helper and linked. */
 export async function createMaterial(formData: FormData) {
-  await requireRole("owner");
+  await requireAccess("catalog");
 
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
@@ -51,7 +51,7 @@ export async function createMaterial(formData: FormData) {
 
 /** Remove a material from the catalog. */
 export async function deleteMaterial(id: number) {
-  await requireRole("owner");
+  await requireAccess("catalog");
   await query(`DELETE FROM catalog_items WHERE id = $1`, [id]);
   revalidatePath("/catalog");
 }

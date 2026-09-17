@@ -5,7 +5,7 @@
 
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { logLeadActivity } from "@/lib/lead-activity";
 import type { LeadTask } from "@/lib/lead-tasks";
 
@@ -16,7 +16,7 @@ export async function addLeadTask(
   title: string,
   dueDate: string,
 ): Promise<LeadTask | null> {
-  await requireRole("owner");
+  await requireAccess("leads");
   const text = title.trim().slice(0, 300);
   if (!text) return null;
   const due = /^\d{4}-\d{2}-\d{2}$/.test(dueDate.trim()) ? dueDate.trim() : null;
@@ -38,7 +38,7 @@ export async function addLeadTask(
 
 /** Toggle a task's done state. Owner-only. */
 export async function setLeadTaskDone(id: number, done: boolean, slug: string): Promise<{ ok: boolean }> {
-  await requireRole("owner");
+  await requireAccess("leads");
   const res = await query(`UPDATE lead_tasks SET done = $2 WHERE id = $1`, [id, done]);
   if (res.rowCount === 0) return { ok: false };
   revalidatePath(`/leads/${slug}`);
@@ -47,7 +47,7 @@ export async function setLeadTaskDone(id: number, done: boolean, slug: string): 
 
 /** Delete a task. Owner-only. */
 export async function deleteLeadTask(id: number, slug: string): Promise<{ ok: boolean }> {
-  await requireRole("owner");
+  await requireAccess("leads");
   const res = await query(`DELETE FROM lead_tasks WHERE id = $1`, [id]);
   if (res.rowCount === 0) return { ok: false };
   revalidatePath(`/leads/${slug}`);

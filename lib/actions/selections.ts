@@ -13,7 +13,7 @@
 
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireRole, requireAccess } from "@/lib/dal";
 import { emit } from "@/lib/notify";
 import { logClientActivity, ownerHref } from "@/lib/client-activity";
 import { storeUpload } from "@/lib/upload-store";
@@ -70,7 +70,7 @@ async function nextSort(table: string, column: string, id: string | number): Pro
  *  running total is measured against. Room and sub-section budgets stay as they
  *  are; when this is unset the board falls back to their sum. */
 export async function setSelectionsBudget(slug: string, formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const project = await projectBySlug(slug);
   if (!project) return { ok: false, error: "Project not found." };
 
@@ -89,7 +89,7 @@ export async function setSelectionsBudget(slug: string, formData: FormData): Pro
  *  sub-section of a room. Nesting is one level deep: a sub-section's parent is
  *  normalised up to its own room, so the tree can't grow arbitrarily deep. */
 export async function addSection(slug: string, formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const project = await projectBySlug(slug);
   if (!project) return { ok: false, error: "Project not found." };
 
@@ -123,7 +123,7 @@ async function resolveParent(
 
 /** Rename / re-budget / re-parent a section (owner only). */
 export async function updateSection(id: number, formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const sec = await queryOne<{ slug: string; project_id: string }>(
     `SELECT p.slug, p.id AS project_id
        FROM project_sections s JOIN projects p ON p.id = s.project_id WHERE s.id = $1`,
@@ -158,7 +158,7 @@ export async function updateSection(id: number, formData: FormData): Promise<Res
  *  so they fall back into the "Ungrouped" bucket. Its sub-sections do NOT: the
  *  parent_id FK cascades, and their decisions land in Ungrouped too. */
 export async function removeSection(id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const sec = await queryOne<{ slug: string }>(
     `SELECT p.slug FROM project_sections s JOIN projects p ON p.id = s.project_id WHERE s.id = $1`,
     [id],
@@ -174,7 +174,7 @@ export async function removeSection(id: number): Promise<Result> {
 /** Add a decision to a project's board. `area` names what has to be decided;
  *  `allowance` is what the budget carries for it. Options are added separately. */
 export async function addSelection(slug: string, formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const project = await projectBySlug(slug);
   if (!project) return { ok: false, error: "Project not found." };
 
@@ -204,7 +204,7 @@ export async function addSelection(slug: string, formData: FormData): Promise<Re
 /** Edit a decision's name / spec / notes / allowance / section (owner only).
  *  Status, options and the client's pick are left untouched. */
 export async function updateSelection(id: number, formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const row = await queryOne<{ slug: string; project_id: string }>(
     `SELECT p.slug, p.id AS project_id
        FROM project_selections s JOIN projects p ON p.id = s.project_id
@@ -252,7 +252,7 @@ async function selectionById(id: number) {
 /** Push a draft decision to the client portal. Refused with no options attached
  *  — a decision with nothing to choose between is a dead end for the client. */
 export async function pushSelectionToClient(id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const sel = await selectionById(id);
   if (!sel) return { ok: false, error: "Selection not found." };
 
@@ -330,7 +330,7 @@ async function emitPushed(count: number, subline: string, slug: string) {
 
 /** Push a whole room (and its sub-sections) to the client portal. */
 export async function pushSectionToClient(sectionId: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const sec = await queryOne<{ name: string; slug: string; project_name: string }>(
     `SELECT s.name, p.slug, p.name AS project_name
        FROM project_sections s JOIN projects p ON p.id = s.project_id
@@ -355,7 +355,7 @@ export async function pushSectionToClient(sectionId: number): Promise<Result> {
 
 /** Push the whole board — every room plus ungrouped decisions. */
 export async function pushBoardToClient(slug: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const project = await projectBySlug(slug);
   if (!project) return { ok: false, error: "Project not found." };
 
@@ -373,7 +373,7 @@ export async function pushBoardToClient(slug: string): Promise<Result> {
 /** Pull a pushed decision back to draft — for reworking the options after the
  *  client asked for something different. Clears any pick along with it. */
 export async function unpushSelection(id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const sel = await selectionById(id);
   if (!sel) return { ok: false, error: "Selection not found." };
   await query(
@@ -389,7 +389,7 @@ export async function unpushSelection(id: number): Promise<Result> {
 
 /** Remove a decision from the board (owner only). Its options cascade. */
 export async function removeSelection(id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const sel = await selectionById(id);
   if (!sel) return { ok: false, error: "Selection not found." };
   await query(`DELETE FROM project_selections WHERE id = $1`, [id]);
@@ -414,7 +414,7 @@ export async function prefillOptionFromUrl(url: string): Promise<
   | { ok: true; name: string; brand: string; sku: string; price: number; imageFileId: string | null; imageFailed: boolean }
   | { ok: false; error: string }
 > {
-  await requireRole("owner");
+  await requireAccess("projects");
   const trimmed = String(url ?? "").trim();
   if (!trimmed) return { ok: false, error: "Paste a product link first." };
   const result = await fetchProductDraft(trimmed);
@@ -426,7 +426,7 @@ export async function prefillOptionFromUrl(url: string): Promise<
  *  file already pulled down by the URL prefill, else the linked catalog item's
  *  image at render time. */
 export async function addOption(selectionId: number, formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const owner = await optionOwner(selectionId);
   if (!owner) return { ok: false, error: "Selection not found." };
 
@@ -473,7 +473,7 @@ export async function addOption(selectionId: number, formData: FormData): Promis
 /** Edit an option in place. A new upload replaces the image; leaving the file
  *  field empty keeps whatever is already there. */
 export async function updateOption(optionId: number, formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const row = await queryOne<{ slug: string }>(
     `SELECT p.slug
        FROM project_selection_options o
@@ -524,7 +524,7 @@ export async function updateOption(optionId: number, formData: FormData): Promis
  *  itself to NULL — so also walk the decision back to pending, otherwise it
  *  would read "approved" with nothing actually chosen. */
 export async function removeOption(optionId: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const row = await queryOne<{ slug: string; selection_id: number; was_chosen: boolean }>(
     `SELECT p.slug, o.selection_id, (s.chosen_option_id = o.id) AS was_chosen
        FROM project_selection_options o

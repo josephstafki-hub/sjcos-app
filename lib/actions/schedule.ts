@@ -6,7 +6,7 @@
 
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { askOllamaJson } from "@/lib/ai";
 import { getScheduleConflict } from "@/lib/schedule";
 
@@ -51,7 +51,7 @@ export async function createScheduleBlock(formData: FormData) {
 /** Add a schedule block scoped to a project, from the project Schedule tab.
  *  Owner-gated; resolves the project by slug and revalidates both views. */
 export async function createProjectScheduleBlock(slug: string, formData: FormData) {
-  await requireRole("owner");
+  await requireAccess("projects");
   const label = String(formData.get("label") ?? "").trim();
   if (!label) return;
   const date = String(formData.get("date") ?? "").trim();
@@ -77,7 +77,7 @@ export async function createProjectScheduleBlock(slug: string, formData: FormDat
 
 /** Remove a schedule block (project Schedule tab). Owner-gated. */
 export async function deleteScheduleBlock(id: string, slug: string) {
-  await requireRole("owner");
+  await requireAccess("projects");
   await query(`DELETE FROM schedule_blocks WHERE id = $1`, [id]);
   revalidatePath(`/projects/${slug}`);
   revalidatePath("/schedule");
@@ -90,7 +90,7 @@ export async function deleteScheduleBlock(id: string, slug: string) {
 export async function autoLogTodayFromPhotos(): Promise<
   { ok: true; drafted: number; projects: string[] } | { ok: false; error: string }
 > {
-  await requireRole("owner");
+  await requireAccess("projects");
   const { rows } = await query<{ id: string; slug: string; name: string; photos: string[] }>(
     `SELECT p.id, p.slug, p.name, array_agg(f.name ORDER BY f.created_at) AS photos
        FROM files f JOIN projects p ON p.slug = f.project_key
@@ -134,7 +134,7 @@ export async function autoLogTodayFromPhotos(): Promise<
 export async function flagScheduleConflict(): Promise<
   { ok: true; queued: boolean } | { ok: false; error: string }
 > {
-  await requireRole("owner");
+  await requireAccess("projects");
   const text = await getScheduleConflict();
   if (!text.startsWith("Double-booked")) {
     return { ok: false, error: "No double-booking on this week's schedule — nothing to flag." };

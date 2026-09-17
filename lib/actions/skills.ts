@@ -7,13 +7,13 @@
 import { revalidatePath } from "next/cache";
 import { captureAgentMemory } from "@/lib/agent-memory";
 import { query } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 
 type Result = { ok: true } | { ok: false; error: string };
 
 /** Approve a proposed skill → it joins the active library; its version is approved. */
 export async function approveSkill(slug: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("engine");
   await query(
     `UPDATE skill_versions v
         SET status = 'approved'
@@ -30,7 +30,7 @@ export async function approveSkill(slug: string): Promise<Result> {
 }
 
 export async function rejectSkill(slug: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("engine");
   const { rows } = await query<{ change_summary: string; created_by: string }>(
     `UPDATE skill_versions v
         SET status = 'rejected'

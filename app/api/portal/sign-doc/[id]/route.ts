@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { hasAccess } from "@/lib/api-auth";
 import path from "node:path";
 import { getCurrentUser } from "@/lib/dal";
 import { queryOne } from "@/lib/db";
@@ -46,7 +47,7 @@ export async function GET(
     sr.lead_slug ? `lead:${sr.lead_slug}` : null,
     sr.converted_slug,
   ].filter(Boolean);
-  if (user.role !== "owner" && !(user.role === "client" && allowed.includes(user.linkSlug ?? ""))) {
+  if (!hasAccess(user, "projects") && !(user.role === "client" && allowed.includes(user.linkSlug ?? ""))) {
     return new Response("Forbidden", { status: 403 });
   }
 

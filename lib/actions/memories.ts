@@ -6,13 +6,13 @@
 
 import { revalidatePath } from "next/cache";
 import { query } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 
 type Result = { ok: true } | { ok: false; error: string };
 
 /** Approve as evidence only — agents may cite it, it never instructs. */
 export async function approveMemoryEvidence(id: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("ai");
   await query(
     `UPDATE agent_memories SET review_status = 'approved', updated_at = now() WHERE id = $1`,
     [id],
@@ -24,7 +24,7 @@ export async function approveMemoryEvidence(id: string): Promise<Result> {
 /** Approve as a standing instruction — Joe's click IS the user confirmation
  *  the table's safe defaults wait for. */
 export async function approveMemoryInstruction(id: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("ai");
   await query(
     `UPDATE agent_memories
         SET review_status = 'approved', can_use_as_instruction = true,
@@ -38,7 +38,7 @@ export async function approveMemoryInstruction(id: string): Promise<Result> {
 }
 
 export async function rejectMemory(id: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("ai");
   await query(
     `UPDATE agent_memories SET review_status = 'rejected', updated_at = now() WHERE id = $1`,
     [id],
@@ -50,7 +50,7 @@ export async function rejectMemory(id: string): Promise<Result> {
 /** Revoke a standing instruction — it stays approved evidence, but stops
  *  instructing agents immediately. */
 export async function revokeMemoryInstruction(id: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("ai");
   await query(
     `UPDATE agent_memories SET can_use_as_instruction = false, updated_at = now() WHERE id = $1`,
     [id],
@@ -61,7 +61,7 @@ export async function revokeMemoryInstruction(id: string): Promise<Result> {
 
 /** Set (or clear, with "") the date a standing instruction goes stale. */
 export async function setMemoryStaleAfter(id: string, date: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("ai");
   await query(
     `UPDATE agent_memories SET stale_after = NULLIF($2, '')::timestamptz, updated_at = now() WHERE id = $1`,
     [id, date.trim()],

@@ -8,7 +8,7 @@
 
 import { revalidatePath } from "next/cache";
 import { query } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { createGrant } from "@/lib/owner-grants";
 import { normalizeE164 } from "@/lib/comms/phone";
 import { getSmsThread, sendSms, smsConfigured, smsStatus, upsertSmsThread, type SmsMessage } from "@/lib/sms";
@@ -16,7 +16,7 @@ import { getSmsThread, sendSms, smsConfigured, smsStatus, upsertSmsThread, type 
 /** Load a thread's messages and clear its unread flag (opening = reading).
  *  Owner-only. Returns null if the thread is gone. */
 export async function loadSmsThread(id: number): Promise<{ messages: SmsMessage[]; unreadCleared: boolean } | null> {
-  await requireRole("owner");
+  await requireAccess("comms");
   const data = await getSmsThread(id);
   if (!data) return null;
   let unreadCleared = false;
@@ -55,7 +55,7 @@ async function ownerSend(to: string, body: string, contactName?: string | null):
 /** Start a new outbound conversation: get/create the thread for a number, then
  *  send the first text. Owner-only. */
 export async function startSmsThread(phone: string, body: string, contactName: string): Promise<{ ok: boolean; threadId?: number; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("comms");
   const p = phone.trim();
   if (!p) return { ok: false, error: "Enter a phone number." };
   if (!body.trim()) return { ok: false, error: "Enter a message." };
@@ -70,7 +70,7 @@ export async function startSmsThread(phone: string, body: string, contactName: s
 
 /** Send a reply on an SMS thread. Owner-only. */
 export async function sendSmsReply(threadId: number, body: string): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("comms");
   const data = await getSmsThread(threadId);
   if (!data) return { ok: false, error: "Thread not found." };
   return ownerSend(data.thread.phone, body, data.thread.contactName);
@@ -81,7 +81,7 @@ type SmsLinkType = (typeof LINK_TYPES)[number];
 
 /** Manually link an SMS thread to a record. Owner-only. */
 export async function linkSmsThread(threadId: number, type: string, slug: string): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("comms");
   if (!LINK_TYPES.includes(type as SmsLinkType)) return { ok: false, error: "Invalid link type." };
   if (!slug.trim()) return { ok: false, error: "Pick a record." };
   await query(`UPDATE sms_threads SET link_type = $2, link_slug = $3 WHERE id = $1`, [threadId, type, slug.trim()]);
@@ -91,7 +91,7 @@ export async function linkSmsThread(threadId: number, type: string, slug: string
 
 /** Remove a thread's record link. Owner-only. */
 export async function unlinkSmsThread(threadId: number): Promise<{ ok: boolean }> {
-  await requireRole("owner");
+  await requireAccess("comms");
   await query(`UPDATE sms_threads SET link_type = NULL, link_slug = NULL WHERE id = $1`, [threadId]);
   revalidatePath("/messages");
   return { ok: true };
@@ -99,7 +99,7 @@ export async function unlinkSmsThread(threadId: number): Promise<{ ok: boolean }
 
 /** Clear the unread flag on a thread. Owner-only. */
 export async function markSmsThreadRead(threadId: number): Promise<{ ok: boolean }> {
-  await requireRole("owner");
+  await requireAccess("comms");
   await query(`UPDATE sms_threads SET unread = false WHERE id = $1`, [threadId]);
   revalidatePath("/messages");
   return { ok: true };
@@ -109,7 +109,7 @@ export async function markSmsThreadRead(threadId: number): Promise<{ ok: boolean
  *  person). The carrier-side block is Telnyx's; this only changes what the OS
  *  will attempt. Owner-only. */
 export async function setSmsOptOut(threadId: number, optedOut: boolean): Promise<{ ok: boolean }> {
-  await requireRole("owner");
+  await requireAccess("comms");
   await query(
     optedOut
       ? `UPDATE sms_threads SET opted_out = true, opted_out_at = now() WHERE id = $1`

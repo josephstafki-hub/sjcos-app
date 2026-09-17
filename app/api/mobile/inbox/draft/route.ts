@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getUserFromRequest } from "@/lib/api-auth";
+import { getUserFromRequest, hasAccess } from "@/lib/api-auth";
 import { gmailConfigured } from "@/lib/gmail";
 import { draftReplyForThread } from "@/lib/inbox";
 import type { DraftModel } from "@/lib/dev-agents-meta";
@@ -10,7 +10,7 @@ import type { DraftModel } from "@/lib/dev-agents-meta";
 export async function POST(req: Request) {
   const user = await getUserFromRequest(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (user.role !== "owner") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!hasAccess(user, "inbox")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   if (!gmailConfigured()) return NextResponse.json({ error: "Gmail is not connected." }, { status: 400 });
 
   let threadId: string;

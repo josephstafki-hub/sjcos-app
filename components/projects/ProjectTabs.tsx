@@ -18,9 +18,14 @@ export function ProjectTabs({
   initialTab,
   focus,
   header,
+  hiddenTabs = [],
 }: {
   panels: Partial<Record<ProjectTab, ReactNode>>;
   stageTab?: ProjectTab;
+  /** Tabs this viewer may not see (a staff member without the Money area).
+   *  Removed from the strip AND never rendered; a deep link to one falls back
+   *  to Overview. */
+  hiddenTabs?: ProjectTab[];
   /** Tab named by `?tab=` in the URL (deep link from a notification or the
    *  activity ledger). Wins over stageTab when valid. */
   initialTab?: string | null;
@@ -30,8 +35,9 @@ export function ProjectTabs({
    *  controls (Log update / Send invoice) can jump to a tab. */
   header?: ReactNode;
 }) {
-  const linked = initialTab ? PROJECT_TABS.indexOf(initialTab as ProjectTab) : -1;
-  const initial = linked >= 0 ? linked : stageTab ? Math.max(0, PROJECT_TABS.indexOf(stageTab)) : 0;
+  const TABS = hiddenTabs.length ? PROJECT_TABS.filter((t) => !hiddenTabs.includes(t)) : [...PROJECT_TABS];
+  const linked = initialTab ? TABS.indexOf(initialTab as ProjectTab) : -1;
+  const initial = linked >= 0 ? linked : stageTab ? Math.max(0, TABS.indexOf(stageTab)) : 0;
   const [active, setActive] = useState(initial);
   // Which section is open in each grouped tab (Money, Closeout); a tab absent
   // here shows its first section.
@@ -55,7 +61,7 @@ export function ProjectTabs({
   }
 
   function goToTab(target: ProjectTab, section?: string) {
-    const i = PROJECT_TABS.indexOf(target);
+    const i = TABS.indexOf(target);
     if (i < 0) return;
     setActive(i);
     if (section) setSection(target, section);
@@ -72,10 +78,10 @@ export function ProjectTabs({
         </Suspense>
         {header}
         <div className="border-b border-rule bg-paper-2 px-4 sm:px-7">
-          <Tabs tabs={[...PROJECT_TABS]} active={active} onSelect={setActive} />
+          <Tabs tabs={[...TABS]} active={active} onSelect={setActive} />
         </div>
         <div className="mx-auto max-w-[1200px] px-4 py-5 sm:px-7">
-          {PROJECT_TABS.map((label, i) => (
+          {TABS.map((label, i) => (
             <div key={label} hidden={i !== active}>
               {panels[label] ??
                 (i === active ? (

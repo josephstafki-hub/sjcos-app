@@ -1,4 +1,5 @@
 import { getCurrentUser } from "@/lib/dal";
+import { hasAccess } from "@/lib/api-auth";
 import { queryOne } from "@/lib/db";
 import { serveFile } from "@/lib/file-serve";
 import { verifyFileSignature } from "@/lib/file-sign";
@@ -23,7 +24,7 @@ export async function GET(
   } else {
     const user = await getCurrentUser();
     if (!user) return new Response("Unauthorized", { status: 401 });
-    if (user.role !== "owner") return new Response("Forbidden", { status: 403 });
+    if (!hasAccess(user, "projects")) return new Response("Forbidden", { status: 403 });
   }
 
   const row = await queryOne<{ storage_path: string | null; mime_type: string | null; name: string }>(

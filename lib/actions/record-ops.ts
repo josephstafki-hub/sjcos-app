@@ -11,7 +11,7 @@ import { revalidatePath } from "next/cache";
 import { captureAgentMemory } from "@/lib/agent-memory";
 import { reopenApprovalAfterFailedSend, sendApprovedClientDraft } from "@/lib/approved-draft-send";
 import { query } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { WORK_STATUSES } from "@/lib/engine-constants";
 import { notifyAgentOwner } from "@/lib/dev-agents";
 import { maybeAdvanceRunbook } from "@/lib/runbook-engine";
@@ -46,7 +46,7 @@ export async function setRecordWorkItemStatus(
   slug: string,
   note?: string,
 ): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("today");
   if (!WORK_STATUSES.includes(status)) return { ok: false, error: "Unknown status." };
   const { rows } = await query<{ title: string }>(
     `UPDATE work_items
@@ -67,7 +67,7 @@ export async function setRecordWorkItemStatus(
 }
 
 export async function approveRecordWorkItem(id: string, kind: RecordKind, slug: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("today");
   const { rows } = await query<{ title: string; body: string; assignee_key: string | null }>(
     `UPDATE work_items
         SET approval_status = 'approved',
@@ -95,7 +95,7 @@ export async function approveRecordWorkItem(id: string, kind: RecordKind, slug: 
 }
 
 export async function rejectRecordWorkItem(id: string, kind: RecordKind, slug: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("today");
   const { rows } = await query<{ title: string; body: string; assignee_key: string | null }>(
     `UPDATE work_items SET approval_status = 'rejected', status = 'cancelled' WHERE id = $1
      RETURNING title, body, assignee_key`,
@@ -126,7 +126,7 @@ export async function rejectRecordWorkItem(id: string, kind: RecordKind, slug: s
 
 /** Add a work item attached to this lead/project. */
 export async function addRecordWorkItem(formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("today");
   const kind = String(formData.get("kind") ?? "") as RecordKind;
   const slug = String(formData.get("slug") ?? "");
   const recordId = String(formData.get("record_id") ?? "");
@@ -148,7 +148,7 @@ export async function addRecordWorkItem(formData: FormData): Promise<Result> {
 
 /** Capture a durable knowledge item scoped to this lead/project. */
 export async function captureRecordKnowledge(formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("today");
   const kind = String(formData.get("kind") ?? "") as RecordKind;
   const slug = String(formData.get("slug") ?? "");
   const recordId = String(formData.get("record_id") ?? "");

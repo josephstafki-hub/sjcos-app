@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getUserFromRequest } from "@/lib/api-auth";
+import { getUserFromRequest, hasAccess } from "@/lib/api-auth";
 import { query, queryOne } from "@/lib/db";
 
 // POST /api/mobile/projects/[slug]/daily-log — add/update today's field log from
@@ -21,7 +21,7 @@ export async function POST(
 ) {
   const user = await getUserFromRequest(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (user.role !== "owner") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!hasAccess(user, "projects")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   let parsed;
   try {

@@ -12,7 +12,7 @@
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { query, queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { emit } from "@/lib/notify";
 import { storeUpload } from "@/lib/upload-store";
 import { awardBidOp, bidInviteById, bidUsd, markBidWorkingOp, sendBidPackageOp } from "@/lib/bidding";
@@ -42,7 +42,7 @@ async function packageOwner(packageId: number) {
 // ─── Packages (owner) ────────────────────────────────────────────────────────
 
 export async function createBidPackage(slug: string, formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("bidding");
   const project = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [slug]);
   if (!project) return { ok: false, error: "Project not found." };
 
@@ -65,7 +65,7 @@ export async function createBidPackage(slug: string, formData: FormData): Promis
 }
 
 export async function updateBidPackage(packageId: number, formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("bidding");
   const pkg = await packageOwner(packageId);
   if (!pkg) return { ok: false, error: "Bid package not found." };
 
@@ -93,7 +93,7 @@ export async function updateBidPackage(packageId: number, formData: FormData): P
  *  lib/bid-follow-ups.ts). Off means the hourly sweep skips every invite on
  *  the package and recordBid stops auto-thanking. */
 export async function setBidFollowUps(packageId: number, enabled: boolean): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("bidding");
   const pkg = await packageOwner(packageId);
   if (!pkg) return { ok: false, error: "Bid package not found." };
   await query(
@@ -107,7 +107,7 @@ export async function setBidFollowUps(packageId: number, enabled: boolean): Prom
 /** Delete a package. Refused once a bid has come back — submitted numbers are
  *  business records; close the package instead. */
 export async function removeBidPackage(packageId: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("bidding");
   const pkg = await packageOwner(packageId);
   if (!pkg) return { ok: false, error: "Bid package not found." };
 
@@ -127,7 +127,7 @@ export async function removeBidPackage(packageId: number): Promise<Result> {
 
 /** Close bidding without awarding (work descoped, went another way, etc.). */
 export async function closeBidPackage(packageId: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("bidding");
   const pkg = await packageOwner(packageId);
   if (!pkg) return { ok: false, error: "Bid package not found." };
   await query(
@@ -144,7 +144,7 @@ export async function closeBidPackage(packageId: number): Promise<Result> {
  *  Only files scoped to this package's project can be attached — a stray id
  *  can't leak another project's documents to a sub. */
 export async function attachBidFiles(packageId: number, formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("bidding");
   const pkg = await packageOwner(packageId);
   if (!pkg) return { ok: false, error: "Bid package not found." };
 
@@ -174,7 +174,7 @@ export async function attachBidFiles(packageId: number, formData: FormData): Pro
 /** Upload a new file straight into the packet (it also lands in the project's
  *  Files tab, like every other upload). */
 export async function uploadBidFile(packageId: number, formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("bidding");
   const pkg = await packageOwner(packageId);
   if (!pkg) return { ok: false, error: "Bid package not found." };
 
@@ -203,7 +203,7 @@ export async function uploadBidFile(packageId: number, formData: FormData): Prom
 
 /** Relabel a packet file ("takeoff-v3-final.pdf" → "Material takeoff"). */
 export async function labelBidFile(id: number, formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("bidding");
   const row = await queryOne<{ slug: string }>(
     `SELECT p.slug FROM bid_package_files bf
        JOIN bid_packages b ON b.id = bf.package_id
@@ -222,7 +222,7 @@ export async function labelBidFile(id: number, formData: FormData): Promise<Resu
 
 /** Pull a file out of the packet. The files row itself survives. */
 export async function removeBidFile(id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("bidding");
   const row = await queryOne<{ slug: string }>(
     `SELECT p.slug FROM bid_package_files bf
        JOIN bid_packages b ON b.id = bf.package_id
@@ -241,7 +241,7 @@ export async function removeBidFile(id: number): Promise<Result> {
 /** Add subs to a package as draft invites (nothing is visible to them until
  *  Send). Duplicates are ignored, so re-adding a trade group is safe. */
 export async function addBidInvites(packageId: number, formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("bidding");
   const pkg = await packageOwner(packageId);
   if (!pkg) return { ok: false, error: "Bid package not found." };
 
@@ -262,7 +262,7 @@ export async function addBidInvites(packageId: number, formData: FormData): Prom
 /** The per-sub note on top of the package scope — "your packet also covers the
  *  detached garage", etc. Editable before and after send. */
 export async function updateBidInviteMessage(inviteId: number, formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("bidding");
   const invite = await bidInviteById(inviteId);
   if (!invite) return { ok: false, error: "Bid invite not found." };
   await query(`UPDATE bid_invites SET message = $2 WHERE id = $1`, [
@@ -276,7 +276,7 @@ export async function updateBidInviteMessage(inviteId: number, formData: FormDat
 /** Remove a recipient. Draft invites only — once sent, the sub has seen the
  *  request and the record stays. */
 export async function removeBidInvite(inviteId: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("bidding");
   const invite = await bidInviteById(inviteId);
   if (!invite) return { ok: false, error: "Bid invite not found." };
   if (invite.status !== "draft") {
@@ -293,7 +293,7 @@ export async function removeBidInvite(inviteId: number): Promise<Result> {
  *  even on a not-ok result: a partial send (some emailed, one bounced, one with
  *  no address) reports the problem AND repaints the rows that did go out. */
 export async function sendBidPackage(packageId: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("bidding");
   const result = await sendBidPackageOp(packageId);
   const pkg = await packageOwner(packageId);
   if (pkg) revalidatePath(`/projects/${pkg.slug}`);
@@ -306,7 +306,7 @@ export async function sendBidPackage(packageId: number): Promise<Result> {
  *  chase switches to the softer, later check-in instead of the did-you-get-it
  *  nudges. */
 export async function markBidWorking(inviteId: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("bidding");
   const result = await markBidWorkingOp(inviteId);
   if (!result.ok) return { ok: false, error: result.error };
   const invite = await bidInviteById(inviteId);
@@ -316,7 +316,7 @@ export async function markBidWorking(inviteId: number): Promise<Result> {
 }
 
 export async function awardBid(inviteId: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("bidding");
   const result = await awardBidOp(inviteId);
   if (!result.ok) return { ok: false, error: result.error };
   const invite = await bidInviteById(inviteId);
@@ -332,7 +332,7 @@ export async function awardBid(inviteId: number): Promise<Result> {
 
 /** The invite must exist and have actually gone out. */
 async function requireSentInvite(inviteId: number) {
-  await requireRole("owner");
+  await requireAccess("bidding");
   const invite = await bidInviteById(inviteId);
   if (!invite) return { invite: null, error: "Bid invite not found." };
   if (invite.status === "draft") {

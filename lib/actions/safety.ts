@@ -6,7 +6,7 @@
 
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireRole, requireAccess } from "@/lib/dal";
 import { emit } from "@/lib/notify";
 import { ai } from "@/lib/ai";
 import { storeBuffer } from "@/lib/upload-store";
@@ -19,7 +19,7 @@ const SEVERITIES: IncidentSeverity[] = ["near_miss", "minor", "recordable", "ser
 
 /** Owner: generate a jobsite safety orientation for a project + trade (Qwen). */
 export async function generateSafetyOrientation(slug: string, trade: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const proj = await queryOne<{ id: string; name: string }>(
     `SELECT id, name FROM projects WHERE slug = $1`,
     [slug],
@@ -61,7 +61,7 @@ export async function generateSafetyOrientation(slug: string, trade: string): Pr
 /** Owner: create an incident report. Qwen drafts a factual narrative from the
  *  owner's notes → PDF (with disclaimer) stored in Files + a logged record. */
 export async function createIncidentReport(slug: string, formData: FormData): Promise<Result> {
-  const user = await requireRole("owner");
+  const user = await requireAccess("projects");
   const proj = await queryOne<{ id: string; name: string }>(
     `SELECT id, name FROM projects WHERE slug = $1`,
     [slug],
@@ -137,7 +137,7 @@ export async function createIncidentReport(slug: string, formData: FormData): Pr
 
 /** Owner: delete an orientation. */
 export async function deleteSafetyOrientation(slug: string, id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   await query(
     `DELETE FROM safety_orientations o USING projects p
       WHERE o.id = $1 AND o.project_id = p.id AND p.slug = $2`,

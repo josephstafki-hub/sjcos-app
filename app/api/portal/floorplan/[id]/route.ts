@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { hasAccess } from "@/lib/api-auth";
 import path from "node:path";
 import { getCurrentUser } from "@/lib/dal";
 import { queryOne } from "@/lib/db";
@@ -26,7 +27,7 @@ export async function GET(
   // Clients only reach PUBLISHED versions of their own project — the id space
   // is guessable, so the publish switch is enforced here, not just in the list.
   if (
-    user.role !== "owner" &&
+    !hasAccess(user, "projects") &&
     !(user.role === "client" && user.linkSlug === resolved.slug && resolved.published)
   ) {
     return new Response("Forbidden", { status: 403 });

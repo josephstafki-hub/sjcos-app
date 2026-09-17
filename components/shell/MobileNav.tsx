@@ -3,9 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
-import { Sidebar } from "./Sidebar";
-
-type SidebarUser = { name: string; initials: string; roleLabel: string };
+import { Sidebar, type SidebarUser } from "./Sidebar";
 
 /**
  * Mobile navigation: a hamburger button (shown below `lg`) that opens the

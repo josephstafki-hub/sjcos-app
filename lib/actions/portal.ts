@@ -8,7 +8,7 @@
 
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireRole, requireAccess } from "@/lib/dal";
 import { portalChannel } from "@/lib/portal-messages";
 import { parseLinkSlug } from "@/lib/client-portal";
 import { emit } from "@/lib/notify";
@@ -79,7 +79,7 @@ export async function uploadClientFile(formData: FormData) {
 export async function sendProjectMessage(slug: string, formData: FormData) {
   const body = String(formData.get("body") ?? "").trim();
   if (!body) return;
-  const user = await requireRole("owner");
+  const user = await requireAccess("projects");
   const channelKey = portalChannel("client", slug);
 
   await query(
@@ -97,7 +97,7 @@ export async function sendProjectMessage(slug: string, formData: FormData) {
 export async function sendLeadPortalMessage(slug: string, formData: FormData) {
   const body = String(formData.get("body") ?? "").trim();
   if (!body) return;
-  const user = await requireRole("owner");
+  const user = await requireAccess("projects");
   const channelKey = portalChannel("client", `lead:${slug}`);
 
   await query(

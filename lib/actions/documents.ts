@@ -8,7 +8,7 @@
 
 import { revalidatePath } from "next/cache";
 import { queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { type DrawLine, parseDrawSchedule, sumPercent } from "@/lib/draw-schedule";
 
 type Result = { ok: true } | { ok: false; error: string };
@@ -16,7 +16,7 @@ type Result = { ok: true } | { ok: false; error: string };
 /** Persist the editable draw schedule on the estimate (owner edits it before
  *  generating the contract). Lines must total 100%. */
 export async function updateDrawSchedule(slug: string, estimateId: number, lines: DrawLine[]): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const clean = parseDrawSchedule(lines);
   if (!clean) return { ok: false, error: "Add at least one payment milestone." };
   const total = sumPercent(clean);

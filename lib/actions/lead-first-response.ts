@@ -6,7 +6,7 @@
 
 import { revalidatePath } from "next/cache";
 import { queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import {
   dismissLeadFirstResponse,
   draftLeadFirstResponseAs,
@@ -27,14 +27,14 @@ async function reload(slug: string): Promise<Result> {
 
 /** Send the staged draft, with whatever edits Joe made in the card. */
 export async function sendFirstResponseAction(slug: string, subject: string, body: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("leads");
   const r = await sendLeadFirstResponse(slug, { auto: false, subject, body });
   if (!r.ok) return { ok: false, error: r.error };
   return reload(slug);
 }
 
 export async function dismissFirstResponseAction(slug: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("leads");
   const ok = await dismissLeadFirstResponse(slug);
   if (!ok) return { ok: false, error: "Nothing to dismiss (already sent?)." };
   return reload(slug);
@@ -42,7 +42,7 @@ export async function dismissFirstResponseAction(slug: string): Promise<Result> 
 
 /** Re-run the read + draft from scratch (two agent calls; ~10–20s with Claude). */
 export async function redraftFirstResponseAction(slug: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("leads");
   const lead = await queryOne<{ id: string }>(`SELECT id FROM leads WHERE slug = $1`, [slug]);
   if (!lead) return { ok: false, error: "Lead not found." };
   const outcome = await runLeadFirstResponse(lead.id, { force: true });
@@ -57,7 +57,7 @@ export async function draftFirstResponseAsAction(
   slug: string,
   branch: Exclude<FirstResponseBranch, "human_review">,
 ): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("leads");
   if (!["rough_estimate", "missing_info", "discovery_call"].includes(branch)) {
     return { ok: false, error: "Unknown branch." };
   }

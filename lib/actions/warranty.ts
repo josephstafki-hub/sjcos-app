@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireRole } from "@/lib/dal";
+import { requireRole, requireAccess } from "@/lib/dal";
 import { query, queryOne } from "@/lib/db";
 import { emit } from "@/lib/notify";
 import { logClientActivity } from "@/lib/client-activity";
@@ -101,7 +101,7 @@ export async function submitWarrantyClaim(
 export async function createWarrantyClaim(
   formData: FormData,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("warranty");
   const slug = String(formData.get("slug") ?? "").trim();
   const issue = String(formData.get("issue") ?? "").trim();
   const source = String(formData.get("source") ?? "manual").trim() || "manual";
@@ -127,7 +127,7 @@ export async function createWarrantyClaim(
 
 /** Owner acknowledges a claim (stops the 5-day ack reminder). */
 export async function acknowledgeWarrantyClaim(id: string): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("warranty");
   await query(`UPDATE warranty_claims SET acknowledged = true WHERE id = $1`, [id]);
   revalidatePath("/warranty");
   return { ok: true };
@@ -137,7 +137,7 @@ export async function acknowledgeWarrantyClaim(id: string): Promise<{ ok: boolea
 export async function resolveWarrantyClaim(
   id: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("warranty");
   try {
     await query(`UPDATE warranty_claims SET resolved = true, acknowledged = true WHERE id = $1`, [id]);
     revalidatePath("/warranty");

@@ -5,7 +5,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { query, queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireRole, requireAccess } from "@/lib/dal";
 import { PROJECT_STATUSES, projectStageLabel, getProjectWeeklyStatus } from "@/lib/projects";
 import { emit } from "@/lib/notify";
 import { logClientActivity, ownerHref } from "@/lib/client-activity";
@@ -52,7 +52,7 @@ async function uniqueSlug(name: string): Promise<string> {
 /** Create a project from the "New project" form, then open its detail page.
  *  New projects start at the first lifecycle stage (lands in the Pre-con group). */
 export async function createProject(formData: FormData) {
-  await requireRole("owner");
+  await requireAccess("projects");
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
   const clientName = String(formData.get("client_name") ?? "").trim();
@@ -145,7 +145,7 @@ async function billMilestonesForStatus(slug: string, newStatus: string) {
 
 /** Advance a project to the next lifecycle stage. No-op at the final stage. */
 export async function advanceProjectStatus(slug: string) {
-  await requireRole("owner");
+  await requireAccess("projects");
   const row = await queryOne<{ id: string; status: ProjectStatus; name: string }>(
     `SELECT id, status, name FROM projects WHERE slug = $1`,
     [slug],
@@ -210,7 +210,7 @@ export async function advanceProjectStatus(slug: string) {
 
 /** Toggle a punch-list item done/open. Owner-gated; `slug` drives revalidation. */
 export async function setPunchDone(id: number, done: boolean, slug: string) {
-  await requireRole("owner");
+  await requireAccess("projects");
   await query(`UPDATE project_punch SET done = $2 WHERE id = $1`, [id, done]);
   revalidatePath(`/projects/${slug}`);
 }
@@ -222,7 +222,7 @@ export async function addPunchItem(
   item: string,
   owner: string,
 ): Promise<{ id: number; item: string; owner: string; done: boolean } | null> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const text = item.trim();
   if (!text) return null;
   const proj = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [slug]);
@@ -242,7 +242,7 @@ export async function addPunchItem(
 
 /** Delete a punch-list item. Owner-gated; `slug` drives revalidation. */
 export async function deletePunchItem(id: number, slug: string) {
-  await requireRole("owner");
+  await requireAccess("projects");
   await query(`DELETE FROM project_punch WHERE id = $1`, [id]);
   revalidatePath(`/projects/${slug}`);
 }
@@ -293,7 +293,7 @@ export async function confirmPunchItem(
  *  A genuinely new assignment also parks a sub-portal invite for Joe (composed,
  *  never sent — see lib/sub-invites.ts). */
 export async function assignSubToProject(slug: string, subSlug: string, role: string) {
-  await requireRole("owner");
+  await requireAccess("projects");
   const proj = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [slug]);
   if (!proj) return;
   const res = await query(
@@ -328,7 +328,7 @@ function revalidateSub(subSlug: string) {
  *  This does NOT transmit anything; it only records that he took it from here
  *  and restarts the link's expiry from the moment it actually went out. */
 export async function approveSubInvite(id: number, slug: string) {
-  await requireRole("owner");
+  await requireAccess("projects");
   await markSubInviteApproved(id);
   revalidatePath(`/projects/${slug}`);
 }
@@ -336,7 +336,7 @@ export async function approveSubInvite(id: number, slug: string) {
 /** Discard a parked invite. Also revokes its portal link — /sub-portal/enter
  *  refuses a dismissed token. */
 export async function dismissSubInvite(id: number, slug: string) {
-  await requireRole("owner");
+  await requireAccess("projects");
   await query(
     `UPDATE sub_portal_invites SET status = 'dismissed' WHERE id = $1 AND status = 'queued'`,
     [id],
@@ -351,7 +351,7 @@ export async function updateSubAssignment(
   subSlug: string,
   input: { scope: string; start: string; end: string },
 ) {
-  await requireRole("owner");
+  await requireAccess("projects");
   const proj = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [slug]);
   if (!proj) return;
   await query(
@@ -369,7 +369,7 @@ export async function updateSubAssignment(
 
 /** Remove a sub from a project. Owner-gated. */
 export async function removeSubFromProject(slug: string, subSlug: string) {
-  await requireRole("owner");
+  await requireAccess("projects");
   const proj = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [slug]);
   if (!proj) return;
   await query(`DELETE FROM project_subs WHERE project_id = $1 AND sub_slug = $2`, [
@@ -400,7 +400,7 @@ export async function removeSubFromProject(slug: string, subSlug: string) {
 /** Add (or update) a project daily-log entry for a date. Owner-gated. Upserts
  *  on (project_id, log_date) so re-logging the same day overwrites. */
 export async function addProjectDailyLog(slug: string, formData: FormData) {
-  await requireRole("owner");
+  await requireAccess("projects");
   const body = String(formData.get("body") ?? "").trim();
   if (!body) return;
   const dateInput = String(formData.get("date") ?? "").trim();
@@ -427,7 +427,7 @@ export async function addProjectDailyLog(slug: string, formData: FormData) {
  *  instead of showing the skeleton — so each refresh sat behind a 10–20s CPU
  *  Qwen call. Loading it from the client keeps the draft off that path. */
 export async function draftWeeklyStatus(slug: string): Promise<string> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const project = await queryOne<{ name: string }>(`SELECT name FROM projects WHERE slug = $1`, [slug]);
   if (!project) return "";
   return getProjectWeeklyStatus(project.name);
@@ -436,7 +436,7 @@ export async function draftWeeklyStatus(slug: string): Promise<string> {
 export async function sendWeeklyStatusEmail(
   slug: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const project = await queryOne<{ name: string }>(
     `SELECT name FROM projects WHERE slug = $1`,
     [slug],
@@ -481,7 +481,7 @@ export async function sendWeeklyStatusEmail(
 
 /** Set a project's billed/progress percent (0–100). */
 export async function setProjectProgress(slug: string, progress: number) {
-  await requireRole("owner");
+  await requireAccess("projects");
   const pct = Math.max(0, Math.min(100, Math.round(progress)));
   await query(
     `UPDATE projects SET progress = $2, updated_at = now() WHERE slug = $1`,

@@ -4,7 +4,7 @@
 // Sidebar) so they never add latency to a page navigation. Owner-scoped: a
 // non-owner gets zeros (the Shell nav is only used by the owner app anyway).
 
-import { getCurrentUser } from "@/lib/dal";
+import { can, getCurrentUser } from "@/lib/dal";
 import { query } from "@/lib/db";
 import { gmailConfigured, gmailInboxUnread } from "@/lib/gmail";
 import { getUnreadChatCount } from "@/lib/chat";
@@ -19,13 +19,15 @@ export interface NavCounts {
 
 export async function getNavCounts(): Promise<NavCounts> {
   const user = await getCurrentUser();
-  if (user?.role !== "owner") return { inbox: 0, chat: 0, leads: 0, messages: 0 };
+  if (!user || (user.role !== "owner" && user.role !== "staff")) return { inbox: 0, chat: 0, leads: 0, messages: 0 };
 
+  // Staff only get badges for areas they hold — a count is a peek.
+  const zero = async () => 0;
   const [inbox, chat, leads, messages] = await Promise.all([
-    inboxUnread(),
-    getUnreadChatCount().catch(() => 0),
-    leadsNeedingAttention(),
-    getUnreadSmsCount().catch(() => 0),
+    can(user, "inbox") ? inboxUnread() : zero(),
+    can(user, "chat") ? getUnreadChatCount().catch(() => 0) : zero(),
+    can(user, "leads") ? leadsNeedingAttention() : zero(),
+    can(user, "comms") ? getUnreadSmsCount().catch(() => 0) : zero(),
   ]);
   return { inbox, chat, leads, messages };
 }

@@ -8,7 +8,7 @@
 import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { query } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { hashPassword } from "@/lib/password";
 import {
   ensureClientInvite,
@@ -28,7 +28,7 @@ function revalidateScope(scope: ClientInviteScope) {
 
 /** Get (or mint) the scope's live portal link, for copying. */
 export async function getPortalInviteLink(scope: ClientInviteScope): Promise<LinkResult> {
-  await requireRole("owner");
+  await requireAccess("projects");
   try {
     const invite = await ensureClientInvite(scope);
     revalidateScope(scope);
@@ -40,7 +40,7 @@ export async function getPortalInviteLink(scope: ClientInviteScope): Promise<Lin
 
 /** Rotate the token (kills any previously shared link) and return the new one. */
 export async function rotatePortalInviteLink(scope: ClientInviteScope): Promise<LinkResult> {
-  await requireRole("owner");
+  await requireAccess("projects");
   try {
     const invite = await issueClientInvite(scope);
     revalidateScope(scope);
@@ -55,7 +55,7 @@ export async function rotatePortalInviteLink(scope: ClientInviteScope): Promise<
 export async function emailPortalInvite(
   scope: ClientInviteScope,
 ): Promise<{ ok: true; delivery: DeliveryNote } | { ok: false; error: string }> {
-  await requireRole("owner");
+  await requireAccess("projects");
   try {
     const delivery = await notifyDashboardPublish(scope, {
       what: "your project dashboard",
@@ -75,7 +75,7 @@ export async function emailPortalInvite(
  *  on the account, their portal and history are untouched, and they can re-claim
  *  with a fresh password from the dashboard. */
 export async function resetPortalAccess(scope: ClientInviteScope): Promise<LinkResult> {
-  await requireRole("owner");
+  await requireAccess("projects");
   try {
     const unusable = await hashPassword(randomBytes(32).toString("hex"));
     await query(
@@ -96,7 +96,7 @@ export async function resetPortalAccess(scope: ClientInviteScope): Promise<LinkR
 export async function revokePortalInvite(
   scope: ClientInviteScope,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("projects");
   await revokeClientInvite(scope);
   revalidateScope(scope);
   return { ok: true };

@@ -1,6 +1,6 @@
 import { Shell } from "@/components/shell/Shell";
 import { CallsClient } from "@/components/calls/CallsClient";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { listCalls, voiceConfigured, voiceStatus } from "@/lib/voice";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
  *  voicemails, and click-to-call. Recording, transcript and AI notes per call.
  *  ?open=<id> selects a call (the push links use it). */
 export default async function CallsPage({ searchParams }: { searchParams: Promise<{ open?: string }> }) {
-  await requireRole("owner");
+  await requireAccess("comms");
   const { open } = await searchParams;
   const calls = await listCalls(150);
   const status = voiceStatus();

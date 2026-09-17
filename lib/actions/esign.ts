@@ -10,7 +10,7 @@
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { query, queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireRole, requireAccess } from "@/lib/dal";
 import { emit } from "@/lib/notify";
 import { logClientActivity, ownerHrefForLinkSlug } from "@/lib/client-activity";
 import type { PortalScope } from "@/lib/client-portal";
@@ -59,7 +59,7 @@ export async function createSignatureRequest(
   slug: string,
   formData: FormData,
 ): Promise<Result> {
-  const user = await requireRole("owner");
+  const user = await requireAccess("projects");
 
   const title = String(formData.get("title") ?? "").trim();
   const body = String(formData.get("body") ?? "").trim();
@@ -107,7 +107,7 @@ export async function createSignatureRequest(
 
 /** Owner: void a request (cancel before it's signed). */
 export async function voidSignatureRequest(slug: string, id: number): Promise<Result> {
-  const user = await requireRole("owner");
+  const user = await requireAccess("projects");
   const r = await query(
     `UPDATE signature_requests SET status = 'void'
       WHERE id = $1 AND status IN ('draft','sent')`,

@@ -5,7 +5,7 @@
 
 export const SESSION_COOKIE = "sjcos_session";
 
-export type Role = "owner" | "sub" | "client";
+export type Role = "owner" | "staff" | "sub" | "client";
 
 /** How long a session survives with NO activity at all.
  *
@@ -15,7 +15,7 @@ export type Role = "owner" | "sub" | "client";
  *  it, so a shorter idle window costs him nothing and keeps a forgotten laptop
  *  from staying signed into the whole business for a month. */
 export function sessionMaxAgeS(role: Role): number {
-  const days = role === "owner" ? 7 : 30;
+  const days = role === "owner" || role === "staff" ? 7 : 30;
   return days * 24 * 60 * 60;
 }
 
@@ -25,3 +25,8 @@ export function sessionMaxAgeS(role: Role): number {
  *  would re-sign a JWT on every prefetch and navigation for no benefit — a day
  *  is fine-grained enough when the idle window is measured in weeks. */
 export const SESSION_RENEW_AFTER_S = 24 * 60 * 60;
+
+/** Request header proxy.ts stamps with the matched pathname so Server
+ *  Components (Shell) can enforce staff areas per render — soft navigations
+ *  never re-run the (os) layout, so the page frame is the reliable spot. */
+export const PATH_HEADER = "x-sjcos-path";

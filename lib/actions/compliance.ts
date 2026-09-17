@@ -4,11 +4,11 @@
 
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 
 /** Mark a compliance item resolved — drops it from the windows + timeline. */
 export async function resolveComplianceItem(id: string) {
-  await requireRole("owner");
+  await requireAccess("compliance");
   await query(`UPDATE compliance_items SET resolved = true WHERE id = $1`, [id]);
   revalidatePath("/compliance");
 }
@@ -19,7 +19,7 @@ export async function resolveComplianceItem(id: string) {
 export async function queueRenewalRequests(): Promise<
   { ok: true; queued: number; alreadyQueued: number } | { ok: false; error: string }
 > {
-  await requireRole("owner");
+  await requireAccess("compliance");
   const { rows } = await query<{ id: string; title: string; due: string }>(
     `SELECT id, title, to_char(due_date, 'FMMon FMDD') AS due
        FROM compliance_items

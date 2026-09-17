@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getUserFromRequest } from "@/lib/api-auth";
+import { getUserFromRequest, hasAccess } from "@/lib/api-auth";
 import { getSub } from "@/lib/subs";
 
 // GET /api/mobile/subs/[slug] — subcontractor detail for the iOS/iPad app
@@ -16,7 +16,7 @@ export async function GET(
 ) {
   const user = await getUserFromRequest(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (user.role !== "owner") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!hasAccess(user, "subs")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { slug } = await params;
   const sub = await getSub(slug);

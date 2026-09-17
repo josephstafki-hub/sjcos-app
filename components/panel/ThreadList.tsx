@@ -28,11 +28,13 @@ import {
   createFolderAction,
   deleteConversationAction,
   deleteFolderAction,
+  ensureEntityFolderAction,
   fileConversationUnderAction,
   listArchivedThreadsAction,
   listThreadRailAction,
   moveConversationAction,
   pinConversationAction,
+  reorderFoldersAction,
   renameConversationAction,
   renameFolderAction,
   setFolderCollapsedAction,
@@ -46,12 +48,16 @@ import {
   formatElapsed,
   groupThreads,
   ms,
+  orderedFolders,
+  sortKeysFor,
   resolveThreadStatus,
   rollupStatus,
   type RailFolder,
   type RailThread,
   type ThreadStatus,
 } from "@/lib/thread-rail";
+import type { JobPick } from "@/lib/thread-folders";
+import { JobPicker } from "./JobPicker";
 import { postPanelMessage, requestAppNav, subscribePanelBus } from "./panelBus";
 import { isRunSeen, markRunSeen, panelTabStartedAt, readPanelState } from "./panelStore";
 
@@ -130,6 +136,18 @@ export function ThreadList({
   const [unfiledCollapsed, setUnfiledCollapsed] = useState(false);
   const [menu, setMenu] = useState<{ kind: "thread" | "folder"; id: string } | null>(null);
   const [mover, setMover] = useState<string | null>(null);
+  /** The job picker: link a folder to a job, or start a new folder (for a
+   *  job, or free-standing by typing a name). `thenMove` files that thread
+   *  into the resulting folder. */
+  /** Drag-and-drop filing: the thread being dragged, and the folder key
+   *  ("unfiled" or a folder id) the pointer is over. */
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropKey, setDropKey] = useState<string | null>(null);
+  /** Folder reorder by drag: the folder header being dragged, and where it
+   *  would land (before/after another folder). */
+  const [dragFolderId, setDragFolderId] = useState<string | null>(null);
+  const [folderDrop, setFolderDrop] = useState<{ id: string; pos: "before" | "after" } | null>(null);
+  const [picker, setPicker] = useState<{ mode: "link"; folderId: string } | { mode: "new"; thenMove?: string } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   /** Completions older than this tab are history, not "new". Read on each
    *  reload (sessionStorage is client-only, so never during render). */
@@ -203,11 +221,12 @@ export function ThreadList({
 
   // Close any open menu on outside click / Escape.
   useEffect(() => {
-    if (!menu && !mover) return;
+    if (!menu && !mover && !picker) return;
     const close = (e: MouseEvent | KeyboardEvent) => {
       if (e instanceof KeyboardEvent && e.key !== "Escape") return;
       setMenu(null);
       setMover(null);
+      setPicker(null);
     };
     window.addEventListener("mousedown", close);
     window.addEventListener("keydown", close);
@@ -215,7 +234,7 @@ export function ThreadList({
       window.removeEventListener("mousedown", close);
       window.removeEventListener("keydown", close);
     };
-  }, [menu, mover]);
+  }, [menu, mover, picker]);
 
   /** After a mutation: reload here and tell other windows' rails. */
   const changed = async () => {
@@ -269,6 +288,65 @@ export function ThreadList({
     await changed();
   };
 
+  /** Persist a new folder order (optimistic: keys are rewritten locally so
+   *  the rail re-sorts at once, then the same keys go to the server). */
+  const reorder = async (movedId: string, target: { id: string; pos: "before" | "after" }) => {
+    const cur = orderedFolders(folders).map((f) => f.id);
+    if (movedId === target.id) return;
+    const rest = cur.filter((id) => id !== movedId);
+    const at = rest.indexOf(target.id);
+    if (at < 0) return;
+    rest.splice(target.pos === "before" ? at : at + 1, 0, movedId);
+    if (rest.join() === cur.join()) return;
+    const keys = new Map(sortKeysFor(rest).map((k) => [k.id, k.sortKey]));
+    setFolders((fs) => fs.map((f) => (keys.has(f.id) ? { ...f, sortKey: keys.get(f.id)! } : f)));
+    await reorderFoldersAction(rest);
+    postPanelMessage({ type: "threads" });
+  };
+
+  /** Drop-target props for a group header: a dragged thread files into the
+   *  folder (`folderId` null = Unfiled); a dragged folder header lands before
+   *  or after this folder (upper / lower half of the row). */
+  const dropProps = (key: string, folderId: string | null) => ({
+    onDragOver: (e: React.DragEvent) => {
+      if (dragFolderId) {
+        if (!folderId || folderId === dragFolderId) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        const pos = e.clientY < r.top + r.height / 2 ? "before" : "after";
+        if (folderDrop?.id !== folderId || folderDrop.pos !== pos) setFolderDrop({ id: folderId, pos });
+        return;
+      }
+      if (!dragId) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      if (dropKey !== key) setDropKey(key);
+    },
+    onDragLeave: (e: React.DragEvent) => {
+      if ((e.currentTarget as HTMLElement).contains(e.relatedTarget as Node | null)) return;
+      if (dropKey === key) setDropKey(null);
+      if (folderDrop?.id === folderId) setFolderDrop(null);
+    },
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault();
+      if (dragFolderId) {
+        const target = folderDrop;
+        setDragFolderId(null);
+        setFolderDrop(null);
+        if (folderId && target && target.id === folderId) void reorder(dragFolderId, target);
+        return;
+      }
+      const id = dragId ?? e.dataTransfer.getData("text/x-sjcos-thread");
+      setDragId(null);
+      setDropKey(null);
+      if (!id) return;
+      const t = threads.find((x) => x.id === id);
+      if (!t || t.folderId === folderId) return;
+      void move(id, folderId);
+    },
+  });
+
   const fileUnder = async (t: RailThread) => {
     if (!t.suggestedFolder) return;
     const r = await fileConversationUnderAction(t.id, { kind: t.suggestedFolder.kind, id: t.suggestedFolder.id });
@@ -278,12 +356,26 @@ export function ThreadList({
 
   // ─── Folder actions ────────────────────────────────────────────────────────
 
-  const newFolder = async (thenMove?: string) => {
-    const name = window.prompt("Folder name");
-    if (!name || !name.trim()) return;
+  /** "New folder": opens the picker — pick a job (its folder is created on
+   *  first use, or reused) or type a name for a free folder. */
+  const newFolder = (thenMove?: string) => {
+    setMenu(null);
+    setMover(null);
+    setPicker({ mode: "new", thenMove });
+  };
+
+  const createFreeFolder = async (name: string, thenMove?: string) => {
     const r = await createFolderAction(name.trim());
     if (thenMove) await moveConversationAction(thenMove, r.id);
-    setMover(null);
+    setPicker(null);
+    await changed();
+  };
+
+  const folderForJob = async (job: JobPick, thenMove?: string) => {
+    const r = await ensureEntityFolderAction({ kind: job.kind, id: job.slug });
+    if (!r.ok || !r.id) return flashNotice("Couldn't open a folder for that job.");
+    if (thenMove) await moveConversationAction(thenMove, r.id);
+    setPicker(null);
     await changed();
   };
 
@@ -294,23 +386,10 @@ export function ThreadList({
     await changed();
   };
 
-  const linkFolder = async (f: RailFolder) => {
-    const cur = f.entityKind && f.entityId ? `${f.entityKind}s/${f.entityId}` : "";
-    const raw = window.prompt(
-      "Link this folder to a job — paste the page path, e.g. projects/larson-kitchen or leads/smith (blank to unlink)",
-      cur,
-    );
-    if (raw == null) return;
-    const trimmed = raw.trim();
-    if (!trimmed) {
-      await bindFolderAction(f.id, null);
-      return changed();
-    }
-    const path = trimmed.startsWith("http") ? (() => { try { return new URL(trimmed).pathname; } catch { return trimmed; } })() : trimmed;
-    const ref = entityFromRoute(path.startsWith("/") ? path : `/${path}`);
-    if (!ref) return flashNotice("Use projects/<slug>, leads/<slug>, vendors/<slug> or subs/<slug>.");
-    const r = await bindFolderAction(f.id, ref);
+  const linkFolderTo = async (f: RailFolder, job: JobPick | null) => {
+    const r = await bindFolderAction(f.id, job ? { kind: job.kind, id: job.slug } : null);
     if (!r.ok) return flashNotice(r.error ?? "Couldn't link.");
+    setPicker(null);
     await changed();
   };
 
@@ -368,7 +447,17 @@ export function ThreadList({
         variant === "rail" ? "rounded-[10px] border border-rule bg-paper shadow-card" : "bg-paper"
       } ${className}`}
     >
-      <div className="flex items-center gap-1.5 border-b border-rule px-3 py-2">
+      <div className="relative flex items-center gap-1.5 border-b border-rule px-3 py-2">
+        {picker?.mode === "new" && (
+          <JobPicker
+            title="New folder"
+            placeholder="New folder: job or name…"
+            allowCreate
+            onPick={(job) => folderForJob(job, picker.thenMove)}
+            onCreate={(name) => createFreeFolder(name, picker.thenMove)}
+            onDone={() => setPicker(null)}
+          />
+        )}
         {scopeFolder ? (
           <button
             onClick={() => onScopeChange(null)}
@@ -383,10 +472,13 @@ export function ThreadList({
         )}
         <div className="flex-1" />
         <button
-          onClick={() => void newFolder()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={() => (picker?.mode === "new" ? setPicker(null) : newFolder())}
           aria-label="New folder"
           title="New folder"
-          className="rounded-md p-1 text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink-2"
+          className={`rounded-md p-1 text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink-2 ${
+            picker?.mode === "new" ? "bg-paper-2 text-ink-2" : ""
+          }`}
         >
           <FolderPlus className="size-3.5" strokeWidth={1.75} />
         </button>
@@ -426,8 +518,34 @@ export function ThreadList({
               <div key={g.key} className="mb-1">
                 {showHeaders && (
                   <div
+                    {...dropProps(g.key, f ? f.id : null)}
+                    draggable={!!f && !menu && !picker}
+                    onDragStart={(e) => {
+                      if (!f) return;
+                      e.dataTransfer.setData("text/x-sjcos-folder", f.id);
+                      e.dataTransfer.effectAllowed = "move";
+                      setDragFolderId(f.id);
+                      setMenu(null);
+                      setMover(null);
+                    }}
+                    onDragEnd={() => {
+                      setDragFolderId(null);
+                      setFolderDrop(null);
+                    }}
                     className={`group/f relative flex items-center gap-1 rounded-md px-1 py-1 ${
-                      isRouteFolder ? "bg-ai-soft/60" : "hover:bg-card/60"
+                      dropKey === g.key
+                        ? "bg-ai-soft ring-1 ring-ai-2/50"
+                        : isRouteFolder
+                          ? "bg-ai-soft/60"
+                          : "hover:bg-card/60"
+                    } ${dragId || dragFolderId ? "transition-colors" : ""} ${
+                      f && dragFolderId === f.id ? "opacity-40" : ""
+                    } ${
+                      f && folderDrop?.id === f.id
+                        ? folderDrop.pos === "before"
+                          ? "shadow-[inset_0_2px_0_0_var(--ai-2)]"
+                          : "shadow-[inset_0_-2px_0_0_var(--ai-2)]"
+                        : ""
                     }`}
                   >
                     <button
@@ -476,10 +594,21 @@ export function ThreadList({
                           <MenuItem icon={ExternalLink} label={`Open ${f.entityKind}`} onClick={() => openHref(f.entityHref!)} />
                         )}
                         <MenuItem icon={Pencil} label="Rename" onClick={() => void renameFolder(f)} />
-                        <MenuItem icon={Link2} label={f.entityId ? "Change linked job" : "Link to a job…"} onClick={() => void linkFolder(f)} />
+                        <MenuItem icon={Link2} label={f.entityId ? "Change linked job" : "Link to a job…"} onClick={() => setPicker({ mode: "link", folderId: f.id })} />
                         <MenuItem icon={Archive} label="Archive folder" onClick={() => void archiveFolder(f, true)} />
                         <MenuItem icon={Trash2} label="Delete folder" danger onClick={() => void removeFolder(f)} />
                       </Menu>
+                    )}
+                    {f && picker?.mode === "link" && picker.folderId === f.id && (
+                      <JobPicker
+                        title="Link"
+                        placeholder="Link to a job…"
+                        current={f.entityKind && f.entityId ? { kind: f.entityKind, id: f.entityId } : null}
+                        allowUnlink={!!f.entityId}
+                        onPick={(job) => linkFolderTo(f, job)}
+                        onUnlink={() => linkFolderTo(f, null)}
+                        onDone={() => setPicker(null)}
+                      />
                     )}
                   </div>
                 )}
@@ -593,9 +722,21 @@ export function ThreadList({
     return (
       <div
         key={t.id}
+        draggable={!menuOpen && !moverOpen}
+        onDragStart={(e) => {
+          e.dataTransfer.setData("text/x-sjcos-thread", t.id);
+          e.dataTransfer.effectAllowed = "move";
+          setDragId(t.id);
+          setMenu(null);
+          setMover(null);
+        }}
+        onDragEnd={() => {
+          setDragId(null);
+          setDropKey(null);
+        }}
         className={`group relative flex flex-col rounded-md px-2 py-1.5 ${
           isCurrent ? "bg-card" : "hover:bg-card/60"
-        } ${recede ? "opacity-70 hover:opacity-100" : ""}`}
+        } ${recede ? "opacity-70 hover:opacity-100" : ""} ${dragId === t.id ? "opacity-40" : ""} ${dragId ? "cursor-grabbing" : ""}`}
       >
         <div className="flex items-center gap-1.5">
           {pinned ? (

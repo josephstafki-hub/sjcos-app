@@ -26,6 +26,8 @@ import {
   listThreadRail,
   moveThread,
   renameFolder,
+  reorderFolders,
+  searchFolderEntities,
   setFolderArchived,
   setFolderCollapsed,
   setThreadArchived,
@@ -36,6 +38,7 @@ import {
   type ThreadRail,
 } from "@/lib/thread-folders";
 import type { FolderEntityRef, RailThread } from "@/lib/thread-rail";
+import type { JobPick } from "@/lib/thread-folders";
 
 // A Qwen proposal Claude holds re-routes to the Hermes ladder (registered here
 // because proposals.ts can't import ladder.ts without a cycle).
@@ -347,6 +350,12 @@ export async function renameFolderAction(id: string, name: string): Promise<{ ok
   return { ok: true };
 }
 
+/** Jobs for the rail's picker (link a folder / new folder for a job). */
+export async function searchJobsAction(q: string): Promise<JobPick[]> {
+  await requireRole("owner");
+  return searchFolderEntities(q);
+}
+
 /** Link a folder to a job (null unlinks). A slug or uuid of a project / lead /
  *  vendor / sub. */
 export async function bindFolderAction(
@@ -356,6 +365,13 @@ export async function bindFolderAction(
   await requireRole("owner");
   const r = await bindFolder(id, entity);
   return r.ok ? { ok: true } : { ok: false, error: r.error, existingFolderId: r.existingFolderId };
+}
+
+/** Manual folder order from a drag reorder in the rail. */
+export async function reorderFoldersAction(ids: string[]): Promise<{ ok: boolean }> {
+  await requireRole("owner");
+  await reorderFolders(ids.filter((id) => typeof id === "string").slice(0, 500));
+  return { ok: true };
 }
 
 export async function setFolderCollapsedAction(id: string, collapsed: boolean): Promise<{ ok: boolean }> {

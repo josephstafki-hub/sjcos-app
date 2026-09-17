@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   entityFromRoute,
   groupThreads,
+  orderedFolders,
+  sortKeysFor,
   partitionThreads,
   resolveThreadStatus,
   rollupStatus,
@@ -76,7 +78,7 @@ test("partition: pinned / active / settled, archived dropped, activity never reo
   assert.deepEqual(p.settled.map((t) => t.id), ["set"]);
 });
 
-test("grouping: folders by activity, unfiled kept, archived folder hides its threads", () => {
+test("grouping: unfiled first, folders in manual order, archived folder hides its threads", () => {
   const folders = [
     { id: "f1", name: "Larson kitchen", entityKind: "project", entityId: "larson", entityHref: "/projects/larson", collapsed: false, archivedAt: null, sortKey: null },
     { id: "f2", name: "Old job", entityKind: null, entityId: null, entityHref: null, collapsed: false, archivedAt: "2026-08-01 00:00:00+00", sortKey: null },
@@ -92,6 +94,13 @@ test("grouping: folders by activity, unfiled kept, archived folder hides its thr
   assert.deepEqual(groups.map((g) => g.key), ["__unfiled", "f1", "f3"]);
   assert.deepEqual(groups[0].threads.active.map((t) => t.id), ["c", "d"]);
   assert.equal(groups.find((g) => g.key === "f2"), undefined);
+  // A quiet folder does not sink below a busy one; a sortKey moves it.
+  const busy = [...threads, thread({ id: "e", folderId: "f3", lastActivityAt: "2026-09-15 00:00:00+00" })];
+  assert.deepEqual(groupThreads(folders, busy).map((g) => g.key), ["__unfiled", "f1", "f3"]);
+  const keyed = folders.map((f) => (f.id === "f3" ? { ...f, sortKey: "000001" } : f));
+  assert.deepEqual(groupThreads(keyed, busy).map((g) => g.key), ["__unfiled", "f3", "f1"]);
+  assert.deepEqual(orderedFolders(keyed).map((f) => f.id), ["f3", "f1"]);
+  assert.deepEqual(sortKeysFor(["b", "a"]), [{ id: "b", sortKey: "000001" }, { id: "a", sortKey: "000002" }]);
 });
 
 test("entityFromRoute", () => {

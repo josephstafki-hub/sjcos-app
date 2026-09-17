@@ -7,6 +7,7 @@ import {
   type FolderEntityRef,
   type RailFolder,
   type RailThread,
+  sortKeysFor,
 } from "@/lib/thread-rail";
 
 // Panel threads v2 — folders + lifecycle (docs/thread-folders-plan.md).
@@ -66,6 +67,81 @@ async function resolveMany(kind: FolderEntityKind, slugs: string[]): Promise<Map
     out.set(r.id, e);
   }
   return out;
+}
+
+// ─── Job picker search ───────────────────────────────────────────────────────
+
+export interface JobPick {
+  kind: FolderEntityKind;
+  slug: string;
+  name: string;
+  /** One-line context under the name: stage / client / trade. */
+  sub: string | null;
+  /** Still in play (a live project stage, an open lead). Ranked first. */
+  current: boolean;
+  /** The folder already bound to this job, if any. */
+  folderId: string | null;
+  folderName: string | null;
+}
+
+/** Jobs for the rail's link / new-folder picker. Empty query = the current
+ *  jobs, most recently touched first; otherwise a case-insensitive match on
+ *  name, client, or address, with prefix hits and current jobs ranked up. */
+export async function searchFolderEntities(q: string, limit = 12): Promise<JobPick[]> {
+  const term = q.replace(/\s+/g, " ").trim().slice(0, 80);
+  const like = term ? `%${term.replace(/[%_\\]/g, (c) => `\\${c}`)}%` : null;
+  const { rows } = await query<{
+    kind: FolderEntityKind;
+    slug: string;
+    name: string;
+    sub: string | null;
+    current: boolean;
+    folder_id: string | null;
+    folder_name: string | null;
+  }>(
+    `WITH jobs AS (
+       SELECT 'project'::text AS kind, slug, name,
+              NULLIF(concat_ws(' · ', CASE WHEN client_name IS DISTINCT FROM name THEN NULLIF(client_name, '') END, replace(status, '_', ' ')), '') AS sub,
+              status NOT IN ('warranty') AS current,
+              coalesce(updated_at, created_at) AS touched,
+              concat_ws(' ', name, client_name, address) AS hay
+         FROM projects
+       UNION ALL
+       SELECT 'lead', slug, name,
+              NULLIF(concat_ws(' · ', NULLIF(scope_city, ''), replace(stage, '_', ' ')), ''),
+              stage <> 'lost',
+              coalesce(last_contact_at, updated_at, created_at),
+              concat_ws(' ', name, address, scope_city, email)
+         FROM leads
+       UNION ALL
+       SELECT 'vendor', slug, name, NULLIF(trade, ''), true, coalesce(updated_at, created_at), concat_ws(' ', name, trade)
+         FROM vendors
+       UNION ALL
+       SELECT 'sub', slug, name, NULLIF(trade, ''), true, coalesce(updated_at, created_at), concat_ws(' ', name, trade)
+         FROM subs
+     )
+     SELECT j.kind, j.slug, j.name, j.sub, j.current, f.id AS folder_id,
+            CASE WHEN f.id IS NULL THEN NULL ELSE NULLIF(f.name, '') END AS folder_name
+       FROM jobs j
+       LEFT JOIN ai_folders f ON f.entity_kind = j.kind AND f.entity_id = j.slug
+      WHERE $1::text IS NULL OR j.hay ILIKE $1
+      ORDER BY
+        (j.name ILIKE $2) DESC,          -- name starts with the term
+        j.current DESC,
+        (j.kind IN ('project','lead')) DESC,
+        j.touched DESC NULLS LAST
+      LIMIT $3`,
+    [like, term ? `${term.replace(/[%_\\]/g, (c) => `\\${c}`)}%` : "", limit],
+  );
+  return rows.map((r) => ({
+    kind: r.kind,
+    slug: r.slug,
+    name: r.name,
+    sub: r.sub,
+    current: r.current,
+    folderId: r.folder_id,
+    folderName: r.folder_name,
+  }));
 }
 
 // ─── Folders ─────────────────────────────────────────────────────────────────
@@ -171,6 +247,19 @@ export async function bindFolder(
   if (other) return { ok: false, error: `Another folder is already linked to ${e.name}.`, existingFolderId: other.id };
   await query(`UPDATE ai_folders SET entity_kind = $2, entity_id = $3, updated_at = now() WHERE id = $1`, [id, e.kind, e.slug]);
   return { ok: true };
+}
+
+/** Persist a manual order: every listed folder gets a zero-padded sort_key
+ *  in one statement (a handful of rows, so no fractional indexing). */
+export async function reorderFolders(ids: string[]): Promise<void> {
+  const keys = sortKeysFor(ids);
+  if (!keys.length) return;
+  await query(
+    `UPDATE ai_folders f SET sort_key = k.sort_key, updated_at = now()
+       FROM unnest($1::uuid[], $2::text[]) AS k(id, sort_key)
+      WHERE f.id = k.id`,
+    [keys.map((k) => k.id), keys.map((k) => k.sortKey)],
+  );
 }
 
 export async function setFolderCollapsed(id: string, collapsed: boolean): Promise<void> {

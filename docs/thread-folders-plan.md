@@ -12,7 +12,13 @@ context line, activity un-settle, auto-settle sweep rules). The migration
 Files: `lib/thread-rail.ts` (client-safe partition/status logic, tested in
 `tests/thread-rail.test.mjs`), `lib/thread-folders.ts` (rows + sweep),
 `lib/actions/ai-chat.ts` (actions + send hooks), `components/panel/ThreadList.tsx`
-(the rail), `components/panel/useAgentChat.ts` / `PanelChat.tsx` (new-thread
+(the rail), `components/panel/JobPicker.tsx` (searchable job picker for Link /
+New folder, added 2026-09-16; search is `searchFolderEntities` in
+`lib/thread-folders.ts`; rows are also draggable onto folder headers /
+Unfiled, native HTML5 drag events, same `moveConversationAction`; folder
+headers drag to reorder — Unfiled is always first and folders keep a fixed
+manual order via `sort_key`, never re-sorted by activity — see
+`reorderFoldersAction`), `components/panel/useAgentChat.ts` / `PanelChat.tsx` (new-thread
 filing, folder chip, scope), `components/panel/panelStore.ts` (scope + run-seen
 + tab-start stamps), `app/api/cron/agent-retries/route.ts` (sweep).
 

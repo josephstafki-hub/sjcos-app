@@ -202,11 +202,35 @@ export interface RailGroup {
 
 export const UNFILED_KEY = "__unfiled";
 
+/** Manual folder order: `sortKey` (zero-padded index written on a drag
+ *  reorder) first, keyed folders above unkeyed, then the list's own order
+ *  (creation). Stable across activity. */
+export function compareFolderOrder(a: RailFolder, b: RailFolder, listOrder: Map<string, number>): number {
+  const ak = a.sortKey ?? null;
+  const bk = b.sortKey ?? null;
+  if (ak && bk && ak !== bk) return ak < bk ? -1 : 1;
+  if (ak && !bk) return -1;
+  if (!ak && bk) return 1;
+  return (listOrder.get(a.id) ?? 0) - (listOrder.get(b.id) ?? 0);
+}
+
+/** Folders in rail order (the same order groupThreads renders). */
+export function orderedFolders(folders: RailFolder[]): RailFolder[] {
+  const order = new Map(folders.map((f, i) => [f.id, i]));
+  return folders.filter((f) => !f.archivedAt).sort((a, b) => compareFolderOrder(a, b, order));
+}
+
+/** Zero-padded keys for a full manual order (one row per folder). */
+export function sortKeysFor(ids: string[]): { id: string; sortKey: string }[] {
+  return ids.map((id, i) => ({ id, sortKey: String(i + 1).padStart(6, "0") }));
+}
+
 /**
- * Group threads under their folders, newest-activity group first (a manual
- * `sortKey` on a folder pins it above the activity-sorted rest). Empty folders
- * still render so a fresh job folder is visible; archived folders are dropped
- * along with their threads (they live behind "Show archived").
+ * Group threads under their folders. Unfiled always comes first; folders sit
+ * below it in a fixed manual order (`sortKey`, then creation order) — activity
+ * never moves a folder, so the rail stays where your hands expect it. Empty
+ * folders still render so a fresh job folder is visible; archived folders are
+ * dropped along with their threads (they live behind "Show archived").
  */
 export function groupThreads(folders: RailFolder[], threads: RailThread[]): RailGroup[] {
   const byFolder = new Map<string, RailThread[]>();
@@ -247,13 +271,11 @@ export function groupThreads(folders: RailFolder[], threads: RailThread[]): Rail
       count: unfiled.filter((t) => t.settledOverride !== "settled").length,
     });
   }
+  const order = new Map(folders.map((f, i) => [f.id, i]));
   groups.sort((a, b) => {
-    const ak = a.folder?.sortKey ?? null;
-    const bk = b.folder?.sortKey ?? null;
-    if (ak && bk) return ak < bk ? -1 : ak > bk ? 1 : 0;
-    if (ak) return -1;
-    if (bk) return 1;
-    return b.activityMs - a.activityMs || a.name.localeCompare(b.name);
+    if (!a.folder) return -1;
+    if (!b.folder) return 1;
+    return compareFolderOrder(a.folder, b.folder, order);
   });
   return groups;
 }

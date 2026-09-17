@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { query } from "@/lib/db";
 import { ai } from "@/lib/ai";
 import { emit } from "@/lib/notify";
@@ -27,15 +27,16 @@ export async function sendChatMessage(
   channelKey: string,
   body: string,
 ): Promise<{ ok: boolean; queued?: PortalOutboxItem[]; error?: string }> {
-  const user = await requireRole("owner");
+  const user = await requireAccess("chat");
   const text = body.trim();
   if (!text) return { ok: false, error: "Message is empty." };
 
   const { rows } = await query<{ id: number }>(
     `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body)
-     VALUES ($1, 'owner', $2, $3, $4)
+     VALUES ($1, $5, $2, $3, $4)
      RETURNING id`,
-    [channelKey, user.name || "Joe", user.initials || "JS", text],
+    // A staff post is a teammate's ('user'), so it counts toward Joe's unread.
+    [channelKey, user.name || "Joe", user.initials || "JS", text, user.role === "owner" ? "owner" : "user"],
   );
   await markRead(channelKey);
   // Wire portal delivery for room/client-DM messages — PARKED (queued only,
@@ -58,7 +59,7 @@ export async function askAgentInChannel(
   channelKey: string,
   agent: DevAgent = "qwen",
 ): Promise<{ ok: boolean; reply?: string; queued?: PortalOutboxItem[]; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("chat");
   const id = AGENT_IDENTITY[agent] ?? AGENT_IDENTITY.qwen;
   // A bare sub DM (dm:<slug>) IS the sub's live portal thread — an AI reply here
   // would push unreviewed machine-generated content straight to a real sub with
@@ -152,7 +153,7 @@ export async function addChannelMember(
   channelKey: string,
   subSlug: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("chat");
   if (channelKey.startsWith("dm:")) return { ok: false, error: "DMs have no members." };
   try {
     await query(
@@ -172,7 +173,7 @@ export async function removeChannelMember(
   channelKey: string,
   subSlug: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("chat");
   try {
     await query(
       `DELETE FROM chat_members WHERE channel_key = $1 AND sub_slug = $2`,
@@ -204,7 +205,7 @@ function channelKeyFromName(name: string): string {
 export async function createChannel(
   name: string,
 ): Promise<{ ok: boolean; channel?: { key: string; name: string; description: string }; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("chat");
   const clean = name.trim();
   const key = channelKeyFromName(clean);
   if (!key) return { ok: false, error: "Enter a channel name." };
@@ -241,7 +242,7 @@ export async function createChannel(
 export async function archiveChannel(
   channelKey: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("chat");
   if (channelKey.includes(":")) {
     return { ok: false, error: "Only bare channels can be removed." };
   }
@@ -264,7 +265,7 @@ export async function addChannelAgent(
   channelKey: string,
   agent: DevAgent,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("chat");
   if (channelKey.includes(":")) return { ok: false, error: "AI is implicit here." };
   if (!AI_AGENTS.includes(agent)) return { ok: false, error: "Unknown model." };
   try {
@@ -285,7 +286,7 @@ export async function removeChannelAgent(
   channelKey: string,
   agent: DevAgent,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("chat");
   try {
     await query(
       `DELETE FROM chat_ai_members WHERE channel_key = $1 AND agent = $2`,
@@ -305,7 +306,7 @@ export async function addChannelTeamMember(
   channelKey: string,
   slug: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("chat");
   if (channelKey.startsWith("dm:")) return { ok: false, error: "DMs have no members." };
   try {
     await query(
@@ -325,7 +326,7 @@ export async function removeChannelTeamMember(
   channelKey: string,
   slug: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("chat");
   try {
     await query(
       `DELETE FROM chat_team_members WHERE channel_key = $1 AND member_slug = $2`,
@@ -348,7 +349,7 @@ export async function createTeamMember(
   roleLabel: string = "",
   channelKey?: string,
 ): Promise<{ ok: boolean; member?: TeamMember; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("chat");
   const cleanName = name.trim();
   const cleanRole = roleLabel.trim();
   const slug = channelKeyFromName(cleanName);
@@ -401,7 +402,7 @@ export async function addClientToRoom(
   name: string,
   email: string = "",
 ): Promise<{ ok: boolean; client?: ClientMember; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("chat");
   if (!roomKey.startsWith("room:")) {
     return { ok: false, error: "Clients can only be added to an entity room." };
   }
@@ -442,7 +443,7 @@ export async function removeClientFromRoom(
   roomKey: string,
   id: number,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("chat");
   try {
     await query(`DELETE FROM chat_room_clients WHERE room_key = $1 AND id = $2`, [roomKey, id]);
     revalidatePath("/chat");
@@ -474,7 +475,7 @@ export async function openDirectMessage(
   dm?: { key: string; fullName: string; initials: string; subtitle: string };
   error?: string;
 }> {
-  await requireRole("owner");
+  await requireAccess("chat");
   if (!DM_PARTY_TYPES.includes(partyType)) return { ok: false, error: "Unknown person type." };
   const cleanName = displayName.trim();
   if (!cleanName) return { ok: false, error: "Enter a name." };
@@ -526,7 +527,7 @@ export async function openDirectMessage(
 export async function releasePortalDelivery(
   id: number,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("chat");
   try {
     await releaseDelivery(id);
     revalidatePath("/chat");
@@ -542,7 +543,7 @@ export async function releasePortalDelivery(
 export async function skipPortalDelivery(
   id: number,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("chat");
   try {
     await skipDelivery(id);
     revalidatePath("/chat");
@@ -554,7 +555,7 @@ export async function skipPortalDelivery(
 
 /** Mark a channel read for the owner (clears its unread badge). */
 export async function markChannelRead(channelKey: string): Promise<void> {
-  await requireRole("owner");
+  await requireAccess("chat");
   await markRead(channelKey);
   revalidatePath("/chat");
 }

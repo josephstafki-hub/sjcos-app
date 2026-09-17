@@ -1,4 +1,5 @@
 import { getCurrentUser } from "@/lib/dal";
+import { hasAccess } from "@/lib/api-auth";
 import { queryOne } from "@/lib/db";
 import { parseLinkSlug, originLeadSlug } from "@/lib/client-portal";
 import { serveFile } from "@/lib/file-serve";
@@ -35,7 +36,7 @@ export async function GET(
   );
   if (!file?.storage_path) return new Response("Not found", { status: 404 });
 
-  if (user.role !== "owner") {
+  if (!hasAccess(user, "projects")) {
     if (user.role !== "client") return new Response("Forbidden", { status: 403 });
     const scope = parseLinkSlug(user.linkSlug);
     if (!scope) return new Response("Forbidden", { status: 403 });

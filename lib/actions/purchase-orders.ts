@@ -14,7 +14,7 @@
 
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { sendPurchaseOrderOp } from "@/lib/send-ops";
 import { poDollarsToCents, type PoVendorKind } from "@/lib/po-types";
 import { recomputePurchaseOrder as recompute } from "@/lib/po-recompute";
@@ -49,7 +49,7 @@ function vendorFields(formData: FormData): {
 
 /** Draft a new purchase order on a project. */
 export async function createPurchaseOrder(slug: string, formData: FormData): Promise<Result> {
-  const user = await requireRole("owner");
+  const user = await requireAccess("purchase_orders");
   const project = await projectBySlug(slug);
   if (!project) return { ok: false, error: "Project not found." };
 
@@ -82,7 +82,7 @@ export async function createPurchaseOrder(slug: string, formData: FormData): Pro
 
 /** Edit a draft/queued PO's header fields (locked once sent). */
 export async function updatePurchaseOrder(slug: string, id: number, formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("purchase_orders");
   const title = String(formData.get("title") ?? "").trim();
   if (!title) return { ok: false, error: "A title is required." };
   const notes = String(formData.get("notes") ?? "").trim();
@@ -114,7 +114,7 @@ function parseLine(formData: FormData) {
 }
 
 export async function addPOLine(poId: number, slug: string, formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("purchase_orders");
   const v = parseLine(formData);
   if (!v.description) return { ok: false, error: "A line description is required." };
   await query(
@@ -130,7 +130,7 @@ export async function addPOLine(poId: number, slug: string, formData: FormData):
 }
 
 export async function updatePOLine(lineId: number, slug: string, formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("purchase_orders");
   const v = parseLine(formData);
   if (!v.description) return { ok: false, error: "A line description is required." };
   const row = await queryOne<{ purchase_order_id: string }>(
@@ -145,7 +145,7 @@ export async function updatePOLine(lineId: number, slug: string, formData: FormD
 }
 
 export async function deletePOLine(lineId: number, slug: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("purchase_orders");
   const row = await queryOne<{ purchase_order_id: string }>(
     `DELETE FROM purchase_order_lines WHERE id = $1 RETURNING purchase_order_id`,
     [lineId],
@@ -158,7 +158,7 @@ export async function deletePOLine(lineId: number, slug: string): Promise<Result
 /** Record receiving progress on a line (owner, or the internal MCP proxy).
  *  Clamped to qty_ordered — can't over-receive. Triggers status recompute. */
 export async function recordReceipt(lineId: number, slug: string, qtyReceived: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("purchase_orders");
   const row = await queryOne<{ purchase_order_id: string }>(
     `UPDATE purchase_order_lines
         SET qty_received = LEAST(GREATEST($2, 0), qty_ordered)
@@ -174,7 +174,7 @@ export async function recordReceipt(lineId: number, slug: string, qtyReceived: n
 /** Draft → queued. Agent-safe "ready for review" marker — no email goes out.
  *  Mirrors queue_newsletter_issue's "parks, never sends" contract. */
 export async function queuePurchaseOrder(slug: string, id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("purchase_orders");
   const r = await query(
     `UPDATE purchase_orders po SET status = 'queued'
        FROM projects p
@@ -190,7 +190,7 @@ export async function queuePurchaseOrder(slug: string, id: number): Promise<Resu
  *  lives in lib/send-ops.ts; the only other caller is the agent path, which
  *  must first spend an owner grant (lib/agent-sends.ts). */
 export async function sendPurchaseOrder(slug: string, id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("purchase_orders");
   const res = await sendPurchaseOrderOp(id, slug);
   if (!res.ok) return res;
   revalidatePath(`/projects/${slug}`);
@@ -201,7 +201,7 @@ export async function sendPurchaseOrder(slug: string, id: number): Promise<Resul
 /** Owner accepts the PO as done even if a line came in short (shortage
  *  accepted, backorder written off, etc.) — an explicit terminal state. */
 export async function closePurchaseOrder(slug: string, id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("purchase_orders");
   const r = await query(
     `UPDATE purchase_orders po SET status = 'closed'
        FROM projects p
@@ -216,7 +216,7 @@ export async function closePurchaseOrder(slug: string, id: number): Promise<Resu
 
 /** Cancel a PO before or after sending (e.g. the vendor can't fulfill it). */
 export async function voidPurchaseOrder(slug: string, id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("purchase_orders");
   const r = await query(
     `UPDATE purchase_orders po SET status = 'void'
        FROM projects p
@@ -231,7 +231,7 @@ export async function voidPurchaseOrder(slug: string, id: number): Promise<Resul
 /** Delete a draft/queued PO outright (sent+ are kept for the audit trail —
  *  void it instead). Mirrors deleteChangeOrder's status guard. */
 export async function deletePurchaseOrder(slug: string, id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("purchase_orders");
   const r = await query(
     `DELETE FROM purchase_orders po
        USING projects p

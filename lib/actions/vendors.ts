@@ -5,7 +5,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { query, queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 
 function slugify(name: string): string {
   return (
@@ -30,7 +30,7 @@ async function uniqueSlug(name: string): Promise<string> {
 
 /** Onboard a vendor from the directory's "Add vendor" form, then open them. */
 export async function createVendor(formData: FormData) {
-  await requireRole("owner");
+  await requireAccess("vendors");
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
   const trade = String(formData.get("trade") ?? "").trim();
@@ -53,7 +53,7 @@ type Result = { ok: true; id?: string; slug?: string } | { ok: false; error: str
  *  same insert as createVendor, but returns the row instead of redirecting so
  *  the PO form can select it immediately. */
 export async function createVendorInline(input: { name: string; trade?: string; email?: string; phone?: string }): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("vendors");
   const name = input.name.trim();
   if (!name) return { ok: false, error: "A vendor name is required." };
   const slug = await uniqueSlug(name);
@@ -66,7 +66,7 @@ export async function createVendorInline(input: { name: string; trade?: string; 
 }
 
 export async function updateVendor(slug: string, formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("vendors");
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return { ok: false, error: "A vendor name is required." };
   const trade = String(formData.get("trade") ?? "").trim();
@@ -82,7 +82,7 @@ export async function updateVendor(slug: string, formData: FormData): Promise<Re
 }
 
 export async function toggleVendorFav(slug: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("vendors");
   await query(`UPDATE vendors SET fav = NOT fav, updated_at = now() WHERE slug = $1`, [slug]);
   revalidatePath("/vendors");
   revalidatePath(`/vendors/${slug}`);
@@ -91,7 +91,7 @@ export async function toggleVendorFav(slug: string): Promise<Result> {
 
 /** Save the owner's private notes on a vendor. Owner-gated. */
 export async function setVendorNotes(slug: string, notes: string) {
-  await requireRole("owner");
+  await requireAccess("vendors");
   await query(`UPDATE vendors SET notes = $2, updated_at = now() WHERE slug = $1`, [
     slug,
     notes.slice(0, 4000),

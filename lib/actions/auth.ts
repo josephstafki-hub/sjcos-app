@@ -11,6 +11,7 @@ import { queryOne } from "@/lib/db";
 import { verifyPassword } from "@/lib/password";
 import { createSession, deleteSession, type Role } from "@/lib/session";
 import { homeForRole } from "@/lib/dal";
+import { normalizePermissions } from "@/lib/permissions";
 
 const LoginSchema = z.object({
   email: z.email("Enter a valid email."),
@@ -36,8 +37,9 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
     password_hash: string;
     role: Role;
     active: boolean;
+    permissions: string[] | null;
   }>(
-    `SELECT id, password_hash, role, active FROM users WHERE lower(email) = lower($1)`,
+    `SELECT id, password_hash, role, active, permissions FROM users WHERE lower(email) = lower($1)`,
     [email],
   );
 
@@ -46,8 +48,9 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
     return { error: "Wrong email or password." };
   }
 
-  await createSession(user.id, user.role);
-  redirect(homeForRole(user.role)); // throws — must be outside try/catch
+  const perms = user.role === "staff" ? normalizePermissions(user.permissions) : [];
+  await createSession(user.id, user.role, perms);
+  redirect(homeForRole(user.role, perms)); // throws — must be outside try/catch
 }
 
 export async function logout(): Promise<void> {

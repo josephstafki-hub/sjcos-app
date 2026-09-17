@@ -10,7 +10,7 @@ import path from "node:path";
 import { revalidatePath } from "next/cache";
 import { ai } from "@/lib/ai";
 import { query, queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { UPLOAD_DIR } from "@/lib/uploads";
 import { storeUpload } from "@/lib/upload-store";
 import { notifyDashboardPublish, type DeliveryNote } from "@/lib/portal-publish";
@@ -34,7 +34,7 @@ export type UploadResult = { ok: true } | { ok: false; error: string };
 /** Store an uploaded file on the server and index it in the files table.
  *  Owner-gated. `project_key` (the viewed folder) scopes it in the tree rail. */
 export async function uploadFile(formData: FormData): Promise<UploadResult> {
-  await requireRole("owner");
+  await requireAccess("projects");
 
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) {
@@ -85,7 +85,7 @@ export async function uploadLeadPhoto(
   slug: string,
   formData: FormData,
 ): Promise<UploadResult> {
-  await requireRole("owner");
+  await requireAccess("projects");
 
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) {
@@ -131,7 +131,7 @@ export async function uploadProjectFile(
   slug: string,
   formData: FormData,
 ): Promise<UploadResult> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const res = await storeUpload(formData.get("file"), {
     idPrefix: "proj",
     projectKey: slug,
@@ -148,7 +148,7 @@ export async function uploadLeadFile(
   slug: string,
   formData: FormData,
 ): Promise<UploadResult> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const res = await storeUpload(formData.get("file"), {
     idPrefix: "lead",
     leadSlug: slug,
@@ -166,7 +166,7 @@ export async function setFileClientVisibility(
   id: string,
   visible: boolean,
 ): Promise<{ ok: true; delivery: DeliveryNote | null } | { ok: false; error: string }> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const file = await queryOne<{
     name: string;
     project_key: string;

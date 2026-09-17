@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getUserFromRequest } from "@/lib/api-auth";
+import { getUserFromRequest, hasAccess } from "@/lib/api-auth";
 import { getProject, getProjectDailyLogs } from "@/lib/projects";
 
 // GET /api/mobile/projects/[slug] — project detail + daily logs (owner only).
@@ -9,7 +9,7 @@ export async function GET(
 ) {
   const user = await getUserFromRequest(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (user.role !== "owner") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!hasAccess(user, "projects")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { slug } = await params;
   const project = await getProject(slug);

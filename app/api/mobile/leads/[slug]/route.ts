@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getUserFromRequest } from "@/lib/api-auth";
+import { getUserFromRequest, hasAccess } from "@/lib/api-auth";
 import { getLead, stageLabel } from "@/lib/leads";
 
 // GET /api/mobile/leads/[slug] — lead detail for the iOS/iPad app (owner only).
@@ -13,7 +13,7 @@ export async function GET(
 ) {
   const user = await getUserFromRequest(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (user.role !== "owner") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!hasAccess(user, "leads")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { slug } = await params;
   const lead = await getLead(slug);

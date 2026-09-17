@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getUserFromRequest } from "@/lib/api-auth";
+import { getUserFromRequest, hasAccess } from "@/lib/api-auth";
 import { gmailConfigured, sendReply } from "@/lib/gmail";
 
 // POST /api/mobile/inbox/reply — send a reply on a thread (mobile mirror of
@@ -15,7 +15,7 @@ const ReplySchema = z.object({
 export async function POST(req: Request) {
   const user = await getUserFromRequest(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (user.role !== "owner") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!hasAccess(user, "inbox")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   if (!gmailConfigured()) return NextResponse.json({ error: "Gmail is not connected yet." }, { status: 400 });
 
   let parsed;

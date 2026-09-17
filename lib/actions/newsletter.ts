@@ -8,7 +8,7 @@
 
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { ai } from "@/lib/ai";
 import { getTemplate } from "@/lib/newsletter-templates";
 import { enqueueIssue, enqueueGreeting, releaseOutboxItem, skipOutboxItem } from "@/lib/newsletter-outbox";
@@ -75,7 +75,7 @@ function cleanBlocks(blocks: unknown): NewsletterBlock[] {
 /** Create a new draft issue from a template, seeding its starter intro/blocks.
  *  Titled for the current month. Returns its id. */
 export async function createIssue(templateKey?: string): Promise<number> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   const tpl = getTemplate(templateKey);
   const title = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(new Date());
   const row = await queryOne<{ id: number }>(
@@ -95,7 +95,7 @@ export async function saveIssue(
   blocks: NewsletterBlock[],
   settings?: IssueSettings,
 ): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   const res = await query(
     `UPDATE newsletters
         SET title = $2, intro = $3, blocks = $4::jsonb, settings = $5::jsonb, updated_at = now()
@@ -120,7 +120,7 @@ export async function setExtraRecipients(
   id: number,
   list: { email: string; name: string }[],
 ): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   const cleaned = list
     .map((e) => ({ email: e.email.trim().toLowerCase().slice(0, 200), name: e.name.trim().slice(0, 120) }))
     .filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e.email))
@@ -140,7 +140,7 @@ export async function setExtraRecipients(
  *  unchecking is the only thing that should ever drop an audience from the
  *  target. Draft-only, same as the rest of the issue's content. Owner-only. */
 export async function setTargetGroupIds(id: number, groupIds: number[]): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   const cleaned = Array.from(new Set(groupIds.map(Number).filter((n) => Number.isInteger(n) && n > 0)));
   const res = await query(
     `UPDATE newsletters SET target_group_ids = $2::jsonb, updated_at = now() WHERE id = $1 AND status = 'draft'`,
@@ -158,7 +158,7 @@ export async function setTargetGroupIds(id: number, groupIds: number[]): Promise
  *  upload, and this mints the one capability token that lets a recipient's mail
  *  client fetch that single image (see app/api/newsletter/img/[token]). */
 export async function uploadIssueImage(form: FormData): Promise<Result<{ token: string }>> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
 
   const file = form.get("file");
   if (!(file instanceof File) || file.size === 0) return { ok: false, error: "No file selected." };
@@ -193,7 +193,7 @@ export async function uploadIssueImage(form: FormData): Promise<Result<{ token: 
  *  a linked blog post's image behaves identically to one Joe uploaded by
  *  hand. Owner-only. */
 export async function fetchLinkImage(url: string): Promise<Result<{ token: string; title: string }>> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   let preview: Awaited<ReturnType<typeof fetchLinkPreview>>;
   try {
     preview = await fetchLinkPreview(url);
@@ -237,7 +237,7 @@ export async function fetchLinkImage(url: string): Promise<Result<{ token: strin
  *  `confirmSent` forces the caller to acknowledge it is removing a sent issue —
  *  the client asks a different question for that case. */
 export async function deleteIssue(id: number, confirmSent = false): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
 
   // ── Validate FIRST, mutate second ──
   // Every rejection below has to happen before the outbox is touched. An earlier
@@ -292,7 +292,7 @@ export async function deleteIssue(id: number, confirmSent = false): Promise<Resu
 /** Qwen drafts an intro from the issue's current blocks. Returns the text (the
  *  client folds it into the editor + saves). Owner-only. */
 export async function draftIntro(id: number): Promise<Result<string>> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   const issue = await queryOne<{ title: string; blocks: NewsletterBlock[] }>(
     `SELECT title, blocks FROM newsletters WHERE id = $1`,
     [id],
@@ -319,7 +319,7 @@ export async function draftIntro(id: number): Promise<Result<string>> {
 /** Qwen drafts a content block celebrating a completed project. Returns a block
  *  the client inserts. Owner-only. */
 export async function draftBlockForProject(projectSlug: string): Promise<Result<NewsletterBlock>> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   const proj = await queryOne<{ name: string; scope: string | null; city: string | null }>(
     `SELECT name, sub_label AS scope, address AS city FROM projects WHERE slug = $1`,
     [projectSlug],
@@ -342,7 +342,7 @@ export async function draftBlockForProject(projectSlug: string): Promise<Result<
 
 /** Add a recipient (idempotent on email). Owner-only. */
 export async function addRecipient(email: string, name: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   const e = email.trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return { ok: false, error: "Enter a valid email." };
   const row = await queryOne<{ id: number; name: string }>(
@@ -365,7 +365,7 @@ export async function addRecipient(email: string, name: string): Promise<Result>
  *  next send — matches how importKnownRecipients treats a bulk import.
  *  Owner-only. */
 export async function addRecipientsBulk(text: string, active = true): Promise<Result<{ added: number }>> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   const found = text.match(/[^\s,;<>()"]+@[^\s,;<>()"]+\.[^\s,;<>()"]+/g) ?? [];
   const emails = Array.from(new Set(found.map((e) => e.trim().toLowerCase()))).slice(0, 500);
   if (emails.length === 0) return { ok: false, error: "No email addresses found in that text." };
@@ -388,7 +388,7 @@ export async function addRecipientsBulk(text: string, active = true): Promise<Re
 
 /** Remove a recipient. Owner-only. */
 export async function removeRecipient(id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   await query(`DELETE FROM newsletter_recipients WHERE id = $1`, [id]);
   revalidatePath("/newsletter");
   return { ok: true };
@@ -399,7 +399,7 @@ export async function removeRecipient(id: number): Promise<Result> {
  *  so reactivating someone who's been through this before is harmless — since
  *  going inactive→active IS "add this contact for real." Owner-only. */
 export async function setRecipientActive(id: number, active: boolean): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   const row = await queryOne<{ email: string; name: string }>(
     `UPDATE newsletter_recipients SET active = $2 WHERE id = $1 RETURNING email, name`,
     [id, active],
@@ -418,7 +418,7 @@ export async function setRecipientActive(id: number, active: boolean): Promise<R
  *  every imported contact into "queue to everyone active" with no way to
  *  tell them apart from someone who'd actually opted in. Owner-only. */
 export async function importKnownRecipients(): Promise<Result<number>> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   const added = await importKnownContacts();
   revalidatePath("/newsletter");
   return { ok: true, data: added };
@@ -433,7 +433,7 @@ export async function importKnownRecipients(): Promise<Result<number>> {
 
 /** Create a new audience. Owner-only. */
 export async function createGroup(name: string): Promise<Result<{ id: number; name: string }>> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   const n = name.trim().slice(0, 80);
   if (!n) return { ok: false, error: "Name it first." };
   const row = await queryOne<{ id: number; name: string }>(
@@ -445,7 +445,7 @@ export async function createGroup(name: string): Promise<Result<{ id: number; na
 }
 
 export async function renameGroup(id: number, name: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   const n = name.trim().slice(0, 80);
   if (!n) return { ok: false, error: "Name it first." };
   await query(`UPDATE newsletter_groups SET name = $2 WHERE id = $1`, [id, n]);
@@ -456,7 +456,7 @@ export async function renameGroup(id: number, name: string): Promise<Result> {
 /** Delete an audience. Recipients keep their other memberships; this only
  *  drops the (recipient, group) rows for the deleted group (FK cascade). */
 export async function deleteGroup(id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   await query(`DELETE FROM newsletter_groups WHERE id = $1`, [id]);
   revalidatePath("/newsletter");
   return { ok: true };
@@ -464,7 +464,7 @@ export async function deleteGroup(id: number): Promise<Result> {
 
 /** Add or remove one recipient from one audience. */
 export async function setRecipientGroup(recipientId: number, groupId: number, on: boolean): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   if (on) {
     await query(
       `INSERT INTO newsletter_recipient_groups (recipient_id, group_id) VALUES ($1, $2)
@@ -486,7 +486,7 @@ export async function setRecipientGroup(recipientId: number, groupId: number, on
  *  before it (the partial unique index only allows one), so this can never
  *  leave two rows flagged even if the request races another. Owner-only. */
 export async function setWelcomeIssue(id: number, on: boolean): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   if (on) {
     await query(`UPDATE newsletters SET is_welcome = (id = $1) WHERE is_welcome = true OR id = $1`, [id]);
   } else {
@@ -502,7 +502,7 @@ export async function setWelcomeIssue(id: number, on: boolean): Promise<Result> 
  *  empty means every active recipient. Nothing is emailed here; the owner then
  *  Releases each row. Owner-only. */
 export async function queueIssue(id: number, groupIds?: number[]): Promise<Result<{ queued: number }>> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   const res = await enqueueIssue(id, groupIds);
   if (!res.ok) return { ok: false, error: res.error ?? "Could not queue." };
   revalidatePath("/newsletter");
@@ -512,7 +512,7 @@ export async function queueIssue(id: number, groupIds?: number[]): Promise<Resul
 /** RELEASE one parked outbox row — this is the only path that emails a real
  *  person (via Gmail). Owner-clicked only; never auto-invoked. */
 export async function releaseNewsletterItem(id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   const res = await releaseOutboxItem(id);
   if (!res.ok) return { ok: false, error: res.error ?? "Release failed." };
   revalidatePath("/newsletter");
@@ -527,7 +527,7 @@ export async function releaseNewsletterItem(id: number): Promise<Result> {
  *  to send is left 'failed' exactly like a single Release would, and doesn't
  *  stop the rest from going out. Owner-only. */
 export async function releaseAllOutbox(): Promise<Result<{ released: number; failed: number }>> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   const pending = await query<{ id: number }>(
     `SELECT id FROM newsletter_outbox WHERE status IN ('queued', 'failed') ORDER BY queued_at`,
   );
@@ -544,7 +544,7 @@ export async function releaseAllOutbox(): Promise<Result<{ released: number; fai
 
 /** SKIP a parked outbox row without sending (stale recipient, etc.). Owner-only. */
 export async function skipNewsletterItem(id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   await skipOutboxItem(id);
   revalidatePath("/newsletter");
   return { ok: true };
@@ -553,7 +553,7 @@ export async function skipNewsletterItem(id: number): Promise<Result> {
 /** Re-read the parked outbox (owner-only) so the client can swap optimistic rows
  *  for the real persisted ones after a queue/release/skip/greeting. */
 export async function refreshOutbox(): Promise<OutboxItem[]> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   return readOutbox();
 }
 
@@ -565,7 +565,7 @@ export async function refreshOutbox(): Promise<OutboxItem[]> {
 
 /** Create a new (inactive) sequence. Owner-only. */
 export async function createSequence(name: string): Promise<Result<number>> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   const row = await queryOne<{ id: number }>(
     `INSERT INTO newsletter_sequences (name) VALUES ($1) RETURNING id`,
     [name.trim().slice(0, 120) || "Welcome series"],
@@ -575,7 +575,7 @@ export async function createSequence(name: string): Promise<Result<number>> {
 }
 
 export async function renameSequence(id: number, name: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   await query(`UPDATE newsletter_sequences SET name = $2 WHERE id = $1`, [
     id,
     name.trim().slice(0, 120) || "Welcome series",
@@ -589,7 +589,7 @@ export async function renameSequence(id: number, name: string): Promise<Result> 
  *  arming, so changing the audience mid-flight would silently mismatch who's
  *  subscribed against who the sequence claims to target. */
 export async function setSequenceAudience(id: number, groupId: number | null): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   const seq = await queryOne<{ active: boolean }>(
     `SELECT active FROM newsletter_sequences WHERE id = $1`,
     [id],
@@ -611,7 +611,7 @@ export async function setSequenceAudience(id: number, groupId: number | null): P
  *  enrolls the existing list with the clock starting NOW (see enrollAllInSequence
  *  — back-dating would fire every past-due step immediately). */
 export async function setSequenceActive(id: number, active: boolean): Promise<Result<{ enrolled: number }>> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
 
   if (active) {
     const steps = await queryOne<{ n: number; empty: number }>(
@@ -634,7 +634,7 @@ export async function setSequenceActive(id: number, active: boolean): Promise<Re
 
 /** Delete a sequence and everything enrolled in it. Owner-only. */
 export async function deleteSequence(id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   await query(`DELETE FROM newsletter_sequences WHERE id = $1`, [id]);
   revalidatePath("/newsletter");
   return { ok: true };
@@ -646,7 +646,7 @@ export async function addSequenceStep(
   newsletterId: number,
   delayDays: number,
 ): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   const days = Math.max(0, Math.min(3650, Math.round(Number(delayDays) || 0)));
   const dupe = await queryOne<{ id: number }>(
     `SELECT id FROM newsletter_sequence_steps WHERE sequence_id = $1 AND newsletter_id = $2`,
@@ -667,7 +667,7 @@ export async function addSequenceStep(
 /** Re-time a step. Delays are absolute offsets from signup, so this only moves
  *  the one step. Subscribers who already passed it are unaffected. */
 export async function updateSequenceStep(stepId: number, delayDays: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   const days = Math.max(0, Math.min(3650, Math.round(Number(delayDays) || 0)));
   await query(`UPDATE newsletter_sequence_steps SET delay_days = $2 WHERE id = $1`, [stepId, days]);
   revalidatePath("/newsletter");
@@ -675,7 +675,7 @@ export async function updateSequenceStep(stepId: number, delayDays: number): Pro
 }
 
 export async function removeSequenceStep(stepId: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   await query(`DELETE FROM newsletter_sequence_steps WHERE id = $1`, [stepId]);
   revalidatePath("/newsletter");
   return { ok: true };
@@ -683,6 +683,6 @@ export async function removeSequenceStep(stepId: number): Promise<Result> {
 
 /** Re-read sequences after a mutation so the client can drop optimistic state. */
 export async function refreshSequences(): Promise<Sequence[]> {
-  await requireRole("owner");
+  await requireAccess("newsletter");
   return listSequences();
 }

@@ -412,20 +412,24 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 
 -- ─── Users / auth ───────────────────────────────────────────────────────────
--- Login accounts. role gates access: owner = full app, sub = sub portal only,
--- client = client portal only. link_slug ties a sub/client account to their
--- row (subs.slug for subs, projects.slug for clients) so the portals can scope
--- to "their" data. password_hash is scrypt: "<saltHex>:<hashHex>".
+-- Login accounts. role gates access: owner = full app, staff = internal team
+-- member limited to the areas in permissions[] (lib/permissions.ts — e.g.
+-- 'projects','leads'; 'money' fences every financial surface), sub = sub
+-- portal only, client = client portal only. link_slug ties a sub/client
+-- account to their row (subs.slug for subs, projects.slug for clients) so the
+-- portals can scope to "their" data. password_hash is scrypt:
+-- "<saltHex>:<hashHex>". (Migration: db/apply-staff-users.mjs.)
 CREATE TABLE IF NOT EXISTS users (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   email          text UNIQUE NOT NULL,
   password_hash  text NOT NULL,
   name           text NOT NULL,
   role           text NOT NULL DEFAULT 'owner'
-                   CHECK (role IN ('owner','sub','client')),
+                   CHECK (role IN ('owner','staff','sub','client')),
   initials       text NOT NULL DEFAULT '',
   link_slug      text,                  -- subs.slug (role=sub) / projects.slug (role=client)
   active         boolean NOT NULL DEFAULT true,
+  permissions    text[] NOT NULL DEFAULT '{}',   -- staff access areas
   created_at     timestamptz NOT NULL DEFAULT now()
 );
 

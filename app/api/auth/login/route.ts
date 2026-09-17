@@ -3,6 +3,7 @@ import { z } from "zod";
 import { queryOne } from "@/lib/db";
 import { verifyPassword } from "@/lib/password";
 import { encrypt, type Role } from "@/lib/session";
+import { normalizePermissions } from "@/lib/permissions";
 
 // POST /api/auth/login — token login for the mobile app.
 // Verifies credentials and returns the signed JWT (same one the web cookie
@@ -35,8 +36,9 @@ export async function POST(req: Request) {
     link_slug: string | null;
     password_hash: string;
     active: boolean;
+    permissions: string[] | null;
   }>(
-    `SELECT id, email, name, role, initials, link_slug, password_hash, active
+    `SELECT id, email, name, role, initials, link_slug, password_hash, active, permissions
        FROM users WHERE lower(email) = lower($1)`,
     [email],
   );
@@ -46,7 +48,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Wrong email or password." }, { status: 401 });
   }
 
-  const token = await encrypt({ userId: user.id, role: user.role });
+  const perms = user.role === "staff" ? normalizePermissions(user.permissions) : [];
+  const token = await encrypt(user.role === "staff" ? { userId: user.id, role: user.role, perms } : { userId: user.id, role: user.role });
   return NextResponse.json({
     token,
     user: {
@@ -56,6 +59,7 @@ export async function POST(req: Request) {
       role: user.role,
       initials: user.initials,
       linkSlug: user.link_slug,
+      permissions: perms,
     },
   });
 }

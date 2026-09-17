@@ -9,7 +9,7 @@
 
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { getProjectSignerDefaults } from "@/lib/esign";
 import { emit } from "@/lib/notify";
 import { ai } from "@/lib/ai";
@@ -28,7 +28,7 @@ async function projectBySlug(slug: string) {
 
 /** Owner: create a draft change order on a project. */
 export async function createChangeOrder(slug: string, formData: FormData): Promise<Result> {
-  const user = await requireRole("owner");
+  const user = await requireAccess("change_orders");
   const project = await projectBySlug(slug);
   if (!project) return { ok: false, error: "Project not found." };
 
@@ -51,7 +51,7 @@ export async function createChangeOrder(slug: string, formData: FormData): Promi
  *  UI to drop into the textarea (grounds on the title + optional notes; never
  *  invents dollar amounts). Falls back to a plain stub on any AI failure. */
 export async function draftChangeOrder(slug: string, title: string, notes: string): Promise<string> {
-  await requireRole("owner");
+  await requireAccess("change_orders");
   const project = await projectBySlug(slug);
   const { answer } = await ai.ask({
     prompt:
@@ -68,7 +68,7 @@ export async function draftChangeOrder(slug: string, title: string, notes: strin
  *  signable body, creates a 'change_order' signature request linked back to the
  *  CO, sets the CO status to 'sent', and notifies. */
 export async function sendChangeOrder(slug: string, id: number): Promise<Result> {
-  const user = await requireRole("owner");
+  const user = await requireAccess("change_orders");
 
   const co = await queryOne<{
     id: string;
@@ -158,7 +158,7 @@ export async function sendChangeOrder(slug: string, id: number): Promise<Result>
 /** Owner: delete a change order (drafts + declined only — sent/approved are kept
  *  for the audit trail; void the signature request first if needed). */
 export async function deleteChangeOrder(slug: string, id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("change_orders");
   const r = await query(
     `DELETE FROM change_orders co
        USING projects p

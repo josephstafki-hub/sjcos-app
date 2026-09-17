@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { getCurrentUser } from "@/lib/dal";
+import { can, getCurrentUser } from "@/lib/dal";
 import { RouteTracker } from "@/components/shell/RouteTracker";
 import { LiveUpdates } from "@/components/shell/LiveUpdates";
 import { PanelProvider } from "@/components/panel/PanelProvider";
@@ -19,11 +19,13 @@ import { LiveActionNav } from "@/components/panel/LiveActionNav";
  */
 export default async function OsLayout({ children }: { children: ReactNode }) {
   const user = await getCurrentUser();
-  const isOwner = user?.role === "owner";
+  // The operator dock mounts for the owner and for staff who hold the "ai"
+  // area (lib/permissions.ts) — agents in it act with owner-level tools.
+  const withPanel = can(user, "ai");
 
   return (
     <>
-      {isOwner ? (
+      {withPanel ? (
         <PanelProvider>
           <PanelHost>{children}</PanelHost>
           <LiveActionNav />

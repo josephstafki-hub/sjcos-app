@@ -7,7 +7,7 @@
 
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { storeBuffer } from "@/lib/upload-store";
 import { getProjectSignerDefaults } from "@/lib/esign";
 import { emit } from "@/lib/notify";
@@ -25,7 +25,7 @@ type Result = { ok: true; id?: string } | { ok: false; error: string };
 /** Owner: generate a Certificate of Substantial Completion (AI summary of work
  *  + code-generated figures) → PDF stored in the project Files. */
 export async function generateCompletionCertificate(slug: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const d = await gatherCloseoutData(slug);
   if (!d) return { ok: false, error: "Project not found." };
 
@@ -74,7 +74,7 @@ export async function generateCompletionCertificate(slug: string): Promise<Resul
  *  warranty stage (or manually). Idempotent via projects.closeout_outreach_at,
  *  so it never sends twice. Owner-gated; missing client email → skipped. */
 export async function sendCompletionOutreach(slug: string): Promise<{ ok: boolean; sent?: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const proj = await queryOne<{ id: string; name: string; already: boolean }>(
     `SELECT id, name, (closeout_outreach_at IS NOT NULL) AS already FROM projects WHERE slug = $1`,
     [slug],
@@ -132,7 +132,7 @@ export async function sendCompletionOutreach(slug: string): Promise<{ ok: boolea
 /** Owner: generate the final lien waiver → PDF + a lien_waiver signature request
  *  the client counter-signs in their portal. */
 export async function generateLienWaiver(slug: string): Promise<Result> {
-  const user = await requireRole("owner");
+  const user = await requireAccess("projects");
   const d = await gatherCloseoutData(slug);
   if (!d) return { ok: false, error: "Project not found." };
 

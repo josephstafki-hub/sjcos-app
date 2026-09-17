@@ -5,7 +5,7 @@
 // both with a legal disclaimer. The app assists — it never files or auto-collects.
 
 import { revalidatePath } from "next/cache";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { storeBuffer } from "@/lib/upload-store";
 import { emit } from "@/lib/notify";
 import { sendNewEmailAction } from "@/lib/actions/inbox";
@@ -24,7 +24,7 @@ const usd = (cents: number) =>
 /** Owner: generate a past-due demand letter for an overdue invoice; optionally
  *  email it to the client. Stored in the project Files. */
 export async function generateDemandLetter(invoiceId: number, send = false): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("invoices");
   const d = await gatherCollectionData(invoiceId);
   if (!d) return { ok: false, error: "Invoice not found." };
 
@@ -69,7 +69,7 @@ export async function generateDemandLetter(invoiceId: number, send = false): Pro
 /** Owner: generate a Day-30 MN mechanic's-lien statement draft. Stored in Files.
  *  Draft only — carries a prominent disclaimer; the app never files. */
 export async function generateLienPackage(invoiceId: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("invoices");
   const d = await gatherCollectionData(invoiceId);
   if (!d) return { ok: false, error: "Invoice not found." };
 

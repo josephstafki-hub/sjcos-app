@@ -33,6 +33,7 @@ import {
 import { Logo } from "./Logo";
 import { logout } from "@/lib/actions/auth";
 import { getNavCounts, type NavCounts } from "@/lib/actions/nav";
+import { staffMayOpen } from "@/lib/permissions";
 
 type NavItem = {
   label: string;
@@ -134,11 +135,23 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
   );
 }
 
-type SidebarUser = { name: string; initials: string; roleLabel: string };
+export type SidebarUser = {
+  name: string;
+  initials: string;
+  roleLabel: string;
+  /** Staff: the areas they hold — rail items outside them are hidden. Null for
+   *  the owner (everything shows). */
+  staffPerms: string[] | null;
+};
 
 /** Forest-green primary navigation panel. */
 export function Sidebar({ user }: { user: SidebarUser }) {
   const pathname = usePathname();
+  const perms = user.staffPerms;
+  const visible = (items: NavItem[]) => (perms ? items.filter((i) => staffMayOpen(perms, i.href)) : items);
+  const work = visible(WORK);
+  const tools = visible(TOOLS);
+  const external = perms ? [] : EXTERNAL;
   const [counts, setCounts] = useState<NavCounts | null>(null);
 
   // Live nav badges, fetched after mount so they never delay a navigation.
@@ -167,6 +180,18 @@ export function Sidebar({ user }: { user: SidebarUser }) {
     return n > 0 ? String(n) : undefined;
   };
 
+  const accountRow = (
+    <>
+      <span className="inline-flex size-[26px] flex-none items-center justify-center rounded-full border border-[rgba(191,208,166,0.5)] bg-[rgba(191,208,166,0.18)] font-mono text-[10px] font-semibold text-[#E7EFD6]">
+        {user.initials}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-serif text-[13.5px] font-semibold text-paper">{user.name}</div>
+        <div className="truncate text-[11px] text-[rgba(241,236,225,0.5)]">{user.roleLabel}</div>
+      </div>
+    </>
+  );
+
   return (
     <nav className="flex h-full w-[232px] flex-none flex-col bg-sidebar px-3 py-3.5">
       <div className="flex-none px-1.5 pb-3.5 pt-0.5">
@@ -182,7 +207,7 @@ export function Sidebar({ user }: { user: SidebarUser }) {
         <div className="flex-none pt-1.5" />
 
         <RailLabel>Work</RailLabel>
-        {WORK.map((item) => (
+        {work.map((item) => (
           <NavLink
             key={item.href}
             item={{ ...item, badge: badgeFor(item.href) }}
@@ -190,31 +215,36 @@ export function Sidebar({ user }: { user: SidebarUser }) {
           />
         ))}
 
-        <div className="my-2 h-px flex-none bg-[rgba(255,255,255,0.09)]" />
+        {tools.length > 0 && (
+          <>
+            <div className="my-2 h-px flex-none bg-[rgba(255,255,255,0.09)]" />
+            <RailLabel>Tools</RailLabel>
+            {tools.map((item) => (
+              <NavLink key={item.href} item={item} pathname={pathname} />
+            ))}
+          </>
+        )}
 
-        <RailLabel>Tools</RailLabel>
-        {TOOLS.map((item) => (
-          <NavLink key={item.href} item={item} pathname={pathname} />
-        ))}
-
-        <div className="my-2 h-px flex-none bg-[rgba(255,255,255,0.09)]" />
-
-        <RailLabel>External</RailLabel>
-        {EXTERNAL.map((item) => (
-          <NavLink key={item.href} item={item} pathname={pathname} />
-        ))}
+        {external.length > 0 && (
+          <>
+            <div className="my-2 h-px flex-none bg-[rgba(255,255,255,0.09)]" />
+            <RailLabel>External</RailLabel>
+            {external.map((item) => (
+              <NavLink key={item.href} item={item} pathname={pathname} />
+            ))}
+          </>
+        )}
       </div>
 
       <div className="mt-2.5 flex flex-none items-center gap-2 border-t border-[rgba(255,255,255,0.1)] px-1.5 pb-[max(0.125rem,env(safe-area-inset-bottom))] pt-2">
-        <Link href="/settings" className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="inline-flex size-[26px] flex-none items-center justify-center rounded-full border border-[rgba(191,208,166,0.5)] bg-[rgba(191,208,166,0.18)] font-mono text-[10px] font-semibold text-[#E7EFD6]">
-            {user.initials}
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="truncate font-serif text-[13.5px] font-semibold text-paper">{user.name}</div>
-            <div className="truncate text-[11px] text-[rgba(241,236,225,0.5)]">{user.roleLabel}</div>
-          </div>
-        </Link>
+        {/* Settings is owner-only; a staff member's account row is plain text. */}
+        {perms ? (
+          <div className="flex min-w-0 flex-1 items-center gap-2">{accountRow}</div>
+        ) : (
+          <Link href="/settings" className="flex min-w-0 flex-1 items-center gap-2">
+            {accountRow}
+          </Link>
+        )}
         <form action={logout} className="flex-none">
           <button type="submit" aria-label="Log out" className="block p-1">
             <LogOut className="size-3.5 text-[rgba(241,236,225,0.55)] hover:text-paper" strokeWidth={1.5} />

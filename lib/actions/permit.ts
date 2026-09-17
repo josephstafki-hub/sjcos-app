@@ -6,7 +6,7 @@
 // Phase-2 document infrastructure. Reads stay in lib/permits.ts.
 
 import { revalidatePath } from "next/cache";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { storeBuffer } from "@/lib/upload-store";
 import { emit } from "@/lib/notify";
 import { ai } from "@/lib/ai";
@@ -19,7 +19,7 @@ type Result = { ok: true; id?: string } | { ok: false; error: string };
  *  PERMIT-tagged file the owner downloads and attaches to the jurisdiction's
  *  official application. */
 export async function generatePermitPacket(slug: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("compliance");
   const d = await gatherPermitData(slug);
   if (!d) return { ok: false, error: "Project not found." };
 

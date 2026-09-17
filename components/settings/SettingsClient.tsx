@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Plus, X } from "lucide-react";
-import { Avatar, Card, Chip, Eyebrow, Field, SubmitButton } from "@/components/ui";
+import { Avatar, Card, Chip, Eyebrow, Field } from "@/components/ui";
 import type { SettingsData } from "@/lib/settings";
 import {
   setAiToggle,
@@ -12,7 +11,8 @@ import {
   updateCompanyDocs,
   updateBillingRates,
 } from "@/lib/actions/settings";
-import { createUser, setUserActive } from "@/lib/actions/users";
+import { setUserActive } from "@/lib/actions/users";
+import { AddUserButton, StaffAccessButton } from "./TeamAccess";
 import { runAction } from "@/lib/run-action";
 import { ClipTokenCard } from "./ClipTokenCard";
 import { IntakeTokenCard } from "./IntakeTokenCard";
@@ -45,109 +45,6 @@ function TextInput({
         className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
       />
     </label>
-  );
-}
-
-/** Owner-only "Add user" button + modal. Submits the createUser Server Action via an
- *  inline async action so the modal closes only after the write succeeds; a failure
- *  (duplicate email, missing field) keeps the modal open and shows the error. React
- *  resets the form after every action, so on failure the submitted values are kept
- *  in state and fed back as defaultValues — the owner's input survives the error. */
-function AddUserButton() {
-  const [open, setOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [vals, setVals] = useState<Record<string, string>>({});
-  const val = (k: string) => vals[k] ?? "";
-
-  async function handle(formData: FormData) {
-    const res = await runAction(() => createUser(formData), { fallback: "Couldn't add the user." });
-    if (res.ok) {
-      setError(null);
-      setVals({});
-      setOpen(false);
-    } else {
-      const kept: Record<string, string> = {};
-      formData.forEach((v, k) => {
-        if (typeof v === "string") kept[k] = v;
-      });
-      setVals(kept);
-      setError(res.error ?? "Couldn't add the user.");
-    }
-  }
-
-  return (
-    <>
-      <button
-        onClick={() => {
-          setError(null);
-          setOpen(true);
-        }}
-        className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper transition-colors hover:bg-[#232a1e]"
-      >
-        <Plus className="size-3" strokeWidth={1.5} />
-        Add user
-      </button>
-
-      {open && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center bg-ink/30 p-4 pt-[12vh]"
-          onClick={() => setOpen(false)}
-        >
-          <div
-            className="w-full max-w-[440px] rounded-lg border border-rule bg-card shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between border-b border-rule px-4 py-3">
-              <h2 className="font-serif text-[17px] font-semibold text-ink">Add a user</h2>
-              <button onClick={() => setOpen(false)} className="text-ink-3 hover:text-ink" aria-label="Close">
-                <X className="size-4" strokeWidth={1.5} />
-              </button>
-            </div>
-
-            <form action={handle} className="flex flex-col gap-3 p-4">
-              <TextInput name="name" label="Name" required placeholder="Marco Rivas" defaultValue={val("name")} />
-              <TextInput name="email" label="Email" type="email" required placeholder="marco@…" defaultValue={val("email")} />
-              <div className="flex gap-3">
-                <label className="flex flex-1 flex-col gap-1">
-                  <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Role</span>
-                  <select
-                    name="role"
-                    defaultValue={vals.role ?? "sub"}
-                    className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
-                  >
-                    <option value="sub">Sub — portal access</option>
-                    <option value="client">Client — portal access</option>
-                    <option value="owner">Owner — full app</option>
-                  </select>
-                </label>
-                <div className="flex-1">
-                  <TextInput name="link_slug" label="Link slug" placeholder="marco / henderson" defaultValue={val("link_slug")} />
-                </div>
-              </div>
-              <TextInput name="password" label="Temp password" type="password" required placeholder="they can change it" defaultValue={val("password")} />
-
-              {error && <div className="text-[12px] text-flag">{error}</div>}
-
-              <div className="mt-1 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2"
-                >
-                  Cancel
-                </button>
-                <SubmitButton
-                  pendingLabel="Adding…"
-                  className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
-                >
-                  Add user
-                </SubmitButton>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </>
   );
 }
 
@@ -448,7 +345,9 @@ export function SettingsClient({ data }: { data: SettingsData }) {
               <div>
                 <Eyebrow>Team &amp; roles</Eyebrow>
                 <h1 className="mt-1 font-serif text-[30px] font-medium leading-none text-accent-2">Team &amp; roles</h1>
-                <div className="mt-1.5 text-[11px] text-ink-3">{data.team.length} members · portal guests don&apos;t count toward seats</div>
+                <div className="mt-1.5 text-[11px] text-ink-3">
+                  {data.team.length} members · team members see only the areas you tick; the money areas are grantable one by one
+                </div>
               </div>
               <AddUserButton />
             </div>
@@ -465,7 +364,10 @@ export function SettingsClient({ data }: { data: SettingsData }) {
                     <div className="font-serif text-[13.5px] font-semibold text-ink">{m.name}</div>
                     <div className="text-[11px] text-ink-3">{m.role}</div>
                   </div>
-                  {/* Real, non-owner login rows get an enable/disable control. */}
+                  {/* Team members get an Access editor; every real non-owner row gets enable/disable. */}
+                  {m.id && m.roleKey === "staff" && (
+                    <StaffAccessButton id={m.id} name={m.name} email={m.email ?? ""} permissions={m.permissions ?? []} />
+                  )}
                   {m.id && !m.isOwner ? (
                     <form action={setUserActive.bind(null, m.id, m.active === false)}>
                       <button

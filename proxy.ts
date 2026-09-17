@@ -4,8 +4,10 @@ import {
   SESSION_COOKIE as COOKIE,
   SESSION_RENEW_AFTER_S,
   sessionMaxAgeS,
+  PATH_HEADER,
   type Role,
 } from "@/lib/session-window";
+import { isOwnerOnlyPath, staffHome } from "@/lib/permissions";
 
 // Next 16 middleware (file name is `proxy.ts`). Optimistic auth: read the
 // session JWT straight from the request cookie and redirect. This is the
@@ -24,9 +26,12 @@ const encodedKey = new TextEncoder().encode(
 interface Session {
   userId: string;
   role: Role;
+  /** Staff: access areas copied into the JWT at login (lib/permissions.ts). */
+  perms: string[];
   /** Seconds-since-epoch the token was minted; drives the renewal check. */
   issuedAt: number;
 }
+
 
 async function readSession(req: NextRequest): Promise<Session | null> {
   const token = req.cookies.get(COOKIE)?.value;
@@ -36,6 +41,7 @@ async function readSession(req: NextRequest): Promise<Session | null> {
     return {
       userId: payload.userId as string,
       role: payload.role as Role,
+      perms: Array.isArray(payload.perms) ? (payload.perms as string[]) : [],
       issuedAt: payload.iat ?? 0,
     };
   } catch {
@@ -50,7 +56,11 @@ async function renewal(session: Session): Promise<{ token: string; maxAge: numbe
   const ageS = Math.floor(Date.now() / 1000) - session.issuedAt;
   if (ageS < SESSION_RENEW_AFTER_S) return null;
   const maxAge = sessionMaxAgeS(session.role);
-  const token = await new SignJWT({ userId: session.userId, role: session.role })
+  const claims =
+    session.role === "staff"
+      ? { userId: session.userId, role: session.role, perms: session.perms }
+      : { userId: session.userId, role: session.role };
+  const token = await new SignJWT(claims)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime(Math.floor(Date.now() / 1000) + maxAge)
@@ -74,9 +84,10 @@ function slide(res: NextResponse, fresh: { token: string; maxAge: number } | nul
   return res;
 }
 
-function homeForRole(role: Role): string {
-  if (role === "sub") return "/sub-portal";
-  if (role === "client") return "/client-portal";
+function homeFor(session: Session): string {
+  if (session.role === "sub") return "/sub-portal";
+  if (session.role === "client") return "/client-portal";
+  if (session.role === "staff") return staffHome(session.perms);
   return "/today";
 }
 
@@ -95,14 +106,24 @@ const PUBLIC_PATHS = ["/login", "/sub-portal/enter", "/client-portal/enter"];
  *  which now always works — those links don't expire. */
 const LINK_CREDENTIAL_PATHS = ["/client-portal", "/sub-portal"];
 
-/** Routes a non-owner role is allowed to reach (besides /login). /logout must
- *  stay reachable for every role — it's the escape hatch for a stale session
- *  (valid JWT, deleted user row), which would otherwise loop forever between
- *  /login and the role home. */
-function allowedFor(role: Role): string[] {
-  if (role === "sub") return ["/sub-portal", "/logout"];
-  if (role === "client") return ["/client-portal", "/logout"];
-  return []; // owner: everything
+/** May this session open this path? /logout must stay reachable for every
+ *  role — it's the escape hatch for a stale session (valid JWT, deleted user
+ *  row), which would otherwise loop forever between /login and the role home.
+ *  Staff are only fenced from the owner-only paths here; their per-area
+ *  gating happens in Shell + requireAccess() against the DB row, so a change
+ *  made in Settings bites immediately instead of on their next login. */
+function mayOpen(session: Session, path: string): boolean {
+  const portal = session.role === "sub" ? "/sub-portal" : session.role === "client" ? "/client-portal" : null;
+  if (portal) return [portal, "/logout"].some((p) => path === p || path.startsWith(p + "/"));
+  if (session.role === "staff") return !isOwnerOnlyPath(path);
+  return true; // owner: everything
+}
+
+/** Continue to the app with the pathname stamped onto the request. */
+function next(req: NextRequest): NextResponse {
+  const headers = new Headers(req.headers);
+  headers.set(PATH_HEADER, req.nextUrl.pathname);
+  return NextResponse.next({ request: { headers } });
 }
 
 /** OAuth/OIDC discovery probes. MCP clients (claude.ai, ChatGPT connectors)
@@ -141,19 +162,19 @@ export default async function proxy(req: NextRequest) {
   // Authenticated hitting /login → straight to their home.
   if (path === "/login") {
     const url = req.nextUrl.clone();
-    url.pathname = homeForRole(session.role);
+    url.pathname = homeFor(session);
     return slide(NextResponse.redirect(url), fresh);
   }
 
-  // Role gating: non-owners are confined to their portal.
-  const allowed = allowedFor(session.role);
-  if (allowed.length > 0 && !allowed.some((p) => path === p || path.startsWith(p + "/"))) {
+  // Role gating: portal roles are confined to their portal, staff to their areas.
+  if (!mayOpen(session, path)) {
     const url = req.nextUrl.clone();
-    url.pathname = homeForRole(session.role);
+    url.pathname = homeFor(session);
+    url.search = "";
     return slide(NextResponse.redirect(url), fresh);
   }
 
-  return slide(NextResponse.next(), fresh);
+  return slide(next(req), fresh);
 }
 
 export const config = {

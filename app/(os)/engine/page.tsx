@@ -1,6 +1,6 @@
 import { Shell } from "@/components/shell/Shell";
 import { Eyebrow } from "@/components/ui";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { getEngineData } from "@/lib/engine";
 import { getRecentKnowledge } from "@/lib/brain";
 import { getSkillsLibrary } from "@/lib/skills";
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 
 export default async function EnginePage() {
   // Owner-only: the operations engine coordinates AI runs + approvals.
-  await requireRole("owner");
+  await requireAccess("engine");
 
   const [engine, knowledge, skills, memories, activeRunbooks] = await Promise.all([
     getEngineData(),

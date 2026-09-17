@@ -4,6 +4,7 @@
 // categories stay static placeholders.
 
 import { query } from "./db";
+import { PERMISSIONS, normalizePermissions } from "@/lib/permissions";
 import { getCurrentUser } from "./dal";
 import { gmailConfigured } from "./gmail";
 import { getClipToken } from "./clip";
@@ -76,6 +77,10 @@ export interface SettingsData {
     chip: "accent" | "ghost" | "ai";
     active?: boolean;
     isOwner?: boolean;
+    /** 'staff' rows carry `permissions` (lib/permissions.ts keys) editable from the Team screen. */
+    roleKey?: "owner" | "staff" | "sub" | "client";
+    email?: string;
+    permissions?: string[];
   }[];
   integrations: Integration[];
   aiToggles: AiToggle[];
@@ -152,16 +157,20 @@ export async function getSettingsData(): Promise<SettingsData> {
     initials: string;
     link_slug: string | null;
     active: boolean;
-  }>(`SELECT id, name, email, role, initials, link_slug, active
-        FROM users ORDER BY (role = 'owner') DESC, name`);
+    permissions: string[] | null;
+  }>(`SELECT id, name, email, role, initials, link_slug, active, permissions
+        FROM users ORDER BY (role = 'owner') DESC, (role = 'staff') DESC, name`);
 
   const roleDescription = (r: typeof userRows[number]): string => {
+    const areas = normalizePermissions(r.permissions);
     const base =
       r.role === "owner"
         ? "Owner · all roles"
-        : r.role === "sub"
-          ? `Sub · ${r.link_slug ?? "portal"} (portal access)`
-          : `Client · ${r.link_slug ?? "portal"} (portal access)`;
+        : r.role === "staff"
+          ? `Team · ${areas.length === 0 ? "no areas" : areas.map((k) => PERMISSIONS.find((p) => p.key === k)?.label ?? k).join(", ")}`
+          : r.role === "sub"
+            ? `Sub · ${r.link_slug ?? "portal"} (portal access)`
+            : `Client · ${r.link_slug ?? "portal"} (portal access)`;
     return r.active ? base : `${base} · disabled`;
   };
 
@@ -174,6 +183,9 @@ export async function getSettingsData(): Promise<SettingsData> {
       chip: (r.role === "owner" ? "accent" : "ghost") as "accent" | "ghost" | "ai",
       active: r.active,
       isOwner: r.role === "owner",
+      roleKey: r.role as "owner" | "staff" | "sub" | "client",
+      email: r.email,
+      permissions: r.role === "staff" ? normalizePermissions(r.permissions) : undefined,
     })),
     { initials: "AI", name: "AI assistant", role: "System · all models", chip: "ai" as const },
   ];

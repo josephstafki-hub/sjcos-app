@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import { captureAgentMemory } from "@/lib/agent-memory";
 import { reopenApprovalAfterFailedSend, sendApprovedClientDraft } from "@/lib/approved-draft-send";
 import { query } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { WORK_STATUSES } from "@/lib/engine-constants";
 import { notifyAgentOwner } from "@/lib/dev-agents";
 import { maybeAdvanceRunbook, cancelRunbookInstance } from "@/lib/runbook-engine";
@@ -15,7 +15,7 @@ import type { WorkItemStatus } from "@/lib/types";
 type Result = { ok: true } | { ok: false; error: string };
 
 export async function createWorkItem(formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("engine");
   const title = String(formData.get("title") ?? "").trim();
   if (!title) return { ok: false, error: "Title is required." };
   const body = String(formData.get("body") ?? "").trim();
@@ -37,7 +37,7 @@ export async function createWorkItem(formData: FormData): Promise<Result> {
 }
 
 export async function setWorkItemStatus(id: string, status: WorkItemStatus, note?: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("engine");
   if (!WORK_STATUSES.includes(status)) return { ok: false, error: "Unknown status." };
   await query(
     `UPDATE work_items
@@ -58,7 +58,7 @@ export async function setWorkItemStatus(id: string, status: WorkItemStatus, note
 /** Approve a work item awaiting human approval → clears the gate, moves to queued,
  *  and (for agent-owned items) actively pings the owner agent to go complete it. */
 export async function approveWorkItem(id: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("engine");
   const { rows } = await query<{
     title: string;
     body: string;
@@ -95,7 +95,7 @@ export async function approveWorkItem(id: string): Promise<Result> {
 }
 
 export async function rejectWorkItem(id: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("engine");
   const { rows } = await query<{ title: string; body: string; assignee_key: string | null }>(
     `UPDATE work_items SET approval_status = 'rejected', status = 'cancelled' WHERE id = $1
      RETURNING title, body, assignee_key`,
@@ -123,7 +123,7 @@ export async function rejectWorkItem(id: string): Promise<Result> {
 
 /** Cancel a live runbook instance (W6). Owner-only — agents get no cancel tool. */
 export async function cancelRunbook(instanceId: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("engine");
   await cancelRunbookInstance(instanceId);
   revalidatePath("/engine");
   return { ok: true };

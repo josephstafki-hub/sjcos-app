@@ -10,7 +10,7 @@
 // re-validates it server-side — a tampered plan can never widen tool scope or
 // escape the automations dir.
 
-import { getCurrentUser } from "@/lib/dal";
+import { can, getCurrentUser } from "@/lib/dal";
 import {
   proposeAutomation,
   executeApprovedPlan,
@@ -20,7 +20,7 @@ import {
 
 async function requireOwner() {
   const user = await getCurrentUser();
-  if (!user || user.role !== "owner") {
+  if (!can(user, "automate")) {
     throw new Error("not authorized");
   }
 }

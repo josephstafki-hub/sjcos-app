@@ -11,7 +11,7 @@
 
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { ai } from "@/lib/ai";
 import { emit } from "@/lib/notify";
 import { usd, type InvoiceLine } from "@/lib/money";
@@ -51,7 +51,7 @@ export async function createInvoice(
   slug: string,
   input: { milestone: string; notes?: string; mode?: "ai" | "blank" },
 ): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("invoices");
   const project = await projectBySlug(slug);
   if (!project) return { ok: false, error: "Project not found." };
   const milestone = input.milestone.trim() || "Progress draw";
@@ -99,7 +99,7 @@ export async function createMilestoneInvoice(
   slug: string,
   input: { milestone: string; amount: number; autoSend: boolean },
 ): Promise<{ ok: boolean; sent?: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("invoices");
   const project = await projectBySlug(slug);
   if (!project) return { ok: false, error: "Project not found." };
 
@@ -135,7 +135,7 @@ export async function updateInvoice(
   id: number,
   input: { milestone: string; lines: { label: string; amount: number | string }[] },
 ): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("invoices");
   const inv = await invoiceById(id);
   if (!inv) return { ok: false, error: "Invoice not found." };
   if (inv.status !== "draft") {
@@ -157,7 +157,7 @@ export async function updateInvoice(
 
 /** Delete a draft invoice (owner only). Sent/paid invoices are locked. */
 export async function deleteInvoice(id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("invoices");
   const inv = await invoiceById(id);
   if (!inv) return { ok: false, error: "Invoice not found." };
   if (inv.status !== "draft") {
@@ -191,7 +191,7 @@ async function invoiceById(id: number) {
 /** Email a drafted invoice to the project's client, then mark it sent. Send
  *  core in lib/send-ops.ts; agents reach it only via an owner grant. */
 export async function sendInvoice(id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("invoices");
   const inv = await invoiceById(id);
   if (!inv) return { ok: false, error: "Invoice not found." };
   const res = await sendInvoiceOp(id);
@@ -203,7 +203,7 @@ export async function sendInvoice(id: number): Promise<Result> {
 
 /** Mark a sent invoice paid. Emits a MONEY notification. */
 export async function markInvoicePaid(id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("invoices");
   const inv = await invoiceById(id);
   if (!inv) return { ok: false, error: "Invoice not found." };
 

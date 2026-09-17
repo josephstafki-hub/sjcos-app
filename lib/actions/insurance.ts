@@ -5,7 +5,7 @@
 
 import { revalidatePath } from "next/cache";
 import { query } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { type PolicyType } from "@/lib/insurance-types";
 
 type Result = { ok: boolean; error?: string };
@@ -19,7 +19,7 @@ function dollars(v: FormDataEntryValue | null): number {
 
 /** Create or update a policy. When id is present (>0), updates; else inserts. */
 export async function savePolicy(formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("compliance");
   const id = Number(formData.get("id")) || 0;
   const typeRaw = String(formData.get("policyType") ?? "other") as PolicyType;
   const policyType = TYPES.includes(typeRaw) ? typeRaw : "other";
@@ -53,7 +53,7 @@ export async function savePolicy(formData: FormData): Promise<Result> {
 
 /** Archive (soft-delete) a policy. */
 export async function archivePolicy(id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("compliance");
   await query(`UPDATE insurance_policies SET archived = true WHERE id = $1`, [id]);
   revalidatePath("/compliance");
   return { ok: true };

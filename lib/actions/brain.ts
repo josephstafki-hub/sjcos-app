@@ -5,14 +5,14 @@
 import { createHash } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { query } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { searchKnowledge, type KnowledgeItemView } from "@/lib/brain";
 
 type Result = { ok: true } | { ok: false; error: string };
 
 /** Capture a durable knowledge item by hand (owner). De-duped by fingerprint. */
 export async function captureKnowledge(formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("ai");
   const content = String(formData.get("content") ?? "").trim();
   if (!content) return { ok: false, error: "Content is required." };
   const kind = String(formData.get("kind") ?? "note").trim() || "note";
@@ -28,7 +28,7 @@ export async function captureKnowledge(formData: FormData): Promise<Result> {
 }
 
 export async function deleteKnowledge(id: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("ai");
   await query(`DELETE FROM knowledge_items WHERE id = $1`, [id]);
   revalidatePath("/engine");
   return { ok: true };
@@ -36,6 +36,6 @@ export async function deleteKnowledge(id: string): Promise<Result> {
 
 /** Search action for the client knowledge panel — returns view rows. */
 export async function searchKnowledgeAction(q: string): Promise<KnowledgeItemView[]> {
-  await requireRole("owner");
+  await requireAccess("ai");
   return searchKnowledge(q, 40);
 }

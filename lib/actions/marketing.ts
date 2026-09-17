@@ -6,7 +6,7 @@
 
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { ai } from "@/lib/ai";
 import { emit } from "@/lib/notify";
 import { type DraftKind } from "@/lib/marketing-types";
@@ -48,7 +48,7 @@ function draftPrompt(kind: DraftKind, name: string, scope: string, city: string)
 /** Generate (and store) a draft for a project. Returns ok; the draft appears on
  *  /marketing. AI failure falls back to a deterministic template. */
 export async function generateDraft(slug: string, kindRaw: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("marketing");
   const kind: DraftKind = KINDS.includes(kindRaw as DraftKind) ? (kindRaw as DraftKind) : "social";
   const proj = await queryOne<{ id: string; name: string; scope: string | null; city: string | null }>(
     `SELECT id, name, sub_label AS scope, address AS city FROM projects WHERE slug = $1`,
@@ -81,7 +81,7 @@ export async function generateDraft(slug: string, kindRaw: string): Promise<Resu
  *  project never gets two auto social drafts. Owner-gated (called from the
  *  owner-only advanceProjectStatus flow). Best-effort — never throws. */
 export async function autoDraftSocialOnCompletion(slug: string): Promise<void> {
-  await requireRole("owner");
+  await requireAccess("marketing");
   const t = await queryOne<{ value: string }>(
     `SELECT value FROM app_settings WHERE key = 'marketing.auto_draft_on_completion'`,
   );
@@ -123,7 +123,7 @@ export async function autoDraftSocialOnCompletion(slug: string): Promise<void> {
  *  notification asking Joe to add photos/video before publishing. Owner-gated
  *  (called from advanceProjectStatus). Best-effort — never throws. */
 export async function autoDraftBlogOnCompletion(slug: string): Promise<void> {
-  await requireRole("owner");
+  await requireAccess("marketing");
   const t = await queryOne<{ value: string }>(
     `SELECT value FROM app_settings WHERE key = 'marketing.auto_draft_on_completion'`,
   );
@@ -181,7 +181,7 @@ export async function autoDraftBlogOnCompletion(slug: string): Promise<void> {
 
 /** Edit a draft's body. */
 export async function updateDraft(id: number, body: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("marketing");
   await query(`UPDATE marketing_drafts SET body = $2 WHERE id = $1`, [id, body.trim()]);
   revalidatePath("/marketing");
   revalidatePath("/site"); // blog drafts also surface in the Website composer
@@ -190,7 +190,7 @@ export async function updateDraft(id: number, body: string): Promise<Result> {
 
 /** Mark a draft as posted (owner posts it manually elsewhere). */
 export async function markPosted(id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("marketing");
   await query(`UPDATE marketing_drafts SET status = 'posted' WHERE id = $1`, [id]);
   revalidatePath("/marketing");
   revalidatePath("/site"); // blog drafts also surface in the Website composer
@@ -199,7 +199,7 @@ export async function markPosted(id: number): Promise<Result> {
 
 /** Delete a draft. */
 export async function deleteDraft(id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("marketing");
   await query(`DELETE FROM marketing_drafts WHERE id = $1`, [id]);
   revalidatePath("/marketing");
   revalidatePath("/site"); // blog drafts also surface in the Website composer

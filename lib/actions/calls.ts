@@ -7,13 +7,13 @@
 // audited, for Joe and agents alike.
 
 import { revalidatePath } from "next/cache";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { createGrant } from "@/lib/owner-grants";
 import { normalizeE164 } from "@/lib/comms/phone";
 import { getCall, getCallEvents, placeCall, voiceConfigured, voiceStatus, type CallRow } from "@/lib/voice";
 
 export async function placeCallAction(phone: string, contactName?: string | null): Promise<{ ok: boolean; callId?: string; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("comms");
   if (!voiceConfigured()) {
     const s = voiceStatus();
     return { ok: false, error: s.enabled ? `Voice is misconfigured: ${s.problems.join("; ")}` : "Voice is not connected yet." };
@@ -42,7 +42,7 @@ export interface CallDetail {
 }
 
 export async function loadCall(id: string): Promise<CallDetail | null> {
-  await requireRole("owner");
+  await requireAccess("comms");
   const call = await getCall(id);
   if (!call) return null;
   const events = await getCallEvents(id);

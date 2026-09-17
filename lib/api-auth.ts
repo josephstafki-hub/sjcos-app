@@ -2,6 +2,7 @@ import "server-only";
 import { queryOne } from "@/lib/db";
 import { decrypt, type Role } from "@/lib/session";
 import type { CurrentUser } from "@/lib/dal";
+import { normalizePermissions, type PermissionKey } from "@/lib/permissions";
 
 // Bearer-token auth for the mobile API (/api/mobile/*). Native clients can't use
 // the httpOnly session cookie, so they send the same signed JWT in an
@@ -27,8 +28,9 @@ export async function getUserFromRequest(req: Request): Promise<CurrentUser | nu
     initials: string;
     link_slug: string | null;
     active: boolean;
+    permissions: string[] | null;
   }>(
-    `SELECT id, email, name, role, initials, link_slug, active
+    `SELECT id, email, name, role, initials, link_slug, active, permissions
        FROM users WHERE id = $1`,
     [session.userId],
   );
@@ -41,5 +43,16 @@ export async function getUserFromRequest(req: Request): Promise<CurrentUser | nu
     role: row.role,
     initials: row.initials,
     linkSlug: row.link_slug,
+    permissions: row.role === "staff" ? normalizePermissions(row.permissions) : [],
   };
+}
+
+/** Route-handler twin of lib/dal can(): owner always, staff per area. Plain
+ *  function (no next/headers) so API routes can use it with either a cookie
+ *  user (getCurrentUser) or a bearer user (getUserFromRequest). */
+export function hasAccess(user: Pick<CurrentUser, "role" | "permissions"> | null, perm: PermissionKey): boolean {
+  if (!user) return false;
+  if (user.role === "owner") return true;
+  if (user.role === "staff") return user.permissions.includes(perm);
+  return false;
 }

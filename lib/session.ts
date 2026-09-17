@@ -15,6 +15,10 @@ export type { Role };
 export interface SessionPayload extends JWTPayload {
   userId: string;
   role: Role;
+  /** Staff only: the access areas held when the token was minted. proxy.ts
+   *  (no DB) uses this copy just to pick their home on a redirect; the real
+   *  gating (Shell, requireAccess) re-reads the row every request. */
+  perms?: string[];
 }
 
 const encodedKey = new TextEncoder().encode(
@@ -43,8 +47,8 @@ export async function decrypt(token: string | undefined): Promise<SessionPayload
  *  and the JWT's own exp are both driven by sessionMaxAgeS() — they must agree,
  *  or the browser keeps sending a token the server has already stopped
  *  accepting (or worse, drops one the server would still take). */
-export async function createSession(userId: string, role: Role): Promise<void> {
-  const token = await encrypt({ userId, role });
+export async function createSession(userId: string, role: Role, perms?: string[]): Promise<void> {
+  const token = await encrypt(role === "staff" ? { userId, role, perms: perms ?? [] } : { userId, role });
   const cookieStore = await cookies();
   cookieStore.set(COOKIE, token, {
     httpOnly: true,

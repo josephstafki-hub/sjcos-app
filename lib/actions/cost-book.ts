@@ -4,7 +4,7 @@
 
 import { revalidatePath } from "next/cache";
 import { query } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { COST_UNIT_VALUES, dollarsToCents } from "@/lib/cost-book-units";
 
 type Result = { ok: true } | { ok: false; error: string };
@@ -24,7 +24,7 @@ function parse(formData: FormData) {
 }
 
 export async function createCostItem(formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("cost_book");
   const v = parse(formData);
   if (!v.name) return { ok: false, error: "Name is required." };
   await query(
@@ -37,7 +37,7 @@ export async function createCostItem(formData: FormData): Promise<Result> {
 }
 
 export async function updateCostItem(id: number, formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("cost_book");
   const v = parse(formData);
   if (!v.name) return { ok: false, error: "Name is required." };
   await query(
@@ -51,14 +51,14 @@ export async function updateCostItem(id: number, formData: FormData): Promise<Re
 }
 
 export async function setCostItemArchived(id: number, archived: boolean): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("cost_book");
   await query(`UPDATE cost_items SET archived = $2 WHERE id = $1`, [id, archived]);
   revalidatePath("/cost-book");
   return { ok: true };
 }
 
 export async function deleteCostItem(id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("cost_book");
   await query(`DELETE FROM cost_items WHERE id = $1`, [id]);
   revalidatePath("/cost-book");
   return { ok: true };
@@ -66,7 +66,7 @@ export async function deleteCostItem(id: number): Promise<Result> {
 
 /** Set the company-wide default markup % (app_settings 'estimate.default_markup'). */
 export async function setDefaultMarkup(value: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("cost_book");
   const pct = Math.max(0, Math.min(999, Number(value) || 0));
   await query(
     `INSERT INTO app_settings (key, value, updated_at)

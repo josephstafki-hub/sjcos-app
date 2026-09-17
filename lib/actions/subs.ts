@@ -5,7 +5,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { query, queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 
 function slugify(name: string): string {
   return (
@@ -50,7 +50,7 @@ export async function createSub(formData: FormData) {
 
 /** Save the owner's private notes on a sub. Owner-gated. */
 export async function setSubNotes(slug: string, notes: string) {
-  await requireRole("owner");
+  await requireAccess("subs");
   await query(`UPDATE subs SET notes = $2, updated_at = now() WHERE slug = $1`, [
     slug,
     notes.slice(0, 4000),

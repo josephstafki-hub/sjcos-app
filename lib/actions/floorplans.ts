@@ -7,7 +7,7 @@
 
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireRole, requireAccess } from "@/lib/dal";
 import { storeUpload } from "@/lib/upload-store";
 import { emit } from "@/lib/notify";
 import { logClientActivity, ownerHref } from "@/lib/client-activity";
@@ -18,7 +18,7 @@ type Result = { ok: boolean; error?: string };
 /** Upload a new floor-plan version. version = current max + 1. Accepts an image
  *  or a PDF. Notes optional. */
 export async function uploadFloorplan(slug: string, formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const project = await queryOne<{ id: string }>(
     `SELECT id FROM projects WHERE slug = $1`,
     [slug],
@@ -66,7 +66,7 @@ async function floorplanSlug(id: number) {
 
 /** Edit a version's notes (owner only). */
 export async function updateFloorplanNotes(id: number, notes: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const row = await floorplanSlug(id);
   if (!row) return { ok: false, error: "Version not found." };
   await query(`UPDATE project_floorplans SET notes = $2 WHERE id = $1`, [id, notes.trim()]);
@@ -81,7 +81,7 @@ export async function setFloorplanPublished(
   id: number,
   publish: boolean,
 ): Promise<{ ok: true; delivery: DeliveryNote | null } | { ok: false; error: string }> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const row = await queryOne<{ slug: string; version: number }>(
     `SELECT p.slug, fp.version
        FROM project_floorplans fp JOIN projects p ON p.id = fp.project_id
@@ -168,7 +168,7 @@ export async function approveFloorplan(id: number, formData: FormData): Promise<
 
 /** Remove a floor-plan version (owner only). */
 export async function removeFloorplan(id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const row = await floorplanSlug(id);
   if (!row) return { ok: false, error: "Version not found." };
   await query(`DELETE FROM project_floorplans WHERE id = $1`, [id]);

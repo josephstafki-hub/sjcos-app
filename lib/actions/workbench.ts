@@ -4,7 +4,7 @@
 // subject id to its entity and returns a snapshot. Owner-gated. Zero writes,
 // no revalidatePath.
 
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { resolveEntityRef, getWorkbenchSnapshot, type WorkbenchSnapshot } from "@/lib/workbench";
 
 export type WorkbenchResult =
@@ -14,7 +14,7 @@ export type WorkbenchResult =
 
 /** subjectId = a TodayPriority.id or dev_agent_runs.subject_work_item_id. */
 export async function getWorkbenchAction(subjectId: string): Promise<WorkbenchResult> {
-  await requireRole("owner");
+  await requireAccess("today");
   try {
     const ref = await resolveEntityRef(subjectId);
     if (!ref) return { ok: true, snapshot: null };

@@ -6,7 +6,7 @@
 // lib/inbox.ts; this is the only place mail is sent.
 
 import { revalidatePath } from "next/cache";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import {
   gmailConfigured,
   sendReply,
@@ -28,7 +28,7 @@ export async function linkThread(
   type: "project" | "lead",
   slug: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("inbox");
   if (!threadId || !slug || (type !== "project" && type !== "lead")) {
     return { ok: false, error: "Invalid link." };
   }
@@ -44,7 +44,7 @@ export async function linkThread(
 
 /** Remove a manual thread link (falls back to auto-classification). Owner-gated. */
 export async function unlinkThread(threadId: string): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("inbox");
   await query(`DELETE FROM thread_links WHERE gmail_thread_id = $1`, [threadId]);
   revalidatePath("/inbox");
   return { ok: true };
@@ -55,7 +55,7 @@ type ActionResult = { ok: boolean; error?: string };
 /** Owner-gated wrapper for a Gmail mutation: runs it, revalidates /inbox, and
  *  turns the common "scope too narrow" failure into plain language. */
 async function withGmail(fn: () => Promise<void>): Promise<ActionResult> {
-  await requireRole("owner");
+  await requireAccess("inbox");
   if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
   try {
     await fn();
@@ -121,7 +121,7 @@ export async function loadMoreInboxAction(pageToken: string): Promise<{
   nextPageToken?: string;
   error?: string;
 }> {
-  await requireRole("owner");
+  await requireAccess("inbox");
   if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
   try {
     const r = await loadMoreInbox(pageToken);
@@ -143,7 +143,7 @@ export async function loadLabelInboxAction(
   nextPageToken?: string;
   error?: string;
 }> {
-  await requireRole("owner");
+  await requireAccess("inbox");
   if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
   try {
     const r = await loadLabelInbox(labelId, pageToken);
@@ -165,7 +165,7 @@ export async function loadSystemViewAction(
   nextPageToken?: string;
   error?: string;
 }> {
-  await requireRole("owner");
+  await requireAccess("inbox");
   if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
   // The view arrives over the wire — reject anything that isn't a known key
   // before it reaches the fetch map.
@@ -185,7 +185,7 @@ export async function loadSystemViewAction(
  *  fetched lazily when the reader opens. Empty string = no HTML / not connected;
  *  the reader keeps showing the plain-text paragraphs in that case. */
 export async function getThreadHtmlAction(threadId: string): Promise<{ html: string }> {
-  await requireRole("owner");
+  await requireAccess("inbox");
   if (!gmailConfigured()) return { html: "" };
   try {
     return { html: await fetchThreadHtml(threadId) };
@@ -200,7 +200,7 @@ export async function sendNewEmailAction(input: {
   body: string;
   attachments?: import("@/lib/gmail").MailAttachment[];
 }): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("inbox");
   if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
   if (!input.to.trim()) return { ok: false, error: "Recipient is required." };
   if (!input.body.trim()) return { ok: false, error: "Body is empty." };
@@ -220,7 +220,7 @@ export async function draftReplyAction(
   threadId: string,
   model?: DraftModel,
 ): Promise<{ ok: boolean; summary?: string; body?: string; toEmail?: string; subject?: string; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("inbox");
   if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
   // Whitelist the model — never trust the client string. Anything but the
   // explicit "qwen" choice drafts with Hermes (grounded; Qwen is never used
@@ -247,7 +247,7 @@ export async function sendReplyAction(input: {
   subject: string;
   body: string;
 }): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("inbox");
   if (!gmailConfigured()) {
     return { ok: false, error: "Gmail is not connected yet." };
   }

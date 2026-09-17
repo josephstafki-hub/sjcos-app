@@ -3,7 +3,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { query, queryOne } from "@/lib/db";
 import { isVisionModel, qwenChat } from "@/lib/ai";
 import { hermesChat, startClaudeRun } from "@/lib/dev-agents";
@@ -66,7 +66,7 @@ export async function listConversationsAction(
   agent: PanelAgent,
   includeArchived = false,
 ): Promise<ConversationSummary[]> {
-  await requireRole("owner");
+  await requireAccess("ai");
   return listConversations(agent, includeArchived);
 }
 
@@ -74,12 +74,12 @@ export async function listConversationsAction(
 export async function listAllConversationsAction(
   includeArchived = false,
 ): Promise<ThreadListItem[]> {
-  await requireRole("owner");
+  await requireAccess("ai");
   return listAllConversations(includeArchived);
 }
 
 export async function loadConversationAction(id: string): Promise<ConversationDetail | null> {
-  await requireRole("owner");
+  await requireAccess("ai");
   return getConversation(id);
 }
 
@@ -90,7 +90,7 @@ export async function newConversationAction(
   agent: PanelAgent,
   where?: { folderId?: string | null; entity?: FolderEntityRef | null },
 ): Promise<string> {
-  await requireRole("owner");
+  await requireAccess("ai");
   let folderId: string | null = where?.folderId ?? null;
   if (!folderId && where?.entity) folderId = await ensureFolderForEntity(where.entity).catch(() => null);
   return insertConversation(agent, "New chat", folderId);
@@ -112,7 +112,7 @@ export type UploadResult =
 
 /** Persist uploaded files and return their on-disk absolute paths. */
 export async function uploadChatFilesAction(formData: FormData): Promise<UploadResult> {
-  await requireRole("owner");
+  await requireAccess("ai");
   const files = formData.getAll("files").filter((f): f is File => f instanceof File);
   if (!files.length) return { ok: false, error: "No files selected." };
   await mkdir(UPLOAD_DIR, { recursive: true });
@@ -147,7 +147,7 @@ export async function sendMessageAction(
   subjectWorkItemId?: string,
   allowSends?: boolean,
 ): Promise<SendResult> {
-  await requireRole("owner");
+  await requireAccess("ai");
   const text = prompt.trim();
   const files = sanitizeAttachments(attachments);
   if (!text && !files.length) return { ok: false, error: "Ask something first." };
@@ -257,13 +257,13 @@ export async function sendMessageAction(
  *  starts clean (full prompt, empty context) instead of resuming. The
  *  transcript stays — only Claude's own memory of it resets. */
 export async function resetClaudeSessionAction(conversationId: string): Promise<{ ok: boolean }> {
-  await requireRole("owner");
+  await requireAccess("ai");
   await query(`UPDATE ai_conversations SET claude_session_id = NULL WHERE id = $1`, [conversationId]);
   return { ok: true };
 }
 
 export async function renameConversationAction(id: string, title: string): Promise<{ ok: boolean }> {
-  await requireRole("owner");
+  await requireAccess("ai");
   const t = title.replace(/\s+/g, " ").trim().slice(0, 80);
   if (t) await query(`UPDATE ai_conversations SET title = $2 WHERE id = $1`, [id, t]);
   return { ok: true };
@@ -275,7 +275,7 @@ export async function archiveConversationAction(
   id: string,
   archived: boolean,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("ai");
   const r = await setThreadArchived(id, archived);
   return r.ok ? { ok: true } : { ok: false, error: r.error };
 }
@@ -285,38 +285,38 @@ export async function archiveConversationAction(
 // client-side (lib/thread-rail.ts) and reloads after each mutation.
 
 export async function listThreadRailAction(): Promise<ThreadRail> {
-  await requireRole("owner");
+  await requireAccess("ai");
   return listThreadRail();
 }
 
 export async function listArchivedThreadsAction(): Promise<RailThread[]> {
-  await requireRole("owner");
+  await requireAccess("ai");
   return listArchivedThreads();
 }
 
 /** ✓ "I'm done with this" → Settled shelf. Refused while working/blocked. */
 export async function settleConversationAction(id: string): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("ai");
   const r = await settleThread(id);
   return r.ok ? { ok: true } : { ok: false, error: r.error };
 }
 
 /** ↶ back to the active list, and auto-settle leaves it alone from now on. */
 export async function unsettleConversationAction(id: string): Promise<{ ok: boolean }> {
-  await requireRole("owner");
+  await requireAccess("ai");
   await unsettleThread(id);
   return { ok: true };
 }
 
 export async function pinConversationAction(id: string, pinned: boolean): Promise<{ ok: boolean }> {
-  await requireRole("owner");
+  await requireAccess("ai");
   await setThreadPinned(id, pinned);
   return { ok: true };
 }
 
 /** Move a thread into a folder (null = Unfiled). */
 export async function moveConversationAction(id: string, folderId: string | null): Promise<{ ok: boolean }> {
-  await requireRole("owner");
+  await requireAccess("ai");
   await moveThread(id, folderId);
   return { ok: true };
 }
@@ -327,25 +327,25 @@ export async function fileConversationUnderAction(
   id: string,
   entity: FolderEntityRef,
 ): Promise<{ ok: boolean; folderId: string | null }> {
-  await requireRole("owner");
+  await requireAccess("ai");
   const folderId = await fileThreadUnderEntity(id, entity);
   return { ok: folderId != null, folderId };
 }
 
 export async function createFolderAction(name: string): Promise<{ ok: boolean; id: string }> {
-  await requireRole("owner");
+  await requireAccess("ai");
   return { ok: true, id: await createFolder(name) };
 }
 
 /** A folder for a job (project/lead page), created on first use. */
 export async function ensureEntityFolderAction(entity: FolderEntityRef): Promise<{ ok: boolean; id: string | null }> {
-  await requireRole("owner");
+  await requireAccess("ai");
   const id = await ensureFolderForEntity(entity);
   return { ok: id != null, id };
 }
 
 export async function renameFolderAction(id: string, name: string): Promise<{ ok: boolean }> {
-  await requireRole("owner");
+  await requireAccess("ai");
   await renameFolder(id, name);
   return { ok: true };
 }
@@ -362,7 +362,7 @@ export async function bindFolderAction(
   id: string,
   entity: FolderEntityRef | null,
 ): Promise<{ ok: boolean; error?: string; existingFolderId?: string }> {
-  await requireRole("owner");
+  await requireAccess("ai");
   const r = await bindFolder(id, entity);
   return r.ok ? { ok: true } : { ok: false, error: r.error, existingFolderId: r.existingFolderId };
 }
@@ -375,26 +375,26 @@ export async function reorderFoldersAction(ids: string[]): Promise<{ ok: boolean
 }
 
 export async function setFolderCollapsedAction(id: string, collapsed: boolean): Promise<{ ok: boolean }> {
-  await requireRole("owner");
+  await requireAccess("ai");
   await setFolderCollapsed(id, collapsed);
   return { ok: true };
 }
 
 export async function archiveFolderAction(id: string, archived: boolean): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("ai");
   const r = await setFolderArchived(id, archived);
   return r.ok ? { ok: true } : { ok: false, error: r.error };
 }
 
 /** Delete the folder; its threads become Unfiled. */
 export async function deleteFolderAction(id: string): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("ai");
   const r = await deleteFolder(id);
   return r.ok ? { ok: true } : { ok: false, error: r.error };
 }
 
 export async function deleteConversationAction(id: string): Promise<{ ok: boolean }> {
-  await requireRole("owner");
+  await requireAccess("ai");
   await query(`DELETE FROM ai_conversations WHERE id = $1`, [id]);
   return { ok: true };
 }
@@ -517,7 +517,7 @@ export async function voiceTurnAction(
   transcript: string,
   pageContext?: string,
 ): Promise<VoiceTurnResult> {
-  await requireRole("owner");
+  await requireAccess("ai");
   const text = transcript.trim();
   if (!text) return { ok: false, error: "I didn't catch that." };
 

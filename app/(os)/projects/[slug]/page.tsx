@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { can, getCurrentUser } from "@/lib/dal";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Check, DollarSign, Mail, FileText, ChevronRight, Phone, MapPin, User } from "lucide-react";
@@ -88,6 +89,16 @@ export default async function ProjectDetailPage({
 }) {
   const { slug } = await params;
   const { tab: linkedTab, focus: linkedFocus } = await searchParams;
+  // Money fence, per area (lib/permissions.ts): each Money-tab section shows
+  // only to a viewer holding its area; the tab itself goes when none do.
+  // Contract value / invoice button / Money rail card follow `invoices`.
+  const viewer = await getCurrentUser();
+  const showEstimates = can(viewer, "estimates");
+  const showInvoices = can(viewer, "invoices");
+  const showPOs = can(viewer, "purchase_orders");
+  const showCOs = can(viewer, "change_orders");
+  const showBidding = can(viewer, "bidding");
+  const showMoney = showInvoices;
   const [
     project,
     money,
@@ -383,6 +394,7 @@ export default async function ProjectDetailPage({
           </div>
         </Card>
 
+        {showMoney && (
         <Card className="p-3">
           <div className="flex items-center">
             <Eyebrow muted>Money</Eyebrow>
@@ -409,6 +421,7 @@ export default async function ProjectDetailPage({
           </div>
           <div className="mt-1 text-[11px] text-ink-3">{m.note}</div>
         </Card>
+        )}
 
         {project.subs.length > 0 && (
           <Card className="p-3">
@@ -611,10 +624,10 @@ export default async function ProjectDetailPage({
     <PanelSections
       tab="Money"
       sections={[
-        { label: "Estimate", node: estimatePanel },
-        { label: "Invoices", node: moneyPanel },
-        { label: "Change orders", node: changeOrdersPanel },
-        { label: "Purchase orders", node: purchaseOrdersPanel },
+        ...(showEstimates ? [{ label: "Estimate", node: estimatePanel }] : []),
+        ...(showInvoices ? [{ label: "Invoices", node: moneyPanel }] : []),
+        ...(showCOs ? [{ label: "Change orders", node: changeOrdersPanel }] : []),
+        ...(showPOs ? [{ label: "Purchase orders", node: purchaseOrdersPanel }] : []),
       ]}
     />
   );
@@ -710,10 +723,15 @@ export default async function ProjectDetailPage({
             ))}
           </div>
           <h1 className="mt-1.5 font-serif text-[30px] font-medium leading-none tracking-tight text-accent-2">
-            {project.name}{" "}
-            <span className="font-serif text-[18px] italic text-accent">
-              · {project.contractValue}
-            </span>
+            {project.name}
+            {showMoney && (
+              <>
+                {" "}
+                <span className="font-serif text-[18px] italic text-accent">
+                  · {project.contractValue}
+                </span>
+              </>
+            )}
           </h1>
           <div className="mt-1.5 text-[11px] text-ink-3">{project.subtitle}</div>
         </div>
@@ -724,10 +742,12 @@ export default async function ProjectDetailPage({
             <Check className="size-3" strokeWidth={1.75} />
             Log update
           </TabLink>
-          <TabLink tab="Money" section="Invoices" className={outlineBtn}>
-            <DollarSign className="size-3" strokeWidth={1.75} />
-            Send invoice
-          </TabLink>
+          {showMoney && (
+            <TabLink tab="Money" section="Invoices" className={outlineBtn}>
+              <DollarSign className="size-3" strokeWidth={1.75} />
+              Send invoice
+            </TabLink>
+          )}
           {nextStatus && (
             <form action={moveToNextStatus}>
               <button
@@ -754,6 +774,10 @@ export default async function ProjectDetailPage({
         initialTab={linkedTab}
         focus={linkedFocus}
         header={headerBand}
+        hiddenTabs={[
+          ...(showEstimates || showInvoices || showPOs || showCOs ? [] : ["Money" as const]),
+          ...(showBidding ? [] : ["Bidding" as const]),
+        ]}
       />
     </Shell>
   );

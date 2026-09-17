@@ -5,6 +5,7 @@
 // "Render PDF + DOCX" pass first.
 
 import { getCurrentUser } from "@/lib/dal";
+import { hasAccess } from "@/lib/api-auth";
 import { getDocDraft, signatureStampFor } from "@/lib/doc-drafts";
 import { getTemplate } from "@/lib/doc-templates/registry";
 import { renderTemplatePdf } from "@/lib/doc-render";
@@ -15,7 +16,7 @@ export const dynamic = "force-dynamic";
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
   if (!user) return new Response("Unauthorized", { status: 401 });
-  if (user.role !== "owner") return new Response("Forbidden", { status: 403 });
+  if (!hasAccess(user, "projects")) return new Response("Forbidden", { status: 403 });
 
   const { id } = await params;
   const draft = await getDocDraft(Number(id));

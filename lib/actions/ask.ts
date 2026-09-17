@@ -1,6 +1,6 @@
 "use server";
 
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { ai } from "@/lib/ai";
 
 /** Ask Qwen a free-form question from the command bar / Ask-Qwen pill.
@@ -12,7 +12,7 @@ export async function askQwen(
   prompt: string,
   pageContext?: string,
 ): Promise<{ ok: boolean; answer?: string; error?: string }> {
-  await requireRole("owner");
+  await requireAccess("ai");
   const q = prompt.trim();
   if (!q) return { ok: false, error: "Ask a question first." };
   try {

@@ -9,7 +9,7 @@
 
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireRole, requireAccess } from "@/lib/dal";
 import { storeUpload } from "@/lib/upload-store";
 import { emit } from "@/lib/notify";
 import { logClientActivity, ownerHref } from "@/lib/client-activity";
@@ -98,7 +98,7 @@ const cleanRoom = (raw: unknown) => String(raw ?? "").trim().slice(0, MAX_ROOM);
 /** Add an uploaded image to a room's board. The image is required (this is the
  *  upload path; catalog pins come in through addCatalogMoodItems). */
 export async function addMoodImage(slug: string, formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const project = await projectBySlug(slug);
   if (!project) return { ok: false, error: "Project not found." };
 
@@ -138,7 +138,7 @@ export async function addCatalogMoodItems(
   room: string,
   catalogIds: number[],
 ): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const project = await projectBySlug(slug);
   if (!project) return { ok: false, error: "Project not found." };
 
@@ -180,7 +180,7 @@ export async function addCatalogMoodItems(
 /** Drop a standalone text block on a board — a heading, a client note, a
  *  "warm brass throughout" instruction. The words live in `label`. */
 export async function addMoodText(slug: string, room: string, text: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const project = await projectBySlug(slug);
   if (!project) return { ok: false, error: "Project not found." };
 
@@ -206,7 +206,7 @@ export async function addMoodSwatch(
   color: string,
   label: string,
 ): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const project = await projectBySlug(slug);
   if (!project) return { ok: false, error: "Project not found." };
 
@@ -249,7 +249,7 @@ export async function saveMoodLayout(
   items: MoodLayoutPatch[],
   frontId?: number,
 ): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const project = await projectBySlug(slug);
   if (!project) return { ok: false, error: "Project not found." };
   if (items.length === 0) return { ok: true };
@@ -303,7 +303,7 @@ export async function saveMoodLayout(
 /** Explicit layering: send an item to the back of its board, or bring it to the
  *  front. Dragging already raises an item; this is the way to push one down. */
 export async function reorderMoodItem(id: number, dir: "front" | "back"): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const row = await queryOne<{ slug: string }>(
     `SELECT p.slug FROM project_mood m JOIN projects p ON p.id = m.project_id WHERE m.id = $1`,
     [id],
@@ -326,7 +326,7 @@ export async function reorderMoodItem(id: number, dir: "front" | "back"): Promis
 /** Copy an item, offset slightly so the duplicate is visibly its own card and
  *  can be dragged off the original. */
 export async function duplicateMoodItem(id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const row = await queryOne<{ slug: string; project_id: string; room: string }>(
     `SELECT p.slug, m.project_id, m.room
        FROM project_mood m JOIN projects p ON p.id = m.project_id
@@ -356,7 +356,7 @@ export async function duplicateMoodItem(id: number): Promise<Result> {
 
 /** Edit an item's note (owner only). */
 export async function updateMoodNote(id: number, note: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const row = await queryOne<{ slug: string }>(
     `SELECT p.slug FROM project_mood m JOIN projects p ON p.id = m.project_id WHERE m.id = $1`,
     [id],
@@ -370,7 +370,7 @@ export async function updateMoodNote(id: number, note: string): Promise<Result> 
 /** Edit an item's caption — the words on a text block, or the display name over
  *  a swatch or a pin. */
 export async function updateMoodLabel(id: number, label: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const row = await queryOne<{ slug: string; kind: string }>(
     `SELECT p.slug, m.kind FROM project_mood m JOIN projects p ON p.id = m.project_id WHERE m.id = $1`,
     [id],
@@ -386,7 +386,7 @@ export async function updateMoodLabel(id: number, label: string): Promise<Result
 
 /** Recolour a swatch chip. */
 export async function updateMoodSwatch(id: number, color: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const row = await queryOne<{ slug: string }>(
     `SELECT p.slug FROM project_mood m JOIN projects p ON p.id = m.project_id WHERE m.id = $1`,
     [id],
@@ -401,7 +401,7 @@ export async function updateMoodSwatch(id: number, color: string): Promise<Resul
 
 /** Remove an item from a board (owner only). */
 export async function removeMoodImage(id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const row = await queryOne<{ slug: string }>(
     `SELECT p.slug FROM project_mood m JOIN projects p ON p.id = m.project_id WHERE m.id = $1`,
     [id],
@@ -420,7 +420,7 @@ export async function setMoodBoardPublished(
   room: string,
   publish: boolean,
 ): Promise<{ ok: true; delivery: DeliveryNote | null } | { ok: false; error: string }> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const project = await projectBySlug(slug);
   if (!project) return { ok: false, error: "Project not found." };
 
@@ -552,7 +552,7 @@ export async function approveMoodBoard(room: string, formData: FormData): Promis
 /** Create an empty board for a room. Without this a new room only existed in
  *  client state and vanished on reload until something was pinned to it. */
 export async function createMoodBoard(slug: string, room: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const project = await projectBySlug(slug);
   if (!project) return { ok: false, error: "Project not found." };
   const clean = cleanRoom(room);
@@ -569,7 +569,7 @@ export async function updateMoodBoard(
   room: string,
   settings: { title?: string; bgColor?: string },
 ): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const project = await projectBySlug(slug);
   if (!project) return { ok: false, error: "Project not found." };
   const clean = cleanRoom(room);
@@ -595,7 +595,7 @@ export async function updateMoodBoard(
  *  merged — the pins move across and the now-duplicate settings row is dropped,
  *  which is friendlier than failing on a name the owner clearly wants. */
 export async function renameMoodBoard(slug: string, from: string, to: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const project = await projectBySlug(slug);
   if (!project) return { ok: false, error: "Project not found." };
   const src = cleanRoom(from);
@@ -628,7 +628,7 @@ export async function renameMoodBoard(slug: string, from: string, to: string): P
 
 /** Delete a whole board and everything pinned to it. */
 export async function deleteMoodBoard(slug: string, room: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("projects");
   const project = await projectBySlug(slug);
   if (!project) return { ok: false, error: "Project not found." };
   const clean = cleanRoom(room);

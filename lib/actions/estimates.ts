@@ -7,7 +7,7 @@
 
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { dollarsToCents, fmtUsd, unitLabel } from "@/lib/cost-book-units";
 import { getDefaultMarkup } from "@/lib/cost-book";
 import { getProjectSignerDefaults } from "@/lib/esign";
@@ -51,7 +51,7 @@ function parseLine(formData: FormData) {
 }
 
 export async function createEstimate(slug: string, formData: FormData): Promise<Result> {
-  const user = await requireRole("owner");
+  const user = await requireAccess("estimates");
   const title = String(formData.get("title") ?? "").trim() || "Estimate";
   const railRaw = String(formData.get("rail") ?? "plans") as EstimateRail;
   const rail = RAILS.includes(railRaw) ? railRaw : "plans";
@@ -68,14 +68,14 @@ export async function createEstimate(slug: string, formData: FormData): Promise<
 }
 
 export async function deleteEstimate(slug: string, id: number): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("estimates");
   await query(`DELETE FROM estimates WHERE id = $1`, [id]);
   revalidatePath(`/projects/${slug}`);
   return { ok: true };
 }
 
 export async function addEstimateLine(estimateId: number, slug: string, formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("estimates");
   const v = parseLine(formData);
   if (!v.description) return { ok: false, error: "A line description is required." };
   await query(
@@ -92,7 +92,7 @@ export async function addEstimateLine(estimateId: number, slug: string, formData
 }
 
 export async function updateEstimateLine(lineId: number, slug: string, formData: FormData): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("estimates");
   const v = parseLine(formData);
   if (!v.description) return { ok: false, error: "A line description is required." };
   const row = await queryOne<{ estimate_id: string }>(
@@ -108,7 +108,7 @@ export async function updateEstimateLine(lineId: number, slug: string, formData:
 }
 
 export async function deleteEstimateLine(lineId: number, slug: string): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("estimates");
   const row = await queryOne<{ estimate_id: string }>(
     `DELETE FROM estimate_lines WHERE id = $1 RETURNING estimate_id`,
     [lineId],
@@ -123,7 +123,7 @@ export async function deleteEstimateLine(lineId: number, slug: string): Promise<
  *  marks the estimate 'sent'. When the client signs (lib/actions/esign), the
  *  linked estimate flips to 'approved'. */
 export async function sendEstimate(slug: string, estimateId: number): Promise<Result> {
-  const user = await requireRole("owner");
+  const user = await requireAccess("estimates");
 
   const est = await queryOne<{
     id: string;
@@ -242,7 +242,7 @@ export async function sendEstimate(slug: string, estimateId: number): Promise<Re
  *  preserved — no re-pricing), keeps section grouping, recomputes totals. The
  *  source estimates are left untouched (non-destructive). */
 export async function mergeEstimates(slug: string, sourceIds: number[], title: string): Promise<Result> {
-  const user = await requireRole("owner");
+  const user = await requireAccess("estimates");
   const proj = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [slug]);
   if (!proj) return { ok: false, error: "Project not found." };
 
@@ -292,7 +292,7 @@ export async function addTakeoffLines(
   section: string,
   entries: { costItemId: number; qty: number }[],
 ): Promise<Result> {
-  await requireRole("owner");
+  await requireAccess("estimates");
   const valid = (entries ?? []).filter((e) => e.costItemId && e.qty > 0);
   if (valid.length === 0) return { ok: false, error: "Enter a quantity for at least one item." };
 
@@ -335,7 +335,7 @@ export async function suggestEstimate(
   slug: string,
   notes: string,
 ): Promise<{ ok: true; lines: { label: string; value: string }[]; total: string } | { ok: false; error: string }> {
-  await requireRole("owner");
+  await requireAccess("estimates");
   const proj = await queryOne<{ name: string; stage_label: string | null }>(
     `SELECT name, stage_label FROM projects WHERE slug = $1`,
     [slug],

@@ -33,11 +33,15 @@ import { ThreadList } from "./ThreadList";
 import {
   AGENT_META,
   AGENT_ORDER,
-  CLAUDE_CONTEXT_WINDOW,
+  CLAUDE_CONTEXT_OPTIONS,
   CLAUDE_MODEL_OPTIONS,
   CLAUDE_MODE_OPTIONS,
   CLAUDE_MODE_VALUES,
   CLAUDE_EFFORT_OPTIONS,
+  claudeContextWindow,
+  claudeSupports1m,
+  findClaudeModel,
+  type ClaudeContext,
   type ClaudeModel,
   type ClaudeEffort,
   type PanelAgent,
@@ -139,6 +143,7 @@ export function PanelChat({
 
   const chat = useAgentChat({
     getPageContext,
+    getPageRoute: getPanelPageRoute,
     onRunStart,
     onRunEnd,
     onSettled: refresh,
@@ -168,13 +173,13 @@ export function PanelChat({
     flashNotice(`Mode → ${CLAUDE_MODE_OPTIONS.find((m) => m.value === next)?.label}`);
   };
 
-  //   /model opus · /effort high · /mode plan · /mcp off · /session new ·
-  //   /stop   (returns true if it handled it)
+  //   /model opus · /model fable 5.1 · /context 1m · /effort high · /mode plan ·
+  //   /mcp off · /session new · /stop   (returns true if it handled it)
   const handleSlash = (raw: string): boolean => {
-    const m = raw.match(/^\/(model|effort|mode|mcp|tools|session|stop)(?:\s+(\S+))?/i);
+    const m = raw.match(/^\/(model|context|ctx|effort|mode|mcp|tools|session|stop)(?:\s+(.+))?$/i);
     if (!m) return false;
     const cmd = m[1].toLowerCase();
-    const val = (m[2] ?? "").toLowerCase();
+    const val = (m[2] ?? "").trim().toLowerCase();
     if (cmd === "stop") {
       chat.stop();
       flashNotice("Stopping the run…");
@@ -194,10 +199,26 @@ export function PanelChat({
         return true;
       }
     }
-    if (cmd === "model" && CLAUDE_MODEL_OPTIONS.some((o) => o.value === val)) {
-      chat.setClaudeOpts({ model: val as ClaudeModel });
-      flashNotice(`Model → ${val}`);
-      return true;
+    if (cmd === "model") {
+      const hit = findClaudeModel(val);
+      if (hit) {
+        chat.setClaudeOpts({ model: hit.value });
+        flashNotice(`Model → ${hit.label}`);
+        return true;
+      }
+    }
+    if (cmd === "context" || cmd === "ctx") {
+      const key = val.replace(/\s+/g, "");
+      const hit = CLAUDE_CONTEXT_OPTIONS.find((o) => o.value === key || o.label.toLowerCase() === key);
+      if (hit) {
+        if (hit.value === "1m" && !claudeSupports1m(chat.claudeOpts.model)) {
+          flashNotice("That model only runs a 200k window — pick Sonnet/Opus/Fable for 1M");
+          return true;
+        }
+        chat.setClaudeOpts({ context: hit.value });
+        flashNotice(`Context → ${hit.label}`);
+        return true;
+      }
     }
     if (cmd === "effort" && CLAUDE_EFFORT_OPTIONS.some((o) => o.value === val)) {
       chat.setClaudeOpts({ effort: val as ClaudeEffort });
@@ -313,9 +334,10 @@ export function PanelChat({
     inputRef.current?.focus();
   };
 
-  const newThread = () => {
+  const newThread = (folderId?: string | null) => {
     setThreadsOpen(false);
-    chat.newChat();
+    if (folderId) chat.newChatIn(folderId);
+    else chat.newChat();
     inputRef.current?.focus();
   };
 
@@ -354,6 +376,14 @@ export function PanelChat({
             </button>
           ))}
         </div>
+        {chat.folderName && (
+          <span
+            className="hidden max-w-36 truncate rounded-full bg-paper-2 px-1.5 py-px font-mono text-[10px] text-ink-3 min-[460px]:inline"
+            title="The job this thread is filed under — the agent is told"
+          >
+            {chat.folderName}
+          </span>
+        )}
         {route && (
           <span className="hidden truncate font-mono text-[10.5px] text-ink-4 min-[460px]:inline" title="The page the app view is showing — turns are grounded in it">
             {route}
@@ -372,7 +402,7 @@ export function PanelChat({
         )}
         {chat.messages.length > 0 && (
           <button
-            onClick={newThread}
+            onClick={() => newThread()}
             aria-label="New chat"
             title={
               chat.pending
@@ -394,10 +424,13 @@ export function PanelChat({
             className="min-h-0 flex-1"
             currentId={chat.conversationId}
             refreshKey={threadsRefreshKey}
+            scopeFolderId={chat.folderScope}
+            onScopeChange={chat.setFolderScope}
+            pageRoute={route}
             onOpen={openThread}
             onNew={newThread}
             onClose={() => setThreadsOpen(false)}
-            onCurrentRemoved={newThread}
+            onCurrentRemoved={() => newThread()}
           />
         </div>
       )}
@@ -563,6 +596,23 @@ export function PanelChat({
             onChange={(model) => chat.setClaudeOpts({ model: model as ClaudeModel })}
           />
           <OptSelect
+            label="Context"
+            value={chat.claudeOpts.context}
+            disabled={chat.pending || chat.claudeOpts.model === "default"}
+            title={
+              chat.claudeOpts.model === "default"
+                ? "Pick a model to choose its window (the CLI default gets no flag)"
+                : claudeSupports1m(chat.claudeOpts.model)
+                  ? "Context window for the next turn. 1M = the long-context window ([1m])."
+                  : "This model runs the 200k window only."
+            }
+            options={CLAUDE_CONTEXT_OPTIONS.map((o) => ({
+              ...o,
+              disabled: o.value === "1m" && !claudeSupports1m(chat.claudeOpts.model),
+            }))}
+            onChange={(context) => chat.setClaudeOpts({ context: context as ClaudeContext })}
+          />
+          <OptSelect
             label="Mode"
             value={chat.claudeOpts.mode}
             disabled={chat.pending}
@@ -602,7 +652,13 @@ export function PanelChat({
             />
             <span className={allowSends ? "font-medium text-flag" : undefined}>Express permission (sends)</span>
           </label>
-          {chat.contextTokens != null && <ContextMeter tokens={chat.contextTokens} />}
+          {chat.contextTokens != null && (
+            <ContextMeter
+              tokens={chat.contextTokens}
+              window={chat.contextWindow ?? claudeContextWindow(chat.claudeOpts.model, chat.claudeOpts.context)}
+              reported={chat.contextWindow != null}
+            />
+          )}
           {chat.claudeSessionId && !chat.pending && (
             <span className="flex items-center gap-1" title={`CLI session ${chat.claudeSessionId} — Claude remembers this thread's files and context. "Fresh" starts the next turn clean.`}>
               <span className="font-mono text-[10px] text-ink-4">session {chat.claudeSessionId.slice(0, 8)}</span>
@@ -616,7 +672,7 @@ export function PanelChat({
             </span>
           )}
           <span className="hidden text-ink-4/70 min-[520px]:inline">
-            ⇧Tab cycles · /model /effort /mode /mcp /session /stop
+            ⇧Tab cycles · /model /context /effort /mode /mcp /session /stop
           </span>
         </div>
       )}
@@ -728,12 +784,15 @@ export function PanelChat({
     <div className="flex h-full min-h-0 gap-2">
       <ThreadList
         variant="rail"
-        className="w-44 flex-none"
+        className="w-52 flex-none"
         currentId={chat.conversationId}
         refreshKey={threadsRefreshKey}
+        scopeFolderId={chat.folderScope}
+        onScopeChange={chat.setFolderScope}
+        pageRoute={route}
         onOpen={openThread}
         onNew={newThread}
-        onCurrentRemoved={newThread}
+        onCurrentRemoved={() => newThread()}
       />
       {chatSection}
     </div>
@@ -937,14 +996,16 @@ function VoiceRoundButton({ voice }: { voice: ReturnType<typeof useVoiceRound> }
   );
 }
 
-/** Live context meter: how full the CLI session's window is. */
-function ContextMeter({ tokens }: { tokens: number }) {
-  const pct = Math.min(100, Math.round((tokens / CLAUDE_CONTEXT_WINDOW) * 100));
-  const k = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
+/** Live context meter: how full the CLI session's window is. `window` is the
+ *  run's reported window when a turn has finished (`reported`), else the
+ *  picker's model + context guess. */
+function ContextMeter({ tokens, window, reported }: { tokens: number; window: number; reported: boolean }) {
+  const pct = Math.min(100, Math.round((tokens / window) * 100));
+  const k = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
   return (
     <span
       className="flex items-center gap-1"
-      title={`Context: ${tokens.toLocaleString()} tokens of ~${k(CLAUDE_CONTEXT_WINDOW)} (${pct}%)`}
+      title={`Context: ${tokens.toLocaleString()} tokens of ${reported ? "" : "~"}${k(window)} (${pct}%)${reported ? " — window reported by the last run" : " — window assumed from the model picker"}`}
     >
       <span className="h-1.5 w-14 overflow-hidden rounded-full bg-paper-2">
         <span
@@ -952,7 +1013,9 @@ function ContextMeter({ tokens }: { tokens: number }) {
           style={{ width: `${Math.max(pct, 3)}%` }}
         />
       </span>
-      <span className="font-mono text-[10px]">{k(tokens)} ctx</span>
+      <span className="font-mono text-[10px]">
+        {k(tokens)}/{k(window)}
+      </span>
     </span>
   );
 }
@@ -1198,16 +1261,27 @@ function OptSelect({
   value,
   options,
   disabled,
+  title,
   onChange,
 }: {
   label: string;
   value: string;
-  options: { value: string; label: string }[];
+  /** `group` clusters options under an <optgroup>; ungrouped ones render
+   *  first, in order. `disabled` greys a single choice. */
+  options: { value: string; label: string; group?: string; disabled?: boolean }[];
   disabled?: boolean;
+  title?: string;
   onChange: (value: string) => void;
 }) {
+  const render = (o: { value: string; label: string; disabled?: boolean }) => (
+    <option key={o.value} value={o.value} disabled={o.disabled}>
+      {o.label}
+    </option>
+  );
+  const groups: string[] = [];
+  for (const o of options) if (o.group && !groups.includes(o.group)) groups.push(o.group);
   return (
-    <label className="flex items-center gap-1">
+    <label className="flex items-center gap-1" title={title}>
       <span>{label}</span>
       <select
         value={value}
@@ -1215,10 +1289,11 @@ function OptSelect({
         onChange={(e) => onChange(e.target.value)}
         className="rounded border border-rule bg-card px-1.5 py-0.5 text-[11px] text-ink-2 outline-none disabled:opacity-50"
       >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
+        {options.filter((o) => !o.group).map(render)}
+        {groups.map((g) => (
+          <optgroup key={g} label={g}>
+            {options.filter((o) => o.group === g).map(render)}
+          </optgroup>
         ))}
       </select>
     </label>

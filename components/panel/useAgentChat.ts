@@ -23,8 +23,9 @@ import {
   type ClaudeOptions,
   type PanelAgent,
 } from "@/lib/dev-agents-meta";
+import { entityFromRoute } from "@/lib/thread-rail";
 import { postPanelMessage } from "./panelBus";
-import { adoptPanelSession, claimConversation, writePanelState } from "./panelStore";
+import { adoptPanelSession, claimConversation, readPanelState, writePanelState } from "./panelStore";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Wall clock for run bookkeeping. Wrapped so calls inside the poll loop
@@ -65,6 +66,9 @@ export interface UseAgentChatOptions {
   /** Read at send time, not captured — the panel outlives page navigation and
    *  must ground each turn in the page the app view is on *now*. */
   getPageContext: () => string | undefined;
+  /** The app view's route right now — a new thread started on a project /
+   *  lead page files under that job's folder (lib/thread-rail entityFromRoute). */
+  getPageRoute?: () => string | null;
   onRunStart?: (run: ActiveRun) => void;
   onRunEnd?: () => void;
   /** After any settled turn (answer or error) — e.g. refresh the today queue. */
@@ -103,6 +107,7 @@ export interface UseAgentChatOptions {
  */
 export function useAgentChat({
   getPageContext,
+  getPageRoute,
   onRunStart,
   onRunEnd,
   onSettled,
@@ -111,6 +116,10 @@ export function useAgentChat({
 }: UseAgentChatOptions) {
   const [agent, setAgent] = useState<PanelAgent>(PANEL_DEFAULT_AGENT);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  /** The job folder the open thread is filed under (header chip). */
+  const [folderName, setFolderName] = useState<string | null>(null);
+  /** This tab's thread-rail scope (a folder id); new chats file under it. */
+  const [folderScope, setFolderScopeState] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [activity, setActivity] = useState("");
   const [elapsed, setElapsed] = useState(0);
@@ -129,12 +138,18 @@ export function useAgentChat({
   const [grants, setGrants] = useState<PendingGrant[]>([]);
   /** Live context size (tokens) of the Claude session, null when unknown. */
   const [contextTokens, setContextTokens] = useState<number | null>(null);
+  /** The window (tokens) the last finished run actually ran with — from the
+   *  result envelope's modelUsage.contextWindow. Null until a run reports it
+   *  (the meter then falls back to the picker's model + context choice). */
+  const [contextWindow, setContextWindow] = useState<number | null>(null);
   /** The run currently being polled — the ⏹ Stop target. */
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   /** The thread's resumable CLI session (shown as a chip; "Fresh" clears it). */
   const [claudeSessionId, setClaudeSessionId] = useState<string | null>(null);
 
   const liveRef = useRef({ alive: true });
+  /** Folder chosen for the next new thread via a folder's "+" (one-shot). */
+  const pendingHomeRef = useRef<string | null>(null);
   const claim = () => {
     liveRef.current.alive = false;
     liveRef.current = { alive: true };
@@ -144,9 +159,16 @@ export function useAgentChat({
   // Callbacks live in refs so the long-lived poll loop always calls the latest
   // render's handlers instead of the ones captured when the loop started.
   // Assigned in an effect (not render) per the react-hooks/refs rule.
-  const cbRef = useRef({ getPageContext, onRunStart, onRunEnd, onSettled, onAnswer, onSendError });
+  const cbRef = useRef({ getPageContext, getPageRoute, onRunStart, onRunEnd, onSettled, onAnswer, onSendError });
   useEffect(() => {
-    cbRef.current = { getPageContext, onRunStart, onRunEnd, onSettled, onAnswer, onSendError };
+    cbRef.current = { getPageContext, getPageRoute, onRunStart, onRunEnd, onSettled, onAnswer, onSendError };
+  });
+
+  /** Where a brand-new thread files: the tab's folder scope, else the job
+   *  whose page the app view is on (folder created on first use), else Unfiled. */
+  const newThreadHome = () => ({
+    folderId: readPanelState().folderId,
+    entity: entityFromRoute(cbRef.current.getPageRoute?.() ?? null),
   });
 
   const settle = async () => {
@@ -194,6 +216,8 @@ export function useAgentChat({
         setInteractions([]);
         setGrants([]);
         if (p.contextTokens != null) setContextTokens(p.contextTokens);
+        const reported = reportedContextWindow(p.tokenUsage);
+        if (reported != null) setContextWindow(reported);
         if (p.sessionId) setClaudeSessionId(p.sessionId);
         if (p.activity) setLogs((l) => ({ ...l, [`run-${runId}`]: p.activity! }));
         setMessages((m) => [
@@ -276,6 +300,7 @@ export function useAgentChat({
       }
       setAgent(detail.agent);
       setConversationId(detail.id);
+      setFolderName(detail.folderName);
       setMessages(detail.messages);
       setClaudeSessionId(detail.claudeSessionId);
       setContextTokens(null);
@@ -315,6 +340,7 @@ export function useAgentChat({
     }
     startTransition(() => {
       setClaudeOptsState(st.claude);
+      setFolderScopeState(st.folderId);
       const open = deepLink ?? st.conversationId;
       if (open) {
         void openConversation(open);
@@ -340,6 +366,7 @@ export function useAgentChat({
 
   const resetView = () => {
     setMessages([]);
+    setFolderName(null);
     setActivity("");
     setError("");
     setNotice("");
@@ -373,7 +400,23 @@ export function useAgentChat({
     if (leftRunning) setNotice(LEFT_RUNNING_NOTICE);
   };
 
+  /** Scope the rail to one folder (per tab); new chats file under it. */
+  const setFolderScope = (id: string | null) => {
+    setFolderScopeState(id);
+    writePanelState({ folderId: id });
+  };
+
+  /** New chat filed under a specific folder (a folder header's "+"). Same
+   *  detach rules as newChat; the folder is remembered for the first send. */
+  const newChatIn = (folderId: string | null) => {
+    newChat();
+    pendingHomeRef.current = folderId;
+  };
+
   const setClaudeOpts = (patch: Partial<ClaudeOptions>) => {
+    // A model / window change means the last run's reported window no longer
+    // describes the next turn — let the meter go back to the picker's guess.
+    if (patch.model !== undefined || patch.context !== undefined) setContextWindow(null);
     setClaudeOptsState((prev) => {
       const next = { ...prev, ...patch };
       writePanelState({ claude: next });
@@ -413,6 +456,7 @@ export function useAgentChat({
     if (!conversationId) return;
     setClaudeSessionId(null);
     setContextTokens(null);
+    setContextWindow(null);
     void resetClaudeSessionAction(conversationId);
   };
 
@@ -456,7 +500,10 @@ export function useAgentChat({
       }
       pushUser(spec.display ?? spec.directive, spec.subjectId);
       if (!convId) {
-        convId = await newConversationAction(target);
+        const home = newThreadHome();
+        const chosen = pendingHomeRef.current;
+        pendingHomeRef.current = null;
+        convId = await newConversationAction(target, chosen ? { folderId: chosen } : home);
         if (!live.alive) {
           // Created after the panel went away — still remember it (rule 3).
           writePanelState({ conversationId: convId, agent: target });
@@ -527,6 +574,10 @@ export function useAgentChat({
     agent,
     selectAgent,
     conversationId,
+    folderName,
+    folderScope,
+    setFolderScope,
+    newChatIn,
     messages,
     logs,
     activity,
@@ -543,6 +594,7 @@ export function useAgentChat({
     interactions,
     grants,
     contextTokens,
+    contextWindow,
     activeRunId,
     claudeSessionId,
     stop,
@@ -551,6 +603,20 @@ export function useAgentChat({
     dropGrant,
     freshSession,
   };
+}
+
+/** The largest contextWindow the CLI reported in a result envelope's
+ *  modelUsage (one entry per model the run touched; the main model's window is
+ *  the one that matters and it is the largest). */
+function reportedContextWindow(tokenUsage: Record<string, unknown> | null | undefined): number | null {
+  const mu = tokenUsage?.modelUsage;
+  if (!mu || typeof mu !== "object") return null;
+  let best: number | null = null;
+  for (const entry of Object.values(mu as Record<string, unknown>)) {
+    const w = (entry as { contextWindow?: unknown } | null)?.contextWindow;
+    if (typeof w === "number" && w > 0 && (best == null || w > best)) best = w;
+  }
+  return best;
 }
 
 /** Shown when Joe steps off a live turn to do something else — the run is not

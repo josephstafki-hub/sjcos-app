@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { query, queryOne } from "@/lib/db";
-import { CLAUDE_DEFAULTS, type ClaudeOptions } from "@/lib/dev-agents-meta";
+import { CLAUDE_DEFAULTS, claudeModelArg, type ClaudeOptions } from "@/lib/dev-agents-meta";
 import { insertConversation, insertMessage } from "@/lib/ai-chat";
 import { ACTIONS_HINT, EFFECTS_HINT } from "@/lib/today-directives";
 import { standingInstructionsBlock } from "@/lib/agent-memory";
@@ -411,7 +411,7 @@ export async function startClaudeRun(
   subjectWorkItemId?: string,
   extras?: { withMcp?: boolean; allowSends?: boolean; orchestrationTaskId?: string },
 ): Promise<string> {
-  const { model, mode, effort, withMcp } = { ...CLAUDE_DEFAULTS, ...options };
+  const { model, context, mode, effort, withMcp } = { ...CLAUDE_DEFAULTS, ...options };
   const row = await queryOne<{ id: string }>(
     `INSERT INTO dev_agent_runs
        (agent, prompt, page_context, status, conversation_id, model, mode, effort, subject_work_item_id, with_mcp, orchestration_task_id)
@@ -421,7 +421,9 @@ export async function startClaudeRun(
       prompt,
       pageContext ?? null,
       conversationId ?? null,
-      model === "default" ? null : model,
+      // The exact --model string: alias or pinned id, plus "[1m]" for the 1M
+      // window (null = no flag, the CLI's own default).
+      claudeModelArg(model, context),
       mode,
       effort,
       subjectWorkItemId ?? null,

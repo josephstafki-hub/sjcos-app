@@ -25,6 +25,7 @@ const REPO = process.cwd();
 const RUN_ID = process.argv[2];
 const CLAUDE_BIN = process.env.CLAUDE_BIN ?? `${process.env.HOME}/.local/bin/claude`;
 const ENV_MODEL = process.env.DEV_CLAUDE_MODEL ?? ""; // "" → the CLI's configured default
+const VALID_MODEL = /^[a-z][a-z0-9.-]*(\[1m\])?$/i;
 // 0 (the default) = NO runtime limit: a run goes until it finishes or Joe hits
 // Stop. Set DEV_CLAUDE_TIMEOUT_MS to reinstate a sliding-deadline kill.
 const TIMEOUT_MS = Number(process.env.DEV_CLAUDE_TIMEOUT_MS ?? 0);
@@ -606,6 +607,10 @@ async function main() {
   args.push("--permission-prompt-tool", "mcp__interact__approve_action");
   if (mcpConfigs.length) args.push("--mcp-config", ...mcpConfigs);
   if (resumeSession) args.push("--resume", resumeSession);
+  // The row holds the exact --model string (alias or full id, optional "[1m]"
+  // suffix for the 1M window — see claudeModelArg in lib/dev-agents-meta.ts).
+  // Shape-check it so a stray value can never become a second CLI flag.
+  if (model && !VALID_MODEL.test(model)) throw new Error(`refusing --model value: ${model}`);
   if (model) args.push("--model", model);
   if (VALID_EFFORT.has(effort)) args.push("--effort", effort);
 

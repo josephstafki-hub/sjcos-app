@@ -9,7 +9,7 @@ import { useState } from "react";
 import { Trash2 } from "lucide-react";
 import { centsToInput, dollarsToCents, fmtUsd } from "@/lib/cost-book-units";
 import { fmtK, proposeBillingReconciliation, type BudgetChangeOrder, type BudgetCostRow, type BudgetLine, type BudgetView } from "@/lib/budget-types";
-import type { BudgetLineInput, BudgetSettingsInput, ChangeOrderCostsInput, CostTarget, ExpenseInput, ReconcileBillingInput } from "@/lib/budget-writes";
+import type { BudgetLineInput, BudgetSettingsInput, ChangeOrderCostsInput, CostTarget, ExpenseInput, FundingEventInput, PartyInput, ReconcileBillingInput } from "@/lib/budget-writes";
 import { BTN, FIELD, FormField, LABEL, ModalFooter, ModalShell } from "./parts";
 
 const blankable = (v: string): number | null => (v.trim() === "" ? null : dollarsToCents(v));
@@ -271,6 +271,67 @@ export function ReconcileModal({ view, pending, onClose, onSave, onUndo }: {
       <ModalFooter onClose={onClose} pending={pending} saveLabel={tracked ? "Update" : "Switch to invoices"}
         onSave={() => onSave({ openingCollectedCents: dollarsToCents(opening), openingBilledCents: dollarsToCents(billed), note, alsoUpdateHandKept: sync })}
         danger={tracked ? <button type="button" disabled={pending} onClick={onUndo} className={BTN}>Back to the hand-kept total</button> : undefined} />
+    </ModalShell>
+  );
+}
+
+/** Who pays for the base price, and the payments expected from them. Only a
+ *  job with more than one payer — an insurance claim, a lender — needs this. */
+export function PayersModal({ view, pending, onClose, onSave }: {
+  view: BudgetView; pending: boolean; onClose: () => void; onSave: (input: { parties: PartyInput[]; events: FundingEventInput[] }) => void;
+}) {
+  const [parties, setParties] = useState(view.parties.length > 1 || view.parties.some((p) => !p.isOwner)
+    ? view.parties.map((p) => ({ key: p.key, label: p.label, share: centsToInput(p.baseShareCents), isOwner: !!p.isOwner }))
+    : [{ key: "owner", label: view.parties[0]?.label ?? "Client", share: centsToInput(view.priceCents), isOwner: true }]);
+  const [events, setEvents] = useState(view.fundingEvents.map((f) => ({ partyKey: f.partyKey, source: f.source, amount: centsToInput(f.amountCents), trigger: f.trigger ?? "", status: f.status })));
+  const covered = parties.reduce((s, p) => s + dollarsToCents(p.share), 0);
+  const gap = view.priceCents - covered;
+  const keyOf = (p: { key: string; label: string }) => p.key || p.label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const save = () => onSave({
+    parties: parties.filter((p) => p.label.trim()).map((p) => ({ key: keyOf(p), label: p.label, baseShareCents: dollarsToCents(p.share), isOwner: p.isOwner })),
+    events: events.filter((e) => e.source.trim()).map((e) => ({ partyKey: e.partyKey, source: e.source, amountCents: dollarsToCents(e.amount), trigger: e.trigger, status: e.status })),
+  });
+  return (
+    <ModalShell title="Who pays, and when" onClose={onClose} wide>
+      <div className={BODY}>
+        <div>
+          <div className={LABEL}>Who pays for the base price</div>
+          <p className="mb-1.5 mt-0.5 text-[11.5px] leading-snug text-ink-3">A regular job has one payer: the client. An insurance claim has the insurer at the net claim and the client at the deductible; a loan has the lender and the down payment.</p>
+          {parties.map((p, i) => (
+            <div key={i} className="mb-1.5 grid grid-cols-[minmax(0,1fr)_6.5rem_auto_auto] items-center gap-2">
+              <input aria-label="Payer name" value={p.label} onChange={(e) => setParties(parties.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))} className={FIELD} placeholder="USAA" />
+              <input aria-label="Payer share" inputMode="decimal" value={p.share} onChange={(e) => setParties(parties.map((x, j) => (j === i ? { ...x, share: e.target.value } : x)))} className={FIELD} placeholder="0.00" />
+              <label className="flex items-center gap-1 whitespace-nowrap text-[11.5px] text-ink-2"><input type="radio" name="payer-owner" checked={p.isOwner} onChange={() => setParties(parties.map((x, j) => ({ ...x, isOwner: j === i })))} className="accent-[var(--accent)]" />client</label>
+              <button type="button" onClick={() => setParties(parties.filter((_, j) => j !== i))} className="text-ink-3 hover:text-flag" aria-label="Remove payer"><Trash2 className="size-3.5" strokeWidth={1.75} /></button>
+            </div>
+          ))}
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => setParties([...parties, { key: "", label: "", share: "", isOwner: false }])} className={BTN}>Add a payer</button>
+            <span className={`text-[11.5px] ${Math.abs(gap) > 100 ? "font-semibold text-flag" : "text-ink-3"}`}>
+              {Math.abs(gap) <= 100 ? `Covers the ${fmtK(view.priceCents)} base price.` : gap > 0 ? `${fmtK(gap)} of the ${fmtK(view.priceCents)} base price isn't covered — it lands on the client.` : `${fmtK(-gap)} more than the ${fmtK(view.priceCents)} base price.`}
+            </span>
+          </div>
+        </div>
+        <div className="border-t border-rule-soft pt-3">
+          <div className={LABEL}>Payments you expect, and what triggers them</div>
+          {events.map((f, i) => (
+            <div key={i} className="mb-2 mt-1.5 grid grid-cols-1 gap-1.5 rounded-md border border-rule-soft bg-paper p-2 sm:grid-cols-[minmax(0,1fr)_6.5rem]">
+              <input aria-label="Expected payment" value={f.source} onChange={(e) => setEvents(events.map((x, j) => (j === i ? { ...x, source: e.target.value } : x)))} className={FIELD} placeholder="USAA code-upgrade payment" />
+              <input aria-label="Expected amount" inputMode="decimal" value={f.amount} onChange={(e) => setEvents(events.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))} className={FIELD} placeholder="0.00" />
+              <input aria-label="What has to happen" value={f.trigger} onChange={(e) => setEvents(events.map((x, j) => (j === i ? { ...x, trigger: e.target.value } : x)))} className={FIELD} placeholder="What has to happen — “At completion”" />
+              <div className="flex items-center gap-1.5">
+                <select aria-label="Payment status" value={f.status} onChange={(e) => setEvents(events.map((x, j) => (j === i ? { ...x, status: e.target.value as FundingEventInput["status"] } : x)))} className={FIELD}><option value="expected">Expected</option><option value="requested">Requested</option><option value="received">Received</option></select>
+                <button type="button" onClick={() => setEvents(events.filter((_, j) => j !== i))} className="text-ink-3 hover:text-flag" aria-label="Remove expected payment"><Trash2 className="size-3.5" strokeWidth={1.75} /></button>
+              </div>
+              <select aria-label="From which payer" value={f.partyKey} onChange={(e) => setEvents(events.map((x, j) => (j === i ? { ...x, partyKey: e.target.value } : x)))} className={`${FIELD} sm:col-span-2`}>
+                {parties.filter((p) => p.label.trim()).map((p) => <option key={keyOf(p)} value={keyOf(p)}>from {p.label}</option>)}
+              </select>
+            </div>
+          ))}
+          <button type="button" onClick={() => setEvents([...events, { partyKey: keyOf(parties[0] ?? { key: "owner", label: "" }), source: "", amount: "", trigger: "", status: "expected" }])} className={`${BTN} mt-1.5`}>Add an expected payment</button>
+        </div>
+      </div>
+      <ModalFooter onClose={onClose} onSave={save} pending={pending} />
     </ModalShell>
   );
 }

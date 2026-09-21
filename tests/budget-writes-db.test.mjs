@@ -127,6 +127,50 @@ test("every Money › Overview write round-trips through the real loader", { ski
     assert.ok((await w.unreconcileBilling(run, job)).ok);
     assert.equal((await view(job)).billing.source, "manual");
 
+    // ---- bulk lines: merge keeps what you left out, replace refuses to orphan money
+    const bulk = await w.setBudgetLines(run, job, [
+      { key: "cabinets", trade: "Cabinets", budgetCents: $(22000) },                                   // existing: price, est, % done left out → kept
+      { trade: "Tile", budgetCents: $(4000), priceCents: $(5500), status: "Not started" },
+    ]);
+    assert.deepEqual(bulk, { ok: true, written: 2, removed: 0 });
+    v = await view(job);
+    const cab = v.lines.find((l) => l.id === "cabinets");
+    assert.deepEqual([cab.budgetCents, cab.priceCents, cab.estToFinishCents, cab.percentComplete], [$(22000), $(27000), $(3000), 10], "fields left out of a merge keep their values");
+    assert.deepEqual(v.lines.map((l) => l.id), ["cabinets", "cabinets-2", "tile"]);
+    assert.ok((await w.setBudgetLines(run, job, [{ key: "cabinets", trade: "Cabinets", budgetCents: $(22000), estToFinishCents: null }])).ok);
+    assert.equal((await view(job)).lines[0].estToFinishCents, null, "…while an explicit null clears it");
+    const refused = await w.setBudgetLines(run, job, [{ trade: "Tile", budgetCents: $(4000) }], "replace");
+    assert.equal(refused.ok, false);
+    assert.match(refused.error, /Cabinets.*costs or credits/, "replace names the trades it would orphan, and does nothing");
+    assert.equal((await view(job)).lines.length, 3);
+    assert.equal((await w.setBudgetLines(run, job, [{ trade: "A", budgetCents: 1 }, { trade: "a", budgetCents: 2 }])).ok, false, "two lines, one key");
+
+    // ---- a bill recorded twice is one bill
+    const inv = { vendorLabel: "ZZ Tile Co", amountCents: $(900), date: "2026-09-10", status: "approved", paidCents: $(300), target: { kind: "line", id: b.id }, sourceRef: "zztile:77" };
+    const first = await w.recordSubInvoice(run, job, inv);
+    const second = await w.recordSubInvoice(run, job, { ...inv, note: "re-imported" });
+    assert.deepEqual([first.ok, first.updated, second.updated, second.id], [true, false, true, first.id]);
+    assert.equal((await view(job)).costs.filter((r) => r.sourceRef === "zztile:77").length, 1);
+    assert.equal((await w.recordSubInvoice(run, job, { amountCents: $(10), target: null })).ok, false, "a bill has to be from someone");
+    assert.equal((await w.recordSubInvoice(run, job, { subSlug: "no-such-sub", amountCents: $(10), target: null })).ok, false);
+    const e1 = await w.saveExpense(run, job, { date: "2026-09-11", vendorLabel: "ZZ Store", kind: "material", amountCents: $(75), paidFrom: "card", target: null, purchaseOrderId: null, sourceRef: "receipt:zz-1" });
+    const e2 = await w.saveExpense(run, job, { date: "2026-09-11", vendorLabel: "ZZ Store", kind: "material", amountCents: $(80), paidFrom: "card", target: null, purchaseOrderId: null, sourceRef: "receipt:zz-1" });
+    assert.equal(e2.id, e1.id, "the same receipt logged twice is one expense, updated");
+    assert.ok((await w.deleteExpense(run, job, e1.id)).ok);
+
+    // ---- payers and expected payments
+    assert.ok((await w.saveParties(run, job, [{ key: "insurer", label: "ZZ Mutual", baseShareCents: $(50000) }, { key: "owner", label: "Pat", baseShareCents: $(8000), isOwner: true }])).ok);
+    assert.ok((await w.saveFundingEvents(run, job, [{ partyKey: "insurer", source: "Initial payment", amountCents: $(40000), trigger: "On the estimate", status: "received" }])).ok);
+    v = await view(job);
+    assert.deepEqual(v.parties.map((p) => [p.key, p.baseShareCents, !!p.isOwner]), [["insurer", $(50000), false], ["owner", $(8000), true]]);
+    assert.equal(computeTotals(v).unfundedCents, $(60000) - $(58000));
+    assert.match(v.fundingEvents[0].statusLabel, /^Received /);
+    assert.equal((await w.saveParties(run, job, [{ key: "a", label: "A", baseShareCents: 1, isOwner: true }, { key: "b", label: "B", baseShareCents: 1, isOwner: true }])).ok, false, "one client");
+    assert.ok((await w.saveParties(run, job, [])).ok);
+    assert.ok((await w.patchBudgetSettings(run, job, { costsThrough: "2026-09-20" })).ok);
+    v = await view(job);
+    assert.deepEqual([v.completeness.costsThrough, v.completeness.budget, v.notes], ["2026-09-20", true, ["Check the cabinet quote"]], "a patch changes only what it names");
+
     // ---- deleting a line never loses its costs
     const before = computeTotals(await view(job)).paidCents;
     assert.ok((await w.deleteBudgetLine(run, job, a.id)).ok);

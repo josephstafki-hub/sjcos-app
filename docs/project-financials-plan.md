@@ -1061,7 +1061,22 @@ next starts (phases 3 and 4b may run in parallel, see §11).
       one financial figure in the project page's HTML. Original scope: `/money`, sidebar, permissions,
       `moneyContext`, `business_snapshot` fields, `docs/routes.md`,
       `docs/users-and-access.md`.
-- [ ] **Phase 4b — Write tools + skill** (~400 lines). The rest of §8,
+- [x] **Phase 4b — Write tools + skill** — built 2026-09-21 on
+      `t3code/financials-phase-4b`, stacked on 4a. Eleven write tools in
+      `mcp/financials-tools.mjs` over the same `lib/budget-writes.ts` the app's
+      forms use; the payers / expected-payments form deferred from Phase 3; the
+      `fill-project-financials` skill (`docs/skills/`), filed as a PROPOSAL by
+      `scripts/propose-financials-skill.mjs` so it goes through Joe's approval
+      in `/engine` like any agent-written skill, never seeded as approved.
+      **Acceptance run through the real MCP server on the private copy:** a job
+      taken from profit unknown to projected with tool calls alone; the
+      identical import run a second time leaves every total, line and cost
+      unchanged; `replace` refuses to drop a trade with costs under it; a
+      shell-eaten dollar amount is rejected with nothing written; no tool
+      creates a change order or switches billing. 7 of 7 mutants killed.
+      Two names differ from §8: `set_change_order_costs` (it sets costs, not
+      funding) and one `set_funding_events` that replaces the list. Original
+      scope: The rest of §8,
       `mcp/README.md`, the Open Skill. Done when an agent can take Flanagan
       from profit `unknown` to `projected` using only MCP calls, and re-running
       the same import leaves the totals unchanged.

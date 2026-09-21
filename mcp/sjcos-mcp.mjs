@@ -2424,9 +2424,10 @@ server.registerTool(
   registerFloorTools(server, { rows, json });
 
   // Project financials (job costing): what a job is priced at, has cost, and
-  // should make — the same queries and math the app's Money › Overview runs.
-  // Read-only for now. See mcp/financials-tools.mjs.
-  registerFinancialsTools(server, { rows, json });
+  // should make — the same queries, math and writes the app's Money › Overview
+  // runs. Internal records only: nothing is sent, no change order is created or
+  // moved out of draft, and billing is never switched. See mcp/financials-tools.mjs.
+  registerFinancialsTools(server, { rows, json, pool, strippedDollarError });
 
   // Bidding lives in its own module too: stage + award. Sending a package is
   // real email, so it is NOT here — it's a granted send (below).

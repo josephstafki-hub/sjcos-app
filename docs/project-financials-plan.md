@@ -600,6 +600,16 @@ Modals reuse `ModalShell` from `MoneyPanel`. Dollar inputs use
 
 ### 4.8 Mobile and layout rules
 
+**The layout answers to its column, never the window (v2.3).** The app's side
+panels leave the project content column about **340 px wide on a 1280 px
+laptop** and 660 px at 1600 — so "phone-sized" is the normal case, not the edge
+case. The panel root is a Tailwind `@container` and every layout breakpoint
+inside it is a container variant (`@xl:`, `@2xl:`, `@3xl:`); viewport
+breakpoints (`sm:`, `lg:`) are wrong here and crushed three tiles into 100 px
+in the first build. Modals are viewport overlays and keep viewport breakpoints.
+Charts are flex bars, not SVG with a `min-width`: nothing above the detail
+tables ever scrolls sideways.
+
 - The headline strip stacks: hero, then tiles in a 3-column grid at ≥ 640px,
   1-column below.
 - Every grid track that holds text is `minmax(0,1fr)`, never bare `1fr`
@@ -1016,7 +1026,21 @@ next starts (phases 3 and 4b may run in parallel, see §11).
       (nothing moved on migration). **Review gate: Joe checks Egan's numbers
       against what he knows, and walks the `reconcileBilling` preview for
       Alcantara and Louiselle.**
-- [ ] **Phase 3 — Project page** (~900 lines). `components/projects/BudgetPanel.tsx`
+- [x] **Phase 3 — Project page** — built 2026-09-21 on
+      `t3code/financials-phase-3`, stacked on Phase 2. `components/projects/BudgetPanel.tsx`
+      + `components/projects/budget/*` (headline, in/out bars, charts, folds,
+      forms), the write layer in `lib/budget-writes.ts`, eleven actions in
+      `lib/actions/budget.ts`, and the project page wired (Overview is the
+      Money tab's first section for anyone holding `money`; a profit line on
+      the Overview rail when one may be claimed). Verified in a real browser
+      against a **private throwaway Postgres** restored from a dump of live —
+      never the live DB: screenshots of Egan (insurance, seeded), Louiselle
+      (estimate adopted, profit unknown) and Flanagan (contract only) at
+      340 px, 660 px and 960 px columns and a 390 px phone; 17 form round-trips
+      driven end to end; a rolled-back DB test of every write; production
+      build clean. Not built here, moved to 4b: editing parties and funding
+      events (agents and the seed populate them; nobody needs a form yet).
+      See §14 "v2.3". Original scope: `components/projects/BudgetPanel.tsx`
       + `budget/*`, `lib/actions/budget.ts`, project page wiring
       (`showFinancials`, Overview section, rail line). Done when the four
       screenshots in §9 look right, tsc + side build are clean, and every edit
@@ -1204,3 +1228,20 @@ The seed (`node scripts/seed-egan-financials.mjs`, dry-run by default,
 leaves out the four Houzz client invoices — rows in `invoices` show in the
 client portal, and that history belongs in an opening balance — and records the
 M&M proposal as CO-1's planned cost rather than as a draft purchase order.
+
+**v2.3 — 2026-09-21, found while building Phase 3.**
+
+| # | Plan said | What happened | As built |
+|---|---|---|---|
+| 22 | Viewport breakpoints; the two SVG charts keep `min-w-[640px]` and scroll | The content column is ~340 px on a 1280 px laptop. The first build put three stat tiles in 100 px, and a 640 px chart would have scrolled sideways for nearly everyone | Container queries throughout; every chart is flex bars. §4.8 |
+| 23 | Field hints inside the `<label>` | A screen reader reads the whole hint out as the field's name (found when two fields both matched "planned cost") | Hints sit outside the label |
+| 24 | Edit forms for parties and funding events in this phase | Only multi-payer jobs have them, and the seed / agents fill them | Deferred to 4b with their tools |
+| 25 | "Verify on a :3099 dev copy" (the house recipe shares the LIVE database and says never click a write button) | This phase is mostly write buttons | A private Postgres under `~/.cache` (socket-only, 0700), restored from `pg_dump` of live, with a two-line env (database + a throwaway session secret) so the preview cannot send anything. Torn down afterwards |
+
+Verification notes worth keeping: `next dev` in a worktree needs a REAL
+`node_modules` (`cp -al`, hardlinks) and Turbopack — a symlink breaks both
+bundlers, and `--webpack` fails on `instrumentation.ts`. Every project tab
+stays mounted, so a browser test must scope its lookups to the panel (the
+Overview rail and the Money section pills repeat the same words). The React
+"unique key" warning on the project page is pre-existing: the unmodified page
+throws it too — but only ~5 s after load, so a test that closes early misses it.

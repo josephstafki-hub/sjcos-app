@@ -151,6 +151,7 @@ export interface RawExpense {
   /** May be negative: a return or refund. */
   amountCents: number;
   memo?: string;
+  paidFrom?: string;
   on: string | null;
   budgetLineId: number | null;
   changeOrderId: number | null;
@@ -392,6 +393,7 @@ export function assembleBudgetView(raw: RawProjectMoney, opts: { asOf: string })
     const creditCo = l.creditedCoId != null ? coById.get(l.creditedCoId) : undefined;
     return {
       id: l.key,
+      rowId: l.id,
       trade: l.trade,
       detail: l.detail || undefined,
       source: l.source || undefined,
@@ -422,6 +424,7 @@ export function assembleBudgetView(raw: RawProjectMoney, opts: { asOf: string })
       c.status === "approved" && c.priceCents > 0 && billedCents >= c.priceCents ? "billed" : c.status;
     return {
       id: coNumber(c),
+      rowId: c.id,
       title: c.title,
       description: c.description || undefined,
       vendor: c.vendorLabel || undefined,
@@ -526,6 +529,7 @@ export function assembleBudgetView(raw: RawProjectMoney, opts: { asOf: string })
       source: r.source,
       sourceId: r.sourceId,
       dateLabel: dayLabel(r.on),
+      on: r.on,
       amountCents: r.amountCents,
       paidCents: r.paidCents,
       owedCents: r.owedCents,
@@ -545,7 +549,7 @@ export function assembleBudgetView(raw: RawProjectMoney, opts: { asOf: string })
       return { ...base, vendor: s.vendor, status: s.status, note: s.note || undefined, sourceRef: s.sourceRef || undefined };
     }
     const e = expById.get(r.sourceId)!;
-    return { ...base, vendor: e.vendorLabel, status: "paid", kind: e.kind, note: e.memo || undefined, sourceRef: e.sourceRef || undefined };
+    return { ...base, vendor: e.vendorLabel, status: "paid", kind: e.kind, paidFrom: e.paidFrom, note: e.memo || undefined, sourceRef: e.sourceRef || undefined };
   });
 
   // ---- completeness: what exists, what is claimed complete, what that allows
@@ -567,6 +571,7 @@ export function assembleBudgetView(raw: RawProjectMoney, opts: { asOf: string })
     budgetLabel: p.budgetLabel || (p.basis === "insurance" ? "insurance budget" : "contract"),
     budgetCaption: p.budgetCaption || undefined,
     priceCents,
+    priceSource,
     parties,
     lines,
     changeOrders,

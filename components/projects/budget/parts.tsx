@@ -52,6 +52,20 @@ export function StackBar({ segs, max, ticks = [] }: { segs: Seg[]; max: number; 
   );
 }
 
+/** A stat tile. Narrow column: label and value share a line. With room: stacked. */
+export function Tile({ label, value, note, children }: { label: string; value: string; note?: string; children?: ReactNode }) {
+  return (
+    <div className="min-w-0 rounded-md border border-rule-soft bg-paper px-3 py-2.5">
+      <div className="flex items-baseline justify-between gap-3 @xl:block">
+        <div className="text-[11.5px] text-ink-3">{label}</div>
+        <div className="font-serif text-[20px] leading-tight text-ink @xl:mt-0.5 @xl:text-[22px]">{value}</div>
+      </div>
+      {children}
+      {note && <div className="mt-1 text-[11.5px] leading-snug text-ink-3">{note}</div>}
+    </div>
+  );
+}
+
 export function Legend({ swatch, label, value, cents }: { swatch: string; label: string; value?: string; cents?: number }) {
   if (cents === 0) return null; // a $0 entry is noise; the vocabulary is taught by the rows that have money in them
   return (

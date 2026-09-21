@@ -171,6 +171,8 @@ cost assignment) land in a later phase.
 | `get_project_financials` | One job: summary sentences, price / cost / profit / progress / billing totals, every budget line with spent · owed · on order · still to spend, change orders, the cost ledger (each purchase counted once), client invoices, notes |
 | `company_financials` | Every job side by side, open and closed, with company totals and a needs-attention list, most money first |
 
+`business_snapshot` also carries an `open_jobs` block with the same open-job totals.
+
 Three things to read before quoting a number:
 
 - `completeness.profit` is `unknown` until the budget covers the whole job. Then

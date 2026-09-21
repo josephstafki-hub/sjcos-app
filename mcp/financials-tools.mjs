@@ -133,6 +133,14 @@ const totalsRow = (c) => ({
   blended_margin_pct: pct(c.blendedMarginPct), unbilled_work_cents: c.unbilledCents, unbilled_known_on_jobs: c.unbilledJobs,
 });
 
+/** The open-jobs block of business_snapshot: the same totals `company_financials` reports. */
+export async function openJobsSnapshot(rows) {
+  const projects = await findProjects(rows, "all");
+  const raw = await loadRawProjectMoney(rows, projects.map((p) => p.id));
+  const asOf = todayCentral();
+  return totalsRow(buildCompanyMoney(projects.map((p) => assembleBudgetView(raw.get(p.id), { asOf }))).totals);
+}
+
 export function registerFinancialsTools(server, { rows, json }) {
   server.registerTool(
     "get_project_financials",

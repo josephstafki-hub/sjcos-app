@@ -1046,7 +1046,19 @@ next starts (phases 3 and 4b may run in parallel, see §11).
       screenshots in §9 look right, tsc + side build are clean, and every edit
       modal round-trips on the :3099 copy. **Review gate: screenshots in the
       PR; Joe reads the page on his phone.**
-- [ ] **Phase 4a — Company page** (~400 lines). `/money`, sidebar, permissions,
+- [x] **Phase 4a — Company page** — built 2026-09-21 on
+      `t3code/financials-phase-4a`, stacked on Phase 3. `/money` (page +
+      `components/money/CompanyMoney.tsx`), the sidebar entry, the `money`
+      area's paths (`/money` first, so a money-only login lands on a real page
+      instead of `/books`), `moneyContext`, `business_snapshot.open_jobs`, and
+      the two docs. Cards in the ~340 px column most screens give it, a
+      sortable table with room; unknown always sorts last and reads "—".
+      Verified in the private Postgres with a mix of jobs (2 projected, 1
+      planned, 1 adopted-unfinished, 6 contract-only): the Profit tile reads
+      "16% margin on 3 of 10 jobs — covers $138,577 of $208,652 contracted";
+      the snapshot tool agrees to the cent. Permission fence checked with real
+      staff logins: without `money` there is no page, no sidebar link, and not
+      one financial figure in the project page's HTML. Original scope: `/money`, sidebar, permissions,
       `moneyContext`, `business_snapshot` fields, `docs/routes.md`,
       `docs/users-and-access.md`.
 - [ ] **Phase 4b — Write tools + skill** (~400 lines). The rest of §8,

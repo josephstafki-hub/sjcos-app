@@ -67,7 +67,8 @@ Grouped as the sidebar groups them (`components/shell/Sidebar.tsx`).
 | `/leads`            | `leads/page.tsx`           | |
 | `/leads/[slug]`     | `leads/[slug]/page.tsx`    | |
 | `/projects`         | `projects/page.tsx`        | |
-| `/projects/[slug]`  | `projects/[slug]/page.tsx` | Tool tabs — see `lib/project-tabs.ts` |
+| `/projects/[slug]`  | `projects/[slug]/page.tsx` | Tool tabs — see `lib/project-tabs.ts`. Money › **Overview** (job costing) shows only to the `money` area |
+| `/money`            | `money/page.tsx`           | Every job's price, cost, profit and billing side by side. `money` area. Spec: `docs/project-financials-plan.md` §5 |
 | `/schedule`         | `schedule/page.tsx`        | |
 | `/subs`             | `subs/page.tsx`            | |
 | `/subs/[slug]`      | `subs/[slug]/page.tsx`     | |
@@ -94,7 +95,7 @@ Grouped as the sidebar groups them (`components/shell/Sidebar.tsx`).
 | `/today-preview`    | `today-preview/page.tsx`   | **redirect → `/today`** |
 | `/` (root)          | `page.tsx`                 | **redirect → `/today`** |
 
-**`/books`** is in the sidebar as a **disabled `soon` item — there is no page.**
+**`/books`** is in the sidebar as a **disabled `soon` item — there is no page.** It stays reserved for the ledger (`docs/phase-5-accounting-plan.md`); job costing lives at `/money`.
 The accounting epic is unbuilt (`docs/phase-5-accounting-plan.md`).
 
 ## Route table — standalone

@@ -3,7 +3,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { requireAccess } from "@/lib/dal";
+import { requireAccess, requireRole } from "@/lib/dal";
 import { query, queryOne } from "@/lib/db";
 import { isVisionModel, qwenChat } from "@/lib/ai";
 import { hermesChat, startClaudeRun } from "@/lib/dev-agents";

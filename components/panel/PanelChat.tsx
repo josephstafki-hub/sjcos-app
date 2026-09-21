@@ -514,15 +514,14 @@ export function PanelChat({
               // label each reply so the transcript reads as the hand-offs
               // actually happened.
               const who = chat.agent === "auto" && m.agent ? AGENT_LABELS[m.agent] : undefined;
-              const hasCost = typeof m.costUsd === "number" && Number.isFinite(m.costUsd);
+              // No dollar figure here: runs go through the CLI, so the
+              // total_cost_usd it reports is notional, not a charge.
               const turns = (m.tokenUsage as { num_turns?: number } | null | undefined)?.num_turns;
               return (
                 <div key={m.id}>
-                  {(who || hasCost || turns) && (
+                  {(who || turns) && (
                     <div className="mb-0.5 text-[10.5px] font-medium text-ink-4">
-                      {[who, hasCost ? `$${(m.costUsd as number).toFixed(2)}` : null, turns ? `${turns} turns` : null]
-                        .filter(Boolean)
-                        .join(" · ")}
+                      {[who, turns ? `${turns} turns` : null].filter(Boolean).join(" · ")}
                     </div>
                   )}
                   <div

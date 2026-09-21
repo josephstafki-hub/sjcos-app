@@ -1,0 +1,68 @@
+// Sample BudgetView: the Egan insurance restoration as of Sep 18, 2026.
+// Use for a dev page (/panel or a storybook-style route) and as the reference
+// for how an agent fills a BudgetView from documents. Cents everywhere.
+
+import type { BudgetView } from "./budget-types";
+
+const c = (dollars: number) => Math.round(dollars * 100);
+
+export const EGAN_BUDGET_SAMPLE: BudgetView = {
+  basis: "insurance",
+  asOfLabel: "Sep 18, 2026",
+  budgetLabel: "insurance budget",
+  budgetCaption: "Dwelling RCV $72,644.31 + code-upgrade coverage $13,194.00. Includes the $10,000 deductible the client pays.",
+  parties: [
+    { key: "insurer", label: "USAA", baseShareCents: c(75838.31) },
+    { key: "owner", label: "Client", baseShareCents: c(10000), isOwner: true },
+  ],
+  lines: [
+    { id: "plaster",  trade: "Lath & plaster",            detail: "Two-coat over metal lath, 4 rooms", source: "USAA lines 3, 5, 23, 25, 44, 46, 63, 65 less tear-off", kind: "trade", budgetCents: c(31732.50), spentCents: 0, committedCents: 0, estToFinishCents: c(31732.50), status: "Not started", statusKind: "ghost" },
+    { id: "electrical", trade: "Electrical (code upgrade)", detail: "Kunkel base contract, Ordinance & Law", source: "USAA bid item $10,995; pays $13,194 with O&P, cap $20,000", kind: "trade", budgetCents: c(10995), spentCents: c(12570), committedCents: 0, estToFinishCents: 0, status: "Rough-in done", statusKind: "accent", flags: ["Supplement candidate"] },
+    { id: "paint",    trade: "Painting",                  detail: "Primer, two coats, trim, floor protection", kind: "trade", budgetCents: c(7743.49), spentCents: 0, committedCents: 0, estToFinishCents: c(7743.49), status: "Not started", statusKind: "ghost" },
+    { id: "demo",     trade: "Demolition & haul-off",     detail: "CPK #1745, #1750, dumpster", kind: "trade", budgetCents: c(7008.15), spentCents: c(6300), committedCents: 0, estToFinishCents: 0, status: "Complete", statusKind: "money" },
+    { id: "floors",   trade: "Wood floor refinish",       detail: "Sand, stain, finish", kind: "trade", budgetCents: c(3049.19), spentCents: 0, committedCents: 0, estToFinishCents: c(3049.19), status: "Not started", statusKind: "ghost" },
+    { id: "moving",   trade: "Contents / moving",         detail: "Minne Movers, Matts Movers", kind: "trade", budgetCents: c(337.31), spentCents: c(2233.86), committedCents: 0, estToFinishCents: c(1000), status: "Move-back pending", statusKind: "accent" },
+    { id: "trim",     trade: "Trim / finish carpentry",   detail: "Base, shoe, casing D&R", kind: "trade", budgetCents: c(2754.62), spentCents: 0, committedCents: 0, estToFinishCents: c(2754.62), status: "Not started", statusKind: "ghost" },
+    { id: "plumbing", trade: "Plumbing / radiators",      detail: "Erickson disconnect + reconnect", source: "Not in the USAA estimate", kind: "trade", budgetCents: 0, spentCents: c(562.50), committedCents: c(562.50), estToFinishCents: 0, status: "Reconnect at finish", statusKind: "accent", flags: ["Supplement candidate"] },
+    { id: "lights",   trade: "Light fixtures",            detail: "Detach & reset, 9 fixtures", kind: "trade", budgetCents: c(809.19), spentCents: 0, committedCents: 0, estToFinishCents: c(809.19), status: "Not started", statusKind: "ghost" },
+    { id: "fiber",    trade: "Ceiling fiberboard",        detail: "Install after demo", kind: "trade", budgetCents: c(690.95), spentCents: 0, committedCents: 0, estToFinishCents: c(690.95), status: "Not started", statusKind: "ghost" },
+    { id: "clean",    trade: "Final cleaning",            kind: "trade", budgetCents: c(206.17), spentCents: 0, committedCents: 0, estToFinishCents: c(206.17), status: "Not started", statusKind: "ghost" },
+    { id: "insulation", trade: "Insulation",              detail: "R-50 blown-in allowance", kind: "trade", budgetCents: c(1878.41), spentCents: 0, committedCents: 0, estToFinishCents: 0, credited: true, creditedTo: "CO-1", status: "Credited to CO-1", statusKind: "info" },
+    { id: "bath-tile", trade: "Bathroom tile & board",    detail: "R&R 74 SF", kind: "trade", budgetCents: c(2547.82), spentCents: 0, committedCents: 0, estToFinishCents: 0, credited: true, creditedTo: "CO-2", status: "Credited to CO-2", statusKind: "info" },
+    { id: "bath-fix", trade: "Bathroom fixtures D&R",     detail: "Toilet, pedestal sink", kind: "trade", budgetCents: c(1064.49), spentCents: 0, committedCents: 0, estToFinishCents: 0, credited: true, creditedTo: "CO-2", status: "Credited to CO-2", statusKind: "info" },
+    { id: "tax",      trade: "Sales tax reimbursement",   kind: "tax", budgetCents: c(797.30), spentCents: 0, committedCents: 0, estToFinishCents: c(797.30) },
+    { id: "op",       trade: "GC overhead & profit",      detail: "20% on claim lines incl. electrical", kind: "overhead", budgetCents: c(14223.72), spentCents: 0, committedCents: 0, estToFinishCents: c(14223.72), status: "Not yet billed", statusKind: "ghost" },
+  ],
+  changeOrders: [
+    { id: "CO-1", title: "Spray foam insulation", description: "Closed-cell foam at the attic roof deck and slants plus exterior walls, replacing the base blown-in.", vendor: "M&M Insulation proposal", status: "sent", totalCents: c(11878.80), credits: [{ lineId: "insulation", amountCents: c(1878.41) }], billedCents: 0 },
+    { id: "CO-2", title: "Full bathroom renovation", description: "Full renovation instead of the base tile repair and fixture reset. Includes Kunkel option G, exhaust fan/heater.", vendor: "No estimate yet", status: "draft", totalCents: c(22525), credits: [{ lineId: "bath-tile", amountCents: c(2547.82) }, { lineId: "bath-fix", amountCents: c(1064.49) }], billedCents: 0 },
+    { id: "CO-3", title: "Electrical upgrades", description: "Kunkel options B, C, F: extra sconces, extra switches, two dedicated A/C circuits.", vendor: "Tim Kunkel Electric", status: "approved", totalCents: c(2765), credits: [], billedCents: 0 },
+  ],
+  fundingEvents: [
+    { partyKey: "insurer", source: "USAA initial payment (ACV, net of deductible)", amountCents: c(59933.04), trigger: "On the Jun 16 estimate", status: "received" },
+    { partyKey: "insurer", source: "USAA code-upgrade payment (Ordinance & Law)", amountCents: c(13194), trigger: "When incurred. Electrical rough-in is done", status: "expected" },
+    { partyKey: "insurer", source: "USAA recoverable depreciation", amountCents: c(2711.27), trigger: "At completion, on final invoices", status: "expected" },
+    { partyKey: "owner", source: "Client deductible", amountCents: c(10000), trigger: "Netted from the initial payment", status: "received" },
+  ],
+  clientInvoices: [
+    { number: "IN-10047", dateLabel: "May 19", label: "Minne Movers, CPK demo #1", amountCents: c(4350), status: "paid", statusLabel: "Paid May 29" },
+    { number: "IN-10048", dateLabel: "Jun 13", label: "CPK demo #2, Kunkel base", amountCents: c(15720), status: "paid", statusLabel: "Paid Jun 15" },
+    { number: "IN-10052", dateLabel: "Jun 25", label: "Erickson 50%", amountCents: c(562.50), status: "paid", statusLabel: "Paid Jul 1" },
+    { number: "IN-10053", dateLabel: "Jul 23", label: "Matts Movers", amountCents: c(1033.86), status: "paid", statusLabel: "Paid Aug 3" },
+  ],
+  subInvoices: [
+    { vendor: "Minne Movers #1004", dateLabel: "May 11", amountCents: c(425), note: "Billed at $1,200", status: "paid", key: "moving" },
+    { vendor: "CPK #1745", dateLabel: "May 14", amountCents: c(3150), note: "Ceilings, tile surround", status: "paid", key: "demo" },
+    { vendor: "CPK #1750", dateLabel: "Jun 1", amountCents: c(3150), note: "Walls, haul-off", status: "paid", key: "demo" },
+    { vendor: "Tim Kunkel Electric", dateLabel: "Jun 11", amountCents: c(15860), note: "80% due; 20% at final", status: "approved", key: "electrical" },
+    { vendor: "Erickson #48452", dateLabel: "Jun 23", amountCents: c(1125), note: "50% paid", status: "approved", key: "plumbing" },
+    { vendor: "M&M Insulation #5505", dateLabel: "Jun 30", amountCents: c(11878.80), note: "Proposal", status: "quote", key: "CO-1" },
+    { vendor: "Matts Movers", dateLabel: "Jul 23", amountCents: c(1033.86), note: "No sub invoice on file", status: "paid", key: "moving" },
+  ],
+  notes: [
+    "Electrical base ($12,570) exceeds the $10,995 bid USAA priced from. Ordinance & Law cap is $20,000; supplement with the Kunkel invoice and request the $13,194 now.",
+    "Radiator disconnect/reconnect ($1,125) is not in the claim. Add to the supplement.",
+    "Bathroom renovation total is a placeholder until an estimate exists.",
+    "GC overhead and profit ($14,224) has not been billed on any draw yet.",
+  ],
+};

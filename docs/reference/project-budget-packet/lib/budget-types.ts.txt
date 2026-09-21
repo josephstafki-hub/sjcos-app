@@ -1,0 +1,337 @@
+// Project budget — shared types + pure helpers. NO db import, safe in client
+// bundles (same split as lib/co-types.ts / lib/cost-book-units.ts).
+// Money is integer CENTS everywhere, matching the Phase 5.0 money tables.
+//
+// The BudgetView is the single input to <BudgetPanel/>. It is meant to be
+// assembled by lib/budget.ts (server) from SJC OS tables, OR written directly
+// by an agent from documents (insurance estimates, sub quotes, invoices) when a
+// project is not fully modeled in the app yet. Every field is documented for
+// that second case: an agent should be able to fill this from a folder of PDFs.
+
+import type { ChipKind } from "@/components/ui/Chip";
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+/** How the base scope is priced. Drives labels and what "budget" means.
+ *  - fixed_price: signed contract value; budget = contract, variance is SJC's margin risk.
+ *  - insurance:   carrier estimate (Xactimate etc.); budget = RCV + code-upgrade coverage.
+ *  - cost_plus:   client pays cost + fee; budget = the agreed target/estimate, informational.
+ *  - time_materials: budget = the not-to-exceed or the estimate; variance means overrun to bill.
+ */
+export type BudgetBasis = "fixed_price" | "insurance" | "cost_plus" | "time_materials";
+
+/** What a budget line represents. Only `trade` lines are drawn in the chart;
+ *  the rest are summed into "Other budget" so the picture stays readable. */
+export type BudgetLineKind =
+  | "trade"        // a trade or work category: plaster, electrical, demo, moving
+  | "allowance"    // a client selection allowance: tile allowance, fixture allowance
+  | "overhead"     // GC overhead & profit, supervision, general conditions
+  | "tax"          // sales tax reimbursement, permit fees
+  | "contingency"  // held reserve; est_to_finish is typically 0 until used
+  | "other";
+
+/** Life of a change order. Only `approved` (and `billed`/`paid` which imply
+ *  approved) count toward project totals. `sent` and `draft` show as pending. */
+export type BudgetCoStatus = "draft" | "sent" | "approved" | "declined" | "billed" | "paid";
+
+/** Life of an expected inflow. */
+export type FundingStatus = "expected" | "requested" | "received";
+
+// ---------------------------------------------------------------------------
+// Core records
+// ---------------------------------------------------------------------------
+
+/** One row of the base budget. One per trade / category. */
+export interface BudgetLine {
+  /** Stable key. Change orders reference it in `credits[].lineId`. Slug-like: "plaster", "electrical". */
+  id: string;
+  /** Display name. Short: "Lath & plaster". */
+  trade: string;
+  /** One line of context shown under the name: vendor, scope, doc reference. Optional. */
+  detail?: string;
+  /** Where the budget number came from. Shown on hover / in details. e.g. "USAA estimate lines 3-5, 23-25", "Estimate #12 section Plumbing", "Kunkel bid 6/11". */
+  source?: string;
+  kind: BudgetLineKind;
+
+  /** The budgeted amount for this line (cents). On a fixed-price job, the estimate line total
+   *  including markup. On insurance, the carrier line-item total for the trade (before O&P and tax,
+   *  which get their own `overhead`/`tax` lines). 0 is allowed: an item that has to be done but
+   *  was never budgeted (e.g. radiator disconnect not in the claim). */
+  budgetCents: number;
+
+  /** Cost that has been BILLED TO THE CLIENT and PAID by the client for this line (cents).
+   *  On cost-plus this is the pass-through; on fixed price it is the draw allocated to this trade.
+   *  If you cannot allocate client invoices by trade, leave spent at 0 and use `committed` for
+   *  sub cost; the panel still works, the hero bar just shows committed instead of spent. */
+  spentCents: number;
+
+  /** Sub / vendor cost that is known and owed but NOT yet billed to the client (cents):
+   *  approved sub invoices, sent POs, signed quotes, the unpaid balance of a contract
+   *  (e.g. Kunkel's remaining 20%). Moves to `spent` when it hits a paid client invoice. */
+  committedCents: number;
+
+  /** Best estimate of cost still to come that is not yet committed (cents). Defaults to
+   *  budget - spent - committed when the work has not started; 0 when complete. This is the
+   *  speculative number and the one an agent should revisit as bids land. */
+  estToFinishCents: number;
+
+  /** Short status label: "Complete", "Rough-in done", "Not started", "Credited to CO-2". */
+  status?: string;
+  /** Chip color for the status. Convention: money=under/complete, accent=in progress,
+   *  flag=over or blocked, info=credited/moved, ghost=not started. */
+  statusKind?: ChipKind;
+
+  /** True when this line's budget has been released to a change order (the CO replaces this
+   *  scope). A credited line is excluded from spent/committed/est totals and its budget is
+   *  reported as "moved to change orders" instead of headroom. Set `creditedTo` to the CO id. */
+  credited?: boolean;
+  creditedTo?: string;
+
+  /** Optional free-form flags an agent wants surfaced ("Supplement candidate", "No sub invoice on file"). */
+  flags?: string[];
+}
+
+/** A credit a change order takes against the base budget: the base scope this CO replaces. */
+export interface BudgetCoCredit {
+  /** `BudgetLine.id` being credited. */
+  lineId: string;
+  /** Cents of that line's budget the CO absorbs. Usually the full line budget; can be partial. */
+  amountCents: number;
+}
+
+/** A change order as the budget sees it. Mirrors `change_orders` rows plus budget fields
+ *  that table does not yet have (credits, billed, spent). See db/apply-project-budget.mjs. */
+export interface BudgetChangeOrder {
+  /** Display id: "CO-1". */
+  id: string;
+  title: string;
+  /** One or two sentences: what is added, what it replaces. */
+  description?: string;
+  /** Who is doing it / where the price came from. */
+  vendor?: string;
+  status: BudgetCoStatus;
+
+  /** Full price of the CO to the client BEFORE credits (cents). May be NEGATIVE for a
+   *  deductive change order (client removes scope; the number is what SJC gives back). */
+  totalCents: number;
+  /** Base budget released by this CO. Sum is shown as "credit"; client pays total - credit. */
+  credits: BudgetCoCredit[];
+  /** Amount of this CO already on client invoices (cents). */
+  billedCents: number;
+  /** Actual cost incurred on this CO so far (cents), if tracked. Optional; used for margin. */
+  spentCents?: number;
+  /** Who pays for this CO. Default `owner`. `funder` covers the case where the base-scope
+   *  funder (insurer, lender) approves a supplement as a CO; `split` when both do, with
+   *  `funderShareCents` saying how much the funder covers. */
+  paidBy?: "owner" | "funder" | "split";
+  funderShareCents?: number;
+  flags?: string[];
+}
+
+/** An expected inflow of money and what triggers it. Insurance, lender draws, deposits,
+ *  milestone payments. Optional; a plain fixed-price job can leave the array empty. */
+export interface FundingEvent {
+  /** "USAA initial payment (ACV)", "Bank draw 2 of 4", "Client deposit". */
+  source: string;
+  amountCents: number;
+  /** What has to happen for the money to move. "On estimate", "When incurred", "At completion". */
+  trigger?: string;
+  status: FundingStatus;
+  /** "Received May 2", "Requested Sep 18". */
+  statusLabel?: string;
+  /** Which party this comes from: matches `BudgetParty.key`. */
+  partyKey: string;
+}
+
+/** A party that pays for some of the project. The owner is always present. */
+export interface BudgetParty {
+  /** "owner", "insurer", "lender", "grant". */
+  key: string;
+  /** Display: "Client", "USAA", "Bremer Bank". */
+  label: string;
+  /** Maximum this party will pay toward the BASE scope (cents). For the owner on an insurance
+   *  job this is the deductible; on a fixed-price job it is the whole contract. On a lender job
+   *  it is the approved loan amount. Sum across parties should equal the base budget; if it is
+   *  short, the difference is reported as unfunded. */
+  baseShareCents: number;
+  /** True for the client / homeowner. Exactly one party should have this. */
+  isOwner?: boolean;
+}
+
+/** Client-side invoice as shown in the ledger. Shape matches lib/money.ts Invoice closely so
+ *  the builder can map straight across. */
+export interface BudgetClientInvoice {
+  number: string;
+  dateLabel: string;
+  /** Milestone or items: "Draw 2: rough-ins", "CPK demo #2, Kunkel base". */
+  label: string;
+  amountCents: number;
+  status: "draft" | "sent" | "paid";
+  /** "Paid Jun 15" / "Sent Sep 1 · 17 days". */
+  statusLabel: string;
+  /** Which budget lines / COs this invoice pays, if allocated. Keys are line ids or CO ids. */
+  allocations?: { key: string; amountCents: number }[];
+}
+
+/** Sub / vendor invoice, quote, or PO as shown in the ledger. */
+export interface BudgetSubInvoice {
+  vendor: string;
+  dateLabel: string;
+  amountCents: number;
+  /** "Rough-in 80%", "Proposal, expires Jul 30", "No invoice on file". */
+  note?: string;
+  status: "quote" | "submitted" | "approved" | "paid";
+  /** Budget line or CO id this cost belongs to. */
+  key?: string;
+}
+
+// ---------------------------------------------------------------------------
+// The view
+// ---------------------------------------------------------------------------
+
+export interface BudgetView {
+  basis: BudgetBasis;
+  /** "Sep 18, 2026". The date the numbers were true. */
+  asOfLabel: string;
+  /** Label under the big number: "insurance budget", "contract value", "target budget". */
+  budgetLabel: string;
+  /** Short caption next to the big number explaining how it was built. Optional.
+   *  "Dwelling RCV $72,644 + code upgrade $13,194. Includes the $10,000 deductible." */
+  budgetCaption?: string;
+  parties: BudgetParty[];
+  lines: BudgetLine[];
+  changeOrders: BudgetChangeOrder[];
+  fundingEvents: FundingEvent[];
+  clientInvoices: BudgetClientInvoice[];
+  subInvoices: BudgetSubInvoice[];
+  /** Retainage held by the client / lender (cents), if any. Shown as a KPI note. */
+  retainageCents?: number;
+  /** Agent-written notes worth reading: assumptions, open questions, what to do next.
+   *  Kept out of the charts on purpose; shown in a collapsible list. */
+  notes?: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Derived numbers. One place, used by the panel and by anything that needs
+// the same math (weekly status, MCP snapshot, agent checks).
+// ---------------------------------------------------------------------------
+
+export interface BudgetTotals {
+  /** Σ budget of all lines (credited included) = the ceiling. */
+  budgetCents: number;
+  /** Σ budget of `trade` lines that are not credited. */
+  tradeBudgetCents: number;
+  /** Σ budget of non-trade lines (overhead, tax, contingency...). */
+  otherBudgetCents: number;
+  /** Σ budget of credited lines (moved to change orders). */
+  creditedCents: number;
+  spentCents: number;
+  committedCents: number;
+  estToFinishCents: number;
+  /** spent + committed + est. What the base scope will cost. */
+  projectedCents: number;
+  /** budget - projected. Negative = over. */
+  headroomCents: number;
+  /** budget - spent - committed. Money not yet drawn. */
+  leftToDrawCents: number;
+  /** Approved (or billed/paid) change orders only. */
+  coTotalCents: number;
+  coCreditCents: number;
+  coOwnerCents: number;
+  coFunderCents: number;
+  /** Pending (draft/sent) CO value, informational. */
+  coPendingCents: number;
+  /** projected + coTotal. */
+  projectTotalCents: number;
+  /** Per party: what they end up paying. Owner absorbs any base-scope overrun. */
+  paidBy: { key: string; label: string; amountCents: number; isOwner: boolean }[];
+  /** Base budget not covered by any party's share, if parties are short. */
+  unfundedCents: number;
+  /** Lines over budget, most over first. */
+  overLines: { line: BudgetLine; varianceCents: number }[];
+  underLines: { line: BudgetLine; varianceCents: number }[];
+}
+
+const CO_COUNTS: BudgetCoStatus[] = ["approved", "billed", "paid"];
+
+export function lineVariance(l: BudgetLine): number {
+  if (l.credited) return 0;
+  return l.spentCents + l.committedCents + l.estToFinishCents - l.budgetCents;
+}
+
+export function coCredit(c: BudgetChangeOrder): number {
+  return c.credits.reduce((s, x) => s + x.amountCents, 0);
+}
+
+export function computeTotals(v: BudgetView): BudgetTotals {
+  const active = v.lines.filter((l) => !l.credited);
+  const sum = (xs: BudgetLine[], f: (l: BudgetLine) => number) => xs.reduce((s, l) => s + f(l), 0);
+
+  const budgetCents = sum(v.lines, (l) => l.budgetCents);
+  const creditedCents = sum(v.lines.filter((l) => l.credited), (l) => l.budgetCents);
+  const tradeBudgetCents = sum(active.filter((l) => l.kind === "trade"), (l) => l.budgetCents);
+  const otherBudgetCents = sum(active.filter((l) => l.kind !== "trade"), (l) => l.budgetCents);
+  const spentCents = sum(active, (l) => l.spentCents);
+  const committedCents = sum(active, (l) => l.committedCents);
+  const estToFinishCents = sum(active, (l) => l.estToFinishCents);
+  const projectedCents = spentCents + committedCents + estToFinishCents;
+  const headroomCents = budgetCents - projectedCents;
+  const leftToDrawCents = budgetCents - spentCents - committedCents;
+
+  const counted = v.changeOrders.filter((c) => CO_COUNTS.includes(c.status));
+  const pending = v.changeOrders.filter((c) => c.status === "draft" || c.status === "sent");
+  const coTotalCents = counted.reduce((s, c) => s + c.totalCents, 0);
+  const coCreditCents = counted.reduce((s, c) => s + coCredit(c), 0);
+  const coFunderCents = counted.reduce((s, c) => {
+    const net = c.totalCents - coCredit(c);
+    if (c.paidBy === "funder") return s + net;
+    if (c.paidBy === "split") return s + Math.min(net, c.funderShareCents ?? 0);
+    return s;
+  }, 0);
+  const coOwnerCents = coTotalCents - coCreditCents - coFunderCents;
+  const coPendingCents = pending.reduce((s, c) => s + c.totalCents, 0);
+  const projectTotalCents = projectedCents + coTotalCents;
+
+  // Who pays. Each party pays its base share; the owner absorbs base overrun and
+  // any unfunded gap; funders pick up the CO shares assigned to them.
+  const shares = v.parties.reduce((s, p) => s + p.baseShareCents, 0);
+  const unfundedCents = Math.max(0, budgetCents - shares);
+  const owner = v.parties.find((p) => p.isOwner);
+  const nonOwnerFunder = v.parties.find((p) => !p.isOwner);
+  const paidBy = v.parties.map((p) => {
+    let amt = Math.min(p.baseShareCents, Math.max(0, budgetCents)); // never more than the budget
+    if (p.isOwner) amt += coOwnerCents + Math.max(0, -headroomCents) + unfundedCents;
+    if (!p.isOwner && p === nonOwnerFunder) amt += coFunderCents;
+    // If the base came in under budget, the saving belongs to whoever funds the base
+    // scope on cost-plus / insurance; on fixed price it is SJC margin, so no reduction.
+    if (v.basis !== "fixed_price" && headroomCents > 0) {
+      const share = shares > 0 ? p.baseShareCents / shares : 0;
+      amt -= Math.round(headroomCents * share);
+    }
+    return { key: p.key, label: p.label, amountCents: amt, isOwner: !!p.isOwner };
+  });
+  if (!owner && paidBy.length) paidBy[0].amountCents += coOwnerCents;
+
+  const withVar = active.map((line) => ({ line, varianceCents: lineVariance(line) }));
+  const overLines = withVar.filter((x) => x.varianceCents > 100).sort((a, b) => b.varianceCents - a.varianceCents);
+  const underLines = withVar.filter((x) => x.varianceCents < -100).sort((a, b) => a.varianceCents - b.varianceCents);
+
+  return {
+    budgetCents, tradeBudgetCents, otherBudgetCents, creditedCents,
+    spentCents, committedCents, estToFinishCents, projectedCents, headroomCents, leftToDrawCents,
+    coTotalCents, coCreditCents, coOwnerCents, coFunderCents, coPendingCents, projectTotalCents,
+    paidBy, unfundedCents, overLines, underLines,
+  };
+}
+
+/** "$21,666" (whole dollars, for charts and KPIs). */
+export function fmtK(cents: number): string {
+  const n = Math.round((cents || 0) / 100);
+  return `${n < 0 ? "-" : ""}$${Math.abs(n).toLocaleString("en-US")}`;
+}
+/** "+$1,575" / "-$708". */
+export function fmtSigned(cents: number): string {
+  return `${cents >= 0 ? "+" : "-"}${fmtK(Math.abs(cents))}`;
+}

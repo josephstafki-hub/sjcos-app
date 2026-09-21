@@ -12,6 +12,7 @@ import {
   FolderInput,
   FolderPlus,
   Link2,
+  MessageSquarePlus,
   MoreHorizontal,
   Pencil,
   Pin,
@@ -52,6 +53,7 @@ import {
   sortKeysFor,
   resolveThreadStatus,
   rollupStatus,
+  type FolderEntityRef,
   type RailFolder,
   type RailThread,
   type ThreadStatus,
@@ -96,6 +98,7 @@ export function ThreadList({
   currentId,
   onOpen,
   onNew,
+  onNewFor,
   onClose,
   onCurrentRemoved,
   variant,
@@ -108,8 +111,12 @@ export function ThreadList({
   /** The open thread, for highlight. */
   currentId: string | null;
   onOpen: (id: string) => void;
-  /** New chat; `folderId` files it there (scope or a folder's "+"). */
-  onNew: (folderId?: string | null) => void;
+  /** New chat. No folder = Unfiled; a folder (the scope, or a header's "+")
+   *  files it there. */
+  onNew: (folder?: RailFolder | null) => void;
+  /** New chat filed under a job picked from "New chat in job…" — its folder
+   *  is created on first use. */
+  onNewFor: (entity: FolderEntityRef, name: string) => void;
   /** Drawer only: the ✕ that closes the overlay. */
   onClose?: () => void;
   /** The open thread was archived/deleted from the list — fall to a new chat. */
@@ -147,7 +154,9 @@ export function ThreadList({
    *  would land (before/after another folder). */
   const [dragFolderId, setDragFolderId] = useState<string | null>(null);
   const [folderDrop, setFolderDrop] = useState<{ id: string; pos: "before" | "after" } | null>(null);
-  const [picker, setPicker] = useState<{ mode: "link"; folderId: string } | { mode: "new"; thenMove?: string } | null>(null);
+  const [picker, setPicker] = useState<
+    { mode: "link"; folderId: string } | { mode: "new"; thenMove?: string } | { mode: "newChat" } | null
+  >(null);
   const [now, setNow] = useState(() => Date.now());
   /** Completions older than this tab are history, not "new". Read on each
    *  reload (sessionStorage is client-only, so never during render). */
@@ -458,6 +467,17 @@ export function ThreadList({
             onDone={() => setPicker(null)}
           />
         )}
+        {picker?.mode === "newChat" && (
+          <JobPicker
+            title="New chat in"
+            placeholder="New chat in a job…"
+            onPick={(job) => {
+              setPicker(null);
+              onNewFor({ kind: job.kind, id: job.slug }, job.name);
+            }}
+            onDone={() => setPicker(null)}
+          />
+        )}
         {scopeFolder ? (
           <button
             onClick={() => onScopeChange(null)}
@@ -483,9 +503,20 @@ export function ThreadList({
           <FolderPlus className="size-3.5" strokeWidth={1.75} />
         </button>
         <button
-          onClick={() => onNew(scopeFolderId)}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={() => (picker?.mode === "newChat" ? setPicker(null) : setPicker({ mode: "newChat" }))}
+          aria-label="New chat in a job"
+          title="New chat in a job…"
+          className={`rounded-md p-1 text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink-2 ${
+            picker?.mode === "newChat" ? "bg-paper-2 text-ink-2" : ""
+          }`}
+        >
+          <MessageSquarePlus className="size-3.5" strokeWidth={1.75} />
+        </button>
+        <button
+          onClick={() => onNew(scopeFolder)}
           aria-label="New chat"
-          title={scopeFolder ? `New chat in ${scopeFolder.name}` : "New chat"}
+          title={scopeFolder ? `New chat in ${scopeFolder.name}` : "New chat (Unfiled)"}
           className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink-2"
         >
           <Plus className="size-3" strokeWidth={2} /> New
@@ -571,7 +602,7 @@ export function ThreadList({
                     {f && (
                       <div className="hidden items-center gap-0.5 group-hover/f:flex">
                         <button
-                          onClick={() => onNew(f.id)}
+                          onClick={() => onNew(f)}
                           aria-label="New chat here"
                           title={`New chat in ${f.name}`}
                           className="rounded p-0.5 hover:bg-paper-2"

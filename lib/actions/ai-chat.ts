@@ -83,9 +83,10 @@ export async function loadConversationAction(id: string): Promise<ConversationDe
   return getConversation(id);
 }
 
-/** Start a thread. Where it files (docs/thread-folders-plan.md §3.6): the
- *  tab's scoped folder wins, else the job whose page the app view is on
- *  (its folder is created on first use), else Unfiled. */
+/** Start a thread. It files only where the client explicitly says
+ *  (docs/thread-folders-plan.md §3.6): a folder id, or a job whose folder is
+ *  created on first use — otherwise Unfiled. The app view's route never files
+ *  a thread on its own. */
 export async function newConversationAction(
   agent: PanelAgent,
   where?: { folderId?: string | null; entity?: FolderEntityRef | null },

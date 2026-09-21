@@ -1,6 +1,6 @@
 // Client-safe logic for the panel's thread rail (components/panel/ThreadList):
 // per-thread status resolution, the pinned / active / settled partition, folder
-// grouping, and the route → entity mapping that files a new thread under the
+// grouping, and the route → entity mapping that highlights the folder of the
 // job whose page the app view is on. No db / server-only imports — pure
 // functions over the rows lib/ai-chat.ts listThreadRail() returns, so they are
 // unit-testable (tests/thread-rail.test.mjs) and the rail can re-partition
@@ -281,9 +281,11 @@ export function groupThreads(folders: RailFolder[], threads: RailThread[]): Rail
 }
 
 /**
- * The job an app route is about, for filing a new thread: /projects/<slug>,
- * /leads/<slug>, /vendors/<slug>, /subs/<slug>. Anything else (lists, /today,
- * settings) → null → the thread starts Unfiled (or in the scoped folder).
+ * The job an app route is about: /projects/<slug>, /leads/<slug>,
+ * /vendors/<slug>, /subs/<slug>; anything else (lists, /today, settings) →
+ * null. The rail uses it to highlight that job's folder. It does NOT file new
+ * threads — filing is always an explicit choice (a folder's "+", "New chat in
+ * job…"); plain New is Unfiled.
  */
 export function entityFromRoute(pathname: string | null | undefined): FolderEntityRef | null {
   if (!pathname) return null;

@@ -23,9 +23,9 @@ import {
   type ClaudeOptions,
   type PanelAgent,
 } from "@/lib/dev-agents-meta";
-import { entityFromRoute } from "@/lib/thread-rail";
+import type { FolderEntityRef } from "@/lib/thread-rail";
 import { postPanelMessage } from "./panelBus";
-import { adoptPanelSession, claimConversation, readPanelState, writePanelState } from "./panelStore";
+import { adoptPanelSession, claimConversation, writePanelState } from "./panelStore";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Wall clock for run bookkeeping. Wrapped so calls inside the poll loop
@@ -66,9 +66,6 @@ export interface UseAgentChatOptions {
   /** Read at send time, not captured — the panel outlives page navigation and
    *  must ground each turn in the page the app view is on *now*. */
   getPageContext: () => string | undefined;
-  /** The app view's route right now — a new thread started on a project /
-   *  lead page files under that job's folder (lib/thread-rail entityFromRoute). */
-  getPageRoute?: () => string | null;
   onRunStart?: (run: ActiveRun) => void;
   onRunEnd?: () => void;
   /** After any settled turn (answer or error) — e.g. refresh the today queue. */
@@ -105,9 +102,18 @@ export interface UseAgentChatOptions {
  *     45-minute ladder backstop so the client outlives the reapers, never the
  *     reverse.
  */
+/** Where the next fresh thread files, chosen explicitly: a folder id (a
+ *  folder header's "+", the scoped rail's New) or a job whose folder is
+ *  created on first use (the rail's "New chat in job…"). `name` is for the
+ *  header chip. Null = Unfiled. */
+export interface NextHome {
+  folderId: string | null;
+  entity: FolderEntityRef | null;
+  name: string;
+}
+
 export function useAgentChat({
   getPageContext,
-  getPageRoute,
   onRunStart,
   onRunEnd,
   onSettled,
@@ -148,8 +154,15 @@ export function useAgentChat({
   const [claudeSessionId, setClaudeSessionId] = useState<string | null>(null);
 
   const liveRef = useRef({ alive: true });
-  /** Folder chosen for the next new thread via a folder's "+" (one-shot). */
-  const pendingHomeRef = useRef<string | null>(null);
+  /** Where the next fresh thread files (see NextHome). State for the header
+   *  chip; the ref is what the async send reads. Cleared by newChat, by
+   *  opening a thread, and once the thread exists — never inherited. */
+  const [nextHome, setNextHomeState] = useState<NextHome | null>(null);
+  const nextHomeRef = useRef<NextHome | null>(null);
+  const setNextHome = (h: NextHome | null) => {
+    nextHomeRef.current = h;
+    setNextHomeState(h);
+  };
   const claim = () => {
     liveRef.current.alive = false;
     liveRef.current = { alive: true };
@@ -159,16 +172,9 @@ export function useAgentChat({
   // Callbacks live in refs so the long-lived poll loop always calls the latest
   // render's handlers instead of the ones captured when the loop started.
   // Assigned in an effect (not render) per the react-hooks/refs rule.
-  const cbRef = useRef({ getPageContext, getPageRoute, onRunStart, onRunEnd, onSettled, onAnswer, onSendError });
+  const cbRef = useRef({ getPageContext, onRunStart, onRunEnd, onSettled, onAnswer, onSendError });
   useEffect(() => {
-    cbRef.current = { getPageContext, getPageRoute, onRunStart, onRunEnd, onSettled, onAnswer, onSendError };
-  });
-
-  /** Where a brand-new thread files: the tab's folder scope, else the job
-   *  whose page the app view is on (folder created on first use), else Unfiled. */
-  const newThreadHome = () => ({
-    folderId: readPanelState().folderId,
-    entity: entityFromRoute(cbRef.current.getPageRoute?.() ?? null),
+    cbRef.current = { getPageContext, onRunStart, onRunEnd, onSettled, onAnswer, onSendError };
   });
 
   const settle = async () => {
@@ -285,6 +291,8 @@ export function useAgentChat({
   const openConversation = async (id: string) => {
     const leftRunning = detachRun();
     const live = claim();
+    // A "new chat in …" intent belongs to the fresh chat being left behind.
+    setNextHome(null);
     setPending(true);
     setError("");
     setNotice("");
@@ -377,11 +385,14 @@ export function useAgentChat({
     setClaudeSessionId(null);
   };
 
-  /** Start a fresh thread. Allowed mid-run on purpose: the run finishes
-   *  server-side and its reply lands in its own thread, marked live in the
-   *  thread list. */
+  /** Start a fresh thread — Unfiled. The app view's page and any earlier
+   *  "new chat in …" click are deliberately NOT consulted: that is what used
+   *  to file every chat started beside a project page under that project.
+   *  Allowed mid-run on purpose: the run finishes server-side and its reply
+   *  lands in its own thread, marked live in the thread list. */
   const newChat = () => {
     const leftRunning = detachRun();
+    setNextHome(null);
     writePanelState({ conversationId: null });
     setConversationId(null);
     resetView();
@@ -406,12 +417,23 @@ export function useAgentChat({
     writePanelState({ folderId: id });
   };
 
-  /** New chat filed under a specific folder (a folder header's "+"). Same
-   *  detach rules as newChat; the folder is remembered for the first send. */
-  const newChatIn = (folderId: string | null) => {
+  /** New chat filed under a specific folder (a folder header's "+", or the
+   *  rail's New while scoped). Same detach rules as newChat; the folder is
+   *  held (and shown as a chip) until the first send creates the thread. */
+  const newChatIn = (folderId: string, name: string) => {
     newChat();
-    pendingHomeRef.current = folderId;
+    setNextHome({ folderId, entity: null, name });
   };
+
+  /** New chat filed under a job (project / lead / vendor / sub) — its folder
+   *  is created on first use, so this works for a job with no folder yet. */
+  const newChatFor = (entity: FolderEntityRef, name: string) => {
+    newChat();
+    setNextHome({ folderId: null, entity, name });
+  };
+
+  /** The chip's ✕: start this fresh chat Unfiled after all. */
+  const clearNextHome = () => setNextHome(null);
 
   const setClaudeOpts = (patch: Partial<ClaudeOptions>) => {
     // A model / window change means the last run's reported window no longer
@@ -500,10 +522,12 @@ export function useAgentChat({
       }
       pushUser(spec.display ?? spec.directive, spec.subjectId);
       if (!convId) {
-        const home = newThreadHome();
-        const chosen = pendingHomeRef.current;
-        pendingHomeRef.current = null;
-        convId = await newConversationAction(target, chosen ? { folderId: chosen } : home);
+        // Files only where an explicit "new chat in …" said; else Unfiled.
+        const home = nextHomeRef.current;
+        convId = await newConversationAction(
+          target,
+          home ? { folderId: home.folderId, entity: home.entity } : undefined,
+        );
         if (!live.alive) {
           // Created after the panel went away — still remember it (rule 3).
           writePanelState({ conversationId: convId, agent: target });
@@ -511,6 +535,8 @@ export function useAgentChat({
         }
         writePanelState({ conversationId: convId, agent: target });
         setConversationId(convId);
+        setNextHome(null);
+        setFolderName(home?.name ?? null);
       }
       if (spec.voice) {
         // Voice: Claude answers out loud right away; any OS work runs as a
@@ -577,7 +603,10 @@ export function useAgentChat({
     folderName,
     folderScope,
     setFolderScope,
+    nextHome,
     newChatIn,
+    newChatFor,
+    clearNextHome,
     messages,
     logs,
     activity,

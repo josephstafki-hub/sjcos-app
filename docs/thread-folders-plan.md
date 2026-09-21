@@ -285,10 +285,15 @@ collapsed shelf, so a `/today?c=<id>` deep link never opens onto a hidden row.
   thread is working).
 - **Thread row menu** gains: Move to folder… (searchable list + "New folder"),
   Pin / Unpin, Settle / Un-settle.
-- **New thread default folder:** when the panel is opened on a project, lead,
-  or client page, the new thread is created inside that entity's folder,
-  creating the bound folder on first use. Off any entity page, the thread is
-  Unfiled unless a folder is scoped (see below).
+- **New thread default folder:** plain **New** (chat header, rail header) is
+  always Unfiled. Filing is an explicit choice: a folder header's **+**, the
+  rail's **New chat in job…** picker (any project / lead / vendor / sub — its
+  folder is created on first use), or **New** while the rail is scoped to a
+  folder. The chosen home shows as a "New in …" chip in the chat header (✕ =
+  Unfiled after all) until the first send creates the thread; it is cleared
+  by opening another thread. *(Revised 2026-09-21: the earlier rule — file
+  under whichever job page the app view is on — silently put every chat
+  started beside a project page in that project's folder.)*
 - **Folder scope:** clicking a folder header title scopes the rail to that
   folder (like T3's project scope). "All" clears it. Scope is per tab
   (`panelStore` session scope) so two tabs can sit on two jobs.

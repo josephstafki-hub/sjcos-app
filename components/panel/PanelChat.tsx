@@ -55,6 +55,7 @@ import { PriorityCard } from "@/components/today/PriorityCard";
 import { ModelActionChips } from "@/components/today/ModelActionChips";
 import { consumeHandOff, subscribePanelBus } from "./panelBus";
 import { getPanelPageContext, getPanelPageRoute } from "./PageAiContext";
+import type { FolderEntityRef, RailFolder } from "@/lib/thread-rail";
 import { queueContext } from "./queueContext";
 import { startersForRoute } from "./panelStarters";
 import { useAgentChat, type ActiveRun } from "./useAgentChat";
@@ -143,7 +144,6 @@ export function PanelChat({
 
   const chat = useAgentChat({
     getPageContext,
-    getPageRoute: getPanelPageRoute,
     onRunStart,
     onRunEnd,
     onSettled: refresh,
@@ -334,10 +334,18 @@ export function PanelChat({
     inputRef.current?.focus();
   };
 
-  const newThread = (folderId?: string | null) => {
+  /** Plain New = Unfiled; a folder (scope / a header's "+") files it there. */
+  const newThread = (folder?: RailFolder | null) => {
     setThreadsOpen(false);
-    if (folderId) chat.newChatIn(folderId);
+    if (folder) chat.newChatIn(folder.id, folder.name);
     else chat.newChat();
+    inputRef.current?.focus();
+  };
+
+  /** "New chat in job…": under that job's folder, created on first use. */
+  const newThreadFor = (entity: FolderEntityRef, name: string) => {
+    setThreadsOpen(false);
+    chat.newChatFor(entity, name);
     inputRef.current?.focus();
   };
 
@@ -382,6 +390,21 @@ export function PanelChat({
             title="The job this thread is filed under — the agent is told"
           >
             {chat.folderName}
+          </span>
+        )}
+        {!chat.conversationId && chat.nextHome && (
+          <span
+            className="hidden max-w-44 items-center gap-1 rounded-full bg-ai-soft px-1.5 py-px font-mono text-[10px] text-ai-2 min-[460px]:inline-flex"
+            title="This new chat will file under this job once you send — ✕ starts it Unfiled instead"
+          >
+            <span className="truncate">New in {chat.nextHome.name}</span>
+            <button
+              onClick={chat.clearNextHome}
+              aria-label="Start Unfiled instead"
+              className="flex-none rounded-full p-px hover:bg-paper"
+            >
+              <X className="size-2.5" strokeWidth={2.25} />
+            </button>
           </span>
         )}
         {route && (
@@ -429,6 +452,7 @@ export function PanelChat({
             pageRoute={route}
             onOpen={openThread}
             onNew={newThread}
+            onNewFor={newThreadFor}
             onClose={() => setThreadsOpen(false)}
             onCurrentRemoved={() => newThread()}
           />
@@ -792,6 +816,7 @@ export function PanelChat({
         pageRoute={route}
         onOpen={openThread}
         onNew={newThread}
+        onNewFor={newThreadFor}
         onCurrentRemoved={() => newThread()}
       />
       {chatSection}

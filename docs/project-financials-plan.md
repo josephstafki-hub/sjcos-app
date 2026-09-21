@@ -967,8 +967,8 @@ current.
 Each phase is one PR from a t3 worktree branch off `main`, merged before the
 next starts (phases 3 and 4b may run in parallel, see §11).
 
-- [x] **Phase 1 — Math, allocation and contract** — built 2026-09-21 on
-      `t3code/review-fable-plan` (~1,700 lines of code and fixtures, ~650 of
+- [x] **Phase 1 — Math, allocation and contract** — built 2026-09-21, commit
+      `4e6a961` on `t3code/review-fable-plan` (~1,700 lines of code and fixtures, ~650 of
       tests; the estimate was low). 55 tests, each of the 14 corrected rules
       proven to fail its test when the bug is put back; full suite 203/203,
       `tsc` clean, lint clean. Found six more rule errors in this plan while

@@ -69,3 +69,4 @@ logs/
 
 # 10DLC registration state (brand/campaign ids written by scripts/register-10dlc.mjs)
 .10dlc-state.json
+mcp/playwright-mcp.config.json

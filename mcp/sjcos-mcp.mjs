@@ -19,6 +19,7 @@
 //     business_snapshot + get_today_queue (Joe's Today rail with per-item lanes).
 //   • Gated WRITE tools: capture_knowledge, create_work_item,
 //     update_work_item_status, snooze_work_item, submit_draft_for_approval,
+//     set_project_contract_value, set_project_collected,
 //     record_agent_run, record_receipt,
 //     create_skill_proposal, record_skill_used. These are safe by construction —
 //     they only touch internal records, an append-only audit trail, or land as
@@ -1915,6 +1916,89 @@ server.registerTool(
     if (!projectId) return json({ error: `No project with slug "${a.project_slug}"` });
     await rows(`UPDATE projects SET selections_budget = $2 WHERE id = $1`, [projectId, a.budget]);
     return json({ ok: true, project: a.project_slug, selections_budget: a.budget });
+  },
+);
+
+// Project money (owner-tracked figures). `contract_value` / `collected_to_date`
+// are whole dollars and drive the projects-list "% billed", the Today A/R
+// headline, and the closeout docs. Nothing in the app edits them — they came in
+// from the Houzz import — so these are the only agent path. Internal records
+// only: no invoice is created or sent.
+server.registerTool(
+  "set_project_contract_value",
+  {
+    title: "Set a project's contract amount",
+    description:
+      "Set the project's contract value (whole dollars) — the total the client is on the hook for. " +
+      "Optionally set `value_display`, the free-text money label shown on the projects list " +
+      "(e.g. '$28,295.64 kitchen refresh'); pass it whenever the old label would now read stale. " +
+      "Does not create, edit, or send any invoice.",
+    inputSchema: {
+      project_slug: z.string(),
+      contract_value: z.number().int().min(0),
+      value_display: z.string().optional(),
+    },
+  },
+  async (a) => {
+    const mangled = strippedDollarError(a.value_display);
+    if (mangled) return mangled;
+    const projectId = await slugToId("projects", a.project_slug);
+    if (!projectId) return json({ error: `No project with slug "${a.project_slug}"` });
+    const r = await rows(
+      `UPDATE projects
+          SET contract_value = $2,
+              value_display = COALESCE($3, value_display),
+              updated_at = now()
+        WHERE id = $1
+        RETURNING slug, name, status, contract_value, collected_to_date, value_display`,
+      [projectId, a.contract_value, a.value_display ?? null],
+    );
+    const p = r[0];
+    return json({ ok: true, ...p, outstanding: p.contract_value - p.collected_to_date });
+  },
+);
+
+server.registerTool(
+  "set_project_collected",
+  {
+    title: "Set how much a project has collected",
+    description:
+      "Record the total collected to date on a project (whole dollars, cumulative — not a single " +
+      "payment). Pass `paid_in_full: true` to set it equal to the contract value. Feeds the " +
+      "projects-list '% billed' and the Today outstanding-A/R figure. Optional `stage_label` " +
+      "replaces the project's status line on the projects list — pass it when the old line " +
+      "states a balance that is no longer true. Internal bookkeeping only: does not mark any " +
+      "invoice paid or send anything.",
+    inputSchema: {
+      project_slug: z.string(),
+      collected: z.number().int().min(0).optional(),
+      paid_in_full: z.boolean().optional(),
+      stage_label: z.string().optional(),
+    },
+  },
+  async (a) => {
+    if (a.collected == null && !a.paid_in_full)
+      return json({ error: "Pass `collected` (whole dollars) or `paid_in_full: true`." });
+    const mangled = strippedDollarError(a.stage_label);
+    if (mangled) return mangled;
+    const projectId = await slugToId("projects", a.project_slug);
+    if (!projectId) return json({ error: `No project with slug "${a.project_slug}"` });
+    const r = await rows(
+      `UPDATE projects
+          SET collected_to_date = CASE WHEN $3 THEN contract_value ELSE $2 END,
+              stage_label = COALESCE($4, stage_label),
+              updated_at = now()
+        WHERE id = $1
+        RETURNING slug, name, status, contract_value, collected_to_date, value_display, stage_label`,
+      [projectId, a.collected ?? 0, a.paid_in_full === true, a.stage_label ?? null],
+    );
+    const p = r[0];
+    return json({
+      ok: true,
+      ...p,
+      outstanding: p.contract_value - p.collected_to_date,
+      paid_in_full: p.collected_to_date >= p.contract_value,
+    });
   },
 );
 

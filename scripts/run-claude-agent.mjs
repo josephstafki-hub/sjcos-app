@@ -16,7 +16,7 @@
 // doing live (reading/editing/thinking) via the row's `activity` column, and
 // honour the per-run model / mode / effort chosen in the Ask window.
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import pg from "pg";
@@ -594,6 +594,15 @@ async function main() {
   // mcp__sjcos__* call and Claude reports "no MCP permissions". Safe: the
   // client-facing sends are gated inside the tools by owner grants.
   if (withMcp) args.push("--allowedTools", "mcp__sjcos");
+  // Optional real-browser access (Playwright MCP attached to Joe's own Chrome
+  // over CDP). Only wired when mcp/playwright-mcp.config.json exists — see
+  // mcp/playwright-mcp.config.example.json + mcp/README.md for setup. Pre-
+  // approved like sjcos so headless -p never silently denies browser calls.
+  const playwrightCfg = path.join(REPO, "mcp/playwright-mcp.config.json");
+  if (withMcp && existsSync(playwrightCfg)) {
+    mcpConfigs.push(playwrightCfg);
+    args.push("--allowedTools", "mcp__playwright");
+  }
   // Anything NOT pre-approved (Bash, edits outside the mode's allowance, …)
   // must become a question for Joe rather than a silent denial: route the
   // CLI's permission prompt into the panel chat via the interact server's

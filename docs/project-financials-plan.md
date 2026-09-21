@@ -246,8 +246,9 @@ The fix is to keep **cost** and **price** on separate axes everywhere:
     on an `invoices` job when it is $1 or more either way (the hand-kept total
     is whole dollars, so cents always differ); on a `manual` job only when the
     invoices show **more** collected than the hand-kept total — the other
-    direction is just history nobody has entered yet. Jobs created in the app after launch start on `invoices` with a
-    zero opening balance.
+    direction is just history nobody has entered yet. **Every job, new ones included, starts on `manual`** (v2.2): only 3 of 51
+    jobs have any in-app invoices — billing still runs through Houzz — so a
+    new job defaulted to `invoices` would show $0 collected.
 - add `expenses: BudgetExpense[]` (see §6 `expenses`) for the ledger fold.
 - add `completeness: BudgetCompleteness` (§3.6).
 - rename `subInvoices` → `costs` (sub invoices + POs + expenses, one ledger),
@@ -384,8 +385,10 @@ Pure function in `lib/budget-types.ts`, unit-tested. Rules:
     work costs what you expect — $1,300 less than planned."
   - `planned`: "The budget plans a profit of about **$17,000 (28%)**. No costs
     have been entered yet, so this is the plan, not a forecast."
-  - `unknown`: "Profit isn't known yet: the budget doesn't cover the whole job.
-    **$200** of cost has been logged so far." Never a margin in this state.
+  - `unknown`: "Profit isn't known yet: the budget for this job isn't finished.
+    **$200** of cost has been logged so far." (Or "there is no budget for this
+    job yet".) Never a margin in this state. The wording has to hold both when
+    trades are missing and when an adopted estimate's costs aren't real yet.
 - Sentence 2, progress. With a complete budget and tracked billing: "About
   **59%** of the work is done (by cost) and **69%** of the price is billed —
   you've billed about **$5,700 ahead** of the work." / "... there is about $X
@@ -580,7 +583,7 @@ returns, `revalidatePath("/projects/[slug]")` and `/money`:
 
 | Action | Does |
 |---|---|
-| `adoptEstimateAsBudget(slug, estimateId)` | One budget line per `estimate_lines.section`: `budget = Σ round(qty × unit_cost)`, `price = Σ extended`, `kind` guessed from the section name (contingency/allowance/overhead/tax keywords, else trade), `source = "Estimate #id · section"`. Sets `projects.price_cents` from the estimate total when unset. Refuses if lines already exist unless `replace: true`. |
+| `adoptEstimateAsBudget(slug, { estimateId?, replace? })` | One budget line per `estimate_lines.section`: `budget = Σ round(qty × unit_cost)`, `price = Σ extended`, `kind` guessed from the section name (contingency/allowance/overhead/tax keywords, else trade), `source = "Estimate #id · section"`. Pins `projects.price_cents` to the estimate total when unset. Refuses if lines already exist unless `replace: true`, and a re-sync upserts by key — it never deletes a line costs may point at. **Marks the budget complete only when the estimate has real markup** (v2.2): both approved estimates on the live system are Houzz imports whose "costs" are client prices, and adopting one as-is would plan a $0 profit. Those get lines, prices, and a note; profit stays unknown until real costs are set. |
 | `upsertBudgetLine(slug, line)` / `deleteBudgetLine` | Trade, kind, budget, price, est-to-finish (blank = derive, 0 = nothing left), % done (optional), status, status kind, flags, detail, source, sort. |
 | `setBudgetSettings(slug, {...})` | basis, label, caption, retainage, notes, `price_cents` override, **budget covers the whole job** (`budget_complete`), **costs entered through** (`costs_through`). |
 | `reconcileBilling(slug, { openingCollectedCents, openingBilledCents, note, alsoUpdateHandKept? })` | The reviewed switch from `manual` to `invoices` (§3.2). The modal shows hand-kept vs invoice totals side by side and the proposed opening balance. Owner only. |
@@ -766,10 +769,15 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS opening_billed_cents    integer NO
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS opening_note    text NOT NULL DEFAULT '';
 ```
 
-Every existing job keeps `billing_source = 'manual'` (the column default), so
-nothing on any page changes on migration day. The two project-creating actions
-(`lib/actions/projects.ts`, `lib/actions/leads.ts`) set `'invoices'` for jobs
-created after launch.
+Every job keeps `billing_source = 'manual'` (the column default), so nothing on
+any page changes on migration day — verified on all 51 jobs. New jobs start on
+`manual` too (v2.2): the project-creating actions are not touched.
+
+`sub_invoices.sub_slug` becomes nullable and gains `vendor_label` (v2.2): a bill
+can come from someone outside the subs roster (2 of Egan's 5 vendors are).
+Writers must supply one of the two. The runner executes the block between the
+"Project financials (begin)/(end)" markers in `db/schema.sql` verbatim, in one
+transaction with a 5 s lock timeout; dry-run by default, `--approve` to commit.
 
 Backfills in the same runner, all idempotent: `change_orders.number = 'CO-' ||
 row_number() OVER (PARTITION BY project_id ORDER BY created_at, id)` where
@@ -981,7 +989,21 @@ next starts (phases 3 and 4b may run in parallel, see §11).
       (§3.2–§3.3), and the sentences for the fixtures; Astra re-reviews the
       rules against its eight comments.** Everything after this depends on the
       semantics being right, so this is the phase to argue about.
-- [ ] **Phase 2 — Schema, builder, read tool** (~600 lines). §6 DDL in
+- [x] **Phase 2 — Schema, builder, read tools** — built 2026-09-21 on
+      `t3code/financials-phase-2`, stacked on Phase 1 (PR #31 was still open).
+      **Migration APPLIED to the live DB** (additive; second run a no-op; all 51
+      jobs' Collected still equals the hand-kept total; site and services
+      healthy). Both MCP read tools verified through the real server on live
+      data. **The Egan seed is NOT committed** — it is verified end to end
+      inside a rolled-back transaction (all 16 fixture totals reproduced
+      through the real queries) and waits for Joe, because it is client-facing:
+      see §14 "v2.2". Estimate adoption verified the same way on Louiselle and
+      Alcantara. 72 financials tests (220 in the suite), `tsc` and lint clean,
+      10 of 10 mutants killed (one survived the first pass and exposed a
+      vacuous test, now fixed). New modules: `lib/budget-queries.ts` (the SQL,
+      takes a `run`, shared by app / MCP / scripts), `lib/budget-writes.ts`,
+      `lib/budget-company.ts`, `lib/budget.ts`, `lib/actions/budget.ts`,
+      `mcp/financials-tools.mjs`. Original scope: §6 DDL in
       `db/schema.sql` + `db/apply-project-financials.mjs`; `lib/budget.ts`
       builders; `mcp/financials-tools.mjs` with `get_project_financials` and
       `company_financials` only; `adoptEstimateAsBudget` action; migration
@@ -1108,7 +1130,7 @@ the visual loop; phase 4a+4b ≈ 2 each; phase 5 ≈ 30 minutes per job.
    typing physical progress for every trade on every job; `projects.progress`
    shows how well a hand-typed number gets maintained.
 8. **Billing source is set per job and switched by review** (default yes).
-   Every existing job stays on its hand-kept collected total until Joe
+   Every job — new ones too — stays on its hand-kept collected total until Joe
    reconciles it; nothing moves on migration day. Alcantara and Louiselle are
    the first two to reconcile.
 9. **No profit until the budget covers the whole job** (default yes). At
@@ -1164,3 +1186,21 @@ warns when it comes from a hand-kept contract total that may already include
 change orders; and the packet's source files under `docs/reference/` are stored
 as `.txt`, because the repo's tsconfig compiled them and broke `tsc` for
 everyone (caught by the Phase 1 baseline check, before anything was committed).
+
+**v2.2 — 2026-09-21, found against live data while building Phase 2.**
+
+| # | Plan said | What the live system showed | As built |
+|---|---|---|---|
+| 15 | Adopt an approved estimate → budget complete → "planned" profit. Phase 2 was "done when Louiselle shows profit `planned`" | Both approved estimates (Louiselle #10, Alcantara #13) have `markup_total = 0`: they are Houzz imports carrying client prices as unit costs. Adopted as-is they plan a **$0 profit** | Lines and prices are adopted; the budget is marked complete only when the estimate has real markup; otherwise a note explains and profit stays unknown. Verified on both jobs in a rolled-back transaction |
+| 16 | Sub invoices hang off the subs roster | 2 of Egan's 5 vendors (a mover, a radiator plumber) are not in the roster, and `sub_slug` was NOT NULL | `sub_slug` nullable + `vendor_label` |
+| 17 | New jobs start on `billing_source = 'invoices'` | 3 of 51 jobs have in-app invoices; billing runs through Houzz. A new job would show $0 collected | Everything starts on `manual`; no existing action was touched |
+| 18 | Seed Egan from the fixture, billing included | Egan's hand-kept collected moved from $31,667 to $34,929 **during the build day**. A seed that fixed billing would have been stale within hours | The seed writes the cost side only. Collected stays the live hand-kept number; reconciling is the owner's reviewed step |
+| 19 | Seed the three change orders as the packet has them | **The client portal lists every non-draft change order**, and tells the client to "sign it in the list above" for a sent one. CO-1 "sent" would have asked Molly Egan to sign something that does not exist | The seed writes CO-1 as `draft` (pending either way: every total is identical). CO-3 `approved` WILL show in her portal, so committing the seed is Joe's call, not a script's. **Carry into phase 4b:** no financials tool may create a change order or move one out of draft |
+| 20 | — | Sub invoices tied to a roster sub trip the `w9-missing` detector into opening a work item for any such sub without a W-9 | Stated in the seed's header and output; arguably correct behavior, but Joe should expect it |
+| 21 | The loader runs its queries in parallel | Fine on a pool; on ONE connection (the transaction the seed verifies inside) pg warns today and will refuse in pg 9 | `loadRawProjectMoney(run, ids, { sequential })`, pinned by a test |
+
+The seed (`node scripts/seed-egan-financials.mjs`, dry-run by default,
+`--approve` to keep, `--undo --confirm` to remove exactly what it wrote) also
+leaves out the four Houzz client invoices — rows in `invoices` show in the
+client portal, and that history belongs in an opening balance — and records the
+M&M proposal as CO-1's planned cost rather than as a draft purchase order.

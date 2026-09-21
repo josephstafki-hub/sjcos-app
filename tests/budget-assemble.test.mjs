@@ -306,7 +306,7 @@ test("profit is planned with a complete budget and no costs, and unknown without
   assert.deepEqual(ticked.completeness.missing.slice(0, 1), ["No budget yet"]);
 
   const partial = assembleBudgetView(raw({ ...budgeted, project: { contractValueDollars: 8000, budgetComplete: false } }), { asOf: AS_OF });
-  assert.deepEqual(partial.completeness.missing.slice(0, 1), ["Budget doesn't cover the whole job"]);
+  assert.deepEqual(partial.completeness.missing.slice(0, 1), ["Budget isn't finished — not marked as covering the whole job"]);
 });
 
 test("costs that were never dated, or have gone stale on a live job, say so", () => {

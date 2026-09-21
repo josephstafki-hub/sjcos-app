@@ -240,7 +240,7 @@ test("without a complete budget there is no profit, no margin, no work done — 
   for (const k of ["projectedProfitCents", "marginPct", "plannedProfitCents", "plannedMarginPct", "headlineProfitCents", "workDonePct", "earnedCents", "overUnderBilledCents"])
     assert.equal(t[k], null, k);
   assert.equal(t.costSoFarCents, $(1200));
-  assert.equal(describeFinancials(v, t)[0], "Profit isn't known yet: the budget doesn't cover the whole job. $1,200 of cost has been logged so far.");
+  assert.equal(describeFinancials(v, t)[0], "Profit isn't known yet: the budget for this job isn't finished. $1,200 of cost has been logged so far.");
 });
 
 test("on a manual job billed is unknown, so nothing is derived from it — but left to collect is always known", () => {

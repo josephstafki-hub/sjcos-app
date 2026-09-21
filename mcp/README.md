@@ -47,6 +47,8 @@ Safe by construction — internal records, append-only audit, and proposals only
 | `record_agent_run` / `record_receipt` | Open/close a run; append proof-of-work |
 | `create_skill_proposal` | Propose a skill → lands `proposed`, out of the library until Joe approves in `/engine` |
 | `record_skill_used` | Log that an agent followed a skill |
+| `set_project_contract_value` | Set a project's contract amount (whole dollars) + optional `value_display` label; no invoice touched |
+| `set_project_collected` | Set cumulative collected-to-date (`collected` dollars, or `paid_in_full: true` = contract value); optional `stage_label` rewrites the projects-list status line; drives % billed + Today A/R; no invoice marked paid |
 | `start_runbook` | W6 stepper: start a runbook against one lead/project (spawns the step-1 work item + pings its assignee; refuses a duplicate live run). Completing a step's work item advances the run; cancelling an instance is owner-only in `/engine` |
 
 All tools are parameterized SQL. **No raw-SQL tool** is exposed. Before working a

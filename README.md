@@ -215,8 +215,9 @@ Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjca
 - [x] 4-column card grid — photo, name, supplier, SKU, usage count, price
 - [x] Wire to `/api/catalog` mock *(`lib/catalog.ts` + `/api/catalog`; server page → `CatalogClient` handles category-filter state. Built from design Catalog.)*
 
-### 4.4 Floor Plan (`/floor`)
-- [x] **Not in global sidebar — reached only from Floor-plan tab inside a Lead or Project**
+### 4.4 Floor Plan designer (`/floor`, `/floor/[id]`)
+- [x] **BUILT 2026-09-16** — full 2D + 3D designer per `docs/floor-plan-designer-plan.md`: walls (existing / demo / new), openings, generic + catalog cabinets with runs and auto counters, appliances, plumbing, electrical symbols, finishes, trim, dimensions, notes, comment pins, cameras, sections; three.js 3D (orbit / walk / plan, dollhouse, night, section plane, capture); elevations; checks; drawing-set PDF; versions → Floor-tab publish → client 3D viewer; estimate from plan via cost rules; MCP `*_plan_*` tools.
+- [x] **Not in global sidebar — reached from the Floor tab inside a Project or the Floor plan tab inside a Lead**
 - [x] 3-pane: 72px tool palette (Select, Wall, Door, Win, Measure, Cabinet, Appl, Plumb, Elec, Note + hotkeys), canvas (grid + walls + cabinets + dimensions), right rail (inspector + catalog grid + "Push to selections")
 - [x] Structural shell only — full editor internals deferred *(`lib/floor.ts` + server page; SVG grid + kitchen plan. Built from design Floor_A. No sidebar entry.)*
 
@@ -369,4 +370,4 @@ Authoritative runbook: **`deploy/README.md`** + `deploy/sjcos.service`.
 | **Real SMS integration** | Backend + `/messages` UI built, **inert** — needs a paid provider + A2P 10DLC. `docs/sms-seam.md`. |
 | **Google Drive mirror** | Not built; Files still uses local storage (`lib/upload-store.ts`). |
 | **Plaid / Stripe / QuickBooks sync** | Not built. Folded into the accounting epic. |
-| **Floor Plan editor internals** | Viewer + versioned published plans built (`lib/floorplans.ts`); the *designer/editor* is still deferred. |
+| **Floor Plan editor internals** | BUILT 2026-09-16 — `lib/plan-*.ts` + `components/floor/*` (see `docs/floor-plan-designer-plan.md`). |

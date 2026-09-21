@@ -3,9 +3,11 @@ import { Eyebrow } from "@/components/ui";
 import { CostBookClient } from "@/components/cost-book/CostBookClient";
 import { AddCostItemButton } from "@/components/cost-book/AddCostItemButton";
 import { getCostBook } from "@/lib/cost-book";
+import { PlanRulesPanel } from "@/components/cost-book/PlanRulesPanel";
+import { getPlanCostRules } from "@/lib/plan-designs";
 
 export default async function CostBookPage() {
-  const data = await getCostBook();
+  const [data, planRules] = await Promise.all([getCostBook(), getPlanCostRules()]);
   const active = data.items.filter((i) => !i.archived).length;
 
   return (
@@ -22,6 +24,10 @@ export default async function CostBookPage() {
         </div>
 
         <CostBookClient data={data} />
+        <PlanRulesPanel
+          rules={planRules}
+          costItems={data.items.filter((i) => !i.archived).map((i) => ({ id: i.id, name: i.name, unit: i.unit, category: i.category }))}
+        />
       </div>
     </Shell>
   );

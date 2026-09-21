@@ -1,10 +1,13 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import { Plus, X, Check, Eye, EyeOff } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import { runAction } from "@/lib/run-action";
 import type { FloorplanVersion } from "@/lib/floorplans";
+import type { PlanDesignSummary } from "@/lib/plan-designs";
+import { DesignsStrip } from "@/components/floor/DesignsStrip";
 import {
   uploadFloorplan,
   updateFloorplanNotes,
@@ -19,7 +22,16 @@ const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 /** Project Floor tab — versioned floor-plan viewer. Owner uploads a plan image
  *  or PDF (each upload is a new version), switches between versions, edits each
  *  version's notes, and removes versions. Not a CAD editor. */
-export function FloorPlan({ slug, versions }: { slug: string; versions: FloorplanVersion[] }) {
+export function FloorPlan({
+  slug,
+  versions,
+  designs = [],
+}: {
+  slug: string;
+  versions: FloorplanVersion[];
+  /** Live designer documents for this project (docs/floor-plan-designer-plan.md). */
+  designs?: PlanDesignSummary[];
+}) {
   const [pending, startTransition] = useTransition();
   const [notice, setNotice] = useState("");
   const [modal, setModal] = useState(false);
@@ -47,8 +59,10 @@ export function FloorPlan({ slug, versions }: { slug: string; versions: Floorpla
 
   return (
     <div className="flex flex-col gap-3">
+      <DesignsStrip scope={{ projectSlug: slug }} designs={designs} />
+      <div className="my-1 border-t border-rule" />
       <div className="flex items-center">
-        <h3 className="flex-1 font-serif text-[16px] font-semibold text-ink">Floor plan</h3>
+        <h3 className="flex-1 font-serif text-[16px] font-semibold text-ink">Plan versions</h3>
         <button
           onClick={() => setModal(true)}
           className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
@@ -101,6 +115,18 @@ export function FloorPlan({ slug, versions }: { slug: string; versions: Floorpla
                 )}
               </button>
             </div>
+            {selected.designId != null && (
+              <div className="flex flex-wrap items-center gap-2 text-[12px] text-ink-3">
+                <span>Cut from the designer.</span>
+                <Link href={`/floor/${selected.designId}`} className="font-semibold text-ink-2 underline hover:text-ink">
+                  Open design
+                </Link>
+                {selected.previewUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={selected.previewUrl} alt="3D preview" className="ml-auto h-16 rounded border border-rule object-cover" />
+                )}
+              </div>
+            )}
             <Card className="overflow-hidden p-0">
               {selected.isPdf ? (
                 <iframe

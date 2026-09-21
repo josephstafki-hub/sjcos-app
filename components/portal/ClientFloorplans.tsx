@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Check, FileText } from "lucide-react";
+import Link from "next/link";
+import { Box, Check, FileText } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import type { FloorplanVersion } from "@/lib/floorplans";
 import { approveFloorplan } from "@/lib/actions/floorplans";
@@ -130,6 +131,17 @@ function PlanCard({
           </a>
         )}
       </div>
+
+      {/* Only designer-drawn versions have a 3D model to open. */}
+      {plan.designVersionId != null && (
+      <Link
+        href={`/client-portal/plans/${plan.id}`}
+        className="mt-2 inline-flex min-h-9 items-center gap-1.5 rounded-md border border-rule bg-card px-2.5 text-[12px] font-semibold text-ink-2 hover:bg-paper-2"
+      >
+        <Box className="size-3.5" strokeWidth={1.75} />
+        View in 3D
+      </Link>
+      )}
 
       {current && !plan.approvedLabel && (
         <div className="mt-3 border-t border-rule-soft pt-2.5">

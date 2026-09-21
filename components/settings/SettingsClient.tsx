@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Avatar, Card, Chip, Eyebrow, Field } from "@/components/ui";
+import { DesignerDefaultsCard } from "@/components/settings/DesignerDefaultsCard";
 import type { SettingsData } from "@/lib/settings";
 import {
   setAiToggle,
@@ -401,6 +402,18 @@ export function SettingsClient({ data }: { data: SettingsData }) {
                 <Toggle key={t.key} settingKey={t.key} label={t.label} on={t.on} action={setNotifyToggle} />
               ))}
             </div>
+          </>
+        )}
+        {active === "designer" && (
+          <>
+            <Eyebrow>Floor-plan designer</Eyebrow>
+            <h1 className="mt-1 font-serif text-[30px] font-medium leading-none text-accent-2">Designer defaults</h1>
+            <div className="mt-1.5 text-[11px] text-ink-3">
+              Starting values for every new design — wall thickness, heights, overhangs, door and window sizes. A design
+              keeps its own copy, so changing these never moves an existing plan.
+            </div>
+            <div className="my-5 border-t border-rule" />
+            <DesignerDefaultsCard defaults={data.designerDefaults} />
           </>
         )}
       </section>

@@ -85,7 +85,8 @@ Grouped as the sidebar groups them (`components/shell/Sidebar.tsx`).
 | `/engine`           | `engine/page.tsx`          | Work items, skills, runbooks |
 | `/engine/permissions` | `engine/permissions/page.tsx` | Owner grants / decisions |
 | `/workbench`        | `workbench/page.tsx`       | `?s=<subject>` — live entity workbench |
-| `/floor`            | `floor/page.tsx`           | Floor-plan viewer |
+| `/floor`            | `floor/page.tsx`           | Floor-plan designer index (every live design + templates) |
+| `/floor/[id]`       | `floor/[id]/page.tsx`      | Floor-plan designer: 2D draft, 3D, elevations, inspector, publish (docs/floor-plan-designer-plan.md) |
 | `/ai`               | `ai/page.tsx`              | `?c=` passthrough to a conversation |
 | `/notifications`    | `notifications/page.tsx`   | |
 | `/settings`         | `settings/page.tsx`        | |
@@ -121,6 +122,7 @@ the shape:
 | Agent surface | `/api/internal/{bidding,doc-drafts,leads,newsletter,notify-owner,owner-grants,purchase-orders,runbooks}` | internal token — what the MCP server calls |
 | Mobile app | `/api/mobile/…` | token; consumed by `/home/joe/sjcos-mobile` |
 | Sessionless inbound | `/api/leads/intake`, `/api/catalog/clip`, `/api/sms/webhook`, `/api/inbox/oauth/*` | per-purpose bearer token / shared secret, **not** the session cookie |
+| `/client-portal/plans/[id]` | `client-portal/plans/[id]/page.tsx` | Client 3D viewer of a published plan version + pinned comments |
 | Client-scoped serves | `/api/portal/{bid-file,floorplan,mood-image,project-file,selection-image,sign-doc}/[id]` | portal claim/bearer (`lib/client-portal.ts`) |
 | Newsletter tracking | `/api/newsletter/{img,open,unsubscribe}/[token]` | opaque per-recipient token |
 

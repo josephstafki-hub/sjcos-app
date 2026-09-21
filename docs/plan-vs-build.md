@@ -40,7 +40,7 @@
 > | §11 website push | ✅ `/site`. |
 > | 10 newsletter | ✅ Issues, recipients, groups, drip sequences, outbox — owner-grant gated on release. |
 > | permit-packet | ✅ `lib/permits.ts` + `lib/actions/permit.ts`. |
-> | 3a floor-plan **designer** | ❌ still deferred. A versioned *viewer* shipped (`lib/floorplans.ts`); there is no editor. |
+> | 3a floor-plan **designer** | ✅ BUILT 2026-09-16 — `docs/floor-plan-designer-plan.md` (2D/3D designer, print, publish, estimate, MCP). |
 > | 5-pay / 8-pay payment processing | ❌ still deferred. No Stripe/Plaid anywhere. |
 > | 7 job costing | ❌ still deferred — depends on the accounting epic. |
 > | cash-flow-optimizer | ❌ still deferred. |
@@ -129,7 +129,7 @@
 
 | Plan element | Build reality | Status | Decision |
 |---|---|---|---|
-| **Rail 1 Floor-Plan Designer** (2D/3D, place products, demo/new walls, print→e-sign, auto-estimate) | `/floor` is a **structural shell only** — toolbar + static SVG + mock selection. No live geometry, drag, snapping, 2D/3D, or estimate generation. | 🟡 | **DEFER** — dedicated epic later (matches floor-planner-vision deferral). |
+| **Rail 1 Floor-Plan Designer** (2D/3D, place products, demo/new walls, print→e-sign, auto-estimate) | **BUILT 2026-09-16** — `/floor/[id]` designer with live geometry, snapping, catalog placement, 3D, elevations, drawing set, publish → sign, estimate from plan (`docs/floor-plan-designer-plan.md`). | ✅ | Done. |
 | Product catalog | `catalog_items` table + real CRUD (add/delete material). | ✅ | **KEEP** (revisit for product images later). |
 | **Browser extension** (product clipper) | Not built. | ❌ | **BUILD** — clips products from any site into the catalog. |
 | Mood boards / selections boards from catalog | Selections board real (rooms/sections + budgets, approve/decline). Mood table exists. | ✅ | **KEEP** (revisit later). |

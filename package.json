@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@react-three/drei": "^10.7.8",
+    "@react-three/fiber": "^9.7.0",
     "docx": "^9.7.1",
     "googleapis": "^173.0.0",
     "jose": "^6.2.3",
@@ -23,6 +25,7 @@
     "sanitize-html": "^2.17.5",
     "server-only": "^0.0.1",
     "sharp": "^0.34.5",
+    "three": "^0.186.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -33,6 +36,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/sanitize-html": "^2.16.1",
+    "@types/three": "^0.186.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
     "tailwindcss": "^4",

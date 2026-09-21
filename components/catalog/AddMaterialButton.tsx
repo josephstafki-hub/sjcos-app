@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Plus, X } from "lucide-react";
 import { createMaterial } from "@/lib/actions/catalog";
 import { MATERIAL_CATEGORIES } from "@/lib/catalog-categories";
+import { PLACE_KINDS } from "@/lib/plan-doc";
 import { SubmitButton } from "@/components/ui";
 
 /** "Add material" button + modal. Submits createMaterial, then closes (the
@@ -131,6 +132,35 @@ export function AddMaterialButton() {
                   className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
                 />
               </label>
+              {/* Placement — lets the floor-plan designer drop this product as a sized box. */}
+              <div className="rounded-md border border-rule-soft bg-paper-2 p-2.5">
+                <div className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+                  Placeable in the floor-plan designer (optional)
+                </div>
+                <div className="flex gap-2">
+                  <label className="flex flex-1 flex-col gap-1">
+                    <span className="text-[10px] text-ink-3">Width in</span>
+                    <input name="width_in" inputMode="decimal" placeholder="36" className="rounded-md border border-rule bg-paper px-2 py-1 text-[12px] text-ink outline-none focus:border-accent" />
+                  </label>
+                  <label className="flex flex-1 flex-col gap-1">
+                    <span className="text-[10px] text-ink-3">Depth in</span>
+                    <input name="depth_in" inputMode="decimal" placeholder="24" className="rounded-md border border-rule bg-paper px-2 py-1 text-[12px] text-ink outline-none focus:border-accent" />
+                  </label>
+                  <label className="flex flex-1 flex-col gap-1">
+                    <span className="text-[10px] text-ink-3">Height in</span>
+                    <input name="height_in" inputMode="decimal" placeholder="34.5" className="rounded-md border border-rule bg-paper px-2 py-1 text-[12px] text-ink outline-none focus:border-accent" />
+                  </label>
+                  <label className="flex w-[130px] flex-col gap-1">
+                    <span className="text-[10px] text-ink-3">Kind</span>
+                    <select name="place_kind" defaultValue="" className="rounded-md border border-rule bg-paper px-2 py-1 text-[12px] text-ink outline-none focus:border-accent">
+                      <option value="">Not placeable</option>
+                      {PLACE_KINDS.map((k) => (
+                        <option key={k} value={k}>{k}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </div>
               <label className="flex flex-col gap-1">
                 <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Product image (optional)</span>
                 <input

@@ -201,6 +201,55 @@ of reshuffling one the owner has already dragged into place.
 (only for images you have looked at) + `add_mood_swatch` + `add_mood_text` →
 `arrange_mood_board` → tell the owner it's ready to review.
 
+## Floor-plan designer tools (plans, ops, measures, versions)
+
+The floor-plan designer (`/floor/<id>`, docs/floor-plan-designer-plan.md §12) is
+drivable from any MCP client. Lives in `mcp/floor-tools.mjs`, registered from
+`buildServer()`. Edits go through the **same op language the canvas uses**
+(`lib/plan-ops.ts`), validated and applied server-side, so an agent and a human
+can never produce different geometry from the same intent. Every tool answers
+`{ ok, ... }` JSON; failures are `{ ok: false, error }` and never write.
+
+| Tool | Effect |
+|---|---|
+| `list_plan_designs` | Designs by `project_slug` / `lead_slug` (or all), with counts and version count |
+| `get_plan_design` | One design: rooms, items, walls (ids + lengths), openings, devices, measures, checks; `include_doc` for the raw PlanDoc |
+| `describe_plan_design` | Plain-language paragraph for chat (rooms, cabinet LF, appliances, walls, open checks) |
+| `create_plan_design` | New design on a project/lead from a room template, a width × depth rectangle, or empty |
+| `duplicate_plan_design` | Copy a design as an "option B" |
+| `apply_plan_ops` | Apply a batch of ops (all-or-nothing, optional `expected_rev`); returns new rev, created ids, new checks |
+| `list_plan_library` | Placeable library keys (cabinets, appliances, fixtures, …) + room template keys |
+| `list_plan_finishes` | Finish preset keys the finish/counter ops accept as `material` |
+| `get_plan_measures` | Read-only takeoff rows + product lines (estimate generation stays an app action) |
+| `run_plan_checks` | Geometry / clearance / code checks |
+| `save_plan_version` | Immutable numbered snapshot of the current doc |
+| `list_plan_versions` | Saved versions with counts |
+| `stage_plan_sheet` | Records a sheet request as an agent comment; does **not** render/publish/send |
+| `add_plan_comment` | Pin an agent comment at a point or on an item |
+
+Coordinates are inches, +y down; an item's `(x, y)` is its footprint centre;
+`placeItem` snaps to the nearest wall by default. For a room drawn with
+`addRoomRect` the interior is each wall's **right** side. Wall ids are generated
+— read them from `created.walls` / `walls` in the response before the next
+batch. The full op reference is in the `apply_plan_ops` tool description.
+
+**Example — a 12×14 kitchen** (`design_id` 12 from `create_plan_design`):
+
+```
+apply_plan_ops { design_id: 12, ops: [ { "op": "addRoomRect", "p": {"x":0,"y":0}, "q": {"x":148.5,"y":172.5}, "name": "Kitchen" } ] }
+   → created.walls = [TOP, RIGHT, BOTTOM, LEFT]  (use those ids below)
+apply_plan_ops { design_id: 12, ops: [
+  { "op": "addOpening", "wallId": "BOTTOM", "atIn": 56, "kind": "door" },
+  { "op": "placeRun", "wallId": "TOP", "side": "right", "startIn": 0, "keys": ["base-LS36","base-SB36","appl-dw-24","base-B24"] },
+  { "op": "placeItem", "libraryKey": "appl-fridge-36", "at": {"x":20,"y":150} },
+  { "op": "addDevice", "type": "gfci", "at": {"x":60,"y":4}, "heightAff": 42 } ] }
+```
+
+> **No deletes, nothing client-facing.** No tool removes a design, version or
+> comment (the in-doc `delete` op only removes drawing elements). Rendering the
+> sheet set, generating the estimate, publishing to the portal and sending for
+> signature are app actions; the last two need the owner grant (§10).
+
 ## Bidding tools (per-project bid packages → email)
 
 Bids are **email**: the owner's Send button emails the packet (scope, per-sub

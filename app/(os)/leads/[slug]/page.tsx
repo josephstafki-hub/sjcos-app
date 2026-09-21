@@ -27,6 +27,8 @@ import { ProjectComms } from "@/components/projects/ProjectComms";
 import { PortalAccessPanel, type PortalInviteSummary } from "@/components/portal/PortalAccessPanel";
 import { listDocDrafts, listDocTemplates } from "@/lib/doc-drafts";
 import { getLeadFiles } from "@/lib/projects";
+import { getDesignsForScope } from "@/lib/plan-designs";
+import { DesignsStrip } from "@/components/floor/DesignsStrip";
 import { getClientInvite, getPortalClaim } from "@/lib/client-invites";
 import { getClientActivity } from "@/lib/client-activity";
 import { getClientUploadsForOwner, getPublishedRoster } from "@/lib/portal-roster";
@@ -51,6 +53,7 @@ export default async function LeadDetailPage({
   const { tab: linkedTab, focus: linkedFocus } = await searchParams;
   const lead = await getLead(slug);
   if (!lead) notFound();
+  const planDesigns = await getDesignsForScope({ leadSlug: lead.slug });
 
   const activity = await getLeadActivity(slug);
   const score = await getLeadScore(slug);
@@ -362,6 +365,7 @@ export default async function LeadDetailPage({
     Tasks: <LeadTasks slug={lead.slug} tasks={tasks} />,
     Conversation: conversationPanel,
     "Rough estimate": estimatePanel,
+    "Floor plan": <DesignsStrip scope={{ leadSlug: lead.slug }} designs={planDesigns} />,
     Documents: (
       <div className="space-y-8">
         {leadDocTemplates.map((t) => (

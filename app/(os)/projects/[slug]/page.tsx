@@ -56,6 +56,7 @@ import { getProjectMoney, usd } from "@/lib/money";
 import { getProjectSelections } from "@/lib/selections";
 import { getProjectMood } from "@/lib/mood";
 import { getProjectFloorplans } from "@/lib/floorplans";
+import { getDesignsForScope } from "@/lib/plan-designs";
 import { getCatalogData } from "@/lib/catalog";
 import { projectContext } from "@/lib/page-context";
 import { advanceProjectStatus } from "@/lib/actions/projects";
@@ -105,6 +106,7 @@ export default async function ProjectDetailPage({
     selections,
     mood,
     floorplans,
+    planDesigns,
     catalog,
     projectFiles,
     commsThread,
@@ -133,6 +135,7 @@ export default async function ProjectDetailPage({
     getProjectSelections(slug),
     getProjectMood(slug),
     getProjectFloorplans(slug),
+    getDesignsForScope({ projectSlug: slug }),
     getCatalogData(),
     getProjectFiles(slug),
     getPortalThread(portalChannel("client", slug)),
@@ -614,7 +617,7 @@ export default async function ProjectDetailPage({
   );
 
   // ── Floor / Mood — design-tool tabs (real boards, S5D/S5E) ──────────────────
-  const floorPanel = <FloorPlan slug={slug} versions={floorplans} />;
+  const floorPanel = <FloorPlan slug={slug} versions={floorplans} designs={planDesigns} />;
   const moodPanel = <MoodBoard slug={slug} boards={mood} catalog={moodCatalog} />;
 
   // ── Money — what the job was priced at, what's been billed, what changed.

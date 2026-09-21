@@ -58,6 +58,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { DEEP_RE, CHAT_RE } from "../lib/triage-lanes.mjs";
 import { registerMoodTools } from "./mood-tools.mjs";
 import { registerBiddingTools } from "./bidding-tools.mjs";
+import { registerFloorTools } from "./floor-tools.mjs";
 import { registerChatgptTools } from "./chatgpt-tools.mjs";
 import { registerGrantTools } from "./grants-tools.mjs";
 import { registerCommsTools } from "./comms-tools.mjs";
@@ -2329,6 +2330,7 @@ server.registerTool(
   // deletes, nothing client-facing), just kept separate to keep this file from
   // growing without bound. See mcp/mood-tools.mjs.
   registerMoodTools(server, { rows, json, uploadDir: path.join(__dirname, "..", "uploads") });
+  registerFloorTools(server, { rows, json });
 
   // Bidding lives in its own module too: stage + award. Sending a package is
   // real email, so it is NOT here — it's a granted send (below).

@@ -15,6 +15,7 @@ export type ClientActivityKind =
   | "mood_feedback"
   | "mood_approve"
   | "plan_approve"
+  | "plan_comment"
   | "sign"
   | "decline"
   | "punch_confirm"

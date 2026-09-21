@@ -23,6 +23,11 @@ export interface FloorplanVersion {
   /** Set when the client approved this version from their portal. */
   approvedName: string | null;
   approvedLabel: string | null;
+  /** Set when this version was cut from a designer document (3D viewer available). */
+  designVersionId: number | null;
+  designId: number | null;
+  /** 3D capture shown on the card, if the publish included one. */
+  previewUrl: string | null;
 }
 
 interface FloorplanRow {
@@ -35,12 +40,16 @@ interface FloorplanRow {
   published_at: Date | null;
   client_approved_name: string;
   approved_label: string | null;
+  design_version_id: string | null;
+  design_id: string | null;
+  preview_file_id: string | null;
 }
 
 async function loadFloorplans(
   slug: string,
   fileUrl: (r: FloorplanRow) => string,
   publishedOnly = false,
+  previewUrl: (r: FloorplanRow) => string = (r) => `/api/files/${r.preview_file_id}`,
 ): Promise<FloorplanVersion[]> {
   const { rows } = await query<FloorplanRow>(
     `SELECT fp.id, fp.version, fp.notes, fp.file_id,
@@ -48,7 +57,8 @@ async function loadFloorplans(
             to_char(fp.created_at, 'Mon FMDD, YYYY') AS uploaded,
             fp.published_at,
             fp.client_approved_name,
-            to_char(fp.client_approved_at, 'Mon FMDD, YYYY') AS approved_label
+            to_char(fp.client_approved_at, 'Mon FMDD, YYYY') AS approved_label,
+            fp.design_version_id, fp.design_id, fp.preview_file_id
        FROM project_floorplans fp
        JOIN projects p ON p.id = fp.project_id
        LEFT JOIN files f ON f.id = fp.file_id
@@ -66,6 +76,9 @@ async function loadFloorplans(
     published: r.published_at !== null,
     approvedName: r.approved_label ? r.client_approved_name || null : null,
     approvedLabel: r.approved_label,
+    designVersionId: r.design_version_id ? Number(r.design_version_id) : null,
+    designId: r.design_id ? Number(r.design_id) : null,
+    previewUrl: r.preview_file_id ? previewUrl(r) : null,
   }));
 }
 

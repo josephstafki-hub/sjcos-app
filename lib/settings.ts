@@ -3,6 +3,8 @@
 // persist through lib/actions/settings.ts. Integrations + the non-profile
 // categories stay static placeholders.
 
+import { getDesignerDefaults } from "./plan-designs";
+import type { DesignerDefaults } from "./plan-doc";
 import { query } from "./db";
 import { PERMISSIONS, normalizePermissions } from "@/lib/permissions";
 import { getCurrentUser } from "./dal";
@@ -57,6 +59,8 @@ const NOTIFY_TOGGLES: { key: string; label: string; default: boolean }[] = [
 ];
 
 export interface SettingsData {
+  /** Floor-plan designer defaults (designer.* keys), see lib/plan-doc DEFAULTS. */
+  designerDefaults: DesignerDefaults;
   categories: SettingsCategory[];
   profile: {
     name: string;
@@ -125,9 +129,10 @@ export interface SettingsData {
 }
 
 export async function getSettingsData(): Promise<SettingsData> {
-  const { rows } = await query<{ key: string; value: string }>(
-    `SELECT key, value FROM app_settings`,
-  );
+  const [{ rows }, designerDefaults] = await Promise.all([
+    query<{ key: string; value: string }>(`SELECT key, value FROM app_settings`),
+    getDesignerDefaults(),
+  ]);
   const settings = new Map(rows.map((r) => [r.key, r.value]));
   const get = (key: string, fallback = "") => settings.get(key) ?? fallback;
 
@@ -191,6 +196,7 @@ export async function getSettingsData(): Promise<SettingsData> {
   ];
 
   return {
+    designerDefaults,
     // Only categories with a real function. Workspace/Subscription/Data were
     // read-only fiction (no subscription on a self-hosted tool, duplicated
     // identity, placeholder backup status) — removed in S6.
@@ -201,6 +207,7 @@ export async function getSettingsData(): Promise<SettingsData> {
       { id: "integrations", title: "Integrations" },
       { id: "ai", title: "AI" },
       { id: "notifications", title: "Notifications" },
+      { id: "designer", title: "Floor-plan designer" },
     ],
     profile: {
       name,

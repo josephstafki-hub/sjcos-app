@@ -117,7 +117,7 @@ export async function loadRawProjectMoney(
          FROM sub_invoices si LEFT JOIN subs s ON s.slug = si.sub_slug
         WHERE si.project_id = ANY($1::uuid[]) ORDER BY si.created_at, si.id`, ids),
     q(
-      `SELECT id, project_id, vendor_label, kind, amount_cents, memo, to_char(expense_date, 'YYYY-MM-DD') AS on_day,
+      `SELECT id, project_id, vendor_label, kind, amount_cents, memo, paid_from, to_char(expense_date, 'YYYY-MM-DD') AS on_day,
               budget_line_id, change_order_id, purchase_order_id, source_ref
          FROM expenses WHERE project_id = ANY($1::uuid[]) ORDER BY expense_date, id`, ids),
     q(
@@ -215,7 +215,7 @@ export async function loadRawProjectMoney(
   for (const e of expenses)
     of(e)?.expenses.push({
       id: num(e.id), vendorLabel: text(e.vendor_label), kind: text(e.kind), amountCents: num(e.amount_cents),
-      memo: text(e.memo) || undefined, on: e.on_day == null ? null : text(e.on_day),
+      memo: text(e.memo) || undefined, paidFrom: text(e.paid_from) || undefined, on: e.on_day == null ? null : text(e.on_day),
       budgetLineId: numOrNull(e.budget_line_id), changeOrderId: numOrNull(e.change_order_id),
       purchaseOrderId: numOrNull(e.purchase_order_id), sourceRef: text(e.source_ref) || undefined,
     } satisfies RawExpense);

@@ -51,6 +51,8 @@ export type ProfitStatus = "unknown" | "planned" | "projected";
 export interface BudgetLine {
   /** Stable slug. Change orders credit it; cost rows point at it. */
   id: string;
+  /** budget_lines.id — what the edit forms write to. */
+  rowId?: number;
   trade: string;
   detail?: string;
   /** Where the budget number came from ("Estimate #12 · Plumbing"). */
@@ -102,6 +104,8 @@ export interface BudgetCoCredit {
 export interface BudgetChangeOrder {
   /** Display id: "CO-1". */
   id: string;
+  /** change_orders.id — what the edit forms write to. */
+  rowId?: number;
   title: string;
   description?: string;
   vendor?: string;
@@ -167,12 +171,16 @@ export interface BudgetCostRow {
   sourceId: number;
   vendor: string;
   dateLabel: string;
+  /** ISO day, for the edit form. */
+  on?: string | null;
   amountCents: number;
   paidCents: number;
   owedCents: number;
   orderedCents: number;
   /** Expense kind (labor / material / …), when it is one. */
   kind?: string;
+  /** How an expense was paid: checking / card / cash. */
+  paidFrom?: string;
   status: string;
   note?: string;
   /** Budget line id or CO id. Absent = unassigned (still counted). */
@@ -230,6 +238,8 @@ export interface BudgetView {
   budgetCaption?: string;
   /** The base price: what the payer pays before change orders. */
   priceCents: number;
+  /** Where that price came from. "override" = set by hand in Budget settings. */
+  priceSource?: "override" | "estimate" | "contract" | "lines" | "none";
   parties: BudgetParty[];
   lines: BudgetLine[];
   changeOrders: BudgetChangeOrder[];

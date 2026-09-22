@@ -142,7 +142,8 @@ export function buildCompanyMoney(views: BudgetView[]): CompanyMoney {
     const dupes = view.costs.filter((r) => r.flags?.includes("possible duplicate"));
     if (dupes.length) add("possible_duplicate", `${dupes.length} costs look like duplicates`, Math.max(...dupes.map((r) => Math.abs(r.amountCents))));
     if (view.project?.status === "construction" && view.completeness.profit === "unknown")
-      add("profit_unknown", "On site with no budget — profit isn't known", t.priceCents);
+      // Two different next steps: start a budget, or finish the one that's there.
+      add("profit_unknown", view.lines.length ? "On site with an unfinished budget — profit isn't known" : "On site with no budget — profit isn't known", t.priceCents);
     const stale = view.completeness.missing.find((m) => m.startsWith("Costs last entered"));
     if (stale) add("costs_stale", stale, t.costSoFarCents);
     const loose = view.unassigned.paidCents + view.unassigned.owedCents + view.unassigned.orderedCents;
@@ -157,4 +158,32 @@ export function buildCompanyMoney(views: BudgetView[]): CompanyMoney {
     closedTotals: company(true),
     attention,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Sorting the jobs table. Unknown (null) always sorts LAST, whichever way the
+// column is ordered — "not known" is not a small number and not a large one.
+// ---------------------------------------------------------------------------
+
+export type CompanySortKey = "name" | "price" | "cost" | "profit" | "margin" | "workDone" | "collected" | "unpaid" | "leftToCollect";
+
+const SORT_VALUE: Record<Exclude<CompanySortKey, "name">, (r: CompanyJobRow) => number | null> = {
+  price: (r) => r.priceCents,
+  cost: (r) => r.costCents,
+  profit: (r) => r.profitCents,
+  margin: (r) => r.marginPct,
+  workDone: (r) => r.workDonePct,
+  collected: (r) => r.collectedCents,
+  unpaid: (r) => r.unpaidInvoicesCents,
+  leftToCollect: (r) => r.leftToCollectCents,
+};
+
+export function sortCompanyRows(rows: CompanyJobRow[], key: CompanySortKey, dir: "asc" | "desc"): CompanyJobRow[] {
+  const sign = dir === "asc" ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    if (key === "name") return sign * a.name.localeCompare(b.name);
+    const x = SORT_VALUE[key](a), y = SORT_VALUE[key](b);
+    if (x == null || y == null) return x == null && y == null ? a.name.localeCompare(b.name) : x == null ? 1 : -1;
+    return sign * (x - y) || a.name.localeCompare(b.name);
+  });
 }

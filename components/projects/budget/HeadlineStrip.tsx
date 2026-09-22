@@ -7,21 +7,7 @@ import { Info, Settings2 } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import type { ChipKind } from "@/components/ui/Chip";
 import { fmtK, fmtPct, type BudgetTotals, type BudgetView } from "@/lib/budget-types";
-import { BTN, BTN_PRIMARY } from "./parts";
-
-/** Narrow column: label and value share a line. With room: a stacked tile. */
-function Tile({ label, value, note, children }: { label: string; value: string; note?: string; children?: React.ReactNode }) {
-  return (
-    <div className="min-w-0 rounded-md border border-rule-soft bg-paper px-3 py-2.5">
-      <div className="flex items-baseline justify-between gap-3 @xl:block">
-        <div className="text-[11.5px] text-ink-3">{label}</div>
-        <div className="font-serif text-[20px] leading-tight text-ink @xl:mt-0.5 @xl:text-[22px]">{value}</div>
-      </div>
-      {children}
-      {note && <div className="mt-1 text-[11.5px] leading-snug text-ink-3">{note}</div>}
-    </div>
-  );
-}
+import { BTN, BTN_PRIMARY, Tile } from "./parts";
 
 const money = (n: number, word: string) => (n > 0 ? `${word} ${fmtK(n)}` : null);
 

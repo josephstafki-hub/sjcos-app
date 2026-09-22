@@ -10,6 +10,8 @@ import type { TodayData } from "./today";
 import type { WarrantyData } from "./warranty";
 import { stageLabel } from "./leads";
 import { projectStageLabel } from "./projects";
+import type { CompanyMoney } from "@/lib/budget-company";
+import { fmtK, fmtPct } from "@/lib/budget-types";
 
 /** Brief for a lead detail page. */
 export function leadContext(lead: LeadDetail): string {
@@ -64,6 +66,25 @@ export function projectsContext(data: ProjectsData): string {
       ),
   ];
   return lines.join("\n");
+}
+
+/** Brief for the company Money page. Says what is NOT known as plainly as what
+ *  is, so the assistant never turns "profit on 2 jobs" into "company profit". */
+export function moneyContext(data: CompanyMoney): string {
+  const t = data.totals;
+  const job = (r: CompanyMoney["open"][number]) =>
+    `  - ${r.name} (${r.stage}) · price ${fmtK(r.priceCents)} · ${r.costIsSoFar ? "cost so far" : "cost"} ${fmtK(r.costCents)} · ` +
+    `${r.profitCents != null ? `${r.profitStatus} profit ${fmtK(r.profitCents)} (${fmtPct(r.marginPct)})` : "profit NOT KNOWN (no finished budget)"} · ` +
+    `collected ${fmtK(r.collectedCents)} · left to collect ${fmtK(r.leftToCollectCents)}`;
+  return [
+    `MONEY · ${t.jobCount} open jobs · ${fmtK(t.contractedCents)} contracted · ${fmtK(t.collectedCents)} collected · ${fmtK(t.leftToCollectCents)} left to collect (includes unbilled work — NOT receivables) · ${fmtK(t.unpaidInvoicesCents)} unpaid invoices`,
+    t.profitJobs
+      ? `Profit ${fmtK(t.profitCents)} (${fmtPct(t.blendedMarginPct)} margin) is known on ONLY ${t.profitJobs} of ${t.jobCount} open jobs, covering ${fmtK(t.profitPriceCoverageCents)} of the contracted total. Do not present it as company-wide profit.`
+      : `Profit is not known on any open job yet: none has a finished budget. Do not estimate one.`,
+    data.attention.length ? `Needs attention:\n${data.attention.slice(0, 10).map((a) => `  - ${a.name}: ${a.text} (${fmtK(a.amountCents)})`).join("\n")}` : "Nothing flagged.",
+    `Open jobs:\n${data.open.map(job).join("\n")}`,
+    `${data.closed.length} closed jobs · ${fmtK(data.closedTotals.contractedCents)} contracted · ${fmtK(data.closedTotals.collectedCents)} collected (history from Houzz has no cost side).`,
+  ].join("\n");
 }
 
 /** Brief for the Warranty page. */

@@ -85,3 +85,27 @@ test("Egan rolls up as an insurance job with a projected profit below its plan",
   assert.deepEqual([row.slug, row.profitStatus, row.profitCents, row.priceCents], ["molly-egan", "projected", 958532, 8860331]);
   assert.equal(row.headline, "This job should make about $9,600 (11%) if the remaining work costs what you expect — $4,638 less than planned.");
 });
+
+test("sorting the jobs table: unknown always sorts last, whichever way the column runs", async () => {
+  const { sortCompanyRows } = await import("../lib/budget-company.ts");
+  const planned = job({ slug: "planned", name: "Planned", contractValueDollars: 20000, budgetComplete: true }, {
+    lines: [{ id: 1, key: "all", trade: "All", kind: "trade", budgetCents: 1400000, priceCents: 2000000, estToFinishCents: null, percentComplete: null, creditedCoId: null }],
+  });
+  const rows = buildCompanyMoney([contractOnly, kitchen(), precon, planned]).open;
+  const order = (key, dir) => sortCompanyRows(rows, key, dir).map((r) => r.slug);
+  assert.deepEqual(order("profit", "desc"), ["sample-kitchen", "planned", "flanagan", "spaeth"]);
+  assert.deepEqual(order("profit", "asc"), ["planned", "sample-kitchen", "flanagan", "spaeth"], "ascending still leaves the unknowns at the bottom");
+  assert.deepEqual(order("margin", "asc").slice(-2), ["flanagan", "spaeth"]);
+  assert.deepEqual(order("price", "desc"), ["sample-kitchen", "flanagan", "planned", "spaeth"]);
+  assert.deepEqual(order("name", "asc"), ["flanagan", "planned", "sample-kitchen", "spaeth"].sort((a, b) => rows.find((r) => r.slug === a).name.localeCompare(rows.find((r) => r.slug === b).name)));
+  assert.deepEqual(rows.map((r) => r.slug), buildCompanyMoney([contractOnly, kitchen(), precon, planned]).open.map((r) => r.slug), "sorting never mutates its input");
+});
+
+test("an unfinished budget and no budget are different problems, and say so", () => {
+  const adopted = job({ slug: "louiselle", name: "Louiselle", contractValueDollars: 28296 }, {
+    lines: [{ id: 1, key: "cabinets", trade: "Cabinets", kind: "trade", budgetCents: 887125, priceCents: 887125, estToFinishCents: null, percentComplete: null, creditedCoId: null }],
+  });
+  const text = Object.fromEntries(buildCompanyMoney([contractOnly, adopted]).attention.map((a) => [a.slug, a.text]));
+  assert.equal(text.flanagan, "On site with no budget — profit isn't known");
+  assert.equal(text.louiselle, "On site with an unfinished budget — profit isn't known");
+});

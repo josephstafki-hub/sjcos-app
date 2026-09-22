@@ -24,7 +24,7 @@ route prefixes it opens. Two are marked sensitive:
   - `change_orders` — change orders (Money tab › Change orders)
   - `bidding` — bid packages, sub bid amounts, bid files (project Bidding tab)
   - `cost_book` — `/cost-book`
-  - **`money`** — everything else financial: billing rates, Books. **Every future money feature gates on this key** unless
+  - **`money`** — everything else financial: **job costing and profit** (the `/money` page, a project's Money › Overview, and the Overview rail's profit line), billing rates, Books. **Every future money feature gates on this key** unless
     it clearly belongs to one of the four above.
 - **`ai`** — the Ask window / operator panel. Agents there run with owner-level
   tools, so it effectively unlocks everything.

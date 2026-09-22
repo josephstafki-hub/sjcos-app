@@ -56,8 +56,17 @@ test("adopting a no-markup estimate writes lines and prices but does NOT mark th
   assert.deepEqual([r.ok, r.linesWritten, r.hasMarkup, r.budgetComplete, r.warning], [true, 2, false, false, NO_MARKUP_NOTE]);
   const project = db.writes.find((w) => w.table === "projects");
   assert.deepEqual(project.params, ["p", 2829564, false, NO_MARKUP_NOTE], "price pinned to the estimate total; complete = false; the note explains why");
-  assert.match(project.sql, /budget_complete = budget_complete OR \$3/, "never un-ticks a budget the owner already confirmed");
   assert.match(project.sql, /COALESCE\(price_cents, \$2\)/, "never overwrites a price the owner set");
+});
+
+test("re-syncing a no-markup estimate over a confirmed budget WITHDRAWS the confirmation", async () => {
+  // The lines now carry client prices as costs — unverified — so a profit must not keep showing.
+  const db = fakeDb({ existingLines: 3, lines: [row("Cabinets", 1, 887125, 887125)] });
+  const r = await adoptEstimateAsBudget(db.run, { projectId: "p", replace: true });
+  assert.deepEqual([r.ok, r.hasMarkup, r.budgetComplete], [true, false, false]);
+  const project = db.writes.find((w) => w.table === "projects");
+  assert.match(project.sql, /budget_complete = \$3/, "set, not OR-ed: a re-sync without markup un-confirms");
+  assert.equal(project.params[2], false);
 });
 
 test("adopting an estimate with real markup marks the budget complete", async () => {

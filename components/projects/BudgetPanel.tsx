@@ -16,13 +16,13 @@ import { runAction } from "@/lib/run-action";
 import { computeTotals, describeFinancials, fmtK, type BudgetChangeOrder, type BudgetCostRow, type BudgetLine, type BudgetView } from "@/lib/budget-types";
 import {
   adoptEstimateAsBudget, assignCost, deleteBudgetLine, deleteExpense, linkCostToPurchaseOrder, reconcileBilling,
-  saveBudgetLine, saveBudgetSettings, saveChangeOrderCosts, saveExpense, setSubInvoicePayment, unreconcileBilling,
+  saveBudgetLine, saveBudgetSettings, saveChangeOrderCosts, saveExpense, savePayersAndFunding, setSubInvoicePayment, unreconcileBilling,
 } from "@/lib/actions/budget";
 import { HeadlineStrip } from "./budget/HeadlineStrip";
 import { InOutBars } from "./budget/InOutBars";
 import { CoChart, PayChart, TradeChart } from "./budget/Charts";
 import { ChangeOrderCards, CostsLedger, FundingTable, HowFigured, InvoicesTable, TradesTable } from "./budget/Folds";
-import { CoCostsModal, ExpenseModal, LineModal, PaymentModal, ReconcileModal, SettingsModal, parseTarget } from "./budget/EditModals";
+import { CoCostsModal, ExpenseModal, LineModal, PayersModal, PaymentModal, ReconcileModal, SettingsModal, parseTarget } from "./budget/EditModals";
 import { BTN, Fold, Section } from "./budget/parts";
 
 type Result = { ok: boolean; error?: string };
@@ -32,6 +32,7 @@ type Modal =
   | { kind: "expense"; row: BudgetCostRow | null }
   | { kind: "payment"; row: BudgetCostRow }
   | { kind: "co"; co: BudgetChangeOrder }
+  | { kind: "payers" }
   | { kind: "reconcile" };
 type FoldKey = "trades" | "cos" | "costs" | "invoices" | "funding" | "notes" | "figured";
 
@@ -109,7 +110,12 @@ export function BudgetPanel({ slug, budget, isOwner, hasApprovedEstimate, poOpti
 
       <Section
         title="Details"
-        action={isOwner ? <button type="button" onClick={() => setModal({ kind: "reconcile" })} className={BTN}>{budget.billing.source === "invoices" ? "Billing: from invoices" : "Reconcile billing"}</button> : undefined}
+        action={
+          <div className="flex flex-wrap gap-1.5">
+            <button type="button" onClick={() => setModal({ kind: "payers" })} className={BTN}>Who pays</button>
+            {isOwner && <button type="button" onClick={() => setModal({ kind: "reconcile" })} className={BTN}>{budget.billing.source === "invoices" ? "Billing: from invoices" : "Reconcile billing"}</button>}
+          </div>
+        }
       >
         <Fold title="Trades, line by line" right={`${budget.lines.length} line${budget.lines.length === 1 ? "" : "s"} · ${fmtK(t.projectedCostCents)} ${budget.completeness.budget ? "projected" : "so far"}`} open={open.trades} onToggle={() => toggle("trades")}>
           <TradesTable view={budget} t={t} onEdit={(line) => setModal({ kind: "line", line })} onAdd={() => setModal({ kind: "line", line: null })} />
@@ -165,6 +171,9 @@ export function BudgetPanel({ slug, budget, isOwner, hasApprovedEstimate, poOpti
       )}
       {modal?.kind === "co" && (
         <CoCostsModal view={budget} co={modal.co} pending={pending} onClose={() => setModal(null)} onSave={(input) => run(() => saveChangeOrderCosts(slug, input))} />
+      )}
+      {modal?.kind === "payers" && (
+        <PayersModal view={budget} pending={pending} onClose={() => setModal(null)} onSave={(input) => run(() => savePayersAndFunding(slug, input))} />
       )}
       {modal?.kind === "reconcile" && (
         <ReconcileModal view={budget} pending={pending} onClose={() => setModal(null)}

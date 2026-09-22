@@ -16,7 +16,7 @@ import * as writes from "@/lib/budget-writes";
 import type { Run } from "@/lib/budget-queries";
 import type {
   AdoptResult, BudgetLineInput, BudgetSettingsInput, ChangeOrderCostsInput, CostSource, CostTarget,
-  ExpenseInput, ReconcileBillingInput, WriteResult,
+  ExpenseInput, FundingEventInput, PartyInput, ReconcileBillingInput, WriteResult,
 } from "@/lib/budget-writes";
 
 /** Run `fn` against this job inside one transaction; commit only on `ok`. */
@@ -97,6 +97,15 @@ export async function setSubInvoicePayment(
 export async function saveChangeOrderCosts(slug: string, input: ChangeOrderCostsInput): Promise<WriteResult> {
   await requireAccess("money");
   return inProject(slug, (run, projectId) => writes.saveChangeOrderCosts(run, projectId, input));
+}
+
+/** Who pays for the base price, and the payments expected from them — saved together, all or nothing. */
+export async function savePayersAndFunding(slug: string, input: { parties: PartyInput[]; events: FundingEventInput[] }): Promise<WriteResult> {
+  await requireAccess("money");
+  return inProject(slug, async (run, projectId) => {
+    const parties = await writes.saveParties(run, projectId, input.parties);
+    return parties.ok ? writes.saveFundingEvents(run, projectId, input.events) : parties;
+  });
 }
 
 /** Owner only: it changes which number the whole app calls "collected". */

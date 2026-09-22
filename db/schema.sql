@@ -3191,6 +3191,9 @@ CREATE TABLE IF NOT EXISTS change_order_credits (
   amount_cents    integer NOT NULL DEFAULT 0,
   UNIQUE (change_order_id, budget_line_id)
 );
+-- A trade's scope is replaced by ONE change order: two crediting it would both
+-- lower the price while the trade's cost left the job only once.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_change_order_credits_line ON change_order_credits(budget_line_id);
 
 -- Who pays for the base price, and the inflows expected from them.
 CREATE TABLE IF NOT EXISTS budget_parties (

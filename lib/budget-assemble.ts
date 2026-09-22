@@ -481,11 +481,14 @@ export function assembleBudgetView(raw: RawProjectMoney, opts: { asOf: string })
   const openingCollected = tracked ? p.openingCollectedCents : 0;
   const openingBilled = tracked ? p.openingBilledCents : 0;
   const mismatchCents = handKept - (openingCollected + paidInvoices);
+  // Billed before invoices were tracked here and still unpaid is receivable too.
+  const openingUnpaid = tracked ? Math.max(0, openingBilled - openingCollected) : 0;
   const billing: BudgetBilling = {
     source: p.billingSource,
     collectedCents: tracked ? openingCollected + paidInvoices : handKept,
     billedCents: tracked ? openingBilled + paidInvoices + sentInvoices : null,
-    unpaidInvoicesCents: sentInvoices,
+    unpaidInvoicesCents: sentInvoices + openingUnpaid,
+    openingUnpaidCents: openingUnpaid,
     openingCollectedCents: openingCollected,
     openingBilledCents: openingBilled,
     openingNote: tracked ? p.openingNote || undefined : undefined,

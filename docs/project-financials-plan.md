@@ -1061,7 +1061,22 @@ next starts (phases 3 and 4b may run in parallel, see §11).
       one financial figure in the project page's HTML. Original scope: `/money`, sidebar, permissions,
       `moneyContext`, `business_snapshot` fields, `docs/routes.md`,
       `docs/users-and-access.md`.
-- [ ] **Phase 4b — Write tools + skill** (~400 lines). The rest of §8,
+- [x] **Phase 4b — Write tools + skill** — built 2026-09-21 on
+      `t3code/financials-phase-4b`, stacked on 4a. Eleven write tools in
+      `mcp/financials-tools.mjs` over the same `lib/budget-writes.ts` the app's
+      forms use; the payers / expected-payments form deferred from Phase 3; the
+      `fill-project-financials` skill (`docs/skills/`), filed as a PROPOSAL by
+      `scripts/propose-financials-skill.mjs` so it goes through Joe's approval
+      in `/engine` like any agent-written skill, never seeded as approved.
+      **Acceptance run through the real MCP server on the private copy:** a job
+      taken from profit unknown to projected with tool calls alone; the
+      identical import run a second time leaves every total, line and cost
+      unchanged; `replace` refuses to drop a trade with costs under it; a
+      shell-eaten dollar amount is rejected with nothing written; no tool
+      creates a change order or switches billing. 7 of 7 mutants killed.
+      Two names differ from §8: `set_change_order_costs` (it sets costs, not
+      funding) and one `set_funding_events` that replaces the list. Original
+      scope: The rest of §8,
       `mcp/README.md`, the Open Skill. Done when an agent can take Flanagan
       from profit `unknown` to `projected` using only MCP calls, and re-running
       the same import leaves the totals unchanged.
@@ -1257,3 +1272,18 @@ stays mounted, so a browser test must scope its lookups to the panel (the
 Overview rail and the Money section pills repeat the same words). The React
 "unique key" warning on the project page is pre-existing: the unmodified page
 throws it too — but only ~5 s after load, so a test that closes early misses it.
+
+**v2.4 — 2026-09-22, Astra's review of the PRs (#31–#35).** All five accepted;
+each fixed on `t3code/financials-phase-4b` (top of the stack) with a test that
+was confirmed to FAIL with the bug put back:
+
+| # | Finding | Severity | Fix |
+|---|---|---|---|
+| 26 | Re-importing an invoice under its `source_ref` reset it to approved / $0 paid / unfiled — a payment recorded since was erased (#35) | High | On a `source_ref` match, `recordSubInvoice` and `saveExpense` replace only the document's fields; status, paid, trade and PO are kept unless passed. A paid invoice re-imported with a new amount stays paid in full; a part payment is capped at the new amount. The MCP tools pass "not given" through as keep |
+| 27 | Deleting a credited line cascaded its credit away and the client's price rose by it (#33) | High | `deleteBudgetLine` refuses while a change order credits the line, naming it |
+| 28 | Two change orders could credit one trade; both lowered the price while the cost left once (#33, #35) | High | `saveChangeOrderCosts` refuses a credit on a trade another CO already credits; a unique index on `change_order_credits(budget_line_id)` enforces it in the database too |
+| 29 | Re-syncing a no-markup estimate over a confirmed budget kept `budget_complete`, so the page showed a profit built on client prices (#32) | Medium | Adoption SETS `budget_complete` = has-markup: a no-markup sync withdraws the confirmation until real costs are set and it is ticked again |
+| 30 | Opening receivables (opening billed − opening collected) vanished from "unpaid invoices" (#31, #34) | Medium | Counted on a reconciled job, and exposed as `billing.openingUnpaidCents`; on such a job unpaid = billed − collected exactly |
+
+The `uq_change_order_credits_line` index was added to the schema block and
+applied to the live database (the table was empty).

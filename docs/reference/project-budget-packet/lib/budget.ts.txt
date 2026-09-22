@@ -1,0 +1,182 @@
+import "server-only";
+
+// Project budget builder. Assembles a BudgetView (lib/budget-types.ts) for the
+// Money tab from SJC OS tables. Reads only; writes live in lib/actions/budget.ts
+// (create/edit lines, credits, parties, funding events) once those exist.
+//
+// Rules of the build (keep in sync with README-project-budget.md):
+//   budget      = budget_lines.budget_cents
+//   spent       = Σ paid client-invoice line items whose budget_key = line.key
+//                 (fallback: 0 when invoices are not allocated by line)
+//   committed   = Σ approved/submitted sub_invoices + sent/partial POs on the line
+//                 that are not yet covered by a paid client invoice
+//   est         = budget_lines.est_to_finish_cents, or budget - spent - committed if NULL
+//   credited    = budget_lines.credited_co_id IS NOT NULL
+//   CO counted  = change_orders.status = approved (billed/paid are approved with invoices)
+
+import { query } from "./db";
+import type {
+  BudgetView, BudgetLine, BudgetChangeOrder, BudgetParty, FundingEvent,
+  BudgetClientInvoice, BudgetSubInvoice, BudgetBasis, BudgetLineKind, BudgetCoStatus,
+} from "./budget-types";
+import type { ChipKind } from "@/components/ui/Chip";
+
+interface ProjectRow {
+  id: string; budget_basis: BudgetBasis; budget_label: string; budget_caption: string;
+  retainage_cents: number; budget_notes: string[]; contract_value: number; client_name: string;
+}
+interface LineRow {
+  id: number; key: string; trade: string; detail: string; source: string; kind: BudgetLineKind;
+  budget_cents: number; est_to_finish_cents: number | null; status: string; status_kind: string;
+  credited_co_id: number | null; credited_co_number: string | null; flags: string[];
+}
+interface CoRow {
+  id: number; number: string; title: string; description: string; vendor_label: string;
+  price_cents: number; status: string; paid_by: "owner" | "funder" | "split"; funder_share_cents: number;
+  credits: { budget_line_id: number; key: string; amount_cents: number }[] | null;
+  billed_cents: number;
+}
+interface InvRow {
+  number: string; milestone: string; amount: number; status: "draft" | "sent" | "paid";
+  date_label: string; status_label: string;
+  line_items: { label: string; amount: number; budget_key?: string; co_id?: number }[];
+}
+interface SubInvRow {
+  sub_name: string; amount: number; note: string; status: "submitted" | "approved" | "paid";
+  date_label: string; line_key: string | null; co_number: string | null;
+}
+interface PoRow { vendor_name: string; title: string; subtotal: number; status: string; date_label: string; line_key: string | null; co_number: string | null }
+interface PartyRow { key: string; label: string; base_share_cents: number; is_owner: boolean }
+interface FundRow { party_key: string; source: string; amount_cents: number; trigger_text: string; status: FundingEvent["status"]; status_label: string | null }
+
+export async function getProjectBudget(slug: string): Promise<BudgetView | null> {
+  const { rows: pr } = await query<ProjectRow>(
+    `SELECT id, budget_basis, budget_label, budget_caption, retainage_cents, budget_notes, contract_value, client_name
+       FROM projects WHERE slug = $1`, [slug]);
+  const p = pr[0];
+  if (!p) return null;
+
+  const [lines, cos, invoices, subInvs, pos, parties, funding] = await Promise.all([
+    query<LineRow>(
+      `SELECT bl.id, bl.key, bl.trade, bl.detail, bl.source, bl.kind, bl.budget_cents, bl.est_to_finish_cents,
+              bl.status, bl.status_kind, bl.credited_co_id, co.number AS credited_co_number, bl.flags
+         FROM budget_lines bl LEFT JOIN change_orders co ON co.id = bl.credited_co_id
+        WHERE bl.project_id = $1 ORDER BY bl.sort_order, bl.id`, [p.id]),
+    query<CoRow>(
+      `SELECT co.id, co.number, co.title, co.description, co.vendor_label, co.price_cents, co.status,
+              co.paid_by, co.funder_share_cents,
+              (SELECT json_agg(json_build_object('budget_line_id', c.budget_line_id, 'key', bl.key, 'amount_cents', c.amount_cents))
+                 FROM change_order_credits c JOIN budget_lines bl ON bl.id = c.budget_line_id
+                WHERE c.change_order_id = co.id) AS credits,
+              COALESCE((SELECT SUM((li->>'amount')::int) FROM invoices i, jsonb_array_elements(i.line_items) li
+                         WHERE i.project_id = co.project_id AND i.status IN ('sent','paid') AND (li->>'co_id')::bigint = co.id), 0) AS billed_cents
+         FROM change_orders co WHERE co.project_id = $1 ORDER BY co.created_at, co.id`, [p.id]),
+    query<InvRow>(
+      `SELECT number, milestone, amount, status, line_items,
+              to_char(COALESCE(sent_at, created_at), 'Mon FMDD') AS date_label,
+              CASE WHEN status='paid' THEN 'Paid ' || to_char(paid_at,'Mon FMDD')
+                   WHEN status='sent' THEN 'Sent ' || to_char(sent_at,'Mon FMDD') ELSE 'Draft' END AS status_label
+         FROM invoices WHERE project_id = $1 ORDER BY created_at, id`, [p.id]),
+    query<SubInvRow>(
+      `SELECT s.name AS sub_name, si.amount, si.note, si.status,
+              to_char(COALESCE(si.invoice_date, si.created_at), 'Mon FMDD') AS date_label,
+              bl.key AS line_key, co.number AS co_number
+         FROM sub_invoices si JOIN subs s ON s.slug = si.sub_slug
+         LEFT JOIN budget_lines bl ON bl.id = si.budget_line_id
+         LEFT JOIN change_orders co ON co.id = si.change_order_id
+        WHERE si.project_id = $1 ORDER BY si.created_at, si.id`, [p.id]),
+    query<PoRow>(
+      `SELECT po.vendor_name, po.title, po.subtotal, po.status, to_char(COALESCE(po.sent_at, po.created_at),'Mon FMDD') AS date_label,
+              bl.key AS line_key, co.number AS co_number
+         FROM purchase_orders po LEFT JOIN budget_lines bl ON bl.id = po.budget_line_id
+         LEFT JOIN change_orders co ON co.id = po.change_order_id
+        WHERE po.project_id = $1 AND po.status IN ('sent','partial','fulfilled') ORDER BY po.created_at, po.id`, [p.id]),
+    query<PartyRow>(`SELECT key, label, base_share_cents, is_owner FROM budget_parties WHERE project_id = $1 ORDER BY is_owner DESC, id`, [p.id]),
+    query<FundRow>(
+      `SELECT party_key, source, amount_cents, trigger_text, status,
+              CASE WHEN status_at IS NULL THEN NULL ELSE initcap(status) || ' ' || to_char(status_at,'Mon FMDD') END AS status_label
+         FROM funding_events WHERE project_id = $1 ORDER BY sort_order, id`, [p.id]),
+  ]);
+
+  // spent per line/CO: paid client invoice line items keyed by budget_key / co_id.
+  const spentByKey = new Map<string, number>();
+  for (const inv of invoices.rows) {
+    if (inv.status !== "paid") continue;
+    for (const li of inv.line_items ?? []) {
+      const k = li.budget_key ?? (li.co_id != null ? `co:${li.co_id}` : null);
+      if (k) spentByKey.set(k, (spentByKey.get(k) ?? 0) + (li.amount ?? 0));
+    }
+  }
+  // committed per line: sub invoices + POs that are not yet on a paid client invoice.
+  // Simple rule: committed = max(0, Σ sub cost - spent). Refine per line if needed.
+  const subCostByKey = new Map<string, number>();
+  const addCost = (k: string | null, c: number) => { if (k) subCostByKey.set(k, (subCostByKey.get(k) ?? 0) + c); };
+  subInvs.rows.forEach((s) => addCost(s.line_key ?? (s.co_number ? `co:${s.co_number}` : null), s.amount));
+  pos.rows.forEach((po) => addCost(po.line_key ?? (po.co_number ? `co:${po.co_number}` : null), po.subtotal));
+
+  const viewLines: BudgetLine[] = lines.rows.map((l) => {
+    const spent = spentByKey.get(l.key) ?? 0;
+    const committed = Math.max(0, (subCostByKey.get(l.key) ?? 0) - spent);
+    const credited = l.credited_co_id != null;
+    const est = credited ? 0 : l.est_to_finish_cents ?? Math.max(0, l.budget_cents - spent - committed);
+    return {
+      id: l.key, trade: l.trade, detail: l.detail || undefined, source: l.source || undefined, kind: l.kind,
+      budgetCents: l.budget_cents, spentCents: spent, committedCents: committed, estToFinishCents: est,
+      status: l.status || undefined, statusKind: (l.status_kind as ChipKind) || "ghost",
+      credited, creditedTo: l.credited_co_number ?? undefined, flags: l.flags?.length ? l.flags : undefined,
+    };
+  });
+
+  // Fallback when a project has no budget_lines yet: one line from contract_value so
+  // the panel still renders something sane (spent = Σ paid invoices).
+  if (viewLines.length === 0) {
+    const paid = invoices.rows.filter((i) => i.status === "paid").reduce((s, i) => s + i.amount, 0);
+    viewLines.push({ id: "contract", trade: "Contract", kind: "trade", budgetCents: p.contract_value,
+      spentCents: paid, committedCents: 0, estToFinishCents: Math.max(0, p.contract_value - paid),
+      status: "No budget lines yet", statusKind: "ghost" });
+  }
+
+  const viewCos: BudgetChangeOrder[] = cos.rows.map((c) => ({
+    id: c.number || `CO-${c.id}`, title: c.title, description: c.description || undefined,
+    vendor: c.vendor_label || undefined,
+    status: (c.status === "approved" && c.billed_cents >= c.price_cents && c.price_cents > 0 ? "billed" : c.status) as BudgetCoStatus,
+    totalCents: c.price_cents,
+    credits: (c.credits ?? []).map((x) => ({ lineId: x.key, amountCents: x.amount_cents })),
+    billedCents: c.billed_cents, spentCents: subCostByKey.get(`co:${c.number}`) ?? undefined,
+    paidBy: c.paid_by, funderShareCents: c.funder_share_cents || undefined,
+  }));
+
+  const viewParties: BudgetParty[] = parties.rows.length
+    ? parties.rows.map((x) => ({ key: x.key, label: x.label, baseShareCents: x.base_share_cents, isOwner: x.is_owner }))
+    : [{ key: "owner", label: p.client_name || "Client", baseShareCents: viewLines.reduce((s, l) => s + l.budgetCents, 0), isOwner: true }];
+
+  const viewFunding: FundingEvent[] = funding.rows.map((f) => ({
+    partyKey: f.party_key, source: f.source, amountCents: f.amount_cents, trigger: f.trigger_text || undefined,
+    status: f.status, statusLabel: f.status_label ?? undefined,
+  }));
+
+  const viewInvoices: BudgetClientInvoice[] = invoices.rows.map((i) => ({
+    number: i.number, dateLabel: i.date_label, label: i.milestone, amountCents: i.amount, status: i.status, statusLabel: i.status_label,
+    allocations: (i.line_items ?? []).filter((li) => li.budget_key || li.co_id != null)
+      .map((li) => ({ key: li.budget_key ?? `co:${li.co_id}`, amountCents: li.amount })),
+  }));
+
+  const viewSubs: BudgetSubInvoice[] = [
+    ...subInvs.rows.map((s) => ({ vendor: s.sub_name, dateLabel: s.date_label, amountCents: s.amount, note: s.note || undefined,
+      status: s.status, key: s.line_key ?? s.co_number ?? undefined })),
+    ...pos.rows.map((po) => ({ vendor: po.vendor_name, dateLabel: po.date_label, amountCents: po.subtotal,
+      note: `PO · ${po.title}`, status: (po.status === "fulfilled" ? "approved" : "submitted") as BudgetSubInvoice["status"],
+      key: po.line_key ?? po.co_number ?? undefined })),
+  ];
+
+  return {
+    basis: p.budget_basis,
+    asOfLabel: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+    budgetLabel: p.budget_label || "contract value",
+    budgetCaption: p.budget_caption || undefined,
+    parties: viewParties, lines: viewLines, changeOrders: viewCos, fundingEvents: viewFunding,
+    clientInvoices: viewInvoices, subInvoices: viewSubs,
+    retainageCents: p.retainage_cents || undefined,
+    notes: Array.isArray(p.budget_notes) && p.budget_notes.length ? p.budget_notes : undefined,
+  };
+}

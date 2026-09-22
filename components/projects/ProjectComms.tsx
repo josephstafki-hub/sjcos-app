@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { Card, SubmitButton } from "@/components/ui";
+import { Card, LinkedText, SubmitButton } from "@/components/ui";
 import { sendProjectMessage, sendLeadPortalMessage } from "@/lib/actions/portal";
 import type { PortalMessage } from "@/lib/portal-messages";
 
@@ -45,11 +45,11 @@ export function ProjectComms({
               >
                 <div
                   className={[
-                    "max-w-[80%] rounded-lg px-2.5 py-1.5 text-[12.5px] leading-snug",
+                    "max-w-[80%] whitespace-pre-wrap break-words rounded-lg px-2.5 py-1.5 text-[12.5px] leading-snug",
                     fromOwner ? "bg-accent text-ink" : "bg-paper-3 text-ink",
                   ].join(" ")}
                 >
-                  {m.body}
+                  <LinkedText text={m.body} />
                 </div>
                 <span className="mt-0.5 font-mono text-[8.5px] uppercase tracking-[0.1em] text-ink-4">
                   {fromOwner ? "You" : m.name} · {m.when}

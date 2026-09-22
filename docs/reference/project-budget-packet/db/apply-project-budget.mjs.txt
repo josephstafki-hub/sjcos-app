@@ -1,0 +1,97 @@
+// Project budget schema (additive, idempotent). Run like the other db/apply-*.mjs
+// scripts: `node db/apply-project-budget.mjs`. Nothing here changes existing
+// tables' behavior; it adds the columns and tables lib/budget.ts reads.
+//
+// Why these and not "derive everything": estimates give a budget, invoices give
+// spent, sub_invoices give committed, change_orders give COs, but nothing today
+// links a sub invoice or a CO to a trade line, holds an est-to-finish, or models
+// an insurer/lender. Those are the five gaps.
+
+import { query } from "../lib/db.js";
+
+const SQL = `
+-- 1. Budget lines: one per trade / category on a project.
+CREATE TABLE IF NOT EXISTS budget_lines (
+  id                bigserial PRIMARY KEY,
+  project_id        uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  key               text NOT NULL,                       -- stable slug, e.g. 'plaster'
+  trade             text NOT NULL,                       -- display name
+  detail            text NOT NULL DEFAULT '',
+  source            text NOT NULL DEFAULT '',            -- where the budget number came from
+  kind              text NOT NULL DEFAULT 'trade'
+                      CHECK (kind IN ('trade','allowance','overhead','tax','contingency','other')),
+  budget_cents      integer NOT NULL DEFAULT 0,
+  est_to_finish_cents integer,                           -- NULL = derive (budget - spent - committed)
+  status            text NOT NULL DEFAULT '',
+  status_kind       text NOT NULL DEFAULT 'ghost',
+  credited_co_id    bigint REFERENCES change_orders(id) ON DELETE SET NULL,
+  flags             jsonb NOT NULL DEFAULT '[]',
+  sort_order        integer NOT NULL DEFAULT 0,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (project_id, key)
+);
+
+-- 2. Link costs and billings to a line (or a change order).
+ALTER TABLE sub_invoices     ADD COLUMN IF NOT EXISTS budget_line_id  bigint REFERENCES budget_lines(id) ON DELETE SET NULL;
+ALTER TABLE sub_invoices     ADD COLUMN IF NOT EXISTS change_order_id bigint REFERENCES change_orders(id) ON DELETE SET NULL;
+ALTER TABLE sub_invoices     ADD COLUMN IF NOT EXISTS invoice_date    date;
+ALTER TABLE purchase_orders  ADD COLUMN IF NOT EXISTS budget_line_id  bigint REFERENCES budget_lines(id) ON DELETE SET NULL;
+ALTER TABLE purchase_orders  ADD COLUMN IF NOT EXISTS change_order_id bigint REFERENCES change_orders(id) ON DELETE SET NULL;
+
+-- Client invoice line items are jsonb [{label, amount}]; add an optional key so a line
+-- can say which budget line / CO it pays: {label, amount, budget_key?, co_id?}.
+-- No schema change needed; lib/budget.ts reads the extra keys if present.
+
+-- 3. Change orders: credits against base lines, and how they're funded.
+CREATE TABLE IF NOT EXISTS change_order_credits (
+  id              bigserial PRIMARY KEY,
+  change_order_id bigint NOT NULL REFERENCES change_orders(id) ON DELETE CASCADE,
+  budget_line_id  bigint NOT NULL REFERENCES budget_lines(id) ON DELETE CASCADE,
+  amount_cents    integer NOT NULL DEFAULT 0,
+  UNIQUE (change_order_id, budget_line_id)
+);
+ALTER TABLE change_orders ADD COLUMN IF NOT EXISTS number       text NOT NULL DEFAULT '';   -- 'CO-1'
+ALTER TABLE change_orders ADD COLUMN IF NOT EXISTS vendor_label text NOT NULL DEFAULT '';
+ALTER TABLE change_orders ADD COLUMN IF NOT EXISTS paid_by      text NOT NULL DEFAULT 'owner'
+                                                    CHECK (paid_by IN ('owner','funder','split'));
+ALTER TABLE change_orders ADD COLUMN IF NOT EXISTS funder_share_cents integer NOT NULL DEFAULT 0;
+
+-- 4. Funding: who pays for the base scope, and expected inflows with triggers.
+CREATE TABLE IF NOT EXISTS budget_parties (
+  id               bigserial PRIMARY KEY,
+  project_id       uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  key              text NOT NULL,                      -- 'owner' | 'insurer' | 'lender' | ...
+  label            text NOT NULL,
+  base_share_cents integer NOT NULL DEFAULT 0,
+  is_owner         boolean NOT NULL DEFAULT false,
+  UNIQUE (project_id, key)
+);
+CREATE TABLE IF NOT EXISTS funding_events (
+  id            bigserial PRIMARY KEY,
+  project_id    uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  party_key     text NOT NULL,
+  source        text NOT NULL,
+  amount_cents  integer NOT NULL DEFAULT 0,
+  trigger_text  text NOT NULL DEFAULT '',
+  status        text NOT NULL DEFAULT 'expected'
+                  CHECK (status IN ('expected','requested','received')),
+  status_at     timestamptz,
+  sort_order    integer NOT NULL DEFAULT 0
+);
+
+-- 5. Project-level budget settings.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS budget_basis   text NOT NULL DEFAULT 'fixed_price'
+                                              CHECK (budget_basis IN ('fixed_price','insurance','cost_plus','time_materials'));
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS budget_label   text NOT NULL DEFAULT 'contract value';
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS budget_caption text NOT NULL DEFAULT '';
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS retainage_cents integer NOT NULL DEFAULT 0;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS budget_notes   jsonb NOT NULL DEFAULT '[]';
+
+CREATE INDEX IF NOT EXISTS budget_lines_project_idx ON budget_lines(project_id, sort_order);
+CREATE INDEX IF NOT EXISTS funding_events_project_idx ON funding_events(project_id, sort_order);
+`;
+
+await query(SQL);
+console.log("project budget schema applied");
+process.exit(0);

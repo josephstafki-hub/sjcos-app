@@ -3095,3 +3095,150 @@ CREATE TABLE IF NOT EXISTS plan_cost_rules (
   enabled      boolean NOT NULL DEFAULT true,
   UNIQUE (measure, material_tag)
 );
+
+-- ─── Project financials (begin) ─────────────────────────────────────────────
+-- Job costing for the project Money › Overview and the company /money page
+-- (docs/project-financials-plan.md §6). Additive and idempotent; applied by
+-- db/apply-project-financials.mjs, which runs THIS block verbatim, so the two
+-- cannot drift. Money is integer CENTS.
+--
+-- Cost and price are separate axes. A budget line carries what a trade was
+-- PLANNED to cost and, optionally, what the payer pays for it. What a job has
+-- actually cost is never typed onto a line: it is derived from sub invoices,
+-- purchase orders and expenses (lib/budget-assemble.ts allocateCosts), each of
+-- which can point at a line or a change order.
+
+CREATE TABLE IF NOT EXISTS budget_lines (
+  id                  bigserial PRIMARY KEY,
+  project_id          uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  key                 text NOT NULL,                          -- stable slug: 'plaster'
+  trade               text NOT NULL,
+  detail              text NOT NULL DEFAULT '',
+  source              text NOT NULL DEFAULT '',               -- where the budget number came from
+  kind                text NOT NULL DEFAULT 'trade'
+                        CHECK (kind IN ('trade','allowance','overhead','tax','contingency','other')),
+  budget_cents        integer NOT NULL DEFAULT 0,             -- planned COST
+  price_cents         integer,                                -- what the payer pays for this scope; NULL = unknown
+  est_to_finish_cents integer,                                -- NULL = derive; 0 = nothing left
+  percent_complete    integer CHECK (percent_complete BETWEEN 0 AND 100),  -- optional hand-set physical %; 100 = complete
+  status              text NOT NULL DEFAULT '',
+  status_kind         text NOT NULL DEFAULT 'ghost',
+  credited_co_id      bigint REFERENCES change_orders(id) ON DELETE SET NULL,  -- takes effect once that CO is approved
+  flags               jsonb NOT NULL DEFAULT '[]',
+  sort_order          integer NOT NULL DEFAULT 0,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (project_id, key)
+);
+CREATE INDEX IF NOT EXISTS idx_budget_lines_project ON budget_lines(project_id, sort_order);
+
+-- Direct costs with no sub invoice or PO: card / cash materials, permits, Joe's
+-- own labor. Column names match docs/phase-5-accounting-plan.md `expenses`, so
+-- 5.3 only ADDs account_id / cost_code_id; `kind` maps onto the planned
+-- L/M/S/E/P/O cost codes. amount_cents may be negative (a return).
+CREATE TABLE IF NOT EXISTS expenses (
+  id                bigserial PRIMARY KEY,
+  project_id        uuid REFERENCES projects(id) ON DELETE SET NULL,
+  expense_date      date NOT NULL DEFAULT CURRENT_DATE,
+  vendor_label      text NOT NULL DEFAULT '',
+  kind              text NOT NULL DEFAULT 'material'
+                      CHECK (kind IN ('labor','material','sub','equipment','permit','other')),
+  amount_cents      integer NOT NULL DEFAULT 0,
+  memo              text NOT NULL DEFAULT '',
+  paid_from         text NOT NULL DEFAULT 'card' CHECK (paid_from IN ('checking','card','cash')),
+  receipt_file_id   text,
+  budget_line_id    bigint REFERENCES budget_lines(id) ON DELETE SET NULL,
+  change_order_id   bigint REFERENCES change_orders(id) ON DELETE SET NULL,
+  purchase_order_id bigint REFERENCES purchase_orders(id) ON DELETE SET NULL,  -- this expense pays against that PO
+  source_ref        text NOT NULL DEFAULT '',                                   -- stable import key: 'houzz:IN-10047'
+  created_by        uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at        timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_expenses_project ON expenses(project_id, expense_date DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_expenses_source_ref ON expenses(project_id, source_ref) WHERE source_ref <> '';
+
+-- Sub invoices: link to a trade / CO / the PO they bill, part payments, and a
+-- stable import key. A bill can come from someone who is not in the subs
+-- roster (a mover, a one-off plumber), so sub_slug becomes optional and
+-- vendor_label names them; writers must supply one of the two.
+ALTER TABLE sub_invoices ADD COLUMN IF NOT EXISTS budget_line_id    bigint REFERENCES budget_lines(id) ON DELETE SET NULL;
+ALTER TABLE sub_invoices ADD COLUMN IF NOT EXISTS change_order_id   bigint REFERENCES change_orders(id) ON DELETE SET NULL;
+ALTER TABLE sub_invoices ADD COLUMN IF NOT EXISTS purchase_order_id bigint REFERENCES purchase_orders(id) ON DELETE SET NULL;
+ALTER TABLE sub_invoices ADD COLUMN IF NOT EXISTS invoice_date      date;
+ALTER TABLE sub_invoices ADD COLUMN IF NOT EXISTS paid_at           timestamptz;
+ALTER TABLE sub_invoices ADD COLUMN IF NOT EXISTS paid_cents        integer NOT NULL DEFAULT 0;   -- paid so far on an invoice not fully paid
+ALTER TABLE sub_invoices ADD COLUMN IF NOT EXISTS vendor_label      text NOT NULL DEFAULT '';
+ALTER TABLE sub_invoices ADD COLUMN IF NOT EXISTS source_ref        text NOT NULL DEFAULT '';
+ALTER TABLE sub_invoices ALTER COLUMN sub_slug DROP NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_sub_invoices_source_ref ON sub_invoices(project_id, source_ref) WHERE source_ref <> '';
+CREATE INDEX IF NOT EXISTS idx_sub_invoices_project ON sub_invoices(project_id);
+
+ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS budget_line_id  bigint REFERENCES budget_lines(id) ON DELETE SET NULL;
+ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS change_order_id bigint REFERENCES change_orders(id) ON DELETE SET NULL;
+
+-- Change orders: a display number, who funds it, its planned cost, and the
+-- base-scope price it credits back.
+ALTER TABLE change_orders ADD COLUMN IF NOT EXISTS number              text NOT NULL DEFAULT '';
+ALTER TABLE change_orders ADD COLUMN IF NOT EXISTS vendor_label        text NOT NULL DEFAULT '';
+ALTER TABLE change_orders ADD COLUMN IF NOT EXISTS paid_by             text NOT NULL DEFAULT 'owner' CHECK (paid_by IN ('owner','funder','split'));
+ALTER TABLE change_orders ADD COLUMN IF NOT EXISTS funder_share_cents  integer NOT NULL DEFAULT 0;
+ALTER TABLE change_orders ADD COLUMN IF NOT EXISTS budget_cost_cents   integer;   -- planned cost, fixed when priced; NULL = not planned
+ALTER TABLE change_orders ADD COLUMN IF NOT EXISTS est_to_finish_cents integer;   -- NULL = derive; 0 = nothing left
+CREATE TABLE IF NOT EXISTS change_order_credits (
+  id              bigserial PRIMARY KEY,
+  change_order_id bigint NOT NULL REFERENCES change_orders(id) ON DELETE CASCADE,
+  budget_line_id  bigint NOT NULL REFERENCES budget_lines(id) ON DELETE CASCADE,
+  amount_cents    integer NOT NULL DEFAULT 0,
+  UNIQUE (change_order_id, budget_line_id)
+);
+-- A trade's scope is replaced by ONE change order: two crediting it would both
+-- lower the price while the trade's cost left the job only once.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_change_order_credits_line ON change_order_credits(budget_line_id);
+
+-- Who pays for the base price, and the inflows expected from them.
+CREATE TABLE IF NOT EXISTS budget_parties (
+  id               bigserial PRIMARY KEY,
+  project_id       uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  key              text NOT NULL,                       -- 'owner' | 'insurer' | 'lender' | …
+  label            text NOT NULL,
+  base_share_cents integer NOT NULL DEFAULT 0,
+  is_owner         boolean NOT NULL DEFAULT false,
+  sort_order       integer NOT NULL DEFAULT 0,
+  UNIQUE (project_id, key)
+);
+CREATE TABLE IF NOT EXISTS funding_events (
+  id           bigserial PRIMARY KEY,
+  project_id   uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  party_key    text NOT NULL,
+  source       text NOT NULL,
+  amount_cents integer NOT NULL DEFAULT 0,
+  trigger_text text NOT NULL DEFAULT '',
+  status       text NOT NULL DEFAULT 'expected' CHECK (status IN ('expected','requested','received')),
+  status_at    timestamptz,
+  sort_order   integer NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_funding_events_project ON funding_events(project_id, sort_order);
+
+-- Per-job settings. price_cents is the base price EXCLUDING change orders and
+-- overrides contract_value × 100 (which is whole dollars and, on Houzz-era
+-- jobs, may already include them). billing_source stays 'manual' — collected =
+-- the hand-kept collected_to_date — until the owner reconciles the job, so
+-- nothing on any page moves on migration day.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS budget_basis    text NOT NULL DEFAULT 'fixed_price' CHECK (budget_basis IN ('fixed_price','insurance','cost_plus','time_materials'));
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS budget_label    text NOT NULL DEFAULT '';
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS budget_caption  text NOT NULL DEFAULT '';
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS price_cents     integer;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS retainage_cents integer NOT NULL DEFAULT 0;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS budget_notes    jsonb NOT NULL DEFAULT '[]';
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS budget_complete boolean NOT NULL DEFAULT false;   -- the lines cover the whole scope
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS costs_through   date;                              -- "costs entered through"
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS billing_source  text NOT NULL DEFAULT 'manual' CHECK (billing_source IN ('manual','invoices'));
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS opening_collected_cents integer NOT NULL DEFAULT 0;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS opening_billed_cents    integer NOT NULL DEFAULT 0;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS opening_note    text NOT NULL DEFAULT '';
+
+-- Existing change orders get their display number once: CO-1, CO-2, … per job.
+UPDATE change_orders c SET number = 'CO-' || x.n
+  FROM (SELECT id, row_number() OVER (PARTITION BY project_id ORDER BY created_at, id) AS n FROM change_orders) x
+ WHERE x.id = c.id AND c.number = '';
+-- ─── Project financials (end) ───────────────────────────────────────────────

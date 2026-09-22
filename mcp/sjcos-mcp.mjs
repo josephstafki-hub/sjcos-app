@@ -60,6 +60,7 @@ import { DEEP_RE, CHAT_RE } from "../lib/triage-lanes.mjs";
 import { registerMoodTools } from "./mood-tools.mjs";
 import { registerBiddingTools } from "./bidding-tools.mjs";
 import { registerFloorTools } from "./floor-tools.mjs";
+import { openJobsSnapshot, registerFinancialsTools } from "./financials-tools.mjs";
 import { registerChatgptTools } from "./chatgpt-tools.mjs";
 import { registerGrantTools } from "./grants-tools.mjs";
 import { registerCommsTools } from "./comms-tools.mjs";
@@ -325,11 +326,14 @@ server.registerTool(
     title: "Business snapshot",
     description:
       "High-level counts across the business: leads by stage, active projects, " +
-      "subs, upcoming compliance, and outstanding A/R (sum of sent invoices).",
+      "subs, upcoming compliance, outstanding A/R (sum of sent invoices), and `open_jobs` — " +
+      "money across open jobs in INTEGER CENTS: contracted, collected, left to collect (includes " +
+      "unbilled work, so NOT receivables), unpaid invoices, and profit — which covers only the " +
+      "jobs whose profit is known (`profit_known_on_jobs` of `jobs`); never quote it as company-wide.",
     inputSchema: {},
   },
   async () => {
-    const [leads, projects, subs, ar, compliance, work, approvals] = await Promise.all([
+    const [leads, projects, subs, ar, compliance, work, approvals, openJobs] = await Promise.all([
       rows(`SELECT stage, count(*)::int AS n FROM leads
              WHERE NOT EXISTS (SELECT 1 FROM projects p WHERE p.lead_id = leads.id)
              GROUP BY stage ORDER BY stage`),
@@ -339,6 +343,8 @@ server.registerTool(
       rows(`SELECT count(*)::int AS due_60d FROM compliance_items WHERE resolved = false AND due_date - CURRENT_DATE BETWEEN 0 AND 60`),
       rows(`SELECT status, count(*)::int AS n FROM work_items GROUP BY status ORDER BY status`),
       rows(`SELECT count(*)::int AS n FROM work_items WHERE approval_status = 'requested'`),
+      // Never let a financials hiccup take the whole snapshot down.
+      openJobsSnapshot(rows).catch((err) => ({ error: String(err?.message ?? err) })),
     ]);
     return json({
       leads_by_stage: leads,
@@ -348,6 +354,7 @@ server.registerTool(
       compliance_due_60d: compliance[0]?.due_60d ?? 0,
       work_items_by_status: work,
       work_items_awaiting_approval: approvals[0]?.n ?? 0,
+      open_jobs: openJobs,
     });
   },
 );
@@ -2415,6 +2422,12 @@ server.registerTool(
   // growing without bound. See mcp/mood-tools.mjs.
   registerMoodTools(server, { rows, json, uploadDir: path.join(__dirname, "..", "uploads") });
   registerFloorTools(server, { rows, json });
+
+  // Project financials (job costing): what a job is priced at, has cost, and
+  // should make — the same queries, math and writes the app's Money › Overview
+  // runs. Internal records only: nothing is sent, no change order is created or
+  // moved out of draft, and billing is never switched. See mcp/financials-tools.mjs.
+  registerFinancialsTools(server, { rows, json, pool, strippedDollarError });
 
   // Bidding lives in its own module too: stage + award. Sending a package is
   // real email, so it is NOT here — it's a granted send (below).

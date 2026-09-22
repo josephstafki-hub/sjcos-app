@@ -157,6 +157,66 @@ are direct SELECTs; **writes** go through the app's bearer-gated internal route
 **Typical agent flow:** `create_purchase_order` → `add_purchase_order_line`
 (repeat per item) → `queue_purchase_order` → tell the owner it's ready to send.
 
+## Project financials tools (job costing)
+
+What a job is priced at, what it has cost, what it should make, and what those
+numbers rest on — the same queries (`lib/budget-queries.ts`) and math
+(`lib/budget-types.ts`) the app's Money › Overview runs, so an agent and the page
+can never disagree. Spec: `docs/project-financials-plan.md`. **All money is
+integer cents.** Internal records only: nothing here sends anything, and none
+of it needs an owner grant. The procedure for filling a job in from documents is
+the `fill-project-financials` skill (`docs/skills/fill-project-financials.md`).
+
+| Tool | What it does |
+|---|---|
+| `get_project_financials` | One job: summary sentences, price / cost / profit / progress / billing totals, every budget line with spent · owed · on order · still to spend, change orders, the cost ledger (each purchase counted once), client invoices, notes |
+| `company_financials` | Every job side by side, open and closed, with company totals and a needs-attention list, most money first |
+
+`business_snapshot` also carries an `open_jobs` block with the same open-job totals.
+
+| Write tool | What it does |
+|---|---|
+| `adopt_estimate_as_budget` | One budget line per section of the job's approved estimate. An estimate with no markup (the Houzz imports) gives lines and prices but leaves the budget unconfirmed — read the `warning` |
+| `set_budget_lines` | Upsert lines by `key`. `budget_cents` = what the trade should cost SJC; `price_cents` = what the client pays. Fields you leave out keep their value. `mode: "replace"` refuses to drop a line that has costs under it |
+| `set_budget_settings` | Change only what you pass: `budget_complete` (the claim that lets a profit show), `costs_through`, `price_cents`, `notes`, basis, label |
+| `set_budget_parties` / `set_funding_events` | Who pays for the base price, and the payments expected from them. Multi-payer jobs only. Each REPLACES its list |
+| `add_expense` | Something SJC paid directly: a receipt, a check, Joe's labor. Counts as spent |
+| `record_sub_invoice` | A bill from a roster sub (`sub_slug`) or anyone else (`vendor_label`): owed, part-paid (`paid_cents`) or paid |
+| `set_sub_invoice_status` | Approve, part-pay, or mark a sub invoice paid |
+| `assign_cost` | File a sub invoice, PO or expense under a trade (`line_key`) or change order (`co_number`) |
+| `link_cost_to_po` | Say which PO a bill or payment is against, so the two count once |
+| `set_change_order_costs` | The budget side of an EXISTING change order: planned cost, remaining cost, payer, credits |
+| `propose_billing_reconciliation` | Read-only: hand-kept collected vs the invoices, and the opening balance that would reconcile them |
+
+Rules the tools enforce, so you can rely on them:
+
+- **Idempotent imports.** A line's `key` and a cost's `source_ref` are stable
+  keys: the same one again updates the record. Always pass a `source_ref` when
+  entering a cost from a document. On that update the document's fields are
+  replaced; the payment state and the trade / PO filing are kept unless passed,
+  so a re-import never undoes a payment recorded since.
+- **One change order per credited trade**, and a credited trade cannot be
+  deleted: both would move the client's price without anyone deciding to.
+- **Each purchase counted once.** A bill linked to its PO consumes it; a PO is
+  never "spent"; look-alikes are flagged `possible duplicate`, never merged.
+- **No tool creates a change order or moves one out of draft** — the client
+  portal lists every non-draft change order. `set_change_order_costs` cannot
+  touch a CO's price or status.
+- **No tool switches a job's billing source.** That is Joe's reviewed step in
+  the app (project › Money › Overview › Reconcile billing).
+- Free text passes the same shell-stripped-dollar check as the other write tools.
+
+Three things to read before quoting a number:
+
+- `completeness.profit` is `unknown` until the budget covers the whole job. Then
+  there is **no profit and no margin**, only cost so far. Don't compute one.
+- `billing.source: "manual"` means collected is the hand-kept
+  `projects.collected_to_date` and **billed is unknown**. Nothing keeps that
+  column in step with the `invoices` table, so they can disagree;
+  `billing.reconciliation_proposal` shows both side by side.
+- `left_to_collect` is price minus collected and includes work not billed yet.
+  It is not receivables — `unpaid_invoices` is.
+
 ## Mood board tools (per-project, per-room inspiration)
 
 Mood boards are fully drivable from any MCP client — an agent can stand up a

@@ -82,8 +82,9 @@ export const PERMISSIONS: readonly PermissionDef[] = [
   {
     key: "money",
     label: "All other financials",
-    description: "Billing rates, Books, and every future money feature not listed above.",
-    paths: ["/books"],
+    description: "Job costing and profit (Money, and Money › Overview on a project), billing rates, Books, and every future money feature not listed above.",
+    // "/money" first: staffHome() sends a money-only login to paths[0], and /books has no page yet.
+    paths: ["/money", "/books"],
     sensitive: true,
   },
   {

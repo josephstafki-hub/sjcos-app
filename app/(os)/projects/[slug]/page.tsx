@@ -13,6 +13,10 @@ import { WeeklyStatusSend } from "@/components/projects/WeeklyStatusSend";
 import { WeeklyStatusDraft } from "@/components/projects/WeeklyStatusDraft";
 import { PunchList } from "@/components/projects/PunchList";
 import { MoneyPanel } from "@/components/projects/MoneyPanel";
+import { BudgetPanel } from "@/components/projects/BudgetPanel";
+import { getProjectBudget } from "@/lib/budget";
+import { todayCentral } from "@/lib/budget-queries";
+import { computeTotals, fmtK } from "@/lib/budget-types";
 import { SelectionsBoard } from "@/components/projects/SelectionsBoard";
 import { BiddingBoard } from "@/components/projects/BiddingBoard";
 import { getProjectBidding, listAllSubs } from "@/lib/bidding";
@@ -100,6 +104,9 @@ export default async function ProjectDetailPage({
   const showCOs = can(viewer, "change_orders");
   const showBidding = can(viewer, "bidding");
   const showMoney = showInvoices;
+  // Job costing (Money › Overview) sits behind `money`, the catch-all fence for
+  // every financial feature that is not one of the named areas above.
+  const showFinancials = can(viewer, "money");
   const [
     project,
     money,
@@ -129,6 +136,7 @@ export default async function ProjectDetailPage({
     ops,
     bidding,
     biddingRoster,
+    budget,
   ] = await Promise.all([
     getProject(slug),
     getProjectMoney(slug),
@@ -160,6 +168,7 @@ export default async function ProjectDetailPage({
     getRecordOps("project", slug),
     getProjectBidding(slug),
     listAllSubs(),
+    showFinancials ? getProjectBudget(slug) : Promise.resolve(null),
   ]);
   const docTemplates = listDocTemplates().filter((t) => t.scope !== "lead");
   if (!project) notFound();
@@ -226,6 +235,8 @@ export default async function ProjectDetailPage({
   }
 
   const m = project.money;
+  // Profit for the Overview rail: only when the budget allows one to be claimed.
+  const finTotals = budget ? computeTotals(budget) : null;
 
   const overview = (
     <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[1fr_1fr_300px]">
@@ -417,6 +428,13 @@ export default async function ProjectDetailPage({
               <Row label="Outstanding" value={usd(money.outstanding)} />
             ) : (
               <Row label="Open COs" value={m.openCOs} />
+            )}
+            {budget && finTotals?.headlineProfitCents != null && (
+              <Row
+                label={budget.completeness.profit === "planned" ? "Planned profit" : "Projected profit"}
+                value={fmtK(finTotals.headlineProfitCents)}
+                valueClass={finTotals.headlineProfitCents < 0 ? "text-flag" : "text-money"}
+              />
             )}
           </div>
           <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-paper-3">
@@ -623,10 +641,26 @@ export default async function ProjectDetailPage({
   // ── Money — what the job was priced at, what's been billed, what changed.
   //    Paperwork (contracts, change orders, etc.) + e-signing live in their own
   //    top-level Documents tab now — see documentsTab below.
+  // Overview first: what the job should make and how far along it is, before
+  // the paperwork that produces those numbers.
+  const financialsPanel = budget ? (
+    <BudgetPanel
+      slug={slug}
+      budget={budget}
+      isOwner={viewer?.role === "owner"}
+      hasApprovedEstimate={estimates.some((e) => e.status === "approved")}
+      poOptions={purchaseOrders
+        .filter((po) => po.status !== "void")
+        .map((po) => ({ id: po.id, label: [po.poNumber, po.vendorName].filter(Boolean).join(" · ") || `PO ${po.id}` }))}
+      today={todayCentral()}
+    />
+  ) : null;
+
   const moneyTab = (
     <PanelSections
       tab="Money"
       sections={[
+        ...(financialsPanel ? [{ label: "Overview", node: financialsPanel }] : []),
         ...(showEstimates ? [{ label: "Estimate", node: estimatePanel }] : []),
         ...(showInvoices ? [{ label: "Invoices", node: moneyPanel }] : []),
         ...(showCOs ? [{ label: "Change orders", node: changeOrdersPanel }] : []),
@@ -778,7 +812,7 @@ export default async function ProjectDetailPage({
         focus={linkedFocus}
         header={headerBand}
         hiddenTabs={[
-          ...(showEstimates || showInvoices || showPOs || showCOs ? [] : ["Money" as const]),
+          ...(showEstimates || showInvoices || showPOs || showCOs || showFinancials ? [] : ["Money" as const]),
           ...(showBidding ? [] : ["Bidding" as const]),
         ]}
       />

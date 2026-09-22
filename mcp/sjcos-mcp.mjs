@@ -60,6 +60,7 @@ import { DEEP_RE, CHAT_RE } from "../lib/triage-lanes.mjs";
 import { registerMoodTools } from "./mood-tools.mjs";
 import { registerBiddingTools } from "./bidding-tools.mjs";
 import { registerFloorTools } from "./floor-tools.mjs";
+import { registerFinancialsTools } from "./financials-tools.mjs";
 import { registerChatgptTools } from "./chatgpt-tools.mjs";
 import { registerGrantTools } from "./grants-tools.mjs";
 import { registerCommsTools } from "./comms-tools.mjs";
@@ -2415,6 +2416,11 @@ server.registerTool(
   // growing without bound. See mcp/mood-tools.mjs.
   registerMoodTools(server, { rows, json, uploadDir: path.join(__dirname, "..", "uploads") });
   registerFloorTools(server, { rows, json });
+
+  // Project financials (job costing): what a job is priced at, has cost, and
+  // should make — the same queries and math the app's Money › Overview runs.
+  // Read-only for now. See mcp/financials-tools.mjs.
+  registerFinancialsTools(server, { rows, json });
 
   // Bidding lives in its own module too: stage + award. Sending a package is
   // real email, so it is NOT here — it's a granted send (below).

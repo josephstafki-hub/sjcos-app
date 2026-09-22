@@ -93,6 +93,8 @@ export interface RawChangeOrder {
   funderShareCents?: number;
   budgetCostCents: number | null;
   estToFinishCents: number | null;
+  /** created_at, ISO day. */
+  createdOn?: string | null;
   credits: { budgetLineId: number; amountCents: number }[];
 }
 
@@ -434,6 +436,7 @@ export function assembleBudgetView(raw: RawProjectMoney, opts: { asOf: string })
       estToFinishCents: c.estToFinishCents,
       paidBy: c.paidBy,
       funderShareCents: c.funderShareCents || undefined,
+      ageDays: dayNumber(c.createdOn) != null && asOfDay != null ? Math.max(0, asOfDay - dayNumber(c.createdOn)!) : null,
     };
   });
 
@@ -596,7 +599,7 @@ export function assembleBudgetView(raw: RawProjectMoney, opts: { asOf: string })
 
   // what is missing or soft
   const m = completeness.missing;
-  if (!completeness.budget) m.push(raw.lines.length ? "Budget doesn't cover the whole job" : "No budget yet");
+  if (!completeness.budget) m.push(raw.lines.length ? "Budget isn't finished — not marked as covering the whole job" : "No budget yet");
   if (priceSource === "none") m.push("No price set");
   if (
     priceSource === "estimate" && contractCents > 0 &&

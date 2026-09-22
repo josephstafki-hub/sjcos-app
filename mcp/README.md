@@ -157,6 +157,31 @@ are direct SELECTs; **writes** go through the app's bearer-gated internal route
 **Typical agent flow:** `create_purchase_order` → `add_purchase_order_line`
 (repeat per item) → `queue_purchase_order` → tell the owner it's ready to send.
 
+## Project financials tools (job costing)
+
+What a job is priced at, what it has cost, what it should make, and what those
+numbers rest on — the same queries (`lib/budget-queries.ts`) and math
+(`lib/budget-types.ts`) the app's Money › Overview runs, so an agent and the page
+can never disagree. Spec: `docs/project-financials-plan.md`. **All money is
+integer cents.** Read-only for now; the write tools (budget lines, expenses,
+cost assignment) land in a later phase.
+
+| Tool | What it does |
+|---|---|
+| `get_project_financials` | One job: summary sentences, price / cost / profit / progress / billing totals, every budget line with spent · owed · on order · still to spend, change orders, the cost ledger (each purchase counted once), client invoices, notes |
+| `company_financials` | Every job side by side, open and closed, with company totals and a needs-attention list, most money first |
+
+Three things to read before quoting a number:
+
+- `completeness.profit` is `unknown` until the budget covers the whole job. Then
+  there is **no profit and no margin**, only cost so far. Don't compute one.
+- `billing.source: "manual"` means collected is the hand-kept
+  `projects.collected_to_date` and **billed is unknown**. Nothing keeps that
+  column in step with the `invoices` table, so they can disagree;
+  `billing.reconciliation_proposal` shows both side by side.
+- `left_to_collect` is price minus collected and includes work not billed yet.
+  It is not receivables — `unpaid_invoices` is.
+
 ## Mood board tools (per-project, per-room inspiration)
 
 Mood boards are fully drivable from any MCP client — an agent can stand up a

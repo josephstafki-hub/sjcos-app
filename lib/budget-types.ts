@@ -124,6 +124,8 @@ export interface BudgetChangeOrder {
 
   paidBy?: "owner" | "funder" | "split";
   funderShareCents?: number;
+  /** Days since it was created, as of the view's date. */
+  ageDays?: number | null;
   flags?: string[];
 }
 
@@ -677,7 +679,8 @@ export function describeFinancials(v: BudgetView, t: BudgetTotals): string[] {
         `No costs have been entered yet, so this is the plan, not a forecast.`,
     );
   } else {
-    const why = v.lines.length ? "the budget doesn't cover the whole job" : "there is no budget for this job yet";
+    // True whether trades are missing or their costs just aren't real yet (an adopted no-markup estimate).
+    const why = v.lines.length ? "the budget for this job isn't finished" : "there is no budget for this job yet";
     const logged = t.costSoFarCents > 0 ? `${fmtK(t.costSoFarCents)} of cost has been logged so far.` : "No costs have been logged.";
     out.push(`Profit isn't known yet: ${why}. ${logged}`);
   }

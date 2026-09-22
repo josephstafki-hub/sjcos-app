@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { SubmitButton } from "@/components/ui";
+import { LinkedText, SubmitButton } from "@/components/ui";
 import { sendPortalMessage } from "@/lib/actions/portal";
 import type { PortalMessage } from "@/lib/portal-messages";
 
@@ -33,11 +33,11 @@ export function PortalMessenger({
               <div key={m.id} className={`flex flex-col ${fromJoe ? "items-start" : "items-end"}`}>
                 <div
                   className={[
-                    "max-w-[85%] rounded-lg px-2.5 py-1.5 text-[12px] leading-snug",
+                    "max-w-[85%] whitespace-pre-wrap break-words rounded-lg px-2.5 py-1.5 text-[12px] leading-snug",
                     fromJoe ? "bg-paper-3 text-ink" : "bg-accent text-ink",
                   ].join(" ")}
                 >
-                  {m.body}
+                  <LinkedText text={m.body} />
                 </div>
                 <span className="mt-0.5 font-mono text-[8.5px] uppercase tracking-[0.1em] text-ink-4">
                   {fromJoe ? m.name : "You"} · {m.when}

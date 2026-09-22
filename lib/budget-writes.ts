@@ -116,10 +116,13 @@ export async function adoptEstimateAsBudget(
     );
   }
 
+  // With markup the estimate's costs are real, so the budget is confirmed. Without
+  // it the lines now carry client PRICES as costs — unverified — so any earlier
+  // confirmation is withdrawn until someone sets real costs and ticks it again.
   const [project] = await run<{ budget_complete: boolean }>(
     `UPDATE projects
         SET price_cents = COALESCE(price_cents, $2),
-            budget_complete = budget_complete OR $3,
+            budget_complete = $3,
             budget_notes = CASE WHEN $3 OR budget_notes @> to_jsonb($4::text) THEN budget_notes
                                 ELSE budget_notes || to_jsonb($4::text) END,
             updated_at = now()
@@ -207,8 +210,15 @@ export async function saveBudgetLine(run: Run, projectId: string, input: BudgetL
   return { ok: true, id: Number(row.id) };
 }
 
-/** Costs pointing at the line become unassigned — they still count. */
+/** Costs pointing at the line become unassigned — they still count. A line a
+ *  change order credits cannot go: the cascade would erase the credit and the
+ *  client's price would rise by it. Remove the credit on the CO first. */
 export async function deleteBudgetLine(run: Run, projectId: string, id: number): Promise<WriteResult> {
+  const credited = await run<{ number: string }>(
+    `SELECT COALESCE(NULLIF(co.number, ''), 'CO-' || co.id) AS number
+       FROM change_order_credits c JOIN change_orders co ON co.id = c.change_order_id
+      WHERE c.budget_line_id = $1 AND co.project_id = $2`, [id, projectId]);
+  if (credited.length) return fail(`This trade is credited on ${credited.map((c) => c.number).join(", ")}. Remove that credit first.`);
   const rows = await run(`DELETE FROM budget_lines WHERE id = $1 AND project_id = $2 RETURNING id`, [id, projectId]);
   return rows.length ? { ok: true } : fail("That line isn't on this job.");
 }
@@ -269,9 +279,11 @@ export interface ExpenseInput {
   amountCents: number;
   memo?: string;
   paidFrom: string;
-  target: CostTarget;
-  /** The PO this payment is for, so the two count once. */
-  purchaseOrderId: number | null;
+  /** Where it is filed. null = unassigned. On a re-import (same `sourceRef`),
+   *  leaving it undefined KEEPS the filing someone already did. */
+  target?: CostTarget;
+  /** The PO this payment is for, so the two count once. Same rule: undefined keeps. */
+  purchaseOrderId?: number | null;
   /** Stable import key ("bank:0514-3150"). Saving the same key again UPDATES that row. */
   sourceRef?: string;
 }
@@ -283,11 +295,11 @@ export async function saveExpense(run: Run, projectId: string, input: ExpenseInp
   if (!EXPENSE_KINDS.includes(input.kind)) return fail("Unknown kind of expense.");
   if (!PAID_FROM.includes(input.paidFrom)) return fail("Unknown payment method.");
   if (!isCents(input.amountCents) || input.amountCents === 0) return fail("Enter an amount (negative for a return).");
-  const target = await resolveTarget(run, projectId, input.target);
+  const target = input.target === undefined ? undefined : await resolveTarget(run, projectId, input.target);
   if (typeof target === "string") return fail(target);
-  const poError = await ownPurchaseOrder(run, projectId, input.purchaseOrderId);
+  const poError = input.purchaseOrderId === undefined ? null : await ownPurchaseOrder(run, projectId, input.purchaseOrderId);
   if (poError) return fail(poError);
-  const fields = [input.date, vendor, input.kind, input.amountCents, clip(input.memo, 300), input.paidFrom, target.lineId, target.coId, input.purchaseOrderId];
+  const doc = [input.date, vendor, input.kind, input.amountCents, clip(input.memo, 300), input.paidFrom];
   const sourceRef = clip(input.sourceRef, 120);
   if (input.id == null && sourceRef) {
     const [seen] = await run<{ id: string }>(`SELECT id FROM expenses WHERE project_id = $1 AND source_ref = $2`, [projectId, sourceRef]);
@@ -295,16 +307,21 @@ export async function saveExpense(run: Run, projectId: string, input: ExpenseInp
   }
 
   if (input.id != null) {
+    // The document decides what it says; the filing (trade, PO) only changes when the caller says so.
     const rows = await run<{ id: string }>(
       `UPDATE expenses SET expense_date = $3, vendor_label = $4, kind = $5, amount_cents = $6, memo = $7, paid_from = $8,
-              budget_line_id = $9, change_order_id = $10, purchase_order_id = $11
-        WHERE id = $1 AND project_id = $2 RETURNING id`, [input.id, projectId, ...fields]);
+              budget_line_id = CASE WHEN $9 THEN $10 ELSE budget_line_id END,
+              change_order_id = CASE WHEN $9 THEN $11 ELSE change_order_id END,
+              purchase_order_id = CASE WHEN $12 THEN $13 ELSE purchase_order_id END
+        WHERE id = $1 AND project_id = $2 RETURNING id`,
+      [input.id, projectId, ...doc, target !== undefined, target?.lineId ?? null, target?.coId ?? null, input.purchaseOrderId !== undefined, input.purchaseOrderId ?? null]);
     return rows.length ? { ok: true, id: Number(rows[0].id) } : fail("That expense isn't on this job.");
   }
   const [row] = await run<{ id: string }>(
     `INSERT INTO expenses (project_id, expense_date, vendor_label, kind, amount_cents, memo, paid_from,
                            budget_line_id, change_order_id, purchase_order_id, created_by, source_ref)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`, [projectId, ...fields, userId ?? null, sourceRef]);
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
+    [projectId, ...doc, target?.lineId ?? null, target?.coId ?? null, input.purchaseOrderId ?? null, userId ?? null, sourceRef]);
   return { ok: true, id: Number(row.id) };
 }
 
@@ -387,6 +404,13 @@ export async function saveChangeOrderCosts(run: Run, projectId: string, input: C
   if (credits.length) {
     const own = await run<{ id: string }>(`SELECT id FROM budget_lines WHERE project_id = $1 AND id = ANY($2::bigint[])`, [projectId, credits.map((c) => c.lineId)]);
     if (own.length !== credits.length) return fail("A credited trade isn't on this job.");
+    // A trade's scope is replaced by ONE change order. Two claiming it would both
+    // lower the price while the trade's cost left the job only once.
+    const taken = await run<{ trade: string; number: string }>(
+      `SELECT bl.trade, COALESCE(NULLIF(co.number, ''), 'CO-' || co.id) AS number
+         FROM change_order_credits c JOIN budget_lines bl ON bl.id = c.budget_line_id JOIN change_orders co ON co.id = c.change_order_id
+        WHERE c.budget_line_id = ANY($1::bigint[]) AND c.change_order_id <> $2`, [credits.map((c) => c.lineId), input.id]);
+    if (taken.length) return fail(`${taken.map((t) => `${t.trade} is already credited on ${t.number}`).join("; ")}. Remove that credit first.`);
   }
   // Replace the set: a line is "credited to" this CO exactly while a credit row says so.
   await run(`UPDATE budget_lines SET credited_co_id = NULL WHERE project_id = $1 AND credited_co_id = $2`, [projectId, input.id]);
@@ -568,9 +592,11 @@ export interface SubInvoiceInput {
   amountCents: number;
   date?: string | null;
   note?: string;
+  /** On a re-import (same `sourceRef`) anything left undefined here KEEPS its
+   *  value — a payment recorded since is never undone by the document. */
   status?: "submitted" | "approved" | "paid";
   paidCents?: number;
-  target: CostTarget;
+  target?: CostTarget;
   purchaseOrderId?: number | null;
   /** Stable import key ("cpk:1745"). Recording the same key again UPDATES that row. */
   sourceRef?: string;
@@ -584,31 +610,43 @@ export async function recordSubInvoice(run: Run, projectId: string, input: SubIn
   if (!subSlug && !vendor) return fail("Say who the bill is from: a roster sub (sub_slug) or a name (vendor_label).");
   if (subSlug && !(await run(`SELECT 1 FROM subs WHERE slug = $1`, [subSlug])).length) return fail(`No sub with slug "${subSlug}". Use vendor_label for someone outside the roster.`);
   if (!isCents(input.amountCents, 0) || input.amountCents === 0) return fail("Enter the invoice amount, in whole cents.");
-  const status = input.status ?? "approved";
-  if (!["submitted", "approved", "paid"].includes(status)) return fail("Unknown status.");
-  const paid = status === "paid" ? input.amountCents : (input.paidCents ?? 0);
-  if (!isCents(paid, 0) || paid > input.amountCents) return fail("Paid so far can't be more than the invoice.");
+  if (input.status != null && !["submitted", "approved", "paid"].includes(input.status)) return fail("Unknown status.");
+  if (input.paidCents != null && !isCents(input.paidCents, 0)) return fail("Paid so far isn't a valid amount.");
   if (input.date != null && !isDay(input.date)) return fail("That date isn't valid (YYYY-MM-DD).");
-  const target = await resolveTarget(run, projectId, input.target);
+  const target = input.target === undefined ? undefined : await resolveTarget(run, projectId, input.target);
   if (typeof target === "string") return fail(target);
-  const poError = await ownPurchaseOrder(run, projectId, input.purchaseOrderId ?? null);
+  const poError = input.purchaseOrderId === undefined ? null : await ownPurchaseOrder(run, projectId, input.purchaseOrderId);
   if (poError) return fail(poError);
   const sourceRef = clip(input.sourceRef, 120);
-  const fields = [subSlug, vendor, input.amountCents, clip(input.note, 300), status, paid, input.date ?? null, target.lineId, target.coId, input.purchaseOrderId ?? null];
+  const doc = [subSlug, vendor, input.amountCents, clip(input.note, 300), input.date ?? null];
+  // Payment state: what was passed, over what is already there, capped at the (possibly new) amount.
+  const settle = (status: string, paidSoFar: number) => (status === "paid" ? input.amountCents : Math.min(paidSoFar, input.amountCents));
 
-  const [seen] = sourceRef ? await run<{ id: string }>(`SELECT id FROM sub_invoices WHERE project_id = $1 AND source_ref = $2`, [projectId, sourceRef]) : [];
+  const [seen] = sourceRef
+    ? await run<{ id: string; status: string; paid_cents: number }>(`SELECT id, status, paid_cents FROM sub_invoices WHERE project_id = $1 AND source_ref = $2`, [projectId, sourceRef])
+    : [];
   if (seen) {
+    const status = input.status ?? seen.status;
+    const paid = settle(status, input.paidCents ?? Number(seen.paid_cents));
+    if (paid > input.amountCents) return fail("Paid so far can't be more than the invoice.");
     await run(
-      `UPDATE sub_invoices SET sub_slug = $3, vendor_label = $4, amount = $5, note = $6, status = $7, paid_cents = $8, invoice_date = $9,
-              budget_line_id = $10, change_order_id = $11, purchase_order_id = $12,
-              paid_at = CASE WHEN $7 = 'paid' THEN COALESCE(paid_at, now()) ELSE NULL END
-        WHERE id = $1 AND project_id = $2`, [Number(seen.id), projectId, ...fields]);
+      `UPDATE sub_invoices SET sub_slug = $3, vendor_label = $4, amount = $5, note = $6, invoice_date = $7,
+              status = $8, paid_cents = $9,
+              paid_at = CASE WHEN $8 = 'paid' THEN COALESCE(paid_at, now()) ELSE NULL END,
+              budget_line_id = CASE WHEN $10 THEN $11 ELSE budget_line_id END,
+              change_order_id = CASE WHEN $10 THEN $12 ELSE change_order_id END,
+              purchase_order_id = CASE WHEN $13 THEN $14 ELSE purchase_order_id END
+        WHERE id = $1 AND project_id = $2`,
+      [Number(seen.id), projectId, ...doc, status, paid, target !== undefined, target?.lineId ?? null, target?.coId ?? null, input.purchaseOrderId !== undefined, input.purchaseOrderId ?? null]);
     return { ok: true, id: Number(seen.id), updated: true };
   }
+  const status = input.status ?? "approved";
+  const paid = settle(status, input.paidCents ?? 0);
+  if (paid > input.amountCents) return fail("Paid so far can't be more than the invoice.");
   const [row] = await run<{ id: string }>(
-    `INSERT INTO sub_invoices (project_id, sub_slug, vendor_label, amount, note, status, paid_cents, invoice_date,
+    `INSERT INTO sub_invoices (project_id, sub_slug, vendor_label, amount, note, invoice_date, status, paid_cents,
                                budget_line_id, change_order_id, purchase_order_id, source_ref, paid_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CASE WHEN $6 = 'paid' THEN now() ELSE NULL END) RETURNING id`,
-    [projectId, ...fields, sourceRef]);
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CASE WHEN $7 = 'paid' THEN now() ELSE NULL END) RETURNING id`,
+    [projectId, ...doc, status, paid, target?.lineId ?? null, target?.coId ?? null, input.purchaseOrderId ?? null, sourceRef]);
   return { ok: true, id: Number(row.id), updated: false };
 }

@@ -56,7 +56,10 @@ All money is **integer cents** in every tool.
      labor (`kind: "labor"`) → `add_expense`.
    - **Always pass a `source_ref`** built from the document ("cpk:1745",
      "receipt:menards-0912"). The same ref again updates the record instead of
-     adding a second one, so a retried import is harmless.
+     adding a second one, so a retried import is harmless: the document's own
+     fields (vendor, amount, date, note) are replaced, while the payment state
+     and the trade / PO filing are kept unless you pass them. Re-importing an
+     invoice never undoes a payment Joe recorded since.
    - If a bill or payment is against a purchase order, pass `po_id` (or
      `link_cost_to_po` afterwards). Otherwise the order and its bill count
      twice. `get_project_financials` flags look-alikes as "possible duplicate" —
@@ -91,6 +94,9 @@ All money is **integer cents** in every tool.
   portal lists every change order that is not a draft, and tells the client to
   sign a sent one. `set_change_order_costs` edits only the budget side (planned
   cost, credits) of a change order that already exists.
+- **A trade is replaced by one change order.** Crediting a trade that another
+  change order already credits is refused; take it off the first one. A trade
+  that a change order credits cannot be deleted either — the credit goes first.
 - **Never mark a budget complete to make a profit appear.**
 - **Never invent a cost** to fill a line. Unknown is a valid answer.
 - Nothing here is client-facing, and nothing here sends anything.

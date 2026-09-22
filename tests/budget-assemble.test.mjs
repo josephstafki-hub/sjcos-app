@@ -365,3 +365,16 @@ test("cost-plus pricing is not modeled, and the view says so", () => {
   const view = assembleBudgetView(raw({ project: { basis: "cost_plus", contractValueDollars: 50000 } }), { asOf: AS_OF });
   assert.ok(view.completeness.missing.includes("Cost-plus pricing isn't modeled; the price shown is the target"));
 });
+
+test("what was billed before invoices were tracked, and is still unpaid, counts as unpaid", () => {
+  const job = { contractValueDollars: 20000, collectedToDateDollars: 5000, billingSource: "invoices", openingCollectedCents: $(5000), openingBilledCents: $(10000) };
+  const view = assembleBudgetView(raw({ project: job, invoices: [invoice({ number: "INV-001", amountCents: $(2000), status: "sent", paidOn: null })] }), { asOf: AS_OF });
+  assert.deepEqual([view.billing.billedCents, view.billing.collectedCents], [$(12000), $(5000)]);
+  assert.equal(view.billing.openingUnpaidCents, $(5000));
+  assert.equal(view.billing.unpaidInvoicesCents, $(7000), "the $5,000 opening receivable plus the $2,000 sent invoice — never just the in-app invoice");
+  const t = computeTotals(view);
+  assert.equal(t.unpaidInvoicesCents, t.billedCents - t.collectedCents, "on a reconciled job unpaid is exactly billed minus collected");
+
+  const manual = assembleBudgetView(raw({ project: { ...job, billingSource: "manual" } }), { asOf: AS_OF });
+  assert.equal(manual.billing.openingUnpaidCents, 0, "an opening balance means nothing until the job is reconciled");
+});

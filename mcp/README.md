@@ -192,7 +192,11 @@ Rules the tools enforce, so you can rely on them:
 
 - **Idempotent imports.** A line's `key` and a cost's `source_ref` are stable
   keys: the same one again updates the record. Always pass a `source_ref` when
-  entering a cost from a document.
+  entering a cost from a document. On that update the document's fields are
+  replaced; the payment state and the trade / PO filing are kept unless passed,
+  so a re-import never undoes a payment recorded since.
+- **One change order per credited trade**, and a credited trade cannot be
+  deleted: both would move the client's price without anyone deciding to.
 - **Each purchase counted once.** A bill linked to its PO consumes it; a PO is
   never "spent"; look-alikes are flagged `possible duplicate`, never merged.
 - **No tool creates a change order or moves one out of draft** — the client

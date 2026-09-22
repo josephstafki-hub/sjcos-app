@@ -173,7 +173,9 @@ export function registerFinancialsTools(server, { rows, json, pool, strippedDoll
       client.release();
     }
   }
-  /** `line_key` / `co_number` → the row a cost is filed under. Both absent = unassigned. */
+  /** `line_key` / `co_number` → the row a cost is filed under. Both absent →
+   *  undefined: on a new cost that means unassigned; on a re-import it means
+   *  "keep the filing someone already did". assign_cost turns it into null. */
   async function targetOf(run, projectId, a) {
     if (a.line_key) {
       const [l] = await run(`SELECT id FROM budget_lines WHERE project_id = $1 AND key = $2`, [projectId, a.line_key]);
@@ -185,7 +187,7 @@ export function registerFinancialsTools(server, { rows, json, pool, strippedDoll
       if (!c) throw new Error(`No change order "${a.co_number}" on this job.`);
       return { kind: "co", id: Number(c.id) };
     }
-    return null;
+    return undefined;
   }
   const cents = z.number().int().describe("integer cents");
 
@@ -374,7 +376,9 @@ export function registerFinancialsTools(server, { rows, json, pool, strippedDoll
         "File it under a trade (`line_key`) or a change order (`co_number`); with neither it is unassigned — still " +
         "counted, and flagged. If it is a payment on a purchase order pass `po_id`, or the order and the payment " +
         "count twice. ALWAYS pass a `source_ref` when importing from a document (e.g. 'receipt:menards-0912'): " +
-        "logging the same ref again UPDATES that expense instead of adding another. Negative amount = a return. " +
+        "logging the same ref again UPDATES that expense instead of adding another — the document's fields " +
+        "(date, vendor, amount, memo) are replaced, while a trade or PO filing someone did since is KEPT unless " +
+        "you pass it. Negative amount = a return. " +
         "Not for a bill from a sub — use record_sub_invoice, which can be owed or part-paid.",
       inputSchema: {
         project_slug: z.string(), date: z.string().describe("YYYY-MM-DD"), vendor: z.string(),
@@ -386,7 +390,7 @@ export function registerFinancialsTools(server, { rows, json, pool, strippedDoll
     (a) => write(a.project_slug, [a.vendor, a.memo], async (run, projectId) =>
       writes.saveExpense(run, projectId, {
         date: a.date, vendorLabel: a.vendor, kind: a.kind, amountCents: a.amount_cents, memo: a.memo, paidFrom: a.paid_from ?? "card",
-        target: await targetOf(run, projectId, a), purchaseOrderId: a.po_id ?? null, sourceRef: a.source_ref,
+        target: await targetOf(run, projectId, a), purchaseOrderId: a.po_id, sourceRef: a.source_ref,
       })),
   );
 
@@ -401,7 +405,10 @@ export function registerFinancialsTools(server, { rows, json, pool, strippedDoll
         "trade (`line_key`) or change order (`co_number`). Every dollar a sub invoiced goes on exactly ONE line or " +
         "CO: split a bill that covers two into two records with their own source_refs. If it bills a purchase " +
         "order pass `po_id` so they count once. ALWAYS pass `source_ref` (e.g. 'cpk:1745'): the same ref again " +
-        "UPDATES the record. Note: a roster sub with invoices and no W-9 on file gets a W-9 work item.",
+        "UPDATES the record — the document's fields (vendor, amount, date, note) are replaced, while its payment " +
+        "state and filing (status, paid_cents, trade, PO) are KEPT unless you pass them, so re-importing an " +
+        "invoice never undoes a payment recorded since. Note: a roster sub with invoices and no W-9 on file " +
+        "gets a W-9 work item.",
       inputSchema: {
         project_slug: z.string(), sub_slug: z.string().optional(), vendor_label: z.string().optional(), amount_cents: cents,
         date: z.string().optional().describe("YYYY-MM-DD"), note: z.string().optional(),
@@ -412,7 +419,7 @@ export function registerFinancialsTools(server, { rows, json, pool, strippedDoll
     (a) => write(a.project_slug, [a.vendor_label, a.note], async (run, projectId) =>
       writes.recordSubInvoice(run, projectId, {
         subSlug: a.sub_slug, vendorLabel: a.vendor_label, amountCents: a.amount_cents, date: a.date ?? null, note: a.note,
-        status: a.status, paidCents: a.paid_cents, target: await targetOf(run, projectId, a), purchaseOrderId: a.po_id ?? null, sourceRef: a.source_ref,
+        status: a.status, paidCents: a.paid_cents, target: await targetOf(run, projectId, a), purchaseOrderId: a.po_id, sourceRef: a.source_ref,
       })),
   );
 
@@ -433,7 +440,7 @@ export function registerFinancialsTools(server, { rows, json, pool, strippedDoll
       description: "`source` and `id` from get_project_financials costs[]. Pass `line_key` or `co_number`; pass neither to un-assign (it still counts, as unassigned).",
       inputSchema: { project_slug: z.string(), source: z.enum(["sub_invoice", "po", "expense"]), id: z.number().int(), line_key: z.string().optional(), co_number: z.string().optional() },
     },
-    (a) => write(a.project_slug, [], async (run, projectId) => writes.assignCost(run, projectId, { source: a.source, id: a.id, target: await targetOf(run, projectId, a) })),
+    (a) => write(a.project_slug, [], async (run, projectId) => writes.assignCost(run, projectId, { source: a.source, id: a.id, target: (await targetOf(run, projectId, a)) ?? null })),
   );
 
   server.registerTool(
@@ -455,7 +462,8 @@ export function registerFinancialsTools(server, { rows, json, pool, strippedDoll
         "price or status — creating one and sending it for signature stay in the app, because the client portal " +
         "shows every change order that is not a draft. `budget_cost_cents` null = not planned, so it is assumed to " +
         "cost its full price (no profit). `credits` REPLACES the list: each names a trade by `line_key` and the " +
-        "price credited back to the client; the trade drops out of the cost only once the CO is signed. Cost " +
+        "price credited back to the client; the trade drops out of the cost only once the CO is signed. A trade " +
+        "can be credited on ONE change order — this refuses if another already credits it. Cost " +
         "already incurred on a CO is never typed here — file it with assign_cost / add_expense / record_sub_invoice.",
       inputSchema: {
         project_slug: z.string(), co_number: z.string(),

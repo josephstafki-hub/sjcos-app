@@ -1272,3 +1272,18 @@ stays mounted, so a browser test must scope its lookups to the panel (the
 Overview rail and the Money section pills repeat the same words). The React
 "unique key" warning on the project page is pre-existing: the unmodified page
 throws it too — but only ~5 s after load, so a test that closes early misses it.
+
+**v2.4 — 2026-09-22, Astra's review of the PRs (#31–#35).** All five accepted;
+each fixed on `t3code/financials-phase-4b` (top of the stack) with a test that
+was confirmed to FAIL with the bug put back:
+
+| # | Finding | Severity | Fix |
+|---|---|---|---|
+| 26 | Re-importing an invoice under its `source_ref` reset it to approved / $0 paid / unfiled — a payment recorded since was erased (#35) | High | On a `source_ref` match, `recordSubInvoice` and `saveExpense` replace only the document's fields; status, paid, trade and PO are kept unless passed. A paid invoice re-imported with a new amount stays paid in full; a part payment is capped at the new amount. The MCP tools pass "not given" through as keep |
+| 27 | Deleting a credited line cascaded its credit away and the client's price rose by it (#33) | High | `deleteBudgetLine` refuses while a change order credits the line, naming it |
+| 28 | Two change orders could credit one trade; both lowered the price while the cost left once (#33, #35) | High | `saveChangeOrderCosts` refuses a credit on a trade another CO already credits; a unique index on `change_order_credits(budget_line_id)` enforces it in the database too |
+| 29 | Re-syncing a no-markup estimate over a confirmed budget kept `budget_complete`, so the page showed a profit built on client prices (#32) | Medium | Adoption SETS `budget_complete` = has-markup: a no-markup sync withdraws the confirmation until real costs are set and it is ticked again |
+| 30 | Opening receivables (opening billed − opening collected) vanished from "unpaid invoices" (#31, #34) | Medium | Counted on a reconciled job, and exposed as `billing.openingUnpaidCents`; on such a job unpaid = billed − collected exactly |
+
+The `uq_change_order_credits_line` index was added to the schema block and
+applied to the live database (the table was empty).

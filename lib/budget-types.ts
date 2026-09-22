@@ -198,8 +198,11 @@ export interface BudgetBilling {
   collectedCents: number;
   /** null on a `manual` job: billing is UNKNOWN, never assumed = collected. */
   billedCents: number | null;
-  /** Sent invoices in SJC OS that are not paid. A fact at any coverage. */
+  /** Unpaid billing: sent invoices in SJC OS, plus — on a reconciled job — what
+   *  was billed before invoices were tracked here and is still unpaid. */
   unpaidInvoicesCents: number;
+  /** The opening part of that: opening billed − opening collected. */
+  openingUnpaidCents: number;
   openingCollectedCents: number;
   openingBilledCents: number;
   openingNote?: string;

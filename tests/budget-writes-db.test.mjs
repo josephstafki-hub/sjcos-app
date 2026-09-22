@@ -158,6 +158,49 @@ test("every Money › Overview write round-trips through the real loader", { ski
     assert.equal(e2.id, e1.id, "the same receipt logged twice is one expense, updated");
     assert.ok((await w.deleteExpense(run, job, e1.id)).ok);
 
+    // ---- re-importing a document never undoes a payment or a filing done since
+    const doc = { vendorLabel: "ZZ Plumb Co", amountCents: $(1125), date: "2026-09-08", sourceRef: "zzplumb:48452" };
+    const imported = await w.recordSubInvoice(run, job, { ...doc, target: { kind: "line", id: b.id } });
+    assert.ok(imported.ok);
+    assert.ok((await w.setSubInvoicePayment(run, job, { id: imported.id, status: "paid" })).ok);
+    assert.ok((await w.linkCostToPurchaseOrder(run, job, { source: "sub_invoice", id: imported.id, purchaseOrderId: Number(po.id) })).ok);
+    const again = await w.recordSubInvoice(run, job, { ...doc, note: "re-imported from the same PDF" });   // no status, paid, target or PO
+    assert.deepEqual([again.ok, again.updated, again.id], [true, true, imported.id]);
+    const [kept] = await run(`SELECT status, paid_cents, paid_at IS NOT NULL AS paid_at, budget_line_id, purchase_order_id, note FROM sub_invoices WHERE id = $1`, [imported.id]);
+    assert.deepEqual([kept.status, Number(kept.paid_cents), kept.paid_at, Number(kept.budget_line_id), Number(kept.purchase_order_id), kept.note],
+      ["paid", $(1125), true, b.id, Number(po.id), "re-imported from the same PDF"], "the document's fields changed; the payment and the filing did not");
+    assert.ok((await w.recordSubInvoice(run, job, { ...doc, status: "approved", paidCents: $(500), target: null })).ok, "…but saying so explicitly still works");
+    const [changed] = await run(`SELECT status, paid_cents, budget_line_id FROM sub_invoices WHERE id = $1`, [imported.id]);
+    assert.deepEqual([changed.status, Number(changed.paid_cents), changed.budget_line_id], ["approved", $(500), null]);
+    assert.ok((await w.recordSubInvoice(run, job, { ...doc, amountCents: $(400) })).ok, "a corrected, smaller amount…");
+    assert.equal(Number((await run(`SELECT paid_cents FROM sub_invoices WHERE id = $1`, [imported.id]))[0].paid_cents), $(400), "…caps the part payment at the invoice");
+    assert.ok((await w.setSubInvoicePayment(run, job, { id: imported.id, status: "paid" })).ok);
+    assert.ok((await w.recordSubInvoice(run, job, { ...doc, amountCents: $(450) })).ok);
+    assert.deepEqual((await run(`SELECT status, paid_cents FROM sub_invoices WHERE id = $1`, [imported.id])).map((r) => [r.status, Number(r.paid_cents)]), [["paid", $(450)]], "a paid invoice re-imported with a new amount stays paid in full");
+
+    const receipt = await w.saveExpense(run, job, { date: "2026-09-11", vendorLabel: "ZZ Hardware", kind: "material", amountCents: $(60), paidFrom: "card", target: null, purchaseOrderId: null, sourceRef: "receipt:zz-hw-1" });
+    assert.ok((await w.assignCost(run, job, { source: "expense", id: receipt.id, target: { kind: "line", id: b.id } })).ok);
+    assert.ok((await w.saveExpense(run, job, { date: "2026-09-11", vendorLabel: "ZZ Hardware", kind: "material", amountCents: $(65), paidFrom: "card", sourceRef: "receipt:zz-hw-1" })).ok);
+    const [rc] = await run(`SELECT amount_cents, budget_line_id FROM expenses WHERE id = $1`, [receipt.id]);
+    assert.deepEqual([Number(rc.amount_cents), Number(rc.budget_line_id)], [$(65), b.id], "a re-logged receipt keeps the trade it was filed under");
+    assert.ok((await w.deleteExpense(run, job, receipt.id)).ok);
+
+    // ---- a trade a change order credits cannot be deleted, and cannot be credited twice
+    const [co2] = await run(`INSERT INTO change_orders (project_id, number, title, price_cents, status) VALUES ($1, 'CO-2', 'ZZ Swap', $2, 'approved') RETURNING id`, [job, $(6000)]);
+    const priceBefore = computeTotals(await view(job)).priceCents;   // base + CO-1 + CO-2, no credit yet
+    assert.ok((await w.saveChangeOrderCosts(run, job, { id: Number(co2.id), paidBy: "owner", funderShareCents: 0, budgetCostCents: null, estToFinishCents: null, credits: [{ lineId: b.id, amountCents: $(1000) }] })).ok);
+    assert.equal(computeTotals(await view(job)).priceCents, priceBefore - $(1000), "the credit lowers the client's price by $1,000");
+    const del = await w.deleteBudgetLine(run, job, b.id);
+    assert.deepEqual(del, { ok: false, error: "This trade is credited on CO-2. Remove that credit first." });
+    assert.equal(computeTotals(await view(job)).priceCents, priceBefore - $(1000), "the credit — and the price — are untouched (the old code cascaded the credit away and the price rose $1,000)");
+    const twice = await w.saveChangeOrderCosts(run, job, { id: Number(co.id), paidBy: "owner", funderShareCents: 0, budgetCostCents: $(7000), estToFinishCents: null, credits: [{ lineId: b.id, amountCents: $(2000) }] });
+    assert.equal(twice.ok, false);
+    assert.match(twice.error, /already credited on CO-2/);
+    assert.equal((await run(`SELECT count(*)::int AS n FROM change_order_credits WHERE budget_line_id = $1`, [b.id]))[0].n, 1, "one change order per credited trade");
+    assert.ok((await w.saveChangeOrderCosts(run, job, { id: Number(co2.id), paidBy: "owner", funderShareCents: 0, budgetCostCents: null, estToFinishCents: null, credits: [] })).ok, "moving a credit: take it off the first CO…");
+    assert.ok((await w.saveChangeOrderCosts(run, job, { id: Number(co.id), paidBy: "owner", funderShareCents: 0, budgetCostCents: $(7000), estToFinishCents: null, credits: [{ lineId: b.id, amountCents: $(2000) }] })).ok, "…then the second may take it");
+    assert.ok((await w.saveChangeOrderCosts(run, job, { id: Number(co.id), paidBy: "owner", funderShareCents: 0, budgetCostCents: $(7000), estToFinishCents: null, credits: [] })).ok);
+
     // ---- payers and expected payments
     assert.ok((await w.saveParties(run, job, [{ key: "insurer", label: "ZZ Mutual", baseShareCents: $(50000) }, { key: "owner", label: "Pat", baseShareCents: $(8000), isOwner: true }])).ok);
     assert.ok((await w.saveFundingEvents(run, job, [{ partyKey: "insurer", source: "Initial payment", amountCents: $(40000), trigger: "On the estimate", status: "received" }])).ok);

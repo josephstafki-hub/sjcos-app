@@ -99,7 +99,7 @@ function envValue(key) {
  * sending it for signature stays owner-gated in the app.
  */
 async function docDraftsCall(action, payload = {}) {
-  const base = envValue("APP_INTERNAL_URL") || "http://127.0.0.1:3000";
+  const base = envValue("APP_INTERNAL_URL") || "http://127.0.0.1:3017";
   const secret = envValue("CRON_SECRET");
   if (!secret) return { ok: false, error: "CRON_SECRET not set — cannot reach the app doc-drafts route." };
   try {

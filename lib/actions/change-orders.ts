@@ -16,6 +16,8 @@ import { ai } from "@/lib/ai";
 import { renderInlineDocPdf } from "@/lib/documents";
 import { storeBuffer } from "@/lib/upload-store";
 import { coDollarsToCents, fmtCoUsd } from "@/lib/co-types";
+import { getScopeChangeContext } from "@/lib/estimates";
+import { changeOrderRefusal } from "@/lib/estimate-kinds";
 
 type Result = { ok: true; id?: number } | { ok: false; error: string };
 
@@ -36,6 +38,13 @@ export async function createChangeOrder(slug: string, formData: FormData): Promi
   if (!title) return { ok: false, error: "A title is required." };
   const description = String(formData.get("description") ?? "").trim();
   const priceCents = coDollarsToCents(String(formData.get("price") ?? ""));
+
+  // Change orders start once the contract is signed; before that a client
+  // change is a pre-con change estimate in Money › Estimate
+  // (docs/estimates-and-change-orders.md). The change_orders trigger refuses
+  // it too — this is the plain-English version.
+  const ctx = await getScopeChangeContext(slug);
+  if (ctx && ctx.path !== "change_order") return { ok: false, error: changeOrderRefusal(ctx) };
 
   const ins = await queryOne<{ id: string }>(
     `INSERT INTO change_orders (project_id, title, description, price_cents, status, created_by)

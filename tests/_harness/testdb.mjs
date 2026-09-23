@@ -131,24 +131,44 @@ export async function loadSchema(url) {
   await migrate({ url, allowTestHarness: true, quiet: true });
 }
 
-/** Tests: one shared cluster per process tree, fresh database per call. The
+/** Database name for the current test file: node --test runs each file in its
+ *  own process, so process.argv[1] names the file. Every file gets its own
+ *  database (created + loaded once per cluster), which is what lets files run
+ *  concurrently without truncating each other's tables. */
+export function dbNameForCurrentTest() {
+  const f = process.argv[1] ? path.basename(process.argv[1]).replace(/\.test\.mjs$/, "") : "";
+  const slug = f.replace(/[^a-z0-9]+/gi, "_").toLowerCase().slice(0, 40);
+  return slug ? `sjcos_test_${slug}` : "sjcos_test";
+}
+
+function urlForDb(state, name) {
+  return state.url.replace("/sjcos_test?", `/${name}?`);
+}
+
+/** Tests: one shared cluster per process tree, one database per test FILE
+ *  (see dbNameForCurrentTest), migrations always brought up to date. The
  *  callback gets the url and an open pg.Client with SJC_OUTBOUND_DISABLED set. */
-export async function withTestDb(fn, { fresh = false } = {}) {
+export async function withTestDb(fn, { fresh = false, name } = {}) {
   process.env.SJC_OUTBOUND_DISABLED = "1";
   const state = startCluster();
-  const marker = path.join(state.dir, "schema-loaded");
+  const db = name ?? dbNameForCurrentTest();
+  const url = urlForDb(state, db);
+  assertNotProduction(url);
+  const marker = path.join(state.dir, `schema-loaded-${db}`);
   if (fresh || !existsSync(marker)) {
-    await resetDatabase(state);
+    spawnSync(bin("psql"), [state.admin, "-Atc", `DROP DATABASE IF EXISTS ${db} WITH (FORCE)`], { stdio: "ignore" });
+    spawnSync(bin("psql"), [state.admin, "-Atc", `CREATE DATABASE ${db}`], { stdio: "ignore" });
+    await loadSchema(url);
     writeFileSync(marker, new Date().toISOString());
   } else {
     // A running cluster may predate a newly added migration file.
     const { migrate } = await import(path.join(REPO, "db", "migrate.mjs"));
-    await migrate({ url: state.url, quiet: true });
+    await migrate({ url, quiet: true });
   }
-  const client = new pg.Client({ connectionString: state.url });
+  const client = new pg.Client({ connectionString: url });
   await client.connect();
   try {
-    return await fn(state.url, client);
+    return await fn(url, client);
   } finally {
     await client.end();
   }

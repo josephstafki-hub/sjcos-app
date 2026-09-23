@@ -179,7 +179,7 @@ export default async function ProjectDetailPage({
     // section of the Documents tab lists whatever is awaiting a signature.
     getProjectSignatureRequests(slug),
     // Which record a client change becomes right now (pre-con change
-    // worksheet vs change order) — decided by the DB, shown on the Money tab.
+    // estimate vs change order) — decided by the DB, shown on the Money tab.
     getScopeChangeContext(slug),
   ]);
   const docTemplates = listDocTemplates().filter((t) => t.scope !== "lead");
@@ -696,41 +696,38 @@ export default async function ProjectDetailPage({
       if (d.signature_request_id) docFocusSections[`signature-${d.signature_request_id}`] = t.title;
     }
   }
-  // Documents that are RENDERED FROM one record offer the job's records to
-  // pick from — a Formal Estimate or Contract from an estimate worksheet in
-  // Money › Estimate, a Change Order from a change order, an Invoice from an
-  // invoice — instead of a blank draft (docs/estimates-and-change-orders.md).
+  // Documents that are GENERATED FROM one record offer the job's records to
+  // pick from — a Formal Estimate or Contract from an estimate in Money ›
+  // Estimate, a Change Order from a change order, an Invoice from an invoice —
+  // instead of a blank draft (docs/estimates-and-change-orders.md).
   const pickLink = (tab: ProjectTab, section: string, text: string) => (
     <TabLink tab={tab} section={section} className="font-semibold text-accent-2 underline-offset-2 hover:underline">
       {text}
     </TabLink>
   );
-  const worksheetOptions = estimates.map((e) => ({
+  const estimateOption = (e: (typeof estimates)[number]) => ({
     id: e.id,
     label: `#${e.id} ${e.title} · ${ESTIMATE_KIND_LABEL[e.kind]} · ${e.status} · ${fmtUsd(e.total)}`,
-  }));
+  });
   const docSources: Record<string, DocSourcePicker> = {
     estimate_doc: {
       scopeKey: "estimateId",
-      label: "Estimate worksheet",
-      explainer: `The client-facing paper. Rendered from an estimate worksheet in ${WHERE.worksheets} — build or revise the numbers there, then make the document here.`,
-      options: worksheetOptions,
-      empty: <>No estimate worksheet yet. {pickLink("Money", "Estimate", `Build one in ${WHERE.worksheets}`)} first; the Formal Estimate is made from it.</>,
+      label: "Estimate",
+      explainer: `The PDF the client gets, generated from an estimate in ${WHERE.estimates}. Add or change lines there, then regenerate here.`,
+      options: estimates.map(estimateOption),
+      empty: <>No estimate yet. {pickLink("Money", "Estimate", `Create the formal estimate in ${WHERE.estimates}`)} first; this PDF is generated from it.</>,
     },
     contract: {
       scopeKey: "estimateId",
-      label: "Approved estimate worksheet",
-      explainer: `Built from the job's approved estimate worksheet (${WHERE.worksheets}) — its total and draw schedule fill the contract.`,
-      options: [...estimates].sort((a, b) => Number(b.status === "approved") - Number(a.status === "approved")).map((e) => ({
-        id: e.id,
-        label: `#${e.id} ${e.title} · ${ESTIMATE_KIND_LABEL[e.kind]} · ${e.status} · ${fmtUsd(e.total)}`,
-      })),
-      empty: <>No estimate worksheet yet. {pickLink("Money", "Estimate", `Build and get one approved in ${WHERE.worksheets}`)} first.</>,
+      label: "Approved estimate",
+      explainer: `Built from the approved estimate in ${WHERE.estimates} — its total and draw schedule fill the contract.`,
+      options: [...estimates].sort((a, b) => Number(b.status === "approved") - Number(a.status === "approved")).map(estimateOption),
+      empty: <>No estimate yet. {pickLink("Money", "Estimate", `Create and get one approved in ${WHERE.estimates}`)} first.</>,
     },
     change_order: {
       scopeKey: "changeOrderId",
       label: "Change order",
-      explainer: `Rendered from a change order in ${WHERE.changeOrders} — a change to the signed contract.`,
+      explainer: `Generated from a change order in ${WHERE.changeOrders} — a change to the signed contract.`,
       options: changeOrders.map((c) => ({ id: c.id, label: `#${c.id} ${c.title} · ${c.status} · ${c.priceLabel}` })),
       empty:
         scopeChange.path === "change_order" ? (
@@ -738,14 +735,14 @@ export default async function ProjectDetailPage({
         ) : (
           <>
             Change orders start once the contract is signed ({scopeChange.statusLabel} now). A client addition or change before that
-            is a Pre-con change worksheet in {pickLink("Money", "Estimate", WHERE.worksheets)}.
+            is a Pre-con change estimate in {pickLink("Money", "Estimate", WHERE.estimates)}.
           </>
         ),
     },
     invoice_doc: {
       scopeKey: "invoiceId",
       label: "Invoice",
-      explainer: "Rendered from an invoice in Money › Invoices.",
+      explainer: "Generated from an invoice in Money › Invoices.",
       options: money.invoices.map((i) => ({ id: i.id, label: `${i.number} ${i.milestone} · ${i.status} · ${usd(i.amount)}` })),
       empty: <>No invoice yet. {pickLink("Money", "Invoices", "Create one in Money › Invoices")} first.</>,
     },

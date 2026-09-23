@@ -19,28 +19,23 @@ Do not treat `/home/joe/SJC OS Temp`, old CSV exports, or one-off local files as
 
 Client-facing sends (emails, bid packages, POs, invoices, documents for signature, newsletter release) are owner-approved. The approval is an **owner grant** (`lib/owner-grants.ts`): without one, draft and stage, then ask — `request_owner_permission` files a Decision Joe approves on `/engine/permissions`. With a grant id (Joe ticked "Express permission" in the Ask window, approved your request, or minted one by hand), pass it as `owner_grant_id` to the matching `send_*` / `release_*` tool for exactly that target. Never route around the grant.
 
-# Estimates, Formal Estimate documents and change orders — where things go
+# Estimates and change orders — where things go
 
-Rule from Joe (2026-09-23), enforced by database triggers for every writer;
-full text in `docs/estimates-and-change-orders.md`. Read
-`get_project → pricing_and_paperwork.scope_change_path` before filing any of these.
+Rule from Joe (2026-09-23); full text in `docs/estimates-and-change-orders.md`.
 
-- **Money › Estimate** holds the **numbers**: estimate *worksheets*
-  (`estimates` + `estimate_lines`). `kind = formal` is the job's base bid — the
-  client approves it, and the contract and budget are built from it.
-  `kind = precon_change` is a client-requested addition or change priced
-  **before the contract is signed**. Tools: `list_project_estimates`,
-  `create_estimate`, `add_estimate_lines`. Never insert these rows by script.
-- **Documents › Formal Estimate** holds the **paper**: the client-facing
-  document, always rendered **from** a worksheet —
-  `create_document_draft { template_key: "estimate_doc", estimate_id }`. Never
-  hand-typed; if the numbers change, change the worksheet and re-render.
-  `contract` needs `estimate_id` the same way; `change_order` needs
-  `change_order_id`; `invoice_doc` needs `invoice_id`.
-- **Change orders** (Money › Change orders → Documents › Change Order) are for
-  scope changes **after the contract is signed** (construction, closeout).
-  Never in pre-construction — the table refuses the row. No MCP tool creates a
-  change order; draft it in the app or ask Joe with `ask_owner`.
+- **The formal estimate is the estimate in Money › Estimate** (`kind = formal`).
+  To add or change its lines, call `add_estimate_lines` on it — the id is
+  `get_project → pricing_and_paperwork.formal_estimate_id`. Don't create a
+  second formal estimate when one exists. Never insert these rows by script.
+- **Documents › Formal Estimate is only the PDF of that estimate**:
+  `create_document_draft { template_key: "estimate_doc", estimate_id }`.
+  Regenerate it after the lines change. `contract` needs `estimate_id` too;
+  `change_order` needs `change_order_id`; `invoice_doc` needs `invoice_id`.
+- **Client asks for an addition or change before the contract is signed** → a
+  new estimate with `kind = precon_change` (`create_estimate`), not a change order.
+- **After the contract is signed** → a change order (Money › Change orders).
+  Never in pre-construction; the table refuses the row. No MCP tool creates a
+  change order — draft it in the app or ask Joe with `ask_owner`.
 - Lead phase: the rough estimate on the lead page. Not a project estimate.
 
 # Claude in the app

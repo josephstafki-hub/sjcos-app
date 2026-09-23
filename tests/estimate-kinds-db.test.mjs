@@ -5,7 +5,7 @@ import { scopeChangePath } from "../lib/estimate-kinds.ts";
 
 // The scope-change rule against a REAL Postgres: project_scope_change_path()
 // agrees with the pure mirror, and the triggers refuse a change order before
-// the contract is signed and a pre-con change worksheet after it
+// the contract is signed and a pre-con change estimate after it
 // (docs/estimates-and-change-orders.md). Same harness as
 // budget-writes-db.test.mjs:
 //
@@ -65,13 +65,13 @@ test("the database decides the path and refuses the wrong record", { skip: !url 
     const [co] = await run(`INSERT INTO change_orders (project_id, title, price_cents) VALUES ($1, 'Add lighting', 250000) RETURNING id`, [onSite]);
     assert.ok(co.id, "a change order on a job under contract is fine");
 
-    // ---- worksheets: 'formal' anywhere, 'precon_change' only before the contract
+    // ---- estimates: 'formal' anywhere, 'precon_change' only before the contract
     const [f1] = await run(`INSERT INTO estimates (project_id, title) VALUES ($1, 'Base bid') RETURNING kind`, [precon]);
     assert.equal(f1.kind, "formal", "kind defaults to formal");
     const [pc] = await run(`INSERT INTO estimates (project_id, title, kind) VALUES ($1, 'Add pantry', 'precon_change') RETURNING id`, [precon]);
     assert.ok(pc.id, "a pre-con change before the contract is fine");
     const [f2] = await run(`INSERT INTO estimates (project_id, title, kind) VALUES ($1, 'Houzz import', 'formal') RETURNING id`, [onSite]);
-    assert.ok(f2.id, "a formal worksheet may be backfilled on a live job");
+    assert.ok(f2.id, "a formal estimate may be backfilled on a live job");
     await refused(
       () => run(`INSERT INTO estimates (project_id, title, kind) VALUES ($1, 'Add pantry', 'precon_change')`, [onSite]),
       /under contract \(construction\)[\s\S]*Money › Change orders/,
@@ -84,7 +84,7 @@ test("the database decides the path and refuses the wrong record", { skip: !url 
       () => run(`INSERT INTO estimates (project_id, title, kind) VALUES ($1, 'x', 'revision')`, [precon]),
       /estimates_kind_check/,
     );
-    // Lead-scoped worksheets (no project) are outside the phase rule.
+    // Lead-scoped estimates (no project) are outside the phase rule.
     const [lead] = await run(`INSERT INTO estimates (lead_slug, title, kind) VALUES ('zz-lead', 'Lead precon change', 'precon_change') RETURNING id`);
     assert.ok(lead.id);
   } finally {

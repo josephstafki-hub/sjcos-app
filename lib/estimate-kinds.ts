@@ -1,6 +1,6 @@
-// Where a job's pricing paperwork lives, and which kind of record a client
-// change becomes — the ONE vocabulary the app, the MCP tools and the agents
-// share (docs/estimates-and-change-orders.md). Pure: no db import, so client
+// Where a job's estimates and change orders live, and which one a client change
+// becomes — the one vocabulary the app, the MCP tools and the agents share
+// (docs/estimates-and-change-orders.md). Pure: no db import, so client
 // components, server code and the MCP server (plain Node importing .ts) can
 // all use it.
 //
@@ -11,7 +11,7 @@
 
 import type { ProjectStatus } from "./types";
 
-// ─── Worksheet kinds ────────────────────────────────────────────────────────
+// ─── Estimate kinds ─────────────────────────────────────────────────────────
 
 export type EstimateKind = "formal" | "precon_change";
 export const ESTIMATE_KINDS: readonly EstimateKind[] = ["formal", "precon_change"];
@@ -22,7 +22,7 @@ export const ESTIMATE_KIND_LABEL: Record<EstimateKind, string> = {
 };
 
 export const ESTIMATE_KIND_HELP: Record<EstimateKind, string> = {
-  formal: "The job's base bid. Once the client approves it, the contract and the budget are built from it.",
+  formal: "The job's formal estimate. The client approves it; the contract and budget are built from it.",
   precon_change: "A client-requested addition or change, priced before the contract is signed.",
 };
 
@@ -64,9 +64,9 @@ export const CHANGE_ORDER_STATUSES: ReadonlySet<ProjectStatus> = new Set<Project
 ]);
 
 /** The contract signature is the dividing line: before it a client change is
- *  priced as a pre-con change worksheet, after it it is a change order. The
- *  "Construction contract" stage straddles the line, so there the paperwork
- *  decides. Must match project_scope_change_path() in db/schema.sql. */
+ *  a pre-con change estimate, after it it is a change order. The "Construction
+ *  contract" stage straddles the line, so there the paperwork decides. Must
+ *  match project_scope_change_path() in db/schema.sql. */
 export function scopeChangePath(status: ProjectStatus, hasSignedContract: boolean): ScopeChangePath {
   if (CHANGE_ORDER_STATUSES.has(status)) return "change_order";
   if (status === "construction_contract" && hasSignedContract) return "change_order";
@@ -86,34 +86,31 @@ export function scopeChangeContext(status: ProjectStatus, hasSignedContract: boo
 
 /** Tab › section names exactly as the project page shows them. */
 export const WHERE = {
-  worksheets: "Money › Estimate",
+  estimates: "Money › Estimate",
   changeOrders: "Money › Change orders",
   formalEstimateDoc: "Documents › Formal Estimate",
   changeOrderDoc: "Documents › Change Order",
 } as const;
 
 export const PRICING_RULE =
-  `${WHERE.worksheets} holds the NUMBERS: estimate worksheets — kind 'formal' is the job's base bid, ` +
-  `kind 'precon_change' is a client addition or change priced BEFORE the contract is signed. ` +
-  `${WHERE.formalEstimateDoc} holds the PAPER: the client-facing document, always rendered from a ` +
-  `worksheet (estimate_id), never typed by hand. ${WHERE.changeOrders} (with ${WHERE.changeOrderDoc}) ` +
-  `is for scope changes AFTER the contract is signed — never in pre-construction. ` +
-  `Full rule: docs/estimates-and-change-orders.md.`;
+  `The formal estimate is the estimate in ${WHERE.estimates} (kind 'formal'): add or change its lines there ` +
+  `(add_estimate_lines). ${WHERE.formalEstimateDoc} is only the PDF generated from it ` +
+  `(create_document_draft estimate_doc + estimate_id) — regenerate it after the lines change. A client addition ` +
+  `or change BEFORE the contract is signed is a new estimate with kind 'precon_change'; AFTER the contract is ` +
+  `signed it is a change order (${WHERE.changeOrders}). Full rule: docs/estimates-and-change-orders.md.`;
 
 /** The phase banner on the Money tab. */
 export function describeScopeChangePath(ctx: ScopeChangeContext): { headline: string; detail: string } {
   if (ctx.path === "change_order") {
     return {
       headline: `Under contract · ${ctx.statusLabel}`,
-      detail:
-        `Client additions or changes are change orders now (${WHERE.changeOrders}). ` +
-        `New worksheets here are for the base bid only.`,
+      detail: `Client additions or changes are change orders now (${WHERE.changeOrders}).`,
     };
   }
   return {
     headline: `Pre-construction · ${ctx.statusLabel}`,
     detail:
-      "Client additions or changes are priced here as a Pre-con change worksheet. " +
+      "A client addition or change is a new estimate here with kind Pre-con change. " +
       "Change orders start once the contract is signed.",
   };
 }
@@ -123,11 +120,11 @@ export function changeOrderRefusal(ctx: ScopeChangeContext): string {
   return (
     `Change orders start once the contract is signed. This job is still in pre-construction ` +
     `(${ctx.statusLabel}): price the client's addition or change as a Pre-con change estimate in ` +
-    `${WHERE.worksheets} instead.`
+    `${WHERE.estimates} instead.`
   );
 }
 
-/** Why a pre-con change worksheet can't be created right now (path = change_order). */
+/** Why a pre-con change estimate can't be created right now (path = change_order). */
 export function preconChangeRefusal(ctx: ScopeChangeContext): string {
   return (
     `This job is under contract (${ctx.statusLabel}): a client addition or change is a change order ` +

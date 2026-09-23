@@ -36,7 +36,9 @@ import { getClientUploadsForOwner, getPublishedRoster } from "@/lib/portal-roste
 import { ClientActivityFeed } from "@/components/portal-admin/ClientActivityFeed";
 import { PublishedRoster } from "@/components/portal-admin/PublishedRoster";
 import { ProjectSchedule } from "@/components/projects/ProjectSchedule";
-import { DocTypePanel } from "@/components/projects/DocTypePanel";
+import { DocTypePanel, type DocSourcePicker } from "@/components/projects/DocTypePanel";
+import { ESTIMATE_KIND_LABEL, WHERE } from "@/lib/estimate-kinds";
+import { fmtUsd } from "@/lib/cost-book-units";
 import { InPersonSignList } from "@/components/esign/InPersonSignList";
 import { getProjectSignatureRequests } from "@/lib/esign";
 import { listDocDrafts, listDocTemplates } from "@/lib/doc-drafts";
@@ -53,7 +55,7 @@ import { getProjectPermits } from "@/lib/permits";
 import { PermitPacket } from "@/components/projects/PermitPacket";
 import { getProjectOrientations, getProjectIncidents } from "@/lib/safety";
 import { ProjectEstimate } from "@/components/projects/ProjectEstimate";
-import { getProjectEstimates } from "@/lib/estimates";
+import { getProjectEstimates, getScopeChangeContext } from "@/lib/estimates";
 import { getApprovalGate } from "@/lib/approval-gate";
 import { getCostBook } from "@/lib/cost-book";
 import { getPortalThread, portalChannel } from "@/lib/portal-messages";
@@ -140,6 +142,7 @@ export default async function ProjectDetailPage({
     biddingRoster,
     budget,
     signatureRequests,
+    scopeChange,
   ] = await Promise.all([
     getProject(slug),
     getProjectMoney(slug),
@@ -175,9 +178,12 @@ export default async function ProjectDetailPage({
     // Every signature request on the job (any doc type) — the "Sign in person"
     // section of the Documents tab lists whatever is awaiting a signature.
     getProjectSignatureRequests(slug),
+    // Which record a client change becomes right now (pre-con change
+    // worksheet vs change order) — decided by the DB, shown on the Money tab.
+    getScopeChangeContext(slug),
   ]);
   const docTemplates = listDocTemplates().filter((t) => t.scope !== "lead");
-  if (!project) notFound();
+  if (!project || !scopeChange) notFound();
 
   // Client portal tab: invite/access, the ledger of what the client has done,
   // their uploads, and what's currently published to them.
@@ -629,9 +635,10 @@ export default async function ProjectDetailPage({
       defaultMarkup={costBook.defaultMarkup}
       floorplans={floorplans}
       approvalGate={approvalGate}
+      phase={scopeChange}
     />
   );
-  const changeOrdersPanel = <ChangeOrders slug={slug} orders={changeOrders} />;
+  const changeOrdersPanel = <ChangeOrders slug={slug} orders={changeOrders} phase={scopeChange} />;
   const purchaseOrdersPanel = (
     <PurchaseOrders slug={slug} orders={purchaseOrders} vendors={vendors} assignedSubs={subsData.assigned} />
   );
@@ -689,6 +696,60 @@ export default async function ProjectDetailPage({
       if (d.signature_request_id) docFocusSections[`signature-${d.signature_request_id}`] = t.title;
     }
   }
+  // Documents that are RENDERED FROM one record offer the job's records to
+  // pick from — a Formal Estimate or Contract from an estimate worksheet in
+  // Money › Estimate, a Change Order from a change order, an Invoice from an
+  // invoice — instead of a blank draft (docs/estimates-and-change-orders.md).
+  const pickLink = (tab: ProjectTab, section: string, text: string) => (
+    <TabLink tab={tab} section={section} className="font-semibold text-accent-2 underline-offset-2 hover:underline">
+      {text}
+    </TabLink>
+  );
+  const worksheetOptions = estimates.map((e) => ({
+    id: e.id,
+    label: `#${e.id} ${e.title} · ${ESTIMATE_KIND_LABEL[e.kind]} · ${e.status} · ${fmtUsd(e.total)}`,
+  }));
+  const docSources: Record<string, DocSourcePicker> = {
+    estimate_doc: {
+      scopeKey: "estimateId",
+      label: "Estimate worksheet",
+      explainer: `The client-facing paper. Rendered from an estimate worksheet in ${WHERE.worksheets} — build or revise the numbers there, then make the document here.`,
+      options: worksheetOptions,
+      empty: <>No estimate worksheet yet. {pickLink("Money", "Estimate", `Build one in ${WHERE.worksheets}`)} first; the Formal Estimate is made from it.</>,
+    },
+    contract: {
+      scopeKey: "estimateId",
+      label: "Approved estimate worksheet",
+      explainer: `Built from the job's approved estimate worksheet (${WHERE.worksheets}) — its total and draw schedule fill the contract.`,
+      options: [...estimates].sort((a, b) => Number(b.status === "approved") - Number(a.status === "approved")).map((e) => ({
+        id: e.id,
+        label: `#${e.id} ${e.title} · ${ESTIMATE_KIND_LABEL[e.kind]} · ${e.status} · ${fmtUsd(e.total)}`,
+      })),
+      empty: <>No estimate worksheet yet. {pickLink("Money", "Estimate", `Build and get one approved in ${WHERE.worksheets}`)} first.</>,
+    },
+    change_order: {
+      scopeKey: "changeOrderId",
+      label: "Change order",
+      explainer: `Rendered from a change order in ${WHERE.changeOrders} — a change to the signed contract.`,
+      options: changeOrders.map((c) => ({ id: c.id, label: `#${c.id} ${c.title} · ${c.status} · ${c.priceLabel}` })),
+      empty:
+        scopeChange.path === "change_order" ? (
+          <>No change order yet. {pickLink("Money", "Change orders", `Draft one in ${WHERE.changeOrders}`)} first.</>
+        ) : (
+          <>
+            Change orders start once the contract is signed ({scopeChange.statusLabel} now). A client addition or change before that
+            is a Pre-con change worksheet in {pickLink("Money", "Estimate", WHERE.worksheets)}.
+          </>
+        ),
+    },
+    invoice_doc: {
+      scopeKey: "invoiceId",
+      label: "Invoice",
+      explainer: "Rendered from an invoice in Money › Invoices.",
+      options: money.invoices.map((i) => ({ id: i.id, label: `${i.number} ${i.milestone} · ${i.status} · ${usd(i.amount)}` })),
+      empty: <>No invoice yet. {pickLink("Money", "Invoices", "Create one in Money › Invoices")} first.</>,
+    },
+  };
   // Last section: sign on this device. Anything awaiting a signature — template
   // drafts, estimates, change orders, lien waivers — opens on /sign/<id>.
   const awaitingSignature = signatureRequests.filter((r) => r.status === "sent").length;
@@ -705,6 +766,7 @@ export default async function ProjectDetailPage({
               templateKey={t.key}
               manifest={t}
               drafts={docDrafts.filter((d) => d.template_key === t.key)}
+              source={docSources[t.key]}
             />
           ),
         })),

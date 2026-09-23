@@ -4,8 +4,10 @@ import "server-only";
 // cost_items + free-form lines. Totals are stored on the estimate (recomputed by
 // the actions on every line write) for fast display + the e-sign snapshot.
 
-import { query } from "./db";
+import { query, queryOne } from "./db";
 import { type DrawLine, parseDrawSchedule } from "./draw-schedule";
+import { scopeChangeContext, type EstimateKind, type ScopeChangeContext } from "./estimate-kinds";
+import type { ProjectStatus } from "./types";
 
 export type EstimateRail = "design_build" | "plans" | "merged";
 export type EstimateStatus = "draft" | "sent" | "approved" | "declined";
@@ -28,6 +30,9 @@ export interface EstimateLineView {
 export interface EstimateDetail {
   id: number;
   title: string;
+  /** 'formal' = the job's base bid; 'precon_change' = a client addition or
+   *  change priced before the contract is signed (lib/estimate-kinds.ts). */
+  kind: EstimateKind;
   rail: EstimateRail;
   status: EstimateStatus;
   subtotal: number; // cents
@@ -46,6 +51,7 @@ function dateLabel(d: Date): string {
 interface EstRow {
   id: string;
   title: string;
+  kind: EstimateKind;
   rail: EstimateRail;
   status: EstimateStatus;
   subtotal: number;
@@ -84,7 +90,7 @@ function lineToView(r: LineRow): EstimateLineView {
 /** All estimates for a project, each with its lines (newest first). */
 export async function getProjectEstimates(slug: string): Promise<EstimateDetail[]> {
   const { rows: ests } = await query<EstRow>(
-    `SELECT e.id, e.title, e.rail, e.status, e.subtotal, e.markup_total, e.total,
+    `SELECT e.id, e.title, e.kind, e.rail, e.status, e.subtotal, e.markup_total, e.total,
             e.draw_schedule, e.created_at
        FROM estimates e JOIN projects p ON p.id = e.project_id
       WHERE p.slug = $1
@@ -111,6 +117,7 @@ export async function getProjectEstimates(slug: string): Promise<EstimateDetail[
   return ests.map((e) => ({
     id: Number(e.id),
     title: e.title,
+    kind: e.kind,
     rail: e.rail,
     status: e.status,
     subtotal: e.subtotal,
@@ -120,4 +127,25 @@ export async function getProjectEstimates(slug: string): Promise<EstimateDetail[
     drawSchedule: parseDrawSchedule(e.draw_schedule),
     lines: byEst.get(Number(e.id)) ?? [],
   }));
+}
+
+/** Which record a client change becomes on this job right now — a pre-con
+ *  change worksheet or a change order — as the DATABASE decides it
+ *  (project_scope_change_path(), db/schema.sql; the same function the
+ *  triggers enforce). Null when the project doesn't exist. */
+export async function getScopeChangeContext(slug: string): Promise<ScopeChangeContext | null> {
+  const row = await queryOne<{ status: ProjectStatus; signed: boolean; path: string }>(
+    `SELECT p.status, project_has_signed_contract(p.id) AS signed, project_scope_change_path(p.id) AS path
+       FROM projects p WHERE p.slug = $1`,
+    [slug],
+  );
+  if (!row) return null;
+  const ctx = scopeChangeContext(row.status, row.signed);
+  // The SQL is authoritative; the pure mirror only supplies the labels. If they
+  // ever disagree, trust the database and say so in the server log.
+  if (ctx.path !== row.path) {
+    console.error(`[estimates] scopeChangePath mismatch for ${slug}: sql=${row.path} ts=${ctx.path}`);
+    ctx.path = row.path as ScopeChangeContext["path"];
+  }
+  return ctx;
 }

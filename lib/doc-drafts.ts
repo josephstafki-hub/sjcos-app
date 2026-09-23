@@ -34,6 +34,8 @@ import {
 } from "./doc-templates/fill";
 import type { DocType, SigMethod } from "./esign-types";
 import type { FieldValues } from "./doc-templates/types";
+import { ESTIMATE_KIND_LABEL, WHERE } from "./estimate-kinds";
+import { fmtUsd } from "./cost-book-units";
 
 /** templateKey → signature_requests.doc_type (invoices don't sign). */
 const DOC_TYPE_BY_TEMPLATE: Record<string, DocType> = {
@@ -197,6 +199,103 @@ export interface CreateResult {
 }
 export type DraftError = { ok: false; error: string };
 
+/**
+ * Templates whose money fields are AUTO fields resolved from one source record
+ * (lib/doc-templates/fill.ts). Without that record the draft is an empty shell
+ * that can never render — and, for the Formal Estimate, exactly the confusion
+ * docs/estimates-and-change-orders.md exists to end: the document is the PAPER,
+ * the numbers live on a worksheet in Money › Estimate. So the source is
+ * required, must belong to the job, and a missing one is answered with the
+ * job's candidates so the caller (owner or agent) can pick the right one.
+ */
+async function requireDocSource(
+  templateKey: string,
+  scope: FillScope,
+  projectId: string | null,
+  leadSlug: string | null,
+): Promise<DraftError | null> {
+  const list = (items: string[]) => (items.length ? ` This job's are: ${items.join("; ")}.` : "");
+
+  if (templateKey === "estimate_doc" || templateKey === "contract") {
+    const what = templateKey === "contract" ? "Contract" : "Formal Estimate";
+    if (!scope.estimateId) {
+      if (!projectId) {
+        return {
+          ok: false,
+          error:
+            `A ${what} is rendered from an estimate worksheet (estimate_id). A lead has only the Rough ` +
+            `Estimate; the formal worksheet is built once the job is a project, in ${WHERE.worksheets}.`,
+        };
+      }
+      const { rows } = await query<{ id: string; title: string; kind: keyof typeof ESTIMATE_KIND_LABEL; status: string; total: number }>(
+        `SELECT id, title, kind, status, total FROM estimates WHERE project_id = $1 ORDER BY created_at DESC`,
+        [projectId],
+      );
+      const items = rows.map((r) => `#${r.id} "${r.title}" (${ESTIMATE_KIND_LABEL[r.kind] ?? r.kind}, ${r.status}, ${fmtUsd(r.total)})`);
+      return {
+        ok: false,
+        error:
+          `A ${what} document is rendered from an estimate worksheet in ${WHERE.worksheets} — pass estimate_id.` +
+          (items.length
+            ? list(items) + " Build or revise the numbers there; this section holds the paper."
+            : ` This job has no worksheet yet: create one in ${WHERE.worksheets} (agents: create_estimate + add_estimate_lines), then make the document from it.`),
+      };
+    }
+    const est = await queryOne<{ project_id: string | null; lead_slug: string | null }>(
+      `SELECT project_id, lead_slug FROM estimates WHERE id = $1`,
+      [scope.estimateId],
+    );
+    if (!est) return { ok: false, error: `Estimate worksheet #${scope.estimateId} doesn't exist.` };
+    const owned = projectId ? est.project_id === projectId : !!leadSlug && est.lead_slug === leadSlug;
+    if (!owned) return { ok: false, error: `Estimate worksheet #${scope.estimateId} belongs to a different job.` };
+    return null;
+  }
+
+  if (templateKey === "change_order") {
+    if (!scope.changeOrderId) {
+      const { rows } = await query<{ id: string; number: string | null; title: string; status: string; price_cents: number }>(
+        `SELECT id, number, title, status, price_cents FROM change_orders WHERE project_id = $1 ORDER BY created_at DESC`,
+        [projectId],
+      );
+      const items = rows.map((r) => `#${r.id}${r.number ? ` ${r.number}` : ""} "${r.title}" (${r.status}, ${fmtUsd(r.price_cents)})`);
+      return {
+        ok: false,
+        error:
+          `A Change Order document is rendered from a change order in ${WHERE.changeOrders} — pass change_order_id.` +
+          (items.length
+            ? list(items)
+            : ` This job has no change order yet: draft one in ${WHERE.changeOrders} (once the contract is signed — before that, a client change is a pre-con change estimate in ${WHERE.worksheets}).`),
+      };
+    }
+    const co = await queryOne<{ project_id: string }>(`SELECT project_id FROM change_orders WHERE id = $1`, [scope.changeOrderId]);
+    if (!co) return { ok: false, error: `Change order #${scope.changeOrderId} doesn't exist.` };
+    if (co.project_id !== projectId) return { ok: false, error: `Change order #${scope.changeOrderId} belongs to a different job.` };
+    return null;
+  }
+
+  if (templateKey === "invoice_doc") {
+    if (!scope.invoiceId) {
+      const { rows } = await query<{ id: string; number: string; milestone: string; status: string; amount: number }>(
+        `SELECT id, number, milestone, status, amount FROM invoices WHERE project_id = $1 ORDER BY created_at DESC`,
+        [projectId],
+      );
+      const items = rows.map((r) => `#${r.id} ${r.number} "${r.milestone}" (${r.status}, ${fmtUsd(r.amount)})`);
+      return {
+        ok: false,
+        error:
+          `An Invoice document is rendered from an invoice in Money › Invoices — pass invoice_id.` +
+          (items.length ? list(items) : " This job has no invoice yet: create one in Money › Invoices first."),
+      };
+    }
+    const inv = await queryOne<{ project_id: string }>(`SELECT project_id FROM invoices WHERE id = $1`, [scope.invoiceId]);
+    if (!inv) return { ok: false, error: `Invoice #${scope.invoiceId} doesn't exist.` };
+    if (inv.project_id !== projectId) return { ok: false, error: `Invoice #${scope.invoiceId} belongs to a different job.` };
+    return null;
+  }
+
+  return null;
+}
+
 export async function createDocDraft(
   templateKey: string,
   scope: FillScope,
@@ -222,6 +321,8 @@ export async function createDocDraft(
   if (template.scope === "project" && !projectId) {
     return { ok: false, error: `Template '${templateKey}' is project-scoped — provide a project slug.` };
   }
+  const sourceProblem = await requireDocSource(templateKey, scope, projectId, leadSlug);
+  if (sourceProblem) return sourceProblem;
 
   const { values, fillReport, title } = await resolveAutoFields(templateKey, scope);
   const draftTitle = title || template.title;

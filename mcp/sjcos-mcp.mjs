@@ -61,6 +61,7 @@ import { registerMoodTools } from "./mood-tools.mjs";
 import { registerBiddingTools } from "./bidding-tools.mjs";
 import { registerFloorTools } from "./floor-tools.mjs";
 import { openJobsSnapshot, registerFinancialsTools } from "./financials-tools.mjs";
+import { pricingAndPaperwork, registerEstimateTools } from "./estimate-tools.mjs";
 import { registerChatgptTools } from "./chatgpt-tools.mjs";
 import { registerGrantTools } from "./grants-tools.mjs";
 import { registerCommsTools } from "./comms-tools.mjs";
@@ -447,20 +448,26 @@ server.registerTool(
   "get_project",
   {
     title: "Get project",
-    description: "Full detail for one project by slug, including its invoices and a money summary.",
+    description:
+      "Full detail for one project by slug: the row, invoices, subs, a money summary, and " +
+      "`pricing_and_paperwork` — the job's estimate worksheets (Money › Estimate), change orders and document " +
+      "drafts, each tagged with where it lives, plus `scope_change_path`: whether a client change on this job " +
+      "is a pre-con change worksheet or a change order right now. Read that block before filing an estimate, " +
+      "a Formal Estimate document, or a change order (docs/estimates-and-change-orders.md).",
     inputSchema: { slug: z.string() },
   },
   async ({ slug }) => {
     const proj = await rows(`SELECT * FROM projects WHERE slug = $1`, [slug]);
     if (proj.length === 0) return json({ error: `No project with slug "${slug}"` });
     const id = proj[0].id;
-    const [invoices, subs] = await Promise.all([
-      rows(`SELECT number, milestone, amount, status, sent_at, paid_at FROM invoices WHERE project_id = $1 ORDER BY created_at`, [id]),
+    const [invoices, subs, pricing] = await Promise.all([
+      rows(`SELECT id, number, milestone, amount, status, sent_at, paid_at FROM invoices WHERE project_id = $1 ORDER BY created_at`, [id]),
       rows(`SELECT sub_slug, role_label FROM project_subs WHERE project_id = $1`, [id]),
+      pricingAndPaperwork(rows, id),
     ]);
     const paid = invoices.filter((i) => i.status === "paid").reduce((s, i) => s + i.amount, 0);
     const outstanding = invoices.filter((i) => i.status === "sent").reduce((s, i) => s + i.amount, 0);
-    return json({ project: proj[0], invoices, subs, money: { paid, outstanding } });
+    return json({ project: proj[0], invoices, subs, money: { paid, outstanding }, pricing_and_paperwork: pricing });
   },
 );
 
@@ -1431,7 +1438,17 @@ server.registerTool(
     description:
       "Start a draft from a template, scoped to a project (project_slug) or lead " +
       "(lead_slug). Auto fields are resolved from the DB; returns the draft id, " +
-      "fill report, and the list of fields still missing. Does NOT send anything.",
+      "fill report, and the list of fields still missing. Does NOT send anything. " +
+      "Documents are the PAPER for a record that already holds the numbers, so the " +
+      "source is REQUIRED and must belong to the job: 'estimate_doc' (Formal " +
+      "Estimate) and 'contract' need estimate_id — an estimate worksheet from " +
+      "Money › Estimate (get_project → pricing_and_paperwork, or " +
+      "list_project_estimates; build one with create_estimate + add_estimate_lines " +
+      "if there is none); 'change_order' needs change_order_id (a change order " +
+      "exists only once the contract is signed — before that a client change is a " +
+      "pre-con change worksheet, not a document here); 'invoice_doc' needs " +
+      "invoice_id. Without the source you get an error listing the job's candidates. " +
+      "Rule: docs/estimates-and-change-orders.md.",
     inputSchema: {
       template_key: z.string(),
       project_slug: z.string().optional(),
@@ -2428,6 +2445,14 @@ server.registerTool(
   // runs. Internal records only: nothing is sent, no change order is created or
   // moved out of draft, and billing is never switched. See mcp/financials-tools.mjs.
   registerFinancialsTools(server, { rows, json, pool, strippedDollarError });
+
+  // Estimate worksheets (Money › Estimate): list / create draft / add lines.
+  // Carries the where-things-go rule (docs/estimates-and-change-orders.md):
+  // the Formal Estimate document is rendered FROM a worksheet, and a client
+  // change is a pre-con change worksheet before the contract is signed and a
+  // change order after — the DB decides and refuses the wrong row by trigger.
+  // Nothing here sends; still no tool creates a change order.
+  registerEstimateTools(server, { rows, json, pool, strippedDollarError });
 
   // Bidding lives in its own module too: stage + award. Sending a package is
   // real email, so it is NOT here — it's a granted send (below).

@@ -157,6 +157,37 @@ are direct SELECTs; **writes** go through the app's bearer-gated internal route
 **Typical agent flow:** `create_purchase_order` → `add_purchase_order_line`
 (repeat per item) → `queue_purchase_order` → tell the owner it's ready to send.
 
+## Estimate worksheets, Formal Estimate documents and change orders
+
+Where things go (Joe, 2026-09-23; full rule in
+`docs/estimates-and-change-orders.md`, enforced by database triggers for every
+writer — app, MCP, or a one-off script):
+
+| Where | What | When |
+|---|---|---|
+| **Money › Estimate** | The **numbers**: estimate *worksheets*. `kind: "formal"` = the job's base bid (client approves it → contract + budget). `kind: "precon_change"` = a client addition or change priced **before the contract is signed** | Pre-construction |
+| **Documents › Formal Estimate** | The **paper**: the client-facing document, always rendered **from** a worksheet (`estimate_id`). Never hand-typed | When a worksheet is ready for the client |
+| **Money › Change orders** → **Documents › Change Order** | A change to the **signed contract** | Construction, closeout |
+
+`get_project` returns `pricing_and_paperwork`: the job's worksheets, change
+orders and document drafts tagged with where they live, plus
+`scope_change_path` — `precon_estimate` or `change_order` — which says what a
+client change becomes on this job **right now**. Read it first.
+
+| Tool | What it does |
+|---|---|
+| `list_project_estimates` | Every worksheet with its lines, the change orders and document drafts, and `scope_change_path`. Read-only |
+| `create_estimate` | Start a DRAFT worksheet (`project_slug`, `title`, `kind`, `rail?`). A `precon_change` is refused on a job under contract |
+| `add_estimate_lines` | Append lines to a draft worksheet (description, section, unit, qty, `unit_cost_cents`, `markup_pct?`); totals recomputed. Refuses a sent/approved worksheet |
+
+Then `create_document_draft { template_key: "estimate_doc", estimate_id }` for
+the paper (it REQUIRES the worksheet and lists the job's candidates when you
+omit it; `contract` needs `estimate_id`, `change_order` needs
+`change_order_id`, `invoice_doc` needs `invoice_id`). Nothing here sends: Joe
+sends a worksheet for the client's approval from Money › Estimate. **Still no
+tool creates a change order** — draft one in the app or ask Joe with
+`ask_owner`; before the contract is signed the table refuses it anyway.
+
 ## Project financials tools (job costing)
 
 What a job is priced at, what it has cost, what it should make, and what those

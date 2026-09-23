@@ -15,7 +15,7 @@
 // deleting a never-sent draft removes it outright, but a sent/signed one can
 // only be voided, keeping the audit trail.
 
-import { useState, useTransition, type FormEvent } from "react";
+import { useState, useTransition, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FileText, Plus, Sparkles, Check, Clock, Ban, FileDown, PenLine } from "lucide-react";
@@ -75,32 +75,56 @@ const STATUS_LABEL: Record<string, string> = {
 // Which template keys can be submitted for signature (invoice_doc cannot).
 const SIGNABLE = new Set(["contract", "precon", "lien_release", "completion_cert", "change_order", "estimate_doc"]);
 
+/** For templates that are RENDERED FROM one record — the Formal Estimate and
+ *  Contract from an estimate worksheet (Money › Estimate), the Change Order
+ *  from a change order, the Invoice from an invoice — the panel offers the
+ *  job's records to pick from instead of creating a blank draft that can never
+ *  render. docs/estimates-and-change-orders.md. */
+export interface DocSourcePicker {
+  /** Which FillScope key the chosen id goes under. */
+  scopeKey: "estimateId" | "changeOrderId" | "invoiceId";
+  /** One line under the header: what this document is made from, and where that lives. */
+  explainer: string;
+  /** Label on the picker ("Estimate worksheet"). */
+  label: string;
+  options: { id: number; label: string }[];
+  /** Shown instead of the New button when there is nothing to pick from. */
+  empty: ReactNode;
+}
+
 export function DocTypePanel({
   slug,
   leadSlug,
   templateKey,
   manifest,
   drafts,
+  source,
 }: {
   slug?: string;
   leadSlug?: string;
   templateKey: string;
   manifest: TemplateManifest;
   drafts: DocDraftItem[];
+  source?: DocSourcePicker;
 }) {
   const router = useRouter();
   const [editingId, setEditingId] = useState<number | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [picking, setPicking] = useState(false);
+  const [sourceId, setSourceId] = useState<number | null>(source?.options[0]?.id ?? null);
 
   // Failures toast via runAction; there's no inline error line at this level.
-  function create() {
+  function create(fromId?: number) {
+    const scope = leadSlug ? { leadSlug } : { slug };
+    if (source) {
+      if (fromId == null) return;
+      Object.assign(scope, { [source.scopeKey]: fromId });
+    }
     startTransition(async () => {
-      const res = await runAction(
-        () => createDocDraftAction(templateKey, leadSlug ? { leadSlug } : { slug }),
-        { fallback: "Couldn't create the document." },
-      );
+      const res = await runAction(() => createDocDraftAction(templateKey, scope), { fallback: "Couldn't create the document." });
       if (res.ok && "id" in res) {
+        setPicking(false);
         setEditingId(res.id as number);
         router.refresh();
       }
@@ -158,24 +182,63 @@ export function DocTypePanel({
 
   return (
     <div className="max-w-[820px] space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
           <h3 className="font-serif text-[17px] font-semibold text-ink">{manifest.title}</h3>
           <div className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
             {drafts.length} document{drafts.length === 1 ? "" : "s"}
           </div>
+          {source && <div className="mt-1 text-[12px] text-ink-3">{source.explainer}</div>}
         </div>
-        {!editing && (
+        {!editing && (!source || source.options.length > 0) && (
           <button
             type="button"
-            onClick={create}
+            onClick={() => (source ? setPicking((v) => !v) : create())}
             disabled={pending}
-            className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-60"
+            className="inline-flex flex-none items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-60"
           >
-            <Plus className="size-3" strokeWidth={2} /> New {manifest.title}
+            <Plus className="size-3" strokeWidth={2} /> {picking ? "Cancel" : `New ${manifest.title}`}
           </button>
         )}
       </div>
+
+      {source && source.options.length === 0 && !editing && (
+        <Card kind="dashed" className="p-3.5 text-[12px] text-ink-2">{source.empty}</Card>
+      )}
+
+      {source && picking && !editing && (
+        <Card className="p-3.5">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              create(sourceId ?? undefined);
+            }}
+            className="flex flex-wrap items-end gap-3"
+          >
+            <label className="flex min-w-[260px] flex-1 flex-col gap-1">
+              <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{source.label}</span>
+              <select
+                value={sourceId ?? ""}
+                onChange={(e) => setSourceId(Number(e.target.value))}
+                className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+              >
+                {source.options.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="submit"
+              disabled={pending || sourceId == null}
+              className="rounded-md border border-accent bg-accent px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-accent-2 disabled:opacity-60"
+            >
+              {pending ? "Creating…" : `Create ${manifest.title}`}
+            </button>
+          </form>
+        </Card>
+      )}
 
       {notice && <div className="text-[12px] text-money">{notice}</div>}
 

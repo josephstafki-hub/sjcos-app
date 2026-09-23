@@ -5,8 +5,10 @@ import { useRouter } from "next/navigation";
 import { FileEdit, Plus, X, Check, Clock, Ban, Sparkles, Trash2 } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import { CO_STATUS_LABEL, CO_STATUS_KIND, type CoStatus, type ChangeOrderView } from "@/lib/co-types";
+import { WHERE, type ScopeChangeContext } from "@/lib/estimate-kinds";
 import { createChangeOrder, draftChangeOrder, sendChangeOrder, deleteChangeOrder } from "@/lib/actions/change-orders";
 import { runAction } from "@/lib/run-action";
+import { TabLink } from "./TabNav";
 
 function StatusIcon({ status }: { status: CoStatus }) {
   if (status === "approved") return <Check className="size-3.5 text-money" strokeWidth={2} />;
@@ -16,9 +18,15 @@ function StatusIcon({ status }: { status: CoStatus }) {
 }
 
 /** Money tab · "Change orders" section. Draft a CO (optional AI scope draft),
- *  send it for the client to e-sign in the portal, track its status. */
-export function ChangeOrders({ slug, orders }: { slug: string; orders: ChangeOrderView[] }) {
+ *  send it for the client to e-sign in the portal, track its status.
+ *
+ *  A change order is a change to a SIGNED contract. Until the job is under
+ *  contract (`phase.path !== "change_order"`) the "New" button gives way to a
+ *  pointer at Money › Estimate, where a client addition or change is priced as
+ *  a pre-con change worksheet — docs/estimates-and-change-orders.md. */
+export function ChangeOrders({ slug, orders, phase }: { slug: string; orders: ChangeOrderView[]; phase: ScopeChangeContext }) {
   const router = useRouter();
+  const canCreate = phase.path === "change_order";
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -90,17 +98,35 @@ export function ChangeOrders({ slug, orders }: { slug: string; orders: ChangeOrd
           {orders.length} change order{orders.length === 1 ? "" : "s"} ·{" "}
           {orders.filter((o) => o.status === "sent").length} awaiting signature
         </div>
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
-        >
-          {open ? <X className="size-3" strokeWidth={2} /> : <Plus className="size-3" strokeWidth={2} />}
-          {open ? "Cancel" : "New change order"}
-        </button>
+        {canCreate && (
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
+          >
+            {open ? <X className="size-3" strokeWidth={2} /> : <Plus className="size-3" strokeWidth={2} />}
+            {open ? "Cancel" : "New change order"}
+          </button>
+        )}
       </div>
 
-      {open && (
+      {!canCreate && (
+        <Card className="border-accent/40 bg-accent-soft p-3.5">
+          <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-accent-2">
+            Pre-construction · {phase.statusLabel}
+          </div>
+          <div className="mt-1 text-[12px] text-ink-2">
+            Change orders start once the contract is signed. Until then a client addition or change is priced as a{" "}
+            <span className="font-semibold">Pre-con change</span> worksheet in{" "}
+            <TabLink tab="Money" section="Estimate" className="font-semibold text-accent-2 underline-offset-2 hover:underline">
+              {WHERE.worksheets}
+            </TabLink>
+            .
+          </div>
+        </Card>
+      )}
+
+      {open && canCreate && (
         <Card className="p-4">
           <form onSubmit={submit} className="space-y-3">
             <label className="block">
@@ -166,7 +192,9 @@ export function ChangeOrders({ slug, orders }: { slug: string; orders: ChangeOrd
           <FileEdit className="mx-auto size-5 text-ink-3" strokeWidth={1.5} />
           <div className="mt-2 font-serif text-[15px] font-semibold text-ink-2">No change orders yet</div>
           <div className="mt-1 text-[12px] text-ink-3">
-            Draft a change to the scope + price and send it to the client to approve and e-sign.
+            {canCreate
+              ? "Draft a change to the signed contract's scope + price and send it to the client to approve and e-sign."
+              : "Nothing to do here before the contract is signed."}
           </div>
         </Card>
       ) : (

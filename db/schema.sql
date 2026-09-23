@@ -3261,3 +3261,84 @@ ALTER TABLE signature_events DROP CONSTRAINT IF EXISTS signature_events_kind_che
 ALTER TABLE signature_events ADD CONSTRAINT signature_events_kind_check
   CHECK (kind IN ('created','sent','viewed','presented','signed','declined','voided')) NOT VALID;
 -- ─── In-person signing (end) ────────────────────────────────────────────────
+
+-- ─── Estimate kinds + scope-change path (begin) ─────────────────────────────
+-- Where a client change goes depends on the job's phase
+-- (docs/estimates-and-change-orders.md). Before the contract is signed it is
+-- priced as a 'precon_change' estimate worksheet (Money › Estimate); once the
+-- contract is signed (construction_contract with a signed contract,
+-- construction, closeout, warranty) it is a change order (Money › Change
+-- orders). kind 'formal' is the job's base bid — the worksheet the Formal
+-- Estimate document (Documents tab) is rendered from, the client approves, and
+-- the contract + budget are built from. Enforced HERE, by trigger, so every
+-- writer (app, MCP, an agent's one-off script) gets the same answer;
+-- lib/estimate-kinds.ts mirrors the decision for copy and must stay in step
+-- (tests/estimate-kinds*.test.mjs pin both).
+ALTER TABLE estimates ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'formal';
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'estimates_kind_check') THEN
+    ALTER TABLE estimates ADD CONSTRAINT estimates_kind_check CHECK (kind IN ('formal','precon_change'));
+  END IF;
+END $$;
+
+-- A signed contract on record: either an e-sign request of doc_type 'contract'
+-- that was signed, or a Contract template draft whose status reached 'signed'.
+CREATE OR REPLACE FUNCTION project_has_signed_contract(p_project_id uuid) RETURNS boolean
+LANGUAGE sql STABLE AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM signature_requests sr
+     WHERE sr.project_id = p_project_id AND sr.doc_type = 'contract' AND sr.status = 'signed'
+  ) OR EXISTS (
+    SELECT 1 FROM document_drafts d
+     WHERE d.project_id = p_project_id AND d.template_key = 'contract' AND d.status = 'signed'
+  )
+$$;
+
+-- 'precon_estimate' | 'change_order' | NULL (no such project).
+CREATE OR REPLACE FUNCTION project_scope_change_path(p_project_id uuid) RETURNS text
+LANGUAGE plpgsql STABLE AS $$
+DECLARE s text;
+BEGIN
+  SELECT status INTO s FROM projects WHERE id = p_project_id;
+  IF s IS NULL THEN RETURN NULL; END IF;
+  IF s IN ('construction', 'closeout', 'warranty') THEN RETURN 'change_order'; END IF;
+  IF s = 'construction_contract' AND project_has_signed_contract(p_project_id) THEN RETURN 'change_order'; END IF;
+  RETURN 'precon_estimate';
+END
+$$;
+
+CREATE OR REPLACE FUNCTION change_orders_require_contract() RETURNS trigger AS $$
+DECLARE s text;
+BEGIN
+  IF project_scope_change_path(NEW.project_id) = 'change_order' THEN RETURN NEW; END IF;
+  SELECT status INTO s FROM projects WHERE id = NEW.project_id;
+  RAISE EXCEPTION USING ERRCODE = 'check_violation',
+    MESSAGE = format(
+      'Change orders start once the contract is signed. This job is still in pre-construction (%s): '
+      'price the client''s addition or change as a pre-con change estimate in Money › Estimate instead.',
+      coalesce(s, 'unknown status'));
+END
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trg_change_orders_require_contract ON change_orders;
+CREATE TRIGGER trg_change_orders_require_contract
+  BEFORE INSERT ON change_orders
+  FOR EACH ROW EXECUTE FUNCTION change_orders_require_contract();
+
+CREATE OR REPLACE FUNCTION estimates_precon_change_before_contract() RETURNS trigger AS $$
+DECLARE s text;
+BEGIN
+  IF NEW.kind <> 'precon_change' OR NEW.project_id IS NULL THEN RETURN NEW; END IF;
+  IF project_scope_change_path(NEW.project_id) <> 'change_order' THEN RETURN NEW; END IF;
+  SELECT status INTO s FROM projects WHERE id = NEW.project_id;
+  RAISE EXCEPTION USING ERRCODE = 'check_violation',
+    MESSAGE = format(
+      'This job is under contract (%s): a client addition or change is a change order '
+      '(Money › Change orders), not a pre-con change estimate.',
+      coalesce(s, 'unknown status'));
+END
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trg_estimates_precon_change_before_contract ON estimates;
+CREATE TRIGGER trg_estimates_precon_change_before_contract
+  BEFORE INSERT OR UPDATE OF kind, project_id ON estimates
+  FOR EACH ROW EXECUTE FUNCTION estimates_precon_change_before_contract();
+-- ─── Estimate kinds + scope-change path (end) ───────────────────────────────

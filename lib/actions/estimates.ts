@@ -16,7 +16,8 @@ import { ai } from "@/lib/ai";
 import { renderProjectEstimatePdf } from "@/lib/doc-drafts";
 import { renderInlineDocPdf } from "@/lib/documents";
 import { storeBuffer } from "@/lib/upload-store";
-import type { EstimateRail } from "@/lib/estimates";
+import { getScopeChangeContext, type EstimateRail } from "@/lib/estimates";
+import { isEstimateKind, preconChangeRefusal, type EstimateKind } from "@/lib/estimate-kinds";
 
 type Result = { ok: true; id?: number } | { ok: false; error: string };
 
@@ -55,13 +56,23 @@ export async function createEstimate(slug: string, formData: FormData): Promise<
   const title = String(formData.get("title") ?? "").trim() || "Estimate";
   const railRaw = String(formData.get("rail") ?? "plans") as EstimateRail;
   const rail = RAILS.includes(railRaw) ? railRaw : "plans";
+  const kindRaw = formData.get("kind");
+  const kind: EstimateKind = isEstimateKind(kindRaw) ? kindRaw : "formal";
 
   const proj = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [slug]);
   if (!proj) return { ok: false, error: "Project not found." };
 
+  // A pre-con change is priced BEFORE the contract is signed; after that a
+  // client change is a change order (docs/estimates-and-change-orders.md). The
+  // estimates trigger refuses it too — this is the plain-English version.
+  if (kind === "precon_change") {
+    const ctx = await getScopeChangeContext(slug);
+    if (ctx?.path === "change_order") return { ok: false, error: preconChangeRefusal(ctx) };
+  }
+
   const ins = await queryOne<{ id: string }>(
-    `INSERT INTO estimates (project_id, title, rail, created_by) VALUES ($1, $2, $3, $4) RETURNING id`,
-    [proj.id, title, rail, user.id],
+    `INSERT INTO estimates (project_id, title, rail, kind, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [proj.id, title, rail, kind, user.id],
   );
   revalidatePath(`/projects/${slug}`);
   return { ok: true, id: Number(ins!.id) };

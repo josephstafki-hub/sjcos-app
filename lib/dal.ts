@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { queryOne } from "@/lib/db";
 import { readSession, type Role } from "@/lib/session";
 import { normalizePermissions, staffHome, staffMayOpen, type PermissionKey } from "@/lib/permissions";
+import { sessionRevoked } from "@/lib/api-auth";
 
 // Data Access Layer — the single place the app resolves "who is logged in".
 // verifySession() does the optimistic cookie check; getCurrentUser() loads the
@@ -41,12 +42,17 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     link_slug: string | null;
     active: boolean;
     permissions: string[] | null;
+    revoked_before: string | null;
   }>(
-    `SELECT id, email, name, role, initials, link_slug, active, permissions
-       FROM users WHERE id = $1`,
+    `SELECT u.id, u.email, u.name, u.role, u.initials, u.link_slug, u.active, u.permissions,
+            (SELECT max(r.revoked_before) FROM session_revocations r WHERE r.user_id = u.id)::text AS revoked_before
+       FROM users u WHERE u.id = $1`,
     [session.userId],
   );
   if (!row || !row.active) return null;
+  // A22: a session minted before the user's latest revocation is dead even
+  // though the JWT still verifies — no re-login needed for a revoke to bite.
+  if (sessionRevoked(row.revoked_before, session)) return null;
   return {
     id: row.id,
     email: row.email,

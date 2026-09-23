@@ -11,6 +11,10 @@ import { query, queryOne } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
 import { requireRole } from "@/lib/dal";
 import { normalizePermissions, type PermissionKey } from "@/lib/permissions";
+import { runDirect, userPrincipal } from "@/lib/commands/db";
+import { auditPermissionChange, revokeSessions } from "@/lib/authority/grants";
+import { AuthorityAdminError, grantAuthorityCommand, revokeAuthorityCommand, revokeSessionsCommand } from "@/lib/authority/commands";
+import { isAuthorityActionType } from "@/lib/authority/catalog";
 
 /** First+last initial of a name, uppercased (e.g. "Marco Rivas" → "MR"). */
 function initialsOf(name: string): string {
@@ -70,14 +74,23 @@ export async function createUser(formData: FormData): Promise<CreateUserResult> 
  *  Takes effect on their next request (requireAccess re-reads the row) —
  *  their session cookie's copy only drives the cheap proxy prefilter. */
 export async function updateUserAccess(id: string, formData: FormData): Promise<UserActionResult> {
-  await requireRole("owner");
+  const owner = await requireRole("owner");
   const perms = permsFromForm(formData);
   if (perms.length === 0) return { ok: false, error: "Tick at least one area — or disable the account instead." };
-  const row = await queryOne<{ role: string }>(`SELECT role FROM users WHERE id = $1`, [id]);
+  const row = await queryOne<{ role: string; permissions: string[] | null }>(`SELECT role, permissions FROM users WHERE id = $1`, [id]);
   if (!row) return { ok: false, error: "That user no longer exists." };
   if (row.role !== "staff") return { ok: false, error: "Only team-member accounts have areas." };
+  const before = normalizePermissions(row.permissions);
   await query(`UPDATE users SET permissions = $2 WHERE id = $1`, [id, perms]);
+  // A22: audited, and any area REMOVED signs their existing sessions out so
+  // the JWT's stale copy of the areas can't linger in a bearer client.
+  const removed = before.filter((k) => !perms.includes(k));
+  const added = perms.filter((k) => !before.includes(k));
+  const actor = userPrincipal(owner);
+  await auditPermissionChange(runDirect, { actor, subjectUserId: id, change: "areas.set", detail: { before, after: perms, added, removed } });
+  if (removed.length) await revokeSessions(runDirect, { userId: id, by: actor, reason: `areas removed: ${removed.join(",")}` });
   revalidatePath("/settings");
+  revalidatePath(`/settings/team/${id}`);
   return { ok: true };
 }
 
@@ -96,7 +109,80 @@ export async function resetUserPassword(id: string, formData: FormData): Promise
 
 /** Enable/disable a login. Owner-only; owner rows are protected (no lock-out). */
 export async function setUserActive(id: string, active: boolean) {
-  await requireRole("owner");
-  await query(`UPDATE users SET active = $2 WHERE id = $1 AND role <> 'owner'`, [id, active]);
+  const owner = await requireRole("owner");
+  const res = await query(`UPDATE users SET active = $2 WHERE id = $1 AND role <> 'owner'`, [id, active]);
+  if (res.rowCount) {
+    const actor = userPrincipal(owner);
+    await auditPermissionChange(runDirect, { actor, subjectUserId: id, change: "account.active", detail: { active } });
+    if (!active) await revokeSessions(runDirect, { userId: id, by: actor, reason: "account disabled" });
+  }
   revalidatePath("/settings");
+  revalidatePath(`/settings/team/${id}`);
+}
+
+// ── Approval authority (A22) ────────────────────────────────────────────────
+// Areas say what a team member can SEE; authority says what they may
+// APPROVE. Both are owner-only to change, and the change itself runs through
+// lib/authority (a keyed command with an audit row) — never through an agent.
+
+function authorityError(err: unknown, fallback: string): UserActionResult {
+  if (err instanceof AuthorityAdminError) return { ok: false, error: err.message };
+  console.error("[users] authority action failed", err);
+  return { ok: false, error: fallback };
+}
+
+/** Grant one approval type to a staff account, optionally scoped to a
+ *  project and capped at a dollar amount. Form fields: action_type,
+ *  project_id (blank = any), max_amount (dollars, blank = no limit), note. */
+export async function grantAuthorityAction(userId: string, formData: FormData): Promise<UserActionResult> {
+  const owner = await requireRole("owner");
+  const actionType = String(formData.get("action_type") ?? "").trim();
+  if (!isAuthorityActionType(actionType)) return { ok: false, error: "Pick an approval type." };
+  const projectId = String(formData.get("project_id") ?? "").trim() || null;
+  if (projectId && !/^[0-9a-f-]{36}$/i.test(projectId)) return { ok: false, error: "Pick a project from the list." };
+  const rawAmount = String(formData.get("max_amount") ?? "").replace(/[$,\s]/g, "");
+  let maxAmountCents: number | null = null;
+  if (rawAmount) {
+    const dollars = Number(rawAmount);
+    if (!Number.isFinite(dollars) || dollars <= 0) return { ok: false, error: "The dollar limit must be a positive amount (or blank for no limit)." };
+    maxAmountCents = Math.round(dollars * 100);
+  }
+  const note = String(formData.get("note") ?? "").trim();
+  try {
+    await grantAuthorityCommand(userPrincipal(owner), { userId, actionType, projectId, maxAmountCents, note });
+  } catch (err) {
+    return authorityError(err, "Couldn't grant that authority.");
+  }
+  revalidatePath("/settings");
+  revalidatePath(`/settings/team/${userId}`);
+  return { ok: true };
+}
+
+export async function revokeAuthorityAction(userId: string, grantId: string): Promise<UserActionResult> {
+  const owner = await requireRole("owner");
+  if (!/^[0-9a-f-]{36}$/i.test(grantId)) return { ok: false, error: "That grant id is not valid." };
+  try {
+    const g = await revokeAuthorityCommand(userPrincipal(owner), { grantId, reason: "revoked from Team screen" });
+    if (!g) return { ok: false, error: "That grant no longer exists." };
+    if (g.user_id !== userId) return { ok: false, error: "That grant belongs to a different account." };
+  } catch (err) {
+    return authorityError(err, "Couldn't revoke that authority.");
+  }
+  revalidatePath("/settings");
+  revalidatePath(`/settings/team/${userId}`);
+  return { ok: true };
+}
+
+/** Sign a team member out everywhere: every session/bearer token they hold
+ *  right now is refused on its next request. */
+export async function revokeUserSessionsAction(userId: string): Promise<UserActionResult> {
+  const owner = await requireRole("owner");
+  if (owner.id === userId) return { ok: false, error: "Use Log out for your own account." };
+  try {
+    await revokeSessionsCommand(userPrincipal(owner), { userId, reason: "signed out everywhere from Team screen" });
+  } catch (err) {
+    return authorityError(err, "Couldn't sign them out.");
+  }
+  revalidatePath(`/settings/team/${userId}`);
+  return { ok: true };
 }

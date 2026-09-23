@@ -9,6 +9,7 @@ import { getScheduleProjects } from "@/lib/schedule";
 import { SubTabs } from "@/components/subs/SubTabs";
 import { SubNotes } from "@/components/subs/SubNotes";
 import { getSub, getSubSummary } from "@/lib/subs";
+import { can, getCurrentUser } from "@/lib/dal";
 import type { JobDot } from "@/lib/subs";
 import { getSubLogs, getSubInvoices, getSubDocuments } from "@/lib/sub-portal";
 
@@ -31,6 +32,8 @@ export default async function SubDetailPage({
   const { slug } = await params;
   const sub = await getSub(slug);
   if (!sub) notFound();
+  // A22 money fence: the sub's rate card / Pricing tab need the `money` area.
+  const showMoney = can(await getCurrentUser(), "money");
 
   // Real records the sub posted from their portal (logs + submitted invoices).
   const [subLogs, subInvoices, subDocs, projects] = await Promise.all([
@@ -104,14 +107,16 @@ export default async function SubDetailPage({
           </div>
         </Card>
 
-        <Card className="p-3">
-          <Eyebrow muted>Rate</Eyebrow>
-          <div className="mt-1 font-serif text-[26px] font-semibold leading-none text-ink">
-            {sub.rate.amount}
-            {sub.rate.unit && <span className="text-[14px] text-ink-3">{sub.rate.unit}</span>}
-          </div>
-          {sub.rate.note && <div className="mt-1.5 text-[11px] text-ink-3">{sub.rate.note}</div>}
-        </Card>
+        {showMoney && (
+          <Card className="p-3">
+            <Eyebrow muted>Rate</Eyebrow>
+            <div className="mt-1 font-serif text-[26px] font-semibold leading-none text-ink">
+              {sub.rate.amount}
+              {sub.rate.unit && <span className="text-[14px] text-ink-3">{sub.rate.unit}</span>}
+            </div>
+            {sub.rate.note && <div className="mt-1.5 text-[11px] text-ink-3">{sub.rate.note}</div>}
+          </Card>
+        )}
 
         {sub.taxNote && (
           <Card kind="ai" className="p-2.5">
@@ -278,7 +283,7 @@ export default async function SubDetailPage({
     Overview: overview,
     Jobs: jobsPanel,
     Paperwork: paperworkPanel,
-    Pricing: pricingPanel,
+    ...(showMoney ? { Pricing: pricingPanel } : {}),
     Notes: notesPanel,
   };
 

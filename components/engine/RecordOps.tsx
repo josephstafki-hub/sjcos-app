@@ -19,6 +19,8 @@ import {
   captureRecordKnowledge,
 } from "@/lib/actions/record-ops";
 import { runAction, type ActionLike } from "@/lib/run-action";
+import { toast } from "@/components/ui/Toast";
+import { describeApproval } from "@/lib/approved-draft-rules";
 
 const inputCls =
   "w-full rounded-md border border-rule bg-paper px-3 py-2 text-[13px] text-ink outline-none focus:border-accent";
@@ -180,6 +182,13 @@ function WorkItemCard({ item, kind, slug }: { item: RecordWorkItem; kind: Record
   const router = useRouter();
   const [pending, start] = useTransition();
   const run = (fn: () => Promise<ActionLike>) => start(async () => { await runAction(fn); router.refresh(); });
+  // Approve says what it did: "Emailed <to> — <subject>" or "Approved. Nothing
+  // was emailed: …" — plain success used to read as "the email went out".
+  const approve = () =>
+    start(async () => {
+      await runAction(() => approveRecordWorkItem(item.id, kind, slug), { onSuccess: (r) => toast(describeApproval(r)) });
+      router.refresh();
+    });
 
   return (
     <Card kind={item.bucket === "approval" ? "flag" : "default"} className="p-3">
@@ -201,7 +210,7 @@ function WorkItemCard({ item, kind, slug }: { item: RecordWorkItem; kind: Record
         <div className="flex flex-none flex-col items-end gap-1.5">
           {item.bucket === "approval" ? (
             <>
-              <button className={btnPrimary} disabled={pending} onClick={() => run(() => approveRecordWorkItem(item.id, kind, slug))}>Approve</button>
+              <button className={btnPrimary} disabled={pending} onClick={approve}>Approve</button>
               <button className={btnCls} disabled={pending} onClick={() => run(() => rejectRecordWorkItem(item.id, kind, slug))}>Reject</button>
             </>
           ) : (

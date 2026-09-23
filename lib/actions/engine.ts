@@ -4,11 +4,11 @@
 
 import { revalidatePath } from "next/cache";
 import { captureAgentMemory } from "@/lib/agent-memory";
-import { reopenApprovalAfterFailedSend, sendApprovedClientDraft } from "@/lib/approved-draft-send";
+import { finishApproval } from "@/lib/approve-work-item";
+import type { ApproveResult } from "@/lib/approved-draft-rules";
 import { query } from "@/lib/db";
 import { requireAccess } from "@/lib/dal";
 import { WORK_STATUSES } from "@/lib/engine-constants";
-import { notifyAgentOwner } from "@/lib/dev-agents";
 import { maybeAdvanceRunbook, cancelRunbookInstance } from "@/lib/runbook-engine";
 import type { WorkItemStatus } from "@/lib/types";
 
@@ -56,8 +56,12 @@ export async function setWorkItemStatus(id: string, status: WorkItemStatus, note
 }
 
 /** Approve a work item awaiting human approval → clears the gate, moves to queued,
- *  and (for agent-owned items) actively pings the owner agent to go complete it. */
-export async function approveWorkItem(id: string): Promise<Result> {
+ *  and (for agent-owned items) actively pings the owner agent to go complete it.
+ *  If the staged draft is an email to the item's lead/project client, the
+ *  approval sends it. The result always says which happened: `sent` (to +
+ *  subject) or `notice` ("Approved. Nothing was emailed: …") — the UI toasts
+ *  it and the notice also lands on the card as blocked_reason. */
+export async function approveWorkItem(id: string): Promise<ApproveResult> {
   await requireAccess("engine");
   const { rows } = await query<{
     title: string;
@@ -78,20 +82,9 @@ export async function approveWorkItem(id: string): Promise<Result> {
   if (!rows[0]) return { ok: false, error: "Work item not found." };
   const { title, body, assignee_key, lead_slug, project_slug } = rows[0];
   const context = project_slug ? `project ${project_slug}` : lead_slug ? `lead ${lead_slug}` : undefined;
-  // If the staged draft is an email to this lead, the approval sends it —
-  // otherwise the assignee agent gets pinged to complete the item as before.
-  const send = await sendApprovedClientDraft(id);
-  if (send.outcome === "failed") {
-    await reopenApprovalAfterFailedSend(id, send.error);
-    revalidatePath("/engine");
-    return { ok: false, error: `Approved, but the email did not send: ${send.error}` };
-  }
-  if (send.outcome !== "sent") {
-    await notifyAgentOwner(id, assignee_key, title, body, context);
-  }
-  await maybeAdvanceRunbook(id); // W6: a done-but-unapproved step advances on approval
+  const result = await finishApproval({ id, assigneeKey: assignee_key, title, body, context });
   revalidatePath("/engine");
-  return { ok: true };
+  return result;
 }
 
 export async function rejectWorkItem(id: string): Promise<Result> {

@@ -678,10 +678,19 @@ export async function notifyAgentOwner(
   title: string,
   body: string,
   pageContext?: string,
+  /** When the Approve click emailed nothing, the owner-facing notice saying
+   *  so — the agent must not "finish" by sending the draft itself. */
+  notEmailedNotice?: string,
 ): Promise<void> {
   const prompt =
     `Work item approved: "${title}"${body ? `\n\n${body}` : ""}\n\n` +
-    `Joe just approved this — go ahead and complete it now.`;
+    `Joe just approved this — go ahead and complete it now.` +
+    (notEmailedNotice
+      ? `\n\n${notEmailedNotice} The app did not send anything on this approval. Do not send the ` +
+        `draft yourself with send_email. If a client email is still needed, re-stage it with ` +
+        `submit_draft_for_approval starting with "To:" and "Subject:" lines that match the ` +
+        `lead/project email — Joe's next Approve click will send it.`
+      : "");
   await pingAgentWorkItem(workItemId, assigneeKey, title, prompt, pageContext);
 }
 

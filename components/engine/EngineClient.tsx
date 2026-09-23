@@ -26,6 +26,8 @@ import {
 import { captureKnowledge, deleteKnowledge, searchKnowledgeAction } from "@/lib/actions/brain";
 import { approveSkill, rejectSkill } from "@/lib/actions/skills";
 import { runAction, type ActionLike } from "@/lib/run-action";
+import { toast } from "@/components/ui/Toast";
+import { describeApproval } from "@/lib/approved-draft-rules";
 import {
   approveMemoryEvidence,
   approveMemoryInstruction,
@@ -349,6 +351,13 @@ function WorkItemCard({ item }: { item: WorkItemView }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const run = (fn: () => Promise<ActionLike>) => start(async () => { await runAction(fn); router.refresh(); });
+  // Approve says what it did: "Emailed <to> — <subject>" or "Approved. Nothing
+  // was emailed: …" — plain success used to read as "the email went out".
+  const approve = () =>
+    start(async () => {
+      await runAction(() => approveWorkItem(item.id), { onSuccess: (r) => toast(describeApproval(r)) });
+      router.refresh();
+    });
 
   return (
     <Card kind={item.bucket === "approval" ? "flag" : "default"} className="p-3.5">
@@ -373,7 +382,7 @@ function WorkItemCard({ item }: { item: WorkItemView }) {
         <div className="flex flex-none flex-col items-end gap-1.5">
           {item.bucket === "approval" ? (
             <>
-              <button className={btnPrimary} disabled={pending} onClick={() => run(() => approveWorkItem(item.id))}>Approve</button>
+              <button className={btnPrimary} disabled={pending} onClick={approve}>Approve</button>
               <button className={btnCls} disabled={pending} onClick={() => run(() => rejectWorkItem(item.id))}>Reject</button>
             </>
           ) : (

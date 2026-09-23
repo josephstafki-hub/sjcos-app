@@ -43,7 +43,7 @@ Safe by construction — internal records, append-only audit, and proposals only
 | `update_work_item_status` | Move an item's status (done sets completed_at) |
 | `enrich_work_item` | Rewrite a **detector-filed** item's factual body into a readable brief (original kept under `--- source facts ---`); refuses non-detector items; never touches status/priority/assignee/due/approvals |
 | `snooze_work_item` | Push `due_at` out + clear app-owned promotion (`{id, days?, reason?}`); snooze lands on 00:00 Central of the new due day; logs a receipt |
-| `submit_draft_for_approval` | Chat-lane item that needs a client-facing step: save the draft + set `approval_needed` (never sends) |
+| `submit_draft_for_approval` | Chat-lane item that needs a client-facing step: save the draft + set `approval_needed` (never sends itself). If the draft starts with `To:`/`Subject:` lines matching the lead/project email, Joe's Approve click **will** send it — do not call `send_email` afterward. Returns `approve_will_send` |
 | `record_agent_run` / `record_receipt` | Open/close a run; append proof-of-work |
 | `create_skill_proposal` | Propose a skill → lands `proposed`, out of the library until Joe approves in `/engine` |
 | `record_skill_used` | Log that an agent followed a skill |
@@ -379,7 +379,7 @@ an **owner grant** — Joe's express permission for one action on one target
 | `release_newsletter_issue` | Release every queued outbox row of an issue (`issue_id`, `owner_grant_id`) |
 | `release_newsletter_outbox_item` | Release one outbox row (`outbox_id`, `owner_grant_id`) |
 | `send_document_for_signature` | Submit a rendered draft for signature (`draft_id`, `owner_grant_id`, `override?`) |
-| `send_email` | One-off plain-text email from the business Gmail (`to`, `subject`, `body`, `owner_grant_id`); a grant may be pinned to one recipient |
+| `send_email` | One-off plain-text email from the business Gmail (`to`, `subject`, `body`, `owner_grant_id`, optional `work_item_id`); a grant may be pinned to one recipient. With `work_item_id` it refuses if the app already emailed that item's staged draft on Approve, and receipts the send on the item |
 
 How a grant comes to exist: Joe ticks **Express permission (sends)** on an Ask-window
 message (a 20-minute, run-scoped grant Claude is told about in its prompt); Joe mints

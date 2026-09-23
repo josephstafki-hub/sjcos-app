@@ -586,7 +586,7 @@ export default async function ProjectDetailPage({
 
   // ── Selections panel — real board: catalog/upload images + client approval ──
   const selectionsPanel = (
-    <SelectionsBoard slug={slug} view={selections} catalog={catalogOptions} />
+    <SelectionsBoard slug={slug} view={selections} catalog={catalogOptions} showBudget={can(viewer, "money")} />
   );
 
   // ── Bidding panel — packages by trade: packet files, recipients, compare ───
@@ -813,7 +813,8 @@ export default async function ProjectDetailPage({
             );
           return { label: t.title, node };
         }),
-        ...(leadPaperwork
+        // A22 money fence: the lead's rough estimate lines ride in this panel.
+        ...(leadPaperwork && showEstimates
           ? [
               {
                 label: `${LEAD_SECTION}${leadPaperworkCount ? ` · ${leadPaperworkCount}` : ""}`,

@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Check, FileSignature, ChevronDown, FileText } from "lucide-react";
+import { useRef, useState, useTransition } from "react";
+import { Check, FileSignature, ChevronDown, FileText, PenLine, Eraser } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
-import { docTypeLabel, type SignatureRequestView } from "@/lib/esign-types";
+import { CONSENT_STATEMENT, docTypeLabel, type SignatureRequestView } from "@/lib/esign-types";
 import { signSignatureRequest, declineSignatureRequest } from "@/lib/actions/esign";
 import { runAction } from "@/lib/run-action";
+import { SignaturePad, type SignaturePadHandle } from "@/components/esign/SignaturePad";
 
 /** Client-portal "Documents to sign" section. Pending requests expand into a
  *  review-and-sign panel (read the document, consent, type name → Sign), with a
@@ -58,6 +59,12 @@ function SignCard({ doc }: { doc: SignatureRequestView }) {
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // Optional hand-drawn signature. The typed name stays the required part
+  // (that's what the record has always keyed on); ink, when present, is what
+  // gets stamped on the executed copy.
+  const padRef = useRef<SignaturePadHandle>(null);
+  const [showPad, setShowPad] = useState(false);
+  const [inked, setInked] = useState(false);
 
   function sign() {
     setError(null);
@@ -66,6 +73,8 @@ function SignCard({ doc }: { doc: SignatureRequestView }) {
     const fd = new FormData();
     fd.set("signedName", name.trim());
     fd.set("consent", "on");
+    const drawn = showPad ? padRef.current?.toDataUrl() : null;
+    if (drawn) fd.set("signatureData", drawn);
     startTransition(async () => {
       const res = await runAction(() => signSignatureRequest(doc.id, fd));
       if (!res.ok) setError(res.error);
@@ -137,6 +146,32 @@ function SignCard({ doc }: { doc: SignatureRequestView }) {
                   className="w-full rounded-md border border-rule bg-card px-2.5 py-1.5 font-serif text-[15px] italic text-ink focus:border-accent focus:outline-none"
                 />
               </label>
+              {showPad ? (
+                <div className="mt-2.5">
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-ink-2">Draw your signature (optional)</span>
+                    <button
+                      type="button"
+                      onClick={() => padRef.current?.clear()}
+                      disabled={pending || !inked}
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-ink-3 hover:text-ink disabled:opacity-40"
+                    >
+                      <Eraser className="size-3" strokeWidth={1.75} />
+                      Clear
+                    </button>
+                  </div>
+                  <SignaturePad ref={padRef} height={160} onChange={(e) => setInked(!e)} />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowPad(true)}
+                  className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-accent-2 hover:underline"
+                >
+                  <PenLine className="size-3" strokeWidth={2} />
+                  Draw your signature too (optional)
+                </button>
+              )}
               <label className="mt-2 flex items-start gap-2 text-[11px] text-ink-2">
                 <input
                   type="checkbox"
@@ -144,9 +179,7 @@ function SignCard({ doc }: { doc: SignatureRequestView }) {
                   onChange={(e) => setConsent(e.target.checked)}
                   className="mt-0.5"
                 />
-                <span>
-                  I agree that typing my name and clicking Sign constitutes my legal electronic signature on this document.
-                </span>
+                <span>{CONSENT_STATEMENT[showPad && inked ? "drawn" : "typed"]}</span>
               </label>
               {error && <div className="mt-1.5 text-[11px] text-flag">{error}</div>}
               <div className="mt-2.5 flex items-center gap-2">

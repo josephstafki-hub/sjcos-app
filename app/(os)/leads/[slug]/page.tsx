@@ -22,6 +22,8 @@ import { LeadTasks } from "@/components/leads/LeadTasks";
 import { getLeadTasks } from "@/lib/lead-tasks";
 import { LeadEstimate } from "@/components/leads/LeadEstimate";
 import { DocTypePanel } from "@/components/projects/DocTypePanel";
+import { InPersonSignList } from "@/components/esign/InPersonSignList";
+import { getLeadSignatureRequests } from "@/lib/esign";
 import { ProjectFiles } from "@/components/projects/ProjectFiles";
 import { ProjectComms } from "@/components/projects/ProjectComms";
 import { PortalAccessPanel, type PortalInviteSummary } from "@/components/portal/PortalAccessPanel";
@@ -60,6 +62,9 @@ export default async function LeadDetailPage({
   const firstResponse = await getLeadFirstResponse(slug);
   const tasks = await getLeadTasks(slug);
   const leadDocDrafts = await listDocDrafts({ leadSlug: slug });
+  // Lead-scoped signature requests (rough estimate, pre-con agreement) for the
+  // "Sign in person" block under Documents.
+  const leadSignatureRequests = await getLeadSignatureRequests(slug);
   // rough_estimate has its own dedicated tab (LeadEstimate, backed by the
   // lead_estimates singleton, not document_drafts) — excluded here so it's not
   // duplicated as an always-visible, effectively-unused panel.
@@ -377,6 +382,7 @@ export default async function LeadDetailPage({
             drafts={leadDocDrafts.filter((d) => d.template_key === t.key)}
           />
         ))}
+        <InPersonSignList requests={leadSignatureRequests} />
       </div>
     ),
     Files: filesPanel,

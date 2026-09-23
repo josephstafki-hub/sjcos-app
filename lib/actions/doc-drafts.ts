@@ -70,6 +70,28 @@ export async function submitDocDraftForSignatureAction(
   return { ok: true, delivery: res.delivery };
 }
 
+/** In-person signing: create the signature request WITHOUT emailing it (the
+ *  client is sitting here) and hand back its id so the UI can open /sign/<id>
+ *  on this device. Same owner gate, same approval gate, same record as
+ *  sending — only the delivery differs. */
+export async function prepareInPersonSigningAction(
+  id: number,
+  override = false,
+): Promise<{ ok: true; signatureRequestId: number } | { ok: false; error: string }> {
+  const user = await requireAccess("projects");
+  const res = await submitDocDraftForSignature(
+    id,
+    { id: user.id, name: user.name || "Owner" },
+    override,
+    { inPerson: true },
+  );
+  if (!res.ok) return res;
+  revalidatePath("/projects");
+  revalidatePath("/leads");
+  revalidatePath("/client-portal");
+  return { ok: true, signatureRequestId: res.signatureRequestId };
+}
+
 /** Publish/unpublish a document on the client dashboard. Publishing emails the
  *  client a portal link (best-effort — the delivery note says what happened);
  *  unpublishing just hides it again. */

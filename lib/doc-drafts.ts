@@ -32,7 +32,7 @@ import {
   type Actor,
   type FillReport,
 } from "./doc-templates/fill";
-import type { DocType } from "./esign-types";
+import type { DocType, SigMethod } from "./esign-types";
 import type { FieldValues } from "./doc-templates/types";
 
 /** templateKey → signature_requests.doc_type (invoices don't sign). */
@@ -394,6 +394,8 @@ export async function renderDocDraft(id: number): Promise<RenderResult | (DraftE
 const SIG_EVENT_LABEL: Record<string, string> = {
   created: "Document created",
   sent: "Sent for signature",
+  viewed: "Viewed",
+  presented: "Presented in person",
   signed: "Signed electronically",
   declined: "Declined",
   voided: "Voided",
@@ -410,16 +412,32 @@ export async function signatureStampFor(signatureRequestId: number): Promise<Sig
     consent: boolean | null;
     signed_ip: string | null;
     signed_user_agent: string | null;
+    signed_method: SigMethod | null;
+    witness_name: string | null;
+    signature_storage_path: string | null;
     contract_number: string | null;
   }>(
     `SELECT sr.signed_name, sr.signed_at, sr.consent, sr.signed_ip, sr.signed_user_agent,
+            sr.signed_method, sr.witness_name, f.storage_path AS signature_storage_path,
             d.field_values->>'contract_number' AS contract_number
        FROM signature_requests sr
        LEFT JOIN document_drafts d ON d.signature_request_id = sr.id
+       LEFT JOIN files f ON f.id = sr.signature_file_id
       WHERE sr.id = $1`,
     [signatureRequestId],
   );
   if (!req?.signed_name || !req.signed_at) return undefined;
+
+  // The drawn signature, if one was captured. Missing bytes degrade to the
+  // typed-name stamp — never a failed render.
+  let signatureImage: Buffer | null = null;
+  if (req.signature_storage_path) {
+    try {
+      signatureImage = await readFile(path.join(UPLOAD_DIR, path.basename(req.signature_storage_path)));
+    } catch (err) {
+      console.error(`[esign] signature image unreadable for request ${signatureRequestId}:`, err);
+    }
+  }
 
   const evRows = await query<{ kind: string; actor: string; created_at: Date }>(
     `SELECT kind, actor, created_at FROM signature_events
@@ -432,6 +450,9 @@ export async function signatureStampFor(signatureRequestId: number): Promise<Sig
     consent: req.consent ?? true,
     ip: req.signed_ip,
     userAgent: req.signed_user_agent,
+    method: req.signed_method ?? "typed",
+    signatureImage,
+    witnessName: req.witness_name,
     documentRef: req.contract_number || `Signature request #${signatureRequestId}`,
     events: evRows.rows.map((e) => ({
       label: SIG_EVENT_LABEL[e.kind] ?? e.kind,
@@ -488,10 +509,19 @@ export interface SubmitResult {
   delivery: DeliveryNote;
 }
 
+export interface SubmitOptions {
+  /** In-person: create the request for the client to sign on the owner's
+   *  device right now. Nothing is emailed and no "sent" notification fires;
+   *  the request still lands in the portal as awaiting signature, so if they
+   *  don't sign on the spot they can still sign from home. */
+  inPerson?: boolean;
+}
+
 export async function submitDocDraftForSignature(
   id: number,
   owner: { id: string | null; name: string },
   override = false,
+  opts: SubmitOptions = {},
 ): Promise<SubmitResult | DraftError> {
   const draft = await loadDraft(id);
   if (!draft) return { ok: false, error: `Draft ${id} not found.` };
@@ -557,10 +587,13 @@ export async function submitDocDraftForSignature(
     ownerId: owner.id,
     signerName: signer.name,
     signerEmail: signer.email,
-    notify: {
-      subline: "Awaiting client signature",
-      href: slug ? `/projects/${slug}` : draft.lead_slug ? `/leads/${draft.lead_slug}` : "/today",
-    },
+    presentedInPerson: !!opts.inPerson,
+    notify: opts.inPerson
+      ? undefined
+      : {
+          subline: "Awaiting client signature",
+          href: slug ? `/projects/${slug}` : draft.lead_slug ? `/leads/${draft.lead_slug}` : "/today",
+        },
   });
 
   await query(
@@ -596,6 +629,15 @@ export async function submitDocDraftForSignature(
         refs: [{ kind: "document_draft", id: String(id), label: draft.title }],
       });
     }
+  }
+
+  // In person: the client is sitting here — the owner's device is the delivery.
+  if (opts.inPerson) {
+    return {
+      ok: true,
+      signatureRequestId: reqId,
+      delivery: { sent: false, note: "Ready to sign in person — nothing was emailed." },
+    };
   }
 
   // Actually deliver it. Until this existed, "sent" only ever meant "a row says

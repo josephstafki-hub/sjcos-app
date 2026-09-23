@@ -25,6 +25,11 @@ export interface SentRequestInput {
   signerEmail: string;
   /** Owner notification (skipped when omitted). */
   notify?: { subline: string; href: string };
+  /** In-person flow: the owner is opening this on their own device for the
+   *  client to sign right now. Logs a 'presented' event instead of 'sent' (no
+   *  email goes out) and skips the "sent for signature" notification — the
+   *  signing itself is the news. */
+  presentedInPerson?: boolean;
 }
 
 export async function insertSentRequest(o: SentRequestInput): Promise<number> {
@@ -49,6 +54,14 @@ export async function insertSentRequest(o: SentRequestInput): Promise<number> {
     ],
   );
   const id = Number(ins!.id);
+  if (o.presentedInPerson) {
+    await query(
+      `INSERT INTO signature_events (request_id, kind, actor, detail)
+       VALUES ($1, 'created', $2, $3), ($1, 'presented', $2, $4)`,
+      [id, o.ownerName, o.title, `Presented in person by ${o.ownerName} for ${o.signerName || "the client"} to sign`],
+    );
+    return id;
+  }
   await query(
     `INSERT INTO signature_events (request_id, kind, actor, detail)
      VALUES ($1, 'created', $2, $3), ($1, 'sent', $2, $4)`,

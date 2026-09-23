@@ -16,8 +16,9 @@
 // only be voided, keeping the audit trail.
 
 import { useState, useTransition, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FileText, Plus, Sparkles, Check, Clock, Ban, FileDown } from "lucide-react";
+import { FileText, Plus, Sparkles, Check, Clock, Ban, FileDown, PenLine } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import { dollarsToCents, centsToInput, fmtUsd } from "@/lib/cost-book-units";
 import type { TemplateManifest } from "@/lib/doc-templates/registry";
@@ -26,6 +27,7 @@ import {
   updateDocDraftFieldsAction,
   renderDocDraftAction,
   submitDocDraftForSignatureAction,
+  prepareInPersonSigningAction,
   setDocDraftVisibilityAction,
   voidDocDraftAction,
   deleteDocDraftAction,
@@ -274,6 +276,16 @@ function DraftRow({
           </div>
         </div>
         <div className="flex flex-none items-center gap-1.5">
+          {draft.status === "submitted" && draft.signature_request_id && (
+            <Link
+              href={`/sign/${draft.signature_request_id}`}
+              title="Client is here? Open this document on this device for them to sign now"
+              className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink-2 hover:bg-paper-2"
+            >
+              <PenLine className="size-3" strokeWidth={2} />
+              Sign in person
+            </Link>
+          )}
           {canPublish && (
             <button
               type="button"
@@ -381,7 +393,20 @@ function DraftEditor({ draft, onClose }: { draft: DocDraftItem; onClose: () => v
     });
   }
 
+  // Client is here: create the request without emailing and open the
+  // in-person signing screen on this device.
+  function signInPerson() {
+    setError(null);
+    setDelivery(null);
+    startSend(async () => {
+      const res = await runAction(() => prepareInPersonSigningAction(draft.id, override), { fallback: "Couldn't prepare the document for signing." });
+      if (!res.ok) setError(res.error);
+      else router.push(`/sign/${res.signatureRequestId}`);
+    });
+  }
+
   const canSend = draft.status === "rendered" && SIGNABLE.has(draft.template_key);
+  const awaitingSignature = draft.status === "submitted" && !!draft.signature_request_id;
   const showGateOverride = draft.template_key === "contract";
   const busy = saving || sending || drafting;
 
@@ -450,6 +475,28 @@ function DraftEditor({ draft, onClose }: { draft: DocDraftItem; onClose: () => v
             >
               {sending ? "Sending…" : draft.template_key === "contract" ? "Send Contract" : "Send for signature"}
             </button>
+          )}
+          {canSend && (
+            <button
+              type="button"
+              onClick={signInPerson}
+              disabled={busy}
+              title="Open this document on this device for the client to sign right now — nothing is emailed"
+              className="inline-flex items-center gap-1.5 rounded-md border border-rule bg-card px-3 py-1.5 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-60"
+            >
+              <PenLine className="size-3.5" strokeWidth={2} />
+              {sending ? "Preparing…" : "Sign in person"}
+            </button>
+          )}
+          {awaitingSignature && (
+            <Link
+              href={`/sign/${draft.signature_request_id}`}
+              title="Open this document on this device for the client to sign right now"
+              className="inline-flex items-center gap-1.5 rounded-md border border-rule bg-card px-3 py-1.5 text-[12px] font-semibold text-ink-2 hover:bg-paper-2"
+            >
+              <PenLine className="size-3.5" strokeWidth={2} />
+              Sign in person
+            </Link>
           )}
         </div>
       </form>

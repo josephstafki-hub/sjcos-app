@@ -203,10 +203,10 @@ export type DraftError = { ok: false; error: string };
  * Templates whose money fields are AUTO fields resolved from one source record
  * (lib/doc-templates/fill.ts). Without that record the draft is an empty shell
  * that can never render — and, for the Formal Estimate, exactly the confusion
- * docs/estimates-and-change-orders.md exists to end: the document is the PAPER,
- * the numbers live on a worksheet in Money › Estimate. So the source is
- * required, must belong to the job, and a missing one is answered with the
- * job's candidates so the caller (owner or agent) can pick the right one.
+ * docs/estimates-and-change-orders.md exists to end: the document is only the
+ * PDF of the estimate in Money › Estimate. So the source is required, must
+ * belong to the job, and a missing one is answered with the job's candidates
+ * so the caller (owner or agent) can pick the right one.
  */
 async function requireDocSource(
   templateKey: string,
@@ -223,8 +223,8 @@ async function requireDocSource(
         return {
           ok: false,
           error:
-            `A ${what} is rendered from an estimate worksheet (estimate_id). A lead has only the Rough ` +
-            `Estimate; the formal worksheet is built once the job is a project, in ${WHERE.worksheets}.`,
+            `A ${what} is generated from an estimate (estimate_id). A lead has only the Rough Estimate; ` +
+            `the formal estimate is built once the job is a project, in ${WHERE.estimates}.`,
         };
       }
       const { rows } = await query<{ id: string; title: string; kind: keyof typeof ESTIMATE_KIND_LABEL; status: string; total: number }>(
@@ -235,19 +235,19 @@ async function requireDocSource(
       return {
         ok: false,
         error:
-          `A ${what} document is rendered from an estimate worksheet in ${WHERE.worksheets} — pass estimate_id.` +
+          `A ${what} document is generated from an estimate in ${WHERE.estimates} — pass estimate_id.` +
           (items.length
-            ? list(items) + " Build or revise the numbers there; this section holds the paper."
-            : ` This job has no worksheet yet: create one in ${WHERE.worksheets} (agents: create_estimate + add_estimate_lines), then make the document from it.`),
+            ? ` This job's estimates: ${items.join("; ")}.`
+            : ` This job has no estimate yet: create the formal estimate in ${WHERE.estimates} (agents: create_estimate + add_estimate_lines), then generate the document from it.`),
       };
     }
     const est = await queryOne<{ project_id: string | null; lead_slug: string | null }>(
       `SELECT project_id, lead_slug FROM estimates WHERE id = $1`,
       [scope.estimateId],
     );
-    if (!est) return { ok: false, error: `Estimate worksheet #${scope.estimateId} doesn't exist.` };
+    if (!est) return { ok: false, error: `Estimate #${scope.estimateId} doesn't exist.` };
     const owned = projectId ? est.project_id === projectId : !!leadSlug && est.lead_slug === leadSlug;
-    if (!owned) return { ok: false, error: `Estimate worksheet #${scope.estimateId} belongs to a different job.` };
+    if (!owned) return { ok: false, error: `Estimate #${scope.estimateId} belongs to a different job.` };
     return null;
   }
 
@@ -261,10 +261,10 @@ async function requireDocSource(
       return {
         ok: false,
         error:
-          `A Change Order document is rendered from a change order in ${WHERE.changeOrders} — pass change_order_id.` +
+          `A Change Order document is generated from a change order in ${WHERE.changeOrders} — pass change_order_id.` +
           (items.length
             ? list(items)
-            : ` This job has no change order yet: draft one in ${WHERE.changeOrders} (once the contract is signed — before that, a client change is a pre-con change estimate in ${WHERE.worksheets}).`),
+            : ` This job has no change order yet: draft one in ${WHERE.changeOrders} (once the contract is signed — before that, a client change is a Pre-con change estimate in ${WHERE.estimates}).`),
       };
     }
     const co = await queryOne<{ project_id: string }>(`SELECT project_id FROM change_orders WHERE id = $1`, [scope.changeOrderId]);
@@ -283,7 +283,7 @@ async function requireDocSource(
       return {
         ok: false,
         error:
-          `An Invoice document is rendered from an invoice in Money › Invoices — pass invoice_id.` +
+          `An Invoice document is generated from an invoice in Money › Invoices — pass invoice_id.` +
           (items.length ? list(items) : " This job has no invoice yet: create one in Money › Invoices first."),
       };
     }

@@ -40,10 +40,9 @@ const KIND_KIND: Record<EstimateKind, "info" | "ai"> = {
   precon_change: "ai",
 };
 
-/** Money tab · "Estimate" section — the NUMBERS. Every row is an estimate
- *  worksheet; the client-facing Formal Estimate document in the Documents tab
- *  is rendered from one of these (and the live preview below the generator IS
- *  that document). kind 'formal' = the job's base bid; kind 'precon_change' = a
+/** Money tab · "Estimate" section. The formal estimate lives here (kind
+ *  'formal'); the Formal Estimate PDF in the Documents tab is generated from it
+ *  (the live preview below the generator IS that PDF). kind 'precon_change' = a
  *  client addition or change priced before the contract is signed — after the
  *  contract it is a change order instead. docs/estimates-and-change-orders.md */
 export function ProjectEstimate({
@@ -66,8 +65,8 @@ export function ProjectEstimate({
   const router = useRouter();
   const banner = describeScopeChangePath(phase);
   const preconChangesAllowed = phase.path === "precon_estimate";
-  // Once a base bid exists on a pre-construction job, the next worksheet is
-  // most likely a client change — default the picker that way.
+  // Once the formal estimate exists on a pre-construction job, the next estimate
+  // is most likely a client change — default the picker that way.
   const defaultKind: EstimateKind =
     preconChangesAllowed && estimates.some((e) => e.kind === "formal") ? "precon_change" : "formal";
   const formalSheets = estimates.filter((e) => e.kind === "formal");
@@ -193,9 +192,9 @@ export function ProjectEstimate({
       <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="font-serif text-[17px] font-semibold text-ink">Estimate worksheets</h3>
+          <h3 className="font-serif text-[17px] font-semibold text-ink">Estimates</h3>
           <div className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
-            {estimates.length} worksheet{estimates.length === 1 ? "" : "s"}
+            {estimates.length} estimate{estimates.length === 1 ? "" : "s"}
             {changeSheets.length > 0 && ` · ${changeSheets.length} pre-con change${changeSheets.length === 1 ? "" : "s"}`}
           </div>
         </div>
@@ -219,7 +218,7 @@ export function ProjectEstimate({
             onClick={() => { setShowNew((v) => !v); setShowMerge(false); }}
             className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
           >
-            <Plus className="size-3" strokeWidth={2} /> New worksheet
+            <Plus className="size-3" strokeWidth={2} /> New estimate
           </button>
         </div>
       </div>
@@ -230,11 +229,11 @@ export function ProjectEstimate({
           {banner.headline}
         </div>
         <div className="mt-1 text-[12px] text-ink-2">
-          The numbers live here. The client-facing{" "}
+          The formal estimate lives here; the client&rsquo;s PDF in{" "}
           <TabLink tab="Documents" section="Formal Estimate" className="font-semibold text-accent-2 underline-offset-2 hover:underline">
             {WHERE.formalEstimateDoc}
           </TabLink>{" "}
-          is rendered from one of these worksheets — build or revise pricing here, then make the paper there.{" "}
+          is generated from it.{" "}
           {preconChangesAllowed ? (
             banner.detail
           ) : (
@@ -243,7 +242,7 @@ export function ProjectEstimate({
               <TabLink tab="Money" section="Change orders" className="font-semibold text-accent-2 underline-offset-2 hover:underline">
                 {WHERE.changeOrders}
               </TabLink>
-              ). New worksheets here are for the base bid only.
+              ).
             </>
           )}
         </div>
@@ -310,14 +309,14 @@ export function ProjectEstimate({
             <label className="flex w-[190px] flex-col gap-1">
               <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Kind</span>
               <select name="kind" defaultValue={defaultKind} className={inputCls} title={ESTIMATE_KIND_HELP[defaultKind]}>
-                <option value="formal" title={ESTIMATE_KIND_HELP.formal}>{ESTIMATE_KIND_LABEL.formal} · base bid</option>
+                <option value="formal" title={ESTIMATE_KIND_HELP.formal}>{ESTIMATE_KIND_LABEL.formal}</option>
                 <option
                   value="precon_change"
                   disabled={!preconChangesAllowed}
                   title={preconChangesAllowed ? ESTIMATE_KIND_HELP.precon_change : `Under contract — use ${WHERE.changeOrders}`}
                 >
                   {ESTIMATE_KIND_LABEL.precon_change}
-                  {preconChangesAllowed ? " · client addition/change" : " · n/a, use a change order"}
+                  {preconChangesAllowed ? " · client addition/change" : " · use a change order"}
                 </option>
               </select>
             </label>
@@ -338,10 +337,10 @@ export function ProjectEstimate({
       {estimates.length === 0 ? (
         <Card kind="dashed" className="p-10 text-center">
           <FileSpreadsheet className="mx-auto size-5 text-ink-3" strokeWidth={1.5} />
-          <div className="mt-2 font-serif text-[16px] font-semibold text-ink-2">No worksheet yet</div>
+          <div className="mt-2 font-serif text-[16px] font-semibold text-ink-2">No estimate yet</div>
           <div className="mt-1 text-[12px] text-ink-3">
-            Create the job&rsquo;s formal estimate worksheet, add lines from your cost book, then generate the Formal
-            Estimate document from it.
+            Create the formal estimate and add lines from your cost book. The Formal Estimate PDF in Documents is
+            generated from it.
           </div>
         </Card>
       ) : (
@@ -356,7 +355,7 @@ export function ProjectEstimate({
                 {changeSheets.length > 0 && (
                   <div className="flex items-baseline gap-2">
                     <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
-                      {g.kind === "formal" ? "Formal estimate · base bid" : "Pre-con changes"}
+                      {g.kind === "formal" ? "Formal estimate" : "Pre-con changes"}
                     </span>
                     <span className="text-[11px] text-ink-3">{ESTIMATE_KIND_HELP[g.kind]}</span>
                   </div>
@@ -412,7 +411,7 @@ export function ProjectEstimate({
             onClick={() => setEditingId(null)}
             className="inline-flex items-center gap-1 text-[12px] font-semibold text-ink-3 hover:text-ink"
           >
-            <ChevronLeft className="size-3.5" strokeWidth={2} /> All worksheets
+            <ChevronLeft className="size-3.5" strokeWidth={2} /> All estimates
           </button>
 
           {/* Header + totals */}
@@ -560,12 +559,11 @@ export function ProjectEstimate({
                   Preview · what the client will see
                 </span>
                 <span className="text-[11px] text-ink-3">
-                  This is the Formal Estimate document, rendered live from this worksheet. To keep a copy on file,
-                  fill its scope summary or send it, make it under{" "}
+                  The Formal Estimate PDF, generated live from this estimate. To keep a copy on file, make it under{" "}
                   <TabLink tab="Documents" section="Formal Estimate" className="font-semibold text-accent-2 underline-offset-2 hover:underline">
                     {WHERE.formalEstimateDoc}
                   </TabLink>{" "}
-                  from worksheet #{selected.id}.
+                  from estimate #{selected.id}.
                 </span>
               </div>
               <iframe

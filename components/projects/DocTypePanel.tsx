@@ -75,17 +75,17 @@ const STATUS_LABEL: Record<string, string> = {
 // Which template keys can be submitted for signature (invoice_doc cannot).
 const SIGNABLE = new Set(["contract", "precon", "lien_release", "completion_cert", "change_order", "estimate_doc"]);
 
-/** For templates that are RENDERED FROM one record — the Formal Estimate and
- *  Contract from an estimate worksheet (Money › Estimate), the Change Order
- *  from a change order, the Invoice from an invoice — the panel offers the
- *  job's records to pick from instead of creating a blank draft that can never
+/** For templates that are GENERATED FROM one record — the Formal Estimate and
+ *  Contract from an estimate (Money › Estimate), the Change Order from a
+ *  change order, the Invoice from an invoice — the panel offers the job's
+ *  records to pick from instead of creating a blank draft that can never
  *  render. docs/estimates-and-change-orders.md. */
 export interface DocSourcePicker {
   /** Which FillScope key the chosen id goes under. */
   scopeKey: "estimateId" | "changeOrderId" | "invoiceId";
   /** One line under the header: what this document is made from, and where that lives. */
   explainer: string;
-  /** Label on the picker ("Estimate worksheet"). */
+  /** Label on the picker ("Estimate"). */
   label: string;
   options: { id: number; label: string }[];
   /** Shown instead of the New button when there is nothing to pick from. */

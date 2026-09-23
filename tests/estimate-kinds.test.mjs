@@ -42,8 +42,8 @@ test("refusals name the status and the exact tab › section to use instead", ()
   const precon = scopeChangeContext("selections", false);
   const co = changeOrderRefusal(precon);
   assert.match(co, /pre-construction \(Selections\)/);
-  assert.ok(co.includes(WHERE.worksheets), "points at Money › Estimate");
-  assert.ok(co.includes("Pre-con change"), "names the worksheet kind");
+  assert.ok(co.includes(WHERE.estimates), "points at Money › Estimate");
+  assert.ok(co.includes("Pre-con change estimate"), "names the estimate kind");
 
   const site = scopeChangeContext("construction", false);
   const pc = preconChangeRefusal(site);
@@ -54,7 +54,7 @@ test("refusals name the status and the exact tab › section to use instead", ()
 test("the Money-tab banner says which record a client change becomes", () => {
   const precon = describeScopeChangePath(scopeChangeContext("bidding", false));
   assert.equal(precon.headline, "Pre-construction · Bidding");
-  assert.match(precon.detail, /Pre-con change worksheet/);
+  assert.match(precon.detail, /new estimate here with kind Pre-con change/);
   assert.match(precon.detail, /once the contract is signed/);
 
   const site = describeScopeChangePath(scopeChangeContext("closeout", true));

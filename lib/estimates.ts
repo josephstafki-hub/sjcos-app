@@ -130,7 +130,7 @@ export async function getProjectEstimates(slug: string): Promise<EstimateDetail[
 }
 
 /** Which record a client change becomes on this job right now — a pre-con
- *  change worksheet or a change order — as the DATABASE decides it
+ *  change estimate or a change order — as the DATABASE decides it
  *  (project_scope_change_path(), db/schema.sql; the same function the
  *  triggers enforce). Null when the project doesn't exist. */
 export async function getScopeChangeContext(slug: string): Promise<ScopeChangeContext | null> {

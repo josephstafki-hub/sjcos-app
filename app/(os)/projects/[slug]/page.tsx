@@ -641,9 +641,14 @@ export default async function ProjectDetailPage({
 
   // ── Punch panel — real, interactive punch-list items (add/toggle/remove) ────
   const punchPanel = <PunchList slug={project.slug} items={project.punch} />;
-  const estimatePanel = (
+  // The estimate editor is mounted twice: the formal estimate lives under
+  // Documents › Formal Estimate (its PDF is generated from those lines), and
+  // Money › Pre-con changes holds client additions/changes priced before the
+  // contract is signed. docs/estimates-and-change-orders.md
+  const estimateEditor = (kind: "formal" | "precon_change") => (
     <ProjectEstimate
       slug={slug}
+      kind={kind}
       estimates={estimates}
       costItems={costBook.items.filter((i) => !i.archived)}
       defaultMarkup={costBook.defaultMarkup}
@@ -652,6 +657,8 @@ export default async function ProjectDetailPage({
       phase={scopeChange}
     />
   );
+  const formalEstimatePanel = estimateEditor("formal");
+  const preconChangesPanel = estimateEditor("precon_change");
   const changeOrdersPanel = <ChangeOrders slug={slug} orders={changeOrders} phase={scopeChange} />;
   const purchaseOrdersPanel = (
     <PurchaseOrders slug={slug} orders={purchaseOrders} vendors={vendors} assignedSubs={subsData.assigned} />
@@ -688,7 +695,7 @@ export default async function ProjectDetailPage({
       tab="Money"
       sections={[
         ...(financialsPanel ? [{ label: "Overview", node: financialsPanel }] : []),
-        ...(showEstimates ? [{ label: "Estimate", node: estimatePanel }] : []),
+        ...(showEstimates ? [{ label: "Pre-con changes", node: preconChangesPanel }] : []),
         ...(showInvoices ? [{ label: "Invoices", node: moneyPanel }] : []),
         ...(showCOs ? [{ label: "Change orders", node: changeOrdersPanel }] : []),
         ...(showPOs ? [{ label: "Purchase orders", node: purchaseOrdersPanel }] : []),
@@ -711,9 +718,9 @@ export default async function ProjectDetailPage({
     }
   }
   // Documents that are GENERATED FROM one record offer the job's records to
-  // pick from — a Formal Estimate or Contract from an estimate in Money ›
-  // Estimate, a Change Order from a change order, an Invoice from an invoice —
-  // instead of a blank draft (docs/estimates-and-change-orders.md).
+  // pick from — a Formal Estimate or Contract from an estimate's lines, a
+  // Change Order from a change order, an Invoice from an invoice — instead of
+  // a blank draft (docs/estimates-and-change-orders.md).
   const pickLink = (tab: ProjectTab, section: string, text: string) => (
     <TabLink tab={tab} section={section} className="font-semibold text-accent-2 underline-offset-2 hover:underline">
       {text}
@@ -723,20 +730,22 @@ export default async function ProjectDetailPage({
     id: e.id,
     label: `#${e.id} ${e.title} · ${ESTIMATE_KIND_LABEL[e.kind]} · ${e.status} · ${fmtUsd(e.total)}`,
   });
+  // Formal first: the section's own estimate is the usual source.
+  const formalFirst = [...estimates].sort((a, b) => Number(b.kind === "formal") - Number(a.kind === "formal"));
   const docSources: Record<string, DocSourcePicker> = {
     estimate_doc: {
       scopeKey: "estimateId",
       label: "Estimate",
-      explainer: `The PDF the client gets, generated from an estimate in ${WHERE.estimates}. Add or change lines there, then regenerate here.`,
-      options: estimates.map(estimateOption),
-      empty: <>No estimate yet. {pickLink("Money", "Estimate", `Create the formal estimate in ${WHERE.estimates}`)} first; this PDF is generated from it.</>,
+      explainer: "PDF copies of the estimate above, generated from its lines. Regenerate after the lines change.",
+      options: formalFirst.map(estimateOption),
+      empty: <>No estimate yet. Create the formal estimate above first; the PDF is generated from its lines.</>,
     },
     contract: {
       scopeKey: "estimateId",
       label: "Approved estimate",
-      explainer: `Built from the approved estimate in ${WHERE.estimates} — its total and draw schedule fill the contract.`,
-      options: [...estimates].sort((a, b) => Number(b.status === "approved") - Number(a.status === "approved")).map(estimateOption),
-      empty: <>No estimate yet. {pickLink("Money", "Estimate", `Create and get one approved in ${WHERE.estimates}`)} first.</>,
+      explainer: `Built from the approved formal estimate (${WHERE.formalEstimate}) — its total and draw schedule fill the contract.`,
+      options: [...formalFirst].sort((a, b) => Number(b.status === "approved") - Number(a.status === "approved")).map(estimateOption),
+      empty: <>No estimate yet. {pickLink("Documents", "Formal Estimate", "Create the formal estimate")} and get it approved first.</>,
     },
     change_order: {
       scopeKey: "changeOrderId",
@@ -749,7 +758,7 @@ export default async function ProjectDetailPage({
         ) : (
           <>
             Change orders start once the contract is signed ({scopeChange.statusLabel} now). A client addition or change before that
-            is a Pre-con change estimate in {pickLink("Money", "Estimate", WHERE.estimates)}.
+            is a pre-con change estimate under {pickLink("Money", "Pre-con changes", WHERE.preconChanges)}.
           </>
         ),
     },
@@ -780,9 +789,8 @@ export default async function ProjectDetailPage({
       tab="Documents"
       focusSections={docFocusSections}
       sections={[
-        ...docTemplates.map((t) => ({
-          label: t.title,
-          node: (
+        ...docTemplates.map((t) => {
+          const panel = (
             <DocTypePanel
               slug={slug}
               templateKey={t.key}
@@ -790,8 +798,21 @@ export default async function ProjectDetailPage({
               drafts={docDrafts.filter((d) => d.template_key === t.key)}
               source={docSources[t.key]}
             />
-          ),
-        })),
+          );
+          // The Formal Estimate section IS the formal estimate: its line editor
+          // (preview, send for approval, contract generator) sits above the
+          // list of generated PDF copies.
+          const node =
+            t.key === "estimate_doc" && showEstimates ? (
+              <div className="space-y-8">
+                {formalEstimatePanel}
+                {panel}
+              </div>
+            ) : (
+              panel
+            );
+          return { label: t.title, node };
+        }),
         ...(leadPaperwork
           ? [
               {

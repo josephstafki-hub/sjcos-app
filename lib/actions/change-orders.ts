@@ -40,7 +40,7 @@ export async function createChangeOrder(slug: string, formData: FormData): Promi
   const priceCents = coDollarsToCents(String(formData.get("price") ?? ""));
 
   // Change orders start once the contract is signed; before that a client
-  // change is a pre-con change estimate in Money › Estimate
+  // change is a pre-con change estimate under Money › Pre-con changes
   // (docs/estimates-and-change-orders.md). The change_orders trigger refuses
   // it too — this is the plain-English version.
   const ctx = await getScopeChangeContext(slug);

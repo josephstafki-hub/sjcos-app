@@ -31,7 +31,8 @@ import pg from "pg";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const REPO = path.resolve(__dirname, "..", "..");
 const PG_BIN = process.env.PG_BIN ?? "/usr/lib/postgresql/16/bin";
-const STATE_FILE = path.join(tmpdir(), `sjc-testdb-${process.env.USER ?? "user"}.json`);
+// SJC_TEST_CLUSTER_TAG lets parallel workstreams keep separate clusters.
+const STATE_FILE = path.join(tmpdir(), `sjc-testdb-${process.env.USER ?? "user"}${process.env.SJC_TEST_CLUSTER_TAG ? `-${process.env.SJC_TEST_CLUSTER_TAG}` : ""}.json`);
 
 export class ProductionTargetError extends Error {}
 

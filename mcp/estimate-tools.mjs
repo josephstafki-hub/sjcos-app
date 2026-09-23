@@ -1,25 +1,26 @@
-// SJC OS MCP — estimates (Money › Estimate). Wired from sjcos-mcp.mjs:
+// SJC OS MCP — estimates. Wired from sjcos-mcp.mjs:
 //
 //   import { pricingAndPaperwork, registerEstimateTools } from "./estimate-tools.mjs";
 //   registerEstimateTools(server, { rows, json, pool, strippedDollarError });
 //
 // The rule these tools carry (docs/estimates-and-change-orders.md):
-//   • The formal estimate IS the estimate in Money › Estimate (kind 'formal').
-//     To add or change its lines, add_estimate_lines on that estimate.
-//   • Documents › Formal Estimate is only the PDF generated from it
+//   • The formal estimate lives under Documents › Formal Estimate (kind
+//     'formal'). To add or change its lines, add_estimate_lines on it; the
+//     client's PDF is generated from those lines
 //     (create_document_draft { template_key: 'estimate_doc', estimate_id }).
-//   • A client addition or change BEFORE the contract is signed is a new
-//     estimate with kind 'precon_change'; AFTER it is a change order. No tool
-//     here (or anywhere in this server) creates a change order — the client
-//     portal lists every non-draft change order (mcp/financials-tools.mjs).
+//   • Money › Pre-con changes holds client additions or changes priced BEFORE
+//     the contract is signed (kind 'precon_change'). AFTER the contract a
+//     client change is a change order. No tool here (or anywhere in this
+//     server) creates a change order — the client portal lists every non-draft
+//     change order (mcp/financials-tools.mjs).
 // The database decides which path a job is on (project_scope_change_path())
 // and refuses the wrong row by trigger; these tools check first so the agent
 // gets a plain-English answer instead of a constraint error.
 //
 // Nothing here sends or approves anything: sending an estimate for the
-// client's approval stays Joe's click in Money › Estimate. Runtime: plain Node
-// ESM importing the pure TypeScript lib directly (Node 22 strips types), same
-// as financials-tools.mjs. MONEY IS INTEGER CENTS.
+// client's approval stays Joe's click in the app. Runtime: plain Node ESM
+// importing the pure TypeScript lib directly (Node 22 strips types), same as
+// financials-tools.mjs. MONEY IS INTEGER CENTS.
 
 import { z } from "zod";
 import {
@@ -27,6 +28,7 @@ import {
   ESTIMATE_KIND_LABEL,
   PRICING_RULE,
   WHERE,
+  estimateLivesIn,
   preconChangeRefusal,
   scopeChangeContext,
 } from "../lib/estimate-kinds.ts";
@@ -51,7 +53,7 @@ function renderedFrom(templateKey) {
   switch (templateKey) {
     case "estimate_doc":
     case "contract":
-      return `an estimate in ${WHERE.estimates} (estimate_id)`;
+      return `an estimate's lines (estimate_id) — the formal estimate lives under ${WHERE.formalEstimate}`;
     case "change_order":
       return `a change order in ${WHERE.changeOrders} (change_order_id)`;
     case "invoice_doc":
@@ -98,22 +100,24 @@ export async function pricingAndPaperwork(rows, projectId) {
     has_signed_contract: ctx?.hasSignedContract ?? false,
     scope_change_path: path,
     formal_estimate_id: formal ? Number(formal.id) : null,
+    formal_estimate_lives_in: WHERE.formalEstimate,
     to_add_lines_to_the_formal_estimate: formal
-      ? `add_estimate_lines { estimate_id: ${Number(formal.id)}, lines: [...] } — then regenerate its PDF under ${WHERE.formalEstimateDoc} if one exists.`
+      ? `add_estimate_lines { estimate_id: ${Number(formal.id)}, lines: [...] } — then regenerate its PDF (render_document_draft) if one exists under ${WHERE.formalEstimate}.`
       : `there is no formal estimate yet: create_estimate { project_slug, title } then add_estimate_lines.`,
     a_client_change_here_is:
       path === "change_order"
         ? `a CHANGE ORDER — draft it in ${WHERE.changeOrders} (no MCP tool creates one; ask Joe with ask_owner), ` +
           `then create_document_draft { template_key: 'change_order', change_order_id } for the paper.`
-        : `a NEW estimate with kind 'precon_change' — create_estimate { kind: 'precon_change' } then add_estimate_lines. ` +
-          `Joe sends it for the client's approval from ${WHERE.estimates}.`,
+        : `a new pre-con change estimate under ${WHERE.preconChanges} — create_estimate { kind: 'precon_change' } ` +
+          `then add_estimate_lines. Joe sends it for the client's approval from there.`,
     estimates: {
-      lives_in: WHERE.estimates,
+      lives_in: `formal: ${WHERE.formalEstimate}; precon_change: ${WHERE.preconChanges}`,
       items: estimates.map((e) => ({
         id: Number(e.id),
         title: e.title,
         kind: e.kind,
         kind_label: ESTIMATE_KIND_LABEL[e.kind] ?? e.kind,
+        lives_in: estimateLivesIn(e.kind),
         rail: e.rail,
         status: e.status,
         total_cents: e.total,
@@ -158,7 +162,7 @@ export function registerEstimateTools(server, { rows, json, pool, strippedDollar
   server.registerTool(
     "list_project_estimates",
     {
-      title: "List a job's estimates (Money › Estimate)",
+      title: "List a job's estimates",
       description:
         "Every estimate on a job with its lines (`formal_estimate_id` says which one is THE formal estimate), " +
         "plus the job's change orders and document drafts and which one a client change becomes right now " +
@@ -207,15 +211,15 @@ export function registerEstimateTools(server, { rows, json, pool, strippedDollar
   server.registerTool(
     "create_estimate",
     {
-      title: "Create a new estimate (Money › Estimate)",
+      title: "Create a new estimate",
       description:
-        `Create a NEW estimate on a job. kind 'formal' (default): ${ESTIMATE_KIND_HELP.formal} A job normally has ` +
-        `ONE formal estimate — to add to the existing one, use add_estimate_lines on ` +
-        `get_project → pricing_and_paperwork.formal_estimate_id instead of creating another. kind 'precon_change': ` +
-        `${ESTIMATE_KIND_HELP.precon_change} Refused on a job under contract — there a client change is a change ` +
-        `order (${WHERE.changeOrders}), which no tool creates. Then add_estimate_lines; the client's PDF is ` +
-        `create_document_draft { template_key: 'estimate_doc', estimate_id }. Nothing is sent. ` +
-        `Never insert into estimates/estimate_lines by hand.`,
+        `Create a NEW estimate on a job. kind 'formal' (default): ${ESTIMATE_KIND_HELP.formal} It shows under ` +
+        `${WHERE.formalEstimate}. A job normally has ONE formal estimate — to add to the existing one, use ` +
+        `add_estimate_lines on get_project → pricing_and_paperwork.formal_estimate_id instead of creating another. ` +
+        `kind 'precon_change': ${ESTIMATE_KIND_HELP.precon_change} It shows under ${WHERE.preconChanges}; refused on ` +
+        `a job under contract — there a client change is a change order (${WHERE.changeOrders}), which no tool ` +
+        `creates. Then add_estimate_lines; the client's PDF is create_document_draft { template_key: ` +
+        `'estimate_doc', estimate_id }. Nothing is sent. Never insert into estimates/estimate_lines by hand.`,
       inputSchema: {
         project_slug: z.string(),
         title: z.string(),
@@ -252,7 +256,7 @@ export function registerEstimateTools(server, { rows, json, pool, strippedDollar
           kind,
           kind_label: ESTIMATE_KIND_LABEL[kind],
           status: "draft",
-          lives_in: WHERE.estimates,
+          lives_in: estimateLivesIn(kind),
           ...(existing.length
             ? {
                 note:
@@ -283,7 +287,7 @@ export function registerEstimateTools(server, { rows, json, pool, strippedDollar
         "INTEGER CENTS; markup_pct (default: the cost book's default markup). extended = qty × unit_cost × " +
         "(1 + markup/100); the estimate's totals are recomputed. Works on any status — if the estimate was already " +
         "sent or approved the client saw the old total, so say so to Joe; and regenerate its Formal Estimate PDF " +
-        "under Documents if one exists.",
+        "if one exists.",
       inputSchema: {
         estimate_id: z.number().int(),
         lines: z
@@ -364,6 +368,7 @@ export function registerEstimateTools(server, { rows, json, pool, strippedDollar
           estimate_id: Number(est.id),
           title: est.title,
           kind: est.kind,
+          lives_in: estimateLivesIn(est.kind),
           status: est.status,
           added,
           totals,
@@ -371,7 +376,7 @@ export function registerEstimateTools(server, { rows, json, pool, strippedDollar
             ? { note: `This estimate is ${est.status} — the client saw the previous total. Tell Joe the total changed.` }
             : {}),
           ...(docs?.n
-            ? { note_documents: `${docs.n} Formal Estimate PDF(s) exist under ${WHERE.formalEstimateDoc} — regenerate (render_document_draft) so the paper matches.` }
+            ? { note_documents: `${docs.n} Formal Estimate PDF(s) exist under ${WHERE.formalEstimate} — regenerate (render_document_draft) so the paper matches.` }
             : {}),
         });
       } catch (err) {

@@ -59,7 +59,7 @@ test("the database decides the path and refuses the wrong record", { skip: !url 
     const onSite = await mk("zz-kind-site", "construction");
     await refused(
       () => run(`INSERT INTO change_orders (project_id, title, price_cents) VALUES ($1, 'Add lighting', 250000)`, [precon]),
-      /pre-construction \(selections\)[\s\S]*Money › Estimate/,
+      /pre-construction \(selections\)[\s\S]*Money › Pre-con changes/,
     );
     assert.equal((await run(`SELECT count(*)::int AS n FROM change_orders WHERE project_id = $1`, [precon]))[0].n, 0);
     const [co] = await run(`INSERT INTO change_orders (project_id, title, price_cents) VALUES ($1, 'Add lighting', 250000) RETURNING id`, [onSite]);

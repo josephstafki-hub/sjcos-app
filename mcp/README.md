@@ -163,17 +163,17 @@ Where things go (Joe, 2026-09-23; full rule in
 `docs/estimates-and-change-orders.md`, enforced by database triggers for every
 writer — app, MCP, or a one-off script):
 
-- **The formal estimate is the estimate in Money › Estimate** (`kind: "formal"`).
+- **The formal estimate lives under Documents › Formal Estimate** (`kind: "formal"`).
   Add lines to it with `add_estimate_lines`; its id is
-  `get_project → pricing_and_paperwork.formal_estimate_id`. Don't create a
-  second formal estimate when one exists.
-- **Documents › Formal Estimate is only the PDF of that estimate**
-  (`create_document_draft { template_key: "estimate_doc", estimate_id }`).
-  Regenerate it after the lines change.
-- **Client addition or change before the contract is signed** → a new estimate
-  with `kind: "precon_change"`. **After** the contract is signed → a change order
-  (Money › Change orders). The DB refuses a change order in pre-construction and
-  a pre-con change once under contract.
+  `get_project → pricing_and_paperwork.formal_estimate_id`. The client's PDF is
+  generated from those lines (`create_document_draft { template_key:
+  "estimate_doc", estimate_id }`); regenerate it after the lines change. Don't
+  create a second formal estimate when one exists.
+- **Money › Pre-con changes** holds client additions or changes priced before
+  the contract is signed: a new estimate with `kind: "precon_change"`. **After**
+  the contract is signed → a change order (Money › Change orders). The DB
+  refuses a change order in pre-construction and a pre-con change once under
+  contract.
 
 `get_project` returns `pricing_and_paperwork`: the job's estimates (with
 `formal_estimate_id`), change orders and document drafts tagged with where they
@@ -190,8 +190,8 @@ says what a client change becomes on this job **right now**.
 lists the job's candidates when you omit it: `estimate_doc` and `contract` need
 `estimate_id`, `change_order` needs `change_order_id`, `invoice_doc` needs
 `invoice_id`. Nothing here sends: Joe sends an estimate for the client's
-approval from Money › Estimate. **Still no tool creates a change order** —
-draft one in the app or ask Joe with `ask_owner`.
+approval from the app. **Still no tool creates a change order** — draft one in
+the app or ask Joe with `ask_owner`.
 
 ## Project financials tools (job costing)
 

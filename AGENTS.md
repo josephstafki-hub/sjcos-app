@@ -23,16 +23,17 @@ Client-facing sends (emails, bid packages, POs, invoices, documents for signatur
 
 Rule from Joe (2026-09-23); full text in `docs/estimates-and-change-orders.md`.
 
-- **The formal estimate is the estimate in Money › Estimate** (`kind = formal`).
+- **The formal estimate lives under Documents › Formal Estimate** (`kind = formal`).
   To add or change its lines, call `add_estimate_lines` on it — the id is
-  `get_project → pricing_and_paperwork.formal_estimate_id`. Don't create a
-  second formal estimate when one exists. Never insert these rows by script.
-- **Documents › Formal Estimate is only the PDF of that estimate**:
-  `create_document_draft { template_key: "estimate_doc", estimate_id }`.
-  Regenerate it after the lines change. `contract` needs `estimate_id` too;
-  `change_order` needs `change_order_id`; `invoice_doc` needs `invoice_id`.
-- **Client asks for an addition or change before the contract is signed** → a
-  new estimate with `kind = precon_change` (`create_estimate`), not a change order.
+  `get_project → pricing_and_paperwork.formal_estimate_id`. The client's PDF is
+  generated from those lines (`create_document_draft { template_key:
+  "estimate_doc", estimate_id }`); regenerate it after the lines change. Don't
+  create a second formal estimate when one exists. Never insert these rows by
+  script. `contract` needs `estimate_id` too; `change_order` needs
+  `change_order_id`; `invoice_doc` needs `invoice_id`.
+- **Money › Pre-con changes** holds client additions or changes priced
+  **before the contract is signed**: a new estimate with `kind = precon_change`
+  (`create_estimate`), not a change order.
 - **After the contract is signed** → a change order (Money › Change orders).
   Never in pre-construction; the table refuses the row. No MCP tool creates a
   change order — draft it in the app or ask Joe with `ask_owner`.

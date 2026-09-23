@@ -3315,7 +3315,7 @@ BEGIN
   RAISE EXCEPTION USING ERRCODE = 'check_violation',
     MESSAGE = format(
       'Change orders start once the contract is signed. This job is still in pre-construction (%s): '
-      'price the client''s addition or change as a pre-con change estimate in Money › Estimate instead.',
+      'price the client''s addition or change as a pre-con change estimate under Money › Pre-con changes instead.',
       coalesce(s, 'unknown status'));
 END
 $$ LANGUAGE plpgsql;

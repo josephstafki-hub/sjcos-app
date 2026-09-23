@@ -22,8 +22,8 @@ function StatusIcon({ status }: { status: CoStatus }) {
  *
  *  A change order is a change to a SIGNED contract. Until the job is under
  *  contract (`phase.path !== "change_order"`) the "New" button gives way to a
- *  pointer at Money › Estimate, where a client addition or change is priced as
- *  a pre-con change estimate — docs/estimates-and-change-orders.md. */
+ *  pointer at Money › Pre-con changes, where a client addition or change is
+ *  priced as a pre-con change estimate — docs/estimates-and-change-orders.md. */
 export function ChangeOrders({ slug, orders, phase }: { slug: string; orders: ChangeOrderView[]; phase: ScopeChangeContext }) {
   const router = useRouter();
   const canCreate = phase.path === "change_order";
@@ -116,10 +116,10 @@ export function ChangeOrders({ slug, orders, phase }: { slug: string; orders: Ch
             Pre-construction · {phase.statusLabel}
           </div>
           <div className="mt-1 text-[12px] text-ink-2">
-            Change orders start once the contract is signed. Until then a client addition or change is priced as a{" "}
-            <span className="font-semibold">Pre-con change</span> estimate in{" "}
-            <TabLink tab="Money" section="Estimate" className="font-semibold text-accent-2 underline-offset-2 hover:underline">
-              {WHERE.estimates}
+            Change orders start once the contract is signed. Until then a client addition or change is priced as a
+            pre-con change estimate under{" "}
+            <TabLink tab="Money" section="Pre-con changes" className="font-semibold text-accent-2 underline-offset-2 hover:underline">
+              {WHERE.preconChanges}
             </TabLink>
             .
           </div>

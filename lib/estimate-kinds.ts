@@ -84,33 +84,42 @@ export function scopeChangeContext(status: ProjectStatus, hasSignedContract: boo
 
 // ─── Copy — quoted verbatim everywhere so an agent can find the spot ────────
 
-/** Tab › section names exactly as the project page shows them. */
+/** Tab › section names exactly as the project page shows them. The formal
+ *  estimate (its lines, preview and send-for-approval) is edited under
+ *  Documents › Formal Estimate; the Money tab's estimate section holds only
+ *  pre-con changes. */
 export const WHERE = {
-  estimates: "Money › Estimate",
+  formalEstimate: "Documents › Formal Estimate",
+  preconChanges: "Money › Pre-con changes",
   changeOrders: "Money › Change orders",
-  formalEstimateDoc: "Documents › Formal Estimate",
   changeOrderDoc: "Documents › Change Order",
 } as const;
 
-export const PRICING_RULE =
-  `The formal estimate is the estimate in ${WHERE.estimates} (kind 'formal'): add or change its lines there ` +
-  `(add_estimate_lines). ${WHERE.formalEstimateDoc} is only the PDF generated from it ` +
-  `(create_document_draft estimate_doc + estimate_id) — regenerate it after the lines change. A client addition ` +
-  `or change BEFORE the contract is signed is a new estimate with kind 'precon_change'; AFTER the contract is ` +
-  `signed it is a change order (${WHERE.changeOrders}). Full rule: docs/estimates-and-change-orders.md.`;
+/** Where an estimate of this kind is shown in the app. */
+export function estimateLivesIn(kind: EstimateKind): string {
+  return kind === "formal" ? WHERE.formalEstimate : WHERE.preconChanges;
+}
 
-/** The phase banner on the Money tab. */
+export const PRICING_RULE =
+  `The formal estimate lives under ${WHERE.formalEstimate}: add or change its lines with add_estimate_lines ` +
+  `(id = get_project → pricing_and_paperwork.formal_estimate_id); the client's PDF is generated from those lines ` +
+  `(create_document_draft estimate_doc + estimate_id) — regenerate it after the lines change. ` +
+  `${WHERE.preconChanges} holds client additions or changes priced BEFORE the contract is signed: a new estimate ` +
+  `with kind 'precon_change' (create_estimate). AFTER the contract is signed a client change is a change order ` +
+  `(${WHERE.changeOrders}). Full rule: docs/estimates-and-change-orders.md.`;
+
+/** The phase banner on Money › Pre-con changes. */
 export function describeScopeChangePath(ctx: ScopeChangeContext): { headline: string; detail: string } {
   if (ctx.path === "change_order") {
     return {
       headline: `Under contract · ${ctx.statusLabel}`,
-      detail: `Client additions or changes are change orders now (${WHERE.changeOrders}).`,
+      detail: `Client changes are change orders now (${WHERE.changeOrders}); nothing new is priced here.`,
     };
   }
   return {
     headline: `Pre-construction · ${ctx.statusLabel}`,
     detail:
-      "A client addition or change is a new estimate here with kind Pre-con change. " +
+      "A client addition or change is a new pre-con change estimate here. " +
       "Change orders start once the contract is signed.",
   };
 }
@@ -119,8 +128,8 @@ export function describeScopeChangePath(ctx: ScopeChangeContext): { headline: st
 export function changeOrderRefusal(ctx: ScopeChangeContext): string {
   return (
     `Change orders start once the contract is signed. This job is still in pre-construction ` +
-    `(${ctx.statusLabel}): price the client's addition or change as a Pre-con change estimate in ` +
-    `${WHERE.estimates} instead.`
+    `(${ctx.statusLabel}): price the client's addition or change as a pre-con change estimate in ` +
+    `${WHERE.preconChanges} instead.`
   );
 }
 
@@ -128,6 +137,6 @@ export function changeOrderRefusal(ctx: ScopeChangeContext): string {
 export function preconChangeRefusal(ctx: ScopeChangeContext): string {
   return (
     `This job is under contract (${ctx.statusLabel}): a client addition or change is a change order ` +
-    `(${WHERE.changeOrders}), not a Pre-con change estimate.`
+    `(${WHERE.changeOrders}), not a pre-con change estimate.`
   );
 }

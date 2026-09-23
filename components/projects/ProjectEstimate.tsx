@@ -9,14 +9,7 @@ import type { CostItem } from "@/lib/cost-book";
 import type { FloorplanVersion } from "@/lib/floorplans";
 import type { ApprovalGateBase } from "@/lib/approval-gate-types";
 import type { EstimateDetail, EstimateLineView, EstimateStatus } from "@/lib/estimates";
-import {
-  ESTIMATE_KIND_HELP,
-  ESTIMATE_KIND_LABEL,
-  WHERE,
-  describeScopeChangePath,
-  type EstimateKind,
-  type ScopeChangeContext,
-} from "@/lib/estimate-kinds";
+import { ESTIMATE_KIND_HELP, WHERE, describeScopeChangePath, type EstimateKind, type ScopeChangeContext } from "@/lib/estimate-kinds";
 import { createEstimate, deleteEstimate, deleteEstimateLine, suggestEstimate, sendEstimate, mergeEstimates } from "@/lib/actions/estimates";
 import { runAction } from "@/lib/run-action";
 import { EstimateLineModal } from "./EstimateLineModal";
@@ -35,18 +28,17 @@ const STATUS_KIND: Record<EstimateStatus, "ghost" | "accent" | "money" | "flag">
   approved: "money",
   declined: "flag",
 };
-const KIND_KIND: Record<EstimateKind, "info" | "ai"> = {
-  formal: "info",
-  precon_change: "ai",
-};
 
-/** Money tab · "Estimate" section. The formal estimate lives here (kind
- *  'formal'); the Formal Estimate PDF in the Documents tab is generated from it
- *  (the live preview below the generator IS that PDF). kind 'precon_change' = a
- *  client addition or change priced before the contract is signed — after the
- *  contract it is a change order instead. docs/estimates-and-change-orders.md */
+/** The estimate editor, mounted twice on the project page — once per kind:
+ *  kind 'formal' under Documents › Formal Estimate (the job's formal estimate;
+ *  the Formal Estimate PDF the client gets is generated from its lines, and
+ *  the live preview below the generator IS that PDF) and kind 'precon_change'
+ *  under Money › Pre-con changes (client additions or changes priced before
+ *  the contract is signed — after the contract they are change orders). Each
+ *  mount lists only its own kind. docs/estimates-and-change-orders.md */
 export function ProjectEstimate({
   slug,
+  kind,
   estimates,
   costItems,
   defaultMarkup,
@@ -55,6 +47,7 @@ export function ProjectEstimate({
   phase,
 }: {
   slug: string;
+  kind: EstimateKind;
   estimates: EstimateDetail[];
   costItems: CostItem[];
   defaultMarkup: number;
@@ -63,15 +56,13 @@ export function ProjectEstimate({
   phase: ScopeChangeContext;
 }) {
   const router = useRouter();
-  const banner = describeScopeChangePath(phase);
-  const preconChangesAllowed = phase.path === "precon_estimate";
-  // Once the formal estimate exists on a pre-construction job, the next estimate
-  // is most likely a client change — default the picker that way.
-  const defaultKind: EstimateKind =
-    preconChangesAllowed && estimates.some((e) => e.kind === "formal") ? "precon_change" : "formal";
-  const formalSheets = estimates.filter((e) => e.kind === "formal");
-  const changeSheets = estimates.filter((e) => e.kind === "precon_change");
   const [, startTransition] = useTransition();
+  const isFormal = kind === "formal";
+  const mine = estimates.filter((e) => e.kind === kind);
+  const banner = describeScopeChangePath(phase);
+  // A pre-con change can only be created before the contract is signed.
+  const canCreate = isFormal || phase.path === "precon_estimate";
+  const noun = isFormal ? "formal estimate" : "pre-con change";
   // null = the list view (every estimate as a row); an id = that estimate's
   // generator is open. Mirrors DocTypePanel — you land on the list and click
   // Edit to open one, then close back to the list.
@@ -87,12 +78,12 @@ export function ProjectEstimate({
   const [suggesting, setSuggesting] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
 
-  const selected = editingId != null ? estimates.find((e) => e.id === editingId) ?? null : null;
+  const selected = editingId != null ? mine.find((e) => e.id === editingId) ?? null : null;
 
   function create(form: HTMLFormElement) {
     const fd = new FormData(form);
     startTransition(async () => {
-      const res = await runAction(() => createEstimate(slug, fd), { fallback: "Couldn't create the estimate." });
+      const res = await runAction(() => createEstimate(slug, fd), { fallback: `Couldn't create the ${noun}.` });
       if (res.ok && res.id) {
         setEditingId(res.id);
         setShowNew(false);
@@ -137,9 +128,9 @@ export function ProjectEstimate({
   }
 
   function removeEstimate(id: number) {
-    if (!confirm("Delete this estimate and all its lines?")) return;
+    if (!confirm(`Delete this ${noun} and all its lines?`)) return;
     startTransition(async () => {
-      await runAction(() => deleteEstimate(slug, id), { fallback: "Couldn't delete the estimate." });
+      await runAction(() => deleteEstimate(slug, id), { fallback: `Couldn't delete the ${noun}.` });
       setEditingId(null);
       router.refresh();
     });
@@ -156,7 +147,7 @@ export function ProjectEstimate({
     if (!selected) return;
     setSendError(null);
     startTransition(async () => {
-      const res = await runAction(() => sendEstimate(slug, selected.id), { fallback: "Couldn't send the estimate." });
+      const res = await runAction(() => sendEstimate(slug, selected.id), { fallback: `Couldn't send the ${noun}.` });
       if (res.ok) router.refresh();
       else setSendError(res.error);
     });
@@ -173,6 +164,7 @@ export function ProjectEstimate({
   }
 
   const inputCls = "rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent";
+  const linkCls = "font-semibold text-accent-2 underline-offset-2 hover:underline";
 
   // Group the selected estimate's lines by section.
   const sections: { name: string; lines: EstimateLineView[] }[] = [];
@@ -187,19 +179,18 @@ export function ProjectEstimate({
 
   return (
     <div className="max-w-[860px] space-y-4">
-      {/* ── List view: every estimate as a row; Edit opens the generator ── */}
+      {/* ── List view: every estimate of this kind as a row; Edit opens the generator ── */}
       {!selected && (
       <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="font-serif text-[17px] font-semibold text-ink">Estimates</h3>
+          <h3 className="font-serif text-[17px] font-semibold text-ink">{isFormal ? "Formal estimate" : "Pre-con changes"}</h3>
           <div className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
-            {estimates.length} estimate{estimates.length === 1 ? "" : "s"}
-            {changeSheets.length > 0 && ` · ${changeSheets.length} pre-con change${changeSheets.length === 1 ? "" : "s"}`}
+            {mine.length} {isFormal ? "estimate" : "change"}{mine.length === 1 ? "" : "s"}
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {estimates.length >= 2 && (
+          {isFormal && mine.length >= 2 && (
             <button
               onClick={() => {
                 setShowMerge((v) => !v);
@@ -214,39 +205,47 @@ export function ProjectEstimate({
               <GitMerge className="size-3" strokeWidth={1.75} /> Merge
             </button>
           )}
-          <button
-            onClick={() => { setShowNew((v) => !v); setShowMerge(false); }}
-            className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
-          >
-            <Plus className="size-3" strokeWidth={2} /> New estimate
-          </button>
+          {canCreate && (
+            <button
+              onClick={() => { setShowNew((v) => !v); setShowMerge(false); }}
+              className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
+            >
+              <Plus className="size-3" strokeWidth={2} /> New {noun}
+            </button>
+          )}
         </div>
       </div>
 
       {/* Where things go — the same sentence the agents are told. */}
-      <Card className={`p-3.5 ${preconChangesAllowed ? "border-accent/40 bg-accent-soft" : "border-rule bg-paper-2"}`}>
-        <div className={`font-mono text-[10px] uppercase tracking-[0.12em] ${preconChangesAllowed ? "text-accent-2" : "text-ink-3"}`}>
-          {banner.headline}
-        </div>
-        <div className="mt-1 text-[12px] text-ink-2">
-          The formal estimate lives here; the client&rsquo;s PDF in{" "}
-          <TabLink tab="Documents" section="Formal Estimate" className="font-semibold text-accent-2 underline-offset-2 hover:underline">
-            {WHERE.formalEstimateDoc}
-          </TabLink>{" "}
-          is generated from it.{" "}
-          {preconChangesAllowed ? (
-            banner.detail
-          ) : (
-            <>
-              Client additions or changes are change orders now (
-              <TabLink tab="Money" section="Change orders" className="font-semibold text-accent-2 underline-offset-2 hover:underline">
-                {WHERE.changeOrders}
-              </TabLink>
-              ).
-            </>
-          )}
-        </div>
-      </Card>
+      {isFormal ? (
+        <Card className="border-rule bg-paper-2 p-3.5 text-[12px] text-ink-2">
+          {ESTIMATE_KIND_HELP.formal} The Formal Estimate PDF the client gets is generated from its lines; the
+          documents list below holds the copies. Client additions or changes before the contract is signed go under{" "}
+          <TabLink tab="Money" section="Pre-con changes" className={linkCls}>
+            {WHERE.preconChanges}
+          </TabLink>
+          .
+        </Card>
+      ) : (
+        <Card className={`p-3.5 ${canCreate ? "border-accent/40 bg-accent-soft" : "border-rule bg-paper-2"}`}>
+          <div className={`font-mono text-[10px] uppercase tracking-[0.12em] ${canCreate ? "text-accent-2" : "text-ink-3"}`}>
+            {banner.headline}
+          </div>
+          <div className="mt-1 text-[12px] text-ink-2">
+            {canCreate ? (
+              banner.detail
+            ) : (
+              <>
+                Client changes are change orders now (
+                <TabLink tab="Money" section="Change orders" className={linkCls}>
+                  {WHERE.changeOrders}
+                </TabLink>
+                ); nothing new is priced here.
+              </>
+            )}
+          </div>
+        </Card>
+      )}
 
       {showMerge && (
         <Card className="p-3.5">
@@ -259,7 +258,7 @@ export function ProjectEstimate({
           </div>
           <form onSubmit={(e) => { e.preventDefault(); runMerge(e.currentTarget); }}>
             <div className="space-y-1.5">
-              {estimates.map((e) => (
+              {mine.map((e) => (
                 <label
                   key={e.id}
                   className={`flex cursor-pointer items-center gap-2.5 rounded-md border px-2.5 py-1.5 ${
@@ -296,29 +295,21 @@ export function ProjectEstimate({
         </Card>
       )}
 
-      {showNew && (
+      {showNew && canCreate && (
         <Card className="p-3.5">
           <form
             onSubmit={(e) => { e.preventDefault(); create(e.currentTarget); }}
             className="flex flex-wrap items-end gap-3"
           >
+            <input type="hidden" name="kind" value={kind} />
             <label className="flex flex-1 flex-col gap-1">
               <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Title</span>
-              <input name="title" required placeholder="Henderson kitchen — base bid" className={inputCls} />
-            </label>
-            <label className="flex w-[190px] flex-col gap-1">
-              <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Kind</span>
-              <select name="kind" defaultValue={defaultKind} className={inputCls} title={ESTIMATE_KIND_HELP[defaultKind]}>
-                <option value="formal" title={ESTIMATE_KIND_HELP.formal}>{ESTIMATE_KIND_LABEL.formal}</option>
-                <option
-                  value="precon_change"
-                  disabled={!preconChangesAllowed}
-                  title={preconChangesAllowed ? ESTIMATE_KIND_HELP.precon_change : `Under contract — use ${WHERE.changeOrders}`}
-                >
-                  {ESTIMATE_KIND_LABEL.precon_change}
-                  {preconChangesAllowed ? " · client addition/change" : " · use a change order"}
-                </option>
-              </select>
+              <input
+                name="title"
+                required
+                placeholder={isFormal ? "Henderson kitchen — formal estimate" : "Add pantry cabinets"}
+                className={inputCls}
+              />
             </label>
             <label className="flex w-[170px] flex-col gap-1">
               <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Rail</span>
@@ -334,70 +325,57 @@ export function ProjectEstimate({
         </Card>
       )}
 
-      {estimates.length === 0 ? (
+      {mine.length === 0 ? (
         <Card kind="dashed" className="p-10 text-center">
           <FileSpreadsheet className="mx-auto size-5 text-ink-3" strokeWidth={1.5} />
-          <div className="mt-2 font-serif text-[16px] font-semibold text-ink-2">No estimate yet</div>
+          <div className="mt-2 font-serif text-[16px] font-semibold text-ink-2">
+            {isFormal ? "No formal estimate yet" : "No pre-con changes"}
+          </div>
           <div className="mt-1 text-[12px] text-ink-3">
-            Create the formal estimate and add lines from your cost book. The Formal Estimate PDF in Documents is
-            generated from it.
+            {isFormal
+              ? "Create it, then add lines from your cost book. The client's PDF is generated from those lines."
+              : canCreate
+                ? "When the client asks for an addition or change before the contract is signed, price it here."
+                : "Client changes are change orders now."}
           </div>
         </Card>
       ) : (
-        <div className="space-y-4">
-          {[
-            { kind: "formal" as EstimateKind, items: formalSheets },
-            { kind: "precon_change" as EstimateKind, items: changeSheets },
-          ]
-            .filter((g) => g.items.length > 0)
-            .map((g) => (
-              <div key={g.kind} className="space-y-2.5">
-                {changeSheets.length > 0 && (
-                  <div className="flex items-baseline gap-2">
-                    <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
-                      {g.kind === "formal" ? "Formal estimate" : "Pre-con changes"}
-                    </span>
-                    <span className="text-[11px] text-ink-3">{ESTIMATE_KIND_HELP[g.kind]}</span>
+        <div className="space-y-2.5">
+          {mine.map((e) => (
+            <Card key={e.id} className="p-3.5">
+              <div className="flex items-start gap-3">
+                <FileSpreadsheet className="mt-0.5 size-3.5 flex-none text-ink-3" strokeWidth={1.75} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="truncate font-serif text-[15px] font-semibold text-ink">{e.title}</span>
+                    <Chip kind="ghost">{RAIL_LABEL[e.rail]}</Chip>
+                    <Chip kind={STATUS_KIND[e.status]}>{e.status}</Chip>
                   </div>
-                )}
-                {g.items.map((e) => (
-                  <Card key={e.id} className="p-3.5">
-                    <div className="flex items-start gap-3">
-                      <FileSpreadsheet className="mt-0.5 size-3.5 flex-none text-ink-3" strokeWidth={1.75} />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="truncate font-serif text-[15px] font-semibold text-ink">{e.title}</span>
-                          <Chip kind={KIND_KIND[e.kind]}>{ESTIMATE_KIND_LABEL[e.kind]}</Chip>
-                          <Chip kind="ghost">{RAIL_LABEL[e.rail]}</Chip>
-                          <Chip kind={STATUS_KIND[e.status]}>{e.status}</Chip>
-                        </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-3 text-[11px] text-ink-3">
-                          <span>Created {e.createdAtLabel}</span>
-                          <span className="font-mono text-ink-2">{fmtUsd(e.total)}</span>
-                          <span>{e.lines.length} line{e.lines.length === 1 ? "" : "s"}</span>
-                        </div>
-                      </div>
-                      <div className="flex flex-none items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => { setEditingId(e.id); setSuggestion(null); }}
-                          className="rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink-3 hover:bg-paper-2"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeEstimate(e.id)}
-                          className="rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink-3 hover:bg-paper-2 hover:text-flag"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  </Card>
-                ))}
+                  <div className="mt-1 flex flex-wrap items-center gap-3 text-[11px] text-ink-3">
+                    <span>Created {e.createdAtLabel}</span>
+                    <span className="font-mono text-ink-2">{fmtUsd(e.total)}</span>
+                    <span>{e.lines.length} line{e.lines.length === 1 ? "" : "s"}</span>
+                  </div>
+                </div>
+                <div className="flex flex-none items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => { setEditingId(e.id); setSuggestion(null); }}
+                    className="rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink-3 hover:bg-paper-2"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeEstimate(e.id)}
+                    className="rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink-3 hover:bg-paper-2 hover:text-flag"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
-            ))}
+            </Card>
+          ))}
         </div>
       )}
       </div>
@@ -411,7 +389,7 @@ export function ProjectEstimate({
             onClick={() => setEditingId(null)}
             className="inline-flex items-center gap-1 text-[12px] font-semibold text-ink-3 hover:text-ink"
           >
-            <ChevronLeft className="size-3.5" strokeWidth={2} /> All estimates
+            <ChevronLeft className="size-3.5" strokeWidth={2} /> {isFormal ? "All formal estimates" : "All pre-con changes"}
           </button>
 
           {/* Header + totals */}
@@ -420,13 +398,10 @@ export function ProjectEstimate({
               <div>
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="font-serif text-[18px] font-semibold text-ink">{selected.title}</h3>
-                  <Chip kind={KIND_KIND[selected.kind]}>{ESTIMATE_KIND_LABEL[selected.kind]}</Chip>
                   <Chip kind="ghost">{RAIL_LABEL[selected.rail]}</Chip>
                   <Chip kind={STATUS_KIND[selected.status]}>{selected.status}</Chip>
                 </div>
-                <div className="mt-0.5 text-[11px] text-ink-3">
-                  Created {selected.createdAtLabel} · {ESTIMATE_KIND_HELP[selected.kind]}
-                </div>
+                <div className="mt-0.5 text-[11px] text-ink-3">Created {selected.createdAtLabel}</div>
               </div>
               <div className="text-right">
                 <div className="font-mono text-[22px] font-semibold text-accent-2">{fmtUsd(selected.total)}</div>
@@ -476,7 +451,7 @@ export function ProjectEstimate({
                 onClick={() => removeEstimate(selected.id)}
                 className="rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink-3 hover:bg-paper-2"
               >
-                Delete estimate
+                Delete {noun}
               </button>
             </div>
             {sendError && <div className="mt-2 text-[12px] text-flag">{sendError}</div>}
@@ -559,11 +534,9 @@ export function ProjectEstimate({
                   Preview · what the client will see
                 </span>
                 <span className="text-[11px] text-ink-3">
-                  The Formal Estimate PDF, generated live from this estimate. To keep a copy on file, make it under{" "}
-                  <TabLink tab="Documents" section="Formal Estimate" className="font-semibold text-accent-2 underline-offset-2 hover:underline">
-                    {WHERE.formalEstimateDoc}
-                  </TabLink>{" "}
-                  from estimate #{selected.id}.
+                  {isFormal
+                    ? "Generated live from these lines. To keep a copy on file, create one in the documents list below."
+                    : "The PDF the client gets for this change, generated live from these lines."}
                 </span>
               </div>
               <iframe
@@ -575,7 +548,7 @@ export function ProjectEstimate({
             </div>
           )}
 
-          {selected.lines.length > 0 && (
+          {isFormal && selected.lines.length > 0 && (
             <ContractGenerator
               slug={slug}
               estimateId={selected.id}

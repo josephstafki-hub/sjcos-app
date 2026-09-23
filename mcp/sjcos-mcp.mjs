@@ -450,11 +450,12 @@ server.registerTool(
     title: "Get project",
     description:
       "Full detail for one project by slug: the row, invoices, subs, a money summary, and " +
-      "`pricing_and_paperwork` — the job's estimates (Money › Estimate; `formal_estimate_id` is THE formal " +
-      "estimate, add lines to it with add_estimate_lines), change orders and document drafts, each tagged with " +
-      "where it lives, plus `scope_change_path`: whether a client change on this job is a pre-con change " +
-      "estimate or a change order right now. Read that block before filing an estimate, a Formal Estimate " +
-      "document, or a change order (docs/estimates-and-change-orders.md).",
+      "`pricing_and_paperwork` — the job's estimates (`formal_estimate_id` is THE formal estimate, which lives " +
+      "under Documents › Formal Estimate; add lines to it with add_estimate_lines; pre-con changes live under " +
+      "Money › Pre-con changes), change orders and document drafts, each tagged with where it lives, plus " +
+      "`scope_change_path`: whether a client change on this job is a pre-con change estimate or a change order " +
+      "right now. Read that block before filing an estimate, a Formal Estimate document, or a change order " +
+      "(docs/estimates-and-change-orders.md).",
     inputSchema: { slug: z.string() },
   },
   async ({ slug }) => {
@@ -1506,12 +1507,12 @@ server.registerTool(
       "fill report, and the list of fields still missing. Does NOT send anything. " +
       "A document is only the PDF of a record that holds the numbers, so the " +
       "source is REQUIRED and must belong to the job: 'estimate_doc' (Formal " +
-      "Estimate) and 'contract' need estimate_id — the estimate in Money › Estimate " +
+      "Estimate) and 'contract' need estimate_id — the formal estimate " +
       "(get_project → pricing_and_paperwork.formal_estimate_id, or " +
       "list_project_estimates; create one with create_estimate + add_estimate_lines " +
       "if there is none); 'change_order' needs change_order_id (a change order " +
       "exists only once the contract is signed — before that a client change is a " +
-      "pre-con change estimate, not a document here); 'invoice_doc' needs " +
+      "pre-con change estimate under Money › Pre-con changes, not a document here); 'invoice_doc' needs " +
       "invoice_id. Without the source you get an error listing the job's candidates. " +
       "Rule: docs/estimates-and-change-orders.md.",
     inputSchema: {
@@ -2511,12 +2512,12 @@ server.registerTool(
   // moved out of draft, and billing is never switched. See mcp/financials-tools.mjs.
   registerFinancialsTools(server, { rows, json, pool, strippedDollarError });
 
-  // Estimates (Money › Estimate): list / create / add lines. Carries the
-  // where-things-go rule (docs/estimates-and-change-orders.md): the formal
-  // estimate IS the estimate there and the Formal Estimate document is only
-  // its PDF; a client change is a pre-con change estimate before the contract
-  // is signed and a change order after — the DB decides and refuses the wrong
-  // row by trigger. Nothing here sends; still no tool creates a change order.
+  // Estimates: list / create / add lines. Carries the where-things-go rule
+  // (docs/estimates-and-change-orders.md): the formal estimate lives under
+  // Documents › Formal Estimate and its document is only the PDF of its lines;
+  // Money › Pre-con changes holds client changes before the contract is
+  // signed, change orders after — the DB decides and refuses the wrong row by
+  // trigger. Nothing here sends; still no tool creates a change order.
   registerEstimateTools(server, { rows, json, pool, strippedDollarError });
 
   // Bidding lives in its own module too: stage + award. Sending a package is

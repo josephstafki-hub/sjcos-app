@@ -434,7 +434,41 @@ function handleEvent(evt) {
       }
     }
   }
+  if (evt?.type === "system") onSystemEvent(evt);
   if (evt?.type === "result") resultEvent = evt;
+}
+
+/** Auto-compaction is the CLI's (it summarizes the session when the context
+ *  window nears full — verified live 2026-09-23). It can take a minute or
+ *  more near a 1M window, and the stream is otherwise silent while it runs,
+ *  so surface its status events as activity lines: the panel would otherwise
+ *  look idle. compact_boundary also carries the post-compaction size, which
+ *  resets the context meter straight away instead of on the next reply. */
+function onSystemEvent(evt) {
+  const k = (n) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
+  if (evt.subtype === "status") {
+    if (evt.status === "compacting") {
+      pushActivity(
+        contextTokens ? `Compacting context (${k(contextTokens)} tokens) — this can take a minute…` : "Compacting context — this can take a minute…",
+      );
+    } else if (evt.compact_result === "failed") {
+      // A failed pass isn't fatal — the CLI retries or continues as-is.
+      pushActivity(`Compaction pass didn't apply${evt.compact_error ? ` (${evt.compact_error})` : ""} — continuing`);
+    }
+    return;
+  }
+  if (evt.subtype === "compact_boundary") {
+    const m = evt.compact_metadata;
+    const pre = typeof m?.pre_tokens === "number" ? m.pre_tokens : null;
+    const post = typeof m?.post_tokens === "number" ? m.post_tokens : null;
+    if (post != null) {
+      contextTokens = post;
+      activityDirty = true;
+    }
+    pushActivity(
+      pre != null && post != null ? `Context compacted: ${k(pre)} → ${k(post)} tokens` : "Context compacted",
+    );
+  }
 }
 
 let resultEvent = null;

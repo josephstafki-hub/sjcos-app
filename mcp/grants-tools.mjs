@@ -37,7 +37,7 @@ const GATED = [
   "place_call",
 ];
 
-export function registerGrantTools(server, { json, grantsCall }) {
+export function registerGrantTools(server, { json, grantsCall, rows }) {
   const fail = (e) => ({ content: [{ type: "text", text: `Error: ${e.message}` }], isError: true });
   const uuid = z.string().uuid().describe("The owner_grant_id Joe gave you (or that check_owner_permission showed approved).");
 
@@ -53,13 +53,35 @@ export function registerGrantTools(server, { json, grantsCall }) {
     return process.env.SJCOS_AGENT_NAME || "agent";
   };
 
+  const performRaw = (gated_action, payload) =>
+    grantsCall("perform", { gated_action, agent: agentName(), ...payload });
   const perform = async (gated_action, payload) => {
     try {
-      const r = await grantsCall("perform", { gated_action, agent: agentName(), ...payload });
-      return json(r);
+      return json(await performRaw(gated_action, payload));
     } catch (e) {
       return fail(e);
     }
+  };
+
+  // Joe's Approve click on a work item sends its staged To:/Subject: draft
+  // itself and files an 'email' receipt on the item (lib/approved-draft-send.ts).
+  // An agent that then "completes" the item with send_email double-sends —
+  // this happened 2026-09-23. So: any 'email' receipt newer than the item's
+  // newest 'draft' receipt means the email is already out.
+  const emailedSinceDraft = async (workItemId) => {
+    if (!rows) return null;
+    const r = await rows(
+      `SELECT e.label, to_char(e.created_at AT TIME ZONE 'America/Chicago', 'Mon FMDD, FMHH12:MIam') AS at
+         FROM agent_receipts e
+        WHERE e.work_item_id = $1 AND e.receipt_kind = 'email'
+          AND e.created_at > COALESCE(
+                (SELECT max(d.created_at) FROM agent_receipts d
+                  WHERE d.work_item_id = $1 AND d.receipt_kind = 'draft'),
+                '-infinity'::timestamptz)
+        ORDER BY e.created_at DESC LIMIT 1`,
+      [workItemId],
+    );
+    return r[0] ?? null;
   };
 
   // ── asking / checking ──────────────────────────────────────────────────────
@@ -218,16 +240,54 @@ export function registerGrantTools(server, { json, grantsCall }) {
       description:
         "Send a one-off plain-text email from the business Gmail. REQUIRES owner_grant_id; a grant " +
         "may be limited to one recipient address. Use for the specific email Joe asked you to send — " +
-        "quote his wording where he gave it. Signs as Joe / SJ Carpentry only if the body does.",
+        "quote his wording where he gave it. Signs as Joe / SJ Carpentry only if the body does. " +
+        "If the email completes a work item, pass work_item_id: Joe's Approve click on a work item " +
+        "ALREADY sends its staged To:/Subject: draft, so this tool refuses when that item has an " +
+        "'email' receipt newer than its staged draft, and files an 'email' receipt on the item when " +
+        "it does send. Never send a draft you staged with submit_draft_for_approval.",
       inputSchema: {
         to: z.string().email(),
         subject: z.string().max(200),
         body: z.string().min(1).max(20000).describe("Plain text."),
         owner_grant_id: uuid,
+        work_item_id: z
+          .string()
+          .uuid()
+          .optional()
+          .describe(
+            "The work item this email completes, if any. Refused when the app already emailed that " +
+              "item's staged draft on Approve; otherwise the send is receipted on the item.",
+          ),
       },
     },
-    async ({ to, subject, body, owner_grant_id }) =>
-      perform("send_email", { grant_id: owner_grant_id, email: { to, subject, body } }),
+    async ({ to, subject, body, owner_grant_id, work_item_id }) => {
+      try {
+        if (work_item_id) {
+          const prior = await emailedSinceDraft(work_item_id);
+          if (prior) {
+            return json({
+              ok: false,
+              already_sent: true,
+              error:
+                `Work item ${work_item_id} was already emailed by app Approve at ${prior.at} ` +
+                `(${prior.label || "email receipt on the item"}); not sending again. Joe's Approve click ` +
+                `sends the staged draft itself — mark the item done instead of resending.`,
+            });
+          }
+        }
+        const r = await performRaw("send_email", { grant_id: owner_grant_id, email: { to, subject, body } });
+        if (r?.ok && work_item_id && rows) {
+          await rows(
+            `INSERT INTO agent_receipts (work_item_id, receipt_kind, label)
+             VALUES ($1, 'email', $2)`,
+            [work_item_id, `Emailed ${to} via send_email — ${subject}`.slice(0, 300)],
+          );
+        }
+        return json(r);
+      } catch (e) {
+        return fail(e);
+      }
+    },
   );
 
   // ── SMS + voice (Telnyx). Same line: no grant, nothing transmits. ────────

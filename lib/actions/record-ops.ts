@@ -9,11 +9,11 @@
 import { createHash } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { captureAgentMemory } from "@/lib/agent-memory";
-import { reopenApprovalAfterFailedSend, sendApprovedClientDraft } from "@/lib/approved-draft-send";
+import { finishApproval } from "@/lib/approve-work-item";
+import type { ApproveResult } from "@/lib/approved-draft-rules";
 import { query } from "@/lib/db";
 import { requireAccess } from "@/lib/dal";
 import { WORK_STATUSES } from "@/lib/engine-constants";
-import { notifyAgentOwner } from "@/lib/dev-agents";
 import { maybeAdvanceRunbook } from "@/lib/runbook-engine";
 import type { WorkItemStatus } from "@/lib/types";
 import type { RecordKind } from "@/lib/record-ops";
@@ -66,7 +66,9 @@ export async function setRecordWorkItemStatus(
   return { ok: true };
 }
 
-export async function approveRecordWorkItem(id: string, kind: RecordKind, slug: string): Promise<Result> {
+/** Approve from a lead/project page. Same contract as approveWorkItem: the
+ *  result says whether the staged draft was emailed (`sent`) or not (`notice`). */
+export async function approveRecordWorkItem(id: string, kind: RecordKind, slug: string): Promise<ApproveResult> {
   await requireAccess("today");
   const { rows } = await query<{ title: string; body: string; assignee_key: string | null }>(
     `UPDATE work_items
@@ -78,20 +80,9 @@ export async function approveRecordWorkItem(id: string, kind: RecordKind, slug: 
   if (!rows[0]) return { ok: false, error: "Work item not found." };
   const { title, body, assignee_key } = rows[0];
   await writeReceipt("approval", `Approved: ${title}`, id);
-  // If the staged draft is an email to this lead, the approval sends it —
-  // otherwise the assignee agent gets pinged to complete the item as before.
-  const send = await sendApprovedClientDraft(id);
-  if (send.outcome === "failed") {
-    await reopenApprovalAfterFailedSend(id, send.error);
-    revalidateRecord(kind, slug);
-    return { ok: false, error: `Approved, but the email did not send: ${send.error}` };
-  }
-  if (send.outcome !== "sent") {
-    await notifyAgentOwner(id, assignee_key, title, body, `${kind} ${slug}`);
-  }
-  await maybeAdvanceRunbook(id); // W6: a done-but-unapproved step advances on approval
+  const result = await finishApproval({ id, assigneeKey: assignee_key, title, body, context: `${kind} ${slug}` });
   revalidateRecord(kind, slug);
-  return { ok: true };
+  return result;
 }
 
 export async function rejectRecordWorkItem(id: string, kind: RecordKind, slug: string): Promise<Result> {

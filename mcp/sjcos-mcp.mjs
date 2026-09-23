@@ -1357,10 +1357,14 @@ server.registerTool(
   {
     title: "Submit a draft for owner approval",
     description:
-      "For a chat-lane item that turns out to need a client-facing step. NEVER " +
-      "sends anything — sets the work item to approval_needed / requested, saves " +
-      "the draft as a knowledge item, and logs a receipt. Joe reviews + sends " +
-      "from the app.",
+      "For a chat-lane item that turns out to need a client-facing step. This tool " +
+      "NEVER sends anything — it sets the work item to approval_needed / requested, " +
+      "saves the draft as a knowledge item, and logs a receipt. Joe reviews it in " +
+      "the app. If the draft starts with To:/Subject: lines matching the lead/project " +
+      "email, Joe's Approve click WILL send it. Do not call send_email afterward. " +
+      "For a client email, ALWAYS start the draft with \"To: <their email>\" and " +
+      "\"Subject: …\" lines, a blank line, then the body — a draft with no To: line " +
+      "is NOT emailed on approval (Joe just sees 'Nothing was emailed').",
     inputSchema: {
       work_item_id: z.string(),
       draft: z.string(),
@@ -1382,9 +1386,11 @@ server.registerTool(
       [draft, kind, item[0].project_id, item[0].lead_id, fp],
     );
     const knowledgeId = k[0]?.id ?? null;
+    // A fresh draft supersedes any earlier "Approved. Nothing was emailed" notice.
     await rows(
       `UPDATE work_items
-          SET status = 'approval_needed', approval_status = 'requested', updated_at = now()
+          SET status = 'approval_needed', approval_status = 'requested',
+              blocked_reason = NULL, updated_at = now()
         WHERE id = $1`,
       [work_item_id],
     );
@@ -1393,6 +1399,9 @@ server.registerTool(
        VALUES ($1,'draft',$2,$3)`,
       [work_item_id, knowledgeId ? `knowledge_items/${knowledgeId}` : null, `draft ready for approval (${kind})`],
     );
+    // Tell the agent up front whether Approve will email this. Advisory only —
+    // lib/approved-draft-rules.ts is the rule the app actually applies.
+    const approveWillSend = await approveWouldEmail(draft, item[0].lead_id, item[0].project_id);
     // W3: immediate "draft ready — approve it" push so the request never sits
     // invisible until the 4h stale nudge. This handler is the single writer of
     // approval_status='requested', so the notify lives here and nowhere else;
@@ -1400,9 +1409,64 @@ server.registerTool(
     notifyOwnerCall("approval_needed", { work_item_id, title: item[0].title });
     // W6: keep a runbook instance's status honest (→ waiting_approval).
     if (item[0].runbook_instance_id) await runbooksCall("advance", { work_item_id });
-    return json({ ok: true, knowledge_id: knowledgeId });
+    return json({
+      ok: true,
+      knowledge_id: knowledgeId,
+      approve_will_send: approveWillSend.willSend,
+      note:
+        "If the draft starts with To:/Subject: matching the lead/project email, Joe's Approve " +
+        "click WILL send it. Do not call send_email afterward. " + approveWillSend.note,
+    });
   },
 );
+
+/** Mirror of parseEmailDraft + the recipient rule in lib/approved-draft-rules.ts,
+ *  reduced to "will Joe's Approve click email this draft?" so the agent hears
+ *  about a missing To: line or a wrong address while it can still fix it. */
+async function approveWouldEmail(draft, leadId, projectId) {
+  const lines = String(draft ?? "").trimStart().split(/\r?\n/);
+  let to = null;
+  for (const line of lines) {
+    if (!line.trim()) break;
+    const m = line.match(/^(To|Subject|From|Cc):\s*(.*)$/i);
+    if (!m) break;
+    if (m[1].toLowerCase() === "to") {
+      const angled = m[2].match(/<([^>]+)>/);
+      to = (angled ? angled[1] : m[2]).trim().toLowerCase();
+    }
+  }
+  if (!to) {
+    return {
+      willSend: false,
+      note: "This draft has NO To: line, so Approve will not email it. If it is a client email, resubmit it starting with To:/Subject: lines.",
+    };
+  }
+  let email = null;
+  let kind = null;
+  if (leadId) {
+    kind = "lead";
+    const r = await rows(`SELECT email FROM leads WHERE id = $1`, [leadId]);
+    email = r[0]?.email ?? null;
+  } else if (projectId) {
+    kind = "project";
+    const r = await rows(
+      `SELECT NULLIF(COALESCE(NULLIF(p.client_email, ''), l.email), '') AS email
+         FROM projects p LEFT JOIN leads l ON l.id = p.lead_id WHERE p.id = $1`,
+      [projectId],
+    );
+    email = r[0]?.email ?? null;
+  } else {
+    return { willSend: false, note: "The work item has no lead or project, so Approve will not email this draft." };
+  }
+  email = (email ?? "").trim().toLowerCase();
+  if (!email || email !== to) {
+    return {
+      willSend: false,
+      note: `Draft is addressed to ${to} but the ${kind}'s email on file is ${email || "missing"} — Approve will refuse and reopen the item until they match.`,
+    };
+  }
+  return { willSend: true, note: `Approve will email ${to}.` };
+}
 
 // ─── Document templates (doc-templates plan) ───────────────────────────────
 // Create / fill / render AI-fillable business documents (contract, precon, lien
@@ -2439,7 +2503,7 @@ server.registerTool(
   // Owner-granted sends + the request/check/list tools around them. These are
   // the only tools that can reach a real inbox, and each one needs an owner
   // grant id for its exact target. See mcp/grants-tools.mjs.
-  registerGrantTools(server, { json, grantsCall });
+  registerGrantTools(server, { json, grantsCall, rows });
 
   // SMS threads + phone calls, READ ONLY here (texting and dialing are the
   // granted send_sms / place_call tools above). See mcp/comms-tools.mjs.

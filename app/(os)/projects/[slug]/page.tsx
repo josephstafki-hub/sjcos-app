@@ -40,8 +40,10 @@ import { DocTypePanel, type DocSourcePicker } from "@/components/projects/DocTyp
 import { ESTIMATE_KIND_LABEL, WHERE } from "@/lib/estimate-kinds";
 import { fmtUsd } from "@/lib/cost-book-units";
 import { InPersonSignList } from "@/components/esign/InPersonSignList";
-import { getProjectSignatureRequests } from "@/lib/esign";
+import { getProjectSignatureRequests, getLeadSignatureRequests } from "@/lib/esign";
 import { listDocDrafts, listDocTemplates } from "@/lib/doc-drafts";
+import { LeadPaperwork } from "@/components/projects/LeadPaperwork";
+import { getLeadPaperworkForProject } from "@/lib/leads";
 import { ChangeOrders } from "@/components/projects/ChangeOrders";
 import { PurchaseOrders } from "@/components/projects/PurchaseOrders";
 import { getProjectPurchaseOrders } from "@/lib/purchase-orders";
@@ -184,6 +186,18 @@ export default async function ProjectDetailPage({
   ]);
   const docTemplates = listDocTemplates().filter((t) => t.scope !== "lead");
   if (!project || !scopeChange) notFound();
+
+  // Paperwork inherited from the lead stage (rough estimate, pre-con agreement,
+  // lead-scoped signature requests). Those rows stay keyed by lead_slug after
+  // conversion, so the project fetches them by the origin lead's slug —
+  // Documents › From the lead. Null when the job didn't come from a lead.
+  const leadPaperwork = await getLeadPaperworkForProject(slug);
+  const [leadDocDrafts, leadSignatureRequests] = leadPaperwork
+    ? await Promise.all([
+        listDocDrafts({ leadSlug: leadPaperwork.leadSlug }),
+        getLeadSignatureRequests(leadPaperwork.leadSlug),
+      ])
+    : [[], []];
 
   // Client portal tab: invite/access, the ledger of what the client has done,
   // their uploads, and what's currently published to them.
@@ -747,9 +761,20 @@ export default async function ProjectDetailPage({
       empty: <>No invoice yet. {pickLink("Money", "Invoices", "Create one in Money › Invoices")} first.</>,
     },
   };
+  // What the job carried over from its lead stage — rough estimate, pre-con
+  // agreement, anything else drafted on the lead. Read-only here; the section
+  // links back to the lead page for edits. Only when the job came from a lead.
+  const LEAD_SECTION = "From the lead";
+  for (const d of leadDocDrafts) {
+    docFocusSections[`draft-${d.id}`] = LEAD_SECTION;
+    if (d.signature_request_id) docFocusSections[`signature-${d.signature_request_id}`] = LEAD_SECTION;
+  }
+  const leadPaperworkCount = leadDocDrafts.filter((d) => d.status !== "void").length + (leadPaperwork?.roughEstimate ? 1 : 0);
   // Last section: sign on this device. Anything awaiting a signature — template
-  // drafts, estimates, change orders, lien waivers — opens on /sign/<id>.
-  const awaitingSignature = signatureRequests.filter((r) => r.status === "sent").length;
+  // drafts, estimates, change orders, lien waivers, and the lead-stage pre-con
+  // or rough estimate — opens on /sign/<id>.
+  const allSignatureRequests = [...signatureRequests, ...leadSignatureRequests];
+  const awaitingSignature = allSignatureRequests.filter((r) => r.status === "sent").length;
   const documentsTab = (
     <PanelSections
       tab="Documents"
@@ -767,9 +792,17 @@ export default async function ProjectDetailPage({
             />
           ),
         })),
+        ...(leadPaperwork
+          ? [
+              {
+                label: `${LEAD_SECTION}${leadPaperworkCount ? ` · ${leadPaperworkCount}` : ""}`,
+                node: <LeadPaperwork paperwork={leadPaperwork} drafts={leadDocDrafts} />,
+              },
+            ]
+          : []),
         {
           label: `Sign in person${awaitingSignature ? ` · ${awaitingSignature}` : ""}`,
-          node: <InPersonSignList requests={signatureRequests} />,
+          node: <InPersonSignList requests={allSignatureRequests} />,
         },
       ]}
     />

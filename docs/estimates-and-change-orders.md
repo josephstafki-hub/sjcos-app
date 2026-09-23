@@ -24,7 +24,11 @@
 4. **After the contract is signed** → a change order (Money › Change orders,
    with its PDF under Documents › Change Order). Never in pre-construction.
 5. Lead phase: the rough estimate on the lead page (`lead_estimates`). Not a
-   project estimate.
+   project estimate. Once the lead converts, it and every lead-stage document
+   (pre-con agreement, lead formal-estimate PDF) stay visible read-only on the
+   project under Documents › From the lead, which links back to the lead page
+   for edits. Lead signature requests also show in the project's Sign in person
+   list.
 
 ## Which phase a job is in: `project_scope_change_path(project_id)`
 

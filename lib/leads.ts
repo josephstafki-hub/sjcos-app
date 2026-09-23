@@ -435,3 +435,60 @@ export async function getLeadsData(): Promise<LeadsData> {
     leads,
   };
 }
+
+// ─── Lead paperwork, seen from the project it became ─────────────────────────
+
+export interface LeadPaperwork {
+  /** The origin lead (projects.lead_id). */
+  leadSlug: string;
+  leadName: string;
+  /** The Phase 1 rough estimate drafted on the lead page; null if never drafted. */
+  roughEstimate: {
+    status: "draft" | "sent";
+    sentLabel: string;
+    lines: { label: string; value: string }[];
+    total: string;
+  } | null;
+}
+
+/** The lead-stage paperwork a project inherits: which lead it came from and the
+ *  rough estimate drafted there. Documents (pre-con agreement, formal estimate
+ *  PDFs) and signature requests stay keyed by lead_slug — the project page
+ *  fetches those with listDocDrafts / getLeadSignatureRequests using leadSlug.
+ *  Returns null when the project has no origin lead. */
+export async function getLeadPaperworkForProject(projectSlug: string): Promise<LeadPaperwork | null> {
+  const { rows } = await query<{
+    lead_slug: string;
+    lead_name: string;
+    line_items: { label: string; value: string }[] | null;
+    total: string | null;
+    status: "draft" | "sent" | null;
+    sent_age: number | null;
+  }>(
+    `SELECT l.slug AS lead_slug, l.name AS lead_name,
+            e.line_items, e.total, e.status,
+            CASE WHEN e.sent_at IS NULL THEN NULL
+                 ELSE EXTRACT(EPOCH FROM (now() - e.sent_at))::int END AS sent_age
+       FROM projects p
+       JOIN leads l ON l.id = p.lead_id
+       LEFT JOIN lead_estimates e ON e.lead_id = l.id
+      WHERE p.slug = $1
+      LIMIT 1`,
+    [projectSlug],
+  );
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    leadSlug: r.lead_slug,
+    leadName: r.lead_name,
+    roughEstimate: r.status
+      ? {
+          status: r.status,
+          sentLabel:
+            r.status === "sent" ? `Sent ${r.sent_age != null ? relativeAge(r.sent_age) : ""}`.trim() : "Draft",
+          lines: (r.line_items ?? []).map((l) => ({ ...l, value: formatMoneyish(l.value) })),
+          total: formatMoneyish(r.total ?? ""),
+        }
+      : null,
+  };
+}

@@ -27,6 +27,8 @@ import "server-only";
 // the timer runs unattended.
 
 import { query, queryOne } from "./db";
+import type { Run } from "./commands/core";
+import { readCheckpoint, advanceCheckpoint } from "./obligations/catchup";
 import { gmailConfigured, fetchThreadMetadata, gmailCallsSoFar } from "./gmail";
 import { cancelLeadNurture } from "./newsletter-drip";
 
@@ -84,10 +86,22 @@ const WATERMARK_OVERLAP_MS = 10 * 60 * 1000;
  *  timer was off for days and a 150-thread cap would miss things anyway. */
 const WATERMARK_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
 
+// A01: the checkpoint lives in mailbox_checkpoints (lib/obligations/catchup.ts)
+// so the inbox scan, the needs-reply detector and this sync can share one
+// cursor discipline. The legacy app_settings stamp is still written for the
+// comms health check and read once as a fallback when no checkpoint exists.
+const CHECKPOINT_MAILBOX = "primary";
+const CHECKPOINT_SCOPE = "lead-thread-sync";
+const run: Run = async <T = Record<string, unknown>>(sql: string, params?: unknown[]) => (await query<never>(sql, params as never[])).rows as T[];
+
 async function readWatermark(): Promise<number | null> {
   try {
-    const r = await queryOne<{ value: string }>(`SELECT value FROM app_settings WHERE key = $1`, [WATERMARK_KEY]);
-    const t = r?.value ? Date.parse(r.value) : NaN;
+    const cp = await readCheckpoint(run, CHECKPOINT_MAILBOX, CHECKPOINT_SCOPE);
+    let t = cp?.watermark_at ? Date.parse(cp.watermark_at) : NaN;
+    if (!Number.isFinite(t)) {
+      const r = await queryOne<{ value: string }>(`SELECT value FROM app_settings WHERE key = $1`, [WATERMARK_KEY]);
+      t = r?.value ? Date.parse(r.value) : NaN;
+    }
     if (!Number.isFinite(t)) return null;
     if (Date.now() - t > WATERMARK_MAX_AGE_MS) return null;
     return t;
@@ -96,7 +110,8 @@ async function readWatermark(): Promise<number | null> {
   }
 }
 
-async function writeWatermark(atMs: number): Promise<void> {
+async function writeWatermark(atMs: number, stats: Record<string, unknown> = {}): Promise<void> {
+  await advanceCheckpoint(run, CHECKPOINT_MAILBOX, CHECKPOINT_SCOPE, { watermarkAt: new Date(atMs), stats });
   await query(
     `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, now())
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
@@ -209,7 +224,7 @@ export async function syncLeadThreads(
   // thrown quota error leaves it where it was so the next run re-covers the
   // window. Stamped with the run's START so anything that arrived mid-run is
   // inside the next window.
-  if (!dryRun) await writeWatermark(startedAt);
+  if (!dryRun) await writeWatermark(startedAt, { scanned: threads.length, matched: matchedThreads, changes: changes.length });
 
   return finish({
     configured: true,

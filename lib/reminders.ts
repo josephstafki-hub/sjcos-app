@@ -11,6 +11,8 @@ import "server-only";
 // warranty/A-R features land, add their scans here.
 
 import { query } from "./db";
+import type { Run } from "./commands/core";
+import { flagUnseenForReview } from "./obligations/work-items";
 import { emit } from "./notify";
 
 const COMPLIANCE_WINDOWS = [60, 30]; // ≤14d handled on feed-read
@@ -36,11 +38,12 @@ export interface ReminderRun {
   warranty: number;
   insurance: number;
   ar: number;
-  /** Inbox-cron email work_items auto-cancelled after 14 untouched days. */
-  inboxAgedOut: number;
-  /** Items past the age-out window but held because they have agent run/receipt
-   *  history — those are never cancelled automatically. */
-  inboxAgeOutHeld: number;
+  /** Inbox-cron email work_items not seen by the scan for 14+ days and flagged
+   *  for review THIS run (waiting_on_human, 'not seen in scan; review'). Never
+   *  cancelled: absence from a scan is not proof of resolution (A01). */
+  inboxFlaggedForReview: number;
+  /** Items already carrying the review flag and still open — for the owner's count. */
+  inboxAwaitingReview: number;
 }
 
 export async function runReminders(): Promise<ReminderRun> {
@@ -50,8 +53,8 @@ export async function runReminders(): Promise<ReminderRun> {
     warranty: 0,
     insurance: 0,
     ar: 0,
-    inboxAgedOut: 0,
-    inboxAgeOutHeld: 0,
+    inboxFlaggedForReview: 0,
+    inboxAwaitingReview: 0,
   };
 
   // ── Compliance items: 60 / 30-day heads-up (unresolved, future-dated) ──
@@ -227,39 +230,26 @@ export async function runReminders(): Promise<ReminderRun> {
     }
   }
 
-  // ── Inbox work-item age-out ──
+  // ── Inbox work-item scan-absence review (A01) ──
   // The inbox sweep (scripts/upsert-inbox-work-items.mjs) only stamps
-  // last_seen_in_scan_at; it never cancels. This is the sole terminator for
-  // inbox-cron items: cancel ones that have dropped out of the scan for 14+
-  // days AND haven't been touched — but never anything an agent has recorded
-  // runs/receipts against (those are counted as held for the owner instead).
-  const aged = await query(
-    `UPDATE work_items wi
-        SET status = 'cancelled',
-            blocked_reason = 'Aged out: not seen in inbox scan for 14+ days and untouched',
-            updated_at = now()
-      WHERE wi.source_kind = 'email'
-        AND wi.created_by = 'inbox-cron'
-        AND wi.status NOT IN ('done','cancelled')
-        AND wi.last_seen_in_scan_at < now() - interval '14 days'
-        AND wi.updated_at < now() - interval '14 days'
-        AND NOT EXISTS (SELECT 1 FROM agent_runs ar WHERE ar.work_item_id = wi.id)
-        AND NOT EXISTS (SELECT 1 FROM agent_receipts rr WHERE rr.work_item_id = wi.id)`,
-  );
-  out.inboxAgedOut = aged.rowCount ?? 0;
+  // last_seen_in_scan_at; it never cancels — and neither does this. An item
+  // that has dropped out of the scan for 14+ days and sat untouched is flagged
+  // ONCE for the owner (waiting_on_human, blocked_reason 'not seen in scan;
+  // review') via flagUnseenForReview; it is never auto-cancelled, because a
+  // thread leaving the inbox proves nothing about the business obligation.
+  const run: Run = async <T = Record<string, unknown>>(sql: string, params?: unknown[]) => (await query<never>(sql, params as never[])).rows as T[];
+  const flagged = await flagUnseenForReview(run, { sourceKind: "email", createdBy: "inbox-cron", days: 14 });
+  out.inboxFlaggedForReview = flagged.length;
 
-  const held = await query<{ n: number }>(
+  const awaiting = await query<{ n: number }>(
     `SELECT count(*)::int AS n
        FROM work_items wi
       WHERE wi.source_kind = 'email'
         AND wi.created_by = 'inbox-cron'
         AND wi.status NOT IN ('done','cancelled')
-        AND wi.last_seen_in_scan_at < now() - interval '14 days'
-        AND wi.updated_at < now() - interval '14 days'
-        AND (EXISTS (SELECT 1 FROM agent_runs ar WHERE ar.work_item_id = wi.id)
-          OR EXISTS (SELECT 1 FROM agent_receipts rr WHERE rr.work_item_id = wi.id))`,
+        AND wi.scan_review_flagged_at IS NOT NULL`,
   );
-  out.inboxAgeOutHeld = held.rows[0]?.n ?? 0;
+  out.inboxAwaitingReview = awaiting.rows[0]?.n ?? 0;
 
   return out;
 }

@@ -1,188 +1,48 @@
 import "server-only";
 
-// W6 runbook stepper. A runbook_instance is one live walk through a runbook
-// (runbooks/runbook_steps stay the definitions — see lib/skills.ts) against
-// one lead or project. The engine spawns exactly ONE work item per step:
+// W6 runbook stepper — v2 (A02). A runbook_instance is one live walk through a
+// runbook against one lead or project. The engine spawns exactly ONE work
+// item per step. The transactional core lives in lib/completion/runbook-core.ts
+// (pure, harness-tested); this file binds it to the pool and delivers the
+// wakeups after commit:
 //
-//   startRunbook()          → creates the instance + spawns step 1
-//   maybeAdvanceRunbook()   → called from EVERY work-item completion path
-//                             (owner UI actions, orchestrator executors, and —
-//                             via app/api/internal/runbooks — the MCP server);
-//                             no-op unless the item carries a
-//                             runbook_instance_id
-//   advanceRunbookInstance()→ judges the current step's work item: done (+
-//                             approved when the step requires it) spawns the
-//                             next step or completes the instance; a cancelled
-//                             step cancels the instance with a note; otherwise
-//                             it just refreshes the instance's waiting status.
+//   startRunbook()           → ONE transaction: instance + pinned definition
+//                              version + step-1 work item + wakeup row
+//   maybeAdvanceRunbook()    → called from EVERY work-item completion path
+//                              (owner UI actions, orchestrator executors, and
+//                              — via app/api/internal/runbooks — the MCP
+//                              server); no-op unless the item carries a
+//                              runbook_instance_id
+//   advanceRunbookInstance() → ONE transaction: lock instance, validate the
+//                              pinned definition + predecessor evidence,
+//                              insert the uniquely keyed successor, update
+//                              progress, record the wakeup
+//   drainRunbookWakeups()    → AFTER commit: ping the agent / push Joe from
+//                              the runbook_wakeups outbox (retried by polling)
+//   repairRunbookInstances() → bounded, logged, dry-runnable missing-step repair
 //
-// Agent steps get an immediate ping (pingAgentWorkItem — same machinery as
-// approval pings, retry sweep + the agent's scheduled pass as fallback); human
-// steps push Joe via notifyOwner (W3). Advancing is idempotent: the
-// current_step compare-and-set means only one caller ever spawns a given step.
+// Editing a runbook's steps never changes a live instance (it reads its
+// pinned version). A legacy instance with no pinned version or a missing
+// definition goes to repair_state 'needs_review' — never to a false 'done'.
 
-import { query, queryOne } from "@/lib/db";
+import { query } from "@/lib/db";
+import { withTransaction } from "@/lib/commands/db";
 import { pingAgentWorkItem } from "@/lib/dev-agents";
 import { notifyOwner } from "@/lib/notify-owner";
+import {
+  advanceRunbookTx,
+  cancelRunbookInstanceTx,
+  claimWakeups,
+  finishWakeup,
+  repairRunbookInstancesTx,
+  startRunbookTx,
+  type AdvanceOutcome,
+  type RepairReport,
+  type RunbookInstanceStatus,
+  type StartRunbookResult,
+} from "@/lib/completion/runbook-core";
 
-export type RunbookInstanceStatus =
-  | "running"
-  | "waiting_approval"
-  | "waiting_human"
-  | "done"
-  | "cancelled";
-
-interface StepDef {
-  stepOrder: number;
-  title: string;
-  skillSlug: string | null;
-  expectedOutput: string;
-  requiresApproval: boolean;
-  assignedTo: "agent" | "human";
-}
-
-interface RunbookDef {
-  id: string;
-  slug: string;
-  title: string;
-  active: boolean;
-  steps: StepDef[];
-}
-
-interface Target {
-  kind: "lead" | "project";
-  id: string;
-  slug: string;
-  name: string;
-}
-
-async function loadRunbookDef(slug: string): Promise<RunbookDef | null> {
-  // No `active` filter: deactivating a runbook mid-run must not strand a live
-  // instance — startRunbook checks `active` itself.
-  const rb = await queryOne<{ id: string; slug: string; title: string; active: boolean }>(
-    `SELECT id, slug, title, active FROM runbooks WHERE slug = $1`,
-    [slug],
-  );
-  if (!rb) return null;
-  const { rows } = await query<{
-    step_order: number;
-    title: string;
-    skill_slug: string | null;
-    expected_output: string;
-    requires_human_approval: boolean;
-    assigned_to: string;
-  }>(
-    `SELECT step_order, title, skill_slug, expected_output, requires_human_approval, assigned_to
-       FROM runbook_steps WHERE runbook_id = $1 ORDER BY step_order`,
-    [rb.id],
-  );
-  return {
-    id: rb.id,
-    slug: rb.slug,
-    title: rb.title,
-    active: rb.active,
-    steps: rows.map((s) => ({
-      stepOrder: s.step_order,
-      title: s.title,
-      skillSlug: s.skill_slug,
-      expectedOutput: s.expected_output,
-      requiresApproval: s.requires_human_approval,
-      assignedTo: s.assigned_to === "human" ? "human" : "agent",
-    })),
-  };
-}
-
-async function loadTarget(leadId: string | null, projectId: string | null): Promise<Target | null> {
-  if (leadId) {
-    const l = await queryOne<{ slug: string; name: string }>(`SELECT slug, name FROM leads WHERE id = $1`, [leadId]);
-    return l ? { kind: "lead", id: leadId, slug: l.slug, name: l.name } : null;
-  }
-  if (projectId) {
-    const p = await queryOne<{ slug: string; name: string }>(`SELECT slug, name FROM projects WHERE id = $1`, [
-      projectId,
-    ]);
-    return p ? { kind: "project", id: projectId, slug: p.slug, name: p.name } : null;
-  }
-  return null;
-}
-
-function targetHref(t: Target): string {
-  return `/${t.kind === "lead" ? "leads" : "projects"}/${t.slug}`;
-}
-
-/** Create the ONE work item for a step, point the instance at it, and nudge
- *  whoever owns it. The nudges are best-effort — a failed ping must never
- *  error the spawn; the step just waits for the agent's next scheduled pass
- *  (or Joe finding it on /engine). */
-async function spawnStep(instanceId: string, rb: RunbookDef, step: StepDef, target: Target): Promise<string> {
-  const isAgent = step.assignedTo === "agent";
-  const title = `${rb.title} · step ${step.stepOrder}: ${step.title}`;
-  const body = [
-    `Runbook "${rb.title}" (${rb.slug}) — step ${step.stepOrder} of ${rb.steps.length}: ${step.title}`,
-    `Target: ${target.kind} ${target.name} (${targetHref(target)})`,
-    step.expectedOutput ? `Expected output:\n${step.expectedOutput}` : null,
-    `Mark this work item done when the step's output exists — the runbook engine spawns the next step automatically.`,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-
-  const wi = await queryOne<{ id: string }>(
-    `INSERT INTO work_items
-       (title, body, priority, assignee_kind, assignee_key, lead_id, project_id,
-        expected_skill_slug, expected_runbook_slug, requires_approval,
-        source_kind, created_by, runbook_instance_id, runbook_step_order)
-     VALUES ($1, $2, 'normal', $3, $4, $5, $6, $7, $8, $9, 'schedule', 'runbook-engine', $10, $11)
-     RETURNING id`,
-    [
-      title,
-      body,
-      isAgent ? "agent" : "human",
-      isAgent ? "hermes-telegram" : "human-joe",
-      target.kind === "lead" ? target.id : null,
-      target.kind === "project" ? target.id : null,
-      step.skillSlug,
-      rb.slug,
-      step.requiresApproval,
-      instanceId,
-      step.stepOrder,
-    ],
-  );
-
-  await query(
-    `UPDATE runbook_instances SET current_step = $2, status = $3
-      WHERE id = $1 AND status NOT IN ('done','cancelled')`,
-    [instanceId, step.stepOrder, isAgent ? "running" : "waiting_human"],
-  );
-
-  const pageContext = `${target.kind} ${target.slug}`;
-  if (isAgent) {
-    try {
-      const prompt =
-        `New runbook step: "${title}"\n\n${body}\n\n` +
-        (step.skillSlug ? `Load the skill "${step.skillSlug}" (get_skill) before working the step. ` : "") +
-        (step.requiresApproval
-          ? `This step needs Joe's approval — stage the output with submit_draft_for_approval, never send anything yourself. `
-          : "") +
-        `When the expected output exists, mark the work item done via update_work_item_status.`;
-      await pingAgentWorkItem(wi!.id, "hermes-telegram", title, prompt, pageContext);
-    } catch (err) {
-      console.error("[runbook-engine] step ping failed (agent's scheduled pass will pick it up)", err);
-    }
-  } else {
-    // notifyOwner never throws; quiet hours / throttle park to push_outbox.
-    await notifyOwner({
-      kind: "urgent_item",
-      title: `Runbook step for you: ${step.title}`,
-      body: `${rb.title} · step ${step.stepOrder} of ${rb.steps.length} · ${target.name}`,
-      href: `${targetHref(target)}?tab=Ops`,
-    });
-  }
-  return wi!.id;
-}
-
-export type StartRunbookResult =
-  | { ok: true; instanceId: string; workItemId: string }
-  | { ok: false; error: string };
+export type { RunbookInstanceStatus, StartRunbookResult, AdvanceOutcome, RepairReport };
 
 /** Start a runbook against one lead or project. Refuses (rather than throws)
  *  when an active instance of that runbook already exists for the target. */
@@ -191,132 +51,26 @@ export async function startRunbook(
   target: { leadId?: string | null; projectId?: string | null },
   startedBy: string,
 ): Promise<StartRunbookResult> {
-  const rb = await loadRunbookDef(runbookSlug);
-  if (!rb) return { ok: false, error: `No runbook "${runbookSlug}".` };
-  if (!rb.active) return { ok: false, error: `Runbook "${runbookSlug}" is inactive.` };
-  if (rb.steps.length === 0) return { ok: false, error: `Runbook "${runbookSlug}" has no steps.` };
-
-  const t = await loadTarget(target.leadId ?? null, target.projectId ?? null);
-  if (!t) return { ok: false, error: "Target lead/project not found." };
-
-  const dupe = await queryOne<{ id: string }>(
-    `SELECT id FROM runbook_instances
-      WHERE runbook_slug = $1 AND ${t.kind === "lead" ? "lead_id" : "project_id"} = $2
-        AND status NOT IN ('done','cancelled')`,
-    [runbookSlug, t.id],
-  );
-  if (dupe) {
-    return { ok: false, error: `Runbook "${runbookSlug}" is already running for ${t.kind} ${t.slug} (instance ${dupe.id}).` };
-  }
-
-  let instanceId: string;
+  let result: StartRunbookResult;
   try {
-    const row = await queryOne<{ id: string }>(
-      `INSERT INTO runbook_instances (runbook_id, runbook_slug, lead_id, project_id, started_by)
-       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-      [rb.id, rb.slug, t.kind === "lead" ? t.id : null, t.kind === "project" ? t.id : null, startedBy],
-    );
-    instanceId = row!.id;
+    result = await withTransaction((run) => startRunbookTx(run, runbookSlug, target, startedBy));
   } catch (err) {
-    // Race on the partial unique index (two starts at once) → same refusal.
-    if ((err as { code?: string }).code === "23505") {
-      return { ok: false, error: `Runbook "${runbookSlug}" is already running for ${t.kind} ${t.slug}.` };
-    }
+    // Belt and braces: the advisory lock serializes starts, but the partial
+    // unique index is the last line of defence.
+    if ((err as { code?: string }).code === "23505") return { ok: false, error: `Runbook "${runbookSlug}" is already running for that target.` };
     throw err;
   }
-
-  const workItemId = await spawnStep(instanceId, rb, rb.steps[0], t);
-  return { ok: true, instanceId, workItemId };
+  if (result.ok) await drainRunbookWakeups();
+  return result;
 }
 
-/** Judge the current step's work item and move the instance accordingly.
- *  Idempotent: re-judging an already-advanced step (or a terminal instance)
- *  is a no-op — the current_step compare-and-set makes sure only one caller
- *  spawns any given step. */
-export async function advanceRunbookInstance(instanceId: string): Promise<void> {
-  const inst = await queryOne<{
-    id: string;
-    runbook_slug: string;
-    lead_id: string | null;
-    project_id: string | null;
-    current_step: number;
-    status: string;
-  }>(
-    `SELECT id, runbook_slug, lead_id, project_id, current_step, status
-       FROM runbook_instances WHERE id = $1`,
-    [instanceId],
-  );
-  if (!inst || inst.status === "done" || inst.status === "cancelled") return;
-
-  const wi = await queryOne<{
-    id: string;
-    title: string;
-    status: string;
-    approval_status: string;
-    requires_approval: boolean;
-    assignee_kind: string;
-  }>(
-    `SELECT id, title, status, approval_status, requires_approval, assignee_kind
-       FROM work_items
-      WHERE runbook_instance_id = $1 AND runbook_step_order = $2
-      ORDER BY created_at DESC LIMIT 1`,
-    [instanceId, inst.current_step],
-  );
-  if (!wi) return;
-
-  if (wi.status === "cancelled") {
-    await query(
-      `UPDATE runbook_instances
-          SET status = 'cancelled', completed_at = now(),
-              note = CASE WHEN note = '' THEN $2 ELSE note || E'\n' || $2 END
-        WHERE id = $1 AND status NOT IN ('done','cancelled')`,
-      [instanceId, `Cancelled: step ${inst.current_step} work item "${wi.title}" was cancelled.`],
-    );
-    return;
-  }
-
-  const cleared = wi.status === "done" && (!wi.requires_approval || wi.approval_status === "approved");
-  if (!cleared) {
-    // Not done yet — just keep the instance's waiting status honest.
-    const waiting: RunbookInstanceStatus =
-      wi.status === "approval_needed" ||
-      wi.approval_status === "requested" ||
-      (wi.status === "done" && wi.requires_approval)
-        ? "waiting_approval"
-        : wi.assignee_kind === "human"
-          ? "waiting_human"
-          : "running";
-    await query(
-      `UPDATE runbook_instances SET status = $2
-        WHERE id = $1 AND status NOT IN ('done','cancelled') AND status <> $2`,
-      [instanceId, waiting],
-    );
-    return;
-  }
-
-  const rb = await loadRunbookDef(inst.runbook_slug);
-  const next = rb?.steps.find((s) => s.stepOrder > inst.current_step);
-  if (!rb || !next) {
-    await query(
-      `UPDATE runbook_instances SET status = 'done', completed_at = now()
-        WHERE id = $1 AND status NOT IN ('done','cancelled')`,
-      [instanceId],
-    );
-    return;
-  }
-
-  // Compare-and-set: whoever wins this update owns spawning the next step.
-  const advanced = await queryOne<{ id: string }>(
-    `UPDATE runbook_instances SET current_step = $3
-      WHERE id = $1 AND current_step = $2 AND status NOT IN ('done','cancelled')
-      RETURNING id`,
-    [instanceId, inst.current_step, next.stepOrder],
-  );
-  if (!advanced) return;
-
-  const t = await loadTarget(inst.lead_id, inst.project_id);
-  if (!t) return; // target gone — the instance cascades away with it
-  await spawnStep(instanceId, rb, next, t);
+/** Judge the current step's work item and move the instance accordingly, in
+ *  one transaction. Idempotent: re-judging an already-advanced step is a
+ *  no-op (the step-log unique key means only one caller ever spawns a step). */
+export async function advanceRunbookInstance(instanceId: string): Promise<AdvanceOutcome> {
+  const out = await withTransaction((run) => advanceRunbookTx(run, instanceId));
+  if (out.outcome === "advanced") await drainRunbookWakeups();
+  return out;
 }
 
 /** The completion-path hook: no-op unless the work item belongs to a runbook
@@ -324,12 +78,10 @@ export async function advanceRunbookInstance(instanceId: string): Promise<void> 
  *  that already committed. */
 export async function maybeAdvanceRunbook(workItemId: string): Promise<void> {
   try {
-    const row = await queryOne<{ runbook_instance_id: string | null }>(
-      `SELECT runbook_instance_id FROM work_items WHERE id = $1`,
-      [workItemId],
-    );
-    if (!row?.runbook_instance_id) return;
-    await advanceRunbookInstance(row.runbook_instance_id);
+    const { rows } = await query<{ runbook_instance_id: string | null }>(`SELECT runbook_instance_id FROM work_items WHERE id = $1`, [workItemId]);
+    const instanceId = rows[0]?.runbook_instance_id;
+    if (!instanceId) return;
+    await advanceRunbookInstance(instanceId);
   } catch (err) {
     console.error("[runbook-engine] advance failed", err);
   }
@@ -338,21 +90,62 @@ export async function maybeAdvanceRunbook(workItemId: string): Promise<void> {
 /** Owner-only (via lib/actions/engine.ts): cancel an instance and close out
  *  its open step work items so nothing orphaned stays in the queue. */
 export async function cancelRunbookInstance(instanceId: string, note = "Cancelled by owner."): Promise<void> {
-  const inst = await queryOne<{ id: string }>(
-    `UPDATE runbook_instances
-        SET status = 'cancelled', completed_at = now(),
-            note = CASE WHEN note = '' THEN $2 ELSE note || E'\n' || $2 END
-      WHERE id = $1 AND status NOT IN ('done','cancelled')
-      RETURNING id`,
-    [instanceId, note],
-  );
-  if (!inst) return;
-  await query(
-    `UPDATE work_items
-        SET status = 'cancelled', blocked_reason = COALESCE(blocked_reason, $2)
-      WHERE runbook_instance_id = $1 AND status NOT IN ('done','cancelled')`,
-    [instanceId, note],
-  );
+  await withTransaction((run) => cancelRunbookInstanceTx(run, instanceId, note));
+}
+
+/** Recreate the missing current-step work item of live instances. Dry-run by
+ *  default; every decision is logged to runbook_repairs either way. */
+export async function repairRunbookInstances(opts: { dryRun?: boolean; limit?: number; by?: string } = {}): Promise<RepairReport> {
+  const report = await withTransaction((run) => repairRunbookInstancesTx(run, { dryRun: opts.dryRun ?? true, limit: opts.limit, by: opts.by ?? "repair" }));
+  if (!report.dryRun && report.actions.some((a) => a.action === "recreate_step")) await drainRunbookWakeups();
+  return report;
+}
+
+/** Deliver pending wakeups: agent pings via pingAgentWorkItem (same machinery
+ *  as approval pings) and Joe's pushes via notifyOwner (W3). Each row is
+ *  claimed under its own short transaction, delivered outside it, and marked
+ *  sent / left pending for the next drain (up to 5 attempts). Safe to call
+ *  from a timer as the recovery path for a crashed post-commit. */
+export async function drainRunbookWakeups(limit = 20): Promise<{ sent: number; failed: number }> {
+  let sent = 0;
+  let failed = 0;
+  let rows;
+  try {
+    rows = await withTransaction((run) => claimWakeups(run, limit));
+  } catch (err) {
+    console.error("[runbook-engine] wakeup claim failed", err);
+    return { sent, failed };
+  }
+  for (const w of rows) {
+    if (w.state === "failed") {
+      failed++;
+      continue;
+    }
+    let ok = true;
+    let error: string | null = null;
+    try {
+      const p = w.payload as Record<string, string | undefined>;
+      if (w.kind === "agent_ping") {
+        if (!w.work_item_id) throw new Error("wakeup has no work item");
+        await pingAgentWorkItem(w.work_item_id, p.assignee_key ?? "hermes-telegram", p.title ?? "Runbook step", p.prompt ?? "", p.page_context);
+      } else {
+        // notifyOwner never throws; quiet hours / throttle park to push_outbox.
+        await notifyOwner({ kind: "urgent_item", title: p.title ?? "Runbook step for you", body: p.body, href: p.href });
+      }
+    } catch (err) {
+      ok = false;
+      error = (err as Error).message ?? String(err);
+      console.error("[runbook-engine] wakeup delivery failed (will retry on next drain)", err);
+    }
+    try {
+      await withTransaction((run) => finishWakeup(run, w.id, ok, error));
+    } catch (err) {
+      console.error("[runbook-engine] wakeup bookkeeping failed", err);
+    }
+    if (ok) sent++;
+    else failed++;
+  }
+  return { sent, failed };
 }
 
 // ─── Read views (/engine block + lead/project badges) ────────────────────────
@@ -370,6 +163,9 @@ export interface RunbookInstanceView {
   targetKind: "lead" | "project" | null;
   targetSlug: string | null;
   targetName: string | null;
+  repairState: string;
+  blockedReason: string | null;
+  definitionVersion: number | null;
 }
 
 interface InstanceViewRow {
@@ -386,17 +182,28 @@ interface InstanceViewRow {
   lead_name: string | null;
   project_slug: string | null;
   project_name: string | null;
+  repair_state: string;
+  blocked_reason: string | null;
+  definition_version: number | null;
 }
 
+// Step count / titles come from the PINNED version when the instance has one,
+// so a runbook edited after the start still reads as the walk it is on.
 const INSTANCE_VIEW_SQL = `
-  SELECT i.id, i.runbook_slug, COALESCE(r.title, i.runbook_slug) AS runbook_title,
+  SELECT i.id, i.runbook_slug, COALESCE(v.title, r.title, i.runbook_slug) AS runbook_title,
          i.status, i.current_step, i.started_at::text AS started_at, i.started_by,
-         COALESCE((SELECT count(*)::int FROM runbook_steps s WHERE s.runbook_id = i.runbook_id), 0) AS step_count,
-         (SELECT s.title FROM runbook_steps s
-           WHERE s.runbook_id = i.runbook_id AND s.step_order = i.current_step) AS current_step_title,
+         i.repair_state, i.blocked_reason, v.version AS definition_version,
+         COALESCE(
+           CASE WHEN v.id IS NOT NULL THEN jsonb_array_length(v.steps) END,
+           (SELECT count(*)::int FROM runbook_steps s WHERE s.runbook_id = i.runbook_id), 0) AS step_count,
+         COALESCE(
+           (SELECT e->>'title' FROM jsonb_array_elements(COALESCE(v.steps, '[]'::jsonb)) e
+             WHERE (e->>'step_order')::int = i.current_step LIMIT 1),
+           (SELECT s.title FROM runbook_steps s WHERE s.runbook_id = i.runbook_id AND s.step_order = i.current_step)) AS current_step_title,
          l.slug AS lead_slug, l.name AS lead_name,
          p.slug AS project_slug, p.name AS project_name
     FROM runbook_instances i
+    LEFT JOIN runbook_definition_versions v ON v.id = i.definition_version_id
     LEFT JOIN runbooks r ON r.id = i.runbook_id
     LEFT JOIN leads l    ON l.id = i.lead_id
     LEFT JOIN projects p ON p.id = i.project_id`;
@@ -415,6 +222,9 @@ function rowToInstanceView(r: InstanceViewRow): RunbookInstanceView {
     targetKind: r.lead_slug ? "lead" : r.project_slug ? "project" : null,
     targetSlug: r.lead_slug ?? r.project_slug,
     targetName: r.lead_name ?? r.project_name,
+    repairState: r.repair_state,
+    blockedReason: r.blocked_reason,
+    definitionVersion: r.definition_version,
   };
 }
 
@@ -429,10 +239,7 @@ export async function getActiveRunbookInstances(): Promise<RunbookInstanceView[]
 }
 
 /** Non-terminal instances on one lead/project (the detail-page badge). */
-export async function getActiveRunbookInstancesFor(
-  kind: "lead" | "project",
-  slug: string,
-): Promise<RunbookInstanceView[]> {
+export async function getActiveRunbookInstancesFor(kind: "lead" | "project", slug: string): Promise<RunbookInstanceView[]> {
   const { rows } = await query<InstanceViewRow>(
     `${INSTANCE_VIEW_SQL}
       WHERE i.status NOT IN ('done','cancelled') AND ${kind === "lead" ? "l.slug" : "p.slug"} = $1

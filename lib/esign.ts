@@ -4,13 +4,16 @@ import "server-only";
 // curates + sends them from the project Money tab's Signatures section, the client signs them
 // in the portal. Writes live in lib/actions/esign.ts.
 
-import { query } from "./db";
+import { query, queryOne } from "./db";
 import type {
   DocType,
   SigStatus,
+  SigMethod,
   SignatureRequestView,
   SignatureEventView,
 } from "./esign-types";
+import type { PortalScope } from "./client-portal";
+import { ownerHref } from "./client-activity";
 
 function dateLabel(d: Date | null): string | null {
   if (!d) return null;
@@ -35,6 +38,9 @@ interface SigRow {
   decline_reason: string | null;
   created_at: Date;
   sent_at: Date | null;
+  signed_method: SigMethod | null;
+  witness_name: string | null;
+  signature_file_id: string | null;
 }
 
 // Qualified with the sr alias so the joined queries (projects also has id /
@@ -42,7 +48,7 @@ interface SigRow {
 const SIG_SELECT = `
   sr.id, sr.doc_type, sr.title, sr.body, sr.file_id, sr.status, sr.signer_name,
   sr.signer_email, sr.signed_name, sr.signed_at, sr.decline_reason,
-  sr.created_at, sr.sent_at`;
+  sr.created_at, sr.sent_at, sr.signed_method, sr.witness_name, sr.signature_file_id`;
 
 function rowToView(r: SigRow): SignatureRequestView {
   return {
@@ -59,6 +65,9 @@ function rowToView(r: SigRow): SignatureRequestView {
     declineReason: r.decline_reason,
     createdAtLabel: dateLabel(r.created_at) ?? "",
     sentAtLabel: dateLabel(r.sent_at),
+    signedMethod: r.signed_method ?? "typed",
+    witnessName: r.witness_name,
+    hasSignatureImage: !!r.signature_file_id,
   };
 }
 
@@ -73,6 +82,21 @@ export async function getProjectSignatureRequests(
       WHERE p.slug = $1
       ORDER BY sr.created_at DESC`,
     [slug],
+  );
+  return rows.map(rowToView);
+}
+
+/** All signature requests scoped to a lead (owner view, newest first) — the
+ *  pre-project paperwork: rough estimates, pre-construction agreements. */
+export async function getLeadSignatureRequests(
+  leadSlug: string,
+): Promise<SignatureRequestView[]> {
+  const { rows } = await query<SigRow>(
+    `SELECT ${SIG_SELECT}
+       FROM signature_requests sr
+      WHERE sr.lead_slug = $1
+      ORDER BY sr.created_at DESC`,
+    [leadSlug],
   );
   return rows.map(rowToView);
 }
@@ -161,5 +185,42 @@ export async function getSignatureRequest(
       detail: e.detail,
       atLabel: dateLabel(e.created_at) ?? "",
     })),
+  };
+}
+
+/** Everything the in-person signing screen (app/sign/[id]) needs: the request,
+ *  which project or lead it belongs to (for the back link + the owner-side
+ *  deep link once signed), and a human name for the header. Owner-side read —
+ *  the page gates on requireAccess("projects") before calling this. */
+export interface SigningContext {
+  request: SignatureRequestView;
+  scope: PortalScope | null;
+  scopeName: string;
+  /** Owner page for the scope, opened on Documents with this request focused. */
+  backHref: string;
+}
+
+export async function getSigningContext(id: number): Promise<SigningContext | null> {
+  const row = await queryOne<
+    SigRow & { lead_slug: string | null; project_slug: string | null; project_name: string | null; lead_name: string | null }
+  >(
+    `SELECT ${SIG_SELECT}, sr.lead_slug, p.slug AS project_slug, p.name AS project_name, l.name AS lead_name
+       FROM signature_requests sr
+       LEFT JOIN projects p ON p.id = sr.project_id
+       LEFT JOIN leads l ON l.slug = sr.lead_slug
+      WHERE sr.id = $1`,
+    [id],
+  );
+  if (!row) return null;
+  const scope: PortalScope | null = row.project_slug
+    ? { kind: "project", slug: row.project_slug }
+    : row.lead_slug
+      ? { kind: "lead", slug: row.lead_slug }
+      : null;
+  return {
+    request: rowToView(row),
+    scope,
+    scopeName: row.project_name ?? row.lead_name ?? "",
+    backHref: scope ? ownerHref(scope, { tab: "Documents", focus: `signature-${id}` }) : "/today",
   };
 }

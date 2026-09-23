@@ -26,6 +26,7 @@ import {
 } from "docx";
 import { PAGE, INK, GRAY, ACCENT, ACCENT_2, companyHeader, docTitle, LEGAL_DISCLAIMER } from "./documents";
 import type { DocTemplate, FieldValues, Run, TemplateSection } from "./doc-templates/types";
+import { CONSENT_STATEMENT, SIG_METHOD_LABEL, type SigMethod } from "./esign-types";
 
 function today(): string {
   return new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" }).format(new Date());
@@ -89,6 +90,12 @@ export interface SignatureStamp {
   documentRef?: string;
   /** Full audit trail (created / sent / signed …), newest last. */
   events?: { label: string; actor: string; at: Date }[];
+  /** How it was signed (defaults to the original typed-name flow). */
+  method?: SigMethod;
+  /** Hand-drawn signature (PNG) — stamped on the signer's line + certificate. */
+  signatureImage?: Buffer | null;
+  /** In-person signings: the owner/staff member who presented the device. */
+  witnessName?: string | null;
 }
 
 export function renderTemplatePdf(
@@ -336,38 +343,69 @@ function renderPdfSection(
     }
     case "signature_block": {
       doc.moveDown(0.4);
-      for (const party of s.parties) {
-        ensure(64);
+      // On the executed copy, drop the signature + date onto the line of the
+      // party whose name matches the signer. The company/other parties' lines
+      // stay blank (they sign however they sign). If no name matches exactly —
+      // the client signed "Joe Smith" on a line printed "Joseph Smith", which
+      // in-person signing makes easy — fall back to the first NAMED party: the
+      // company line carries no name, so that's the client's line. The caption
+      // prints the name actually signed, and the certificate page is the
+      // authoritative record regardless.
+      const signerIdx = signature
+        ? (() => {
+            const exact = s.parties.findIndex((p) => p.name && norm(p.name) === norm(signature.signerName));
+            return exact >= 0 ? exact : s.parties.findIndex((p) => !!p.name);
+          })()
+        : -1;
+      s.parties.forEach((party, partyIdx) => {
+        const isSigner = !!signature && partyIdx === signerIdx;
+        const drawn = isSigner && !!signature?.signatureImage;
+        // A hand-drawn signature needs real height above the line; the typed
+        // italic name fits in the standard gap.
+        const IMG_H = 42;
+        ensure(drawn ? 64 + IMG_H : 64);
         // Party label is a small gray caption, not bold black text sitting
         // right above the blank line — otherwise it reads as if the line
         // were already filled in. The actual blank + its own small caption
         // below is what should draw the eye.
         const who = party.name ? `${party.role} — ${party.name}` : party.role;
         doc.font("Helvetica").fontSize(8).fillColor(GRAY).text(who.toUpperCase(), PAGE.margin, doc.y, { width: W });
-        doc.moveDown(1.3);
+        doc.moveDown(drawn ? 1.3 + IMG_H / 9.2 : 1.3);
         const lineY = doc.y;
         const sigW = 260;
         const dateX = PAGE.margin + sigW + 30;
         const dateW = 150;
-        // On the executed copy, drop the typed signature + date onto the line of
-        // the party whose name matches the signer. The company/other parties'
-        // lines stay blank (they sign however they sign). Match is by name so we
-        // never stamp the wrong line; the certificate page is the authoritative
-        // record regardless.
-        const isSigner = !!(signature && party.name && norm(party.name) === norm(signature.signerName));
         if (isSigner && signature) {
-          doc.font("Times-Italic").fontSize(15).fillColor(INK)
-            .text(signature.signerName, PAGE.margin + 2, lineY - 17, { width: sigW, lineBreak: false });
+          let stamped = false;
+          if (signature.signatureImage) {
+            try {
+              // Bottom-aligned so the ink sits on the line like a pen would.
+              doc.image(signature.signatureImage, PAGE.margin + 4, lineY - IMG_H - 2, {
+                fit: [sigW - 8, IMG_H],
+                valign: "bottom",
+              });
+              stamped = true;
+            } catch (err) {
+              console.error("[doc-render] signature image failed to stamp, falling back to typed name:", err);
+            }
+          }
+          if (!stamped) {
+            doc.font("Times-Italic").fontSize(15).fillColor(INK)
+              .text(signature.signerName, PAGE.margin + 2, lineY - 17, { width: sigW, lineBreak: false });
+          }
           doc.font("Helvetica").fontSize(9).fillColor(INK)
             .text(shortStamp(signature.signedAt), dateX + 2, lineY - 12, { width: dateW, lineBreak: false });
         }
         doc.strokeColor("#999").lineWidth(0.8).moveTo(PAGE.margin, lineY).lineTo(PAGE.margin + sigW, lineY).stroke();
         doc.moveTo(dateX, lineY).lineTo(dateX + dateW, lineY).stroke();
+        const caption = !isSigner || !signature
+          ? "Signature / Printed name"
+          : `${signature.method === "in_person" ? "Signed in person (electronic)" : "Signed electronically"} · ${signature.signerName}`;
         doc.font("Helvetica-Oblique").fontSize(7.5).fillColor(GRAY)
-          .text(isSigner ? "Signed electronically" : "Signature / Printed name", PAGE.margin, lineY + 6, { width: sigW });
+          .text(caption, PAGE.margin, lineY + 6, { width: sigW });
         doc.text("Date", dateX, lineY + 6, { width: dateW });
         doc.fillColor(INK).moveDown(1.1);
-      }
+      });
       break;
     }
     case "notary_block": {
@@ -492,13 +530,35 @@ function signatureCertificate(doc: PDFKit.PDFDocument, W: number, docTitleText: 
     doc.y = yy + h + 7;
   };
 
+  /** A label + the drawn signature image, sized like a text row. */
+  const imageRow = (label: string, png: Buffer) => {
+    const labelW = 150;
+    const h = 44;
+    if (doc.y + h + 8 > doc.page.height - PAGE.margin - 16) doc.addPage();
+    const yy = doc.y;
+    doc.font("Helvetica-Bold").fontSize(9).fillColor(GRAY).text(label.toUpperCase(), PAGE.margin, yy, { width: labelW });
+    try {
+      doc.image(png, PAGE.margin + labelW + 10, yy - 2, { fit: [220, h], valign: "center" });
+    } catch (err) {
+      console.error("[doc-render] certificate signature image failed:", err);
+      doc.font("Helvetica").fontSize(9).fillColor(INK).text("(drawn signature on file)", PAGE.margin + labelW + 10, yy);
+    }
+    doc.y = yy + h + 7;
+  };
+
+  const method: SigMethod = sig.method ?? "typed";
   row("Document", docTitleText);
   if (sig.documentRef) row("Reference", sig.documentRef);
   row("Signed by", sig.signerName);
   row("Signed", fullTimestamp(sig.signedAt));
-  row("Consent", sig.consent
-    ? "The signer affirmed: “I agree that typing my name and clicking Sign constitutes my legal electronic signature on this document.”"
-    : "Not recorded");
+  row(
+    "Method",
+    method === "in_person" && sig.witnessName
+      ? `${SIG_METHOD_LABEL[method]}, presented by ${sig.witnessName} of SJ Carpentry LLC, who was present for the signing`
+      : SIG_METHOD_LABEL[method],
+  );
+  if (sig.signatureImage) imageRow("Signature", sig.signatureImage);
+  row("Consent", sig.consent ? `The signer affirmed: “${CONSENT_STATEMENT[method]}”` : "Not recorded");
   if (sig.ip) row("IP address", sig.ip);
   if (sig.userAgent) row("Device / browser", sig.userAgent);
 

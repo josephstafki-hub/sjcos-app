@@ -3242,3 +3242,22 @@ UPDATE change_orders c SET number = 'CO-' || x.n
   FROM (SELECT id, row_number() OVER (PARTITION BY project_id ORDER BY created_at, id) AS n FROM change_orders) x
  WHERE x.id = c.id AND c.number = '';
 -- ─── Project financials (end) ───────────────────────────────────────────────
+
+-- ─── In-person signing (begin) ──────────────────────────────────────────────
+-- A client can sign on Joe's iPad while sitting with him, or draw a signature
+-- in their own portal, in addition to the original typed-name flow. The
+-- signature record grows to say HOW it was signed, keep the drawn signature
+-- image (a PNG in files, stamped onto the executed copy + certificate), and
+-- name who presented the device for an in-person signing. Additive + idempotent.
+ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signed_method text NOT NULL DEFAULT 'typed';
+ALTER TABLE signature_requests DROP CONSTRAINT IF EXISTS signature_requests_signed_method_check;
+ALTER TABLE signature_requests ADD CONSTRAINT signature_requests_signed_method_check
+  CHECK (signed_method IN ('typed','drawn','in_person')) NOT VALID;
+ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS signature_file_id text REFERENCES files(id) ON DELETE SET NULL;
+ALTER TABLE signature_requests ADD COLUMN IF NOT EXISTS witness_name text;
+-- 'presented' = the owner opened the document for signing on their own device
+-- (in-person flow) — distinct from 'sent', which means it was emailed out.
+ALTER TABLE signature_events DROP CONSTRAINT IF EXISTS signature_events_kind_check;
+ALTER TABLE signature_events ADD CONSTRAINT signature_events_kind_check
+  CHECK (kind IN ('created','sent','viewed','presented','signed','declined','voided')) NOT VALID;
+-- ─── In-person signing (end) ────────────────────────────────────────────────

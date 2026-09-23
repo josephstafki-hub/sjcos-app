@@ -37,6 +37,8 @@ import { ClientActivityFeed } from "@/components/portal-admin/ClientActivityFeed
 import { PublishedRoster } from "@/components/portal-admin/PublishedRoster";
 import { ProjectSchedule } from "@/components/projects/ProjectSchedule";
 import { DocTypePanel } from "@/components/projects/DocTypePanel";
+import { InPersonSignList } from "@/components/esign/InPersonSignList";
+import { getProjectSignatureRequests } from "@/lib/esign";
 import { listDocDrafts, listDocTemplates } from "@/lib/doc-drafts";
 import { ChangeOrders } from "@/components/projects/ChangeOrders";
 import { PurchaseOrders } from "@/components/projects/PurchaseOrders";
@@ -137,6 +139,7 @@ export default async function ProjectDetailPage({
     bidding,
     biddingRoster,
     budget,
+    signatureRequests,
   ] = await Promise.all([
     getProject(slug),
     getProjectMoney(slug),
@@ -169,6 +172,9 @@ export default async function ProjectDetailPage({
     getProjectBidding(slug),
     listAllSubs(),
     showFinancials ? getProjectBudget(slug) : Promise.resolve(null),
+    // Every signature request on the job (any doc type) — the "Sign in person"
+    // section of the Documents tab lists whatever is awaiting a signature.
+    getProjectSignatureRequests(slug),
   ]);
   const docTemplates = listDocTemplates().filter((t) => t.scope !== "lead");
   if (!project) notFound();
@@ -683,21 +689,30 @@ export default async function ProjectDetailPage({
       if (d.signature_request_id) docFocusSections[`signature-${d.signature_request_id}`] = t.title;
     }
   }
+  // Last section: sign on this device. Anything awaiting a signature — template
+  // drafts, estimates, change orders, lien waivers — opens on /sign/<id>.
+  const awaitingSignature = signatureRequests.filter((r) => r.status === "sent").length;
   const documentsTab = (
     <PanelSections
       tab="Documents"
       focusSections={docFocusSections}
-      sections={docTemplates.map((t) => ({
-        label: t.title,
-        node: (
-          <DocTypePanel
-            slug={slug}
-            templateKey={t.key}
-            manifest={t}
-            drafts={docDrafts.filter((d) => d.template_key === t.key)}
-          />
-        ),
-      }))}
+      sections={[
+        ...docTemplates.map((t) => ({
+          label: t.title,
+          node: (
+            <DocTypePanel
+              slug={slug}
+              templateKey={t.key}
+              manifest={t}
+              drafts={docDrafts.filter((d) => d.template_key === t.key)}
+            />
+          ),
+        })),
+        {
+          label: `Sign in person${awaitingSignature ? ` · ${awaitingSignature}` : ""}`,
+          node: <InPersonSignList requests={signatureRequests} />,
+        },
+      ]}
     />
   );
 

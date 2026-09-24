@@ -1132,6 +1132,17 @@ server.registerTool(
   async ({ id, status, note }) => {
     const mangled = strippedDollarError(note);
     if (mangled) return mangled;
+    // A04: "done" is a completion, not a status flip — it runs the evidence-
+    // backed command in the app (manual evidence: this agent + its note; a
+    // step that requires real evidence refuses and says what it needs).
+    if (status === "done") {
+      const done = await runbooksCall("complete", {
+        work_item_id: id,
+        evidence: { kind: "manual", actor: process.env.SJCOS_AGENT_NAME || "mcp", reason: note ?? "marked done via update_work_item_status" },
+        agent: process.env.SJCOS_AGENT_NAME || "mcp",
+      });
+      return json(done?.ok ? { ok: true, id, status: "done", ...done } : { ok: false, error: done?.error ?? "completion refused", ...done });
+    }
     const r = await rows(
       `UPDATE work_items
           SET status = $2,

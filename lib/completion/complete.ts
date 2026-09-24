@@ -18,6 +18,7 @@
 // Legacy items with no contract (required 'any') accept manual completion and
 // are reported (`legacy: true`), not blocked.
 
+import { onWorkItemDone } from "../agent-runtime/hooks.ts";
 import type { Run } from "../commands/core.ts";
 import { redactPrincipal } from "../commands/core.ts";
 import type { Principal } from "../commands/principal.ts";
@@ -217,6 +218,7 @@ export async function completeWorkItem(run: Run, input: CompleteWorkItemInput): 
       WHERE id = $1`,
     [wi.id, input.note ?? null],
   );
+  await onWorkItemDone(run, input.workItemId).catch(() => null); // A24: next trigger, idempotent
 
   if (wi.obligation_id) {
     await resolveObligation(run, wi.obligation_id, { kind: "work_item_done", work_item_id: wi.id, receipt_id: receipt.id }, principalName(input.principal));

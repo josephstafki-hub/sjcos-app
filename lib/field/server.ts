@@ -20,6 +20,8 @@ import { recordSubProgress, completionReportReceived, compileWeeklySubReport, ty
 import { reportSnag, applyOwnerSnagDecision, type SnagInput, type SnagChoice } from "./incidents";
 import { buildWeeklyClientSummary, dueWeeklySummaries } from "./weekly-summary";
 import { sweepApprovedFieldDecisions } from "./apply-decisions";
+import { projectFunding } from "@/lib/funding";
+import { issueProgressOnOwnerConfirmation } from "@/lib/billing/commands";
 
 /** Default follow-up creator: a work item on the project (WS-recovery's
  *  obligations engine can replace this by re-binding the hook). Deduped on
@@ -41,6 +43,18 @@ export function boundFieldHooks(overrides: Partial<FieldHooks> = {}): { hooks: F
   const parked: OwnerAlert[] = [];
   const hooks = defaultFieldHooks({
     createFollowUp: defaultCreateFollowUp,
+    // WS-procurement cash guard: reconciled collected − spent − reserved (+ approved company funding).
+    fundingAvailable: async (run, projectId) => {
+      const f = await projectFunding(run, projectId);
+      return { ok: f.status === "known", availableCents: f.status === "known" ? f.availableCents : null, reason: f.reason ?? `${f.collectedSource}: available ${f.availableCents} cents` };
+    },
+    // WS-money: Joe's confirmed milestone issues its draw invoice once (W10).
+    onMilestoneConfirmed: async (run, projectId, milestoneKey, decisionId) => {
+      const principal = await ownerPrincipalForPolicy();
+      const inTx = <T,>(fn: (r: Run) => Promise<T>) => fn(run);
+      const r = await issueProgressOnOwnerConfirmation(inTx, { projectId, milestoneKey, principal, decisionId });
+      if (!r.issued) console.error(`[field] milestone ${milestoneKey} confirmed but no invoice issued: ${r.reason}`);
+    },
     notifyOwner: async (a) => {
       parked.push(a);
     },

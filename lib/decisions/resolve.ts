@@ -8,6 +8,7 @@
 // Pure: `run` only. The Next glue (actions.ts) kicks the dispatcher after
 // commit and edits the Telegram card.
 
+import { onDecisionResolved } from "../agent-runtime/hooks.ts";
 import type { Run } from "../commands/core.ts";
 import { DECISION_COLS, getDecision, resolveDecision, type Decision, type ResolveResult } from "../commands/decisions.ts";
 import { isOwner, type Principal } from "../commands/principal.ts";
@@ -99,6 +100,9 @@ export async function resolveFromChannel(run: Run, input: ResolveFromChannelInpu
     );
     intentIds = rows.map((x) => x.id);
   }
+  // A24: wake the operating agent so the approved (or refused) work resumes
+  // without Joe opening the panel. Idempotent on the decision id.
+  await onDecisionResolved(run, d.id).catch(() => null);
   return { ok: true, code: input.outcome, reply, decision: d, intentIds, grantId, first: true };
 }
 

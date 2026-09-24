@@ -14,6 +14,8 @@ import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { performGrantedAction } from "@/lib/agent-sends";
 import { getGrant, grantLive, listGrants, requestGrant } from "@/lib/owner-grants";
+import { principalMaySpendGrant } from "@/lib/authority/mcp-gate";
+import { runDirect } from "@/lib/commands/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -82,6 +84,14 @@ export async function POST(req: Request) {
         });
       }
       case "perform": {
+        // A22: when a person is behind the agent, that person must hold the
+        // authority the gated action maps to (project/amount bounds apply).
+        // No person → the owner grant alone decides, as before.
+        const gate = await principalMaySpendGrant(runDirect, str("principal_user_id") ?? null, str("gated_action") ?? "", {
+          projectId: str("project_id") ?? null,
+          amountCents: body.amount_cents == null ? null : Number(body.amount_cents),
+        });
+        if (!gate.ok) return NextResponse.json({ ok: false, error: gate.reason }, { status: 403 });
         const email = body.email && typeof body.email === "object" ? (body.email as Record<string, unknown>) : undefined;
         const sms = body.sms && typeof body.sms === "object" ? (body.sms as Record<string, unknown>) : undefined;
         const call = body.call && typeof body.call === "object" ? (body.call as Record<string, unknown>) : undefined;

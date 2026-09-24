@@ -14,10 +14,18 @@ import { defaultCloseoutHooks, type CloseoutHooks } from "./hooks";
 import { recordWrittenSignoff, confirmCorrectionsBeforeWalkthrough, prepareInternalInspection, scheduleClientWalkthrough } from "./checklist";
 import { runDuePostProjectActions, checkInReplyReceived, recordCloseoutActuals } from "./postproject";
 import type { CloseoutActuals } from "./hooks";
+import { ingestCloseoutActuals as estimatingIngest, type ActualInput } from "@/lib/estimating/learning";
 
 export function boundCloseoutHooks(overrides: Partial<CloseoutHooks> = {}): { hooks: CloseoutHooks; flush: () => Promise<void> } {
   const parked: OwnerAlert[] = [];
   const hooks = defaultCloseoutHooks({
+    // WS-estimating: only per-scope, unit-based lines can teach the cost book;
+    // project totals stay on closeout_actuals (never a fake per-unit sample).
+    ingestCloseoutActuals: async (run, input) => {
+      const lines = Array.isArray(input.actuals.lines) ? (input.actuals.lines as ActualInput[]) : [];
+      if (!lines.length) return;
+      await estimatingIngest(run, input.projectId, lines.map((l) => ({ ...l, source: l.source || "closeout" })), { ingest_revision: input.revision, principal: await ownerPrincipalForPolicy() });
+    },
     notifyOwner: async (a) => {
       parked.push(a);
     },

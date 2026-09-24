@@ -237,7 +237,20 @@ export async function hermesChat(
   // W5: Joe-approved standing instructions ride along on every turn so the
   // in-app agents get them without an MCP round-trip. "" when none exist.
   const standing = await standingInstructionsBlock();
+  // A24: the versioned operating block (workflow digest, policy digest, tone
+  // guide) every business entry point loads — same text the background
+  // worker and the Ask window use; degrades to nothing if the runtime tables
+  // are not migrated yet, never blocks the chat.
+  let operating = "";
+  try {
+    const mod = await import("@/lib/agent-runtime/instructions");
+    const block = await mod.standingContextBlock(runDirect, context ?? null);
+    operating = block.text;
+  } catch {
+    operating = "";
+  }
   const messages = [
+    ...(operating ? [{ role: "system", content: operating }] : []),
     ...(context ? [{ role: "system", content: `SJC OS — page the user is viewing:\n${context}` }] : []),
     // Today v2 · Phase 7: let Hermes (the feed's default agent) offer one-click
     // chips too. Self-gating — only fires when work_item_ids are in context.

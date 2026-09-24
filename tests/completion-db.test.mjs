@@ -21,8 +21,8 @@ let ownUrl = null;
 async function withDb(fn) {
   if (!ownUrl) {
     ownUrl = withTestDb(async (url) => {
-      const admin = url.replace("/sjcos_test?", "/postgres?");
-      const own = url.replace("/sjcos_test?", `/${OWN_DB}?`);
+      const admin = url.replace(/\/[^/?]+\?/, "/postgres?");
+      const own = url.replace(/\/[^/?]+\?/, `/${OWN_DB}?`);
       const a = new pg.Client({ connectionString: admin });
       await a.connect();
       try {

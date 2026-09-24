@@ -141,8 +141,13 @@ export function dbNameForCurrentTest() {
   return slug ? `sjcos_test_${slug}` : "sjcos_test";
 }
 
+/** The same cluster URL pointing at another database (admin = "postgres"). */
+export function dbUrl(url, name) {
+  return url.replace(/\/[^/?]+\?/, `/${name}?`);
+}
+
 function urlForDb(state, name) {
-  return state.url.replace("/sjcos_test?", `/${name}?`);
+  return dbUrl(state.url, name);
 }
 
 /** Tests: one shared cluster per process tree, one database per test FILE

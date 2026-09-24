@@ -349,3 +349,45 @@ Both are Telnyx API V2 and signed with the same Ed25519 public key
 (`SMS_PUBLIC_KEY`). Full env list, flows and the 10DLC script: `docs/comms.md`.
 Migration for this feature: `node db/apply-comms-sms-voice.mjs` (idempotent),
 then restart `sjcos.service` **and** `sjcos-mcp.service` (new MCP tools).
+
+## Automation build (2026-09-23) — deploy packet
+
+Everything in `docs/automation-reliability/` (28 tasks) lands as ADDITIVE
+migrations plus new units. Nothing below is installed or enabled on the live
+box until Joe says so; see `docs/automation-reliability/STATUS.md` for what
+is implemented vs deployed vs enabled vs proven.
+
+**Order:** `node db/migrate.mjs --status` → `node db/migrate.mjs` (ledger
+0001–0023, checksummed, one transaction each) → staged build → restart
+`sjcos.service` → restart `sjcos-mcp.service` (≈40 new tools) → install
+timers/services below → activate policies on `/engine/decisions`.
+
+| Unit | Cadence | What |
+| --- | --- | --- |
+| `sjcos-dispatch.{sh,service,timer}` | every 2 min (odd minutes) | Intent dispatcher: sends/charges after commit, unknown-outcome reconciliation, decision expiry (A05/A06) |
+| `sjcos-worker.{sh,service}` | long-running service | Supervised worker: source-event processing (Telnyx/Square/Telegram), runbook wakeup drain, lease sweeps, heartbeat (A03b) |
+| `sjcos-agent-worker.{sh,service,timer}` | every 3 min | Business operating agent: claims `agent_triggers`, runs the configured model with the versioned instruction block (A24) |
+| `sjcos-weekly-summary.{sh,service,timer}` | hourly :35 | Weekly client summaries per project schedule; publishes only under the active policy (A16) |
+| `sjcos-post-project.{sh,service,timer}` | hourly :40 | Warranty/care, review request, check-in, learning hand-off; policy-gated (A17) |
+| `sjcos-payments-reconcile.{sh,service,timer}` | see unit | Square payment/ACH reconciliation; stale pending escalates (A20) |
+| `sjcos-qbo-sync.{sh,service,timer}` | see unit | QuickBooks import / controlled export, dry-run until the direction switches are on (A14) |
+| `sjcos-backup.{sh,service,timer}` + `sjcos-backup-db.{service,timer}` | nightly 02:30 CT + 4-hourly DB-only | Encrypted off-host backups with retention and a `backup_runs` ledger; **disabled until a destination + `BACKUP_PASSPHRASE` exist** (A09a) |
+| `sjcos-monitor.{service,timer}` + `scripts/sjcos-monitor.sh` | every 5 min | Independent health probe (app, MCP, DB, worker heartbeat, oldest pending work, backups) that alerts on Telegram with curl even when the app is down (A09b) |
+
+Install any timer the same way as the existing ones:
+`install -m755 deploy/<name>.sh ~/bin/<name>; cp deploy/<name>.service deploy/<name>.timer ~/.config/systemd/user/; systemctl --user daemon-reload; systemctl --user enable --now <name>.timer`.
+
+**New `.env.local` keys (names only — values are Joe's):**
+`TELEGRAM_WEBHOOK_SECRET` (decision buttons; then call Telegram `setWebhook` for
+`/api/telegram/webhook`), `SQUARE_ENV` + `SQUARE_ACCESS_TOKEN` + `SQUARE_LOCATION_ID`
++ `SQUARE_WEBHOOK_SIGNATURE_KEY` (unset = fake/sandbox adapter, checkout hidden),
+`INTUIT_CLIENT_ID` / `INTUIT_CLIENT_SECRET` / `INTUIT_REALM_ID` (unset = fake QBO
+adapter, dry-run), `BACKUP_PASSPHRASE` + one of `BACKUP_DIR` / `BACKUP_RCLONE_REMOTE`
+/ `BACKUP_SSH_TARGET`, optional `SJC_AGENT_MODEL` / `SJC_AGENT_RUNTIME` for the
+business worker, optional `DATABASE_URL_AGENT` once `deploy/db-roles.sql` is applied.
+
+**Rollback:** code rollback (`~/sjcos-backups/next-rollback` + restart) and
+`pause lane all` on `/engine/decisions`; migrations are additive and stay.
+Never restore a database backup as a shortcut — `scripts/restore.mjs` restores
+into an ISOLATED database and pauses every lane until in-flight sends/payments
+are reconciled.

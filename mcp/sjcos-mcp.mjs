@@ -72,6 +72,11 @@ import { registerObligationTools } from "./obligation-tools.mjs";
 import { registerDecisionTools } from "./decision-tools.mjs";
 import { registerMeasureTools } from "./measure-tools.mjs";
 import { registerWorkflowTools } from "./workflow-tools.mjs";
+import { registerEstimatingTools } from "./estimating-tools.mjs";
+import { registerProcurementTools } from "./procurement-tools.mjs";
+import { registerBillingTools } from "./billing-tools.mjs";
+import { registerContextTools } from "./context-tools.mjs";
+import { registerFieldTools } from "./field-tools.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -323,6 +328,14 @@ async function runbooksCall(action, payload = {}) {
 // the app (lib/commands/decisions.ts); agents stage cards, never resolve them.
 async function decisionsCall(action, payload = {}) {
   return internalCall("decisions", action, payload, "Is the sjcos service running?");
+}
+
+// A16/A17: field, schedule and closeout writes need the app-bound hooks.
+async function fieldCall(action, payload = {}) {
+  return internalCall("field", action, payload, "Is the sjcos service running?");
+}
+async function estimatingCall(action, payload = {}) {
+  return internalCall("estimating", action, payload, "Is the sjcos service running?");
 }
 
 async function poCall(action, payload = {}) {
@@ -2620,6 +2633,14 @@ server.registerTool(
   registerDecisionTools(server, { json, decisionsCall });
   registerMeasureTools(server, { rows, json, pool });
   registerWorkflowTools(server, { rows, json, pool, slugToId });
+  // Estimating (A15, W02–W07), procurement + cash (A13, W05–W09), billing
+  // (A07), field/schedule/closeout (A16/A17, W09–W12) and the operating-agent
+  // context (A24). Every money/send-facing effect below is a decision.
+  registerEstimatingTools(server, { rows, json, pool, slugToId, currentPrincipal, estimatingCall });
+  registerProcurementTools(server, { rows, json, pool, slugToId, currentPrincipal });
+  registerBillingTools(server, { rows, json, pool, slugToId, currentPrincipal });
+  registerContextTools(server, { rows, json, pool, slugToId, currentPrincipal });
+  registerFieldTools(server, { json, fieldCall, slugToId });
 
   // ask_owner: put a real question box (options, multi-select) in front of Joe
   // inside the panel chat and BLOCK until he answers — any agent on this server

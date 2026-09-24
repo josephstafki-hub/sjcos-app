@@ -68,6 +68,10 @@ import { registerGrantTools } from "./grants-tools.mjs";
 import { registerCommsTools } from "./comms-tools.mjs";
 import { registerRunbookTools } from "./runbook-tools.mjs";
 import { registerAskOwner } from "./interact-tools.mjs";
+import { registerObligationTools } from "./obligation-tools.mjs";
+import { registerDecisionTools } from "./decision-tools.mjs";
+import { registerMeasureTools } from "./measure-tools.mjs";
+import { registerWorkflowTools } from "./workflow-tools.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -313,6 +317,12 @@ async function leadsCall(action, payload = {}) {
  */
 async function runbooksCall(action, payload = {}) {
   return internalCall("runbooks", action, payload, "Is the sjcos service running?");
+}
+
+// A05/A06 + A10: exact one-tap decisions (stage / get / list / wait) live in
+// the app (lib/commands/decisions.ts); agents stage cards, never resolve them.
+async function decisionsCall(action, payload = {}) {
+  return internalCall("decisions", action, payload, "Is the sjcos service running?");
 }
 
 async function poCall(action, payload = {}) {
@@ -2591,6 +2601,14 @@ server.registerTool(
   // proxied to the app (spawn + pings live in lib/runbook-engine.ts); reads are
   // direct SQL. No cancel tool — owner-only in the UI. See mcp/runbook-tools.mjs.
   registerRunbookTools(server, { rows, json, runbooksCall });
+
+  // Automation build (docs/automation-reliability): obligations + evidence-
+  // backed completion (A01/A04), exact decisions (A05/A06, A10), measurement
+  // and capability states (A18), and the W01–W12 project workflow view (A23).
+  registerObligationTools(server, { rows, json, appCall: runbooksCall });
+  registerDecisionTools(server, { json, decisionsCall });
+  registerMeasureTools(server, { rows, json, pool });
+  registerWorkflowTools(server, { rows, json, pool, slugToId });
 
   // ask_owner: put a real question box (options, multi-select) in front of Joe
   // inside the panel chat and BLOCK until he answers — any agent on this server

@@ -21,6 +21,7 @@ import { storeBuffer } from "@/lib/upload-store";
 import { parseSignatureDataUrl } from "@/lib/signature-image";
 import type { DocType, SigMethod } from "@/lib/esign-types";
 import { billingOnSignatureSigned } from "@/lib/billing/server";
+import { workflowOnSignatureSigned } from "@/lib/workflow/server";
 
 type Result = { ok: true; id?: number } | { ok: false; error: string };
 
@@ -266,6 +267,15 @@ async function applySignature(o: ApplySignatureInput): Promise<boolean> {
     await billingOnSignatureSigned(o.id);
   } catch (err) {
     console.error(`[esign] billing hook failed for request ${o.id}:`, err);
+  }
+  // A23 (WORKFLOW W02/W08/W09/W12): a signed pre-construction agreement starts
+  // scope/site-visit/design/estimate preparation now (no payment gate); other
+  // signed documents move the project workflow and wake the operating agent.
+  // Idempotent; never fails the binding signature.
+  try {
+    await workflowOnSignatureSigned(o.id);
+  } catch (err) {
+    console.error(`[esign] workflow hook failed for request ${o.id}:`, err);
   }
   return true;
 }

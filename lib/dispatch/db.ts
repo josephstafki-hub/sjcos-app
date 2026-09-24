@@ -8,6 +8,7 @@ import { runDirect, withTransaction } from "@/lib/commands/db";
 import { expireStaleDecisions } from "@/lib/commands/decisions";
 import { defaultProviders } from "@/lib/providers";
 import { dispatchOnce, reconcileUnknown, sweepForDispatch, type DispatchDeps, type DispatchOutcome } from "./core";
+import { announceUnannouncedDecisions } from "@/lib/decisions/notify";
 
 const WORKER = () => `${process.env.SJC_WORKER_NAME ?? "app"}:${process.pid}`;
 
@@ -28,15 +29,17 @@ export async function dispatchIntentsNow(intentIds: string[]): Promise<DispatchO
 export async function runDispatchPass(opts: { limit?: number } = {}): Promise<{
   swept: { unknown: number; requeued: number; releasedHolds: number };
   expiredDecisions: number;
+  announced: number;
   dispatched: DispatchOutcome[];
   reconciled: Awaited<ReturnType<typeof reconcileUnknown>>;
 }> {
   const d = deps();
   const swept = await withTransaction((run) => sweepForDispatch(run));
   const expiredDecisions = await withTransaction((run) => expireStaleDecisions(run));
+  const announced = await announceUnannouncedDecisions();
   const dispatched = await dispatchOnce(d, { limit: opts.limit ?? 50 });
   const reconciled = await reconcileUnknown(d);
-  return { swept, expiredDecisions, dispatched, reconciled };
+  return { swept, expiredDecisions, announced, dispatched, reconciled };
 }
 
 /** The agent-facing verdict for one intent's dispatch outcome. `ok` is true

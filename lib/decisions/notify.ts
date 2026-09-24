@@ -9,7 +9,7 @@ import "server-only";
 // recorded on the decision so a resolution can update every channel.
 
 import { runDirect, withTransaction } from "@/lib/commands/db";
-import { recordDelivery, stageDecision, type Decision, type StageDecisionInput } from "@/lib/commands/decisions";
+import { recordDelivery, stageDecision, DECISION_COLS, type Decision, type StageDecisionInput } from "@/lib/commands/decisions";
 import { notifyOwner } from "@/lib/notify-owner";
 import { cardText } from "./cards";
 import { decisionKeyboard } from "./telegram";
@@ -77,4 +77,28 @@ export async function stageAndAnnounce(input: StageDecisionInput): Promise<{ dec
   const staged = await withTransaction((run) => stageDecision(run, input));
   await announceDecision(staged.decision, staged);
   return staged;
+}
+
+/** Decisions staged by pure modules (estimating, procurement, field, QBO,
+ *  MCP tools running on their own pool) have no delivery yet. The dispatcher
+ *  pass calls this every 2 minutes so every pending decision reaches Joe once,
+ *  whoever staged it. Idempotent: a decision with an 'app' delivery is skipped. */
+export async function announceUnannouncedDecisions(limit = 20): Promise<number> {
+  const rows = await runDirect<Decision>(
+    `SELECT ${DECISION_COLS} FROM decisions
+      WHERE status = 'pending' AND expires_at > now()
+        AND NOT EXISTS (SELECT 1 FROM decision_deliveries dd WHERE dd.decision_id = decisions.id AND dd.channel = 'app')
+      ORDER BY created_at LIMIT $1`,
+    [limit],
+  );
+  let n = 0;
+  for (const d of rows) {
+    try {
+      await announceDecision(d, { created: true, superseded: null });
+      n++;
+    } catch (err) {
+      console.error(`[decisions] announce sweep failed for ${d.id}:`, (err as Error).message);
+    }
+  }
+  return n;
 }

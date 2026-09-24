@@ -35,7 +35,7 @@ test("V16: import twice → no duplicates; export twice → one QBO invoice/paym
     const [pay] = await run(`INSERT INTO invoice_payments (invoice_id, kind, amount_cents, method, provider, provider_ref, status, received_at) VALUES ($1, 'payment', 250000, 'card', 'square', 'sq-pay-1', 'settled', '2026-09-22') RETURNING id`, [inv.id]);
 
     // Bookkeeper's own entries in QBO (posted outside SJC OS).
-    const bill = await qbo.create("Bill", { TxnDate: "2026-09-10", TotalAmt: 420.0, DocNumber: "SIWECK-1" });
+    await qbo.create("Bill", { TxnDate: "2026-09-10", TotalAmt: 420.0, DocNumber: "SIWECK-1" });
     await run(`INSERT INTO expenses (project_id, expense_date, vendor_label, kind, amount_cents, source_ref) VALUES ($1, '2026-09-10', 'Siweck Lumber', 'material', 42000, 'card:9')`, [p.id]);
     await qbo.create("Purchase", { TxnDate: "2026-09-11", TotalAmt: 99.99 });
 

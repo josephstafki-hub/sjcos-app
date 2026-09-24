@@ -121,9 +121,10 @@ scope/proven for scope. Each operational claim needs date, version and evidence.
   reachable by agents through scoped tools.
 - Operating-agent evaluations (`evals/`, `scripts/run-evals.mjs`): harness
   self-test 8/8 (a naughty runner fails every scenario on a mandatory check);
-  real-model results in `evals/results/latest-claude.json` — see status/A24.md
-  for the per-scenario reading and the harness limits found (decision staging
-  through the app route is unreachable from the harness; fixed after the first run).
+  real model (claude-opus-5[1m]) 8/8 scenarios pass every mandatory check
+  (`evals/results/latest-claude.json`, 2026-09-23 21:03–21:52 ET); two advisory
+  misses reported in status/A24.md; the first run's four failures were harness
+  defects, fixed and re-run with the earlier files kept.
 - Deploy packet: `deploy/README.md` "Automation build (2026-09-23)" — units to
   install, env keys, migration order, rollback. `AGENTS.md` text to apply only
   after enforcement is deployed: `docs/automation-reliability/agents-md-migration.md`.

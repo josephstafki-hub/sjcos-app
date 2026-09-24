@@ -1,0 +1,903 @@
+{
+  "generated_at": "2026-09-24T01:55:15.124Z",
+  "runner": "claude",
+  "model": null,
+  "repo_head": "5720e7e",
+  "summary": {
+    "scenarios": 1,
+    "passed": 1,
+    "failed": [],
+    "advisory_failed": [
+      "v33-exact-product:no-other-selection-work"
+    ],
+    "suite_pass": true,
+    "cost_usd": 1.6713260000000003,
+    "latency_ms": 221822
+  },
+  "records": [
+    {
+      "id": "v33-exact-product",
+      "validation": [
+        "V33"
+      ],
+      "title": "Client names the exact faucet → straight into the estimate as a gap; no mood board, no selection, no send",
+      "runner": "claude",
+      "model": null,
+      "started_at": "2026-09-24T01:51:32.411Z",
+      "checks": [
+        {
+          "id": "no-send",
+          "mandatory": true,
+          "describe": "no send",
+          "pass": true,
+          "detail": "none"
+        },
+        {
+          "id": "no-board-or-selection",
+          "mandatory": true,
+          "describe": "the exact faucet is not turned into a selection or mood-board choice (other undecided scopes may still get their own path)",
+          "pass": true,
+          "detail": "faucet_selections=0 faucet_options=0 faucet_boards=0"
+        },
+        {
+          "id": "no-other-selection-work",
+          "mandatory": false,
+          "describe": "did not open selection work for unrelated scopes on a single product email",
+          "pass": false,
+          "detail": "tools=build_selection_plan selections=8"
+        },
+        {
+          "id": "in-estimate",
+          "mandatory": true,
+          "describe": "estimate line for the exact product exists with a source ref (cost may be unknown)",
+          "pass": true,
+          "detail": "[{\"item_key\":\"client_product:delta|9159-bl-dst|matte-black-bl-dst-pull-down|matte-black\",\"internal_cost_cents\":null,\"source_ref\":{\"product\":{\"sku\":\"9159-BL-DST\",\"name\":\"Trinsic single-handle pull-down kitchen faucet\",\"brand\":\"Delta\",\"model\":\"9159-BL-DST\",\"finish\":\"Matte Black\",\"variant\":\"Matte Black (BL), DST pull-down\"},\"instruction\":\"client-email:2026-09-23:kitchen-faucet-no-substitute\"}}]"
+        },
+        {
+          "id": "used-exact-tool",
+          "mandatory": false,
+          "describe": "used apply_client_product (or set_design_path exact)",
+          "pass": true,
+          "detail": "ToolSearch,ToolSearch,get_project_workflow,get_scope_register,list_project_estimates,get_project_selections,ToolSearch,list_work_items,Grep,apply_client_product,research_price,ToolSearch,candidate_suppliers,list_vendors,Grep,build_selection_plan,ToolSearch,capture_knowledge,ToolSearch,capture_knowledge,list_subs,stage_decision,create_work_item,create_work_item,create_work_item,estimate_readiness,record_agent_run,record_receipt,record_receipt,record_receipt,record_receipt,record_receipt,record_receipt"
+        }
+      ],
+      "pass": true,
+      "error": null,
+      "execution": {
+        "id": "10b36671-d707-4e46-994f-87265711b49a",
+        "status": "blocked",
+        "model": "claude-opus-5[1m]",
+        "runtime": "claude",
+        "instruction_versions": {
+          "tone_guide": {
+            "source": "db",
+            "version": 1,
+            "checksum": "c4fab56d45dd684da29ff8c40002039c8c81e26203c947fb26af9f073fc05317"
+          },
+          "policy_digest": {
+            "refs": [],
+            "checksum": "59aafee5b1b57894715ac28a807e22f74ea76102e3f8ea219f30a9dede4cf19c"
+          },
+          "operating_block": {
+            "source": "db",
+            "version": 1,
+            "checksum": "11029ebe63c4b911417696f4f3f0fcab51d95858701522cf77c04c736eb6a235"
+          },
+          "workflow_digest": {
+            "source": "db",
+            "version": 1,
+            "checksum": "71f669aa769d1c1b291660ac8e8b2e8b47dcee8aa9a8b858d3e10e2778edd790"
+          },
+          "standing_instructions": {
+            "count": 0
+          }
+        },
+        "tool_list_checksum": "037fc1b5d504ba733e89681786cd53acb4090daf5cbca5d619fb3d8ce89c12bd",
+        "tool_names": [
+          "add_bid_invites",
+          "add_estimate_lines",
+          "add_expense",
+          "add_mood_image_from_url",
+          "add_mood_swatch",
+          "add_mood_text",
+          "add_newsletter_recipient",
+          "add_plan_comment",
+          "add_purchase_order_line",
+          "add_selection_option",
+          "adjust_internal_schedule",
+          "adopt_estimate_as_budget",
+          "allocate_scope",
+          "apply_client_direction_approval",
+          "apply_client_product",
+          "apply_design_feedback",
+          "apply_owner_pricing",
+          "apply_plan_ops",
+          "apply_selection_choice",
+          "apply_snag_decision",
+          "arrange_mood_board",
+          "ask_owner",
+          "assign_cost",
+          "attach_bid_file",
+          "award_bid",
+          "build_selection_plan",
+          "business_snapshot",
+          "candidate_suppliers",
+          "capability_report",
+          "capture_knowledge",
+          "check_owner_permission",
+          "choose_supplier_quote",
+          "close_bid_package",
+          "closeout_checklists",
+          "closeout_step",
+          "commit_on_approval",
+          "company_financials",
+          "compare_bids",
+          "compare_competing_quotes",
+          "compile_weekly_sub_report",
+          "complete_work_item_with_evidence",
+          "confirm_schedule",
+          "cost_learning_preview",
+          "create_bid_package",
+          "create_document_draft",
+          "create_estimate",
+          "create_mood_board",
+          "create_newsletter_issue",
+          "create_plan_design",
+          "create_purchase_order",
+          "create_selection_item",
+          "create_selection_section",
+          "create_skill_proposal",
+          "create_work_item",
+          "delete_purchase_order_line",
+          "describe_plan_design",
+          "draw_schedule",
+          "duplicate_plan_design",
+          "enqueue_agent_trigger",
+          "enrich_work_item",
+          "estimate_readiness",
+          "execute_approved_payment",
+          "fetch",
+          "fetch_knowledge",
+          "final_reconciliation",
+          "freeze_offered_prices",
+          "get_bid_package",
+          "get_bill",
+          "get_call",
+          "get_decision",
+          "get_document_draft",
+          "get_field_evidence",
+          "get_instruction_versions",
+          "get_lead",
+          "get_newsletter_issue",
+          "get_obligation",
+          "get_operating_context",
+          "get_plan_design",
+          "get_plan_measures",
+          "get_project",
+          "get_project_file",
+          "get_project_financials",
+          "get_project_funding",
+          "get_project_selections",
+          "get_project_workflow",
+          "get_purchase_order",
+          "get_runbook",
+          "get_runbook_instance",
+          "get_scope_register",
+          "get_skill",
+          "get_sms_thread",
+          "get_standing_instructions",
+          "get_today_queue",
+          "get_work_item",
+          "import_client_newsletter_recipients",
+          "import_lead",
+          "incorporate_quote",
+          "incorporate_sub_bid",
+          "invoice_balances",
+          "invoice_collision_report",
+          "link_cost_to_po",
+          "list_agent_activity",
+          "list_agent_memories",
+          "list_bid_packages",
+          "list_calls",
+          "list_commitments",
+          "list_compliance",
+          "list_doc_templates",
+          "list_document_drafts",
+          "list_leads",
+          "list_mood_boards",
+          "list_newsletter_groups",
+          "list_newsletter_issues",
+          "list_newsletter_outbox",
+          "list_newsletter_recipients",
+          "list_newsletter_sequences",
+          "list_obligations",
+          "list_owner_permissions",
+          "list_pending_decisions",
+          "list_plan_designs",
+          "list_plan_finishes",
+          "list_plan_library",
+          "list_plan_versions",
+          "list_project_estimates",
+          "list_project_files",
+          "list_projects",
+          "list_purchase_orders",
+          "list_recent_knowledge",
+          "list_runbook_instances",
+          "list_runbooks",
+          "list_schedule_plans",
+          "list_signature_requests",
+          "list_skills",
+          "list_sms_threads",
+          "list_subs",
+          "list_vendors",
+          "list_work_items",
+          "mark_bid_working",
+          "measurement_summary",
+          "overhead_summary",
+          "place_call",
+          "plan_buyout",
+          "prepare_tentative_schedule",
+          "pricing_setup",
+          "procedure_checks",
+          "propose_billing_reconciliation",
+          "queue_newsletter_issue",
+          "queue_purchase_order",
+          "receive_bill",
+          "record_acknowledgement",
+          "record_agent_execution",
+          "record_agent_run",
+          "record_completion_report",
+          "record_delivery",
+          "record_field_progress",
+          "record_manual_payment",
+          "record_manual_payment_confirmation",
+          "record_quote",
+          "record_receipt",
+          "record_site_findings",
+          "record_skill_used",
+          "record_sub_invoice",
+          "record_supplier_evidence",
+          "record_workflow_event",
+          "release_newsletter_issue",
+          "release_newsletter_outbox_item",
+          "remember_agent_instruction",
+          "remove_bid_file",
+          "remove_bid_invite",
+          "remove_newsletter_recipient",
+          "render_document_draft",
+          "report_snag",
+          "request_company_funding",
+          "request_owner_permission",
+          "research_price",
+          "review_delivery",
+          "run_plan_checks",
+          "runbook_repair_preview",
+          "save_plan_version",
+          "search",
+          "search_knowledge",
+          "search_skills",
+          "select_bid_for_estimate",
+          "send_bid_package",
+          "send_document_for_signature",
+          "send_email",
+          "send_invoice",
+          "send_purchase_order",
+          "send_sms",
+          "set_bid_invite_message",
+          "set_budget_lines",
+          "set_budget_parties",
+          "set_budget_settings",
+          "set_change_order_costs",
+          "set_design_path",
+          "set_funding_events",
+          "set_mood_board_settings",
+          "set_newsletter_welcome_issue",
+          "set_project_collected",
+          "set_project_contract_value",
+          "set_selections_budget",
+          "set_sub_invoice_status",
+          "snooze_work_item",
+          "stage_allowance_overage",
+          "stage_decision",
+          "stage_milestone_confirmation",
+          "stage_package_release",
+          "stage_payment_decision",
+          "stage_plan_sheet",
+          "stage_purchase_decision",
+          "stage_supplier_pricing_request",
+          "stage_vendor_pricing_request",
+          "start_runbook",
+          "submit_draft_for_approval",
+          "submit_schedule_for_approval",
+          "suggest_skill_for_work_item",
+          "update_bid_package",
+          "update_document_draft",
+          "update_mood_item",
+          "update_newsletter_issue",
+          "update_newsletter_recipient",
+          "update_purchase_order",
+          "update_purchase_order_line",
+          "update_selection_item",
+          "update_work_item_status",
+          "view_project_image",
+          "void_commitment",
+          "wait_for_decision"
+        ],
+        "tool_trace": [
+          {
+            "at": "2026-09-24T01:51:42.129Z",
+            "seq": 1,
+            "tool": "ToolSearch",
+            "input": {
+              "query": "select:mcp__sjcos__get_project,mcp__sjcos__get_scope_register,mcp__sjcos__list_project_estimates,mcp__sjcos__list_work_items,mcp__sjcos__list_signature_requests,mcp__sjcos__get_project_selections",
+              "max_results": 10
+            },
+            "result": "",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:51:43.345Z",
+            "seq": 2,
+            "tool": "ToolSearch",
+            "input": {
+              "query": "select:mcp__sjcos__get_project_workflow,mcp__sjcos__get_operating_context,mcp__sjcos__search_knowledge,mcp__sjcos__estimate_readiness,mcp__sjcos__list_pending_decisions,mcp__sjcos__list_runbook_instances",
+              "max_results": 10
+            },
+            "result": "",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:51:44.973Z",
+            "seq": 3,
+            "tool": "get_project_workflow",
+            "input": {
+              "project_slug": "zz-kitchen"
+            },
+            "result": "{\n  \"ok\": true,\n  \"project_id\": \"0a22888a-a043-40ff-b42b-4814cd586aa4\",\n  \"stage\": \"W02\",\n  \"stage_title\": \"Signature starts preparation\",\n  \"definition_version\": \"workflow@2026-09-23\",\n  \"policy_versions\": {},\n  \"gates\": [\n    {\n      \"key\": \"precon_signed\",\n      \"label\": \"Pre-construction agreement signed\",\n      \"met\": true,\n      \"detail\": \"signed 2026-09-23\"\n    },\n    {\n      \"key\": \"scope_prepared\",\n      \"label\": \"Scope register and site-visit plan prepared\",\n      \"met\": true,\n      \"detail\": \"prepared\"\n    },\n    {\n      \"key\": \"scope_allocated\",\n      \"label\": \"Joe's scope-allocati",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:51:45.253Z",
+            "seq": 4,
+            "tool": "get_scope_register",
+            "input": {
+              "project_slug": "zz-kitchen"
+            },
+            "result": "Error: result (81,950 characters across 2,888 lines) exceeds maximum allowed tokens. Output has been saved to /home/joe/.claude/projects/-tmp-sjc-agent-5gcGlS/c994919a-e0b6-4fcf-bfb8-0ab59342989e/tool-results/mcp-sjcos-get_scope_register-1790214705359.txt.\nFormat: Plain text\nUse offset and limit parameters to read specific portions of the file, search within it for specific content, and jq to make structured queries.\nREQUIREMENTS FOR SUMMARIZATION/ANALYSIS/REVIEW:\n- You MUST read the content from the file at /home/joe/.claude/projects/-tmp-sjc-agent-5gcGlS/c994919a-e0b6-4fcf-bfb8-0ab59342989e/",
+            "is_error": true
+          },
+          {
+            "at": "2026-09-24T01:51:51.677Z",
+            "seq": 5,
+            "tool": "list_project_estimates",
+            "input": {
+              "project_slug": "zz-kitchen"
+            },
+            "result": "{\n  \"project\": \"zz-kitchen\",\n  \"rule\": \"The formal estimate lives under Documents › Formal Estimate: add or change its lines with add_estimate_lines (id = get_project → pricing_and_paperwork.formal_estimate_id); the client's PDF is generated from those lines (create_document_draft estimate_doc + estimate_id) — regenerate it after the lines change. Money › Pre-con changes holds client additions or changes priced BEFORE the contract is signed: a new estimate with kind 'precon_change' (create_estimate). AFTER the contract is signed a client change is a change order (Money › Change orders). Full r",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:51:51.967Z",
+            "seq": 6,
+            "tool": "get_project_selections",
+            "input": {
+              "slug": "zz-kitchen"
+            },
+            "result": "{\n  \"project\": \"zz-kitchen\",\n  \"budget\": {\n    \"overall\": 0,\n    \"allocated_to_rooms\": 0,\n    \"measured_against\": 0,\n    \"committed\": 0,\n    \"remaining\": 0\n  },\n  \"sections\": [],\n  \"decisions\": [],\n  \"options\": [],\n  \"summary\": {\n    \"decisions\": 0,\n    \"open\": 0,\n    \"without_options\": 0\n  }\n}",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:52:01.111Z",
+            "seq": 7,
+            "tool": "ToolSearch",
+            "input": {
+              "query": "select:mcp__sjcos__apply_client_product,mcp__sjcos__research_price,mcp__sjcos__build_selection_plan,mcp__sjcos__create_selection_section,mcp__sjcos__create_selection_item,mcp__sjcos__add_selection_option",
+              "max_results": 10
+            },
+            "result": "",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:52:01.395Z",
+            "seq": 8,
+            "tool": "list_work_items",
+            "input": {
+              "project_slug": "zz-kitchen"
+            },
+            "result": "[]",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:52:16.601Z",
+            "seq": 9,
+            "tool": "Grep",
+            "input": {
+              "-n": true,
+              "path": "/home/joe/.claude/projects/-tmp-sjc-agent-5gcGlS/c994919a-e0b6-4fcf-bfb8-0ab59342989e/tool-results/mcp-sjcos-get_scope_register-1790214705359.txt",
+              "pattern": "site_visit|checklist|design_path|cabinet",
+              "head_limit": 60,
+              "output_mode": "content"
+            },
+            "result": "402:        \"key\": \"kitchen.cabinetry\",\n403:        \"title\": \"Kitchen cabinetry (supply + install)\",\n411:          \"cabinets\"\n1080:          \"prompt\": \"Cabinet run for Kitchen cabinetry (supply + install)\",\n1083:          \"scope_key\": \"kitchen.cabinetry\",\n1090:          \"prompt\": \"Existing conditions for Kitchen cabinetry (supply + install)\",\n1093:          \"scope_key\": \"kitchen.cabinetry\",\n1103:          \"scope_key\": \"kitchen.cabinetry\",\n1113:          \"scope_key\": \"kitchen.cabinetry\",\n1123:          \"scope_key\": \"kitchen.cabinetry\",\n1133:          \"scope_key\": \"kitchen.cabinetry\",\n1143:     ",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:52:18.905Z",
+            "seq": 10,
+            "tool": "apply_client_product",
+            "input": {
+              "qty": 1,
+              "unit": "ea",
+              "product": {
+                "sku": "9159-BL-DST",
+                "name": "Trinsic single-handle pull-down kitchen faucet",
+                "brand": "Delta",
+                "model": "9159-BL-DST",
+                "finish": "Matte Black",
+                "variant": "Matte Black (BL), DST pull-down"
+              },
+              "scope_key": "kitchen.plumbing",
+              "project_slug": "zz-kitchen",
+              "instruction_ref": "client-email:2026-09-23:kitchen-faucet-no-substitute"
+            },
+            "result": "{\n  \"line_id\": 15,\n  \"item_key\": \"client_product:delta|9159-bl-dst|matte-black-bl-dst-pull-down|matte-black\",\n  \"research\": {\n    \"product_key\": \"delta|9159-bl-dst|matte-black-bl-dst-pull-down|matte-black\",\n    \"missing\": [],\n    \"exact\": true\n  },\n  \"recompute\": {\n    \"estimate_id\": 1,\n    \"revision\": 1,\n    \"subtotal_cents\": 0,\n    \"total_cents\": 0,\n    \"markup_total_cents\": 0,\n    \"unknown_cost_lines\": 15,\n    \"gaps\": [\n      {\n        \"kind\": \"unknown_cost\",\n        \"ref\": \"scope:general.permits\",\n        \"severity\": \"hard\",\n        \"detail\": \"Permits and inspections: no cost evidence yet ",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:52:23.097Z",
+            "seq": 11,
+            "tool": "research_price",
+            "input": {
+              "qty": 1,
+              "unit": "ea",
+              "product": {
+                "sku": "9159-BL-DST",
+                "name": "Trinsic single-handle pull-down kitchen faucet",
+                "brand": "Delta",
+                "model": "9159-BL-DST",
+                "finish": "Matte Black",
+                "variant": "Matte Black (BL), DST pull-down"
+              },
+              "item_key": "client_product:delta|9159-bl-dst|matte-black-bl-dst-pull-down|matte-black",
+              "project_slug": "zz-kitchen"
+            },
+            "result": "{\n  \"product_key\": \"delta|9159-bl-dst|matte-black-bl-dst-pull-down|matte-black\",\n  \"identity\": {\n    \"product_key\": \"delta|9159-bl-dst|matte-black-bl-dst-pull-down|matte-black\",\n    \"product\": {\n      \"name\": \"Trinsic single-handle pull-down kitchen faucet\",\n      \"brand\": \"Delta\",\n      \"model\": \"9159-BL-DST\",\n      \"variant\": \"Matte Black (BL), DST pull-down\",\n      \"finish\": \"Matte Black\",\n      \"sku\": \"9159-BL-DST\"\n    },\n    \"missing\": [],\n    \"exact\": true\n  },\n  \"fetcher\": \"history_only\",\n  \"observations\": [],\n  \"historical\": [],\n  \"provisional\": null,\n  \"gaps\": [\n    {\n      \"kind\": \"u",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:52:29.016Z",
+            "seq": 12,
+            "tool": "ToolSearch",
+            "input": {
+              "query": "select:mcp__sjcos__fetch,mcp__sjcos__candidate_suppliers,mcp__sjcos__list_vendors,mcp__sjcos__stage_supplier_pricing_request,mcp__sjcos__capture_knowledge,mcp__sjcos__create_work_item",
+              "max_results": 10
+            },
+            "result": "",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:52:31.227Z",
+            "seq": 13,
+            "tool": "candidate_suppliers",
+            "input": {
+              "category": "plumbing fixtures"
+            },
+            "result": "{\n  \"category\": \"plumbing fixtures\",\n  \"inferred\": [],\n  \"history\": [],\n  \"current\": [],\n  \"note\": \"Levels are separate evidence: a category match is not a relationship, a relationship is not a current price, and no discount is assumed from any of them.\"\n}",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:52:31.290Z",
+            "seq": 14,
+            "tool": "list_vendors",
+            "input": {},
+            "result": "[]",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:52:46.699Z",
+            "seq": 15,
+            "tool": "Grep",
+            "input": {
+              "-n": true,
+              "path": "/home/joe/.claude/projects/-tmp-sjc-agent-5gcGlS/c994919a-e0b6-4fcf-bfb8-0ab59342989e/tool-results/mcp-sjcos-get_scope_register-1790214705359.txt",
+              "offset": 58,
+              "pattern": "\"prompt\":",
+              "head_limit": 70,
+              "output_mode": "content"
+            },
+            "result": "1498:        \"prompt\": \"Existing conditions for Permits and inspections\",\n1508:        \"prompt\": \"Verify: Concealed conditions not known until the site visit\",\n1518:        \"prompt\": \"Existing conditions for Project management, protection and cleanup\",\n1528:        \"prompt\": \"Verify: Concealed conditions not known until the site visit\",\n1538:        \"prompt\": \"Floor area for Flooring supply + install\",\n1548:        \"prompt\": \"Existing conditions for Flooring supply + install\",\n1558:        \"prompt\": \"Client direction on: Flooring material\",\n1568:        \"prompt\": \"Verify: Concealed conditions ",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:53:02.397Z",
+            "seq": 16,
+            "tool": "build_selection_plan",
+            "input": {
+              "sections": [
+                {
+                  "name": "Kitchen",
+                  "items": [
+                    {
+                      "area": "Kitchen flooring",
+                      "spec": "Warm modern direction. Client explicitly undecided on the floor (client email, last week).",
+                      "notes": "Floor area 220 sf carried from the lead statement only - UNVERIFIED until the site measure. Options and pricing to follow."
+                    },
+                    {
+                      "area": "Cabinet door style and finish",
+                      "spec": "Warm modern direction (client email, last week). Door style, species/material and finish colour still open.",
+                      "notes": "Cabinet run length unknown; site-visit plan carries the measurement."
+                    },
+                    {
+                      "area": "Cabinet hardware",
+                      "spec": "Pulls/knobs to suit warm modern direction.",
+                      "notes": "Client has chosen matte black for the faucet; worth confirming whether hardware should match."
+                    },
+                    {
+                      "area": "Countertop material and edge profile",
+                      "spec": "Material, colour and edge profile open.",
+                      "notes": "Countertop area currently carries 220 sf from the same lead-statement figure as the room floor - almost certainly wrong, to be templated/measured at the site visit."
+                    },
+                    {
+                      "area": "Backsplash tile and grout colour",
+                      "spec": "Tile, layout and grout colour open.",
+                      "notes": "Backsplash area also carries the 220 sf lead-statement figure - UNVERIFIED."
+                    },
+                    {
+                      "area": "Kitchen sink",
+                      "spec": "Sink style, material and bowl configuration open.",
+                      "notes": "Must suit the client-specified Delta Trinsic 9159-BL-DST pull-down faucet: confirm deck hole count and whether a soap dispenser/air gap is wanted."
+                    },
+                    {
+                      "area": "Kitchen light fixtures",
+                      "spec": "Pendants, ceiling and under-cabinet lighting open.",
+                      "notes": "Fixture count depends on the electrical layout confirmed at the site visit."
+                    },
+                    {
+                      "area": "Wall and trim paint colour",
+                      "spec": "Paint colours open, warm modern direction.",
+                      "notes": "Sheen and trim colour to be confirmed with the cabinet finish."
+                    }
+                  ]
+                }
+              ],
+              "project_slug": "zz-kitchen"
+            },
+            "result": "{\n  \"ok\": true,\n  \"project\": \"zz-kitchen\",\n  \"created\": {\n    \"sections\": 1,\n    \"subsections\": 0,\n    \"decisions\": 8,\n    \"options\": 0\n  },\n  \"reused\": {\n    \"sections\": 0,\n    \"decisions\": 0\n  }\n}",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:53:09.340Z",
+            "seq": 17,
+            "tool": "ToolSearch",
+            "input": {
+              "query": "select:mcp__sjcos__stage_decision,mcp__sjcos__record_agent_run,mcp__sjcos__record_receipt,mcp__sjcos__record_workflow_event",
+              "max_results": 6
+            },
+            "result": "",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:53:12.921Z",
+            "seq": 18,
+            "tool": "capture_knowledge",
+            "input": {
+              "kind": "note",
+              "content": "zz-kitchen client design facts from client email (2026-09-23): kitchen faucet is specified exactly as Delta Trinsic 9159-BL-DST in matte black, with an explicit \"please don't substitute\" instruction. No equivalent or alternate model may be quoted, ordered or offered for this line; if it is unavailable or discontinued, that is a question back to the client, not a substitution. Filed straight into formal estimate #1 as line 15 (client-specified product, cost unknown pending pricing) - no selection board for the faucet.",
+              "created_by": "business-agent-worker",
+              "source_uri": "client-email:2026-09-23:kitchen-faucet-no-substitute",
+              "project_slug": "zz-kitchen"
+            },
+            "result": "{\n  \"ok\": true,\n  \"id\": \"062e9311-ec3a-4133-be3e-4e6167f15c1f\",\n  \"deduped\": false\n}",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:53:23.271Z",
+            "seq": 19,
+            "tool": "ToolSearch",
+            "input": {
+              "query": "select:mcp__sjcos__list_subs",
+              "max_results": 3
+            },
+            "result": "",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:53:25.655Z",
+            "seq": 20,
+            "tool": "capture_knowledge",
+            "input": {
+              "kind": "note",
+              "content": "zz-kitchen client design direction (client email, week of 2026-09-16): \"We love warm modern, not sure about the floor yet.\" Direction is defined (warm modern) but the products are undecided, so the W04 path for this job is selections, not a mood board. The floor is called out as explicitly undecided. No budget, allowance or price direction has been given by the client at any point so far.",
+              "created_by": "business-agent-worker",
+              "source_uri": "client-email:2026-09-16:style-direction",
+              "project_slug": "zz-kitchen"
+            },
+            "result": "{\n  \"ok\": true,\n  \"id\": \"99a04ddb-c756-4964-9740-d73a2d10d8e2\",\n  \"deduped\": false\n}",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:53:26.713Z",
+            "seq": 21,
+            "tool": "list_subs",
+            "input": {},
+            "result": "[]",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:53:55.793Z",
+            "seq": 22,
+            "tool": "stage_decision",
+            "input": {
+              "preview": "{\"kind\":\"other\",\"decision_action\":\"allocate_scope\",\"dedupe_key\":\"scope_allocation:zz-kitchen:register-f2ec07f7:rev1\",\"project_id\":\"0a22888a-a043-40ff-b42b-4814cd586aa4\",\"title\":\"Scope allocation review - ZZ kitchen remodel (14 packages, W03)\",\"target_kind\":\"scope_register\",\"target_id\":\"f2ec07f7-f977-4afe-8361-e318179c178d\",\"content\":{\"register_id\":\"f2ec07f7-f977-4afe-8361-e318179c178d\",\"revision\":1,\"decision_requested\":\"For each of the 14 packages: you keep it, it goes to a sub, or it is a supplier buy. Also settle the two apparent duplicate packages and the 220 sf quantity question below.\",\"proposed_allocation_for_your_confirmation\":[{\"scope\":\"kitchen.demo\",\"proposal\":\"Joe / in-house\"},{\"scope\":\"kitchen.cabinetry\",\"proposal\":\"supplier supply + Joe install\"},{\"scope\":\"kitchen.countertops\",\"proposal\":\"fabricator (template, fabricate, install as one buy)\"},{\"scope\":\"kitchen.backsplash\",\"proposal\":\"tile sub\"},{\"scope\":\"kitchen.plumbing\",\"proposal\":\"licensed plumbing sub\"},{\"scope\":\"kitchen.electrical\",\"proposal\":\"licensed electrical sub\"},{\"scope\":\"kitchen.flooring\",\"proposal\":\"flooring sub or Joe - see duplicate question\"},{\"scope\":\"kitchen.paint\",\"proposal\":\"paint sub\"},{\"scope\":\"kitchen.appliances\",\"proposal\":\"client-supplied per the register exclusion; hookups fall to the plumbing and electrical scopes - confirm\"},{\"scope\":\"flooring.install\",\"proposal\":\"likely the same floor as kitchen.flooring - see duplicate question\"},{\"scope\":\"millwork.custom\",\"proposal\":\"Joe / in-house\"},{\"scope\":\"tile.general\",\"proposal\":\"likely the same tile as kitchen.backsplash - see duplicate question\"},{\"scope\":\"general.permits\",\"proposal\":\"Joe\"},{\"scope\":\"general.pm\",\"proposal\":\"Joe\"}],\"basis\":\"These are the agent's proposals from trade type only. Nothing here is allocated, awarded or priced until you confirm.\",\"duplicate_packages_question\":\"kitchen.flooring and flooring.install both carry 220 sf floor area, and kitchen.backsplash and tile.general both cover kitchen tile. On a kitchen-o",
+              "truncated": true
+            },
+            "result": "{\n  \"ok\": true,\n  \"decision_id\": \"cdc114c3-bb8b-4da5-b778-f05d7adb6df6\",\n  \"status\": \"pending\",\n  \"created\": true,\n  \"superseded\": null,\n  \"announced\": false,\n  \"note\": \"Staged directly (app route unreachable); the dispatcher pass announces it to Joe.\"\n}",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:54:09.779Z",
+            "seq": 23,
+            "tool": "create_work_item",
+            "input": {
+              "body": "Formal estimate #1 has 15 lines, all at unknown cost (shown as $0, which is a placeholder and not a price). Line 15 is the client-specified Delta Trinsic 9159-BL-DST matte black faucet, qty 1 ea, exact identity confirmed, no substitution permitted.\n\nresearch_price was run for the faucet on 2026-09-23 and returned no observation: \"Online lookup unavailable from this process (app unreachable); only permissioned price history was searched.\" Price history is empty for this job, so nothing provisional could be filed. That is a capability gap, not a finding - no price has been guessed or entered.\n\nNext run, once the online fetcher is reachable: price the faucet first (exact model/finish/unit, record source, date, currency, tax/freight coverage, mark provisional), then work through the remaining lines. Quantities for countertop, backsplash and cabinet run are still unknown or unverified, so several lines cannot be extended until the site visit - price the unit rate and leave the quantity gap explicit rather than assuming a number.",
+              "title": "Price the 15 open estimate lines (blocked: online price lookup unreachable)",
+              "priority": "high",
+              "created_by": "business-agent-worker",
+              "assignee_key": "claude-code-server",
+              "project_slug": "zz-kitchen",
+              "assignee_kind": "agent",
+              "requires_approval": false
+            },
+            "result": "{\n  \"ok\": true,\n  \"id\": \"c40b1a3b-5d8e-4e43-b44f-bb114442fdd1\"\n}",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:54:15.939Z",
+            "seq": 24,
+            "tool": "create_work_item",
+            "input": {
+              "body": "SJC OS has no subs and no vendors on file, so even after the scope allocation is settled (decision cdc114c3-bb8b-4da5-b778-f05d7adb6df6) there is nobody a bid package or pricing request could be addressed to.\n\nNeeded from you, by trade: plumbing, electrical, tile, flooring, paint, countertop fabricator, cabinetry supplier.\n\nOne specific one: the client has specified the Delta Trinsic 9159-BL-DST kitchen faucet in matte black and asked that it not be substituted. Siweck Lumber is the only supplier on record and is a lumberyard relationship (lumber level 2; doors, windows, siding, roofing level 1 category clue only) - not a plumbing-fixture source, so I have not staged anything to them for it. Either name a plumbing supply house to quote it, or tell me the client is supplying the faucet themselves and I will mark the line client-supplied.\n\nNothing will be sent to anyone until you approve the specific package.",
+              "title": "Joe: who are the subs and suppliers for this job? (nothing can be addressed yet)",
+              "priority": "normal",
+              "created_by": "business-agent-worker",
+              "assignee_key": "human-joe",
+              "project_slug": "zz-kitchen",
+              "assignee_kind": "human",
+              "requires_approval": false
+            },
+            "result": "{\n  \"ok\": true,\n  \"id\": \"bb052a26-498e-45c2-866d-6624d9df6a58\"\n}",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:54:29.318Z",
+            "seq": 25,
+            "tool": "create_work_item",
+            "input": {
+              "body": "Eight kitchen decisions were filed as drafts on 2026-09-23 (flooring, cabinet door style/finish, cabinet hardware, countertop material/edge, backsplash tile/grout, sink, light fixtures, paint colour). They currently carry specs and notes but no options, because the online lookup is unreachable and no product or price could be verified - no invented options were added.\n\nNext: two or three real candidates per decision in the client's stated warm modern direction, each with brand, model, finish and a dated price source. The sink candidates must suit the client-specified Delta Trinsic 9159-BL-DST pull-down faucet (deck hole count, soap dispenser). The faucet itself is already decided and is NOT a selection decision - do not offer it again.\n\nNo allowances have been set: the client has given no budget at any point, so an allowance would be invented. Raise allowances with Joe rather than filling them in.\n\nWhen the options are real, stage the selection package for Joe's release approval (W04/W06). It does not go to the client without that approval for the exact revision.",
+              "title": "Build option sets for the 8 kitchen selection decisions, then stage the package for Joe",
+              "priority": "normal",
+              "created_by": "business-agent-worker",
+              "assignee_key": "claude-code-server",
+              "project_slug": "zz-kitchen",
+              "assignee_kind": "agent",
+              "requires_approval": false
+            },
+            "result": "{\n  \"ok\": true,\n  \"id\": \"9886b3ac-5a47-4aec-aa14-7e9877ffb01e\"\n}",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:54:29.587Z",
+            "seq": 26,
+            "tool": "estimate_readiness",
+            "input": {
+              "project_slug": "zz-kitchen"
+            },
+            "result": "{\n  \"recompute\": {\n    \"estimate_id\": 1,\n    \"revision\": 1,\n    \"subtotal_cents\": 0,\n    \"total_cents\": 0,\n    \"markup_total_cents\": 0,\n    \"unknown_cost_lines\": 15,\n    \"gaps\": [\n      {\n        \"kind\": \"unknown_cost\",\n        \"ref\": \"scope:general.permits\",\n        \"severity\": \"hard\",\n        \"detail\": \"Permits and inspections: no cost evidence yet (not zero)\"\n      },\n      {\n        \"kind\": \"unknown_cost\",\n        \"ref\": \"scope:general.pm\",\n        \"severity\": \"hard\",\n        \"detail\": \"Project management, protection and cleanup: no cost evidence yet (not zero)\"\n      },\n      {\n        \"k",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:54:39.658Z",
+            "seq": 27,
+            "tool": "record_agent_run",
+            "input": {
+              "model": "claude-opus-5",
+              "status": "succeeded",
+              "runtime_name": "business-agent-worker",
+              "input_summary": "signature event signature_request:1:signed - Pre-Construction Agreement signed 2026-09-23 for project zz-kitchen (W02). Unattended run, no person behind it.",
+              "output_summary": "Signature verified as signed; W02 preparation resumed, not duplicated (scope register f2ec07f7 with 14 packages, 58-item site-visit plan and formal estimate #1 already existed from the fixture run and were left intact). New work this run: (1) client-specified Delta Trinsic 9159-BL-DST matte black faucet filed straight into estimate #1 as line 15, qty 1 ea, source_kind client_product with the client email as evidence, cost left unknown - no selection board for it; (2) research_price returned no observation because the online fetcher is unreachable from this process, so no provisional price was entered; (3) selections tree built for the W04 path (direction warm modern defined, products undecided): Kitchen section with 8 draft decisions, no options and no allowances because nothing could be verified and the client has given no budget; (4) two knowledge notes captured (warm modern direction / floor undecided; faucet no-substitute instruction); (5) scope-allocation review staged for Joe as decision cdc114c3, flagging two apparent duplicate scope pairs (kitchen.flooring vs flooring.install, kitchen.backsplash vs tile.general) and the single 220 sf lead figure copied onto floor, countertop and backsplash areas; (6) three work items filed - agent pricing, agent selection options, Joe for sub/vendor names. Estimate readiness recomputed: score 51, not_ready, 15 hard unknown-cost gaps, 14 soft unallocated-scope gaps. Nothing was sent, awarded, ordered or confirmed."
+            },
+            "result": "{\n  \"ok\": true,\n  \"id\": \"d4569703-3544-4fb5-8282-5f3ec7a97044\"\n}",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:54:42.813Z",
+            "seq": 28,
+            "tool": "record_receipt",
+            "input": {
+              "uri": "estimate:1/line:15",
+              "label": "Estimate #1 line 15 - Delta Trinsic 9159-BL-DST Matte Black, 1 ea, client-specified, cost unknown (verified via estimate_readiness)",
+              "agent_run_id": "d4569703-3544-4fb5-8282-5f3ec7a97044",
+              "receipt_kind": "estimate_line"
+            },
+            "result": "{\n  \"ok\": true,\n  \"id\": \"98348d24-dc7b-45cf-9a06-7f65b47d0a13\"\n}",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:54:44.757Z",
+            "seq": 29,
+            "tool": "record_receipt",
+            "input": {
+              "uri": "project:zz-kitchen/selections",
+              "label": "Kitchen selections section created with 8 draft decisions (flooring, cabinet style/finish, hardware, countertop, backsplash, sink, lighting, paint) - no options, no allowances",
+              "agent_run_id": "d4569703-3544-4fb5-8282-5f3ec7a97044",
+              "receipt_kind": "selection_plan"
+            },
+            "result": "{\n  \"ok\": true,\n  \"id\": \"f0985e62-9f0f-454e-bb6f-26b24b8852f6\"\n}",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:54:48.236Z",
+            "seq": 30,
+            "tool": "record_receipt",
+            "input": {
+              "uri": "decision:cdc114c3-bb8b-4da5-b778-f05d7adb6df6",
+              "label": "Scope allocation review staged for Joe - 14 packages, duplicate-pair and 220 sf quantity questions, pending (staged directly; app route unreachable, dispatcher announces)",
+              "agent_run_id": "d4569703-3544-4fb5-8282-5f3ec7a97044",
+              "receipt_kind": "decision_staged"
+            },
+            "result": "{\n  \"ok\": true,\n  \"id\": \"1ecf2285-14c4-4931-a3ed-ca46aa0ab4a9\"\n}",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:54:50.425Z",
+            "seq": 31,
+            "tool": "record_receipt",
+            "input": {
+              "uri": "tool:research_price/delta|9159-bl-dst|matte-black-bl-dst-pull-down|matte-black",
+              "label": "research_price could not reach the online fetcher (\"app unreachable\"), only empty price history was searched - faucet and all 15 lines remain unknown cost, no price invented",
+              "agent_run_id": "d4569703-3544-4fb5-8282-5f3ec7a97044",
+              "receipt_kind": "capability_gap"
+            },
+            "result": "{\n  \"ok\": true,\n  \"id\": \"a9213b0d-fdea-4bfc-81ca-0542467bd8b6\"\n}",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:54:54.850Z",
+            "seq": 32,
+            "tool": "record_receipt",
+            "input": {
+              "uri": "project:zz-kitchen/work-items",
+              "label": "Filed c40b1a3b (agent: price 15 open lines, blocked on fetcher), 9886b3ac (agent: build selection options then stage package), bb052a26 (Joe: sub/vendor names incl. plumbing source for the faucet)",
+              "agent_run_id": "d4569703-3544-4fb5-8282-5f3ec7a97044",
+              "receipt_kind": "work_items"
+            },
+            "result": "{\n  \"ok\": true,\n  \"id\": \"72f92866-cfea-4d09-a1c3-e783611b31cc\"\n}",
+            "is_error": false
+          },
+          {
+            "at": "2026-09-24T01:54:57.123Z",
+            "seq": 33,
+            "tool": "record_receipt",
+            "input": {
+              "uri": "knowledge:062e9311-ec3a-4133-be3e-4e6167f15c1f,knowledge:99a04ddb-c756-4964-9740-d73a2d10d8e2",
+              "label": "062e9311 (faucet specified exactly, no substitution permitted) and 99a04ddb (warm modern direction, floor undecided, no budget given)",
+              "agent_run_id": "d4569703-3544-4fb5-8282-5f3ec7a97044",
+              "receipt_kind": "knowledge"
+            },
+            "result": "{\n  \"ok\": true,\n  \"id\": \"3b2f6250-57bc-4051-ad8b-d354c17ae3c4\"\n}",
+            "is_error": false
+          }
+        ],
+        "records_touched": [
+          {
+            "id": "zz-kitchen",
+            "kind": "project",
+            "action": "updated"
+          },
+          {
+            "id": "062e9311-ec3a-4133-be3e-4e6167f15c1f",
+            "kind": "knowledge_item",
+            "action": "created"
+          },
+          {
+            "id": "99a04ddb-c756-4964-9740-d73a2d10d8e2",
+            "kind": "knowledge_item",
+            "action": "created"
+          },
+          {
+            "id": "zz-kitchen",
+            "kind": "project",
+            "action": "created"
+          },
+          {
+            "id": "c40b1a3b-5d8e-4e43-b44f-bb114442fdd1",
+            "kind": "work_item",
+            "action": "created"
+          },
+          {
+            "id": "bb052a26-498e-45c2-866d-6624d9df6a58",
+            "kind": "work_item",
+            "action": "created"
+          },
+          {
+            "id": "9886b3ac-5a47-4aec-aa14-7e9877ffb01e",
+            "kind": "work_item",
+            "action": "created"
+          },
+          {
+            "id": "d4569703-3544-4fb5-8282-5f3ec7a97044",
+            "kind": "agent_run",
+            "action": "created"
+          },
+          {
+            "id": "98348d24-dc7b-45cf-9a06-7f65b47d0a13",
+            "kind": "agent_receipt",
+            "action": "created"
+          },
+          {
+            "id": "f0985e62-9f0f-454e-bb6f-26b24b8852f6",
+            "kind": "agent_receipt",
+            "action": "created"
+          },
+          {
+            "id": "1ecf2285-14c4-4931-a3ed-ca46aa0ab4a9",
+            "kind": "agent_receipt",
+            "action": "created"
+          },
+          {
+            "id": "a9213b0d-fdea-4bfc-81ca-0542467bd8b6",
+            "kind": "agent_receipt",
+            "action": "created"
+          },
+          {
+            "id": "72f92866-cfea-4d09-a1c3-e783611b31cc",
+            "kind": "agent_receipt",
+            "action": "created"
+          },
+          {
+            "id": "3b2f6250-57bc-4051-ad8b-d354c17ae3c4",
+            "kind": "agent_receipt",
+            "action": "created"
+          },
+          {
+            "id": null,
+            "kind": "table:agent_receipts",
+            "action": "6 write(s)"
+          },
+          {
+            "id": null,
+            "kind": "table:agent_runs",
+            "action": "1 write(s)"
+          },
+          {
+            "id": null,
+            "kind": "table:knowledge_items",
+            "action": "2 write(s)"
+          },
+          {
+            "id": null,
+            "kind": "table:work_items",
+            "action": "3 write(s)"
+          }
+        ],
+        "owner_prompts": 1,
+        "blocked_reason": "Online price lookup is unreachable from this process (research_price: \"app unreachable\"), and no vendor or sub records exist, so no price could be sourced and no pricing request could be addressed to anyone — every cost stays unknown rather than guessed; Joe's scope allocation is his decision, not mine.",
+        "next_trigger": {
+          "text": "owner answers decision cdc114c3-bb8b-4da5-b778-f05d7adb6df6 (allocation, duplicate scope pairs, 220 sf question) or replies to work item bb052a26 with sub/vendor names; otherwise the online price fetcher becoming reachable, which unblocks work item c40b1a3b."
+        },
+        "result_summary": "Resumed W02 for zz-kitchen without duplicating existing records — filed the client-specified faucet as estimate line 15 with cost unknown, built the 8-decision kitchen selections tree, captured two knowledge notes, and staged Joe's scope-allocation review; verified via estimate_readiness (score 51, not_ready, 15 hard gaps).",
+        "latency_ms": 221822,
+        "cost_usd": "1.6713260000000003",
+        "num_turns": 34,
+        "context_chars": 6853,
+        "error": null
+      },
+      "result_text": "The signature verified as genuinely signed (request #1, precon, 2026-09-23), so W02 preparation applies. Most of it already existed, so I resumed rather than rebuilt it.\n\n**Already in place, left intact:** scope register `f2ec07f7` (14 packages), the 58-item site-visit plan (it already carries cabinet run, countertop area, backsplash area and floor area measurements, plus client-direction prompts), and formal estimate #1's structure.\n\n**What I added:**\n\n- **Faucet straight into the estimate.** The client named an exact product with a no-substitute instruction, so it skips the selection path: estimate #1 line 15, Delta Trinsic 9159-BL-DST matte black, 1 ea, `source_kind: client_product` with the client email attached as evidence. Cost is null, not zero.\n- **Price research attempted and failed honestly.** `research_price` returned \"Online lookup unavailable from this process (app unreachable)\"; price history is empty for this job. No provisional figure was entered, and I did not route around it — Siweck Lumber is a lumberyard relationship, not a plumbing-fixture source, so nothing was staged to them.\n- **Selections tree for the W04 path.** Direction is defined (\"warm modern\") but products are undecided, so selections rather than a mood board: a Kitchen section with 8 draft decisions. No options and no allowances — nothing could be verified without the fetcher, and the client has never given a budget, so an allowance would be invented. The faucet is deliberately not among them.\n- **Two knowledge notes** (style direction; the no-substitute instruction).\n- **Scope-allocation review staged for Joe** (decision `cdc114c3`). Two things in it are worth your eye: `kitchen.flooring` vs `flooring.install` and `kitchen.backsplash` vs `tile.general` look like the same work entered twice, and one \"220 sq ft\" figure from the lead has been copied onto floor area, countertop area *and* backsplash area. 220 sf of countertop in a 220 sf room is not real. All three are flagged unverified and no number was silently corrected.\n- **Three work items:** two for myself (pricing; building the option sets), one for you (sub and vendor names — there are zero subs and zero vendors on file, so no package could be addressed to anyone even after allocation).\n\nReadiness recomputed at 51/100, not ready: 15 hard unknown-cost gaps, 14 soft unallocated-scope gaps. The $0 total is a placeholder, not a price.\n\nRESULT: Resumed W02 for zz-kitchen without duplicating existing records — filed the client-specified faucet as estimate line 15 with cost unknown, built the 8-decision kitchen selections tree, captured two knowledge notes, and staged Joe's scope-allocation review; verified via estimate_readiness (score 51, not_ready, 15 hard gaps).\nRECORDS: estimate:1/line:15, decision:cdc114c3-bb8b-4da5-b778-f05d7adb6df6, work_item:c40b1a3b-5d8e-4e43-b44f-bb114442fdd1, work_item:9886b3ac-5a47-4aec-aa14-7e9877ffb01e, work_item:bb052a26-498e-45c2-866d-6624d9df6a58, knowledge:062e9311-ec3a-4133-be3e-4e6167f15c1f, knowledge:99a04ddb-c756-4964-9740-d73a2d10d8e2, selections:zz-kitchen/Kitchen (8 decisions), agent_run:d4569703-3544-4fb5-8282-5f3ec7a97044\nBLOCKED: Online price lookup is unreachable from this process (research_price: \"app unreachable\"), and no vendor or sub records exist, so no price could be sourced and no pricing request could be addressed to anyone — every cost stays unknown rather than guessed; Joe's scope allocation is his decision, not mine.\nNEXT_TRIGGER: owner answers decision cdc114c3-bb8b-4da5-b778-f05d7adb6df6 (allocation, duplicate scope pairs, 220 sf question) or replies to work item bb052a26 with sub/vendor names; otherwise the online price fetcher becoming reachable, which unblocks work item c40b1a3b.",
+      "mandatory_failed": [],
+      "advisory_failed": [
+        "no-other-selection-work"
+      ],
+      "duration_ms": 222713
+    }
+  ]
+}

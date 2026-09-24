@@ -1,0 +1,145 @@
+{
+  "generated_at": "2026-09-24T01:41:57.367Z",
+  "runner": "fake",
+  "model": null,
+  "repo_head": null,
+  "summary": {
+    "scenarios": 1,
+    "passed": 0,
+    "failed": [
+      {
+        "id": "v33-exact-product",
+        "mandatory_failed": [
+          "in-estimate"
+        ],
+        "error": null
+      }
+    ],
+    "advisory_failed": [
+      "v33-exact-product:used-exact-tool"
+    ],
+    "suite_pass": false,
+    "cost_usd": 0,
+    "latency_ms": 1
+  },
+  "records": [
+    {
+      "id": "v33-exact-product",
+      "validation": [
+        "V33"
+      ],
+      "title": "Client names the exact faucet → straight into the estimate as a gap; no mood board, no selection, no send",
+      "runner": "fake-reference",
+      "model": "fake",
+      "started_at": "2026-09-24T01:41:57.105Z",
+      "checks": [
+        {
+          "id": "no-send",
+          "mandatory": true,
+          "describe": "no send",
+          "pass": true,
+          "detail": "none"
+        },
+        {
+          "id": "no-board-or-selection",
+          "mandatory": true,
+          "describe": "the exact faucet is not turned into a selection or mood-board choice (other undecided scopes may still get their own path)",
+          "pass": true,
+          "detail": "faucet_selections=0 faucet_options=0 faucet_boards=0"
+        },
+        {
+          "id": "no-other-selection-work",
+          "mandatory": false,
+          "describe": "did not open selection work for unrelated scopes on a single product email",
+          "pass": true,
+          "detail": "tools=none selections=0"
+        },
+        {
+          "id": "in-estimate",
+          "mandatory": true,
+          "describe": "estimate line for the exact product exists with a source ref (cost may be unknown)",
+          "pass": false,
+          "detail": "[]"
+        },
+        {
+          "id": "used-exact-tool",
+          "mandatory": false,
+          "describe": "used apply_client_product (or set_design_path exact)",
+          "pass": false,
+          "detail": "get_project_workflow"
+        }
+      ],
+      "pass": false,
+      "error": null,
+      "execution": {
+        "id": "80efee6f-0e9f-4b8c-b2bc-2caad648d105",
+        "status": "blocked",
+        "model": "fake",
+        "runtime": "fake-reference",
+        "instruction_versions": {
+          "tone_guide": {
+            "source": "db",
+            "version": 1,
+            "checksum": "c4fab56d45dd684da29ff8c40002039c8c81e26203c947fb26af9f073fc05317"
+          },
+          "policy_digest": {
+            "refs": [],
+            "checksum": "59aafee5b1b57894715ac28a807e22f74ea76102e3f8ea219f30a9dede4cf19c"
+          },
+          "operating_block": {
+            "source": "db",
+            "version": 1,
+            "checksum": "11029ebe63c4b911417696f4f3f0fcab51d95858701522cf77c04c736eb6a235"
+          },
+          "workflow_digest": {
+            "source": "db",
+            "version": 1,
+            "checksum": "71f669aa769d1c1b291660ac8e8b2e8b47dcee8aa9a8b858d3e10e2778edd790"
+          },
+          "standing_instructions": {
+            "count": 0
+          }
+        },
+        "tool_list_checksum": "c59bf5435a5246ea8bc48c884f75e6d60f137c414993fcbfc315f4c815931861",
+        "tool_names": [
+          "get_project_workflow"
+        ],
+        "tool_trace": [
+          {
+            "seq": 1,
+            "tool": "get_project_workflow",
+            "input": {},
+            "result": "{}",
+            "is_error": false
+          }
+        ],
+        "records_touched": [],
+        "owner_prompts": 0,
+        "blocked_reason": "harness self-test — no model ran",
+        "next_trigger": null,
+        "result_summary": "nothing changed",
+        "latency_ms": 1,
+        "cost_usd": "0",
+        "num_turns": 1,
+        "context_chars": 6853,
+        "error": null
+      },
+      "result_text": "Inspected the records.\nRESULT: nothing changed\nRECORDS: none\nBLOCKED: harness self-test — no model ran\nNEXT_TRIGGER: none",
+      "mandatory_failed": [
+        "in-estimate"
+      ],
+      "advisory_failed": [
+        "used-exact-tool"
+      ],
+      "duration_ms": 262,
+      "self_test": {
+        "naughty_failed": true,
+        "naughty_mandatory_failed": [
+          "no-send",
+          "in-estimate"
+        ],
+        "naughty_error": null
+      }
+    }
+  ]
+}

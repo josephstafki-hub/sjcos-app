@@ -1,0 +1,32 @@
+# SJC OS supervised worker (A03b) — long-running systemd USER service.
+# Processes persisted provider events (Telnyx voice wrap-up, SMS recovery),
+# runs the intent dispatcher when present, sweeps expired leases and stale
+# decisions, and polls for lost runbook wakeups. Heartbeats to the `workers`
+# table every 15s; /api/health and scripts/sjcos-monitor.sh watch that age.
+#
+# Install (one-time):
+#   install -m755 deploy/sjcos-worker.sh ~/bin/sjcos-worker
+#   cp deploy/sjcos-worker.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now sjcos-worker.service
+# Pause processing without stopping heartbeats: touch ~/sjcos-backups/worker.stop
+# (or pause lane 'agents'/'all' in the app). Restart after every deploy so the
+# worker runs the same code version as the app and the MCP server.
+[Unit]
+Description=SJC OS supervised worker (source events, dispatcher, sweeps, lost wakeups)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/sjcos-app
+Environment=NODE_ENV=production
+Environment=SJCOS_ENV=%h/sjcos-app/.env.local
+ExecStart=/usr/bin/bash %h/bin/sjcos-worker
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=45
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

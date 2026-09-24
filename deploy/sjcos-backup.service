@@ -1,0 +1,15 @@
+# Nightly full backup (db + files + recovery manifest) → off-host target.
+# DISABLED by default: Joe enables after setting BACKUP_PASSPHRASE and one of
+# BACKUP_RCLONE_REMOTE / BACKUP_SSH_TARGET / BACKUP_DIR in ~/sjcos-app/.env.local.
+#   install -m755 deploy/sjcos-backup.sh ~/bin/sjcos-backup
+#   cp deploy/sjcos-backup.service deploy/sjcos-backup.timer ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now sjcos-backup.timer
+#   systemctl --user start sjcos-backup.service     # run one now
+[Unit]
+Description=SJC OS nightly off-host backup (db + files + config manifest)
+After=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash %h/bin/sjcos-backup
+TimeoutStartSec=2h

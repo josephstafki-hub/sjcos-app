@@ -359,7 +359,7 @@ is implemented vs deployed vs enabled vs proven.
 
 **Order:** `node db/migrate.mjs --status` → `node db/migrate.mjs` (ledger
 0001–0023, checksummed, one transaction each) → staged build → restart
-`sjcos.service` → restart `sjcos-mcp.service` (≈40 new tools) → install
+`sjcos.service` → restart `sjcos-mcp.service` (228 tools, 65 new) → install
 timers/services below → activate policies on `/engine/decisions`.
 
 | Unit | Cadence | What |

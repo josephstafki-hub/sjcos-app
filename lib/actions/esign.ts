@@ -20,6 +20,7 @@ import { finalizeSignedDraft } from "@/lib/doc-drafts";
 import { storeBuffer } from "@/lib/upload-store";
 import { parseSignatureDataUrl } from "@/lib/signature-image";
 import type { DocType, SigMethod } from "@/lib/esign-types";
+import { billingOnSignatureSigned } from "@/lib/billing/server";
 
 type Result = { ok: true; id?: number } | { ok: false; error: string };
 
@@ -254,6 +255,17 @@ async function applySignature(o: ApplySignatureInput): Promise<boolean> {
   // If it was a change order, approve it (does NOT touch the contract total).
   if (o.doc.change_order_id) {
     await query(`UPDATE change_orders SET status = 'approved' WHERE id = $1`, [o.doc.change_order_id]);
+  }
+
+  // A07b (WORKFLOW W08/W12): a client's acceptance of the formal estimate
+  // issues the initial invoice; a signed contract links to it; a signed
+  // completion sign-off issues the final invoice. Keyed on the economic
+  // identity, so a repeated signature event issues nothing twice. The
+  // signature is already binding above — billing must never fail the sign.
+  try {
+    await billingOnSignatureSigned(o.id);
+  } catch (err) {
+    console.error(`[esign] billing hook failed for request ${o.id}:`, err);
   }
   return true;
 }

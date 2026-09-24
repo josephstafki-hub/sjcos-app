@@ -2,10 +2,13 @@
 
 Updated: September 23, 2026.
 
-**The consolidated planning package is complete. This revision changes planning
-documents only; it does not implement or deploy the application features.**
-Existing code and other coding teams may already cover parts of these tasks.
-A00 must assess that work against this revision before assigning completion.
+**September 23 build:** every task A00–A24 is IMPLEMENTED on branch
+`t3code/build-sjc-os-plan` with a test suite (405 tests, 403 pass, 0 fail, 2 skipped
+without the harness binaries) and per-task evidence in `status/*.md`. Nothing is
+deployed, enabled or proven on the live service: no production migration was
+applied, no timer installed, no policy activated, no send performed. The
+operational columns below stay "not deployed" until the deploy packet in
+`deploy/README.md` is executed and Joe records each state on `/engine/capabilities`.
 
 ## September 23 revision
 
@@ -76,34 +79,58 @@ scope/proven for scope. Each operational claim needs date, version and evidence.
 
 | Task | Implementation against this revision | Operational proof | Required scope |
 |---|---|---|---|
-| A00 | Not verified | Unverified | Current evidence, test environment and migration discipline |
-| A01 | Not verified | Unverified | Stable obligations and protected task state |
-| A02 | Not verified | Unverified | Transactional runbook start, advance and repair |
-| A03a | Not verified | Unverified | Shared server commands and minimum action records |
-| A03b | Not verified | Unverified | Durable intake and supervised worker |
-| A04 | Not verified | Unverified | Evidence-backed completion |
-| A05/A06 | Not verified | Unverified | Approval binding and duplicate-safe external actions |
-| A07a | Not verified | Unverified | Small independent invoice integrity repair |
-| A07b | Not verified | Unverified | Invoice lifecycle, balances and automatic contract billing |
-| A08a | Not verified | Unverified | Immediate business-agent access restrictions |
-| A08b | Not verified | Unverified | Enforced worker identities, budgets and recovery |
-| A09a | Not verified | Unverified | Off-host backups, basic alerts and restore proof |
-| A09b | Not verified | Unverified | Independent uptime and business-progress monitoring |
-| A10 | Not verified | Unverified | Automatic routine policy and one-tap decision surfaces |
-| A11 | Not verified | Unverified | Complete lead intake and follow-up |
-| A12 | Not verified | Unverified | Subcontractor paperwork collection |
-| A13 | Not verified | Unverified | Procurement, commitments and approved bill payment |
-| A14 | Not verified | Unverified | QuickBooks Online connection and reconciliation |
-| A15 | Not verified | Unverified | Evidence-based estimates and closeout cost learning |
-| A16 | Not verified | Unverified | Sub portal field evidence, scheduling and weekly client summaries |
-| A17 | Not verified | Unverified | Closeout, warranty, signed documents and approved marketing |
-| A18 | Not verified | Unverified | Baseline, overhead, learning governance and truthful procedures |
-| A19 | Not verified | Unverified | Owner site and office time capture |
-| A20 | Not verified | Unverified | Square card and ACH customer payments |
-| A21 | Not verified | Unverified | Integrate existing full 3-D designer and retire Houzz dependency |
-| A22 | Not verified | Unverified | Delegated approvals and employee accounts |
-| A23 | Not verified | Unverified | Confirmed lead-to-closeout workflow and proactive estimate assembly |
-| A24 | Not verified | Unverified | Loaded operating-agent instructions, context and model behavior evaluations |
+| A00 | Implemented (status/A00.md) | Not deployed · not enabled · not proven | Current evidence, test environment and migration discipline |
+| A01 | Implemented (status/A01.md) | Not deployed · not enabled · not proven | Stable obligations and protected task state |
+| A02 | Implemented (status/A02.md) | Not deployed · not enabled · not proven | Transactional runbook start, advance and repair |
+| A03a | Implemented (lib/commands/*, tests/commands-core-db) | Not deployed · not enabled · not proven | Shared server commands and minimum action records |
+| A03b | Implemented (status/A03b.md) | Not deployed · not enabled · not proven | Durable intake and supervised worker |
+| A04 | Implemented (status/A04.md) | Not deployed · not enabled · not proven | Evidence-backed completion |
+| A05/A06 | Implemented (status/A05_A06.md) | Not deployed · not enabled · not proven | Approval binding and duplicate-safe external actions |
+| A07a | Implemented (status/A07a.md) | Not deployed · not enabled · not proven | Small independent invoice integrity repair |
+| A07b | Implemented (status/A07b.md) | Not deployed · not enabled · not proven | Invoice lifecycle, balances and automatic contract billing |
+| A08a | Implemented (status/A08a.md) | Not deployed · not enabled · not proven | Immediate business-agent access restrictions |
+| A08b | Implemented (status/A08b.md) | Not deployed · not enabled · not proven | Enforced worker identities, budgets and recovery |
+| A09a | Implemented (status/A09a.md) | Not deployed · not enabled · not proven | Off-host backups, basic alerts and restore proof |
+| A09b | Implemented (status/A09b.md) | Not deployed · not enabled · not proven | Independent uptime and business-progress monitoring |
+| A10 | Implemented (status/A10.md) | Not deployed · not enabled · not proven | Automatic routine policy and one-tap decision surfaces |
+| A11 | Implemented (status/A11.md) | Not deployed · not enabled · not proven | Complete lead intake and follow-up |
+| A12 | Implemented (status/A12.md) | Not deployed · not enabled · not proven | Subcontractor paperwork collection |
+| A13 | Implemented (status/A13.md) | Not deployed · not enabled · not proven | Procurement, commitments and approved bill payment |
+| A14 | Implemented (status/A14.md) | Not deployed · not enabled · not proven | QuickBooks Online connection and reconciliation |
+| A15 | Implemented (status/A15.md) | Not deployed · not enabled · not proven | Evidence-based estimates and closeout cost learning |
+| A16 | Implemented (status/A16.md) | Not deployed · not enabled · not proven | Sub portal field evidence, scheduling and weekly client summaries |
+| A17 | Implemented (status/A17.md) | Not deployed · not enabled · not proven | Closeout, warranty, signed documents and approved marketing |
+| A18 | Implemented (status/A18.md) | Not deployed · not enabled · not proven | Baseline, overhead, learning governance and truthful procedures |
+| A19 | Implemented, phone side not built (status/A19.md) | Not deployed · not enabled · not proven | Owner site and office time capture |
+| A20 | Implemented, no Square account (status/A20.md) | Not deployed · not enabled · not proven | Square card and ACH customer payments |
+| A21 | Implemented; Houzz still in use (status/A21.md) | Not deployed · not enabled · not proven | Integrate existing full 3-D designer and retire Houzz dependency |
+| A22 | Implemented (status/A22.md) | Not deployed · not enabled · not proven | Delegated approvals and employee accounts |
+| A23 | Implemented (status/A23.md) | Not deployed · not enabled · not proven | Confirmed lead-to-closeout workflow and proactive estimate assembly |
+| A24 | Implemented; model evals recorded (status/A24.md) | Not deployed · not enabled · not proven | Loaded operating-agent instructions, context and model behavior evaluations |
+
+## September 23 build evidence
+
+- Branch `t3code/build-sjc-os-plan` (worktree), 23 migrations `0000`–`0023` in the
+  checksummed ledger (`db/migrate.mjs`); `db/schema.sql` frozen baseline.
+- `npm test` (node --test, one disposable Postgres database per file):
+  405 tests, 403 pass, 0 fail, 2 skipped. `npx tsc --noEmit` clean. `eslint` clean
+  on every file touched by the build.
+- MCP server: 228 tools (`node scripts/list-mcp-tools.mjs`), smoke-booted against
+  the harness; every feature contract (estimating, procurement/cash, billing,
+  field/schedule/closeout, workflow, decisions, obligations, measure, context) is
+  reachable by agents through scoped tools.
+- Operating-agent evaluations (`evals/`, `scripts/run-evals.mjs`): harness
+  self-test 8/8 (a naughty runner fails every scenario on a mandatory check);
+  real-model results in `evals/results/latest-claude.json` — see status/A24.md
+  for the per-scenario reading and the harness limits found (decision staging
+  through the app route is unreachable from the harness; fixed after the first run).
+- Deploy packet: `deploy/README.md` "Automation build (2026-09-23)" — units to
+  install, env keys, migration order, rollback. `AGENTS.md` text to apply only
+  after enforcement is deployed: `docs/automation-reliability/agents-md-migration.md`.
+- Owner setup still required before anything is *enabled*: Square account,
+  Intuit app credentials, off-host backup target + passphrase, Telegram bot
+  callback route, first policies on `/engine`, pricing setup v1, capability
+  evidence (`scripts/record-capability-evidence.mjs`, implemented only).
 
 ## Remaining setup, not another planning questionnaire
 

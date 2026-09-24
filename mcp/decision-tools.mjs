@@ -27,6 +27,9 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import { stageDecision, contentHashOf } from "../lib/commands/decisions.ts";
+import { packageReleaseSummary, naturalCheck, cardCopyOf } from "../lib/decisions/cards.ts";
+import { txOver, principalFor } from "./tool-shared.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -84,8 +87,50 @@ const packageSchema = z.object({
   extra: z.record(z.string(), z.any()).optional(),
 });
 
-export function registerDecisionTools(server, { json, decisionsCall } = {}) {
+export function registerDecisionTools(server, { json, decisionsCall, pool, currentPrincipal } = {}) {
   const call = decisionsCall ?? defaultDecisionsCall;
+  const tx = pool ? txOver(pool) : null;
+  const unreachable = (r) => r && r.ok === false && /not reachable|CRON_SECRET not set/i.test(String(r.error ?? ""));
+
+  /** Direct staging on this process's database when the app's internal route
+   *  is unreachable (evaluation harness, app restart). Same validation and
+   *  card build as app/api/internal/decisions "stage"; the announcement is
+   *  picked up by the dispatcher pass (announceUnannouncedDecisions). */
+  async function stageDirect(input) {
+    if (!tx) return { ok: false, error: "App not reachable and no database pool for direct staging." };
+    const pkg = input.package && typeof input.package === "object" ? input.package : null;
+    const content = pkg ?? (input.content && typeof input.content === "object" ? input.content : null);
+    if (!input.decision_action) return { ok: false, error: "decision_action is required (the gated action the consumer will present)." };
+    if (!content) return { ok: false, error: "Provide `package` (a package-release payload) or `content` (the exact object being approved)." };
+    const summary = pkg ? packageReleaseSummary(pkg) : input.summary ?? {};
+    const lint = naturalCheck(cardCopyOf(summary) + "\n" + (input.title ?? ""));
+    if (!lint.ok) return { ok: false, error: `Card copy must stay factual: ${lint.problems.join("; ")}` };
+    const principal = await principalFor(currentPrincipal, agentName());
+    const staged = await tx((run) =>
+      stageDecision(run, {
+        kind: input.kind ?? "other",
+        action: input.decision_action,
+        title: String(input.title ?? (pkg ? `${pkg.title} → ${(pkg.recipients ?? []).length} recipient${(pkg.recipients ?? []).length === 1 ? "" : "s"}` : "Decision")).slice(0, 300),
+        summary,
+        targetKind: input.target_kind ?? (pkg ? pkg.kind : null),
+        targetId: input.target_id ?? (pkg ? String(pkg.id) : null),
+        recipient: input.recipient ?? null,
+        amountCents: input.amount_cents == null ? null : Number(input.amount_cents),
+        content,
+        contentHash: contentHashOf(content),
+        artifactRevision: pkg ? String(pkg.revision) : null,
+        projectId: input.project_id ?? null,
+        leadId: input.lead_id ?? null,
+        href: input.href ?? null,
+        expiresInMinutes: input.expires_in_minutes == null ? undefined : Number(input.expires_in_minutes),
+        maxUses: input.max_uses == null ? (pkg ? Math.max(1, (pkg.recipients ?? []).length) : 1) : Number(input.max_uses),
+        dedupeKey: input.dedupe_key ?? (pkg ? `${pkg.kind}:${pkg.id}` : null),
+        workItemId: input.work_item_id ?? null,
+        requestedBy: principal,
+      }),
+    );
+    return { ok: true, decision_id: staged.decision.id, status: staged.decision.status, created: staged.created, superseded: staged.superseded, announced: false, note: "Staged directly (app route unreachable); the dispatcher pass announces it to Joe." };
+  }
   const fail = (e) => ({ content: [{ type: "text", text: `Error: ${e.message}` }], isError: true });
   const agentName = () => {
     try {
@@ -133,7 +178,8 @@ export function registerDecisionTools(server, { json, decisionsCall } = {}) {
     },
     async (input) => {
       try {
-        return json(await call("stage", { ...input, agent: agentName() }));
+        const r = await call("stage", { ...input, agent: agentName() });
+        return json(unreachable(r) ? await stageDirect(input) : r);
       } catch (e) {
         return fail(e);
       }

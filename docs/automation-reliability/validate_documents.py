@@ -5,7 +5,11 @@ import re
 root = Path(__file__).resolve().parent
 docs = root
 files = sorted(docs.glob('*.md'))
-assert len(files) == 11, len(files)
+PLAN_DOCS = {'AGENT_HANDOFF.md', 'DECISIONS.md', 'DESIGN.md', 'INTEGRATIONS.md', 'OPERATING_AGENTS.md',
+             'OWNER_TIME_TRACKING.md', 'README.md', 'STATUS.md', 'TASKS.md', 'VALIDATION.md', 'WORKFLOW.md'}
+assert PLAN_DOCS <= {p.name for p in files}, PLAN_DOCS - {p.name for p in files}
+# Build-time additions (BUILD.md, agents-md-migration.md, credentials-inventory.md) are
+# checked for fences/links/whitespace like the rest but are not planning documents.
 for p in files:
     text = p.read_text()
     assert text.count('```') % 2 == 0, f'unclosed fence: {p.name}'
@@ -62,6 +66,6 @@ if read.exists():
         assert target in anchors, ('consolidated anchor', target)
     for p in files:
         assert p.stem.lower().replace('_', '-') in anchors, p.name
-print('PASS: 11 source documents; links/fences/tables; 28 matching task/status rows; '
+print(f'PASS: {len(files)} documents ({len(PLAN_DOCS)} planning); links/fences/tables; 28 matching task/status rows; '
       'acyclic dependencies; 16 audit mappings; 12 workflow stages; 46 verification cases.')
 print('Documentation validation only; application and operating-model tests were not run.')

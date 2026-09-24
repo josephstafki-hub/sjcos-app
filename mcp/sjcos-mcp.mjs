@@ -2630,7 +2630,7 @@ server.registerTool(
   // backed completion (A01/A04), exact decisions (A05/A06, A10), measurement
   // and capability states (A18), and the W01–W12 project workflow view (A23).
   registerObligationTools(server, { rows, json, appCall: runbooksCall });
-  registerDecisionTools(server, { json, decisionsCall });
+  registerDecisionTools(server, { json, decisionsCall, pool, currentPrincipal });
   registerMeasureTools(server, { rows, json, pool });
   registerWorkflowTools(server, { rows, json, pool, slugToId });
   // Estimating (A15, W02–W07), procurement + cash (A13, W05–W09), billing

@@ -60,8 +60,10 @@ export interface OwnerGrant {
   expires_at: string;
   decided_at: string | null;
   used_at: string | null;
-  audit: { at: string; action: string; target: string; result: string }[];
+  audit: { at: string; action: string; target: string; result: string; note?: string }[];
   created_at: string;
+  /** A05/A06 bridge: the decision row this grant is the consumable face of. */
+  decision_id?: string | null;
 }
 
 export function isGatedAction(a: string): a is GatedAction {

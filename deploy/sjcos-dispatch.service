@@ -1,0 +1,7 @@
+[Unit]
+Description=SJC OS intent dispatcher (A05/A06 — sends, reconciliation, decision expiry)
+After=sjcos.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/joe/bin/sjcos-dispatch

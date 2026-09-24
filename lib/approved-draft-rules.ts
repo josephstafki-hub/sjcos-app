@@ -86,8 +86,14 @@ export function approveNotice(reason: string): string {
  *  says which of the two things happened — an email went out, or it didn't
  *  and why — so the owner never has to guess. */
 export type ApproveResult =
-  | { ok: true; sent?: { to: string; subject: string }; notice?: string }
+  | { ok: true; sent?: { to: string; subject: string }; held?: { to: string; subject: string }; notice?: string }
   | { ok: false; error: string };
+
+/** The line the owner reads when the provider could not confirm the send:
+ *  not sent, not failed — held, and NOT to be resent by hand. */
+export function heldNotice(to: string, detail?: string | null): string {
+  return `Approved. The email to ${to} is held: Gmail did not confirm whether it went out${detail ? ` (${detail})` : ""}. It is being reconciled and must not be resent by hand.`;
+}
 
 /** Toast copy for an Approve click. Callers pass it through runAction's
  *  onSuccess, so the failure branch is only a type-level safety net —
@@ -100,6 +106,9 @@ export function describeApproval(r: ApproveResult): {
   if (!r.ok) return { kind: "error", title: "Approve failed", message: r.error };
   if (r.sent) {
     return { kind: "success", title: "Emailed", message: `Emailed ${r.sent.to} — ${r.sent.subject}` };
+  }
+  if (r.held) {
+    return { kind: "info", title: "Held — outcome unknown", message: r.notice || heldNotice(r.held.to) };
   }
   return { kind: "info", title: "Approved", message: r.notice || approveNotice("nothing to send") };
 }

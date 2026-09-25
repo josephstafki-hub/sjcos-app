@@ -72,6 +72,8 @@ export interface StoreBufferOpts {
   mime: string;
   idPrefix?: string;
   projectKey?: string;
+  /** Attach the file to a lead (files.lead_slug) instead of a project. */
+  leadSlug?: string;
   tag?: string;
   subtitle?: string;
 }
@@ -88,6 +90,7 @@ export async function storeBuffer(buf: Buffer, opts: StoreBufferOpts): Promise<S
     isImage: opts.mime.startsWith("image/"),
     idPrefix: opts.idPrefix,
     projectKey: opts.projectKey,
+    leadSlug: opts.leadSlug,
     tag: opts.tag,
     subtitle: opts.subtitle,
   });

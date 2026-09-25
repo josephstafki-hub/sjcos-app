@@ -5,7 +5,7 @@
 // display toggles. Kept out of the PlanDoc because it is per-session.
 
 import type { DrawLayer } from "@/lib/plan-draw-types";
-import type { ElecType } from "@/lib/plan-doc";
+import type { ElecType, Pt, WallKind } from "@/lib/plan-doc";
 import type { DesignerState } from "./useDesigner";
 import type { CatalogPlaceable, PlanDesign, PlanDesignComment, PlanDesignFile, PlanDesignVersion } from "@/lib/plan-designs";
 
@@ -33,11 +33,21 @@ export interface ViewState {
   showLabels3d: boolean;
   activeCameraId: string | null;
   /** Inspector tab. */
-  panel: "properties" | "catalog" | "materials" | "layers" | "rooms" | "checks" | "comments" | "versions";
+  panel: "properties" | "underlay" | "catalog" | "materials" | "layers" | "rooms" | "checks" | "comments" | "versions";
   /** A material being "painted" onto surfaces (materials panel drag/click mode). */
   paint: { key: string } | null;
   /** Library/catalog item (or electrical symbol) armed for placement by the place tools. */
   armed: { libraryKey?: string; catalogId?: number; elecType?: ElecType } | null;
+  /** Underlay being scaled (two clicks on a known length) or moved (drag). */
+  underlayTool: { mode: "calibrate"; pts: Pt[] } | { mode: "move" } | null;
+  /** Kind the Wall / Room tools draw. null = follow the phase view (New in
+   *  "new", else Existing). */
+  wallKind: Extract<WallKind, "existing" | "new"> | null;
+}
+
+/** What the Wall / Room tools draw right now. */
+export function drawWallKind(view: Pick<ViewState, "wallKind" | "phase">): "existing" | "new" {
+  return view.wallKind ?? (view.phase === "new" ? "new" : "existing");
 }
 
 export const ALL_LAYERS: readonly DrawLayer[] = [
@@ -68,6 +78,8 @@ export function defaultViewState(): ViewState {
     panel: "properties",
     paint: null,
     armed: null,
+    underlayTool: null,
+    wallKind: null,
   };
 }
 

@@ -3,7 +3,7 @@
 // Electrical devices: small boxes/discs at (x, heightAff, y). Lights glow in
 // night mode; the first 24 also become point lights (the rest stay meshes).
 
-import type { Device, ElecType, Level, Wall } from "@/lib/plan-doc";
+import { pointInPolygon, type Device, type ElecType, type Level, type Room, type Wall } from "@/lib/plan-doc";
 import { wallFrame } from "@/lib/plan-geometry";
 import { Box, Pick, Surface, isGhost, useScene, useSelected, yawFromDir } from "./shared";
 
@@ -14,10 +14,17 @@ interface DevicesProps {
   devices: Device[];
   walls: Wall[];
   level: Level;
+  /** For each device's own ceiling height (a room can differ from its level). */
+  rooms?: Room[];
   elev: number;
 }
 
-export function Devices({ devices, walls, level, elev }: DevicesProps) {
+/** Always on the ceiling, whatever height is stored. */
+const CEILING_MOUNT = new Set<ElecType>(["recessed", "surface", "smoke", "exhaust"]);
+/** Library default height for ceiling items (the old flat 8' ceiling). */
+const LIBRARY_CEILING_AFF = 96;
+
+export function Devices({ devices, walls, level, rooms = [], elev }: DevicesProps) {
   const { night } = useScene();
   let budget = 0;
   return (
@@ -27,7 +34,9 @@ export function Devices({ devices, walls, level, elev }: DevicesProps) {
         const emit = night && isLight && budget < MAX_POINT_LIGHTS;
         if (emit) budget++;
         const wall = dev.wallId ? walls.find((w) => w.id === dev.wallId) ?? null : null;
-        return <DeviceMesh key={dev.id} dev={dev} wall={wall} ceilingIn={level.ceilingIn} elev={elev} emit={emit} />;
+        const room = rooms.find((r) => pointInPolygon({ x: dev.x, y: dev.y }, r.polygon));
+        const ceilingIn = room?.ceilingIn ?? level.ceilingIn;
+        return <DeviceMesh key={dev.id} dev={dev} wall={wall} ceilingIn={ceilingIn} elev={elev} emit={emit} />;
       })}
     </>
   );
@@ -73,7 +82,17 @@ function DeviceMesh({ dev, wall, ceilingIn, elev, emit }: { dev: Device; wall: W
   const ghost = isGhost(dev.phase, phase);
   const isLight = LIGHT_TYPES.has(dev.type);
   const glow = night && isLight;
-  const aff = dev.heightAff > 0 ? dev.heightAff : defaultHeight(dev.type, ceilingIn);
+  // Ceiling fixtures follow the real ceiling; a pendant / fan keeps a custom
+  // hang height but not the library's flat 96".
+  const aff = CEILING_MOUNT.has(dev.type)
+    ? ceilingIn
+    : (dev.type === "pendant" || dev.type === "fan") && (dev.heightAff === LIBRARY_CEILING_AFF || dev.heightAff <= 0)
+      ? defaultHeight(dev.type, ceilingIn)
+      : dev.type === "pendant" || dev.type === "fan"
+        ? Math.min(dev.heightAff, ceilingIn - 6)
+        : dev.heightAff > 0
+          ? dev.heightAff
+          : defaultHeight(dev.type, ceilingIn);
   const y = elev + aff;
   const yaw = wall ? yawFromDir(wallFrame(wall).dir.x, wallFrame(wall).dir.y) : 0;
   const bits = { ghost, selected, edges: false as const };

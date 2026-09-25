@@ -43,6 +43,8 @@ import {
   wallPolygon,
 } from "./plan-geometry.ts";
 import { DRAW_COLORS, DRAW_LAYERS, type DrawBounds, type DrawLayer, type DrawOp, type DrawStyle } from "./plan-draw-types.ts";
+import { stairLayout, stairToPlan } from "./plan-stairs.ts";
+import { cabinetLayout, cabinetStyle, profileFrame } from "./plan-cabinet.ts";
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -92,6 +94,19 @@ export interface ViewOps {
 export const ELEC_SYMBOL_SIZE_IN = 6;
 
 const TEXT = { base: 6, tag: 5, room: 8, small: 4 } as const;
+type TextSizes = { base: number; tag: number; room: number; small: number };
+/** On-screen label heights (CSS px) the canvas aims for at any zoom. */
+const SCREEN_TEXT_PX: TextSizes = { base: 11, tag: 10, room: 14, small: 9 };
+
+/** Label sizes (plan inches) for a drawing. Print keeps paper-scale sizes;
+ *  the canvas (scalePxPerIn given) holds labels at a steady screen size so
+ *  zooming in doesn't blow them up and zooming out doesn't lose them — capped
+ *  at 2× the paper size so a zoomed-out house doesn't drown in text. */
+export function planTextSizes(scalePxPerIn: number | undefined, forPrint = false): TextSizes {
+  if (forPrint || !scalePxPerIn || !(scalePxPerIn > 0)) return { ...TEXT };
+  const at = (k: keyof TextSizes) => Math.min(TEXT[k] * 2, SCREEN_TEXT_PX[k] / scalePxPerIn);
+  return { base: at("base"), tag: at("tag"), room: at("room"), small: at("small") };
+}
 const CAB_KINDS = new Set<PlacedItem["kind"]>(["base", "wall", "tall", "vanity", "island"]);
 const ITEM_LAYER: Record<PlacedItem["kind"], DrawLayer> = {
   base: "cabinets",
@@ -121,7 +136,9 @@ function phaseVisible(phase: string, view: PhaseView): boolean {
     case "all":
       return true;
     case "existing":
-      return phase === "existing";
+      // As the site stands today: what's staying plus what's coming out
+      // (drawn plain, not as demo). Same rule as the 3D view.
+      return phase !== "new";
     case "demo":
       return phase === "existing" || phase === "remove" || phase === "relocate";
     case "new":
@@ -236,11 +253,13 @@ function symbolOf(i: PlacedItem): string {
     return "sink";
   }
   if (i.kind === "appliance") {
+    // Hood / over-range microwave first: their names say "range" too.
+    if (/hood/.test(s)) return "hood";
+    if (/micro/.test(s)) return "oven";
     if (/range|cooktop|stove/.test(s)) return "range";
     if (/fridge|refrig|freezer/.test(s)) return "fridge";
     if (/dishwasher|\bdw\b/.test(s)) return "dishwasher";
-    if (/hood/.test(s)) return "hood";
-    if (/oven|micro/.test(s)) return "oven";
+    if (/oven/.test(s)) return "oven";
     if (/washer|dryer|laundry/.test(s)) return "laundry";
     return "appliance";
   }
@@ -447,6 +466,8 @@ interface Ctx {
   walls: Wall[];
   wallById: Map<string, Wall>;
   rooms: Room[];
+  /** Label sizes for this drawing (see planTextSizes). */
+  T: TextSizes;
 }
 
 function push(ctx: Ctx, op: DrawOp): void {
@@ -492,7 +513,7 @@ function textOp(
 /** Wall tone for the current phase view. */
 function wallStyle(ctx: Ctx, w: Wall): DrawStyle {
   const view = ctx.opts.phase;
-  if (w.kind === "remove") {
+  if (w.kind === "remove" && view !== "existing") {
     return { stroke: DRAW_COLORS.demo, strokeWidth: "hairline", dash: [3, 2], fill: "none", hatch: "diag" };
   }
   if (w.kind === "new") {
@@ -527,8 +548,8 @@ function drawRooms(ctx: Ctx): void {
     ctx.outlines.set(r.id, { pts: r.polygon, layer: "rooms" });
     if (ctx.opts.showRoomLabels) {
       const c = centroid(r.polygon);
-      push(ctx, textOp(ctx, "rooms", { x: c.x, y: c.y - TEXT.room * 0.55 }, r.name, TEXT.room, { weight: "bold" }, ctx.ink));
-      push(ctx, textOp(ctx, "rooms", { x: c.x, y: c.y + TEXT.base * 0.7 }, `${Math.round(r.areaSf)} sf`, TEXT.base, {}, DRAW_COLORS.ink2));
+      push(ctx, textOp(ctx, "rooms", { x: c.x, y: c.y - ctx.T.room * 0.55 }, r.name, ctx.T.room, { weight: "bold" }, ctx.ink));
+      push(ctx, textOp(ctx, "rooms", { x: c.x, y: c.y + ctx.T.base * 0.7 }, `${Math.round(r.areaSf)} sf`, ctx.T.base, {}, DRAW_COLORS.ink2));
     }
   }
 }
@@ -556,7 +577,7 @@ function drawFinishes(ctx: Ctx): void {
       });
       ctx.outlines.set(f.id, { pts: poly, layer: "finishes" });
       const c = centroid(poly);
-      push(ctx, textOp(ctx, "finishes", { x: c.x, y: c.y + TEXT.room * 1.6 }, f.material.label, TEXT.tag, {}, DRAW_COLORS.ink3));
+      push(ctx, textOp(ctx, "finishes", { x: c.x, y: c.y + ctx.T.room * 1.6 }, f.material.label, ctx.T.tag, {}, DRAW_COLORS.ink3));
     } else if (f.target === "wall" && f.wallId) {
       const w = ctx.wallById.get(f.wallId);
       if (!w) continue;
@@ -596,7 +617,7 @@ function drawOpenings(ctx: Ctx): void {
     const half = th / 2;
     const dir = ow.dir;
     const left = ow.left;
-    const isRemove = o.phase === "remove";
+    const isRemove = o.phase === "remove" && ctx.opts.phase !== "existing";
     const ink = isRemove ? DRAW_COLORS.demo : ctx.print ? DRAW_COLORS.ink : DRAW_COLORS.ink3;
     const line: DrawStyle = { stroke: ink, strokeWidth: "hairline", dash: isRemove ? [2, 1.5] : undefined };
     const angle = radToDeg(Math.atan2(dir.y, dir.x));
@@ -705,9 +726,9 @@ function drawOpenings(ctx: Ctx): void {
     }
     if (o.tag && (ctx.opts.showTags || ctx.print)) {
       const side = o.kind === "door" ? swingSign : 1;
-      const tp = add(ow.centre, mul(left, side * (half + TEXT.tag * 1.2)));
-      push(ctx, { t: "circle", c: tp, r: TEXT.tag * 0.9, s: { stroke: ctx.ink, strokeWidth: "hairline", fill: DRAW_COLORS.paper }, layer: "openings", id: o.id });
-      push(ctx, textOp(ctx, "openings", tp, o.tag, TEXT.small, { rotDeg: readable(angle) }));
+      const tp = add(ow.centre, mul(left, side * (half + ctx.T.tag * 1.2)));
+      push(ctx, { t: "circle", c: tp, r: ctx.T.tag * 0.9, s: { stroke: ctx.ink, strokeWidth: "hairline", fill: DRAW_COLORS.paper }, layer: "openings", id: o.id });
+      push(ctx, textOp(ctx, "openings", tp, o.tag, ctx.T.small, { rotDeg: readable(angle) }));
     }
   }
 }
@@ -717,7 +738,7 @@ function drawStructure(ctx: Ctx): void {
   if (on(ctx, "structure")) {
     for (const s of ctx.slice.structure) {
       if (!phaseVisible(s.phase, view)) continue;
-      const isRemove = s.phase === "remove";
+      const isRemove = s.phase === "remove" && ctx.opts.phase !== "existing";
       const ink = isRemove ? DRAW_COLORS.demo : ctx.ink;
       const st: DrawStyle = { stroke: ink, strokeWidth: "hairline", dash: isRemove ? [2, 1.5] : undefined };
       if (s.kind === "column") {
@@ -738,34 +759,44 @@ function drawStructure(ctx: Ctx): void {
         ctx.outlines.set(s.id, { pts, layer: "structure" });
       }
       if (s.label && (ctx.opts.showTags || ctx.print)) {
-        const c = s.kind === "column" ? { x: s.a.x, y: s.a.y - s.wIn / 2 - TEXT.small } : midPt(s.a, s.b);
+        const c = s.kind === "column" ? { x: s.a.x, y: s.a.y - s.wIn / 2 - ctx.T.small } : midPt(s.a, s.b);
         const ang = s.kind === "column" ? 0 : readable(radToDeg(Math.atan2(s.b.y - s.a.y, s.b.x - s.a.x)));
-        push(ctx, textOp(ctx, "structure", c, s.label, TEXT.tag, { rotDeg: ang }, ink));
+        push(ctx, textOp(ctx, "structure", c, s.label, ctx.T.tag, { rotDeg: ang }, ink));
       }
     }
   }
   if (on(ctx, "stairs")) {
     for (const st of ctx.slice.stairs) {
       if (!phaseVisible(st.phase, view)) continue;
-      const treads = Math.max(1, st.riserCount - 1);
-      const runIn = treads * st.treadIn;
-      const item = { x: st.x, y: st.y, w: st.widthIn, d: runIn, rotDeg: st.rotDeg };
-      const corners = itemCorners(item);
-      const ink = st.phase === "remove" ? DRAW_COLORS.demo : ctx.ink;
+      // Shared with the 3D model and hit-testing (lib/plan-stairs).
+      const lay = stairLayout(st);
+      const P = (p: Pt) => stairToPlan(st, p);
+      const ink = st.phase === "remove" && ctx.opts.phase !== "existing" ? DRAW_COLORS.demo : ctx.ink;
       const sty: DrawStyle = { stroke: ink, strokeWidth: "hairline", fill: "none" };
+      const corners = lay.footprint.map(P);
       push(ctx, { t: "polygon", pts: corners, s: sty, layer: "stairs", id: st.id });
-      const hw = st.widthIn / 2;
-      const hd = runIn / 2;
-      for (let k = 1; k < treads; k++) {
-        const ly = hd - k * st.treadIn;
-        push(ctx, { t: "line", a: itemLocal(item, -hw, ly), b: itemLocal(item, hw, ly), s: sty, layer: "stairs", id: st.id });
+      for (const pc of lay.pieces) {
+        const r = [
+          { x: pc.x0, y: pc.y0 },
+          { x: pc.x1, y: pc.y0 },
+          { x: pc.x1, y: pc.y1 },
+          { x: pc.x0, y: pc.y1 },
+        ].map(P);
+        push(ctx, { t: "polygon", pts: r, s: sty, layer: "stairs", id: st.id });
       }
-      // UP arrow along the run (front = bottom step, climbs toward the back).
-      const a0 = itemLocal(item, 0, hd - 2);
-      const a1 = itemLocal(item, 0, -hd + 4);
-      push(ctx, { t: "line", a: a0, b: a1, s: sty, layer: "stairs", id: st.id });
-      push(ctx, { t: "polygon", pts: [itemLocal(item, 0, -hd + 1), itemLocal(item, -2.5, -hd + 6), itemLocal(item, 2.5, -hd + 6)], s: { ...sty, fill: ink }, layer: "stairs", id: st.id });
-      push(ctx, textOp(ctx, "stairs", itemLocal(item, 0, hd - 8), "UP", TEXT.tag, { rotDeg: readable(st.rotDeg) }, ink));
+      // Walking line with an arrowhead at the top; UP by the first step.
+      const path = lay.path.map(P);
+      if (path.length >= 2) {
+        const tip = path[path.length - 1];
+        const prev = path[path.length - 2];
+        const dir = norm(sub(tip, prev));
+        const end = add(tip, mul(dir, -2));
+        push(ctx, { t: "polyline", pts: [add(path[0], mul(norm(sub(path[1], path[0])), 2)), ...path.slice(1, -1), end], s: sty, layer: "stairs", id: st.id });
+        const side = perp(dir);
+        push(ctx, { t: "polygon", pts: [add(end, mul(dir, 1)), add(add(end, mul(dir, -4)), mul(side, 2.5)), add(add(end, mul(dir, -4)), mul(side, -2.5))], s: { ...sty, fill: ink }, layer: "stairs", id: st.id });
+        const up = add(path[0], mul(norm(sub(path[1], path[0])), 8));
+        push(ctx, textOp(ctx, "stairs", up, "UP", ctx.T.tag, { rotDeg: readable(st.rotDeg) }, ink));
+      }
       ctx.outlines.set(st.id, { pts: corners, layer: "stairs" });
     }
   }
@@ -779,7 +810,7 @@ function drawItems(ctx: Ctx): void {
     if (!phaseVisible(i.phase, view)) continue;
     const corners = itemCorners(i);
     ctx.outlines.set(i.id, { pts: corners, layer });
-    const isRemove = i.phase === "remove";
+    const isRemove = i.phase === "remove" && ctx.opts.phase !== "existing";
     const ghost = i.phase === "relocate" && view === "demo";
     const ink = isRemove ? DRAW_COLORS.demo : ghost ? DRAW_COLORS.ghost : ctx.ink;
     const base: DrawStyle = {
@@ -833,7 +864,7 @@ function drawItems(ctx: Ctx): void {
       }
       case "dishwasher":
         push(ctx, seg(-hw, hd - 1, hw, hd - 1));
-        push(ctx, textOp(ctx, layer, { x: i.x, y: i.y }, "DW", TEXT.tag, { rotDeg: readable(i.rotDeg) }, ink));
+        push(ctx, textOp(ctx, layer, { x: i.x, y: i.y }, "DW", ctx.T.tag, { rotDeg: readable(i.rotDeg) }, ink));
         break;
       case "hood":
         push(ctx, seg(-hw, -hd, hw, hd));
@@ -871,18 +902,23 @@ function drawItems(ctx: Ctx): void {
     }
     // Tag.
     if (i.tag && (ctx.opts.showTags || ctx.print)) {
-      const inside = Math.min(i.w, i.d) >= 12;
+      // The tag reads along the item's width; shrink it to the footprint so a
+      // B9 tag stays in its box, and hang it off the front when even that
+      // would be unreadable.
+      const fit = Math.min(i.w / (i.tag.length * 0.62 + 0.4), i.d * 0.45);
+      const size = Math.min(ctx.T.tag, Math.max(fit, ctx.T.tag * 0.6));
+      const inside = fit >= size * 0.98;
       // Wall cabinets sit over base runs: keep their tag near the wall and the
       // base tag toward the front so both read.
-      const ly = i.kind === "wall" ? -hd + TEXT.tag * 0.8 : i.kind === "base" || i.kind === "vanity" ? hd / 3 : 0;
-      const p = inside ? L(0, ly) : L(0, hd + TEXT.tag);
-      push(ctx, textOp(ctx, layer, p, i.tag, TEXT.tag, { rotDeg: readable(i.rotDeg) }, ink));
+      const ly = i.kind === "wall" ? -hd + size * 0.8 : i.kind === "base" || i.kind === "vanity" ? hd / 3 : 0;
+      const p = inside ? L(0, ly) : L(0, hd + size);
+      push(ctx, textOp(ctx, layer, p, i.tag, size, { rotDeg: readable(i.rotDeg) }, ink));
     }
     // Selection badge.
     if (i.selectionOptionId && i.phase === "new" && on(ctx, "selections") && !ctx.print) {
       const bp = L(-hw + 3.5, -hd + 3.5);
       push(ctx, { t: "circle", c: bp, r: 3, s: { stroke: DRAW_COLORS.accent, strokeWidth: "hairline", fill: DRAW_COLORS.paper }, layer: "selections", id: i.id });
-      push(ctx, textOp(ctx, "selections", bp, "S", TEXT.small, { weight: "bold" }, DRAW_COLORS.accent));
+      push(ctx, textOp(ctx, "selections", bp, "S", ctx.T.small, { weight: "bold" }, DRAW_COLORS.accent));
     }
   }
 }
@@ -909,8 +945,15 @@ function drawCounters(ctx: Ctx): void {
       if (seam.length >= 2) push(ctx, { t: "polyline", pts: seam, s: { stroke: ctx.ink, strokeWidth: "hairline" }, layer: "counters", id: c.id });
     }
     if ((ctx.opts.showTags || ctx.print) && c.material.label) {
+      // Along the run, toward the wall, so it clears the cabinet tags (which
+      // sit toward the front); dropped when it can't fit the counter.
       const ce = centroid(c.polygon);
-      push(ctx, textOp(ctx, "counters", ce, c.material.label, TEXT.small, {}, DRAW_COLORS.ink3));
+      const runItem = c.runId ? ctx.slice.items.find((i) => i.runId === c.runId) : undefined;
+      const rot = runItem ? runItem.rotDeg : 0;
+      const along = runItem ? Math.max(...c.polygon.map((q) => rotatePt(q, ce, -rot).x)) - Math.min(...c.polygon.map((q) => rotatePt(q, ce, -rot).x)) : Infinity;
+      const size = Math.min(ctx.T.small, along / (c.material.label.length * 0.58 + 0.4));
+      const p = runItem ? rotatePt({ x: ce.x, y: ce.y - runItem.d / 4 }, ce, rot) : ce;
+      if (size >= ctx.T.small * 0.55) push(ctx, textOp(ctx, "counters", p, c.material.label, size, { rotDeg: readable(rot) }, DRAW_COLORS.ink3));
     }
   }
 }
@@ -928,14 +971,14 @@ function drawElectrical(ctx: Ctx): void {
     const layer = deviceLayer(d);
     if (!on(ctx, layer)) continue;
     if (!phaseVisible(d.phase, view)) continue;
-    const isRemove = d.phase === "remove";
+    const isRemove = d.phase === "remove" && ctx.opts.phase !== "existing";
     const stroke = isRemove ? DRAW_COLORS.demo : ctx.print ? DRAW_COLORS.ink : DRAW_COLORS.elec;
     const ops = elecSymbolOps(d.type, { x: d.x, y: d.y }, layer, { stroke, dash: isRemove ? [1.5, 1] : undefined });
     for (const op of ops) push(ctx, { ...op, id: d.id });
     const r = ELEC_SYMBOL_SIZE_IN / 2 + 1;
     ctx.outlines.set(d.id, { pts: rectPts(d.x - r, d.y - r, r * 2, r * 2), layer });
     if (d.circuit && (ctx.opts.showTags || ctx.print)) {
-      push(ctx, textOp(ctx, layer, { x: d.x + r + 1, y: d.y - r }, d.circuit, TEXT.small, { anchor: "start" }, stroke));
+      push(ctx, textOp(ctx, layer, { x: d.x + r + 1, y: d.y - r }, d.circuit, ctx.T.small, { anchor: "start" }, stroke));
     }
     for (const toId of d.switchLegTo) {
       const to = byId.get(toId);
@@ -958,7 +1001,7 @@ function drawElectrical(ctx: Ctx): void {
 
 function drawDims(ctx: Ctx): void {
   if (!on(ctx, "dims") || !ctx.opts.showDims) return;
-  const dimOpts = { forPrint: ctx.print };
+  const dimOpts = { forPrint: ctx.print, textSize: ctx.print ? undefined : ctx.T.base };
   for (const d of ctx.slice.dims) {
     let ops: DrawOp[] = [];
     if (d.kind === "chain" && d.chain && d.chain.length >= 2) {
@@ -1007,7 +1050,7 @@ function drawNotes(ctx: Ctx): void {
       push(ctx, { t: "line", a: { x: n.x, y: n.y + 14 }, b: { x: n.x, y: n.y - 10 }, s: { stroke: ctx.ink, strokeWidth: "hairline" }, layer: "notes", id: n.id });
       push(ctx, { t: "polygon", pts: [{ x: n.x, y: n.y - 16 }, { x: n.x - 4, y: n.y - 6 }, { x: n.x + 4, y: n.y - 6 }], s: { stroke: ctx.ink, strokeWidth: "hairline", fill: ctx.ink }, layer: "notes", id: n.id });
       push(ctx, { t: "circle", c: p, r: 16, s: { stroke: ctx.ink, strokeWidth: "hairline", fill: "none" }, layer: "notes", id: n.id });
-      push(ctx, textOp(ctx, "notes", { x: n.x, y: n.y - 22 }, "N", TEXT.room, { weight: "bold" }));
+      push(ctx, textOp(ctx, "notes", { x: n.x, y: n.y - 22 }, "N", ctx.T.room, { weight: "bold" }));
       ctx.outlines.set(n.id, { pts: rectPts(n.x - 16, n.y - 26, 32, 42), layer: "notes" });
       continue;
     }
@@ -1025,11 +1068,11 @@ function drawNotes(ctx: Ctx): void {
       }
       push(ctx, { t: "polyline", pts, closed: true, s: { stroke: DRAW_COLORS.accent, strokeWidth: "hairline", fill: "none" }, layer: "notes", id: n.id });
       ctx.outlines.set(n.id, { pts: rectPts(n.x - rx * 1.2, n.y - ry * 1.2, rx * 2.4, ry * 2.4), layer: "notes" });
-      if (n.text) push(ctx, textOp(ctx, "notes", p, n.text.split("\n")[0], TEXT.tag, {}, DRAW_COLORS.accent));
+      if (n.text) push(ctx, textOp(ctx, "notes", p, n.text.split("\n")[0], ctx.T.tag, {}, DRAW_COLORS.accent));
       continue;
     }
     const label = n.kind === "label";
-    const size = label ? TEXT.room : TEXT.base;
+    const size = label ? ctx.T.room : ctx.T.base;
     const lines = n.text.split("\n");
     const lh = size * 1.3;
     lines.forEach((ln, k) => {
@@ -1052,7 +1095,7 @@ function drawPhotos(ctx: Ctx): void {
       push(ctx, { t: "rect", x: ph.x - 5, y: ph.y - 3.5, w: 10, h: 7, s, layer: "photos", id: ph.id });
       push(ctx, { t: "rect", x: ph.x - 2, y: ph.y - 5, w: 4, h: 1.5, s, layer: "photos", id: ph.id });
       push(ctx, { t: "circle", c: { x: ph.x, y: ph.y }, r: 2, s: { ...s, fill: "none" }, layer: "photos", id: ph.id });
-      push(ctx, textOp(ctx, "photos", { x: ph.x, y: ph.y + 7 }, `P${k + 1}`, TEXT.small));
+      push(ctx, textOp(ctx, "photos", { x: ph.x, y: ph.y + 7 }, `P${k + 1}`, ctx.T.small));
       ctx.outlines.set(ph.id, { pts: rectPts(ph.x - 6, ph.y - 6, 12, 16), layer: "photos" });
     });
   }
@@ -1072,7 +1115,7 @@ function drawPhotos(ctx: Ctx): void {
         const a = Math.atan2(dir.y, dir.x) + sgn * half;
         push(ctx, { t: "line", a: p, b: { x: p.x + coneLen * Math.cos(a), y: p.y + coneLen * Math.sin(a) }, s: { ...s, dash: [2, 1.5] }, layer: "cameras", id: cam.id });
       }
-      push(ctx, textOp(ctx, "cameras", { x: p.x, y: p.y + 8 }, cam.name, TEXT.small, {}, DRAW_COLORS.accent));
+      push(ctx, textOp(ctx, "cameras", { x: p.x, y: p.y + 8 }, cam.name, ctx.T.small, {}, DRAW_COLORS.accent));
       ctx.outlines.set(cam.id, { pts: rectPts(p.x - 6, p.y - 6, 12, 12), layer: "cameras" });
     }
   }
@@ -1123,6 +1166,7 @@ export function planOps(doc: PlanDoc, opts: PlanDrawOptions): DrawOp[] {
     walls,
     wallById: new Map(walls.map((w) => [w.id, w])),
     rooms: slice.rooms,
+    T: planTextSizes(opts.scalePxPerIn, print),
   };
   drawRooms(ctx);
   drawFinishes(ctx);
@@ -1142,6 +1186,86 @@ export function planOps(doc: PlanDoc, opts: PlanDrawOptions): DrawOp[] {
   }
   drawHighlights(ctx, out);
   return out;
+}
+
+// ─── Cabinet faces (elevations) ──────────────────────────────────────────────
+
+/** A cabinet's front in elevation, from the shared layout (lib/plan-cabinet —
+ *  the 3D model builds the same fronts): toe / legs, door and drawer fronts
+ *  with their panel profile, dashed swing marks pointing at the hinge, glass
+ *  hatching, hardware, crown and light rail. */
+function drawCabinetFace(
+  ops: DrawOp[],
+  i: PlacedItem,
+  doc: PlanDoc,
+  g: { x0: number; wd: number; z0: number; toeIn: number; Y: (z: number) => number; st: DrawStyle; thin: DrawStyle; layer: DrawLayer; print: boolean },
+): void {
+  const style = cabinetStyle(i, doc);
+  const lay = cabinetLayout(i, style, g.toeIn);
+  const sx = g.wd / Math.max(0.01, i.w);
+  const X = (lx: number) => g.x0 + (lx + i.w / 2) * sx;
+  const Z = (lz: number) => g.Y(g.z0 + lz);
+  const id = i.id;
+  const layer = g.layer;
+  const line = (ax: number, az: number, bx: number, bz: number, s: DrawStyle = g.thin) => ops.push({ t: "line", a: { x: X(ax), y: Z(az) }, b: { x: X(bx), y: Z(bz) }, s, layer, id });
+  const rect = (x0: number, z0: number, x1: number, z1: number, s: DrawStyle = { ...g.thin, fill: "none" }) =>
+    ops.push({ t: "rect", x: X(Math.min(x0, x1)), y: Z(Math.max(z0, z1)), w: Math.abs(x1 - x0) * sx, h: Math.abs(z1 - z0), s, layer, id });
+  const hw = -i.w / 2;
+  // Toe / legs.
+  if (lay.toe > 0) {
+    line(hw, lay.toe, -hw, lay.toe, g.st);
+    if (lay.toeStyle === "legs") {
+      rect(hw, 0, hw + 1.75, lay.toe, { ...g.thin, fill: g.print ? "none" : DRAW_COLORS.paper });
+      rect(-hw - 1.75, 0, -hw, lay.toe, { ...g.thin, fill: g.print ? "none" : DRAW_COLORS.paper });
+    }
+  }
+  const swing: DrawStyle = { ...g.thin, dash: [2, 1.5], opacity: 0.8 };
+  for (const f of lay.fronts) {
+    rect(f.x0, f.z0, f.x1, f.z1);
+    const fw = f.x1 - f.x0;
+    const fh = f.z1 - f.z0;
+    if (f.kind === "appliance") {
+      rect(f.x0 + 1.5, f.z0 + 1.5, f.x1 - 1.5, f.z1 - 1.5);
+      continue;
+    }
+    const fr = profileFrame(f.profile, fw, fh);
+    if (fr >= 0.4) {
+      rect(f.x0 + fr, f.z0 + fr, f.x1 - fr, f.z1 - fr);
+      if (f.profile === "raised" && fw - 2 * fr > 4 && fh - 2 * fr > 4) rect(f.x0 + fr + 1.5, f.z0 + fr + 1.5, f.x1 - fr - 1.5, f.z1 - fr - 1.5);
+      if (f.profile === "beaded" && !f.glass) for (let x = f.x0 + fr + 2; x < f.x1 - fr - 1; x += 2) line(x, f.z0 + fr, x, f.z1 - fr);
+      if (f.glass) {
+        // Glass: a pair of short diagonal strokes.
+        const gx = f.x0 + fr + (fw - 2 * fr) * 0.3;
+        const gz = f.z0 + fr + (fh - 2 * fr) * 0.55;
+        line(gx, gz, gx + 3, gz + 3);
+        line(gx + 2, gz - 1, gx + 5, gz + 2);
+      }
+    }
+    if (f.kind === "door" && f.hinge) {
+      // Swing marks: from the latch-side corners to the hinge side's middle.
+      const hx = f.hinge === "L" ? f.x0 : f.x1;
+      const lx = f.hinge === "L" ? f.x1 : f.x0;
+      const mz = (f.z0 + f.z1) / 2;
+      line(lx, f.z1, hx, mz, swing);
+      line(lx, f.z0, hx, mz, swing);
+    }
+    for (const p of f.pulls) {
+      if (p.kind === "knob") {
+        ops.push({ t: "circle", c: { x: X(p.x), y: Z(p.z) }, r: 0.6, s: { ...g.thin, fill: g.st.stroke }, layer, id });
+      } else if (p.kind === "cup") {
+        rect(p.x - p.len / 2, p.z - 0.5, p.x + p.len / 2, p.z + 0.5, { ...g.thin, fill: g.st.stroke });
+      } else if (p.orient === "h") {
+        line(p.x - p.len / 2, p.z, p.x + p.len / 2, p.z, { ...g.thin, strokeWidth: 0.6 });
+      } else {
+        line(p.x, p.z - p.len / 2, p.x, p.z + p.len / 2, { ...g.thin, strokeWidth: 0.6 });
+      }
+    }
+  }
+  if (lay.crown) {
+    rect(hw - 0.75, i.h, -hw + 0.75, i.h + 1.75);
+    rect(hw - 1.5, i.h + 1.75, -hw + 1.5, i.h + 3);
+  }
+  if (lay.lightRail) rect(hw, -1.5, -hw, 0);
 }
 
 // ─── Elevations ──────────────────────────────────────────────────────────────
@@ -1315,43 +1439,7 @@ export function elevationOps(doc: PlanDoc, opts: ElevationOptions): ViewOps {
     const vline = (x: number, za: number, zb: number) => ops.push({ t: "line", a: { x, y: Y(za) }, b: { x, y: Y(zb) }, s: thin, layer, id: i.id });
     const toe = doc.settings.defaults.toeIn;
     if (CAB_KINDS.has(i.kind)) {
-      const drawerH = 6;
-      const doors = wd >= 27 ? 2 : 1;
-      if (i.kind === "base" || i.kind === "vanity" || i.kind === "island") {
-        hline(toe);
-        const drawerTop = z1 - 0.75;
-        const drawerBottom = drawerTop - drawerH;
-        const isDrawerBank = /drawer|db|3d|4d/.test(`${i.libraryKey ?? ""} ${i.tag}`.toLowerCase());
-        if (isDrawerBank) {
-          const n = 3;
-          const bandH = (z1 - toe) / n;
-          for (let k = 1; k < n; k++) hline(toe + k * bandH);
-          for (let k = 0; k < n; k++) ops.push({ t: "line", a: { x: x0 + wd / 2 - 3, y: Y(toe + (k + 0.5) * bandH) }, b: { x: x0 + wd / 2 + 3, y: Y(toe + (k + 0.5) * bandH) }, s: { ...thin, strokeWidth: 0.6 }, layer, id: i.id });
-        } else {
-          hline(drawerBottom, 0.75);
-          ops.push({ t: "line", a: { x: x0 + wd / 2 - 3, y: Y((drawerTop + drawerBottom) / 2) }, b: { x: x0 + wd / 2 + 3, y: Y((drawerTop + drawerBottom) / 2) }, s: { ...thin, strokeWidth: 0.6 }, layer, id: i.id });
-          if (doors === 2) vline(x0 + wd / 2, toe, drawerBottom);
-          // Door pulls.
-          for (let k = 0; k < doors; k++) {
-            const px = doors === 2 ? (k === 0 ? x0 + wd / 2 - 2 : x0 + wd / 2 + 2) : x0 + wd - 2.5;
-            ops.push({ t: "circle", c: { x: px, y: Y(drawerBottom - 3) }, r: 0.6, s: { ...thin, fill: st.stroke }, layer, id: i.id });
-          }
-        }
-      } else if (i.kind === "wall") {
-        if (doors === 2) vline(x0 + wd / 2, z0, z1);
-        for (let k = 0; k < doors; k++) {
-          const px = doors === 2 ? (k === 0 ? x0 + wd / 2 - 2 : x0 + wd / 2 + 2) : x0 + wd - 2.5;
-          ops.push({ t: "circle", c: { x: px, y: Y(z0 + 3) }, r: 0.6, s: { ...thin, fill: st.stroke }, layer, id: i.id });
-        }
-      } else if (i.kind === "tall") {
-        hline(toe);
-        const split = Math.min(z1 - 12, Math.max(toe + 24, 60));
-        hline(split);
-        if (doors === 2) {
-          vline(x0 + wd / 2, toe, split);
-          vline(x0 + wd / 2, split, z1);
-        }
-      }
+      drawCabinetFace(ops, i, doc, { x0, wd, z0, toeIn: toe, Y, st, thin, layer, print });
     } else if (sym === "range") {
       // Backguard.
       ops.push({ t: "rect", x: x0, y: Y(z1 + 6), w: wd, h: 6, s: st, layer, id: i.id });

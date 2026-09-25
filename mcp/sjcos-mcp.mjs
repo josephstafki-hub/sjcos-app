@@ -1311,10 +1311,10 @@ server.registerTool(
          FROM work_items w
          LEFT JOIN projects p ON p.id = w.project_id
          LEFT JOIN leads l ON l.id = w.lead_id
-        WHERE w.status NOT IN ('done','cancelled')
+        WHERE w.status NOT IN ('done','cancelled','waiting_on_client')
+          AND (w.snoozed_until IS NULL OR w.snoozed_until <= now())
           AND w.assignee_kind = 'human'
           AND (w.assignee_key IS NULL OR w.assignee_key = 'human-joe')
-          AND (w.lead_id IS NOT NULL OR w.project_id IS NOT NULL)
           AND (l.id IS NULL OR l.stage <> 'lost')
         ORDER BY (w.promoted_at IS NOT NULL) DESC,
                  array_position(ARRAY['urgent','high','normal','low'], w.priority),
@@ -2014,6 +2014,10 @@ server.registerTool(
 // headline, and the closeout docs. Nothing in the app edits them — they came in
 // from the Houzz import — so these are the only agent path. Internal records
 // only: no invoice is created or sent.
+// `progress` is the "% billed" bar (collected ÷ contract), so both tools
+// recompute it — otherwise a paid-in-full job keeps showing its old percent.
+const PROGRESS_SQL = (collected, contract) =>
+  `CASE WHEN ${contract} > 0 THEN LEAST(100, ROUND(100.0 * ${collected} / ${contract}))::int ELSE progress END`;
 server.registerTool(
   "set_project_contract_value",
   {
@@ -2036,11 +2040,12 @@ server.registerTool(
     if (!projectId) return json({ error: `No project with slug "${a.project_slug}"` });
     const r = await rows(
       `UPDATE projects
-          SET contract_value = $2,
+          SET contract_value = $2::int,
               value_display = COALESCE($3, value_display),
+              progress = ${PROGRESS_SQL("collected_to_date", "$2::int")},
               updated_at = now()
         WHERE id = $1
-        RETURNING slug, name, status, contract_value, collected_to_date, value_display`,
+        RETURNING slug, name, status, contract_value, collected_to_date, progress, value_display`,
       [projectId, a.contract_value, a.value_display ?? null],
     );
     const p = r[0];
@@ -2075,11 +2080,12 @@ server.registerTool(
     if (!projectId) return json({ error: `No project with slug "${a.project_slug}"` });
     const r = await rows(
       `UPDATE projects
-          SET collected_to_date = CASE WHEN $3 THEN contract_value ELSE $2 END,
+          SET collected_to_date = CASE WHEN $3 THEN contract_value ELSE $2::int END,
               stage_label = COALESCE($4, stage_label),
+              progress = ${PROGRESS_SQL("CASE WHEN $3 THEN contract_value ELSE $2::int END", "contract_value")},
               updated_at = now()
         WHERE id = $1
-        RETURNING slug, name, status, contract_value, collected_to_date, value_display, stage_label`,
+        RETURNING slug, name, status, contract_value, collected_to_date, progress, value_display, stage_label`,
       [projectId, a.collected ?? 0, a.paid_in_full === true, a.stage_label ?? null],
     );
     const p = r[0];

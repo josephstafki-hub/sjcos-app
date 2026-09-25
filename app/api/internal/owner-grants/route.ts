@@ -90,7 +90,12 @@ export async function POST(req: Request) {
           grantId: str("grant_id") ?? "",
           target: str("target_id") ?? null,
           email: email
-            ? { to: String(email.to ?? ""), subject: String(email.subject ?? ""), body: String(email.body ?? "") }
+            ? {
+                to: String(email.to ?? ""),
+                subject: String(email.subject ?? ""),
+                body: String(email.body ?? ""),
+                attachment_file_ids: Array.isArray(email.attachment_file_ids) ? email.attachment_file_ids.map(String) : undefined,
+              }
             : undefined,
           sms: sms ? { to: String(sms.to ?? ""), body: String(sms.body ?? "") } : undefined,
           call: call ? { to: String(call.to ?? ""), contact_name: call.contact_name == null ? null : String(call.contact_name) } : undefined,

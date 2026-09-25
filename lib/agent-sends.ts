@@ -8,12 +8,15 @@
 // grant decides, not the agent's say-so.
 
 import { query, queryOne } from "@/lib/db";
+import type { Run } from "@/lib/budget-queries";
 import { notifyAgentFailure } from "@/lib/notify-owner";
 import { sendBidPackageOp } from "@/lib/bidding";
 import { sendInvoiceOp, sendPurchaseOrderOp } from "@/lib/send-ops";
 import { releaseOutboxItem } from "@/lib/newsletter-outbox";
 import { submitDocDraftForSignature } from "@/lib/doc-drafts";
-import { gmailConfigured, sendNewEmail } from "@/lib/gmail";
+import { gmailConfigured, sendNewEmail, type MailAttachment } from "@/lib/gmail";
+import { loadFileAttachments } from "@/lib/mail-attachments";
+import { readUpload } from "@/lib/uploads";
 import { sendSms } from "@/lib/sms";
 import { placeCall } from "@/lib/voice";
 import {
@@ -30,8 +33,8 @@ export interface AgentSendInput {
   grantId: string;
   /** Row id for record-backed actions; recipient address for send_email. */
   target?: string | number | null;
-  /** send_email only. */
-  email?: { to: string; subject: string; body: string };
+  /** send_email only. attachment_file_ids: files.id rows to attach. */
+  email?: { to: string; subject: string; body: string; attachment_file_ids?: string[] };
   /** send_sms only. */
   sms?: { to: string; body: string };
   /** place_call only. */
@@ -43,6 +46,8 @@ export interface AgentSendInput {
 }
 
 export type AgentSendResult = { ok: true; summary: string; [k: string]: unknown } | { ok: false; error: string };
+
+const run: Run = async <T,>(sql: string, params?: unknown[]) => (await query(sql, params)).rows as T[];
 
 async function ownerUser(): Promise<{ id: string | null; name: string }> {
   const u = await queryOne<{ id: string; name: string }>(
@@ -134,10 +139,19 @@ export async function performGrantedAction(input: AgentSendInput): Promise<Agent
   // Resolve the target BEFORE spending the grant so a typo doesn't burn a use.
   let targetId: string;
   let to: string | undefined;
+  let attachments: MailAttachment[] = [];
   if (action === "send_email") {
     to = (input.email?.to ?? "").trim();
     if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return { ok: false, error: "send_email needs a valid `to` address." };
     if (!(input.email?.body ?? "").trim()) return { ok: false, error: "send_email needs a body." };
+    // Files are read off disk here too, so a bad id or missing blob is refused
+    // before the grant is spent.
+    const fileIds = input.email?.attachment_file_ids ?? [];
+    if (fileIds.length > 0) {
+      const files = await loadFileAttachments(run, readUpload, fileIds);
+      if (!files.ok) return files;
+      attachments = files.attachments;
+    }
     targetId = to.toLowerCase();
   } else {
     const n = Number(input.target);
@@ -189,8 +203,19 @@ export async function performGrantedAction(input: AgentSendInput): Promise<Agent
           result = { ok: false, error: "Gmail is not connected." };
           break;
         }
-        await sendNewEmail({ to: to!, subject: input.email!.subject ?? "", bodyText: input.email!.body });
+        // No attachments → the same plain-text call as always.
+        await sendNewEmail({
+          to: to!,
+          subject: input.email!.subject ?? "",
+          bodyText: input.email!.body,
+          ...(attachments.length > 0 ? { attachments } : {}),
+        });
         result = { ok: true, summary: `Email sent to ${to}: "${(input.email!.subject ?? "").slice(0, 80)}"` };
+        if (attachments.length > 0) {
+          const names = attachments.map((a) => a.filename);
+          result.summary += ` with ${names.length} attachment${names.length === 1 ? "" : "s"}: ${names.join(", ")}`;
+          result.attachments = names;
+        }
         break;
       }
     }
@@ -204,6 +229,7 @@ export async function performGrantedAction(input: AgentSendInput): Promise<Agent
   if (!result.ok && action !== "send_bid_package" && action !== "release_newsletter_issue") {
     await refundGrantUse(input.grantId);
   }
-  await audit(agent, action, `${kind}:${targetId}`, result);
+  const attached = attachments.length > 0 ? ` + ${attachments.map((a) => a.filename).join(", ")}` : "";
+  await audit(agent, action, `${kind}:${targetId}${attached}`, result);
   return result;
 }

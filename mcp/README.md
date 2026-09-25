@@ -415,7 +415,7 @@ an **owner grant** — Joe's express permission for one action on one target
 | `release_newsletter_issue` | Release every queued outbox row of an issue (`issue_id`, `owner_grant_id`) |
 | `release_newsletter_outbox_item` | Release one outbox row (`outbox_id`, `owner_grant_id`) |
 | `send_document_for_signature` | Submit a rendered draft for signature (`draft_id`, `owner_grant_id`, `override?`) |
-| `send_email` | One-off plain-text email from the business Gmail (`to`, `subject`, `body`, `owner_grant_id`, optional `work_item_id`); a grant may be pinned to one recipient. With `work_item_id` it refuses if the app already emailed that item's staged draft on Approve, and receipts the send on the item |
+| `send_email` | One-off plain-text email from the business Gmail (`to`, `subject`, `body`, `owner_grant_id`, optional `attachment_file_ids`, optional `work_item_id`); a grant may be pinned to one recipient. `attachment_file_ids` attaches up to 10 project files by id from `list_project_files` (≈22 MB total, Gmail's limit); an unknown id or missing blob refuses the whole send before the grant is spent. With `work_item_id` it refuses if the app already emailed that item's staged draft on Approve, and receipts the send on the item |
 
 How a grant comes to exist: Joe ticks **Express permission (sends)** on an Ask-window
 message (a 20-minute, run-scoped grant Claude is told about in its prompt); Joe mints

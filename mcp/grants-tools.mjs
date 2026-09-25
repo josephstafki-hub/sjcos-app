@@ -241,6 +241,9 @@ export function registerGrantTools(server, { json, grantsCall, rows }) {
         "Send a one-off plain-text email from the business Gmail. REQUIRES owner_grant_id; a grant " +
         "may be limited to one recipient address. Use for the specific email Joe asked you to send — " +
         "quote his wording where he gave it. Signs as Joe / SJ Carpentry only if the body does. " +
+        "To attach files already uploaded to a project (photos, plans, PDFs), pass their ids from " +
+        "list_project_files as attachment_file_ids (max 10, ~22 MB total); a bad id or missing file " +
+        "refuses the whole send without spending the grant. " +
         "If the email completes a work item, pass work_item_id: Joe's Approve click on a work item " +
         "ALREADY sends its staged To:/Subject: draft, so this tool refuses when that item has an " +
         "'email' receipt newer than its staged draft, and files an 'email' receipt on the item when " +
@@ -249,6 +252,11 @@ export function registerGrantTools(server, { json, grantsCall, rows }) {
         to: z.string().email(),
         subject: z.string().max(200),
         body: z.string().min(1).max(20000).describe("Plain text."),
+        attachment_file_ids: z
+          .array(z.string())
+          .max(10)
+          .optional()
+          .describe("Project file ids from list_project_files to attach (images/PDFs). Aborts if any is missing."),
         owner_grant_id: uuid,
         work_item_id: z
           .string()
@@ -260,7 +268,7 @@ export function registerGrantTools(server, { json, grantsCall, rows }) {
           ),
       },
     },
-    async ({ to, subject, body, owner_grant_id, work_item_id }) => {
+    async ({ to, subject, body, attachment_file_ids, owner_grant_id, work_item_id }) => {
       try {
         if (work_item_id) {
           const prior = await emailedSinceDraft(work_item_id);
@@ -275,7 +283,8 @@ export function registerGrantTools(server, { json, grantsCall, rows }) {
             });
           }
         }
-        const r = await performRaw("send_email", { grant_id: owner_grant_id, email: { to, subject, body } });
+        const email = attachment_file_ids?.length ? { to, subject, body, attachment_file_ids } : { to, subject, body };
+        const r = await performRaw("send_email", { grant_id: owner_grant_id, email });
         if (r?.ok && work_item_id && rows) {
           await rows(
             `INSERT INTO agent_receipts (work_item_id, receipt_kind, label)

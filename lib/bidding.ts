@@ -15,12 +15,11 @@ import "server-only";
 // (files, invites, notes) and Joe transmits. This is the standing rule that
 // client-facing sends stay owner-approved.
 
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import { query, queryOne } from "./db";
-import { gmailConfigured, sendNewEmail, type MailAttachment } from "./gmail";
+import { gmailConfigured, sendNewEmail } from "./gmail";
+import { MAX_ATTACHMENT_BYTES, readAttachments } from "./mail-attachments";
 import { emit } from "./notify";
-import { UPLOAD_DIR } from "./uploads";
+import { readUpload } from "./uploads";
 
 export type BidPackageStatus = "draft" | "open" | "awarded" | "closed";
 export type BidInviteStatus =
@@ -394,9 +393,6 @@ export async function bidInviteById(id: number): Promise<InviteJoin | null> {
   );
 }
 
-// Gmail's hard cap is ~25 MB per message; leave headroom for MIME overhead.
-const MAX_PACKET_BYTES = 22 * 1024 * 1024;
-
 /** The bid request email itself — plain text, packet attached. */
 function bidGreetingName(subName: string, notes?: string | null): string {
   const contact = notes?.match(/(?:^|\n)Greeting contact:\s*([^\.\n]+)/i)?.[1]?.trim();
@@ -471,21 +467,12 @@ export async function sendBidPackageOp(packageId: number): Promise<OpResult> {
   // Read the packet off disk once; every recipient gets the same attachments.
   // A missing blob aborts the send — a sub pricing half a packet is worse than
   // no send at all.
-  const attachments: MailAttachment[] = [];
-  for (const f of files) {
-    try {
-      const content = await readFile(path.join(UPLOAD_DIR, f.storage_path ?? ""));
-      attachments.push({
-        filename: f.name,
-        mimeType: f.mime_type || "application/octet-stream",
-        content,
-      });
-    } catch {
-      return { ok: false, error: `Packet file "${f.name}" is missing from storage — re-upload it or pull it from the packet.` };
-    }
+  const packet = await readAttachments(files, readUpload);
+  if (!packet.ok) {
+    return { ok: false, error: `Packet file "${packet.missing}" is missing from storage — re-upload it or pull it from the packet.` };
   }
-  const totalBytes = attachments.reduce((s, a) => s + a.content.length, 0);
-  if (totalBytes > MAX_PACKET_BYTES) {
+  const { attachments } = packet;
+  if (packet.totalBytes > MAX_ATTACHMENT_BYTES) {
     return { ok: false, error: "The packet is over Gmail's ~25 MB attachment limit — slim it down (or split the package) and send again." };
   }
 

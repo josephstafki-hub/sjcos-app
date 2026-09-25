@@ -71,7 +71,8 @@ export function ElevationView({ ctx, className = "" }: { ctx: DesignerContext; c
 
   return (
     <div ref={host} className={`relative h-full w-full overflow-hidden bg-paper-2 ${className}`}>
-      <div className="absolute left-0 right-0 top-0 z-10 flex items-center gap-1 overflow-x-auto border-b border-rule bg-paper px-2 py-1 [scrollbar-width:none]">
+      {/* Wall chips scroll sideways (thin bar so it's findable); zoom stays put. */}
+      <div className="absolute left-0 right-[92px] top-0 z-10 flex items-center gap-1 overflow-x-auto border-b border-rule bg-paper px-2 py-1 [scrollbar-width:thin]">
         {options.map((o) => (
           <button
             key={o.key}
@@ -84,7 +85,8 @@ export function ElevationView({ ctx, className = "" }: { ctx: DesignerContext; c
             {o.label}
           </button>
         ))}
-        <div className="flex-1" />
+      </div>
+      <div className="absolute right-0 top-0 z-10 flex h-[31px] w-[92px] items-center justify-end gap-1 border-b border-l border-rule bg-paper px-2">
         <button className="rounded border border-rule px-1.5 text-[11px]" onClick={() => setZoom((z) => Math.max(0.5, z / 1.25))}>−</button>
         <button className="rounded border border-rule px-1.5 text-[11px]" onClick={() => setZoom(1)}>fit</button>
         <button className="rounded border border-rule px-1.5 text-[11px]" onClick={() => setZoom((z) => Math.min(4, z * 1.25))}>+</button>

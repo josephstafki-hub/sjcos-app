@@ -8,7 +8,8 @@
 import { useMemo } from "react";
 import * as THREE from "three";
 import type { FinishRef, PlacedItem } from "@/lib/plan-doc";
-import { Box, COLORS, Label, Pick, isGhost, useFinishTexture, useScene, useSelected, useShadows, yawFromPlanDeg } from "./shared";
+import { cabinetLayout, cabinetStyle, HARDWARE_FINISHES, profileFrame, type CabFront, type CabPull } from "@/lib/plan-cabinet";
+import { Box, COLORS, Label, Pick, Surface, isGhost, useFinishTexture, useScene, useSelected, useShadows, yawFromPlanDeg } from "./shared";
 import { isHex, shade } from "./textures";
 
 const CABINET_KINDS = new Set<PlacedItem["kind"]>(["base", "wall", "tall", "vanity", "island"]);
@@ -36,13 +37,14 @@ export function flavor(i: PlacedItem): Flavor {
   if (/shower/.test(s)) return "shower";
   if (/sink|\blav/.test(s)) return "sink";
   if (/tub/.test(s)) return "tub";
+  // Hood / over-range microwave first: their names say "range" too.
+  if (/hood/.test(s)) return "hood";
+  if (/micro/.test(s)) return "micro";
   if (/range|stove/.test(s)) return "range";
   if (/cooktop/.test(s)) return "cooktop";
   if (/fridge|refrig|freezer/.test(s)) return "fridge";
   if (/dishwasher|\bdw\b/.test(s)) return "dishwasher";
-  if (/hood/.test(s)) return "hood";
   if (/oven/.test(s)) return "oven";
-  if (/micro/.test(s)) return "micro";
   if (/washer|dryer/.test(s)) return "washer";
   return null;
 }
@@ -74,7 +76,7 @@ function ItemMesh({ item, elev }: { item: PlacedItem; elev: number }) {
 
   let body: React.ReactNode;
   if (CABINET_KINDS.has(item.kind)) {
-    body = <Cabinet item={item} bits={bits} color={override ?? (isHex(item.props.finishColor) ? item.props.finishColor : COLORS.cabinet)} />;
+    body = <Cabinet item={item} bits={bits} override={override} />;
   } else if (item.kind === "appliance") {
     body = <Appliance item={item} bits={bits} color={override ?? COLORS.stainless} />;
   } else if (item.kind === "plumbing") {
@@ -100,64 +102,143 @@ function ItemMesh({ item, elev }: { item: PlacedItem; elev: number }) {
 }
 
 // ─── Cabinets ────────────────────────────────────────────────────────────────
+//
+// Built from the shared layout (lib/plan-cabinet — the elevations draw the
+// same fronts): carcass, toe kick / legs, face frame, doors & drawers in the
+// chosen profile, hardware in the chosen metal, crown and light rail.
 
-function Cabinet({ item, bits, color }: { item: PlacedItem; bits: StyleBits; color: string }) {
-  const { doorStyle } = useScene();
-  const { w, d, h, kind } = item;
-  const toe = kind === "wall" ? 0 : Math.min(4.5, h * 0.2);
+const FRONT_T = 0.75;
+
+function Cabinet({ item, bits, override }: { item: PlacedItem; bits: StyleBits; override: string | null }) {
+  const { settings } = useScene();
+  const style = useMemo(() => cabinetStyle(item, { settings }), [item, settings]);
+  const layout = useMemo(() => cabinetLayout(item, style, settings.defaults.toeIn), [item, style, settings.defaults.toeIn]);
+  const { w, d, h } = item;
+  const color = override ?? style.color;
+  const fin = useMemo<FinishRef | null>(
+    () => (style.textureKey && !override ? { key: style.finish, label: style.finish, color, textureKey: style.textureKey } : null),
+    [style.textureKey, style.finish, color, override],
+  );
+  const tex = useFinishTexture(fin, w, h);
+  const hw = HARDWARE_FINISHES.find((f) => f.key === style.hardwareFinish) ?? HARDWARE_FINISHES[0];
+  const toe = layout.toe;
   const bodyH = h - toe;
-  const style = String(item.props.doorStyle ?? doorStyle);
-  const shaker = style === "shaker";
-  const dark = shade(color, -0.08);
-  const pull = "#5a5a58";
-  const gap = 0.25;
-  const frontZ = d / 2 + 0.375;
-  const isDrawerBase = /drawer|\bdb\d/i.test(`${item.tag} ${item.label} ${item.libraryKey ?? ""}`) || item.props.drawers === true;
-
-  const fronts: React.ReactNode[] = [];
-  if (isDrawerBase) {
-    const n = typeof item.props.drawerCount === "number" ? Math.max(1, Math.min(5, item.props.drawerCount)) : 3;
-    const frontH = (bodyH - 0.5 - (n - 1) * gap) / n;
-    for (let i = 0; i < n; i++) {
-      const y = toe + 0.25 + frontH / 2 + i * (frontH + gap);
-      fronts.push(
-        <group key={i}>
-          <Box size={[w - 0.5, frontH, 0.75]} position={[0, y, frontZ]} color={color} {...bits} />
-          {shaker && w - 0.5 - 4.5 > 1 && frontH - 3 > 1 && (
-            <Box size={[w - 5, frontH - 3, 0.06]} position={[0, y, frontZ + 0.41]} color={dark} edges={false} {...bits} />
-          )}
-          <Box size={[Math.min(5, w * 0.3), 0.4, 0.5]} position={[0, y, frontZ + 0.65]} color={pull} edges={false} {...bits} />
-        </group>,
-      );
-    }
-  } else {
-    const n = Math.max(1, Math.min(4, Math.ceil((w - 0.5) / 24)));
-    const doorW = (w - 0.5 - (n - 1) * gap) / n;
-    const doorH = bodyH - 0.5;
-    const y = toe + bodyH / 2;
-    for (let i = 0; i < n; i++) {
-      const x = -((w - 0.5) / 2) + doorW / 2 + i * (doorW + gap);
-      // Pull near the opening edge: outer doors hinge on the outside.
-      const hingeLeft = n === 1 ? item.props.hinge !== "R" : i < n / 2;
-      const px = x + (hingeLeft ? 1 : -1) * (doorW / 2 - 2);
-      const py = kind === "wall" ? toe + bodyH * 0.15 : toe + bodyH * 0.85;
-      fronts.push(
-        <group key={i}>
-          <Box size={[doorW, doorH, 0.75]} position={[x, y, frontZ]} color={color} {...bits} />
-          {shaker && doorW - 4.5 > 1 && doorH - 4.5 > 1 && (
-            <Box size={[doorW - 4.5, doorH - 4.5, 0.06]} position={[x, y, frontZ + 0.41]} color={dark} edges={false} {...bits} />
-          )}
-          <Box size={[0.4, Math.min(4, doorH * 0.3), 0.5]} position={[px, py, frontZ + 0.65]} color={pull} edges={false} {...bits} />
-        </group>,
-      );
-    }
-  }
+  const face = d / 2;
+  const frontZ = face + layout.frontOffset + FRONT_T / 2;
+  const detail = { ...bits, edges: false as const, shadows: false };
+  const surf = { color, map: tex, roughness: 0.55 };
 
   return (
     <>
-      <Box size={[w, bodyH, d]} position={[0, toe + bodyH / 2, 0]} color={color} {...bits} />
-      {toe > 0 && <Box size={[w, toe, Math.max(1, d - 3)]} position={[0, toe / 2, -1.5]} color={COLORS.toe} edges={false} {...bits} />}
-      {fronts}
+      {/* Carcass */}
+      <Box size={[w, bodyH, d]} position={[0, toe + bodyH / 2, 0]} {...surf} {...bits} />
+      {toe > 0 && layout.toeStyle === "recessed" && (
+        <Box size={[w, toe, Math.max(1, d - 3)]} position={[0, toe / 2, -1.5]} color={COLORS.toe} edges={false} {...bits} />
+      )}
+      {toe > 0 && layout.toeStyle === "legs" &&
+        [-1, 1].flatMap((sx) =>
+          [-1, 1].map((sz) => (
+            <mesh key={`${sx}${sz}`} position={[sx * (w / 2 - 1.5), toe / 2, sz * (d / 2 - 1.5)]}>
+              <cylinderGeometry args={[0.9, 0.7, toe, 12]} />
+              <Surface color={color} map={tex} roughness={0.55} ghost={bits.ghost} selected={bits.selected} />
+            </mesh>
+          )),
+        )}
+      {/* Face frame */}
+      {layout.frame.map((r, i) => (
+        <Box key={`f${i}`} size={[r.x1 - r.x0, r.z1 - r.z0, FRONT_T]} position={[(r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2, face + FRONT_T / 2]} {...surf} {...detail} />
+      ))}
+      {/* Doors, drawers, false fronts, oven opening */}
+      {layout.fronts.map((f, i) => (
+        <group key={`d${i}`}>
+          <FrontMesh f={f} z={frontZ} color={color} tex={tex} bits={bits} />
+          {f.pulls.map((p, j) => (
+            <PullMesh key={j} p={p} z={frontZ + FRONT_T / 2} color={hw.color} metalness={hw.metalness} roughness={hw.roughness} bits={detail} />
+          ))}
+        </group>
+      ))}
+      {layout.crown && (
+        <>
+          <Box size={[w + 1.5, 1.75, d + 0.75]} position={[0, h + 0.875, 0.375]} {...surf} {...detail} />
+          <Box size={[w + 3, 1.25, d + 1.5]} position={[0, h + 2.375, 0.75]} {...surf} {...detail} />
+        </>
+      )}
+      {layout.lightRail && <Box size={[w, 1.5, 0.75]} position={[0, -0.75, face + 0.375]} {...surf} {...detail} />}
+    </>
+  );
+}
+
+/** One door / drawer front in its profile: slab, or stiles + rails around a
+ *  recessed (shaker), raised, beadboard or glass panel. */
+function FrontMesh({ f, z, color, tex, bits }: { f: CabFront; z: number; color: string; tex: THREE.Texture | null; bits: StyleBits }) {
+  const fw = f.x1 - f.x0;
+  const fh = f.z1 - f.z0;
+  const cx = (f.x0 + f.x1) / 2;
+  const cz = (f.z0 + f.z1) / 2;
+  const surf = { color, map: tex, roughness: 0.55 };
+  const detail = { ...bits, edges: false as const, shadows: false };
+  if (f.kind === "appliance") {
+    return <Box size={[fw, fh, 0.5]} position={[cx, cz, z - FRONT_T / 2 + 0.25]} color={COLORS.black} roughness={0.3} metalness={0.4} {...bits} />;
+  }
+  const fr = profileFrame(f.profile, fw, fh);
+  if (fr < 0.4) return <Box size={[fw, fh, FRONT_T]} position={[cx, cz, z]} {...surf} {...bits} />;
+  const iw = fw - 2 * fr;
+  const ih = fh - 2 * fr;
+  const panelT = 0.375;
+  const panelZ = z - FRONT_T / 2 + panelT / 2;
+  const grooves: number[] = [];
+  if (f.profile === "beaded" && !f.glass) for (let x = -iw / 2 + 2; x < iw / 2 - 1; x += 2) grooves.push(x);
+  return (
+    <>
+      <Box size={[fr, fh, FRONT_T]} position={[f.x0 + fr / 2, cz, z]} {...surf} {...bits} />
+      <Box size={[fr, fh, FRONT_T]} position={[f.x1 - fr / 2, cz, z]} {...surf} {...bits} />
+      <Box size={[iw, fr, FRONT_T]} position={[cx, f.z1 - fr / 2, z]} {...surf} {...detail} />
+      <Box size={[iw, fr, FRONT_T]} position={[cx, f.z0 + fr / 2, z]} {...surf} {...detail} />
+      {f.glass ? (
+        <Box size={[iw, ih, 0.2]} position={[cx, cz, panelZ]} color={COLORS.glass} opacity={0.35} roughness={0.08} metalness={0.2} side={THREE.DoubleSide} {...detail} />
+      ) : (
+        <Box size={[iw, ih, panelT]} position={[cx, cz, panelZ]} color={shade(color, -0.03)} map={tex} roughness={0.55} {...detail} />
+      )}
+      {f.profile === "raised" && !f.glass && iw > 4 && ih > 4 && (
+        <Box size={[iw - 3, ih - 3, FRONT_T - 0.05]} position={[cx, cz, z - 0.025]} {...surf} {...bits} />
+      )}
+      {grooves.map((x) => (
+        <Box key={x} size={[0.12, ih, 0.04]} position={[cx + x, cz, panelZ + panelT / 2 + 0.01]} color={shade(color, -0.18)} {...detail} />
+      ))}
+    </>
+  );
+}
+
+function PullMesh({ p, z, color, metalness: metal, roughness: rough, bits }: { p: CabPull; z: number; color: string; metalness: number; roughness: number; bits: StyleBits & { edges: false } }) {
+  // The scene has no reflection map, so a fully metallic surface renders
+  // near-black; hold metalness down so brass reads as brass.
+  const metalness = Math.min(metal, 0.55);
+  const roughness = Math.max(rough, 0.3);
+  const m = { color, metalness, roughness, ...bits };
+  const horiz = p.orient === "h";
+  if (p.kind === "knob") {
+    return (
+      <mesh position={[p.x, p.z, z + 0.6]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[p.len / 2, p.len / 2.6, 1.1, 16]} />
+        <Surface color={color} metalness={metalness} roughness={roughness} ghost={bits.ghost} selected={bits.selected} />
+      </mesh>
+    );
+  }
+  if (p.kind === "cup") {
+    return <Box size={[p.len, 1.1, 0.7]} position={[p.x, p.z, z + 0.35]} {...m} />;
+  }
+  if (p.kind === "edge") {
+    return <Box size={horiz ? [p.len, 0.35, 0.9] : [0.35, p.len, 0.9]} position={[p.x, p.z, z + 0.2]} {...m} />;
+  }
+  // Bar on two standoffs.
+  const off = 1;
+  const posts = horiz ? [-p.len / 2, p.len / 2].map((dx) => [p.x + dx, p.z] as const) : [-p.len / 2, p.len / 2].map((dz) => [p.x, p.z + dz] as const);
+  return (
+    <>
+      <Box size={horiz ? [p.len + 1, 0.45, 0.45] : [0.45, p.len + 1, 0.45]} position={[p.x, p.z, z + off]} {...m} />
+      {posts.map(([x, y], i) => (
+        <Box key={i} size={[0.3, 0.3, off]} position={[x, y, z + off / 2]} {...m} />
+      ))}
     </>
   );
 }

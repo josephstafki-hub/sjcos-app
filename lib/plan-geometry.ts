@@ -13,6 +13,7 @@ import {
   type Pt,
   type Room,
   type Wall,
+  type Underlay,
 } from "./plan-doc.ts";
 
 export const EPS = 0.01;
@@ -519,23 +520,44 @@ export function detectRooms(doc: PlanDoc, levelId: string): Room[] {
     return true;
   });
 
-  // 5. Build rooms, carrying over pinned data by centroid containment.
+  // 5. Build rooms, carrying over pinned data by centroid containment. Each
+  //    old room goes to ONE face — the largest that overlaps it — so a room
+  //    split by a new wall keeps its id/name on the bigger piece and the rest
+  //    become new rooms (inheriting its finishes) with unused names.
   const prev = doc.rooms.filter((r) => r.levelId === levelId);
   const level = doc.levels.find((l) => l.id === levelId);
+  const overlaps = (f: (typeof bounded)[number], r: Room) => pointInPolygon(centroid(f.poly), r.polygon) || pointInPolygon(centroid(r.polygon), f.poly);
+  const byArea = bounded.map((_, i) => i).sort((a, b) => Math.abs(bounded[b].area) - Math.abs(bounded[a].area));
+  const match = new Map<number, Room>();
+  const taken = new Set<string>();
+  for (const i of byArea) {
+    const old = prev.find((r) => !taken.has(r.id) && overlaps(bounded[i], r));
+    if (old) {
+      taken.add(old.id);
+      match.set(i, old);
+    }
+  }
+  const names = new Set([...match.values()].map((r) => r.name));
+  let n = 1;
+  const nextName = () => {
+    while (names.has(`Room ${n}`)) n++;
+    names.add(`Room ${n}`);
+    return `Room ${n}`;
+  };
   return bounded.map((f, i) => {
-    const c = centroid(f.poly);
-    const old = prev.find((r) => pointInPolygon(c, r.polygon)) ?? prev.find((r) => pointInPolygon(centroid(r.polygon), f.poly));
+    const old = match.get(i);
+    const parent = old ?? prev.find((r) => pointInPolygon(centroid(f.poly), r.polygon));
     return {
       id: old?.id ?? newId("r"),
       levelId,
-      name: old?.name ?? `Room ${i + 1}`,
+      name: old?.name ?? nextName(),
       polygon: f.poly,
       areaSf: Math.abs(f.area) / 144,
       perimLf: polygonPerimeter(f.poly) / 12,
-      ceilingIn: old?.ceilingIn ?? level?.ceilingIn ?? null,
-      floor: old?.floor ?? null,
-      ceiling: old?.ceiling ?? null,
-      trim: old?.trim ?? null,
+      ceilingIn: parent?.ceilingIn ?? level?.ceilingIn ?? null,
+      floor: parent?.floor ?? null,
+      ceiling: parent?.ceiling ?? null,
+      trim: parent?.trim ?? null,
       wallIds: f.wallIds,
       pinned: old?.pinned,
     };
@@ -613,4 +635,118 @@ export function rectsOverlap(a: Pt[], b: Pt[]): boolean {
 export function pointInItem(p: Pt, i: { x: number; y: number; w: number; d: number; rotDeg: number }): boolean {
   const local = rotatePt(p, { x: i.x, y: i.y }, -i.rotDeg);
   return Math.abs(local.x - i.x) <= i.w / 2 && Math.abs(local.y - i.y) <= i.d / 2;
+}
+
+// ─── Underlay (plan image traced over) ───────────────────────────────────────
+
+/** Plan-space corners of an underlay image of w × h pixels: top-left, top-right,
+ *  bottom-right, bottom-left. */
+export function underlayCorners(u: Pick<Underlay, "x" | "y" | "scale" | "rotDeg">, w: number, h: number): Pt[] {
+  const o = { x: u.x, y: u.y };
+  return [
+    { x: 0, y: 0 },
+    { x: w, y: 0 },
+    { x: w, y: h },
+    { x: 0, y: h },
+  ].map((p) => rotatePt({ x: o.x + p.x * u.scale, y: o.y + p.y * u.scale }, o, u.rotDeg));
+}
+
+/** New placement for an underlay after "these two points are realIn apart":
+ *  the scale changes so they are, keeping p1 where it is. With `straighten`
+ *  the image also turns about p1 so the p1→p2 line lands on the nearest
+ *  horizontal / vertical. Returns null for a degenerate pick. */
+export function calibrateUnderlay(
+  u: Pick<Underlay, "x" | "y" | "scale" | "rotDeg">,
+  p1: Pt,
+  p2: Pt,
+  realIn: number,
+  straighten = false,
+): { x: number; y: number; scale: number; rotDeg: number } | null {
+  const d = dist(p1, p2);
+  if (!(d > 1e-6) || !(realIn > 0)) return null;
+  const f = realIn / d;
+  // Scale about p1: p1 + (o − p1)·f.
+  let o = { x: p1.x + (u.x - p1.x) * f, y: p1.y + (u.y - p1.y) * f };
+  let rot = u.rotDeg;
+  if (straighten) {
+    const ang = (Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180) / Math.PI;
+    const delta = Math.round(ang / 90) * 90 - ang;
+    o = rotatePt(o, p1, delta);
+    rot = u.rotDeg + delta;
+  }
+  rot = ((((rot + 180) % 360) + 360) % 360) - 180;
+  return { x: o.x, y: o.y, scale: u.scale * f, rotDeg: Math.round(rot * 1000) / 1000 };
+}
+
+/** Inches per image pixel for a PDF rendered at `dpi` whose drawing scale is
+ *  `inPerFt` paper inches to the foot (1/4" = 1'-0" → 0.25). */
+export function underlayScaleForDrawing(dpi: number, inPerFt: number): number {
+  return 12 / (inPerFt * dpi);
+}
+
+/** The underlay turned to `rotDeg` about the centre of its w × h image (so a
+ *  rotate button spins the sheet in place instead of swinging its corner). */
+export function rotateUnderlayAbout(
+  u: Pick<Underlay, "x" | "y" | "scale" | "rotDeg">,
+  w: number,
+  h: number,
+  rotDeg: number,
+): { x: number; y: number; rotDeg: number } {
+  const half = { x: (w * u.scale) / 2, y: (h * u.scale) / 2 };
+  const o = { x: u.x, y: u.y };
+  const c = rotatePt({ x: o.x + half.x, y: o.y + half.y }, o, u.rotDeg);
+  const rot = ((((rotDeg + 180) % 360) + 360) % 360) - 180;
+  const back = rotatePt({ x: c.x - half.x, y: c.y - half.y }, c, rot);
+  return { x: back.x, y: back.y, rotDeg: Math.round(rot * 1000) / 1000 };
+}
+
+/** The parts of segment a→b not already covered by a collinear wall (within
+ *  tolIn of the line), as [start, end] pairs of at least 1". Lets the Room and
+ *  Wall tools share a wall with a neighbour instead of stacking a copy on it. */
+export function uncoveredSpans(a: Pt, b: Pt, walls: Pick<Wall, "a" | "b">[], tolIn = 1): [Pt, Pt][] {
+  const L = dist(a, b);
+  if (L < 1e-6) return [];
+  const dir = { x: (b.x - a.x) / L, y: (b.y - a.y) / L };
+  const off = (p: Pt) => Math.abs((p.x - a.x) * dir.y - (p.y - a.y) * dir.x);
+  const along = (p: Pt) => (p.x - a.x) * dir.x + (p.y - a.y) * dir.y;
+  const covered: [number, number][] = [];
+  for (const w of walls) {
+    if (off(w.a) > tolIn || off(w.b) > tolIn) continue;
+    const lo = Math.max(0, Math.min(along(w.a), along(w.b)));
+    const hi = Math.min(L, Math.max(along(w.a), along(w.b)));
+    if (hi - lo > 0.5) covered.push([lo, hi]);
+  }
+  covered.sort((x, y) => x[0] - y[0]);
+  const gaps: [number, number][] = [];
+  let t = 0;
+  for (const [lo, hi] of covered) {
+    if (lo - t >= 1) gaps.push([t, lo]);
+    t = Math.max(t, hi);
+  }
+  if (L - t >= 1) gaps.push([t, L]);
+  const at = (u: number): Pt => (u <= 0 ? a : u >= L ? b : { x: a.x + dir.x * u, y: a.y + dir.y * u });
+  return gaps.map(([lo, hi]) => [at(lo), at(hi)]);
+}
+
+/** The drawing scale a sheet's text names most often: `1/4" = 1'-0"`,
+ *  `3/16"=1'`, `1" = 1'-0"`… Null when none (or "AS NOTED" only). */
+export function sheetScaleFromText(text: string): number | null {
+  const counts = new Map<number, number>();
+  const re = /(?<![\d/.])(\d+\s*-?\s*\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?)\s*(?:"|''|”|in\.?)\s*=\s*1\s*(?:'|’|ft\.?)\s*(?:-?\s*0\s*(?:"|”)?)?/gi;
+  for (const m of text.matchAll(re)) {
+    const raw = m[1].replace(/\s+/g, " ").trim();
+    let v: number;
+    const mixed = raw.match(/^(\d+)\s*-?\s*(\d+)\/(\d+)$/);
+    if (mixed) v = Number(mixed[1]) + Number(mixed[2]) / Number(mixed[3]);
+    else if (raw.includes("/")) {
+      const [a, b] = raw.split("/").map(Number);
+      v = a / b;
+    } else v = Number(raw);
+    if (!(v > 0 && v <= 3)) continue;
+    counts.set(v, (counts.get(v) ?? 0) + 1);
+  }
+  let best: number | null = null;
+  let n = 0;
+  for (const [v, c] of counts) if (c > n) [best, n] = [v, c];
+  return best;
 }

@@ -9,7 +9,7 @@ import { createContext, useContext, useEffect, useMemo, type ReactNode } from "r
 import * as THREE from "three";
 import { Edges, Html } from "@react-three/drei";
 import type { ThreeEvent, ThreeElements } from "@react-three/fiber";
-import type { FinishRef, Phase, Pt, WallKind } from "@/lib/plan-doc";
+import type { FinishRef, Phase, PlanDoc, Pt, WallKind } from "@/lib/plan-doc";
 import { degToRad } from "@/lib/plan-geometry";
 import { finishTexture, isHex, repeatFor } from "./textures";
 
@@ -31,6 +31,8 @@ export interface SceneCtxValue {
   select: (id: string | null, additive: boolean) => void;
   measure: MeasureBridge;
   doorStyle: string;
+  /** The design's settings (cabinet style, defaults) for cabinet looks. */
+  settings: PlanDoc["settings"];
 }
 
 export const SceneCtx = createContext<SceneCtxValue | null>(null);
@@ -165,9 +167,12 @@ export function Surface({
     );
   }
   const white = style === "white" || style === "sketch";
-  const c = ghost ? COLORS.ghost : white ? COLORS.white : safe;
   const alpha = ghost ? 0.35 : opacity ?? 1;
-  const useMap = white ? null : map;
+  const useMap = white || ghost ? null : map;
+  // Finish textures are painted in the finish's own colour (textures.ts), so
+  // a mapped surface stays white here — tinting it again would square the
+  // colour (walnut came out black, oak floors a shade too dark).
+  const c = ghost ? COLORS.ghost : white ? COLORS.white : useMap ? "#ffffff" : safe;
   return (
     <meshStandardMaterial
       key={useMap ? "map" : "flat"}
@@ -309,11 +314,14 @@ export function Box({
 /** Extruded polygon (plan space → shape x/y) `depth` thick. Mount the mesh
  *  with rotation [π/2, 0, 0] and position.y at the TOP surface: the extrusion
  *  then runs downward. Cap UVs are in inches. Disposed on unmount. */
-export function usePolygonGeometry(poly: Pt[], depth: number): THREE.ExtrudeGeometry | null {
-  const key = `${poly.map((p) => `${p.x},${p.y}`).join(";")}|${depth}`;
+export function usePolygonGeometry(poly: Pt[], depth: number, holes: Pt[][] = []): THREE.ExtrudeGeometry | null {
+  const ring = (pts: Pt[]) => pts.map((p) => `${p.x},${p.y}`).join(";");
+  const key = `${ring(poly)}|${depth}|${holes.map(ring).join("|")}`;
   const geo = useMemo(() => {
     if (poly.length < 3) return null;
     const shape = new THREE.Shape(poly.map((p) => new THREE.Vector2(p.x, p.y)));
+    // Holes (a stairwell) must sit wholly inside the outline.
+    for (const h of holes) if (h.length >= 3) shape.holes.push(new THREE.Path(h.map((p) => new THREE.Vector2(p.x, p.y))));
     return new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false });
     // The key captures every input; poly identity alone would rebuild per doc clone.
     // eslint-disable-next-line react-hooks/exhaustive-deps

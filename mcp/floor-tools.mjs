@@ -79,7 +79,7 @@ STRUCTURE
 - moveCorner {from: Pt, to: Pt}  ·  splitWall {id, atIn}  ·  joinWalls {idA, idB}
 - addOpening {wallId, atIn (from wall.a to the opening START), kind: "door"|"window"|"opening", subtype?, widthIn?, heightIn?, sillIn?, hand?: "L"|"R", swing?: "left"|"right", phase?, tag?, id?}
 - updateOpening {id, patch}
-- addStair {at: Pt, toLevelId?, rotDeg?, shape?: "straight"|"L"|"U", widthIn?, riserCount?, riserIn?, treadIn?, phase?}  ·  updateStair {id, patch}
+- addStair {at: Pt (centre of the footprint), toLevelId?, rotDeg?, shape?: "straight"|"L"|"U", turn?: "left"|"right" (L/U, walking up), landingAt? (treads before the landing), wellIn? (U gap between flights), widthIn?, riserCount?, riserIn?, treadIn?, phase?}  ·  updateStair {id, patch}
 - addStructure {kind: "column"|"beam"|"soffit", a: Pt, b?: Pt, wIn?, hIn?, zIn?, phase?, label?}  ·  updateStructure {id, patch}
 
 ITEMS (cabinets, appliances, fixtures, furniture — see list_plan_library for keys)
@@ -87,6 +87,11 @@ ITEMS (cabinets, appliances, fixtures, furniture — see list_plan_library for k
 - placeRun {wallId, side: "left"|"right", startIn, keys: string[], phase?} — a whole cabinet run along a wall, in order from wall.a; e.g. keys ["base-LS36","base-SB36","appl-dw-24","base-B24"].
 - updateItem {id, patch}  ·  moveItems {ids, dx, dy, snapToWall?}  ·  rotateItems {ids, deltaDeg}
 - duplicateItems {ids, dx?, dy?}  ·  setItemPhase {ids, phase}  ·  setItemProps {ids, props}
+- Cabinet style props (setItemProps on cabinets; also settings.cabinetStyle for the whole design / new cabinets):
+  construction "framed"|"frameless"|"inset" · doorStyle "shaker"|"slimShaker"|"slab"|"raised"|"beaded"|"glass" · drawerStyle "match"|"slab"
+  · finish (cab-white, cab-gray, cab-navy, cab-green, cab-cream, cab-greige, cab-sage, cab-blue-gray, cab-black, cab-oak-natural, cab-white-oak-rift, cab-walnut, cab-maple-natural, cab-cherry, cab-alder, or "custom") + finishColor "#rrggbb"
+  · hardware "bar"|"knob"|"cup"|"edge"|"none" · hardwareFinish (metal-black, metal-nickel, hw-polished-nickel, metal-chrome, hw-stainless, metal-brass, hw-champagne, hw-bronze, hw-copper) · pullIn (bar length, in)
+  · toe "recessed"|"legs"|"flush" · crown, lightRail, glass (booleans) · layout: doors (0–4), drawers (count; on top, or the whole front when doors = 0), hinge "L"|"R"
 
 COUNTERS + FINISHES (material = a finish preset key from list_plan_finishes, or a {key,label,color} ref)
 - regenerateCounters {material?} — rebuilds counters over every base run (runs after cabinet edits anyway)
@@ -103,12 +108,13 @@ ANNOTATION
 - addDim {a: Pt, b: Pt, offsetIn?, kind?: "aligned"|"linear"|"chain", chain?}  ·  updateDim {id, patch}
 - addNote {at: Pt, text, kind?: "note"|"label"|"cloud"|"north", leaderTo?}  ·  updateNote {id, patch}
 - addCamera {name, pos: [x,y,z], target: [x,y,z], fov?, mode?: "orbit"|"walk"|"plan"}  ·  updateCamera {id, patch}
-- addSection {a: Pt, b: Pt, depthIn?, flip?, label?}  ·  addPhoto {at: Pt, fileId, caption?}  ·  setUnderlay {underlay|null}
+- addSection {a: Pt, b: Pt, depthIn?, flip?, label?}  ·  addPhoto {at: Pt, fileId, caption?}
+- setUnderlay {levelId?, underlay: {fileId, x, y, scale (inches per image px), rotDeg, opacity, locked, widthPx?, heightPx?}|null} — one traced plan image per level; null removes it  ·  updateUnderlay {id, patch}
 
 GENERIC
 - move {ids, dx, dy}  ·  delete {ids} (removes drawing elements from the doc only; the design row is never deleted)
 - addLevel {name, elevationIn?, ceilingIn?, copyWallsFrom?}  ·  updateLevel {id, patch}  ·  removeLevel {id}
-- setSettings {patch: {snapIn?, angleSnap?, defaults?}}  ·  ignoreCheck {id, on}  ·  replace {doc}
+- setSettings {patch: {snapIn?, angleSnap?, defaults?, cabinetStyle?}}  ·  ignoreCheck {id, on}  ·  replace {doc}
 `.trim();
 
 export function registerFloorTools(server, { rows, json }) {

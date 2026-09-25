@@ -152,7 +152,8 @@ test("floors, ceilings, counters, plumbing, electrical, stairs, structure", () =
   assert.equal(ms.find((m) => m.key === "elec_switch_ea").materialTag, "dimmer");
 
   assert.equal(qty(ms, "stair_riser_ea"), 14);
-  near(qty(ms, "stair_lf"), (14 * 10) / 12);
+  // 14 risers → 13 treads (the last riser lands on the floor above).
+  near(qty(ms, "stair_lf"), (13 * 10) / 12);
   near(qty(ms, "beam_lf"), 12);
 });
 

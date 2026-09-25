@@ -7,12 +7,12 @@ import { useMemo } from "react";
 import { Copy, Trash2, RefreshCw, ArrowLeftRight } from "lucide-react";
 import type { DesignerContext } from "../view-state";
 import { fmtIn, type Counter, type PlacedItem } from "@/lib/plan-doc";
-import { DOOR_STYLES, EDGE_PROFILES, FINISH_PRESETS, LIBRARY, cabinetTag, finishPreset } from "@/lib/plan-library";
+import { EDGE_PROFILES, FINISH_PRESETS, LIBRARY, cabinetTag, finishPreset } from "@/lib/plan-library";
+import { CabinetStyleEditor } from "./CabinetStyle";
 import { runExtent } from "@/lib/plan-runs";
 import { BTN_DANGER, BTN_GHOST, Grid, NumberField, PHASE_OPTIONS, SectionHeader, Segmented, SelectField, Stat, TextField, Toggle } from "./fields";
 
 const CABINET_KINDS = new Set(["base", "wall", "tall", "vanity", "island"]);
-const CAB_FINISHES = FINISH_PRESETS.filter((p) => p.category === "cabinet").map((p) => ({ key: p.key, label: p.label }));
 const COUNTER_MATERIALS = FINISH_PRESETS.filter((p) => p.category === "stone" || p.category === "quartz" || p.key === "wood-butcher-block").map((p) => ({
   key: p.key,
   label: p.label,
@@ -103,22 +103,38 @@ export function ItemProps({ ctx, item }: { ctx: DesignerContext; item: PlacedIte
 
       {isCab && (
         <>
-          <SectionHeader>Cabinet</SectionHeader>
+          <SectionHeader>Doors &amp; drawers</SectionHeader>
           <div className="flex flex-col gap-2">
             <Grid>
-              <SelectField label="Door style" value={str(item.props.doorStyle, ctx.d.defaults.doorStyle)} options={DOOR_STYLES} disabled={ro} onChange={(doorStyle) => setProps({ doorStyle })} />
-              <SelectField
-                label="Finish"
-                value={str(item.props.finish, ctx.d.defaults.finish)}
-                options={CAB_FINISHES}
+              <Segmented
+                label="Doors"
+                value={item.props.doors === 0 ? "0" : String(num(item.props.doors, item.w < 24 ? 1 : 2))}
                 disabled={ro}
-                onChange={(finish) => setProps({ finish, finishColor: finishPreset(finish)?.color ?? null })}
+                options={[
+                  ...(item.kind !== "wall" ? [{ key: "0", label: "0" }] : []),
+                  { key: "1", label: "1" },
+                  { key: "2", label: "2" },
+                  { key: "3", label: "3" },
+                  { key: "4", label: "4" },
+                ]}
+                onChange={(k) => setProps({ doors: Number(k), ...(Number(k) === 0 && num(item.props.drawers, 0) < 1 ? { drawers: 3 } : {}) })}
               />
+              {item.kind !== "wall" && (
+                <NumberField
+                  label={item.props.doors === 0 ? "Drawers" : "Drawers on top"}
+                  value={num(item.props.drawers, 0)}
+                  raw
+                  min={0}
+                  max={item.props.doors === 0 ? 6 : 3}
+                  disabled={ro}
+                  onCommit={(drawers) => setProps({ drawers: Math.round(drawers) })}
+                />
+              )}
             </Grid>
-            <Grid>
+            {num(item.props.doors, item.w < 24 ? 1 : 2) === 1 && item.props.doors !== 0 && (
               <Segmented
                 label="Hinge"
-                value={str(item.props.hinge, "") as "L" | "R" | ""}
+                value={item.props.hinge === "R" ? "R" : "L"}
                 disabled={ro}
                 options={[
                   { key: "L", label: "Left" },
@@ -126,9 +142,7 @@ export function ItemProps({ ctx, item }: { ctx: DesignerContext; item: PlacedIte
                 ]}
                 onChange={(hinge) => setProps({ hinge })}
               />
-              <NumberField label="Drawers" value={num(item.props.drawers, 0)} raw min={0} max={10} disabled={ro} onCommit={(drawers) => setProps({ drawers })} />
-            </Grid>
-            <Toggle label="Glass doors" on={item.props.glass === true} disabled={ro} onChange={(glass) => setProps({ glass })} />
+            )}
             {item.kind === "island" && (
               <SelectField
                 label="Seating side"
@@ -145,6 +159,7 @@ export function ItemProps({ ctx, item }: { ctx: DesignerContext; item: PlacedIte
               />
             )}
           </div>
+          <CabinetStyleEditor ctx={ctx} items={[item]} />
         </>
       )}
 

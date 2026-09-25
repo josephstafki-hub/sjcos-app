@@ -6,12 +6,12 @@
 //
 //   import { registerBiddingTools } from "./bidding-tools.mjs";
 //   ...
-//   registerBiddingTools(server, { rows, json, biddingCall, uploadDir });
+//   registerBiddingTools(server, { rows, json, biddingCall, uploadDir, envValue, strippedDollarError });
 //
 // WHAT THIS EXPOSES: staging and reading the owner's Bidding-tab surface —
 // create a bid package for a category of work, attach the project's
 // plans/takeoffs, pick recipients from the sub roster by trade, customize the
-// per-sub note, watch recorded bids come back, compare them side by side, and
+// per-sub note, record bids as they come back, compare them side by side, and
 // award a winner.
 //
 // THE LINE: there is NO send tool. Sending a bid package emails the packet
@@ -19,11 +19,13 @@
 // sends stay owner-approved — so agents stage everything and Joe presses Send
 // on the Bidding tab. (Earlier, send was agent-callable because it only
 // published to sub portals; bids are email-only now, so the line moved back.)
-// Bid replies land in Joe's inbox and he records the numbers in the app.
+// Bid replies land in Joe's inbox; the numbers are recorded with his Record
+// bid button or record_bid (the same op, through the app).
 //
 // Deletes: only two, both draft-only and cheap to re-create (a packet-file row
 // and an unsent invite) — the same precedent as draft PO lines. Submitted bids
-// are business records; nothing here can touch them.
+// are business records; nothing here can touch them (record_bid only ever adds
+// a new revision).
 
 import { createHmac } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -32,7 +34,7 @@ import { z } from "zod";
 
 const t = (v, max = 300) => String(v ?? "").trim().slice(0, max);
 
-export function registerBiddingTools(server, { rows, json, biddingCall, uploadDir, envValue }) {
+export function registerBiddingTools(server, { rows, json, biddingCall, uploadDir, envValue, strippedDollarError }) {
   const fail = (e) => ({ content: [{ type: "text", text: `Error: ${e.message}` }], isError: true });
 
   /** Downscaled jpeg image block for an original image buffer. `.rotate()`
@@ -657,6 +659,44 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
       inputSchema: { invite_id: z.number().int() },
     },
     async ({ invite_id }) => json(await biddingCall("mark_working", { invite_id })),
+  );
+
+  server.registerTool(
+    "record_bid",
+    {
+      title: "Record a sub's bid",
+      description:
+        "Record a sub's bid that came back by email/phone, the same as the owner's Record bid " +
+        "button: saves the total/lines/exclusions/lead time as a new revision, marks the invite " +
+        "submitted, and (only if the package's auto follow-ups are on) the app sends the sub its " +
+        "usual thank-you. Get invite_id from get_bid_package. Money in integer cents.",
+      inputSchema: {
+        invite_id: z.number().int().describe("invites[].id from get_bid_package."),
+        total_cents: z.number().int().optional()
+          .describe("The bid total in cents ($22,500 = 2250000). Omit to use the sum of the lines."),
+        lines: z
+          .array(z.object({ description: z.string(), amount_cents: z.number().int() }))
+          .max(100)
+          .optional()
+          .describe("The sub's line items, if they broke the number down."),
+        exclusions: z.string().optional(),
+        lead_time: z.string().optional().describe('e.g. "3 weeks from signed contract".'),
+        notes: z.string().optional(),
+        file_ids: z.array(z.string()).max(10).optional()
+          .describe("The sub's quote, already stored on this project (ids from list_project_files)."),
+      },
+    },
+    async ({ invite_id, total_cents, lines, exclusions, lead_time, notes, file_ids }) => {
+      const mangled = strippedDollarError?.(
+        exclusions, lead_time, notes, ...(lines ?? []).map((l) => l.description),
+      );
+      if (mangled) return mangled;
+      return json(
+        await biddingCall("record_bid", {
+          invite_id, total_cents, lines, exclusions, lead_time, notes, file_ids,
+        }),
+      );
+    },
   );
 
   server.registerTool(

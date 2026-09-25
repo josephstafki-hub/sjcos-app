@@ -2526,10 +2526,10 @@ server.registerTool(
   // trigger. Nothing here sends; still no tool creates a change order.
   registerEstimateTools(server, { rows, json, pool, strippedDollarError });
 
-  // Bidding lives in its own module too: stage + award. Sending a package is
+  // Bidding lives in its own module too: stage, record + award. Sending a package is
   // real email, so it is NOT here — it's a granted send (below).
   registerBiddingTools(server, {
-    rows, json, biddingCall, envValue,
+    rows, json, biddingCall, envValue, strippedDollarError,
     uploadDir: path.join(__dirname, "..", "uploads"),
   });
 

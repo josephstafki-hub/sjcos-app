@@ -6,8 +6,9 @@ import "server-only";
 // written just for them. Bids are EMAIL — Send transmits the packet (scope,
 // per-sub note, files attached) straight to each sub's inbox via the Gmail
 // connector, and nothing about a bid touches the sub portal. Replies come back
-// to Joe's inbox; he records the numbers on the board (lib/actions/bidding.ts
-// recordBid), and the compare view lines them up side by side.
+// to Joe's inbox; the numbers are recorded on the board (recordBidOp — Joe's
+// Record bid button, or an agent's record_bid), and the compare view lines them
+// up side by side.
 //
 // BECAUSE Send now emails real people, it is owner-only: only the button on
 // the Bidding tab (a click by Joe) reaches sendBidPackageOp. The MCP bridge
@@ -15,6 +16,8 @@ import "server-only";
 // (files, invites, notes) and Joe transmits. This is the standing rule that
 // client-facing sends stay owner-approved.
 
+import { after } from "next/server";
+import { sendBidThanks } from "./bid-follow-ups";
 import { query, queryOne } from "./db";
 import { gmailConfigured, sendNewEmail } from "./gmail";
 import { MAX_ATTACHMENT_BYTES, readAttachments } from "./mail-attachments";
@@ -579,6 +582,167 @@ export async function markBidWorkingOp(inviteId: number): Promise<OpResult> {
     href: `/projects/${invite.slug}`,
   });
   return { ok: true };
+}
+
+/** A bid as the sub sent it back. Money is integer cents. */
+export interface RecordBidInput {
+  /** The sub's total. Omit it to use the sum of the lines. */
+  totalCents?: number;
+  lines?: { description: string; amountCents: number }[];
+  exclusions?: string;
+  leadTime?: string;
+  notes?: string;
+  /** Files already stored on this project (the sub's emailed quote): the
+   *  owner's fresh uploads, or ids from list_project_files. */
+  fileIds?: string[];
+}
+
+type RecordBidCheck =
+  | {
+      ok: true;
+      invite: InviteJoin;
+      total: number;
+      lines: { description: string; amount: number }[];
+      fileIds: string[];
+    }
+  | { ok: false; error: string };
+
+/** bid_submissions.total and bid_submission_lines.amount are int4 cents. */
+const MAX_CENTS = 2_147_483_647;
+
+const clip = (v: unknown, max: number) => String(v ?? "").trim().slice(0, max);
+
+/** Every refusal recordBidOp makes, checked before anything is written: the
+ *  invite went out, the package is still open, the total is positive, and each
+ *  file id is a stored file on this project. The owner's form runs it before
+ *  storing the uploaded quote too, so a refused bid leaves no stray files. */
+export async function checkRecordBid(inviteId: number, input: RecordBidInput): Promise<RecordBidCheck> {
+  const invite = await bidInviteById(inviteId);
+  if (!invite) return { ok: false, error: "Bid invite not found." };
+  if (invite.status === "draft") {
+    return { ok: false, error: "This invite hasn't been emailed yet." };
+  }
+  if (["awarded", "not_awarded"].includes(invite.status) || invite.package_status !== "open") {
+    return { ok: false, error: "Bidding on this package has closed." };
+  }
+
+  // Blank rows drop out, like the form's empty line-item rows.
+  const lines: { description: string; amount: number }[] = [];
+  for (const l of input.lines ?? []) {
+    const description = clip(l.description, 300);
+    const amount = Number(l.amountCents ?? 0);
+    if (!Number.isInteger(amount) || amount < 0 || amount > MAX_CENTS) {
+      return { ok: false, error: `Line "${description}" needs an amount in whole cents, 0 or more.` };
+    }
+    if (description || amount > 0) lines.push({ description, amount });
+  }
+
+  const total = Number(input.totalCents ?? lines.reduce((s, l) => s + l.amount, 0));
+  if (!Number.isInteger(total)) return { ok: false, error: "The bid total must be whole cents." };
+  if (total > MAX_CENTS) return { ok: false, error: "That bid total is too large — amounts are in cents." };
+  if (total <= 0) return { ok: false, error: "Enter your bid total (or line items that add up to one)." };
+
+  const fileIds = [...new Set((input.fileIds ?? []).map((id) => String(id ?? "").trim()))];
+  if (fileIds.length > 0) {
+    const { rows } = await query<{ id: string }>(
+      `SELECT id FROM files
+        WHERE id = ANY($1::text[]) AND storage_path IS NOT NULL AND project_key = $2`,
+      [fileIds, invite.slug],
+    );
+    const found = new Set(rows.map((r) => r.id));
+    const unknown = fileIds.filter((id) => !found.has(id));
+    if (unknown.length > 0) {
+      return {
+        ok: false,
+        error:
+          `No stored file on ${invite.project_name} with id ${unknown.map((id) => `"${id}"`).join(", ")} — ` +
+          "nothing was recorded. Use list_project_files for this project's file ids.",
+      };
+    }
+  }
+
+  return { ok: true, invite, total, lines, fileIds };
+}
+
+/** Record a bid that came back by email or phone: a total (or line items that
+ *  sum to one), optional exclusions / lead time / notes, and the sub's quote as
+ *  already-stored files. Re-recording files a new revision — compare reads the
+ *  latest. Shared by the Bidding-tab Record bid form and the MCP bridge
+ *  (record_bid): an internal record, but it can set off the package's auto
+ *  thank-you, same as the button. */
+export async function recordBidOp(inviteId: number, input: RecordBidInput): Promise<OpResult> {
+  const check = await checkRecordBid(inviteId, input);
+  if (!check.ok) return check;
+  const { invite, total, lines, fileIds } = check;
+
+  const revision = await queryOne<{ next: number }>(
+    `SELECT COALESCE(MAX(revision) + 1, 1) AS next FROM bid_submissions WHERE invite_id = $1`,
+    [inviteId],
+  );
+  const { rows: subRows } = await query<{ id: string }>(
+    `INSERT INTO bid_submissions (invite_id, total, notes, exclusions, lead_time, revision)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+    [
+      inviteId,
+      total,
+      clip(input.notes, 4000),
+      clip(input.exclusions, 4000),
+      clip(input.leadTime, 200),
+      revision?.next ?? 1,
+    ],
+  );
+  const submissionId = Number(subRows[0].id);
+
+  if (lines.length) {
+    await query(
+      `INSERT INTO bid_submission_lines (submission_id, description, amount, sort_order)
+       SELECT $1, d, a, i - 1
+       FROM unnest($2::text[], $3::bigint[]) WITH ORDINALITY AS t(d, a, i)`,
+      [submissionId, lines.map((l) => l.description), lines.map((l) => l.amount)],
+    );
+  }
+
+  // One row per file, in order: the board lists a bid's files by created_at.
+  for (const fileId of fileIds) {
+    await query(
+      `INSERT INTO bid_submission_files (submission_id, file_id) VALUES ($1, $2)`,
+      [submissionId, fileId],
+    );
+  }
+
+  await query(
+    `UPDATE bid_invites SET status = 'submitted', responded_at = now() WHERE id = $1`,
+    [inviteId],
+  );
+
+  // Auto thank-you (only if the package's follow-ups switch is on). Best-effort
+  // and deferred past the response: a Gmail round trip was what made "record a
+  // bid" hang for seconds, and a hiccup here is retried by the hourly sweep,
+  // never surfaced as a failure of recording the bid itself.
+  after(async () => {
+    try {
+      await sendBidThanks(inviteId);
+    } catch (err) {
+      console.error("[bidding] thank-you send failed", err);
+    }
+  });
+
+  await emit({
+    kind: "money",
+    tag: "Bid",
+    accent: "money",
+    icon: "money",
+    title: `Bid in from ${invite.sub_name} — ${bidUsd(total)}`,
+    subline: `${invite.project_name} · ${invite.title}`,
+    href: `/projects/${invite.slug}`,
+  });
+  return {
+    ok: true,
+    invite_id: inviteId,
+    submission_id: submissionId,
+    revision: revision?.next ?? 1,
+    total_cents: total,
+  };
 }
 
 /** Pick a winner. The awarded invite flips 'awarded'; every other sub still in

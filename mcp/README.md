@@ -355,11 +355,11 @@ note, files attached) straight to each sub via the app's Gmail connector, subs
 reply to Joe's inbox, and Joe records the numbers on the board. Nothing
 bid-related touches the sub portal. Agents can stage everything short of
 sending — create the package, build the packet, pick recipients, tailor notes —
-and can read/compare/award. Lives in its own module, `mcp/bidding-tools.mjs`.
-Reads and internal-record writes are direct SQL; `award_bid` goes through the
-app's bearer-gated internal route (`/api/internal/bidding`, authed with
-`CRON_SECRET`, audited to `agent_runs`) so it runs the exact code the owner's
-button runs.
+and can record/read/compare/award. Lives in its own module, `mcp/bidding-tools.mjs`.
+Reads and internal-record writes are direct SQL; `mark_bid_working`,
+`record_bid` and `award_bid` go through the app's bearer-gated internal route
+(`/api/internal/bidding`, authed with `CRON_SECRET`, audited to `agent_runs`)
+so they run the exact code the owner's buttons run.
 
 | Tool | Effect |
 |---|---|
@@ -378,6 +378,7 @@ button runs.
 | `remove_bid_invite` | Take a sub off — unsent invites only |
 | `close_bid_package` | End bidding without awarding |
 | `mark_bid_working` | Sub replied "we're on it" — switches them to the softer auto follow-up |
+| `record_bid` | A sub's emailed/phoned number (cents; total or lines, exclusions, lead time, notes, quote `file_ids` from `list_project_files`) → new revision, invite `submitted`; the package's auto thank-you follows only if its follow-ups are on |
 | `award_bid` | Pick the winner; everyone else goes `not_awarded`; package closes |
 
 > **Where the send line sits for this family.** Sending a bid package
@@ -388,15 +389,17 @@ button runs.
 **Typical agent flow:** `create_bid_package` → `list_project_files` +
 `attach_bid_file` (plans, takeoff) → `list_subs`, pick by trade →
 `add_bid_invites` → `set_bid_invite_message` where a sub needs tailoring →
-tell Joe it's staged so he can press Send → as he records bids, `compare_bids`
+tell Joe it's staged so he can press Send → as numbers come back by email or
+phone, `record_bid` each one (Joe may record some himself) → `compare_bids`
 → brief the owner (or, when asked, `award_bid`). When a sub replies "we're
 working on it" (no number yet), `mark_bid_working` so the auto chase eases off.
 
 **Auto follow-ups** (`lib/bid-follow-ups.ts`): while a package's "Auto
 follow-up" switch is on, an hourly sweep nudges silent subs at day 2 and 5,
-checks in on "working" subs at day 4, and a thank-you goes out when Joe records
-a bid. Agents don't drive those sends — keeping invite statuses honest
-(`mark_bid_working`, recording declines) is what steers them.
+checks in on "working" subs at day 4, and a thank-you goes out when a bid is
+recorded (Joe's button or `record_bid`). Agents don't drive those sends —
+keeping invite statuses honest (`mark_bid_working`, `record_bid`, recording
+declines) is what steers them.
 
 ## Owner grants (express permission to send)
 

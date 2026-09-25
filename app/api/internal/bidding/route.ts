@@ -1,7 +1,8 @@
 // Internal agent surface for bidding (MCP -> app bridge). The MCP server is
-// plain JS and can't import the TS ops, so award drives through this route —
-// the exact function the owner's button calls (lib/bidding.ts) — guarded by a
-// bearer token (CRON_SECRET), a trusted local caller, not a browser session.
+// plain JS and can't import the TS ops, so record / mark-working / award drive
+// through this route — the exact functions the owner's buttons call
+// (lib/bidding.ts) — guarded by a bearer token (CRON_SECRET), a trusted local
+// caller, not a browser session.
 //
 // SCOPE NOTE: send is REFUSED here. Sending a bid package now emails the
 // packet straight to each sub's inbox (sendBidPackageOp), and client-facing
@@ -13,7 +14,7 @@
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { query } from "@/lib/db";
-import { awardBidOp, markBidWorkingOp } from "@/lib/bidding";
+import { awardBidOp, markBidWorkingOp, recordBidOp } from "@/lib/bidding";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -71,6 +72,24 @@ export async function POST(req: Request) {
         // Internal record update (no email transmits): the sub said they're
         // pricing it, so the auto chase switches to the softer check-in.
         result = await markBidWorkingOp(Number(body.invite_id));
+        break;
+      case "record_bid":
+        // A sub's emailed/phoned bid, recorded as the owner's Record bid form
+        // does (new revision, invite 'submitted'). The only email it can set
+        // off is the package's armed auto thank-you, same as the button.
+        result = await recordBidOp(Number(body.invite_id), {
+          totalCents: body.total_cents == null ? undefined : Number(body.total_cents),
+          lines: Array.isArray(body.lines)
+            ? body.lines.map((l: { description?: unknown; amount_cents?: unknown }) => ({
+                description: String(l?.description ?? ""),
+                amountCents: Number(l?.amount_cents ?? 0),
+              }))
+            : undefined,
+          exclusions: body.exclusions == null ? undefined : String(body.exclusions),
+          leadTime: body.lead_time == null ? undefined : String(body.lead_time),
+          notes: body.notes == null ? undefined : String(body.notes),
+          fileIds: Array.isArray(body.file_ids) ? body.file_ids.map(String) : undefined,
+        });
         break;
       default:
         return NextResponse.json({ ok: false, error: `Unknown action "${action}"` }, { status: 400 });

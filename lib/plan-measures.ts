@@ -21,6 +21,8 @@ import {
   type Room,
   type Wall,
 } from "./plan-doc.ts";
+import { stairRunIn } from "./plan-stairs.ts";
+import { cabinetHardwareCount, cabinetLayout, cabinetStyle } from "./plan-cabinet.ts";
 
 // ─── Definitions ─────────────────────────────────────────────────────────────
 
@@ -73,6 +75,8 @@ export const MEASURE_DEFS: readonly MeasureDef[] = [
   { key: "cab_tall_ea", label: "Tall cabinets", unit: "ea", group: "cabinets" },
   { key: "cab_vanity_ea", label: "Vanity cabinets", unit: "ea", group: "cabinets" },
   { key: "cab_island_lf", label: "Island cabinets", unit: "lf", group: "cabinets" },
+  { key: "cab_pull_ea", label: "Cabinet pulls", unit: "ea", group: "cabinets" },
+  { key: "cab_knob_ea", label: "Cabinet knobs", unit: "ea", group: "cabinets" },
   // counters
   { key: "counter_sf", label: "Countertop", unit: "sf", group: "counters" },
   { key: "counter_edge_lf", label: "Countertop edge", unit: "lf", group: "counters" },
@@ -370,6 +374,12 @@ function measureItems(doc: PlanDoc, acc: Acc): void {
           acc.add("cab_tall_ea", 1, o);
           break;
       }
+      // Hardware as the elevations / 3D place it; tagged with its finish.
+      const style = cabinetStyle(i, doc);
+      const hw = cabinetHardwareCount(cabinetLayout(i, style, doc.settings.defaults.toeIn));
+      const tag = `${style.hardwareFinish}${style.hardware === "bar" ? ` ${style.pullIn}in` : ""}`;
+      if (hw.pulls) acc.add("cab_pull_ea", hw.pulls, { ...o, materialTag: tag });
+      if (hw.knobs) acc.add("cab_knob_ea", hw.knobs, { ...o, materialTag: style.hardwareFinish });
     } else if (i.kind === "appliance") {
       if (removing) acc.add("appliance_demo_ea", 1, o);
       else acc.add("appliance_ea", 1, { ...o, materialTag: itemProduct(i) });
@@ -468,7 +478,7 @@ function measureStairs(doc: PlanDoc, acc: Acc): void {
     if (s.phase === "existing") continue;
     const o = { phase: s.phase, levelId: s.fromLevelId, elementIds: [s.id] };
     acc.add("stair_riser_ea", s.riserCount, o);
-    acc.add("stair_lf", lf(s.riserCount * s.treadIn), o);
+    acc.add("stair_lf", lf(stairRunIn(s)), o);
   }
 }
 

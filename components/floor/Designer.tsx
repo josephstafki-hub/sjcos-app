@@ -16,6 +16,8 @@ import { TopBar } from "./TopBar";
 import { StatusBar } from "./StatusBar";
 import { Inspector, InspectorSheet } from "./inspector/Inspector";
 import { useDesigner, type ToolId } from "./useDesigner";
+import { levelSlice, newId } from "@/lib/plan-doc";
+import { levelBounds } from "@/lib/plan-geometry";
 import { defaultViewState, type DesignerContext, type ViewState } from "./view-state";
 
 export interface DesignerProps {
@@ -35,7 +37,9 @@ const HOTKEYS: Record<string, ToolId> = {};
 for (const g of TOOL_GROUPS) for (const t of g.tools) HOTKEYS[t.key] = t.id;
 
 function hotkeyFor(e: KeyboardEvent): string {
-  const k = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+  // Letters from the physical key: on a Mac / iPad ⌥C types "ç", not "C".
+  const fromCode = /^Key([A-Z])$/.exec(e.code)?.[1];
+  const k = fromCode ?? (e.key.length === 1 ? e.key.toUpperCase() : e.key);
   if (e.altKey) return `⌥${k}`;
   if (e.shiftKey) return `⇧${k}`;
   return k;
@@ -49,6 +53,14 @@ export function Designer(props: DesignerProps) {
   const setView = useCallback((patch: Partial<ViewState> | ((v: ViewState) => Partial<ViewState>)) => {
     setViewState((v) => ({ ...v, ...(typeof patch === "function" ? patch(v) : patch) }));
   }, []);
+  // Picking any tool ends an underlay scale / move in progress.
+  const pickTool = useCallback(
+    (t: ToolId) => {
+      d.setTool(t);
+      setViewState((v) => (v.underlayTool ? { ...v, underlayTool: null } : v));
+    },
+    [d],
+  );
   const canvas = useRef<Canvas2DHandle>(null);
   const scene = useRef<Scene3DHandle>(null);
   const [narrow, setNarrow] = useState(false);
@@ -71,6 +83,21 @@ export function Designer(props: DesignerProps) {
   }, [router]);
 
   const activeCamera = useMemo(() => d.doc.cameras.find((c) => c.id === view.activeCameraId) ?? null, [d.doc.cameras, view.activeCameraId]);
+  // Section-cut slider spans the model (plus 2'), not a fixed -200..400".
+  const modelBounds = useMemo(() => {
+    const bs = d.doc.levels.map((l) => levelBounds(d.doc, l.id)).filter((b): b is NonNullable<typeof b> => !!b);
+    if (!bs.length) return { min: { x: 0, y: 0 }, max: { x: 240, y: 240 } };
+    return {
+      min: { x: Math.min(...bs.map((b) => b.min.x)), y: Math.min(...bs.map((b) => b.min.y)) },
+      max: { x: Math.max(...bs.map((b) => b.max.x)), y: Math.max(...bs.map((b) => b.max.y)) },
+    };
+  }, [d.doc]);
+  const sectionRange = (axis: "x" | "z") =>
+    axis === "x" ? { min: modelBounds.min.x - 24, max: modelBounds.max.x + 24 } : { min: modelBounds.min.y - 24, max: modelBounds.max.y + 24 };
+  const sectionMid = (axis: "x" | "z") => {
+    const r = sectionRange(axis);
+    return Math.round((r.min + r.max) / 2);
+  };
 
   const ctx: DesignerContext = useMemo(
     () => ({
@@ -120,7 +147,11 @@ export function Designer(props: DesignerProps) {
       }
       if (meta && e.key.toLowerCase() === "d") {
         e.preventDefault();
-        if (d.selected.length) d.apply({ op: "duplicateItems", ids: d.selected, dx: 12, dy: 12 });
+        const items = d.doc.items.filter((i) => d.selected.includes(i.id));
+        if (items.length) {
+          const newIds = items.map(() => newId("i"));
+          if (d.apply({ op: "duplicateItems", ids: items.map((i) => i.id), dx: 12, dy: 12, newIds })) d.select(newIds);
+        }
         return;
       }
       if (meta && e.key.toLowerCase() === "s") {
@@ -130,7 +161,11 @@ export function Designer(props: DesignerProps) {
       }
       if (meta && e.key.toLowerCase() === "a") {
         e.preventDefault();
-        d.select([...d.doc.items.filter((i) => i.levelId === d.levelId).map((i) => i.id), ...d.doc.walls.filter((w) => w.levelId === d.levelId).map((w) => w.id)]);
+        const s = levelSlice(d.doc, d.levelId);
+        d.select([
+          ...s.walls, ...s.openings, ...s.items, ...s.electrical, ...s.notes, ...s.dims, ...s.stairs, ...s.structure,
+          ...s.counters.filter((c) => !c.runId), ...s.photos, ...s.sections, ...s.cameras,
+        ].map((x) => x.id));
         return;
       }
       if (meta) return;
@@ -145,12 +180,16 @@ export function Designer(props: DesignerProps) {
           canvas.current?.finish();
           return;
         case "Delete":
-        case "Backspace":
-          if (d.selected.length && !readOnly) {
+        case "Backspace": {
+          // Rooms are found from the walls — deleting one would only strip
+          // its finishes, so they're left out.
+          const ids = d.selected.filter((id) => !d.doc.rooms.some((r) => r.id === id));
+          if (ids.length && !readOnly) {
             e.preventDefault();
-            d.apply({ op: "delete", ids: d.selected });
+            d.apply({ op: "delete", ids });
           }
           return;
+        }
         case "ArrowLeft":
         case "ArrowRight":
         case "ArrowUp":
@@ -160,7 +199,7 @@ export function Designer(props: DesignerProps) {
           const step = e.shiftKey ? 12 : 1;
           const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
           const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
-          d.apply({ op: "move", ids: d.selected, dx, dy }, { label: "Nudge" });
+          d.apply({ op: "move", ids: d.selected, dx, dy }, { label: "Nudge", coalesce: `nudge:${d.selected.join(",")}` });
           return;
         }
         case "1":
@@ -184,7 +223,8 @@ export function Designer(props: DesignerProps) {
           }
           break;
         case "r":
-          if (d.selected.length && d.tool === "select") {
+          // Rotate needs an item; with a wall / room selected R still means Room.
+          if (d.tool === "select" && d.doc.items.some((i) => d.selected.includes(i.id))) {
             d.apply({ op: "rotateItems", ids: d.selected, deltaDeg: 90 });
             return;
           }
@@ -201,12 +241,12 @@ export function Designer(props: DesignerProps) {
       const tool = HOTKEYS[hk];
       if (tool) {
         e.preventDefault();
-        d.setTool(tool);
+        pickTool(tool);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [d, readOnly, setView, view.paint]);
+  }, [d, pickTool, readOnly, setView, view.paint]);
 
   const showPlan = view.mode === "plan" || view.mode === "split";
   const show3d = view.mode === "3d" || view.mode === "split";
@@ -228,6 +268,7 @@ export function Designer(props: DesignerProps) {
       section={view.section}
       showLabels={view.showLabels3d}
       camera={activeCamera}
+      walkLevelId={d.levelId}
       className="h-full w-full"
     />
   );
@@ -259,20 +300,26 @@ export function Designer(props: DesignerProps) {
         ☀ <input type="range" min={5} max={21} step={0.5} value={view.sunHour} onChange={(e) => setView({ sunHour: Number(e.target.value) })} className="w-16" />
       </label>
       <button
-        onClick={() => setView({ section: view.section ? null : { axis: "x", at: 0, flip: false } })}
+        onClick={() => setView({ section: view.section ? null : { axis: "x", at: sectionMid("x"), flip: false } })}
         className={`rounded px-2 py-0.5 ${view.section ? "bg-ink text-paper" : "text-ink-2 hover:bg-paper-2"}`}
       >
         Section
       </button>
       {view.section && (
         <>
-          <button onClick={() => setView({ section: { ...view.section!, axis: view.section!.axis === "x" ? "z" : "x" } })} className="rounded px-1.5 py-0.5 text-ink-2 hover:bg-paper-2">
+          <button
+            onClick={() => {
+              const axis = view.section!.axis === "x" ? "z" : "x";
+              setView({ section: { ...view.section!, axis, at: sectionMid(axis) } });
+            }}
+            className="rounded px-1.5 py-0.5 text-ink-2 hover:bg-paper-2"
+          >
             {view.section.axis === "x" ? "X" : "Z"}
           </button>
           <input
             type="range"
-            min={-200}
-            max={400}
+            min={sectionRange(view.section.axis).min}
+            max={sectionRange(view.section.axis).max}
             value={view.section.at}
             onChange={(e) => setView({ section: { ...view.section!, at: Number(e.target.value) } })}
             className="w-24"
@@ -315,9 +362,9 @@ export function Designer(props: DesignerProps) {
   return (
     <div className="flex h-[calc(100vh-var(--topbar-h,56px))] min-h-[480px] flex-col overflow-hidden">
       <TopBar ctx={ctx} onFit={() => { canvas.current?.fit(); scene.current?.fit(); }} onPrint={onPrint} />
-      {narrow && <ToolPalette tool={d.tool} onSelect={d.setTool} compact />}
+      {narrow && <ToolPalette tool={d.tool} onSelect={pickTool} compact />}
       <div className="flex min-h-0 flex-1">
-        {!narrow && <ToolPalette tool={d.tool} onSelect={d.setTool} />}
+        {!narrow && <ToolPalette tool={d.tool} onSelect={pickTool} />}
         <div className="relative flex min-w-0 flex-1">
           {showPlan && (
             <div className={`relative min-w-0 ${view.mode === "split" ? "w-1/2 border-r border-rule" : "flex-1"}`}>

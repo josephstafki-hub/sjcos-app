@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  Undo2, Redo2, ChevronDown, Printer, Share2, Layers, AlertTriangle, MoreHorizontal, Check, Grid3x3, Magnet,
+  Undo2, Redo2, ChevronDown, Printer, Share2, Layers, AlertTriangle, MoreHorizontal, Check, Grid3x3, Magnet, ImageUp,
 } from "lucide-react";
 import { runAction } from "@/lib/run-action";
 import { runChecks } from "@/lib/plan-checks";
@@ -152,6 +152,15 @@ export function TopBar({
         Fit
       </button>
 
+      <button
+        className={`${btn} ${view.panel === "underlay" ? "border-ink" : ""}`}
+        onClick={() => setView({ panel: "underlay", mode: view.mode === "3d" || view.mode === "elevation" ? "plan" : view.mode })}
+        title="Upload a floor plan, scale it, and trace walls over it"
+      >
+        <ImageUp className="size-3.5" />
+        Trace plan
+      </button>
+
       {/* Layers */}
       <div className="relative">
         <button className={btn} onClick={() => setMenu(menu === "layers" ? null : "layers")} title="Layers">
@@ -252,7 +261,8 @@ export function TopBar({
             >
               Save as template…
             </MenuItem>
-            <MenuItem onClick={() => { setView({ panel: "layers" }); close(); }}>Underlay & levels…</MenuItem>
+            <MenuItem onClick={() => { setView({ panel: "underlay" }); close(); }}>Trace a plan (underlay)…</MenuItem>
+            <MenuItem onClick={() => { setView({ panel: "layers" }); close(); }}>Layers & levels…</MenuItem>
             <div className="my-1 border-t border-rule" />
             {design.projectSlug && (
               <MenuItem asLink href={`/projects/${design.projectSlug}?tab=Floor`}>Open project</MenuItem>

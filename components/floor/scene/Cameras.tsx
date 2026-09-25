@@ -9,8 +9,8 @@ import { useCallback, useEffect, useRef, type RefObject } from "react";
 import * as THREE from "three";
 import { OrbitControls, OrthographicCamera, PerspectiveCamera } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
-import type { Camera as PlanCamera, Wall } from "@/lib/plan-doc";
-import { distToWall } from "@/lib/plan-geometry";
+import type { Camera as PlanCamera, Level, Opening, Wall } from "@/lib/plan-doc";
+import { distToWall, projectOnWall } from "@/lib/plan-geometry";
 import { boundsCentre, boundsExtent, type SceneApi, type WorldBounds } from "./api";
 
 export type CameraMode = "orbit" | "walk" | "plan";
@@ -33,16 +33,24 @@ interface RigProps {
   mode: CameraMode;
   apiRef: RefObject<SceneApi>;
   bounds: WorldBounds;
-  /** Walls the walk camera collides with. */
+  /** Walls the walk camera collides with (the walk level only). */
   walls: Wall[];
+  /** Openings on those walls — walk goes through doors and cased openings. */
+  openings: Opening[];
   /** Floor height the walk eye is measured from. */
   floorY: number;
+  /** Where walk mode starts (plan x, y), e.g. the biggest room's centre. */
+  walkStart?: [number, number] | null;
+  /** Saved cameras are stored relative to their level's floor. */
+  levels: Level[];
+  /** Camera to open on instead of framing the model. */
+  camera?: PlanCamera | null;
   onCameraChange?: (pos: [number, number, number], target: [number, number, number]) => void;
 }
 
 const smooth = (k: number) => k * k * (3 - 2 * k);
 
-export function CameraRig({ mode, apiRef, bounds, walls, floorY, onCameraChange }: RigProps) {
+export function CameraRig({ mode, apiRef, bounds, walls, openings, floorY, walkStart, levels, camera, onCameraChange }: RigProps) {
   const get = useThree((s) => s.get);
   const invalidate = useThree((s) => s.invalidate);
   const size = useThree((s) => s.size);
@@ -53,6 +61,9 @@ export function CameraRig({ mode, apiRef, bounds, walls, floorY, onCameraChange 
   const lastEmit = useRef(0);
   const lastPos = useRef(new THREE.Vector3(NaN, NaN, NaN));
   const initRef = useRef<string | null>(null);
+  /** Until the user orbits / pans / zooms, a pane resize re-frames the model
+   *  (the pane settles over a few frames when 3D or Split opens). */
+  const autoFitRef = useRef(true);
   const [cx, cy, cz] = boundsCentre(bounds);
   const [ex, ey, ez] = boundsExtent(bounds);
 
@@ -128,7 +139,11 @@ export function CameraRig({ mode, apiRef, bounds, walls, floorY, onCameraChange 
       }
       const fov = cam instanceof THREE.PerspectiveCamera ? cam.fov : 50;
       const r = Math.max(30, 0.5 * Math.hypot(ex, ey, ez));
-      const d = (r / Math.sin((fov * Math.PI) / 360)) * 1.05;
+      // The narrower of the two view angles decides — a tall split pane or
+      // iPad portrait would otherwise crop the model's sides.
+      const vHalf = (fov * Math.PI) / 360;
+      const hHalf = Math.atan(Math.tan(vHalf) * (size.width / Math.max(1, size.height)));
+      const d = (r / Math.sin(Math.min(vHalf, hHalf))) * 1.05;
       const dir = new THREE.Vector3(0.75, 0.6, 1).normalize();
       startAnim(centre.clone().addScaledVector(dir, d), centre, dur);
     },
@@ -137,14 +152,17 @@ export function CameraRig({ mode, apiRef, bounds, walls, floorY, onCameraChange 
 
   const flyTo = useCallback(
     (pc: PlanCamera, dur = 600) => {
+      autoFitRef.current = false;
       const cam = get().camera;
       if (cam instanceof THREE.PerspectiveCamera && pc.fov && Math.abs(cam.fov - pc.fov) > 0.5) {
         cam.fov = pc.fov;
         cam.updateProjectionMatrix();
       }
-      startAnim(new THREE.Vector3(...pc.pos), new THREE.Vector3(...pc.target), dur);
+      // pos / target heights are above the camera's own floor.
+      const e = levels.find((l) => l.id === pc.levelId)?.elevationIn ?? 0;
+      startAnim(new THREE.Vector3(pc.pos[0], pc.pos[1] + e, pc.pos[2]), new THREE.Vector3(pc.target[0], pc.target[1] + e, pc.target[2]), dur);
     },
-    [get, startAnim],
+    [get, levels, startAnim],
   );
 
   const setWalkEye = useCallback(
@@ -162,7 +180,10 @@ export function CameraRig({ mode, apiRef, bounds, walls, floorY, onCameraChange 
   useEffect(() => {
     const a = apiRef.current;
     a.flyTo = flyTo;
-    a.fit = fit;
+    a.fit = (ms?: number) => {
+      autoFitRef.current = true;
+      fit(ms);
+    };
     a.setWalkEye = setWalkEye;
     return () => {
       a.flyTo = null;
@@ -177,21 +198,53 @@ export function CameraRig({ mode, apiRef, bounds, walls, floorY, onCameraChange 
   const hasBounds = ex > 0 || ez > 0;
   const hasSize = size.width > 0 && size.height > 0;
   useEffect(() => {
-    const key = `${mode === "plan" ? "plan" : "persp"}:${hasBounds ? 1 : 0}:${hasSize ? 1 : 0}`;
+    const key = `${mode}:${hasBounds ? 1 : 0}:${hasSize ? 1 : 0}`;
     if (initRef.current === key) return;
+    const first = initRef.current === null;
     initRef.current = key;
-    fit(0);
     if (mode === "walk") {
+      // Stand in the biggest room at eye height, looking along it — not
+      // hovering outside the house where orbit left the camera.
       const cam = get().camera;
-      cam.position.y = floorY + eyeRef.current;
-      targetRef.current.set(cx, floorY + eyeRef.current, cz);
+      const [sx, sz] = walkStart ?? [cx, cz];
+      const eye = floorY + eyeRef.current;
+      cam.position.set(sx, eye, sz);
+      targetRef.current.set(sx + (ex >= ez ? 120 : 0), eye, sz + (ex >= ez ? 0 : 120));
       cam.lookAt(targetRef.current);
       syncRef.current = true;
       invalidate();
+      return;
     }
+    if (first && camera && mode !== "plan") {
+      autoFitRef.current = false;
+      flyTo(camera, 0);
+      return;
+    }
+    autoFitRef.current = true;
+    fit(0);
     // Only re-run on mode / bounds- / size-availability change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, hasBounds, hasSize]);
+
+  useEffect(() => {
+    if (autoFitRef.current && mode !== "walk" && size.width > 0 && size.height > 0) fit(0);
+    // Only on pane size changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [size.width, size.height]);
+  const userMoved = useCallback(() => {
+    autoFitRef.current = false;
+  }, []);
+  // OrbitControls mount after the first framing (and again on every mode
+  // switch) with their own target at the origin; hand them the rig's target
+  // so the view pivots on the model, not on the plan's (0, 0) corner.
+  const liveControls = useThree((s) => s.controls);
+  useEffect(() => {
+    const c = controls();
+    if (!c) return;
+    c.target.copy(targetRef.current);
+    c.update();
+    invalidate();
+  }, [liveControls, controls, invalidate]);
 
   useFrame(() => {
     const a = animRef.current;
@@ -244,6 +297,7 @@ export function CameraRig({ mode, apiRef, bounds, walls, floorY, onCameraChange 
           maxPolarAngle={Math.PI * 0.49}
           minDistance={12}
           maxDistance={20000}
+          onStart={userMoved}
           onChange={onControlsChange}
         />
       )}
@@ -255,11 +309,12 @@ export function CameraRig({ mode, apiRef, bounds, walls, floorY, onCameraChange 
           screenSpacePanning
           minZoom={0.05}
           maxZoom={40}
+          onStart={userMoved}
           onChange={onControlsChange}
         />
       )}
       {mode === "walk" && (
-        <WalkControls walls={walls} floorY={floorY} eyeRef={eyeRef} targetRef={targetRef} syncRef={syncRef} animRef={animRef} emit={emit} />
+        <WalkControls walls={walls} openings={openings} floorY={floorY} eyeRef={eyeRef} targetRef={targetRef} syncRef={syncRef} animRef={animRef} emit={emit} />
       )}
     </>
   );
@@ -286,6 +341,7 @@ function isTypingTarget(t: EventTarget | null): boolean {
 
 function WalkControls({
   walls,
+  openings,
   floorY,
   eyeRef,
   targetRef,
@@ -294,6 +350,7 @@ function WalkControls({
   emit,
 }: {
   walls: Wall[];
+  openings: Opening[];
   floorY: number;
   eyeRef: RefObject<number>;
   targetRef: RefObject<THREE.Vector3>;
@@ -308,9 +365,11 @@ function WalkControls({
   const drag = useRef<{ id: number; x: number; y: number } | null>(null);
   const wheel = useRef(0);
   const wallsRef = useRef(walls);
+  const doorsRef = useRef(openings);
   useEffect(() => {
     wallsRef.current = walls;
-  }, [walls]);
+    doorsRef.current = openings;
+  }, [walls, openings]);
 
   const syncFromCamera = useCallback(() => {
     const cam = get().camera;
@@ -399,7 +458,15 @@ function WalkControls({
 
   const blocked = (x: number, z: number): boolean => {
     const p = { x, y: z };
-    for (const w of wallsRef.current) if (distToWall(w, p) < 6 + w.thickIn / 2) return true;
+    for (const w of wallsRef.current) {
+      if (distToWall(w, p) >= 6 + w.thickIn / 2) continue;
+      // Doors and cased openings (floor-level, tall enough) let you through.
+      const t = projectOnWall(w, p).t;
+      const through = doorsRef.current.some(
+        (o) => o.wallId === w.id && o.kind !== "window" && o.sillIn < 6 && o.heightIn >= 60 && t >= o.atIn + 4 && t <= o.atIn + o.widthIn - 4,
+      );
+      if (!through) return true;
+    }
     return false;
   };
 

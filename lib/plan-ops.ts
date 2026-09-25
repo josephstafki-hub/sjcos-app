@@ -11,6 +11,7 @@ import { z } from "zod";
 import {
   dist,
   emptyDoc,
+  MAIN_LEVEL_ID,
   newId,
   type Camera,
   type Counter,
@@ -45,9 +46,11 @@ import {
   rectWalls,
   rotatePt,
   splitWall as splitWallGeom,
+  uncoveredSpans,
   withRooms,
   wallFrame,
 } from "./plan-geometry.ts";
+import { pickCabinetStyle } from "./plan-cabinet.ts";
 import {
   alignWallCabinets,
   generateCounters,
@@ -109,7 +112,7 @@ export type PlanOp =
       id?: string;
     }
   | { op: "updateOpening"; id: string; patch: Partial<Omit<Opening, "id">> }
-  | { op: "addStair"; levelId?: string; toLevelId?: string; at: Pt; rotDeg?: number; shape?: Stair["shape"]; widthIn?: number; riserCount?: number; riserIn?: number; treadIn?: number; phase?: Phase; id?: string }
+  | { op: "addStair"; levelId?: string; toLevelId?: string; at: Pt; rotDeg?: number; shape?: Stair["shape"]; turn?: Stair["turn"]; landingAt?: number; wellIn?: number; widthIn?: number; riserCount?: number; riserIn?: number; treadIn?: number; phase?: Phase; id?: string }
   | { op: "updateStair"; id: string; patch: Partial<Omit<Stair, "id">> }
   | { op: "addStructure"; levelId?: string; kind: Structural["kind"]; a: Pt; b?: Pt; wIn?: number; hIn?: number; zIn?: number; phase?: Phase; label?: string; id?: string }
   | { op: "updateStructure"; id: string; patch: Partial<Omit<Structural, "id">> }
@@ -131,7 +134,7 @@ export type PlanOp =
   | { op: "updateItem"; id: string; patch: Partial<Omit<PlacedItem, "id" | "levelId">> }
   | { op: "moveItems"; ids: string[]; dx: number; dy: number; snapToWall?: boolean }
   | { op: "rotateItems"; ids: string[]; deltaDeg: number }
-  | { op: "duplicateItems"; ids: string[]; dx?: number; dy?: number }
+  | { op: "duplicateItems"; ids: string[]; dx?: number; dy?: number; newIds?: string[] }
   | { op: "setItemPhase"; ids: string[]; phase: Phase }
   | { op: "setItemProps"; ids: string[]; props: Record<string, unknown> }
   // counters + finishes
@@ -159,14 +162,17 @@ export type PlanOp =
   | { op: "updateCamera"; id: string; patch: Partial<Omit<Camera, "id">> }
   | { op: "addSection"; levelId?: string; a: Pt; b: Pt; depthIn?: number; flip?: boolean; label?: string; id?: string }
   | { op: "updateSection"; id: string; patch: Partial<Omit<SectionLine, "id" | "levelId">> }
-  | { op: "setUnderlay"; underlay: Underlay | null }
+  /** Put a plan under a level to trace over (replaces that level's), or clear
+   *  it with null. Level: underlay.levelId, else levelId, else the first level. */
+  | { op: "setUnderlay"; underlay: Underlay | null; levelId?: string }
+  | { op: "updateUnderlay"; id: string; patch: Partial<Omit<Underlay, "id" | "levelId" | "fileId">> }
   // generic
   | { op: "move"; ids: string[]; dx: number; dy: number }
   | { op: "delete"; ids: string[] }
   | { op: "addLevel"; name: string; elevationIn?: number; ceilingIn?: number; copyWallsFrom?: string; id?: string }
   | { op: "updateLevel"; id: string; patch: Partial<Omit<Level, "id">> }
   | { op: "removeLevel"; id: string }
-  | { op: "setSettings"; patch: Partial<PlanDoc["settings"]> & { defaults?: Partial<DesignerDefaults> } }
+  | { op: "setSettings"; patch: Partial<Omit<PlanDoc["settings"], "defaults">> & { defaults?: Partial<DesignerDefaults> } }
   | { op: "ignoreCheck"; id: string; on: boolean }
   | { op: "replace"; doc: PlanDoc };
 
@@ -338,7 +344,14 @@ function buildItem(doc: PlanDoc, o: Extract<PlanOp, { op: "placeItem" }>, levelI
     throw new PlanOpError("placeItem needs a libraryKey or a catalog spec.");
   }
   if (o.overrides) item = { ...item, ...o.overrides, id: item.id, levelId };
-  return item;
+  return withDesignCabinetStyle(doc, item);
+}
+
+/** A new cabinet starts in the design's cabinet style (its own props win). */
+function withDesignCabinetStyle<T extends { kind: PlacedItem["kind"]; props: Record<string, unknown> }>(doc: PlanDoc, item: T): T {
+  const design = doc.settings.cabinetStyle;
+  if (!design || !CABINET_KINDS.has(item.kind)) return item;
+  return { ...item, props: { ...pickCabinetStyle(design), ...item.props } };
 }
 
 // ─── applyOp ─────────────────────────────────────────────────────────────────
@@ -361,6 +374,16 @@ export function applyOp(doc: PlanDoc, op: PlanOp, ctx?: OpContext): PlanDoc {
         heightIn: op.heightIn ?? doc.levels.find((l) => l.id === levelId)?.ceilingIn ?? defaults.ceilingIn,
         kind: op.kind ?? "new",
       };
+      // Drawn along an existing wall: only add the part that isn't there yet
+      // (an agent passing its own id always gets exactly the wall it asked for).
+      if (!op.id) {
+        const spans = uncoveredSpans(a, b, doc.walls.filter((w) => w.levelId === levelId));
+        if (!spans.length) return doc;
+        if (spans.length > 1 || !samePt(spans[0][0], a) || !samePt(spans[0][1], b)) {
+          const parts = spans.map(([p, q]) => ({ ...wall, id: newId("w"), a: p, b: q }));
+          return refreshWalls({ ...doc, walls: [...doc.walls, ...parts] });
+        }
+      }
       return refreshWalls({ ...doc, walls: [...doc.walls, wall] });
     }
     case "addWalls": {
@@ -374,7 +397,11 @@ export function applyOp(doc: PlanDoc, op: PlanOp, ctx?: OpContext): PlanDoc {
       const q = pt(op.q, "q");
       if (Math.abs(p.x - q.x) < 12 || Math.abs(p.y - q.y) < 12) throw new PlanOpError("A room needs to be at least 12in each way.");
       const level = doc.levels.find((l) => l.id === levelId)!;
-      const walls = rectWalls(levelId, p, q, op.thickIn ?? defaults.wallThickIn, op.heightIn ?? level.ceilingIn, op.kind ?? "existing");
+      const levelWalls = doc.walls.filter((w) => w.levelId === levelId);
+      // A side that runs along a neighbour's wall reuses it (no stacked copy).
+      const walls = rectWalls(levelId, p, q, op.thickIn ?? defaults.wallThickIn, op.heightIn ?? level.ceilingIn, op.kind ?? "existing").flatMap((w) =>
+        uncoveredSpans(w.a, w.b, levelWalls).map(([a, b], i) => ({ ...w, id: i === 0 ? w.id : newId("w"), a, b })),
+      );
       let d = refreshWalls({ ...doc, walls: [...doc.walls, ...walls] });
       if (op.name) {
         const cx = (p.x + q.x) / 2;
@@ -406,7 +433,9 @@ export function applyOp(doc: PlanDoc, op: PlanOp, ctx?: OpContext): PlanDoc {
     }
     case "moveCorner": {
       const levelId = levelOf(doc, op.levelId);
-      return refreshWalls(moveCornerGeom(doc, levelId, pt(op.from, "from"), pt(op.to, "to")));
+      const d = moveCornerGeom(doc, levelId, pt(op.from, "from"), pt(op.to, "to"));
+      if (d.walls.some((w) => w.levelId === levelId && dist(w.a, w.b) < 1)) throw new PlanOpError("That would make a wall shorter than 1in.");
+      return refreshWalls(d);
     }
     case "splitWall":
       return refreshWalls(splitWallGeom(doc, op.id, num(op.atIn, "atIn", 0)));
@@ -421,11 +450,13 @@ export function applyOp(doc: PlanDoc, op: PlanOp, ctx?: OpContext): PlanDoc {
         op.subtype ??
         (kind === "door" ? DOOR_SUBTYPES[0].key : kind === "window" ? WINDOW_SUBTYPES[0].key : "cased");
       const preset =
+        // No subtype asked for → the designer's default sizes (Settings), not
+        // the first preset's, so the placed door matches the hover preview.
         kind === "door"
-          ? { w: DOOR_SUBTYPES.find((s) => s.key === sub)?.defaultWidthIn ?? defaults.doorWidthIn, h: defaults.doorHeightIn, sill: 0 }
+          ? { w: (op.subtype && DOOR_SUBTYPES.find((s) => s.key === sub)?.defaultWidthIn) || defaults.doorWidthIn, h: defaults.doorHeightIn, sill: 0 }
           : kind === "window"
             ? (() => {
-                const s = WINDOW_SUBTYPES.find((x) => x.key === sub);
+                const s = op.subtype ? WINDOW_SUBTYPES.find((x) => x.key === sub) : undefined;
                 return { w: s?.defaultWidthIn ?? defaults.windowWidthIn, h: s?.defaultHeightIn ?? defaults.windowHeightIn, sill: s?.defaultSillIn ?? defaults.windowSillIn };
               })()
             : { w: 48, h: defaults.doorHeightIn, sill: 0 };
@@ -478,6 +509,9 @@ export function applyOp(doc: PlanDoc, op: PlanOp, ctx?: OpContext): PlanDoc {
         riserIn: rise / riserCount,
         treadIn: op.treadIn ?? 10,
         phase: op.phase ?? "new",
+        ...(op.turn ? { turn: op.turn } : {}),
+        ...(op.landingAt != null ? { landingAt: op.landingAt } : {}),
+        ...(op.wellIn != null ? { wellIn: op.wellIn } : {}),
       };
       return { ...doc, stairs: [...doc.stairs, s] };
     }
@@ -525,7 +559,7 @@ export function applyOp(doc: PlanDoc, op: PlanOp, ctx?: OpContext): PlanDoc {
       const specs = op.keys.map((k) => {
         const li = libraryItem(k);
         if (!li) throw new PlanOpError(`Unknown library item "${k}".`);
-        return { w: li.w, d: li.d, h: li.h, z: li.z, kind: li.kind, label: li.label, tag: li.tag, libraryKey: li.key, catalogId: null, props: { ...li.props } };
+        return withDesignCabinetStyle(doc, { w: li.w, d: li.d, h: li.h, z: li.z, kind: li.kind, label: li.label, tag: li.tag, libraryKey: li.key, catalogId: null, props: { ...li.props } });
       });
       const d = placeRunAlongWall(doc, w.id, op.side, num(op.startIn, "startIn", 0), specs, op.phase ?? "new");
       return refreshItems(d, [w.levelId], ctx);
@@ -575,9 +609,11 @@ export function applyOp(doc: PlanDoc, op: PlanOp, ctx?: OpContext): PlanDoc {
       const ids = new Set(op.ids);
       const dx = op.dx ?? 0;
       const dy = op.dy ?? 0;
+      // Copies sit off the original's wall, so they don't join its run; ids can
+      // be supplied so the canvas can select what it just made.
       const copies = doc.items
         .filter((i) => ids.has(i.id))
-        .map((i) => ({ ...i, id: newId("i"), x: i.x + dx, y: i.y + dy, runId: null, selectionOptionId: null }));
+        .map((i, k) => ({ ...i, id: op.newIds?.[k] ?? newId("i"), x: i.x + dx, y: i.y + dy, runId: null, wallId: dx || dy ? null : i.wallId, selectionOptionId: null }));
       const d = { ...doc, items: [...doc.items, ...copies] };
       return copies.some((i) => CABINET_KINDS.has(i.kind)) ? refreshItems(d, copies.map((c) => c.levelId), ctx) : d;
     }
@@ -733,12 +769,33 @@ export function applyOp(doc: PlanDoc, op: PlanOp, ctx?: OpContext): PlanDoc {
     }
     case "updateSection":
       return { ...doc, sections: doc.sections.map((s) => (s.id === op.id ? { ...s, ...op.patch } : s)) };
-    case "setUnderlay":
-      return { ...doc, underlay: op.underlay };
+    case "setUnderlay": {
+      const lvl = op.underlay?.levelId ?? op.levelId ?? doc.levels[0]?.id ?? MAIN_LEVEL_ID;
+      if (!doc.levels.some((l) => l.id === lvl)) throw new PlanOpError(`No level ${lvl}.`);
+      const rest = (doc.underlays ?? []).filter((u) => u.levelId !== lvl);
+      if (!op.underlay) return { ...doc, underlay: null, underlays: rest };
+      const u: Underlay = { ...op.underlay, id: op.underlay.id ?? newId("u"), levelId: lvl };
+      num(u.scale, "scale", 0.0001, 1000);
+      return { ...doc, underlay: null, underlays: [...rest, u] };
+    }
+    case "updateUnderlay": {
+      const cur = (doc.underlays ?? []).find((u) => u.id === op.id);
+      if (!cur) throw new PlanOpError(`No underlay ${op.id}.`);
+      const next: Underlay = { ...cur, ...op.patch, id: cur.id, levelId: cur.levelId, fileId: cur.fileId };
+      if (op.patch.scale != null) num(op.patch.scale, "scale", 0.0001, 1000);
+      if (op.patch.opacity != null) next.opacity = Math.max(0, Math.min(1, op.patch.opacity));
+      return { ...doc, underlays: (doc.underlays ?? []).map((u) => (u.id === op.id ? next : u)) };
+    }
 
     // ── generic ──
     case "move": {
       const ids = new Set(op.ids);
+      // Cabinets / devices hung on a wall that moves go with it.
+      const wallsMoving = new Set(doc.walls.filter((w) => ids.has(w.id)).map((w) => w.id));
+      if (wallsMoving.size) {
+        for (const i of doc.items) if (i.wallId && wallsMoving.has(i.wallId)) ids.add(i.id);
+        for (const e of doc.electrical) if (e.wallId && wallsMoving.has(e.wallId)) ids.add(e.id);
+      }
       const dx = num(op.dx, "dx");
       const dy = num(op.dy, "dy");
       const mv = (p: Pt) => ({ x: p.x + dx, y: p.y + dy });
@@ -758,27 +815,27 @@ export function applyOp(doc: PlanDoc, op: PlanOp, ctx?: OpContext): PlanDoc {
       // Walls move as whole segments (shared corners come along).
       const movedWalls = doc.walls.filter((w) => ids.has(w.id));
       if (movedWalls.length) {
-        const corners = new Map<string, Pt>();
-        for (const w of movedWalls) {
-          corners.set(`${w.levelId}|${w.a.x}|${w.a.y}`, w.a);
-          corners.set(`${w.levelId}|${w.b.x}|${w.b.y}`, w.b);
-        }
+        // Same ½" tolerance room detection uses, so a room drawn with snap
+        // off doesn't tear open at a corner that's a hair apart.
+        const corners = movedWalls.flatMap((w) => [
+          { levelId: w.levelId, p: w.a },
+          { levelId: w.levelId, p: w.b },
+        ]);
+        const atCorner = (levelId: string, p: Pt) => corners.some((c) => c.levelId === levelId && Math.abs(c.p.x - p.x) <= 0.5 && Math.abs(c.p.y - p.y) <= 0.5);
         d = { ...d, walls: d.walls.map((w) => (ids.has(w.id) ? { ...w, a: mv(w.a), b: mv(w.b) } : w)) };
         // Walls that only touch a moved corner stretch to follow it.
         d = {
           ...d,
           walls: d.walls.map((w) => {
             if (ids.has(w.id)) return w;
-            const ka = `${w.levelId}|${w.a.x}|${w.a.y}`;
-            const kb = `${w.levelId}|${w.b.x}|${w.b.y}`;
-            const na = corners.has(ka) ? mv(w.a) : w.a;
-            const nb = corners.has(kb) ? mv(w.b) : w.b;
+            const na = atCorner(w.levelId, w.a) ? mv(w.a) : w.a;
+            const nb = atCorner(w.levelId, w.b) ? mv(w.b) : w.b;
             return na === w.a && nb === w.b ? w : { ...w, a: na, b: nb };
           }),
         };
         d = refreshWalls(d);
       }
-      const levels = findLevelForIds(doc, op.ids);
+      const levels = findLevelForIds(doc, [...ids]);
       return doc.items.some((i) => ids.has(i.id) && CABINET_KINDS.has(i.kind)) ? refreshItems(d, levels, ctx) : d;
     }
     case "delete":
@@ -814,7 +871,12 @@ export function applyOp(doc: PlanDoc, op: PlanOp, ctx?: OpContext): PlanDoc {
         ...doc.photos.filter((p) => p.levelId === op.id).map((p) => p.id),
       ];
       const d = deleteIds(doc, ids);
-      return { ...d, levels: d.levels.filter((l) => l.id !== op.id), rooms: d.rooms.filter((r) => r.levelId !== op.id) };
+      return {
+        ...d,
+        levels: d.levels.filter((l) => l.id !== op.id),
+        rooms: d.rooms.filter((r) => r.levelId !== op.id),
+        underlays: (d.underlays ?? []).filter((u) => u.levelId !== op.id),
+      };
     }
     case "setSettings": {
       const { defaults: dPatch, ...rest } = op.patch;
@@ -932,7 +994,9 @@ export function opLabel(op: PlanOp): string {
     case "updateSection":
       return "Section line";
     case "setUnderlay":
-      return "Underlay";
+      return op.underlay ? "Set underlay" : "Remove underlay";
+    case "updateUnderlay":
+      return op.patch.scale != null ? "Scale underlay" : op.patch.x != null || op.patch.rotDeg != null ? "Move underlay" : "Edit underlay";
     case "delete":
       return `Delete ${op.ids.length === 1 ? "element" : `${op.ids.length} elements`}`;
     case "addLevel":

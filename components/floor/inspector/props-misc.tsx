@@ -19,6 +19,7 @@ import {
   type Structural,
   type TrimSet,
 } from "@/lib/plan-doc";
+import { stairLayout, stairRunIn, stairTreads } from "@/lib/plan-stairs";
 import { ELEC_SYMBOLS, FINISH_PRESETS, TRIM_PROFILES, finishPreset } from "@/lib/plan-library";
 import { BTN_DANGER, BTN_GHOST, Grid, NumberField, PHASE_OPTIONS, SectionHeader, Segmented, SelectField, Stat, TextField, Toggle } from "./fields";
 
@@ -183,7 +184,10 @@ export function StairProps({ ctx, stair }: { ctx: DesignerContext; stair: Stair 
   const ro = ctx.readOnly;
   const patch = (p: Partial<Omit<Stair, "id">>) => ctx.d.apply({ op: "updateStair", id: stair.id, patch: p });
   const rise = stair.riserCount * stair.riserIn;
-  const run = (stair.riserCount - 1) * stair.treadIn;
+  const layout = stairLayout(stair);
+  const run = stairRunIn(stair);
+  const turned = stair.shape !== "straight";
+  const treads = stairTreads(stair);
   const codeHint = stair.riserIn > 7.75 ? "Riser over 7¾\" (IRC max)." : stair.treadIn < 10 ? "Tread under 10\" (IRC min)." : null;
   const levels = ctx.d.doc.levels.map((l) => ({ key: l.id, label: l.name }));
   return (
@@ -201,6 +205,42 @@ export function StairProps({ ctx, stair }: { ctx: DesignerContext; stair: Stair 
           ]}
           onChange={(shape) => patch({ shape })}
         />
+        {turned && (
+          <>
+            {layout.shape === "straight" ? (
+              <div className="text-[11.5px] text-flag">Needs at least 4 risers for a landing — drawn straight for now.</div>
+            ) : (
+              <>
+                <Segmented
+                  label="Turns"
+                  value={stair.turn ?? "right"}
+                  disabled={ro}
+                  options={[
+                    { key: "left", label: "Left" },
+                    { key: "right", label: "Right" },
+                  ]}
+                  onChange={(turn) => patch({ turn })}
+                />
+                <Grid>
+                  <NumberField
+                    label="Treads before landing"
+                    value={layout.flights[0]}
+                    raw
+                    min={1}
+                    max={Math.max(1, treads - 2)}
+                    disabled={ro}
+                    onCommit={(n) => patch({ landingAt: Math.round(n) })}
+                  />
+                  {stair.shape === "U" ? (
+                    <NumberField label="Well gap" value={stair.wellIn ?? 2} min={0} max={48} inchesOnly disabled={ro} onCommit={(wellIn) => patch({ wellIn })} />
+                  ) : (
+                    <Stat label="After landing" value={layout.flights[1]} />
+                  )}
+                </Grid>
+              </>
+            )}
+          </>
+        )}
         <Grid>
           <NumberField label="Width" value={stair.widthIn} min={24} max={120} inchesOnly disabled={ro} onCommit={(widthIn) => patch({ widthIn })} />
           <NumberField label="Risers" value={stair.riserCount} raw min={1} max={40} disabled={ro} onCommit={(riserCount) => patch({ riserCount: Math.round(riserCount) })} />
@@ -210,7 +250,7 @@ export function StairProps({ ctx, stair }: { ctx: DesignerContext; stair: Stair 
         <SelectField label="To level" value={stair.toLevelId} options={levels} disabled={ro} onChange={(toLevelId) => patch({ toLevelId })} />
         <Segmented label="Phase" value={stair.phase} options={PHASE_OPTIONS} disabled={ro} onChange={(phase) => patch({ phase })} />
         <Stat label="Total rise" value={fmtIn(rise)} />
-        <Stat label="Total run" value={fmtIn(run)} />
+        <Stat label={turned ? "Walking line" : "Total run"} value={fmtIn(run)} />
         <div className={`text-[11.5px] ${codeHint ? "text-flag" : "text-money"}`}>{codeHint ?? "Riser/tread within IRC guidance (7¾\" / 10\")."}</div>
       </div>
       <div className="mt-4">

@@ -162,11 +162,10 @@ export interface TodayWorkItemRow {
   lead_name: string | null;
 }
 
-/** Joe's open backlog: work_items assigned to him with a lead/project to
- *  anchor them — plus detector-filed items (lib/detectors.ts), which may have
- *  no anchor (compliance, COI, W-9) but are Today's single source for those
- *  domains now that the raw compliance/warranty candidate queries are gone.
- *  Shared between getTodayData() (the full list) and
+/** Joe's open backlog: every open work_item assigned to him, whether or not
+ *  it's tied to a lead/project. Unanchored to-dos (vendor bills, licensing,
+ *  COI, pickups, office work) used to be hidden from Today and live only on
+ *  /engine; Joe wants them in the queue too (2026-09-25). Shared between getTodayData() (the full list) and
  *  checkPriorityCompletion() (the single next-up item), so "what's eligible"
  *  never drifts between the two. */
 // Items whose ball is in the client's court (status waiting_on_client) are
@@ -193,8 +192,6 @@ export const OPEN_WORK_ITEMS_SQL = `
        AND (w.snoozed_until IS NULL OR w.snoozed_until <= now())
        AND w.assignee_kind = 'human'
        AND (w.assignee_key IS NULL OR w.assignee_key = 'human-joe')
-       AND (w.lead_id IS NOT NULL OR w.project_id IS NOT NULL
-            OR w.created_by LIKE 'detector:%')
        AND (l.id IS NULL OR l.stage <> 'lost')`;
 
 export const OPEN_WORK_ITEMS_ORDER_SQL = `

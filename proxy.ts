@@ -30,6 +30,8 @@ interface Session {
   perms: string[];
   /** Seconds-since-epoch the token was minted; drives the renewal check. */
   issuedAt: number;
+  /** Original login time (A22 revocation anchor); carried across renewals. */
+  authAt?: number;
 }
 
 
@@ -43,6 +45,7 @@ async function readSession(req: NextRequest): Promise<Session | null> {
       role: payload.role as Role,
       perms: Array.isArray(payload.perms) ? (payload.perms as string[]) : [],
       issuedAt: payload.iat ?? 0,
+      authAt: typeof payload.authAt === "number" ? payload.authAt : undefined,
     };
   } catch {
     return null;
@@ -56,10 +59,11 @@ async function renewal(session: Session): Promise<{ token: string; maxAge: numbe
   const ageS = Math.floor(Date.now() / 1000) - session.issuedAt;
   if (ageS < SESSION_RENEW_AFTER_S) return null;
   const maxAge = sessionMaxAgeS(session.role);
+  const authAt = session.authAt ?? session.issuedAt;
   const claims =
     session.role === "staff"
-      ? { userId: session.userId, role: session.role, perms: session.perms }
-      : { userId: session.userId, role: session.role };
+      ? { userId: session.userId, role: session.role, perms: session.perms, authAt }
+      : { userId: session.userId, role: session.role, authAt };
   const token = await new SignJWT(claims)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()

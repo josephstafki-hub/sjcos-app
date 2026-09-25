@@ -12,6 +12,10 @@
 // `bidding`, `cost_book` are grantable one by one; `money` is everything else with a dollar sign and the
 // default gate for every future money feature.
 //
+// Areas are VISIBILITY. Approval AUTHORITY (may this person release a
+// proposal / purchase / payment…) is a separate thing — lib/authority/
+// catalog.ts + authority_grants — and nothing here grants any of it.
+//
 // Adding an area: append here, then gate its actions with requireAccess(key).
 // A path that is not claimed by any area is owner-only for staff.
 
@@ -90,7 +94,8 @@ export const PERMISSIONS: readonly PermissionDef[] = [
   {
     key: "ai",
     label: "AI operator panel",
-    description: "The Ask window. Agents there act with full owner-level tool access, so this effectively unlocks everything — grant with care.",
+    description:
+      "The Ask window, business profile only: agents run the sjcos tools scoped to this person's areas and approval authority, with no code, shell, web or repo access. The owner's full operator profile never applies to a team member.",
     paths: ["/ai", "/panel"],
     sensitive: true,
   },

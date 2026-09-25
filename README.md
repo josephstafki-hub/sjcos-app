@@ -1,5 +1,13 @@
 # SJC OS — Build Plan (Phases 0–8, complete)
 
+**September 23, 2026 complete automation build plan:** Start at
+[docs/automation-reliability/README.md](docs/automation-reliability/README.md)
+for the confirmed lead-to-closeout workflow, all 28 implementation tasks,
+operating-agent instructions/evaluations, integration contracts and coding-agent
+handoff. This scope has no calendar phases and retains QuickBooks Online initially;
+the older roadmap below is historical. Planning does not establish deployment or
+change live operating permissions in `AGENTS.md`.
+
 **What:** Single-pane business operating system for SJ Carpentry LLC.
 Replaces QuickBooks, Google Drive, email/SMS apps, and the `/admin` page on sjcarpentryllc.com.
 

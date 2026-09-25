@@ -1,6 +1,6 @@
 "use server";
 
-import { requireRole } from "@/lib/dal";
+import { requireAccess } from "@/lib/dal";
 import { getDevAgentRun, failStaleRuns, stopDevAgentRun } from "@/lib/dev-agents";
 import { failStaleTasks } from "@/lib/orchestrator/ladder";
 import {
@@ -106,8 +106,30 @@ async function pendingGrants(runId: string, conversationId: string | null): Prom
   }));
 }
 
+/** A22: the owner sees every run; a staff member with the `ai` area may
+ *  follow only runs started under their own identity. */
+async function requireRunAccess(runId: string) {
+  const user = await requireAccess("ai");
+  if (user.role === "owner") return user;
+  const run = await getDevAgentRun(runId);
+  if (!run || run.principalUserId !== user.id) throw new Error("That run is not yours.");
+  return user;
+}
+
+/** Same rule for a question box / permission prompt: it belongs to a run. */
+async function requireInteractionAccess(id: string) {
+  const user = await requireAccess("ai");
+  if (user.role === "owner") return user;
+  const { rows } = await query<{ principal_user_id: string | null }>(
+    `SELECT r.principal_user_id FROM agent_interactions i LEFT JOIN dev_agent_runs r ON r.id = i.run_id WHERE i.id = $1`,
+    [id],
+  );
+  if (!rows[0] || rows[0].principal_user_id !== user.id) throw new Error("That question is not from one of your runs.");
+  return user;
+}
+
 export async function pollAgentRun(runId: string): Promise<PollResult> {
-  await requireRole("owner");
+  await requireRunAccess(runId);
   await failStaleRuns();
   await failStaleTasks();
   // Thread auto-settle rides the same heartbeat (throttled to once a minute
@@ -151,7 +173,7 @@ export async function pollAgentRun(runId: string): Promise<PollResult> {
  *  CLI and records the stop); Hermes/Qwen: settles the row (their guarded
  *  pipelines then discard the late result). */
 export async function stopAgentRun(runId: string): Promise<{ ok: boolean; error?: string }> {
-  await requireRole("owner");
+  await requireRunAccess(runId);
   const r = await stopDevAgentRun(runId);
   return r.ok ? { ok: true } : { ok: false, error: r.error };
 }
@@ -162,14 +184,14 @@ export async function answerInteractionAction(
   id: string,
   response: InteractionResponse,
 ): Promise<{ ok: boolean }> {
-  await requireRole("owner");
+  await requireInteractionAccess(id);
   const row = await answerInteraction(id, response);
   return { ok: row != null };
 }
 
 /** Dismiss without answering (the agent is told to use its judgment). */
 export async function dismissInteractionAction(id: string): Promise<{ ok: boolean }> {
-  await requireRole("owner");
+  await requireInteractionAccess(id);
   await dismissInteraction(id);
   return { ok: true };
 }

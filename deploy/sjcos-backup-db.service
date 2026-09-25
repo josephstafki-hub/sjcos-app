@@ -1,0 +1,11 @@
+# Optional 4-hourly DB-only backup (DECISIONS: a nightly option is not
+# permission to lose 24 hours). Same script with --db-only; the set stamp ends
+# in "-db". DISABLED by default; enable with the .timer once nightly works.
+[Unit]
+Description=SJC OS 4-hourly database-only off-host backup
+After=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash %h/bin/sjcos-backup --db-only
+TimeoutStartSec=1h

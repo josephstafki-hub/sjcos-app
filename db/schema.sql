@@ -1542,7 +1542,7 @@ CREATE TABLE IF NOT EXISTS calls (
   notes_error          text,
   notes_attempts       integer NOT NULL DEFAULT 0,
   knowledge_item_id    uuid,
-  work_item_id         uuid REFERENCES work_items(id) ON DELETE SET NULL,  -- voicemail callback item
+  work_item_id         uuid,                       -- voicemail callback item (FK added after work_items exists)
   grant_id             uuid,                       -- owner grant spent for a click-to-call
   placed_by            text,                       -- 'owner' | 'mcp:<agent>' for outbound
   error                text,
@@ -1828,6 +1828,13 @@ CREATE INDEX IF NOT EXISTS idx_work_items_created   ON work_items(created_at DES
 -- NULL on a detector item = still awaiting enrichment (see the
 -- needs_enrichment filter on list_work_items in mcp/sjcos-mcp.mjs).
 ALTER TABLE work_items ADD COLUMN IF NOT EXISTS enriched_at timestamptz;
+
+-- calls.work_item_id → work_items (declared here because calls is created earlier in this file)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'calls_work_item_id_fkey') THEN
+    ALTER TABLE calls ADD CONSTRAINT calls_work_item_id_fkey FOREIGN KEY (work_item_id) REFERENCES work_items(id) ON DELETE SET NULL;
+  END IF;
+END $$;
 
 -- ─── Detector state (W1) ────────────────────────────────────────────────────
 -- One row per condition a deterministic detector (lib/detectors.ts) has ever

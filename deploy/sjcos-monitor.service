@@ -1,0 +1,13 @@
+# Independent uptime + business-progress monitor (A09b). Runs every 5 minutes
+# from deploy/sjcos-monitor.timer, works while the app is down (psql + curl
+# straight to Postgres / Telegram), alerts with dedupe + escalation.
+#   install -m755 scripts/sjcos-monitor.sh ~/bin/sjcos-monitor
+#   cp deploy/sjcos-monitor.service deploy/sjcos-monitor.timer ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now sjcos-monitor.timer
+[Unit]
+Description=SJC OS independent monitor (app, MCP, DB, worker, queues, backups)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash %h/bin/sjcos-monitor
+TimeoutStartSec=120

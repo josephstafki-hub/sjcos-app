@@ -36,7 +36,11 @@ import {
 import { callControl, downloadMedia } from "./telnyx";
 import { storeBuffer } from "./upload-store";
 import { notifyOwner } from "./notify-owner";
-import { consumeGrant, recordGrantResult, refundGrantUse } from "./owner-grants";
+import { checkGrantCovers } from "./owner-grants";
+import { withTransaction } from "./commands/db";
+import { enqueueIntent } from "./commands/intents";
+import type { Principal } from "./commands/principal";
+import { dispatchIntentsNow } from "./dispatch/db";
 import { appUrl, fileCommsWorkItem, linkHref, matchPhoneToRecord, type CommsLinkType } from "./comms-shared";
 import { reportCommsFailure } from "./comms-health";
 
@@ -278,10 +282,30 @@ async function execute(cfg: VoiceConfig, call: CallRow, actions: VoiceAction[]):
   }
 }
 
+/** Which half of an event's work to do (A03b durable intake):
+ *   immediate — the webhook's after(): create/patch the call row and issue the
+ *               next Call Control command (answer / record / dial / bridge /
+ *               voicemail). Latency matters; nothing slow runs here.
+ *   deferred  — the worker (lib/worker/telnyx-processor.ts): recording
+ *               download, transcript + AI notes, voicemail work item and the
+ *               owner push. If the immediate half never ran (app died between
+ *               persisting the source event and after()), it is done here too,
+ *               but Call Control commands are only issued while the event is
+ *               still fresh (STALE_COMMAND_S) — a late "answer" is worse than
+ *               none.
+ *   all       — both, in one pass (legacy callers / tests).
+ *  Both halves are idempotent per Telnyx event id (call_events). */
+export type VoicePhase = "all" | "immediate" | "deferred";
+const STALE_COMMAND_S = 90;
+const deferredMarker = (ev: VoiceEvent) => `${ev.eventId ?? "no-id"}:deferred`;
+
 /** Handle one verified Call Control event. Idempotent on the Telnyx event id. */
-export async function handleVoiceEvent(ev: VoiceEvent): Promise<{ handled: boolean; note: string }> {
+export async function handleVoiceEvent(ev: VoiceEvent, opts: { phase?: VoicePhase } = {}): Promise<{ handled: boolean; note: string }> {
+  const phase = opts.phase ?? "all";
   const cfg = voiceConfig();
   if (!cfg) return { handled: false, note: "voice not configured" };
+
+  if (phase === "deferred") return runDeferredVoiceWork(ev, cfg);
 
   let call = await findCall(ev);
   let newCallId: string | undefined;
@@ -320,27 +344,98 @@ export async function handleVoiceEvent(ev: VoiceEvent): Promise<{ handled: boole
   if (!fresh) return { handled: false, note: "duplicate event" };
   if (!call) return { handled: false, note: plan.note };
 
-  // Persistence-only events.
-  if (ev.type === "call.recording.saved") {
-    await saveRecording(call, ev);
-    return { handled: true, note: "recording saved" };
-  }
-  if (ev.type === "call.recording.transcription.saved") {
-    await saveTranscript(call, ev);
-    return { handled: true, note: "transcript saved" };
-  }
-  if (ev.type === "call.recording.error") {
-    await query(`UPDATE calls SET recording_status = 'failed', recording_error = $2, updated_at = now() WHERE id = $1`, [call.id, ev.reason ?? "unknown"]);
-    await reportCommsFailure("recording", new Error(`Telnyx recording error: ${ev.reason ?? "unknown"}`), { detail: `call ${call.id}`, href: "/calls" });
-    return { handled: true, note: "recording error" };
+  // Persistence-only events: nothing to command, all of the work is slow.
+  if (isPersistenceOnly(ev)) {
+    if (phase === "immediate") return { handled: true, note: `${ev.type}: deferred to worker` };
+    const r = await deferredPersistence(call, ev);
+    await markDeferredDone(call.id, ev);
+    return r;
   }
 
   await applyPatch(call.id, plan.patch, plan.outcome, ev);
   const current = (await getCall(call.id)) ?? call;
-  await execute(cfg, current, plan.actions);
+  const stale = opts.phase === undefined ? false : eventAgeSeconds(ev) > STALE_COMMAND_S;
+  if (stale) await query(`UPDATE calls SET error = COALESCE(error, $2), updated_at = now() WHERE id = $1`, [call.id, `commands skipped: event ${ev.type} was ${eventAgeSeconds(ev)}s old when processed`]);
+  else await execute(cfg, current, plan.actions);
 
-  if (plan.patch.ended) await onCallEnded(current, plan);
+  if (phase === "immediate") return { handled: true, note: plan.patch.ended ? `${plan.note} (wrap-up deferred to worker)` : plan.note };
+  if (plan.patch.ended) {
+    await onCallEnded(current, plan);
+    await markDeferredDone(call.id, ev);
+  }
   return { handled: true, note: plan.note };
+}
+
+function isPersistenceOnly(ev: VoiceEvent): boolean {
+  return ev.type === "call.recording.saved" || ev.type === "call.recording.transcription.saved" || ev.type === "call.recording.error";
+}
+
+function eventAgeSeconds(ev: VoiceEvent): number {
+  const t = ev.occurredAt ? Date.parse(ev.occurredAt) : NaN;
+  return Number.isFinite(t) ? Math.max(0, Math.round((Date.now() - t) / 1000)) : 0;
+}
+
+/** Idempotency marker for the slow half: a call_events row keyed on
+ *  "<event id>:deferred". Inserted AFTER the slow work succeeds, so a crash
+ *  mid-way leaves the event retryable; the individual steps are themselves
+ *  guarded (work_item_id / recording_status / transcript_status). */
+async function markDeferredDone(callId: string | null, ev: VoiceEvent): Promise<void> {
+  await query(
+    `INSERT INTO call_events (call_id, event_id, event_type, note, payload) VALUES ($1, $2, $3, 'deferred work done', '{}'::jsonb) ON CONFLICT (event_id) DO NOTHING`,
+    [callId, deferredMarker(ev), `${ev.type}.deferred`],
+  );
+}
+
+async function deferredPersistence(call: CallRow, ev: VoiceEvent): Promise<{ handled: boolean; note: string }> {
+  if (ev.type === "call.recording.saved") {
+    if (call.recording_status === "saved") return { handled: false, note: "recording already saved" };
+    await saveRecording(call, ev);
+    return { handled: true, note: "recording saved" };
+  }
+  if (ev.type === "call.recording.transcription.saved") {
+    if (call.transcript_status === "done") return { handled: false, note: "transcript already saved" };
+    await saveTranscript(call, ev);
+    return { handled: true, note: "transcript saved" };
+  }
+  await query(`UPDATE calls SET recording_status = 'failed', recording_error = $2, updated_at = now() WHERE id = $1`, [call.id, ev.reason ?? "unknown"]);
+  await reportCommsFailure("recording", new Error(`Telnyx recording error: ${ev.reason ?? "unknown"}`), { detail: `call ${call.id}`, href: "/calls" });
+  return { handled: true, note: "recording error" };
+}
+
+/** The worker's pass over a persisted voice event. Runs the immediate half if
+ *  it never happened (commands only while fresh), then the slow half exactly
+ *  once per event id. Safe to call repeatedly. */
+export async function runDeferredVoiceWork(ev: VoiceEvent, cfgIn?: VoiceConfig): Promise<{ handled: boolean; note: string }> {
+  const cfg = cfgIn ?? voiceConfig();
+  if (!cfg) return { handled: false, note: "voice not configured" };
+  const marker = await queryOne<{ id: number }>(`SELECT id FROM call_events WHERE event_id = $1`, [deferredMarker(ev)]);
+  if (marker) return { handled: false, note: "deferred work already done" };
+
+  const seen = ev.eventId ? await queryOne<{ call_id: string | null }>(`SELECT call_id FROM call_events WHERE event_id = $1`, [ev.eventId]) : null;
+  if (!seen) {
+    // The immediate half never ran (app died between persisting and after()).
+    // handleVoiceEvent with an explicit phase applies the stale-command guard.
+    const r = await handleVoiceEvent(ev, { phase: "all" });
+    return r;
+  }
+  const call = seen.call_id ? await getCall(seen.call_id) : await findCall(ev);
+  if (!call) {
+    await markDeferredDone(null, ev);
+    return { handled: false, note: "no call row for event" };
+  }
+  if (isPersistenceOnly(ev)) {
+    const r = await deferredPersistence(call, ev);
+    await markDeferredDone(call.id, ev);
+    return r;
+  }
+  if (ev.type === "call.hangup" && call.ended) {
+    // The immediate half patched outcome/voicemail; derive the wrap-up from the row.
+    await onCallEnded(call, { outcome: call.outcome ?? undefined, fileVoicemail: call.outcome === "voicemail" && !call.work_item_id });
+    await markDeferredDone(call.id, ev);
+    return { handled: true, note: `wrap-up for ${call.outcome ?? "ended"} call` };
+  }
+  await markDeferredDone(call.id, ev);
+  return { handled: false, note: "nothing deferred for this event type" };
 }
 
 async function onCallEnded(call: CallRow, plan: { outcome?: CallOutcome; fileVoicemail?: boolean }): Promise<void> {
@@ -436,7 +531,7 @@ export interface PlaceCallInput {
 
 export type PlaceCallResult =
   | { ok: true; callId: string; summary: string }
-  | { ok: false; error: string; blocked?: "not_configured" | "grant" | "invalid_number" };
+  | { ok: false; error: string; blocked?: "not_configured" | "grant" | "invalid_number" | "unknown" };
 
 /** Dial Joe's cell first; once he answers, the OS dials the client and
  *  bridges (lib/comms/voice-flow.ts). Spends the grant before dialing. */
@@ -451,8 +546,9 @@ export async function placeCall(input: PlaceCallInput): Promise<PlaceCallResult>
   const to = norm.e164;
   if (to === cfg.forwardTo) return { ok: false, error: "That is Joe's own cell number." };
 
-  const spent = await consumeGrant(input.grantId, "place_call", { kind: "phone", id: to, to });
-  if (!spent.ok) return { ok: false, error: spent.error, blocked: "grant" };
+  // Fast, relayable refusal; the authoritative spend happens at dispatch.
+  const covers = await checkGrantCovers(input.grantId, "place_call", { kind: "phone", id: to, to });
+  if (!covers.ok) return { ok: false, error: covers.error, blocked: "grant" };
 
   const match = await matchPhoneToRecord(to);
   const id = randomUUID();
@@ -474,25 +570,39 @@ export async function placeCall(input: PlaceCallInput): Promise<PlaceCallResult>
       input.actor.slice(0, 80),
     ],
   );
-  try {
-    const leg = await callControl.dial(cfg, {
-      to: cfg.forwardTo,
-      from: cfg.fromNumber,
-      timeoutSecs: flowConfig(cfg).ringSeconds,
-      linkTo: null,
-      state: { c: id, r: "owner", p: "answered" },
-    });
-    await query(`UPDATE calls SET owner_leg_id = $2, call_session_id = $3, updated_at = now() WHERE id = $1`, [id, leg.callControlId, leg.callSessionId]);
-    const name = input.contactName?.trim() || match?.contactName || to;
+  // One permanent intent per call row: the dispatcher spends the grant,
+  // dials Joe's cell through Telnyx and records the call control id
+  // (lib/dispatch/effects.ts place_call). The webhook carries on from there.
+  const principal: Principal = input.actor.startsWith("mcp:") ? { kind: "agent", agent: input.actor.slice(4), runId: null, onBehalfOf: null } : { kind: "service", name: `voice:${input.actor}` };
+  const { intent } = await withTransaction((run) =>
+    enqueueIntent(run, {
+      operationKey: `call:${id}`,
+      kind: "place_call",
+      targetKind: "phone",
+      targetId: to,
+      recipient: to,
+      leadId: match?.leadId ?? null,
+      projectId: match?.projectId ?? null,
+      payload: { callId: id, to: cfg.forwardTo, from: cfg.fromNumber, timeoutSecs: flowConfig(cfg).ringSeconds, counterparty: to, _auth: { action: "place_call", target_kind: "phone", target_id: to, to } },
+      grantId: input.grantId,
+      principal,
+      maxAttempts: 1,
+    }),
+  );
+  const [outcome] = await dispatchIntentsNow([intent.id]);
+  const name = input.contactName?.trim() || match?.contactName || to;
+  if (outcome && (outcome.responseClass === "accepted" || outcome.responseClass === "confirmed")) {
     const summary = `Calling ${name}: Joe's cell is ringing; once he answers the OS dials ${to} and bridges.`;
-    await recordGrantResult(input.grantId, `ok: ${summary}`);
     return { ok: true, callId: id, summary };
-  } catch (err) {
-    const msg = (err as Error).message;
-    await query(`UPDATE calls SET status = 'failed', outcome = 'failed', ended = true, ended_at = now(), error = $2, updated_at = now() WHERE id = $1`, [id, msg.slice(0, 500)]);
-    await refundGrantUse(input.grantId);
-    await recordGrantResult(input.grantId, `failed: ${msg.slice(0, 200)}`);
-    await reportCommsFailure("voice-command", err, { detail: `click-to-call to ${to} could not dial Joe's cell`, href: "/calls" });
-    return { ok: false, error: `Could not start the call: ${msg}` };
   }
+  if (outcome?.responseClass === "unknown") {
+    return { ok: false, blocked: "unknown", error: `Telnyx did not confirm whether the dial to Joe's cell started; the call record is held for reconciliation (the voice webhook or the daily sweep settles it). Not redialled.` };
+  }
+  const msg = outcome?.error ?? "dial refused";
+  if (outcome?.responseClass !== "refused") {
+    await reportCommsFailure("voice-command", new Error(msg), { detail: `click-to-call to ${to} could not dial Joe's cell`, href: "/calls" });
+  } else {
+    await query(`UPDATE calls SET status = 'failed', outcome = 'failed', ended = true, ended_at = now(), error = $2, updated_at = now() WHERE id = $1 AND status = 'ringing'`, [id, msg.slice(0, 500)]);
+  }
+  return { ok: false, error: `Could not start the call: ${msg}`, blocked: outcome?.responseClass === "refused" ? "grant" : undefined };
 }

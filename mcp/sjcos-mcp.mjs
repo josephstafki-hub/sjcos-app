@@ -44,6 +44,7 @@
 //     result.
 
 import { readFileSync } from "node:fs";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer as createHttpServer } from "node:http";
 import path from "node:path";
@@ -67,6 +68,15 @@ import { registerGrantTools } from "./grants-tools.mjs";
 import { registerCommsTools } from "./comms-tools.mjs";
 import { registerRunbookTools } from "./runbook-tools.mjs";
 import { registerAskOwner } from "./interact-tools.mjs";
+import { registerObligationTools } from "./obligation-tools.mjs";
+import { registerDecisionTools } from "./decision-tools.mjs";
+import { registerMeasureTools } from "./measure-tools.mjs";
+import { registerWorkflowTools } from "./workflow-tools.mjs";
+import { registerEstimatingTools } from "./estimating-tools.mjs";
+import { registerProcurementTools } from "./procurement-tools.mjs";
+import { registerBillingTools } from "./billing-tools.mjs";
+import { registerContextTools } from "./context-tools.mjs";
+import { registerFieldTools } from "./field-tools.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -92,6 +102,108 @@ function envValue(key) {
   }
 }
 
+// ─── Principal identity (A08a / A22) ──────────────────────────────────────────
+// WHO is behind this tool call. Never a role claimed by the caller:
+//   • stdio: the app's runner exports SJC_PRINCIPAL_USER_ID (+ SJC_RUN_ID,
+//     SJC_RUN_PROFILE, SJC_RUN_STARTED_S) into our env when it spawns us for
+//     one run. A bare `claude mcp add` / Hermes stdio spawn has none → the
+//     call is "unattended" (no person; the owner-grant rules apply as before).
+//   • HTTP: an `X-SJC-Principal-User` header, honoured ONLY on a request that
+//     already passed the MCP_HTTP_TOKEN bearer check (httpAuthorized). It is
+//     bound to the request with AsyncLocalStorage so concurrent sessions never
+//     cross.
+// The ROLE is always derived here from the users row (and re-read per call so
+// a disabled / signed-out account stops mid-session). It is threaded into
+// every internal app route payload as principal_user_id / principal_role so
+// the app binds the action to the person; the gated send tools additionally
+// refuse a staff principal who lacks the matching approval authority
+// (lib/authority/mcp-gate.ts principalMaySpendGrant).
+const principalStore = new AsyncLocalStorage();
+const UUID_RE = /^[0-9a-f-]{36}$/i;
+
+/** The raw principal reference for this call (stdio env or HTTP header). */
+function principalRef() {
+  const fromReq = principalStore.getStore();
+  if (fromReq) return fromReq;
+  const userId = process.env.SJC_PRINCIPAL_USER_ID || null;
+  if (!userId) return { userId: null, startedS: null, runId: process.env.SJC_RUN_ID || null, profile: process.env.SJC_RUN_PROFILE || null };
+  const startedS = Number(process.env.SJC_RUN_STARTED_S || 0) || null;
+  return { userId: UUID_RE.test(userId) ? userId : null, startedS, runId: process.env.SJC_RUN_ID || null, profile: process.env.SJC_RUN_PROFILE || null };
+}
+
+/**
+ * The person behind this call, resolved server-side:
+ *   { userId, role, name, active, revoked, runId, profile } — role null when unattended.
+ * `revoked` is true when the account is disabled or was signed out everywhere
+ * after the run started (session_revocations) — callers refuse on it.
+ */
+async function currentPrincipal() {
+  const ref = principalRef();
+  if (!ref.userId) return { userId: null, role: null, name: null, active: false, revoked: false, runId: ref.runId, profile: ref.profile };
+  try {
+    const r = await pool.query(
+      `SELECT u.id, u.role, u.name, u.active,
+              (SELECT max(revoked_before) FROM session_revocations WHERE user_id = u.id) AS revoked_before
+         FROM users u WHERE u.id = $1`,
+      [ref.userId],
+    );
+    const u = r.rows[0];
+    if (!u) return { userId: ref.userId, role: null, name: null, active: false, revoked: true, runId: ref.runId, profile: ref.profile };
+    const revokedSince = u.revoked_before && ref.startedS ? new Date(u.revoked_before).getTime() > ref.startedS * 1000 : false;
+    return { userId: u.id, role: u.role, name: u.name, active: !!u.active, revoked: !u.active || revokedSince, runId: ref.runId, profile: ref.profile };
+  } catch {
+    // pre-migration schema: no session_revocations yet → identity only.
+    const r = await pool.query(`SELECT id, role, name, active FROM users WHERE id = $1`, [ref.userId]).catch(() => ({ rows: [] }));
+    const u = r.rows[0];
+    return u
+      ? { userId: u.id, role: u.role, name: u.name, active: !!u.active, revoked: !u.active, runId: ref.runId, profile: ref.profile }
+      : { userId: ref.userId, role: null, name: null, active: false, revoked: true, runId: ref.runId, profile: ref.profile };
+  }
+}
+
+/** Payload fields every internal-route call carries so the app can bind the
+ *  action to the person (server-derived; the role rides along for logging
+ *  only — the app must re-derive it from principal_user_id). */
+async function principalPayload() {
+  const p = await currentPrincipal();
+  return {
+    principal_user_id: p.userId,
+    principal_role: p.role,
+    principal_revoked: p.revoked,
+    run_id: p.runId,
+    run_profile: p.profile,
+  };
+}
+
+/** Refuse a call outright when the person behind it is gone. Returns an
+ *  error result or null. Used by the gated grant path; read tools stay open
+ *  to unattended callers as before. */
+async function refuseIfRevoked() {
+  const p = await currentPrincipal();
+  if (p.userId && p.revoked) {
+    return { ok: false, error: "The account this agent acts for is disabled or was signed out by the owner. Nothing was done." };
+  }
+  return null;
+}
+
+/** POST to one of the app's internal routes with the principal threaded in. */
+async function internalCall(route, action, payload, unreachable) {
+  const base = envValue("APP_INTERNAL_URL") || "http://127.0.0.1:3017";
+  const secret = envValue("CRON_SECRET");
+  if (!secret) return { ok: false, error: `CRON_SECRET not set — cannot reach the app ${route} route.` };
+  const identity = await principalPayload();
+  try {
+    const res = await fetch(`${base}/api/internal/${route}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
+      body: JSON.stringify({ action, ...identity, ...payload }),
+    });
+    return await res.json();
+  } catch (e) {
+    return { ok: false, error: `App not reachable at ${base} (${e.message}). ${unreachable}` };
+  }
+}
+
 /**
  * Call the app's internal doc-drafts route (single source of truth for the doc
  * template manifest, validation, and PDF/DOCX rendering — the .mjs server can't
@@ -100,19 +212,7 @@ function envValue(key) {
  * sending it for signature stays owner-gated in the app.
  */
 async function docDraftsCall(action, payload = {}) {
-  const base = envValue("APP_INTERNAL_URL") || "http://127.0.0.1:3017";
-  const secret = envValue("CRON_SECRET");
-  if (!secret) return { ok: false, error: "CRON_SECRET not set — cannot reach the app doc-drafts route." };
-  try {
-    const res = await fetch(`${base}/api/internal/doc-drafts`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
-      body: JSON.stringify({ action, ...payload }),
-    });
-    return await res.json();
-  } catch (e) {
-    return { ok: false, error: `App not reachable at ${base} (${e.message}). Is \`npm run dev\` running?` };
-  }
+  return internalCall("doc-drafts", action, payload, "Is `npm run dev` running?");
 }
 
 /**
@@ -125,19 +225,7 @@ async function docDraftsCall(action, payload = {}) {
  * clicks Release in the app, and turning a drip on stays a human action.
  */
 async function newsletterCall(action, payload = {}) {
-  const base = envValue("APP_INTERNAL_URL") || "http://127.0.0.1:3017";
-  const secret = envValue("CRON_SECRET");
-  if (!secret) return { ok: false, error: "CRON_SECRET not set — cannot reach the app newsletter route." };
-  try {
-    const res = await fetch(`${base}/api/internal/newsletter`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
-      body: JSON.stringify({ action, ...payload }),
-    });
-    return await res.json();
-  } catch (e) {
-    return { ok: false, error: `App not reachable at ${base} (${e.message}). Is the sjcos service running?` };
-  }
+  return internalCall("newsletter", action, payload, "Is the sjcos service running?");
 }
 
 /**
@@ -154,19 +242,7 @@ async function newsletterCall(action, payload = {}) {
  * (real email); sending goes through the owner-grant tools instead.
  */
 async function biddingCall(action, payload = {}) {
-  const base = envValue("APP_INTERNAL_URL") || "http://127.0.0.1:3017";
-  const secret = envValue("CRON_SECRET");
-  if (!secret) return { ok: false, error: "CRON_SECRET not set — cannot reach the app bidding route." };
-  try {
-    const res = await fetch(`${base}/api/internal/bidding`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
-      body: JSON.stringify({ action, ...payload }),
-    });
-    return await res.json();
-  } catch (e) {
-    return { ok: false, error: `App not reachable at ${base} (${e.message}). Is the sjcos service running?` };
-  }
+  return internalCall("bidding", action, payload, "Is the sjcos service running?");
 }
 
 /**
@@ -175,19 +251,39 @@ async function biddingCall(action, payload = {}) {
  * action + target before anything transmits (lib/agent-sends.ts).
  */
 async function grantsCall(action, payload = {}) {
-  const base = envValue("APP_INTERNAL_URL") || "http://127.0.0.1:3017";
-  const secret = envValue("CRON_SECRET");
-  if (!secret) return { ok: false, error: "CRON_SECRET not set — cannot reach the app owner-grants route." };
-  try {
-    const res = await fetch(`${base}/api/internal/owner-grants`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
-      body: JSON.stringify({ action, ...payload }),
-    });
-    return await res.json();
-  } catch (e) {
-    return { ok: false, error: `App not reachable at ${base} (${e.message}). Is the sjcos service running?` };
+  // A22 gate: a PERSON behind the agent must be allowed to release this send.
+  //   no person   → unchanged: the owner grant alone decides (claude.ai /
+  //                 Hermes / plain stdio clients, where Joe minted the grant)
+  //   owner       → allowed (it is his grant)
+  //   staff       → only with a live authority_grants row for the kind this
+  //                 gated action maps to (lib/authority/catalog.ts)
+  //   revoked     → refused
+  if (action === "perform") {
+    const revoked = await refuseIfRevoked();
+    if (revoked) return revoked;
+    const p = await currentPrincipal();
+    if (p.userId && p.role !== "owner") {
+      const gate = await staffMaySpendGrant(p.userId, String(payload.gated_action ?? ""), payload);
+      if (!gate.ok) return { ok: false, error: gate.reason };
+    }
   }
+  return internalCall("owner-grants", action, payload, "Is the sjcos service running?");
+}
+
+/** principalMaySpendGrant (lib/authority/mcp-gate.ts) over our pool. Loaded
+ *  lazily (the .ts import relies on Node's type stripping, same as the test
+ *  suite); if it cannot load, a staff principal is refused — fail closed. */
+async function staffMaySpendGrant(userId, gatedAction, payload) {
+  let gate;
+  try {
+    ({ principalMaySpendGrant: gate } = await import("../lib/authority/mcp-gate.ts"));
+  } catch {
+    return { ok: false, reason: "Authority check unavailable in this MCP build; only the owner can release sends right now." };
+  }
+  const run = async (sql, params) => (await pool.query(sql, params)).rows;
+  const amount = payload.amount_cents != null ? Number(payload.amount_cents) : null;
+  const ref = principalRef();
+  return gate(run, userId, gatedAction, { projectId: payload.project_id ?? null, amountCents: Number.isFinite(amount) ? amount : null, authAtSeconds: ref.startedS ?? null });
 }
 
 /**
@@ -214,19 +310,7 @@ function notifyOwnerCall(action, payload = {}) {
  * authed with CRON_SECRET — this is NOT the website's intake token.
  */
 async function leadsCall(action, payload = {}) {
-  const base = envValue("APP_INTERNAL_URL") || "http://127.0.0.1:3017";
-  const secret = envValue("CRON_SECRET");
-  if (!secret) return { ok: false, error: "CRON_SECRET not set — cannot reach the app leads route." };
-  try {
-    const res = await fetch(`${base}/api/internal/leads`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
-      body: JSON.stringify({ action, ...payload }),
-    });
-    return await res.json();
-  } catch (e) {
-    return { ok: false, error: `App not reachable at ${base} (${e.message}). Is the sjcos service running?` };
-  }
+  return internalCall("leads", action, payload, "Is the sjcos service running?");
 }
 
 /**
@@ -237,35 +321,25 @@ async function leadsCall(action, payload = {}) {
  * an instance is owner-only in the app UI.
  */
 async function runbooksCall(action, payload = {}) {
-  const base = envValue("APP_INTERNAL_URL") || "http://127.0.0.1:3017";
-  const secret = envValue("CRON_SECRET");
-  if (!secret) return { ok: false, error: "CRON_SECRET not set — cannot reach the app runbooks route." };
-  try {
-    const res = await fetch(`${base}/api/internal/runbooks`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
-      body: JSON.stringify({ action, ...payload }),
-    });
-    return await res.json();
-  } catch (e) {
-    return { ok: false, error: `App not reachable at ${base} (${e.message}). Is the sjcos service running?` };
-  }
+  return internalCall("runbooks", action, payload, "Is the sjcos service running?");
+}
+
+// A05/A06 + A10: exact one-tap decisions (stage / get / list / wait) live in
+// the app (lib/commands/decisions.ts); agents stage cards, never resolve them.
+async function decisionsCall(action, payload = {}) {
+  return internalCall("decisions", action, payload, "Is the sjcos service running?");
+}
+
+// A16/A17: field, schedule and closeout writes need the app-bound hooks.
+async function fieldCall(action, payload = {}) {
+  return internalCall("field", action, payload, "Is the sjcos service running?");
+}
+async function estimatingCall(action, payload = {}) {
+  return internalCall("estimating", action, payload, "Is the sjcos service running?");
 }
 
 async function poCall(action, payload = {}) {
-  const base = envValue("APP_INTERNAL_URL") || "http://127.0.0.1:3017";
-  const secret = envValue("CRON_SECRET");
-  if (!secret) return { ok: false, error: "CRON_SECRET not set — cannot reach the app purchase-orders route." };
-  try {
-    const res = await fetch(`${base}/api/internal/purchase-orders`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
-      body: JSON.stringify({ action, ...payload }),
-    });
-    return await res.json();
-  } catch (e) {
-    return { ok: false, error: `App not reachable at ${base} (${e.message}). Is the sjcos service running?` };
-  }
+  return internalCall("purchase-orders", action, payload, "Is the sjcos service running?");
 }
 
 // Mirrors writeScope() in lib/db.ts — the app's query() helper does the same.
@@ -1071,6 +1145,17 @@ server.registerTool(
   async ({ id, status, note }) => {
     const mangled = strippedDollarError(note);
     if (mangled) return mangled;
+    // A04: "done" is a completion, not a status flip — it runs the evidence-
+    // backed command in the app (manual evidence: this agent + its note; a
+    // step that requires real evidence refuses and says what it needs).
+    if (status === "done") {
+      const done = await runbooksCall("complete", {
+        work_item_id: id,
+        evidence: { kind: "manual", actor: process.env.SJCOS_AGENT_NAME || "mcp", reason: note ?? "marked done via update_work_item_status" },
+        agent: process.env.SJCOS_AGENT_NAME || "mcp",
+      });
+      return json(done?.ok ? { ok: true, id, status: "done", ...done } : { ok: false, error: done?.error ?? "completion refused", ...done });
+    }
     const r = await rows(
       `UPDATE work_items
           SET status = $2,
@@ -2547,6 +2632,22 @@ server.registerTool(
   // direct SQL. No cancel tool — owner-only in the UI. See mcp/runbook-tools.mjs.
   registerRunbookTools(server, { rows, json, runbooksCall });
 
+  // Automation build (docs/automation-reliability): obligations + evidence-
+  // backed completion (A01/A04), exact decisions (A05/A06, A10), measurement
+  // and capability states (A18), and the W01–W12 project workflow view (A23).
+  registerObligationTools(server, { rows, json, appCall: runbooksCall });
+  registerDecisionTools(server, { json, decisionsCall, pool, currentPrincipal });
+  registerMeasureTools(server, { rows, json, pool });
+  registerWorkflowTools(server, { rows, json, pool, slugToId });
+  // Estimating (A15, W02–W07), procurement + cash (A13, W05–W09), billing
+  // (A07), field/schedule/closeout (A16/A17, W09–W12) and the operating-agent
+  // context (A24). Every money/send-facing effect below is a decision.
+  registerEstimatingTools(server, { rows, json, pool, slugToId, currentPrincipal, estimatingCall });
+  registerProcurementTools(server, { rows, json, pool, slugToId, currentPrincipal });
+  registerBillingTools(server, { rows, json, pool, slugToId, currentPrincipal });
+  registerContextTools(server, { rows, json, pool, slugToId, currentPrincipal });
+  registerFieldTools(server, { json, fieldCall, slugToId });
+
   // ask_owner: put a real question box (options, multi-select) in front of Joe
   // inside the panel chat and BLOCK until he answers — any agent on this server
   // (Hermes, claude.ai, the Claude runner) gets interactive questions. Rows in
@@ -2693,6 +2794,23 @@ function startHttpServer(port) {
         return;
       }
 
+      // A08a: an authenticated caller may name the person it acts for. Only
+      // the id is taken; the role is looked up per call (currentPrincipal).
+      // A malformed id is treated as "no person", never as the owner.
+      const hdr = req.headers["x-sjc-principal-user"];
+      const principalUser = typeof hdr === "string" && UUID_RE.test(hdr.trim()) ? hdr.trim() : null;
+      const startedHdr = Number(req.headers["x-sjc-run-started-s"] || 0) || null;
+      const principal = { userId: principalUser, startedS: principalUser ? startedHdr : null, runId: typeof req.headers["x-sjc-run-id"] === "string" ? req.headers["x-sjc-run-id"] : null, profile: typeof req.headers["x-sjc-run-profile"] === "string" ? req.headers["x-sjc-run-profile"] : null };
+      await principalStore.run(principal, () => handleMcpRequest(req, res, url));
+    } catch (e) {
+      console.error("[sjcos-mcp] HTTP request error:", e?.message || e);
+      rpcError(res, 500, -32603, "Internal server error");
+    }
+  });
+
+  /** The session/transport handling, run inside the principal's ALS scope. */
+  async function handleMcpRequest(req, res) {
+    {
       const sessionId = req.headers["mcp-session-id"];
 
       if (req.method === "POST") {
@@ -2743,11 +2861,8 @@ function startHttpServer(port) {
       }
 
       rpcError(res, 405, -32000, "Method not allowed", { allow: "GET, POST, DELETE" });
-    } catch (e) {
-      console.error("[sjcos-mcp] HTTP request error:", e?.message || e);
-      rpcError(res, 500, -32603, "Internal server error");
     }
-  });
+  }
 
   httpServer.listen(port, host, () => {
     console.error(`[sjcos-mcp] Streamable HTTP transport listening on http://${host}:${port}/mcp`);

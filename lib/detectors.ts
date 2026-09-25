@@ -22,6 +22,9 @@ import { gmailConfigured, fetchThreadPage } from "./gmail";
 import { extractEmail } from "./lead-thread-sync";
 import { computeStageGate } from "./record-ops";
 import { linkIds } from "./comms-shared";
+import type { Run } from "./commands/core";
+import { refreshSourcedWorkItem } from "./obligations/work-items";
+import { resolveObligation } from "./obligations/core";
 
 // ─── Thresholds (tune here; locked 2026-08-19) ──────────────────────────────
 const CLIENT_REPLY_DAYS = 3; // client message with no reply from us
@@ -916,6 +919,8 @@ const REGISTRY: (() => Detector)[] = [
   smsUnansweredDetector,
 ];
 
+const run: Run = async <T = Record<string, unknown>>(sql: string, params?: unknown[]) => (await query<never>(sql, params as never[])).rows as T[];
+
 export async function runDetectors(opts: { dryRun?: boolean } = {}): Promise<DetectorRunResult> {
   const dryRun = opts.dryRun ?? false;
   const result: DetectorRunResult = {
@@ -1005,21 +1010,28 @@ export async function runDetectors(opts: { dryRun?: boolean } = {}): Promise<Det
       result.created.push({ detector: detector.key, dedupKey: item.dedupKey, title: item.title });
       if (dryRun) continue;
 
-      const inserted = await query<{ id: string }>(
-        `INSERT INTO work_items
-           (title, body, status, priority, assignee_kind, assignee_key, due_at,
-            lead_id, project_id, source_kind, source_id, expected_skill_slug,
-            requires_approval, created_by)
-         VALUES ($1,$2,$3,$4,'human','human-joe',$5,$6,$7,'schedule',$8,$9,true,$10)
-         RETURNING id`,
-        [
-          item.title, item.body, item.status, item.priority,
-          item.dueAt ? item.dueAt.toISOString() : null,
-          item.leadId ?? null, item.projectId ?? null,
-          item.sourceId ?? null, item.expectedSkillSlug ?? null,
-          `detector:${detector.key}`,
-        ],
-      );
+      // A01: file through the shared source refresh so identity is the
+      // detector's stable dedup key (source_id) and an obligation row is
+      // created alongside; the detector remains the only thing that sets
+      // status/priority/due on its own items.
+      const filed = await refreshSourcedWorkItem(run, {
+        sourceKind: "schedule",
+        sourceId: item.sourceId ?? item.dedupKey,
+        provider: "detector",
+        title: item.title,
+        body: item.body,
+        status: item.status,
+        priority: item.priority,
+        dueAt: item.dueAt ?? null,
+        leadId: item.leadId ?? null,
+        projectId: item.projectId ?? null,
+        expectedSkillSlug: item.expectedSkillSlug ?? null,
+        requiresApproval: true,
+        createdBy: `detector:${detector.key}`,
+        obligationKind: "detector",
+        recurring: true,
+      });
+      const inserted = { rows: [{ id: filed.id }] };
       // A previously-resolved key whose condition returned re-opens its row.
       await query(
         `INSERT INTO detector_state (dedup_key, detector_key, work_item_id)
@@ -1095,14 +1107,21 @@ export async function runDetectors(opts: { dryRun?: boolean } = {}): Promise<Det
         if (row.work_item_id) {
           // Close only items still open — one the owner already closed (or an
           // agent completed) keeps its own status/completion story.
-          await query(
+          const closed = await query<{ obligation_id: string | null }>(
             `UPDATE work_items
                 SET status = 'done', completed_at = now(),
                     body = body || E'\\n\\n[auto-resolved: condition cleared]',
                     updated_at = now()
-              WHERE id = $1 AND status NOT IN ('done','cancelled')`,
+              WHERE id = $1 AND status NOT IN ('done','cancelled')
+              RETURNING obligation_id`,
             [row.work_item_id],
           );
+          // The obligation records WHY it is done (the detector saw the
+          // condition clear) — evidence, not an age-out.
+          const obligationId = closed.rows[0]?.obligation_id;
+          if (obligationId) {
+            await resolveObligation(run, obligationId, { kind: "detector_cleared", detector_key: detector.key, dedup_key: row.dedup_key }, `detector:${detector.key}`);
+          }
         }
         await query(
           `UPDATE detector_state SET resolved_at = now() WHERE dedup_key = $1`,

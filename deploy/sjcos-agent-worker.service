@@ -1,0 +1,11 @@
+[Unit]
+Description=SJC OS operating-agent worker pass (A24): claim event triggers, run the business agent, record executions
+After=sjcos.service postgresql.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/sjcos-app
+# Finite by construction: the runner has a turn cap and deadline; this is a
+# backstop so a hung CLI can never overlap the next timer tick forever.
+TimeoutStartSec=25min
+ExecStart=/home/joe/bin/sjcos-agent-worker

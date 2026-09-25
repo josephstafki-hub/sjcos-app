@@ -7,11 +7,14 @@ import "server-only";
 // and is fail-closed: any missing/invalid SMS_* var and smsConfig() is null —
 // sends refuse with the list of what is missing, the webhook answers 503.
 //
-// THE SEND LINE: sendSms() is the ONLY function that hands a message to the
-// provider, and it spends a single-use owner grant first (lib/owner-grants.ts
-// consumeGrant, action 'send_sms', target the +E.164 number). The owner's own
-// Reply button mints its grant inline (lib/actions/sms.ts); agents come in
-// through performGrantedAction (lib/agent-sends.ts) with a grant Joe approved.
+// THE SEND LINE: sendSms() is the ONLY function that stages an outbound
+// message. Since A05/A06 it records the message row, enqueues ONE permanent
+// intent for it and dispatches inline through lib/dispatch, which spends the
+// single-use owner grant (action 'send_sms', target the +E.164 number)
+// atomically at dispatch, re-checks the opt-out, calls Telnyx and stores the
+// provider id. The owner's own Reply button mints its grant inline
+// (lib/actions/sms.ts); agents come in through performGrantedAction
+// (lib/agent-sends.ts) with a grant Joe approved.
 // One exception, deliberately: the carrier-mandated HELP/INFO auto-response
 // (sendHelpReply) — a fixed, registered string the campaign attests we send.
 //
@@ -35,7 +38,11 @@ import { helpMessageFrom, OPTIN_CONFIRMATION } from "./comms/tendlc.mjs";
 import { sendTelnyxMessage, downloadMedia, TelnyxError } from "./telnyx";
 import { storeBuffer } from "./upload-store";
 import { notifyOwner } from "./notify-owner";
-import { consumeGrant, recordGrantResult, refundGrantUse } from "./owner-grants";
+import { checkGrantCovers } from "./owner-grants";
+import { withTransaction } from "./commands/db";
+import { enqueueIntent } from "./commands/intents";
+import type { Principal } from "./commands/principal";
+import { dispatchIntentsNow } from "./dispatch/db";
 import { fileCommsWorkItem, linkHref, linkIds, matchPhoneToRecord, readTendlcState, type CommsLinkType } from "./comms-shared";
 import { reportCommsFailure } from "./comms-health";
 
@@ -378,7 +385,7 @@ export interface SendSmsInput {
 
 export type SendSmsResult =
   | { ok: true; threadId: number; messageId: number; providerId: string; summary: string }
-  | { ok: false; error: string; threadId?: number; blocked?: "opted_out" | "not_configured" | "grant" | "invalid_number" };
+  | { ok: false; error: string; threadId?: number; blocked?: "opted_out" | "not_configured" | "grant" | "invalid_number" | "unknown" };
 
 /** THE outbound path. Spends the grant, checks opt-out, records the message,
  *  hands it to Telnyx, and turns every failure into a work item. */
@@ -392,8 +399,10 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
   if (!norm.ok) return { ok: false, error: norm.error, blocked: "invalid_number" };
   const to = norm.e164;
 
-  const spent = await consumeGrant(input.grantId, "send_sms", { kind: "phone", id: to, to });
-  if (!spent.ok) return { ok: false, error: spent.error, blocked: "grant" };
+  // Fast, relayable refusal when the grant plainly doesn't cover this
+  // number; the authoritative spend happens at dispatch (lib/dispatch).
+  const covers = await checkGrantCovers(input.grantId, "send_sms", { kind: "phone", id: to, to });
+  if (!covers.ok) return { ok: false, error: covers.error, blocked: "grant" };
 
   const threadId = await upsertSmsThread(to, input.contactName, cfg.fromNumber);
   const thread = await queryOne<{ opted_out: boolean; opted_out_at: string | null; contact_name: string | null }>(
@@ -403,8 +412,6 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
   if (thread?.opted_out) {
     const when = thread.opted_out_at ? ` on ${thread.opted_out_at.slice(0, 10)}` : "";
     const error = `Blocked: ${thread.contact_name || to} opted out of texts (STOP)${when}. They must text START to opt back in; nothing was sent.`;
-    await refundGrantUse(input.grantId);
-    await recordGrantResult(input.grantId, `blocked: opted out`);
     return { ok: false, error, threadId, blocked: "opted_out" };
   }
 
@@ -415,43 +422,56 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
   );
   const messageId = msg!.id;
 
-  try {
-    const sent = await sendTelnyxMessage(cfg, { to, text });
-    await query(
-      `UPDATE sms_messages SET provider_sid = $2, status = $3, updated_at = now() WHERE id = $1`,
-      [messageId, sent.id, sent.toStatus ?? "queued"],
-    );
-    await query(`UPDATE sms_threads SET last_message_at = now(), last_outbound_at = now(), unread = false WHERE id = $1`, [threadId]);
-    const summary = `Text sent to ${thread?.contact_name || to}: "${text.slice(0, 80)}${text.length > 80 ? "…" : ""}"`;
-    await recordGrantResult(input.grantId, `ok: ${summary}`);
-    return { ok: true, threadId, messageId, providerId: sent.id, summary };
-  } catch (err) {
-    const errors = err instanceof TelnyxError ? err.errors : [{ code: "", title: "", detail: (err as Error).message }];
-    const kind = classifySendFailure(errors);
-    const detail = describeSendFailure(kind, errors);
-    await query(
-      `UPDATE sms_messages SET status = 'failed', error_code = $2, error_detail = $3, failure_kind = $4, updated_at = now() WHERE id = $1`,
-      [messageId, errors[0]?.code ?? null, detail, kind],
-    );
-    await refundGrantUse(input.grantId);
-    await recordGrantResult(input.grantId, `failed: ${detail.slice(0, 200)}`);
-    const link = await threadLinkIds(threadId);
-    await fileCommsWorkItem({
-      title: kind === "campaign_not_registered" ? `Text to ${link.name} held: 10DLC campaign not yet approved` : `Text to ${link.name} failed to send`,
-      body:
-        `${detail}\n\nMessage: "${text.slice(0, 300)}"\nTo: ${to}\nAttempted by: ${input.actor}\n\n` +
-        (kind === "campaign_not_registered"
-          ? "Expected while carriers review the campaign (1–3 weeks). Re-send after `node scripts/register-10dlc.mjs status` shows it accepted. [sms:campaign-pending]"
-          : "[sms:send-failed]"),
-      priority: kind === "campaign_not_registered" ? "normal" : "high",
-      leadId: link.leadId,
-      projectId: link.projectId,
-      sourceKind: "sms",
-      sourceId: kind === "campaign_not_registered" ? "sms-campaign-pending" : `sms-fail:${messageId}`,
-    });
-    if (kind !== "campaign_not_registered") await reportCommsFailure("sms-send", err, { detail: `to ${to}`, href: "/messages" });
-    return { ok: false, error: detail, threadId };
+  // One permanent intent per message row; the dispatcher spends the grant,
+  // re-checks the opt-out, calls Telnyx and records the provider id
+  // (lib/dispatch/effects.ts send_sms).
+  const principal: Principal = input.actor.startsWith("mcp:") ? { kind: "agent", agent: input.actor.slice(4), runId: null, onBehalfOf: null } : { kind: "service", name: `sms:${input.actor}` };
+  const { intent } = await withTransaction((run) =>
+    enqueueIntent(run, {
+      operationKey: `sms:${messageId}`,
+      kind: "send_sms",
+      targetKind: "phone",
+      targetId: to,
+      recipient: to,
+      payload: { to, text, message_id: messageId, thread_id: threadId, _auth: { action: "send_sms", target_kind: "phone", target_id: to, to } },
+      grantId: input.grantId,
+      principal,
+    }),
+  );
+  const [outcome] = await dispatchIntentsNow([intent.id]);
+  const name = thread?.contact_name || to;
+  if (outcome && (outcome.responseClass === "accepted" || outcome.responseClass === "confirmed")) {
+    const summary = `Text sent to ${name}: "${text.slice(0, 80)}${text.length > 80 ? "…" : ""}"`;
+    return { ok: true, threadId, messageId, providerId: outcome.providerRef ?? "", summary };
   }
+  if (outcome?.responseClass === "unknown") {
+    return { ok: false, threadId, blocked: "unknown", error: `Telnyx did not confirm whether the text to ${name} went out; it is held for reconciliation and will not be resent. The delivery receipt will settle it.` };
+  }
+  if (outcome?.responseClass === "refused") {
+    return { ok: false, threadId, error: outcome.error ?? "Refused at dispatch.", blocked: /opted out/i.test(outcome.error ?? "") ? "opted_out" : "grant" };
+  }
+  // Definite failure: classify as before and file the work item so nothing
+  // fails into the void.
+  const errors = [{ code: "", title: "", detail: outcome?.error ?? "send failed" }];
+  const kind = classifySendFailure(errors);
+  const detail = describeSendFailure(kind, errors);
+  await query(`UPDATE sms_messages SET failure_kind = $2, updated_at = now() WHERE id = $1`, [messageId, kind]);
+  const link = await threadLinkIds(threadId);
+  await fileCommsWorkItem({
+    title: kind === "campaign_not_registered" ? `Text to ${link.name} held: 10DLC campaign not yet approved` : `Text to ${link.name} failed to send`,
+    body:
+      `${detail}\n\nMessage: "${text.slice(0, 300)}"\nTo: ${to}\nAttempted by: ${input.actor}\n\n` +
+      (kind === "campaign_not_registered"
+        ? "Expected while carriers review the campaign (1–3 weeks). Re-send after `node scripts/register-10dlc.mjs status` shows it accepted. [sms:campaign-pending]"
+        : "[sms:send-failed]"),
+    priority: kind === "campaign_not_registered" ? "normal" : "high",
+    leadId: link.leadId,
+    projectId: link.projectId,
+    sourceKind: "sms",
+    sourceId: kind === "campaign_not_registered" ? "sms-campaign-pending" : `sms-fail:${messageId}`,
+  });
+  if (kind !== "campaign_not_registered") await reportCommsFailure("sms-send", new Error(detail), { detail: `to ${to}`, href: "/messages" });
+  return { ok: false, error: detail, threadId };
 }
 
 /** The registered HELP/INFO response. Carrier-mandated, fixed text, no grant:

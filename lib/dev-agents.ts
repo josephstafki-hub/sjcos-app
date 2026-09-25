@@ -15,6 +15,11 @@ import { hermesProgress, runLog } from "@/lib/orchestrator/activity";
 import { composeHermesTurn } from "@/lib/orchestrator/thread";
 import { imageDataUrl, type AttachmentImage } from "@/lib/attachments";
 import { mintRunGrant } from "@/lib/owner-grants";
+import { getCurrentUser, type CurrentUser } from "@/lib/dal";
+import { runDirect } from "@/lib/commands/db";
+import { admitRun } from "@/lib/authority/usage";
+import { sessionRevokedSince } from "@/lib/authority/grants";
+import { profileFor } from "@/lib/authority/run-profile.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -34,6 +39,38 @@ const execFileAsync = promisify(execFile);
 export type DevAgent = "claude" | "qwen" | "hermes";
 
 export const DEV_AGENTS: DevAgent[] = ["claude", "qwen", "hermes"];
+
+/** A08a run profiles — see lib/authority/run-profile.mjs. */
+export type RunProfile = "operator" | "business";
+
+/** The signed-in person starting a run, or null when there is no request
+ *  (cron sweep, runbook ping from a timer). getCurrentUser() needs a request
+ *  scope; outside one it throws — that is the "nobody" case. */
+async function currentStarter(): Promise<CurrentUser | null> {
+  try {
+    return await getCurrentUser();
+  } catch {
+    return null;
+  }
+}
+
+/** A08b mid-session revocation: is the person a run acts for still active
+ *  and not signed out since the run started? Checked before every new turn
+ *  (startClaudeRun / pingAgentWorkItem) and by the runner's heartbeat. */
+export async function runPrincipalStillValid(runId: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const r = await queryOne<{ principal_user_id: string | null; created_at: string; active: boolean | null }>(
+    `SELECT r.principal_user_id, r.created_at::text AS created_at, u.active
+       FROM dev_agent_runs r LEFT JOIN users u ON u.id = r.principal_user_id
+      WHERE r.id = $1`,
+    [runId],
+  );
+  if (!r) return { ok: false, reason: "run not found" };
+  if (!r.principal_user_id) return { ok: true };
+  if (!r.active) return { ok: false, reason: "the account this run acts for is disabled" };
+  const startedS = Math.floor(new Date(r.created_at).getTime() / 1000);
+  if (await sessionRevokedSince(runDirect, r.principal_user_id, startedS)) return { ok: false, reason: "the account this run acts for was signed out" };
+  return { ok: true };
+}
 
 // ─── Hermes (the real agent, via its OpenAI-compatible gateway) ──────────────
 //
@@ -200,7 +237,20 @@ export async function hermesChat(
   // W5: Joe-approved standing instructions ride along on every turn so the
   // in-app agents get them without an MCP round-trip. "" when none exist.
   const standing = await standingInstructionsBlock();
+  // A24: the versioned operating block (workflow digest, policy digest, tone
+  // guide) every business entry point loads — same text the background
+  // worker and the Ask window use; degrades to nothing if the runtime tables
+  // are not migrated yet, never blocks the chat.
+  let operating = "";
+  try {
+    const mod = await import("@/lib/agent-runtime/instructions");
+    const block = await mod.standingContextBlock(runDirect, context ?? null);
+    operating = block.text;
+  } catch {
+    operating = "";
+  }
   const messages = [
+    ...(operating ? [{ role: "system", content: operating }] : []),
     ...(context ? [{ role: "system", content: `SJC OS — page the user is viewing:\n${context}` }] : []),
     // Today v2 · Phase 7: let Hermes (the feed's default agent) offer one-click
     // chips too. Self-gating — only fires when work_item_ids are in context.
@@ -386,6 +436,10 @@ export interface DevAgentRun {
   tokenUsage: Record<string, unknown> | null;
   /** CLI session id — the thread's resumable session. */
   sessionId: string | null;
+  /** A08a: 'operator' (owner, repo access) or 'business' (sjcos tools only). */
+  profile: RunProfile;
+  /** The person the run acts for (null = unattended). */
+  principalUserId: string | null;
   /** Set on a done run when a newer run is already in flight in the same
    *  conversation — an orchestrator hand-off (e.g. Qwen's held proposal
    *  escalated to Hermes) — so the panel keeps following the thread instead
@@ -409,13 +463,30 @@ export async function startClaudeRun(
   conversationId?: string,
   options?: Partial<ClaudeOptions>,
   subjectWorkItemId?: string,
-  extras?: { withMcp?: boolean; allowSends?: boolean; orchestrationTaskId?: string },
+  extras?: { withMcp?: boolean; allowSends?: boolean; orchestrationTaskId?: string; profile?: RunProfile },
 ): Promise<string> {
   const { model, context, mode, effort, withMcp } = { ...CLAUDE_DEFAULTS, ...options };
+  // A08a: who is starting this run decides what it may do. The person is
+  // read from the SESSION on the server (never from the prompt/caller):
+  //   owner  → 'operator' (repo edit access) unless a business run was asked for
+  //   staff  → 'business', bound to that staff member's id (the MCP layer
+  //            scopes sends to their authority); they can never get 'operator'
+  //   nobody → unattended 'business' (cron retries, runbook pings)
+  const starter = await currentStarter();
+  const profile = profileFor(starter ? { role: starter.role, active: true } : null, extras?.profile) as RunProfile;
+  if (profile === "operator" && starter?.role !== "owner") throw new Error("Only the owner can start an operator run.");
+  const principalUserId = starter?.id ?? null;
+
+  // A08b: usage thresholds. Business runs are refused past the hourly cap;
+  // owner runs proceed with a warning in the activity log.
+  const admission = await admitRun(runDirect, profile);
+  if (!admission.ok) throw new Error(admission.error);
+
   const row = await queryOne<{ id: string }>(
     `INSERT INTO dev_agent_runs
-       (agent, prompt, page_context, status, conversation_id, model, mode, effort, subject_work_item_id, with_mcp, orchestration_task_id)
-     VALUES ('claude', $1, $2, 'pending', $3, $4, $5, $6, $7, $8, $9)
+       (agent, prompt, page_context, status, conversation_id, model, mode, effort, subject_work_item_id, with_mcp, orchestration_task_id,
+        profile, principal_user_id, activity)
+     VALUES ('claude', $1, $2, 'pending', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      RETURNING id`,
     [
       prompt,
@@ -430,6 +501,9 @@ export async function startClaudeRun(
       // extras wins (orchestrator callers), else the Ask window's Tools toggle.
       extras?.withMcp ?? withMcp,
       extras?.orchestrationTaskId ?? null,
+      profile,
+      principalUserId,
+      admission.warning ? `⚠ ${admission.warning}` : null,
     ],
   );
   const id = row!.id;
@@ -437,8 +511,10 @@ export async function startClaudeRun(
   // Express permission for this one turn: the grant row is the owner's
   // approval on record; the runner tells Claude its id and every gated send
   // spends it (and is audited on it). Minted BEFORE the runner starts so the
-  // prompt can carry it.
-  if (extras?.allowSends) {
+  // prompt can carry it. Only the OWNER's tick can mint one — a staff
+  // member's checkbox is ignored (their sends are bounded by authority
+  // grants checked in the MCP gate, not by an owner grant they cannot hold).
+  if (extras?.allowSends && starter?.role === "owner") {
     const grant = await mintRunGrant(id, conversationId ?? null, prompt);
     await query(`UPDATE dev_agent_runs SET grant_id = $2 WHERE id = $1`, [id, grant.id]);
   }
@@ -470,9 +546,11 @@ export async function getDevAgentRun(id: string): Promise<DevAgentRun | null> {
     context_tokens: number | null;
     token_usage: Record<string, unknown> | null;
     session_id: string | null;
+    profile: string | null;
+    principal_user_id: string | null;
   }>(
     `SELECT id, agent, status, answer, activity, cost_usd, created_at::text AS created_at, conversation_id,
-            context_tokens, token_usage, session_id
+            context_tokens, token_usage, session_id, profile, principal_user_id
        FROM dev_agent_runs WHERE id = $1`,
     [id],
   );
@@ -501,6 +579,8 @@ export async function getDevAgentRun(id: string): Promise<DevAgentRun | null> {
     contextTokens: row.context_tokens == null ? null : Number(row.context_tokens),
     tokenUsage: row.token_usage,
     sessionId: row.session_id,
+    profile: row.profile === "operator" ? "operator" : "business",
+    principalUserId: row.principal_user_id,
     nextRunId,
   };
 }
@@ -661,6 +741,13 @@ export async function pingAgentWorkItem(
       return;
     }
     try {
+      // Every new turn re-derives the starter from the live session and
+      // re-checks active + session_revocations (startClaudeRun) — a revoked
+      // staff member gets no further turns even in an existing thread.
+      const me = await currentStarter();
+      if (me?.role === "staff" && (await sessionRevokedSince(runDirect, me.id, null))) {
+        throw new Error("Your session was signed out by the owner; sign in again.");
+      }
       await startClaudeRun(prompt, pageContext, conversationId, undefined, workItemId);
     } catch (err) {
       await insertMessage(conversationId, "assistant", `⚠️ ${(err as Error).message}`, { agent: "claude" }).catch(() => {});

@@ -659,15 +659,7 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
     async ({ invite_id }) => json(await biddingCall("mark_working", { invite_id })),
   );
 
-  server.registerTool(
-    "award_bid",
-    {
-      title: "Award a bid",
-      description:
-        "Pick the winner: that invite goes 'awarded', every other sub still in the running goes " +
-        "'not_awarded', and the package closes. Only a submitted (recorded) bid can win.",
-      inputSchema: { invite_id: z.number().int() },
-    },
-    async ({ invite_id }) => json(await biddingCall("award_bid", { invite_id })),
-  );
+  // award_bid moved to mcp/procurement-tools.mjs (A13): awarding a sub is a
+  // purchase decision Joe taps, then a cash-reserved commitment — never a
+  // direct status flip from an agent.
 }

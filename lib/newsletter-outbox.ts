@@ -3,15 +3,20 @@
 //
 // The GATE: newsletter issue-sends and auto-greeting emails are ENQUEUED here as
 // 'queued' and NOTHING reaches a real recipient until the owner clicks Release
-// (releaseOutboxItem) — the only function in the whole feature that calls Gmail.
-// No cron/hook/effect invokes it; that manual click IS the gate. Mirrors the
+// (releaseOutboxItem) or an agent releases with an owner grant — the only
+// function in the whole feature that stages a send (the provider call itself
+// lives in lib/dispatch since A05/A06). No cron/hook/effect invokes it. Mirrors the
 // P1-D4 portal_deliveries doctrine. Enqueue is best-effort — its callers wrap it
 // in try/catch so a queue hiccup never blocks adding a recipient or a save.
 
+import { createHash } from "node:crypto";
 import { captureAgentMemory } from "./agent-memory";
 import { issueText, materialDiff } from "./agent-draft-diff";
+import { withTransaction } from "./commands/db";
+import { enqueueIntent } from "./commands/intents";
+import type { Principal } from "./commands/principal";
 import { query, queryOne } from "./db";
-import { sendNewEmail } from "./gmail";
+import { dispatchIntentsNow } from "./dispatch/db";
 import { normalizeSettings } from "./newsletter-design";
 import { renderIssueHtml, renderIssueText } from "./newsletter-render";
 import type { NewsletterBlock } from "./newsletter";
@@ -195,9 +200,24 @@ function htmlBody(text: string, trackToken: string): string {
   return `<div style="font-family:Georgia,serif;font-size:14px;line-height:1.6;color:#1c1c1c">${paras}${pixel}</div>`;
 }
 
-/** RELEASE — the ONLY Gmail-sending path in the newsletter feature. Owner-clicked
- *  only; never auto-invoked. Guarded so a double-click / retry is a safe no-op. */
-export async function releaseOutboxItem(id: number): Promise<{ ok: boolean; error?: string }> {
+export interface ReleaseAuth {
+  grantId?: string | null;
+  decisionId?: string | null;
+  /** 'owner' | 'mcp:<agent>' for the audit line. */
+  actor?: string;
+  /** For issue-level grants: the gated action + target the grant names. */
+  grantAction?: "release_newsletter_issue" | "release_newsletter_outbox_item";
+  grantTarget?: string;
+}
+
+/** RELEASE — the ONLY path that emails a newsletter recipient. Owner-clicked
+ *  (the click is the decision) or agent-called with an owner grant. Since
+ *  A05/A06 the row becomes ONE permanent intent keyed on the outbox row +
+ *  its frozen body, dispatched through lib/dispatch: the row flips
+ *  'released' only when Gmail accepted the message (lib/dispatch/effects.ts),
+ *  'failed' on a definite failure, and an unknown outcome is held — never
+ *  resent by a double-click. Unsubscribed recipients are refused at dispatch. */
+export async function releaseOutboxItem(id: number, auth?: ReleaseAuth): Promise<{ ok: boolean; error?: string; held?: boolean; intent_id?: string }> {
   const row = await queryOne<{
     email: string;
     subject: string;
@@ -205,35 +225,64 @@ export async function releaseOutboxItem(id: number): Promise<{ ok: boolean; erro
     body_html: string | null;
     track_token: string;
     newsletter_id: number | null;
+    status: string;
   }>(
-    `UPDATE newsletter_outbox
-        SET status = 'released', released_at = now(), error = NULL
-      WHERE id = $1 AND status IN ('queued', 'failed')
-      RETURNING email, subject, body, body_html, track_token, newsletter_id`,
+    `SELECT email, subject, body, body_html, track_token, newsletter_id, status
+       FROM newsletter_outbox WHERE id = $1 AND status IN ('queued', 'failed')`,
     [id],
   );
   if (!row) return { ok: false, error: "Already released or not found." };
+  const to = row.email.trim().toLowerCase();
+  const payload = {
+    to,
+    subject: row.subject,
+    bodyText: row.body,
+    // Rich issues carry their rendered HTML; greetings and pre-P7-N rows fall
+    // back to wrapping the frozen text.
+    bodyHtml: row.body_html ? withOpenPixel(row.body_html, row.track_token) : htmlBody(row.body, row.track_token),
+    newsletter_id: row.newsletter_id,
+    _auth: {
+      action: auth?.grantAction ?? "release_newsletter_outbox_item",
+      target_kind: auth?.grantAction === "release_newsletter_issue" ? "newsletter_issue" : "newsletter_outbox",
+      target_id: auth?.grantTarget ?? String(id),
+    },
+  };
+  const bodyRev = createHash("sha256").update(`${to}\n${row.subject}\n${row.body}\n${row.body_html ?? ""}`).digest("hex").slice(0, 10);
+  const principal: Principal = auth?.actor?.startsWith("mcp:") ? { kind: "agent", agent: auth.actor.slice(4), runId: null, onBehalfOf: null } : { kind: "service", name: `newsletter:${auth?.actor ?? "owner"}` };
+  let intentId: string;
   try {
-    await sendNewEmail({
-      to: row.email,
-      subject: row.subject,
-      bodyText: row.body,
-      // Rich issues carry their rendered HTML; greetings and pre-P7-N rows fall
-      // back to wrapping the frozen text.
-      bodyHtml: row.body_html
-        ? withOpenPixel(row.body_html, row.track_token)
-        : htmlBody(row.body, row.track_token),
-    });
-  } catch (e) {
-    await query(
-      `UPDATE newsletter_outbox SET status = 'failed', released_at = NULL, error = $2 WHERE id = $1`,
-      [id, String((e as Error)?.message ?? e).slice(0, 300)],
+    const { intent } = await withTransaction((run) =>
+      enqueueIntent(run, {
+        operationKey: `newsletter_outbox:${id}:${bodyRev}`,
+        kind: "release_newsletter",
+        targetKind: "newsletter_outbox",
+        targetId: String(id),
+        recipient: to,
+        payload,
+        grantId: auth?.grantId ?? null,
+        decisionId: auth?.decisionId ?? null,
+        policyRef: auth?.grantId || auth?.decisionId ? null : `owner:${auth?.actor ?? "click"}`,
+        principal,
+      }),
     );
-    return { ok: false, error: "Gmail send failed — left as failed to retry." };
+    intentId = intent.id;
+    if (intent.state === "unknown") return { ok: false, held: true, intent_id: intent.id, error: "An earlier release of this row has an unknown outcome and is held for reconciliation — not resent." };
+    if (intent.state === "accepted" || intent.state === "confirmed") return { ok: true, intent_id: intent.id };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
   }
-  await captureAgentEditMemory(row.newsletter_id);
-  await settleIssueIfDrained(row.newsletter_id);
-  return { ok: true };
+  const [outcome] = await dispatchIntentsNow([intentId]);
+  if (outcome && (outcome.responseClass === "accepted" || outcome.responseClass === "confirmed")) {
+    await captureAgentEditMemory(row.newsletter_id);
+    return { ok: true, intent_id: intentId };
+  }
+  if (outcome?.responseClass === "unknown") {
+    return { ok: false, held: true, intent_id: intentId, error: "Gmail did not confirm whether this went out; the row is held for reconciliation and will not be resent." };
+  }
+  if (outcome?.responseClass === "retryable") {
+    return { ok: false, intent_id: intentId, error: `Gmail send failed (${outcome.error ?? "temporary"}) — left as failed; the dispatcher retries it.` };
+  }
+  return { ok: false, intent_id: intentId, error: outcome?.error ? `Not sent: ${outcome.error}` : "Gmail send failed — left as failed to retry." };
 }
 
 /** W5 learning layer: on the FIRST released row of an issue, diff what went out

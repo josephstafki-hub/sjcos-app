@@ -1,0 +1,7 @@
+[Unit]
+Description=SJC OS payments reconciliation (Square pending/unknown attempts)
+After=sjcos.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/joe/bin/sjcos-payments-reconcile

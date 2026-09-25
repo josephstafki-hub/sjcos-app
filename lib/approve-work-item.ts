@@ -29,6 +29,14 @@ export async function finishApproval(opts: {
     // is told in the same breath that the app did not email anything.
     await notifyAgentOwner(opts.id, opts.assigneeKey, opts.title, opts.body, opts.context, send.notice);
   }
+  if (send.outcome === "held") {
+    // The provider could not confirm. The gate stays approved (a second
+    // Approve finds the same intent, never a second send); the agent is told
+    // NOT to resend; the reconciliation sweep settles it.
+    await notifyAgentOwner(opts.id, opts.assigneeKey, opts.title, opts.body, opts.context, `${send.notice} Do not send it again.`);
+    await maybeAdvanceRunbook(opts.id);
+    return { ok: true, held: { to: send.to, subject: send.subject }, notice: send.notice };
+  }
   await maybeAdvanceRunbook(opts.id); // W6: a done-but-unapproved step advances on approval
   return send.outcome === "sent"
     ? { ok: true, sent: { to: send.to, subject: send.subject } }

@@ -9,18 +9,26 @@ import "server-only";
 // to Joe's inbox; he records the numbers on the board (lib/actions/bidding.ts
 // recordBid), and the compare view lines them up side by side.
 //
-// BECAUSE Send now emails real people, it is owner-only: only the button on
-// the Bidding tab (a click by Joe) reaches sendBidPackageOp. The MCP bridge
-// (app/api/internal/bidding/route.ts) refuses send — agents stage packages
-// (files, invites, notes) and Joe transmits. This is the standing rule that
-// client-facing sends stay owner-approved.
+// BECAUSE Send emails real people, it is owner-approved: the button on the
+// Bidding tab (a click by Joe) or an agent carrying an owner grant / decision
+// reaches sendBidPackageOp. Since A05/A06 the send is one permanent intent
+// PER SUB, dispatched through lib/dispatch (the grant is spent per recipient
+// at dispatch; an invite flips 'sent' only when Gmail accepted its email; a
+// retry touches only the subs that never resolved). The MCP bridge
+// (app/api/internal/bidding/route.ts) still refuses send without a grant.
 
-import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { stat } from "node:fs/promises";
 import path from "node:path";
 import { query, queryOne } from "./db";
-import { gmailConfigured, sendNewEmail, type MailAttachment } from "./gmail";
+import { gmailConfigured } from "./gmail";
 import { emit } from "./notify";
 import { UPLOAD_DIR } from "./uploads";
+import { withTransaction } from "./commands/db";
+import { enqueueIntent } from "./commands/intents";
+import type { Principal } from "./commands/principal";
+import { dispatchIntentsNow } from "./dispatch/db";
+import type { EmailAttachmentRef as MailAttachmentRef } from "./providers/email";
 
 export type BidPackageStatus = "draft" | "open" | "awarded" | "closed";
 export type BidInviteStatus =
@@ -442,7 +450,16 @@ function composeBidEmail(
  *
  *  OWNER-ONLY: this transmits email. Only the Bidding-tab button calls it —
  *  the MCP bridge refuses the send action. */
-export async function sendBidPackageOp(packageId: number): Promise<OpResult> {
+export interface BidSendAuth {
+  grantId?: string | null;
+  decisionId?: string | null;
+  /** 'owner' | 'mcp:<agent>' for the audit line. */
+  actor?: string;
+}
+
+export type BidSendResult = OpResult & { sent?: number; held?: number; failed?: number };
+
+export async function sendBidPackageOp(packageId: number, auth?: BidSendAuth): Promise<BidSendResult> {
   const pkg = await packageById(packageId);
   if (!pkg) return { ok: false, error: "Bid package not found." };
   if (pkg.status === "awarded" || pkg.status === "closed") {
@@ -453,12 +470,13 @@ export async function sendBidPackageOp(packageId: number): Promise<OpResult> {
   }
 
   const { rows: files } = await query<{
+    file_id: string;
     name: string;
     label: string;
     storage_path: string | null;
     mime_type: string | null;
   }>(
-    `SELECT f.name, bf.label, f.storage_path, f.mime_type
+    `SELECT f.id AS file_id, f.name, bf.label, f.storage_path, f.mime_type
        FROM bid_package_files bf JOIN files f ON f.id = bf.file_id
       WHERE bf.package_id = $1
       ORDER BY bf.sort_order, bf.id`,
@@ -468,26 +486,23 @@ export async function sendBidPackageOp(packageId: number): Promise<OpResult> {
     return { ok: false, error: "Attach the plans or takeoff before sending — an empty packet is a dead end for the sub." };
   }
 
-  // Read the packet off disk once; every recipient gets the same attachments.
-  // A missing blob aborts the send — a sub pricing half a packet is worse than
-  // no send at all.
-  const attachments: MailAttachment[] = [];
+  // Check the packet ONCE up front so a missing or oversized blob refuses
+  // the whole send before any intent exists — a sub pricing half a packet
+  // is worse than no send at all. The intents carry file ids; the email
+  // provider reads the bytes at dispatch.
+  let totalBytes = 0;
   for (const f of files) {
     try {
-      const content = await readFile(path.join(UPLOAD_DIR, f.storage_path ?? ""));
-      attachments.push({
-        filename: f.name,
-        mimeType: f.mime_type || "application/octet-stream",
-        content,
-      });
+      const st = await stat(path.join(UPLOAD_DIR, f.storage_path ?? ""));
+      totalBytes += st.size;
     } catch {
       return { ok: false, error: `Packet file "${f.name}" is missing from storage — re-upload it or pull it from the packet.` };
     }
   }
-  const totalBytes = attachments.reduce((s, a) => s + a.content.length, 0);
   if (totalBytes > MAX_PACKET_BYTES) {
     return { ok: false, error: "The packet is over Gmail's ~25 MB attachment limit — slim it down (or split the package) and send again." };
   }
+  const attachments: MailAttachmentRef[] = files.map((f) => ({ filename: f.name, mimeType: f.mime_type || "application/octet-stream", fileId: f.file_id }));
 
   const { rows: drafts } = await query<{
     id: string;
@@ -515,51 +530,81 @@ export async function sendBidPackageOp(packageId: number): Promise<OpResult> {
     };
   }
 
+  // A bulk send is one intent PER RECIPIENT (V08): a retry touches only the
+  // recipients that never resolved. The grant (when the agent path is used)
+  // is spent once per recipient at dispatch, so raise its use count to
+  // cover this batch.
+  if (auth?.grantId) {
+    await query(`UPDATE owner_grants SET max_uses = GREATEST(max_uses, uses + $2), updated_at = now() WHERE id = $1 AND status = 'approved'`, [auth.grantId, sendable.length]);
+  }
   const fileLabels = files.map((f) => f.label || f.name);
-  const sent: string[] = [];
-  const failed: string[] = [];
-  let firstFailure = "";
+  const packetRev = createHash("sha256").update(files.map((f) => `${f.file_id}:${f.name}`).join("|") + `|${pkg.scope_notes}|${pkg.due_label}`).digest("hex").slice(0, 10);
+  const principal: Principal = auth?.actor?.startsWith("mcp:") ? { kind: "agent", agent: auth.actor.slice(4), runId: null, onBehalfOf: null } : { kind: "service", name: `bidding:${auth?.actor ?? "owner"}` };
+  const intentIds: string[] = [];
+  const byIntent = new Map<string, string>();
   for (const d of sendable) {
     const { subject, body } = composeBidEmail(d.sub_name, d.sub_notes, pkg, d.message.trim(), fileLabels);
+    const to = (d.email ?? "").trim().toLowerCase();
+    const payload = {
+      to,
+      subject,
+      bodyText: body,
+      attachments,
+      invite_id: Number(d.id),
+      sub_name: d.sub_name,
+      package_title: pkg.title,
+      project_name: pkg.project_name,
+      slug: pkg.slug,
+      _auth: { action: "send_bid_package", target_kind: "bid_package", target_id: String(packageId), to },
+    };
     try {
-      await sendNewEmail({ to: (d.email ?? "").trim(), subject, bodyText: body, attachments });
+      const { intent } = await withTransaction((run) =>
+        enqueueIntent(run, {
+          operationKey: `bid:${packageId}:invite:${d.id}:${packetRev}:${createHash("sha256").update(body).digest("hex").slice(0, 8)}`,
+          kind: "send_bid_package",
+          targetKind: "bid_package",
+          targetId: String(packageId),
+          recipient: to,
+          projectId: pkg.project_id,
+          payload,
+          grantId: auth?.grantId ?? null,
+          decisionId: auth?.decisionId ?? null,
+          policyRef: auth?.grantId || auth?.decisionId ? null : `owner:${auth?.actor ?? "click"}`,
+          principal,
+        }),
+      );
+      if (intent.state === "pending" || intent.state === "retryable_failure") intentIds.push(intent.id);
+      byIntent.set(intent.id, d.sub_name);
     } catch (err) {
-      failed.push(d.sub_name);
-      firstFailure ||= String((err as Error)?.message ?? err);
-      continue;
+      return { ok: false, error: `Could not stage the send for ${d.sub_name}: ${(err as Error).message}` };
     }
-    // Marked per-invite AFTER its email left, so a mid-loop failure leaves the
-    // unsent subs draft and the button offers exactly them next time.
-    await query(`UPDATE bid_invites SET status = 'sent', sent_at = now() WHERE id = $1`, [Number(d.id)]);
-    sent.push(d.sub_name);
   }
 
-  if (sent.length > 0) {
-    await query(
-      `UPDATE bid_packages SET status = 'open', sent_at = COALESCE(sent_at, now()), updated_at = now()
-        WHERE id = $1`,
-      [packageId],
-    );
-    await emit({
-      kind: "job",
-      tag: "Bid",
-      accent: "accent",
-      icon: "mail",
-      title: `Bid request emailed to ${sent.length} sub${sent.length === 1 ? "" : "s"} — ${pkg.title}`,
-      subline: `${pkg.project_name} · packet attached · ${sent.join(", ")}`,
-      href: `/projects/${pkg.slug}`,
-    });
+  const outcomes = await dispatchIntentsNow(intentIds);
+  const sent: string[] = [];
+  const held: string[] = [];
+  const failed: string[] = [];
+  let firstFailure = "";
+  for (const o of outcomes) {
+    const name = byIntent.get(o.intentId) ?? "?";
+    if (o.responseClass === "accepted" || o.responseClass === "confirmed") sent.push(name);
+    else if (o.responseClass === "unknown") held.push(name);
+    else {
+      failed.push(name);
+      firstFailure ||= o.error ?? o.responseClass;
+    }
   }
 
   const problems: string[] = [];
   if (failed.length > 0) problems.push(`sending failed for ${failed.join(", ")} (${firstFailure.slice(0, 160)})`);
+  if (held.length > 0) problems.push(`the outcome for ${held.join(", ")} is unknown and held for reconciliation (not resent)`);
   if (noEmail.length > 0) problems.push(`no email on file for ${noEmail.map((d) => d.sub_name).join(", ")}`);
 
-  if (sent.length === 0) return { ok: false, error: `No emails went out — ${problems.join("; ")}.` };
+  if (sent.length === 0 && held.length === 0) return { ok: false, error: `No emails went out — ${problems.join("; ")}.`, sent: 0, held: 0, failed: failed.length };
   if (problems.length > 0) {
-    return { ok: false, error: `Emailed ${sent.join(", ")}, but ${problems.join("; ")}. The rest stay unsent — fix and send again.`, sent: sent.length };
+    return { ok: false, error: `Emailed ${sent.join(", ") || "nobody yet"}, but ${problems.join("; ")}. The rest stay unsent — fix and send again.`, sent: sent.length, held: held.length, failed: failed.length };
   }
-  return { ok: true, sent: sent.length };
+  return { ok: true, sent: sent.length, held: 0, failed: 0 };
 }
 
 /** A sub replied that they're pricing it (said so by email or phone). The

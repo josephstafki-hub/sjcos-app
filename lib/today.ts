@@ -323,7 +323,7 @@ async function buildQueue(s: QueueSources): Promise<QueueSnapshot> {
   const workItemLeadSlugs = new Set(s.openWorkItems.map((w) => w.lead_slug).filter(Boolean));
   for (const w of s.openWorkItems) {
     const isWarranty = w.project_status === "warranty";
-    const kind = w.lead_slug ? "Lead" : isWarranty ? "Warranty" : "Project";
+    const kind = w.lead_slug ? "Lead" : isWarranty ? "Warranty" : w.project_slug ? "Project" : "To-do";
     const source = w.lead_name ?? w.project_name;
     candidates.push({
       ...workItemCandidate(w),

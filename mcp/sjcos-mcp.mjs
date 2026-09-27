@@ -38,6 +38,10 @@
 //     id — Joe's express permission for that action/target (Ask-window
 //     "Express permission" checkbox, /engine/permissions, or an agent's
 //     request_owner_permission that Joe approved). No grant, no send.
+//   • Login accounts (mcp/team-tools.mjs): list_users, list_access_areas,
+//     create_user, update_user_access, reset_user_password, set_user_active —
+//     Settings › Team & roles with every option as a parameter. Internal only,
+//     nothing emailed, accounts are disabled never deleted.
 //   • NOT exposed: no destructive tools (no deletes/drops), no un-granted
 //     client- or vendor-facing sends, and no raw-SQL passthrough. Secrets are
 //     read from .env.local at runtime and never logged or returned in a tool
@@ -67,6 +71,7 @@ import { registerGrantTools } from "./grants-tools.mjs";
 import { registerCommsTools } from "./comms-tools.mjs";
 import { registerRunbookTools } from "./runbook-tools.mjs";
 import { registerAskOwner } from "./interact-tools.mjs";
+import { registerTeamTools } from "./team-tools.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -2553,6 +2558,12 @@ server.registerTool(
   // agent_interactions; the panel's run poll renders + answers them. See
   // mcp/interact-tools.mjs.
   registerAskOwner(server, { pool, json });
+
+  // Employee / portal login accounts — the agent-side twin of Settings › Team
+  // & roles: list, create (staff areas / sub + client portal links / owner with
+  // an explicit confirm), edit areas, reset a password, disable / re-enable.
+  // Internal records, nothing emailed, no delete. See mcp/team-tools.mjs.
+  registerTeamTools(server, { rows, json });
 
   // `search` + `fetch`: the two tools ChatGPT's connector requires by name (it
   // rejects a server without them). Read-only unified lookups over the same

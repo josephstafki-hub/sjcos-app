@@ -401,6 +401,26 @@ recorded (Joe's button or `record_bid`). Agents don't drive those sends —
 keeping invite statuses honest (`mark_bid_working`, `record_bid`, recording
 declines) is what steers them.
 
+## Login accounts (Settings › Team & roles for agents)
+
+Employee and portal logins, with every choice the Team & roles screen offers as
+a parameter. Lives in `mcp/team-tools.mjs`. Internal records only: nothing is
+emailed, and there is **no delete** — accounts are disabled, never removed.
+
+| Tool | Effect |
+|---|---|
+| `list_access_areas` | The staff permission catalog (`lib/permissions.ts`): key, label, what it unlocks, routes, sensitive flag — plus the four roles and what each needs. Read before creating |
+| `list_users` | Every login (owner / staff with areas / sub / client), disabled ones included; optional `role`, `include_inactive` |
+| `create_user` | Provision a login: `name`, `email`, `role` (`staff` default · `sub` · `client` · `owner`), `permissions[]` (staff, ≥1 area), `link_slug` (sub → sub slug, client → project slug, both checked), `temp_password` (≥8, or omitted → generated and returned **once**), `confirm_owner: true` (owner only), `active` |
+| `update_user_access` | Replace (`permissions`) or adjust (`add` / `remove`) a staff account's areas; refuses to leave zero areas |
+| `reset_user_password` | New password (given or generated, returned once) for any non-owner login |
+| `set_user_active` | Disable / re-enable a non-owner login; owner rows are protected |
+
+Password hashes use the app's scrypt format, so a login minted here signs in
+through `/login` like one made in Settings. Generated temp passwords appear in
+the tool result only — hand them to the person; nothing stores them in clear.
+Each write leaves an `agent_runs` row (`mcp:team`).
+
 ## Owner grants (express permission to send)
 
 Agents draft and stage on their own. Anything that reaches a real inbox needs

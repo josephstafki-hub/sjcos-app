@@ -91,6 +91,39 @@ export function registerTeamTools(server, { rows, json }) {
     }
   }
 
+  /** Give a new staff account its chat identity — a team_members row linked to
+   *  the login. Team chat keys DMs on roster slugs, so without one nobody can
+   *  message them (they'd read channels and be unreachable). Adopts a matching
+   *  display-only roster row rather than creating a duplicate. Best-effort: a
+   *  failure here must not cost them the account. Mirrors linkChatIdentity() in
+   *  lib/actions/users.ts — keep the two in step. */
+  async function linkChatIdentity(userId, name) {
+    const clean = String(name ?? "").trim();
+    const base = clean.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "teammate";
+    try {
+      const adopted = await rows(
+        `UPDATE team_members SET user_id = $1, active = true
+          WHERE user_id IS NULL AND lower(name) = lower($2) RETURNING slug`,
+        [userId, clean],
+      );
+      if (adopted.length) return adopted[0].slug;
+      for (let n = 0; n < 20; n++) {
+        const slug = n === 0 ? base : `${base}-${n + 1}`;
+        const taken = await rows(`SELECT 1 FROM team_members WHERE slug = $1`, [slug]);
+        if (taken.length) continue;
+        await rows(
+          `INSERT INTO team_members (slug, name, role_label, active, user_id)
+           VALUES ($1, $2, 'Team', true, $3)`,
+          [slug, clean, userId],
+        );
+        return slug;
+      }
+    } catch {
+      /* the account is what matters; chat identity can be added by hand */
+    }
+    return null;
+  }
+
   /** Find one account by id (uuid) or email. */
   async function findUser(user) {
     const key = String(user ?? "").trim();
@@ -226,10 +259,12 @@ export function registerTeamTools(server, { rows, json }) {
         [cleanEmail, hash, cleanName, role, initialsOf(cleanName), slug, active, perms],
       );
       const user = publicUser(inserted[0]);
+      const chatSlug = role === "staff" ? await linkChatIdentity(inserted[0].id, cleanName) : null;
       await audit("create_user", `${role} ${cleanEmail}${perms.length ? ` [${perms.join(",")}]` : ""}${slug ? ` → ${slug}` : ""}${active ? "" : " (disabled)"}`);
       return json({
         ok: true,
         user,
+        chat_slug: chatSlug ?? undefined,
         temp_password: generated ? password : undefined,
         note: generated
           ? "Temp password shown once — pass it to the person; it is not stored in clear anywhere."

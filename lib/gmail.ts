@@ -20,6 +20,7 @@ import "server-only";
 import { google } from "googleapis";
 import type { gmail_v1 } from "googleapis";
 import sanitizeHtml from "sanitize-html";
+import { activeMailbox } from "./mailbox";
 
 export const GMAIL_SCOPES = [
   // modify = read + label/state changes (star, archive, mark read, important,
@@ -32,12 +33,22 @@ const REDIRECT_URI =
   process.env.GMAIL_REDIRECT_URI ??
   "http://localhost:3017/api/inbox/oauth/callback";
 
-/** True once the OAuth app + a minted refresh token are configured. */
+/** The refresh token this call should act with: the active mailbox scope's if
+ *  there is one (a signed-in person's inbox — see lib/mailbox.ts), otherwise the
+ *  env token, which is the company mailbox every background path uses. Note the
+ *  scope is authoritative even when its token is null: inside a user scope with
+ *  nothing linked the answer is "no mailbox", never a silent fall-through to
+ *  Joe's. */
+function activeRefreshToken(): string | null {
+  const mb = activeMailbox();
+  if (mb) return mb.refreshToken;
+  return process.env.GMAIL_REFRESH_TOKEN ?? null;
+}
+
+/** True once the OAuth app is set up AND the mailbox in play has a token. */
 export function gmailConfigured(): boolean {
   return Boolean(
-    process.env.GMAIL_CLIENT_ID &&
-      process.env.GMAIL_CLIENT_SECRET &&
-      process.env.GMAIL_REFRESH_TOKEN,
+    process.env.GMAIL_CLIENT_ID && process.env.GMAIL_CLIENT_SECRET && activeRefreshToken(),
   );
 }
 
@@ -55,9 +66,8 @@ function oauthClient() {
     process.env.GMAIL_CLIENT_SECRET,
     REDIRECT_URI,
   );
-  if (process.env.GMAIL_REFRESH_TOKEN) {
-    client.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
-  }
+  const token = activeRefreshToken();
+  if (token) client.setCredentials({ refresh_token: token });
   return client;
 }
 
@@ -79,6 +89,30 @@ export async function exchangeCodeForRefreshToken(
 ): Promise<string | null> {
   const { tokens } = await oauthClient().getToken(code);
   return tokens.refresh_token ?? null;
+}
+
+/** Consent-callback twin of the above that also reports WHICH address was just
+ *  authorized, so a linked mailbox can be stored under its real name (and so
+ *  the UI can say "Connected as marco@…" rather than just "connected"). */
+export async function exchangeCodeForMailbox(
+  code: string,
+): Promise<{ refreshToken: string | null; email: string }> {
+  const client = new google.auth.OAuth2(
+    process.env.GMAIL_CLIENT_ID,
+    process.env.GMAIL_CLIENT_SECRET,
+    REDIRECT_URI,
+  );
+  const { tokens } = await client.getToken(code);
+  client.setCredentials(tokens);
+  let email = "";
+  try {
+    const api = google.gmail({ version: "v1", auth: client });
+    const { data } = await api.users.getProfile({ userId: "me" });
+    email = (data.emailAddress ?? "").toLowerCase();
+  } catch {
+    /* the token is what matters; a missing address just shows as blank */
+  }
+  return { refreshToken: tokens.refresh_token ?? null, email };
 }
 
 // ─── Reading ─────────────────────────────────────────────────────────────────
@@ -452,15 +486,20 @@ export async function fetchThreadHtml(threadId: string): Promise<string> {
   return sanitizeEmailHtml(html);
 }
 
-/** The account's own email address (Gmail "me"), cached per process. Used to
- *  tell inbound from outbound messages. */
-let profileEmailCache: string | null = null;
+/** The account's own email address (Gmail "me"), used to tell inbound from
+ *  outbound. Cached per process but KEYED ON THE TOKEN: a single shared cache
+ *  would hand one mailbox's address to another and flip every message's
+ *  direction (the whole "outbound" / "awaiting them" read of the inbox). */
+const profileEmailCache = new Map<string, string>();
 export async function fetchProfileEmail(): Promise<string> {
-  if (profileEmailCache) return profileEmailCache;
+  const key = activeRefreshToken() ?? "";
+  const hit = profileEmailCache.get(key);
+  if (hit) return hit;
   const api = gmail();
   const { data } = await withGmailRetry("getProfile", () => api.users.getProfile({ userId: "me" }));
-  profileEmailCache = (data.emailAddress ?? "").toLowerCase();
-  return profileEmailCache;
+  const email = (data.emailAddress ?? "").toLowerCase();
+  if (email) profileEmailCache.set(key, email);
+  return email;
 }
 
 /** List the user's own (non-system) labels for resolving ids → display names. */

@@ -1,13 +1,20 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAccess } from "@/lib/dal";
-import { query } from "@/lib/db";
+import { requireAccess, requireRole, type CurrentUser } from "@/lib/dal";
+import { query, queryOne } from "@/lib/db";
 import { ai } from "@/lib/ai";
 import { emit } from "@/lib/notify";
 import { askHermes, chatReplyClaude } from "@/lib/dev-agents";
 import type { DevAgent } from "@/lib/dev-agents-meta";
-import { initialsOf, type TeamMember, type ClientMember } from "@/lib/chat";
+import {
+  initialsOf,
+  internalDmKey,
+  teamDmParties,
+  dmTeamKey,
+  type TeamMember,
+  type ClientMember,
+} from "@/lib/chat";
 import {
   enqueuePortalDeliveries,
   releaseDelivery,
@@ -22,7 +29,99 @@ const AGENT_IDENTITY: Record<DevAgent, { name: string; initials: string }> = {
   hermes: { name: "Hermes", initials: "HM" },
 };
 
-/** Post a message to a channel as the owner, and mark the channel read. */
+// ─── Who may act where ───────────────────────────────────────────────────────
+// Channel keys arrive from the client, so lib/chat.ts filtering the rail is not
+// enough on its own: posting and AI-asking re-check here. Mirrors the read rules
+// documented at the top of lib/chat.ts.
+
+/** This account's team_members slug (their DM identity), or null. */
+async function teamSlugOf(userId: string): Promise<string | null> {
+  const row = await queryOne<{ slug: string }>(
+    `SELECT slug FROM team_members WHERE user_id = $1 AND active`,
+    [userId],
+  );
+  return row?.slug ?? null;
+}
+
+/** The owner's team_members slug — needed to read a single-slug team DM key. */
+async function ownerTeamSlug(): Promise<string | null> {
+  const row = await queryOne<{ slug: string }>(
+    `SELECT t.slug FROM team_members t JOIN users u ON u.id = t.user_id
+      WHERE u.role = 'owner' AND t.active ORDER BY u.created_at LIMIT 1`,
+  );
+  return row?.slug ?? null;
+}
+
+/** May this person post in / read this channel?
+ *
+ *  Owner: anywhere. Staff: every bare channel, a room they've been added to, and
+ *  an internal DM they're a party to. Never a sub or client DM — those are the
+ *  outward-facing threads. */
+async function mayOpenChannel(user: CurrentUser, channelKey: string): Promise<boolean> {
+  if (user.role === "owner") return true;
+  if (!channelKey.includes(":")) return true; // bare channel — company-wide
+  const slug = await teamSlugOf(user.id);
+  if (!slug) return false;
+  if (channelKey.startsWith("room:")) {
+    const row = await queryOne<{ one: number }>(
+      `SELECT 1 AS one FROM chat_team_members WHERE channel_key = $1 AND member_slug = $2`,
+      [channelKey, slug],
+    );
+    return Boolean(row);
+  }
+  if (channelKey.startsWith("dm:team:")) {
+    return teamDmParties(channelKey, await ownerTeamSlug()).includes(slug);
+  }
+  return false;
+}
+
+/** Make sure an internal DM exists as a row, named for the OTHER person, so it
+ *  lists on both rails. Idempotent. */
+async function ensureDmRecorded(channelKey: string, sender: CurrentUser): Promise<void> {
+  if (!channelKey.startsWith("dm:team:")) return;
+  const mySlug = await teamSlugOf(sender.id);
+  const parties = teamDmParties(channelKey, await ownerTeamSlug());
+  const otherSlug = parties.find((p) => p !== mySlug) ?? parties[0];
+  if (!otherSlug) return;
+  const other = await queryOne<{ name: string; role_label: string }>(
+    `SELECT name, role_label FROM team_members WHERE slug = $1`,
+    [otherSlug],
+  );
+  await query(
+    `INSERT INTO chat_dms (key, party_type, party_slug, name, subtitle)
+     VALUES ($1, 'team', $2, $3, $4)
+     ON CONFLICT (key) DO NOTHING`,
+    [channelKey, otherSlug, other?.name ?? otherSlug, other?.role_label || "Team"],
+  );
+}
+
+/** Tell the other party about a DM. A DM has no rail to watch, so without this a
+ *  message to a team member sits unseen until they happen to open /chat. */
+async function notifyDmRecipient(channelKey: string, sender: CurrentUser, text: string): Promise<void> {
+  if (!channelKey.startsWith("dm:team:")) return;
+  const parties = teamDmParties(channelKey, await ownerTeamSlug());
+  const mySlug = await teamSlugOf(sender.id);
+  const otherSlug = parties.find((p) => p !== mySlug);
+  if (!otherSlug) return;
+  const other = await queryOne<{ user_id: string | null }>(
+    `SELECT user_id FROM team_members WHERE slug = $1 AND active`,
+    [otherSlug],
+  );
+  if (!other?.user_id || other.user_id === sender.id) return;
+  await emit({
+    kind: "mention",
+    tag: "Message",
+    accent: "accent",
+    icon: "chat",
+    title: `${sender.name} messaged you`,
+    subline: text.slice(0, 90),
+    href: "/chat",
+    audienceUserId: other.user_id,
+  });
+}
+
+/** Post a message to a channel as the signed-in person, and mark it read for
+ *  them. Refuses a channel they can't open — the key comes from the client. */
 export async function sendChatMessage(
   channelKey: string,
   body: string,
@@ -30,15 +129,28 @@ export async function sendChatMessage(
   const user = await requireAccess("chat");
   const text = body.trim();
   if (!text) return { ok: false, error: "Message is empty." };
+  if (!(await mayOpenChannel(user, channelKey))) {
+    return { ok: false, error: "You're not in that conversation." };
+  }
 
   const { rows } = await query<{ id: number }>(
-    `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body)
-     VALUES ($1, $5, $2, $3, $4)
+    `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body, author_user_id)
+     VALUES ($1, $5, $2, $3, $4, $6)
      RETURNING id`,
     // A staff post is a teammate's ('user'), so it counts toward Joe's unread.
-    [channelKey, user.name || "Joe", user.initials || "JS", text, user.role === "owner" ? "owner" : "user"],
+    [channelKey, user.name || "Joe", user.initials || "JS", text, user.role === "owner" ? "owner" : "user", user.id],
   );
-  await markRead(channelKey);
+  await markRead(channelKey, user.id);
+  // Persist the conversation the first time someone speaks in it. A staff
+  // member's rail can offer a DM with Joe before any row exists (lib/chat.ts
+  // seeds it so their rail isn't empty), and without this the message would
+  // land in chat_messages with nothing in chat_dms — leaving it invisible on
+  // Joe's side, which is exactly how it failed the first time through.
+  await ensureDmRecorded(channelKey, user);
+  // A DM has exactly one other party and no rail to watch, so tell them. Only
+  // internal DMs: sub/client DMs go out through the gated portal outbox, and
+  // there is no internal account on the far end to notify.
+  await notifyDmRecipient(channelKey, user, text);
   // Wire portal delivery for room/client-DM messages — PARKED (queued only,
   // never auto-sent). Best-effort: a delivery hiccup must not fail the post.
   let queued: PortalOutboxItem[] = [];
@@ -59,7 +171,10 @@ export async function askAgentInChannel(
   channelKey: string,
   agent: DevAgent = "qwen",
 ): Promise<{ ok: boolean; reply?: string; queued?: PortalOutboxItem[]; error?: string }> {
-  await requireAccess("chat");
+  const user = await requireAccess("chat");
+  if (!(await mayOpenChannel(user, channelKey))) {
+    return { ok: false, error: "You're not in that conversation." };
+  }
   const id = AGENT_IDENTITY[agent] ?? AGENT_IDENTITY.qwen;
   // A bare sub DM (dm:<slug>) IS the sub's live portal thread — an AI reply here
   // would push unreviewed machine-generated content straight to a real sub with
@@ -148,12 +263,20 @@ export async function askAgentInChannel(
   }
 }
 
+// ─── Managing the place (owner only) ────────────────────────────────────────
+// Everything from here to the DM section is a company decision, not a chat
+// action: who is in a channel, which channels exist, which AI models answer,
+// which clients are in a room, and whether a parked portal message actually
+// goes out. Holding the Team chat area lets a staff member talk; it does not let
+// them re-wire the workspace or release something to a client. Hence
+// requireRole("owner") rather than requireAccess("chat").
+
 /** Add a sub to a channel's membership. No-op-safe (idempotent). */
 export async function addChannelMember(
   channelKey: string,
   subSlug: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireAccess("chat");
+  await requireRole("owner");
   if (channelKey.startsWith("dm:")) return { ok: false, error: "DMs have no members." };
   try {
     await query(
@@ -173,7 +296,7 @@ export async function removeChannelMember(
   channelKey: string,
   subSlug: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireAccess("chat");
+  await requireRole("owner");
   try {
     await query(
       `DELETE FROM chat_members WHERE channel_key = $1 AND sub_slug = $2`,
@@ -205,7 +328,7 @@ function channelKeyFromName(name: string): string {
 export async function createChannel(
   name: string,
 ): Promise<{ ok: boolean; channel?: { key: string; name: string; description: string }; error?: string }> {
-  await requireAccess("chat");
+  await requireRole("owner");
   const clean = name.trim();
   const key = channelKeyFromName(clean);
   if (!key) return { ok: false, error: "Enter a channel name." };
@@ -242,7 +365,7 @@ export async function createChannel(
 export async function archiveChannel(
   channelKey: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireAccess("chat");
+  const owner = await requireRole("owner");
   if (channelKey.includes(":")) {
     return { ok: false, error: "Only bare channels can be removed." };
   }
@@ -252,7 +375,7 @@ export async function archiveChannel(
         WHERE key = $1 AND archived_at IS NULL`,
       [channelKey],
     );
-    await markRead(channelKey);
+    await markRead(channelKey, owner.id);
     revalidatePath("/chat");
     return { ok: true };
   } catch (err) {
@@ -265,7 +388,7 @@ export async function addChannelAgent(
   channelKey: string,
   agent: DevAgent,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireAccess("chat");
+  await requireRole("owner");
   if (channelKey.includes(":")) return { ok: false, error: "AI is implicit here." };
   if (!AI_AGENTS.includes(agent)) return { ok: false, error: "Unknown model." };
   try {
@@ -286,7 +409,7 @@ export async function removeChannelAgent(
   channelKey: string,
   agent: DevAgent,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireAccess("chat");
+  await requireRole("owner");
   try {
     await query(
       `DELETE FROM chat_ai_members WHERE channel_key = $1 AND agent = $2`,
@@ -306,7 +429,7 @@ export async function addChannelTeamMember(
   channelKey: string,
   slug: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireAccess("chat");
+  await requireRole("owner");
   if (channelKey.startsWith("dm:")) return { ok: false, error: "DMs have no members." };
   try {
     await query(
@@ -326,7 +449,7 @@ export async function removeChannelTeamMember(
   channelKey: string,
   slug: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireAccess("chat");
+  await requireRole("owner");
   try {
     await query(
       `DELETE FROM chat_team_members WHERE channel_key = $1 AND member_slug = $2`,
@@ -349,7 +472,7 @@ export async function createTeamMember(
   roleLabel: string = "",
   channelKey?: string,
 ): Promise<{ ok: boolean; member?: TeamMember; error?: string }> {
-  await requireAccess("chat");
+  await requireRole("owner");
   const cleanName = name.trim();
   const cleanRole = roleLabel.trim();
   const slug = channelKeyFromName(cleanName);
@@ -402,7 +525,7 @@ export async function addClientToRoom(
   name: string,
   email: string = "",
 ): Promise<{ ok: boolean; client?: ClientMember; error?: string }> {
-  await requireAccess("chat");
+  await requireRole("owner");
   if (!roomKey.startsWith("room:")) {
     return { ok: false, error: "Clients can only be added to an entity room." };
   }
@@ -443,7 +566,7 @@ export async function removeClientFromRoom(
   roomKey: string,
   id: number,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireAccess("chat");
+  await requireRole("owner");
   try {
     await query(`DELETE FROM chat_room_clients WHERE room_key = $1 AND id = $2`, [roomKey, id]);
     revalidatePath("/chat");
@@ -475,8 +598,14 @@ export async function openDirectMessage(
   dm?: { key: string; fullName: string; initials: string; subtitle: string };
   error?: string;
 }> {
-  await requireAccess("chat");
+  const user = await requireAccess("chat");
   if (!DM_PARTY_TYPES.includes(partyType)) return { ok: false, error: "Unknown person type." };
+  // Sub and client DMs are outward-facing: `dm:<sub>` IS that sub's live portal
+  // thread and a client DM delivers through the gated outbox. Staff open team
+  // DMs only.
+  if (partyType !== "team" && user.role !== "owner") {
+    return { ok: false, error: "Only Joe can open a DM with a sub or client." };
+  }
   const cleanName = displayName.trim();
   if (!cleanName) return { ok: false, error: "Enter a name." };
   const cleanSlug = channelKeyFromName(slug || cleanName);
@@ -496,12 +625,10 @@ export async function openDirectMessage(
       if (rows.length === 0) return { ok: false, error: "That teammate no longer exists." };
     }
 
-    const key =
-      partyType === "sub"
-        ? `dm:${cleanSlug}`
-        : partyType === "team"
-          ? `dm:team:${cleanSlug}`
-          : `dm:client:${cleanSlug}`;
+    const key = await teamDmKeyFor(user, partyType, cleanSlug);
+    if (!key) {
+      return { ok: false, error: "You don't have a chat identity yet — ask Joe to set one up." };
+    }
 
     await query(
       `INSERT INTO chat_dms (key, party_type, party_slug, name, subtitle)
@@ -519,6 +646,31 @@ export async function openDirectMessage(
   }
 }
 
+/** The channel key for a DM the CALLER is opening.
+ *
+ *  Owner↔person keeps the original `dm:team:<their-slug>` form so existing
+ *  transcripts stay addressable. Two staff members get the sorted pair key from
+ *  internalDmKey(), so whoever opens it first, both land on the same
+ *  conversation. Returns null when a staff caller has no roster identity to be
+ *  the other end of it. */
+async function teamDmKeyFor(
+  user: CurrentUser,
+  partyType: DmPartyType,
+  targetSlug: string,
+): Promise<string | null> {
+  if (partyType === "sub") return `dm:${targetSlug}`;
+  if (partyType === "client") return `dm:client:${targetSlug}`;
+  if (user.role === "owner") return dmTeamKey(targetSlug);
+  const mySlug = await teamSlugOf(user.id);
+  if (!mySlug) return null;
+  if (mySlug === targetSlug) return null; // no DM with yourself
+  const ownerSlug = await ownerTeamSlug();
+  return internalDmKey(
+    { slug: mySlug, isOwner: false },
+    { slug: targetSlug, isOwner: targetSlug === ownerSlug },
+  );
+}
+
 // ─── Portal-delivery outbox (P1-D4) ─────────────────────────────────────────
 
 /** RELEASE a queued portal delivery — the gated outbound. This is the ONLY path
@@ -527,7 +679,7 @@ export async function openDirectMessage(
 export async function releasePortalDelivery(
   id: number,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireAccess("chat");
+  await requireRole("owner");
   try {
     await releaseDelivery(id);
     revalidatePath("/chat");
@@ -543,7 +695,7 @@ export async function releasePortalDelivery(
 export async function skipPortalDelivery(
   id: number,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireAccess("chat");
+  await requireRole("owner");
   try {
     await skipDelivery(id);
     revalidatePath("/chat");
@@ -553,17 +705,17 @@ export async function skipPortalDelivery(
   }
 }
 
-/** Mark a channel read for the owner (clears its unread badge). */
+/** Mark a channel read FOR ME (clears my unread badge, nobody else's). */
 export async function markChannelRead(channelKey: string): Promise<void> {
-  await requireAccess("chat");
-  await markRead(channelKey);
+  const user = await requireAccess("chat");
+  await markRead(channelKey, user.id);
   revalidatePath("/chat");
 }
 
-async function markRead(channelKey: string): Promise<void> {
+async function markRead(channelKey: string, userId: string): Promise<void> {
   await query(
-    `INSERT INTO chat_reads (channel_key, last_read_at) VALUES ($1, now())
-     ON CONFLICT (channel_key) DO UPDATE SET last_read_at = now()`,
-    [channelKey],
+    `INSERT INTO chat_reads_by_user (channel_key, user_id, last_read_at) VALUES ($1, $2, now())
+     ON CONFLICT (channel_key, user_id) DO UPDATE SET last_read_at = now()`,
+    [channelKey, userId],
   );
 }

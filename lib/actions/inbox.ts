@@ -1,9 +1,15 @@
 "use server";
 
-// Inbox write paths. Server Action that sends a reply through the Gmail
-// connector (lib/gmail). Owner-only. No-op-safe: if Gmail isn't configured it
-// throws a clear error rather than pretending to send. Reads stay in
-// lib/inbox.ts; this is the only place mail is sent.
+// Inbox write paths. Server Actions that read and send through the Gmail
+// connector (lib/gmail). Reads stay in lib/inbox.ts; this is the only place mail
+// is sent.
+//
+// EVERY action here runs inside mailbox(), which does two things in one step:
+// checks the Inbox area, and enters the signed-in person's mailbox scope
+// (lib/mailbox.ts) for the whole call. That scope is what makes gmailConfigured()
+// and every fetch/send below act on THEIR mail — a staff member archiving a
+// thread archives it in their own account, and one with nothing linked gets
+// "Gmail is not connected" instead of a write against Joe's mailbox.
 
 import { revalidatePath } from "next/cache";
 import { requireAccess } from "@/lib/dal";
@@ -20,6 +26,23 @@ import type { InboxThread, ThreadReader } from "@/lib/inbox";
 import { SYSTEM_VIEWS, type SystemViewKey } from "@/lib/types";
 import type { DraftModel } from "@/lib/dev-agents-meta";
 import { query } from "@/lib/db";
+import { unlinkMailbox, withMailboxFor } from "@/lib/mailbox";
+
+/** Require the Inbox area, then run `fn` against that person's own mailbox. */
+async function mailbox<T>(fn: () => Promise<T>): Promise<T> {
+  const user = await requireAccess("inbox");
+  return withMailboxFor(user, fn);
+}
+
+/** Forget the signed-in account's linked mailbox (the rail's Disconnect). The
+ *  owner's mailbox lives in the environment, so there is nothing here to
+ *  unlink for him — the action is a no-op rather than an error. */
+export async function disconnectMyMailboxAction(): Promise<{ ok: boolean; error?: string }> {
+  const user = await requireAccess("inbox");
+  await unlinkMailbox(user.id);
+  revalidatePath("/inbox");
+  return { ok: true };
+}
 
 /** Manually link a Gmail thread to a project or lead (P6-3). Upserts so
  *  re-linking just re-points it. Owner-gated. */
@@ -32,6 +55,9 @@ export async function linkThread(
   if (!threadId || !slug || (type !== "project" && type !== "lead")) {
     return { ok: false, error: "Invalid link." };
   }
+  // Thread links are OUR records about a thread, not a Gmail call — no mailbox
+  // scope needed, and deliberately shared: a thread pinned to the Henderson job
+  // stays pinned whoever looks at it.
   await query(
     `INSERT INTO thread_links (gmail_thread_id, link_type, link_slug)
      VALUES ($1, $2, $3)
@@ -55,22 +81,23 @@ type ActionResult = { ok: boolean; error?: string };
 /** Owner-gated wrapper for a Gmail mutation: runs it, revalidates /inbox, and
  *  turns the common "scope too narrow" failure into plain language. */
 async function withGmail(fn: () => Promise<void>): Promise<ActionResult> {
-  await requireAccess("inbox");
-  if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
-  try {
-    await fn();
-    revalidatePath("/inbox");
-    return { ok: true };
-  } catch (err) {
-    const msg = (err as Error).message;
-    if (/insufficient|scope|permission|ACCESS_TOKEN_SCOPE/i.test(msg)) {
-      return {
-        ok: false,
-        error: "Gmail needs modify access — reconnect the inbox to enable this.",
-      };
+  return mailbox(async () => {
+    if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
+    try {
+      await fn();
+      revalidatePath("/inbox");
+      return { ok: true };
+    } catch (err) {
+      const msg = (err as Error).message;
+      if (/insufficient|scope|permission|ACCESS_TOKEN_SCOPE/i.test(msg)) {
+        return {
+          ok: false,
+          error: "Gmail needs modify access — reconnect the inbox to enable this.",
+        };
+      }
+      return { ok: false, error: msg };
     }
-    return { ok: false, error: msg };
-  }
+  });
 }
 
 /** Star / unstar a thread (Gmail STARRED label). */
@@ -121,14 +148,15 @@ export async function loadMoreInboxAction(pageToken: string): Promise<{
   nextPageToken?: string;
   error?: string;
 }> {
-  await requireAccess("inbox");
-  if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
-  try {
-    const r = await loadMoreInbox(pageToken);
-    return { ok: true, ...r };
-  } catch (err) {
-    return { ok: false, error: (err as Error).message };
-  }
+  return mailbox(async () => {
+    if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
+    try {
+      const r = await loadMoreInbox(pageToken);
+      return { ok: true, ...r };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  });
 }
 
 /** Fetch a page of threads for a single Gmail label (clicking a label in the
@@ -143,14 +171,15 @@ export async function loadLabelInboxAction(
   nextPageToken?: string;
   error?: string;
 }> {
-  await requireAccess("inbox");
-  if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
-  try {
-    const r = await loadLabelInbox(labelId, pageToken);
-    return { ok: true, ...r };
-  } catch (err) {
-    return { ok: false, error: (err as Error).message };
-  }
+  return mailbox(async () => {
+    if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
+    try {
+      const r = await loadLabelInbox(labelId, pageToken);
+      return { ok: true, ...r };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  });
 }
 
 /** Fetch a page of threads for a Gmail system view (Unread/Starred/Sent/Spam/
@@ -165,19 +194,20 @@ export async function loadSystemViewAction(
   nextPageToken?: string;
   error?: string;
 }> {
-  await requireAccess("inbox");
-  if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
   // The view arrives over the wire — reject anything that isn't a known key
   // before it reaches the fetch map.
   if (!SYSTEM_VIEWS.some((v) => v.key === view)) {
     return { ok: false, error: "Unknown view." };
   }
-  try {
-    const r = await loadSystemView(view, pageToken);
-    return { ok: true, ...r };
-  } catch (err) {
-    return { ok: false, error: (err as Error).message };
-  }
+  return mailbox(async () => {
+    if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
+    try {
+      const r = await loadSystemView(view, pageToken);
+      return { ok: true, ...r };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  });
 }
 
 /** Compose and send a brand-new email. */
@@ -185,13 +215,14 @@ export async function loadSystemViewAction(
  *  fetched lazily when the reader opens. Empty string = no HTML / not connected;
  *  the reader keeps showing the plain-text paragraphs in that case. */
 export async function getThreadHtmlAction(threadId: string): Promise<{ html: string }> {
-  await requireAccess("inbox");
-  if (!gmailConfigured()) return { html: "" };
-  try {
-    return { html: await fetchThreadHtml(threadId) };
-  } catch {
-    return { html: "" };
-  }
+  return mailbox(async () => {
+    if (!gmailConfigured()) return { html: "" };
+    try {
+      return { html: await fetchThreadHtml(threadId) };
+    } catch {
+      return { html: "" };
+    }
+  });
 }
 
 export async function sendNewEmailAction(input: {
@@ -200,17 +231,18 @@ export async function sendNewEmailAction(input: {
   body: string;
   attachments?: import("@/lib/gmail").MailAttachment[];
 }): Promise<{ ok: boolean; error?: string }> {
-  await requireAccess("inbox");
-  if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
   if (!input.to.trim()) return { ok: false, error: "Recipient is required." };
   if (!input.body.trim()) return { ok: false, error: "Body is empty." };
-  try {
-    await sendNewEmail({ to: input.to.trim(), subject: input.subject, bodyText: input.body, attachments: input.attachments });
-    revalidatePath("/inbox");
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: (err as Error).message };
-  }
+  return mailbox(async () => {
+    if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
+    try {
+      await sendNewEmail({ to: input.to.trim(), subject: input.subject, bodyText: input.body, attachments: input.attachments });
+      revalidatePath("/inbox");
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  });
 }
 
 /** Generate an AI reply draft for one thread on demand (when it's opened).
@@ -220,25 +252,26 @@ export async function draftReplyAction(
   threadId: string,
   model?: DraftModel,
 ): Promise<{ ok: boolean; summary?: string; body?: string; toEmail?: string; subject?: string; error?: string }> {
-  await requireAccess("inbox");
-  if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
   // Whitelist the model — never trust the client string. Anything but the
   // explicit "qwen" choice drafts with Hermes (grounded; Qwen is never used
   // for client-facing writing by default).
   const m: DraftModel = model === "qwen" ? "qwen" : "hermes";
-  try {
-    const d = await draftReplyForThread(threadId, m);
-    return { ok: true, ...d };
-  } catch (err) {
-    const msg = (err as Error).message;
-    return {
-      ok: false,
-      error:
-        m === "hermes"
-          ? `Hermes is unavailable — try Qwen. (${msg})`
-          : msg,
-    };
-  }
+  return mailbox(async () => {
+    if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
+    try {
+      const d = await draftReplyForThread(threadId, m);
+      return { ok: true, ...d };
+    } catch (err) {
+      const msg = (err as Error).message;
+      return {
+        ok: false,
+        error:
+          m === "hermes"
+            ? `Hermes is unavailable — try Qwen. (${msg})`
+            : msg,
+      };
+    }
+  });
 }
 
 export async function sendReplyAction(input: {
@@ -247,21 +280,22 @@ export async function sendReplyAction(input: {
   subject: string;
   body: string;
 }): Promise<{ ok: boolean; error?: string }> {
-  await requireAccess("inbox");
-  if (!gmailConfigured()) {
-    return { ok: false, error: "Gmail is not connected yet." };
-  }
   if (!input.body.trim()) return { ok: false, error: "Reply body is empty." };
-  try {
-    await sendReply({
-      threadId: input.threadId,
-      toEmail: input.toEmail,
-      subject: input.subject,
-      bodyText: input.body,
-    });
-    revalidatePath("/inbox");
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: (err as Error).message };
-  }
+  return mailbox(async () => {
+    if (!gmailConfigured()) {
+      return { ok: false, error: "Gmail is not connected yet." };
+    }
+    try {
+      await sendReply({
+        threadId: input.threadId,
+        toEmail: input.toEmail,
+        subject: input.subject,
+        bodyText: input.body,
+      });
+      revalidatePath("/inbox");
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  });
 }

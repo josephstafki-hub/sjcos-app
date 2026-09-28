@@ -13,7 +13,23 @@
 import { ai } from "./ai";
 import { query } from "./db";
 import { laneFor, type Lane } from "./today-triage";
+import {
+  isOwner,
+  openWorkItemsSql,
+  OPEN_WORK_ITEMS_ORDER_SQL,
+  type QueueViewer,
+} from "./queue-scope";
 import type { ChipKind } from "@/components/ui/Chip";
+
+export { openWorkItemsSql, OPEN_WORK_ITEMS_ORDER_SQL } from "./queue-scope";
+export type { QueueViewer } from "./queue-scope";
+
+/** Who a to-do has been handed to, when it isn't the owner's own. */
+export interface AssignedTo {
+  userId: string;
+  name: string;
+  initials: string;
+}
 
 type DotKind = "flag" | "accent" | "ai" | "money" | "ghost";
 
@@ -34,6 +50,10 @@ export interface TodayPriority {
   lane: Lane;
   /** Where clicking the priority navigates (the source record). */
   href?: string;
+  /** Set when this to-do has been handed to someone else. Joe keeps the card
+   *  on his own Today either way (his rule, 2026-09-27) — this is what makes it
+   *  say who is actually on it. Undefined = his own. */
+  assignedTo?: AssignedTo;
 }
 
 export interface TodayScheduleBlock {
@@ -66,6 +86,11 @@ export interface TodayData {
   week: TodayCalDay[];
   schedule: TodayScheduleBlock[];
   waiting: { items: WaitingItem[]; total: number };
+  /** True only for the owner: shows the "Assigned to" control on every card.
+   *  Handing work out is Joe's alone (his rule, 2026-09-27). */
+  canAssign: boolean;
+  /** The people a to-do can be handed to. Empty unless canAssign. */
+  assignees: AssignedTo[];
 }
 
 export interface WaitingItem {
@@ -76,6 +101,8 @@ export interface WaitingItem {
   /** True for work_items-backed rows — the only ones the queue actions can
    *  mark done / snooze. Signal cards (warranty/lead/compliance/…) are false. */
   checkable: boolean;
+  /** Who it's handed to, when it isn't the viewer's own. */
+  assignedTo?: AssignedTo;
 }
 
 export interface BriefInput {
@@ -160,6 +187,9 @@ export interface TodayWorkItemRow {
   project_status: string | null;
   lead_slug: string | null;
   lead_name: string | null;
+  assigned_user_id: string | null;
+  assigned_name: string | null;
+  assigned_initials: string | null;
 }
 
 /** Joe's open backlog: every open work_item assigned to him, whether or not
@@ -177,34 +207,18 @@ export interface TodayWorkItemRow {
 // 00:00 Central of its due day (trg_work_items_snooze_until_due), so a job's
 // task list only surfaces day by day as each task comes up (Joe, 2026-09-02:
 // "I don't want to see those until the day each task is scheduled").
-export const OPEN_WORK_ITEMS_SQL = `
-    SELECT w.id, w.title, left(NULLIF(w.body, ''), 140) AS body,
-           w.status, w.priority, w.effort_class,
-           to_char(w.due_at, 'FMMon FMDD') AS due,
-           w.snoozed_until,
-           w.promoted_at,
-           p.slug AS project_slug, p.name AS project_name, p.status AS project_status,
-           l.slug AS lead_slug, l.name AS lead_name
-      FROM work_items w
-      LEFT JOIN projects p ON p.id = w.project_id
-      LEFT JOIN leads l ON l.id = w.lead_id
-     WHERE w.status NOT IN ('done','cancelled','waiting_on_client')
-       AND (w.snoozed_until IS NULL OR w.snoozed_until <= now())
-       AND w.assignee_kind = 'human'
-       AND (w.assignee_key IS NULL OR w.assignee_key = 'human-joe')
-       AND (l.id IS NULL OR l.stage <> 'lost')`;
-
-export const OPEN_WORK_ITEMS_ORDER_SQL = `
-     ORDER BY array_position(ARRAY['urgent','high','normal','low'], w.priority),
-              w.due_at NULLS LAST,
-              w.updated_at DESC,
-              w.id`;
-
 /** work_items row → a Priorities/Waiting candidate. `checkable: true` marks
  *  it as backlog-sourced, so the client can call checkPriorityCompletion()
  *  when its card is clicked. */
 export function workItemCandidate(w: TodayWorkItemRow): Omit<TodayPriority, "rank"> {
   const isLead = Boolean(w.lead_slug);
+  const assignedTo: AssignedTo | undefined = w.assigned_user_id
+    ? {
+        userId: w.assigned_user_id,
+        name: w.assigned_name ?? "Team member",
+        initials: w.assigned_initials || "?",
+      }
+    : undefined;
   const isWarranty = w.project_status === "warranty";
   const isProject = Boolean(w.project_slug);
   return {
@@ -222,6 +236,7 @@ export function workItemCandidate(w: TodayWorkItemRow): Omit<TodayPriority, "ran
     title: w.title,
     sub: [w.body, w.due ? `due ${w.due}` : null].filter(Boolean).join(" · ") || w.status.replaceAll("_", " "),
     href: w.lead_slug ? `/leads/${w.lead_slug}` : isWarranty ? "/warranty" : w.project_slug ? `/projects/${w.project_slug}` : "/engine",
+    assignedTo,
   };
 }
 
@@ -262,7 +277,20 @@ export interface QueueSnapshot {
 
 /** Run the four queries that feed the queue. Shared by getTodayData() (which
  *  also reuses projects/leads/schedule for header/brief) and getQueueSnapshot(). */
-async function fetchQueueSources(): Promise<QueueSources> {
+async function fetchQueueSources(viewer: QueueViewer): Promise<QueueSources> {
+  const backlog = openWorkItemsSql(viewer);
+  // Only the owner gets the business signals. The project / flagged-lead /
+  // schedule queries exist to produce "Reply to <lead>", "Keep <job> moving"
+  // and "On site" cards, plus the header metrics — all of them Joe's work to
+  // triage, and two of them (A/R, bid-worthy leads) things a team member may
+  // have no business area for. A staff queue is their assigned to-dos, period.
+  if (!isOwner(viewer)) {
+    const { rows } = await query<TodayWorkItemRow>(
+      `${backlog.sql}${OPEN_WORK_ITEMS_ORDER_SQL}`,
+      backlog.params,
+    );
+    return { projects: [], flaggedLeadRows: [], openWorkItems: rows, scheduleRows: [] };
+  }
   const [projectsRes, leadsRes, workItemsRes, scheduleRes] =
     await Promise.all([
       query<TodayProjectRow>(`
@@ -282,7 +310,7 @@ async function fetchQueueSources(): Promise<QueueSources> {
         FROM leads WHERE flag_kind = 'flag' AND stage <> 'lost'
           AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.lead_id = leads.id)
         ORDER BY updated_at DESC`),
-      query<TodayWorkItemRow>(`${OPEN_WORK_ITEMS_SQL}${OPEN_WORK_ITEMS_ORDER_SQL}`),
+      query<TodayWorkItemRow>(`${backlog.sql}${OPEN_WORK_ITEMS_ORDER_SQL}`, backlog.params),
       query<ScheduleRow>(`
         SELECT time_label, label, tone
         FROM schedule_blocks WHERE block_date = CURRENT_DATE
@@ -300,7 +328,7 @@ async function fetchQueueSources(): Promise<QueueSources> {
  *  Auto-promotes unpromoted work items to top up empty slots (a DB write) so
  *  the rail backfills even when nobody visited /today to trigger the click-time
  *  swap. The ONE place this ranking/promotion logic lives. */
-async function buildQueue(s: QueueSources): Promise<QueueSnapshot> {
+async function buildQueue(s: QueueSources, viewer: QueueViewer): Promise<QueueSnapshot> {
   // ── Priorities: a 5-slot rail, ranked from real signals. Leads are always
   // first because new revenue beats internal/project follow-ups, then the
   // rest keep their existing source order (work queue → schedule/job).
@@ -398,6 +426,38 @@ async function buildQueue(s: QueueSources): Promise<QueueSnapshot> {
     Number(isLeadPriority(b)) - Number(isLeadPriority(a));
 
   const ranked = candidates.toSorted(byLeadFirst);
+
+  // promoted_at is the OWNER's rail state — one column, one 5-slot rail, and no
+  // MCP tool touches it (db/schema.sql). A staff member's Today therefore does
+  // not use it at all: their top 5 is just the top 5 of their own ranked
+  // backlog, and nothing they look at writes to Joe's rail.
+  if (!isOwner(viewer)) {
+    // Every row here is theirs by construction, so "Assigned to Marco" on
+    // Marco's own card is noise. The line exists to tell Joe's cards apart.
+    for (const c of ranked) c.assignedTo = undefined;
+    const displayed = ranked.slice(0, 5);
+    const shown = new Set(displayed.map((c) => c.id));
+    return {
+      priorities: (displayed.length ? displayed : [allClearCard()]).map((c, i) => ({
+        ...c,
+        rank: `#${i + 1}`,
+      })),
+      waiting: {
+        total: ranked.filter((c) => !shown.has(c.id)).length,
+        items: ranked
+          .filter((c) => !shown.has(c.id))
+          .map((c) => ({
+            id: c.id,
+            label: c.waitingLabel,
+            href: c.href,
+            lane: c.lane,
+            checkable: c.checkable,
+            assignedTo: c.assignedTo,
+          })),
+      },
+    };
+  }
+
   const eligible = ranked.filter((c) => !c.checkable || c.promotedAt);
   // Exclude just-snoozed items from the auto-promotion pool until their
   // snooze window passes — otherwise a demoted item with no other backlog
@@ -423,19 +483,7 @@ async function buildQueue(s: QueueSources): Promise<QueueSnapshot> {
   const displayedIds = new Set(displayed.map((c) => c.id));
 
   const priorities: TodayPriority[] = (
-    displayed.length
-      ? displayed
-      : [
-          {
-            id: "all-clear",
-            checkable: false,
-            lane: "deep" as Lane,
-            tag: "ALL CLEAR",
-            dot: "ghost" as DotKind,
-            title: "Nothing urgent today",
-            sub: "No flagged items right now.",
-          },
-        ]
+    displayed.length ? displayed : [allClearCard()]
   ).map((c, i) => ({ ...c, rank: `#${i + 1}` }));
 
   // ── Waiting on me: the full backlog minus whatever's currently shown in
@@ -443,19 +491,40 @@ async function buildQueue(s: QueueSources): Promise<QueueSnapshot> {
   // the other live signals — see docs/hermes-mcp.md.
   const waitingItems: WaitingItem[] = ranked
     .filter((c) => !displayedIds.has(c.id))
-    .map((c) => ({ id: c.id, label: c.waitingLabel, href: c.href, lane: c.lane, checkable: c.checkable }));
+    .map((c) => ({
+      id: c.id,
+      label: c.waitingLabel,
+      href: c.href,
+      lane: c.lane,
+      checkable: c.checkable,
+      assignedTo: c.assignedTo,
+    }));
 
   return { priorities, waiting: { total: waitingItems.length, items: waitingItems } };
+}
+
+/** The empty-queue card, shared by both viewer paths. */
+function allClearCard(): Omit<TodayPriority, "rank"> & { waitingLabel: string } {
+  return {
+    id: "all-clear",
+    checkable: false,
+    lane: "deep" as Lane,
+    tag: "ALL CLEAR",
+    dot: "ghost" as DotKind,
+    title: "Nothing urgent today",
+    sub: "No flagged items right now.",
+    waitingLabel: "Nothing urgent today",
+  };
 }
 
 /** Re-read the live Priorities + Waiting queue only (no schedule/brief/header).
  *  Same candidate pipeline as getTodayData() via buildQueue(). Used by the
  *  Today feed's chip actions to refresh both lists after a change. */
-export async function getQueueSnapshot(): Promise<QueueSnapshot> {
-  return buildQueue(await fetchQueueSources());
+export async function getQueueSnapshot(viewer: QueueViewer): Promise<QueueSnapshot> {
+  return buildQueue(await fetchQueueSources(viewer), viewer);
 }
 
-export async function getTodayData(): Promise<TodayData> {
+export async function getTodayData(viewer: QueueViewer): Promise<TodayData> {
   const now = new Date();
   const dateLabel = now
     .toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
@@ -470,13 +539,14 @@ export async function getTodayData(): Promise<TodayData> {
   // The queue sources (shared with getQueueSnapshot via buildQueue) plus this
   // page's own week strip. projects/leads/schedule from the sources also feed
   // the header metrics, the schedule card, and the brief.
-  const [sources, weekRes] = await Promise.all([
-    fetchQueueSources(),
+  const [sources, weekRes, assignees] = await Promise.all([
+    fetchQueueSources(viewer),
     query<{ iso: string; time_label: string; label: string; tone: string }>(`
         SELECT block_date::text AS iso, time_label, label, tone
         FROM schedule_blocks WHERE block_date BETWEEN $1 AND $2
         ORDER BY block_date, sort_min`,
       [isoDate(monday), isoDate(sunday)]),
+    isOwner(viewer) ? listAssignees() : Promise.resolve([]),
   ]);
 
   const { projects, flaggedLeadRows, scheduleRows } = sources;
@@ -507,14 +577,14 @@ export async function getTodayData(): Promise<TodayData> {
 
   // Priorities + Waiting-on-me: built by the shared buildQueue() pipeline (the
   // one place ranking/promotion lives, so getQueueSnapshot never forks from it).
-  const { priorities, waiting } = await buildQueue(sources);
+  const { priorities, waiting } = await buildQueue(sources, viewer);
 
   // The AI brief is NOT awaited here — that would block the whole page on
   // ~15s of CPU inference. We return its inputs and let getTodayBrief() run
   // inside a Suspense boundary so the shell paints immediately.
   const briefInputs: BriefInput = {
     date: now.toISOString().slice(0, 10),
-    ownerName: "Joe",
+    ownerName: firstName(viewer.name),
     projects: projects.map((p) => ({
       name: p.name,
       status: p.status,
@@ -526,19 +596,46 @@ export async function getTodayData(): Promise<TodayData> {
 
   return {
     dateLabel,
-    greeting: greetingFor(now.getHours(), "Joe"),
-    weekLabel: `${activeCount} ACTIVE JOB${activeCount === 1 ? "" : "S"}`,
-    headerChips: [
-      { kind: "money", label: `${dollars(outstanding)} outstanding A/R` },
-      { kind: "flag", label: `${flaggedLeads} lead${flaggedLeads === 1 ? "" : "s"} need attention` },
-    ],
+    // Greet whoever is actually signed in. Hardcoded "Joe" here was the most
+    // visible of his details on a staff account.
+    greeting: greetingFor(now.getHours(), firstName(viewer.name)),
+    weekLabel: isOwner(viewer)
+      ? `${activeCount} ACTIVE JOB${activeCount === 1 ? "" : "S"}`
+      : `${waiting.total + priorities.filter((p) => p.checkable).length} ASSIGNED TO YOU`,
+    // A/R and bid-worthy leads are the owner's numbers — and A/R in particular
+    // sits behind the money areas everywhere else, so it must not ride in on a
+    // Today header chip.
+    headerChips: isOwner(viewer)
+      ? [
+          { kind: "money" as ChipKind, label: `${dollars(outstanding)} outstanding A/R` },
+          { kind: "flag" as ChipKind, label: `${flaggedLeads} lead${flaggedLeads === 1 ? "" : "s"} need attention` },
+        ]
+      : [],
     briefHeadline: "Today's brief",
     briefInputs,
     priorities,
     week: weekStrip(now, blocksByDay),
     schedule,
     waiting,
+    canAssign: isOwner(viewer),
+    assignees,
   };
+}
+
+/** "Joseph Stafki" → "Joseph". The greeting wants a first name, not a full one. */
+function firstName(name: string): string {
+  return name.trim().split(/\s+/)[0] || name.trim();
+}
+
+/** Who a to-do can be handed to: the owner plus every active staff login.
+ *  Portal roles (sub / client) are not team members and never appear. */
+async function listAssignees(): Promise<AssignedTo[]> {
+  const { rows } = await query<{ id: string; name: string; initials: string }>(
+    `SELECT id, name, initials FROM users
+      WHERE active AND role IN ('owner','staff')
+      ORDER BY (role = 'owner') DESC, name`,
+  );
+  return rows.map((r) => ({ userId: r.id, name: r.name, initials: r.initials || "?" }));
 }
 
 /** The AI brief text. Resolved separately from getTodayData() so it can run

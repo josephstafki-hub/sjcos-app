@@ -1,6 +1,7 @@
 # Users & access (staff role)
 
-**Built 2026-09-15.** Owner adds logins from **Settings → Team & roles**.
+**Built 2026-09-15**; made per-account **2026-09-27** (see "What is per-account,
+what is shared"). Owner adds logins from **Settings → Team & roles**.
 
 ## Roles
 
@@ -58,14 +59,103 @@ and the portal demos are owner-only regardless (`OWNER_ONLY_PATHS`).
   sections per area, Money rail card + contract value + Send invoice on `invoices`,
   Bidding tab on `bidding`).
 
+## What is per-account, what is shared (2026-09-27)
+
+An area says what a person may **open**. It does not say **whose data** they see
+there. Settled with Joe, 2026-09-27 — these three buckets are deliberate:
+
+| | |
+| --- | --- |
+| **Per account** | Today (assigned to-dos), the Inbox mailbox, notifications, chat read markers |
+| **Shared** | Open Brain knowledge + Skills — one company library, every account reads and writes it |
+| **Joe's alone** | The `ai` operator panel. `ai_conversations` is not user-scoped, so the panel is his session whoever opens it. |
+
+### To-do assignment
+
+`work_items.assigned_user_id`. **NULL means Joe's** — the default for every row
+that predates staff logins and for everything detectors, runbooks and MCP file.
+Orthogonal to `assignee_kind` / `assignee_key`, which say whether a human or a
+named bot runtime runs it.
+
+- **Joe's Today shows every human to-do, handed off or not**, with an "Assigned
+  to &lt;name&gt;" line on the ones that are. His rule: *"it'll always remain on
+  mine, but will list prominently who it's assigned to."*
+- A staff member's Today shows only rows assigned to them — and none of the
+  business signals (flagged leads, drifting jobs, A/R, the AI brief), which are
+  Joe's to triage.
+- **Only the owner may assign.** The card's Assign/Reassign picker, the `/engine`
+  dropdown, and the MCP `assign_work_item` / `create_work_item{assigned_to}` all
+  gate on `requireRole("owner")` (not `requireAccess`) — holding Today lets you
+  work your queue, never re-deal someone else's.
+- The assignee gets a notification addressed to them, so a hand-off is never
+  silent.
+- `promoted_at` (the 5-slot Priorities rail) stays the **owner's** state. A staff
+  queue is simply the top 5 of their own ranked backlog, so nothing they do
+  writes to Joe's rail.
+- Work-item ids arrive from the client, so `completeTodayItem` / `snoozeTodayItem`
+  / `checkPriorityCompletion` re-check ownership server-side (`mayWorkItem`).
+
+Scoping rule: `lib/queue-scope.ts` (dependency-free, unit-tested).
+
+### The mailbox
+
+Joe, 2026-09-27: *"link able to their email otherwise blank."* Before this there
+was one Gmail account — `GMAIL_REFRESH_TOKEN` — and every login read Joe's mail.
+
+- A Gmail call now runs inside a **mailbox scope** (`lib/mailbox.ts`), which
+  `lib/gmail.ts` reads when it builds its OAuth client. That is why ~20 exported
+  functions did not each grow a parameter.
+- **In a scope with a token** → that person's mailbox. **In a scope with none** →
+  nothing: a blank Email rail with a Connect button, never the demo mock and
+  never someone else's mail. **Outside any scope** → the env token, which is
+  every background path (detectors, the lead thread sync, cron sweeps, MCP
+  `send_email`). Those are the company acting, not a person.
+- Staff connect their own at `/api/inbox/oauth/start`; the callback stores it in
+  `user_email_accounts` under their id. **The owner's mailbox stays in the
+  environment on purpose** — the same token is what the background jobs use, and
+  a second copy in the DB would leave the UI on one token and automation on
+  another.
+- Texts, portal messages and website forms still show for anyone with the area:
+  those are the company's, not one person's.
+
+### Notifications
+
+`notifications.audience_user_id` — NULL is the **owner's company feed** (what
+every `emit()` writes: leads, money, compliance). A staff id addresses one
+person. Staff feeds are targeted-only, so a team login never reads Joe's feed.
+Read state moved from the global `notifications.read` flag to
+`notification_reads` (per user); the old column is left in place and unused.
+
+### Team chat
+
+- Channels are company-wide (everyone sees every open bare channel). **Rooms**
+  need membership (`chat_team_members`). **DMs** you must be a party to.
+- Sub DMs (`dm:<slug>` — that sub's live portal thread) and client DMs stay the
+  owner's: they are outward-facing, not internal chat.
+- Managing the place — creating/archiving channels, adding subs or clients,
+  moving AI membership, releasing a parked portal delivery — is `requireRole("owner")`.
+- Every owner/staff login gets a `team_members` row (`user_id`) so it has a DM
+  address; new staff accounts get one automatically from both the Settings form
+  and MCP `create_user`.
+- Key shapes (`lib/dm-keys.ts`, unit-tested): owner↔person keeps the original
+  `dm:team:<slug>` so existing transcripts stay addressable; staff↔staff is
+  `dm:team:<a>+<b>` with slugs sorted.
+- Read markers are per user in **`chat_reads_by_user`**. The old single-owner
+  `chat_reads` table is left behind, unused — changing its primary key in a
+  migration would have broken the running site's `markRead()` until the next
+  deploy.
+
 ## Known gaps
 
 - Staff still see dollar amounts inside some shared surfaces not yet fenced
   (leads' rough estimate text, sub/vendor rates, selection budgets, doc drafts
   that contain pricing). Fence them with `can(viewer, "money")` as they come up.
 - No self-serve password change/reset; the owner resets from the Team screen.
-- Team chat read markers are global, not per user.
 - Sessions: staff cookie carries a copy of their areas for the proxy prefilter;
   the DB row is the truth for everything else.
+- Staff can't reassign at all — not even back to Joe. If that turns out to be
+  wanted, it's a second action, not a loosening of the owner check.
 
-Migration: `node db/apply-staff-users.mjs` (applied to the live DB 2026-09-15).
+Migrations: `node db/apply-staff-users.mjs` (applied 2026-09-15),
+`node db/apply-staff-separation.mjs` (2026-09-27 — every statement is additive,
+so it can be applied before the deploy without breaking the running site).

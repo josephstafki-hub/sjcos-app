@@ -14,6 +14,21 @@
 //
 // Adding an area: append here, then gate its actions with requireAccess(key).
 // A path that is not claimed by any area is owner-only for staff.
+//
+// PER-ACCOUNT vs SHARED (settled with Joe, 2026-09-27). An area says what a
+// person may open; it does not say whose data they see there. Three rules, and
+// they are deliberate — don't "fix" one of them into the others:
+//
+//   per-account   Today (their assigned to-dos), the Inbox mailbox (their own
+//                 linked Gmail — lib/mailbox.ts), notifications, and chat read
+//                 markers.
+//   shared        Open Brain knowledge and Skills. Every account reads and
+//                 writes the same library: that is the point of a company brain,
+//                 and the tables have no owner column by design.
+//   Joe's alone   the `ai` operator panel. Its threads (ai_conversations) are
+//                 not user-scoped, so the panel is Joe's session whoever opens
+//                 it — which is also why this area is marked sensitive: an agent
+//                 there acts with full owner-level tools.
 
 export type PermissionKey =
   | "today"
@@ -54,9 +69,9 @@ export interface PermissionDef {
 
 export const PERMISSIONS: readonly PermissionDef[] = [
   { key: "today", label: "Today", description: "Today queue, work items, notifications, workbench.", paths: ["/today", "/notifications", "/workbench"] },
-  { key: "inbox", label: "Inbox", description: "Company email inbox — read, reply, draft.", paths: ["/inbox"] },
+  { key: "inbox", label: "Inbox", description: "Their OWN email, once they connect it, plus texts and website forms. Never Joe's mailbox.", paths: ["/inbox"] },
   { key: "comms", label: "Messages & calls", description: "Client/sub SMS threads and the call log.", paths: ["/messages", "/calls"] },
-  { key: "chat", label: "Team chat", description: "Internal team channels and project rooms.", paths: ["/chat"] },
+  { key: "chat", label: "Team chat", description: "Team channels, DMs, and the job rooms you add them to. Managing channels stays yours.", paths: ["/chat"] },
   { key: "leads", label: "Leads", description: "Lead pipeline, intake, follow-ups and lead tasks.", paths: ["/leads"] },
   { key: "projects", label: "Projects", description: "Project records, schedule, files, selections, mood/floor boards, documents, daily log, closeout, safety.", paths: ["/projects", "/schedule", "/files", "/floor"] },
   { key: "subs", label: "Subs", description: "Subcontractor roster and sub portal admin.", paths: ["/subs"] },

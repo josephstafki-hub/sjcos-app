@@ -4,11 +4,12 @@
 // Sidebar) so they never add latency to a page navigation. Owner-scoped: a
 // non-owner gets zeros (the Shell nav is only used by the owner app anyway).
 
-import { can, getCurrentUser } from "@/lib/dal";
+import { can, getCurrentUser, type CurrentUser } from "@/lib/dal";
 import { query } from "@/lib/db";
 import { gmailConfigured, gmailInboxUnread } from "@/lib/gmail";
 import { getUnreadChatCount } from "@/lib/chat";
 import { getUnreadSmsCount } from "@/lib/sms";
+import { withMailboxFor } from "@/lib/mailbox";
 
 export interface NavCounts {
   inbox: number;
@@ -24,21 +25,25 @@ export async function getNavCounts(): Promise<NavCounts> {
   // Staff only get badges for areas they hold — a count is a peek.
   const zero = async () => 0;
   const [inbox, chat, leads, messages] = await Promise.all([
-    can(user, "inbox") ? inboxUnread() : zero(),
-    can(user, "chat") ? getUnreadChatCount().catch(() => 0) : zero(),
+    can(user, "inbox") ? inboxUnread(user) : zero(),
+    can(user, "chat") ? getUnreadChatCount(user.id).catch(() => 0) : zero(),
     can(user, "leads") ? leadsNeedingAttention() : zero(),
     can(user, "comms") ? getUnreadSmsCount().catch(() => 0) : zero(),
   ]);
   return { inbox, chat, leads, messages };
 }
 
-async function inboxUnread(): Promise<number> {
-  if (!gmailConfigured()) return 0;
-  try {
-    return await gmailInboxUnread();
-  } catch {
-    return 0;
-  }
+/** Unread count for THIS person's mailbox. Without the scope the badge would
+ *  report the owner's unread total to every staff login. */
+async function inboxUnread(user: CurrentUser): Promise<number> {
+  return withMailboxFor(user, async () => {
+    if (!gmailConfigured()) return 0;
+    try {
+      return await gmailInboxUnread();
+    } catch {
+      return 0;
+    }
+  });
 }
 
 async function leadsNeedingAttention(): Promise<number> {

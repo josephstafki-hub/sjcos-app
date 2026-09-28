@@ -9,10 +9,18 @@
 import type { SystemViewKey, ThreadChannel, ThreadStatus } from "./types";
 import { ai } from "./ai";
 import { query } from "./db";
+import { getCurrentUser } from "./dal";
+import {
+  activeMailbox,
+  mailboxFor,
+  runWithMailbox,
+  type Mailbox,
+  type MailboxViewer,
+} from "./mailbox";
 import { askHermes } from "./dev-agents";
 import type { DraftModel } from "./dev-agents-meta";
 import {
-  gmailConfigured,
+  gmailOAuthAppConfigured,
   fetchThreads,
   fetchThreadPage,
   fetchLabels,
@@ -41,8 +49,11 @@ export const SMART_VIEWS: {
 ];
 
 /** Channel display labels, in rail order. Icons are mapped in the component. */
+// "Email" with no address: the mailbox is whoever is signed in, so hardcoding
+// Joe's showed his account to every staff login. The connected address is
+// reported separately (InboxData.mailbox) and rendered under the rail item.
 export const CHANNELS: { key: ThreadChannel; label: string }[] = [
-  { key: "email", label: "Email (joe@sjc)" },
+  { key: "email", label: "Email" },
   { key: "sms", label: "SMS" },
   { key: "client_portal", label: "Client portal" },
   { key: "sub_portal", label: "Sub portal" },
@@ -278,6 +289,22 @@ export interface InboxData {
   nextPageToken?: string;
   /** Records the owner can manually link a thread to (P6-3). */
   linkOptions?: { projects: { slug: string; name: string }[]; leads: { slug: string; name: string }[] };
+  /** Whose mailbox this payload is, and whether one is connected at all. */
+  mailbox: MailboxState;
+}
+
+/** What the Email rail needs to say about the connected account. `connected:
+ *  false` is the blank state a staff member sees before they link their own
+ *  mail — deliberately NOT the demo mock and never someone else's inbox. */
+export interface MailboxState {
+  connected: boolean;
+  /** The connected address, when Gmail reported one. */
+  email: string | null;
+  /** True when the token came from this user's own link (so they may unlink). */
+  linked: boolean;
+  /** False when GMAIL_CLIENT_ID/SECRET aren't set — nothing to connect TO, so
+   *  the UI offers setup instructions instead of a dead button. */
+  canConnect: boolean;
 }
 
 /** Count threads per smart view from the live list. */
@@ -344,20 +371,60 @@ async function buildReader(t: InboxThread): Promise<ThreadReader> {
   };
 }
 
-export async function getInboxData(): Promise<InboxData> {
-  // Live Gmail when the connector is configured; otherwise the deterministic
-  // mock. On any Gmail failure we fall back to the mock so /inbox still renders
-  // (mirrors the Ollama provider's degrade-gracefully behavior in lib/ai.ts).
-  if (gmailConfigured()) {
+/** Read the inbox as `viewer` (defaults to whoever's session this render is).
+ *  Everything Gmail-facing runs inside that person's mailbox scope, so the page,
+ *  the JSON route and the mobile route all get the signed-in user's mail rather
+ *  than the one account that used to live in the environment.
+ *
+ *  Three outcomes, in order:
+ *    • mailbox linked → live Gmail (degrading to the mock on a Gmail failure,
+ *      same as before, so /inbox still renders when Google is having a day).
+ *    • signed in, nothing linked → the blank state: no email threads, a Connect
+ *      button. Never the demo mock, and never another person's mail.
+ *    • no session at all (a build-time prerender) → the demo mock, unchanged. */
+export async function getInboxData(viewer?: MailboxViewer): Promise<InboxData> {
+  const who = viewer ?? (await getCurrentUser());
+  if (!who) return buildFromMock(unconnectedMailbox());
+  const mb = activeMailbox() ?? (await mailboxFor(who));
+  return runWithMailbox(mb, async () => {
+    if (!mb.refreshToken) return buildEmptyMailbox(mb);
     try {
-      return await buildFromGmail();
+      return await buildFromGmail(mailboxState(mb));
     } catch (err) {
-      console.error(
-        `[inbox:gmail] falling back to mock — ${(err as Error).message}`,
-      );
+      console.error(`[inbox:gmail] falling back to mock — ${(err as Error).message}`);
+      return buildFromMock(mailboxState(mb));
     }
-  }
-  return buildFromMock();
+  });
+}
+
+function mailboxState(mb: Mailbox): MailboxState {
+  return {
+    connected: Boolean(mb.refreshToken),
+    email: mb.email,
+    linked: mb.linked,
+    canConnect: gmailOAuthAppConfigured(),
+  };
+}
+
+function unconnectedMailbox(): MailboxState {
+  return { connected: false, email: null, linked: false, canConnect: gmailOAuthAppConfigured() };
+}
+
+/** The signed-in-but-nothing-linked inbox: the rails and smart views still
+ *  render (so the page isn't a void) with honest zero counts, and the reader
+ *  pane shows the Connect prompt. */
+function buildEmptyMailbox(mb: Mailbox): InboxData {
+  return {
+    smartViews: SMART_VIEWS.map((v) => ({ ...v, count: 0, active: v.key === "needs_reply" })),
+    channels: CHANNELS.map((c) => ({ ...c, count: 0 })),
+    projects: [],
+    labels: [],
+    activeView: { key: "needs_reply", label: "Needs reply" },
+    threads: [],
+    readers: {},
+    selectedId: "",
+    mailbox: mailboxState(mb),
+  };
 }
 
 // ─── Gmail-backed builder ────────────────────────────────────────────────────
@@ -1232,7 +1299,7 @@ async function loadChannelThreads(): Promise<ChannelBuild> {
   };
 }
 
-async function buildFromGmail(): Promise<InboxData> {
+async function buildFromGmail(mailbox: MailboxState): Promise<InboxData> {
   const [page, labels, contactMaps, linkOptions, folded] = await Promise.all([
     fetchThreadPage(INBOX_PAGE),
     fetchLabelCounts(),
@@ -1302,12 +1369,13 @@ async function buildFromGmail(): Promise<InboxData> {
     selectedId: firstInDefault?.id ?? "",
     nextPageToken: page.nextPageToken,
     linkOptions,
+    mailbox,
   };
 }
 
 // ─── Mock builder ────────────────────────────────────────────────────────────
 
-async function buildFromMock(): Promise<InboxData> {
+async function buildFromMock(mailbox: MailboxState): Promise<InboxData> {
   // Truthful smart-view counts derived from the mock list itself, so a rail
   // badge never advertises threads that aren't there when the view is opened.
   const viewCounts = countViews(THREADS);
@@ -1338,5 +1406,6 @@ async function buildFromMock(): Promise<InboxData> {
     threads: THREADS,
     readers: Object.fromEntries(readerEntries),
     selectedId: THREADS[0].id,
+    mailbox,
   };
 }

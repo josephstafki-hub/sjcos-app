@@ -21,7 +21,7 @@ const DOT: Record<string, string> = {
 export function TodayBody({ data }: { data: TodayData }) {
   // The AI brief bubble, rendered on the server (Suspense streams the text) and
   // passed into the client feed as its pinned first item.
-  const brief = (
+  const brief = !data.canAssign ? null : (
     <AiBubble
       actions={
         <Link
@@ -70,7 +70,12 @@ export function TodayBody({ data }: { data: TodayData }) {
           queue state via TodayQueueProvider (a context, not a wrapping element)
           so they stay grid siblings — see TodayQueueContext.tsx. */}
       <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[1.4fr_1fr]">
-        <TodayQueueProvider initialPriorities={data.priorities} initialWaiting={data.waiting}>
+        <TodayQueueProvider
+          initialPriorities={data.priorities}
+          initialWaiting={data.waiting}
+          canAssign={data.canAssign}
+          assignees={data.assignees}
+        >
           {/* Brief + priority cards; chat lives in the operator panel now. */}
           <TodayCards brief={brief} />
 

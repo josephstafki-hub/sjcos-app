@@ -15,6 +15,9 @@ export interface WorkItemView {
   priority: WorkItemPriority;
   assigneeKind: "human" | "agent";
   assigneeKey: string | null;
+  /** The PERSON this to-do belongs to, when it isn't the owner's own. Separate
+   *  from assigneeKey, which names a bot runtime (hermes-telegram, …). */
+  assignedTo: { userId: string; name: string; initials: string } | null;
   dueAt: string | null;
   projectSlug: string | null;
   leadSlug: string | null;
@@ -52,6 +55,8 @@ export interface EngineData {
   ledgers: StatusLedgerView[];
   receipts: ReceiptView[];
   counts: { total: number; approval: number; waiting: number; active: number; queued: number };
+  /** Owner + active staff — the people a to-do can be handed to. */
+  assignees: { userId: string; name: string; initials: string }[];
 }
 
 interface WorkRow {
@@ -62,6 +67,9 @@ interface WorkRow {
   priority: WorkItemPriority;
   assignee_kind: "human" | "agent";
   assignee_key: string | null;
+  assigned_user_id: string | null;
+  assigned_name: string | null;
+  assigned_initials: string | null;
   due_at: string | null;
   project_slug: string | null;
   lead_slug: string | null;
@@ -84,6 +92,13 @@ function rowToItem(r: WorkRow): WorkItemView {
     priority: r.priority,
     assigneeKind: r.assignee_kind,
     assigneeKey: r.assignee_key,
+    assignedTo: r.assigned_user_id
+      ? {
+          userId: r.assigned_user_id,
+          name: r.assigned_name ?? "Team member",
+          initials: r.assigned_initials || "?",
+        }
+      : null,
     dueAt: r.due_at,
     projectSlug: r.project_slug,
     leadSlug: r.lead_slug,
@@ -98,15 +113,17 @@ function rowToItem(r: WorkRow): WorkItemView {
 }
 
 export async function getEngineData(): Promise<EngineData> {
-  const [{ rows: work }, { rows: ledgers }, { rows: receipts }] = await Promise.all([
+  const [{ rows: work }, { rows: ledgers }, { rows: receipts }, { rows: people }] = await Promise.all([
     query<WorkRow>(
       `SELECT w.id, w.title, w.body, w.status, w.priority, w.assignee_kind, w.assignee_key, w.due_at::text AS due_at,
               p.slug AS project_slug, l.slug AS lead_slug, w.expected_skill_slug, w.expected_runbook_slug,
               w.requires_approval, w.approval_status, w.blocked_reason, w.created_at::text AS created_at,
-              l.stage AS lead_stage
+              l.stage AS lead_stage,
+              w.assigned_user_id, au.name AS assigned_name, au.initials AS assigned_initials
          FROM work_items w
          LEFT JOIN projects p ON p.id = w.project_id
          LEFT JOIN leads l ON l.id = w.lead_id
+         LEFT JOIN users au ON au.id = w.assigned_user_id
         WHERE (l.id IS NULL OR l.stage <> 'lost' OR w.status IN ('done','cancelled'))
         ORDER BY array_position(ARRAY['urgent','high','normal','low']::text[], w.priority),
                  w.due_at NULLS LAST, w.created_at DESC`,
@@ -130,6 +147,13 @@ export async function getEngineData(): Promise<EngineData> {
          LEFT JOIN agent_runs ar ON ar.id = r.agent_run_id
         ORDER BY r.created_at DESC
         LIMIT 20`,
+    ),
+    // Who a to-do can be handed to (same roster as Today's card picker):
+    // the owner plus every active staff login. Portal roles never appear.
+    query<{ id: string; name: string; initials: string }>(
+      `SELECT id, name, initials FROM users
+        WHERE active AND role IN ('owner','staff')
+        ORDER BY (role = 'owner') DESC, name`,
     ),
   ]);
 
@@ -164,5 +188,6 @@ export async function getEngineData(): Promise<EngineData> {
       active: buckets.active.length,
       queued: buckets.queued.length,
     },
+    assignees: people.map((p) => ({ userId: p.id, name: p.name, initials: p.initials || "?" })),
   };
 }

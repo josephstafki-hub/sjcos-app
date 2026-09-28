@@ -19,6 +19,7 @@ import type { WorkItemStatus, WorkItemPriority } from "@/lib/types";
 import {
   createWorkItem,
   setWorkItemStatus,
+  setWorkItemAssignee,
   approveWorkItem,
   rejectWorkItem,
   cancelRunbook,
@@ -300,14 +301,25 @@ function QueueTab({ engine, skills }: { engine: EngineData; skills: SkillsLibrar
                   <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>
                 ))}
               </select>
+              {/* Which RUNTIME does the work: a person, or a named bot. */}
               <select name="assignee_key" defaultValue="human-joe" className={inputCls}>
-                <option value="human-joe">Joe</option>
+                <option value="human-joe">A person</option>
                 <option value="hermes-telegram">Hermes</option>
                 <option value="claude-code-server">Claude Code</option>
                 <option value="codex-server">Codex</option>
               </select>
               <input name="due_at" type="date" className={inputCls} />
             </div>
+            {/* Which PERSON it belongs to. Blank = Joe's own, the same default
+                every other writer (detectors, MCP, runbooks) leaves behind. */}
+            <select name="assigned_user_id" defaultValue="" className={inputCls}>
+              <option value="">On me (Joe)</option>
+              {engine.assignees.slice(1).map((a) => (
+                <option key={a.userId} value={a.userId}>
+                  Assign to {a.name}
+                </option>
+              ))}
+            </select>
             <select name="expected_skill_slug" defaultValue="" className={inputCls}>
               <option value="">No expected skill</option>
               {skills.approved.map((s) => (
@@ -336,7 +348,7 @@ function QueueTab({ engine, skills }: { engine: EngineData; skills: SkillsLibrar
               </div>
               <div className="space-y-2">
                 {engine.buckets[b.key].map((it) => (
-                  <WorkItemCard key={it.id} item={it} />
+                  <WorkItemCard key={it.id} item={it} assignees={engine.assignees} />
                 ))}
               </div>
             </section>
@@ -347,9 +359,18 @@ function QueueTab({ engine, skills }: { engine: EngineData; skills: SkillsLibrar
   );
 }
 
-function WorkItemCard({ item }: { item: WorkItemView }) {
+function WorkItemCard({
+  item,
+  assignees,
+}: {
+  item: WorkItemView;
+  assignees: EngineData["assignees"];
+}) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  // The owner's own id: stored as NULL on the row, so the "On me" option is the
+  // empty value rather than his id (one spelling of "Joe's" everywhere).
+  const ownerId = assignees[0]?.userId ?? "";
   const run = (fn: () => Promise<ActionLike>) => start(async () => { await runAction(fn); router.refresh(); });
   // Approve says what it did: "Emailed <to> — <subject>" or "Approved. Nothing
   // was emailed: …" — plain success used to read as "the email went out".
@@ -366,7 +387,10 @@ function WorkItemCard({ item }: { item: WorkItemView }) {
           <div className="flex flex-wrap items-center gap-1.5">
             <Chip kind={statusChip(item.status)}>{STATUS_LABEL[item.status]}</Chip>
             {item.priority !== "normal" && <Chip kind={priorityChip(item.priority)}>{PRIORITY_LABEL[item.priority]}</Chip>}
-            {item.assigneeKey && <Chip kind="ghost">{item.assigneeKey}</Chip>}
+            {item.assigneeKey && item.assigneeKey !== "human-joe" && (
+              <Chip kind="ghost">{item.assigneeKey}</Chip>
+            )}
+            {item.assignedTo && <Chip kind="accent">{item.assignedTo.name}</Chip>}
             {item.expectedSkillSlug && <Chip kind="ai">skill: {item.expectedSkillSlug}</Chip>}
             {item.expectedRunbookSlug && <Chip kind="ai">runbook: {item.expectedRunbookSlug}</Chip>}
           </div>
@@ -386,16 +410,33 @@ function WorkItemCard({ item }: { item: WorkItemView }) {
               <button className={btnCls} disabled={pending} onClick={() => run(() => rejectWorkItem(item.id))}>Reject</button>
             </>
           ) : (
-            <select
-              className="rounded-md border border-rule bg-paper px-2 py-1 text-[11px] text-ink-2 outline-none focus:border-accent"
-              value={item.status}
-              disabled={pending}
-              onChange={(e) => run(() => setWorkItemStatus(item.id, e.target.value as WorkItemStatus))}
-            >
-              {WORK_STATUSES.map((s) => (
-                <option key={s} value={s}>{STATUS_LABEL[s]}</option>
-              ))}
-            </select>
+            <>
+              <select
+                className="rounded-md border border-rule bg-paper px-2 py-1 text-[11px] text-ink-2 outline-none focus:border-accent"
+                value={item.status}
+                disabled={pending}
+                onChange={(e) => run(() => setWorkItemStatus(item.id, e.target.value as WorkItemStatus))}
+              >
+                {WORK_STATUSES.map((s) => (
+                  <option key={s} value={s}>{STATUS_LABEL[s]}</option>
+                ))}
+              </select>
+              {/* Switch who it's on, without leaving the board. Owner-only —
+                  /engine is an owner area, and the action re-checks. */}
+              <select
+                className="rounded-md border border-rule bg-paper px-2 py-1 text-[11px] text-ink-2 outline-none focus:border-accent"
+                value={item.assignedTo?.userId ?? ""}
+                disabled={pending}
+                onChange={(e) => run(() => setWorkItemAssignee(item.id, e.target.value || null))}
+              >
+                <option value="">On me (Joe)</option>
+                {assignees
+                  .filter((a) => a.userId !== ownerId)
+                  .map((a) => (
+                    <option key={a.userId} value={a.userId}>{a.name}</option>
+                  ))}
+              </select>
+            </>
           )}
         </div>
       </div>

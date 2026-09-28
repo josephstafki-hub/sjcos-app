@@ -25,6 +25,13 @@ export interface EmitInput {
   whenLabel?: string;
   flagged?: boolean;
   href?: string;
+  /** Who this is for. Omitted = the owner's company feed, which is what every
+   *  business event here wants (new lead, money, compliance — Joe's to work).
+   *  Set to a users.id to address one person: a to-do handed to them, a DM, a
+   *  message in a room they're in. A staff feed shows ONLY rows addressed to
+   *  them, so this is the single switch that decides whether a team member ever
+   *  sees a given notification. */
+  audienceUserId?: string | null;
 }
 
 const TAG_DEFAULT: Record<NotificationKind, string> = {
@@ -42,8 +49,8 @@ export async function emit(input: EmitInput): Promise<void> {
   try {
     await query(
       `INSERT INTO notifications
-         (kind, tag, accent, icon, title, subline, when_label, flagged, href)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+         (kind, tag, accent, icon, title, subline, when_label, flagged, href, audience_user_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
         input.kind,
         input.tag ?? TAG_DEFAULT[input.kind],
@@ -54,6 +61,7 @@ export async function emit(input: EmitInput): Promise<void> {
         input.whenLabel ?? "Just now",
         input.flagged ?? false,
         input.href ?? null,
+        input.audienceUserId ?? null,
       ],
     );
   } catch (err) {

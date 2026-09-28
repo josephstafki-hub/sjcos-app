@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect, useTransition, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import {
   Filter,
   Mail,
@@ -43,12 +44,13 @@ import {
   loadSystemViewAction,
   linkThread,
   unlinkThread,
+  disconnectMyMailboxAction,
 } from "@/lib/actions/inbox";
 import { runAction } from "@/lib/run-action";
 import type { ThreadChannel, ThreadStatus, SystemViewKey } from "@/lib/types";
 import { SYSTEM_VIEWS } from "@/lib/types";
 import { AI_NAME } from "@/lib/ai-name";
-import type { Audience, InboxData, InboxThread, ThreadReader } from "@/lib/inbox";
+import type { Audience, InboxData, InboxThread, MailboxState, ThreadReader } from "@/lib/inbox";
 
 /** The single active lens over the thread list. Smart view is the default; a
  *  channel, label or project selection temporarily takes over (Gmail-style —
@@ -160,10 +162,13 @@ function MenuItem({
 
 export function InboxClient({
   data,
-  ownerEmail,
+  selfEmail,
 }: {
   data: InboxData;
-  ownerEmail: string;
+  /** The signed-in person's own address — the connected mailbox when there is
+   *  one, else their login email. Used only to prefill Compose's To: field.
+   *  Was `ownerEmail`, which handed Joe's address to every staff login. */
+  selfEmail: string;
 }) {
   const [lens, setLens] = useState<Lens>({
     kind: "view",
@@ -585,6 +590,7 @@ export function InboxClient({
               </button>
             );
           })}
+          <MailboxStrip mailbox={data.mailbox} />
         </div>
 
         {data.labels.length > 0 && (
@@ -714,6 +720,8 @@ export function InboxClient({
                   <X className="size-6 text-flag" strokeWidth={1.5} />
                   <p className="text-[12px] text-flag">{notice}</p>
                 </>
+              ) : !data.mailbox.connected ? (
+                <NoMailboxPrompt mailbox={data.mailbox} />
               ) : (
                 <>
                   <Inbox className="size-6 text-ink-4" strokeWidth={1.5} />
@@ -914,7 +922,7 @@ export function InboxClient({
 
       {composing && (
         <ComposeModal
-          ownerEmail={ownerEmail}
+          selfEmail={selfEmail}
           onClose={() => setComposing(false)}
         />
       )}
@@ -923,13 +931,13 @@ export function InboxClient({
 }
 
 function ComposeModal({
-  ownerEmail,
+  selfEmail,
   onClose,
 }: {
-  ownerEmail: string;
+  selfEmail: string;
   onClose: () => void;
 }) {
-  const [to, setTo] = useState(ownerEmail);
+  const [to, setTo] = useState(selfEmail);
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [error, setError] = useState("");
@@ -1262,6 +1270,85 @@ function ReaderBody({ reader, threadId }: { reader: ThreadReader; threadId: stri
         </div>
         {sent && <p className="mt-1 text-[11px] text-ink-3">Reply sent ✓</p>}
       </div>
+    </>
+  );
+}
+
+
+/** Which mailbox this inbox is reading, pinned under the Channels rail. Before
+ *  staff logins the answer was hardcoded in the rail label as "Email (joe@sjc)",
+ *  which is exactly the kind of detail of Joe's that has no business on someone
+ *  else's account. Now it reports the connected address, and offers the Connect
+ *  / Disconnect controls for a person's own mailbox. */
+function MailboxStrip({ mailbox }: { mailbox: MailboxState }) {
+  const [pending, start] = useTransition();
+  const router = useRouter();
+
+  if (!mailbox.connected) {
+    return (
+      <div className="mt-1 rounded-md border border-dashed border-rule px-2 py-2">
+        <p className="text-[11px] leading-snug text-ink-3">No email connected.</p>
+        {mailbox.canConnect ? (
+          <a
+            href="/api/inbox/oauth/start"
+            className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-accent px-2 py-1 text-[11px] font-semibold text-white hover:bg-accent-2"
+          >
+            <Mail className="size-3" strokeWidth={1.5} /> Connect your email
+          </a>
+        ) : (
+          <p className="mt-1 text-[10.5px] leading-snug text-ink-4">
+            Ask Joe to finish the Gmail app setup first.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-1 px-2 py-1">
+      <p className="truncate text-[10.5px] text-ink-4" title={mailbox.email ?? undefined}>
+        {mailbox.email ?? "Connected"}
+      </p>
+      {mailbox.linked && (
+        <button
+          onClick={() =>
+            start(async () => {
+              await runAction(() => disconnectMyMailboxAction(), {
+                fallback: "Couldn't disconnect.",
+              });
+              router.refresh();
+            })
+          }
+          disabled={pending}
+          className="mt-0.5 text-[10.5px] text-ink-3 underline hover:text-flag disabled:opacity-50"
+        >
+          {pending ? "Disconnecting…" : "Disconnect"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Thread-list body when this account has no mailbox linked. Blank, not the
+ *  demo mock and not Joe's mail (his rule, 2026-09-27: "link able to their
+ *  email otherwise blank"). */
+function NoMailboxPrompt({ mailbox }: { mailbox: MailboxState }) {
+  return (
+    <>
+      <Mail className="size-6 text-ink-4" strokeWidth={1.5} />
+      <p className="text-[12px] text-ink-3">No email connected to this account.</p>
+      {mailbox.canConnect && (
+        <a
+          href="/api/inbox/oauth/start"
+          className="mt-1 inline-flex items-center gap-1 rounded-md bg-accent px-2.5 py-1 text-[11.5px] font-semibold text-white hover:bg-accent-2"
+        >
+          Connect your email
+        </a>
+      )}
+      <p className="max-w-[260px] text-[11px] leading-snug text-ink-4">
+        Texts, portal messages and website forms still show up here — those are
+        the company&apos;s, not one person&apos;s.
+      </p>
     </>
   );
 }

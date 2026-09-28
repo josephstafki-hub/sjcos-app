@@ -33,7 +33,10 @@ type ShellProps = {
  * (Client / Sub portal) use their own chrome and do not wrap in Shell.
  */
 export async function Shell({ children, breadcrumb, aiContext }: ShellProps) {
-  const [user, unread, hdrs] = await Promise.all([getCurrentUser(), getUnreadCount(), headers()]);
+  const [user, hdrs] = await Promise.all([getCurrentUser(), headers()]);
+  // The bell counts THIS account's unread — the owner's company feed, or a team
+  // member's own hand-offs and messages (lib/notifications.ts).
+  const unread = user ? await getUnreadCount(user) : 0;
 
   // Staff area enforcement, against the DB row (not the cookie): proxy.ts
   // already filtered on the token's copy, but a revoked area must bite on the

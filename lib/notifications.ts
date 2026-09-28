@@ -86,28 +86,65 @@ function rowToCard(r: NotificationRow): NotificationCard {
   };
 }
 
+/** WHICH ROWS a given account may see.
+ *
+ *  Owner: the company feed (audience_user_id IS NULL — every business event
+ *  emit() writes) plus anything addressed to him.
+ *
+ *  Staff: addressed to them and nothing else. The company feed is Joe's work
+ *  queue in notification form — new leads, A/R, compliance windows — and a team
+ *  member reading it (never mind clearing it) was the sharpest edge of the one
+ *  shared feed. Their bell starts empty and fills with hand-offs and messages.
+ *
+ *  Portal roles never reach this module; /notifications is behind the Today area. */
+function audienceClause(viewer: FeedViewer, paramIndex: number): string {
+  return viewer.role === "owner"
+    ? `(n.audience_user_id IS NULL OR n.audience_user_id = $${paramIndex})`
+    : `n.audience_user_id = $${paramIndex}`;
+}
+
+/** Just enough of a login to scope the feed. */
+export interface FeedViewer {
+  id: string;
+  role: string;
+}
+
 /** Lightweight unread tally for the topbar bell dot — avoids building the
- *  full feed on every page render. */
-export async function getUnreadCount(): Promise<number> {
+ *  full feed on every page render. Unread is per-user now: a row is read when
+ *  THIS user has a notification_reads entry for it, so Joe clearing his bell
+ *  no longer clears everyone's (and vice versa). */
+export async function getUnreadCount(viewer: FeedViewer): Promise<number> {
   const { rows } = await query<{ n: string }>(
-    `SELECT count(*)::int AS n FROM notifications WHERE read = false`,
+    `SELECT count(*)::int AS n FROM notifications n
+      WHERE ${audienceClause(viewer, 1)}
+        AND NOT EXISTS (
+          SELECT 1 FROM notification_reads r
+           WHERE r.notification_id = n.id AND r.user_id = $1
+        )`,
+    [viewer.id],
   );
   return Number(rows[0]?.n ?? 0);
 }
 
-export async function getNotificationsData(): Promise<NotificationsData> {
+export async function getNotificationsData(viewer: FeedViewer): Promise<NotificationsData> {
   // Derive time-based compliance notifications before reading the feed
   // (idempotent; see lib/notify.ts). Best-effort — never blocks the feed.
-  await syncComplianceNotifications();
+  // Owner-only: these are company compliance windows, and deriving them from a
+  // staff render would write rows nobody in that session can even see.
+  if (viewer.role === "owner") await syncComplianceNotifications();
 
   const { rows } = await query<NotificationRow>(`
-    SELECT id, kind, tag, accent, icon, title, subline, when_label, flagged, href, read,
-           EXTRACT(EPOCH FROM (now() - created_at))::int AS age_seconds,
-           ${sqlAbsoluteLabel("created_at")} AS when_absolute,
-           to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
-    FROM notifications
-    ORDER BY read ASC, created_at DESC
-  `);
+    SELECT n.id, n.kind, n.tag, n.accent, n.icon, n.title, n.subline, n.when_label,
+           n.flagged, n.href,
+           (r.notification_id IS NOT NULL) AS read,
+           EXTRACT(EPOCH FROM (now() - n.created_at))::int AS age_seconds,
+           ${sqlAbsoluteLabel("n.created_at")} AS when_absolute,
+           to_char(n.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
+    FROM notifications n
+    LEFT JOIN notification_reads r ON r.notification_id = n.id AND r.user_id = $1
+    WHERE ${audienceClause(viewer, 1)}
+    ORDER BY read ASC, n.created_at DESC
+  `, [viewer.id]);
   const notifications = rows.map(rowToCard);
 
   return {

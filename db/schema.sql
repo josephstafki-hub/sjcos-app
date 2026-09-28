@@ -230,6 +230,28 @@ ALTER TABLE notifications ADD COLUMN IF NOT EXISTS accent     text;
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS icon       text;
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS when_label text;
 
+-- Who this notification is FOR. NULL = the owner's company feed, which is what
+-- every emit() in lib/notify.ts writes: these are business events (new lead,
+-- money, compliance) that belong to Joe. A staff id here addresses one person —
+-- a to-do handed to them, a DM, a message in a room they're in — and nobody
+-- else sees it. Staff feeds are targeted-only, so a team login never reads the
+-- owner's feed. Migration: db/apply-staff-separation.mjs.
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS audience_user_id uuid
+  REFERENCES users(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS idx_notifications_audience
+  ON notifications (audience_user_id, created_at DESC);
+
+-- Per-user read state. The notifications.read boolean it replaces was global:
+-- a staff member clearing the feed cleared Joe's too. The column is left in
+-- place (harmless, no longer read) so an older build can't crash on a rollback.
+CREATE TABLE IF NOT EXISTS notification_reads (
+  notification_id uuid NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
+  user_id         uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  read_at         timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (notification_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_notification_reads_user ON notification_reads (user_id);
+
 -- ─── Compliance calendar ────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS compliance_items (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -445,15 +467,37 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   author_name     text NOT NULL,
   author_initials text NOT NULL DEFAULT '',
   body            text NOT NULL,
+  -- Which login posted this (NULL for AI posts, portal writes, and every row
+  -- written before staff logins existed). author_kind/author_name stay the
+  -- display truth; this is the identity one, so "is this message mine" is a
+  -- fact rather than a name comparison. Migration: db/apply-staff-separation.mjs.
+  author_user_id  uuid REFERENCES users(id) ON DELETE SET NULL,
   created_at      timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS author_user_id uuid
+  REFERENCES users(id) ON DELETE SET NULL;
 
--- Per-channel last-read marker (single owner for now): unread = messages after
--- last_read_at not authored by the owner.
+-- LEGACY, no longer read: the single-owner last-read marker. Superseded by
+-- chat_reads_by_user below. Left in place because changing this table's primary
+-- key in a migration would have broken the running site's markRead() until the
+-- next deploy (see db/apply-staff-separation.mjs), and a dead table is cheaper
+-- than that coupling.
 CREATE TABLE IF NOT EXISTS chat_reads (
   channel_key   text PRIMARY KEY,
   last_read_at  timestamptz NOT NULL DEFAULT now()
 );
+
+-- Per-channel, PER-USER last-read marker: unread = messages in that channel
+-- after this user's last_read_at that this user didn't write. The one marker
+-- chat_reads held was global, so a staff member opening #safety cleared Joe's
+-- badge too. Backfilled from chat_reads for the owner.
+CREATE TABLE IF NOT EXISTS chat_reads_by_user (
+  channel_key   text NOT NULL,
+  user_id       uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  last_read_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (channel_key, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_chat_reads_by_user_user ON chat_reads_by_user (user_id);
 
 -- Channel membership: which subs (trade partners) are in a channel/room. The
 -- owner is an implicit member of every channel and is NOT stored. AI models are
@@ -522,8 +566,17 @@ CREATE TABLE IF NOT EXISTS team_members (
   name       text NOT NULL,
   role_label text NOT NULL DEFAULT '',
   active     boolean NOT NULL DEFAULT true,
+  -- The login this roster entry IS, once they have one (owner included). Set,
+  -- the person can sign in and hold up their own end of a DM; NULL, they are
+  -- still display-only, exactly as before. Unique so two roster rows can never
+  -- claim the same account. Migration: db/apply-staff-separation.mjs.
+  user_id    uuid REFERENCES users(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE team_members ADD COLUMN IF NOT EXISTS user_id uuid
+  REFERENCES users(id) ON DELETE SET NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_team_members_user
+  ON team_members (user_id) WHERE user_id IS NOT NULL;
 
 -- Independent per-channel team membership (P1-D1), symmetric with chat_members
 -- (subs) and chat_ai_members (AI): team members are added to a channel/room on
@@ -1828,6 +1881,37 @@ CREATE INDEX IF NOT EXISTS idx_work_items_created   ON work_items(created_at DES
 -- NULL on a detector item = still awaiting enrichment (see the
 -- needs_enrichment filter on list_work_items in mcp/sjcos-mcp.mjs).
 ALTER TABLE work_items ADD COLUMN IF NOT EXISTS enriched_at timestamptz;
+
+-- WHICH PERSON owns this to-do. NULL = the owner (Joe) — the default for every
+-- row that existed before staff logins, and for everything agents and detectors
+-- file. Orthogonal to assignee_kind/assignee_key, which say whether a human or
+-- a named bot runtime does the work: a to-do can be assigned_user_id = Marco
+-- and assignee_kind = 'human' at once.
+--
+-- Joe's Today shows every human to-do, handed off or not, with an "Assigned to
+-- <name>" line on the ones that are (his rule, 2026-09-27: "it'll always remain
+-- on mine, but will list prominently who it's assigned to"). A staff member's
+-- Today shows only rows where assigned_user_id is theirs. Only the owner may
+-- change it. Migration: db/apply-staff-separation.mjs.
+ALTER TABLE work_items ADD COLUMN IF NOT EXISTS assigned_user_id uuid
+  REFERENCES users(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_work_items_assigned_user
+  ON work_items (assigned_user_id, status);
+
+-- Per-user linked mailbox. Until staff logins there was one Gmail account, its
+-- refresh token in GMAIL_REFRESH_TOKEN, and every login saw Joe's mail. A row
+-- here is that user's own mailbox and wins over the env var; the env var
+-- remains the OWNER's fallback, so an owner with no row keeps the mailbox live
+-- prod is already connected to. No row and no fallback = a blank Email rail
+-- with a Connect button (Joe, 2026-09-27: "link able to their email otherwise
+-- blank"). Automation (detectors, cron sweeps, MCP send_email) is not inside
+-- any user's request, so it always resolves to the owner's mailbox.
+CREATE TABLE IF NOT EXISTS user_email_accounts (
+  user_id       uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  email         text NOT NULL,
+  refresh_token text NOT NULL,
+  connected_at  timestamptz NOT NULL DEFAULT now()
+);
 
 -- ─── Detector state (W1) ────────────────────────────────────────────────────
 -- One row per condition a deterministic detector (lib/detectors.ts) has ever

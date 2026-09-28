@@ -42,6 +42,17 @@ export function WaitingList() {
             ) : (
               <span className="min-w-0 flex-1 text-[12px] text-ink-2">{item.label}</span>
             )}
+            {/* A handed-off to-do stays in Joe's backlog, so the name has to
+                ride along here too — otherwise the only place it shows is the
+                Priorities card, and it looks like his own work. */}
+            {item.assignedTo && (
+              <span
+                title={`Assigned to ${item.assignedTo.name}`}
+                className="flex-none rounded bg-accent-soft px-1 font-mono text-[9.5px] font-semibold text-accent-2"
+              >
+                {item.assignedTo.initials}
+              </span>
+            )}
           </div>
         );
       })}

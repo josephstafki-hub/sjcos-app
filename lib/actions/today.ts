@@ -1,11 +1,13 @@
 "use server";
 
-import { requireAccess } from "@/lib/dal";
+import { revalidatePath } from "next/cache";
+import { requireAccess, requireRole } from "@/lib/dal";
 import { ai } from "@/lib/ai";
 import { query, queryOne } from "@/lib/db";
 import { maybeAdvanceRunbook } from "@/lib/runbook-engine";
+import { emit } from "@/lib/notify";
 import {
-  OPEN_WORK_ITEMS_SQL,
+  openWorkItemsSql,
   OPEN_WORK_ITEMS_ORDER_SQL,
   workItemCandidate,
   getQueueSnapshot,
@@ -59,7 +61,8 @@ export interface PrioritySwapResult {
  *  page reload. If the item isn't done yet, the caller should just navigate
  *  to its href as normal. */
 export async function checkPriorityCompletion(workItemId: string): Promise<PrioritySwapResult> {
-  await requireAccess("today");
+  const user = await requireAccess("today");
+  if (!(await mayWorkItem(user, workItemId))) return { completed: false, next: null };
 
   const { rows } = await query<{ status: string }>(
     `SELECT status FROM work_items WHERE id = $1`,
@@ -70,16 +73,40 @@ export async function checkPriorityCompletion(workItemId: string): Promise<Prior
     return { completed: false, next: null };
   }
 
+  // promoted_at is the owner's 5-slot rail (db/schema.sql). A staff member's
+  // rail is just the top of their own backlog, so there is no slot to backfill
+  // and nothing of Joe's to write.
+  if (user.role !== "owner") return { completed: true, next: null };
+
+  const backlog = openWorkItemsSql(user);
   const { rows: nextRows } = await query<TodayWorkItemRow>(
-    `${OPEN_WORK_ITEMS_SQL}
+    `${backlog.sql}
        AND w.promoted_at IS NULL
        AND (w.snoozed_until IS NULL OR w.snoozed_until <= now())${OPEN_WORK_ITEMS_ORDER_SQL} LIMIT 1`,
+    backlog.params,
   );
   const nextRow = nextRows[0];
   if (!nextRow) return { completed: true, next: null };
 
   await query(`UPDATE work_items SET promoted_at = now() WHERE id = $1`, [nextRow.id]);
   return { completed: true, next: workItemCandidate(nextRow) };
+}
+
+/** May this person act on this to-do at all? The owner may act on any; a staff
+ *  member only on one assigned to them. Without this a card id lifted from
+ *  someone else's queue would let a team member close Joe's work — the ids
+ *  arrive from the client, so the check has to be here and not just in the
+ *  query that built the card. */
+async function mayWorkItem(
+  user: { id: string; role: string },
+  workItemId: string,
+): Promise<boolean> {
+  if (user.role === "owner") return true;
+  const row = await queryOne<{ one: number }>(
+    `SELECT 1 AS one FROM work_items WHERE id = $1 AND assigned_user_id = $2`,
+    [workItemId, user.id],
+  );
+  return Boolean(row);
 }
 
 // ─── Today feed chip actions (Phase 2) ───────────────────────────────────────
@@ -91,15 +118,15 @@ export async function checkPriorityCompletion(workItemId: string): Promise<Prior
 
 /** Re-read the live Priorities + Waiting queue (no schedule/brief/header). */
 export async function refreshTodayQueue(): Promise<QueueSnapshot> {
-  await requireAccess("today");
-  return getQueueSnapshot();
+  return getQueueSnapshot(await requireAccess("today"));
 }
 
 /** Owner clicked "Mark done" on a card. Marks the work_item done and returns
  *  the fresh queue (the freed slot backfills inside getQueueSnapshot). Skips
  *  the write if the item is already done/cancelled. */
 export async function completeTodayItem(workItemId: string): Promise<QueueSnapshot> {
-  await requireAccess("today");
+  const user = await requireAccess("today");
+  if (!(await mayWorkItem(user, workItemId))) return getQueueSnapshot(user);
   const cur = await queryOne<{ status: string }>(
     `SELECT status FROM work_items WHERE id = $1`,
     [workItemId],
@@ -112,7 +139,7 @@ export async function completeTodayItem(workItemId: string): Promise<QueueSnapsh
     );
     await maybeAdvanceRunbook(workItemId); // W6: no-op unless this is a runbook step
   }
-  return getQueueSnapshot();
+  return getQueueSnapshot(user);
 }
 
 /** Owner clicked "Snooze 3d". Pushes due_at out, sets snoozed_until so the
@@ -121,7 +148,8 @@ export async function completeTodayItem(workItemId: string): Promise<QueueSnapsh
  *  backfills from the rest of the backlog. No-op write if the item is already
  *  done/cancelled. */
 export async function snoozeTodayItem(workItemId: string, days = 3): Promise<QueueSnapshot> {
-  await requireAccess("today");
+  const user = await requireAccess("today");
+  if (!(await mayWorkItem(user, workItemId))) return getQueueSnapshot(user);
   const n = Math.min(30, Math.max(1, Math.round(days)));
   await query(
     `UPDATE work_items
@@ -132,5 +160,65 @@ export async function snoozeTodayItem(workItemId: string, days = 3): Promise<Que
       WHERE id = $1 AND status NOT IN ('done','cancelled')`,
     [workItemId, n],
   );
-  return getQueueSnapshot();
+  return getQueueSnapshot(user);
+}
+
+// ─── Assignment (owner only) ─────────────────────────────────────────────────
+
+/** Hand a to-do to a team member, or take it back (userId null = the owner's
+ *  own). Owner-only by requireRole, not requireAccess: holding the Today area
+ *  lets you work your queue, never re-deal someone else's (Joe, 2026-09-27 —
+ *  "my account will be the one that is able to do that").
+ *
+ *  The card stays on Joe's Today either way; what changes is whose Today it
+ *  ALSO appears on, and the "Assigned to <name>" line. The assignee gets a
+ *  notification addressed to them so a hand-off isn't silent. */
+export async function assignTodayItem(
+  workItemId: string,
+  userId: string | null,
+): Promise<QueueSnapshot> {
+  const owner = await requireRole("owner");
+
+  // Only an active internal login can hold a to-do — never a sub or client
+  // portal account, and never a deactivated one.
+  if (userId) {
+    const ok = await queryOne<{ name: string }>(
+      `SELECT name FROM users WHERE id = $1 AND active AND role IN ('owner','staff')`,
+      [userId],
+    );
+    if (!ok) return getQueueSnapshot(owner);
+  }
+
+  const row = await queryOne<{ title: string; assigned_user_id: string | null }>(
+    `SELECT title, assigned_user_id FROM work_items WHERE id = $1`,
+    [workItemId],
+  );
+  if (!row) return getQueueSnapshot(owner);
+
+  // Storing the owner's own id would work, but NULL is what every other writer
+  // (detectors, MCP, runbooks) leaves behind for "Joe's", so keep one spelling.
+  const next = userId && userId !== owner.id ? userId : null;
+  if (next === row.assigned_user_id) return getQueueSnapshot(owner);
+
+  await query(
+    `UPDATE work_items SET assigned_user_id = $2, updated_at = now() WHERE id = $1`,
+    [workItemId, next],
+  );
+
+  if (next) {
+    await emit({
+      kind: "job",
+      tag: "Assigned",
+      accent: "accent",
+      icon: "star",
+      title: `Joe assigned you: ${row.title}`,
+      subline: "It's on your Today now.",
+      href: "/today",
+      audienceUserId: next,
+    });
+  }
+
+  revalidatePath("/today");
+  revalidatePath("/engine");
+  return getQueueSnapshot(owner);
 }

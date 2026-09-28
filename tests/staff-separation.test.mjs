@@ -9,10 +9,14 @@
 //   teamDmParties()       owner↔person form has to stay byte-identical to the
 //                         pre-existing `dm:team:<slug>` keys, or every existing
 //                         DM transcript is orphaned.
+//   resolveMailbox()    — whose email. Wrong one way it hands Joe's mail to a
+//                         team member; wrong the other it breaks every
+//                         background send, which runs on the env token.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { openWorkItemsSql } from "../lib/queue-scope.ts";
 import { internalDmKey, teamDmParties, dmTeamKey } from "../lib/dm-keys.ts";
+import { resolveMailbox } from "../lib/mailbox-rule.ts";
 
 const OWNER = { id: "owner-1", name: "Joseph Stafki", role: "owner" };
 const STAFF = { id: "staff-1", name: "Marco Rivas", role: "staff" };
@@ -91,5 +95,50 @@ test("every internal DM key stays inside the dm:team: namespace", () => {
   for (const k of keys) {
     assert.ok(k.startsWith("dm:team:"), k);
     assert.ok(k.includes(":"), k);
+  }
+});
+
+// ─── Whose mailbox ───────────────────────────────────────────────────────────
+
+const ENV = { refreshToken: "env-token", accountEmail: "joe@sjcarpentryllc.com" };
+
+test("a linked mailbox wins for anyone, owner included", () => {
+  const linked = { email: "marco@sjcarpentryllc.com", refresh_token: "marco-token" };
+  for (const viewer of [OWNER, STAFF]) {
+    const mb = resolveMailbox(viewer, linked, ENV);
+    assert.equal(mb.refreshToken, "marco-token");
+    assert.equal(mb.email, "marco@sjcarpentryllc.com");
+    assert.equal(mb.linked, true, "linked = they may disconnect it");
+  }
+});
+
+test("owner with nothing linked falls back to the env token", () => {
+  // The account live prod is already wired to, and the same token the
+  // background jobs and MCP sends use. An existing owner must not have to
+  // re-authorize anything for this change.
+  const mb = resolveMailbox(OWNER, null, ENV);
+  assert.equal(mb.refreshToken, "env-token");
+  assert.equal(mb.linked, false, "not linked — so no Disconnect is offered");
+});
+
+test("staff with nothing linked get NOTHING — never the owner's mailbox", () => {
+  const mb = resolveMailbox(STAFF, null, ENV);
+  assert.equal(mb.refreshToken, null);
+  assert.equal(mb.email, null);
+  assert.equal(mb.userId, STAFF.id);
+});
+
+test("owner with no env token and no row also gets nothing", () => {
+  // Fresh dev box: the blank state, not a crash and not the demo mock standing
+  // in for a real mailbox.
+  assert.equal(resolveMailbox(OWNER, null, {}).refreshToken, null);
+});
+
+test("the mailbox always records whose it is", () => {
+  // lib/mailbox.ts's re-entrancy check compares userId; a null here would make
+  // an inner scope silently re-resolve.
+  for (const v of [OWNER, STAFF]) {
+    assert.equal(resolveMailbox(v, null, ENV).userId, v.id);
+    assert.equal(resolveMailbox(v, { email: "x@y.z", refresh_token: "t" }, ENV).userId, v.id);
   }
 });

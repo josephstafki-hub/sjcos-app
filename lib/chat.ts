@@ -230,7 +230,20 @@ function clockTime(d: Date): string {
   return `${h}:${m}${ap}`;
 }
 
-function rowToMessage(r: MessageRow, viewerId: string): ChatMessage {
+/** Did THIS viewer write this message?
+ *
+ *  author_user_id is the answer for anything written since staff logins. Every
+ *  row that predates them has it NULL, and an `owner`-kind row among those was
+ *  Joe's by definition — the migration backfills them, and this covers any that
+ *  slip through (or any writer that forgets the column). Without it Joe's own
+ *  history, including his replies in client portal threads, would come back as
+ *  unread against him. */
+function isMine(r: { author_user_id: string | null; author_kind: MessageKind }, viewer: ChatViewer): boolean {
+  if (r.author_user_id) return r.author_user_id === viewer.id;
+  return r.author_kind === "owner" && viewer.role === "owner";
+}
+
+function rowToMessage(r: MessageRow, viewer: ChatViewer): ChatMessage {
   return {
     initials: r.author_initials || (r.author_kind === "ai" ? "AI" : "?"),
     name: r.author_name,
@@ -238,7 +251,7 @@ function rowToMessage(r: MessageRow, viewerId: string): ChatMessage {
     text: r.body,
     kind: r.author_kind,
     system: r.author_kind === "ai",
-    mine: r.author_user_id === viewerId,
+    mine: isMine(r, viewer),
   };
 }
 
@@ -291,7 +304,7 @@ function buildView(
       month: "short",
       day: "numeric",
     })}`,
-    messages: rows.map((r) => rowToMessage(r, viewer.id)),
+    messages: rows.map((r) => rowToMessage(r, viewer)),
   };
 }
 
@@ -322,7 +335,7 @@ function buildDmView(
       month: "short",
       day: "numeric",
     })}`,
-    messages: rows.map((r) => rowToMessage(r, viewer.id)),
+    messages: rows.map((r) => rowToMessage(r, viewer)),
   };
 }
 
@@ -461,7 +474,7 @@ export async function getChatData(viewer: ChatViewer): Promise<ChatData> {
   const unreadFor = (key: string): number => {
     const since = lastRead.get(key);
     return (byChannel.get(key) ?? []).filter(
-      (r) => r.author_user_id !== viewer.id && (!since || new Date(r.created_at) > since),
+      (r) => !isMine(r, viewer) && (!since || new Date(r.created_at) > since),
     ).length;
   };
 
@@ -694,7 +707,20 @@ export async function getUnreadChatCount(userId: string): Promise<number> {
     `SELECT count(*) AS n
        FROM chat_messages m
        LEFT JOIN chat_reads_by_user r ON r.channel_key = m.channel_key AND r.user_id = $1
-      WHERE (m.author_user_id IS NULL OR m.author_user_id <> $1)
+      -- "Not mine" — see isMine() above. The second arm keeps Joe's pre-staff
+      -- history (his portal replies especially) from counting against him.
+      --
+      -- IS NOT DISTINCT FROM rather than plain equality: author_user_id is NULL
+      -- on every message written before the column existed, and on every
+      -- client/sub portal post. Comparing NULL with = yields NULL, so a plain
+      -- NOT(...) around it evaluates to NULL and the row is dropped — which
+      -- silently emptied the badge of exactly the client messages it exists to
+      -- surface (21 to 0 on Joe's real data).
+      WHERE NOT (
+              m.author_user_id IS NOT DISTINCT FROM $1::uuid
+              OR (m.author_user_id IS NULL AND m.author_kind = 'owner'
+                  AND EXISTS (SELECT 1 FROM users o WHERE o.id = $1 AND o.role = 'owner'))
+            )
         AND (r.last_read_at IS NULL OR m.created_at > r.last_read_at)
         AND NOT EXISTS (
           SELECT 1 FROM chat_channels c

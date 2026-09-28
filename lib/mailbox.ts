@@ -1,6 +1,10 @@
 import "server-only";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { query, queryOne } from "./db";
+import { resolveMailbox, type Mailbox, type MailboxViewer } from "./mailbox-rule";
+
+export { resolveMailbox };
+export type { Mailbox, MailboxViewer };
 
 // WHOSE MAILBOX a Gmail call is acting on.
 //
@@ -27,17 +31,6 @@ import { query, queryOne } from "./db";
 // owner — so Joe can re-link from the UI — but the env var stays his fallback,
 // which is what keeps live prod connected through this change with no re-auth.
 
-export interface Mailbox {
-  /** Google refresh token, or null when this user has nothing linked. */
-  refreshToken: string | null;
-  /** The address it belongs to, for display. Null when nothing is linked. */
-  email: string | null;
-  /** users.id whose mailbox this is, or null for the company/env default. */
-  userId: string | null;
-  /** True when the token came from user_email_accounts rather than the env. */
-  linked: boolean;
-}
-
 const store = new AsyncLocalStorage<Mailbox>();
 
 /** The mailbox for the call in progress, or undefined outside any scope (i.e.
@@ -51,34 +44,18 @@ export function runWithMailbox<T>(mb: Mailbox, fn: () => Promise<T>): Promise<T>
   return store.run(mb, fn);
 }
 
-/** Just enough of a login to resolve a mailbox. Deliberately structural rather
- *  than an import of CurrentUser: lib/gmail.ts depends on this module, and
- *  lib/dal reaches for next/headers, which has no business in that chain. */
-export interface MailboxViewer {
-  id: string;
-  role: string;
-}
 
-/** The mailbox a given login acts through. Staff get theirs or nothing; the
- *  owner gets theirs, falling back to the env token so an owner who has never
- *  used the Connect button still reads the mailbox prod is wired to. */
+
+/** The mailbox a given login acts through — resolveMailbox() over their row. */
 export async function mailboxFor(viewer: MailboxViewer): Promise<Mailbox> {
   const row = await queryOne<{ email: string; refresh_token: string }>(
     `SELECT email, refresh_token FROM user_email_accounts WHERE user_id = $1`,
     [viewer.id],
   );
-  if (row) {
-    return { refreshToken: row.refresh_token, email: row.email, userId: viewer.id, linked: true };
-  }
-  if (viewer.role === "owner" && process.env.GMAIL_REFRESH_TOKEN) {
-    return {
-      refreshToken: process.env.GMAIL_REFRESH_TOKEN,
-      email: process.env.GMAIL_ACCOUNT_EMAIL ?? null,
-      userId: viewer.id,
-      linked: false,
-    };
-  }
-  return { refreshToken: null, email: null, userId: viewer.id, linked: false };
+  return resolveMailbox(viewer, row, {
+    refreshToken: process.env.GMAIL_REFRESH_TOKEN,
+    accountEmail: process.env.GMAIL_ACCOUNT_EMAIL,
+  });
 }
 
 /** Enter `viewer`'s mailbox for the duration of `fn`. Re-entrant: if a scope is

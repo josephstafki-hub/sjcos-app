@@ -83,12 +83,26 @@ const STATEMENTS = [
      PRIMARY KEY (channel_key, user_id)
    )`,
   `CREATE INDEX IF NOT EXISTS idx_chat_reads_by_user_user ON chat_reads_by_user (user_id)`,
+  // Every message written before this column existed has it NULL. The
+  // `owner`-kind ones were Joe's — most visibly his replies in client portal
+  // threads — so claim them, or they come back as unread against him.
+  `UPDATE chat_messages SET author_user_id = (
+     SELECT id FROM users WHERE role = 'owner' ORDER BY created_at LIMIT 1
+   ) WHERE author_user_id IS NULL AND author_kind = 'owner'`,
   // Existing markers were the owner's — carry them over so his badges don't all
   // light up on the first render after the deploy.
   `INSERT INTO chat_reads_by_user (channel_key, user_id, last_read_at)
      SELECT r.channel_key, u.id, r.last_read_at
        FROM chat_reads r CROSS JOIN users u
       WHERE u.role = 'owner'
+   ON CONFLICT (channel_key, user_id) DO NOTHING`,
+  // Staff had no marker of their own (there was only one, and it was the
+  // owner's), so without this an existing team member opens chat to a badge
+  // counting every message ever posted in a channel they can see. Start them
+  // from now: they have not missed anything they could act on.
+  `INSERT INTO chat_reads_by_user (channel_key, user_id, last_read_at)
+     SELECT c.key, u.id, now() FROM chat_channels c CROSS JOIN users u
+      WHERE u.role = 'staff' AND u.active AND c.archived_at IS NULL
    ON CONFLICT (channel_key, user_id) DO NOTHING`,
 
   // ── 4. Chat roster ↔ login ─────────────────────────────────────────────

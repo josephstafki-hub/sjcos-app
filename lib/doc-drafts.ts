@@ -26,8 +26,11 @@ import { getTemplate, listTemplates, templateManifest } from "./doc-templates/re
 import { renderTemplatePdf, renderTemplateDocx, type SignatureStamp } from "./doc-render";
 import {
   resolveAutoFields,
+  resolveEstimateLineFields,
   applyFieldEdits,
   validateForRender,
+  estimateLinesChanged,
+  ESTIMATE_LINE_FIELDS,
   type FillScope,
   type Actor,
   type FillReport,
@@ -61,6 +64,8 @@ export interface DraftRow {
   pdf_file_id: string | null;
   docx_file_id: string | null;
   signature_request_id: number | null;
+  /** The estimate a Formal Estimate (or Contract) was generated from. */
+  estimate_id: number | null;
   created_via: string;
   created_at?: Date;
   sig_signer_name?: string | null;
@@ -79,6 +84,8 @@ export interface DraftView extends DraftRow {
   signedAtLabel: string | null;
   sentAtLabel: string | null;
   declineReason: string | null;
+  /** Formal Estimate only: the estimate's lines no longer match this copy. */
+  lines_changed: boolean;
 }
 
 // Joined so each draft carries its own signing history — the "signed" label
@@ -86,7 +93,7 @@ export interface DraftView extends DraftRow {
 const DRAFT_SELECT = `
   d.id, d.project_id, d.lead_slug, d.template_key, d.template_version, d.title,
   d.field_values, d.fill_report, d.status, d.client_visible, d.pdf_file_id, d.docx_file_id,
-  d.signature_request_id, d.created_via, d.created_at,
+  d.signature_request_id, d.estimate_id, d.created_via, d.created_at,
   sr.signer_name AS sig_signer_name, sr.signed_name AS sig_signed_name,
   sr.signed_at AS sig_signed_at, sr.sent_at AS sig_sent_at,
   sr.decline_reason AS sig_decline_reason`;
@@ -103,10 +110,37 @@ async function loadDraft(id: number): Promise<DraftRow | null> {
     [id],
   );
   if (!r) return null;
-  return { ...r, id: Number(r.id) };
+  return normalize(r);
 }
 
-function viewOf(draft: DraftRow): DraftView {
+/** pg returns bigint columns as strings. */
+function normalize(r: DraftRow): DraftRow {
+  return { ...r, id: Number(r.id), estimate_id: r.estimate_id == null ? null : Number(r.estimate_id) };
+}
+
+/** A Formal Estimate copy made from an estimate: its lines, subtotal and total
+ *  always come from that estimate (ESTIMATE_LINE_FIELDS). Null for any other
+ *  draft, or once the estimate is deleted. */
+function linkedEstimateId(d: DraftRow): number | null {
+  return d.template_key === "estimate_doc" && d.estimate_id ? d.estimate_id : null;
+}
+
+/** Does this Formal Estimate copy still match its estimate's lines? Voided
+ *  copies are history and never flagged. `cache` shares one lookup per estimate
+ *  across a list. */
+async function linesChanged(d: DraftRow, cache = new Map<number, Promise<FieldValues | null>>()): Promise<boolean> {
+  const estimateId = linkedEstimateId(d);
+  if (!estimateId || d.status === "void") return false;
+  if (!cache.has(estimateId)) cache.set(estimateId, resolveEstimateLineFields(estimateId));
+  const current = await cache.get(estimateId)!;
+  return !!current && estimateLinesChanged(d.field_values, current);
+}
+
+const LINES_CHANGED_ERROR =
+  "The estimate's lines changed since this PDF was made. Update the PDF so it has the current lines " +
+  "(Update PDF in the app, or render_document_draft), check it, then try again.";
+
+function viewOf(draft: DraftRow, lines_changed = false): DraftView {
   const template = getTemplate(draft.template_key);
   const missing = template ? validateForRender(template, draft.field_values).missing : [];
   return {
@@ -119,6 +153,7 @@ function viewOf(draft: DraftRow): DraftView {
     signedAtLabel: dateLabel(draft.sig_signed_at),
     sentAtLabel: dateLabel(draft.sig_sent_at),
     declineReason: draft.sig_decline_reason ?? null,
+    lines_changed,
   };
 }
 
@@ -330,8 +365,8 @@ export async function createDocDraft(
   const ins = await queryOne<{ id: string }>(
     `INSERT INTO document_drafts
        (project_id, lead_slug, template_key, template_version, title, field_values,
-        fill_report, status, created_by, created_via)
-     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,'draft',$8,$9)
+        fill_report, status, created_by, created_via, estimate_id)
+     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,'draft',$8,$9,$10)
      RETURNING id`,
     [
       projectId,
@@ -343,6 +378,7 @@ export async function createDocDraft(
       JSON.stringify(fillReport),
       opts.createdBy ?? null,
       opts.createdVia ?? "app",
+      scope.estimateId ?? null,
     ],
   );
   const id = Number(ins!.id);
@@ -354,7 +390,7 @@ export async function createDocDraft(
 
 export async function getDocDraft(id: number): Promise<DraftView | null> {
   const d = await loadDraft(id);
-  return d ? viewOf(d) : null;
+  return d ? viewOf(d, await linesChanged(d)) : null;
 }
 
 export async function listDocDrafts(scope: { slug?: string; leadSlug?: string }): Promise<DraftView[]> {
@@ -377,7 +413,13 @@ export async function listDocDrafts(scope: { slug?: string; leadSlug?: string })
   } else {
     return [];
   }
-  return rows.map((d) => viewOf({ ...d, id: Number(d.id) }));
+  const cache = new Map<number, Promise<FieldValues | null>>();
+  return Promise.all(
+    rows.map(async (r) => {
+      const d = normalize(r);
+      return viewOf(d, await linesChanged(d, cache));
+    }),
+  );
 }
 
 // ─── Update fields ───────────────────────────────────────────────────────────
@@ -403,13 +445,22 @@ export async function updateDocDraftFields(
   const template = getTemplate(draft.template_key);
   if (!template) return { ok: false, error: `Unknown template '${draft.template_key}'.` };
 
-  const { values, fillReport, rejected } = applyFieldEdits(
-    template,
-    draft.field_values,
-    draft.fill_report,
-    edits,
-    actor,
-  );
+  // A Formal Estimate copy's lines and totals come from the estimate — an edit
+  // here would be overwritten at the next render, so refuse it up front.
+  const locked: Record<string, string> = {};
+  if (linkedEstimateId(draft)) {
+    edits = { ...edits };
+    for (const k of ESTIMATE_LINE_FIELDS) {
+      if (k in edits) {
+        delete edits[k];
+        locked[k] = `comes from the estimate's lines — change the lines on estimate #${draft.estimate_id} instead`;
+      }
+    }
+  }
+
+  const applied = applyFieldEdits(template, draft.field_values, draft.fill_report, edits, actor);
+  const { values, fillReport } = applied;
+  const rejected = { ...applied.rejected, ...locked };
 
   // A rendered draft whose values changed becomes stale (re-render replaces files).
   // An AI edit also refreshes the W5 snapshot — the baseline the signature-submit
@@ -442,14 +493,30 @@ export async function renderDocDraft(id: number): Promise<RenderResult | (DraftE
   const template = getTemplate(draft.template_key);
   if (!template) return { ok: false, error: `Unknown template '${draft.template_key}'.` };
 
-  const check = validateForRender(template, draft.field_values);
+  // A Formal Estimate copy is printed from the estimate's CURRENT lines, so
+  // every render — Save & preview, Update PDF, render_document_draft — brings
+  // line changes in. Not once it's out for signature or signed: that copy is
+  // what the client saw (Edit unlocks it first).
+  let values = draft.field_values;
+  let fillReport = draft.fill_report;
+  const estimateId = linkedEstimateId(draft);
+  if (estimateId && (draft.status === "draft" || draft.status === "rendered")) {
+    const current = await resolveEstimateLineFields(estimateId);
+    if (current) {
+      values = { ...values, ...current };
+      fillReport = { ...fillReport };
+      for (const k of ESTIMATE_LINE_FIELDS) fillReport[k] = "auto";
+    }
+  }
+
+  const check = validateForRender(template, values);
   if (!check.ok) {
     return { ok: false, error: `Still need: ${check.missing.join(", ")}.`, missing: check.missing };
   }
 
   const slug = await projectSlug(draft.project_id);
   const tagBase = template.title.toUpperCase();
-  const pdf = await renderTemplatePdf(template, draft.field_values);
+  const pdf = await renderTemplatePdf(template, values);
   const pdfStored = await storeBuffer(pdf, {
     filename: `${draft.title}.pdf`,
     mime: "application/pdf",
@@ -460,7 +527,7 @@ export async function renderDocDraft(id: number): Promise<RenderResult | (DraftE
   });
   if (!pdfStored.ok) return { ok: false, error: pdfStored.error };
 
-  const docx = await renderTemplateDocx(template, draft.field_values);
+  const docx = await renderTemplateDocx(template, values);
   const docxStored = await storeBuffer(docx, {
     filename: `${draft.title}.docx`,
     mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -474,10 +541,11 @@ export async function renderDocDraft(id: number): Promise<RenderResult | (DraftE
   await query(
     `UPDATE document_drafts
         SET pdf_file_id = $2, docx_file_id = $3, template_version = $4,
+            field_values = $5::jsonb, fill_report = $6::jsonb,
             status = CASE WHEN status IN ('draft','rendered') THEN 'rendered' ELSE status END,
             updated_at = now()
       WHERE id = $1`,
-    [id, pdfStored.id, docxId, template.version],
+    [id, pdfStored.id, docxId, template.version, JSON.stringify(values), JSON.stringify(fillReport)],
   );
   return { ok: true, pdfFileId: pdfStored.id, docxFileId: docxId ?? "" };
 }
@@ -632,6 +700,7 @@ export async function submitDocDraftForSignature(
   if (!draft.pdf_file_id || draft.status !== "rendered") {
     return { ok: false, error: "Render the draft before submitting it for signature." };
   }
+  if (await linesChanged(draft)) return { ok: false, error: LINES_CHANGED_ERROR };
   const docType = DOC_TYPE_BY_TEMPLATE[draft.template_key];
   if (!docType) return { ok: false, error: `Template '${draft.template_key}' is not signable.` };
 
@@ -642,12 +711,13 @@ export async function submitDocDraftForSignature(
   // must all be complete before a contract goes out, unless overridden.
   if (draft.template_key === "contract" && slug && !override) {
     const gate = await getApprovalGate(slug);
-    // contract_number is stamped "SJC-C-{slug}-{estimateId}" at draft-create
-    // time (lib/doc-templates/fill.ts) — the only surviving link back to the
-    // specific estimate this contract was built from.
+    // The estimate this contract was built from: the stored link, else the
+    // "SJC-C-{slug}-{estimateId}" contract_number stamped at draft-create time
+    // (lib/doc-templates/fill.ts) on drafts made before the link existed.
     const m = /-(\d+)$/.exec(String(draft.field_values.contract_number ?? ""));
-    const est = m
-      ? await queryOne<{ status: string }>(`SELECT status FROM estimates WHERE id = $1`, [Number(m[1])])
+    const fromId = draft.estimate_id ?? (m ? Number(m[1]) : null);
+    const est = fromId
+      ? await queryOne<{ status: string }>(`SELECT status FROM estimates WHERE id = $1`, [fromId])
       : await queryOne<{ status: string }>(
           `SELECT status FROM estimates WHERE project_id = $1 ORDER BY created_at DESC LIMIT 1`,
           [draft.project_id],
@@ -717,10 +787,13 @@ export async function submitDocDraftForSignature(
     [id],
   );
   if (snap?.snap) {
-    const diff = materialDiff(
-      fieldValuesText(snap.snap),
-      fieldValuesText(draft.field_values as Record<string, unknown>),
-    );
+    // A Formal Estimate copy's lines and totals come from the estimate (every
+    // render pulls them in), not from Joe editing this document — leave them
+    // out, or a line change would read as his edit.
+    const lineFields: readonly string[] = linkedEstimateId(draft) ? ESTIMATE_LINE_FIELDS : [];
+    const edited = (v: Record<string, unknown>) =>
+      fieldValuesText(Object.fromEntries(Object.entries(v).filter(([k]) => !lineFields.includes(k))));
+    const diff = materialDiff(edited(snap.snap), edited(draft.field_values as Record<string, unknown>));
     if (diff) {
       await captureAgentMemory({
         summary: `Joe edited the ${draft.template_key} draft "${draft.title}" before approval`,
@@ -841,6 +914,7 @@ export async function setDocDraftClientVisible(
   if (visible && draft.status === "void") {
     return { ok: false, error: "A voided document can't be published." };
   }
+  if (visible && (await linesChanged(draft))) return { ok: false, error: LINES_CHANGED_ERROR };
   await query(
     `UPDATE document_drafts SET client_visible = $2, updated_at = now() WHERE id = $1`,
     [id, visible],
@@ -902,8 +976,8 @@ export async function cloneDocDraft(
   const ins = await queryOne<{ id: string }>(
     `INSERT INTO document_drafts
        (project_id, lead_slug, template_key, template_version, title, field_values,
-        fill_report, status, created_by, created_via)
-     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,'draft',$8,'app')
+        fill_report, status, created_by, created_via, estimate_id)
+     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,'draft',$8,'app',$9)
      RETURNING id`,
     [
       draft.project_id,
@@ -914,6 +988,7 @@ export async function cloneDocDraft(
       JSON.stringify(draft.field_values),
       JSON.stringify(draft.fill_report),
       createdBy,
+      draft.estimate_id,
     ],
   );
   return { ok: true, id: Number(ins!.id) };

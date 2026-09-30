@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Sparkles, Check, Clock, ArrowUpRight, UserRound } from "lucide-react";
 import { Card } from "@/components/ui";
 import { useTodayQueue } from "./TodayQueueContext";
+import { AssigneePicker } from "./AssigneePicker";
 import type { TodayPriority } from "@/lib/today";
 
 const DOT: Record<string, string> = {
@@ -40,7 +40,6 @@ export function PriorityCard({
   const { busyId, checkingId, complete, snooze, handleCardClick, canAssign, assignees, assign } =
     useTodayQueue();
   const router = useRouter();
-  const [picking, setPicking] = useState(false);
 
   const busy = busyId === p.id || checkingId === p.id;
   const isAllClear = p.id === "all-clear";
@@ -56,9 +55,6 @@ export function PriorityCard({
   // work item can be handed over — the lead/job/schedule signal cards aren't
   // rows anyone can own.
   const showAssign = canAssign && p.checkable && !isAllClear;
-  // The first entry of the roster is the owner (lib/today.ts orders it that
-  // way); his own id is stored as NULL, so it isn't offered as a target.
-  const ownerId = assignees[0]?.userId;
 
   const open = async () => {
     if (!p.href) return;
@@ -85,15 +81,21 @@ export function PriorityCard({
       {/* Who's on it. A handed-off to-do stays on Joe's Today (his rule,
           2026-09-27), so this line is what tells the two apart at a glance —
           deliberately above the chip row and in the accent colour, not a
-          footnote. */}
-      {p.assignedTo && (
+          footnote. It names everyone but the viewer ("Assigned to you &
+          Abigail Stafki"), so a shared to-do never reads as one person's. */}
+      {p.assignment && (
         <div className="mt-1.5 flex items-center gap-1.5">
-          <span className="grid size-[18px] flex-none place-items-center rounded-full bg-accent-soft font-mono text-[9px] font-semibold text-accent-2">
-            {p.assignedTo.initials}
+          <span className="flex flex-none -space-x-1">
+            {p.assignment.others.map((a) => (
+              <span
+                key={a.userId}
+                className="grid size-[18px] place-items-center rounded-full bg-accent-soft font-mono text-[9px] font-semibold text-accent-2 ring-1 ring-paper"
+              >
+                {a.initials}
+              </span>
+            ))}
           </span>
-          <span className="text-[12px] font-semibold text-accent-2">
-            Assigned to {p.assignedTo.name}
-          </span>
+          <span className="text-[12px] font-semibold text-accent-2">{p.assignment.label}</span>
         </div>
       )}
 
@@ -149,74 +151,22 @@ export function PriorityCard({
             </button>
           )}
           {showAssign && (
-            <div className="relative">
-              <button
-                onClick={() => setPicking((v) => !v)}
-                disabled={busy}
-                className="inline-flex items-center gap-1 rounded-md border border-rule bg-paper-2 px-2 py-0.5 text-[11px] font-medium text-ink-3 transition-colors hover:bg-paper disabled:opacity-50"
-              >
-                <UserRound className="size-3" strokeWidth={1.5} />
-                {p.assignedTo ? "Reassign" : "Assign"}
-              </button>
-              {picking && (
-                <div className="absolute left-0 top-full z-20 mt-1 w-[190px] overflow-hidden rounded-md border border-rule bg-paper shadow-lg">
-                  <AssigneeOption
-                    label="Me (Joe)"
-                    initials="—"
-                    selected={!p.assignedTo}
-                    onPick={() => {
-                      setPicking(false);
-                      void assign(p.id, null);
-                    }}
-                  />
-                  {assignees
-                    .filter((a) => a.userId !== ownerId)
-                    .map((a) => (
-                      <AssigneeOption
-                        key={a.userId}
-                        label={a.name}
-                        initials={a.initials}
-                        selected={p.assignedTo?.userId === a.userId}
-                        onPick={() => {
-                          setPicking(false);
-                          void assign(p.id, a.userId);
-                        }}
-                      />
-                    ))}
-                </div>
-              )}
-            </div>
+            <AssigneePicker
+              roster={assignees}
+              assigned={p.assignedTo ?? []}
+              onChange={(ids) => assign(p.id, ids)}
+              disabled={busy}
+              triggerClassName="inline-flex items-center gap-1 rounded-md border border-rule bg-paper-2 px-2 py-0.5 text-[11px] font-medium text-ink-3 transition-colors hover:bg-paper disabled:opacity-50"
+              trigger={
+                <>
+                  <UserRound className="size-3" strokeWidth={1.5} />
+                  {p.assignedTo?.length ? "Reassign" : "Assign"}
+                </>
+              }
+            />
           )}
         </div>
       )}
     </Card>
-  );
-}
-
-/** One row of the card's assignee picker. */
-function AssigneeOption({
-  label,
-  initials,
-  selected,
-  onPick,
-}: {
-  label: string;
-  initials: string;
-  selected: boolean;
-  onPick: () => void;
-}) {
-  return (
-    <button
-      onClick={onPick}
-      className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px] transition-colors hover:bg-paper-2 ${
-        selected ? "font-semibold text-accent-2" : "text-ink-2"
-      }`}
-    >
-      <span className="grid size-[18px] flex-none place-items-center rounded-full bg-paper-3 font-mono text-[9px] text-ink-3">
-        {initials}
-      </span>
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-      {selected && <Check className="size-3 flex-none text-accent-2" strokeWidth={2.5} />}
-    </button>
   );
 }

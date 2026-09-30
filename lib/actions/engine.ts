@@ -6,17 +6,17 @@ import { revalidatePath } from "next/cache";
 import { captureAgentMemory } from "@/lib/agent-memory";
 import { finishApproval } from "@/lib/approve-work-item";
 import type { ApproveResult } from "@/lib/approved-draft-rules";
-import { emit } from "@/lib/notify";
 import { query, queryOne } from "@/lib/db";
 import { requireAccess, requireRole } from "@/lib/dal";
 import { WORK_STATUSES } from "@/lib/engine-constants";
 import { maybeAdvanceRunbook, cancelRunbookInstance } from "@/lib/runbook-engine";
+import { assignNewItem, pickedPeople, setAssignees } from "@/lib/work-item-assign";
 import type { WorkItemStatus } from "@/lib/types";
 
 type Result = { ok: true } | { ok: false; error: string };
 
 export async function createWorkItem(formData: FormData): Promise<Result> {
-  await requireAccess("engine");
+  const me = await requireAccess("engine");
   const title = String(formData.get("title") ?? "").trim();
   if (!title) return { ok: false, error: "Title is required." };
   const body = String(formData.get("body") ?? "").trim();
@@ -26,82 +26,36 @@ export async function createWorkItem(formData: FormData): Promise<Result> {
   const assigneeKind = assigneeKey && assigneeKey !== "human-joe" ? "agent" : "human";
   const dueAt = String(formData.get("due_at") ?? "").trim();
   const expectedSkill = String(formData.get("expected_skill_slug") ?? "").trim() || null;
-  // Who it belongs to. Only the owner may hand a to-do to someone else (Joe,
-  // 2026-09-27), so anyone else's pick is ignored and the row lands unassigned
-  // (= the owner's, the same as every other writer's default).
-  const assignedUserId = await resolveAssignee(formData.get("assigned_user_id"));
+  // Who it's on. Only the owner may put a to-do on someone else (Joe,
+  // 2026-09-27), so anyone else's pick is ignored and the row lands with nobody
+  // on it (= the owner's, the same as every other writer's default).
+  const people =
+    me.role === "owner"
+      ? await pickedPeople(formData.getAll("assigned_user_ids").map(String))
+      : [];
+  if (!people) return { ok: false, error: "Only an active team login can hold a to-do." };
 
-  await query(
+  const created = await queryOne<{ id: string }>(
     `INSERT INTO work_items
-       (title, body, priority, assignee_kind, assignee_key, due_at, expected_skill_slug, source_kind, created_by,
-        assigned_user_id)
-     VALUES ($1,$2,$3,$4,$5, NULLIF($6,'')::timestamptz, $7, 'manual', 'user', $8)`,
-    [title, body, priority, assigneeKind, assigneeKey, dueAt, expectedSkill, assignedUserId],
+       (title, body, priority, assignee_kind, assignee_key, due_at, expected_skill_slug, source_kind, created_by)
+     VALUES ($1,$2,$3,$4,$5, NULLIF($6,'')::timestamptz, $7, 'manual', 'user')
+     RETURNING id`,
+    [title, body, priority, assigneeKind, assigneeKey, dueAt, expectedSkill],
   );
-  if (assignedUserId) await notifyAssignee(assignedUserId, title);
+  if (created) await assignNewItem(created.id, title, people);
   revalidatePath("/engine");
   revalidatePath("/today");
   return { ok: true };
 }
 
-/** Validate an assignee pick from a form: owner-only, must be an active
- *  owner/staff login, and the owner's own id normalizes to NULL so there is one
- *  spelling of "Joe's" across every writer. */
-async function resolveAssignee(raw: FormDataEntryValue | null): Promise<string | null> {
-  const id = String(raw ?? "").trim();
-  if (!id) return null;
-  const me = await requireAccess("engine");
-  if (me.role !== "owner") return null;
-  if (id === me.id) return null;
-  const row = await queryOne<{ id: string }>(
-    `SELECT id FROM users WHERE id = $1 AND active AND role IN ('owner','staff')`,
-    [id],
-  );
-  return row?.id ?? null;
-}
-
-async function notifyAssignee(userId: string, title: string): Promise<void> {
-  await emit({
-    kind: "job",
-    tag: "Assigned",
-    accent: "accent",
-    icon: "star",
-    title: `Joe assigned you: ${title}`,
-    subline: "It's on your Today now.",
-    href: "/today",
-    audienceUserId: userId,
-  });
-}
-
-/** Hand an existing to-do to someone from the /engine board (the Today card's
- *  picker does the same thing — see lib/actions/today.ts assignTodayItem).
- *  Owner-only: holding the Engine area lets you work the queue, not re-deal it. */
-export async function setWorkItemAssignee(
-  id: string,
-  userId: string | null,
-): Promise<Result> {
-  const owner = await requireRole("owner");
-  let next: string | null = null;
-  if (userId && userId !== owner.id) {
-    const row = await queryOne<{ id: string }>(
-      `SELECT id FROM users WHERE id = $1 AND active AND role IN ('owner','staff')`,
-      [userId],
-    );
-    if (!row) return { ok: false, error: "That person can't hold a to-do." };
-    next = row.id;
-  }
-  const cur = await queryOne<{ title: string; assigned_user_id: string | null }>(
-    `SELECT title, assigned_user_id FROM work_items WHERE id = $1`,
-    [id],
-  );
-  if (!cur) return { ok: false, error: "That work item no longer exists." };
-  if (cur.assigned_user_id === next) return { ok: true };
-
-  await query(
-    `UPDATE work_items SET assigned_user_id = $2, updated_at = now() WHERE id = $1`,
-    [id, next],
-  );
-  if (next) await notifyAssignee(next, cur.title);
+/** Put exactly these people on an existing to-do from the /engine board (the
+ *  Today card's picker does the same thing — see lib/actions/today.ts
+ *  assignTodayItem). Empty = back to the owner's own. Owner-only: holding the
+ *  Engine area lets you work the queue, not re-deal it. */
+export async function setWorkItemAssignees(id: string, userIds: string[]): Promise<Result> {
+  await requireRole("owner");
+  const r = await setAssignees(id, userIds);
+  if (!r.ok) return r;
   revalidatePath("/engine");
   revalidatePath("/today");
   return { ok: true };

@@ -125,7 +125,7 @@ export function todayContext(data: TodayData): string {
             `  - [${p.tag}] ${p.title}${p.sub ? ` — ${p.sub}` : ""}` +
             // A handed-off to-do reads as Joe's own work without this, and an
             // agent would answer "you still owe X" about someone else's task.
-            `${p.assignedTo ? ` [assigned to ${p.assignedTo.name}]` : ""}` +
+            `${p.assignment ? ` [${p.assignment.label}]` : ""}` +
             ` (work_item_id: ${p.id})`,
         )
         .join("\n")}`,

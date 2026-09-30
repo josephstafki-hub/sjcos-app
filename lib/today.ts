@@ -14,21 +14,25 @@ import { ai } from "./ai";
 import { query } from "./db";
 import { laneFor, type Lane } from "./today-triage";
 import {
+  describeAssignment,
   isOwner,
   openWorkItemsSql,
   OPEN_WORK_ITEMS_ORDER_SQL,
+  toAssigned,
+  type AssignedTo,
   type QueueViewer,
 } from "./queue-scope";
 import type { ChipKind } from "@/components/ui/Chip";
 
 export { openWorkItemsSql, OPEN_WORK_ITEMS_ORDER_SQL } from "./queue-scope";
-export type { QueueViewer } from "./queue-scope";
+export type { AssignedTo, QueueViewer } from "./queue-scope";
 
-/** Who a to-do has been handed to, when it isn't the owner's own. */
-export interface AssignedTo {
-  userId: string;
-  name: string;
-  initials: string;
+/** The "who's on it" line for one viewer — see describeAssignment(). */
+export interface Assignment {
+  /** "Assigned to Abigail Stafki" / "Assigned to you & Joe Stafki". */
+  label: string;
+  /** Everyone on it except the viewer, for the initials badges. */
+  others: AssignedTo[];
 }
 
 type DotKind = "flag" | "accent" | "ai" | "money" | "ghost";
@@ -50,10 +54,14 @@ export interface TodayPriority {
   lane: Lane;
   /** Where clicking the priority navigates (the source record). */
   href?: string;
-  /** Set when this to-do has been handed to someone else. Joe keeps the card
-   *  on his own Today either way (his rule, 2026-09-27) — this is what makes it
-   *  say who is actually on it. Undefined = his own. */
-  assignedTo?: AssignedTo;
+  /** Everyone on this to-do, as stored — the owner included when he has put
+   *  himself on it alongside someone. Empty/undefined = the owner's own. The
+   *  card's picker ticks from this. */
+  assignedTo?: AssignedTo[];
+  /** Set when anyone OTHER than the viewer is on it. Joe keeps a handed-off
+   *  card on his own Today (his rule, 2026-09-27) — this is what makes it say
+   *  who is actually on it. */
+  assignment?: Assignment;
 }
 
 export interface TodayScheduleBlock {
@@ -101,8 +109,8 @@ export interface WaitingItem {
   /** True for work_items-backed rows — the only ones the queue actions can
    *  mark done / snooze. Signal cards (warranty/lead/compliance/…) are false. */
   checkable: boolean;
-  /** Who it's handed to, when it isn't the viewer's own. */
-  assignedTo?: AssignedTo;
+  /** Who else is on it, when it isn't only the viewer's. */
+  assignment?: Assignment;
 }
 
 export interface BriefInput {
@@ -187,9 +195,8 @@ export interface TodayWorkItemRow {
   project_status: string | null;
   lead_slug: string | null;
   lead_name: string | null;
-  assigned_user_id: string | null;
-  assigned_name: string | null;
-  assigned_initials: string | null;
+  /** Everyone on it (ASSIGNEES_JOIN_SQL); NULL = nobody, i.e. the owner's own. */
+  assigned: AssignedTo[] | null;
 }
 
 /** Joe's open backlog: every open work_item assigned to him, whether or not
@@ -207,18 +214,12 @@ export interface TodayWorkItemRow {
 // 00:00 Central of its due day (trg_work_items_snooze_until_due), so a job's
 // task list only surfaces day by day as each task comes up (Joe, 2026-09-02:
 // "I don't want to see those until the day each task is scheduled").
-/** work_items row → a Priorities/Waiting candidate. `checkable: true` marks
- *  it as backlog-sourced, so the client can call checkPriorityCompletion()
- *  when its card is clicked. */
-export function workItemCandidate(w: TodayWorkItemRow): Omit<TodayPriority, "rank"> {
+/** work_items row → a Priorities/Waiting candidate for `viewerId`. `checkable:
+ *  true` marks it as backlog-sourced, so the client can call
+ *  checkPriorityCompletion() when its card is clicked. */
+export function workItemCandidate(w: TodayWorkItemRow, viewerId: string): Omit<TodayPriority, "rank"> {
   const isLead = Boolean(w.lead_slug);
-  const assignedTo: AssignedTo | undefined = w.assigned_user_id
-    ? {
-        userId: w.assigned_user_id,
-        name: w.assigned_name ?? "Team member",
-        initials: w.assigned_initials || "?",
-      }
-    : undefined;
+  const assignedTo = toAssigned(w.assigned);
   const isWarranty = w.project_status === "warranty";
   const isProject = Boolean(w.project_slug);
   return {
@@ -237,6 +238,7 @@ export function workItemCandidate(w: TodayWorkItemRow): Omit<TodayPriority, "ran
     sub: [w.body, w.due ? `due ${w.due}` : null].filter(Boolean).join(" · ") || w.status.replaceAll("_", " "),
     href: w.lead_slug ? `/leads/${w.lead_slug}` : isWarranty ? "/warranty" : w.project_slug ? `/projects/${w.project_slug}` : "/engine",
     assignedTo,
+    assignment: describeAssignment(assignedTo, viewerId) ?? undefined,
   };
 }
 
@@ -354,7 +356,7 @@ async function buildQueue(s: QueueSources, viewer: QueueViewer): Promise<QueueSn
     const kind = w.lead_slug ? "Lead" : isWarranty ? "Warranty" : w.project_slug ? "Project" : "To-do";
     const source = w.lead_name ?? w.project_name;
     candidates.push({
-      ...workItemCandidate(w),
+      ...workItemCandidate(w, viewer.id),
       promotedAt: w.promoted_at,
       snoozedUntil: w.snoozed_until,
       waitingLabel: [kind, source, w.title].filter(Boolean).join(" — "),
@@ -432,9 +434,8 @@ async function buildQueue(s: QueueSources, viewer: QueueViewer): Promise<QueueSn
   // not use it at all: their top 5 is just the top 5 of their own ranked
   // backlog, and nothing they look at writes to Joe's rail.
   if (!isOwner(viewer)) {
-    // Every row here is theirs by construction, so "Assigned to Marco" on
-    // Marco's own card is noise. The line exists to tell Joe's cards apart.
-    for (const c of ranked) c.assignedTo = undefined;
+    // Every row here has them on it by construction, so the card's line only
+    // names whoever ELSE is (describeAssignment drops the viewer).
     const displayed = ranked.slice(0, 5);
     const shown = new Set(displayed.map((c) => c.id));
     return {
@@ -452,7 +453,7 @@ async function buildQueue(s: QueueSources, viewer: QueueViewer): Promise<QueueSn
             href: c.href,
             lane: c.lane,
             checkable: c.checkable,
-            assignedTo: c.assignedTo,
+            assignment: c.assignment,
           })),
       },
     };
@@ -497,7 +498,7 @@ async function buildQueue(s: QueueSources, viewer: QueueViewer): Promise<QueueSn
       href: c.href,
       lane: c.lane,
       checkable: c.checkable,
-      assignedTo: c.assignedTo,
+      assignment: c.assignment,
     }));
 
   return { priorities, waiting: { total: waitingItems.length, items: waitingItems } };

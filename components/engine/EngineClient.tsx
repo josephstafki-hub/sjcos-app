@@ -19,7 +19,7 @@ import type { WorkItemStatus, WorkItemPriority } from "@/lib/types";
 import {
   createWorkItem,
   setWorkItemStatus,
-  setWorkItemAssignee,
+  setWorkItemAssignees,
   approveWorkItem,
   rejectWorkItem,
   cancelRunbook,
@@ -29,6 +29,7 @@ import { approveSkill, rejectSkill } from "@/lib/actions/skills";
 import { runAction, type ActionLike } from "@/lib/run-action";
 import { toast } from "@/components/ui/Toast";
 import { describeApproval } from "@/lib/approved-draft-rules";
+import { AssigneePicker, assigneeSummary } from "@/components/today/AssigneePicker";
 import {
   approveMemoryEvidence,
   approveMemoryInstruction,
@@ -79,12 +80,15 @@ export function EngineClient({
   skills,
   memories,
   activeRunbooks,
+  canAssign,
 }: {
   engine: EngineData;
   knowledge: KnowledgeItemView[];
   skills: SkillsLibrary;
   memories: MemoriesData;
   activeRunbooks: RunbookInstanceView[];
+  /** Owner only — deciding who's on a to-do is his alone (2026-09-27). */
+  canAssign: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("queue");
 
@@ -119,7 +123,7 @@ export function EngineClient({
         ))}
       </div>
 
-      {tab === "queue" && <QueueTab engine={engine} skills={skills} />}
+      {tab === "queue" && <QueueTab engine={engine} skills={skills} canAssign={canAssign} />}
       {tab === "knowledge" && <KnowledgeTab initial={knowledge} />}
       {tab === "skills" && <SkillsTab skills={skills} />}
       {tab === "memories" && <MemoriesTab memories={memories} />}
@@ -260,7 +264,15 @@ function ActiveRunbooks({ instances }: { instances: RunbookInstanceView[] }) {
 
 // ─── Queue tab ───────────────────────────────────────────────────────────────
 
-function QueueTab({ engine, skills }: { engine: EngineData; skills: SkillsLibrary }) {
+function QueueTab({
+  engine,
+  skills,
+  canAssign,
+}: {
+  engine: EngineData;
+  skills: SkillsLibrary;
+  canAssign: boolean;
+}) {
   const [showNew, setShowNew] = useState(false);
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -310,16 +322,27 @@ function QueueTab({ engine, skills }: { engine: EngineData; skills: SkillsLibrar
               </select>
               <input name="due_at" type="date" className={inputCls} />
             </div>
-            {/* Which PERSON it belongs to. Blank = Joe's own, the same default
-                every other writer (detectors, MCP, runbooks) leaves behind. */}
-            <select name="assigned_user_id" defaultValue="" className={inputCls}>
-              <option value="">On me (Joe)</option>
-              {engine.assignees.slice(1).map((a) => (
-                <option key={a.userId} value={a.userId}>
-                  Assign to {a.name}
-                </option>
-              ))}
-            </select>
+            {/* Which PEOPLE it's on — any mix of the team. Just the owner (the
+                default) is stored as nobody = his own, the same as every other
+                writer (detectors, MCP, runbooks) leaves behind. */}
+            {canAssign && (
+              <fieldset className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+                <legend className="sr-only">Who&apos;s on it</legend>
+                <span className="text-[12px] text-ink-3">On it:</span>
+                {engine.assignees.map((a, i) => (
+                  <label key={a.userId} className="inline-flex items-center gap-1.5 text-[12.5px] text-ink-2">
+                    <input
+                      type="checkbox"
+                      name="assigned_user_ids"
+                      value={a.userId}
+                      defaultChecked={i === 0}
+                      className="accent-accent"
+                    />
+                    {i === 0 ? `Me (${a.name.split(" ")[0]})` : a.name}
+                  </label>
+                ))}
+              </fieldset>
+            )}
             <select name="expected_skill_slug" defaultValue="" className={inputCls}>
               <option value="">No expected skill</option>
               {skills.approved.map((s) => (
@@ -348,7 +371,12 @@ function QueueTab({ engine, skills }: { engine: EngineData; skills: SkillsLibrar
               </div>
               <div className="space-y-2">
                 {engine.buckets[b.key].map((it) => (
-                  <WorkItemCard key={it.id} item={it} assignees={engine.assignees} />
+                  <WorkItemCard
+                    key={it.id}
+                    item={it}
+                    assignees={engine.assignees}
+                    canAssign={canAssign}
+                  />
                 ))}
               </div>
             </section>
@@ -362,15 +390,14 @@ function QueueTab({ engine, skills }: { engine: EngineData; skills: SkillsLibrar
 function WorkItemCard({
   item,
   assignees,
+  canAssign,
 }: {
   item: WorkItemView;
   assignees: EngineData["assignees"];
+  canAssign: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  // The owner's own id: stored as NULL on the row, so the "On me" option is the
-  // empty value rather than his id (one spelling of "Joe's" everywhere).
-  const ownerId = assignees[0]?.userId ?? "";
   const run = (fn: () => Promise<ActionLike>) => start(async () => { await runAction(fn); router.refresh(); });
   // Approve says what it did: "Emailed <to> — <subject>" or "Approved. Nothing
   // was emailed: …" — plain success used to read as "the email went out".
@@ -390,7 +417,9 @@ function WorkItemCard({
             {item.assigneeKey && item.assigneeKey !== "human-joe" && (
               <Chip kind="ghost">{item.assigneeKey}</Chip>
             )}
-            {item.assignedTo && <Chip kind="accent">{item.assignedTo.name}</Chip>}
+            {item.assignedTo.map((a) => (
+              <Chip key={a.userId} kind="accent">{a.name}</Chip>
+            ))}
             {item.expectedSkillSlug && <Chip kind="ai">skill: {item.expectedSkillSlug}</Chip>}
             {item.expectedRunbookSlug && <Chip kind="ai">runbook: {item.expectedRunbookSlug}</Chip>}
           </div>
@@ -421,21 +450,19 @@ function WorkItemCard({
                   <option key={s} value={s}>{STATUS_LABEL[s]}</option>
                 ))}
               </select>
-              {/* Switch who it's on, without leaving the board. Owner-only —
-                  /engine is an owner area, and the action re-checks. */}
-              <select
-                className="rounded-md border border-rule bg-paper px-2 py-1 text-[11px] text-ink-2 outline-none focus:border-accent"
-                value={item.assignedTo?.userId ?? ""}
-                disabled={pending}
-                onChange={(e) => run(() => setWorkItemAssignee(item.id, e.target.value || null))}
-              >
-                <option value="">On me (Joe)</option>
-                {assignees
-                  .filter((a) => a.userId !== ownerId)
-                  .map((a) => (
-                    <option key={a.userId} value={a.userId}>{a.name}</option>
-                  ))}
-              </select>
+              {/* Switch who's on it, without leaving the board. Owner-only —
+                  the action re-checks. */}
+              {canAssign && (
+                <AssigneePicker
+                  roster={assignees}
+                  assigned={item.assignedTo}
+                  onChange={(ids) => run(() => setWorkItemAssignees(item.id, ids))}
+                  disabled={pending}
+                  align="right"
+                  triggerClassName="max-w-[160px] truncate rounded-md border border-rule bg-paper px-2 py-1 text-[11px] text-ink-2 outline-none transition-colors hover:border-accent focus:border-accent disabled:opacity-50"
+                  trigger={`${assigneeSummary(item.assignedTo, assignees)} ▾`}
+                />
+              )}
             </>
           )}
         </div>

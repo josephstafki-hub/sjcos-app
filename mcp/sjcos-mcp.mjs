@@ -61,6 +61,15 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 // Shared with the app's lane classifier (lib/today-triage.ts) — single
 // definition site for the triage-lane patterns.
 import { DEEP_RE, CHAT_RE } from "../lib/triage-lanes.mjs";
+import {
+  ASSIGNEES_JOIN_SQL,
+  CURRENT_ASSIGNEES_SQL,
+  REPLACE_ASSIGNEES_SQL,
+  assignedNotice,
+  idsToStore,
+  isOnItemSql,
+  sameAssignees,
+} from "../lib/work-item-assignees.mjs";
 import { registerMoodTools } from "./mood-tools.mjs";
 import { registerBiddingTools } from "./bidding-tools.mjs";
 import { registerFloorTools } from "./floor-tools.mjs";
@@ -616,9 +625,10 @@ async function slugToId(table, slug) {
   return r[0]?.id ?? null;
 }
 
-/** Resolve "who" — a users.id, an email, or a name — to one ACTIVE internal
- *  account (owner or staff). Used by the to-do assignment parameters, so a
- *  caller can write assigned_to:"Marco" instead of hunting a uuid. Portal
+/** Resolve "who" — a users.id, an email, a full name, or a first name — to one
+ *  ACTIVE internal account (owner or staff). Used by the to-do assignment
+ *  parameters, so a caller can write assigned_to:"Marco" (or "joe") instead of
+ *  hunting a uuid. Portal
  *  accounts (sub/client) are never matched: they can't hold a to-do. Returns
  *  null when nothing, or more than one thing, matches — an ambiguous name must
  *  not silently pick a person. */
@@ -629,10 +639,63 @@ async function resolveInternalUser(who) {
   const found = await rows(
     `SELECT id, name, email, role FROM users
       WHERE active AND role IN ('owner','staff')
-        AND (${isUuid ? "id = $1" : "lower(email) = lower($1) OR lower(name) = lower($1) OR lower(split_part(email,'@',1)) = lower($1)"})`,
+        AND (${isUuid ? "id = $1" : "lower(email) = lower($1) OR lower(name) = lower($1) OR lower(split_part(email,'@',1)) = lower($1) OR lower(split_part(name,' ',1)) = lower($1)"})`,
     [key],
   );
   return found.length === 1 ? found[0] : null;
+}
+
+/** "who" may be one person or a list — normalize to a list. */
+function whoList(who) {
+  if (who === undefined || who === null) return [];
+  return (Array.isArray(who) ? who : [who]).map((w) => String(w).trim()).filter(Boolean);
+}
+
+/** Resolve each "who" to an active internal account. {people} on success,
+ *  {error} naming the first one that doesn't match exactly one person. */
+async function resolveInternalUsers(list) {
+  const people = [];
+  for (const who of list) {
+    const person = await resolveInternalUser(who);
+    if (!person) {
+      return {
+        error: `No single active owner/staff account matches "${who}". Call list_users and pass the id.`,
+      };
+    }
+    people.push(person);
+  }
+  return { people };
+}
+
+/** Put exactly `people` on to-do `id` (lib/work-item-assignees.mjs rules: just
+ *  the owner = nobody = his own) and notify everyone newly on it other than
+ *  the owner — the same notification the app's picker sends, so a hand-off is
+ *  never silent just because an agent made it. Returns the names now on it
+ *  ([] = Joe's own), or null when the work item doesn't exist. */
+async function writeAssignees(id, picked) {
+  const cur = await rows(CURRENT_ASSIGNEES_SQL, [id]);
+  if (!cur[0]) return null;
+  // The same person named twice (by id and by name, say) is one person.
+  const people = [...new Map(picked.map((p) => [p.id, p])).values()];
+  const next = idsToStore(people);
+  const onIt = people.filter((p) => next.includes(p.id));
+  if (!sameAssignees(cur[0].ids, next)) {
+    const r = await rows(REPLACE_ASSIGNEES_SQL, [id, next]);
+    const added = r[0]?.added_user_ids ?? [];
+    for (const person of onIt) {
+      if (person.role === "owner" || !added.includes(person.id)) continue;
+      const notice = assignedNotice(
+        cur[0].title,
+        onIt.filter((p) => p.id !== person.id).map((p) => p.name),
+      );
+      await rows(
+        `INSERT INTO notifications (kind, tag, accent, icon, title, subline, when_label, href, audience_user_id)
+         VALUES ('job','Assigned','accent','star',$1,$2,'Just now','/today',$3)`,
+        [notice.title, notice.subline, person.id],
+      );
+    }
+  }
+  return onIt.map((p) => p.name);
 }
 
 // ─── Open Brain: read ───────────────────────────────────────────────────────
@@ -741,12 +804,14 @@ server.registerTool(
       "date. needs_enrichment:true returns open detector-filed items whose " +
       "factual body hasn't been rewritten yet (enrich each via enrich_work_item " +
       "after reading its source). Ordered by priority then due date.\n\n" +
-      "assigned_to filters by WHICH PERSON owns the to-do — a users.id, an " +
-      "email, or a name (see list_users). assigned_to:'joe' or omitting it and " +
-      "reading assigned_to_name tells you whether a to-do is Joe's own or one " +
-      "he handed to a team member. Every row reports assigned_to_name (null = " +
-      "Joe's own). Note this is a different axis from assignee_key, which names " +
-      "the bot runtime expected to run it.",
+      "assigned_to filters by WHICH PERSON is on the to-do — a users.id, an " +
+      "email, or a name (see list_users). A to-do can have several people on it " +
+      "(Joe and Abigail together, say). assigned_to:'abigail' returns every " +
+      "to-do she is on, alone or shared; assigned_to:'joe' returns his own " +
+      "(nobody on it) plus any he shares. Every row reports assigned_to: the " +
+      "people on it as [{userId, name, initials}] — [] means Joe's own; a list " +
+      "without Joe means he handed it off. Note this is a different axis from " +
+      "assignee_key, which names the bot runtime expected to run it.",
     inputSchema: {
       status: z.string().optional(),
       assignee_key: z.string().optional(),
@@ -766,14 +831,15 @@ server.registerTool(
     if (assigned_to) {
       const person = await resolveInternalUser(assigned_to);
       if (!person) return json({ error: `No active owner/staff account matches "${assigned_to}".` });
-      // The owner's to-dos are stored as NULL, so "assigned to Joe" means
-      // "unassigned" — matching how every writer spells it.
-      if (person.role === "owner") {
-        conds.push(`w.assigned_user_id IS NULL`);
-      } else {
-        params.push(person.id);
-        conds.push(`w.assigned_user_id = $${params.length}`);
-      }
+      params.push(person.id);
+      // Nobody on a to-do means it's the owner's own, so "Joe's" is those plus
+      // any he's on alongside someone.
+      conds.push(
+        person.role === "owner"
+          ? `(NOT EXISTS (SELECT 1 FROM work_item_assignees wx WHERE wx.work_item_id = w.id)
+              OR ${isOnItemSql(`$${params.length}`)})`
+          : isOnItemSql(`$${params.length}`),
+      );
     }
     if (project_slug) { params.push(project_slug); conds.push(`p.slug = $${params.length}`); }
     if (lead_slug) { params.push(lead_slug); conds.push(`l.slug = $${params.length}`); }
@@ -788,11 +854,10 @@ server.registerTool(
         `SELECT w.id, w.title, w.status, w.priority, w.assignee_kind, w.assignee_key, w.due_at,
                 w.expected_skill_slug, w.expected_runbook_slug, w.requires_approval, w.approval_status,
                 w.blocked_reason, w.created_by, w.enriched_at, p.slug AS project_slug, l.slug AS lead_slug,
-                w.assigned_user_id, au.name AS assigned_to_name
+                COALESCE(asg.assigned, '[]'::json) AS assigned_to
            FROM work_items w
            LEFT JOIN projects p ON p.id = w.project_id
-           LEFT JOIN leads l ON l.id = w.lead_id
-           LEFT JOIN users au ON au.id = w.assigned_user_id
+           LEFT JOIN leads l ON l.id = w.lead_id${ASSIGNEES_JOIN_SQL}
            ${where}
           ORDER BY array_position(ARRAY['urgent','high','normal','low'], w.priority),
                    w.due_at NULLS LAST, w.created_at DESC
@@ -807,21 +872,25 @@ server.registerTool(
   "get_work_item",
   {
     title: "Get work item",
-    description: "One work item by id, with its recent agent runs + receipts.",
+    description:
+      "One work item by id, with its recent agent runs + receipts. assigned_to " +
+      "is everyone on it as [{userId, name, initials}] — [] means Joe's own.",
     inputSchema: { id: z.string() },
   },
   async ({ id }) => {
     const item = await rows(
       `SELECT w.*, p.slug AS project_slug, l.slug AS lead_slug,
-              au.name AS assigned_to_name, au.email AS assigned_to_email
+              COALESCE(asg.assigned, '[]'::json) AS assigned_to
          FROM work_items w
          LEFT JOIN projects p ON p.id = w.project_id
-         LEFT JOIN leads l ON l.id = w.lead_id
-         LEFT JOIN users au ON au.id = w.assigned_user_id
+         LEFT JOIN leads l ON l.id = w.lead_id${ASSIGNEES_JOIN_SQL}
         WHERE w.id = $1`,
       [id],
     );
     if (item.length === 0) return json({ error: `No work item ${id}` });
+    // The single-person column predates multi-person to-dos and is no longer
+    // read or kept current — don't let an agent mistake it for the truth.
+    delete item[0].assigned_user_id;
     const [runs, receipts] = await Promise.all([
       rows(`SELECT id, runtime_name, model, status, input_summary, output_summary, started_at, finished_at
               FROM agent_runs WHERE work_item_id = $1 ORDER BY started_at DESC LIMIT 20`, [id]),
@@ -1064,18 +1133,20 @@ server.registerTool(
       "trigger) — scheduled to-dos stay in the backlog and surface on Today the " +
       "morning they're due, never before. Set due_at to schedule; leave it " +
       "empty for do-it-now work.\n\n" +
-      "assigned_to hands the to-do to a team member (users.id, email, or name — " +
-      "see list_users). Omit it and the item is Joe's, which is the right default " +
-      "for anything an agent files. A handed-off item stays on Joe's Today with " +
-      "the person's name on it AND appears on theirs; they get a notification. " +
-      "Only hand work to someone when Joe has said to.",
+      "assigned_to puts the to-do on one or more people — each a users.id, " +
+      "email, or name (see list_users); pass a list for several, e.g. " +
+      "[\"joe\", \"abigail\"] for both of them. Omit it and the item is Joe's, " +
+      "which is the right default for anything an agent files. A to-do on " +
+      "someone else stays on Joe's Today with their names on it AND appears on " +
+      "each of theirs; everyone put on it (other than Joe) gets a notification. " +
+      "Only assign work when Joe has said to.",
     inputSchema: {
       title: z.string(),
       body: z.string().optional(),
       priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
       assignee_kind: z.enum(["human", "agent"]).optional(),
       assignee_key: z.string().optional(),
-      assigned_to: z.string().optional(),
+      assigned_to: z.union([z.string(), z.array(z.string())]).optional(),
       due_at: z.string().optional(),
       project_slug: z.string().optional(),
       lead_slug: z.string().optional(),
@@ -1088,96 +1159,89 @@ server.registerTool(
   async (a) => {
     const mangled = strippedDollarError(a.title, a.body);
     if (mangled) return mangled;
-    // Whose to-do. The owner's are stored as NULL — one spelling of "Joe's"
-    // across the app, MCP, detectors and runbooks.
-    let assignedUserId = null;
-    let assignedName = null;
-    if (a.assigned_to) {
-      const person = await resolveInternalUser(a.assigned_to);
-      if (!person) {
-        return json({
-          ok: false,
-          error:
-            `No single active owner/staff account matches "${a.assigned_to}". ` +
-            `Call list_users and pass the id.`,
-        });
-      }
-      if (person.role !== "owner") {
-        assignedUserId = person.id;
-        assignedName = person.name;
-      }
-    }
+    // Who's on it — resolved before the insert so a bad name files nothing.
+    // Nobody (or just Joe) = Joe's own, one spelling across the app, MCP,
+    // detectors and runbooks.
+    const resolved = await resolveInternalUsers(whoList(a.assigned_to));
+    if (resolved.error) return json({ ok: false, error: resolved.error });
     const r = await rows(
       `INSERT INTO work_items
          (title, body, priority, assignee_kind, assignee_key, due_at, project_id, lead_id,
-          expected_skill_slug, expected_runbook_slug, requires_approval, source_kind, created_by,
-          assigned_user_id)
-       VALUES ($1,$2,$3,$4,$5,NULLIF($6,'')::timestamptz,$7,$8,$9,$10,$11,'agent',$12,$13)
+          expected_skill_slug, expected_runbook_slug, requires_approval, source_kind, created_by)
+       VALUES ($1,$2,$3,$4,$5,NULLIF($6,'')::timestamptz,$7,$8,$9,$10,$11,'agent',$12)
        RETURNING id`,
       [
         a.title, a.body ?? "", a.priority ?? "normal", a.assignee_kind ?? "human",
         a.assignee_key ?? null, a.due_at ?? "", await slugToId("projects", a.project_slug),
         await slugToId("leads", a.lead_slug), a.expected_skill_slug ?? null,
         a.expected_runbook_slug ?? null, a.requires_approval ?? true, a.created_by ?? "agent",
-        assignedUserId,
       ],
     );
-    if (assignedUserId) {
-      // Same notification the app's picker sends — a hand-off should never be
-      // silent just because an agent made it.
-      await rows(
-        `INSERT INTO notifications (kind, tag, accent, icon, title, subline, when_label, href, audience_user_id)
-         VALUES ('job','Assigned','accent','star',$1,'It''s on your Today now.','Just now','/today',$2)`,
-        [`Joe assigned you: ${a.title}`, assignedUserId],
-      );
-    }
-    return json({ ok: true, id: r[0].id, assigned_to: assignedName });
+    const onIt = resolved.people.length ? await writeAssignees(r[0].id, resolved.people) : [];
+    return json({ ok: true, id: r[0].id, assigned_to: onIt ?? [] });
   },
 );
 
 server.registerTool(
   "assign_work_item",
   {
-    title: "Assign a to-do to a team member",
+    title: "Choose who's on a to-do",
     description:
-      "Hand an existing to-do to a staff member, or take it back to Joe. This is " +
-      "the MCP twin of the Assign control on a Today card. `to` is a users.id, " +
-      "email, or name (see list_users); pass Joe (or omit `to`) to put it back on " +
-      "him. The to-do stays on Joe's Today either way, labelled with whoever holds " +
-      "it, and the assignee gets a notification. Assignment is Joe's call — only " +
-      "do this when he has asked for it.",
-    inputSchema: { id: z.string(), to: z.string().optional() },
+      "Set which people a to-do is on — one person or several (Joe and Abigail " +
+      "together, say). This is the MCP twin of the Assign checklist on a Today " +
+      "card. Each person is a users.id, email, or name (see list_users).\n\n" +
+      "• to: exactly who should be on it, replacing whoever is now — a name or " +
+      "a list. to:[\"joe\",\"abigail\"] puts both on it; to:\"abigail\" hands " +
+      "it to her alone; to:\"joe\" (or to:[]) takes it back to Joe's own.\n" +
+      "• add / remove: change the current people without restating them. A " +
+      "to-do that's Joe's own counts as having Joe on it, so add:\"abigail\" " +
+      "makes it Joe + Abigail; remove:\"joe\" then leaves it hers alone.\n\n" +
+      "The to-do stays on Joe's Today either way, labelled with everyone on it, " +
+      "and shows on each person's own Today. Everyone newly put on it (other " +
+      "than Joe) gets a notification. Returns assigned_to: the names now on it " +
+      "([] = Joe's own). Assignment is Joe's call — only do this when he has " +
+      "asked for it.",
+    inputSchema: {
+      id: z.string(),
+      to: z.union([z.string(), z.array(z.string())]).optional(),
+      add: z.union([z.string(), z.array(z.string())]).optional(),
+      remove: z.union([z.string(), z.array(z.string())]).optional(),
+    },
   },
-  async ({ id, to }) => {
-    let next = null;
-    let name = null;
-    if (to) {
-      const person = await resolveInternalUser(to);
-      if (!person) {
-        return json({
-          ok: false,
-          error: `No single active owner/staff account matches "${to}". Call list_users and pass the id.`,
-        });
-      }
-      if (person.role !== "owner") {
-        next = person.id;
-        name = person.name;
-      }
-    }
-    const r = await rows(
-      `UPDATE work_items SET assigned_user_id = $2, updated_at = now()
-        WHERE id = $1 RETURNING id, title, assigned_user_id`,
-      [id, next],
-    );
-    if (!r[0]) return json({ ok: false, error: `No work item ${id}` });
-    if (next) {
-      await rows(
-        `INSERT INTO notifications (kind, tag, accent, icon, title, subline, when_label, href, audience_user_id)
-         VALUES ('job','Assigned','accent','star',$1,'It''s on your Today now.','Just now','/today',$2)`,
-        [`Joe assigned you: ${r[0].title}`, next],
+  async ({ id, to, add, remove }) => {
+    const toList = whoList(to);
+    const addRes = await resolveInternalUsers(whoList(add));
+    if (addRes.error) return json({ ok: false, error: addRes.error });
+    const removeRes = await resolveInternalUsers(whoList(remove));
+    if (removeRes.error) return json({ ok: false, error: removeRes.error });
+
+    // Start from `to` when given, otherwise from whoever is on it now — and a
+    // to-do nobody is on is Joe's, so it starts from Joe (the checklist in the
+    // app shows it the same way).
+    let base;
+    if (to !== undefined) {
+      const toRes = await resolveInternalUsers(toList);
+      if (toRes.error) return json({ ok: false, error: toRes.error });
+      base = toRes.people;
+    } else {
+      base = await rows(
+        `SELECT u.id, u.name, u.role FROM work_item_assignees wa
+           JOIN users u ON u.id = wa.user_id
+          WHERE wa.work_item_id = $1`,
+        [id],
       );
+      if (!base.length) {
+        base = await rows(
+          `SELECT id, name, role FROM users WHERE role = 'owner' AND active ORDER BY created_at LIMIT 1`,
+        );
+      }
     }
-    return json({ ok: true, id: r[0].id, assigned_to: name ?? "Joe" });
+    const removeIds = new Set(removeRes.people.map((p) => p.id));
+    const people = [...base, ...addRes.people].filter((p) => !removeIds.has(p.id));
+
+    const onIt = await writeAssignees(id, people);
+    if (!onIt) return json({ ok: false, error: `No work item ${id}` });
+    return json({ ok: true, id, assigned_to: onIt });
   },
 );
 
@@ -1426,6 +1490,8 @@ server.registerTool(
       "Joe's Today rail: promoted priorities (promoted_at set) and the " +
       "waiting backlog, with each item's lane (chat = an agent may complete " +
       "it via MCP; quick = one-click for Joe; deep = needs page work). " +
+      "Each item's assigned_to lists the people on it ([] = Joe's own); one " +
+      "without Joe is a team member's to work, so don't treat it as his. " +
       "READ-ONLY — promotion is app-owned; complete items via " +
       "update_work_item_status.",
     inputSchema: {},
@@ -1436,10 +1502,11 @@ server.registerTool(
       `SELECT w.id, w.title, left(NULLIF(w.body,''),140) AS body, w.status,
               w.priority, w.due_at, w.effort_class,
               (w.promoted_at IS NOT NULL) AS promoted,
-              p.slug AS project_slug, l.slug AS lead_slug
+              p.slug AS project_slug, l.slug AS lead_slug,
+              COALESCE(asg.assigned, '[]'::json) AS assigned_to
          FROM work_items w
          LEFT JOIN projects p ON p.id = w.project_id
-         LEFT JOIN leads l ON l.id = w.lead_id
+         LEFT JOIN leads l ON l.id = w.lead_id${ASSIGNEES_JOIN_SQL}
         WHERE w.status NOT IN ('done','cancelled','waiting_on_client')
           AND (w.snoozed_until IS NULL OR w.snoozed_until <= now())
           AND w.assignee_kind = 'human'

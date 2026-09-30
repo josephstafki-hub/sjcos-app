@@ -408,12 +408,22 @@ async function projectAddress(slug: string): Promise<string> {
   return p?.address ?? "";
 }
 
+// A portal login that was never claimed carries a <slug>@client-portal.invalid
+// stand-in, which must never print on a client document — skip it and fall back
+// to the email saved on the project.
 async function clientEmailForProject(slug: string): Promise<string> {
   const u = await queryOne<{ email: string }>(
-    `SELECT email FROM users WHERE role = 'client' AND link_slug = $1 LIMIT 1`,
+    `SELECT email FROM users
+      WHERE role = 'client' AND link_slug = $1 AND email NOT LIKE '%@client-portal.invalid'
+      LIMIT 1`,
     [slug],
   );
-  return u?.email ?? "";
+  if (u?.email) return u.email;
+  const p = await queryOne<{ client_email: string | null }>(
+    `SELECT client_email FROM projects WHERE slug = $1`,
+    [slug],
+  );
+  return p?.client_email ?? "";
 }
 
 interface ProjectAccount {

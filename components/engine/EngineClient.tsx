@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, Chip, Eyebrow, type ChipKind } from "@/components/ui";
@@ -11,6 +11,14 @@ import {
   type QueueBucket,
 } from "@/lib/engine-constants";
 import type { EngineData, WorkItemView } from "@/lib/engine";
+import {
+  NO_FILTER,
+  agentLabel,
+  matchesQueueFilter,
+  queueFolders,
+  type QueueFilter,
+  type QueueFolder,
+} from "@/lib/engine-views";
 import type { KnowledgeItemView } from "@/lib/brain";
 import type { SkillsLibrary, SkillView, RunbookView } from "@/lib/skills";
 import type { MemoriesData, MemoryRefView, MemoryView } from "@/lib/memories";
@@ -20,6 +28,9 @@ import {
   createWorkItem,
   setWorkItemStatus,
   setWorkItemAssignees,
+  archiveWorkItems,
+  restoreWorkItem,
+  listArchivedWorkItems,
   approveWorkItem,
   rejectWorkItem,
   cancelRunbook,
@@ -263,6 +274,9 @@ function ActiveRunbooks({ instances }: { instances: RunbookInstanceView[] }) {
 }
 
 // ─── Queue tab ───────────────────────────────────────────────────────────────
+// Folders on the left (everything / each person / each agent — the rules live
+// in lib/engine-views.ts), filters on top, and Queue vs Archived. The board
+// filters in the browser; the archive is paged from the server.
 
 function QueueTab({
   engine,
@@ -274,16 +288,56 @@ function QueueTab({
   canAssign: boolean;
 }) {
   const [showNew, setShowNew] = useState(false);
+  const [view, setView] = useState<"queue" | "archived">("queue");
+  const [filter, setFilter] = useState<QueueFilter>(NO_FILTER);
   const router = useRouter();
   const [pending, start] = useTransition();
   const formRef = useRef<HTMLFormElement>(null);
 
-  const nonEmpty = BUCKET_META.filter((b) => engine.buckets[b.key].length > 0);
+  const folders = queueFolders(engine.items, engine.assignees, engine.ownerId);
+  const shown = engine.items.filter((it) => matchesQueueFilter(it, filter, engine.ownerId));
+  const buckets = Object.fromEntries(
+    BUCKET_META.map((b) => [b.key, shown.filter((it) => it.bucket === b.key)]),
+  ) as Record<QueueBucket, WorkItemView[]>;
+  const nonEmpty = BUCKET_META.filter((b) => buckets[b.key].length > 0);
+  const filtered = filter.job !== "" || filter.by !== "" || filter.q.trim() !== "";
+
+  const archiveAll = (items: WorkItemView[]) => {
+    if (!confirm(`Archive ${items.length} done and cancelled item${items.length === 1 ? "" : "s"}? They move to Archived — nothing is deleted.`)) return;
+    start(async () => {
+      await runAction(() => archiveWorkItems(items.map((i) => i.id)), {
+        fallback: "Could not archive those.",
+        onSuccess: (r) => {
+          if (r.ok) toast({ kind: "success", message: `Archived ${r.archived} item${r.archived === 1 ? "" : "s"}.` });
+        },
+      });
+      router.refresh();
+    });
+  };
 
   return (
     <div>
-      <div className="mb-4 flex justify-between">
-        <div />
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="flex rounded-md border border-rule bg-paper-2 p-0.5">
+          {(
+            [
+              { key: "queue", label: "Queue", count: engine.counts.total },
+              { key: "archived", label: "Archived", count: engine.counts.archived },
+            ] as const
+          ).map((v) => (
+            <button
+              key={v.key}
+              onClick={() => setView(v.key)}
+              className={[
+                "rounded px-3 py-1 text-[12px] font-semibold transition-colors",
+                view === v.key ? "bg-paper text-accent-2 shadow-sm" : "text-ink-3 hover:text-ink-2",
+              ].join(" ")}
+            >
+              {v.label}
+              <span className="ml-1.5 font-mono text-[10px] text-ink-4">{v.count}</span>
+            </button>
+          ))}
+        </div>
         <button className={btnPrimary} onClick={() => setShowNew((v) => !v)}>
           {showNew ? "Close" : "New work item"}
         </button>
@@ -356,31 +410,271 @@ function QueueTab({
         </Card>
       )}
 
-      {engine.counts.total === 0 ? (
-        <EmptyState
-          title="The queue is empty"
-          body="Work items land here from you, the temp-CRM import, or agents via MCP (create_work_item). Each item can name the skill/runbook a worker should load."
+      <div className="grid gap-5 lg:grid-cols-[190px_minmax(0,1fr)]">
+        <QueueRail
+          folders={folders}
+          active={filter.who}
+          showCounts={view === "queue"}
+          onPick={(who) => setFilter((f) => ({ ...f, who }))}
         />
-      ) : (
-        <div className="space-y-6">
-          {nonEmpty.map((b) => (
-            <section key={b.key}>
-              <div className="mb-2 flex items-center gap-2">
-                <Chip kind={b.kind} dot>{b.label}</Chip>
-                <span className="font-mono text-[10px] text-ink-4">{engine.buckets[b.key].length}</span>
-              </div>
-              <div className="space-y-2">
-                {engine.buckets[b.key].map((it) => (
-                  <WorkItemCard
-                    key={it.id}
-                    item={it}
-                    assignees={engine.assignees}
-                    canAssign={canAssign}
-                  />
-                ))}
-              </div>
-            </section>
-          ))}
+
+        <div className="min-w-0">
+          <QueueFilters items={engine.items} filter={filter} onChange={setFilter} />
+
+          {view === "archived" ? (
+            <ArchiveList
+              filter={filter}
+              archivedCount={engine.counts.archived}
+              assignees={engine.assignees}
+              canAssign={canAssign}
+            />
+          ) : engine.counts.total === 0 ? (
+            <EmptyState
+              title="The queue is empty"
+              body="Work items land here from you, the temp-CRM import, or agents via MCP (create_work_item). Each item can name the skill/runbook a worker should load."
+            />
+          ) : nonEmpty.length === 0 ? (
+            <EmptyState
+              title="Nothing here"
+              body={filtered ? "No work items match these filters." : "Nothing is on the queue for this folder right now."}
+            />
+          ) : (
+            <div className="space-y-6">
+              {nonEmpty.map((b) => (
+                <section key={b.key}>
+                  <div className="mb-2 flex items-center gap-2">
+                    <Chip kind={b.kind} dot>{b.label}</Chip>
+                    <span className="font-mono text-[10px] text-ink-4">{buckets[b.key].length}</span>
+                    {b.key === "done" && (
+                      <button
+                        className="ml-auto text-[11px] font-semibold text-accent-2 hover:underline disabled:opacity-50"
+                        disabled={pending}
+                        onClick={() => archiveAll(buckets.done)}
+                      >
+                        Archive all {buckets.done.length}
+                      </button>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {buckets[b.key].map((it) => (
+                      <WorkItemCard
+                        key={it.id}
+                        item={it}
+                        assignees={engine.assignees}
+                        canAssign={canAssign}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Small-caps mono section label for the folder rail (same as /inbox's). */
+function RailLabel({ children }: { children: string }) {
+  return (
+    <div className="hidden px-1 pb-1 pt-2 font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-ink-3 lg:block">
+      {children}
+    </div>
+  );
+}
+
+function QueueRail({
+  folders,
+  active,
+  showCounts,
+  onPick,
+}: {
+  folders: ReturnType<typeof queueFolders>;
+  active: string;
+  /** Counts are what's open on the board — meaningless over the archive. */
+  showCounts: boolean;
+  onPick: (who: string) => void;
+}) {
+  const row = (f: QueueFolder) => (
+    <button
+      key={f.who}
+      onClick={() => onPick(f.who)}
+      className={[
+        "flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px]",
+        active === f.who
+          ? "bg-accent-soft font-semibold text-accent-2"
+          : f.open === 0 && showCounts
+            ? "text-ink-4 hover:bg-paper-3"
+            : "text-ink-2 hover:bg-paper-3",
+      ].join(" ")}
+    >
+      <span className="min-w-0 flex-1 truncate">{f.label}</span>
+      {showCounts && <span className="font-mono text-[10px] text-ink-3">{f.open}</span>}
+    </button>
+  );
+  return (
+    <nav aria-label="Work queue folders" className="flex flex-wrap gap-1 lg:flex-col lg:flex-nowrap lg:gap-0.5">
+      {row(folders.all)}
+      <RailLabel>People</RailLabel>
+      {folders.people.map(row)}
+      <RailLabel>Agents</RailLabel>
+      {folders.agents.map(row)}
+    </nav>
+  );
+}
+
+/** Search + job + "filed by". Options come from what's on the board; the one
+ *  picked stays listed even if the board no longer has it (the archive may). */
+function QueueFilters({
+  items,
+  filter,
+  onChange,
+}: {
+  items: WorkItemView[];
+  filter: QueueFilter;
+  onChange: (f: QueueFilter) => void;
+}) {
+  const projects = new Map<string, string>();
+  const leads = new Map<string, string>();
+  const filers = new Map<string, number>();
+  for (const it of items) {
+    if (it.projectSlug) projects.set(`project:${it.projectSlug}`, it.projectName ?? it.projectSlug);
+    if (it.leadSlug) leads.set(`lead:${it.leadSlug}`, it.leadName ?? it.leadSlug);
+    filers.set(it.createdBy, (filers.get(it.createdBy) ?? 0) + 1);
+  }
+  if (filter.job && !projects.has(filter.job) && !leads.has(filter.job)) {
+    (filter.job.startsWith("lead:") ? leads : projects).set(filter.job, filter.job.slice(filter.job.indexOf(":") + 1));
+  }
+  if (filter.by && !filers.has(filter.by)) filers.set(filter.by, 0);
+  const byLabel = (m: Map<string, string>) => [...m].sort((a, b) => a[1].localeCompare(b[1]));
+  const selectCls =
+    "rounded-md border border-rule bg-paper px-2 py-1.5 text-[12px] text-ink-2 outline-none focus:border-accent";
+  const active = filter.job !== "" || filter.by !== "" || filter.q !== "";
+
+  return (
+    <div className="mb-4 flex flex-wrap items-center gap-2">
+      <input
+        value={filter.q}
+        onChange={(e) => onChange({ ...filter, q: e.target.value })}
+        placeholder="Search work items…"
+        className="min-w-[180px] flex-1 rounded-md border border-rule bg-paper px-3 py-1.5 text-[12px] text-ink outline-none focus:border-accent"
+      />
+      <select
+        value={filter.job}
+        onChange={(e) => onChange({ ...filter, job: e.target.value })}
+        className={`${selectCls} max-w-[200px]`}
+        aria-label="Job"
+      >
+        <option value="">All jobs</option>
+        {projects.size > 0 && (
+          <optgroup label="Projects">
+            {byLabel(projects).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+          </optgroup>
+        )}
+        {leads.size > 0 && (
+          <optgroup label="Leads">
+            {byLabel(leads).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+          </optgroup>
+        )}
+      </select>
+      <select
+        value={filter.by}
+        onChange={(e) => onChange({ ...filter, by: e.target.value })}
+        className={`${selectCls} max-w-[180px]`}
+        aria-label="Filed by"
+      >
+        <option value="">Filed by anyone</option>
+        {[...filers].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k]) => (
+          <option key={k} value={k}>{k}</option>
+        ))}
+      </select>
+      {active && (
+        <button className="text-[11px] text-ink-4 hover:text-accent-2" onClick={() => onChange({ ...filter, job: "", by: "", q: "" })}>
+          Clear
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** The Archived view: pages of archived to-dos for the current folder +
+ *  filters, newest-archived first. Refetches when the filters change (search
+ *  waits for a pause in typing) or something new is archived. */
+function ArchiveList({
+  filter,
+  archivedCount,
+  assignees,
+  canAssign,
+}: {
+  filter: QueueFilter;
+  archivedCount: number;
+  assignees: EngineData["assignees"];
+  canAssign: boolean;
+}) {
+  const [items, setItems] = useState<WorkItemView[] | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, startMore] = useTransition();
+  const filterKey = JSON.stringify(filter);
+
+  useEffect(() => {
+    let stale = false;
+    const t = setTimeout(
+      async () => {
+        const r = await runAction(() => listArchivedWorkItems(JSON.parse(filterKey) as QueueFilter, 0), {
+          fallback: "Could not load the archive.",
+        });
+        if (stale || !r.ok) return;
+        setItems(r.items);
+        setHasMore(r.hasMore);
+      },
+      JSON.parse(filterKey).q ? 300 : 0,
+    );
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
+  }, [filterKey, archivedCount]);
+
+  const loadMore = () =>
+    startMore(async () => {
+      const r = await runAction(() => listArchivedWorkItems(filter, items?.length ?? 0), {
+        fallback: "Could not load more.",
+      });
+      if (!r.ok) return;
+      setItems((xs) => [...(xs ?? []), ...r.items.filter((n) => !xs?.some((x) => x.id === n.id))]);
+      setHasMore(r.hasMore);
+    });
+
+  if (items === null) return <p className="py-6 text-center text-[12px] text-ink-4">Loading the archive…</p>;
+  if (items.length === 0)
+    return (
+      <EmptyState
+        title={archivedCount === 0 ? "Nothing archived yet" : "Nothing here"}
+        body={
+          archivedCount === 0
+            ? "Done and cancelled items move here when you archive them from the queue. Nothing is deleted — Restore puts one back."
+            : "No archived items match this folder and these filters."
+        }
+      />
+    );
+
+  return (
+    <div className="space-y-2">
+      {items.map((it) => (
+        <WorkItemCard
+          key={it.id}
+          item={it}
+          assignees={assignees}
+          canAssign={canAssign}
+          onRestored={() => setItems((xs) => xs?.filter((x) => x.id !== it.id) ?? null)}
+        />
+      ))}
+      {hasMore && (
+        <div className="pt-2 text-center">
+          <button className={btnCls} disabled={loadingMore} onClick={loadMore}>
+            {loadingMore ? "Loading…" : "Show older"}
+          </button>
         </div>
       )}
     </div>
@@ -391,10 +685,13 @@ function WorkItemCard({
   item,
   assignees,
   canAssign,
+  onRestored,
 }: {
   item: WorkItemView;
   assignees: EngineData["assignees"];
   canAssign: boolean;
+  /** Archived view only: drop the card once it's back on the board. */
+  onRestored?: () => void;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -406,16 +703,22 @@ function WorkItemCard({
       await runAction(() => approveWorkItem(item.id), { onSuccess: (r) => toast(describeApproval(r)) });
       router.refresh();
     });
+  const restore = () =>
+    start(async () => {
+      const r = await runAction(() => restoreWorkItem(item.id), { fallback: "Could not restore that." });
+      if (r.ok) onRestored?.();
+      router.refresh();
+    });
 
   return (
-    <Card kind={item.bucket === "approval" ? "flag" : "default"} className="p-3.5">
+    <Card kind={item.bucket === "approval" && !item.archivedAt ? "flag" : "default"} className="p-3.5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <Chip kind={statusChip(item.status)}>{STATUS_LABEL[item.status]}</Chip>
             {item.priority !== "normal" && <Chip kind={priorityChip(item.priority)}>{PRIORITY_LABEL[item.priority]}</Chip>}
             {item.assigneeKey && item.assigneeKey !== "human-joe" && (
-              <Chip kind="ghost">{item.assigneeKey}</Chip>
+              <Chip kind="ghost">{agentLabel(item.assigneeKey)}</Chip>
             )}
             {item.assignedTo.map((a) => (
               <Chip key={a.userId} kind="accent">{a.name}</Chip>
@@ -427,13 +730,17 @@ function WorkItemCard({
           {item.body && <div className="mt-0.5 line-clamp-2 text-[12px] text-ink-3">{item.body}</div>}
           <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-ink-4">
             {item.dueAt && <span>due {item.dueAt.slice(0, 10)}</span>}
-            {item.projectSlug && <Link href={`/projects/${item.projectSlug}`} className="text-accent-2 hover:underline">project ↗</Link>}
-            {item.leadSlug && <Link href={`/leads/${item.leadSlug}`} className="text-accent-2 hover:underline">lead ↗</Link>}
+            {item.projectSlug && <Link href={`/projects/${item.projectSlug}`} className="text-accent-2 hover:underline">{item.projectName ?? "project"} ↗</Link>}
+            {item.leadSlug && <Link href={`/leads/${item.leadSlug}`} className="text-accent-2 hover:underline">{item.leadName ?? "lead"} ↗</Link>}
             {item.blockedReason && <span className="text-flag">{item.blockedReason}</span>}
+            <span className="font-mono text-[10px]">filed by {item.createdBy}</span>
+            {item.archivedAt && <span className="font-mono text-[10px]">archived {item.archivedAt.slice(0, 10)}</span>}
           </div>
         </div>
         <div className="flex flex-none flex-col items-end gap-1.5">
-          {item.bucket === "approval" ? (
+          {item.archivedAt ? (
+            <button className={btnCls} disabled={pending} onClick={restore}>Restore</button>
+          ) : item.bucket === "approval" ? (
             <>
               <button className={btnPrimary} disabled={pending} onClick={approve}>Approve</button>
               <button className={btnCls} disabled={pending} onClick={() => run(() => rejectWorkItem(item.id))}>Reject</button>
@@ -462,6 +769,15 @@ function WorkItemCard({
                   triggerClassName="max-w-[160px] truncate rounded-md border border-rule bg-paper px-2 py-1 text-[11px] text-ink-2 outline-none transition-colors hover:border-accent focus:border-accent disabled:opacity-50"
                   trigger={`${assigneeSummary(item.assignedTo, assignees)} ▾`}
                 />
+              )}
+              {item.bucket === "done" && (
+                <button
+                  className="text-[11px] font-semibold text-ink-3 hover:text-accent-2 disabled:opacity-50"
+                  disabled={pending}
+                  onClick={() => run(() => archiveWorkItems([item.id]))}
+                >
+                  Archive
+                </button>
               )}
             </>
           )}

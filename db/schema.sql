@@ -1911,6 +1911,28 @@ CREATE TABLE IF NOT EXISTS work_item_assignees (
 );
 CREATE INDEX IF NOT EXISTS idx_work_item_assignees_user ON work_item_assignees (user_id);
 
+-- ARCHIVED to-dos (Joe, 2026-10-02: "a method of archiving done or cancelled
+-- work queue items in the engine"). NULL = on the /engine board; a time = off
+-- it, into the Archived view. Display-only: the row stays, and every MCP read
+-- and dedup check still sees it. Only a done/cancelled item can be archived,
+-- and reopening one by any writer brings it back to the board — both enforced
+-- here so no code path can forget. Migration: db/apply-work-item-archive.mjs.
+ALTER TABLE work_items ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+CREATE INDEX IF NOT EXISTS idx_work_items_archived ON work_items (archived_at DESC)
+  WHERE archived_at IS NOT NULL;
+CREATE OR REPLACE FUNCTION work_items_archive_closed_only() RETURNS trigger AS $$
+BEGIN
+  IF NEW.archived_at IS NOT NULL AND NEW.status NOT IN ('done','cancelled') THEN
+    NEW.archived_at := NULL;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trg_work_items_archive_closed_only ON work_items;
+CREATE TRIGGER trg_work_items_archive_closed_only
+  BEFORE INSERT OR UPDATE OF status, archived_at ON work_items
+  FOR EACH ROW EXECUTE FUNCTION work_items_archive_closed_only();
+
 -- Per-user linked mailbox. Until staff logins there was one Gmail account, its
 -- refresh token in GMAIL_REFRESH_TOKEN, and every login saw Joe's mail. A row
 -- here is that user's own mailbox and wins over the env var; the env var

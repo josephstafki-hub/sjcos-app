@@ -20,7 +20,7 @@ import {
 import * as THREE from "three";
 import { Canvas } from "@react-three/fiber";
 import { levelSlice, type Camera as PlanCamera, type Level, type PlanDoc, type Wall } from "@/lib/plan-doc";
-import { itemCorners } from "@/lib/plan-geometry";
+import { centroid, itemCorners } from "@/lib/plan-geometry";
 import { emptyApi, type SceneApi, type WorldBounds } from "./scene/api";
 import { Bridge, type Section } from "./scene/Bridge";
 import { CameraRig, type CameraMode } from "./scene/Cameras";
@@ -58,6 +58,8 @@ export interface Scene3DProps {
   showLabels: boolean;
   /** When it changes (by id), fly there. */
   camera?: PlanCamera | null;
+  /** Level walk mode stands on (collision + eye height). Default: first shown. */
+  walkLevelId?: string;
   /** Throttled to ≤ 4/s. */
   onCameraChange?: (pos: [number, number, number], target: [number, number, number]) => void;
   className?: string;
@@ -164,6 +166,7 @@ function Scene3DInner(props: Scene3DProps, ref: ForwardedRef<Scene3DHandle>) {
     section,
     showLabels,
     camera,
+    walkLevelId,
     onCameraChange,
     className,
   } = props;
@@ -177,8 +180,17 @@ function Scene3DInner(props: Scene3DProps, ref: ForwardedRef<Scene3DHandle>) {
   const slices = useMemo(() => sliceLevels(doc, levelId, phase), [doc, levelId, phase]);
   const bounds = useMemo(() => computeBounds(slices), [slices]);
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
-  const walkWalls = useMemo(() => slices.flatMap((s) => s.walls.filter((w) => w.kind !== "remove" || phase === "existing")), [slices, phase]);
-  const floorY = slices[0]?.level.elevationIn ?? 0;
+  // Walk mode lives on one level: its walls block, its doors let you through.
+  const walkSlice = slices.find((s) => s.level.id === walkLevelId) ?? slices[0];
+  const walkWalls = useMemo(() => (walkSlice ? walkSlice.walls.filter((w) => w.kind !== "remove" || phase === "existing") : []), [walkSlice, phase]);
+  const walkOpenings = walkSlice?.openings ?? [];
+  const walkStart = useMemo<[number, number] | null>(() => {
+    const big = [...(walkSlice?.rooms ?? [])].sort((a, b) => b.areaSf - a.areaSf)[0];
+    if (!big) return null;
+    const c = centroid(big.polygon);
+    return [c.x, c.y];
+  }, [walkSlice]);
+  const floorY = walkSlice?.level.elevationIn ?? 0;
 
   const select = useCallback((id: string | null, additive: boolean) => onSelect?.(id, additive), [onSelect]);
   const addMeasurePt = useCallback((p: THREE.Vector3) => {
@@ -190,14 +202,16 @@ function Scene3DInner(props: Scene3DProps, ref: ForwardedRef<Scene3DHandle>) {
       style: renderStyle,
       phase,
       night,
-      dollhouse,
+      // Walking around, walls are full height and ceilings are on.
+      dollhouse: dollhouse && mode !== "walk",
       showLabels,
       selected,
       select,
       measure: { active: measuring, add: addMeasurePt },
       doorStyle: doc.settings.defaults.doorStyle,
+      settings: doc.settings,
     }),
-    [renderStyle, phase, night, dollhouse, showLabels, selected, select, measuring, addMeasurePt, doc.settings.defaults.doorStyle],
+    [renderStyle, phase, night, dollhouse, mode, showLabels, selected, select, measuring, addMeasurePt, doc.settings],
   );
 
   // Fly to a named camera when it changes by id.
@@ -289,14 +303,25 @@ function Scene3DInner(props: Scene3DProps, ref: ForwardedRef<Scene3DHandle>) {
           <SceneCtx.Provider value={ctx}>
             <Bridge apiRef={api} section={sectionProp} onLost={onLost} />
             <SceneLights sunHour={sunHour} night={night} bounds={bounds} />
-            <CameraRig mode={mode} apiRef={api} bounds={bounds} walls={walkWalls} floorY={floorY} onCameraChange={onCameraChange} />
+            <CameraRig
+              mode={mode}
+              apiRef={api}
+              bounds={bounds}
+              walls={walkWalls}
+              openings={walkOpenings}
+              floorY={floorY}
+              walkStart={walkStart}
+              levels={doc.levels}
+              camera={camera}
+              onCameraChange={onCameraChange}
+            />
             {slices.map((s) => (
               <group key={s.level.id}>
                 <Walls walls={s.walls} allWalls={s.allWalls} openings={s.openings} finishes={s.finishes} elev={s.level.elevationIn} />
-                <Rooms rooms={s.rooms} finishes={s.finishes} level={s.level} elev={s.level.elevationIn} />
+                <Rooms rooms={s.rooms} finishes={s.finishes} level={s.level} elev={s.level.elevationIn} stairs={doc.stairs} />
                 <Items items={s.items} elev={s.level.elevationIn} />
                 <Counters counters={s.counters} items={s.items} elev={s.level.elevationIn} />
-                <Devices devices={s.electrical} walls={s.allWalls} level={s.level} elev={s.level.elevationIn} />
+                <Devices devices={s.electrical} walls={s.allWalls} level={s.level} rooms={s.rooms} elev={s.level.elevationIn} />
                 <Stairs stairs={s.stairs} elev={s.level.elevationIn} />
                 <Structure structure={s.structure} elev={s.level.elevationIn} />
               </group>

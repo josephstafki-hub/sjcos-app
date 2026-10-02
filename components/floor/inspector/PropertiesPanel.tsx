@@ -11,6 +11,8 @@ import { fmtIn, levelSlice, wallLength, type Opening, type PlanDoc, type Wall } 
 import { DOOR_SUBTYPES, FINISH_PRESETS, OPENING_SUBTYPES, WINDOW_SUBTYPES } from "@/lib/plan-library";
 import { BTN_DANGER, BTN_GHOST, Empty, Grid, NumberField, PHASE_OPTIONS, SectionHeader, Segmented, SelectField, Stat, TextField } from "./fields";
 import { CounterProps, ItemProps } from "./props-items";
+import { CabinetStyleEditor } from "./CabinetStyle";
+import { CABINET_STYLE_KINDS } from "@/lib/plan-cabinet";
 import { CameraProps, DeviceProps, DimProps, FinishRegionProps, NoteProps, RoomProps, SectionProps, StairProps, StructureProps } from "./props-misc";
 
 export type Resolved =
@@ -129,6 +131,7 @@ function MultiSelect({ ctx }: { ctx: DesignerContext }) {
     return [...c.entries()];
   }, [doc, selected]);
   const itemIds = selected.filter((id) => doc.items.some((i) => i.id === id));
+  const cabinets = useMemo(() => doc.items.filter((i) => selected.includes(i.id) && CABINET_STYLE_KINDS.has(i.kind)), [doc.items, selected]);
   const ro = ctx.readOnly;
   return (
     <div>
@@ -138,6 +141,7 @@ function MultiSelect({ ctx }: { ctx: DesignerContext }) {
           <Stat key={k} label={k} value={n} />
         ))}
       </div>
+      {cabinets.length > 0 && <CabinetStyleEditor ctx={ctx} items={cabinets} />}
       {itemIds.length > 0 && (
         <>
           <SectionHeader>Phase ({itemIds.length} items)</SectionHeader>

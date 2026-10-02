@@ -2,7 +2,9 @@
 
 // Stairs (risers as stacked boxes) and structure (columns, beams, soffits).
 
+import { useMemo } from "react";
 import { dist, type Stair, type Structural } from "@/lib/plan-doc";
+import { stairLayout } from "@/lib/plan-stairs";
 import { midPt, sub } from "@/lib/plan-geometry";
 import { Box, COLORS, Label, Pick, isGhost, useScene, useSelected, useShadows, yawFromDir, yawFromPlanDeg } from "./shared";
 
@@ -16,33 +18,35 @@ export function Stairs({ stairs, elev }: { stairs: Stair[]; elev: number }) {
   );
 }
 
-/** Straight run from the stair origin, climbing along local +z (the item
- *  "front" direction at rotDeg 0). L and U shapes render as a straight run. */
+/** Treads + landing from the shared layout (lib/plan-stairs — the plan draws
+ *  the same pieces): straight, L or U, bottom step at the front (local +z,
+ *  the item "front" at rotDeg 0). Each piece is a solid block from the floor
+ *  up to its tread. */
 function StairMesh({ s, elev }: { s: Stair; elev: number }) {
   const { phase } = useScene();
   const selected = useSelected(s.id);
   const shadows = useShadows();
   const ghost = isGhost(s.phase, phase);
-  const steps: React.ReactNode[] = [];
-  for (let i = 0; i < s.riserCount; i++) {
-    const h = (i + 1) * s.riserIn;
-    steps.push(
-      <Box
-        key={i}
-        size={[s.widthIn, h, s.treadIn]}
-        position={[0, h / 2, i * s.treadIn + s.treadIn / 2]}
-        color="#cbb894"
-        roughness={0.7}
-        ghost={ghost}
-        selected={selected}
-        shadows={shadows}
-        edges={i === 0 || i === s.riserCount - 1}
-      />,
-    );
-  }
+  const layout = useMemo(() => stairLayout(s), [s]);
+  const top = Math.max(...layout.pieces.map((p) => p.level));
   return (
     <Pick id={s.id} position={[s.x, elev, s.y]} rotation={[0, yawFromPlanDeg(s.rotDeg), 0]}>
-      {steps}
+      {layout.pieces.map((p, i) => {
+        const h = p.level * s.riserIn;
+        return (
+          <Box
+            key={i}
+            size={[p.x1 - p.x0, h, p.y1 - p.y0]}
+            position={[(p.x0 + p.x1) / 2, h / 2, (p.y0 + p.y1) / 2]}
+            color={p.kind === "landing" ? "#c2ad86" : "#cbb894"}
+            roughness={0.7}
+            ghost={ghost}
+            selected={selected}
+            shadows={shadows}
+            edges={p.kind === "landing" || p.level === 1 || p.level === top}
+          />
+        );
+      })}
     </Pick>
   );
 }

@@ -56,6 +56,23 @@ interface Piece {
   t1: number;
   y0: number;
   y1: number;
+  /** Face finishes for this piece (a tile field stops at its height). */
+  lf: FinishRef | null;
+  rf: FinishRef | null;
+}
+
+/** How far a wall end should run past its endpoint to close an L corner: at a
+ *  corner shared with exactly one non-parallel wall, one of the two (the lower
+ *  id) extends by half the other's thickness so the outside corner is solid. */
+function cornerExtension(wall: Wall, end: { x: number; y: number }, all: Wall[]): number {
+  const near = (p: { x: number; y: number }) => Math.abs(p.x - end.x) <= 0.5 && Math.abs(p.y - end.y) <= 0.5;
+  const others = all.filter((o) => o.id !== wall.id && (near(o.a) || near(o.b)));
+  if (others.length !== 1) return 0;
+  const o = others[0];
+  const f = wallFrame(wall);
+  const fo = wallFrame(o);
+  if (Math.abs(f.dir.x * fo.dir.y - f.dir.y * fo.dir.x) < 0.2) return 0; // straight run
+  return wall.id < o.id ? o.thickIn / 2 : 0;
 }
 
 function WallMesh({
@@ -77,45 +94,56 @@ function WallMesh({
   const H = dollhouse ? Math.min(wall.heightIn, 48) : wall.heightIn;
   const f = wallFrame(wall);
   const yaw = yawFromDir(f.dir.x, f.dir.y);
-  const leftFin =
-    finishes.find((r) => r.target === "wall" && r.wallId === wall.id && r.side === "left")?.material ??
-    wall.faces?.left ??
-    null;
-  const rightFin =
-    finishes.find((r) => r.target === "wall" && r.wallId === wall.id && r.side === "right")?.material ??
-    wall.faces?.right ??
-    null;
+  // A wall finish region (no side = left, as the elevation reads it) covers
+  // the face up to its height; above that the wall's own paint shows.
+  const leftReg = finishes.find((r) => r.target === "wall" && r.wallId === wall.id && (r.side ?? "left") === "left") ?? null;
+  const rightReg = finishes.find((r) => r.target === "wall" && r.wallId === wall.id && r.side === "right") ?? null;
 
   const pieces = useMemo<Piece[]>(() => {
-    const out: Piece[] = [];
-    for (const [t0, t1] of solidSegments(wall, openings)) out.push({ key: `s${t0.toFixed(2)}`, t0, t1, y0: 0, y1: H });
+    const cutOf = (r: FinishRegion | null) => (r?.heightIn && r.heightIn > 0.5 && r.heightIn < H - 0.5 ? r.heightIn : null);
+    const lCut = cutOf(leftReg);
+    const rCut = cutOf(rightReg);
+    const finAt = (r: FinishRegion | null, cut: number | null, face: FinishRef | null | undefined, y1: number) =>
+      r && (cut == null || y1 <= cut + 0.01) ? r.material : face ?? null;
+    const raw: Omit<Piece, "lf" | "rf">[] = [];
+    const ext0 = cornerExtension(wall, wall.a, all);
+    const ext1 = cornerExtension(wall, wall.b, all);
+    for (const [t0, t1] of solidSegments(wall, openings)) {
+      raw.push({ key: `s${t0.toFixed(2)}`, t0: t0 <= 0.01 ? -ext0 : t0, t1: t1 >= f.length - 0.01 ? f.length + ext1 : t1, y0: 0, y1: H });
+    }
     for (const o of openings) {
       const t0 = Math.max(0, o.atIn);
       const t1 = Math.min(f.length, o.atIn + o.widthIn);
       if (t1 - t0 < 0.5) continue;
       const top = o.sillIn + o.heightIn;
-      if (top < H - 0.1) out.push({ key: `h${o.id}`, t0, t1, y0: top, y1: H });
-      if (o.sillIn > 0.1) out.push({ key: `b${o.id}`, t0, t1, y0: 0, y1: Math.min(o.sillIn, H) });
+      if (top < H - 0.1) raw.push({ key: `h${o.id}`, t0, t1, y0: top, y1: H });
+      if (o.sillIn > 0.1) raw.push({ key: `b${o.id}`, t0, t1, y0: 0, y1: Math.min(o.sillIn, H) });
+    }
+    const cuts = [lCut, rCut].filter((c): c is number => c != null).sort((a, b) => a - b);
+    const out: Piece[] = [];
+    for (const p of raw) {
+      const ys = [p.y0, ...cuts.filter((c) => c > p.y0 + 0.01 && c < p.y1 - 0.01), p.y1];
+      for (let k = 0; k + 1 < ys.length; k++) {
+        const y1 = ys[k + 1];
+        out.push({
+          ...p,
+          key: `${p.key}:${k}`,
+          y0: ys[k],
+          y1,
+          lf: finAt(leftReg, lCut, wall.faces?.left, y1),
+          rf: finAt(rightReg, rCut, wall.faces?.right, y1),
+        });
+      }
     }
     return out;
-  }, [wall, openings, H, f.length]);
+  }, [wall, all, openings, H, f.length, leftReg, rightReg]);
 
   const outline = useMemo(() => (style === "sketch" ? wallPolygon(wall, all) : null), [style, wall, all]);
 
   return (
     <Pick id={wall.id}>
       {pieces.map((p) => (
-        <WallPiece
-          key={p.key}
-          wall={wall}
-          yaw={yaw}
-          p={p}
-          elev={elev}
-          leftFin={leftFin}
-          rightFin={rightFin}
-          ghost={ghost}
-          selected={selected}
-        />
+        <WallPiece key={p.key} wall={wall} yaw={yaw} p={p} elev={elev} leftFin={p.lf} rightFin={p.rf} ghost={ghost} selected={selected} />
       ))}
       {outline && outline.length >= 3 && (
         <Line
@@ -223,10 +251,14 @@ function OpeningMesh({
   const isWin = o.kind === "window";
   const sub = o.subtype.toLowerCase();
   const inPlane = /pocket|slid|bifold|barn/.test(sub);
+  // Cased / arched openings are just a framed hole, as the plan draws them.
+  const noLeaf = o.kind === "opening" || /cased|opening|arch/.test(sub);
   const leafColor = "#e9e2d2";
 
   let leaf: React.ReactNode = null;
-  if (isDoor && !inPlane) {
+  if (isDoor && noLeaf) {
+    leaf = null;
+  } else if (isDoor && !inPlane) {
     // Hinge at the start (hand L) or end (hand R); leaf swung 90° open toward
     // the swing face.
     const hinge = o.hand === "L" ? start : end;

@@ -250,18 +250,26 @@ export async function sendInvoice(id: number): Promise<Result> {
   return { ok: true };
 }
 
-/** Mark an open invoice paid by hand (check / cash / bank transfer Joe saw
- *  land). Goes through the ledger: a settled manual payment for the verified
- *  open balance, actor recorded. Emits a MONEY notification. */
+/** Mark an invoice paid by hand (check / cash / bank transfer Joe saw land).
+ *  Goes through the ledger: a settled manual payment for the verified open
+ *  balance, actor recorded. A still-DRAFT invoice is allowed (Joe, adf98dc:
+ *  billed and paid outside the app, never sent from here) — it is issued in
+ *  the same transaction, with that reason on its history, then paid. Emits a
+ *  MONEY notification. */
 export async function markInvoicePaid(id: number, input?: { method?: string; note?: string }): Promise<Result> {
   const user = await requireAccess("invoices");
   const inv = await invoiceById(id);
   if (!inv) return { ok: false, error: "Invoice not found." };
   try {
     const applied = await withTransaction(async (run) => {
-      const b = await invoiceBalance(run, id);
+      let b = await invoiceBalance(run, id);
       if (!b) throw new BillingError("not_found", "Invoice not found.");
-      if (b.status === "draft") throw new BillingError("draft", `Invoice ${inv.number} is a draft; send it before recording a payment.`);
+      if (b.status === "draft") {
+        await run(`UPDATE invoices SET status = 'issued', issued_at = COALESCE(issued_at, now()) WHERE id = $1 AND status = 'draft'`, [id]);
+        await logInvoiceEvent(run, id, "issued", userPrincipal(user), { reason: "marked paid by hand while still a draft (billed outside SJC OS)" });
+        b = await invoiceBalance(run, id);
+        if (!b) throw new BillingError("not_found", "Invoice not found.");
+      }
       if (b.balanceCents <= 0) throw new BillingError("nothing_due", `Invoice ${inv.number} has no open balance.`);
       if (b.hasPending) throw new BillingError("pending", `Invoice ${inv.number} has an online payment in flight; wait for it to settle before recording a manual one.`);
       await recordInvoicePayment(run, {

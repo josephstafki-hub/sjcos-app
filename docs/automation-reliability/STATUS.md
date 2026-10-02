@@ -4,11 +4,11 @@ Updated: September 23, 2026.
 
 **September 23 build:** every task A00–A24 is IMPLEMENTED on branch
 `t3code/build-sjc-os-plan` with a test suite (405 tests, 403 pass, 0 fail, 2 skipped
-without the harness binaries) and per-task evidence in `status/*.md`. Nothing is
-deployed, enabled or proven on the live service: no production migration was
-applied, no timer installed, no policy activated, no send performed. The
-operational columns below stay "not deployed" until the deploy packet in
-`deploy/README.md` is executed and Joe records each state on `/engine/capabilities`.
+without the harness binaries) and per-task evidence in `status/*.md`. **Deployed
+October 2, 2026** (see "October 2 deploy"): code and schema are live, nothing is
+*enabled* — no policy is active and no automatic send has been performed. The
+operational columns below describe enablement and proof, which Joe records on
+`/engine/capabilities`.
 
 ## September 23 revision
 
@@ -107,6 +107,27 @@ scope/proven for scope. Each operational claim needs date, version and evidence.
 | A22 | Implemented (status/A22.md) | Not deployed · not enabled · not proven | Delegated approvals and employee accounts |
 | A23 | Implemented (status/A23.md) | Not deployed · not enabled · not proven | Confirmed lead-to-closeout workflow and proactive estimate assembly |
 | A24 | Implemented; model evals recorded (status/A24.md) | Not deployed · not enabled · not proven | Loaded operating-agent instructions, context and model behavior evaluations |
+
+## October 2 deploy
+
+- PR #44 merged (29b7702) after merging main through #53 into the branch; `npm test`
+  483 tests, 479 pass, 0 fail, 4 skipped; MCP server 236 tools.
+- Rehearsed on a restored copy of production (pg_dump →
+  `~/sjcos-backups/pre-automation-build-20261002-163325.dump`): migrations 0000–0023
+  applied cleanly, existing rows unchanged, 6 legacy paid invoices backfilled into the
+  payment ledger with zero balance, every policy seeded as `draft`.
+- Production: migrations applied, build `MwDEx89OfnkswJ3xb5IC7` promoted, `sjcos.service`
+  and `sjcos-mcp.service` restarted, 21 pages + internal routes + live MCP read tools verified.
+- Installed: `sjcos-worker.service` (required — the deferred call wrap-up runs there;
+  loader fixed in 7f72b36), `sjcos-dispatch.timer`. Telegram decision-button webhook
+  registered (`callback_query` only) with `TELEGRAM_WEBHOOK_SECRET`.
+- `capability_status`: 37 rows marked implemented (commit 29b7702). Deployed / enabled /
+  proven remain Joe's claims on `/engine/capabilities`.
+- NOT installed, on purpose: `sjcos-agent-worker.timer` (unattended agent runs — Joe's
+  call), `sjcos-monitor.timer` (would alert continuously until an off-host backup
+  destination exists), backup, weekly-summary, post-project, payments-reconcile, qbo-sync
+  timers (no credentials / no active policy yet). No policy is active; `AGENTS.md` text
+  is unchanged until policies are activated (agents-md-migration.md step 5).
 
 ## September 23 build evidence
 

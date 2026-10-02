@@ -46,7 +46,7 @@ async function capability(run: Run, key: string): Promise<{ implemented: boolean
 
 async function laneState(run: Run, lane: string): Promise<string> {
   try {
-    const [r] = await run<{ n: string }>(`SELECT count(*)::text AS n FROM lane_pauses WHERE lane IN ($1, 'all') AND resumed_at IS NULL`, [lane]);
+    const [r] = await run<{ n: string }>(`SELECT count(*)::text AS n FROM lane_pauses WHERE lane IN ($1, 'all')`, [lane]);
     return Number(r?.n ?? 0) > 0 ? "paused" : "open";
   } catch {
     return "unknown";

@@ -144,9 +144,11 @@ export async function getProjectSignerDefaults(
 ): Promise<{ name: string; email: string }> {
   // The link-in flow (app/client-portal/enter) mints accounts on a synthetic
   // <slug>@client-portal.invalid address when it has no real one. That is not a
-  // mailbox — never hand it back as somewhere to send a document.
+  // mailbox — never hand it back as somewhere to send a document. Without a real
+  // account email, fall back to the project's own client_email (what the portal
+  // publish notices already use), so a link-only client still gets the document.
   const { rows } = await query<{ client_name: string | null; email: string | null }>(
-    `SELECT p.client_name, u.email
+    `SELECT p.client_name, COALESCE(NULLIF(trim(u.email), ''), NULLIF(trim(p.client_email), '')) AS email
        FROM projects p
        LEFT JOIN users u ON u.role = 'client' AND u.link_slug = p.slug
                         AND u.email NOT LIKE '%@client-portal.invalid'

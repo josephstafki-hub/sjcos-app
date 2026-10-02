@@ -236,21 +236,13 @@ ALTER TABLE notifications ADD COLUMN IF NOT EXISTS when_label text;
 -- a to-do handed to them, a DM, a message in a room they're in — and nobody
 -- else sees it. Staff feeds are targeted-only, so a team login never reads the
 -- owner's feed. Migration: db/apply-staff-separation.mjs.
-ALTER TABLE notifications ADD COLUMN IF NOT EXISTS audience_user_id uuid
-  REFERENCES users(id) ON DELETE CASCADE;
+-- (The FK to users is added further down, after users exists — this file must
+-- load top to bottom on a fresh database.)
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS audience_user_id uuid;
 CREATE INDEX IF NOT EXISTS idx_notifications_audience
   ON notifications (audience_user_id, created_at DESC);
 
--- Per-user read state. The notifications.read boolean it replaces was global:
--- a staff member clearing the feed cleared Joe's too. The column is left in
--- place (harmless, no longer read) so an older build can't crash on a rollback.
-CREATE TABLE IF NOT EXISTS notification_reads (
-  notification_id uuid NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
-  user_id         uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  read_at         timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (notification_id, user_id)
-);
-CREATE INDEX IF NOT EXISTS idx_notification_reads_user ON notification_reads (user_id);
+-- (notification_reads — per-user read state — is created further down, after users.)
 
 -- ─── Compliance calendar ────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS compliance_items (
@@ -1595,7 +1587,7 @@ CREATE TABLE IF NOT EXISTS calls (
   notes_error          text,
   notes_attempts       integer NOT NULL DEFAULT 0,
   knowledge_item_id    uuid,
-  work_item_id         uuid REFERENCES work_items(id) ON DELETE SET NULL,  -- voicemail callback item
+  work_item_id         uuid,                       -- voicemail callback item (FK added after work_items exists)
   grant_id             uuid,                       -- owner grant spent for a click-to-call
   placed_by            text,                       -- 'owner' | 'mcp:<agent>' for outbound
   error                text,
@@ -1881,6 +1873,31 @@ CREATE INDEX IF NOT EXISTS idx_work_items_created   ON work_items(created_at DES
 -- NULL on a detector item = still awaiting enrichment (see the
 -- needs_enrichment filter on list_work_items in mcp/sjcos-mcp.mjs).
 ALTER TABLE work_items ADD COLUMN IF NOT EXISTS enriched_at timestamptz;
+
+-- Per-user read state. The notifications.read boolean it replaces was global:
+-- a staff member clearing the feed cleared Joe's too. The column is left in
+-- place (harmless, no longer read) so an older build can't crash on a rollback.
+CREATE TABLE IF NOT EXISTS notification_reads (
+  notification_id uuid NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
+  user_id         uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  read_at         timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (notification_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_notification_reads_user ON notification_reads (user_id);
+
+-- notifications.audience_user_id → users (notifications is created before users in this file)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'notifications'::regclass AND contype = 'f' AND conname = 'notifications_audience_user_id_fkey') THEN
+    ALTER TABLE notifications ADD CONSTRAINT notifications_audience_user_id_fkey FOREIGN KEY (audience_user_id) REFERENCES users(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+-- calls.work_item_id → work_items (declared here because calls is created earlier in this file)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'calls_work_item_id_fkey') THEN
+    ALTER TABLE calls ADD CONSTRAINT calls_work_item_id_fkey FOREIGN KEY (work_item_id) REFERENCES work_items(id) ON DELETE SET NULL;
+  END IF;
+END $$;
 
 -- LEGACY single-person assignment (db/apply-staff-separation.mjs, 2026-09-27).
 -- Superseded by work_item_assignees below; nothing reads it any more and every

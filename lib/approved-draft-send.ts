@@ -12,15 +12,20 @@
 // lib/approved-draft-rules.ts so they can be unit-tested without a DB.
 
 import "server-only";
+import { createHash } from "node:crypto";
 import { query } from "@/lib/db";
-import { gmailConfigured, sendNewEmail } from "@/lib/gmail";
+import { gmailConfigured } from "@/lib/gmail";
 import { logLeadActivity } from "@/lib/lead-activity";
 import { sqlAbsoluteLabel } from "@/lib/time";
-import { approveNotice, planApprovedSend, type RecordKind } from "@/lib/approved-draft-rules";
+import { approveNotice, heldNotice, planApprovedSend, type RecordKind } from "@/lib/approved-draft-rules";
+import { withTransaction } from "@/lib/commands/db";
+import { enqueueIntent } from "@/lib/commands/intents";
+import { dispatchIntentsNow } from "@/lib/dispatch/db";
 
 export type ApprovedDraftSend =
   | { outcome: "sent"; to: string; subject: string }
   | { outcome: "not_email"; reason: string; notice: string }
+  | { outcome: "held"; to: string; subject: string; notice: string }
   | { outcome: "failed"; error: string };
 
 interface ItemRow {
@@ -154,10 +159,38 @@ export async function sendApprovedClientDraft(workItemId: string): Promise<Appro
   }
   if (!gmailConfigured()) return { outcome: "failed", error: "Gmail is not connected" };
 
-  try {
-    await sendNewEmail({ to: plan.to, subject: plan.subject, bodyText: plan.body });
-  } catch (err) {
-    return { outcome: "failed", error: (err as Error).message || "send failed" };
+  // The Approve click IS the decision (owner auth ref). One permanent intent
+  // per work item + draft revision: a second Approve on the same draft finds
+  // the same intent and never sends twice; a changed draft is a new key.
+  const draftRev = createHash("sha256").update(`${plan.to}\n${plan.subject}\n${plan.body}`).digest("hex").slice(0, 12);
+  const { intent } = await withTransaction((run) =>
+    enqueueIntent(run, {
+      operationKey: `work_item:${workItemId}:approved_draft:${draftRev}`,
+      kind: "send_email",
+      targetKind: "email",
+      targetId: plan.to,
+      recipient: plan.to,
+      leadId: target!.kind === "lead" ? target!.id : null,
+      projectId: target!.kind === "project" ? target!.id : null,
+      payload: { to: plan.to, subject: plan.subject, bodyText: plan.body, work_item_id: workItemId },
+      policyRef: "owner:approve-click",
+      principal: { kind: "service", name: "approve-click" },
+    }),
+  );
+  if (intent.state === "accepted" || intent.state === "confirmed") {
+    return skipped(workItemId, `this draft was already emailed on an earlier Approve (${intent.completed_at ?? intent.created_at})`, true);
+  }
+  if (intent.state === "unknown") {
+    return { outcome: "held", to: plan.to, subject: plan.subject, notice: heldNotice(plan.to, "an earlier attempt is still being reconciled") };
+  }
+  const [outcome] = await dispatchIntentsNow([intent.id]);
+  if (!outcome) return { outcome: "failed", error: "the send could not be dispatched (already in flight)" };
+  if (outcome.responseClass === "unknown") {
+    await query(`UPDATE work_items SET blocked_reason = $2, updated_at = now() WHERE id = $1`, [workItemId, heldNotice(plan.to, outcome.error).slice(0, 300)]);
+    return { outcome: "held", to: plan.to, subject: plan.subject, notice: heldNotice(plan.to, outcome.error) };
+  }
+  if (outcome.responseClass !== "accepted" && outcome.responseClass !== "confirmed") {
+    return { outcome: "failed", error: outcome.error || "send failed" };
   }
 
   await logSend(target!, workItemId, plan.subject);

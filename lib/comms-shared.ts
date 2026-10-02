@@ -8,6 +8,8 @@ import "server-only";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { query, queryOne } from "./db";
+import type { Run } from "./commands/core";
+import { refreshSourcedWorkItem } from "./obligations/work-items";
 import { last10 } from "./comms/phone";
 
 export type CommsLinkType = "lead" | "sub" | "client" | "project" | "vendor";
@@ -102,46 +104,35 @@ export interface CommsWorkItemInput {
 }
 
 /** File (or refresh) a work item for Joe. Never throws — a filing failure is
- *  logged and returns null; callers that must be loud wrap it. */
+ *  logged and returns null; callers that must be loud wrap it.
+ *
+ *  A01: filing goes through lib/obligations/work-items.ts, so an existing OPEN
+ *  item on the same (source_kind, source_id) gets only its source facts
+ *  refreshed (body while nobody has worked it, empty lead/project links) —
+ *  never its status, priority, assignee, approval, due or snooze. Comms source
+ *  ids name conditions (a failed SMS, a 10DLC state), so a done item does not
+ *  block a fresh occurrence (`recurring`). */
 export async function fileCommsWorkItem(input: CommsWorkItemInput): Promise<string | null> {
   try {
-    const existing = await queryOne<{ id: string }>(
-      `SELECT id FROM work_items
-        WHERE source_kind = $1 AND source_id = $2 AND status NOT IN ('done','cancelled')
-        ORDER BY created_at DESC LIMIT 1`,
-      [input.sourceKind, input.sourceId],
-    );
-    if (existing) {
-      await query(
-        `UPDATE work_items
-            SET body = $2, priority = $3, updated_at = now(),
-                lead_id = COALESCE($4, lead_id), project_id = COALESCE($5, project_id)
-          WHERE id = $1`,
-        [existing.id, input.body, input.priority ?? "normal", input.leadId ?? null, input.projectId ?? null],
-      );
-      return existing.id;
-    }
-    const r = await queryOne<{ id: string }>(
-      `INSERT INTO work_items
-         (title, body, status, priority, assignee_kind, assignee_key, due_at, lead_id, project_id,
-          source_kind, source_id, expected_skill_slug, requires_approval, created_by)
-       VALUES ($1,$2,$3,$4,'human','human-joe',$5,$6,$7,$8,$9,$10,true,$11)
-       RETURNING id`,
-      [
-        input.title.slice(0, 200),
-        input.body,
-        input.status ?? "waiting_on_human",
-        input.priority ?? "normal",
-        input.dueAt ?? null,
-        input.leadId ?? null,
-        input.projectId ?? null,
-        input.sourceKind,
-        input.sourceId,
-        input.expectedSkillSlug ?? null,
-        input.createdBy ?? "comms",
-      ],
-    );
-    return r?.id ?? null;
+    const run: Run = async <T = Record<string, unknown>>(sql: string, params?: unknown[]) => (await query<never>(sql, params as never[])).rows as T[];
+    const r = await refreshSourcedWorkItem(run, {
+      sourceKind: input.sourceKind,
+      sourceId: input.sourceId,
+      provider: input.sourceKind,
+      title: input.title.slice(0, 200),
+      body: input.body,
+      status: input.status ?? "waiting_on_human",
+      priority: input.priority ?? "normal",
+      leadId: input.leadId ?? null,
+      projectId: input.projectId ?? null,
+      dueAt: input.dueAt ?? null,
+      expectedSkillSlug: input.expectedSkillSlug ?? null,
+      requiresApproval: true,
+      createdBy: input.createdBy ?? "comms",
+      obligationKind: input.sourceKind === "call" ? "call_action" : "follow_up",
+      recurring: true,
+    });
+    return r.id;
   } catch (err) {
     console.error("[comms] work item filing failed", err);
     return null;

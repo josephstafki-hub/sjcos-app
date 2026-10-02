@@ -16,6 +16,11 @@
 
 import { query, queryOne } from "@/lib/db";
 import { notifyOwner } from "@/lib/notify-owner";
+import { runDirect, sessionPrincipal, withTransaction } from "@/lib/commands/db";
+import type { Principal } from "@/lib/commands/principal";
+import { settleDecisionFromGrant, stageGrantDecision } from "@/lib/decisions/grants";
+import { decisionKeyboard } from "@/lib/decisions/telegram";
+import { consumeGrantRun, recordGrantResultRun, refundGrantUseRun } from "@/lib/dispatch/authority";
 
 export {
   GATED_ACTIONS,
@@ -33,7 +38,7 @@ const ISO = (col: string) => `to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"H
 const COLS = `id, status, actions, target_kind, target_id, scope, reason, requested_by,
   conversation_id, run_id, max_uses, uses,
   ${ISO("expires_at")} AS expires_at, ${ISO("decided_at")} AS decided_at,
-  ${ISO("used_at")} AS used_at, audit, ${ISO("created_at")} AS created_at`;
+  ${ISO("used_at")} AS used_at, audit, ${ISO("created_at")} AS created_at, decision_id`;
 
 /** Is a grant currently spendable (approved, unexpired, uses left)? */
 export function grantLive(g: OwnerGrant): boolean {
@@ -122,6 +127,7 @@ export async function requestGrant(input: {
   reason: string;
   requestedBy?: string;
   conversationId?: string | null;
+  workItemId?: string | null;
 }): Promise<{ ok: true; grant: OwnerGrant } | { ok: false; error: string }> {
   if (!isGatedAction(input.action)) {
     return { ok: false, error: `Unknown gated action "${input.action}". One of: ${GATED_ACTIONS.join(", ")}.` };
@@ -139,34 +145,62 @@ export async function requestGrant(input: {
     expiresInMinutes: 24 * 60,
     status: "requested",
   });
+  // A05/A06 bridge: the same ask is ONE decision row (kind 'grant') so
+  // /engine/permissions, /engine/decisions and the Telegram buttons all
+  // point at the same thing. Deciding either side settles both.
+  const requester: Principal = { kind: "agent", agent: grant.requested_by, runId: null, onBehalfOf: null };
+  const staged = await withTransaction((run) => stageGrantDecision(run, grant, requester, { workItemId: input.workItemId ?? null }));
+  const withDecision = { ...grant, decision_id: staged.decision.id };
   // notifyOwner writes the same Decision notification emit() used to (the
   // `emit` overrides keep the established card copy) and, when the Telegram
-  // channel is configured, pushes to Joe's phone — a waiting agent is blocked
-  // on this decision, so grants skip the hourly push cap (not quiet hours).
+  // channel is configured, pushes to Joe's phone with Approve / Request
+  // changes / Hold buttons — a waiting agent is blocked on this decision, so
+  // grants skip the hourly push cap (not quiet hours).
   await notifyOwner({
     kind: "grant",
     title: `Grant request: ${ACTION_LABEL[input.action]}${grant.target_id ? ` — ${grant.target_id}` : ""}`,
     body: `Reason: ${reason.slice(0, 160)}`,
-    href: "/engine/permissions",
+    href: `/engine/decisions?d=${staged.decision.id}`,
     emit: {
       title: `${grant.requested_by} asks to: ${ACTION_LABEL[input.action]}${grant.target_id ? ` (${grant.target_id})` : ""}`,
       subline: reason.slice(0, 160),
+      href: "/engine/permissions",
     },
+    telegram: staged.created ? { buttons: decisionKeyboard(staged.decision.id, staged.decision.content_hash), decisionId: staged.decision.id } : undefined,
   });
-  return { ok: true, grant };
+  return { ok: true, grant: withDecision };
 }
 
+/** Owner decides a grant on /engine/permissions. Settles the bridged
+ *  decision the same way (the click IS the resolution), attributed to the
+ *  signed-in owner when there is a session. */
 export async function decideGrant(
   id: string,
   decision: "approved" | "denied" | "revoked",
+  principal?: Principal | null,
 ): Promise<OwnerGrant | null> {
   const allowedFrom = decision === "revoked" ? ["approved", "requested"] : ["requested"];
-  return queryOne<OwnerGrant>(
+  const row = await queryOne<OwnerGrant>(
     `UPDATE owner_grants SET status = $2, decided_at = now(), updated_at = now()
       WHERE id = $1 AND status = ANY($3::text[])
       RETURNING ${COLS}`,
     [id, decision, allowedFrom],
   );
+  if (!row) return null;
+  try {
+    const p = principal ?? (await sessionPrincipal().catch(() => null));
+    const by = p && p.kind === "user" ? { userId: p.userId, label: `${p.role}:${p.name}` } : null;
+    await withTransaction((run) => settleDecisionFromGrant(run, id, decision, by));
+    if (decision !== "approved") {
+      // Intents parked on this grant will never be allowed: cancel them.
+      await withTransaction((run) => run(`UPDATE action_intents SET state = 'cancelled', last_error = $2, completed_at = now() WHERE grant_id = $1 AND state IN ('held','pending','retryable_failure')`, [id, `grant ${decision}`]));
+    } else {
+      await withTransaction((run) => run(`UPDATE action_intents SET state = 'pending', hold_reason = NULL, next_attempt_at = now() WHERE grant_id = $1 AND state = 'held'`, [id]));
+    }
+  } catch (err) {
+    console.error("[owner-grants] decision bridge failed:", (err as Error).message);
+  }
+  return row;
 }
 
 /** Atomically spend one use of a grant for `action` on `target`. Returns the
@@ -176,30 +210,19 @@ export async function consumeGrant(
   action: GatedAction,
   target: { kind: string; id: string; to?: string },
 ): Promise<{ ok: true; grant: OwnerGrant } | { ok: false; error: string }> {
-  const g = await getGrant(grantId);
   // The decision is the pure rule in lib/owner-grant-types.ts (unit-tested);
-  // the UPDATE below re-checks status/uses/expiry so two concurrent spends
-  // can't both succeed.
-  const covers = grantCovers(g, action, target);
-  if (!covers.ok) return covers;
-  const entry = { at: new Date().toISOString(), action, target: `${target.kind}:${target.id}`, result: "pending" };
-  const updated = await queryOne<OwnerGrant>(
-    `UPDATE owner_grants
-        SET uses = uses + 1, used_at = now(), updated_at = now(),
-            audit = audit || $2::jsonb
-      WHERE id = $1 AND status = 'approved' AND uses < max_uses AND expires_at > now()
-      RETURNING ${COLS}`,
-    [grantId, JSON.stringify([entry])],
-  );
-  if (!updated) return { ok: false, error: "That permission was spent or revoked a moment ago." };
-  return { ok: true, grant: updated };
+  // the UPDATE re-checks status/uses/expiry so two concurrent spends can't
+  // both succeed. Since A05/A06 the dispatcher spends grants at dispatch
+  // time (lib/dispatch/authority.ts); this pool-bound wrapper remains for
+  // callers that still spend up front (document signature).
+  return consumeGrantRun(runDirect, grantId, action, target);
 }
 
 /** Give a use back when a send failed before anything transmitted (bad id,
  *  missing email, Gmail down). The audit entry stays so the attempt is visible. */
 export async function refundGrantUse(grantId: string): Promise<void> {
   try {
-    await query(`UPDATE owner_grants SET uses = GREATEST(uses - 1, 0), updated_at = now() WHERE id = $1`, [grantId]);
+    await refundGrantUseRun(runDirect, grantId);
   } catch {
     /* best-effort */
   }
@@ -208,20 +231,18 @@ export async function refundGrantUse(grantId: string): Promise<void> {
 /** Record how a consumed use turned out (fills the last 'pending' audit entry). */
 export async function recordGrantResult(grantId: string, result: string): Promise<void> {
   try {
-    const g = await getGrant(grantId);
-    if (!g) return;
-    const audit = [...g.audit];
-    for (let i = audit.length - 1; i >= 0; i--) {
-      if (audit[i].result === "pending") {
-        audit[i] = { ...audit[i], result: result.slice(0, 300) };
-        break;
-      }
-    }
-    await query(`UPDATE owner_grants SET audit = $2::jsonb, updated_at = now() WHERE id = $1`, [
-      grantId,
-      JSON.stringify(audit),
-    ]);
+    await recordGrantResultRun(runDirect, grantId, result);
   } catch {
     /* audit is best-effort */
   }
+}
+
+/** Is the grant (if any) live enough to attach to an intent? Used by the
+ *  adapters before staging so a typo'd id fails fast with a relayable
+ *  reason instead of a held intent. */
+export async function checkGrantCovers(grantId: string, action: GatedAction, target: { kind: string; id: string; to?: string }): Promise<{ ok: true; grant: OwnerGrant } | { ok: false; error: string }> {
+  const g = await getGrant(grantId);
+  const covers = grantCovers(g, action, target);
+  if (!covers.ok) return covers;
+  return { ok: true, grant: g! };
 }

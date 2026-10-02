@@ -297,7 +297,11 @@ export function StaffAccessButton({
             <PermissionPicker selected={permissions} />
             <div className="text-[11px] text-ink-3">
               Changes bite on their next click — anything unticked disappears from their sidebar and is refused
-              server-side.
+              server-side. Areas are what they can <em>see</em>; what they may <em>approve</em> is set separately on{" "}
+              <a href={`/settings/team/${id}`} className="text-accent-2 hover:underline">
+                their authority page
+              </a>
+              .
             </div>
             {error && <div className="text-[12px] text-flag">{error}</div>}
             <div className="flex justify-end gap-2">

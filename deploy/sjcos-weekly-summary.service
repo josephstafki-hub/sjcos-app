@@ -1,0 +1,7 @@
+[Unit]
+Description=SJC OS Weekly client summaries (A16, W10)
+After=sjcos.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/joe/bin/sjcos-weekly-summary

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the SJC OS intent dispatcher every 2 minutes at :01/:03/…
+
+[Timer]
+# Odd minutes keep clear of the push drain (:2/5), the newsletter drip (:10),
+# the :0/15 lead-thread sync and the hourly detector sweep (:20).
+OnCalendar=*-*-* *:1/2:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

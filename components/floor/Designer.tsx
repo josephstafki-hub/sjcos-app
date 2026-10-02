@@ -13,6 +13,7 @@ import { ElevationView } from "./ElevationView";
 import { Scene3DLoader, type Scene3DHandle } from "./Scene3DLoader";
 import { ToolPalette, TOOL_GROUPS } from "./ToolPalette";
 import { TopBar } from "./TopBar";
+import { ActivityEmitter } from "./ActivityEmitter";
 import { StatusBar } from "./StatusBar";
 import { Inspector, InspectorSheet } from "./inspector/Inspector";
 import { useDesigner, type ToolId } from "./useDesigner";
@@ -314,6 +315,8 @@ export function Designer(props: DesignerProps) {
 
   return (
     <div className="flex h-[calc(100vh-var(--topbar-h,56px))] min-h-[480px] flex-col overflow-hidden">
+      {/* A19: owner office time from real interaction only; server resolves the job from the design. */}
+      <ActivityEmitter designId={design.id} enabled={props.isOwner && !readOnly} />
       <TopBar ctx={ctx} onFit={() => { canvas.current?.fit(); scene.current?.fit(); }} onPrint={onPrint} />
       {narrow && <ToolPalette tool={d.tool} onSelect={d.setTool} compact />}
       <div className="flex min-h-0 flex-1">

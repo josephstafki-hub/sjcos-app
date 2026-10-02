@@ -4,12 +4,15 @@ import { registerHooks } from "node:module";
 import { loadFileAttachments, MAX_ATTACHMENT_BYTES, MAX_EMAIL_ATTACHMENTS } from "../lib/mail-attachments.ts";
 
 // send_email with attachment_file_ids (mcp/grants-tools.mjs → lib/agent-sends.ts).
-// The rules that matter: a plain-text email with no attachments goes out exactly
-// as before, and a bad file id / missing blob / oversize packet is refused
-// BEFORE consumeGrant — a typo must never burn Joe's one-use grant.
+// The rules that matter: a plain-text email with no attachments stages exactly
+// the same intent as before, attachments travel on the intent as file
+// REFERENCES (the provider reads bytes at dispatch), and a bad file id /
+// missing blob / oversize packet is refused BEFORE any intent is staged — a
+// typo must never burn Joe's one-use grant (it is spent at dispatch).
 //
-// performGrantedAction runs for real; every module it talks to (db, Gmail,
-// grants, disk) is stubbed below, so nothing is queried, spent, or emailed.
+// performGrantedAction runs for real; every module it talks to (db, intents,
+// dispatcher, grants, disk) is stubbed below, so nothing is queried, spent or
+// emailed.
 
 const JPEG = Buffer.from("fake jpeg bytes");
 const FILES = {
@@ -106,11 +109,13 @@ const STUBS = {
   "@/lib/send-ops": ["sendInvoiceOp", "sendPurchaseOrderOp"],
   "@/lib/newsletter-outbox": ["releaseOutboxItem"],
   "@/lib/doc-drafts": ["submitDocDraftForSignature"],
-  "@/lib/gmail": ["gmailConfigured", "sendNewEmail"],
   "@/lib/sms": ["sendSms"],
   "@/lib/voice": ["placeCall"],
   "@/lib/uploads": ["readUpload"],
-  "@/lib/owner-grants": ["consumeGrant", "recordGrantResult", "refundGrantUse"],
+  "@/lib/commands/db": ["withTransaction"],
+  "@/lib/commands/intents": ["enqueueIntent"],
+  "@/lib/dispatch/db": ["dispatchIntentsNow", "describeOutcome"],
+  "@/lib/owner-grants": ["checkGrantCovers", "consumeGrant", "recordGrantResult", "refundGrantUse"],
 };
 registerHooks({
   resolve(specifier, context, next) {
@@ -134,10 +139,10 @@ const { performGrantedAction } = await import("../lib/agent-sends.ts");
 const GRANT = "11111111-1111-4111-8111-111111111111";
 const TO = "orders@fgtcabinetry.example";
 
-/** Fresh recorders for one send: what was queried, spent, refunded, emailed, audited. */
+/** Fresh recorders for one send: what was queried, staged, dispatched, audited. */
 function world() {
   const f = fakeFiles();
-  const w = { consumed: [], recorded: [], refunded: [], sent: [], audits: [], files: f };
+  const w = { covers: [], consumed: [], refunded: [], intents: [], dispatched: [], audits: [], files: f };
   globalThis.__sends = {
     query: async (sql, params) => {
       if (/FROM files/.test(sql)) return { rows: await f.run(sql, params) };
@@ -147,20 +152,28 @@ function world() {
     queryOne: async () => null,
     notifyAgentFailure: async () => {},
     readUpload: f.read,
-    gmailConfigured: () => true,
-    sendNewEmail: async (opts) => {
-      w.sent.push(opts);
+    checkGrantCovers: async (...a) => {
+      w.covers.push(a);
+      return { ok: true };
     },
     consumeGrant: async (...a) => {
       w.consumed.push(a);
       return { ok: true };
     },
-    recordGrantResult: async (...a) => {
-      w.recorded.push(a);
-    },
+    recordGrantResult: async () => {},
     refundGrantUse: async (...a) => {
       w.refunded.push(a);
     },
+    withTransaction: async (fn) => fn(async () => []),
+    enqueueIntent: async (_run, input) => {
+      w.intents.push(input);
+      return { intent: { id: `intent-${w.intents.length}` }, created: true };
+    },
+    dispatchIntentsNow: async (ids) => {
+      w.dispatched.push(ids);
+      return ids.map(() => ({ responseClass: "accepted", state: "accepted" }));
+    },
+    describeOutcome: (o, what) => (o?.responseClass === "accepted" ? { ok: true, summary: `${what} — accepted.`, state: "accepted" } : { ok: false, error: `${what}: not sent`, state: "held" }),
   };
   return w;
 }
@@ -168,53 +181,69 @@ function world() {
 const send = (email) =>
   performGrantedAction({ action: "send_email", grantId: GRANT, agent: "claude", email: { to: TO, subject: "Tierney kitchen layout", body: "Photos attached.", ...email } });
 
-test("no attachments: the same plain-text send, summary, grant spend and audit as before", async () => {
+test("no attachments: one plain-text intent bound to the grant, no files query, no attachments key", async () => {
   const w = world();
   const r = await send({});
-  assert.deepEqual(r, { ok: true, summary: `Email sent to ${TO}: "Tierney kitchen layout"` });
-  assert.deepEqual(w.sent, [{ to: TO, subject: "Tierney kitchen layout", bodyText: "Photos attached." }], "no attachments key at all");
-  assert.deepEqual(w.consumed, [[GRANT, "send_email", { kind: "email", id: TO, to: TO }]]);
+  assert.equal(r.ok, true);
+  assert.equal(r.summary, `Email to ${TO}: "Tierney kitchen layout" — accepted.`);
+  assert.equal(r.attachments, undefined);
+  assert.equal(w.intents.length, 1);
+  assert.equal(w.intents[0].kind, "send_email");
+  assert.equal(w.intents[0].grantId, GRANT);
+  assert.equal(w.intents[0].recipient, TO);
+  assert.equal(w.intents[0].payload.to, TO);
+  assert.equal(w.intents[0].payload.subject, "Tierney kitchen layout");
+  assert.equal(w.intents[0].payload.bodyText, "Photos attached.");
+  assert.equal(Object.hasOwn(w.intents[0].payload, "attachments"), false, "no attachments key at all");
+  assert.deepEqual(w.dispatched, [["intent-1"]]);
   assert.equal(w.files.calls.length, 0, "no files query");
-  assert.equal(w.refunded.length, 0);
+  assert.equal(w.consumed.length, 0, "the grant is spent at dispatch, not here");
   assert.equal(w.audits[0][2], `send_email email:${TO}`);
 });
 
-test("valid attachments: spent once, emailed with the files, and named in the summary + audit", async () => {
+test("valid attachments: one intent carrying file references, named in the summary + audit", async () => {
   const w = world();
-  const r = await send({ attachment_file_ids: ["proj-46", "proj-47"] });
+  const r = await send({ attachment_file_ids: ["proj-46", "proj-47", "proj-46"] });
   assert.equal(r.ok, true);
-  assert.equal(r.summary, `Email sent to ${TO}: "Tierney kitchen layout" with 2 attachments: IMG_0046.jpeg, IMG_0047.jpeg`);
+  assert.equal(r.summary, `Email to ${TO}: "Tierney kitchen layout" — accepted. with 2 attachments: IMG_0046.jpeg, IMG_0047.jpeg`);
   assert.deepEqual(r.attachments, ["IMG_0046.jpeg", "IMG_0047.jpeg"]);
-  assert.equal(w.consumed.length, 1);
-  assert.equal(w.sent.length, 1);
-  assert.deepEqual(w.sent[0].attachments.map((a) => [a.filename, a.mimeType, a.content]), [
-    ["IMG_0046.jpeg", "image/jpeg", JPEG],
-    ["IMG_0047.jpeg", "image/jpeg", JPEG],
+  assert.equal(w.intents.length, 1);
+  assert.deepEqual(w.intents[0].payload.attachments, [
+    { filename: "IMG_0046.jpeg", mimeType: "image/jpeg", fileId: "proj-46" },
+    { filename: "IMG_0047.jpeg", mimeType: "image/jpeg", fileId: "proj-47" },
   ]);
-  assert.match(w.recorded[0][1], /^ok: .*with 2 attachments: IMG_0046\.jpeg, IMG_0047\.jpeg$/);
   assert.equal(w.audits[0][2], `send_email email:${TO} + IMG_0046.jpeg, IMG_0047.jpeg`);
 });
 
-test("an unknown file id is refused and the grant is NOT consumed", async () => {
+test("different attachments are a different operation (no replay of the earlier intent)", async () => {
+  const w = world();
+  await send({ attachment_file_ids: ["proj-46"] });
+  await send({ attachment_file_ids: ["proj-47"] });
+  await send({});
+  const keys = w.intents.map((i) => i.operationKey);
+  assert.equal(new Set(keys).size, 3);
+});
+
+test("an unknown file id is refused before any intent is staged", async () => {
   const w = world();
   const r = await send({ attachment_file_ids: ["proj-46", "proj-typo"] });
   assert.equal(r.ok, false);
   assert.match(r.error, /"proj-typo"/);
-  assert.deepEqual([w.consumed.length, w.recorded.length, w.refunded.length, w.sent.length], [0, 0, 0, 0]);
+  assert.deepEqual([w.covers.length, w.intents.length, w.dispatched.length, w.consumed.length, w.refunded.length], [0, 0, 0, 0, 0]);
 });
 
-test("a missing blob is refused and the grant is NOT consumed", async () => {
+test("a missing blob is refused before any intent is staged", async () => {
   const w = world();
   const r = await send({ attachment_file_ids: ["proj-gone"] });
   assert.equal(r.ok, false);
   assert.match(r.error, /missing from storage/);
-  assert.deepEqual([w.consumed.length, w.sent.length], [0, 0]);
+  assert.deepEqual([w.intents.length, w.dispatched.length], [0, 0]);
 });
 
-test("over the size cap is refused and the grant is NOT consumed", async () => {
+test("over the size cap is refused before any intent is staged", async () => {
   const w = world();
   const r = await send({ attachment_file_ids: ["proj-big1", "proj-big2"] });
   assert.equal(r.ok, false);
   assert.match(r.error, /over Gmail's ~25 MB limit/);
-  assert.deepEqual([w.consumed.length, w.sent.length], [0, 0]);
+  assert.deepEqual([w.intents.length, w.dispatched.length], [0, 0]);
 });

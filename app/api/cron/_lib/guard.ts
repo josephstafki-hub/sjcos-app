@@ -13,6 +13,7 @@ import { NextResponse } from "next/server";
 import { isGmailRateLimit } from "@/lib/gmail";
 import { emit } from "@/lib/notify";
 import { query } from "@/lib/db";
+import { recordCronRun, type CronErrorClass } from "@/lib/worker/cron-runs";
 
 /** Notifications with the same title inside this window are not re-emitted,
  *  so a quota that keeps tripping every quarter hour yields one card, not a
@@ -56,6 +57,19 @@ async function notifyOnce(title: string, subline: string): Promise<void> {
   });
 }
 
+/** Every run — ok, failed AND the graceful rate-limit skips — leaves a
+ *  cron_runs row (migration 0020) so a job that is "skipped, will retry" every
+ *  tick shows up in lib/worker/health.ts as consecutive skips instead of
+ *  quietly never processing its work. Ledger failures never fail the job. */
+async function ledger(job: string, startedAt: Date, ok: boolean, errorClass: CronErrorClass | null, error: string | null, detail: Record<string, unknown> = {}): Promise<void> {
+  try {
+    const run = async <T = Record<string, unknown>>(sql: string, params?: unknown[]) => (await query(sql, params as never[])).rows as T[];
+    await recordCronRun(run, { job, startedAt, ok, errorClass, error, detail });
+  } catch (e) {
+    console.error(`[cron:${job}] cron_runs ledger write failed: ${messageOf(e).slice(0, 160)}`);
+  }
+}
+
 /** Run one cron job body. On failure: one log line, one notifications row,
  *  and a 503 (rate limit) / 500 (anything else) JSON response. */
 export async function runCronJob(
@@ -63,14 +77,17 @@ export async function runCronJob(
   jobName: string,
   job: () => Promise<object>,
 ): Promise<NextResponse> {
-  const ran_at = new Date().toISOString();
+  const started = new Date();
+  const ran_at = started.toISOString();
   try {
     const result = await job();
+    await ledger(jobName, started, true, null, null, summarize(result));
     return NextResponse.json({ ok: true, ran_at, ...result });
   } catch (err) {
     const msg = messageOf(err);
     if (isGmailRateLimit(err)) {
       console.error(`[cron:${jobName}] Gmail rate limit hit; skipped this run (${msg.slice(0, 160)})`);
+      await ledger(jobName, started, false, "rate_limited", msg);
       await notifyOnce(
         `Gmail rate limit hit during ${jobName}`,
         `Gmail's per-minute API quota was exhausted at ${ran_at}. The run was skipped and will retry on the next timer tick.`,
@@ -78,9 +95,20 @@ export async function runCronJob(
       return NextResponse.json({ ok: false, ran_at, error: "gmail_rate_limited", message: msg }, { status: 503 });
     }
     console.error(`[cron:${jobName}] failed: ${msg.slice(0, 300)}`);
+    await ledger(jobName, started, false, "failed", msg);
     await notifyOnce(`${capitalize(jobName)} failed`, msg.slice(0, 240));
     return NextResponse.json({ ok: false, ran_at, error: "cron_failed", message: msg }, { status: 500 });
   }
+}
+
+/** Keep only small scalar counters from a job result for the ledger detail. */
+function summarize(result: object): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(result as Record<string, unknown>)) {
+    if (typeof v === "number" || typeof v === "boolean") out[k] = v;
+    else if (typeof v === "string" && v.length <= 120) out[k] = v;
+  }
+  return out;
 }
 
 function capitalize(s: string): string {

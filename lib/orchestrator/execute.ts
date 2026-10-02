@@ -2,6 +2,22 @@ import "server-only";
 
 import { query, queryOne } from "@/lib/db";
 import { maybeAdvanceRunbook } from "@/lib/runbook-engine";
+import { withTransaction } from "@/lib/commands/db";
+import { completeWorkItem } from "@/lib/completion/complete";
+import type { Principal } from "@/lib/commands/principal";
+
+// Approved Qwen proposals execute as an unattended agent: completion goes
+// through the evidence-backed command (A04) with manual evidence naming the
+// proposal, so a step that requires real evidence refuses instead of being
+// marked done on a model's say-so.
+const PROPOSAL_PRINCIPAL: Principal = { kind: "agent", agent: "qwen-proposal", runId: null, onBehalfOf: null };
+
+async function completeViaCommand(id: string, reason: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const r = await withTransaction((run) =>
+    completeWorkItem(run, { workItemId: id, principal: PROPOSAL_PRINCIPAL, evidence: { kind: "manual", actor: "qwen-proposal", reason } }),
+  );
+  return r.ok ? { ok: true } : { ok: false, error: r.error };
+}
 import type { PendingProposal } from "./proposals";
 
 // The whitelisted executors behind approved Qwen proposals. Plain library
@@ -33,12 +49,8 @@ export async function executeProposal(p: PendingProposal): Promise<ExecuteResult
         const id = p.payload.work_item_id as string;
         const title = await workItemTitle(id);
         if (!title) return { ok: false, summary: "Work item not found.", entityKind: "work_item", entityId: id };
-        await query(
-          `UPDATE work_items SET status = 'done', completed_at = now(), updated_at = now()
-            WHERE id = $1 AND status NOT IN ('done','cancelled')`,
-          [id],
-        );
-        await maybeAdvanceRunbook(id); // W6: no-op unless this is a runbook step
+        const done = await completeViaCommand(id, "Approved Qwen proposal: mark done");
+        if (!done.ok) return { ok: false, summary: `Not marked done — ${done.error}`, entityKind: "work_item", entityId: id };
         return { ok: true, summary: `Marked done: ${title}`, entityKind: "work_item", entityId: id };
       }
       case "snooze": {
@@ -62,9 +74,13 @@ export async function executeProposal(p: PendingProposal): Promise<ExecuteResult
         const status = p.payload.status as string;
         const title = await workItemTitle(id);
         if (!title) return { ok: false, summary: "Work item not found.", entityKind: "work_item", entityId: id };
+        if (status === "done") {
+          const done = await completeViaCommand(id, "Approved Qwen proposal: status → done");
+          if (!done.ok) return { ok: false, summary: `Not marked done — ${done.error}`, entityKind: "work_item", entityId: id };
+          return { ok: true, summary: `Status → done: ${title}`, entityKind: "work_item", entityId: id };
+        }
         await query(
-          `UPDATE work_items SET status = $2, updated_at = now(),
-                  completed_at = CASE WHEN $2 = 'done' THEN now() ELSE completed_at END
+          `UPDATE work_items SET status = $2, updated_at = now()
             WHERE id = $1 AND status NOT IN ('done','cancelled')`,
           [id, status],
         );

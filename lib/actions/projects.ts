@@ -14,6 +14,7 @@ import { createMilestoneInvoice } from "@/lib/actions/money";
 import { sendCompletionOutreach } from "@/lib/actions/closeout";
 import { autoDraftSocialOnCompletion, autoDraftBlogOnCompletion } from "@/lib/actions/marketing";
 import { parseDrawSchedule } from "@/lib/draw-schedule";
+import { drawEconomicKey } from "@/lib/billing/core";
 import { queueSubPortalInvite, markSubInviteApproved } from "@/lib/sub-invites";
 import { startRunbook } from "@/lib/runbook-engine";
 import {
@@ -98,40 +99,52 @@ async function autoOutreachEnabled(): Promise<boolean> {
 }
 
 /** Auto-bill any draw whose triggerStatus matches the project's new stage (7-inv).
- *  Reads the most recent approved estimate's draw schedule, generates (and, per
- *  the setting, sends) an invoice for each due, unbilled draw, then marks it
- *  billed so re-flipping the stage never double-bills. */
+ *  Reads the most recent approved estimate's draw schedule and generates (and,
+ *  per the setting, sends) an invoice for each due draw. The guard against
+ *  double billing is the invoice's economic_key (`draw:<index>:<label-slug>`,
+ *  A07a): re-flipping the stage finds the existing invoice. The schedule's
+ *  `billed` flag is kept as a display hint only. Draw 0 is also covered by the
+ *  acceptance invoice (`estimate:<id>:initial`, A07b) when one was issued. */
 async function billMilestonesForStatus(slug: string, newStatus: string) {
-  const est = await queryOne<{ id: string; total: number; draw_schedule: unknown }>(
-    `SELECT e.id, e.total, e.draw_schedule
+  const est = await queryOne<{ id: string; total: number; draw_schedule: unknown; project_id: string }>(
+    `SELECT e.id, e.total, e.draw_schedule, e.project_id
        FROM estimates e JOIN projects p ON p.id = e.project_id
-      WHERE p.slug = $1 AND e.status = 'approved' AND e.draw_schedule IS NOT NULL
+      WHERE p.slug = $1 AND e.status = 'approved' AND e.kind = 'formal' AND e.draw_schedule IS NOT NULL
       ORDER BY e.approved_at DESC NULLS LAST, e.id DESC LIMIT 1`,
     [slug],
   );
   if (!est) return;
   const lines = parseDrawSchedule(est.draw_schedule);
   if (!lines) return;
-  const due = lines.filter((l) => l.triggerStatus === newStatus && !l.billed);
+  const due = lines.map((l, index) => ({ l, index })).filter(({ l }) => l.triggerStatus === newStatus);
   if (due.length === 0) return;
 
   const autoSend = await autoSendMilestone();
   const totalCents = est.total ?? 0; // estimates.total is already cents
   let billed = 0;
-  for (const l of due) {
+  for (const { l, index } of due) {
+    const economicKey = drawEconomicKey(index, l.label);
+    const keys = index === 0 ? [economicKey, `estimate:${est.id}:initial`] : [economicKey];
+    const existing = await queryOne<{ id: string }>(
+      `SELECT id FROM invoices WHERE project_id = $1 AND economic_key = ANY($2::text[]) AND status <> 'void' LIMIT 1`,
+      [est.project_id, keys],
+    );
+    if (existing) {
+      l.billed = true;
+      continue;
+    }
     const amount = Math.round((totalCents * l.percent) / 100); // draw % of total, in cents
-    const res = await createMilestoneInvoice(slug, { milestone: l.label, amount, autoSend });
+    const res = await createMilestoneInvoice(slug, { milestone: l.label, amount, autoSend, economicKey, estimateId: Number(est.id) });
     if (res.ok) {
       l.billed = true;
-      billed++;
+      if (res.created) billed++;
     }
   }
-  if (billed === 0) return;
-
   await query(`UPDATE estimates SET draw_schedule = $1::jsonb WHERE id = $2`, [
     JSON.stringify(lines),
     est.id,
   ]);
+  if (billed === 0) return;
   await emit({
     kind: "money",
     tag: "Money",

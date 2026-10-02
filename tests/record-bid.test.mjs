@@ -32,7 +32,11 @@ const STUBS = {
   [lib("upload-store")]: fwd("storeUpload"),
   [lib("bid-follow-ups")]: fwd("sendBidThanks"),
   [lib("gmail")]: fwd("gmailConfigured", "sendNewEmail"),
-  [lib("uploads")]: fwd("readUpload"),
+  [lib("uploads")]: fwd("readUpload") + "\nexport const UPLOAD_DIR = '/nonexistent-uploads';",
+  // The packet SEND path (not exercised here) stages intents through these.
+  [lib("commands/db")]: fwd("withTransaction"),
+  [lib("commands/intents")]: fwd("enqueueIntent"),
+  [lib("dispatch/db")]: fwd("dispatchIntentsNow"),
 };
 registerHooks({
   resolve(specifier, context, next) {

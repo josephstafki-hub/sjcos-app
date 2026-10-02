@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the SJC OS full backup nightly at 02:30 America/Chicago
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 America/Chicago
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

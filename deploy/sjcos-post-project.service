@@ -1,0 +1,7 @@
+[Unit]
+Description=SJC OS Post-project follow-through (A17, W12)
+After=sjcos.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/joe/bin/sjcos-post-project

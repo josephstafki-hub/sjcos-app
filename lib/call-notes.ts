@@ -18,6 +18,8 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 import { query, queryOne } from "./db";
+import { withTransaction } from "@/lib/commands/db";
+import { ensureCallFollowUps } from "@/lib/completion/call-followups";
 import { askHermes, chatReplyClaude } from "./dev-agents";
 import { extractJson, reviewCallNotes } from "./orchestrator/claude-review";
 import { notifyOwner } from "./notify-owner";
@@ -126,18 +128,6 @@ export function renderNotes(call: CallRow, n: CallNotesShape): string {
   return lines.join("\n");
 }
 
-/** Best-effort date from the model's free-text `due`. Null unless it parses
- *  to something in the future within a year. */
-function dueDate(due: string | null): Date | null {
-  if (!due) return null;
-  const t = Date.parse(due);
-  if (!Number.isFinite(t)) return null;
-  const d = new Date(t);
-  const now = Date.now();
-  if (d.getTime() < now - 86_400_000 || d.getTime() > now + 366 * 86_400_000) return null;
-  return d;
-}
-
 /** Generate, review, and file notes for one call. Idempotent per call
  *  (skips when notes are already done). Never throws. */
 export async function generateCallNotes(callId: string): Promise<{ status: "done" | "failed" | "skipped" }> {
@@ -234,26 +224,13 @@ async function finish(call: CallRow, notes: CallNotesShape, by: string, rounds: 
     [call.id, JSON.stringify(notes), text, knowledgeId],
   );
 
-  // Work items for Joe's action items. Nothing client-facing: these are
-  // to-dos in his queue, drafted by nobody, sent by nobody.
-  const mine = notes.action_items.filter((a) => /^(joe|us|we|sj|owner|sj carpentry)/i.test(a.owner) || a.owner === "unspecified");
-  for (const [i, a] of mine.entries()) {
-    await fileCommsWorkItem({
-      title: a.text.slice(0, 140),
-      body: `From the ${call.direction} call with ${callDisplayName(call)} on ${call.started_at.slice(0, 10)}${a.due ? ` (mentioned: ${a.due})` : ""}.\n\n${notes.summary}\n\n[call:${call.id}]`,
-      priority: notes.flags.length ? "high" : "normal",
-      status: "queued",
-      leadId: call.lead_id,
-      projectId: call.project_id,
-      sourceKind: "call",
-      sourceId: `call:${call.id}:action:${i}`,
-      dueAt: dueDate(a.due),
-      createdBy: `call-notes:${by}`,
-    });
-  }
-  // Voicemail callback item gets the summary appended so Joe knows what it's about.
-  if (call.work_item_id) {
-    await query(`UPDATE work_items SET body = body || E'\\n\\nVoicemail: ' || $2, updated_at = now() WHERE id = $1`, [call.work_item_id, notes.summary.slice(0, 600)]).catch(() => {});
+  // Work items for Joe's action items + the voicemail note: idempotent per
+  // (call, action) via lib/completion/call-followups.ts (A04) — a retry after
+  // a partial failure creates only what is missing, never twins.
+  try {
+    await withTransaction((run) => ensureCallFollowUps(run, call.id, { by: `call-notes:${by}` }));
+  } catch (err) {
+    console.error("[call-notes] follow-up filing failed (retry sweep will resume it)", err);
   }
 
   const flagLine = notes.flags.length ? ` · flags: ${notes.flags.map((f) => f.kind.replace("_", " ")).join(", ")}` : "";

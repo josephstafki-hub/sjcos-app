@@ -1,0 +1,7 @@
+[Unit]
+Description=SJC OS QuickBooks Online sync (import posted entities; export only when switched on)
+After=sjcos.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/joe/bin/sjcos-qbo-sync

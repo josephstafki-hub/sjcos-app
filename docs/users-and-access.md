@@ -27,8 +27,40 @@ route prefixes it opens. Two are marked sensitive:
   - `cost_book` — `/cost-book`
   - **`money`** — everything else financial: **job costing and profit** (the `/money` page, a project's Money › Overview, and the Overview rail's profit line), billing rates, Books. **Every future money feature gates on this key** unless
     it clearly belongs to one of the four above.
-- **`ai`** — the Ask window / operator panel. Agents there run with owner-level
-  tools, so it effectively unlocks everything.
+- **`ai`** — the Ask window. For a staff account this is the **business
+  profile only** (A08a, 2026-09-23): the agent gets the sjcos tools scoped to
+  that person's areas and approval authority, read-only operating docs, and
+  no code / shell / web / repo access. The owner's full operator profile
+  (repo edit access) never applies to a staff member — `profileFor()` in
+  `lib/authority/run-profile.mjs` decides from the session, and the runner
+  enforces it with CLI flags, a scratch cwd and a minimal env.
+
+## Areas vs authority (A22, 2026-09-23)
+
+Areas say what a team member can **see**. What they may **approve** is a
+separate thing — `authority_grants`, one row per action type (catalog:
+`lib/authority/catalog.ts`: package_release, proposal, purchase, payment,
+refund, publication, schedule, funding, markup, change_order, design_package;
+`grant` = authority administration, never delegable), optionally scoped to a
+project and capped at a dollar amount. New accounts hold **none**.
+
+- Edit it at **Settings → Team & roles → Access → "their authority page"**
+  (`/settings/team/<userId>`): Areas and May-approve are two sections.
+- Only a signed-in **owner** can grant/revoke (`lib/authority/grants.ts`
+  `assertAuthorityAdmin`). An agent — even acting for Joe — cannot; text in
+  an email cannot. Every change is a keyed command + `permission_audit` row.
+- A revoke also inserts a `session_revocations` row: every JWT the person
+  holds (browser, mobile bearer) is refused on its next request without
+  re-login (`lib/dal.ts`, `lib/api-auth.ts` `sessionRevoked`). A running
+  business-profile agent for that person is killed within ~5 s.
+- Checked on **every caller**: decisions (`lib/commands/decisions.ts`
+  `authorityFor` — app, Telegram, push, MCP), non-decision callers
+  (`effectiveAuthority`), and agent sends (`lib/authority/mcp-gate.ts`
+  `principalMaySpendGrant`: the person behind the agent must hold the kind
+  the gated action maps to, within project/amount).
+- `/engine/permissions` (owner grants for agents) stays owner-only;
+  `/engine/decisions` (WS-approvals) uses `authorityFor`, so a staff member
+  with a fitting grant sees and resolves only what they may.
 
 ## How it's enforced (three layers)
 
@@ -160,9 +192,15 @@ Read state moved from the global `notifications.read` flag to
 
 ## Known gaps
 
-- Staff still see dollar amounts inside some shared surfaces not yet fenced
-  (leads' rough estimate text, sub/vendor rates, selection budgets, doc drafts
-  that contain pricing). Fence them with `can(viewer, "money")` as they come up.
+- Fenced 2026-09-23 (A22): lead rough estimate (card + tab → `estimates`),
+  project Documents › lead paperwork (→ `estimates`), sub rates on the
+  directory and detail pages (→ `money`).
+- Still visible to staff without the area: selection budgets on the project
+  Selections tab (`components/projects/SelectionsBoard.tsx` renders
+  `view.overallBudget` / section budgets — needs a `showBudget` prop from the
+  project page, listed in `status/A22.md`), vendor pricing on vendor pages,
+  doc drafts that contain pricing. Fence them with `can(viewer, "money")` as
+  they come up.
 - No self-serve password change/reset; the owner resets from the Team screen.
 - Sessions: staff cookie carries a copy of their areas for the proxy prefilter;
   the DB row is the truth for everything else.
@@ -171,4 +209,6 @@ Read state moved from the global `notifications.read` flag to
 
 Migrations: `node db/apply-staff-users.mjs` (applied 2026-09-15),
 `node db/apply-staff-separation.mjs` (2026-09-27 — every statement is additive,
-so it can be applied before the deploy without breaking the running site).
+so it can be applied before the deploy without breaking the running site);
+authority / revocations / audit / agent profile + usage: `db/migrations/0009_access.sql`
+(`node db/migrate.mjs`).

@@ -19,6 +19,10 @@ export interface SessionPayload extends JWTPayload {
    *  (no DB) uses this copy just to pick their home on a redirect; the real
    *  gating (Shell, requireAccess) re-reads the row every request. */
   perms?: string[];
+  /** Seconds-since-epoch the person actually authenticated (A22). Renewals
+   *  in proxy.ts carry it forward unchanged, so a session_revocations row
+   *  compares against the real login time, not the last re-sign. */
+  authAt?: number;
 }
 
 const encodedKey = new TextEncoder().encode(
@@ -48,7 +52,8 @@ export async function decrypt(token: string | undefined): Promise<SessionPayload
  *  or the browser keeps sending a token the server has already stopped
  *  accepting (or worse, drops one the server would still take). */
 export async function createSession(userId: string, role: Role, perms?: string[]): Promise<void> {
-  const token = await encrypt(role === "staff" ? { userId, role, perms: perms ?? [] } : { userId, role });
+  const authAt = Math.floor(Date.now() / 1000);
+  const token = await encrypt(role === "staff" ? { userId, role, perms: perms ?? [], authAt } : { userId, role, authAt });
   const cookieStore = await cookies();
   cookieStore.set(COOKIE, token, {
     httpOnly: true,

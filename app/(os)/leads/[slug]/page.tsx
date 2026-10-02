@@ -43,6 +43,7 @@ import { RecordOps } from "@/components/engine/RecordOps";
 import { getRecordOps } from "@/lib/record-ops";
 import { getActiveRunbookInstancesFor } from "@/lib/runbook-engine";
 import { SendPreconButton } from "@/components/leads/SendPreconButton";
+import { can, getCurrentUser } from "@/lib/dal";
 
 export default async function LeadDetailPage({
   params,
@@ -55,6 +56,10 @@ export default async function LeadDetailPage({
   const { tab: linkedTab, focus: linkedFocus } = await searchParams;
   const lead = await getLead(slug);
   if (!lead) notFound();
+  // A22 money fence: the Phase 1 rough estimate (dollar lines + total) shows
+  // only to a viewer holding the `estimates` area (lib/permissions.ts).
+  const viewer = await getCurrentUser();
+  const showEstimate = can(viewer, "estimates");
   const planDesigns = await getDesignsForScope({ leadSlug: lead.slug });
 
   const activity = await getLeadActivity(slug);
@@ -143,7 +148,7 @@ export default async function LeadDetailPage({
 
         <LeadIntake slug={lead.slug} items={lead.intake} />
 
-        {lead.estimate && (
+        {lead.estimate && showEstimate && (
           <Card className="p-3.5">
             <div className="flex items-center gap-2">
               <h3 className="flex-1 font-serif text-[16px] font-semibold text-ink">
@@ -369,7 +374,7 @@ export default async function LeadDetailPage({
     Ops: ops ? <RecordOps ops={ops} /> : null,
     Tasks: <LeadTasks slug={lead.slug} tasks={tasks} />,
     Conversation: conversationPanel,
-    "Rough estimate": estimatePanel,
+    ...(showEstimate ? { "Rough estimate": estimatePanel } : {}),
     "Floor plan": <DesignsStrip scope={{ leadSlug: lead.slug }} designs={planDesigns} />,
     Documents: (
       <div className="space-y-8">

@@ -122,10 +122,14 @@ export function SelectionsBoard({
   slug,
   view,
   catalog,
+  showBudget = true,
 }: {
   slug: string;
   view: SelectionsView;
   catalog: CatalogOption[];
+  /** A22: dollar budgets are a money surface — false hides every budget
+   *  figure and the Set budget button for staff without the `money` area. */
+  showBudget?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -258,7 +262,7 @@ export function SelectionsBoard({
               ? `${view.totalOpen} of ${view.totalDecisions} decision${view.totalDecisions === 1 ? "" : "s"} still open`
               : "Lay out a room, then add every finish that needs a decision."}
           </p>
-          {view.totalBudget > 0 ? (
+          {!showBudget ? null : view.totalBudget > 0 ? (
             <>
               <div className="mt-1.5 h-1.5 w-full max-w-[320px] overflow-hidden rounded-full bg-paper-3">
                 <div
@@ -301,14 +305,14 @@ export function SelectionsBoard({
         {/* Three buttons + the copy don't fit side by side on a phone; the
             group drops under the heading instead of running off the edge. */}
         <div className="flex flex-wrap items-center gap-1.5">
-          <button
+          {showBudget && <button
             onClick={() => setBudgetModal(true)}
             title="Set the overall selections budget the client's running total is measured against"
             className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2"
           >
             <Wallet className="size-3" strokeWidth={1.5} />
             {view.overallBudget > 0 ? `Budget ${fmt(view.overallBudget)}` : "Set budget"}
-          </button>
+          </button>}
           {totalPushable > 0 && (
             <button
               disabled={pending}
@@ -358,6 +362,7 @@ export function SelectionsBoard({
             group={g}
             depth={0}
             pending={pending}
+            showBudget={showBudget}
             collapsed={collapsed}
             onToggleCollapse={toggleCollapsed}
             onAddSelection={(sectionId) => setAddSel({ sectionId })}
@@ -542,6 +547,7 @@ function pathToSelection(groups: SelectionGroup[], id: number): string[] | null 
 // ─── Section (room / sub-section) ────────────────────────────────────────────
 
 interface SectionHandlers {
+  showBudget: boolean;
   collapsed: Set<string>;
   onToggleCollapse: (key: string) => void;
   onAddSelection: (sectionId: number | null) => void;
@@ -595,7 +601,7 @@ function SectionBlock({
               {g.name}
             </h4>
           </button>
-          {g.budget > 0 && (
+          {h.showBudget && g.budget > 0 && (
             <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">
               budget {fmt(g.budget)}
             </span>
@@ -606,7 +612,7 @@ function SectionBlock({
             </span>
           )}
         </div>
-        {g.budget > 0 && open && (
+        {h.showBudget && g.budget > 0 && open && (
           <>
             <div className="mt-1.5 h-1.5 w-full max-w-[260px] overflow-hidden rounded-full bg-paper-3">
               <div

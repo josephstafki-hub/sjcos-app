@@ -1,6 +1,6 @@
 import "server-only";
 import { queryOne } from "@/lib/db";
-import { decrypt, type Role } from "@/lib/session";
+import { decrypt, type Role, type SessionPayload } from "@/lib/session";
 import type { CurrentUser } from "@/lib/dal";
 import { normalizePermissions, type PermissionKey } from "@/lib/permissions";
 
@@ -29,12 +29,15 @@ export async function getUserFromRequest(req: Request): Promise<CurrentUser | nu
     link_slug: string | null;
     active: boolean;
     permissions: string[] | null;
+    revoked_before: string | null;
   }>(
-    `SELECT id, email, name, role, initials, link_slug, active, permissions
-       FROM users WHERE id = $1`,
+    `SELECT u.id, u.email, u.name, u.role, u.initials, u.link_slug, u.active, u.permissions,
+            (SELECT max(r.revoked_before) FROM session_revocations r WHERE r.user_id = u.id)::text AS revoked_before
+       FROM users u WHERE u.id = $1`,
     [session.userId],
   );
   if (!row || !row.active) return null;
+  if (sessionRevoked(row.revoked_before, session)) return null;
 
   return {
     id: row.id,
@@ -45,6 +48,19 @@ export async function getUserFromRequest(req: Request): Promise<CurrentUser | nu
     linkSlug: row.link_slug,
     permissions: row.role === "staff" ? normalizePermissions(row.permissions) : [],
   };
+}
+
+/** A22 session revocation: the token is dead when it was minted before the
+ *  user's newest session_revocations.revoked_before. The mint time is the
+ *  `authAt` claim when present (survives proxy renewals once lib/session.ts
+ *  and proxy.ts carry it), else the JWT's own iat. A token with neither is
+ *  refused whenever any revocation exists — fail closed. Shared by the
+ *  cookie path (lib/dal.ts) and the bearer path here. */
+export function sessionRevoked(revokedBefore: string | null | undefined, session: Pick<SessionPayload, "iat"> & { authAt?: number }): boolean {
+  if (!revokedBefore) return false;
+  const mintedS = typeof session.authAt === "number" ? session.authAt : typeof session.iat === "number" ? session.iat : null;
+  if (mintedS == null) return true;
+  return new Date(revokedBefore).getTime() > mintedS * 1000;
 }
 
 /** Route-handler twin of lib/dal can(): owner always, staff per area. Plain

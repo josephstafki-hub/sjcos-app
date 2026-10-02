@@ -16,9 +16,15 @@
 
 import { query, queryOne } from "./db";
 import { emit, type EmitInput } from "./notify";
+import { recordDelivery } from "./commands/decisions";
+import { runDirect } from "./commands/db";
+import { makeTelegramProvider, type TelegramInlineButton } from "./providers/telegram";
 
 export type OwnerPushKind =
   | "grant"
+  // A10 decision card (Approve / Request changes / Hold buttons). Exempt from
+  // the hourly cap like grants: someone is waiting on it.
+  | "decision"
   | "urgent_item"
   | "agent_failure"
   | "stale_approval"
@@ -40,10 +46,21 @@ export interface NotifyOwnerInput {
   /** Overrides for the in-app notification card, for call sites whose
    *  established card copy differs from the push wording. */
   emit?: Partial<EmitInput>;
+  /** Telegram extras: inline buttons, the decision the card belongs to (its
+   *  delivery is recorded with the message id), and a message to edit in
+   *  place instead of sending a new one. Survives quiet-hours parking. */
+  telegram?: TelegramExtras;
+}
+
+export interface TelegramExtras {
+  buttons?: TelegramInlineButton[][];
+  decisionId?: string | null;
+  editMessageId?: string | null;
 }
 
 const TZ = "America/Chicago";
-const MAX_PER_HOUR = 4; // transmitted pushes per rolling hour; 'grant' is exempt
+const MAX_PER_HOUR = 4; // transmitted pushes per rolling hour; 'grant' and 'decision' are exempt
+const CAP_EXEMPT: ReadonlySet<OwnerPushKind> = new Set(["grant", "decision"]);
 
 // ── Channel registry ─────────────────────────────────────────────────────────
 // Keyed by name so a future 'mobile-push' channel (native app push) registers
@@ -52,34 +69,28 @@ const MAX_PER_HOUR = 4; // transmitted pushes per rolling hour; 'grant' is exemp
 interface OwnerChannel {
   /** False → not configured; the whole push path degrades to in-app only. */
   enabled(): boolean;
-  /** Deliver one plain-text message to the owner. Throws on failure. */
-  send(text: string): Promise<void>;
+  /** Deliver one plain-text message to the owner. Throws on failure.
+   *  Returns the channel's message id when it has one. */
+  send(text: string, extras?: TelegramExtras | null): Promise<string | null>;
 }
 
+// The Telegram transport lives in lib/providers/telegram.ts (one code path
+// for pushes and decision cards; SJC_OUTBOUND_DISABLED=1 fake mode for tests).
+// Plain text on purpose (no parse_mode): titles carry arbitrary client and
+// vendor strings, and markdown-escaping bugs would eat pushes.
+const telegramProvider = makeTelegramProvider();
 const telegram: OwnerChannel = {
   enabled: () =>
     Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_OWNER_CHAT_ID),
-  async send(text) {
-    // TELEGRAM_API_BASE is a test seam (point it at a local stub); unset in prod.
-    const base = (process.env.TELEGRAM_API_BASE ?? "https://api.telegram.org").replace(/\/$/, "");
-    const res = await fetch(`${base}/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      // Plain text on purpose (no parse_mode): titles carry arbitrary client
-      // and vendor strings, and markdown-escaping bugs would eat pushes.
-      body: JSON.stringify({
-        chat_id: process.env.TELEGRAM_OWNER_CHAT_ID,
-        text,
-        disable_web_page_preview: true,
-      }),
-      signal: AbortSignal.timeout(10_000),
-    });
-    const out = (await res.json().catch(() => null)) as
-      | { ok?: boolean; description?: string }
-      | null;
-    if (!res.ok || !out?.ok) {
-      throw new Error(`telegram sendMessage ${res.status}: ${out?.description ?? "no body"}`);
+  async send(text, extras) {
+    const r = await telegramProvider.send(
+      { chatId: process.env.TELEGRAM_OWNER_CHAT_ID ?? "", text, buttons: extras?.buttons, editMessageId: extras?.editMessageId ?? null },
+      { operationKey: `owner-push:${Date.now()}`, intentId: "", attempt: 1 },
+    );
+    if (r.responseClass !== "accepted" && r.responseClass !== "confirmed") {
+      throw new Error(r.error ?? `telegram send ${r.responseClass}`);
     }
+    return r.providerRef ?? null;
   },
 };
 
@@ -120,6 +131,7 @@ function pushText(p: { title: string; body?: string | null; href?: string | null
 
 const EMIT_DEFAULTS: Record<OwnerPushKind, Omit<EmitInput, "title">> = {
   grant: { kind: "decision", tag: "Permission", accent: "ai", icon: "shield", flagged: true },
+  decision: { kind: "decision", tag: "Decision", accent: "ai", icon: "shield", flagged: true },
   urgent_item: { kind: "job", tag: "Urgent", accent: "flag", icon: "star", flagged: true },
   agent_failure: { kind: "job", tag: "Agent", accent: "flag", icon: "chat" },
   stale_approval: { kind: "decision", tag: "Approval", accent: "ai", icon: "shield", flagged: true },
@@ -156,10 +168,21 @@ async function gate(now: Date): Promise<Gate> {
 
 async function parkRow(input: NotifyOwnerInput, sendAfter: Date): Promise<void> {
   await query(
-    `INSERT INTO push_outbox (kind, title, body, href, send_after)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [input.kind, input.title, input.body ?? null, input.href ?? null, sendAfter],
+    `INSERT INTO push_outbox (kind, title, body, href, send_after, payload)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+    [input.kind, input.title, input.body ?? null, input.href ?? null, sendAfter, input.telegram ? JSON.stringify(input.telegram) : null],
   );
+  if (input.telegram?.decisionId) {
+    await recordDelivery(runDirect, input.telegram.decisionId, "telegram", null, "queued").catch(() => undefined);
+  }
+}
+
+/** A decision card went out (or was edited): remember the Telegram message
+ *  id so a later resolution or supersede can update that same message. */
+async function noteDelivery(extras: TelegramExtras | null | undefined, messageId: string | null): Promise<void> {
+  if (!extras?.decisionId) return;
+  const chat = process.env.TELEGRAM_OWNER_CHAT_ID ?? "";
+  await recordDelivery(runDirect, extras.decisionId, "telegram", messageId ? `${chat}:${messageId}` : null, extras.editMessageId ? "updated" : "sent").catch(() => undefined);
 }
 
 /** Transmit now; the sent row is what the rolling-hour throttle counts. A
@@ -167,11 +190,14 @@ async function parkRow(input: NotifyOwnerInput, sendAfter: Date): Promise<void> 
 async function transmit(input: NotifyOwnerInput, now: Date): Promise<void> {
   try {
     const text = pushText(input);
-    for (const ch of enabledChannels()) await ch.send(text);
+    for (const ch of enabledChannels()) {
+      const id = await ch.send(text, input.telegram ?? null);
+      await noteDelivery(input.telegram, id);
+    }
     await query(
-      `INSERT INTO push_outbox (kind, title, body, href, send_after, sent_at)
-       VALUES ($1, $2, $3, $4, $5, $5)`,
-      [input.kind, input.title, input.body ?? null, input.href ?? null, now],
+      `INSERT INTO push_outbox (kind, title, body, href, send_after, sent_at, payload)
+       VALUES ($1, $2, $3, $4, $5, $5, $6::jsonb)`,
+      [input.kind, input.title, input.body ?? null, input.href ?? null, now, input.telegram ? JSON.stringify(input.telegram) : null],
     );
   } catch (err) {
     console.error("[notify-owner] send failed — parking for drain", err);
@@ -204,7 +230,7 @@ export async function notifyOwner(input: NotifyOwnerInput, nowOverride?: Date): 
     const now = nowOverride ?? new Date();
     const g = await gate(now);
     if (!g.awake) return void (await parkRow(input, g.next_morning));
-    if (g.sent_last_hour >= MAX_PER_HOUR && input.kind !== "grant") {
+    if (g.sent_last_hour >= MAX_PER_HOUR && !CAP_EXEMPT.has(input.kind)) {
       return void (await parkRow(input, g.next_hour));
     }
     await transmit(input, now);
@@ -298,6 +324,7 @@ interface OutboxRow {
   title: string;
   body: string | null;
   href: string | null;
+  payload: TelegramExtras | null;
 }
 
 /** Drain due parked pushes (grants first, then urgent items), then nudge on
@@ -314,10 +341,11 @@ export async function runPushDrain(
   const g = await gate(now);
 
   const { rows: due } = await query<OutboxRow>(
-    `SELECT id, kind, title, body, href
+    `SELECT id, kind, title, body, href, payload
        FROM push_outbox
       WHERE sent_at IS NULL AND send_after <= $1
       ORDER BY CASE kind WHEN 'grant' THEN 0
+                         WHEN 'decision' THEN 0
                          WHEN 'urgent_item' THEN 1
                          WHEN 'approval_needed' THEN 1
                          ELSE 2 END,
@@ -346,8 +374,12 @@ export async function runPushDrain(
     );
     const mine = new Set(claimed.map((r) => r.id));
     const send = due.filter((r) => mine.has(r.id));
-    const direct = send.length > 3 ? send.slice(0, 3) : send;
-    const folded = send.length > 3 ? send.slice(3) : [];
+    // Decision cards carry buttons, so they are never folded into the
+    // "…and N more" summary line.
+    const cards = send.filter((r) => r.kind === "decision");
+    const rest = send.filter((r) => r.kind !== "decision");
+    const direct = [...cards, ...(rest.length > 3 ? rest.slice(0, 3) : rest)];
+    const folded = rest.length > 3 ? rest.slice(3) : [];
 
     const unclaim = (ids: string[]) =>
       query(
@@ -358,7 +390,10 @@ export async function runPushDrain(
 
     for (const row of direct) {
       try {
-        for (const ch of enabledChannels()) await ch.send(pushText(row));
+        for (const ch of enabledChannels()) {
+          const id = await ch.send(pushText(row), row.payload);
+          await noteDelivery(row.payload, id);
+        }
         result.sent++;
       } catch (err) {
         console.error(`[notify-owner] drain send failed (row ${row.id})`, err);

@@ -201,7 +201,7 @@ export async function sendInvoice(id: number): Promise<Result> {
   return { ok: true };
 }
 
-/** Mark a sent invoice paid. Emits a MONEY notification. */
+/** Mark a sent (or still-draft, paid outside the app) invoice paid. Emits a MONEY notification. */
 export async function markInvoicePaid(id: number): Promise<Result> {
   await requireAccess("invoices");
   const inv = await invoiceById(id);

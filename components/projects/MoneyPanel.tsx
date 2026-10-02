@@ -123,7 +123,10 @@ export function MoneyPanel({ slug, money }: { slug: string; money: ProjectMoney 
                           </button>
                         </>
                       )}
-                      {inv.status === "sent" && (
+                      {/* Drafts too: a deposit paid by check before the invoice
+                          was ever emailed (or a job with no client email on
+                          file) still needs to land as paid. */}
+                      {(inv.status === "sent" || inv.status === "draft") && (
                         <button
                           disabled={pending}
                           onClick={() => run(() => markInvoicePaid(inv.id))}

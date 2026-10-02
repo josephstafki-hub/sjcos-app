@@ -642,9 +642,15 @@ export default async function ProjectDetailPage({
   // ── Punch panel — real, interactive punch-list items (add/toggle/remove) ────
   const punchPanel = <PunchList slug={project.slug} items={project.punch} />;
   // The estimate editor is mounted twice: the formal estimate lives under
-  // Documents › Formal Estimate (its PDF is generated from those lines), and
-  // Money › Pre-con changes holds client additions/changes priced before the
-  // contract is signed. docs/estimates-and-change-orders.md
+  // Documents › Formal Estimate (the client's PDF sits under it, printed from
+  // its lines), and Money › Pre-con changes holds client additions/changes
+  // priced before the contract is signed. docs/estimates-and-change-orders.md
+  const estimateDocManifest = docTemplates.find((t) => t.key === "estimate_doc");
+  const estimateDocs = docDrafts.filter((d) => d.template_key === "estimate_doc");
+  const formalIds = new Set(estimates.filter((e) => e.kind === "formal").map((e) => e.id));
+  // Formal Estimate PDFs not made from a formal estimate on this job (its
+  // estimate deleted, or made from a pre-con change) — listed on their own.
+  const looseEstimateDocs = estimateDocs.filter((d) => !d.estimate_id || !formalIds.has(d.estimate_id));
   const estimateEditor = (kind: "formal" | "precon_change") => (
     <ProjectEstimate
       slug={slug}
@@ -655,6 +661,7 @@ export default async function ProjectDetailPage({
       floorplans={floorplans}
       approvalGate={approvalGate}
       phase={scopeChange}
+      pdfs={kind === "formal" && estimateDocManifest ? { manifest: estimateDocManifest, drafts: estimateDocs } : undefined}
     />
   );
   const formalEstimatePanel = estimateEditor("formal");
@@ -799,14 +806,23 @@ export default async function ProjectDetailPage({
               source={docSources[t.key]}
             />
           );
-          // The Formal Estimate section IS the formal estimate: its line editor
-          // (preview, send for approval, contract generator) sits above the
-          // list of generated PDF copies.
+          // The Formal Estimate section IS the formal estimate: each estimate
+          // carries the client's PDF of it (printed from its lines). Only PDFs
+          // not tied to a formal estimate here get a list of their own.
           const node =
             t.key === "estimate_doc" && showEstimates ? (
               <div className="space-y-8">
                 {formalEstimatePanel}
-                {panel}
+                {looseEstimateDocs.length > 0 && (
+                  <DocTypePanel
+                    slug={slug}
+                    templateKey={t.key}
+                    manifest={t}
+                    drafts={looseEstimateDocs}
+                    heading="Other Formal Estimate PDFs"
+                    note="Not made from the formal estimate above (its estimate was deleted, or it came from a pre-con change). Make new ones under the estimate."
+                  />
+                )}
               </div>
             ) : (
               panel

@@ -1684,7 +1684,9 @@ server.registerTool(
       "Fill narrative fields on a draft. `edits` is a map of field_key → value. " +
       "AI may write ONLY `source:'ai'` narrative fields — edits to money, date, " +
       "enum, or statutory fields are rejected (returned in `rejected`). Re-editing " +
-      "a rendered draft marks it stale (re-render to refresh the files).",
+      "a rendered draft marks it stale (re-render to refresh the files). On a " +
+      "Formal Estimate (estimate_doc) the lines, subtotal and total come from its " +
+      "estimate and can't be edited here — change the lines with add_estimate_lines.",
     inputSchema: { id: z.number().int(), edits: z.record(z.any()) },
   },
   async (a) => json(await docDraftsCall("update", a)),
@@ -1697,7 +1699,10 @@ server.registerTool(
     description:
       "Validate + render the draft to PDF (signable) and DOCX (editable), saved to " +
       "the project Files browser. Returns file ids, or the still-missing required " +
-      "fields. Rendering does NOT send: to get it signed, ask Joe to submit it for " +
+      "fields. A Formal Estimate (estimate_doc) is re-printed with its estimate's " +
+      "CURRENT lines and totals, so render it after the lines change — until then " +
+      "list_document_drafts shows lines_changed: true and it can't be sent or " +
+      "published. Rendering does NOT send: to get it signed, ask Joe to submit it for " +
       "signature in the app (use submit_draft_for_approval to flag it).",
     inputSchema: { id: z.number().int() },
   },

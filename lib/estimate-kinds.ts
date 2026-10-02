@@ -103,7 +103,8 @@ export function estimateLivesIn(kind: EstimateKind): string {
 export const PRICING_RULE =
   `The formal estimate lives under ${WHERE.formalEstimate}: add or change its lines with add_estimate_lines ` +
   `(id = get_project → pricing_and_paperwork.formal_estimate_id); the client's PDF is generated from those lines ` +
-  `(create_document_draft estimate_doc + estimate_id) — regenerate it after the lines change. ` +
+  `(create_document_draft estimate_doc + estimate_id); after the lines change, render_document_draft re-prints it ` +
+  `with the current lines (a PDF whose lines are out of date can't be sent or published). ` +
   `${WHERE.preconChanges} holds client additions or changes priced BEFORE the contract is signed: a new estimate ` +
   `with kind 'precon_change' (create_estimate). AFTER the contract is signed a client change is a change order ` +
   `(${WHERE.changeOrders}). Full rule: docs/estimates-and-change-orders.md.`;

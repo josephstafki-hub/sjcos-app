@@ -104,3 +104,24 @@ export function validateForRender(template: DocTemplate, values: FieldValues): F
     .map((f) => f.key);
   return { ok: missing.length === 0, missing };
 }
+
+/** The Formal Estimate fields that come from the estimate's lines. A PDF copy
+ *  made from an estimate always takes these from it — renderDocDraft pulls
+ *  them in before printing — so they are never edited on the document itself;
+ *  change the lines instead. docs/estimates-and-change-orders.md */
+export const ESTIMATE_LINE_FIELDS = ["line_items_table", "subtotal", "total"] as const;
+
+function sameFieldValue(a: unknown, b: unknown): boolean {
+  if (isTableValue(a) || isTableValue(b)) {
+    // Compare the arrays, not the objects: Postgres jsonb reorders object keys.
+    if (!isTableValue(a) || !isTableValue(b)) return false;
+    return JSON.stringify(a.columns) === JSON.stringify(b.columns) && JSON.stringify(a.rows) === JSON.stringify(b.rows);
+  }
+  return (a ?? null) === (b ?? null);
+}
+
+/** True when a Formal Estimate PDF copy no longer matches its estimate's lines
+ *  (`current` = what the estimate resolves to now). */
+export function estimateLinesChanged(stored: FieldValues, current: FieldValues): boolean {
+  return ESTIMATE_LINE_FIELDS.some((k) => !sameFieldValue(stored[k], current[k]));
+}

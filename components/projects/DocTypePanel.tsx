@@ -18,7 +18,7 @@
 import { useState, useTransition, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FileText, Plus, Sparkles, Check, Clock, Ban, FileDown, PenLine } from "lucide-react";
+import { FileText, Plus, Sparkles, Check, Clock, Ban, FileDown, PenLine, RefreshCw, TriangleAlert } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import { dollarsToCents, centsToInput, fmtUsd } from "@/lib/cost-book-units";
 import type { TemplateManifest } from "@/lib/doc-templates/registry";
@@ -49,6 +49,10 @@ export interface DocDraftItem {
   docx_file_id: string | null;
   /** Linked signature request (once sent for signature); anchors ?focus= deep links. */
   signature_request_id?: number | null;
+  /** The estimate a Formal Estimate copy was made from — its lines and totals come from it. */
+  estimate_id?: number | null;
+  /** Formal Estimate only: the estimate's lines changed since this PDF was made. */
+  lines_changed?: boolean;
   createdAtLabel: string;
   signerName: string;
   signedName: string | null;
@@ -74,6 +78,11 @@ const STATUS_LABEL: Record<string, string> = {
 };
 // Which template keys can be submitted for signature (invoice_doc cannot).
 const SIGNABLE = new Set(["contract", "precon", "lien_release", "completion_cert", "change_order", "estimate_doc"]);
+// A Formal Estimate copy's lines and totals come from its estimate (every
+// render pulls them in), so the editor shows them read-only.
+// lib/doc-templates/fill-validate.ts ESTIMATE_LINE_FIELDS
+const ESTIMATE_LINE_FIELDS = new Set(["line_items_table", "subtotal", "total"]);
+const fromEstimateLines = (d: DocDraftItem) => d.template_key === "estimate_doc" && !!d.estimate_id;
 
 /** For templates that are GENERATED FROM one record — the Formal Estimate and
  *  Contract from an estimate's lines, the Change Order from a change order,
@@ -99,6 +108,9 @@ export function DocTypePanel({
   manifest,
   drafts,
   source,
+  estimateId,
+  heading,
+  note,
 }: {
   slug?: string;
   leadSlug?: string;
@@ -106,6 +118,13 @@ export function DocTypePanel({
   manifest: TemplateManifest;
   drafts: DocDraftItem[];
   source?: DocSourcePicker;
+  /** Shown inside one estimate (Documents › Formal Estimate): the client's PDF
+   *  of that estimate, made from its lines — no header, no picker. */
+  estimateId?: number;
+  /** Header override (default: the template title). */
+  heading?: string;
+  /** One line under the header when there's no source picker. */
+  note?: string;
 }) {
   const router = useRouter();
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -117,7 +136,9 @@ export function DocTypePanel({
   // Failures toast via runAction; there's no inline error line at this level.
   function create(fromId?: number) {
     const scope = leadSlug ? { leadSlug } : { slug };
-    if (source) {
+    if (estimateId != null) {
+      Object.assign(scope, { estimateId });
+    } else if (source) {
       if (fromId == null) return;
       Object.assign(scope, { [source.scopeKey]: fromId });
     }
@@ -164,6 +185,22 @@ export function DocTypePanel({
     });
   }
 
+  /** Re-render a Formal Estimate copy — the render pulls in the estimate's
+   *  current lines. Nothing is emailed; a published copy is simply replaced. */
+  function update(d: DocDraftItem) {
+    setNotice(null);
+    startTransition(async () => {
+      const res = await runAction(() => renderDocDraftAction(d.id), { fallback: "Couldn't update the PDF." });
+      if (!res.ok) return;
+      setNotice(
+        d.client_visible
+          ? "PDF updated from the lines. The client's dashboard now shows the new one; nothing was emailed."
+          : "PDF updated from the lines.",
+      );
+      router.refresh();
+    });
+  }
+
   /** Publish/unpublish a document on the client dashboard. Publishing emails
    *  the client — surface the delivery note so "sent" is never a guess. */
   function publish(d: DocDraftItem, to: boolean) {
@@ -179,18 +216,64 @@ export function DocTypePanel({
   }
 
   const editing = editingId != null ? drafts.find((d) => d.id === editingId) ?? null : null;
+  const rows = drafts.map((d) => (
+    <DraftRow
+      key={d.id}
+      draft={d}
+      pending={pending}
+      soft={estimateId != null}
+      onEdit={() => edit(d)}
+      onDelete={() => remove(d)}
+      onPublish={(to) => publish(d, to)}
+      onUpdate={() => update(d)}
+    />
+  ));
+
+  // Inside one estimate: the client's PDF of it, and a button to make one.
+  if (estimateId != null) {
+    const hasLiveCopy = drafts.some((d) => d.status !== "void");
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Client PDF</span>
+          {!editing && !hasLiveCopy && (
+            <button
+              type="button"
+              onClick={() => create()}
+              disabled={pending}
+              className="inline-flex flex-none items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[11px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-60"
+            >
+              <Plus className="size-3" strokeWidth={2} /> {pending ? "Making…" : "Make client PDF"}
+            </button>
+          )}
+        </div>
+        {notice && <div className="text-[12px] text-money">{notice}</div>}
+        {editing ? (
+          <DraftEditor key={editing.id} draft={editing} onClose={() => setEditingId(null)} />
+        ) : drafts.length === 0 ? (
+          <div className="text-[12px] text-ink-3">No client PDF yet. Make one when the lines are ready; it&rsquo;s printed from them.</div>
+        ) : (
+          <div className="space-y-2">{rows}</div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-[820px] space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="font-serif text-[17px] font-semibold text-ink">{manifest.title}</h3>
+          <h3 className="font-serif text-[17px] font-semibold text-ink">{heading ?? manifest.title}</h3>
           <div className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
             {drafts.length} document{drafts.length === 1 ? "" : "s"}
           </div>
-          {source && <div className="mt-1 text-[12px] text-ink-3">{source.explainer}</div>}
+          {source ? (
+            <div className="mt-1 text-[12px] text-ink-3">{source.explainer}</div>
+          ) : (
+            note && <div className="mt-1 text-[12px] text-ink-3">{note}</div>
+          )}
         </div>
-        {!editing && (!source || source.options.length > 0) && (
+        {!editing && !note && (!source || source.options.length > 0) && (
           <button
             type="button"
             onClick={() => (source ? setPicking((v) => !v) : create())}
@@ -253,18 +336,7 @@ export function DocTypePanel({
           </div>
         </Card>
       ) : (
-        <div className="space-y-2.5">
-          {drafts.map((d) => (
-            <DraftRow
-              key={d.id}
-              draft={d}
-              pending={pending}
-              onEdit={() => edit(d)}
-              onDelete={() => remove(d)}
-              onPublish={(to) => publish(d, to)}
-            />
-          ))}
-        </div>
+        <div className="space-y-2.5">{rows}</div>
       )}
     </div>
   );
@@ -280,23 +352,34 @@ function StatusIcon({ status }: { status: string }) {
 function DraftRow({
   draft,
   pending,
+  soft,
   onEdit,
   onDelete,
   onPublish,
+  onUpdate,
 }: {
   draft: DocDraftItem;
   pending: boolean;
+  /** Sitting inside another card (the estimate) — a quieter surface. */
+  soft?: boolean;
   onEdit: () => void;
   onDelete: () => void;
   onPublish: (to: boolean) => void;
+  onUpdate: () => void;
 }) {
   const fileHref = (id: string | null) => (id ? `/api/files/${id}` : null);
   const sentOrSigned = draft.status === "submitted" || draft.status === "signed";
-  // Publishable once a PDF exists (rendered/submitted/signed) and not voided.
-  const canPublish = !!draft.pdf_file_id && draft.status !== "void";
+  const editable = draft.status === "draft" || draft.status === "rendered";
+  const stale = !!draft.lines_changed && draft.status !== "void";
+  // Publishable once a PDF exists (rendered/submitted/signed) and not voided —
+  // and, for a Formal Estimate copy, only while it matches the lines.
+  const canPublish = !!draft.pdf_file_id && draft.status !== "void" && (!stale || draft.client_visible);
+  // Print (or re-print) a Formal Estimate copy from the estimate's current lines.
+  const canUpdate = fromEstimateLines(draft) && editable && (stale || !draft.pdf_file_id);
 
   return (
     <Card
+      kind={soft ? "soft" : "default"}
       className="p-3.5"
       data-focus={draft.signature_request_id ? `signature-${draft.signature_request_id}` : `draft-${draft.id}`}
     >
@@ -337,8 +420,34 @@ function DraftRow({
               </a>
             )}
           </div>
+          {stale && (
+            <div className="mt-1.5 flex items-start gap-1.5 text-[12px] text-flag">
+              <TriangleAlert className="mt-0.5 size-3.5 flex-none" strokeWidth={1.75} />
+              <span>
+                {draft.status === "signed"
+                  ? "The estimate's lines changed after the client signed this PDF."
+                  : draft.status === "submitted"
+                    ? "The estimate's lines changed after this PDF went out for signature. Edit it to send a new version; the client signs again."
+                    : `The estimate's lines changed since this PDF was made. Update PDF to bring them in${
+                        draft.client_visible ? " (the client's dashboard still shows the old one)" : ""
+                      }.`}
+              </span>
+            </div>
+          )}
         </div>
         <div className="flex flex-none items-center gap-1.5">
+          {canUpdate && (
+            <button
+              type="button"
+              onClick={onUpdate}
+              disabled={pending}
+              title="Print the PDF again from the estimate's current lines (nothing is emailed)"
+              className="inline-flex items-center gap-1 rounded-md border border-accent bg-accent px-2 py-1 text-[11px] font-semibold text-white hover:bg-accent-2 disabled:opacity-60"
+            >
+              <RefreshCw className="size-3" strokeWidth={2} />
+              {draft.pdf_file_id ? "Update PDF" : "Make PDF"}
+            </button>
+          )}
           {draft.status === "submitted" && draft.signature_request_id && (
             <Link
               href={`/sign/${draft.signature_request_id}`}
@@ -468,7 +577,8 @@ function DraftEditor({ draft, onClose }: { draft: DocDraftItem; onClose: () => v
     });
   }
 
-  const canSend = draft.status === "rendered" && SIGNABLE.has(draft.template_key);
+  const canSend = draft.status === "rendered" && SIGNABLE.has(draft.template_key) && !draft.lines_changed;
+  const linesLocked = fromEstimateLines(draft);
   const awaitingSignature = draft.status === "submitted" && !!draft.signature_request_id;
   const showGateOverride = draft.template_key === "contract";
   const busy = saving || sending || drafting;
@@ -488,6 +598,11 @@ function DraftEditor({ draft, onClose }: { draft: DocDraftItem; onClose: () => v
       {draft.missing.length > 0 && (
         <div className="mt-1 text-[11px] text-flag">Still need: {draft.missing.join(", ")}</div>
       )}
+      {linesLocked && (
+        <div className="mt-1 text-[11px] text-ink-3">
+          The lines and totals come from the estimate. Change them there; Save &amp; preview prints the current lines.
+        </div>
+      )}
 
       <form onSubmit={onSubmit} className="space-y-3">
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -501,6 +616,7 @@ function DraftEditor({ draft, onClose }: { draft: DocDraftItem; onClose: () => v
                 mark={draft.fill_report[f.key]}
                 onDraftAI={f.source === "ai" ? () => draftAi(f.key) : undefined}
                 pending={busy}
+                fromLines={linesLocked && ESTIMATE_LINE_FIELDS.has(f.key)}
               />
             ))}
         </div>
@@ -585,12 +701,15 @@ function FieldRow({
   mark,
   onDraftAI,
   pending,
+  fromLines,
 }: {
   field: TemplateManifest["fields"][number];
   value: unknown;
   mark: string | undefined;
   onDraftAI?: () => void;
   pending: boolean;
+  /** Read-only: comes from the estimate's lines (a Formal Estimate copy). */
+  fromLines?: boolean;
 }) {
   const isMoney = field.kind === "money_cents";
   const display = isMoney && typeof value === "number" ? fmtUsd(value) : value == null ? "" : String(value);
@@ -603,7 +722,11 @@ function FieldRow({
       <span className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-ink-2">
         {field.label}
         {field.required && <span className="text-flag">*</span>}
-        {field.source === "auto" && <span className="text-[10px] font-normal text-ink-3">auto</span>}
+        {fromLines ? (
+          <span className="text-[10px] font-normal text-ink-3">from the lines</span>
+        ) : (
+          field.source === "auto" && <span className="text-[10px] font-normal text-ink-3">auto</span>
+        )}
         {field.source === "ai" && onDraftAI && (
           <button type="button" onClick={onDraftAI} disabled={pending} className="inline-flex items-center gap-0.5 text-[10px] font-normal text-accent-2 hover:underline disabled:opacity-60">
             <Sparkles className="size-2.5" strokeWidth={2} /> Draft with AI
@@ -612,7 +735,9 @@ function FieldRow({
         {mark && <span className="ml-auto text-[9px] font-normal uppercase tracking-wide text-ink-3">{mark}</span>}
       </span>
 
-      {field.kind === "narrative" ? (
+      {fromLines ? (
+        <div className={`${inputCls} bg-paper-2 text-ink-2`}>{display || "—"}</div>
+      ) : field.kind === "narrative" ? (
         <textarea name={field.key} defaultValue={display} rows={4} className={`${inputCls} resize-y`} />
       ) : field.kind === "enum" ? (
         <select name={field.key} defaultValue={display} className={inputCls}>

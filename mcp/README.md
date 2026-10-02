@@ -167,8 +167,9 @@ writer — app, MCP, or a one-off script):
   Add lines to it with `add_estimate_lines`; its id is
   `get_project → pricing_and_paperwork.formal_estimate_id`. The client's PDF is
   generated from those lines (`create_document_draft { template_key:
-  "estimate_doc", estimate_id }`); regenerate it after the lines change. Don't
-  create a second formal estimate when one exists.
+  "estimate_doc", estimate_id }`). After the lines change, `render_document_draft`
+  re-prints it with the current lines (until then it can't be sent or
+  published). Don't create a second formal estimate when one exists.
 - **Money › Pre-con changes** holds client additions or changes priced before
   the contract is signed: a new estimate with `kind: "precon_change"`. **After**
   the contract is signed → a change order (Money › Change orders). The DB

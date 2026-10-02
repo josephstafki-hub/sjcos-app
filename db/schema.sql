@@ -2578,6 +2578,28 @@ ALTER TABLE document_drafts ADD COLUMN IF NOT EXISTS client_visible boolean NOT 
 -- (edits become pending agent_memories). Consumed (nulled) at submit.
 ALTER TABLE document_drafts ADD COLUMN IF NOT EXISTS agent_submitted_snapshot jsonb;
 
+-- ─── Formal Estimate PDF → its estimate (begin) ─────────────────────────────
+-- The estimate a Formal Estimate (or Contract) document was generated from. A
+-- Formal Estimate PDF copy always prints the estimate's CURRENT lines and
+-- totals (renderDocDraft pulls them in), shows under that estimate in
+-- Documents › Formal Estimate, and is flagged when its lines are out of date.
+-- Runner: db/apply-estimate-pdf-link.mjs. Additive and idempotent.
+ALTER TABLE document_drafts ADD COLUMN IF NOT EXISTS estimate_id bigint REFERENCES estimates(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_doc_drafts_estimate ON document_drafts(estimate_id) WHERE estimate_id IS NOT NULL;
+-- Backfill drafts made before the link: a Formal Estimate carries
+-- "SJC-EST-<id>" as its estimate number, a Contract "SJC-C-<slug>-<id>" as its
+-- contract number. Only linked when that estimate belongs to the same job.
+UPDATE document_drafts d SET estimate_id = e.id
+  FROM estimates e
+ WHERE d.estimate_id IS NULL
+   AND e.id = CASE d.template_key
+                WHEN 'estimate_doc' THEN substring(d.field_values->>'estimate_number' from '^SJC-EST-([0-9]+)$')::bigint
+                WHEN 'contract' THEN substring(d.field_values->>'contract_number' from '-([0-9]+)$')::bigint
+              END
+   AND ((d.project_id IS NOT NULL AND e.project_id = d.project_id)
+     OR (d.lead_slug IS NOT NULL AND e.lead_slug = d.lead_slug));
+-- ─── Formal Estimate PDF → its estimate (end) ───────────────────────────────
+
 -- Widen signature_requests doc_type for the new templates (adds 'precon').
 -- NOT VALID so an existing table with legacy rows re-constrains without a scan.
 ALTER TABLE signature_requests DROP CONSTRAINT IF EXISTS signature_requests_doc_type_check;

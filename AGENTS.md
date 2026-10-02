@@ -27,8 +27,9 @@ Rule from Joe (2026-09-23); full text in `docs/estimates-and-change-orders.md`.
   To add or change its lines, call `add_estimate_lines` on it — the id is
   `get_project → pricing_and_paperwork.formal_estimate_id`. The client's PDF is
   generated from those lines (`create_document_draft { template_key:
-  "estimate_doc", estimate_id }`); regenerate it after the lines change. Don't
-  create a second formal estimate when one exists. Never insert these rows by
+  "estimate_doc", estimate_id }`). After the lines change, `render_document_draft`
+  re-prints it with the current lines (until then it can't be sent or
+  published). Don't create a second formal estimate when one exists. Never insert these rows by
   script. `contract` needs `estimate_id` too; `change_order` needs
   `change_order_id`; `invoice_doc` needs `invoice_id`.
 - **Money › Pre-con changes** holds client additions or changes priced

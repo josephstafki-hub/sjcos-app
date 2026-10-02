@@ -38,6 +38,10 @@
 //     id — Joe's express permission for that action/target (Ask-window
 //     "Express permission" checkbox, /engine/permissions, or an agent's
 //     request_owner_permission that Joe approved). No grant, no send.
+//   • Login accounts (mcp/team-tools.mjs): list_users, list_access_areas,
+//     create_user, update_user_access, reset_user_password, set_user_active —
+//     Settings › Team & roles with every option as a parameter. Internal only,
+//     nothing emailed, accounts are disabled never deleted.
 //   • NOT exposed: no destructive tools (no deletes/drops), no un-granted
 //     client- or vendor-facing sends, and no raw-SQL passthrough. Secrets are
 //     read from .env.local at runtime and never logged or returned in a tool
@@ -58,6 +62,15 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 // Shared with the app's lane classifier (lib/today-triage.ts) — single
 // definition site for the triage-lane patterns.
 import { DEEP_RE, CHAT_RE } from "../lib/triage-lanes.mjs";
+import {
+  ASSIGNEES_JOIN_SQL,
+  CURRENT_ASSIGNEES_SQL,
+  REPLACE_ASSIGNEES_SQL,
+  assignedNotice,
+  idsToStore,
+  isOnItemSql,
+  sameAssignees,
+} from "../lib/work-item-assignees.mjs";
 import { registerMoodTools } from "./mood-tools.mjs";
 import { registerBiddingTools } from "./bidding-tools.mjs";
 import { registerFloorTools } from "./floor-tools.mjs";
@@ -77,6 +90,7 @@ import { registerProcurementTools } from "./procurement-tools.mjs";
 import { registerBillingTools } from "./billing-tools.mjs";
 import { registerContextTools } from "./context-tools.mjs";
 import { registerFieldTools } from "./field-tools.mjs";
+import { registerTeamTools } from "./team-tools.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -685,6 +699,79 @@ async function slugToId(table, slug) {
   return r[0]?.id ?? null;
 }
 
+/** Resolve "who" — a users.id, an email, a full name, or a first name — to one
+ *  ACTIVE internal account (owner or staff). Used by the to-do assignment
+ *  parameters, so a caller can write assigned_to:"Marco" (or "joe") instead of
+ *  hunting a uuid. Portal
+ *  accounts (sub/client) are never matched: they can't hold a to-do. Returns
+ *  null when nothing, or more than one thing, matches — an ambiguous name must
+ *  not silently pick a person. */
+async function resolveInternalUser(who) {
+  const key = String(who ?? "").trim();
+  if (!key) return null;
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(key);
+  const found = await rows(
+    `SELECT id, name, email, role FROM users
+      WHERE active AND role IN ('owner','staff')
+        AND (${isUuid ? "id = $1" : "lower(email) = lower($1) OR lower(name) = lower($1) OR lower(split_part(email,'@',1)) = lower($1) OR lower(split_part(name,' ',1)) = lower($1)"})`,
+    [key],
+  );
+  return found.length === 1 ? found[0] : null;
+}
+
+/** "who" may be one person or a list — normalize to a list. */
+function whoList(who) {
+  if (who === undefined || who === null) return [];
+  return (Array.isArray(who) ? who : [who]).map((w) => String(w).trim()).filter(Boolean);
+}
+
+/** Resolve each "who" to an active internal account. {people} on success,
+ *  {error} naming the first one that doesn't match exactly one person. */
+async function resolveInternalUsers(list) {
+  const people = [];
+  for (const who of list) {
+    const person = await resolveInternalUser(who);
+    if (!person) {
+      return {
+        error: `No single active owner/staff account matches "${who}". Call list_users and pass the id.`,
+      };
+    }
+    people.push(person);
+  }
+  return { people };
+}
+
+/** Put exactly `people` on to-do `id` (lib/work-item-assignees.mjs rules: just
+ *  the owner = nobody = his own) and notify everyone newly on it other than
+ *  the owner — the same notification the app's picker sends, so a hand-off is
+ *  never silent just because an agent made it. Returns the names now on it
+ *  ([] = Joe's own), or null when the work item doesn't exist. */
+async function writeAssignees(id, picked) {
+  const cur = await rows(CURRENT_ASSIGNEES_SQL, [id]);
+  if (!cur[0]) return null;
+  // The same person named twice (by id and by name, say) is one person.
+  const people = [...new Map(picked.map((p) => [p.id, p])).values()];
+  const next = idsToStore(people);
+  const onIt = people.filter((p) => next.includes(p.id));
+  if (!sameAssignees(cur[0].ids, next)) {
+    const r = await rows(REPLACE_ASSIGNEES_SQL, [id, next]);
+    const added = r[0]?.added_user_ids ?? [];
+    for (const person of onIt) {
+      if (person.role === "owner" || !added.includes(person.id)) continue;
+      const notice = assignedNotice(
+        cur[0].title,
+        onIt.filter((p) => p.id !== person.id).map((p) => p.name),
+      );
+      await rows(
+        `INSERT INTO notifications (kind, tag, accent, icon, title, subline, when_label, href, audience_user_id)
+         VALUES ('job','Assigned','accent','star',$1,$2,'Just now','/today',$3)`,
+        [notice.title, notice.subline, person.id],
+      );
+    }
+  }
+  return onIt.map((p) => p.name);
+}
+
 // ─── Open Brain: read ───────────────────────────────────────────────────────
 
 server.registerTool(
@@ -790,10 +877,19 @@ server.registerTool(
       "about instead of paging through the whole queue), and/or a due_before ISO " +
       "date. needs_enrichment:true returns open detector-filed items whose " +
       "factual body hasn't been rewritten yet (enrich each via enrich_work_item " +
-      "after reading its source). Ordered by priority then due date.",
+      "after reading its source). Ordered by priority then due date.\n\n" +
+      "assigned_to filters by WHICH PERSON is on the to-do — a users.id, an " +
+      "email, or a name (see list_users). A to-do can have several people on it " +
+      "(Joe and Abigail together, say). assigned_to:'abigail' returns every " +
+      "to-do she is on, alone or shared; assigned_to:'joe' returns his own " +
+      "(nobody on it) plus any he shares. Every row reports assigned_to: the " +
+      "people on it as [{userId, name, initials}] — [] means Joe's own; a list " +
+      "without Joe means he handed it off. Note this is a different axis from " +
+      "assignee_key, which names the bot runtime expected to run it.",
     inputSchema: {
       status: z.string().optional(),
       assignee_key: z.string().optional(),
+      assigned_to: z.string().optional(),
       project_slug: z.string().optional(),
       lead_slug: z.string().optional(),
       due_before: z.string().optional(),
@@ -801,11 +897,24 @@ server.registerTool(
       limit: z.number().int().min(1).max(200).optional(),
     },
   },
-  async ({ status, assignee_key, project_slug, lead_slug, due_before, needs_enrichment, limit = 50 }) => {
+  async ({ status, assignee_key, assigned_to, project_slug, lead_slug, due_before, needs_enrichment, limit = 50 }) => {
     const conds = ["(l.id IS NULL OR l.stage <> 'lost' OR w.status IN ('done','cancelled'))"];
     const params = [];
     if (status) { params.push(status); conds.push(`w.status = $${params.length}`); }
     if (assignee_key) { params.push(assignee_key); conds.push(`w.assignee_key = $${params.length}`); }
+    if (assigned_to) {
+      const person = await resolveInternalUser(assigned_to);
+      if (!person) return json({ error: `No active owner/staff account matches "${assigned_to}".` });
+      params.push(person.id);
+      // Nobody on a to-do means it's the owner's own, so "Joe's" is those plus
+      // any he's on alongside someone.
+      conds.push(
+        person.role === "owner"
+          ? `(NOT EXISTS (SELECT 1 FROM work_item_assignees wx WHERE wx.work_item_id = w.id)
+              OR ${isOnItemSql(`$${params.length}`)})`
+          : isOnItemSql(`$${params.length}`),
+      );
+    }
     if (project_slug) { params.push(project_slug); conds.push(`p.slug = $${params.length}`); }
     if (lead_slug) { params.push(lead_slug); conds.push(`l.slug = $${params.length}`); }
     if (due_before) { params.push(due_before); conds.push(`w.due_at <= $${params.length}::timestamptz`); }
@@ -818,10 +927,11 @@ server.registerTool(
       await rows(
         `SELECT w.id, w.title, w.status, w.priority, w.assignee_kind, w.assignee_key, w.due_at,
                 w.expected_skill_slug, w.expected_runbook_slug, w.requires_approval, w.approval_status,
-                w.blocked_reason, w.created_by, w.enriched_at, p.slug AS project_slug, l.slug AS lead_slug
+                w.blocked_reason, w.created_by, w.enriched_at, p.slug AS project_slug, l.slug AS lead_slug,
+                COALESCE(asg.assigned, '[]'::json) AS assigned_to
            FROM work_items w
            LEFT JOIN projects p ON p.id = w.project_id
-           LEFT JOIN leads l ON l.id = w.lead_id
+           LEFT JOIN leads l ON l.id = w.lead_id${ASSIGNEES_JOIN_SQL}
            ${where}
           ORDER BY array_position(ARRAY['urgent','high','normal','low'], w.priority),
                    w.due_at NULLS LAST, w.created_at DESC
@@ -836,19 +946,25 @@ server.registerTool(
   "get_work_item",
   {
     title: "Get work item",
-    description: "One work item by id, with its recent agent runs + receipts.",
+    description:
+      "One work item by id, with its recent agent runs + receipts. assigned_to " +
+      "is everyone on it as [{userId, name, initials}] — [] means Joe's own.",
     inputSchema: { id: z.string() },
   },
   async ({ id }) => {
     const item = await rows(
-      `SELECT w.*, p.slug AS project_slug, l.slug AS lead_slug
+      `SELECT w.*, p.slug AS project_slug, l.slug AS lead_slug,
+              COALESCE(asg.assigned, '[]'::json) AS assigned_to
          FROM work_items w
          LEFT JOIN projects p ON p.id = w.project_id
-         LEFT JOIN leads l ON l.id = w.lead_id
+         LEFT JOIN leads l ON l.id = w.lead_id${ASSIGNEES_JOIN_SQL}
         WHERE w.id = $1`,
       [id],
     );
     if (item.length === 0) return json({ error: `No work item ${id}` });
+    // The single-person column predates multi-person to-dos and is no longer
+    // read or kept current — don't let an agent mistake it for the truth.
+    delete item[0].assigned_user_id;
     const [runs, receipts] = await Promise.all([
       rows(`SELECT id, runtime_name, model, status, input_summary, output_summary, started_at, finished_at
               FROM agent_runs WHERE work_item_id = $1 ORDER BY started_at DESC LIMIT 20`, [id]),
@@ -1090,13 +1206,21 @@ server.registerTool(
       "on a later day snoozes the item until 00:00 Central of that day (table " +
       "trigger) — scheduled to-dos stay in the backlog and surface on Today the " +
       "morning they're due, never before. Set due_at to schedule; leave it " +
-      "empty for do-it-now work.",
+      "empty for do-it-now work.\n\n" +
+      "assigned_to puts the to-do on one or more people — each a users.id, " +
+      "email, or name (see list_users); pass a list for several, e.g. " +
+      "[\"joe\", \"abigail\"] for both of them. Omit it and the item is Joe's, " +
+      "which is the right default for anything an agent files. A to-do on " +
+      "someone else stays on Joe's Today with their names on it AND appears on " +
+      "each of theirs; everyone put on it (other than Joe) gets a notification. " +
+      "Only assign work when Joe has said to.",
     inputSchema: {
       title: z.string(),
       body: z.string().optional(),
       priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
       assignee_kind: z.enum(["human", "agent"]).optional(),
       assignee_key: z.string().optional(),
+      assigned_to: z.union([z.string(), z.array(z.string())]).optional(),
       due_at: z.string().optional(),
       project_slug: z.string().optional(),
       lead_slug: z.string().optional(),
@@ -1109,6 +1233,11 @@ server.registerTool(
   async (a) => {
     const mangled = strippedDollarError(a.title, a.body);
     if (mangled) return mangled;
+    // Who's on it — resolved before the insert so a bad name files nothing.
+    // Nobody (or just Joe) = Joe's own, one spelling across the app, MCP,
+    // detectors and runbooks.
+    const resolved = await resolveInternalUsers(whoList(a.assigned_to));
+    if (resolved.error) return json({ ok: false, error: resolved.error });
     const r = await rows(
       `INSERT INTO work_items
          (title, body, priority, assignee_kind, assignee_key, due_at, project_id, lead_id,
@@ -1122,7 +1251,71 @@ server.registerTool(
         a.expected_runbook_slug ?? null, a.requires_approval ?? true, a.created_by ?? "agent",
       ],
     );
-    return json({ ok: true, id: r[0].id });
+    const onIt = resolved.people.length ? await writeAssignees(r[0].id, resolved.people) : [];
+    return json({ ok: true, id: r[0].id, assigned_to: onIt ?? [] });
+  },
+);
+
+server.registerTool(
+  "assign_work_item",
+  {
+    title: "Choose who's on a to-do",
+    description:
+      "Set which people a to-do is on — one person or several (Joe and Abigail " +
+      "together, say). This is the MCP twin of the Assign checklist on a Today " +
+      "card. Each person is a users.id, email, or name (see list_users).\n\n" +
+      "• to: exactly who should be on it, replacing whoever is now — a name or " +
+      "a list. to:[\"joe\",\"abigail\"] puts both on it; to:\"abigail\" hands " +
+      "it to her alone; to:\"joe\" (or to:[]) takes it back to Joe's own.\n" +
+      "• add / remove: change the current people without restating them. A " +
+      "to-do that's Joe's own counts as having Joe on it, so add:\"abigail\" " +
+      "makes it Joe + Abigail; remove:\"joe\" then leaves it hers alone.\n\n" +
+      "The to-do stays on Joe's Today either way, labelled with everyone on it, " +
+      "and shows on each person's own Today. Everyone newly put on it (other " +
+      "than Joe) gets a notification. Returns assigned_to: the names now on it " +
+      "([] = Joe's own). Assignment is Joe's call — only do this when he has " +
+      "asked for it.",
+    inputSchema: {
+      id: z.string(),
+      to: z.union([z.string(), z.array(z.string())]).optional(),
+      add: z.union([z.string(), z.array(z.string())]).optional(),
+      remove: z.union([z.string(), z.array(z.string())]).optional(),
+    },
+  },
+  async ({ id, to, add, remove }) => {
+    const toList = whoList(to);
+    const addRes = await resolveInternalUsers(whoList(add));
+    if (addRes.error) return json({ ok: false, error: addRes.error });
+    const removeRes = await resolveInternalUsers(whoList(remove));
+    if (removeRes.error) return json({ ok: false, error: removeRes.error });
+
+    // Start from `to` when given, otherwise from whoever is on it now — and a
+    // to-do nobody is on is Joe's, so it starts from Joe (the checklist in the
+    // app shows it the same way).
+    let base;
+    if (to !== undefined) {
+      const toRes = await resolveInternalUsers(toList);
+      if (toRes.error) return json({ ok: false, error: toRes.error });
+      base = toRes.people;
+    } else {
+      base = await rows(
+        `SELECT u.id, u.name, u.role FROM work_item_assignees wa
+           JOIN users u ON u.id = wa.user_id
+          WHERE wa.work_item_id = $1`,
+        [id],
+      );
+      if (!base.length) {
+        base = await rows(
+          `SELECT id, name, role FROM users WHERE role = 'owner' AND active ORDER BY created_at LIMIT 1`,
+        );
+      }
+    }
+    const removeIds = new Set(removeRes.people.map((p) => p.id));
+    const people = [...base, ...addRes.people].filter((p) => !removeIds.has(p.id));
+
+    const onIt = await writeAssignees(id, people);
+    if (!onIt) return json({ ok: false, error: `No work item ${id}` });
+    return json({ ok: true, id, assigned_to: onIt });
   },
 );
 
@@ -1382,6 +1575,8 @@ server.registerTool(
       "Joe's Today rail: promoted priorities (promoted_at set) and the " +
       "waiting backlog, with each item's lane (chat = an agent may complete " +
       "it via MCP; quick = one-click for Joe; deep = needs page work). " +
+      "Each item's assigned_to lists the people on it ([] = Joe's own); one " +
+      "without Joe is a team member's to work, so don't treat it as his. " +
       "READ-ONLY — promotion is app-owned; complete items via " +
       "update_work_item_status.",
     inputSchema: {},
@@ -1392,14 +1587,15 @@ server.registerTool(
       `SELECT w.id, w.title, left(NULLIF(w.body,''),140) AS body, w.status,
               w.priority, w.due_at, w.effort_class,
               (w.promoted_at IS NOT NULL) AS promoted,
-              p.slug AS project_slug, l.slug AS lead_slug
+              p.slug AS project_slug, l.slug AS lead_slug,
+              COALESCE(asg.assigned, '[]'::json) AS assigned_to
          FROM work_items w
          LEFT JOIN projects p ON p.id = w.project_id
-         LEFT JOIN leads l ON l.id = w.lead_id
-        WHERE w.status NOT IN ('done','cancelled')
+         LEFT JOIN leads l ON l.id = w.lead_id${ASSIGNEES_JOIN_SQL}
+        WHERE w.status NOT IN ('done','cancelled','waiting_on_client')
+          AND (w.snoozed_until IS NULL OR w.snoozed_until <= now())
           AND w.assignee_kind = 'human'
           AND (w.assignee_key IS NULL OR w.assignee_key = 'human-joe')
-          AND (w.lead_id IS NOT NULL OR w.project_id IS NOT NULL)
           AND (l.id IS NULL OR l.stage <> 'lost')
         ORDER BY (w.promoted_at IS NOT NULL) DESC,
                  array_position(ARRAY['urgent','high','normal','low'], w.priority),
@@ -1640,7 +1836,9 @@ server.registerTool(
       "Fill narrative fields on a draft. `edits` is a map of field_key → value. " +
       "AI may write ONLY `source:'ai'` narrative fields — edits to money, date, " +
       "enum, or statutory fields are rejected (returned in `rejected`). Re-editing " +
-      "a rendered draft marks it stale (re-render to refresh the files).",
+      "a rendered draft marks it stale (re-render to refresh the files). On a " +
+      "Formal Estimate (estimate_doc) the lines, subtotal and total come from its " +
+      "estimate and can't be edited here — change the lines with add_estimate_lines.",
     inputSchema: { id: z.number().int(), edits: z.record(z.any()) },
   },
   async (a) => json(await docDraftsCall("update", a)),
@@ -1653,7 +1851,10 @@ server.registerTool(
     description:
       "Validate + render the draft to PDF (signable) and DOCX (editable), saved to " +
       "the project Files browser. Returns file ids, or the still-missing required " +
-      "fields. Rendering does NOT send: to get it signed, ask Joe to submit it for " +
+      "fields. A Formal Estimate (estimate_doc) is re-printed with its estimate's " +
+      "CURRENT lines and totals, so render it after the lines change — until then " +
+      "list_document_drafts shows lines_changed: true and it can't be sent or " +
+      "published. Rendering does NOT send: to get it signed, ask Joe to submit it for " +
       "signature in the app (use submit_draft_for_approval to flag it).",
     inputSchema: { id: z.number().int() },
   },
@@ -2099,6 +2300,10 @@ server.registerTool(
 // headline, and the closeout docs. Nothing in the app edits them — they came in
 // from the Houzz import — so these are the only agent path. Internal records
 // only: no invoice is created or sent.
+// `progress` is the "% billed" bar (collected ÷ contract), so both tools
+// recompute it — otherwise a paid-in-full job keeps showing its old percent.
+const PROGRESS_SQL = (collected, contract) =>
+  `CASE WHEN ${contract} > 0 THEN LEAST(100, ROUND(100.0 * ${collected} / ${contract}))::int ELSE progress END`;
 server.registerTool(
   "set_project_contract_value",
   {
@@ -2121,11 +2326,12 @@ server.registerTool(
     if (!projectId) return json({ error: `No project with slug "${a.project_slug}"` });
     const r = await rows(
       `UPDATE projects
-          SET contract_value = $2,
+          SET contract_value = $2::int,
               value_display = COALESCE($3, value_display),
+              progress = ${PROGRESS_SQL("collected_to_date", "$2::int")},
               updated_at = now()
         WHERE id = $1
-        RETURNING slug, name, status, contract_value, collected_to_date, value_display`,
+        RETURNING slug, name, status, contract_value, collected_to_date, progress, value_display`,
       [projectId, a.contract_value, a.value_display ?? null],
     );
     const p = r[0];
@@ -2160,11 +2366,12 @@ server.registerTool(
     if (!projectId) return json({ error: `No project with slug "${a.project_slug}"` });
     const r = await rows(
       `UPDATE projects
-          SET collected_to_date = CASE WHEN $3 THEN contract_value ELSE $2 END,
+          SET collected_to_date = CASE WHEN $3 THEN contract_value ELSE $2::int END,
               stage_label = COALESCE($4, stage_label),
+              progress = ${PROGRESS_SQL("CASE WHEN $3 THEN contract_value ELSE $2::int END", "contract_value")},
               updated_at = now()
         WHERE id = $1
-        RETURNING slug, name, status, contract_value, collected_to_date, value_display, stage_label`,
+        RETURNING slug, name, status, contract_value, collected_to_date, progress, value_display, stage_label`,
       [projectId, a.collected ?? 0, a.paid_in_full === true, a.stage_label ?? null],
     );
     const p = r[0];
@@ -2605,10 +2812,10 @@ server.registerTool(
   // trigger. Nothing here sends; still no tool creates a change order.
   registerEstimateTools(server, { rows, json, pool, strippedDollarError });
 
-  // Bidding lives in its own module too: stage + award. Sending a package is
+  // Bidding lives in its own module too: stage, record + award. Sending a package is
   // real email, so it is NOT here — it's a granted send (below).
   registerBiddingTools(server, {
-    rows, json, biddingCall, envValue,
+    rows, json, biddingCall, envValue, strippedDollarError,
     uploadDir: path.join(__dirname, "..", "uploads"),
   });
 
@@ -2648,6 +2855,12 @@ server.registerTool(
   // agent_interactions; the panel's run poll renders + answers them. See
   // mcp/interact-tools.mjs.
   registerAskOwner(server, { pool, json });
+
+  // Employee / portal login accounts — the agent-side twin of Settings › Team
+  // & roles: list, create (staff areas / sub + client portal links / owner with
+  // an explicit confirm), edit areas, reset a password, disable / re-enable.
+  // Internal records, nothing emailed, no delete. See mcp/team-tools.mjs.
+  registerTeamTools(server, { rows, json });
 
   // `search` + `fetch`: the two tools ChatGPT's connector requires by name (it
   // rejects a server without them). Read-only unified lookups over the same

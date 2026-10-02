@@ -1,9 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Sparkles, Check, Clock, ArrowUpRight } from "lucide-react";
+import { Sparkles, Check, Clock, ArrowUpRight, UserRound } from "lucide-react";
 import { Card } from "@/components/ui";
 import { useTodayQueue } from "./TodayQueueContext";
+import { AssigneePicker } from "./AssigneePicker";
 import type { TodayPriority } from "@/lib/today";
 
 const DOT: Record<string, string> = {
@@ -36,7 +37,8 @@ export function PriorityCard({
   p: TodayPriority;
   onHandOff: (p: TodayPriority, kind: "do" | "prep") => void;
 }) {
-  const { busyId, checkingId, complete, snooze, handleCardClick } = useTodayQueue();
+  const { busyId, checkingId, complete, snooze, handleCardClick, canAssign, assignees, assign } =
+    useTodayQueue();
   const router = useRouter();
 
   const busy = busyId === p.id || checkingId === p.id;
@@ -49,6 +51,10 @@ export function PriorityCard({
   const showSnooze = p.checkable && (p.lane === "quick" || p.lane === "deep");
   const showPrep = p.lane === "deep" && !isAllClear;
   const showOpen = Boolean(p.href) && !isAllClear;
+  // Handing work out is the owner's alone (Joe, 2026-09-27), and only a real
+  // work item can be handed over — the lead/job/schedule signal cards aren't
+  // rows anyone can own.
+  const showAssign = canAssign && p.checkable && !isAllClear;
 
   const open = async () => {
     if (!p.href) return;
@@ -71,6 +77,27 @@ export function PriorityCard({
       </div>
       <div className="mt-1 font-serif text-[16px] font-semibold text-ink">{p.title}</div>
       <div className="mt-0.5 text-[12px] text-ink-3">{p.sub}</div>
+
+      {/* Who's on it. A handed-off to-do stays on Joe's Today (his rule,
+          2026-09-27), so this line is what tells the two apart at a glance —
+          deliberately above the chip row and in the accent colour, not a
+          footnote. It names everyone but the viewer ("Assigned to you &
+          Abigail Stafki"), so a shared to-do never reads as one person's. */}
+      {p.assignment && (
+        <div className="mt-1.5 flex items-center gap-1.5">
+          <span className="flex flex-none -space-x-1">
+            {p.assignment.others.map((a) => (
+              <span
+                key={a.userId}
+                className="grid size-[18px] place-items-center rounded-full bg-accent-soft font-mono text-[9px] font-semibold text-accent-2 ring-1 ring-paper"
+              >
+                {a.initials}
+              </span>
+            ))}
+          </span>
+          <span className="text-[12px] font-semibold text-accent-2">{p.assignment.label}</span>
+        </div>
+      )}
 
       {!isAllClear && (
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
@@ -122,6 +149,21 @@ export function PriorityCard({
             >
               <Clock className="size-3" strokeWidth={1.5} /> Snooze 3d
             </button>
+          )}
+          {showAssign && (
+            <AssigneePicker
+              roster={assignees}
+              assigned={p.assignedTo ?? []}
+              onChange={(ids) => assign(p.id, ids)}
+              disabled={busy}
+              triggerClassName="inline-flex items-center gap-1 rounded-md border border-rule bg-paper-2 px-2 py-0.5 text-[11px] font-medium text-ink-3 transition-colors hover:bg-paper disabled:opacity-50"
+              trigger={
+                <>
+                  <UserRound className="size-3" strokeWidth={1.5} />
+                  {p.assignedTo?.length ? "Reassign" : "Assign"}
+                </>
+              }
+            />
           )}
         </div>
       )}

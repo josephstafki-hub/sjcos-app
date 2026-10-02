@@ -9,12 +9,14 @@ import type { CostItem } from "@/lib/cost-book";
 import type { FloorplanVersion } from "@/lib/floorplans";
 import type { ApprovalGateBase } from "@/lib/approval-gate-types";
 import type { EstimateDetail, EstimateLineView, EstimateStatus } from "@/lib/estimates";
+import type { TemplateManifest } from "@/lib/doc-templates/registry";
 import { ESTIMATE_KIND_HELP, WHERE, describeScopeChangePath, type EstimateKind, type ScopeChangeContext } from "@/lib/estimate-kinds";
 import { createEstimate, deleteEstimate, deleteEstimateLine, suggestEstimate, sendEstimate, mergeEstimates } from "@/lib/actions/estimates";
 import { runAction } from "@/lib/run-action";
 import { EstimateLineModal } from "./EstimateLineModal";
 import { BulkAddPanel } from "./BulkAddPanel";
 import { ContractGenerator } from "./ContractGenerator";
+import { DocTypePanel, type DocDraftItem } from "./DocTypePanel";
 import { TabLink } from "./TabNav";
 
 const RAIL_LABEL: Record<string, string> = {
@@ -31,11 +33,11 @@ const STATUS_KIND: Record<EstimateStatus, "ghost" | "accent" | "money" | "flag">
 
 /** The estimate editor, mounted twice on the project page — once per kind:
  *  kind 'formal' under Documents › Formal Estimate (the job's formal estimate;
- *  the Formal Estimate PDF the client gets is generated from its lines, and
- *  the live preview below the generator IS that PDF) and kind 'precon_change'
- *  under Money › Pre-con changes (client additions or changes priced before
- *  the contract is signed — after the contract they are change orders). Each
- *  mount lists only its own kind. docs/estimates-and-change-orders.md */
+ *  the client's PDF of it sits under each estimate — `pdfs` — and is printed
+ *  from its current lines) and kind 'precon_change' under Money › Pre-con
+ *  changes (client additions or changes priced before the contract is signed —
+ *  after the contract they are change orders). Each mount lists only its own
+ *  kind. docs/estimates-and-change-orders.md */
 export function ProjectEstimate({
   slug,
   kind,
@@ -45,6 +47,7 @@ export function ProjectEstimate({
   floorplans,
   approvalGate,
   phase,
+  pdfs,
 }: {
   slug: string;
   kind: EstimateKind;
@@ -54,6 +57,8 @@ export function ProjectEstimate({
   floorplans: FloorplanVersion[];
   approvalGate: ApprovalGateBase;
   phase: ScopeChangeContext;
+  /** Formal only: the job's Formal Estimate PDF copies, shown under the estimate each was made from. */
+  pdfs?: { manifest: TemplateManifest; drafts: DocDraftItem[] };
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -79,6 +84,18 @@ export function ProjectEstimate({
   const [sendError, setSendError] = useState<string | null>(null);
 
   const selected = editingId != null ? mine.find((e) => e.id === editingId) ?? null : null;
+
+  // The client's PDF of one formal estimate — made from its lines, updated from them.
+  const clientPdf = (estimateId: number) =>
+    isFormal && pdfs ? (
+      <DocTypePanel
+        slug={slug}
+        templateKey="estimate_doc"
+        manifest={pdfs.manifest}
+        drafts={pdfs.drafts.filter((d) => d.estimate_id === estimateId)}
+        estimateId={estimateId}
+      />
+    ) : null;
 
   function create(form: HTMLFormElement) {
     const fd = new FormData(form);
@@ -219,8 +236,10 @@ export function ProjectEstimate({
       {/* Where things go — the same sentence the agents are told. */}
       {isFormal ? (
         <Card className="border-rule bg-paper-2 p-3.5 text-[12px] text-ink-2">
-          {ESTIMATE_KIND_HELP.formal} The Formal Estimate PDF the client gets is generated from its lines; the
-          documents list below holds the copies. Client additions or changes before the contract is signed go under{" "}
+          {ESTIMATE_KIND_HELP.formal}{" "}
+          Change the lines with Edit. The client&rsquo;s PDF sits under the estimate and is printed from its lines;
+          after the lines change, click Update PDF. Client additions or changes before the contract is signed go
+          under{" "}
           <TabLink tab="Money" section="Pre-con changes" className={linkCls}>
             {WHERE.preconChanges}
           </TabLink>
@@ -374,6 +393,7 @@ export function ProjectEstimate({
                   </button>
                 </div>
               </div>
+              {isFormal && pdfs && <div className="mt-3 border-t border-rule-soft pt-3">{clientPdf(e.id)}</div>}
             </Card>
           ))}
         </div>
@@ -477,6 +497,8 @@ export function ProjectEstimate({
             )}
           </Card>
 
+          {isFormal && pdfs && <Card className="p-3.5">{clientPdf(selected.id)}</Card>}
+
           {bulkAdd && (
             <BulkAddPanel
               estimateId={selected.id}
@@ -535,7 +557,7 @@ export function ProjectEstimate({
                 </span>
                 <span className="text-[11px] text-ink-3">
                   {isFormal
-                    ? "Generated live from these lines. To keep a copy on file, create one in the documents list below."
+                    ? "Generated live from these lines. The client's copy is under Client PDF above."
                     : "The PDF the client gets for this change, generated live from these lines."}
                 </span>
               </div>

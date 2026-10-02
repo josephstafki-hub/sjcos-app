@@ -6,17 +6,23 @@
 // sendBidPackageOp). Bids come back to Joe's inbox; he records each number
 // here (recordBid / declineBidInvite) so the compare view can line them up.
 // Nothing bid-related touches the sub portal. Reads live in lib/bidding.ts,
-// which also owns the send/award ops shared with the MCP bridge (which refuses
-// send — transmitting email is owner-only).
+// which also owns the send/record/award ops shared with the MCP bridge (which
+// refuses send — transmitting email is owner-only).
 
 import { revalidatePath } from "next/cache";
-import { after } from "next/server";
 import { query, queryOne } from "@/lib/db";
 import { requireAccess } from "@/lib/dal";
 import { emit } from "@/lib/notify";
 import { storeUpload } from "@/lib/upload-store";
-import { awardBidOp, bidInviteById, bidUsd, markBidWorkingOp, sendBidPackageOp } from "@/lib/bidding";
-import { sendBidThanks } from "@/lib/bid-follow-ups";
+import {
+  awardBidOp,
+  bidInviteById,
+  checkRecordBid,
+  markBidWorkingOp,
+  recordBidOp,
+  sendBidPackageOp,
+  type RecordBidInput,
+} from "@/lib/bidding";
 
 type Result = { ok: boolean; error?: string };
 
@@ -343,52 +349,30 @@ async function requireSentInvite(inviteId: number) {
 
 /** Record a bid that came back by email: a total (or line items that sum to
  *  one), optional exclusions / lead time / notes, and the sub's emailed quote
- *  as an upload. Re-recording files a new revision — compare reads the latest. */
+ *  as an upload. The writes, the notification and the auto thank-you live in
+ *  recordBidOp (shared with the MCP record_bid tool). Re-recording files a new
+ *  revision — compare reads the latest. */
 export async function recordBid(inviteId: number, formData: FormData): Promise<Result> {
-  const { invite, error } = await requireSentInvite(inviteId);
-  if (!invite) return { ok: false, error };
-  if (["awarded", "not_awarded"].includes(invite.status) || invite.package_status !== "open") {
-    return { ok: false, error: "Bidding on this package has closed." };
-  }
+  await requireAccess("bidding");
 
   // Line items: parallel arrays from the dynamic rows. Blank rows drop out.
   const descs = formData.getAll("lineDesc").map((v) => String(v).trim().slice(0, 300));
   const amounts = formData.getAll("lineAmount").map(parseCents);
-  const lines = descs
-    .map((description, i) => ({ description, amount: amounts[i] ?? 0 }))
-    .filter((l) => l.description || l.amount > 0);
+  const bid: RecordBidInput = {
+    // A blank total means "add up the lines".
+    totalCents: parseCents(formData.get("total")) || undefined,
+    lines: descs.map((description, i) => ({ description, amountCents: amounts[i] ?? 0 })),
+    notes: text(formData.get("notes"), 4000),
+    exclusions: text(formData.get("exclusions"), 4000),
+    leadTime: text(formData.get("leadTime"), 200),
+  };
 
-  const linesTotal = lines.reduce((s, l) => s + l.amount, 0);
-  const total = parseCents(formData.get("total")) || linesTotal;
-  if (total <= 0) return { ok: false, error: "Enter your bid total (or line items that add up to one)." };
+  // Refuse before storing the uploads, so a refused bid leaves no stray files.
+  const check = await checkRecordBid(inviteId, bid);
+  if (!check.ok) return { ok: false, error: check.error };
+  const { invite } = check;
 
-  const revision = await queryOne<{ next: number }>(
-    `SELECT COALESCE(MAX(revision) + 1, 1) AS next FROM bid_submissions WHERE invite_id = $1`,
-    [inviteId],
-  );
-  const { rows: subRows } = await query<{ id: string }>(
-    `INSERT INTO bid_submissions (invite_id, total, notes, exclusions, lead_time, revision)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-    [
-      inviteId,
-      total,
-      text(formData.get("notes"), 4000),
-      text(formData.get("exclusions"), 4000),
-      text(formData.get("leadTime"), 200),
-      revision?.next ?? 1,
-    ],
-  );
-  const submissionId = Number(subRows[0].id);
-
-  if (lines.length) {
-    await query(
-      `INSERT INTO bid_submission_lines (submission_id, description, amount, sort_order)
-       SELECT $1, d, a, i - 1
-       FROM unnest($2::text[], $3::bigint[]) WITH ORDINALITY AS t(d, a, i)`,
-      [submissionId, lines.map((l) => l.description), lines.map((l) => l.amount)],
-    );
-  }
-
+  const fileIds: string[] = [];
   for (const entry of formData.getAll("files")) {
     if (!(entry instanceof File) || entry.size === 0) continue;
     const stored = await storeUpload(entry, {
@@ -398,38 +382,11 @@ export async function recordBid(inviteId: number, formData: FormData): Promise<R
       subtitle: `Bid · ${invite.sub_name} · ${invite.title}`,
     });
     if (!stored.ok) return { ok: false, error: stored.error };
-    await query(
-      `INSERT INTO bid_submission_files (submission_id, file_id) VALUES ($1, $2)`,
-      [submissionId, stored.id],
-    );
+    fileIds.push(stored.id);
   }
 
-  await query(
-    `UPDATE bid_invites SET status = 'submitted', responded_at = now() WHERE id = $1`,
-    [inviteId],
-  );
-
-  // Auto thank-you (only if the package's follow-ups switch is on). Best-effort
-  // and deferred past the response: a Gmail round trip was what made "record a
-  // bid" hang for seconds, and a hiccup here is retried by the hourly sweep,
-  // never surfaced as a failure of recording the bid itself.
-  after(async () => {
-    try {
-      await sendBidThanks(inviteId);
-    } catch (err) {
-      console.error("[bidding] thank-you send failed", err);
-    }
-  });
-
-  await emit({
-    kind: "money",
-    tag: "Bid",
-    accent: "money",
-    icon: "money",
-    title: `Bid in from ${invite.sub_name} — ${bidUsd(total)}`,
-    subline: `${invite.project_name} · ${invite.title}`,
-    href: `/projects/${invite.slug}`,
-  });
+  const result = await recordBidOp(inviteId, { ...bid, fileIds });
+  if (!result.ok) return { ok: false, error: result.error };
   revalidatePath(`/projects/${invite.slug}`);
   revalidatePath("/notifications");
   return { ok: true };

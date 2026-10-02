@@ -77,6 +77,7 @@ function clockNow(): string {
 }
 
 export function ChatClient({ data }: { data: ChatData }) {
+  const { me, canManage } = data;
   const [selectedKey, setSelectedKey] = useState(data.selectedKey);
   // Mobile master/detail: below lg, show the channel rail OR the messages.
   const [mobileThread, setMobileThread] = useState(false);
@@ -268,7 +269,16 @@ export function ChatClient({ data }: { data: ChatData }) {
     if (!text || !view) return;
     const key = selectedKey;
     const members = view.aiMembers;
-    append(key, { initials: "JS", name: "Joe", time: clockNow(), text, kind: "owner" });
+    // Echo as whoever is signed in. This was Joe's name and initials hardcoded,
+    // so a staff member watched their own message appear signed by him.
+    append(key, {
+      initials: me.initials,
+      name: me.name,
+      time: clockNow(),
+      text,
+      kind: me.isOwner ? "owner" : "user",
+      mine: true,
+    });
     setInput("");
     const m = text.match(/@(claude|hermes|qwen|ai)\b/i);
     const mentioned = m?.[1].toLowerCase();
@@ -362,13 +372,13 @@ export function ChatClient({ data }: { data: ChatData }) {
           key: ch.key,
           name: ch.name,
           description: ch.description || "Team channel",
-          participants: ["JS"],
+          participants: [me.initials],
           members: [],
           teamMembers: [],
           clientMembers: [],
           aiMembers: [],
-          canManageMembers: true,
-          canManageAi: true,
+          canManageMembers: canManage,
+          canManageAi: canManage,
           canManageClients: false,
           daySeparator: `Today · ${new Date().toLocaleDateString("en-US", {
             weekday: "short",
@@ -476,7 +486,7 @@ export function ChatClient({ data }: { data: ChatData }) {
           key: dm.key,
           name: dm.fullName,
           description: `Direct message · ${dm.subtitle}`,
-          participants: ["JS", dm.initials],
+          participants: [me.initials, dm.initials],
           members: [],
           teamMembers: [],
           clientMembers: [],
@@ -523,7 +533,8 @@ export function ChatClient({ data }: { data: ChatData }) {
               channel={c}
               active={c.key === selectedKey}
               onSelect={() => selectChannel(c.key)}
-              onArchive={() => archiveChannelHandler(c.key)}
+              // Owner only — archiving a channel is a company decision.
+              onArchive={canManage ? () => archiveChannelHandler(c.key) : undefined}
             />
           ))}
           {creating ? (
@@ -559,19 +570,28 @@ export function ChatClient({ data }: { data: ChatData }) {
               )}
             </div>
           ) : (
-            <button
-              onClick={() => setCreating(true)}
-              className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[12px] text-ink-3 transition-colors hover:bg-paper-3 hover:text-ink-2"
-            >
-              <Plus className="size-3.5 flex-none" strokeWidth={2} />
-              New channel
-            </button>
+            // Creating and archiving channels is the owner's (lib/actions/chat.ts
+            // enforces it) — don't offer a button that would only bounce.
+            canManage && (
+              <button
+                onClick={() => setCreating(true)}
+                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[12px] text-ink-3 transition-colors hover:bg-paper-3 hover:text-ink-2"
+              >
+                <Plus className="size-3.5 flex-none" strokeWidth={2} />
+                New channel
+              </button>
+            )
           )}
         </div>
 
         <div className="my-2 h-px bg-rule" />
         <RailLabel>Rooms</RailLabel>
         <div className="flex flex-col gap-0.5">
+          {rooms.length === 0 && !canManage && (
+            <p className="px-2 py-1 text-[11px] leading-snug text-ink-4">
+              Joe adds you to a job&apos;s room when you&apos;re on it.
+            </p>
+          )}
           {rooms.map((c) => (
             <ChannelItem
               key={c.key}

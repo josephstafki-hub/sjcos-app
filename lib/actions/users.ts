@@ -60,14 +60,51 @@ export async function createUser(formData: FormData): Promise<CreateUserResult> 
   if (exists) return { ok: false, error: "A user with that email already exists." };
 
   const passwordHash = await hashPassword(password);
-  await query(
+  const { rows } = await query<{ id: string }>(
     `INSERT INTO users (email, password_hash, name, role, initials, link_slug, active, permissions)
-     VALUES ($1, $2, $3, $4, $5, $6, true, $7)`,
+     VALUES ($1, $2, $3, $4, $5, $6, true, $7)
+     RETURNING id`,
     [email, passwordHash, name, role, initialsOf(name), role === "staff" ? null : linkSlug, perms],
   );
+  if (role === "staff") await linkChatIdentity(rows[0].id, name);
 
   revalidatePath("/settings");
+  revalidatePath("/chat");
   return { ok: true };
+}
+
+/** Give a new staff account its chat identity — a team_members row linked to the
+ *  login. Without one they have no DM address: team chat keys conversations on
+ *  roster slugs, so they could read channels but nobody could message them.
+ *  Adopts an existing roster row with the same name (Joe added "Marco" by hand,
+ *  then gave Marco a login) rather than creating a second one. Best-effort: a
+ *  hiccup here must not cost them their account. */
+async function linkChatIdentity(userId: string, name: string): Promise<void> {
+  const base =
+    name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "teammate";
+  try {
+    const adopted = await query(
+      `UPDATE team_members SET user_id = $1, active = true
+        WHERE user_id IS NULL AND lower(name) = lower($2)`,
+      [userId, name.trim()],
+    );
+    if (adopted.rowCount && adopted.rowCount > 0) return;
+    // Slug collision with an unrelated roster row: suffix until it's free. The
+    // slug is only ever an address, so -2 is fine.
+    for (let n = 0; n < 20; n++) {
+      const slug = n === 0 ? base : `${base}-${n + 1}`;
+      const taken = await queryOne(`SELECT 1 FROM team_members WHERE slug = $1`, [slug]);
+      if (taken) continue;
+      await query(
+        `INSERT INTO team_members (slug, name, role_label, active, user_id)
+         VALUES ($1, $2, 'Team', true, $3)`,
+        [slug, name.trim(), userId],
+      );
+      return;
+    }
+  } catch (err) {
+    console.error("[users] could not link a chat identity", err);
+  }
 }
 
 /** Replace a staff member's areas. Owner-only; only staff rows carry areas.
@@ -107,7 +144,11 @@ export async function resetUserPassword(id: string, formData: FormData): Promise
   return { ok: true };
 }
 
-/** Enable/disable a login. Owner-only; owner rows are protected (no lock-out). */
+/** Enable/disable a login. Owner-only; owner rows are protected (no lock-out).
+ *  The chat roster row is left alone on purpose — deactivating it too would
+ *  break attribution on everything they ever posted (that's why team_members
+ *  deactivates rather than deletes). lib/chat.ts already stops treating a
+ *  disabled account as a DM target. */
 export async function setUserActive(id: string, active: boolean) {
   const owner = await requireRole("owner");
   const res = await query(`UPDATE users SET active = $2 WHERE id = $1 AND role <> 'owner'`, [id, active]);
@@ -118,6 +159,7 @@ export async function setUserActive(id: string, active: boolean) {
   }
   revalidatePath("/settings");
   revalidatePath(`/settings/team/${id}`);
+  revalidatePath("/chat");
 }
 
 // ── Approval authority (A22) ────────────────────────────────────────────────

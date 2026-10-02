@@ -3,7 +3,7 @@ import "server-only";
 // Bid follow-up emails: auto-chase unanswered invites, a softer nudge for subs
 // who said they're on it, and a thank-you when a bid lands. Called by the
 // CRON_SECRET-gated route at /api/cron/bid-follow-ups and (thanks only) by
-// recordBid in lib/actions/bidding.ts.
+// recordBidOp in lib/bidding.ts (the Record bid button and MCP record_bid).
 //
 // ─── READ THIS BEFORE CHANGING ANYTHING HERE ────────────────────────────────
 // Like the newsletter drip (lib/newsletter-drip.ts), this module emails real

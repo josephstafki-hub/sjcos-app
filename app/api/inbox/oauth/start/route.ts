@@ -1,15 +1,19 @@
-// GET /api/inbox/oauth/start — kick off the one-time Gmail consent flow.
-// Owner-only. Redirects to Google's consent screen; Google sends the user back
-// to /api/inbox/oauth/callback with a code we exchange for a refresh token.
+// GET /api/inbox/oauth/start — kick off the Gmail consent flow.
+//
+// Open to the owner and to any staff account holding the Inbox area: a team
+// member connects THEIR OWN mailbox here (Joe, 2026-09-27 — "link able to their
+// email otherwise blank"). Which account the resulting token lands under is
+// decided by the callback from the session, not by anything in this redirect,
+// so there is nothing here a caller could tamper with to link someone else.
 
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/dal";
+import { can, getCurrentUser } from "@/lib/dal";
 import { consentUrl, gmailOAuthAppConfigured } from "@/lib/gmail";
 
 export async function GET() {
   const user = await getCurrentUser();
-  if (user?.role !== "owner") {
-    return NextResponse.json({ error: "owner only" }, { status: 403 });
+  if (!can(user, "inbox")) {
+    return NextResponse.json({ error: "no inbox access" }, { status: 403 });
   }
   if (!gmailOAuthAppConfigured()) {
     return NextResponse.json(

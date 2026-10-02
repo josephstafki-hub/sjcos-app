@@ -11,14 +11,18 @@
 
 1. **The formal estimate lives under Documents › Formal Estimate**
    (`estimates.kind = 'formal'`). Its line items are edited there (add line,
-   bulk add, live preview, send for approval, contract generator), and the
-   Formal Estimate PDF the client gets is generated from those lines — the
-   documents list under the editor holds the copies. Agents:
-   `add_estimate_lines` on the id `get_project` reports as
+   bulk add, live preview, send for approval, contract generator). The
+   client's PDF of it (the Formal Estimate document) sits under the estimate
+   as **Client PDF** and is always printed from the estimate's current lines:
+   `document_drafts.estimate_id` links the copy to its estimate, every render
+   pulls the lines, subtotal and total in (they can't be edited on the
+   document), and a copy whose lines are out of date is flagged "lines
+   changed" and can't be sent or published until it is updated (**Update
+   PDF**). Agents: `add_estimate_lines` on the id `get_project` reports as
    `pricing_and_paperwork.formal_estimate_id`; then
-   `create_document_draft { template_key: "estimate_doc", estimate_id }` for a
-   PDF copy, and regenerate it after the lines change. A job normally has one
-   formal estimate; don't create a second one to add to it.
+   `create_document_draft { template_key: "estimate_doc", estimate_id }` for
+   the PDF, and `render_document_draft` it again after the lines change. A job
+   normally has one formal estimate; don't create a second one to add to it.
 2. **Money › Pre-con changes** holds client additions or changes priced
    **before the contract is signed**: a new estimate with
    `kind = 'precon_change'`, priced and approved like any estimate. Not a
@@ -71,8 +75,11 @@ together with the job's estimates (each tagged `lives_in`, and
 ## Agent recipe
 
 - "Add X to the formal estimate" → `add_estimate_lines { estimate_id: formal_estimate_id, lines }`.
-  If a Formal Estimate PDF exists, `render_document_draft` it again. If the
-  estimate was already sent/approved, tell Joe the total changed.
+  If a Formal Estimate PDF exists, `render_document_draft` it again — that
+  re-prints it with the current lines (`list_document_drafts` shows
+  `lines_changed: true` until you do). A copy already sent for signature or
+  signed is not re-printed: tell Joe. If the estimate was already
+  sent/approved, tell Joe the total changed.
 - "Client wants to add/change Y" → check `scope_change_path`. `precon_estimate`
   → `create_estimate { kind: "precon_change" }` + `add_estimate_lines`.
   `change_order` → a change order; no tool creates one, so draft it in the app
@@ -90,3 +97,8 @@ together with the job's estimates (each tagged `lives_in`, and
 - A `precon_change` estimate does not change the project's contract value on
   its own (owner manages that number).
 - Lead-scoped estimates (`estimates.lead_slug`) are outside the phase rule.
+- `document_drafts.estimate_id` (2026-09-30, `db/apply-estimate-pdf-link.mjs`)
+  links a Formal Estimate or Contract document to the estimate it was made
+  from; existing ones were backfilled from their `SJC-EST-<id>` estimate number
+  / `SJC-C-<slug>-<id>` contract number. A document whose estimate is deleted
+  keeps its last lines and shows under "Other Formal Estimate PDFs".

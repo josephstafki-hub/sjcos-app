@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 
 export default async function EnginePage() {
   // Owner-only: the operations engine coordinates AI runs + approvals.
-  await requireAccess("engine");
+  const user = await requireAccess("engine");
 
   const [engine, knowledge, skills, memories, activeRunbooks] = await Promise.all([
     getEngineData(),
@@ -50,6 +50,7 @@ export default async function EnginePage() {
           skills={skills}
           memories={memories}
           activeRunbooks={activeRunbooks}
+          canAssign={user.role === "owner"}
         />
       </div>
     </Shell>

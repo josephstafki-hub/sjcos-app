@@ -6,16 +6,19 @@ import { revalidatePath } from "next/cache";
 import { captureAgentMemory } from "@/lib/agent-memory";
 import { finishApproval } from "@/lib/approve-work-item";
 import type { ApproveResult } from "@/lib/approved-draft-rules";
-import { query } from "@/lib/db";
-import { requireAccess } from "@/lib/dal";
+import { query, queryOne } from "@/lib/db";
+import { requireAccess, requireRole } from "@/lib/dal";
 import { WORK_STATUSES } from "@/lib/engine-constants";
+import { getArchivedWorkItems, type WorkItemView } from "@/lib/engine";
+import { splitWho, type QueueFilter } from "@/lib/engine-views";
 import { maybeAdvanceRunbook, cancelRunbookInstance } from "@/lib/runbook-engine";
+import { assignNewItem, pickedPeople, setAssignees } from "@/lib/work-item-assign";
 import type { WorkItemStatus } from "@/lib/types";
 
 type Result = { ok: true } | { ok: false; error: string };
 
 export async function createWorkItem(formData: FormData): Promise<Result> {
-  await requireAccess("engine");
+  const me = await requireAccess("engine");
   const title = String(formData.get("title") ?? "").trim();
   if (!title) return { ok: false, error: "Title is required." };
   const body = String(formData.get("body") ?? "").trim();
@@ -25,14 +28,38 @@ export async function createWorkItem(formData: FormData): Promise<Result> {
   const assigneeKind = assigneeKey && assigneeKey !== "human-joe" ? "agent" : "human";
   const dueAt = String(formData.get("due_at") ?? "").trim();
   const expectedSkill = String(formData.get("expected_skill_slug") ?? "").trim() || null;
+  // Who it's on. Only the owner may put a to-do on someone else (Joe,
+  // 2026-09-27), so anyone else's pick is ignored and the row lands with nobody
+  // on it (= the owner's, the same as every other writer's default).
+  const people =
+    me.role === "owner"
+      ? await pickedPeople(formData.getAll("assigned_user_ids").map(String))
+      : [];
+  if (!people) return { ok: false, error: "Only an active team login can hold a to-do." };
 
-  await query(
+  const created = await queryOne<{ id: string }>(
     `INSERT INTO work_items
        (title, body, priority, assignee_kind, assignee_key, due_at, expected_skill_slug, source_kind, created_by)
-     VALUES ($1,$2,$3,$4,$5, NULLIF($6,'')::timestamptz, $7, 'manual', 'user')`,
+     VALUES ($1,$2,$3,$4,$5, NULLIF($6,'')::timestamptz, $7, 'manual', 'user')
+     RETURNING id`,
     [title, body, priority, assigneeKind, assigneeKey, dueAt, expectedSkill],
   );
+  if (created) await assignNewItem(created.id, title, people);
   revalidatePath("/engine");
+  revalidatePath("/today");
+  return { ok: true };
+}
+
+/** Put exactly these people on an existing to-do from the /engine board (the
+ *  Today card's picker does the same thing — see lib/actions/today.ts
+ *  assignTodayItem). Empty = back to the owner's own. Owner-only: holding the
+ *  Engine area lets you work the queue, not re-deal it. */
+export async function setWorkItemAssignees(id: string, userIds: string[]): Promise<Result> {
+  await requireRole("owner");
+  const r = await setAssignees(id, userIds);
+  if (!r.ok) return r;
+  revalidatePath("/engine");
+  revalidatePath("/today");
   return { ok: true };
 }
 
@@ -53,6 +80,48 @@ export async function setWorkItemStatus(id: string, status: WorkItemStatus, note
   revalidatePath("/engine");
   revalidatePath("/today");
   return { ok: true };
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Take done/cancelled to-dos off the board into the Archived view (Joe,
+ *  2026-10-02). Display-only — the rows stay, every MCP read and dedup check
+ *  still sees them. Anything still open is skipped (the table refuses it too:
+ *  db/apply-work-item-archive.mjs), so "archive these" can't hide live work.
+ *  Says how many it moved. */
+export async function archiveWorkItems(ids: string[]): Promise<{ ok: true; archived: number } | { ok: false; error: string }> {
+  await requireAccess("engine");
+  const valid = ids.filter((id) => UUID_RE.test(id));
+  if (!valid.length) return { ok: false, error: "Nothing to archive." };
+  const { rowCount } = await query(
+    `UPDATE work_items SET archived_at = now()
+      WHERE id = ANY($1::uuid[]) AND status IN ('done','cancelled') AND archived_at IS NULL`,
+    [valid],
+  );
+  revalidatePath("/engine");
+  return { ok: true, archived: rowCount ?? 0 };
+}
+
+/** Put an archived to-do back on the board, as it was (still done/cancelled).
+ *  Reopening one — any status change away from done/cancelled, from anywhere —
+ *  also brings it back, by the table trigger. */
+export async function restoreWorkItem(id: string): Promise<Result> {
+  await requireAccess("engine");
+  if (!UUID_RE.test(id)) return { ok: false, error: "Work item not found." };
+  await query(`UPDATE work_items SET archived_at = NULL WHERE id = $1`, [id]);
+  revalidatePath("/engine");
+  return { ok: true };
+}
+
+/** A page of the Archived view, narrowed by the board's folder + filters. */
+export async function listArchivedWorkItems(
+  filter: QueueFilter,
+  offset = 0,
+): Promise<{ ok: true; items: WorkItemView[]; hasMore: boolean } | { ok: false; error: string }> {
+  await requireAccess("engine");
+  const [kind, key] = splitWho(filter.who);
+  if (kind === "person" && !UUID_RE.test(key)) return { ok: true, items: [], hasMore: false };
+  return { ok: true, ...(await getArchivedWorkItems(filter, offset)) };
 }
 
 /** Approve a work item awaiting human approval → clears the gate, moves to queued,

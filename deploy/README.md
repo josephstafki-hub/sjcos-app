@@ -381,7 +381,7 @@ Install any timer the same way as the existing ones:
 `TELEGRAM_WEBHOOK_SECRET` (decision buttons; then call Telegram `setWebhook` for
 `/api/telegram/webhook`), `SQUARE_ENV` + `SQUARE_ACCESS_TOKEN` + `SQUARE_LOCATION_ID`
 + `SQUARE_WEBHOOK_SIGNATURE_KEY` (unset = fake/sandbox adapter, checkout hidden),
-`INTUIT_CLIENT_ID` / `INTUIT_CLIENT_SECRET` / `INTUIT_REALM_ID` (unset = fake QBO
+`INTUIT_CLIENT_ID` / `INTUIT_CLIENT_SECRET` / `QBO_REALM_ID` / `QBO_REFRESH_TOKEN` / `QBO_ENV` (sandbox|production) (unset = fake QBO
 adapter, dry-run), `BACKUP_PASSPHRASE` + one of `BACKUP_DIR` / `BACKUP_RCLONE_REMOTE`
 / `BACKUP_SSH_TARGET`, optional `SJC_AGENT_MODEL` / `SJC_AGENT_RUNTIME` for the
 business worker, optional `DATABASE_URL_AGENT` once `deploy/db-roles.sql` is applied.

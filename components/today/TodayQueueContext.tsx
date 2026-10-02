@@ -6,8 +6,9 @@ import {
   refreshTodayQueue,
   completeTodayItem,
   snoozeTodayItem,
+  assignTodayItem,
 } from "@/lib/actions/today";
-import type { TodayPriority, WaitingItem } from "@/lib/today";
+import type { AssignedTo, TodayPriority, WaitingItem } from "@/lib/today";
 
 export type { WaitingItem };
 
@@ -32,6 +33,15 @@ interface QueueState {
   complete: (id: string) => Promise<void>;
   /** "Snooze 3d" chip → push the item out + demote it, replace both lists. */
   snooze: (id: string, days?: number) => Promise<void>;
+  /** True only for the owner — shows the "Assigned to" control on each card. */
+  canAssign: boolean;
+  /** Who a to-do can be put on (owner first, then active staff). Empty for
+   *  staff. */
+  assignees: AssignedTo[];
+  /** Put exactly these people on a to-do (just the owner = his own again).
+   *  The card stays on Joe's Today either way; the list is replaced because
+   *  the "Assigned to …" line, and possibly the ranking, change. */
+  assign: (id: string, userIds: string[]) => Promise<void>;
 }
 
 const QueueContext = createContext<QueueState | null>(null);
@@ -42,10 +52,14 @@ const QueueContext = createContext<QueueState | null>(null);
 export function TodayQueueProvider({
   initialPriorities,
   initialWaiting,
+  canAssign = false,
+  assignees = [],
   children,
 }: {
   initialPriorities: TodayPriority[];
   initialWaiting: { items: WaitingItem[]; total: number };
+  canAssign?: boolean;
+  assignees?: AssignedTo[];
   children: ReactNode;
 }) {
   const [priorities, setPriorities] = useState(initialPriorities);
@@ -106,6 +120,15 @@ export function TodayQueueProvider({
     }
   };
 
+  const assign = async (id: string, userIds: string[]) => {
+    setBusyId(id);
+    try {
+      applySnapshot(await assignTodayItem(id, userIds));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   // The page's server component re-renders with fresh lists whenever the
   // LiveUpdates poller (or anything else) calls router.refresh() — adopt them,
   // otherwise the queue would stay frozen at whatever this provider first
@@ -142,6 +165,9 @@ export function TodayQueueProvider({
         refresh,
         complete,
         snooze,
+        canAssign,
+        assignees,
+        assign,
       }}
     >
       {children}

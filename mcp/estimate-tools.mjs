@@ -102,7 +102,7 @@ export async function pricingAndPaperwork(rows, projectId) {
     formal_estimate_id: formal ? Number(formal.id) : null,
     formal_estimate_lives_in: WHERE.formalEstimate,
     to_add_lines_to_the_formal_estimate: formal
-      ? `add_estimate_lines { estimate_id: ${Number(formal.id)}, lines: [...] } — then regenerate its PDF (render_document_draft) if one exists under ${WHERE.formalEstimate}.`
+      ? `add_estimate_lines { estimate_id: ${Number(formal.id)}, lines: [...] } — then render_document_draft its Formal Estimate PDF, if one exists under ${WHERE.formalEstimate}, to re-print it with the current lines.`
       : `there is no formal estimate yet: create_estimate { project_slug, title } then add_estimate_lines.`,
     a_client_change_here_is:
       path === "change_order"
@@ -286,8 +286,8 @@ export function registerEstimateTools(server, { rows, json, pool, strippedDollar
         "(default 'General'); unit ('ea', 'sf', 'lf', 'ls', 'hr', …); qty; unit_cost_cents = what it costs SJC, " +
         "INTEGER CENTS; markup_pct (default: the cost book's default markup). extended = qty × unit_cost × " +
         "(1 + markup/100); the estimate's totals are recomputed. Works on any status — if the estimate was already " +
-        "sent or approved the client saw the old total, so say so to Joe; and regenerate its Formal Estimate PDF " +
-        "if one exists.",
+        "sent or approved the client saw the old total, so say so to Joe; and if a Formal Estimate PDF exists, " +
+        "render_document_draft it — that re-prints it with the current lines.",
       inputSchema: {
         estimate_id: z.number().int(),
         lines: z
@@ -376,7 +376,7 @@ export function registerEstimateTools(server, { rows, json, pool, strippedDollar
             ? { note: `This estimate is ${est.status} — the client saw the previous total. Tell Joe the total changed.` }
             : {}),
           ...(docs?.n
-            ? { note_documents: `${docs.n} Formal Estimate PDF(s) exist under ${WHERE.formalEstimate} — regenerate (render_document_draft) so the paper matches.` }
+            ? { note_documents: `${docs.n} Formal Estimate PDF(s) exist under ${WHERE.formalEstimate} — render_document_draft each one; that re-prints it with the current lines. Until then it can't be sent or published.` }
             : {}),
         });
       } catch (err) {

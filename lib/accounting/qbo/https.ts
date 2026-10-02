@@ -14,6 +14,8 @@ export interface IntuitCredentials {
   realmId: string;
   refreshToken: string;
   environment: "sandbox" | "production";
+  /** Where the rotated refresh token is kept between runs. */
+  tokenStore?: { load(): string | null; save(token: string): void };
 }
 
 const BASE = { sandbox: "https://sandbox-quickbooks.api.intuit.com", production: "https://quickbooks.api.intuit.com" } as const;
@@ -22,23 +24,41 @@ const TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
 export class HttpsQbo implements QboAdapter {
   readonly environment: "sandbox" | "production";
   private access: { token: string; expiresAt: number } | null = null;
-  constructor(private creds: IntuitCredentials) {
+  private creds: IntuitCredentials;
+  constructor(creds: IntuitCredentials) {
+    this.creds = creds;
     this.environment = creds.environment;
   }
 
+  /** Intuit ROTATES the refresh token (the value can change on any refresh and
+   *  the old one stops working about a day later). The newest one is kept in
+   *  the token store — a 0600 file outside the repo and the database, so no
+   *  agent tool can read it. QBO_REFRESH_TOKEN in .env.local is only the seed
+   *  (and the way to recover: paste a fresh one and the stale stored value is
+   *  dropped on the next refresh). */
   private async token(): Promise<string> {
     if (this.access && this.access.expiresAt > Date.now() + 60_000) return this.access.token;
-    const basic = Buffer.from(`${this.creds.clientId}:${this.creds.clientSecret}`).toString("base64");
-    const res = await fetch(TOKEN_URL, {
-      method: "POST",
-      headers: { Authorization: `Basic ${basic}`, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
-      body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: this.creds.refreshToken }).toString(),
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (!res.ok) throw new QboNotConnectedError(`Intuit token refresh failed (${res.status}); reconnect QuickBooks from Settings › Accounting.`);
-    const j = (await res.json()) as { access_token: string; expires_in: number };
-    this.access = { token: j.access_token, expiresAt: Date.now() + j.expires_in * 1000 };
-    return this.access.token;
+    const stored = this.creds.tokenStore?.load() ?? null;
+    const candidates = [...new Set([stored, this.creds.refreshToken].filter((t): t is string => Boolean(t)))];
+    let lastStatus = 0;
+    for (const refreshToken of candidates) {
+      const basic = Buffer.from(`${this.creds.clientId}:${this.creds.clientSecret}`).toString("base64");
+      const res = await fetch(TOKEN_URL, {
+        method: "POST",
+        headers: { Authorization: `Basic ${basic}`, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+        body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken }).toString(),
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!res.ok) {
+        lastStatus = res.status;
+        continue; // a stale stored token falls through to the env seed
+      }
+      const j = (await res.json()) as { access_token: string; expires_in: number; refresh_token?: string };
+      if (j.refresh_token && j.refresh_token !== stored) this.creds.tokenStore?.save(j.refresh_token);
+      this.access = { token: j.access_token, expiresAt: Date.now() + j.expires_in * 1000 };
+      return this.access.token;
+    }
+    throw new QboNotConnectedError(`Intuit token refresh failed (${lastStatus}); reconnect QuickBooks: put a fresh QBO_REFRESH_TOKEN in .env.local (Settings › Accounting shows the steps).`);
   }
 
   private async call<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {

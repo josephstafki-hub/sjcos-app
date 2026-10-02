@@ -229,11 +229,14 @@ export async function releaseDelivery(id: number): Promise<{ released: boolean }
         WHERE id = $1 AND status = 'queued'
         RETURNING message_id, source_key, source_label, portal_channel
      )
-     INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body)
+     INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body, author_user_id)
+     -- Carry the original author through: a released copy is still that
+     -- person's message, so it must not come back as unread against them.
      SELECT r.portal_channel, m.author_kind, m.author_name, m.author_initials,
             CASE WHEN r.source_key LIKE 'room:%'
                  THEN '[' || r.source_label || '] ' || m.body
-                 ELSE m.body END
+                 ELSE m.body END,
+            m.author_user_id
        FROM released r JOIN chat_messages m ON m.id = r.message_id
      RETURNING id`,
     [id],

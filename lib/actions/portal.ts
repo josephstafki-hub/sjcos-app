@@ -83,9 +83,9 @@ export async function sendProjectMessage(slug: string, formData: FormData) {
   const channelKey = portalChannel("client", slug);
 
   await query(
-    `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body)
-     VALUES ($1, 'owner', $2, $3, $4)`,
-    [channelKey, user.name || "Joe", user.initials || "JS", body],
+    `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body, author_user_id)
+     VALUES ($1, 'owner', $2, $3, $4, $5)`,
+    [channelKey, user.name || "Joe", user.initials || "JS", body, user.id],
   );
 
   revalidatePath(`/projects/${slug}`);
@@ -101,9 +101,9 @@ export async function sendLeadPortalMessage(slug: string, formData: FormData) {
   const channelKey = portalChannel("client", `lead:${slug}`);
 
   await query(
-    `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body)
-     VALUES ($1, 'owner', $2, $3, $4)`,
-    [channelKey, user.name || "Joe", user.initials || "JS", body],
+    `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body, author_user_id)
+     VALUES ($1, 'owner', $2, $3, $4, $5)`,
+    [channelKey, user.name || "Joe", user.initials || "JS", body, user.id],
   );
 
   revalidatePath(`/leads/${slug}`);
@@ -129,10 +129,10 @@ export async function sendPortalMessage(formData: FormData) {
   const name = user.name || (surface === "sub" ? "Sub" : "Client");
 
   const inserted = await queryOne<{ id: string }>(
-    `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body, author_user_id)
+     VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING id::text AS id`,
-    [channelKey, authorKind, name, user.initials || "", body],
+    [channelKey, authorKind, name, user.initials || "", body, user.id],
   );
 
   // Let Joe know (best-effort). Subs route to /chat (a real DM surface);

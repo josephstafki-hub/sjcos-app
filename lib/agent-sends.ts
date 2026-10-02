@@ -17,11 +17,15 @@
 
 import { createHash } from "node:crypto";
 import { query, queryOne } from "@/lib/db";
+import type { Run } from "@/lib/budget-queries";
 import { notifyAgentFailure } from "@/lib/notify-owner";
 import { sendBidPackageOp } from "@/lib/bidding";
 import { sendInvoiceOp, sendPurchaseOrderOp } from "@/lib/send-ops";
 import { releaseOutboxItem } from "@/lib/newsletter-outbox";
 import { submitDocDraftForSignature } from "@/lib/doc-drafts";
+import type { MailAttachment } from "@/lib/gmail";
+import { loadFileAttachments } from "@/lib/mail-attachments";
+import { readUpload } from "@/lib/uploads";
 import { sendSms } from "@/lib/sms";
 import { placeCall } from "@/lib/voice";
 import { withTransaction } from "@/lib/commands/db";
@@ -42,8 +46,8 @@ export interface AgentSendInput {
   grantId: string;
   /** Row id for record-backed actions; recipient address for send_email. */
   target?: string | number | null;
-  /** send_email only. */
-  email?: { to: string; subject: string; body: string };
+  /** send_email only. attachment_file_ids: files.id rows to attach. */
+  email?: { to: string; subject: string; body: string; attachment_file_ids?: string[] };
   /** send_sms only. */
   sms?: { to: string; body: string };
   /** place_call only. */
@@ -55,6 +59,8 @@ export interface AgentSendInput {
 }
 
 export type AgentSendResult = { ok: true; summary: string; [k: string]: unknown } | { ok: false; error: string; [k: string]: unknown };
+
+const run: Run = async <T,>(sql: string, params?: unknown[]) => (await query(sql, params)).rows as T[];
 
 async function ownerUser(): Promise<{ id: string | null; name: string }> {
   const u = await queryOne<{ id: string; name: string }>(
@@ -152,10 +158,23 @@ export async function performGrantedAction(input: AgentSendInput): Promise<Agent
   // Resolve the target BEFORE anything is staged so a typo doesn't burn a use.
   let targetId: string;
   let to: string | undefined;
+  // Attachments travel on the intent as file REFERENCES (the email provider
+  // reads the bytes at dispatch); they are read once here only to refuse a bad
+  // id, a missing blob or an oversized total before anything is staged.
+  let attachmentRefs: { filename: string; mimeType: string; fileId: string }[] = [];
   if (action === "send_email") {
     to = (input.email?.to ?? "").trim();
     if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return { ok: false, error: "send_email needs a valid `to` address." };
     if (!(input.email?.body ?? "").trim()) return { ok: false, error: "send_email needs a body." };
+    // Files are read off disk here too, so a bad id or missing blob is refused
+    // before the grant is spent.
+    const fileIds = input.email?.attachment_file_ids ?? [];
+    if (fileIds.length > 0) {
+      const ids = [...new Set(fileIds.map((id) => String(id).trim()))];
+      const files = await loadFileAttachments(run, readUpload, ids);
+      if (!files.ok) return files;
+      attachmentRefs = files.attachments.map((a: MailAttachment, i: number) => ({ filename: a.filename, mimeType: a.mimeType, fileId: ids[i] }));
+    }
     targetId = to.toLowerCase();
   } else {
     const n = Number(input.target);
@@ -215,9 +234,10 @@ export async function performGrantedAction(input: AgentSendInput): Promise<Agent
           to: targetId,
           subject: email.subject ?? "",
           bodyText: email.body,
+          ...(attachmentRefs.length > 0 ? { attachments: attachmentRefs } : {}),
           _auth: { action: "send_email", target_kind: "email", target_id: targetId, to: targetId },
         };
-        const opKey = `email:${input.grantId}:${createHash("sha256").update(`${targetId}\n${payload.subject}\n${payload.bodyText}`).digest("hex").slice(0, 20)}`;
+        const opKey = `email:${input.grantId}:${createHash("sha256").update(`${targetId}\n${payload.subject}\n${payload.bodyText}\n${attachmentRefs.map((a) => a.fileId).join(",")}`).digest("hex").slice(0, 20)}`;
         const { intent } = await withTransaction((run) =>
           enqueueIntent(run, {
             operationKey: opKey,
@@ -233,6 +253,11 @@ export async function performGrantedAction(input: AgentSendInput): Promise<Agent
         const [outcome] = await dispatchIntentsNow([intent.id]);
         const d = describeOutcome(outcome, `Email to ${targetId}: "${(email.subject ?? "").slice(0, 80)}"`);
         result = d.ok ? { ok: true, summary: d.summary, intent_id: intent.id } : { ok: false, error: d.error, held: d.held, intent_id: intent.id };
+        if (result.ok && attachmentRefs.length > 0) {
+          const names = attachmentRefs.map((a) => a.filename);
+          result.summary += ` with ${names.length} attachment${names.length === 1 ? "" : "s"}: ${names.join(", ")}`;
+          result.attachments = names;
+        }
         break;
       }
       case "send_sms":
@@ -244,6 +269,7 @@ export async function performGrantedAction(input: AgentSendInput): Promise<Agent
     result = { ok: false, error: (err as Error).message || "Send failed." };
   }
 
-  await audit(agent, action, `${kind}:${targetId}`, result);
+  const attached = attachmentRefs.length > 0 ? ` + ${attachmentRefs.map((a) => a.filename).join(", ")}` : "";
+  await audit(agent, action, `${kind}:${targetId}${attached}`, result);
   return result;
 }

@@ -122,12 +122,39 @@ export async function activateRoutinePolicy(client) {
     `INSERT INTO policies (key, version, config, state, created_by, notes, effective_from) VALUES ('routine.followup', 1,
       '{"lane":"routine_followup","tz":"America/Chicago","window":{"days":[1,2,3,4,5],"start":"09:00","end":"17:00"},
         "cadence":{"minHoursBetween":48,"maxPerRecipientPerWeek":2},"stop":["reply","decline","opt_out","pending_owner_decision"]}'::jsonb,
-      'active', 'test', '', now() - interval '1 day')
-     ON CONFLICT (key, version) DO UPDATE SET state = 'active', effective_from = now() - interval '1 day'`,
+      'active', 'test', '', '2026-01-01T00:00:00Z')
+     ON CONFLICT (key, version) DO UPDATE SET state = 'active', effective_from = '2026-01-01T00:00:00Z'`,
   );
 }
 
-/** Wednesday 2026-09-23 10:00 America/Chicago (inside the seeded window). */
-export const IN_WINDOW = new Date("2026-09-23T15:00:00Z");
-/** Sunday 2026-09-27 10:00 America/Chicago (outside). */
-export const OUT_OF_WINDOW = new Date("2026-09-27T15:00:00Z");
+// Send-window instants are computed from the real clock: the cadence gate
+// measures against the real created_at of earlier sends, so fixed calendar
+// dates stop working the week after they are written.
+/** 16:00Z (10–11am America/Chicago) on a given UTC day. */
+function at16(ms) {
+  const d = new Date(ms);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 16, 0, 0));
+}
+const isWeekday = (d) => d.getUTCDay() >= 1 && d.getUTCDay() <= 5;
+/** First weekday 16:00Z at or after `fromMs` (inside the seeded Mon–Fri 9–5 window). */
+export function windowAtOrAfter(fromMs) {
+  let d = at16(fromMs);
+  if (d.getTime() < fromMs) d = new Date(d.getTime() + 86_400_000);
+  while (!isWeekday(d)) d = new Date(d.getTime() + 86_400_000);
+  return d;
+}
+/** Most recent weekday 16:00Z at or before now (inside the window, never in the future). */
+export const IN_WINDOW = (() => {
+  let d = at16(Date.now());
+  if (d.getTime() > Date.now()) d = new Date(d.getTime() - 86_400_000);
+  while (!isWeekday(d)) d = new Date(d.getTime() - 86_400_000);
+  return d;
+})();
+/** A window instant clear of a 48 h cadence measured from now. */
+export const LATER_WINDOW = windowAtOrAfter(Date.now() + 49 * 3_600_000);
+/** The next Sunday 16:00Z (outside the window). */
+export const OUT_OF_WINDOW = (() => {
+  let d = at16(Date.now() + 86_400_000);
+  while (d.getUTCDay() !== 0) d = new Date(d.getTime() + 86_400_000);
+  return d;
+})();

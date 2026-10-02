@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { withTestDb, harnessAvailable } from "./_harness/testdb.mjs";
-import { agent, runOver, cleanProcurement, seedOwner, seedFile, activateRoutinePolicy, IN_WINDOW, OUT_OF_WINDOW } from "./_fixtures-procurement.mjs";
+import { agent, runOver, cleanProcurement, seedOwner, seedFile, activateRoutinePolicy, IN_WINDOW, LATER_WINDOW, OUT_OF_WINDOW } from "./_fixtures-procurement.mjs";
 import { matchIntake } from "../lib/leads/match.ts";
 import { qualificationChecklist, recordFact } from "../lib/leads/qualification.ts";
 import { collectMissingFacts, previewLeadFollowups, stopLeadFollowups, draftMissingFactsEmail, leadFollowupMetrics } from "../lib/leads/facts.ts";
@@ -100,8 +100,8 @@ test("W01 collector asks only for missing facts, in plain words, no price/call; 
     await stopLeadFollowups(run, leadId, "replied");
     await client.query(`UPDATE decisions SET status = 'revoked'`);
     // Next weekday send window clear of the 48 h cadence measured from the real
-    // creation time of the first send: Monday after IN_WINDOW (Wed → +5 days).
-    const later = new Date(IN_WINDOW.getTime() + 5 * 86_400_000);
+    // creation time of the first send.
+    const later = LATER_WINDOW;
     const second = await collectMissingFacts(run, { leadId, principal: agent, at: later });
     assert.equal(second.action, "sent");
     assert.deepEqual(second.asked, ["goals"], "asks only for what is still missing");

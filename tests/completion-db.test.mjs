@@ -208,7 +208,7 @@ test("V06 call follow-ups: a partial failure resumes only the missing actions; n
       action_items: [
         { text: "Send the deck estimate", owner: "Joe", due: null },
         { text: "Pick a stain colour", owner: "client", due: null },
-        { text: "Call the railing supplier", owner: "we", due: "2026-10-01" },
+        { text: "Call the railing supplier", owner: "we", due: new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10) },
       ],
       flags: [],
     };

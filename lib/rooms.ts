@@ -32,7 +32,11 @@ export async function openEntityRoom(type: EntityType, ref: string, name: string
 
 /** Close a room by its channel key. No-op if already closed or missing. Also
  *  clears the nav unread badge for the key (a closed room has no UI to mark it
- *  read), mirroring how archiveChannel handles bare channels. */
+ *  read), mirroring how archiveChannel handles bare channels.
+ *
+ *  Read markers are per-person now, and a room that closes is gone for everyone
+ *  who was in it — so stamp one for each of them (plus the owner), not just the
+ *  single global marker this used to write. */
 export async function closeEntityRoom(key: string): Promise<void> {
   const res = await query(
     `UPDATE chat_rooms SET closed_at = now() WHERE key = $1 AND closed_at IS NULL`,
@@ -40,9 +44,16 @@ export async function closeEntityRoom(key: string): Promise<void> {
   );
   if (res.rowCount) {
     await query(
-      `INSERT INTO chat_reads (channel_key, last_read_at)
-       VALUES ($1, now())
-       ON CONFLICT (channel_key) DO UPDATE SET last_read_at = now()`,
+      `INSERT INTO chat_reads_by_user (channel_key, user_id, last_read_at)
+         SELECT $1, u.id, now() FROM users u
+          WHERE u.active
+            AND (u.role = 'owner'
+                 OR EXISTS (
+                   SELECT 1 FROM chat_team_members tm
+                     JOIN team_members t ON t.slug = tm.member_slug
+                    WHERE tm.channel_key = $1 AND t.user_id = u.id
+                 ))
+       ON CONFLICT (channel_key, user_id) DO UPDATE SET last_read_at = now()`,
       [key],
     );
   }

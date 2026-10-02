@@ -20,7 +20,7 @@ import type { FieldValues, TableValue } from "./types";
 import { getTemplate } from "./registry";
 import { type FillReport, type FillMark } from "./fill-validate";
 
-export { applyFieldEdits, validateForRender } from "./fill-validate";
+export { applyFieldEdits, validateForRender, estimateLinesChanged, ESTIMATE_LINE_FIELDS } from "./fill-validate";
 export type { FillReport, FillMark, Actor, ApplyResult } from "./fill-validate";
 
 export interface FillScope {
@@ -305,6 +305,16 @@ async function estimateData(scope: FillScope): Promise<EstimateData | null> {
   return { projectName, clientName, address, phoneEmail, subtotal: est.subtotal, total: est.total, lineRows };
 }
 
+/** The Formal Estimate's ESTIMATE_LINE_FIELDS, built one way for both the
+ *  first fill and every later refresh / lines-changed check. */
+function estimateLineValues(d: EstimateData): { line_items_table: TableValue; subtotal: number; total: number } {
+  return {
+    line_items_table: { columns: ["Description", "Category", "Qty", "Amount"], rows: d.lineRows },
+    subtotal: d.subtotal,
+    total: d.total,
+  };
+}
+
 async function resolveEstimateDoc(f: Fill, scope: FillScope) {
   const d = await estimateData(scope);
   if (!d) return;
@@ -315,12 +325,17 @@ async function resolveEstimateDoc(f: Fill, scope: FillScope) {
   f.set("client_name", d.clientName);
   f.set("property_address", d.address);
   f.set("client_phone_email", d.phoneEmail);
-  f.set("subtotal", d.subtotal);
-  f.set("total", d.total);
-  f.set("line_items_table", {
-    columns: ["Description", "Category", "Qty", "Amount"],
-    rows: d.lineRows,
-  } as TableValue);
+  const lines = estimateLineValues(d);
+  f.set("subtotal", lines.subtotal);
+  f.set("total", lines.total);
+  f.set("line_items_table", lines.line_items_table);
+}
+
+/** What a Formal Estimate PDF copy's line fields should say right now — the
+ *  estimate's current lines and totals. Null if the estimate is gone. */
+export async function resolveEstimateLineFields(estimateId: number): Promise<FieldValues | null> {
+  const d = await estimateData({ estimateId });
+  return d ? { ...estimateLineValues(d) } : null;
 }
 
 async function resolveInvoiceDoc(f: Fill, scope: FillScope) {
@@ -408,12 +423,22 @@ async function projectAddress(slug: string): Promise<string> {
   return p?.address ?? "";
 }
 
+// A portal login that was never claimed carries a <slug>@client-portal.invalid
+// stand-in, which must never print on a client document — skip it and fall back
+// to the email saved on the project.
 async function clientEmailForProject(slug: string): Promise<string> {
   const u = await queryOne<{ email: string }>(
-    `SELECT email FROM users WHERE role = 'client' AND link_slug = $1 LIMIT 1`,
+    `SELECT email FROM users
+      WHERE role = 'client' AND link_slug = $1 AND email NOT LIKE '%@client-portal.invalid'
+      LIMIT 1`,
     [slug],
   );
-  return u?.email ?? "";
+  if (u?.email) return u.email;
+  const p = await queryOne<{ client_email: string | null }>(
+    `SELECT client_email FROM projects WHERE slug = $1`,
+    [slug],
+  );
+  return p?.client_email ?? "";
 }
 
 interface ProjectAccount {

@@ -167,8 +167,9 @@ writer — app, MCP, or a one-off script):
   Add lines to it with `add_estimate_lines`; its id is
   `get_project → pricing_and_paperwork.formal_estimate_id`. The client's PDF is
   generated from those lines (`create_document_draft { template_key:
-  "estimate_doc", estimate_id }`); regenerate it after the lines change. Don't
-  create a second formal estimate when one exists.
+  "estimate_doc", estimate_id }`). After the lines change, `render_document_draft`
+  re-prints it with the current lines (until then it can't be sent or
+  published). Don't create a second formal estimate when one exists.
 - **Money › Pre-con changes** holds client additions or changes priced before
   the contract is signed: a new estimate with `kind: "precon_change"`. **After**
   the contract is signed → a change order (Money › Change orders). The DB
@@ -355,11 +356,11 @@ note, files attached) straight to each sub via the app's Gmail connector, subs
 reply to Joe's inbox, and Joe records the numbers on the board. Nothing
 bid-related touches the sub portal. Agents can stage everything short of
 sending — create the package, build the packet, pick recipients, tailor notes —
-and can read/compare/award. Lives in its own module, `mcp/bidding-tools.mjs`.
-Reads and internal-record writes are direct SQL; `award_bid` goes through the
-app's bearer-gated internal route (`/api/internal/bidding`, authed with
-`CRON_SECRET`, audited to `agent_runs`) so it runs the exact code the owner's
-button runs.
+and can record/read/compare/award. Lives in its own module, `mcp/bidding-tools.mjs`.
+Reads and internal-record writes are direct SQL; `mark_bid_working`,
+`record_bid` and `award_bid` go through the app's bearer-gated internal route
+(`/api/internal/bidding`, authed with `CRON_SECRET`, audited to `agent_runs`)
+so they run the exact code the owner's buttons run.
 
 | Tool | Effect |
 |---|---|
@@ -378,6 +379,7 @@ button runs.
 | `remove_bid_invite` | Take a sub off — unsent invites only |
 | `close_bid_package` | End bidding without awarding |
 | `mark_bid_working` | Sub replied "we're on it" — switches them to the softer auto follow-up |
+| `record_bid` | A sub's emailed/phoned number (cents; total or lines, exclusions, lead time, notes, quote `file_ids` from `list_project_files`) → new revision, invite `submitted`; the package's auto thank-you follows only if its follow-ups are on |
 | `award_bid` | Pick the winner; everyone else goes `not_awarded`; package closes |
 
 > **Where the send line sits for this family.** Sending a bid package
@@ -388,15 +390,37 @@ button runs.
 **Typical agent flow:** `create_bid_package` → `list_project_files` +
 `attach_bid_file` (plans, takeoff) → `list_subs`, pick by trade →
 `add_bid_invites` → `set_bid_invite_message` where a sub needs tailoring →
-tell Joe it's staged so he can press Send → as he records bids, `compare_bids`
+tell Joe it's staged so he can press Send → as numbers come back by email or
+phone, `record_bid` each one (Joe may record some himself) → `compare_bids`
 → brief the owner (or, when asked, `award_bid`). When a sub replies "we're
 working on it" (no number yet), `mark_bid_working` so the auto chase eases off.
 
 **Auto follow-ups** (`lib/bid-follow-ups.ts`): while a package's "Auto
 follow-up" switch is on, an hourly sweep nudges silent subs at day 2 and 5,
-checks in on "working" subs at day 4, and a thank-you goes out when Joe records
-a bid. Agents don't drive those sends — keeping invite statuses honest
-(`mark_bid_working`, recording declines) is what steers them.
+checks in on "working" subs at day 4, and a thank-you goes out when a bid is
+recorded (Joe's button or `record_bid`). Agents don't drive those sends —
+keeping invite statuses honest (`mark_bid_working`, `record_bid`, recording
+declines) is what steers them.
+
+## Login accounts (Settings › Team & roles for agents)
+
+Employee and portal logins, with every choice the Team & roles screen offers as
+a parameter. Lives in `mcp/team-tools.mjs`. Internal records only: nothing is
+emailed, and there is **no delete** — accounts are disabled, never removed.
+
+| Tool | Effect |
+|---|---|
+| `list_access_areas` | The staff permission catalog (`lib/permissions.ts`): key, label, what it unlocks, routes, sensitive flag — plus the four roles and what each needs. Read before creating |
+| `list_users` | Every login (owner / staff with areas / sub / client), disabled ones included; optional `role`, `include_inactive` |
+| `create_user` | Provision a login: `name`, `email`, `role` (`staff` default · `sub` · `client` · `owner`), `permissions[]` (staff, ≥1 area), `link_slug` (sub → sub slug, client → project slug, both checked), `temp_password` (≥8, or omitted → generated and returned **once**), `confirm_owner: true` (owner only), `active` |
+| `update_user_access` | Replace (`permissions`) or adjust (`add` / `remove`) a staff account's areas; refuses to leave zero areas |
+| `reset_user_password` | New password (given or generated, returned once) for any non-owner login |
+| `set_user_active` | Disable / re-enable a non-owner login; owner rows are protected |
+
+Password hashes use the app's scrypt format, so a login minted here signs in
+through `/login` like one made in Settings. Generated temp passwords appear in
+the tool result only — hand them to the person; nothing stores them in clear.
+Each write leaves an `agent_runs` row (`mcp:team`).
 
 ## Owner grants (express permission to send)
 
@@ -415,7 +439,7 @@ an **owner grant** — Joe's express permission for one action on one target
 | `release_newsletter_issue` | Release every queued outbox row of an issue (`issue_id`, `owner_grant_id`) |
 | `release_newsletter_outbox_item` | Release one outbox row (`outbox_id`, `owner_grant_id`) |
 | `send_document_for_signature` | Submit a rendered draft for signature (`draft_id`, `owner_grant_id`, `override?`) |
-| `send_email` | One-off plain-text email from the business Gmail (`to`, `subject`, `body`, `owner_grant_id`, optional `work_item_id`); a grant may be pinned to one recipient. With `work_item_id` it refuses if the app already emailed that item's staged draft on Approve, and receipts the send on the item |
+| `send_email` | One-off plain-text email from the business Gmail (`to`, `subject`, `body`, `owner_grant_id`, optional `attachment_file_ids`, optional `work_item_id`); a grant may be pinned to one recipient. `attachment_file_ids` attaches up to 10 project files by id from `list_project_files` (≈22 MB total, Gmail's limit); an unknown id or missing blob refuses the whole send before the grant is spent. With `work_item_id` it refuses if the app already emailed that item's staged draft on Approve, and receipts the send on the item |
 
 How a grant comes to exist: Joe ticks **Express permission (sends)** on an Ask-window
 message (a 20-minute, run-scoped grant Claude is told about in its prompt); Joe mints

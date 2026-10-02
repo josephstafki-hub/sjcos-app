@@ -267,7 +267,7 @@ export async function recordInboundSms(ev: ParsedMessagingEvent): Promise<Inboun
   const inserted = await queryOne<{ id: number }>(
     `INSERT INTO sms_messages (thread_id, direction, body, provider_sid, status, from_number, to_number, keyword)
      VALUES ($1, 'in', $2, $3, 'received', $4, $5, $6)
-     ON CONFLICT (provider_sid) DO NOTHING
+     ON CONFLICT (provider_sid) WHERE provider_sid IS NOT NULL DO NOTHING
      RETURNING id`,
     [threadId, ev.text.slice(0, 4000), ev.messageId, ev.from, businessNumber, keyword],
   );

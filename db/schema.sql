@@ -230,6 +230,20 @@ ALTER TABLE notifications ADD COLUMN IF NOT EXISTS accent     text;
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS icon       text;
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS when_label text;
 
+-- Who this notification is FOR. NULL = the owner's company feed, which is what
+-- every emit() in lib/notify.ts writes: these are business events (new lead,
+-- money, compliance) that belong to Joe. A staff id here addresses one person —
+-- a to-do handed to them, a DM, a message in a room they're in — and nobody
+-- else sees it. Staff feeds are targeted-only, so a team login never reads the
+-- owner's feed. Migration: db/apply-staff-separation.mjs.
+-- (The FK to users is added further down, after users exists — this file must
+-- load top to bottom on a fresh database.)
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS audience_user_id uuid;
+CREATE INDEX IF NOT EXISTS idx_notifications_audience
+  ON notifications (audience_user_id, created_at DESC);
+
+-- (notification_reads — per-user read state — is created further down, after users.)
+
 -- ─── Compliance calendar ────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS compliance_items (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -445,15 +459,37 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   author_name     text NOT NULL,
   author_initials text NOT NULL DEFAULT '',
   body            text NOT NULL,
+  -- Which login posted this (NULL for AI posts, portal writes, and every row
+  -- written before staff logins existed). author_kind/author_name stay the
+  -- display truth; this is the identity one, so "is this message mine" is a
+  -- fact rather than a name comparison. Migration: db/apply-staff-separation.mjs.
+  author_user_id  uuid REFERENCES users(id) ON DELETE SET NULL,
   created_at      timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS author_user_id uuid
+  REFERENCES users(id) ON DELETE SET NULL;
 
--- Per-channel last-read marker (single owner for now): unread = messages after
--- last_read_at not authored by the owner.
+-- LEGACY, no longer read: the single-owner last-read marker. Superseded by
+-- chat_reads_by_user below. Left in place because changing this table's primary
+-- key in a migration would have broken the running site's markRead() until the
+-- next deploy (see db/apply-staff-separation.mjs), and a dead table is cheaper
+-- than that coupling.
 CREATE TABLE IF NOT EXISTS chat_reads (
   channel_key   text PRIMARY KEY,
   last_read_at  timestamptz NOT NULL DEFAULT now()
 );
+
+-- Per-channel, PER-USER last-read marker: unread = messages in that channel
+-- after this user's last_read_at that this user didn't write. The one marker
+-- chat_reads held was global, so a staff member opening #safety cleared Joe's
+-- badge too. Backfilled from chat_reads for the owner.
+CREATE TABLE IF NOT EXISTS chat_reads_by_user (
+  channel_key   text NOT NULL,
+  user_id       uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  last_read_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (channel_key, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_chat_reads_by_user_user ON chat_reads_by_user (user_id);
 
 -- Channel membership: which subs (trade partners) are in a channel/room. The
 -- owner is an implicit member of every channel and is NOT stored. AI models are
@@ -522,8 +558,17 @@ CREATE TABLE IF NOT EXISTS team_members (
   name       text NOT NULL,
   role_label text NOT NULL DEFAULT '',
   active     boolean NOT NULL DEFAULT true,
+  -- The login this roster entry IS, once they have one (owner included). Set,
+  -- the person can sign in and hold up their own end of a DM; NULL, they are
+  -- still display-only, exactly as before. Unique so two roster rows can never
+  -- claim the same account. Migration: db/apply-staff-separation.mjs.
+  user_id    uuid REFERENCES users(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE team_members ADD COLUMN IF NOT EXISTS user_id uuid
+  REFERENCES users(id) ON DELETE SET NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_team_members_user
+  ON team_members (user_id) WHERE user_id IS NOT NULL;
 
 -- Independent per-channel team membership (P1-D1), symmetric with chat_members
 -- (subs) and chat_ai_members (AI): team members are added to a channel/room on
@@ -1829,12 +1874,96 @@ CREATE INDEX IF NOT EXISTS idx_work_items_created   ON work_items(created_at DES
 -- needs_enrichment filter on list_work_items in mcp/sjcos-mcp.mjs).
 ALTER TABLE work_items ADD COLUMN IF NOT EXISTS enriched_at timestamptz;
 
+-- Per-user read state. The notifications.read boolean it replaces was global:
+-- a staff member clearing the feed cleared Joe's too. The column is left in
+-- place (harmless, no longer read) so an older build can't crash on a rollback.
+CREATE TABLE IF NOT EXISTS notification_reads (
+  notification_id uuid NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
+  user_id         uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  read_at         timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (notification_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_notification_reads_user ON notification_reads (user_id);
+
+-- notifications.audience_user_id → users (notifications is created before users in this file)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'notifications'::regclass AND contype = 'f' AND conname = 'notifications_audience_user_id_fkey') THEN
+    ALTER TABLE notifications ADD CONSTRAINT notifications_audience_user_id_fkey FOREIGN KEY (audience_user_id) REFERENCES users(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
 -- calls.work_item_id → work_items (declared here because calls is created earlier in this file)
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'calls_work_item_id_fkey') THEN
     ALTER TABLE calls ADD CONSTRAINT calls_work_item_id_fkey FOREIGN KEY (work_item_id) REFERENCES work_items(id) ON DELETE SET NULL;
   END IF;
 END $$;
+
+-- LEGACY single-person assignment (db/apply-staff-separation.mjs, 2026-09-27).
+-- Superseded by work_item_assignees below; nothing reads it any more and every
+-- assignment write blanks it. Kept only so the migration stayed additive.
+ALTER TABLE work_items ADD COLUMN IF NOT EXISTS assigned_user_id uuid
+  REFERENCES users(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_work_items_assigned_user
+  ON work_items (assigned_user_id, status);
+
+-- WHO is on a to-do — any number of people (Joe, 2026-09-30: "assignable to
+-- both me and abigail (and any other employee in the future) instead of
+-- either or"). No rows = the owner's own (Joe) — the default for everything
+-- agents, detectors and runbooks file. Joe's id is only stored alongside
+-- someone else; "just Joe" is no rows, so there is one spelling of "Joe's".
+-- Orthogonal to assignee_kind/assignee_key, which say whether a human or a
+-- named bot runtime does the work.
+--
+-- Joe's Today shows every human to-do, handed off or not, naming whoever is on
+-- it (his rule, 2026-09-27: "it'll always remain on mine, but will list
+-- prominently who it's assigned to"). A staff member's Today shows only the
+-- to-dos they are on. Only the owner may change it.
+-- Migration: db/apply-multi-assignees.mjs.
+CREATE TABLE IF NOT EXISTS work_item_assignees (
+  work_item_id uuid NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+  user_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  assigned_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (work_item_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_work_item_assignees_user ON work_item_assignees (user_id);
+
+-- ARCHIVED to-dos (Joe, 2026-10-02: "a method of archiving done or cancelled
+-- work queue items in the engine"). NULL = on the /engine board; a time = off
+-- it, into the Archived view. Display-only: the row stays, and every MCP read
+-- and dedup check still sees it. Only a done/cancelled item can be archived,
+-- and reopening one by any writer brings it back to the board — both enforced
+-- here so no code path can forget. Migration: db/apply-work-item-archive.mjs.
+ALTER TABLE work_items ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+CREATE INDEX IF NOT EXISTS idx_work_items_archived ON work_items (archived_at DESC)
+  WHERE archived_at IS NOT NULL;
+CREATE OR REPLACE FUNCTION work_items_archive_closed_only() RETURNS trigger AS $$
+BEGIN
+  IF NEW.archived_at IS NOT NULL AND NEW.status NOT IN ('done','cancelled') THEN
+    NEW.archived_at := NULL;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trg_work_items_archive_closed_only ON work_items;
+CREATE TRIGGER trg_work_items_archive_closed_only
+  BEFORE INSERT OR UPDATE OF status, archived_at ON work_items
+  FOR EACH ROW EXECUTE FUNCTION work_items_archive_closed_only();
+
+-- Per-user linked mailbox. Until staff logins there was one Gmail account, its
+-- refresh token in GMAIL_REFRESH_TOKEN, and every login saw Joe's mail. A row
+-- here is that user's own mailbox and wins over the env var; the env var
+-- remains the OWNER's fallback, so an owner with no row keeps the mailbox live
+-- prod is already connected to. No row and no fallback = a blank Email rail
+-- with a Connect button (Joe, 2026-09-27: "link able to their email otherwise
+-- blank"). Automation (detectors, cron sweeps, MCP send_email) is not inside
+-- any user's request, so it always resolves to the owner's mailbox.
+CREATE TABLE IF NOT EXISTS user_email_accounts (
+  user_id       uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  email         text NOT NULL,
+  refresh_token text NOT NULL,
+  connected_at  timestamptz NOT NULL DEFAULT now()
+);
 
 -- ─── Detector state (W1) ────────────────────────────────────────────────────
 -- One row per condition a deterministic detector (lib/detectors.ts) has ever
@@ -2500,6 +2629,28 @@ ALTER TABLE document_drafts ADD COLUMN IF NOT EXISTS client_visible boolean NOT 
 -- submit path can diff what Joe approved against what the agent filled in
 -- (edits become pending agent_memories). Consumed (nulled) at submit.
 ALTER TABLE document_drafts ADD COLUMN IF NOT EXISTS agent_submitted_snapshot jsonb;
+
+-- ─── Formal Estimate PDF → its estimate (begin) ─────────────────────────────
+-- The estimate a Formal Estimate (or Contract) document was generated from. A
+-- Formal Estimate PDF copy always prints the estimate's CURRENT lines and
+-- totals (renderDocDraft pulls them in), shows under that estimate in
+-- Documents › Formal Estimate, and is flagged when its lines are out of date.
+-- Runner: db/apply-estimate-pdf-link.mjs. Additive and idempotent.
+ALTER TABLE document_drafts ADD COLUMN IF NOT EXISTS estimate_id bigint REFERENCES estimates(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_doc_drafts_estimate ON document_drafts(estimate_id) WHERE estimate_id IS NOT NULL;
+-- Backfill drafts made before the link: a Formal Estimate carries
+-- "SJC-EST-<id>" as its estimate number, a Contract "SJC-C-<slug>-<id>" as its
+-- contract number. Only linked when that estimate belongs to the same job.
+UPDATE document_drafts d SET estimate_id = e.id
+  FROM estimates e
+ WHERE d.estimate_id IS NULL
+   AND e.id = CASE d.template_key
+                WHEN 'estimate_doc' THEN substring(d.field_values->>'estimate_number' from '^SJC-EST-([0-9]+)$')::bigint
+                WHEN 'contract' THEN substring(d.field_values->>'contract_number' from '-([0-9]+)$')::bigint
+              END
+   AND ((d.project_id IS NOT NULL AND e.project_id = d.project_id)
+     OR (d.lead_slug IS NOT NULL AND e.lead_slug = d.lead_slug));
+-- ─── Formal Estimate PDF → its estimate (end) ───────────────────────────────
 
 -- Widen signature_requests doc_type for the new templates (adds 'precon').
 -- NOT VALID so an existing table with legacy rows re-constrains without a scan.

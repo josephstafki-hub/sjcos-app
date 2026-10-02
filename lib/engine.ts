@@ -6,6 +6,8 @@ import "server-only";
 import { query } from "./db";
 import type { WorkItemStatus, WorkItemPriority } from "./types";
 import { bucketFor, type QueueBucket } from "./engine-constants";
+import { toAssigned, type AssignedTo } from "./queue-scope";
+import { ASSIGNEES_JOIN_SQL } from "./work-item-assignees.mjs";
 
 export interface WorkItemView {
   id: string;
@@ -15,9 +17,10 @@ export interface WorkItemView {
   priority: WorkItemPriority;
   assigneeKind: "human" | "agent";
   assigneeKey: string | null;
-  /** The PERSON this to-do belongs to, when it isn't the owner's own. Separate
-   *  from assigneeKey, which names a bot runtime (hermes-telegram, …). */
-  assignedTo: { userId: string; name: string; initials: string } | null;
+  /** The PEOPLE on this to-do — the owner included when he's on it alongside
+   *  someone. Empty = the owner's own. Separate from assigneeKey, which names a
+   *  bot runtime (hermes-telegram, …). */
+  assignedTo: AssignedTo[];
   dueAt: string | null;
   projectSlug: string | null;
   leadSlug: string | null;
@@ -55,8 +58,8 @@ export interface EngineData {
   ledgers: StatusLedgerView[];
   receipts: ReceiptView[];
   counts: { total: number; approval: number; waiting: number; active: number; queued: number };
-  /** Owner + active staff — the people a to-do can be handed to. */
-  assignees: { userId: string; name: string; initials: string }[];
+  /** Owner (first) + active staff — the people a to-do can be put on. */
+  assignees: AssignedTo[];
 }
 
 interface WorkRow {
@@ -67,9 +70,7 @@ interface WorkRow {
   priority: WorkItemPriority;
   assignee_kind: "human" | "agent";
   assignee_key: string | null;
-  assigned_user_id: string | null;
-  assigned_name: string | null;
-  assigned_initials: string | null;
+  assigned: AssignedTo[] | null;
   due_at: string | null;
   project_slug: string | null;
   lead_slug: string | null;
@@ -92,13 +93,7 @@ function rowToItem(r: WorkRow): WorkItemView {
     priority: r.priority,
     assigneeKind: r.assignee_kind,
     assigneeKey: r.assignee_key,
-    assignedTo: r.assigned_user_id
-      ? {
-          userId: r.assigned_user_id,
-          name: r.assigned_name ?? "Team member",
-          initials: r.assigned_initials || "?",
-        }
-      : null,
+    assignedTo: toAssigned(r.assigned),
     dueAt: r.due_at,
     projectSlug: r.project_slug,
     leadSlug: r.lead_slug,
@@ -119,11 +114,10 @@ export async function getEngineData(): Promise<EngineData> {
               p.slug AS project_slug, l.slug AS lead_slug, w.expected_skill_slug, w.expected_runbook_slug,
               w.requires_approval, w.approval_status, w.blocked_reason, w.created_at::text AS created_at,
               l.stage AS lead_stage,
-              w.assigned_user_id, au.name AS assigned_name, au.initials AS assigned_initials
+              asg.assigned
          FROM work_items w
          LEFT JOIN projects p ON p.id = w.project_id
-         LEFT JOIN leads l ON l.id = w.lead_id
-         LEFT JOIN users au ON au.id = w.assigned_user_id
+         LEFT JOIN leads l ON l.id = w.lead_id${ASSIGNEES_JOIN_SQL}
         WHERE (l.id IS NULL OR l.stage <> 'lost' OR w.status IN ('done','cancelled'))
         ORDER BY array_position(ARRAY['urgent','high','normal','low']::text[], w.priority),
                  w.due_at NULLS LAST, w.created_at DESC`,

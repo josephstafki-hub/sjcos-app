@@ -14,7 +14,8 @@
 //                         background send, which runs on the env token.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openWorkItemsSql } from "../lib/queue-scope.ts";
+import { openWorkItemsSql, describeAssignment } from "../lib/queue-scope.ts";
+import { idsToStore, sameAssignees, joinNames, assignedNotice } from "../lib/work-item-assignees.mjs";
 import { internalDmKey, teamDmParties, dmTeamKey } from "../lib/dm-keys.ts";
 import { resolveMailbox } from "../lib/mailbox-rule.ts";
 
@@ -26,16 +27,19 @@ const STAFF = { id: "staff-1", name: "Marco Rivas", role: "staff" };
 test("owner's queue is not filtered by assignee — a handed-off to-do stays on it", () => {
   const { sql, params } = openWorkItemsSql(OWNER);
   assert.equal(params.length, 0);
-  assert.ok(!/assigned_user_id\s*=/.test(sql), "owner SQL must not filter on assigned_user_id");
+  assert.ok(!/wa\.user_id = \$/.test(sql), "owner SQL must not filter on who is on the to-do");
+  // …but it does carry everyone on each to-do, for the card's line.
+  assert.match(sql, /asg\.assigned/);
 });
 
-test("staff queue is strictly their own assigned to-dos", () => {
+test("staff queue is strictly the to-dos they are on", () => {
   const { sql, params } = openWorkItemsSql(STAFF);
   assert.deepEqual(params, [STAFF.id]);
-  assert.match(sql, /AND w\.assigned_user_id = \$1/);
-  // Unassigned means "Joe's". A staff member must not inherit those, so an
-  // `IS NULL` escape hatch would be a bug, not a convenience.
-  assert.ok(!/assigned_user_id IS NULL/.test(sql));
+  assert.match(sql, /AND EXISTS \(SELECT 1 FROM work_item_assignees wa\s+WHERE wa\.work_item_id = w\.id AND wa\.user_id = \$1\)/);
+  // Nobody on it means "Joe's". A staff member must not inherit those, so a
+  // NOT EXISTS / IS NULL escape hatch would be a bug, not a convenience.
+  assert.ok(!/NOT EXISTS/.test(sql));
+  assert.ok(!/assigned_user_id/.test(sql), "the legacy single-person column is not read");
 });
 
 test("both queues keep the pre-existing filters (open, unsnoozed, human, live lead)", () => {
@@ -46,6 +50,67 @@ test("both queues keep the pre-existing filters (open, unsnoozed, human, live le
     assert.match(sql, /assignee_kind = 'human'/);
     assert.match(sql, /l\.stage <> 'lost'/);
   }
+});
+
+// ─── Several people on one to-do (Joe, 2026-09-30) ───────────────────────────
+
+const JOE = { userId: "owner-1", name: "Joe Stafki", initials: "JS" };
+const ABIGAIL = { userId: "staff-1", name: "Abigail Stafki", initials: "AS" };
+const MARCO = { userId: "staff-2", name: "Marco Rivas", initials: "MR" };
+
+test("just the owner is stored as nobody — one spelling of his own to-do", () => {
+  assert.deepEqual(idsToStore([]), []);
+  assert.deepEqual(idsToStore([{ id: "owner-1", role: "owner" }]), []);
+  assert.deepEqual(idsToStore([{ id: "owner-1", role: "owner" }, { id: "owner-1", role: "owner" }]), []);
+});
+
+test("the owner is stored when he's on it alongside someone", () => {
+  assert.deepEqual(
+    idsToStore([{ id: "owner-1", role: "owner" }, { id: "staff-1", role: "staff" }]),
+    ["owner-1", "staff-1"],
+  );
+  assert.deepEqual(idsToStore([{ id: "staff-1", role: "staff" }]), ["staff-1"]);
+  assert.deepEqual(
+    idsToStore([{ id: "staff-1", role: "staff" }, { id: "staff-1", role: "staff" }, { id: "staff-2", role: "staff" }]),
+    ["staff-1", "staff-2"],
+  );
+});
+
+test("an unchanged set of people is recognised in any order", () => {
+  assert.ok(sameAssignees([], []));
+  assert.ok(sameAssignees(["a", "b"], ["b", "a"]));
+  assert.ok(!sameAssignees(["a"], ["a", "b"]));
+  assert.ok(!sameAssignees(["a", "b"], ["a", "c"]));
+});
+
+test("the card line names everyone but the viewer", () => {
+  // Joe's own to-do on Joe's Today: no line.
+  assert.equal(describeAssignment([], JOE.userId), null);
+  // Handed to Abigail alone.
+  assert.equal(describeAssignment([ABIGAIL], JOE.userId)?.label, "Assigned to Abigail Stafki");
+  // Shared: each of them sees the other.
+  assert.equal(describeAssignment([JOE, ABIGAIL], JOE.userId)?.label, "Assigned to you & Abigail Stafki");
+  assert.equal(describeAssignment([JOE, ABIGAIL], ABIGAIL.userId)?.label, "Assigned to you & Joe Stafki");
+  assert.deepEqual(describeAssignment([JOE, ABIGAIL], ABIGAIL.userId)?.others, [JOE]);
+  // Only hers, on her Today: no line — every card there is hers.
+  assert.equal(describeAssignment([ABIGAIL], ABIGAIL.userId), null);
+  // Three people, seen by the owner who isn't on it.
+  assert.equal(
+    describeAssignment([JOE, ABIGAIL, MARCO], "someone-else")?.label,
+    "Assigned to Joe Stafki, Abigail Stafki & Marco Rivas",
+  );
+});
+
+test("names join as a sentence and the notice says who it's shared with", () => {
+  assert.equal(joinNames([]), "");
+  assert.equal(joinNames(["Abigail"]), "Abigail");
+  assert.equal(joinNames(["Joe", "Abigail"]), "Joe & Abigail");
+  assert.equal(joinNames(["Joe", "Abigail", "Marco"]), "Joe, Abigail & Marco");
+  assert.deepEqual(assignedNotice("Order trim", []), {
+    title: "Joe assigned you: Order trim",
+    subline: "It's on your Today now.",
+  });
+  assert.equal(assignedNotice("Order trim", ["Joe Stafki"]).subline, "With Joe Stafki. It's on your Today now.");
 });
 
 // ─── Which DM ────────────────────────────────────────────────────────────────

@@ -35,12 +35,13 @@ interface QueueState {
   snooze: (id: string, days?: number) => Promise<void>;
   /** True only for the owner — shows the "Assigned to" control on each card. */
   canAssign: boolean;
-  /** Who a to-do can be handed to (owner + active staff). Empty for staff. */
+  /** Who a to-do can be put on (owner first, then active staff). Empty for
+   *  staff. */
   assignees: AssignedTo[];
-  /** Hand a to-do to someone (null = take it back). The card stays on Joe's
-   *  Today either way; the list is replaced because the assignee's name, and
-   *  possibly the ranking, change. */
-  assign: (id: string, userId: string | null) => Promise<void>;
+  /** Put exactly these people on a to-do (just the owner = his own again).
+   *  The card stays on Joe's Today either way; the list is replaced because
+   *  the "Assigned to …" line, and possibly the ranking, change. */
+  assign: (id: string, userIds: string[]) => Promise<void>;
 }
 
 const QueueContext = createContext<QueueState | null>(null);
@@ -119,10 +120,10 @@ export function TodayQueueProvider({
     }
   };
 
-  const assign = async (id: string, userId: string | null) => {
+  const assign = async (id: string, userIds: string[]) => {
     setBusyId(id);
     try {
-      applySnapshot(await assignTodayItem(id, userId));
+      applySnapshot(await assignTodayItem(id, userIds));
     } finally {
       setBusyId(null);
     }

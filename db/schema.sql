@@ -1882,21 +1882,34 @@ CREATE INDEX IF NOT EXISTS idx_work_items_created   ON work_items(created_at DES
 -- needs_enrichment filter on list_work_items in mcp/sjcos-mcp.mjs).
 ALTER TABLE work_items ADD COLUMN IF NOT EXISTS enriched_at timestamptz;
 
--- WHICH PERSON owns this to-do. NULL = the owner (Joe) — the default for every
--- row that existed before staff logins, and for everything agents and detectors
--- file. Orthogonal to assignee_kind/assignee_key, which say whether a human or
--- a named bot runtime does the work: a to-do can be assigned_user_id = Marco
--- and assignee_kind = 'human' at once.
---
--- Joe's Today shows every human to-do, handed off or not, with an "Assigned to
--- <name>" line on the ones that are (his rule, 2026-09-27: "it'll always remain
--- on mine, but will list prominently who it's assigned to"). A staff member's
--- Today shows only rows where assigned_user_id is theirs. Only the owner may
--- change it. Migration: db/apply-staff-separation.mjs.
+-- LEGACY single-person assignment (db/apply-staff-separation.mjs, 2026-09-27).
+-- Superseded by work_item_assignees below; nothing reads it any more and every
+-- assignment write blanks it. Kept only so the migration stayed additive.
 ALTER TABLE work_items ADD COLUMN IF NOT EXISTS assigned_user_id uuid
   REFERENCES users(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_work_items_assigned_user
   ON work_items (assigned_user_id, status);
+
+-- WHO is on a to-do — any number of people (Joe, 2026-09-30: "assignable to
+-- both me and abigail (and any other employee in the future) instead of
+-- either or"). No rows = the owner's own (Joe) — the default for everything
+-- agents, detectors and runbooks file. Joe's id is only stored alongside
+-- someone else; "just Joe" is no rows, so there is one spelling of "Joe's".
+-- Orthogonal to assignee_kind/assignee_key, which say whether a human or a
+-- named bot runtime does the work.
+--
+-- Joe's Today shows every human to-do, handed off or not, naming whoever is on
+-- it (his rule, 2026-09-27: "it'll always remain on mine, but will list
+-- prominently who it's assigned to"). A staff member's Today shows only the
+-- to-dos they are on. Only the owner may change it.
+-- Migration: db/apply-multi-assignees.mjs.
+CREATE TABLE IF NOT EXISTS work_item_assignees (
+  work_item_id uuid NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+  user_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  assigned_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (work_item_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_work_item_assignees_user ON work_item_assignees (user_id);
 
 -- Per-user linked mailbox. Until staff logins there was one Gmail account, its
 -- refresh token in GMAIL_REFRESH_TOKEN, and every login saw Joe's mail. A row

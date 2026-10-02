@@ -72,28 +72,41 @@ there. Settled with Joe, 2026-09-27 — these three buckets are deliberate:
 
 ### To-do assignment
 
-`work_items.assigned_user_id`. **NULL means Joe's** — the default for every row
-that predates staff logins and for everything detectors, runbooks and MCP file.
-Orthogonal to `assignee_kind` / `assignee_key`, which say whether a human or a
-named bot runtime runs it.
+`work_item_assignees` — one row per person on a to-do, any number of them (Joe,
+2026-09-30: *"assignable to both me and abigail (and any other employee in the
+future) instead of either or"*). **No rows means Joe's** — the default for every
+row that predates staff logins and for everything detectors, runbooks and MCP
+file. Joe's own id is stored only alongside someone else; "just Joe" is no rows,
+so there is one spelling of his own. Orthogonal to `assignee_kind` /
+`assignee_key`, which say whether a human or a named bot runtime runs it. The
+SQL and these rules live in `lib/work-item-assignees.mjs`, shared by the app
+and the MCP server. (`work_items.assigned_user_id` is the single-person column
+this replaced on 2026-09-30 — no longer read, blanked on every write.)
 
-- **Joe's Today shows every human to-do, handed off or not**, with an "Assigned
-  to &lt;name&gt;" line on the ones that are. His rule: *"it'll always remain on
-  mine, but will list prominently who it's assigned to."*
-- A staff member's Today shows only rows assigned to them — and none of the
-  business signals (flagged leads, drifting jobs, A/R, the AI brief), which are
-  Joe's to triage.
-- **Only the owner may assign.** The card's Assign/Reassign picker, the `/engine`
-  dropdown, and the MCP `assign_work_item` / `create_work_item{assigned_to}` all
-  gate on `requireRole("owner")` (not `requireAccess`) — holding Today lets you
-  work your queue, never re-deal someone else's.
-- The assignee gets a notification addressed to them, so a hand-off is never
-  silent.
+- **Joe's Today shows every human to-do, handed off or not**, with a line naming
+  whoever else is on it: "Assigned to Abigail Stafki", or "Assigned to you &
+  Abigail Stafki" when he's on it too. His rule: *"it'll always remain on mine,
+  but will list prominently who it's assigned to."*
+- A staff member's Today shows only the to-dos they are on — alone or shared —
+  and none of the business signals (flagged leads, drifting jobs, A/R, the AI
+  brief), which are Joe's to triage. A shared one says who with ("Assigned to
+  you & Joe Stafki").
+- **Only the owner may assign.** The card's Assign checklist, the `/engine`
+  checklist and new-item checkboxes, and the MCP `assign_work_item`
+  (`to` / `add` / `remove`) / `create_work_item{assigned_to}` all gate on
+  `requireRole("owner")` (not `requireAccess`) — holding Today lets you work
+  your queue, never re-deal someone else's.
+- The checklist shows exactly who's on it; a to-do nobody is on shows Joe
+  ticked, and the last ticked person can't be unticked. Ticking Abigail on one
+  of Joe's makes it Joe + Abigail; unticking Joe then leaves it hers alone.
+- Everyone newly put on a to-do (other than Joe) gets a notification addressed
+  to them, naming who they share it with, so a hand-off is never silent.
 - `promoted_at` (the 5-slot Priorities rail) stays the **owner's** state. A staff
   queue is simply the top 5 of their own ranked backlog, so nothing they do
   writes to Joe's rail.
 - Work-item ids arrive from the client, so `completeTodayItem` / `snoozeTodayItem`
-  / `checkPriorityCompletion` re-check ownership server-side (`mayWorkItem`).
+  / `checkPriorityCompletion` re-check server-side that a staff member is on the
+  to-do (`mayWorkItem`).
 
 Scoping rule: `lib/queue-scope.ts` (dependency-free, unit-tested).
 

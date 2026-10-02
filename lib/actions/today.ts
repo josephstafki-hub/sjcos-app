@@ -5,7 +5,7 @@ import { requireAccess, requireRole } from "@/lib/dal";
 import { ai } from "@/lib/ai";
 import { query, queryOne } from "@/lib/db";
 import { maybeAdvanceRunbook } from "@/lib/runbook-engine";
-import { emit } from "@/lib/notify";
+import { setAssignees } from "@/lib/work-item-assign";
 import {
   openWorkItemsSql,
   OPEN_WORK_ITEMS_ORDER_SQL,
@@ -89,11 +89,11 @@ export async function checkPriorityCompletion(workItemId: string): Promise<Prior
   if (!nextRow) return { completed: true, next: null };
 
   await query(`UPDATE work_items SET promoted_at = now() WHERE id = $1`, [nextRow.id]);
-  return { completed: true, next: workItemCandidate(nextRow) };
+  return { completed: true, next: workItemCandidate(nextRow, user.id) };
 }
 
 /** May this person act on this to-do at all? The owner may act on any; a staff
- *  member only on one assigned to them. Without this a card id lifted from
+ *  member only on one they are on (alone or with others). Without this a card id lifted from
  *  someone else's queue would let a team member close Joe's work — the ids
  *  arrive from the client, so the check has to be here and not just in the
  *  query that built the card. */
@@ -103,7 +103,7 @@ async function mayWorkItem(
 ): Promise<boolean> {
   if (user.role === "owner") return true;
   const row = await queryOne<{ one: number }>(
-    `SELECT 1 AS one FROM work_items WHERE id = $1 AND assigned_user_id = $2`,
+    `SELECT 1 AS one FROM work_item_assignees WHERE work_item_id = $1 AND user_id = $2`,
     [workItemId, user.id],
   );
   return Boolean(row);
@@ -165,60 +165,25 @@ export async function snoozeTodayItem(workItemId: string, days = 3): Promise<Que
 
 // ─── Assignment (owner only) ─────────────────────────────────────────────────
 
-/** Hand a to-do to a team member, or take it back (userId null = the owner's
- *  own). Owner-only by requireRole, not requireAccess: holding the Today area
- *  lets you work your queue, never re-deal someone else's (Joe, 2026-09-27 —
- *  "my account will be the one that is able to do that").
+/** Put exactly these people on a to-do — Joe, Abigail, both, or anyone on the
+ *  team (Joe, 2026-09-30: "assignable to both me and abigail … instead of
+ *  either or"). An empty list takes it back to the owner's own. Owner-only by
+ *  requireRole, not requireAccess: holding the Today area lets you work your
+ *  queue, never re-deal someone else's (Joe, 2026-09-27 — "my account will be
+ *  the one that is able to do that").
  *
  *  The card stays on Joe's Today either way; what changes is whose Today it
- *  ALSO appears on, and the "Assigned to <name>" line. The assignee gets a
- *  notification addressed to them so a hand-off isn't silent. */
+ *  ALSO appears on, and the "Assigned to …" line. Everyone newly put on it
+ *  gets a notification addressed to them so a hand-off isn't silent. */
 export async function assignTodayItem(
   workItemId: string,
-  userId: string | null,
+  userIds: string[],
 ): Promise<QueueSnapshot> {
   const owner = await requireRole("owner");
-
-  // Only an active internal login can hold a to-do — never a sub or client
-  // portal account, and never a deactivated one.
-  if (userId) {
-    const ok = await queryOne<{ name: string }>(
-      `SELECT name FROM users WHERE id = $1 AND active AND role IN ('owner','staff')`,
-      [userId],
-    );
-    if (!ok) return getQueueSnapshot(owner);
+  const r = await setAssignees(workItemId, userIds);
+  if (r.ok) {
+    revalidatePath("/today");
+    revalidatePath("/engine");
   }
-
-  const row = await queryOne<{ title: string; assigned_user_id: string | null }>(
-    `SELECT title, assigned_user_id FROM work_items WHERE id = $1`,
-    [workItemId],
-  );
-  if (!row) return getQueueSnapshot(owner);
-
-  // Storing the owner's own id would work, but NULL is what every other writer
-  // (detectors, MCP, runbooks) leaves behind for "Joe's", so keep one spelling.
-  const next = userId && userId !== owner.id ? userId : null;
-  if (next === row.assigned_user_id) return getQueueSnapshot(owner);
-
-  await query(
-    `UPDATE work_items SET assigned_user_id = $2, updated_at = now() WHERE id = $1`,
-    [workItemId, next],
-  );
-
-  if (next) {
-    await emit({
-      kind: "job",
-      tag: "Assigned",
-      accent: "accent",
-      icon: "star",
-      title: `Joe assigned you: ${row.title}`,
-      subline: "It's on your Today now.",
-      href: "/today",
-      audienceUserId: next,
-    });
-  }
-
-  revalidatePath("/today");
-  revalidatePath("/engine");
   return getQueueSnapshot(owner);
 }

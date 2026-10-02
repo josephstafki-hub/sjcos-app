@@ -9,6 +9,8 @@ import type { ApproveResult } from "@/lib/approved-draft-rules";
 import { query, queryOne } from "@/lib/db";
 import { requireAccess, requireRole } from "@/lib/dal";
 import { WORK_STATUSES } from "@/lib/engine-constants";
+import { getArchivedWorkItems, type WorkItemView } from "@/lib/engine";
+import { splitWho, type QueueFilter } from "@/lib/engine-views";
 import { maybeAdvanceRunbook, cancelRunbookInstance } from "@/lib/runbook-engine";
 import { assignNewItem, pickedPeople, setAssignees } from "@/lib/work-item-assign";
 import type { WorkItemStatus } from "@/lib/types";
@@ -78,6 +80,48 @@ export async function setWorkItemStatus(id: string, status: WorkItemStatus, note
   revalidatePath("/engine");
   revalidatePath("/today");
   return { ok: true };
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Take done/cancelled to-dos off the board into the Archived view (Joe,
+ *  2026-10-02). Display-only — the rows stay, every MCP read and dedup check
+ *  still sees them. Anything still open is skipped (the table refuses it too:
+ *  db/apply-work-item-archive.mjs), so "archive these" can't hide live work.
+ *  Says how many it moved. */
+export async function archiveWorkItems(ids: string[]): Promise<{ ok: true; archived: number } | { ok: false; error: string }> {
+  await requireAccess("engine");
+  const valid = ids.filter((id) => UUID_RE.test(id));
+  if (!valid.length) return { ok: false, error: "Nothing to archive." };
+  const { rowCount } = await query(
+    `UPDATE work_items SET archived_at = now()
+      WHERE id = ANY($1::uuid[]) AND status IN ('done','cancelled') AND archived_at IS NULL`,
+    [valid],
+  );
+  revalidatePath("/engine");
+  return { ok: true, archived: rowCount ?? 0 };
+}
+
+/** Put an archived to-do back on the board, as it was (still done/cancelled).
+ *  Reopening one — any status change away from done/cancelled, from anywhere —
+ *  also brings it back, by the table trigger. */
+export async function restoreWorkItem(id: string): Promise<Result> {
+  await requireAccess("engine");
+  if (!UUID_RE.test(id)) return { ok: false, error: "Work item not found." };
+  await query(`UPDATE work_items SET archived_at = NULL WHERE id = $1`, [id]);
+  revalidatePath("/engine");
+  return { ok: true };
+}
+
+/** A page of the Archived view, narrowed by the board's folder + filters. */
+export async function listArchivedWorkItems(
+  filter: QueueFilter,
+  offset = 0,
+): Promise<{ ok: true; items: WorkItemView[]; hasMore: boolean } | { ok: false; error: string }> {
+  await requireAccess("engine");
+  const [kind, key] = splitWho(filter.who);
+  if (kind === "person" && !UUID_RE.test(key)) return { ok: true, items: [], hasMore: false };
+  return { ok: true, ...(await getArchivedWorkItems(filter, offset)) };
 }
 
 /** Approve a work item awaiting human approval → clears the gate, moves to queued,

@@ -285,7 +285,8 @@ export function registerEstimateTools(server, { rows, json, pool, strippedDollar
         "or list_project_estimates). Each line: description; section = the trade or category it is grouped under " +
         "(default 'General'); unit ('ea', 'sf', 'lf', 'ls', 'hr', …); qty; unit_cost_cents = what it costs SJC, " +
         "INTEGER CENTS; markup_pct (default: the cost book's default markup). extended = qty × unit_cost × " +
-        "(1 + markup/100); the estimate's totals are recomputed. Works on any status — if the estimate was already " +
+        "(1 + markup/100); the estimate's totals are recomputed. A credit (e.g. a scope reduction Joe agreed to) is " +
+        "a line with a NEGATIVE unit_cost_cents and markup_pct 0. Works on any status — if the estimate was already " +
         "sent or approved the client saw the old total, so say so to Joe; and if a Formal Estimate PDF exists, " +
         "render_document_draft it — that re-prints it with the current lines.",
       inputSchema: {
@@ -297,7 +298,7 @@ export function registerEstimateTools(server, { rows, json, pool, strippedDollar
               section: z.string().optional(),
               unit: z.string().optional(),
               qty: z.number().min(0),
-              unit_cost_cents: cents,
+              unit_cost_cents: z.number().int().describe("integer cents; negative for a credit line"),
               markup_pct: z.number().min(0).max(999).optional(),
             }),
           )

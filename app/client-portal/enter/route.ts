@@ -4,7 +4,8 @@
 // approve a selection. The link Joe sends carries an opaque token; this route
 // trades it for the normal sjcos_session cookie (role=client,
 // link_slug=<project slug>), so every existing requireRole("owner","client")
-// check just works from then on. `to` deep-links into a portal section.
+// check just works from then on. `to` deep-links into a portal section
+// (`to=pay&inv=<id>` lands on that invoice's pay page).
 //
 // SECURITY — this is a BEARER LINK, deliberately, the same trade already made
 // for subs in app/sub-portal/enter. Anyone holding the email reaches that one
@@ -22,7 +23,7 @@ import { randomBytes } from "node:crypto";
 import { query, queryOne } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
 import { createSession } from "@/lib/session";
-import { portalTargetPath } from "@/lib/client-invites";
+import { portalEnterPath } from "@/lib/client-invites";
 
 /** Initials from a client's name — same first-two-words rule used elsewhere. */
 function clientInitials(name: string): string {
@@ -135,5 +136,5 @@ export async function GET(request: Request) {
     [invite.id],
   );
   await createSession(userId, "client");
-  return NextResponse.redirect(new URL(portalTargetPath(to), origin));
+  return NextResponse.redirect(new URL(portalEnterPath(to, url.searchParams.get("inv")), origin));
 }

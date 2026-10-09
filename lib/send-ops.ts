@@ -27,6 +27,8 @@ import { withTransaction } from "@/lib/commands/db";
 import { enqueueIntent, IntentPayloadMismatchError } from "@/lib/commands/intents";
 import type { Principal } from "@/lib/commands/principal";
 import { describeOutcome, dispatchIntentsNow } from "@/lib/dispatch/db";
+import { invoicePayLink } from "@/lib/client-invites";
+import { portalPaymentSetup } from "@/lib/payments/server";
 
 export type SendOpResult = { ok: true; summary: string; intent_id?: string } | { ok: false; error: string; held?: boolean; intent_id?: string };
 
@@ -143,8 +145,17 @@ export async function sendInvoiceOp(id: number, auth?: SendAuth): Promise<SendOp
   if (!inv) return { ok: false, error: "Invoice not found." };
   if (inv.status !== "draft") return { ok: false, error: `Invoice ${inv.number} is already ${inv.status}.` };
 
+  // A link-only client's account sits on a synthetic <slug>@client-portal.invalid
+  // address — never a mailbox. Fall back to the project's client_email, as the
+  // e-sign and portal-publish sends do.
   const client = await queryOne<{ email: string; name: string }>(
-    `SELECT email, name FROM users WHERE link_slug = $1 AND role = 'client' AND active = true LIMIT 1`,
+    `SELECT COALESCE(NULLIF(trim(u.email), ''), NULLIF(trim(p.client_email), '')) AS email,
+            COALESCE(u.name, p.client_name, '') AS name
+       FROM projects p
+       LEFT JOIN users u ON u.role = 'client' AND u.link_slug = p.slug AND u.active = true
+                        AND u.email NOT LIKE '%@client-portal.invalid'
+      WHERE p.slug = $1
+      LIMIT 1`,
     [inv.slug],
   );
   if (!client?.email) return { ok: false, error: "No client email on file for this project." };
@@ -183,10 +194,18 @@ export async function sendInvoiceOp(id: number, auth?: SendAuth): Promise<SendOp
     }
   }
 
+  // Square connected → a link straight to this invoice's pay page in the
+  // portal. A link failure leaves the invoice email as it always was.
+  const payUrl = await portalPaymentSetup()
+    .then((setup) => (setup.online ? invoicePayLink(inv.slug, id) : null))
+    .catch(() => null);
+  const payText = payUrl ? `Pay online by card or bank transfer:\n${payUrl}\n\n` : "";
+
   const body =
     `Hi ${first},\n\nPlease find invoice ${inv.number} for "${inv.milestone}" on the ` +
     `${inv.project_name} project ${attachments.length ? "attached. A summary is below." : "below."}\n\n` +
     `${lineText}\n\nTotal due: ${usd(inv.amount)}\n\n` +
+    payText +
     `You can reply here with any questions. Thank you!\n\nBest,\nJoe\nSJ Carpentry`;
   const payload = {
     to,
@@ -198,6 +217,7 @@ export async function sendInvoiceOp(id: number, auth?: SendAuth): Promise<SendOp
     project_name: inv.project_name,
     amount_label: usd(inv.amount),
     slug: inv.slug,
+    pay_url: payUrl,
     _auth: { action: "send_invoice", target_kind: "invoice", target_id: String(id), amount_cents: Number(inv.amount) },
   };
   return stageAndSend({

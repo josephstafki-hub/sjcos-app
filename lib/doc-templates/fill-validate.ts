@@ -1,5 +1,6 @@
 // Pure fill logic — no DB, no server-only, unit-testable. Enforces the manifest
-// contract that AI may write ONLY narrative (`source:'ai'`) fields and that
+// contract that AI may write ONLY narrative (`source:'ai'`) fields (plus the
+// client's contact details) and that
 // money/date/enum values are well-formed. resolveAutoFields (DB) lives in
 // fill.ts and re-exports these.
 
@@ -23,6 +24,22 @@ function isEmpty(v: unknown): boolean {
   if (typeof v === "string") return v.trim() === "";
   if (isTableValue(v)) return v.rows.length === 0;
   return false;
+}
+
+/** The client's contact details. An agent may fill these on any template
+ *  (Joe, 2026-10-09: agents copy them from the client's emails and records);
+ *  every other non-'ai' field — money, dates, contract numbers, company info —
+ *  stays off limits. */
+export const AI_WRITABLE_CONTACT_FIELDS: readonly string[] = [
+  "client_name",
+  "client_email",
+  "client_phone",
+  "client_address",
+  "client_city_state_zip",
+];
+
+function aiMayWrite(field: TemplateField): boolean {
+  return field.source === "ai" || (field.kind === "text" && AI_WRITABLE_CONTACT_FIELDS.includes(field.key));
 }
 
 /** Validate a single edit against its field spec. Returns an error string or
@@ -59,7 +76,8 @@ function validateValue(field: TemplateField, value: unknown): string | null {
 /**
  * Apply a batch of field edits from `actor`, validating against the manifest.
  *   • unknown keys are rejected
- *   • actor 'ai' may write ONLY `source:'ai'` fields (the core safety rule)
+ *   • actor 'ai' may write ONLY `source:'ai'` fields plus the client's contact
+ *     details (AI_WRITABLE_CONTACT_FIELDS) — the core safety rule
  *   • money/date/enum/table values must be well-formed
  * Returns the merged values + updated fill report; rejected keys are untouched.
  */
@@ -81,8 +99,8 @@ export function applyFieldEdits(
       rejected[key] = "unknown field";
       continue;
     }
-    if (actor === "ai" && field.source !== "ai") {
-      rejected[key] = `AI may not write '${field.source}' field '${key}' — narratives only`;
+    if (actor === "ai" && !aiMayWrite(field)) {
+      rejected[key] = `AI may not write '${field.source}' field '${key}' — narratives and client contact details only`;
       continue;
     }
     const err = validateValue(field, value);

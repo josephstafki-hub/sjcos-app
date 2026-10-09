@@ -22,7 +22,8 @@ export type FieldKind =
  *   auto  — resolved from the DB / app_settings (never hand-authored by AI)
  *   owner — must be provided or confirmed by Joe
  *   ai    — an AI agent may draft it (narratives only)
- * The fill layer enforces that `actor==='ai'` edits touch only `source:'ai'`.
+ * The fill layer enforces that `actor==='ai'` edits touch only `source:'ai'`,
+ * plus the client's contact details (AI_WRITABLE_CONTACT_FIELDS in fill-validate).
  */
 export type FieldSource = "auto" | "owner" | "ai";
 

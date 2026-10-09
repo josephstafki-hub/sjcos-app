@@ -1834,7 +1834,9 @@ server.registerTool(
     title: "Update a document draft",
     description:
       "Fill narrative fields on a draft. `edits` is a map of field_key → value. " +
-      "AI may write ONLY `source:'ai'` narrative fields — edits to money, date, " +
+      "AI may write ONLY `source:'ai'` narrative fields plus the client's contact details " +
+      "(client_name, client_email, client_phone, client_address, client_city_state_zip) — " +
+      "copy those from the client's records/emails, never guess. Edits to money, date, " +
       "enum, or statutory fields are rejected (returned in `rejected`). Re-editing " +
       "a rendered draft marks it stale (re-render to refresh the files). On a " +
       "Formal Estimate (estimate_doc) the lines, subtotal and total come from its " +

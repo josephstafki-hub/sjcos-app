@@ -28,6 +28,7 @@ import { stageDecision, consumeDecision, contentHashOf } from "../commands/decis
 import { invoiceBalance, recordInvoicePayment, INVOICE_COLS, type InvoiceRow } from "../billing/core.ts";
 import { ProviderDeclinedError, ProviderUnknownOutcomeError, type PaymentMethod, type SquareAdapter, type SquarePayment, type SquareRefund } from "./square/types.ts";
 import type { Tx } from "../billing/commands.ts";
+import { stagePaymentReceipt, type ReceiptOutcome } from "./receipt.ts";
 
 export type AttemptState = "created" | "pending" | "completed" | "failed" | "returned" | "refunded" | "disputed" | "unknown";
 
@@ -183,6 +184,8 @@ export interface ApplyResult {
   changed: boolean;
   from: AttemptState;
   to: AttemptState;
+  /** Set when this call moved the attempt to completed (lib/payments/receipt.ts). */
+  receipt?: ReceiptOutcome;
 }
 
 /** Idempotent: the same provider state applied twice (duplicate webhook,
@@ -237,7 +240,20 @@ export async function applyProviderPayment(run: Run, input: { attemptId?: string
   // Recompute cash status happened inside recordInvoicePayment; for 'failed'
   // there may have been no row, so nothing to recompute.
   void who;
-  return { attempt: updated, changed: true, from: attempt.state, to: next };
+  let receipt: ReceiptOutcome | undefined;
+  if (next === "completed") {
+    // The client's receipt email. Under a savepoint: a receipt problem must
+    // never undo the payment we just recorded.
+    await run(`SAVEPOINT payment_receipt`);
+    try {
+      receipt = await stagePaymentReceipt(run, { attemptId: attempt.id, invoiceId: attempt.invoice_id, amountCents: attempt.amount_cents, method, receiptUrl: input.payment.receiptUrl, principal: refCommon.principal });
+      await run(`RELEASE SAVEPOINT payment_receipt`);
+    } catch (err) {
+      await run(`ROLLBACK TO SAVEPOINT payment_receipt`);
+      receipt = { staged: "skipped", reason: `receipt not staged: ${(err as Error).message}`.slice(0, 300) };
+    }
+  }
+  return { attempt: updated, changed: true, from: attempt.state, to: next, ...(receipt ? { receipt } : {}) };
 }
 
 export async function markAttemptDeclined(run: Run, attemptId: string, code: string, reason: string): Promise<AttemptRow> {
@@ -302,7 +318,7 @@ export async function processSquareEvent(run: Run, input: { payload: SquareWebho
     if (!p) return { handled: "ignored:malformed", changed: false };
     const r = await applyProviderPayment(run, { payment: p, sourceEventId: input.sourceEventId, actor: "webhook:square" });
     if (!r) return { handled: "ignored:unknown_payment", changed: false };
-    return { handled: `payment:${r.from}->${r.to}`, changed: r.changed };
+    return { handled: `payment:${r.from}->${r.to}`, changed: r.changed, ...(r.receipt?.staged === "intent" ? { receiptIntentId: r.receipt.intentId } : {}) };
   }
   if (type.startsWith("refund.")) {
     const rf = refundFromWebhook(input.payload);

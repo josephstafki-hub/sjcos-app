@@ -44,7 +44,7 @@ function layerCounts(doc: PlanDoc, levelId: string, commentCount: number): Recor
   const items = (pred: (i: PlanDoc["items"][number]) => boolean) => s.items.filter(pred).length;
   const dev = (groups: string[]) => s.electrical.filter((e) => groups.includes(ELEC_GROUP.get(e.type) ?? "power")).length;
   return {
-    underlay: doc.underlay ? 1 : 0,
+    underlay: s.underlay ? 1 : 0,
     rooms: s.rooms.length,
     finishes: s.finishes.length,
     walls: s.walls.length,

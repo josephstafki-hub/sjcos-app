@@ -1,11 +1,11 @@
 "use client";
 
-// Right-hand inspector: an icon tab strip over one of eight panels. The
+// Right-hand inspector: an icon tab strip over one of nine panels. The
 // shell renders <Inspector> as a 300px column on wide screens and
 // <InspectorSheet> as a bottom sheet on narrow ones; both share the body.
 
 import type { ComponentType, ReactNode } from "react";
-import { AlertTriangle, BookOpen, History, Layers, MessageSquare, Palette, Settings2, Table2, X } from "lucide-react";
+import { AlertTriangle, BookOpen, History, ImageUp, Layers, MessageSquare, Palette, Settings2, Table2, X } from "lucide-react";
 import type { DesignerContext, ViewState } from "../view-state";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { CatalogPanel } from "./CatalogPanel";
@@ -15,11 +15,13 @@ import { RoomsPanel } from "./RoomsPanel";
 import { ChecksPanel, useChecks } from "./ChecksPanel";
 import { CommentsPanel } from "./CommentsPanel";
 import { VersionsPanel } from "./VersionsPanel";
+import { UnderlayPanel } from "./UnderlayPanel";
 
 type PanelKey = ViewState["panel"];
 
 const TABS: { key: PanelKey; label: string; Icon: ComponentType<{ className?: string; strokeWidth?: number }> }[] = [
   { key: "properties", label: "Properties", Icon: Settings2 },
+  { key: "underlay", label: "Trace a plan", Icon: ImageUp },
   { key: "catalog", label: "Catalog", Icon: BookOpen },
   { key: "materials", label: "Materials", Icon: Palette },
   { key: "layers", label: "Layers", Icon: Layers },
@@ -74,6 +76,8 @@ function PanelBody({ ctx }: { ctx: DesignerContext }) {
   switch (ctx.view.panel) {
     case "properties":
       return <PropertiesPanel ctx={ctx} />;
+    case "underlay":
+      return <UnderlayPanel ctx={ctx} />;
     case "catalog":
       return <CatalogPanel ctx={ctx} />;
     case "materials":

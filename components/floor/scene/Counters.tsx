@@ -1,7 +1,9 @@
 "use client";
 
 // Countertops: extruded polygon sitting on the tallest base cabinet under it
-// (34.5" when none), backsplash along the longest edge, waterfall ends.
+// (34.5" when none), backsplash along the back edge (edge 0 of a run's
+// counter — the wall side, as takeoffs count it; the longest edge of a
+// hand-drawn one), waterfall ends on the counter's own left / right.
 
 import { useMemo } from "react";
 import { dist, pointInPolygon, type Counter, type PlacedItem, type Pt } from "@/lib/plan-doc";
@@ -60,9 +62,16 @@ function CounterMesh({ c, items, elev }: { c: Counter; items: PlacedItem[]; elev
     const ctr = centroid(c.polygon);
     const all = c.polygon.map((p, i) => edgeInfo(p, c.polygon[(i + 1) % c.polygon.length], ctr));
     const longest = all.reduce((m, e) => (e.len > m.len ? e : m), all[0]);
-    const byX = (sign: 1 | -1) => all.reduce((m, e) => (sign * e.mid.x > sign * m.mid.x ? e : m), all[0]);
-    return { longest, left: byX(-1), right: byX(1) };
-  }, [c.polygon]);
+    const back = c.runId ? all[0] : longest;
+    // Facing the back edge from the front: left is the viewer's left.
+    const view = { x: -back.inward.x, y: -back.inward.y };
+    const leftVec = { x: view.y, y: -view.x };
+    const side = (e: EdgeInfo) => (e.mid.x - ctr.x) * leftVec.x + (e.mid.y - ctr.y) * leftVec.y;
+    const ends = all.filter((e) => e !== back);
+    const left = ends.reduce((m, e) => (side(e) > side(m) ? e : m), ends[0]);
+    const right = ends.reduce((m, e) => (side(e) < side(m) ? e : m), ends[0]);
+    return { longest: back, left, right };
+  }, [c.polygon, c.runId]);
 
   const splashLen = edges?.longest.len ?? 1;
   const splashTex = useFinishTexture(c.material, splashLen, c.backsplashIn || 1);

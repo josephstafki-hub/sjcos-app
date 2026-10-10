@@ -242,6 +242,12 @@ export interface Stair {
   riserIn: number;
   treadIn: number;
   phase: Phase;
+  /** L / U: which way the second flight turns, walking up (default right). */
+  turn?: "left" | "right";
+  /** L / U: treads before the landing (default about half). */
+  landingAt?: number;
+  /** U: gap between the two flights (default 2"). */
+  wellIn?: number;
 }
 
 export interface Structural {
@@ -307,9 +313,30 @@ export interface SectionLine {
   label: string;
 }
 
+/** A plan image (or a rendered PDF page) traced over on one level. The image's
+ *  top-left pixel sits at (x, y); pixel (u, v) lands at
+ *  (x, y) + rotate((u·scale, v·scale), rotDeg). */
 export interface Underlay {
+  /** Absent on docs written before per-level underlays (migrateDoc fills it). */
+  id?: string;
+  /** Level it belongs to (migrateDoc fills it for old docs). */
+  levelId?: string;
   fileId: string;
+  /** PDF page this image was rendered from, of `pages`. */
   page?: number;
+  pages?: number;
+  /** The uploaded PDF / image this was made from (re-render another page). */
+  sourceFileId?: string;
+  /** Original file name, for the panel. */
+  name?: string;
+  /** Natural image size in pixels. */
+  widthPx?: number;
+  heightPx?: number;
+  /** Render resolution when the image came from a PDF — lets a printed drawing
+   *  scale (1/4" = 1'-0") set `scale` exactly. */
+  dpi?: number;
+  /** Drawing scale the PDF sheet's text names (0.25 = 1/4" = 1'-0"). */
+  sheetInPerFt?: number;
   x: number;
   y: number;
   /** Inches per image pixel. */
@@ -317,6 +344,8 @@ export interface Underlay {
   rotDeg: number;
   opacity: number;
   locked: boolean;
+  /** True once someone calibrated the scale or set a drawing scale. */
+  calibrated?: boolean;
 }
 
 export interface DesignerDefaults {
@@ -344,6 +373,10 @@ export interface PlanDoc {
     snapIn: number;
     angleSnap: 0 | 15 | 45 | 90;
     defaults: DesignerDefaults;
+    /** The design's cabinet style (door style, finish, hardware… — keys as in
+     *  lib/plan-cabinet CAB_STYLE_KEYS). New cabinets start from it; each
+     *  cabinet's own props override it. */
+    cabinetStyle?: Record<string, string | number | boolean | null>;
   };
   levels: Level[];
   walls: Wall[];
@@ -362,7 +395,10 @@ export interface PlanDoc {
   photos: PhotoPin[];
   cameras: Camera[];
   sections: SectionLine[];
+  /** Legacy single underlay; migrateDoc moves it into `underlays`. */
   underlay?: Underlay | null;
+  /** Plans traced over, at most one per level. */
+  underlays?: Underlay[];
   ignoredChecks: string[];
   meta: {
     templateOf?: string;
@@ -423,6 +459,7 @@ export function emptyDoc(overrides: Partial<DesignerDefaults> = {}): PlanDoc {
     cameras: [],
     sections: [],
     underlay: null,
+    underlays: [],
     ignoredChecks: [],
     meta: {},
   };
@@ -447,6 +484,7 @@ export const LIMITS = {
   photos: 200,
   cameras: 50,
   sections: 50,
+  underlays: 8,
   levels: 8,
   coordIn: 20_000,
   label: 200,
@@ -631,6 +669,9 @@ const stair = z.object({
   riserIn: z.number().finite().min(4).max(10),
   treadIn: z.number().finite().min(8).max(16),
   phase,
+  turn: z.enum(["left", "right"]).optional(),
+  landingAt: z.number().int().min(1).max(40).optional(),
+  wellIn: z.number().finite().min(0).max(48).optional(),
 });
 
 const structural = z.object({
@@ -682,14 +723,24 @@ const camera = z.object({
 const sectionLine = z.object({ id, levelId: id, a: pt, b: pt, depthIn: pos, flip: z.boolean(), label });
 
 const underlay = z.object({
+  id: id.optional(),
+  levelId: id.optional(),
   fileId: z.string().max(80),
   page: z.number().int().min(1).optional(),
+  pages: z.number().int().min(1).max(10_000).optional(),
+  sourceFileId: z.string().max(80).optional(),
+  name: label.optional(),
+  widthPx: z.number().int().min(1).max(100_000).optional(),
+  heightPx: z.number().int().min(1).max(100_000).optional(),
+  dpi: z.number().finite().min(1).max(2400).optional(),
+  sheetInPerFt: z.number().finite().min(0.001).max(12).optional(),
   x: coord,
   y: coord,
   scale: z.number().finite().min(0.0001).max(1000),
   rotDeg: z.number().finite(),
   opacity: z.number().min(0).max(1),
   locked: z.boolean(),
+  calibrated: z.boolean().optional(),
 });
 
 const defaults = z.object({
@@ -719,6 +770,7 @@ export const PlanDocSchema = z.object({
     snapIn: z.number().finite().min(0).max(12),
     angleSnap: z.union([z.literal(0), z.literal(15), z.literal(45), z.literal(90)]),
     defaults,
+    cabinetStyle: z.record(z.string().max(40), z.union([z.string().max(64), z.number().finite(), z.boolean(), z.null()])).optional(),
   }),
   levels: z.array(level).min(1).max(LIMITS.levels),
   walls: z.array(wall).max(LIMITS.walls),
@@ -738,6 +790,7 @@ export const PlanDocSchema = z.object({
   cameras: z.array(camera).max(LIMITS.cameras),
   sections: z.array(sectionLine).max(LIMITS.sections),
   underlay: underlay.nullable().optional(),
+  underlays: z.array(underlay).max(LIMITS.underlays).optional(),
   ignoredChecks: z.array(z.string().max(80)).max(500),
   meta: z.object({
     templateOf: z.string().max(80).optional(),
@@ -764,6 +817,14 @@ export function migrateDoc(raw: unknown): PlanDoc {
     defaults: { ...base.settings.defaults, ...((settings.defaults as object | undefined) ?? {}) },
   };
   filled.meta = { ...base.meta, ...((r.meta as object | undefined) ?? {}) };
+  // Underlays went per-level: fold the old single `underlay` into the list and
+  // give every entry an id + level.
+  const firstLevel = (Array.isArray(filled.levels) && (filled.levels as { id?: string }[])[0]?.id) || MAIN_LEVEL_ID;
+  const unders = Array.isArray(r.underlays) ? (r.underlays as Underlay[]) : [];
+  const legacy = r.underlay as Underlay | null | undefined;
+  const merged = legacy && !unders.some((u) => u.fileId === legacy.fileId) ? [legacy, ...unders] : unders;
+  filled.underlays = merged.map((u, i) => ({ ...u, id: u.id ?? `u_${i + 1}`, levelId: u.levelId ?? firstLevel }));
+  filled.underlay = null;
   filled.v = 1;
   filled.units = "in";
   return filled as unknown as PlanDoc;
@@ -916,5 +977,6 @@ export function levelSlice(doc: PlanDoc, levelId: string) {
     photos: doc.photos.filter((p) => p.levelId === levelId),
     cameras: doc.cameras.filter((c) => c.levelId === levelId),
     sections: doc.sections.filter((s) => s.levelId === levelId),
+    underlay: (doc.underlays ?? []).find((u) => u.levelId === levelId) ?? null,
   };
 }

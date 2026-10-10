@@ -34,9 +34,9 @@ export const TOOL_GROUPS: ToolGroup[] = [
   {
     label: "Structure",
     tools: [
-      { id: "wall", label: "Wall", key: "W", icon: Minus, hint: "Click to start, click to add corners, Enter or double-click to finish" },
+      { id: "wall", label: "Wall", key: "W", icon: Minus, hint: "Click to start, click to add corners · double-click or Enter to finish · click the first corner to close" },
       { id: "room", label: "Room", key: "R", icon: Square, hint: "Drag a rectangle to make four walls" },
-      { id: "door", label: "Door", key: "D", icon: DoorOpen, hint: "Hover a wall and click · F flips the hand" },
+      { id: "door", label: "Door", key: "D", icon: DoorOpen, hint: "Hover a wall and click · the side you hover is the swing side; flip hand in Properties" },
       { id: "window", label: "Window", key: "N", icon: RectangleHorizontal, hint: "Hover a wall and click" },
       { id: "opening", label: "Opening", key: "O", icon: Scan, hint: "Cased opening in a wall" },
       { id: "stairs", label: "Stairs", key: "K", icon: Footprints, hint: "Click to place · edit shape in the inspector" },

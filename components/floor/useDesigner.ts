@@ -48,7 +48,9 @@ export interface DesignerState {
   select: (ids: string[] | ((prev: string[]) => string[])) => void;
   hover: string | null;
   setHover: (id: string | null) => void;
-  apply: (op: PlanOp | PlanOp[], opts?: { label?: string; transient?: boolean }) => boolean;
+  /** `coalesce`: repeats with the same key within a second share one undo
+   *  step (held arrow-key nudges). */
+  apply: (op: PlanOp | PlanOp[], opts?: { label?: string; transient?: boolean; coalesce?: string }) => boolean;
   /** Preview a change without a history entry (drag in progress); commit with apply(). */
   preview: (op: PlanOp | PlanOp[]) => void;
   cancelPreview: () => void;
@@ -83,6 +85,13 @@ export function useDesigner(designId: number, initialDoc: PlanDoc, initialRev: n
   const savingRef = useRef(false);
   const previewBase = useRef<PlanDoc | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // History lives in refs (state mirrors it for rendering) so undo / redo /
+  // jumpTo never run side effects inside state updaters.
+  const pastRef = useRef<HistoryEntry[]>([]);
+  const futureRef = useRef<HistoryEntry[]>([]);
+  const lastCommit = useRef<{ key: string; at: number } | null>(null);
+  /** A save conflict / hard error waits for the user instead of retrying. */
+  const blockedRef = useRef(false);
 
   const setDoc = useCallback((next: PlanDoc) => {
     docRef.current = next;
@@ -118,11 +127,13 @@ export function useDesigner(designId: number, initialDoc: PlanDoc, initialRev: n
   );
 
   const doSave = useCallback(async () => {
-    if (readOnly || savingRef.current || !dirtyRef.current) return;
+    if (readOnly || savingRef.current || !dirtyRef.current || blockedRef.current) return;
     savingRef.current = true;
     dirtyRef.current = false;
     setSave({ kind: "saving" });
-    const snapshot = docRef.current;
+    // Never the in-progress drag preview — only committed edits.
+    const snapshot = previewBase.current ?? docRef.current;
+    let retry = false;
     try {
       const r = await savePlanDesign(designId, snapshot, revRef.current);
       if (r.ok) {
@@ -131,18 +142,21 @@ export function useDesigner(designId: number, initialDoc: PlanDoc, initialRev: n
         setSave(dirtyRef.current ? { kind: "dirty" } : { kind: "saved", at: Date.now() });
       } else if (r.conflict) {
         dirtyRef.current = true;
+        blockedRef.current = true;
         setSave({ kind: "conflict", rev: r.conflict.rev, doc: migrateDoc(r.conflict.doc) });
       } else {
         dirtyRef.current = true;
+        blockedRef.current = true;
         setSave({ kind: "error", message: r.error });
       }
     } catch (e) {
       dirtyRef.current = true;
+      retry = true;
       setSave({ kind: "offline", queued: 1 });
       void e;
     } finally {
       savingRef.current = false;
-      if (dirtyRef.current && !timer.current) {
+      if (retry && dirtyRef.current && !timer.current) {
         timer.current = setTimeout(() => {
           timer.current = null;
           void doSave();
@@ -154,7 +168,12 @@ export function useDesigner(designId: number, initialDoc: PlanDoc, initialRev: n
   const scheduleSave = useCallback(() => {
     if (readOnly) return;
     dirtyRef.current = true;
-    setSave((s) => (s.kind === "conflict" ? s : { kind: "dirty" }));
+    // An edit after a hard save error tries again; a conflict waits for Reload / Keep mine.
+    setSave((s) => {
+      if (s.kind === "conflict") return s;
+      blockedRef.current = false;
+      return { kind: "dirty" };
+    });
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       timer.current = null;
@@ -179,12 +198,19 @@ export function useDesigner(designId: number, initialDoc: PlanDoc, initialRev: n
   }, [doSave]);
 
   const commit = useCallback(
-    (next: PlanDoc, label: string) => {
+    (next: PlanDoc, label: string, coalesce?: string) => {
       const base = previewBase.current ?? docRef.current;
       previewBase.current = null;
-      setPast((p) => [...p.slice(-(MAX_HISTORY - 1)), { doc: base, label }]);
+      const now = Date.now();
+      const merge = !!coalesce && lastCommit.current?.key === coalesce && now - lastCommit.current.at < 1000 && pastRef.current.length > 0;
+      lastCommit.current = coalesce ? { key: coalesce, at: now } : null;
+      if (!merge) {
+        pastRef.current = [...pastRef.current.slice(-(MAX_HISTORY - 1)), { doc: base, label }];
+        setPast(pastRef.current);
+        setLabels((l) => [...l.slice(-(MAX_HISTORY - 1)), label]);
+      }
+      futureRef.current = [];
       setFuture([]);
-      setLabels((l) => [...l.slice(-(MAX_HISTORY - 1)), label]);
       setDoc(next);
       scheduleSave();
     },
@@ -192,19 +218,25 @@ export function useDesigner(designId: number, initialDoc: PlanDoc, initialRev: n
   );
 
   const apply = useCallback(
-    (op: PlanOp | PlanOp[], opts?: { label?: string; transient?: boolean }): boolean => {
+    (op: PlanOp | PlanOp[], opts?: { label?: string; transient?: boolean; coalesce?: string }): boolean => {
       if (readOnly) return false;
       const ops = Array.isArray(op) ? op : [op];
       if (!ops.length) return false;
       const base = previewBase.current ?? docRef.current;
       try {
         const next = applyOps(base, ops);
+        if (next === base) {
+          // Nothing changed: no history step, no save.
+          previewBase.current = null;
+          setDoc(base);
+          return true;
+        }
         const label = opts?.label ?? opLabel(ops[ops.length - 1]);
         if (opts?.transient) {
           previewBase.current = null;
           setDoc(next);
           scheduleSave();
-        } else commit(next, label);
+        } else commit(next, label, opts?.coalesce);
         return true;
       } catch (e) {
         previewBase.current = null;
@@ -239,29 +271,42 @@ export function useDesigner(designId: number, initialDoc: PlanDoc, initialRev: n
     }
   }, [setDoc]);
 
+  /** Drop a drag in progress so undo/redo never rebase onto it. */
+  const dropPreview = useCallback(() => {
+    if (previewBase.current) {
+      docRef.current = previewBase.current;
+      previewBase.current = null;
+    }
+    lastCommit.current = null;
+  }, []);
+
   const undo = useCallback(() => {
-    setPast((p) => {
-      if (!p.length) return p;
-      const entry = p[p.length - 1];
-      setFuture((f) => [{ doc: docRef.current, label: entry.label }, ...f]);
-      setLabels((l) => l.slice(0, -1));
-      setDoc(entry.doc);
-      scheduleSave();
-      return p.slice(0, -1);
-    });
-  }, [scheduleSave, setDoc]);
+    dropPreview();
+    const p = pastRef.current;
+    if (!p.length) return;
+    const entry = p[p.length - 1];
+    pastRef.current = p.slice(0, -1);
+    futureRef.current = [{ doc: docRef.current, label: entry.label }, ...futureRef.current];
+    setPast(pastRef.current);
+    setFuture(futureRef.current);
+    setLabels((l) => l.slice(0, -1));
+    setDoc(entry.doc);
+    scheduleSave();
+  }, [dropPreview, scheduleSave, setDoc]);
 
   const redo = useCallback(() => {
-    setFuture((f) => {
-      if (!f.length) return f;
-      const entry = f[0];
-      setPast((p) => [...p, { doc: docRef.current, label: entry.label }]);
-      setLabels((l) => [...l, entry.label]);
-      setDoc(entry.doc);
-      scheduleSave();
-      return f.slice(1);
-    });
-  }, [scheduleSave, setDoc]);
+    dropPreview();
+    const f = futureRef.current;
+    if (!f.length) return;
+    const entry = f[0];
+    futureRef.current = f.slice(1);
+    pastRef.current = [...pastRef.current, { doc: docRef.current, label: entry.label }];
+    setPast(pastRef.current);
+    setFuture(futureRef.current);
+    setLabels((l) => [...l, entry.label]);
+    setDoc(entry.doc);
+    scheduleSave();
+  }, [dropPreview, scheduleSave, setDoc]);
 
   const jumpTo = useCallback(
     (index: number) => {
@@ -277,6 +322,10 @@ export function useDesigner(designId: number, initialDoc: PlanDoc, initialRev: n
     revRef.current = save.rev;
     setRev(save.rev);
     dirtyRef.current = false;
+    blockedRef.current = false;
+    previewBase.current = null;
+    pastRef.current = [];
+    futureRef.current = [];
     setPast([]);
     setFuture([]);
     setLabels(["Reloaded"]);
@@ -289,6 +338,7 @@ export function useDesigner(designId: number, initialDoc: PlanDoc, initialRev: n
     revRef.current = save.rev;
     setRev(save.rev);
     dirtyRef.current = true;
+    blockedRef.current = false;
     setSave({ kind: "dirty" });
     void doSave();
   }, [doSave, save]);

@@ -1,14 +1,16 @@
 // One resolution path for every channel (app button, Telegram callback, MCP
 // wait/answer, future push). Wraps lib/commands/decisions.ts resolveDecision
-// — first tap wins, later taps are replay_ignored — and then does the two
-// things a resolution must cause: settle a bridged owner grant, and wake or
-// cancel the intents parked on this decision. Returns the reply text every
+// — first tap wins, later taps are replay_ignored — and then does what a
+// resolution must cause: settle a bridged owner grant, wake or cancel the
+// intents parked on this decision, and for an approved first-draw invoice
+// card, create the invoice. Returns the reply text every
 // channel shows ("Approved ✓", "Approved ✓ — already approved 2 min ago").
 //
 // Pure: `run` only. The Next glue (actions.ts) kicks the dispatcher after
 // commit and edits the Telegram card.
 
 import { onDecisionResolved } from "../agent-runtime/hooks.ts";
+import { INITIAL_INVOICE_ACTION, issueInitialFromDecision, type DecisionInvoiceOutcome } from "../billing/commands.ts";
 import type { Run } from "../commands/core.ts";
 import { DECISION_COLS, getDecision, resolveDecision, type Decision, type ResolveResult } from "../commands/decisions.ts";
 import { isOwner, type Principal } from "../commands/principal.ts";
@@ -36,6 +38,9 @@ export interface ResolveFromChannelResult {
   grantId: string | null;
   /** True when THIS call flipped the decision (the winning tap). */
   first: boolean;
+  /** Set when the approved card was a first-draw invoice: the invoice it
+   *  created (a draft the caller emails after commit), or why it could not. */
+  invoice?: DecisionInvoiceOutcome | null;
 }
 
 function ago(iso: string | null): string {
@@ -85,6 +90,7 @@ export async function resolveFromChannel(run: Run, input: ResolveFromChannelInpu
   }
   const grantId = await settleGrantFromDecision(run, d, outcome === "approved" ? "approved" : "rejected");
   let intentIds: string[] = [];
+  let invoice: DecisionInvoiceOutcome | null = null;
   if (outcome === "approved") {
     const rows = await run<{ id: string }>(
       `UPDATE action_intents SET state = 'pending', hold_reason = NULL, next_attempt_at = now()
@@ -92,6 +98,7 @@ export async function resolveFromChannel(run: Run, input: ResolveFromChannelInpu
       [d.id],
     );
     intentIds = rows.map((x) => x.id);
+    if (d.action === INITIAL_INVOICE_ACTION) invoice = await issueApprovedInvoice(run, d.id, input.principal);
   } else {
     const rows = await run<{ id: string }>(
       `UPDATE action_intents SET state = 'cancelled', last_error = $2, completed_at = now(), lease_token = NULL, lease_until = NULL
@@ -103,7 +110,24 @@ export async function resolveFromChannel(run: Run, input: ResolveFromChannelInpu
   // A24: wake the operating agent so the approved (or refused) work resumes
   // without Joe opening the panel. Idempotent on the decision id.
   await onDecisionResolved(run, d.id).catch(() => null);
-  return { ok: true, code: input.outcome, reply, decision: d, intentIds, grantId, first: true };
+  const withInvoice = !invoice ? reply : invoice.issued ? `${reply} Invoice ${invoice.invoiceNumber} created.` : `${reply} No invoice was created: ${invoice.reason}`;
+  return { ok: true, code: input.outcome, reply: withInvoice, decision: d, intentIds, grantId, first: true, invoice };
+}
+
+/** Approval of a first-draw invoice card creates the invoice in this same
+ *  transaction. Under a savepoint, so a failure here leaves the approval
+ *  standing and is reported instead of rolling the tap back. */
+async function issueApprovedInvoice(run: Run, decisionId: string, principal: Principal): Promise<DecisionInvoiceOutcome | null> {
+  await run(`SAVEPOINT approved_invoice`);
+  try {
+    const out = await issueInitialFromDecision(run, { decisionId, principal });
+    await run(`RELEASE SAVEPOINT approved_invoice`);
+    return out;
+  } catch (err) {
+    await run(`ROLLBACK TO SAVEPOINT approved_invoice`);
+    console.error(`[decisions] invoice for approved decision ${decisionId} failed:`, (err as Error).message);
+    return { issued: false, reason: (err as Error).message };
+  }
 }
 
 function actorOf(p: Principal): string {

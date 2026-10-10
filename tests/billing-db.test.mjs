@@ -23,11 +23,13 @@ import {
   issueFinalOnClientSignoff,
   onSignatureSigned,
   stageMilestoneConfirmation,
+  stageInitialInvoiceDecision,
   POLICY_INITIAL,
   POLICY_FINAL,
 } from "../lib/billing/commands.ts";
 import { proposePolicyVersion, activatePolicy, disablePolicy } from "../lib/commands/policies.ts";
 import { resolveDecision } from "../lib/commands/decisions.ts";
+import { resolveFromChannel } from "../lib/decisions/resolve.ts";
 
 // V10 (invoice identity, numbering, delivery truth, balances, reminders,
 // unknown terms), V38 (acceptance → initial invoice) and V44 (sign-off →
@@ -412,5 +414,60 @@ test("V44 sign-off: final invoice = verified remainder with CO balances/payments
     const again = await issueFinalOnClientSignoff(tx, { signatureRequestId: signoff2, principal: agent });
     assert.equal(again.issued, true);
     assert.equal(again.invoiceId, fin.id);
+  });
+});
+
+test("Approving a first-draw invoice card creates the invoice (draft, to email); changed totals refuse; signing on stale lines stages the card", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    const projectId = await seed(client, "zz-bill-card");
+    const tx = txOver(url);
+    const run = runOn(client);
+    const estimateId = await seedEstimate(client, projectId, { total: 4000000, status: "approved" });
+    // The client signed, then a line was added: the hook cannot issue on its own.
+    const sigId = await signature(client, { projectId, docType: "estimate", estimateId, status: "signed" });
+    await run(`INSERT INTO estimate_lines (estimate_id, description, qty, unit_cost, extended, created_at) VALUES ($1, 'Credit', 1, 0, 0, now())`, [estimateId]);
+    const out = await onSignatureSigned(tx, sigId, agent);
+    assert.equal(out.initial.issued, false);
+    assert.equal(out.initial.code, "changed");
+    assert.ok(out.initial.decisionId, "a changed acceptance stages Joe's card instead of dropping it");
+    const [card] = await run(`SELECT id, kind, action, amount_cents::int AS amount, recipient, summary FROM decisions WHERE id = $1`, [out.initial.decisionId]);
+    assert.equal(card.action, "invoice.issue_initial");
+    assert.equal(card.amount, 400000, "10% default first draw");
+    assert.equal(card.recipient, "zz-client-zz-bill-card@example.test");
+    assert.ok(card.summary.gaps.some((g) => /changed after/.test(g)));
+
+    // An agent staging the same card finds it (same dedupe key + content).
+    const again = await tx((r) => stageInitialInvoiceDecision(r, { projectId, principal: agent }));
+    assert.equal(again.ok, true);
+    assert.equal(again.decisionId, card.id);
+
+    // Joe approves → the invoice exists, as a draft for the email step.
+    const r1 = await tx((r) => resolveFromChannel(r, { decisionId: card.id, via: "telegram", principal: owner, outcome: "approved" }));
+    assert.equal(r1.ok, true);
+    assert.equal(r1.invoice.issued, true);
+    assert.equal(r1.invoice.created, true);
+    assert.equal(r1.invoice.status, "draft");
+    assert.match(r1.reply, /Invoice .* created/);
+    const [inv] = await run(`SELECT amount::int AS amount, status, source, economic_key FROM invoices WHERE id = $1`, [r1.invoice.invoiceId]);
+    assert.deepEqual(inv, { amount: 400000, status: "draft", source: "acceptance", economic_key: `estimate:${estimateId}:initial` });
+    assert.equal((await run(`SELECT status FROM decisions WHERE id = $1`, [card.id]))[0].status, "consumed");
+    const r2 = await tx((r) => resolveFromChannel(r, { decisionId: card.id, via: "app", principal: owner, outcome: "approved" }));
+    assert.equal(r2.ok, false, "a second tap changes nothing");
+    assert.equal((await run(`SELECT count(*)::int AS n FROM invoices`))[0].n, 1);
+    const dup = await tx((r) => stageInitialInvoiceDecision(r, { projectId, principal: agent }));
+    assert.equal(dup.ok, false, "no second card once the invoice exists");
+
+    // Total changed between the card and the tap → refused, approval stands, nothing issued.
+    const p2 = await seed(client, "zz-bill-card2");
+    const e2 = await seedEstimate(client, p2, { total: 1000000, status: "approved" });
+    const st = await tx((r) => stageInitialInvoiceDecision(r, { projectId: p2, principal: agent }));
+    assert.equal(st.ok, true);
+    await run(`UPDATE estimates SET total = 1200000 WHERE id = $1`, [e2]);
+    const r3 = await tx((r) => resolveFromChannel(r, { decisionId: st.decisionId, via: "app", principal: owner, outcome: "approved" }));
+    assert.equal(r3.ok, true);
+    assert.equal(r3.invoice.issued, false);
+    assert.match(r3.reply, /No invoice was created: The first draw is now \$1,200\.00/);
+    assert.equal((await run(`SELECT count(*)::int AS n FROM invoices WHERE project_id = $1`, [p2]))[0].n, 0);
+    assert.equal((await run(`SELECT status FROM decisions WHERE id = $1`, [st.decisionId]))[0].status, "approved");
   });
 });

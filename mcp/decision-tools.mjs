@@ -154,7 +154,9 @@ export function registerDecisionTools(server, { json, decisionsCall, pool, curre
         "since the last review, and the exact effect of approving. Or pass `content` (the exact object) " +
         "with your own `summary`. Same dedupe_key + same content returns the existing card (no duplicate " +
         "alert); changed content supersedes it. Returns the decision id — then wait_for_decision. Approval " +
-        "wakes the intents staged under decision_id; it never sends by itself. Keep copy factual: no " +
+        "wakes the intents staged under decision_id; it never sends by itself. Not for invoices: use " +
+        "stage_initial_invoice (first draw) or stage_milestone_confirmation (progress draws), which create the " +
+        "invoice on approval; a stage_decision card creates none. Keep copy factual: no " +
         "invented calls, visits or feelings.",
       inputSchema: {
         kind: z.enum(["package_release", "proposal", "purchase", "payment", "refund", "publication", "schedule", "funding", "markup", "change_order", "design_package", "other"]),

@@ -21,6 +21,7 @@ import { verifyWebhookSignature } from "../lib/payments/square/signature.ts";
 import { getSquareAdapter } from "../lib/payments/square/index.ts";
 import { recordSourceEvent } from "../lib/commands/source-events.ts";
 import { resolveDecision } from "../lib/commands/decisions.ts";
+import { activatePolicy, proposePolicyVersion } from "../lib/commands/policies.ts";
 
 // V21 (customer payments) on a REAL disposable Postgres with the fake Square:
 // repeat checkout, stale amount/link, missed + repeated webhooks, pending ACH
@@ -154,6 +155,72 @@ test("V21 card with a real browser nonce: Square key fits its limits; a lost res
     assert.equal((await adapter.getPayment(settled.provider_payment_id)).referenceId, settled.id);
     assert.equal((await invoiceBalance(run, inv.id)).balanceCents, 0);
     assert.equal((await run(`SELECT status FROM invoices WHERE id = $1`, [inv.id]))[0].status, "paid");
+  });
+});
+
+test("Payment receipt: one client email per completed Square payment, under the payment.receipt policy; none while ACH is pending; policy off → a decision", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    const projectId = await seed(client, "zz-pay-receipt");
+    const tx = txOver(url);
+    const run = runOn(client);
+    const adapter = getSquareAdapter();
+    const receipts = (attemptId) => run(`SELECT operation_key, kind, recipient, policy_ref, decision_id, payload FROM action_intents WHERE operation_key = $1`, [`payment:${attemptId}:receipt`]);
+
+    // Policy OFF (seeded as a draft): the receipt waits on a decision, never sends by itself.
+    const inv0 = await issued(tx, projectId, "draw:0:deposit", 500);
+    const off = await checkout(tx, adapter, { invoiceId: inv0.id, method: "card", nonce: crypto.randomUUID(), sourceId: "cnon:card-ok" });
+    assert.equal(off.attempt.state, "completed");
+    let rows = await receipts(off.attempt.id);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].policy_ref, null);
+    assert.ok(rows[0].decision_id, "held behind a decision Joe approves");
+
+    // (the harness empties policies; migration 0024 seeds the same draft in prod)
+    await tx(async (r) => {
+      const v = await proposePolicyVersion(r, "payment.receipt", { lane: "sends" }, "test");
+      await activatePolicy(r, "payment.receipt", v.version);
+    });
+
+    // Card: completes → exactly one receipt to the client, with the Square receipt link.
+    const inv = await issued(tx, projectId, "draw:1:rough", 1234);
+    const paid = await checkout(tx, adapter, { invoiceId: inv.id, method: "card", nonce: crypto.randomUUID(), sourceId: "cnon:card-ok" });
+    rows = await receipts(paid.attempt.id);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].kind, "send_email");
+    assert.equal(rows[0].policy_ref, "policy:payment.receipt@1");
+    assert.equal(rows[0].recipient, "zz-client-zz-pay-receipt@example.test");
+    const body = rows[0].payload.bodyText;
+    assert.match(body, /\$12\.34/);
+    assert.match(body, new RegExp(`invoice ${inv.number}`));
+    assert.match(body, /paid in full/);
+    assert.ok(body.includes(paid.payment.receiptUrl), "Square's receipt link");
+    // a duplicate COMPLETED webhook changes nothing and stages nothing new
+    const evt = fakeSquare.webhookEvent("payment.updated", paid.payment.id);
+    await tx((x) => processSquareEvent(x, { payload: JSON.parse(evt.body), sourceEventId: null }));
+    assert.equal((await receipts(paid.attempt.id)).length, 1);
+
+    // ACH: no receipt while pending; one when Square says COMPLETED.
+    const inv2 = await issued(tx, projectId, "draw:2:final", 90000);
+    const ach = await checkout(tx, adapter, { invoiceId: inv2.id, method: "ach", nonce: crypto.randomUUID(), sourceId: "bauth:ok" });
+    assert.equal(ach.attempt.state, "pending");
+    assert.equal((await receipts(ach.attempt.id)).length, 0, "pending is not money received");
+    fakeSquare.setStatus(ach.payment.id, "COMPLETED");
+    const done = fakeSquare.webhookEvent("payment.updated", ach.payment.id);
+    const r = await tx((x) => processSquareEvent(x, { payload: JSON.parse(done.body), sourceEventId: null }));
+    assert.equal(r.handled, "payment:pending->completed");
+    rows = await receipts(ach.attempt.id);
+    assert.equal(rows.length, 1);
+    assert.equal(r.receiptIntentId != null, true, "webhook hands the receipt to the immediate dispatch");
+    assert.match(rows[0].payload.bodyText, /bank transfer payment of \$900\.00/);
+
+    // No client email anywhere: the payment still records; the receipt is skipped.
+    await run(`UPDATE users SET email = 'zz-pay-receipt@client-portal.invalid' WHERE link_slug = 'zz-pay-receipt'`);
+    await run(`UPDATE projects SET client_email = '' WHERE id = $1`, [projectId]);
+    const inv3 = await issued(tx, projectId, "draw:3:extra", 700);
+    const noMail = await checkout(tx, adapter, { invoiceId: inv3.id, method: "card", nonce: crypto.randomUUID(), sourceId: "cnon:card-ok" });
+    assert.equal(noMail.attempt.state, "completed");
+    assert.equal((await run(`SELECT status FROM invoices WHERE id = $1`, [inv3.id]))[0].status, "paid");
+    assert.equal((await receipts(noMail.attempt.id)).length, 0);
   });
 });
 

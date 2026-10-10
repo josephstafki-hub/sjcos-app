@@ -170,7 +170,15 @@ export interface IssueInitialInput {
 
 export async function issueInitialOnAcceptance(tx: Tx, input: IssueInitialInput): Promise<IssueOutcome> {
   const pre = await tx((run) => acceptanceContext(run, input.signatureRequestId));
-  if (!pre.ok) return { issued: false, code: pre.code, reason: pre.reason };
+  if (!pre.ok) {
+    // The client signed, but not the estimate as it stands now. Put the
+    // question in front of Joe instead of dropping it silently.
+    if (pre.code === "changed") {
+      const staged = await tx((run) => stageAfterChangedAcceptance(run, input.signatureRequestId, input.principal, pre.reason));
+      return { issued: false, code: pre.code, reason: pre.reason, decisionId: staged };
+    }
+    return { issued: false, code: pre.code, reason: pre.reason };
+  }
   const { ctx } = pre;
 
   // Authority: active policy, else a consumed decision, else stage one.
@@ -245,6 +253,195 @@ export async function issueInitialOnAcceptance(tx: Tx, input: IssueInitialInput)
     }
     throw err;
   }
+}
+
+// ── Owner-approved initial invoice (the decision path) ─────────────────────
+// Joe's card for the first draw: staged by the acceptance hook when it cannot
+// issue on its own, or by an agent (stage_initial_invoice). Approving it runs
+// issueInitialFromDecision inside the resolving transaction, which creates the
+// invoice as a DRAFT; the Next glue then emails it through sendInvoiceOp, the
+// send path that builds the client email, PDF and pay link. Before this nothing
+// consumed an approved invoice card, so the approval was recorded and no
+// invoice was created.
+
+export const INITIAL_INVOICE_ACTION = "invoice.issue_initial";
+
+export interface InitialInvoicePlan {
+  projectId: string;
+  projectName: string;
+  slug: string;
+  estimate: EstimateRow;
+  firstDraw: DrawLine;
+  amountCents: number;
+  economicKey: string;
+  client: { name: string; email: string | null };
+  /** The latest client signature on this estimate, if any. */
+  acceptance: { signatureRequestId: number; signedAt: string | null; signedName: string | null; linesChangedSince: boolean } | null;
+  existingInvoice: { id: number; number: string; status: string } | null;
+}
+
+const usdOf = (cents: number) => `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** What the first-draw invoice would be right now: the project's formal
+ *  estimate (approved, else sent), its first draw, and who it would go to. */
+export async function initialInvoicePlan(run: Run, projectId: string): Promise<{ ok: true; plan: InitialInvoicePlan } | { ok: false; reason: string }> {
+  const [proj] = await run<{ name: string; slug: string; client_name: string | null; email: string | null }>(
+    `SELECT p.name, p.slug, COALESCE(u.name, p.client_name, '') AS client_name,
+            COALESCE(NULLIF(trim(u.email), ''), NULLIF(trim(p.client_email), '')) AS email
+       FROM projects p
+       LEFT JOIN users u ON u.role = 'client' AND u.link_slug = p.slug AND u.active = true AND u.email NOT LIKE '%@client-portal.invalid'
+      WHERE p.id = $1 LIMIT 1`,
+    [projectId],
+  );
+  if (!proj) return { ok: false, reason: "No such project." };
+  const [pick] = await run<{ id: number }>(
+    `SELECT id::int AS id FROM estimates
+      WHERE project_id = $1 AND kind = 'formal' AND status IN ('approved','sent')
+      ORDER BY (status = 'approved') DESC, approved_at DESC NULLS LAST, id DESC LIMIT 1`,
+    [projectId],
+  );
+  if (!pick) return { ok: false, reason: `${proj.name} has no formal estimate that was sent to or approved by the client.` };
+  const est = await loadEstimate(run, pick.id);
+  if (!est || !(est.total > 0)) return { ok: false, reason: `Formal estimate #${pick.id} has no total; nothing to bill.` };
+  const lines = await drawScheduleFor(run, est);
+  const firstDraw = lines[0];
+  const amountCents = firstDraw ? drawAmount(est.total, firstDraw.percent) : 0;
+  if (!firstDraw || amountCents <= 0) return { ok: false, reason: `Estimate #${est.id}'s payment schedule has no first draw to bill.` };
+  const economicKey = `estimate:${est.id}:initial`;
+  const [sig] = await run<{ id: number; sent_at: string | null; signed_at: string | null; signed_name: string | null }>(
+    `SELECT id::int AS id, sent_at::text AS sent_at, signed_at::text AS signed_at, signed_name FROM signature_requests
+      WHERE estimate_id = $1 AND doc_type = 'estimate' AND status = 'signed' ORDER BY signed_at DESC NULLS LAST, id DESC LIMIT 1`,
+    [est.id],
+  );
+  const changedSince = Boolean(sig && est.lines_changed_at && new Date(est.lines_changed_at).getTime() > new Date(sig.sent_at ?? sig.signed_at ?? 0).getTime());
+  const [inv] = await run<{ id: number; number: string; status: string }>(
+    `SELECT id::int AS id, number, status FROM invoices WHERE project_id = $1 AND economic_key = $2 AND status <> 'void' LIMIT 1`,
+    [projectId, economicKey],
+  );
+  return {
+    ok: true,
+    plan: {
+      projectId,
+      projectName: proj.name,
+      slug: proj.slug,
+      estimate: est,
+      firstDraw,
+      amountCents,
+      economicKey,
+      client: { name: proj.client_name || "the client", email: proj.email ? proj.email.toLowerCase() : null },
+      acceptance: sig ? { signatureRequestId: sig.id, signedAt: sig.signed_at, signedName: sig.signed_name, linesChangedSince: changedSince } : null,
+      existingInvoice: inv ?? null,
+    },
+  };
+}
+
+export interface StageInitialInput {
+  projectId: string;
+  principal: Principal;
+  /** Extra open questions to show on the card (agent findings). */
+  gaps?: string[];
+  /** One plain line on the money (credits already inside the total, etc.). */
+  moneyCheck?: string | null;
+  workItemId?: string | null;
+}
+
+/** Stage Joe's card for the first-draw invoice. Same dedupe key and content
+ *  as the acceptance hook's card, so the two never duplicate. */
+export async function stageInitialInvoiceDecision(run: Run, input: StageInitialInput): Promise<{ ok: true; decisionId: string; created: boolean; amountCents: number } | { ok: false; reason: string }> {
+  const p = await initialInvoicePlan(run, input.projectId);
+  if (!p.ok) return p;
+  const { plan } = p;
+  if (plan.existingInvoice) return { ok: false, reason: `The first-draw invoice already exists: ${plan.existingInvoice.number} (${plan.existingInvoice.status}).` };
+  const amount = usdOf(plan.amountCents);
+  const gaps: string[] = [];
+  if (!plan.client.email) gaps.push("No client email on file. Approving creates the invoice as a draft; nothing can be emailed until an address is added.");
+  if (!plan.acceptance) gaps.push(`The client has not signed estimate #${plan.estimate.id}.`);
+  else if (plan.acceptance.linesChangedSince) gaps.push(`Estimate #${plan.estimate.id}'s lines changed after ${plan.acceptance.signedName ?? "the client"} signed it. The invoice uses the current total, ${usdOf(plan.estimate.total)}.`);
+  for (const g of input.gaps ?? []) if (g?.trim()) gaps.push(g.trim());
+  const to = plan.client.email ? `${plan.client.name} <${plan.client.email}>` : plan.client.name;
+  const staged = await stageDecision(run, {
+    kind: "invoice_issue",
+    action: INITIAL_INVOICE_ACTION,
+    title: `${plan.projectName}: issue the ${plan.firstDraw.label} invoice (${amount})`,
+    summary: {
+      effect: `Approving creates the invoice "${plan.firstDraw.label}" for ${amount} (${plan.firstDraw.percent}% of formal estimate #${plan.estimate.id}, ${usdOf(plan.estimate.total)}) and emails it to ${to} with the PDF and pay link.`,
+      recipients: [{ name: plan.client.name, ...(plan.client.email ? { address: plan.client.email } : {}) }],
+      inclusions: [`${plan.firstDraw.label}: ${plan.firstDraw.percent}% = ${amount}`],
+      ...(input.moneyCheck?.trim() ? { money_check: input.moneyCheck.trim() } : {}),
+      ...(gaps.length ? { gaps } : {}),
+    },
+    targetKind: "estimate",
+    targetId: plan.estimate.id,
+    recipient: plan.client.email,
+    amountCents: plan.amountCents,
+    projectId: plan.projectId,
+    href: `/projects/${plan.slug}`,
+    dedupeKey: plan.economicKey,
+    workItemId: input.workItemId ?? null,
+    requestedBy: input.principal,
+    content: { economicKey: plan.economicKey, amountCents: plan.amountCents },
+  });
+  return { ok: true, decisionId: staged.decision.id, created: staged.created, amountCents: plan.amountCents };
+}
+
+async function stageAfterChangedAcceptance(run: Run, signatureRequestId: number, principal: Principal, reason: string): Promise<string | null> {
+  const sig = await loadSignature(run, signatureRequestId);
+  const est = sig?.estimate_id ? await loadEstimate(run, sig.estimate_id) : null;
+  const projectId = est?.project_id ?? sig?.project_id ?? null;
+  if (!est || est.kind !== "formal" || !projectId) return null;
+  const r = await stageInitialInvoiceDecision(run, { projectId, principal, gaps: [reason] });
+  return r.ok ? r.decisionId : null;
+}
+
+export type DecisionInvoiceOutcome =
+  | { issued: true; invoiceId: number; invoiceNumber: string; status: string; created: boolean }
+  | { issued: false; reason: string };
+
+/** Approved first-draw card → the invoice, as a draft ready to email. Runs in
+ *  the resolving transaction. Re-checks the amount against the estimate as it
+ *  stands now; a changed total refuses (a fresh card is needed). Idempotent on
+ *  the economic key. Returns null for any other decision. */
+export async function issueInitialFromDecision(run: Run, input: { decisionId: string; principal: Principal }): Promise<DecisionInvoiceOutcome | null> {
+  const [d] = await run<{ action: string; status: string; project_id: string | null; target_id: string | null; amount_cents: string | null }>(
+    `SELECT action, status, project_id, target_id, amount_cents::text AS amount_cents FROM decisions WHERE id = $1`,
+    [input.decisionId],
+  );
+  if (!d || d.action !== INITIAL_INVOICE_ACTION) return null;
+  if (!d.project_id) return { issued: false, reason: "The card is not tied to a project." };
+  const p = await initialInvoicePlan(run, d.project_id);
+  if (!p.ok) return { issued: false, reason: p.reason };
+  const { plan } = p;
+  if (plan.existingInvoice) {
+    return { issued: true, invoiceId: plan.existingInvoice.id, invoiceNumber: plan.existingInvoice.number, status: plan.existingInvoice.status, created: false };
+  }
+  if (String(plan.estimate.id) !== String(d.target_id)) return { issued: false, reason: `The formal estimate is now #${plan.estimate.id}, not #${d.target_id}. A fresh card is needed.` };
+  if (d.amount_cents != null && Number(d.amount_cents) !== plan.amountCents) {
+    return { issued: false, reason: `The first draw is now ${usdOf(plan.amountCents)}, not the ${usdOf(Number(d.amount_cents))} on the card. A fresh card is needed.` };
+  }
+  const c = await consumeDecision(run, {
+    id: input.decisionId,
+    action: INITIAL_INVOICE_ACTION,
+    amountCents: plan.amountCents,
+    targetKind: "estimate",
+    targetId: plan.estimate.id,
+    recipient: plan.client.email,
+    contentHash: contentHashOf({ economicKey: plan.economicKey, amountCents: plan.amountCents }),
+    consumer: "invoice.issue_initial_from_decision",
+  });
+  if (!c.ok) return { issued: false, reason: c.reason };
+  const { invoice, created } = await issueMilestoneInvoice(run, {
+    projectId: plan.projectId,
+    economicKey: plan.economicKey,
+    milestone: plan.firstDraw.label,
+    amountCents: plan.amountCents,
+    source: "acceptance",
+    estimateId: plan.estimate.id,
+    status: "draft",
+    principal: input.principal,
+  });
+  await logInvoiceEvent(run, invoice.id, "owner_approved", input.principal, { decisionId: input.decisionId, signatureRequestId: plan.acceptance?.signatureRequestId ?? null });
+  await markDrawBilled(run, plan.estimate.id, 0);
+  return { issued: true, invoiceId: invoice.id, invoiceNumber: invoice.number, status: invoice.status, created };
 }
 
 // ── W08 (later): signed construction contract links, never rebills ─────────

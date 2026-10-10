@@ -1,11 +1,11 @@
 // A07 billing tools: verified balances, milestone confirmation staging, final
-// reconciliation, manual payment recording. Invoice ISSUANCE is automatic
-// under its policies (acceptance / owner confirmation / client sign-off) —
-// there is deliberately no "issue invoice" tool for agents.
+// reconciliation, manual payment recording. Agents never issue an invoice
+// themselves: they stage Joe's card (stage_initial_invoice for the first draw,
+// stage_milestone_confirmation for progress draws) and his approval issues it.
 
 import { z } from "zod";
 import { invoiceBalance, verifiedBalances, recordInvoicePayment, invoiceCollisionReport } from "../lib/billing/core.ts";
-import { stageMilestoneConfirmation, finalReconciliation, resolveDraw } from "../lib/billing/commands.ts";
+import { stageMilestoneConfirmation, stageInitialInvoiceDecision, finalReconciliation, resolveDraw } from "../lib/billing/commands.ts";
 import { txOver, principalFor, fail, agentNameOf } from "./tool-shared.mjs";
 
 export function registerBillingTools(server, { rows, json, pool, slugToId, currentPrincipal }) {
@@ -40,6 +40,33 @@ export function registerBillingTools(server, { rows, json, pool, slugToId, curre
         const id = await project(a.project_slug);
         const p = await principal();
         return json(await tx((r) => stageMilestoneConfirmation(r, { projectId: id, milestoneKey: a.milestone_key, principal: p, evidence: a.evidence })));
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stage_initial_invoice",
+    {
+      title: "Ask Joe to issue the first-draw invoice (contract signing / deposit)",
+      description:
+        "Stages Joe's card for the project's FIRST draw invoice, figured from the formal estimate's payment schedule as it stands now " +
+        "(amount, client recipient, whether the client signed and whether the lines changed since). When Joe approves it, the app creates " +
+        "the invoice and emails it to the client with the PDF and pay link; do not send it yourself. Use this, not stage_decision, for an " +
+        "initial invoice: a stage_decision card creates no invoice when approved. Add your findings as gaps / money_check.",
+      inputSchema: {
+        project_slug: z.string(),
+        gaps: z.array(z.string()).optional().describe("Open questions Joe should see on the card."),
+        money_check: z.string().optional().describe("One plain line on the money, e.g. credits already inside the total."),
+        work_item_id: z.string().uuid().optional().describe("Work item to wake when Joe answers."),
+      },
+    },
+    async (a) => {
+      try {
+        const id = await project(a.project_slug);
+        const p = await principal();
+        return json(await tx((r) => stageInitialInvoiceDecision(r, { projectId: id, principal: p, gaps: a.gaps, moneyCheck: a.money_check ?? null, workItemId: a.work_item_id ?? null })));
       } catch (e) {
         return fail(e);
       }

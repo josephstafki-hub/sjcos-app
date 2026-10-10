@@ -4,6 +4,7 @@ import type { Principal } from "@/lib/commands/principal";
 import { handleTelegramUpdate, verifyTelegramSecret, type TelegramUpdate } from "@/lib/decisions/telegram";
 import { answerCallbackQuery, defaultTransport } from "@/lib/providers/telegram";
 import { dispatchIntentsNow } from "@/lib/dispatch/db";
+import { emailApprovedInvoice } from "@/lib/billing/server";
 
 // POST /api/telegram/webhook — Telegram decision buttons (A10).
 //
@@ -61,6 +62,15 @@ export async function POST(req: Request) {
         await dispatchIntentsNow(woke);
       } catch (err) {
         console.error("[telegram] dispatch after approval failed (sweep will retry):", (err as Error).message);
+      }
+    }
+    // An approved first-draw invoice card created a draft invoice; email it.
+    const res = result.resolution;
+    if (res?.ok && res.code === "approved" && res.invoice && res.decision) {
+      try {
+        await emailApprovedInvoice(res.invoice, res.decision.id);
+      } catch (err) {
+        console.error("[telegram] invoice email after approval failed:", (err as Error).message);
       }
     }
     return NextResponse.json({ ok: true, handled: result.handled, duplicate: result.duplicate, outcome: result.outcome });

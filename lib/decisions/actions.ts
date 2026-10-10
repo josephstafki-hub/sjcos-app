@@ -14,6 +14,7 @@ import { LANES, listLanePauses, pauseLane, resumeLane, type Lane } from "@/lib/c
 import { isOwner } from "@/lib/commands/principal";
 import { dispatchIntentsNow } from "@/lib/dispatch/db";
 import { notifyAgentOwner } from "@/lib/dev-agents";
+import { emailApprovedInvoice } from "@/lib/billing/server";
 import { runDirect } from "@/lib/commands/db";
 import { refreshTelegramCard } from "./notify";
 import { holdDecision, resolveFromChannel, revokeDecisionEverywhere, type ResolveFromChannelResult } from "./resolve";
@@ -26,14 +27,24 @@ function refresh() {
   revalidatePath("/notifications");
 }
 
-async function afterResolve(r: ResolveFromChannelResult): Promise<void> {
-  if (!r.ok || !r.decision) return;
+/** Returns a line to add to the reply (the invoice email's outcome), if any. */
+async function afterResolve(r: ResolveFromChannelResult): Promise<string | null> {
+  if (!r.ok || !r.decision) return null;
   const d = r.decision;
   if (r.code === "approved" && r.intentIds.length) {
     try {
       await dispatchIntentsNow(r.intentIds);
     } catch (err) {
       console.error("[decisions] dispatch after approval failed (sweep will retry):", (err as Error).message);
+    }
+  }
+  let extra: string | null = null;
+  if (r.code === "approved" && r.invoice) {
+    try {
+      extra = await emailApprovedInvoice(r.invoice, d.id);
+    } catch (err) {
+      console.error("[decisions] invoice email after approval failed:", (err as Error).message);
+      extra = "The invoice was created but the email step failed; send it from the project's invoices.";
     }
   }
   if (d.work_item_id) {
@@ -45,16 +56,17 @@ async function afterResolve(r: ResolveFromChannelResult): Promise<void> {
     }
   }
   await refreshTelegramCard(d).catch(() => undefined);
+  return extra;
 }
 
 async function resolve(id: string, outcome: "approved" | "rejected" | "changes_requested", note: string | null, contentHash: string | null): Promise<DecisionActionResult> {
   const principal = await sessionPrincipal();
   if (!principal) return { ok: false, error: "Sign in first." };
   const r = await withTransaction((run) => resolveFromChannel(run, { decisionId: id, contentHash, via: "app", principal, outcome, note }));
-  await afterResolve(r);
+  const extra = await afterResolve(r);
   refresh();
   if (!r.ok) return { ok: false, error: r.reply };
-  return { ok: true, reply: r.reply, state: r.decision?.status ?? outcome };
+  return { ok: true, reply: extra ? `${r.reply} ${extra}` : r.reply, state: r.decision?.status ?? outcome };
 }
 
 export async function approveDecisionAction(id: string, contentHash: string | null): Promise<DecisionActionResult> {

@@ -1,11 +1,12 @@
+import Link from "next/link";
 import { Card, Chip, Eyebrow } from "@/components/ui";
 import { portalSlug } from "@/lib/client-portal";
 import { getProject } from "@/lib/projects";
 import { getProjectMoney, usd } from "@/lib/money";
 
 // Client-portal money: contract standing plus every sent/paid invoice with its
-// line items. Drafts never show. Payment itself stays offline (check/transfer
-// to Joe) — this is the ledger the client can trust.
+// line items. Drafts never show. An open invoice links to its pay page
+// (Square card / bank transfer, or Joe's offline instructions).
 export default async function PortalMoneyPage() {
   const slug = await portalSlug();
   const [project, money] = slug
@@ -85,7 +86,17 @@ export default async function PortalMoneyPage() {
                   ))}
                 </div>
               )}
-              <div className="mt-1 font-mono text-[10px] text-ink-3">{inv.statusLabel}</div>
+              <div className="mt-1 flex items-center gap-2">
+                <span className="flex-1 font-mono text-[10px] text-ink-3">{inv.statusLabel}</span>
+                {inv.balance > 0 && inv.pending === 0 && inv.lifecycle !== "disputed" && (
+                  <Link
+                    href={`/client-portal/pay/${inv.id}`}
+                    className="rounded-md border border-accent bg-accent px-3 py-1 text-[11.5px] font-semibold text-white hover:bg-accent-2"
+                  >
+                    Pay {usd(inv.balance)}
+                  </Link>
+                )}
+              </div>
             </Card>
           ))}
         </div>

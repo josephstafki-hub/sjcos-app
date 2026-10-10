@@ -71,6 +71,23 @@ export function portalTargetPath(key: string | null | undefined): string {
   return PORTAL_TARGETS.home;
 }
 
+/** Where /client-portal/enter lands: one invoice's pay page for `to=pay&inv=<id>`
+ *  (digits only, so the allowlist still holds), else the section allowlist.
+ *  The pay page itself checks the invoice belongs to the session's project. */
+export function portalEnterPath(to: string | null | undefined, inv: string | null | undefined): string {
+  if (to === "pay" && inv && /^\d{1,12}$/.test(inv)) return `/client-portal/pay/${inv}`;
+  return portalTargetPath(to);
+}
+
+/** The emailed "pay this invoice" link. A claimed portal refuses bearer links,
+ *  so it gets the plain page URL (they sign in with their password). */
+export async function invoicePayLink(projectSlug: string, invoiceId: number): Promise<string> {
+  const scope = { project: projectSlug };
+  if (await getPortalClaim(scope)) return `${portalBaseUrl()}/client-portal/pay/${invoiceId}`;
+  const invite = await ensureClientInvite(scope);
+  return `${portalBaseUrl()}/client-portal/enter?token=${invite.token}&to=pay&inv=${invoiceId}`;
+}
+
 /** The app's public base URL, for links that must work from an email client. */
 export function portalBaseUrl(): string {
   return (

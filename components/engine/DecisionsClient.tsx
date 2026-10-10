@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Card, Chip, Eyebrow, toast } from "@/components/ui";
 import { runAction } from "@/lib/run-action";
+import { normalizeSummary } from "@/lib/decisions/summary";
 import {
   approveDecisionAction,
   holdDecisionAction,
@@ -50,10 +51,6 @@ function fmt(iso: string | null) {
   return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-type Recip = { name: string; address?: string; role?: string };
-type Qty = { label: string; qty: string | number; unit?: string };
-type Att = { label: string; revision?: string };
-const arr = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
 
 function KindChip({ d }: { d: DecisionView }) {
   if (d.status !== "pending") return <Chip kind={d.status === "approved" || d.status === "consumed" ? "money" : "ghost"}>{d.status}</Chip>;
@@ -76,10 +73,9 @@ function Section({ label, items }: { label: string; items: string[] }) {
 }
 
 function Preview({ d }: { d: DecisionView }) {
-  const s = d.summary ?? {};
-  const recipients = arr<Recip>(s.recipients);
-  const quantities = arr<Qty>(s.quantities);
-  const attachments = arr<Att>(s.attachments);
+  // Agent-written summaries come in any shape (lib/decisions/summary.ts).
+  const s = normalizeSummary(d.summary);
+  const { recipients, quantities, attachments } = s;
   return (
     <div className="flex flex-col gap-3">
       {recipients.length > 0 && (
@@ -98,16 +94,22 @@ function Preview({ d }: { d: DecisionView }) {
       )}
       {!recipients.length && d.recipient ? <div className="text-[13px] text-ink-2">To: {d.recipient}</div> : null}
       {d.amountCents != null ? <div className="text-[13px] text-ink-2">Amount: {usd(d.amountCents)}</div> : null}
-      <Section label="Included" items={arr<string>(s.inclusions)} />
-      <Section label="Excluded" items={arr<string>(s.exclusions)} />
+      {s.notes.map((n, i) => (
+        <div key={i}>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">{n.label}</div>
+          <p className="mt-0.5 whitespace-pre-line text-[13px] leading-relaxed text-ink-2">{n.text}</p>
+        </div>
+      ))}
+      <Section label="Included" items={s.inclusions} />
+      <Section label="Excluded" items={s.exclusions} />
       {quantities.length > 0 && (
         <Section label="Quantities" items={quantities.map((q) => `${q.label}: ${q.qty}${q.unit ? ` ${q.unit}` : ""}`)} />
       )}
       {attachments.length > 0 && <Section label="Attachments" items={attachments.map((a) => `${a.label}${a.revision ? ` · rev ${a.revision}` : ""}`)} />}
-      <Section label="Assumptions" items={arr<string>(s.assumptions)} />
-      <Section label="Missing or open" items={arr<string>(s.gaps)} />
-      <Section label="Since last review" items={arr<string>(s.changes)} />
-      {typeof s.effect === "string" && s.effect ? (
+      <Section label="Assumptions" items={s.assumptions} />
+      <Section label="Missing or open" items={s.gaps} />
+      <Section label="Since last review" items={s.changes} />
+      {s.effect ? (
         <div className="rounded-md border border-rule bg-paper-2 p-2 text-[13px] leading-relaxed text-ink">
           <span className="font-semibold">If approved:</span> {s.effect}
         </div>
@@ -145,7 +147,7 @@ function DecisionCard({ d, open, onToggle, owner }: { d: DecisionView; open: boo
             <span className="text-[11px] text-ink-3">asked by {d.requestedBy} · {fmt(d.createdAt)}</span>
           </div>
           <div className="mt-1 text-[14px] font-medium text-ink">{d.title}</div>
-          {typeof d.summary?.effect === "string" && !open ? <div className="mt-0.5 line-clamp-2 text-[12px] text-ink-3">{String(d.summary.effect)}</div> : null}
+          {normalizeSummary(d.summary).effect && !open ? <div className="mt-0.5 line-clamp-2 text-[12px] text-ink-3">{normalizeSummary(d.summary).effect}</div> : null}
           {d.holdNote && live ? <div className="mt-0.5 text-[12px] text-ink-3">Hold note: {d.holdNote}</div> : null}
           {d.decisionNote && !live ? <div className="mt-0.5 text-[12px] text-ink-3">{d.decisionNote}</div> : null}
           {!live && d.decidedAt ? <div className="mt-0.5 text-[11px] text-ink-3">{d.status} via {d.decidedVia ?? "app"} · {fmt(d.decidedAt)}</div> : null}

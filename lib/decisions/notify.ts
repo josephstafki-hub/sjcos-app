@@ -12,6 +12,7 @@ import { runDirect, withTransaction } from "@/lib/commands/db";
 import { recordDelivery, stageDecision, DECISION_COLS, type Decision, type StageDecisionInput } from "@/lib/commands/decisions";
 import { notifyOwner } from "@/lib/notify-owner";
 import { cardText } from "./cards";
+import { normalizeSummary } from "./summary";
 import { decisionKeyboard } from "./telegram";
 
 function appUrl(): string {
@@ -44,7 +45,7 @@ export async function announceDecision(d: Decision, opts: { created: boolean; su
     href: `/engine/decisions?d=${d.id}`,
     emit: {
       title: `Decision: ${d.title}`,
-      subline: ((d.summary as { effect?: string }).effect ?? "").slice(0, 160) || undefined,
+      subline: (normalizeSummary(d.summary).effect ?? "").slice(0, 160) || undefined,
       href: `/engine/decisions?d=${d.id}`,
     },
     telegram: {

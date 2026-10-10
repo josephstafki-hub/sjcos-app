@@ -276,7 +276,7 @@ async function publishSummary(
         targetId: summary.id,
         recipient: client.email,
         projectId: summary.project_id,
-        payload: { to: client.email, subject: rendered.subject, body: rendered.text, photos: content.photos, summaryId: summary.id },
+        payload: { to: client.email, subject: rendered.subject, bodyText: rendered.text, photos: content.photos, summaryId: summary.id },
         artifactRevision,
         decisionId: o.decisionId,
         policyRef: o.policyRef,

@@ -89,11 +89,11 @@ test("V45 post-project: warranty only from configured terms, review only with UR
     assert.equal(byKind.warranty_docs.state, "queued");
     const w = await getIntent(run, byKind.warranty_docs.intent_id);
     assert.equal(w.kind, "send_email");
-    assert.match(w.payload.body, /1-year workmanship on all carpentry/);
-    assert.match(w.payload.body, /327A\.02/);
-    assert.ok(!/2-yr roof|lifetime/i.test(w.payload.body), "no invented coverage");
+    assert.match(w.payload.bodyText, /1-year workmanship on all carpentry/);
+    assert.match(w.payload.bodyText, /327A\.02/);
+    assert.ok(!/2-yr roof|lifetime/i.test(w.payload.bodyText), "no invented coverage");
     assert.equal(byKind.review_request.state, "queued");
-    assert.match((await getIntent(run, byKind.review_request.intent_id)).payload.body, /g\.page\/r\/zz/);
+    assert.match((await getIntent(run, byKind.review_request.intent_id)).payload.bodyText, /g\.page\/r\/zz/);
     // Re-running does not re-queue (rows are no longer 'scheduled'; operation keys are stable).
     const again = await runDuePostProjectActions(run, f.owner, { mnTiers: MN_WARRANTY_TIERS }, hooks);
     assert.ok(!again.some((a) => a.kind === "warranty_docs"));

@@ -161,7 +161,7 @@ export async function runDuePostProjectActions(run: Run, principal: Principal, o
       targetId: a.id,
       recipient: c.email,
       projectId: a.project_id,
-      payload: { to: c.email, subject, body, kind: a.kind },
+      payload: { to: c.email, subject, bodyText: body, kind: a.kind },
       policyRef: policyRef(policy),
       principal,
     });

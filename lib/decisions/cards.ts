@@ -8,6 +8,7 @@
 // Pure module: no db, no server imports.
 
 import type { DecisionSummary } from "../commands/decisions.ts";
+import { normalizeSummary } from "./summary.ts";
 
 export interface PackageRecipient {
   name: string;
@@ -170,19 +171,21 @@ const usd = (cents: number) => `$${(cents / 100).toLocaleString("en-US", { minim
 
 /** Plain-text card for Telegram (no markdown: titles carry client strings). */
 export function cardText(d: CardDecision, opts: { appUrl?: string; maxLines?: number } = {}): string {
-  const s = d.summary ?? {};
+  // Agent-written summaries come in any shape (lib/decisions/summary.ts).
+  const s = normalizeSummary(d.summary);
   const lines: string[] = [`[SJC OS] Decision: ${d.title}`];
   const take = <T,>(arr: T[] | undefined, n = 6): T[] => (arr ?? []).slice(0, n);
-  if (s.recipients?.length) lines.push(`To: ${s.recipients.map((r) => `${r.name}${r.role ? ` (${r.role})` : ""}${r.address ? ` <${r.address}>` : ""}`).join(", ")}`);
+  if (s.recipients.length) lines.push(`To: ${s.recipients.map((r) => `${r.name}${r.role ? ` (${r.role})` : ""}${r.address ? ` <${r.address}>` : ""}`).join(", ")}`);
   else if (d.recipient) lines.push(`To: ${d.recipient}`);
   if (d.amount_cents != null) lines.push(`Amount: ${usd(Number(d.amount_cents))}`);
-  if (s.inclusions?.length) lines.push(`Includes: ${take(s.inclusions).join("; ")}${s.inclusions.length > 6 ? ` (+${s.inclusions.length - 6} more)` : ""}`);
-  if (s.exclusions?.length) lines.push(`Excludes: ${take(s.exclusions).join("; ")}`);
-  if (s.quantities?.length) lines.push(`Quantities: ${take(s.quantities, 8).map((q) => `${q.label} ${q.qty}${q.unit ? ` ${q.unit}` : ""}`).join(", ")}`);
-  if (s.attachments?.length) lines.push(`Attachments: ${s.attachments.map((a) => `${a.label}${a.revision ? ` rev ${a.revision}` : ""}`).join(", ")}`);
-  if (s.assumptions?.length) lines.push(`Assumptions: ${take(s.assumptions, 4).join("; ")}`);
-  if (s.gaps?.length) lines.push(`Missing / open: ${take(s.gaps, 5).join("; ")}`);
-  if (s.changes?.length) lines.push(`Since last review: ${take(s.changes, 5).join("; ")}`);
+  for (const n of s.notes) lines.push(`${n.label}: ${n.text}`);
+  if (s.inclusions.length) lines.push(`Includes: ${take(s.inclusions).join("; ")}${s.inclusions.length > 6 ? ` (+${s.inclusions.length - 6} more)` : ""}`);
+  if (s.exclusions.length) lines.push(`Excludes: ${take(s.exclusions).join("; ")}`);
+  if (s.quantities.length) lines.push(`Quantities: ${take(s.quantities, 8).map((q) => `${q.label} ${q.qty}${q.unit ? ` ${q.unit}` : ""}`).join(", ")}`);
+  if (s.attachments.length) lines.push(`Attachments: ${s.attachments.map((a) => `${a.label}${a.revision ? ` rev ${a.revision}` : ""}`).join(", ")}`);
+  if (s.assumptions.length) lines.push(`Assumptions: ${take(s.assumptions, 4).join("; ")}`);
+  if (s.gaps.length) lines.push(`Missing / open: ${take(s.gaps, 5).join("; ")}`);
+  if (s.changes.length) lines.push(`Since last review: ${take(s.changes, 5).join("; ")}`);
   if (s.effect) lines.push(`If approved: ${s.effect}`);
   if (d.status && d.status !== "pending") {
     lines.push(`Status: ${d.status}${d.decided_via ? ` via ${d.decided_via}` : ""}${d.decided_at ? ` at ${d.decided_at.slice(0, 16).replace("T", " ")}` : ""}${d.decision_note ? ` — ${d.decision_note}` : ""}`);
@@ -229,8 +232,10 @@ export function naturalCheck(text: string): NaturalCheck {
 
 /** Every string a card would show, joined, for the V28 lint. */
 export function cardCopyOf(summary: DecisionSummary): string {
+  const s = normalizeSummary(summary);
   const parts: string[] = [];
-  for (const k of ["inclusions", "exclusions", "assumptions", "gaps", "changes"] as const) parts.push(...((summary[k] as string[] | undefined) ?? []));
-  if (summary.effect) parts.push(summary.effect);
+  for (const k of ["inclusions", "exclusions", "assumptions", "gaps", "changes"] as const) parts.push(...s[k]);
+  for (const n of s.notes) parts.push(n.text);
+  if (s.effect) parts.push(s.effect);
   return parts.join("\n");
 }

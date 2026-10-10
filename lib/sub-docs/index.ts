@@ -168,7 +168,7 @@ export async function requestDocument(run: Run, input: RequestDocumentInput): Pr
       targetId: req.id,
       recipient: contact,
       projectId: req.project_id,
-      payload: { to: contact, subject, body, subSlug: req.sub_slug, docType: req.doc_type },
+      payload: { to: contact, subject, bodyText: body, subSlug: req.sub_slug, docType: req.doc_type },
       policyRef: verdict.policyRef,
       commandId: input.commandId ?? null,
       principal: input.principal,

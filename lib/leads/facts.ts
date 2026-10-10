@@ -162,7 +162,7 @@ export async function collectMissingFacts(run: Run, input: CollectInput): Promis
       targetId: lead.id,
       recipient: email,
       leadId: lead.id,
-      payload: { to: email, subject: draft.subject, body: draft.body, askedKeys: asked },
+      payload: { to: email, subject: draft.subject, bodyText: draft.body, askedKeys: asked },
       policyRef: verdict.policyRef,
       commandId: input.commandId ?? null,
       principal: input.principal,

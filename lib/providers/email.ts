@@ -56,7 +56,10 @@ export function makeEmailProvider(transport: EmailTransport = defaultTransport):
     async send(payload, ctx): Promise<ProviderResult> {
       const to = String(payload.to ?? "").trim();
       if (!EMAIL_RE.test(to)) return { responseClass: "permanent", error: `"${to || "(empty)"}" is not a valid email address.`, transmitted: false };
-      if (!String(payload.bodyText ?? "").trim() && !payload.bodyHtml) return { responseClass: "permanent", error: "Email body is empty.", transmitted: false };
+      // `bodyText` is the field; `body` is accepted too. Four stagers wrote
+      // `body` and would have failed every send "Email body is empty".
+      const bodyText = String(payload.bodyText ?? (typeof payload.body === "string" ? payload.body : "") ?? "");
+      if (!bodyText.trim() && !payload.bodyHtml) return { responseClass: "permanent", error: "Email body is empty.", transmitted: false };
       if (outboundDisabled()) return recordFakeSend("email", payload, ctx);
       if (!transport.configured()) return { responseClass: "permanent", error: "Gmail is not connected.", transmitted: false };
       let attachments: EmailTransportMessage["attachments"];
@@ -66,7 +69,7 @@ export function makeEmailProvider(transport: EmailTransport = defaultTransport):
         return { responseClass: "permanent", error: (err as Error).message, transmitted: false };
       }
       try {
-        const out = await transport.send({ to, subject: payload.subject ?? "", bodyText: payload.bodyText ?? "", bodyHtml: payload.bodyHtml ?? undefined, attachments });
+        const out = await transport.send({ to, subject: payload.subject ?? "", bodyText, bodyHtml: payload.bodyHtml ?? undefined, attachments });
         return { responseClass: "accepted", providerRef: out?.id ?? null, providerState: "sent", transmitted: true };
       } catch (err) {
         return classifyTransportError(err);

@@ -13,7 +13,7 @@
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { performGrantedAction } from "@/lib/agent-sends";
-import { getGrant, grantLive, listGrants, requestGrant } from "@/lib/owner-grants";
+import { getGrant, grantLive, grantWaiting, listGrants, requestGrant } from "@/lib/owner-grants";
 import { principalMaySpendGrant } from "@/lib/authority/mcp-gate";
 import { runDirect } from "@/lib/commands/db";
 
@@ -80,7 +80,7 @@ export async function POST(req: Request) {
         const all = await listGrants(40);
         return NextResponse.json({
           ok: true,
-          grants: all.filter((g) => g.status === "requested" || grantLive(g)).map(pub),
+          grants: all.filter((g) => grantWaiting(g) || grantLive(g)).map(pub),
         });
       }
       case "perform": {

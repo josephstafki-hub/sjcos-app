@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { grantCovers, GATED_ACTIONS, ACTION_TARGET_KIND, isGatedAction } from "../lib/owner-grant-types.ts";
+import { grantCovers, grantWaiting, GATED_ACTIONS, ACTION_TARGET_KIND, isGatedAction } from "../lib/owner-grant-types.ts";
 
 // The send line is code-enforced: every outbound text and every call the OS
 // places goes through consumeGrant → grantCovers. These tests pin the rule.
@@ -74,4 +74,11 @@ test("a wildcard run grant (Ask window 'Express permission') covers sms + calls"
   const run = live({ actions: ["*"], target_kind: null, target_id: null, max_uses: 25 });
   assert.equal(grantCovers(run, "send_sms", target, now).ok, true);
   assert.equal(grantCovers(run, "place_call", target, now).ok, true);
+});
+
+test("a request only waits on Joe until it lapses — expired requests stop nagging", () => {
+  assert.equal(grantWaiting(live({ status: "requested" }), now), true);
+  assert.equal(grantWaiting(live({ status: "requested", expires_at: new Date(now - 1).toISOString() }), now), false);
+  assert.equal(grantWaiting(live({ status: "approved" }), now), false);
+  assert.equal(grantWaiting(live({ status: "denied" }), now), false);
 });

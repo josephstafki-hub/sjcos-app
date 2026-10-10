@@ -27,6 +27,7 @@ export {
   ACTION_LABEL,
   ACTION_TARGET_KIND,
   grantCovers,
+  grantWaiting,
   isGatedAction,
   type GatedAction,
   type GrantStatus,
@@ -183,6 +184,8 @@ export async function decideGrant(
   const row = await queryOne<OwnerGrant>(
     `UPDATE owner_grants SET status = $2, decided_at = now(), updated_at = now()
       WHERE id = $1 AND status = ANY($3::text[])
+        -- A lapsed request can't be approved into a usable grant.
+        AND ($2 <> 'approved' OR expires_at > now())
       RETURNING ${COLS}`,
     [id, decision, allowedFrom],
   );

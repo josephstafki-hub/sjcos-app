@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Card, Chip, Eyebrow } from "@/components/ui";
-import { ACTION_LABEL, GATED_ACTIONS, type OwnerGrant } from "@/lib/owner-grant-types";
+import { ACTION_LABEL, GATED_ACTIONS, grantWaiting, type OwnerGrant } from "@/lib/owner-grant-types";
 import { approveGrant, createGrantAction, denyGrant, revokeGrant } from "@/lib/actions/owner-grants";
 import { runAction } from "@/lib/run-action";
 
@@ -18,7 +18,8 @@ function isLive(g: OwnerGrant) {
 }
 
 function statusChip(g: OwnerGrant) {
-  if (g.status === "requested") return <Chip kind="flag">Waiting on you</Chip>;
+  if (grantWaiting(g)) return <Chip kind="flag">Waiting on you</Chip>;
+  if (g.status === "requested") return <Chip kind="ghost">Request expired</Chip>;
   if (g.status === "denied") return <Chip kind="ghost">Denied</Chip>;
   if (g.status === "revoked") return <Chip kind="ghost">Revoked</Chip>;
   if (g.uses >= g.max_uses) return <Chip kind="default">Spent</Chip>;
@@ -59,9 +60,9 @@ export function PermissionsClient({ grants }: { grants: OwnerGrant[] }) {
     window.setTimeout(() => setCopied((c) => (c === id ? "" : c)), 1500);
   };
 
-  const waiting = grants.filter((g) => g.status === "requested");
+  const waiting = grants.filter((g) => grantWaiting(g));
   const live = grants.filter(isLive);
-  const history = grants.filter((g) => g.status !== "requested" && !isLive(g));
+  const history = grants.filter((g) => !grantWaiting(g) && !isLive(g));
 
   return (
     <div className="flex flex-col gap-6">

@@ -70,6 +70,13 @@ export function isGatedAction(a: string): a is GatedAction {
   return (GATED_ACTIONS as readonly string[]).includes(a);
 }
 
+/** Is a request still waiting on Joe? A request lapses at its expires_at —
+ *  approving it after that would only mint a grant that's already dead, so a
+ *  lapsed request is history, not "waiting" (and never nudged). */
+export function grantWaiting(g: Pick<OwnerGrant, "status" | "expires_at">, nowMs: number = Date.now()): boolean {
+  return g.status === "requested" && new Date(g.expires_at).getTime() > nowMs;
+}
+
 /** Pure decision: may `grant` (null = none found) be spent on `action` for
  *  `target` right now? The ONE rule every gated send runs through
  *  (consumeGrant applies it, then spends atomically). Reasons are phrased so

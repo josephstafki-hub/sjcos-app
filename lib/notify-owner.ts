@@ -418,6 +418,8 @@ export async function runPushDrain(
 
   // ── Stale approvals: one nudge per item per (Chicago) day after 4 quiet
   //    hours. Runs even when the channel is off — the in-app card still lands.
+  //    A request past its expires_at can no longer be approved into a usable
+  //    grant, so it stops nagging (it used to buzz nightly forever).
   const day = await chicagoStamp(now, "YYYY-MM-DD");
 
   const { rows: staleGrants } = await query<{
@@ -431,7 +433,8 @@ export async function runPushDrain(
     `SELECT id, requested_by, actions, target_id, reason,
             floor(extract(epoch FROM $1::timestamptz - created_at) / 3600)::int AS hours
        FROM owner_grants
-      WHERE status = 'requested' AND created_at < $1::timestamptz - interval '4 hours'`,
+      WHERE status = 'requested' AND created_at < $1::timestamptz - interval '4 hours'
+        AND expires_at > $1::timestamptz`,
     [now],
   );
   for (const grant of staleGrants) {

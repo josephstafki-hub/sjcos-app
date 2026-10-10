@@ -86,7 +86,7 @@ async function pendingGrants(runId: string, conversationId: string | null): Prom
   }>(
     `SELECT id, requested_by, actions, target_id, reason, created_at::text AS created_at
        FROM owner_grants
-      WHERE status = 'requested'
+      WHERE status = 'requested' AND expires_at > now()
         AND (run_id = $1
              OR ($2::uuid IS NOT NULL AND conversation_id = $2)
              OR created_at > now() - interval '20 minutes')

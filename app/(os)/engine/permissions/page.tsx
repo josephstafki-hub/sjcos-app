@@ -2,6 +2,7 @@ import { Shell } from "@/components/shell/Shell";
 import { Eyebrow } from "@/components/ui";
 import { requireRole } from "@/lib/dal";
 import { listGrants, grantLive } from "@/lib/owner-grants";
+import { grantWaiting } from "@/lib/owner-grant-types";
 import { PermissionsClient } from "@/components/engine/PermissionsClient";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
 export default async function PermissionsPage() {
   await requireRole("owner");
   const grants = await listGrants(80);
-  const pending = grants.filter((g) => g.status === "requested").length;
+  const pending = grants.filter((g) => grantWaiting(g)).length;
   const live = grants.filter(grantLive).length;
 
   return (

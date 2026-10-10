@@ -18,7 +18,7 @@ export interface SquarePayment {
   amountCents: number;
   currency: string;
   method: PaymentMethod;
-  /** Our intent_key, echoed back as reference_id. */
+  /** Our attempt id (squareKeyFor), echoed back as reference_id. */
   referenceId: string | null;
   orderId: string | null;
   receiptUrl: string | null;
@@ -38,7 +38,7 @@ export interface SquareRefund {
 }
 
 export interface CreatePaymentInput {
-  /** = payment_attempts.intent_key; Square dedupes on it. */
+  /** = payment_attempts.id (squareKeyFor; ≤ 45 chars); Square dedupes on it. */
   idempotencyKey: string;
   sourceId: string;
   amountCents: number;

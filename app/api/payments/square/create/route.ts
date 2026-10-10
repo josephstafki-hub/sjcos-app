@@ -31,8 +31,8 @@ export async function POST(req: Request) {
   if (!Number.isInteger(invoiceId) || !method || !sourceId || !nonce) {
     return NextResponse.json({ error: "invoiceId, method, sourceId and nonce are required" }, { status: 400 });
   }
-  const owns = await queryOne<{ id: number }>(
-    `SELECT i.id FROM invoices i JOIN projects p ON p.id = i.project_id WHERE i.id = $1 AND p.slug = $2`,
+  const owns = await queryOne<{ id: number; client_email: string | null }>(
+    `SELECT i.id, p.client_email FROM invoices i JOIN projects p ON p.id = i.project_id WHERE i.id = $1 AND p.slug = $2`,
     [invoiceId, user.linkSlug],
   );
   if (!owns) return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
@@ -44,7 +44,9 @@ export async function POST(req: Request) {
     sourceId,
     expectedAmountCents: body.expectedAmountCents == null ? null : Number(body.expectedAmountCents),
     expectedRevision: body.expectedRevision == null ? null : Number(body.expectedRevision),
-    buyerEmail: user.email,
+    // A link-only client's account email is a synthetic @client-portal.invalid
+    // address; Square would mail its receipt there. Use the project's instead.
+    buyerEmail: user.email && !user.email.endsWith("@client-portal.invalid") ? user.email : owns.client_email?.trim() || null,
     actor: userPrincipal(user),
   });
   if (!result.ok) return NextResponse.json({ error: result.reason, code: result.code }, { status: result.status });

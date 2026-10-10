@@ -126,6 +126,37 @@ test("V21 card: repeat taps/refresh reuse one attempt; stale amount and stale re
   });
 });
 
+test("V21 card with a real browser nonce: Square key fits its limits; a lost response still reconciles by reference_id; decline → fresh nonce pays", { skip }, async () => {
+  // The first live charge (2026-10-10) failed VALUE_TOO_LONG: the intent_key
+  // with a crypto.randomUUID() nonce is ~55 chars, over Square's 45 / 40.
+  await withTestDb(async (url, client) => {
+    const projectId = await seed(client, "zz-pay-uuid");
+    const tx = txOver(url);
+    const run = runOn(client);
+    const adapter = getSquareAdapter();
+    const inv = await issued(tx, projectId, "draw:0:deposit", 100);
+    const uuidNonce = () => crypto.randomUUID();
+
+    // declined first (a typo'd card): nothing charged; the browser drops the
+    // nonce, and a fresh one pays.
+    const declined = await checkout(tx, adapter, { invoiceId: inv.id, method: "card", nonce: uuidNonce(), sourceId: "cnon:card-decline", expectedAmountCents: 100 });
+    assert.equal(declined.attempt.state, "failed");
+    assert.match(declined.attempt.last_error, /^CARD_DECLINED/, "declined by the card, not by a field limit");
+
+    // response lost after Square took it: unknown, then the sweep finds it by reference_id
+    const lost = await checkout(tx, adapter, { invoiceId: inv.id, method: "card", nonce: uuidNonce(), sourceId: "cnon:card-timeout", expectedAmountCents: 100 });
+    assert.ok(lost.attempt.intent_key.length > 45, "the intent_key itself is too long for Square");
+    assert.equal(lost.attempt.state, "unknown");
+    await tx((r) => reconcilePendingAttempts(r, adapter, {}));
+    const settled = await getAttempt(run, lost.attempt.id);
+    assert.equal(settled.state, "completed");
+    assert.equal(settled.provider_payment_id != null, true);
+    assert.equal((await adapter.getPayment(settled.provider_payment_id)).referenceId, settled.id);
+    assert.equal((await invoiceBalance(run, inv.id)).balanceCents, 0);
+    assert.equal((await run(`SELECT status FROM invoices WHERE id = $1`, [inv.id]))[0].status, "paid");
+  });
+});
+
 test("V21 ACH: pending is not paid and pauses reminders; missed webhook → reconcile; repeated/out-of-order webhooks are no-ops; late return restores the balance without a new invoice", { skip }, async () => {
   await withTestDb(async (url, client) => {
     const projectId = await seed(client, "zz-pay-b");

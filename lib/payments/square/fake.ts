@@ -51,6 +51,10 @@ export class FakeSquare implements SquareAdapter {
   }
 
   async createPayment(input: CreatePaymentInput): Promise<SquarePayment> {
+    // Square's real field limits (CreatePayment): the first live charge died
+    // on these with VALUE_TOO_LONG, so the fake refuses the same way.
+    if (input.idempotencyKey.length > 45) throw new ProviderDeclinedError("VALUE_TOO_LONG", "Field must not be greater than 45 length");
+    if (input.referenceId.length > 40) throw new ProviderDeclinedError("VALUE_TOO_LONG", "Field must not be greater than 40 length");
     const existingId = this.byIdempotency.get(input.idempotencyKey);
     if (existingId) return structuredClone(this.payments.get(existingId)!);
     if (!input.sourceId) throw new ProviderDeclinedError("INVALID_SOURCE", "Missing payment source.");

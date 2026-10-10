@@ -5,8 +5,9 @@
 //     balance (lib/billing invoiceBalance); the browser's amount/paid flag is
 //     only ever compared against it (mismatch → "stale");
 //   • one payment_attempt per (invoice, revision, client nonce) — the
-//     intent_key — and that key is Square's idempotency key, so repeat taps,
-//     refreshes and retries never create a second charge;
+//     intent_key — and the attempt's id is Square's idempotency key and
+//     reference_id (squareKeyFor), so repeat taps, refreshes and retries
+//     reuse the attempt and never create a second charge;
 //   • one attempt maps to one invoice revision (deposits / installments are
 //     separate invoices, so ACH's full-balance rule holds: every ACH attempt
 //     pays a whole invoice balance under its own Square order; no partial ACH
@@ -57,6 +58,20 @@ const ATTEMPT_COLS = `id, invoice_id::int AS invoice_id, invoice_revision, inten
 
 export function intentKeyFor(invoiceId: number, revision: number, nonce: string): string {
   return `square:inv:${invoiceId}:rev${revision}:${nonce}`;
+}
+
+/** What Square sees as idempotency_key AND reference_id: the attempt's uuid.
+ *  The intent_key runs ~55 characters; Square caps idempotency_key at 45 and
+ *  reference_id at 40 (VALUE_TOO_LONG, first live charge 2026-10-10). One
+ *  attempt per intent_key, so this is just as stable across retries. */
+export function squareKeyFor(attempt: Pick<AttemptRow, "id">): string {
+  return attempt.id;
+}
+
+/** Does a provider reference_id point at this attempt? Accepts the uuid and
+ *  the old intent_key form (sandbox payments made before the change). */
+function referencesAttempt(referenceId: string | null, attempt: Pick<AttemptRow, "id" | "intent_key">): boolean {
+  return !!referenceId && (referenceId === squareKeyFor(attempt) || referenceId === attempt.intent_key);
 }
 
 export async function getAttempt(run: Run, id: string): Promise<AttemptRow | null> {
@@ -125,13 +140,13 @@ export type ChargeOutcome = { kind: "payment"; payment: SquarePayment } | { kind
 export async function chargeAttempt(adapter: SquareAdapter, attempt: AttemptRow, opts: { sourceId: string; locationId: string; buyerEmail?: string | null; note?: string }): Promise<ChargeOutcome> {
   try {
     const payment = await adapter.createPayment({
-      idempotencyKey: attempt.intent_key,
+      idempotencyKey: squareKeyFor(attempt),
       sourceId: opts.sourceId,
       amountCents: attempt.amount_cents,
       currency: attempt.currency,
       locationId: opts.locationId,
       method: attempt.method,
-      referenceId: attempt.intent_key,
+      referenceId: squareKeyFor(attempt),
       note: opts.note,
       buyerEmail: opts.buyerEmail ?? null,
     });
@@ -178,7 +193,7 @@ export async function applyProviderPayment(run: Run, input: { attemptId?: string
   if (input.attemptId) attempt = await getAttempt(run, input.attemptId);
   if (!attempt) attempt = await getAttemptByProviderId(run, input.payment.id);
   if (!attempt && input.payment.referenceId) {
-    const [r] = await run<AttemptRow>(`SELECT ${ATTEMPT_COLS} FROM payment_attempts WHERE intent_key = $1`, [input.payment.referenceId]);
+    const [r] = await run<AttemptRow>(`SELECT ${ATTEMPT_COLS} FROM payment_attempts WHERE id::text = $1 OR intent_key = $1 LIMIT 1`, [input.payment.referenceId]);
     attempt = r ?? null;
   }
   if (!attempt) return null;
@@ -323,7 +338,7 @@ export async function reconcilePendingAttempts(run: Run, adapter: SquareAdapter,
     if (a.provider_payment_id) payment = await adapter.getPayment(a.provider_payment_id);
     else {
       const since = new Date(new Date(a.created_at).getTime() - 5 * 60_000).toISOString();
-      payment = (await adapter.listPaymentsSince(since)).find((p) => p.referenceId === a.intent_key) ?? null;
+      payment = (await adapter.listPaymentsSince(since)).find((p) => referencesAttempt(p.referenceId, a)) ?? null;
     }
     if (payment) {
       const r = await applyProviderPayment(run, { attemptId: a.id, payment, actor: principal });

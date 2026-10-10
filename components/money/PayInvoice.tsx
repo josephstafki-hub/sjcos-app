@@ -6,6 +6,8 @@
 // /api/payments/square/create. The server decides the amount. An attempt
 // nonce is minted once per invoice revision and kept in sessionStorage, so a
 // refresh or a second tap re-uses the same server attempt (no double charge).
+// A DECLINED attempt charged nothing, so its nonce is dropped and the next tap
+// (fixed card number, another card) starts a fresh attempt.
 //
 // In the fake environment (no Square account) the SDK is not loaded and a
 // test source id is sent instead, so the whole flow can be exercised end to
@@ -40,8 +42,18 @@ function fmt(cents: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 }
 
+const nonceKey = (invoiceId: number, revision: number) => `sjc-pay-nonce:${invoiceId}:rev${revision}`;
+
+function forgetNonce(invoiceId: number, revision: number): void {
+  try {
+    window.sessionStorage.removeItem(nonceKey(invoiceId, revision));
+  } catch {
+    /* no storage: every tap already gets a fresh nonce */
+  }
+}
+
 function nonceFor(invoiceId: number, revision: number): string {
-  const key = `sjc-pay-nonce:${invoiceId}:rev${revision}`;
+  const key = nonceKey(invoiceId, revision);
   try {
     const existing = window.sessionStorage.getItem(key);
     if (existing) return existing;
@@ -159,7 +171,13 @@ export function PayInvoice({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ invoiceId, method, sourceId, nonce: nonceFor(invoiceId, revision), expectedAmountCents: amountCents, expectedRevision: revision }),
       });
-      const body = (await res.json()) as { ok?: boolean; error?: string; state?: string; message?: string };
+      const body = (await res.json()) as { ok?: boolean; error?: string; code?: string; state?: string; message?: string };
+      // Declined now, or a tap that landed on an earlier declined attempt:
+      // nothing was charged, so let them try again with a fresh attempt.
+      if (body.code === "declined" || (body.ok && body.state === "failed")) {
+        forgetNonce(invoiceId, revision);
+        throw new Error(`${body.error || body.message || "The payment did not go through."} Nothing was charged; you can try again.`);
+      }
       if (!res.ok || !body.ok) throw new Error(body.error || "Payment could not be started.");
       setDone({ state: body.state ?? "unknown", message: body.message ?? "" });
     } catch (e) {

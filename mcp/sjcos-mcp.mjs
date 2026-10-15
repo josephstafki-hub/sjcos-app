@@ -537,7 +537,8 @@ server.registerTool(
   {
     title: "Get project",
     description:
-      "Full detail for one project by slug: the row, invoices, subs, a money summary, and " +
+      "Full detail for one project by slug: the row, invoices, subs, a money summary, `floor_plans` " +
+      "(every Floor-tab version; client_approved_at set = the client signed it off in the portal), and " +
       "`pricing_and_paperwork` — the job's estimates (`formal_estimate_id` is THE formal estimate, which lives " +
       "under Documents › Formal Estimate; add lines to it with add_estimate_lines; pre-con changes live under " +
       "Money › Pre-con changes), change orders and document drafts, each tagged with where it lives, plus " +
@@ -550,14 +551,15 @@ server.registerTool(
     const proj = await rows(`SELECT * FROM projects WHERE slug = $1`, [slug]);
     if (proj.length === 0) return json({ error: `No project with slug "${slug}"` });
     const id = proj[0].id;
-    const [invoices, subs, pricing] = await Promise.all([
+    const [invoices, subs, floor_plans, pricing] = await Promise.all([
       rows(`SELECT id, number, milestone, amount, status, sent_at, paid_at FROM invoices WHERE project_id = $1 ORDER BY created_at`, [id]),
       rows(`SELECT sub_slug, role_label FROM project_subs WHERE project_id = $1`, [id]),
+      rows(`SELECT id, version, file_id, left(notes, 200) AS notes, published_at, client_approved_at, client_approved_name FROM project_floorplans WHERE project_id = $1 ORDER BY version DESC`, [id]),
       pricingAndPaperwork(rows, id),
     ]);
     const paid = invoices.filter((i) => i.status === "paid").reduce((s, i) => s + i.amount, 0);
     const outstanding = invoices.filter((i) => i.status === "sent").reduce((s, i) => s + i.amount, 0);
-    return json({ project: proj[0], invoices, subs, money: { paid, outstanding }, pricing_and_paperwork: pricing });
+    return json({ project: proj[0], invoices, subs, money: { paid, outstanding }, floor_plans, pricing_and_paperwork: pricing });
   },
 );
 

@@ -5,6 +5,7 @@
 //                                            else a 'note' trigger (a completed step is a fact)
 //   onSignatureCompleted(run, requestId)  → 'signature' trigger (W02)
 //   onInboundMessage(run, …)              → 'message' trigger
+//   onClientPlanApproved(run, floorplanId) → 'selection' trigger (portal floor-plan sign-off)
 //
 // All idempotent on (kind, ref) via enqueueAgentTrigger. Call INSIDE the
 // transaction that recorded the underlying fact so a rollback leaves no wakeup
@@ -98,5 +99,32 @@ export async function onInboundMessage(
     leadId: msg.leadId ?? null,
     enqueuedBy: `hook:${msg.provider}`,
     payload: { messages: [{ from: msg.from ?? "?", channel: msg.provider, subject: msg.subject ?? undefined, text: msg.text ?? "", at: msg.at ?? new Date().toISOString() }] },
+  });
+}
+
+/** A client approved a floor-plan version from the portal. Wakes the agent to
+ *  act on it: cards still waiting on that plan's sign-off move on, and any
+ *  brief that called the plan pending is corrected (Mahowald v4, 2026-10-14:
+ *  approved Oct 9, a card sat "waiting on client" for five days). */
+export async function onClientPlanApproved(run: Run, floorplanId: number): Promise<AgentTrigger | null> {
+  const [f] = await run<{ id: number; project_id: string; version: number; client_approved_at: string | null; client_approved_name: string; notes: string }>(
+    `SELECT id::int AS id, project_id, version, client_approved_at::text AS client_approved_at, client_approved_name, notes FROM project_floorplans WHERE id = $1`,
+    [floorplanId],
+  );
+  if (!f?.client_approved_at) return null;
+  return safeEnqueue(run, {
+    kind: "selection",
+    ref: `floorplan:${f.id}:approved`,
+    projectId: f.project_id,
+    enqueuedBy: "hook:floorplan-approved",
+    payload: {
+      event: "client approved a floor plan in the portal",
+      floorplan_id: f.id,
+      version: f.version,
+      approved_at: f.client_approved_at,
+      approved_by: f.client_approved_name,
+      notes: f.notes.slice(0, 300),
+      task: "Close or advance every open work item on this project that is waiting for this plan's sign-off, and correct any project file or brief that still calls it pending.",
+    },
   });
 }

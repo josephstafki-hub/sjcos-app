@@ -280,6 +280,19 @@ async function designSection(run: Run, scope: ContextScope, refs: ContextRef[]):
     lines.push(`- Mood boards: ${boards.map((b) => `${b.room} "${clip(b.title, 40)}" (${b.published_at ? "shown to client" : "internal only"}${b.client_approved_at ? ", client approved" : ""})`).join("; ")}`);
     for (const b of boards) refs.push({ section: "design", kind: "mood_board", id: String(b.id) });
   } else lines.push("- Mood boards: none.");
+  const plans = await safe<{ id: number; version: number; notes: string; published_at: string | null; client_approved_at: string | null; client_approved_name: string }>(
+    run,
+    `SELECT id::int AS id, version, notes, published_at::text AS published_at, client_approved_at::text AS client_approved_at, client_approved_name FROM project_floorplans WHERE project_id = $1 ORDER BY version DESC LIMIT 6`,
+    [pid],
+  );
+  if (plans === null) lines.push(unavailable("floor plans (project_floorplans)"));
+  else if (plans.length) {
+    lines.push(`- Floor plans (Floor tab; a CLIENT APPROVED version is signed off — this record outranks any card or note that says otherwise):`);
+    for (const p of plans) {
+      lines.push(`  • v${p.version} "${clip(p.notes, 70)}" — ${p.client_approved_at ? `CLIENT APPROVED ${p.client_approved_at.slice(0, 10)} by ${p.client_approved_name || "client"}` : p.published_at ? `shared with client ${p.published_at.slice(0, 10)}, not approved` : "internal only"}`);
+      refs.push({ section: "design", kind: "floorplan", id: String(p.id) });
+    }
+  } else lines.push("- Floor plans: none uploaded.");
   const fb = await safe<{ room: string; author_name: string; body: string; created_at: string }>(
     run,
     `SELECT room, author_name, body, created_at::text AS created_at FROM project_mood_feedback WHERE project_id = $1 ORDER BY created_at DESC LIMIT 6`,

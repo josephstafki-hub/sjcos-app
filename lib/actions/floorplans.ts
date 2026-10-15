@@ -12,6 +12,8 @@ import { storeUpload } from "@/lib/upload-store";
 import { emit } from "@/lib/notify";
 import { logClientActivity, ownerHref } from "@/lib/client-activity";
 import { notifyDashboardPublish, type DeliveryNote } from "@/lib/portal-publish";
+import { withTransaction } from "@/lib/commands/db";
+import { onClientPlanApproved } from "@/lib/agent-runtime/hooks";
 
 type Result = { ok: boolean; error?: string };
 
@@ -159,6 +161,8 @@ export async function approveFloorplan(id: number, formData: FormData): Promise<
       actorName: user.name || name,
       href: ownerHref({ kind: "project", slug: row.slug }, { tab: "Floor", focus: `floorplan-${id}` }),
     });
+    // Wake the agent to move on whatever was waiting for this sign-off.
+    await withTransaction((run) => onClientPlanApproved(run, id)).catch((err) => console.error("[floorplans] approval trigger:", err));
   }
 
   revalidatePath("/client-portal/plans");

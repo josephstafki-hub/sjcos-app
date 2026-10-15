@@ -10,6 +10,8 @@
 //     invoice-tracked billing (the same switch as Money › Overview's
 //     reconcile: billing_source 'invoices' with that pre-contract money as the
 //     opening balance), so collected = opening + paid invoices from here on.
+//     price_cents (Money › Overview's base price) is set to the same total, so
+//     both screens agree on what is left to collect.
 //     Mahowald, 2026-10-14: still read "$17,580 pre-con (remodel TBD)", 100%,
 //     after a $475,116.64 contract was signed and its deposit paid.
 //   syncCollectedFromInvoices(run, projectId)
@@ -72,7 +74,7 @@ export async function adoptContractTotals(run: Run, projectId: string): Promise<
 
   await run(
     `UPDATE projects
-        SET contract_value = ROUND($2 / 100.0)::int, value_display = $3,
+        SET contract_value = ROUND($2 / 100.0)::int, value_display = $3, price_cents = $2,
             billing_source = 'invoices', opening_collected_cents = $4, opening_billed_cents = GREATEST(opening_billed_cents, $4),
             opening_note = CASE WHEN opening_note = '' THEN $5 ELSE opening_note END,
             updated_at = now()

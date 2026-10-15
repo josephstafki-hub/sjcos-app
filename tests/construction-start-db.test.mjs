@@ -89,8 +89,8 @@ test("signed contract, then the deposit is paid → construction, draft draw, on
 
     // The projects-list total: pre-con $17,580 + the $10,000 contract; the
     // $1,000 deposit is collected; invoice-tracked from here on.
-    const [pj] = await run(`SELECT contract_value, collected_to_date, progress, value_display, billing_source, opening_collected_cents::int AS opening FROM projects WHERE id = $1`, [projectId]);
-    assert.deepEqual(pj, { contract_value: 27580, collected_to_date: 18580, progress: 67, value_display: "$27,580 ($10,000 contract + $17,580 pre-con)", billing_source: "invoices", opening: 1758000 });
+    const [pj] = await run(`SELECT contract_value, collected_to_date, progress, value_display, billing_source, opening_collected_cents::int AS opening, price_cents::int AS price FROM projects WHERE id = $1`, [projectId]);
+    assert.deepEqual(pj, { contract_value: 27580, collected_to_date: 18580, progress: 67, value_display: "$27,580 ($10,000 contract + $17,580 pre-con)", billing_source: "invoices", opening: 1758000, price: 2758000 });
     // A later draw, once paid, moves collected and the bar on its own.
     const [draw] = await run(`SELECT id::int AS id FROM invoices WHERE project_id = $1 AND economic_key = 'draw:1:construction-start'`, [projectId]);
     await run(`UPDATE invoices SET status = 'sent' WHERE id = $1`, [draw.id]);

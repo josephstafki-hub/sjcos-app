@@ -357,15 +357,16 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
       title: "Get a project file",
       description:
         "Fetch one uploaded file by id (ids come from list_project_files). Images default to " +
-        "format 'base64': the actual pixels as an inline image block. format 'url' works for " +
+        "format 'base64': the actual pixels as an inline image block. Text files (markdown, txt, " +
+        "html, csv, json — e.g. a permit brief) default to format 'text': the content inline. format 'url' works for " +
         "ANY file type including PDFs: a short-lived signed link that serves the original " +
         "bytes with no login — use it when your client can't take an inline image, or to hand " +
         "a plan/invoice PDF to something that fetches URLs. The link expires (default 15 min); " +
         "mint a fresh one instead of storing it, and don't put it anywhere client-facing.",
       inputSchema: {
         file_id: z.string().describe("A file id from list_project_files."),
-        format: z.enum(["base64", "url"]).optional()
-          .describe("Default: base64 for images, url for everything else."),
+        format: z.enum(["base64", "url", "text"]).optional()
+          .describe("Default: base64 for images, text for text files (markdown/txt/html/csv/json — e.g. a permit brief), url for everything else."),
         expires_minutes: z.number().int().optional()
           .describe("URL lifetime in minutes, 1–60 (default 15). url format only."),
         width: z.number().int().optional()
@@ -383,11 +384,21 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
           throw new Error("No stored file with that id. Use list_project_files to find ids.");
         const f = found[0];
         const isImage = String(f.mime_type || "").startsWith("image/");
-        const mode = format || (isImage ? "base64" : "url");
+        const isText = /^(text\/|application\/json)/.test(String(f.mime_type || "")) || /\.(md|txt|csv|json|html?)$/i.test(f.name || "");
+        const mode = format || (isImage ? "base64" : isText ? "text" : "url");
         const meta = {
           file_id: f.id, name: f.name, mime_type: f.mime_type,
           size_label: f.size_label, project_slug: f.project_key || null,
         };
+
+        if (mode === "text") {
+          if (!isText)
+            throw new Error(`'${f.name}' is ${f.mime_type || "not text"} — text is for markdown/txt/html/csv/json files; use format "url".`);
+          const buf = await readStored(f);
+          const MAX = 200_000;
+          const body = buf.toString("utf8");
+          return json({ ...meta, text: body.slice(0, MAX), truncated: body.length > MAX });
+        }
 
         if (mode === "base64") {
           if (!isImage)

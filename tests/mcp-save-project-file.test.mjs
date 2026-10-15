@@ -23,6 +23,7 @@ function harness(uploadDir) {
     const s = sql.replace(/\s+/g, " ").trim();
     if (/^SELECT id, slug, name FROM projects WHERE slug/i.test(s)) return params[0] === "libby-mahowald" ? [{ id: "p-1", slug: "libby-mahowald", name: "Libby Mahowald" }] : [];
     if (/^SELECT id, storage_path FROM files WHERE project_key = \$1 AND name = \$2/i.test(s)) return files.filter((f) => f.project_key === params[0] && f.name === params[1]);
+    if (/^SELECT id, name, mime_type, size_label, project_key, storage_path FROM files WHERE id = \$1/i.test(s)) return files.filter((f) => f.id === params[0]);
     if (/^INSERT INTO files/i.test(s)) {
       files.push({ id: params[0], project_key: params[1], name: params[2], tag: params[3], size_label: params[4], subtitle: params[5], storage_path: params[6], mime_type: params[7], client_visible: /false\)$/.test(s) ? false : null });
       return [];
@@ -58,6 +59,10 @@ test("save_project_file stores a markdown brief and replaces it by name", async 
     assert.equal(again.file_id, first.file_id);
     assert.equal(files.length, 1);
     assert.equal(await readFile(path.join(dir, files[0].storage_path), "utf8"), "# Permits\n\nv2");
+
+    const got = await call("get_project_file", { file_id: first.file_id });
+    assert.equal(got.text, "# Permits\n\nv2", "agents read a text file inline, no link to open");
+    assert.equal(got.truncated, false);
 
     assert.equal((await call("save_project_file", { project_slug: "nope", filename: "x", content: "y" })).ok, false);
     assert.equal((await call("save_project_file", { project_slug: "libby-mahowald", filename: "x", content: "" })).ok, false);

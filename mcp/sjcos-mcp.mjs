@@ -17,7 +17,7 @@
 //   • Curated READ tools: parameterized SELECTs over leads/projects/subs/
 //     vendors/purchase orders/compliance/knowledge/work items/skills/runbooks +
 //     business_snapshot + get_today_queue (Joe's Today rail with per-item lanes).
-//   • Gated WRITE tools: capture_knowledge, create_work_item,
+//   • Gated WRITE tools: capture_knowledge, create_work_item, create_project,
 //     update_work_item_status, snooze_work_item, submit_draft_for_approval,
 //     set_project_contract_value, set_project_collected,
 //     record_agent_run, record_receipt,
@@ -91,6 +91,7 @@ import { registerBillingTools } from "./billing-tools.mjs";
 import { registerContextTools } from "./context-tools.mjs";
 import { registerFieldTools } from "./field-tools.mjs";
 import { registerTeamTools } from "./team-tools.mjs";
+import { registerProjectTools } from "./project-tools.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -2865,6 +2866,7 @@ server.registerTool(
   // an explicit confirm), edit areas, reset a password, disable / re-enable.
   // Internal records, nothing emailed, no delete. See mcp/team-tools.mjs.
   registerTeamTools(server, { rows, json });
+  registerProjectTools(server, { rows, json, strippedDollarError, currentPrincipal });
 
   // `search` + `fetch`: the two tools ChatGPT's connector requires by name (it
   // rejects a server without them). Read-only unified lookups over the same

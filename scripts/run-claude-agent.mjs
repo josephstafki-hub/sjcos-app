@@ -445,6 +445,7 @@ function effectsFromResult(tool, text) {
   if (!r || typeof r !== "object" || r.ok === false) return;
   const pick = (...vals) => vals.find((v) => typeof v === "string" || typeof v === "number");
   if (tool === "import_lead") recordEffect("lead", pick(r.slug, r.lead?.slug, r.lead_slug), "created");
+  else if (tool === "create_project") recordEffect("project", pick(r.slug), r.created ? "created" : "touched");
   else if (tool === "create_document_draft") recordEffect("document_draft", pick(r.id, r.draft?.id, r.draft_id), "created");
   else if (tool === "create_work_item") recordEffect("work_item", pick(r.id, r.work_item?.id), "created");
   else if (tool === "create_purchase_order") recordEffect("purchase_order", pick(r.id, r.po?.id, r.purchase_order?.id), "created");

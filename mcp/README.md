@@ -38,6 +38,7 @@ Safe by construction — internal records, append-only audit, and proposals only
 | Tool | Effect |
 |---|---|
 | `import_lead` | Create an inbound lead (the path for web-lead emails Hermes parses from Joe's inbox): full intake funnel — scoring, intake rows, room, feed card — and auto-starts the lead-intake runbook. Refuses a duplicate email unless `allow_duplicate` |
+| `create_project` | Create a project the way the app's buttons do: `lead_slug` converts that lead (idempotent — returns the existing project; carries client, address, value, portal access, files, chat room), or `name` (+ `client_name`/`address`/`value_display`) for a blank one like the "New project" form. Staff principals need the leads / projects area. Plain SQL in `mcp/project-tools.mjs`, kept in step with the two app actions |
 | `capture_knowledge` | Save a knowledge item (dedup by fingerprint; optional receipt) |
 | `create_work_item` | Add to the queue (`requires_approval` defaults true). A `due_at` on a later day snoozes the item until 00:00 Central that day — scheduled to-dos wait for their day (table trigger, applies to every writer) |
 | `update_work_item_status` | Move an item's status (done sets completed_at) |

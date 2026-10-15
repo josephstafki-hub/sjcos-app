@@ -368,6 +368,7 @@ so they run the exact code the owner's buttons run.
 | `get_bid_package` | One package in full: packet files, invites (per-sub notes, statuses), latest submissions |
 | `compare_bids` | Submitted bids low → high with deltas, line items, exclusions, lead times, docs |
 | `list_project_files` | The project's uploaded files — the pool `attach_bid_file` draws from |
+| `save_project_file` | Save a document an agent wrote (markdown/text/html) into the project's files, internal only; same name replaces the older copy. Permit briefs use tag `PERMIT · Requirements` and show on the Permits tab |
 | `view_project_image` | The actual pixels of an uploaded project image (downscaled), so an agent can look at photos/plan snapshots |
 | `get_project_file` | One file by id — base64 image block, or a short-lived signed URL (any type, incl. PDFs) |
 | `create_bid_package` | Start a DRAFT bid request for a category of work |

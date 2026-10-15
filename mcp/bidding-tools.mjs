@@ -27,8 +27,8 @@
 // are business records; nothing here can touch them (record_bid only ever adds
 // a new revision).
 
-import { createHmac } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { createHmac, randomUUID } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 
@@ -418,6 +418,83 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
   );
 
   // ── WRITE (direct, internal-record) ────────────────────────────────────────
+
+  // An agent's written work product (a permit brief, a research note) as a real
+  // project file: same uploads/ blob + files row as an upload, so it shows in
+  // the project's Files (PERMIT-tagged ones on the Permits tab) and any agent
+  // can fetch it back with list_project_files / get_project_file. Never
+  // client-visible. Same name on the same project replaces the older copy.
+  const FILE_FORMATS = {
+    markdown: { ext: ".md", mime: "text/markdown; charset=utf-8" },
+    text: { ext: ".txt", mime: "text/plain; charset=utf-8" },
+    html: { ext: ".html", mime: "text/html; charset=utf-8" },
+  };
+  const MAX_FILE_BYTES = 1024 * 1024;
+
+  server.registerTool(
+    "save_project_file",
+    {
+      title: "Save a file to a project",
+      description:
+        "Save a text document you wrote (markdown by default) into a project's files, e.g. a " +
+        'permit brief with tag "PERMIT · Requirements" (shows on the Permits tab). Internal ' +
+        "only — never visible to the client. A file with the same name on the same project " +
+        "is replaced, so re-running research keeps one current copy. Returns the file id for " +
+        "get_project_file.",
+      inputSchema: {
+        project_slug: z.string(),
+        filename: z.string().describe('Display name, e.g. "Permit requirements — Saint Paul.md".'),
+        content: z.string().describe("The full document text."),
+        format: z.enum(["markdown", "text", "html"]).optional().describe("Default markdown."),
+        tag: z.string().optional().describe('Files tag, e.g. "PERMIT · Requirements". Default "NOTE · Agent".'),
+        subtitle: z.string().optional().describe("One line shown under the name."),
+      },
+    },
+    async ({ project_slug, filename, content, format, tag, subtitle }) => {
+      try {
+        const project = await projectBySlug(project_slug);
+        const fmt = FILE_FORMATS[format || "markdown"];
+        const bytes = Buffer.from(String(content ?? ""), "utf8");
+        if (!bytes.length) throw new Error("content is empty.");
+        if (bytes.length > MAX_FILE_BYTES) throw new Error("content is over 1 MB; split it.");
+        let name = path.basename(t(filename, 160)).replace(/[^\w.\- —·()&,']+/g, "_").trim();
+        if (!name) throw new Error("filename is required.");
+        if (!path.extname(name)) name += fmt.ext;
+        const size = bytes.length < 1024 ? `${bytes.length} B` : `${Math.round(bytes.length / 1024)} KB`;
+        const fileTag = t(tag, 80) || "NOTE · Agent";
+        const sub = t(subtitle, 200) || `Saved by agent ${new Date().toISOString().slice(0, 10)}`;
+
+        await mkdir(uploadDir, { recursive: true });
+        const existing = await rows(
+          `SELECT id, storage_path FROM files WHERE project_key = $1 AND name = $2 AND storage_path IS NOT NULL
+            ORDER BY created_at DESC LIMIT 1`,
+          [project.slug, name],
+        );
+        if (existing.length) {
+          const f = existing[0];
+          await writeFile(path.join(uploadDir, path.basename(f.storage_path)), bytes);
+          await rows(
+            `UPDATE files SET tag = $2, subtitle = $3, size_label = $4, mime_type = $5, modified_label = 'just now', created_at = now()
+              WHERE id = $1`,
+            [f.id, fileTag, sub, size, fmt.mime],
+          );
+          return json({ ok: true, file_id: f.id, name, replaced: true });
+        }
+        const id = `agent-${randomUUID()}`;
+        const stored = `${id}__${name}`;
+        await writeFile(path.join(uploadDir, stored), bytes);
+        await rows(
+          `INSERT INTO files (id, project_key, type, name, tag, ai_origin, modified_label, size_label,
+                              subtitle, ai_tags, sort, storage_path, mime_type, client_visible)
+           VALUES ($1, $2, 'doc', $3, $4, true, 'just now', $5, $6, '{}', -1, $7, $8, false)`,
+          [id, project.slug, name, fileTag, size, sub, stored, fmt.mime],
+        );
+        return json({ ok: true, file_id: id, name, replaced: false });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
 
   server.registerTool(
     "create_bid_package",

@@ -30,6 +30,7 @@ import { loadLeadFacts, prepareScopeRegisterFromLead } from "../estimating/scope
 import { setDesignPath } from "../estimating/design.ts";
 import { ensureScopeLines, recomputeDraftEstimate } from "../estimating/assembly.ts";
 import { enqueueAgentTrigger } from "../agent-runtime/triggers.ts";
+import { maybeStartConstruction } from "./construction-start.ts";
 
 export const WORKFLOW_DEFINITION_VERSION = "workflow@2026-09-23";
 export type Stage = "W01" | "W02" | "W03" | "W04" | "W05" | "W06" | "W07" | "W08" | "W09" | "W10" | "W11" | "W12" | "done";
@@ -338,6 +339,8 @@ export async function onSignatureSigned(run: Run, signatureRequestId: number, pr
     await run(`UPDATE project_workflows SET contract_signed_at = COALESCE(contract_signed_at, $2::timestamptz) WHERE project_id = $1`, [sig.project_id, sig.signed_at]);
     const event = await recordWorkflowEvent(run, { projectId: sig.project_id, kind: "contract_signed", ref: `signature_request:${sig.id}`, detail: { signed_at: sig.signed_at }, actor, stageAfter: "W09" });
     await enqueueAgentTrigger(run, { kind: "signature", ref: `signature_request:${sig.id}:signed`, projectId: sig.project_id, leadId: sig.lead_id, enqueuedBy: "workflow:contract", payload: { signature_request_id: sig.id, doc_type: "contract", stage: "W09" } });
+    // A deposit paid before the signature: signing now starts construction.
+    await maybeStartConstruction(run, sig.project_id, `signature_request:${sig.id}`, principal);
     return { signatureRequestId, kind, projectId: sig.project_id, event };
   }
   if (kind === "completion") {

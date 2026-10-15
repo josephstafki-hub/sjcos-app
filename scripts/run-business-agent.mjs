@@ -50,8 +50,8 @@ export function makeRunners({ url, model, maxTurns, timeoutMs, appInternalUrl, c
   return {
     claude: {
       name: "claude",
-      run: ({ prompt }) =>
-        runClaudeBusiness({ prompt, model: model ?? "", maxTurns, timeoutMs, repo: REPO, databaseUrl: url, appInternalUrl, cronSecret, askTimeoutS, onActivity }),
+      run: ({ prompt, trigger }) =>
+        runClaudeBusiness({ prompt, model: model ?? "", maxTurns: trigger?.kind === "permit" ? Math.max(Number(maxTurns) || 0, 80) : maxTurns, timeoutMs, repo: REPO, databaseUrl: url, appInternalUrl, cronSecret, askTimeoutS, onActivity, webResearch: trigger?.kind === "permit" }),
     },
     hermes: {
       name: "hermes",

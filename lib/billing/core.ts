@@ -17,6 +17,7 @@ import type { Principal } from "../commands/principal.ts";
 import { principalLabel } from "../commands/principal.ts";
 import { stageDecision } from "../commands/decisions.ts";
 import { parseNetTerms, addDaysIso } from "./terms.ts";
+import { onInvoicePaid } from "../workflow/construction-start.ts";
 
 export type InvoiceStatus = "draft" | "issued" | "sent" | "partially_paid" | "paid" | "void" | "disputed";
 export type DeliveryState = "none" | "queued" | "accepted" | "delivered" | "failed" | "unknown";
@@ -477,6 +478,9 @@ export async function recordInvoicePayment(run: Run, input: RecordPaymentInput):
     }
   }
   const invoice = (await syncInvoiceCashStatus(run, inv.id))!;
+  // Fully paid just now: the workflow hears it whichever path paid it (Square,
+  // Mark paid, MCP) — a paid deposit can start construction.
+  if (inv.status !== "paid" && invoice.status === "paid") await onInvoicePaid(run, inv.id, input.principal);
   return { payment: payment!, created, invoice };
 }
 

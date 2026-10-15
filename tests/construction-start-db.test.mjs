@@ -27,7 +27,7 @@ async function seed(client, slug) {
   await client.query(`DELETE FROM projects WHERE slug LIKE 'zz-%'`);
   await client.query(`DELETE FROM notifications WHERE title = 'ZZ Start → Construction'`);
   const p = await client.query(
-    `INSERT INTO projects (slug, name, status, client_name, address) VALUES ($1, 'ZZ Start', 'construction_contract', 'ZZ Client', '1271 Berkeley Ave, Saint Paul, MN 55105') RETURNING id`,
+    `INSERT INTO projects (slug, name, status, client_name, address, contract_value, collected_to_date, progress, value_display) VALUES ($1, 'ZZ Start', 'construction_contract', 'ZZ Client', '1271 Berkeley Ave, Saint Paul, MN 55105', 17580, 17580, 100, '$17,580 pre-con (remodel TBD)') RETURNING id`,
     [slug],
   );
   const projectId = p.rows[0].id;
@@ -86,6 +86,17 @@ test("signed contract, then the deposit is paid → construction, draft draw, on
     assert.equal(trig.ref, `project:${projectId}:permit`);
     assert.equal(trig.payload.address, "1271 Berkeley Ave, Saint Paul, MN 55105");
     assert.equal((await run(`SELECT count(*)::int AS n FROM notifications WHERE title = 'ZZ Start → Construction'`))[0].n, 1);
+
+    // The projects-list total: pre-con $17,580 + the $10,000 contract; the
+    // $1,000 deposit is collected; invoice-tracked from here on.
+    const [pj] = await run(`SELECT contract_value, collected_to_date, progress, value_display, billing_source, opening_collected_cents::int AS opening FROM projects WHERE id = $1`, [projectId]);
+    assert.deepEqual(pj, { contract_value: 27580, collected_to_date: 18580, progress: 67, value_display: "$27,580 ($10,000 contract + $17,580 pre-con)", billing_source: "invoices", opening: 1758000 });
+    // A later draw, once paid, moves collected and the bar on its own.
+    const [draw] = await run(`SELECT id::int AS id FROM invoices WHERE project_id = $1 AND economic_key = 'draw:1:construction-start'`, [projectId]);
+    await run(`UPDATE invoices SET status = 'sent' WHERE id = $1`, [draw.id]);
+    await recordInvoicePayment(run, { invoiceId: draw.id, kind: "payment", amountCents: 200000, method: "check", principal: owner });
+    const [pj2] = await run(`SELECT collected_to_date, progress FROM projects WHERE id = $1`, [projectId]);
+    assert.deepEqual(pj2, { collected_to_date: 20580, progress: 75 });
 
     // Replays change nothing.
     await signContract(client, run, projectId);

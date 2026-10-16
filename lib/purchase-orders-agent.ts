@@ -95,7 +95,9 @@ export async function agentAddLine(
   if (!description) return { ok: false, error: "A line description is required." };
   const unit = (line.unit ?? "ea").trim() || "ea";
   const qtyOrdered = Math.max(0, Number(line.qtyOrdered) || 0);
-  const unitCost = typeof line.unitCost === "number" ? Math.max(0, Math.round(line.unitCost)) : poDollarsToCents(String(line.unitCost ?? ""));
+  // unit_cost is dollars whether it arrives as "206.72" or 206.72 — MCP clients
+  // coerce numeric-looking strings to numbers, so a number is NOT cents.
+  const unitCost = poDollarsToCents(String(line.unitCost ?? ""));
   const extended = Math.round(qtyOrdered * unitCost);
   const ins = await queryOne<{ id: string }>(
     `INSERT INTO purchase_order_lines (purchase_order_id, description, unit, qty_ordered, unit_cost, extended, sort_order)
@@ -119,12 +121,7 @@ export async function agentUpdateLine(
   const description = patch.description !== undefined ? patch.description.trim() : cur.description;
   const unit = patch.unit !== undefined ? patch.unit.trim() || "ea" : cur.unit;
   const qtyOrdered = patch.qtyOrdered !== undefined ? Math.max(0, Number(patch.qtyOrdered) || 0) : Number(cur.qty_ordered);
-  const unitCost =
-    patch.unitCost === undefined
-      ? cur.unit_cost
-      : typeof patch.unitCost === "number"
-        ? Math.max(0, Math.round(patch.unitCost))
-        : poDollarsToCents(String(patch.unitCost));
+  const unitCost = patch.unitCost === undefined ? cur.unit_cost : poDollarsToCents(String(patch.unitCost));
   const extended = Math.round(qtyOrdered * unitCost);
   await query(
     `UPDATE purchase_order_lines SET description=$2, unit=$3, qty_ordered=$4, unit_cost=$5, extended=$6 WHERE id=$1`,

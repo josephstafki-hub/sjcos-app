@@ -255,6 +255,42 @@ Three things to read before quoting a number:
 - `left_to_collect` is price minus collected and includes work not billed yet.
   It is not receivables — `unpaid_invoices` is.
 
+## Emailed invoices / receipts (Unsorted tray)
+
+`mcp/filing-tools.mjs`, through the app's `/api/internal/filing` route. The
+procedure is the `file-invoice-receipt-rebate` skill (v2). An agent names a
+**Gmail message id**; the app reads the message from the company mailbox
+itself and stores the email body + every attachment as files, so no file bytes
+pass through the agent. Internal records only — nothing is sent.
+
+| Tool | What it does |
+|---|---|
+| `file_email_document` | Sure of the job (client name / job address on it, a number already tied to one project, same thread, Joe named it): attach the email + attachments to the project's Files and log the cost — invoice = owed, receipt = spent; `log_cost: false` when it's already entered. `target: "overhead"` for company overhead |
+| `stage_unsorted_document` | Not sure: put it in Joe's **Unsorted** tray (sidebar) with 1–3 project guesses + reasons, `overhead_likely`, `why_unsure`. Joe files it with one tap |
+| `list_unsorted_documents` | Open docs: `pending` (Joe's turn) and `needs_agent` (Joe typed where it goes in `owner_note` — your turn). Or `filed` / `dismissed` |
+| `file_unsorted_document` | Put a tray doc away by `id`: project, `overhead` or `dismiss` |
+| `reply_on_unsorted_document` | One line Joe sees on the doc: where the cost went, a likely duplicate, or a question (`give_back: true` returns it to his tray) |
+
+A file Joe drops into the Ask window works too: pass its path as `file_paths`
+(only Ask-window uploads, or folders in `SJCOS_FILING_PATH_ROOTS`, are read;
+the doc is keyed on the file's content). Claude and Hermes can do this; Qwen has
+no tools.
+
+**Sorting wakes a cheap agent at once.** When Joe picks a job for a doc with a
+cost, or types a note instead, the app queues an agent trigger of kind
+`filing` and starts a worker pass for it right away (`lib/agent-kick.ts` →
+`scripts/run-business-agent.mjs --kinds filing --drain`, model
+`SJC_FILING_AGENT_MODEL`, default `haiku`, 15 turns). It carries out the note
+or puts the cost under the right trade / PO, and answers on the doc. Measured
+locally: ~25 s and about $0.01 per document. If the spawn fails, the regular
+worker timer picks the trigger up. Pausing the `agents` lane stops it too.
+
+Idempotent per Gmail message: staging or filing the same email again changes
+nothing Joe already decided, and the cost is keyed on the email so it never
+counts twice. Every filing — Joe's or an agent's — shows on the page's
+**Filed lately** list with Undo (Undo removes a cost row only if the filing
+created it and nothing was paid on it since).
+
 ## Mood board tools (per-project, per-room inspiration)
 
 Mood boards are fully drivable from any MCP client — an agent can stand up a

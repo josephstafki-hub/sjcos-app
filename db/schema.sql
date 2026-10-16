@@ -3500,3 +3500,53 @@ CREATE TRIGGER trg_estimates_precon_change_before_contract
   BEFORE INSERT OR UPDATE OF kind, project_id ON estimates
   FOR EACH ROW EXECUTE FUNCTION estimates_precon_change_before_contract();
 -- ─── Estimate kinds + scope-change path (end) ───────────────────────────────
+
+-- ─── Unsorted documents (db/apply-unsorted-docs.mjs) ────────────────────────
+-- Invoices / receipts / rebates pulled from email that an agent could not tie
+-- to a project with certainty. Joe sorts them on /unsorted: he picks one of the
+-- agent's guesses, Overhead, a project typed into the search box, or leaves a
+-- free-text note the agent acts on (status needs_agent). Agents file the ones
+-- they ARE sure of through the same table (file_email_document), so the page's
+-- Filed list is the audit trail of every email document filed, with Undo.
+-- The email body and attachments live as `files` rows (project_key '' until
+-- filed; filing moves them onto the project).
+CREATE TABLE IF NOT EXISTS unsorted_docs (
+  id                  bigserial PRIMARY KEY,
+  source_ref          text NOT NULL UNIQUE,                -- 'gmail:<message id>' or the agent's stable key
+  doc_kind            text NOT NULL DEFAULT 'invoice'
+                        CHECK (doc_kind IN ('invoice','receipt','rebate','statement','other')),
+  gmail_message_id    text,
+  gmail_thread_id     text,
+  from_label          text NOT NULL DEFAULT '',
+  subject             text NOT NULL DEFAULT '',
+  received_at         timestamptz,
+  vendor_label        text NOT NULL DEFAULT '',
+  amount_cents        integer,
+  doc_date            date,
+  doc_number          text NOT NULL DEFAULT '',
+  summary             text NOT NULL DEFAULT '',            -- the agent's one line on what it is
+  why_unsure          text NOT NULL DEFAULT '',            -- why the agent couldn't match it
+  suggestions         jsonb NOT NULL DEFAULT '[]',         -- [{project_slug, reason}], best first
+  overhead_likely     boolean NOT NULL DEFAULT false,
+  email_file_id       text,                                -- files row: the email itself (sanitized HTML)
+  attachment_file_ids text[] NOT NULL DEFAULT '{}',
+  status              text NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending','needs_agent','filed','dismissed')),
+  owner_note          text NOT NULL DEFAULT '',            -- what Joe typed when no project fit
+  filed_to            text CHECK (filed_to IN ('project','overhead')),
+  filed_project_id    uuid REFERENCES projects(id) ON DELETE SET NULL,
+  cost_source         text CHECK (cost_source IN ('expense','sub_invoice')),
+  cost_id             bigint,
+  cost_created        boolean NOT NULL DEFAULT false,      -- true = filing made the cost row, so Undo removes it
+  staged_by           text NOT NULL DEFAULT '',
+  resolved_by         text NOT NULL DEFAULT '',            -- 'owner' or the agent's key
+  resolved_at         timestamptz,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now()
+);
+-- The agent's answer on a doc (where it put the cost, or a question for Joe).
+ALTER TABLE unsorted_docs ADD COLUMN IF NOT EXISTS agent_note    text NOT NULL DEFAULT '';
+ALTER TABLE unsorted_docs ADD COLUMN IF NOT EXISTS agent_note_at timestamptz;
+CREATE INDEX IF NOT EXISTS idx_unsorted_docs_open ON unsorted_docs(status, received_at DESC) WHERE status IN ('pending','needs_agent');
+CREATE INDEX IF NOT EXISTS idx_unsorted_docs_resolved ON unsorted_docs(resolved_at DESC) WHERE status IN ('filed','dismissed');
+-- ─── Unsorted documents (end) ───────────────────────────────────────────────

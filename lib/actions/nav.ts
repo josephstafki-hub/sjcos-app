@@ -10,27 +10,32 @@ import { gmailConfigured, gmailInboxUnread } from "@/lib/gmail";
 import { getUnreadChatCount } from "@/lib/chat";
 import { getUnreadSmsCount } from "@/lib/sms";
 import { withMailboxFor } from "@/lib/mailbox";
+import { runDirect } from "@/lib/commands/db";
+import { countPending } from "@/lib/unsorted-docs-core";
 
 export interface NavCounts {
   inbox: number;
   chat: number;
   leads: number;
   messages: number;
+  /** Emailed invoices/receipts waiting for Joe to say which job (/unsorted). */
+  unsorted: number;
 }
 
 export async function getNavCounts(): Promise<NavCounts> {
   const user = await getCurrentUser();
-  if (!user || (user.role !== "owner" && user.role !== "staff")) return { inbox: 0, chat: 0, leads: 0, messages: 0 };
+  if (!user || (user.role !== "owner" && user.role !== "staff")) return { inbox: 0, chat: 0, leads: 0, messages: 0, unsorted: 0 };
 
   // Staff only get badges for areas they hold — a count is a peek.
   const zero = async () => 0;
-  const [inbox, chat, leads, messages] = await Promise.all([
+  const [inbox, chat, leads, messages, unsorted] = await Promise.all([
     can(user, "inbox") ? inboxUnread(user) : zero(),
     can(user, "chat") ? getUnreadChatCount(user.id).catch(() => 0) : zero(),
     can(user, "leads") ? leadsNeedingAttention() : zero(),
     can(user, "comms") ? getUnreadSmsCount().catch(() => 0) : zero(),
+    can(user, "money") ? countPending(runDirect).catch(() => 0) : zero(),
   ]);
-  return { inbox, chat, leads, messages };
+  return { inbox, chat, leads, messages, unsorted };
 }
 
 /** Unread count for THIS person's mailbox. Without the scope the badge would

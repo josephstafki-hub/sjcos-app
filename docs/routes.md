@@ -69,6 +69,7 @@ Grouped as the sidebar groups them (`components/shell/Sidebar.tsx`).
 | `/projects`         | `projects/page.tsx`        | |
 | `/projects/[slug]`  | `projects/[slug]/page.tsx` | Tool tabs — see `lib/project-tabs.ts`. Money › **Overview** (job costing) shows only to the `money` area |
 | `/money`            | `money/page.tsx`           | Every job's price, cost, profit and billing side by side. `money` area. Spec: `docs/project-financials-plan.md` §5 |
+| `/unsorted`         | `unsorted/page.tsx`        | Emailed invoices / receipts an agent couldn't place: preview + one-tap filing to a job, overhead, or a note for the agent; `?tab=filed` = audit list with Undo. `money` area. MCP: `mcp/filing-tools.mjs` |
 | `/schedule`         | `schedule/page.tsx`        | |
 | `/subs`             | `subs/page.tsx`            | |
 | `/subs/[slug]`      | `subs/[slug]/page.tsx`     | |

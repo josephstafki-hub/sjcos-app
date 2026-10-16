@@ -20,7 +20,7 @@
 import { randomUUID } from "node:crypto";
 import type { Run } from "../commands/core.ts";
 
-export const TRIGGER_KINDS = ["signature", "message", "note", "quote", "selection", "payment", "field_report", "approval", "signoff", "sweep", "permit"] as const;
+export const TRIGGER_KINDS = ["signature", "message", "note", "quote", "selection", "payment", "field_report", "approval", "signoff", "sweep", "permit", "filing"] as const;
 export type TriggerKind = (typeof TRIGGER_KINDS)[number];
 
 export interface AgentTrigger {
@@ -102,7 +102,7 @@ export async function getAgentTrigger(run: Run, id: string): Promise<AgentTrigge
   return row ?? null;
 }
 
-export async function claimAgentTriggers(run: Run, opts: { worker: string; limit?: number; leaseSeconds?: number } ): Promise<AgentTrigger[]> {
+export async function claimAgentTriggers(run: Run, opts: { worker: string; limit?: number; leaseSeconds?: number; kinds?: readonly string[] | null } ): Promise<AgentTrigger[]> {
   const token = `${opts.worker}:${randomUUID()}`;
   return run<AgentTrigger>(
     `UPDATE agent_triggers t
@@ -110,11 +110,12 @@ export async function claimAgentTriggers(run: Run, opts: { worker: string; limit
       WHERE t.id IN (
         SELECT id FROM agent_triggers
          WHERE state = 'pending' AND next_attempt_at <= now()
+           AND ($4::text[] IS NULL OR kind = ANY($4::text[]))
          ORDER BY created_at
          LIMIT $3
          FOR UPDATE SKIP LOCKED)
       RETURNING ${COLS}`,
-    [token, opts.leaseSeconds ?? 900, opts.limit ?? 1],
+    [token, opts.leaseSeconds ?? 900, opts.limit ?? 1, opts.kinds?.length ? [...opts.kinds] : null],
   );
 }
 

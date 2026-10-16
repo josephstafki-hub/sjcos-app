@@ -96,12 +96,17 @@ export async function serveFile(req: Request, id: string, file: ServableFile): P
   const bytes = await readOriginal(file);
   if (!bytes) return new Response("Not found", { status: 404 });
   const disposition = download ? "attachment" : "inline";
-  return new Response(new Uint8Array(bytes), {
-    headers: {
-      "Content-Type": file.mime_type || "application/octet-stream",
-      "Content-Disposition": `${disposition}; filename="${encodeURIComponent(file.name)}"`,
-      "Content-Length": String(bytes.length),
-      "Cache-Control": "private, no-store",
-    },
-  });
+  const headers: Record<string, string> = {
+    "Content-Type": file.mime_type || "application/octet-stream",
+    "Content-Disposition": `${disposition}; filename="${encodeURIComponent(file.name)}"`,
+    "Content-Length": String(bytes.length),
+    "Cache-Control": "private, no-store",
+  };
+  // Stored HTML (saved emails, agent notes) is sanitized on the way in; served
+  // inline it still runs in a sandboxed, script-less opaque origin, so it can
+  // never act as the signed-in app.
+  if (/^text\/html/i.test(file.mime_type ?? "")) {
+    headers["Content-Security-Policy"] = "sandbox; default-src 'none'; img-src data: https: http:; style-src 'unsafe-inline'; font-src data: https:";
+  }
+  return new Response(new Uint8Array(bytes), { headers });
 }

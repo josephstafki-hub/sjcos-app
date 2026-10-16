@@ -2,6 +2,8 @@
 // per tool call on this process's pool, the caller's principal resolved
 // server-side (never from tool arguments), and a uniform error shape.
 
+import { normalizePermissions } from "../lib/permissions.ts";
+
 /** Run fn(run) in ONE transaction on the pool; rolls back on throw. */
 export function txOver(pool) {
   return async (fn) => {
@@ -41,4 +43,20 @@ export function agentNameOf(server) {
     /* pre-initialize */
   }
   return process.env.SJCOS_AGENT_NAME || "agent";
+}
+
+/** The app's area gate for a plain-SQL MCP write: null = allowed, otherwise
+ *  the refusal message. Owner always may; staff need `area` in their
+ *  permissions; no person behind the call (unattended clients Joe runs) →
+ *  allowed, as for every MCP write. */
+export async function areaRefusal(rows, currentPrincipal, area) {
+  const p = await currentPrincipal();
+  if (!p.userId) return null;
+  if (p.revoked) return "The account this agent acts for is disabled or was signed out by the owner. Nothing was done.";
+  if (p.role === "owner") return null;
+  if (p.role === "staff") {
+    const [u] = await rows(`SELECT permissions FROM users WHERE id = $1`, [p.userId]);
+    if (normalizePermissions(u?.permissions).includes(area)) return null;
+  }
+  return `The account this agent acts for has no "${area}" access. Nothing was done.`;
 }

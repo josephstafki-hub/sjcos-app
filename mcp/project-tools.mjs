@@ -23,7 +23,7 @@
 // (unattended clients Joe runs) → allowed, as for every MCP write.
 
 import { z } from "zod";
-import { normalizePermissions } from "../lib/permissions.ts";
+import { areaRefusal } from "./tool-shared.mjs";
 
 /** Mirrors slugify() in lib/actions/projects.ts. */
 function slugify(name) {
@@ -61,17 +61,7 @@ export function registerProjectTools(server, { rows, json, strippedDollarError, 
   }
 
   /** null = allowed; otherwise the refusal message. */
-  async function accessRefusal(area) {
-    const p = await currentPrincipal();
-    if (!p.userId) return null;
-    if (p.revoked) return "The account this agent acts for is disabled or was signed out by the owner. Nothing was done.";
-    if (p.role === "owner") return null;
-    if (p.role === "staff") {
-      const u = await one(`SELECT permissions FROM users WHERE id = $1`, [p.userId]);
-      if (normalizePermissions(u?.permissions).includes(area)) return null;
-    }
-    return `The account this agent acts for has no "${area}" access. Nothing was done.`;
-  }
+  const accessRefusal = (area) => areaRefusal(rows, currentPrincipal, area);
 
   /** openEntityRoom("project", slug, name) — upsert, so it also reopens. */
   const openProjectRoom = (slug, name) =>

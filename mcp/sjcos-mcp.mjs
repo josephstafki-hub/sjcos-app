@@ -92,6 +92,7 @@ import { registerContextTools } from "./context-tools.mjs";
 import { registerFieldTools } from "./field-tools.mjs";
 import { registerTeamTools } from "./team-tools.mjs";
 import { registerProjectTools } from "./project-tools.mjs";
+import { registerFilingTools } from "./filing-tools.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -258,6 +259,15 @@ async function newsletterCall(action, payload = {}) {
  */
 async function biddingCall(action, payload = {}) {
   return internalCall("bidding", action, payload, "Is the sjcos service running?");
+}
+
+/**
+ * Call the app's internal filing route (Unsorted documents): the app reads the
+ * Gmail message, stores the email + attachments as files, and logs the cost.
+ * Internal records only; nothing is sent.
+ */
+async function filingCall(action, payload = {}) {
+  return internalCall("filing", action, payload, "Is the sjcos service running?");
 }
 
 /**
@@ -2867,6 +2877,10 @@ server.registerTool(
   // Internal records, nothing emailed, no delete. See mcp/team-tools.mjs.
   registerTeamTools(server, { rows, json });
   registerProjectTools(server, { rows, json, strippedDollarError, currentPrincipal });
+
+  // Emailed invoices / receipts / rebates: file the sure ones to a job (or
+  // overhead), stage the rest in Joe's Unsorted tray. See mcp/filing-tools.mjs.
+  registerFilingTools(server, { json, filingCall, strippedDollarError });
 
   // `search` + `fetch`: the two tools ChatGPT's connector requires by name (it
   // rejects a server without them). Read-only unified lookups over the same

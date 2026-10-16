@@ -27,6 +27,7 @@ import {
   Megaphone,
   BookOpen,
   Wallet,
+  ReceiptText,
   UserRound,
   UserCheck,
   LogOut,
@@ -54,6 +55,7 @@ const WORK: NavItem[] = [
   { label: "Leads", href: "/leads", icon: Sprout },
   { label: "Projects", href: "/projects", icon: FolderKanban },
   { label: "Money", href: "/money", icon: Wallet },
+  { label: "Unsorted", href: "/unsorted", icon: ReceiptText },
   { label: "Schedule", href: "/schedule", icon: Calendar },
   { label: "Subs", href: "/subs", icon: HardHat },
   { label: "Vendors", href: "/vendors", icon: Truck },
@@ -178,7 +180,9 @@ export function Sidebar({ user }: { user: SidebarUser }) {
             ? counts.chat
             : href === "/leads"
               ? counts.leads
-              : 0;
+              : href === "/unsorted"
+                ? counts.unsorted
+                : 0;
     return n > 0 ? String(n) : undefined;
   };
 

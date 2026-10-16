@@ -6,10 +6,17 @@
 //   node scripts/run-business-agent.mjs --sweep-only      # only re-queue stranded leases
 //   node scripts/run-business-agent.mjs --dry-run <id>    # print the assembled prompt for one trigger, run nothing
 //   node scripts/run-business-agent.mjs --status          # pending/leased triggers + last executions
+//   node scripts/run-business-agent.mjs --once --kinds filing --drain
+//                                                         # only those kinds, passes until none are left
+//                                                         # (the app starts this the moment Joe sorts a
+//                                                         # document on /unsorted — lib/agent-kick.ts)
 //
 // Options: --limit N (default 2) --runtime claude|hermes (default claude, or
 // SJC_AGENT_RUNTIME) --model <alias> (default SJC_AGENT_MODEL or the CLI's
 // default) --max-turns N --timeout-ms N.
+//
+// Filing runs (kind 'filing': finish a document Joe just sorted) are small and
+// run on a cheap model: SJC_FILING_AGENT_MODEL (default "haiku"), 15 turns.
 //
 // Database: DATABASE_URL from the environment first, else .env.local next to
 // the repo (the production path when the timer runs it). Evaluations always
@@ -46,12 +53,22 @@ function databaseUrl() {
   return m[1].trim().replace(/^["']|["']$/g, "");
 }
 
+export const FILING_MODEL = process.env.SJC_FILING_AGENT_MODEL || "haiku";
+
+/** Per-kind run shape: permit research gets the web and more turns; filing a
+ *  sorted document is a few tool calls on the cheap model. */
+function runShape(kind, { model, maxTurns, timeoutMs }) {
+  if (kind === "permit") return { model: model ?? "", maxTurns: Math.max(Number(maxTurns) || 0, 80), timeoutMs, webResearch: true };
+  if (kind === "filing") return { model: FILING_MODEL, maxTurns: 15, timeoutMs: Math.min(Number(timeoutMs) || 0, 5 * 60 * 1000) || 5 * 60 * 1000, webResearch: false };
+  return { model: model ?? "", maxTurns, timeoutMs, webResearch: false };
+}
+
 export function makeRunners({ url, model, maxTurns, timeoutMs, appInternalUrl, cronSecret, askTimeoutS, onActivity }) {
   return {
     claude: {
       name: "claude",
       run: ({ prompt, trigger }) =>
-        runClaudeBusiness({ prompt, model: model ?? "", maxTurns: trigger?.kind === "permit" ? Math.max(Number(maxTurns) || 0, 80) : maxTurns, timeoutMs, repo: REPO, databaseUrl: url, appInternalUrl, cronSecret, askTimeoutS, onActivity, webResearch: trigger?.kind === "permit" }),
+        runClaudeBusiness({ prompt, ...runShape(trigger?.kind, { model, maxTurns, timeoutMs }), repo: REPO, databaseUrl: url, appInternalUrl, cronSecret, askTimeoutS, onActivity, agentName: trigger?.kind === "filing" ? "claude-filing" : undefined }),
     },
     hermes: {
       name: "hermes",
@@ -128,8 +145,13 @@ async function main() {
       log(`done: ${JSON.stringify({ executionId: out.executionId, status: out.status })}`);
       return;
     }
-    const report = await runWorkerOnce(tx, direct, { runner, model, limit: Number(arg("--limit", 2)), onLog: log });
-    log(`pass complete: ${JSON.stringify({ claimed: report.claimed, done: report.done, blocked: report.blocked, failed: report.failed, swept: report.swept, lane: report.lane })}`);
+    const kinds = arg("--kinds", "") ? arg("--kinds").split(",").map((k) => k.trim()).filter(Boolean) : null;
+    // --drain: keep taking passes while there is work of these kinds (bounded).
+    for (let pass = 0; pass < (has("--drain") ? 25 : 1); pass++) {
+      const report = await runWorkerOnce(tx, direct, { runner, model, kinds, limit: Number(arg("--limit", 2)), onLog: log });
+      log(`pass complete: ${JSON.stringify({ claimed: report.claimed, done: report.done, blocked: report.blocked, failed: report.failed, swept: report.swept, lane: report.lane })}`);
+      if (!report.claimed || !report.lane.open) break;
+    }
   } finally {
     await pool.end();
   }

@@ -57,6 +57,8 @@ export interface WorkerOptions {
   onLog?: (line: string) => void;
   /** Skip the lane kill-switch check (evals). */
   ignoreLane?: boolean;
+  /** Only claim triggers of these kinds (the app's immediate filing pass claims 'filing' only). */
+  kinds?: readonly string[] | null;
 }
 
 export const WORKER_NAME = "business-agent-worker";
@@ -84,6 +86,10 @@ function taskFor(trigger: AgentTrigger): string {
 (3) For each permit: what the application needs (forms, plan sets and their required detail, site plan/survey, energy code or structural calcs, contractor license number, job valuation, owner authorization), the fee or how it is computed, typical review time, and the inspections it triggers. Compare against the project files and mark each item on hand (cite the file id) or MISSING.
 (4) save_project_file ONE markdown file named "Permit requirements — <City>.md" with tag "PERMIT · Requirements" (it replaces an earlier copy with the same name). Sections: Summary (jurisdiction, permits needed, who pulls each, est. fees, est. review time); Permit-by-permit detail; Checklist (on hand → file id / MISSING); Portal steps for a computer-use agent (portal URL, account/login needed, each screen and what to enter — address, owner, contractor SJ Carpentry LLC, valuation from the formal estimate, scope description — and which project files to upload); Sources (every official URL you used, with the date read). Never invent a fee, form name or URL: if you could not confirm it, write UNCONFIRMED and say where to check.
 (5) If anything is MISSING or needs Joe, create ONE work item for Joe on this project titled "Permit: what's missing for <City>" listing exactly what is needed and from whom (check list_work_items first; never duplicate). Do not apply for, pay for or submit anything, and do not contact the city or the client.`,
+    filing: `Joe sorted an emailed invoice / receipt on the Unsorted page (payload.doc_id) and this run finishes the job right away. Load skill file-invoice-receipt-rebate. Read the document with list_unsorted_documents (statuses as needed; match id = payload.doc_id). Be quick: a handful of tool calls.
+If payload.mode = "owner_note": Joe typed where it goes (owner_note) instead of picking a project. Work out what he meant (list_projects / search for the job by client, street or nickname). Exactly one project, "overhead" or "not a business cost" → file_unsorted_document (target project + project_slug / overhead / dismiss, agent "claude-filing"). A split across jobs → file it to the job with the larger share with log_cost false, then record each job's share with record_sub_invoice (invoice) or add_expense (receipt) using source_ref "<doc source_ref>:<project slug>". If you can't tell where it goes, do NOT guess: reply_on_unsorted_document with one short question and give_back true, so it returns to Joe's tray. Once it is filed to a job with a cost, place that cost exactly as in "place_cost" below, then reply_on_unsorted_document (give_back false) with one plain line on where it went — never just repeat Joe's note.
+If payload.mode = "place_cost": Joe already filed it to this project and the cost was logged (payload.cost_source / payload.cost_id). Put that cost in the right place on the job: get_project_financials, then assign_cost to the trade line (line_key) or change order the document is clearly for, and link_cost_to_po when it pays an open purchase order from the same vendor. If two lines fit or none clearly does, leave it unassigned. If an earlier cost looks like the same bill (same vendor and amount), don't delete anything: say so. Always finish with reply_on_unsorted_document (give_back false) in one plain line: where the cost went, or why it stayed unassigned / looks like a duplicate.
+Never send anything. Never change another document.`,
     sweep: `Repair sweep: look for stranded work on this job (open obligations with no next action, approved items nobody resumed, stale drafts) and advance what is permitted; do not create duplicate to-dos.`,
   };
   return `${base}\n${byKind[trigger.kind] ?? ""}\n\n${RUN_SUMMARY_FORMAT}`;
@@ -202,7 +208,7 @@ export async function runWorkerOnce(tx: Tx, direct: Run, opts: WorkerOptions): P
     }
   }
   const worker = opts.worker ?? WORKER_NAME;
-  const claimed = await tx((run) => claimAgentTriggers(run, { worker, limit: opts.limit ?? 1, leaseSeconds: opts.leaseSeconds ?? 900 }));
+  const claimed = await tx((run) => claimAgentTriggers(run, { worker, limit: opts.limit ?? 1, leaseSeconds: opts.leaseSeconds ?? 900, kinds: opts.kinds }));
   report.claimed = claimed.length;
   for (const trigger of claimed) {
     let outcome: Awaited<ReturnType<typeof processTrigger>> | null = null;

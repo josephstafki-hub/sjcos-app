@@ -1,0 +1,564 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { Bot, Building2, Download, FileText, Mail, Search, Send, Sparkles, Undo2, X } from "lucide-react";
+import { Card, Chip, type ChipKind } from "@/components/ui";
+import { runAction } from "@/lib/run-action";
+import { fileUnsortedAction, noteUnsortedAction, undoUnsortedAction, type FileUnsortedInput } from "@/lib/actions/unsorted";
+import type { DocKind, ProjectChoice, UnsortedDocRow } from "@/lib/unsorted-docs-core";
+
+export interface DocFile {
+  id: string;
+  name: string;
+  mime_type: string;
+  size_label: string;
+}
+
+const KIND_LABEL: Record<DocKind, string> = { invoice: "Invoice", receipt: "Receipt", rebate: "Rebate", statement: "Statement", other: "Other" };
+const KIND_CHIP: Record<DocKind, ChipKind> = { invoice: "flag", receipt: "money", rebate: "info", statement: "default", other: "ghost" };
+const KINDS = Object.keys(KIND_LABEL) as DocKind[];
+
+const money = (cents: number | null | undefined) =>
+  cents == null ? "" : (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
+const day = (iso: string | null) =>
+  iso ? new Date(iso.length === 10 ? `${iso}T12:00:00Z` : iso).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/Chicago" }) : "";
+const vendorOf = (d: UnsortedDocRow) => d.vendor_label || d.from_label.replace(/<[^>]*>/, "").replace(/"/g, "").trim() || "Unknown sender";
+const isTyping = (el: EventTarget | null) => el instanceof HTMLElement && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
+
+export function UnsortedClient({
+  docs,
+  resolved,
+  projects,
+  files,
+  initialTab,
+  openId,
+}: {
+  docs: UnsortedDocRow[];
+  resolved: UnsortedDocRow[];
+  projects: ProjectChoice[];
+  files: Record<string, DocFile>;
+  initialTab: "sort" | "filed";
+  openId: number | null;
+}) {
+  const router = useRouter();
+  const [tab, setTab] = useState(initialTab);
+  // Docs put away in this tab but not yet gone from the server props.
+  const [hidden, setHidden] = useState<Set<number>>(() => new Set());
+  const open = useMemo(() => docs.filter((d) => !hidden.has(d.id)), [docs, hidden]);
+  const [selectedId, setSelectedId] = useState<number | null>(openId);
+  const selected = open.find((d) => d.id === selectedId) ?? open[0] ?? null;
+  const [last, setLast] = useState<{ id: number; label: string } | null>(null);
+  const [busy, start] = useTransition();
+  const byslug = useMemo(() => new Map(projects.map((p) => [p.slug, p])), [projects]);
+
+  const pending = open.filter((d) => d.status === "pending").length;
+  const withAgent = open.length - pending;
+
+  function advanceFrom(id: number) {
+    const i = open.findIndex((d) => d.id === id);
+    const next = open[i + 1] ?? open[i - 1] ?? null;
+    setSelectedId(next?.id ?? null);
+  }
+
+  function file(doc: UnsortedDocRow, input: FileUnsortedInput, label: string) {
+    start(async () => {
+      const r = await runAction(() => fileUnsortedAction(doc.id, input), { fallback: "Couldn't file that." });
+      if (!r.ok) return;
+      advanceFrom(doc.id);
+      setHidden((h) => new Set(h).add(doc.id));
+      setLast({ id: doc.id, label });
+      router.refresh();
+    });
+  }
+
+  function note(doc: UnsortedDocRow, text: string) {
+    start(async () => {
+      const r = await runAction(() => noteUnsortedAction(doc.id, text), { fallback: "Couldn't send that to the agent." });
+      if (!r.ok) return;
+      advanceFrom(doc.id);
+      setLast(null);
+      router.refresh();
+    });
+  }
+
+  function undo(id: number) {
+    start(async () => {
+      const r = await runAction(() => undoUnsortedAction(id), { fallback: "Couldn't undo that." });
+      if (!r.ok) return;
+      setHidden((h) => {
+        const n = new Set(h);
+        n.delete(id);
+        return n;
+      });
+      setLast(null);
+      setSelectedId(id);
+      setTab("sort");
+      router.refresh();
+    });
+  }
+
+  // j / k (or arrows) move through the list when no field has focus.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (tab !== "sort" || isTyping(e.target) || e.metaKey || e.ctrlKey || e.altKey || !selected) return;
+      const i = open.findIndex((d) => d.id === selected.id);
+      if (e.key === "j" || e.key === "ArrowDown") {
+        const n = open[i + 1];
+        if (n) setSelectedId(n.id);
+        e.preventDefault();
+      } else if (e.key === "k" || e.key === "ArrowUp") {
+        const p = open[i - 1];
+        if (p) setSelectedId(p.id);
+        e.preventDefault();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [tab, open, selected]);
+
+  return (
+    <div className="flex min-h-full flex-col gap-3 px-4 py-5 sm:px-6">
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-0 flex-1">
+          <h1 className="font-serif text-[30px] font-medium leading-none tracking-tight text-accent-2">Unsorted</h1>
+          <p className="mt-1.5 text-[12.5px] text-ink-3">
+            Invoices and receipts from email the agent couldn&apos;t place. Pick where each one goes — it&apos;s attached to the
+            project and the cost is logged.
+          </p>
+        </div>
+        <div className="flex gap-1 rounded-lg border border-rule bg-paper-2 p-0.5 text-[12px] font-semibold">
+          {(["sort", "filed"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`rounded-md px-3 py-1 ${tab === t ? "bg-card text-ink shadow-card" : "text-ink-3 hover:text-ink"}`}
+            >
+              {t === "sort" ? `To sort${pending ? ` · ${pending}` : ""}` : "Filed lately"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {last && tab === "sort" && (
+        <div className="flex items-center gap-2 rounded-lg border border-rule bg-money-soft px-3 py-2 text-[12.5px] text-ink">
+          <span className="min-w-0 flex-1 truncate">{last.label}</span>
+          <button onClick={() => undo(last.id)} disabled={busy} className="inline-flex items-center gap-1 font-semibold text-accent-2 hover:underline">
+            <Undo2 className="size-3.5" /> Undo
+          </button>
+          <button onClick={() => setLast(null)} className="text-ink-3 hover:text-ink" aria-label="Dismiss">
+            <X className="size-3.5" />
+          </button>
+        </div>
+      )}
+
+      {tab === "filed" ? (
+        <FiledList docs={resolved} busy={busy} onUndo={undo} />
+      ) : !selected ? (
+        <Card className="grid place-items-center px-6 py-16 text-center">
+          <div>
+            <div className="font-serif text-[20px] text-ink">All sorted</div>
+            <p className="mt-1 text-[12.5px] text-ink-3">
+              Nothing waiting. Hermes files what it&apos;s sure of on its own and drops the rest here.
+              {withAgent > 0 && ` ${withAgent} note${withAgent === 1 ? " is" : "s are"} with the agent.`}
+            </p>
+          </div>
+        </Card>
+      ) : (
+        // Sized by the page's own width (container queries), not the window's:
+        // the operator panel can take half the screen.
+        <div className="@container min-h-0 flex-1">
+        <div className="grid gap-3 @2xl:grid-cols-[minmax(0,1fr)_300px] @5xl:grid-cols-[230px_minmax(0,1fr)_320px]">
+          <Card className="flex overflow-x-auto p-0 @2xl:col-span-2 @5xl:col-span-1 @5xl:block @5xl:max-h-[82vh] @5xl:overflow-y-auto">
+            <div className="sticky top-0 hidden border-b border-rule bg-paper-2 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3 @5xl:block">
+              {open.length} document{open.length === 1 ? "" : "s"}
+            </div>
+            {open.map((d) => (
+              <button
+                key={d.id}
+                onClick={() => setSelectedId(d.id)}
+                className={`flex w-56 flex-none flex-col gap-0.5 border-r border-rule-soft px-3 py-2.5 text-left @5xl:w-full @5xl:border-b @5xl:border-r-0 ${d.id === selected.id ? "bg-accent-soft" : "hover:bg-paper"}`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink">{vendorOf(d)}</span>
+                  <span className="font-mono text-[11.5px] text-ink-2">{money(d.amount_cents)}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Chip kind={KIND_CHIP[d.doc_kind]}>{KIND_LABEL[d.doc_kind]}</Chip>
+                  {d.status === "needs_agent" && <Chip kind="ai">Claude filing</Chip>}
+                  {d.status === "pending" && d.agent_note && <Chip kind="ai">Question</Chip>}
+                  <span className="ml-auto font-mono text-[10px] text-ink-3">{day(d.received_at ?? d.created_at)}</span>
+                </div>
+                <div className="truncate text-[11.5px] text-ink-3">{d.subject}</div>
+              </button>
+            ))}
+          </Card>
+
+          <DocPreview key={`p${selected.id}`} doc={selected} files={files} />
+          <SortPanel key={`s${selected.id}`} doc={selected} projects={projects} byslug={byslug} busy={busy} onFile={file} onNote={note} />
+        </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Preview ─────────────────────────────────────────────────────────────────
+
+function DocPreview({ doc, files }: { doc: UnsortedDocRow; files: Record<string, DocFile> }) {
+  const tabs = [...doc.attachment_file_ids, ...(doc.email_file_id ? [doc.email_file_id] : [])].map((id) => files[id]).filter(Boolean);
+  const [active, setActive] = useState(tabs[0]?.id ?? null);
+  const f = tabs.find((t) => t.id === active) ?? tabs[0];
+  const isEmail = (x: DocFile) => x.id === doc.email_file_id;
+  const src = f ? `/api/files/${encodeURIComponent(f.id)}` : "";
+
+  return (
+    <Card className="flex min-h-[420px] flex-col overflow-hidden p-0">
+      <div className="flex flex-wrap items-center gap-1 border-b border-rule bg-paper-2 px-2 py-1.5">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setActive(t.id)}
+            className={`inline-flex max-w-[220px] items-center gap-1.5 rounded-md px-2 py-1 text-[12px] ${t.id === f?.id ? "bg-card font-semibold text-ink shadow-card" : "text-ink-3 hover:text-ink"}`}
+          >
+            {isEmail(t) ? <Mail className="size-3.5 flex-none" /> : <FileText className="size-3.5 flex-none" />}
+            <span className="truncate">{isEmail(t) ? "Email" : t.name}</span>
+          </button>
+        ))}
+        {f && (
+          <a href={`${src}?download=1`} className="ml-auto inline-flex items-center gap-1 px-2 text-[11.5px] text-ink-3 hover:text-ink" title="Download">
+            <Download className="size-3.5" />
+          </a>
+        )}
+      </div>
+      <div className="min-h-0 flex-1 bg-paper">
+        {!f ? (
+          <div className="grid h-full place-items-center p-6 text-center text-[12.5px] text-ink-3">
+            No copy was saved with this one.{doc.subject && <> Subject: “{doc.subject}”.</>}
+          </div>
+        ) : f.mime_type.startsWith("image/") ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={src} alt={f.name} className="mx-auto max-h-[80vh] w-auto object-contain" />
+        ) : f.mime_type.startsWith("application/pdf") ? (
+          <iframe key={f.id} src={src} title={f.name} className="h-[62vh] w-full @2xl:h-[80vh]" />
+        ) : f.mime_type.startsWith("text/html") ? (
+          // The email is sanitized on the way in and served under a sandbox CSP;
+          // the empty sandbox here keeps scripts and forms off as well.
+          <iframe key={f.id} src={src} title="Email" sandbox="" className="h-[62vh] w-full @2xl:h-[80vh] bg-white" />
+        ) : (
+          <div className="grid h-full place-items-center p-6 text-[12.5px] text-ink-3">
+            <a href={`${src}?download=1`} className="inline-flex items-center gap-1.5 font-semibold text-accent-2 hover:underline">
+              <Download className="size-4" /> {f.name} ({f.size_label})
+            </a>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+// ─── Where does it go ────────────────────────────────────────────────────────
+
+function matches(p: ProjectChoice, q: string): boolean {
+  const hay = `${p.name} ${p.client_name} ${p.address} ${p.slug}`.toLowerCase();
+  return q.toLowerCase().split(/\s+/).filter(Boolean).every((t) => hay.includes(t));
+}
+
+function SortPanel({
+  doc,
+  projects,
+  byslug,
+  busy,
+  onFile,
+  onNote,
+}: {
+  doc: UnsortedDocRow;
+  projects: ProjectChoice[];
+  byslug: Map<string, ProjectChoice>;
+  busy: boolean;
+  onFile: (doc: UnsortedDocRow, input: FileUnsortedInput, label: string) => void;
+  onNote: (doc: UnsortedDocRow, text: string) => void;
+}) {
+  const [kind, setKind] = useState<DocKind>(doc.doc_kind);
+  const [amount, setAmount] = useState(doc.amount_cents == null ? "" : (doc.amount_cents / 100).toFixed(2));
+  const [vendor, setVendor] = useState(vendorOf(doc));
+  const costable = kind === "invoice" || kind === "receipt";
+  const amountCents = amount.trim() === "" ? null : Math.round(Number(amount.replace(/[$,\s]/g, "")) * 100);
+  const amountOk = amountCents === null || Number.isFinite(amountCents);
+  const [logCost, setLogCost] = useState(costable && doc.amount_cents != null);
+  const willLog = costable && logCost && amountCents != null && amountOk && amountCents !== 0;
+  const [q, setQ] = useState("");
+  const [hi, setHi] = useState(0);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  const suggestions = doc.suggestions.map((s) => ({ ...s, project: byslug.get(s.project_slug) })).filter((s) => s.project);
+  const hits = q.trim() ? projects.filter((p) => matches(p, q)).slice(0, 6) : [];
+
+  function toProject(p: ProjectChoice) {
+    if (!amountOk) return;
+    const what = willLog ? `${money(amountCents)} ${kind === "invoice" ? "owed" : "spent"} logged; Claude is putting it under the right trade. ` : "";
+    onFile(doc, { target: { to: "project", projectSlug: p.slug }, logCost: willLog, kind, amountCents, vendorLabel: vendor }, `${vendor} → ${p.name}. ${what}Files attached.`);
+  }
+  function toOverhead() {
+    onFile(doc, { target: { to: "overhead" }, kind, amountCents: amountOk ? amountCents : undefined, vendorLabel: vendor }, `${vendor} → Overhead.`);
+  }
+  function dismiss() {
+    onFile(doc, { target: { to: "dismiss" }, kind, vendorLabel: vendor }, `${vendor} set aside — not a business cost.`);
+  }
+  function sendNote() {
+    const text = q.trim();
+    if (text) onNote(doc, text);
+  }
+
+  // 1–5 picks a guess, o = overhead, / = search — when no field has focus.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (busy || isTyping(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+      const n = Number(e.key);
+      if (n >= 1 && n <= suggestions.length) {
+        e.preventDefault();
+        toProject(suggestions[n - 1].project!);
+      } else if (e.key === "o") {
+        e.preventDefault();
+        toOverhead();
+      } else if (e.key === "/") {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  return (
+    <div className="flex min-w-0 flex-col gap-3">
+      <Card className="p-3.5">
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[15px] font-semibold text-ink">{vendorOf(doc)}</div>
+            <div className="truncate text-[11.5px] text-ink-3">{doc.from_label}</div>
+          </div>
+          <div className="text-right">
+            <div className="font-mono text-[15px] font-semibold text-ink">{money(doc.amount_cents)}</div>
+            <div className="font-mono text-[10px] text-ink-3">{day(doc.doc_date ?? doc.received_at)}{doc.doc_number && ` · #${doc.doc_number}`}</div>
+          </div>
+        </div>
+        {(doc.summary || doc.why_unsure) && (
+          <div className="mt-2.5 rounded-md border border-ai bg-ai-soft px-2.5 py-2 text-[12px] text-ink-2">
+            <div className="mb-0.5 flex items-center gap-1 font-mono text-[9.5px] uppercase tracking-[0.12em] text-ai-2">
+              <Sparkles className="size-3" /> {doc.staged_by || "Agent"}
+            </div>
+            {doc.summary && <p>{doc.summary}</p>}
+            {doc.why_unsure && <p className="mt-1 text-ink-3">Not sure because: {doc.why_unsure}</p>}
+          </div>
+        )}
+        {doc.status === "needs_agent" && (
+          <div className="mt-2 flex items-start gap-1.5 rounded-md bg-paper-2 px-2.5 py-2 text-[12px] text-ink-2">
+            <Bot className="mt-0.5 size-3.5 flex-none animate-pulse text-ai-2" />
+            <span>
+              Claude is filing it from your note: “{doc.owner_note}”. Usually under a minute — or pick a spot yourself.
+            </span>
+          </div>
+        )}
+        {doc.status === "pending" && doc.agent_note && (
+          <div className="mt-2 flex items-start gap-1.5 rounded-md border border-ai bg-ai-soft px-2.5 py-2 text-[12px] text-ink">
+            <Bot className="mt-0.5 size-3.5 flex-none text-ai-2" />
+            <span>
+              <b className="font-semibold">Claude asks:</b> {doc.agent_note}
+              {doc.owner_note && <span className="block text-ink-3">Your note was “{doc.owner_note}”.</span>}
+            </span>
+          </div>
+        )}
+      </Card>
+
+      <Card className="flex flex-col gap-2 p-3.5">
+        <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">Where does it go?</div>
+        {suggestions.map((s, i) => (
+          <button
+            key={s.project_slug}
+            disabled={busy}
+            onClick={() => toProject(s.project!)}
+            className="group flex items-start gap-2.5 rounded-lg border border-rule bg-card px-3 py-2 text-left hover:border-accent hover:bg-accent-soft disabled:opacity-50"
+          >
+            <kbd className="mt-0.5 grid size-5 flex-none place-items-center rounded border border-rule bg-paper-2 font-mono text-[10px] text-ink-3">{i + 1}</kbd>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] font-semibold text-ink">{s.project!.name}</span>
+              <span className="block text-[11.5px] leading-snug text-ink-3">{s.reason || s.project!.client_name}</span>
+            </span>
+          </button>
+        ))}
+        <button
+          disabled={busy}
+          onClick={toOverhead}
+          className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 text-left disabled:opacity-50 ${doc.overhead_likely ? "border-accent bg-accent-soft" : "border-rule bg-card hover:border-accent hover:bg-accent-soft"}`}
+        >
+          <kbd className="grid size-5 flex-none place-items-center rounded border border-rule bg-paper-2 font-mono text-[10px] text-ink-3">O</kbd>
+          <Building2 className="size-3.5 flex-none text-ink-3" />
+          <span className="flex-1 text-[13px] font-semibold text-ink">Overhead</span>
+          <span className="text-[11px] text-ink-3">company, not a job</span>
+        </button>
+
+        <div className="relative mt-1">
+          <Search className="pointer-events-none absolute left-2.5 top-2.5 size-3.5 text-ink-3" />
+          <input
+            ref={searchRef}
+            value={q}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setHi(0);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setHi((h) => Math.min(h + 1, Math.max(hits.length - 1, 0)));
+              } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setHi((h) => Math.max(h - 1, 0));
+              } else if (e.key === "Enter") {
+                e.preventDefault();
+                if (hits[hi]) toProject(hits[hi]);
+                else sendNote();
+              } else if (e.key === "Escape") {
+                setQ("");
+                e.currentTarget.blur();
+              }
+            }}
+            placeholder="Another project, or tell the agent…"
+            className="w-full rounded-lg border border-rule bg-paper py-2 pl-8 pr-2 text-[13px] text-ink outline-none placeholder:text-ink-4 focus:border-accent"
+          />
+          {q.trim() && (
+            <div className="mt-1 overflow-hidden rounded-lg border border-rule bg-card">
+              {hits.map((p, i) => (
+                <button
+                  key={p.slug}
+                  disabled={busy}
+                  onMouseEnter={() => setHi(i)}
+                  onClick={() => toProject(p)}
+                  className={`flex w-full flex-col px-3 py-1.5 text-left ${i === hi ? "bg-accent-soft" : ""}`}
+                >
+                  <span className="truncate text-[12.5px] font-semibold text-ink">{p.name}</span>
+                  <span className="truncate text-[11px] text-ink-3">{[p.client_name, p.address].filter(Boolean).join(" · ")}</span>
+                </button>
+              ))}
+              <button
+                disabled={busy}
+                onClick={sendNote}
+                className={`flex w-full items-center gap-2 border-t border-rule-soft px-3 py-2 text-left text-[12px] text-ai-2 hover:bg-ai-soft ${hits.length === 0 ? "bg-ai-soft" : ""}`}
+              >
+                <Send className="size-3.5 flex-none" />
+                <span className="min-w-0 flex-1 truncate">Tell the agent: “{q.trim()}”</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </Card>
+
+      <Card className="flex flex-col gap-2 p-3.5 text-[12.5px]">
+        <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">Details</div>
+        <div className="grid grid-cols-[70px_1fr] items-center gap-x-2 gap-y-1.5">
+          <label className="text-ink-3" htmlFor="u-kind">Type</label>
+          <select
+            id="u-kind"
+            value={kind}
+            onChange={(e) => {
+              const k = e.target.value as DocKind;
+              setKind(k);
+              setLogCost((k === "invoice" || k === "receipt") && amount.trim() !== "");
+            }}
+            className="rounded-md border border-rule bg-paper px-2 py-1 text-ink"
+          >
+            {KINDS.map((k) => (
+              <option key={k} value={k}>{KIND_LABEL[k]}</option>
+            ))}
+          </select>
+          <label className="text-ink-3" htmlFor="u-vendor">From</label>
+          <input id="u-vendor" value={vendor} onChange={(e) => setVendor(e.target.value)} className="rounded-md border border-rule bg-paper px-2 py-1 text-ink" />
+          <label className="text-ink-3" htmlFor="u-amt">Amount</label>
+          <input
+            id="u-amt"
+            value={amount}
+            inputMode="decimal"
+            placeholder="0.00"
+            onChange={(e) => setAmount(e.target.value)}
+            className={`rounded-md border bg-paper px-2 py-1 font-mono text-ink ${amountOk ? "border-rule" : "border-flag"}`}
+          />
+        </div>
+        {costable && (
+          <label className="mt-1 flex items-start gap-2 text-ink-2">
+            <input type="checkbox" checked={logCost} onChange={(e) => setLogCost(e.target.checked)} className="mt-0.5" />
+            <span>
+              Log the cost on the job
+              <span className="block text-[11px] text-ink-3">
+                {kind === "invoice" ? "As a bill owed (Money › Overview)." : "As an expense paid by card."}{" "}
+                Untick if it&apos;s already entered.
+              </span>
+            </span>
+          </label>
+        )}
+        <button onClick={dismiss} disabled={busy} className="mt-1 self-start text-[11.5px] text-ink-3 underline-offset-2 hover:text-flag hover:underline">
+          Not a business cost — set it aside
+        </button>
+      </Card>
+    </div>
+  );
+}
+
+// ─── Filed lately ────────────────────────────────────────────────────────────
+
+function FiledList({ docs, busy, onUndo }: { docs: UnsortedDocRow[]; busy: boolean; onUndo: (id: number) => void }) {
+  if (!docs.length) {
+    return <Card className="px-6 py-12 text-center text-[12.5px] text-ink-3">Nothing filed yet.</Card>;
+  }
+  return (
+    <Card className="overflow-hidden p-0">
+      <div className="border-b border-rule bg-paper-2 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
+        Filed lately · by you and the agents
+      </div>
+      {docs.map((d, i) => (
+        <div key={d.id} className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 ${i ? "border-t border-rule-soft" : ""}`}>
+          <div className="min-w-[12rem] flex-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span className="max-w-full truncate text-[13px] font-semibold text-ink">{vendorOf(d)}</span>
+              <Chip kind={KIND_CHIP[d.doc_kind]}>{KIND_LABEL[d.doc_kind]}</Chip>
+              <span className="font-mono text-[11.5px] text-ink-2">{money(d.amount_cents)}</span>
+            </div>
+            <div className="truncate text-[11.5px] text-ink-3">{d.subject}</div>
+          </div>
+          <div className="max-w-[26rem] text-[12px] text-ink-2">
+            {d.status === "dismissed" ? (
+              <span className="text-ink-3">Set aside</span>
+            ) : d.filed_to === "overhead" ? (
+              "Overhead"
+            ) : d.filed_project_slug ? (
+              <Link href={`/projects/${d.filed_project_slug}`} className="font-semibold text-accent-2 hover:underline">
+                {d.filed_project_name}
+              </Link>
+            ) : (
+              "Project removed"
+            )}
+            {d.cost_source && <span className="text-ink-3"> · cost logged</span>}
+            {d.agent_note ? (
+              <span className="mt-0.5 flex items-start gap-1 text-[11.5px] text-ai-2">
+                <Bot className="mt-px size-3 flex-none" /> {d.agent_note}
+              </span>
+            ) : (
+              d.cost_source &&
+              d.resolved_by === "owner" && (
+                <span className="mt-0.5 flex items-center gap-1 text-[11.5px] text-ink-3">
+                  <Bot className="size-3 flex-none animate-pulse text-ai-2" /> Claude is putting the cost under the right trade…
+                </span>
+              )
+            )}
+          </div>
+          <div className="w-28 text-right font-mono text-[10px] text-ink-3">
+            {d.resolved_by === "owner" ? "you" : d.resolved_by} · {day(d.resolved_at)}
+          </div>
+          <button onClick={() => onUndo(d.id)} disabled={busy} className="inline-flex items-center gap-1 text-[12px] font-semibold text-accent-2 hover:underline disabled:opacity-50">
+            <Undo2 className="size-3.5" /> Undo
+          </button>
+        </div>
+      ))}
+    </Card>
+  );
+}

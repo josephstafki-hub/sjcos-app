@@ -486,6 +486,105 @@ export async function fetchThreadHtml(threadId: string): Promise<string> {
   return sanitizeEmailHtml(html);
 }
 
+// ─── One message, for filing (Unsorted documents) ────────────────────────────
+
+export interface FilingAttachment {
+  filename: string;
+  mimeType: string;
+  bytes: Buffer;
+}
+
+export interface FilingMessage {
+  id: string;
+  threadId: string;
+  from: string;
+  subject: string;
+  /** ISO timestamp the message arrived. */
+  receivedAt: string | null;
+  /** Sanitized HTML body with cid: images inlined, or "" when the mail is plain text. */
+  html: string;
+  /** Plain-text body (the HTML stripped when there's no text part). */
+  text: string;
+  /** Real attachments: PDFs, images, office docs — not inline signature images. */
+  attachments: FilingAttachment[];
+}
+
+/** Attachment parts worth keeping: a filename, a body to fetch, and not an
+ *  inline (Content-ID) image — those are signature logos, already in the HTML. */
+function collectFileParts(part: gmail_v1.Schema$MessagePart | undefined, out: gmail_v1.Schema$MessagePart[] = []): gmail_v1.Schema$MessagePart[] {
+  if (!part) return out;
+  const hasCid = part.headers?.some((h) => (h.name ?? "").toLowerCase() === "content-id");
+  const inlineImage = hasCid && (part.mimeType ?? "").startsWith("image/");
+  if (part.filename && (part.body?.attachmentId || part.body?.data) && !inlineImage) out.push(part);
+  for (const child of part.parts ?? []) collectFileParts(child, out);
+  return out;
+}
+
+const FILING_MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+
+/** One Gmail message with everything needed to file it: headers, the body as
+ *  sanitized HTML + text, and the attachment bytes. Throws when the message
+ *  isn't in the mailbox this call acts for. */
+export async function fetchMessageForFiling(messageId: string): Promise<FilingMessage> {
+  const api = gmail();
+  const { data: msg } = await withGmailRetry("messages.get", () =>
+    api.users.messages.get({ userId: "me", id: messageId, format: "full" }),
+  );
+  const payload = msg.payload;
+  let html = "";
+  const htmlData = payload ? findPart(payload, "text/html") : null;
+  if (htmlData) {
+    html = Buffer.from(htmlData, "base64url").toString("utf-8");
+    for (const img of collectInlineImages(payload)) {
+      try {
+        const att = await withGmailRetry("attachments.get", () =>
+          api.users.messages.attachments.get({ userId: "me", messageId, id: img.attachmentId }),
+        );
+        const b64 = (att.data.data ?? "").replace(/-/g, "+").replace(/_/g, "/");
+        if (!b64) continue;
+        const ref = img.cid.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        html = html.replace(new RegExp(`cid:${ref}`, "gi"), `data:${img.mimeType};base64,${b64}`);
+      } catch {
+        /* leave the cid ref; it just won't render */
+      }
+    }
+    html = sanitizeEmailHtml(html);
+  }
+  const plainData = payload ? findPart(payload, "text/plain") : null;
+  const plain = plainData ? Buffer.from(plainData, "base64url").toString("utf-8") : "";
+  const text = plain && looksLikeText(plain) ? plain : html ? stripHtml(html) : plain;
+
+  const attachments: FilingAttachment[] = [];
+  for (const part of collectFileParts(payload)) {
+    if ((part.body?.size ?? 0) > FILING_MAX_ATTACHMENT_BYTES) continue;
+    let b64 = part.body?.data ?? "";
+    if (!b64 && part.body?.attachmentId) {
+      const att = await withGmailRetry("attachments.get", () =>
+        api.users.messages.attachments.get({ userId: "me", messageId, id: part.body!.attachmentId! }),
+      );
+      b64 = att.data.data ?? "";
+    }
+    if (!b64) continue;
+    attachments.push({
+      filename: part.filename!,
+      mimeType: part.mimeType || "application/octet-stream",
+      bytes: Buffer.from(b64, "base64url"),
+    });
+  }
+
+  const date = msg.internalDate ? new Date(Number(msg.internalDate)) : null;
+  return {
+    id: msg.id ?? messageId,
+    threadId: msg.threadId ?? "",
+    from: header(msg, "From"),
+    subject: header(msg, "Subject"),
+    receivedAt: date && !Number.isNaN(date.getTime()) ? date.toISOString() : null,
+    html,
+    text: text.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim(),
+    attachments,
+  };
+}
+
 /** The account's own email address (Gmail "me"), used to tell inbound from
  *  outbound. Cached per process but KEYED ON THE TOKEN: a single shared cache
  *  would hand one mailbox's address to another and flip every message's

@@ -46,7 +46,8 @@ export interface AgentSendInput {
   grantId: string;
   /** Row id for record-backed actions; recipient address for send_email. */
   target?: string | number | null;
-  /** send_email only. attachment_file_ids: files.id rows to attach. */
+  /** send_email: the message. attachment_file_ids: files.id rows to attach.
+   *  send_purchase_order: optional edits to the PO email (blank = default). */
   email?: { to: string; subject: string; body: string; attachment_file_ids?: string[] };
   /** send_sms only. */
   sms?: { to: string; body: string };
@@ -198,7 +199,7 @@ export async function performGrantedAction(input: AgentSendInput): Promise<Agent
         break;
       }
       case "send_purchase_order": {
-        const r = await sendPurchaseOrderOp(Number(targetId), undefined, { grantId: input.grantId, actor });
+        const r = await sendPurchaseOrderOp(Number(targetId), undefined, { grantId: input.grantId, actor }, input.email);
         result = r.ok ? r : { ok: false, error: r.error, held: r.held };
         break;
       }

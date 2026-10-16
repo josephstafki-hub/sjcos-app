@@ -171,10 +171,24 @@ export function registerGrantTools(server, { json, grantsCall, rows }) {
       title: "Send a purchase order (needs owner grant)",
       description:
         "Email a draft/queued PO to its vendor and mark it sent. REQUIRES owner_grant_id. " +
-        "Check the lines with get_purchase_order first; the vendor needs an email on file.",
-      inputSchema: { po_id: z.number().int().positive(), owner_grant_id: uuid },
+        "Check the lines with get_purchase_order first. By default the email lists the PO lines, total and notes " +
+        "and goes to the PO's vendor email (else the saved vendor/sub email). Pass `to`, `subject` and/or `body` " +
+        "to replace any of them — e.g. a body confirming the vendor's quote should be put through. `body` is sent " +
+        "verbatim, so include the line/total detail yourself if you replace it. A new `to` is saved on the PO.",
+      inputSchema: {
+        po_id: z.number().int().positive(),
+        owner_grant_id: uuid,
+        to: z.string().email().optional().describe("Recipient; defaults to the PO/vendor email on file."),
+        subject: z.string().max(200).optional().describe("Defaults to \"Purchase Order PO-xxx — <project>\"."),
+        body: z.string().max(20000).optional().describe("Plain text, sent as-is. Defaults to the generated PO email."),
+      },
     },
-    async ({ po_id, owner_grant_id }) => perform("send_purchase_order", { target_id: String(po_id), grant_id: owner_grant_id }),
+    async ({ po_id, owner_grant_id, to, subject, body }) =>
+      perform("send_purchase_order", {
+        target_id: String(po_id),
+        grant_id: owner_grant_id,
+        ...(to || subject || body ? { email: { to: to ?? "", subject: subject ?? "", body: body ?? "" } } : {}),
+      }),
   );
 
   server.registerTool(

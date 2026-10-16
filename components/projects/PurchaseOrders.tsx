@@ -15,6 +15,7 @@ import {
   recordReceipt,
   queuePurchaseOrder,
   sendPurchaseOrder,
+  getPurchaseOrderEmail,
   closePurchaseOrder,
   voidPurchaseOrder,
   deletePurchaseOrder,
@@ -175,6 +176,9 @@ export function PurchaseOrders({
   // Line add/edit modal
   const [lineModal, setLineModal] = useState<{ mode: "add" | "edit"; lineId?: number; description: string; unit: string; qty: string; unitCost: string } | null>(null);
 
+  // Send-to-vendor email, shown for editing before it goes out
+  const [sendModal, setSendModal] = useState<{ poId: number; to: string; subject: string; body: string } | null>(null);
+
   const selected = editingId != null ? orders.find((o) => o.id === editingId) ?? null : null;
 
   function reset() {
@@ -241,8 +245,26 @@ export function PurchaseOrders({
     mutate(() => queuePurchaseOrder(slug, id), "Couldn't mark the purchase order ready.");
   }
 
+  /** Opens the email the PO would send so the owner can reword it first. */
   function send(id: number) {
-    mutate(() => sendPurchaseOrder(slug, id), "Couldn't send the purchase order.");
+    setError(null);
+    startTransition(async () => {
+      const res = await runAction(() => getPurchaseOrderEmail(slug, id), { fallback: "Couldn't load the purchase order email." });
+      if (res.ok && "email" in res && res.email) setSendModal({ poId: id, ...res.email });
+      else if (!res.ok) setError(res.error ?? "Couldn't load the purchase order email.");
+    });
+  }
+
+  function submitSend(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!sendModal) return;
+    const { poId, to, subject, body } = sendModal;
+    startTransition(async () => {
+      const res = await runAction(() => sendPurchaseOrder(slug, poId, { to, subject, body }), { fallback: "Couldn't send the purchase order." });
+      if (res.ok) setSendModal(null);
+      else setError(res.error ?? "Couldn't send the purchase order.");
+      router.refresh();
+    });
   }
 
   function close(id: number) {
@@ -609,6 +631,61 @@ export function PurchaseOrders({
                   </button>
                   <button type="submit" disabled={pending} className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50">
                     Save
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {sendModal && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink/30 p-4 pt-[6vh]" onClick={() => setSendModal(null)}>
+          <div className="w-full max-w-[640px] rounded-lg border border-rule bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-rule px-4 py-3">
+              <h2 className="font-serif text-[16px] font-semibold text-ink">Send to vendor</h2>
+              <button onClick={() => setSendModal(null)} className="text-ink-3 hover:text-ink" aria-label="Close">
+                <X className="size-4" strokeWidth={1.5} />
+              </button>
+            </div>
+            <form onSubmit={submitSend} className="flex flex-col gap-3 p-4">
+              <label className="flex flex-col gap-1">
+                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">To</span>
+                <input
+                  type="email"
+                  value={sendModal.to}
+                  onChange={(e) => setSendModal({ ...sendModal, to: e.target.value })}
+                  required
+                  placeholder="vendor@example.com"
+                  className={inputCls}
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Subject</span>
+                <input value={sendModal.subject} onChange={(e) => setSendModal({ ...sendModal, subject: e.target.value })} required className={inputCls} />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Email</span>
+                <textarea
+                  value={sendModal.body}
+                  onChange={(e) => setSendModal({ ...sendModal, body: e.target.value })}
+                  required
+                  rows={16}
+                  className={`${inputCls} font-sans leading-relaxed`}
+                />
+              </label>
+              <div className="flex items-center justify-between border-t border-rule-soft pt-2">
+                <span className="text-[12px] text-ink-3">Sent exactly as written. The PO is marked sent once it goes.</span>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => setSendModal(null)} className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2">
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={pending}
+                    className="inline-flex items-center gap-1 rounded-md border border-accent bg-accent px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
+                  >
+                    <Send className="size-3" strokeWidth={1.75} /> Send
                   </button>
                 </div>
               </div>

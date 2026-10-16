@@ -14,7 +14,7 @@ It runs as its own process over **stdio**, separate from the Next app, and reads
 | Tool | Purpose |
 |---|---|
 | `business_snapshot` | Counts: leads by stage, projects by status, subs, A/R, compliance due in 60d, **work items by status + awaiting approval** |
-| `list_leads` / `get_lead` | Leads (optional `stage`,`limit`) / one lead + intake + activity (`slug`) |
+| `list_leads` / `get_lead` | Leads (optional `stage`,`limit`) / one lead + intake + activity + `rough_estimate` (`slug`; the estimate is hidden from staff without the estimates area) |
 | `list_projects` / `get_project` | Projects (optional `status`) / one project + invoices + subs + money (`slug`) |
 | `list_subs` | Subcontractors + COI status (optional `trade`) |
 | `list_vendors` | Materials suppliers (favorites first) — distinct from subs (labor) |
@@ -39,6 +39,7 @@ Safe by construction — internal records, append-only audit, and proposals only
 |---|---|
 | `import_lead` | Create an inbound lead (the path for web-lead emails Hermes parses from Joe's inbox): full intake funnel — scoring, intake rows, room, feed card — and auto-starts the lead-intake runbook. Refuses a duplicate email unless `allow_duplicate` |
 | `create_project` | Create a project the way the app's buttons do: `lead_slug` converts that lead (idempotent — returns the existing project; carries client, address, value, portal access, files, chat room), or `name` (+ `client_name`/`address`/`value_display`) for a blank one like the "New project" form. Staff principals need the leads / projects area. Plain SQL in `mcp/project-tools.mjs`, kept in step with the two app actions |
+| `save_lead_rough_estimate` | The Phase 1 rough estimate on a lead (lead page › Rough estimate): `lines` [{label, value}] replaces the list, `total`, optional `notes` (assumptions / steering). Saves a **draft** and mirrors the total onto the /leads value; never sends (Joe sends from the lead page). Refuses an already-sent estimate unless `revise_sent`, and a lead that became a project. Staff need leads + estimates. Plain SQL in `mcp/lead-tools.mjs`, kept in step with the lead estimate actions |
 | `capture_knowledge` | Save a knowledge item (dedup by fingerprint; optional receipt) |
 | `create_work_item` | Add to the queue (`requires_approval` defaults true). A `due_at` on a later day snoozes the item until 00:00 Central that day — scheduled to-dos wait for their day (table trigger, applies to every writer) |
 | `update_work_item_status` | Move an item's status (done sets completed_at) |

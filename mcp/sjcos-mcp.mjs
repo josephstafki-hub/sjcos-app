@@ -18,6 +18,7 @@
 //     vendors/purchase orders/compliance/knowledge/work items/skills/runbooks +
 //     business_snapshot + get_today_queue (Joe's Today rail with per-item lanes).
 //   • Gated WRITE tools: capture_knowledge, create_work_item, create_project,
+//     save_lead_rough_estimate,
 //     update_work_item_status, snooze_work_item, submit_draft_for_approval,
 //     set_project_contract_value, set_project_collected,
 //     record_agent_run, record_receipt,
@@ -92,6 +93,8 @@ import { registerContextTools } from "./context-tools.mjs";
 import { registerFieldTools } from "./field-tools.mjs";
 import { registerTeamTools } from "./team-tools.mjs";
 import { registerProjectTools } from "./project-tools.mjs";
+import { registerLeadTools } from "./lead-tools.mjs";
+import { areaRefusal } from "./tool-shared.mjs";
 import { registerFilingTools } from "./filing-tools.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -500,14 +503,17 @@ server.registerTool(
   "get_lead",
   {
     title: "Get lead",
-    description: "Full detail for one lead by slug: the lead row, intake answers, and recent activity.",
+    description:
+      "Full detail for one lead by slug: the lead row, intake answers, recent activity, and " +
+      "`rough_estimate` (the Phase 1 rough estimate on the lead page — lines, total, notes, draft/sent; " +
+      "null if none). Change it with save_lead_rough_estimate.",
     inputSchema: { slug: z.string() },
   },
   async ({ slug }) => {
     const lead = await rows(`SELECT * FROM leads WHERE slug = $1`, [slug]);
     if (lead.length === 0) return json({ error: `No lead with slug "${slug}"` });
     const id = lead[0].id;
-    const [intake, activity, firstResponse] = await Promise.all([
+    const [intake, activity, firstResponse, roughEstimate] = await Promise.all([
       rows(`SELECT sort_order, question, answer FROM lead_intake WHERE lead_id = $1 ORDER BY sort_order`, [id]),
       rows(`SELECT kind, summary, actor, created_at FROM lead_activity WHERE lead_id = $1 ORDER BY created_at DESC LIMIT 20`, [id]),
       // The app's same-day first response (lib/lead-first-response.ts). status
@@ -519,8 +525,24 @@ server.registerTool(
            FROM lead_first_responses WHERE lead_id = $1`,
         [id],
       ).catch(() => []),
+      // A22 money fence, as on the lead page: the rough estimate's dollar
+      // lines only go to a person holding the `estimates` area.
+      areaRefusal(rows, currentPrincipal, "estimates").then((fenced) =>
+        fenced
+          ? [{ hidden: "No estimates access for the account this agent acts for." }]
+          : rows(
+              `SELECT line_items AS lines, total, notes, status, sent_at, updated_at FROM lead_estimates WHERE lead_id = $1`,
+              [id],
+            ),
+      ),
     ]);
-    return json({ lead: lead[0], intake, activity, first_response: firstResponse[0] ?? null });
+    return json({
+      lead: lead[0],
+      intake,
+      activity,
+      first_response: firstResponse[0] ?? null,
+      rough_estimate: roughEstimate[0] ?? null,
+    });
   },
 );
 
@@ -2877,6 +2899,9 @@ server.registerTool(
   // Internal records, nothing emailed, no delete. See mcp/team-tools.mjs.
   registerTeamTools(server, { rows, json });
   registerProjectTools(server, { rows, json, strippedDollarError, currentPrincipal });
+  // A lead's Phase 1 rough estimate (the lead page's Rough estimate tab):
+  // save lines + total + notes as a draft, never sent. See mcp/lead-tools.mjs.
+  registerLeadTools(server, { rows, json, strippedDollarError, currentPrincipal });
 
   // Emailed invoices / receipts / rebates: file the sure ones to a job (or
   // overhead), stage the rest in Joe's Unsorted tray. See mcp/filing-tools.mjs.

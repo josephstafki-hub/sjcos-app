@@ -49,10 +49,25 @@ function principalFor(auth?: SendAuth): Principal {
 
 const rev = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 12);
 
-/** Email a draft/queued PO to its vendor; it is marked sent when Gmail accepts. */
-export async function sendPurchaseOrderOp(id: number, slug?: string, auth?: SendAuth): Promise<SendOpResult> {
+/** The email a PO send would put in the vendor's inbox. The owner can edit any
+ *  of it before sending (Send to vendor opens it first); an agent can pass the
+ *  same overrides to send_purchase_order. */
+export interface PoEmail {
+  to: string;
+  subject: string;
+  body: string;
+}
+
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+type PoForEmail =
+  | { ok: true; po: { po_number: string; vendor_name: string; subtotal: number; slug: string; project_name: string }; email: PoEmail }
+  | { ok: false; error: string };
+
+/** Load a draft/queued PO and build its default email. The recipient falls
+ *  back from the PO's own address to the saved vendor's / sub's email. */
+async function loadPoEmail(id: number, slug?: string): Promise<PoForEmail> {
   const po = await queryOne<{
-    id: string;
     po_number: string;
     title: string;
     notes: string;
@@ -63,9 +78,13 @@ export async function sendPurchaseOrderOp(id: number, slug?: string, auth?: Send
     slug: string;
     project_name: string;
   }>(
-    `SELECT po.id, po.po_number, po.title, po.notes, po.vendor_name, po.vendor_email, po.status, po.subtotal,
+    `SELECT po.po_number, po.title, po.notes, po.vendor_name, po.status, po.subtotal,
+            COALESCE(NULLIF(trim(po.vendor_email), ''), NULLIF(trim(v.email), ''), NULLIF(trim(s.email), ''), '') AS vendor_email,
             p.slug, p.name AS project_name
-       FROM purchase_orders po JOIN projects p ON p.id = po.project_id
+       FROM purchase_orders po
+       JOIN projects p ON p.id = po.project_id
+       LEFT JOIN vendors v ON po.vendor_kind = 'vendor' AND v.id = po.vendor_id
+       LEFT JOIN subs s ON po.vendor_kind = 'sub' AND s.slug = po.sub_slug
       WHERE po.id = $1 AND ($2::text IS NULL OR p.slug = $2)`,
     [id, slug ?? null],
   );
@@ -73,8 +92,6 @@ export async function sendPurchaseOrderOp(id: number, slug?: string, auth?: Send
   if (!["draft", "queued"].includes(po.status)) {
     return { ok: false, error: "This purchase order has already been sent." };
   }
-  if (!po.vendor_email) return { ok: false, error: "No vendor email on file for this purchase order." };
-  if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
 
   const { rows: lines } = await query<{
     description: string;
@@ -94,11 +111,45 @@ export async function sendPurchaseOrderOp(id: number, slug?: string, auth?: Send
     .join("\n");
   const body =
     `${po.po_number} — ${po.title}\n${po.project_name}\n\n${lineText}\n\n` +
-    `Total: ${fmtPoUsd(po.subtotal)}\n\n` +
+    `Total: ${fmtUsd(po.subtotal)}\n\n` +
     `${po.notes ? `${po.notes}\n\n` : ""}` +
     `Please confirm receipt and expected delivery. Thank you!\n\nBest,\nJoe\nSJ Carpentry`;
-  const to = po.vendor_email.trim().toLowerCase();
-  const subject = `Purchase Order ${po.po_number} — ${po.project_name}`;
+  return {
+    ok: true,
+    po,
+    email: {
+      to: po.vendor_email.toLowerCase(),
+      subject: `Purchase Order ${po.po_number} — ${po.project_name}`,
+      body,
+    },
+  };
+}
+
+/** The default email for a PO, for the owner to review/edit before sending. */
+export async function previewPurchaseOrderEmail(id: number, slug?: string): Promise<{ ok: true; email: PoEmail } | { ok: false; error: string }> {
+  const r = await loadPoEmail(id, slug);
+  return r.ok ? { ok: true, email: r.email } : r;
+}
+
+/** Email a draft/queued PO to its vendor; it is marked sent when Gmail accepts.
+ *  `edit` replaces any of the default To / Subject / Body (blank = keep the
+ *  default). A new To is saved on the PO so the record shows where it went. */
+export async function sendPurchaseOrderOp(id: number, slug?: string, auth?: SendAuth, edit?: Partial<PoEmail>): Promise<SendOpResult> {
+  const loaded = await loadPoEmail(id, slug);
+  if (!loaded.ok) return loaded;
+  const { po } = loaded;
+  const to = (edit?.to?.trim() || loaded.email.to).toLowerCase();
+  const subject = edit?.subject?.trim() || loaded.email.subject;
+  const body = edit?.body?.trim() || loaded.email.body;
+  if (!to) return { ok: false, error: "No vendor email on file for this purchase order." };
+  if (!EMAIL_RE.test(to)) return { ok: false, error: `"${to}" is not a valid email address.` };
+  if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
+
+  await query(
+    `UPDATE purchase_orders SET vendor_email = $2 WHERE id = $1 AND status IN ('draft','queued') AND vendor_email IS DISTINCT FROM $2`,
+    [id, to],
+  );
+
   const revision = rev(`${to}\n${subject}\n${body}`);
   const payload = {
     to,
@@ -119,7 +170,7 @@ export async function sendPurchaseOrderOp(id: number, slug?: string, auth?: Send
     recipient: to,
     payload,
     auth,
-    what: `PO ${po.po_number} to ${po.vendor_name} <${po.vendor_email}>`,
+    what: `PO ${po.po_number} to ${po.vendor_name} <${to}>`,
   });
 }
 

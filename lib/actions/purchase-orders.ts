@@ -15,7 +15,7 @@
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
 import { requireAccess } from "@/lib/dal";
-import { sendPurchaseOrderOp } from "@/lib/send-ops";
+import { previewPurchaseOrderEmail, sendPurchaseOrderOp, type PoEmail } from "@/lib/send-ops";
 import { poDollarsToCents, type PoVendorKind } from "@/lib/po-types";
 import { recomputePurchaseOrder as recompute } from "@/lib/po-recompute";
 
@@ -186,12 +186,21 @@ export async function queuePurchaseOrder(slug: string, id: number): Promise<Resu
   return { ok: true };
 }
 
+/** The email "Send to vendor" would send, for the owner to edit first. */
+export async function getPurchaseOrderEmail(
+  slug: string,
+  id: number,
+): Promise<{ ok: true; email: PoEmail } | { ok: false; error: string }> {
+  await requireAccess("purchase_orders");
+  return previewPurchaseOrderEmail(id, slug);
+}
+
 /** Owner-only: email the PO to the vendor, then mark it sent. The send core
  *  lives in lib/send-ops.ts; the only other caller is the agent path, which
  *  must first spend an owner grant (lib/agent-sends.ts). */
-export async function sendPurchaseOrder(slug: string, id: number): Promise<Result> {
+export async function sendPurchaseOrder(slug: string, id: number, email?: Partial<PoEmail>): Promise<Result> {
   await requireAccess("purchase_orders");
-  const res = await sendPurchaseOrderOp(id, slug);
+  const res = await sendPurchaseOrderOp(id, slug, undefined, email);
   if (!res.ok) return res;
   revalidatePath(`/projects/${slug}`);
   revalidatePath("/notifications");

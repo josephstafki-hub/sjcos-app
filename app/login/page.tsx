@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Logo } from "@/components/shell/Logo";
 import { LoginForm } from "@/components/auth/LoginForm";
@@ -65,6 +66,11 @@ export default async function LoginPage({
         <div className="rounded-xl border border-rule bg-card p-6 shadow-sm">
           <LoginForm />
         </div>
+
+        <p className="mt-5 flex justify-center gap-4 text-[11px] text-ink-4">
+          <Link href="/privacy" className="hover:text-ink-2">Privacy Policy</Link>
+          <Link href="/eula" className="hover:text-ink-2">End-User License Agreement</Link>
+        </p>
       </div>
     </div>
   );

@@ -95,12 +95,17 @@ function homeFor(session: Session): string {
   return "/today";
 }
 
+/** The EULA and privacy policy. Public by nature: Intuit's QuickBooks app
+ *  review and the carriers' SMS registration both read them signed out, and
+ *  every role (owner, staff, sub, client) may open them signed in. */
+const LEGAL_PATHS = ["/eula", "/privacy"];
+
 /** Reachable without a session. The portal invite links are the sub's and the
  *  client's way IN — they have no cookie yet by definition, so bouncing them to
  *  /login would defeat the whole point. The routes themselves are the gate:
  *  each only mints a session for a valid, undismissed token
  *  (app/sub-portal/enter, app/client-portal/enter). */
-const PUBLIC_PATHS = ["/login", "/sub-portal/enter", "/client-portal/enter"];
+const PUBLIC_PATHS = ["/login", "/sub-portal/enter", "/client-portal/enter", ...LEGAL_PATHS];
 
 /** Portal surfaces whose visitors may have no password at all — a sub never
  *  does, and a client only does once they claim the portal. When their session
@@ -117,6 +122,7 @@ const LINK_CREDENTIAL_PATHS = ["/client-portal", "/sub-portal"];
  *  gating happens in Shell + requireAccess() against the DB row, so a change
  *  made in Settings bites immediately instead of on their next login. */
 function mayOpen(session: Session, path: string): boolean {
+  if (LEGAL_PATHS.includes(path)) return true;
   const portal = session.role === "sub" ? "/sub-portal" : session.role === "client" ? "/client-portal" : null;
   if (portal) return [portal, "/logout"].some((p) => path === p || path.startsWith(p + "/"));
   if (session.role === "staff") return !isOwnerOnlyPath(path);

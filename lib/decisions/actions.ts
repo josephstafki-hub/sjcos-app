@@ -12,9 +12,8 @@ import { sessionPrincipal, withTransaction } from "@/lib/commands/db";
 import { authorityFor, getDecision } from "@/lib/commands/decisions";
 import { LANES, listLanePauses, pauseLane, resumeLane, type Lane } from "@/lib/commands/policies";
 import { isOwner } from "@/lib/commands/principal";
-import { dispatchIntentsNow } from "@/lib/dispatch/db";
 import { notifyAgentOwner } from "@/lib/dev-agents";
-import { emailApprovedInvoice } from "@/lib/billing/server";
+import { performApprovalEffects } from "./after-approval";
 import { runDirect } from "@/lib/commands/db";
 import { refreshTelegramCard } from "./notify";
 import { holdDecision, resolveFromChannel, revokeDecisionEverywhere, type ResolveFromChannelResult } from "./resolve";
@@ -23,30 +22,18 @@ export type DecisionActionResult = { ok: true; reply: string; state: string } | 
 
 function refresh() {
   revalidatePath("/engine/decisions");
+  revalidatePath("/today");
   revalidatePath("/engine/permissions");
   revalidatePath("/notifications");
 }
 
-/** Returns a line to add to the reply (the invoice email's outcome), if any. */
+/** Run what the resolution must do (lib/decisions/after-approval.ts), tell
+ *  the requesting agent, refresh the Telegram card. Returns the lines to add
+ *  to the reply (what approving actually did). */
 async function afterResolve(r: ResolveFromChannelResult): Promise<string | null> {
   if (!r.ok || !r.decision) return null;
   const d = r.decision;
-  if (r.code === "approved" && r.intentIds.length) {
-    try {
-      await dispatchIntentsNow(r.intentIds);
-    } catch (err) {
-      console.error("[decisions] dispatch after approval failed (sweep will retry):", (err as Error).message);
-    }
-  }
-  let extra: string | null = null;
-  if (r.code === "approved" && r.invoice) {
-    try {
-      extra = await emailApprovedInvoice(r.invoice, d.id);
-    } catch (err) {
-      console.error("[decisions] invoice email after approval failed:", (err as Error).message);
-      extra = "The invoice was created but the email step failed; send it from the project's invoices.";
-    }
-  }
+  const lines = await performApprovalEffects(r);
   if (d.work_item_id) {
     const rows = await runDirect<{ title: string; body: string; assignee_key: string | null }>(`SELECT title, body, assignee_key FROM work_items WHERE id = $1`, [d.work_item_id]);
     const w = rows[0];
@@ -55,8 +42,8 @@ async function afterResolve(r: ResolveFromChannelResult): Promise<string | null>
       await notifyAgentOwner(d.work_item_id, w.assignee_key, w.title, w.body, undefined, line).catch(() => undefined);
     }
   }
-  await refreshTelegramCard(d).catch(() => undefined);
-  return extra;
+  await refreshTelegramCard(d, lines.join("\n") || null).catch(() => undefined);
+  return lines.length ? lines.join(" ") : null;
 }
 
 async function resolve(id: string, outcome: "approved" | "rejected" | "changes_requested", note: string | null, contentHash: string | null): Promise<DecisionActionResult> {

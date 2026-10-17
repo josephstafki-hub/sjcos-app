@@ -92,11 +92,16 @@ export function registerGrantTools(server, { json, grantsCall, rows }) {
       title: "Ask Joe for permission to send",
       description:
         "Ask the owner for express permission to do ONE gated send (email a bid package, PO, " +
-        "invoice, document, newsletter, or a one-off email). Creates a permission request Joe " +
-        "sees as a Decision notification and approves on /engine/permissions. Returns the grant " +
-        "id — poll it with check_owner_permission, then pass it as owner_grant_id to the send " +
-        "tool. Be specific in `reason` (what, to whom, why now). If Joe already gave you a " +
-        "grant id in this conversation, use that instead of asking again.",
+        "invoice, document, newsletter, a one-off email or text). Joe gets ONE card — in the app's " +
+        "corner popup, the bell, /engine/permissions and Telegram — with Approve / Decline. " +
+        "SEND ON APPROVAL (the default): for send_email pass `email` {to, subject, body} with the " +
+        "exact message; for send_sms pass `sms` {to, body}; for record sends (bid package, PO, " +
+        "invoice, newsletter, document) pass the record id as target_id. Joe's Approve tap then " +
+        "PERFORMS the send itself — do NOT call the send tool afterwards (it is refused); check the " +
+        "outcome with check_owner_permission (`sent_on_approval`). Pass send_on_approval:false only " +
+        "if you must still change something after approval. place_call never runs on approval. " +
+        "Be specific in `reason` (what, to whom, why now). If Joe already gave you a grant id in " +
+        "this conversation, use that instead of asking again.",
       inputSchema: {
         action: z.enum(GATED).describe("Which gated send you want to perform."),
         target_id: z
@@ -104,12 +109,43 @@ export function registerGrantTools(server, { json, grantsCall, rows }) {
           .optional()
           .describe("The record id (bid package / PO / invoice / draft / issue / outbox row id), for send_email the recipient address, for send_sms / place_call the +E.164 phone number."),
         reason: z.string().describe("What you want to send and why, in one or two sentences — Joe reads this."),
+        email: z
+          .object({
+            to: z.string().email(),
+            subject: z.string().max(200),
+            body: z.string().min(1).max(20000).describe("Plain text, sent exactly as written."),
+            attachment_file_ids: z.array(z.string()).max(10).optional().describe("Project file ids from list_project_files."),
+          })
+          .optional()
+          .describe("send_email: the exact email. Approving sends it. (send_purchase_order: optional to/subject/body overrides, same as send_purchase_order.)"),
+        sms: z
+          .object({ to: z.string(), body: z.string().min(1).max(1600) })
+          .optional()
+          .describe("send_sms: the exact text. Approving sends it."),
+        work_item_id: z.string().uuid().optional().describe("The work item this send completes; the send is receipted on it."),
+        send_on_approval: z.boolean().optional().describe("Default true. false = approval only grants permission; you send it yourself."),
         conversation_id: z.string().uuid().optional().describe("Ask-window thread id, if you know it."),
       },
     },
-    async ({ action, target_id, reason, conversation_id }) => {
+    async ({ action, target_id, reason, email, sms, work_item_id, send_on_approval, conversation_id }) => {
       try {
-        return json(await grantsCall("request", { gated_action: action, target_id, reason, conversation_id, agent: agentName() }));
+        const r = await grantsCall("request", {
+          gated_action: action,
+          target_id,
+          reason,
+          email: email ? { ...email, work_item_id } : undefined,
+          sms,
+          work_item_id,
+          send_on_approval,
+          conversation_id,
+          agent: agentName(),
+        });
+        if (r?.ok && r.grant?.sends_on_approval) {
+          r.note =
+            "Joe's Approve sends this itself (Telegram, popup, or the app). Do NOT call the send tool for it. " +
+            "Tell Joe it's waiting for his tap; afterwards check_owner_permission shows sent_on_approval.";
+        }
+        return json(r);
       } catch (e) {
         return fail(e);
       }

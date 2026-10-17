@@ -2,9 +2,10 @@
 
 import { useState, useTransition } from "react";
 import { Card, Chip, Eyebrow } from "@/components/ui";
-import { ACTION_LABEL, GATED_ACTIONS, grantWaiting, type OwnerGrant } from "@/lib/owner-grant-types";
+import { ACTION_LABEL, GATED_ACTIONS, grantWaiting, stagedResultOf, stagedSendOf, type OwnerGrant } from "@/lib/owner-grant-types";
 import { approveGrant, createGrantAction, denyGrant, revokeGrant } from "@/lib/actions/owner-grants";
 import { runAction } from "@/lib/run-action";
+import { toast } from "@/components/ui/Toast";
 
 const inputCls =
   "w-full rounded-md border border-rule bg-paper px-3 py-2 text-[13px] text-ink outline-none focus:border-accent";
@@ -48,10 +49,14 @@ export function PermissionsClient({ grants }: { grants: OwnerGrant[] }) {
 
   // runAction raises the site-wide toast on failure; the notice line only
   // carries the success message.
-  const run = (fn: () => Promise<{ ok: boolean; error?: string; id?: string }>, okMsg?: string) =>
+  // The server's own `message` (what approving actually did — "Sent ✓ …")
+  // wins over the static okMsg.
+  const run = (fn: () => Promise<{ ok: boolean; error?: string; id?: string; message?: string }>, okMsg?: string) =>
     start(async () => {
       const r = await runAction(fn);
-      setNotice(r.ok ? okMsg ?? "" : "");
+      const msg = r.ok ? ((r as { message?: string }).message ?? okMsg ?? "") : "";
+      setNotice(msg);
+      if (msg) toast({ kind: /NOT sent|failed/i.test(msg) ? "error" : "success", title: "Permission", message: msg });
     });
 
   const copy = (id: string) => {
@@ -159,6 +164,7 @@ export function PermissionsClient({ grants }: { grants: OwnerGrant[] }) {
                   </div>
                   <div className="mt-1 font-serif text-[14px] font-semibold text-ink">{describe(g)}</div>
                   <div className="mt-0.5 text-[12px] text-ink-3">{g.reason}</div>
+                  <StagedPreview g={g} />
                   <button
                     type="button"
                     onClick={() => copy(g.id)}
@@ -198,6 +204,7 @@ export function PermissionsClient({ grants }: { grants: OwnerGrant[] }) {
                 </div>
                 <div className="mt-1 text-[13px] font-medium text-ink">{describe(g)}</div>
                 <div className="mt-0.5 text-[12px] text-ink-3">{g.reason}</div>
+                <StagedPreview g={g} />
                 <Audit g={g} />
               </Card>
             ))}
@@ -215,9 +222,10 @@ function RequestCard({
 }: {
   g: OwnerGrant;
   pending: boolean;
-  run: (fn: () => Promise<{ ok: boolean; error?: string; id?: string }>, okMsg?: string) => void;
+  run: (fn: () => Promise<{ ok: boolean; error?: string; id?: string; message?: string }>, okMsg?: string) => void;
 }) {
   const [note, setNote] = useState("");
+  const staged = stagedSendOf(g);
   return (
     <Card className="border-flag p-3">
       <div className="flex items-start gap-3">
@@ -230,6 +238,7 @@ function RequestCard({
           </div>
           <div className="mt-1 font-serif text-[14px] font-semibold text-ink">{describe(g)}</div>
           <div className="mt-0.5 text-[12px] text-ink-3">{g.reason}</div>
+          {staged && <StagedPreview g={g} />}
           <input
             className={`${inputCls} mt-1.5`}
             value={note}
@@ -247,11 +256,45 @@ function RequestCard({
             disabled={pending}
             onClick={() => run(() => approveGrant(g.id), "Approved — the agent can send now.")}
           >
-            Approve
+            {staged ? "Approve & send" : "Approve"}
           </button>
         </div>
       </div>
     </Card>
+  );
+}
+
+/** The exact message a request sends on approval, and — once approved —
+ *  how that send went. */
+function StagedPreview({ g }: { g: OwnerGrant }) {
+  const staged = stagedSendOf(g);
+  const result = stagedResultOf(g);
+  if (!staged) return null;
+  return (
+    <div className="mt-1.5 rounded-md border border-rule bg-paper-2 px-2.5 py-2 text-[12px] text-ink-2">
+      {staged.email && (
+        <>
+          <div className="font-mono text-[10.5px] text-ink-3">To: {staged.email.to}</div>
+          {staged.email.subject && <div className="font-mono text-[10.5px] text-ink-3">Subject: {staged.email.subject}</div>}
+          <div className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap">{staged.email.body}</div>
+          {!!staged.email.attachment_file_ids?.length && (
+            <div className="mt-1 font-mono text-[10px] text-ink-3">+ {staged.email.attachment_file_ids.length} attachment(s)</div>
+          )}
+        </>
+      )}
+      {staged.sms && (
+        <>
+          <div className="font-mono text-[10.5px] text-ink-3">Text to: {staged.sms.to}</div>
+          <div className="mt-1 whitespace-pre-wrap">{staged.sms.body}</div>
+        </>
+      )}
+      {!staged.email && !staged.sms && <div>Approving runs it: {ACTION_LABEL[staged.action] ?? staged.action} ({staged.target_id}).</div>}
+      {result && (
+        <div className={`mt-1 font-medium ${result.state === "sent" ? "text-money" : result.state === "running" ? "text-ink-3" : "text-flag"}`}>
+          {result.state === "sent" ? `Sent ✓ ${fmt(result.at)}` : result.state === "running" ? "Sending…" : result.state === "held" ? `Held — not confirmed: ${result.error ?? ""}` : `Not sent: ${result.error ?? ""}`}
+        </div>
+      )}
+    </div>
   );
 }
 

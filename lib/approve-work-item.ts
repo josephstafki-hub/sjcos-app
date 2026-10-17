@@ -6,6 +6,8 @@
 // it always says whether an email went out.
 
 import "server-only";
+import { captureAgentMemory } from "@/lib/agent-memory";
+import { query } from "@/lib/db";
 import { reopenApprovalAfterFailedSend, sendApprovedClientDraft } from "@/lib/approved-draft-send";
 import type { ApproveResult } from "@/lib/approved-draft-rules";
 import { notifyAgentOwner } from "@/lib/dev-agents";
@@ -41,4 +43,58 @@ export async function finishApproval(opts: {
   return send.outcome === "sent"
     ? { ok: true, sent: { to: send.to, subject: send.subject } }
     : { ok: true, notice: send.notice };
+}
+
+/** Approve a work item awaiting human approval, session-free — the /engine and
+ *  Today buttons, the corner popup and the Telegram button all land here (the
+ *  caller has already checked who is asking). Clears the gate, moves the item
+ *  to queued, and sends the staged client draft when there is one. */
+export async function approveWorkItemById(id: string): Promise<ApproveResult> {
+  const { rows } = await query<{
+    title: string;
+    body: string;
+    assignee_key: string | null;
+    lead_slug: string | null;
+    project_slug: string | null;
+  }>(
+    `UPDATE work_items w
+        SET approval_status = 'approved',
+            status = CASE WHEN status = 'approval_needed' THEN 'queued' ELSE status END
+      WHERE id = $1
+      RETURNING title, body, assignee_key,
+        (SELECT slug FROM leads WHERE id = w.lead_id) AS lead_slug,
+        (SELECT slug FROM projects WHERE id = w.project_id) AS project_slug`,
+    [id],
+  );
+  if (!rows[0]) return { ok: false, error: "Work item not found." };
+  const { title, body, assignee_key, lead_slug, project_slug } = rows[0];
+  const context = project_slug ? `project ${project_slug}` : lead_slug ? `lead ${lead_slug}` : undefined;
+  return finishApproval({ id, assigneeKey: assignee_key, title, body, context });
+}
+
+/** Decline (reject) a work item, session-free. Same effects as the /engine
+ *  button: cancels it, records the rejection for the learning layer, and
+ *  cancels a runbook step. */
+export async function rejectWorkItemById(id: string, via = "/engine"): Promise<{ ok: true; title: string } | { ok: false; error: string }> {
+  const { rows } = await query<{ title: string; body: string; assignee_key: string | null }>(
+    `UPDATE work_items SET approval_status = 'rejected', status = 'cancelled' WHERE id = $1
+     RETURNING title, body, assignee_key`,
+    [id],
+  );
+  if (!rows[0]) return { ok: false, error: "Work item not found." };
+  // W5 learning layer: a rejection is a signal about what NOT to propose.
+  await captureAgentMemory({
+    summary: `Rejected: ${rows[0].title}`,
+    content: [
+      `Work item "${rows[0].title}" was rejected by Joe on ${via}.`,
+      rows[0].body ? `What was proposed:\n${rows[0].body.slice(0, 1000)}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    memoryType: "observation",
+    runtimeName: rows[0].assignee_key ?? undefined,
+    refs: [{ kind: "work_item", id, label: rows[0].title }],
+  });
+  await maybeAdvanceRunbook(id); // W6: rejecting a runbook step cancels its instance
+  return { ok: true, title: rows[0].title };
 }

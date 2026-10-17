@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   DollarSign,
   Mail,
@@ -22,6 +23,10 @@ import type {
   NotificationsData,
 } from "@/lib/notifications";
 import { markAllNotificationsRead, markNotificationRead } from "@/lib/actions/notifications";
+import { approveWaiting, declineWaiting } from "@/lib/actions/approvals";
+import type { PendingApproval } from "@/lib/approvals";
+import { toast } from "@/components/ui/Toast";
+import { ApprovalCard } from "./ApprovalCard";
 
 const ICON: Record<NotifIcon, LucideIcon> = {
   money: DollarSign,
@@ -41,13 +46,52 @@ const ICON_TINT: Record<NotifAccent, string> = {
   ghost: "text-ink-2",
 };
 
-export function NotificationsClient({ data }: { data: NotificationsData }) {
+const RESOLUTION_LABEL: Record<string, string> = {
+  approved: "Approved",
+  consumed: "Approved",
+  rejected: "Declined",
+  expired: "Expired",
+  revoked: "Revoked",
+  superseded: "Replaced",
+  closed: "Closed",
+  info: "Done",
+};
+
+export function NotificationsClient({ data, approvals = [] }: { data: NotificationsData; approvals?: PendingApproval[] }) {
   const [filter, setFilter] = useState<NotifFilter>("all");
+  const router = useRouter();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [answered, setAnswered] = useState<Set<string>>(() => new Set());
+  const pending = new Map(approvals.map((a) => [a.key, a]));
 
   const visible =
     filter === "all"
       ? data.notifications
-      : data.notifications.filter((n) => n.kind === filter);
+      : filter === "unread"
+        ? data.notifications.filter((n) => !n.read)
+        : data.notifications.filter((n) => n.kind === filter);
+
+  // Waiting asks with no card in the feed (e.g. staged before this build)
+  // still get answered here, at the top.
+  const inFeed = new Set(data.notifications.map((n) => n.ref).filter(Boolean));
+  const orphans = approvals.filter((a) => !inFeed.has(a.key) && !answered.has(a.key));
+  const shown = new Set<string>();
+
+  const answer = async (a: PendingApproval, verb: "approve" | "decline") => {
+    setBusy(a.key);
+    try {
+      const r = verb === "approve" ? await approveWaiting(a.key, a.contentHash) : await declineWaiting(a.key, a.contentHash);
+      if (r.ok) {
+        toast({ kind: r.kind, title: verb === "approve" ? "Approved" : "Declined", message: r.message, sticky: r.kind === "error" ? true : undefined });
+        setAnswered((s) => new Set(s).add(a.key));
+        router.refresh();
+      } else {
+        toast({ kind: "error", title: verb === "approve" ? "Approve failed" : "Decline failed", message: r.error });
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
 
   return (
     <div className="flex h-full justify-center overflow-y-auto px-7 pb-16 pt-6">
@@ -56,7 +100,7 @@ export function NotificationsClient({ data }: { data: NotificationsData }) {
         <div className="mb-3.5 flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
           <div className="min-w-0 flex-1">
             <Eyebrow>
-              {data.unread} unread · {data.decisionCount} need a decision
+              {data.unread} unread · {approvals.length || data.decisionCount} waiting on you
             </Eyebrow>
             <h1 className="mt-1 font-serif text-[34px] font-medium leading-none tracking-tight text-accent-2">
               Notifications
@@ -84,9 +128,19 @@ export function NotificationsClient({ data }: { data: NotificationsData }) {
 
         {/* Cards */}
         <div className="flex flex-col gap-2">
-          {visible.map((n) => (
-            <NotificationRow key={n.id} notification={n} />
+          {orphans.map((a) => (
+            <ApprovalCard key={a.key} approval={a} busy={busy === a.key} disabled={busy !== null} onAnswer={(v) => void answer(a, v)} />
           ))}
+          {visible.map((n) => {
+            const a = n.ref ? pending.get(n.ref) : undefined;
+            // One answerable card per ask; older duplicates (a stale nudge,
+            // the pre-fix second announcement) stay plain rows.
+            if (a && n.actionable && !answered.has(a.key) && !shown.has(a.key)) {
+              shown.add(a.key);
+              return <ApprovalCard key={n.id} approval={a} busy={busy === a.key} disabled={busy !== null} onAnswer={(v) => void answer(a, v)} />;
+            }
+            return <NotificationRow key={n.id} notification={n} />;
+          })}
           {visible.length === 0 && (
             <Card kind="dashed" className="p-8 text-center">
               <div className="text-[13px] text-ink-3">Nothing here right now.</div>
@@ -125,6 +179,7 @@ function NotificationRow({ notification: n }: { notification: NotificationCard }
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
               <Chip kind={n.accent}>{n.tag}</Chip>
+              {n.resolution && <Chip kind="ghost">{RESOLUTION_LABEL[n.resolution] ?? n.resolution}</Chip>}
               <div className="flex-1" />
               <span className="font-mono text-[10px] text-ink-3" title={n.whenAbsolute}>
                 {n.when}

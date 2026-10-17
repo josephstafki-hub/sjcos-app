@@ -159,7 +159,7 @@ export function ToastViewport() {
     <div
       aria-live="polite"
       aria-relevant="additions"
-      className="pointer-events-none fixed bottom-[max(16px,env(safe-area-inset-bottom))] right-[max(16px,env(safe-area-inset-right))] z-[1000] flex w-[min(400px,calc(100vw-32px))] flex-col items-stretch gap-2"
+      className="pointer-events-none fixed bottom-[calc(max(16px,env(safe-area-inset-bottom))+var(--sjc-approvals-h,0px))] right-[max(16px,env(safe-area-inset-right))] z-[1000] flex w-[min(400px,calc(100vw-32px))] flex-col items-stretch gap-2"
     >
       {list.map((t) => (
         <ToastCard key={t.id} item={t} />

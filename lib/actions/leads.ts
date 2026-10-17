@@ -7,7 +7,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { query, queryOne } from "@/lib/db";
+import { query, queryAs, queryOne } from "@/lib/db";
 import { requireAccess } from "@/lib/dal";
 import {
   STAGES,
@@ -199,7 +199,7 @@ export async function sendReferralThankYou(slug: string): Promise<{ ok: boolean;
 
 /** Advance a lead to the next pipeline stage. No-op at the final stage. */
 export async function advanceLeadStage(slug: string) {
-  await requireAccess("leads");
+  const me = await requireAccess("leads");
   const row = await queryOne<{ stage: LeadStage; email: string | null }>(
     `SELECT stage, email FROM leads WHERE slug = $1`,
     [slug],
@@ -210,14 +210,13 @@ export async function advanceLeadStage(slug: string) {
   const next = STAGES[idx + 1];
   if (!next) return;
 
-  await query(
-    `UPDATE leads SET stage = $2, updated_at = now() WHERE slug = $1`,
-    [slug, next.key],
-  );
+  // queryAs: the stage-change trigger files the feed card with who did it.
+  await queryAs(me.id, `UPDATE leads SET stage = $2, updated_at = now() WHERE slug = $1`, [slug, next.key]);
   await logLeadActivity(slug, "stage", `Moved to ${stageLabel(next.key)}`);
   await stopNurtureForStage(row.email, next.key);
   revalidatePath(`/leads/${slug}`);
   revalidatePath("/leads");
+  revalidatePath("/notifications");
 }
 
 /** W4-L stop-on-engagement: a lead moving through the pipeline no longer needs
@@ -239,11 +238,10 @@ async function stopNurtureForStage(email: string | null, stage: LeadStage): Prom
 
 /** Mark a lead lost / archived (terminal). Owner-gated. */
 export async function markLeadLost(slug: string) {
-  await requireAccess("leads");
-  const row = await queryOne<{ email: string | null }>(
-    `UPDATE leads SET stage = 'lost', updated_at = now() WHERE slug = $1 RETURNING email`,
-    [slug],
-  );
+  const me = await requireAccess("leads");
+  const row = (
+    await queryAs<{ email: string | null }>(me.id, `UPDATE leads SET stage = 'lost', updated_at = now() WHERE slug = $1 RETURNING email`, [slug])
+  ).rows[0];
   await logLeadActivity(slug, "stage", "Marked lost / archived");
   if (row) await stopNurtureForStage(row.email, "lost");
   try {
@@ -253,18 +251,19 @@ export async function markLeadLost(slug: string) {
   }
   revalidatePath(`/leads/${slug}`);
   revalidatePath("/leads");
+  revalidatePath("/notifications");
   revalidatePath("/chat");
 }
 
 /** Reopen a lost/archived lead back into the pipeline at intake. Owner-gated. */
 export async function reopenLead(slug: string) {
-  await requireAccess("leads");
+  const me = await requireAccess("leads");
   const row = await queryOne<{ name: string; converted: boolean }>(
     `SELECT l.name, EXISTS (SELECT 1 FROM projects p WHERE p.lead_id = l.id) AS converted
        FROM leads l WHERE l.slug = $1`,
     [slug],
   );
-  await query(`UPDATE leads SET stage = 'intake', updated_at = now() WHERE slug = $1`, [slug]);
+  await queryAs(me.id, `UPDATE leads SET stage = 'intake', updated_at = now() WHERE slug = $1`, [slug]);
   await logLeadActivity(slug, "stage", "Reopened to Intake");
   // Reopen the lead's room — but not for a converted lead, whose conversation
   // lives in the project room (its lead room was deliberately closed at convert).
@@ -277,6 +276,7 @@ export async function reopenLead(slug: string) {
   }
   revalidatePath(`/leads/${slug}`);
   revalidatePath("/leads");
+  revalidatePath("/notifications");
   revalidatePath("/chat");
 }
 
@@ -639,12 +639,11 @@ export async function rescoreLead(
 
 /** Set a lead to an explicit stage (used by a stage picker). */
 export async function setLeadStage(slug: string, stage: LeadStage) {
-  await requireAccess("leads");
+  const me = await requireAccess("leads");
   if (!ALL_STAGES.some((s) => s.key === stage)) return;
-  const row = await queryOne<{ email: string | null }>(
-    `UPDATE leads SET stage = $2, updated_at = now() WHERE slug = $1 RETURNING email`,
-    [slug, stage],
-  );
+  const row = (
+    await queryAs<{ email: string | null }>(me.id, `UPDATE leads SET stage = $2, updated_at = now() WHERE slug = $1 RETURNING email`, [slug, stage])
+  ).rows[0];
   await logLeadActivity(slug, "stage", `Moved to ${stageLabel(stage)}`);
   if (row) await stopNurtureForStage(row.email, stage);
   // Keep the lead's room in sync (P1-D2): 'lost' closes it; any live stage
@@ -666,5 +665,6 @@ export async function setLeadStage(slug: string, stage: LeadStage) {
   }
   revalidatePath(`/leads/${slug}`);
   revalidatePath("/leads");
+  revalidatePath("/notifications");
   revalidatePath("/chat");
 }

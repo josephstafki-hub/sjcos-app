@@ -71,3 +71,35 @@ export async function queryOne<T extends QueryResultRow = QueryResultRow>(
   const { rows } = await query<T>(text, params);
   return rows[0] ?? null;
 }
+
+/** query(), attributed to a signed-in person: runs in its own transaction
+ *  with `sjcos.actor_user_id` set, so table triggers that write notifications
+ *  (db/apply-notifications-v2.mjs — lead / project stage changes) can say who
+ *  did it and put the card in that person's own feed. Use it for the write
+ *  that represents a person's action; everything else stays on query(). */
+export async function queryAs<T extends QueryResultRow = QueryResultRow>(
+  actorUserId: string | null | undefined,
+  text: string,
+  params?: unknown[],
+): Promise<QueryResult<T>> {
+  if (!actorUserId) return query<T>(text, params);
+  const client = await pool.connect();
+  let result: QueryResult<T>;
+  try {
+    await client.query("BEGIN");
+    await client.query(`SELECT set_config('sjcos.actor_user_id', $1, true)`, [actorUserId]);
+    result = await client.query<T>(text, params as never[]);
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
+  const scope = writeScope(text);
+  if (scope !== null && scope !== "app_change_log" && (result.rowCount ?? 1) > 0) {
+    bumpLiveChange(scope);
+    bumpLiveChange("notifications");
+  }
+  return result;
+}

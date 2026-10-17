@@ -50,6 +50,14 @@ export interface EmailTransport {
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
+/** lib/gmail.ts GmailRateLimitError (matched by name: this module stays free
+ *  of server imports) or a raw per-minute quota answer. */
+function isRateLimitRefusal(err: unknown): boolean {
+  const e = err as { name?: string; message?: string } | null;
+  if (e?.name === "GmailRateLimitError") return true;
+  return /Quota exceeded for quota metric .*per minute|userRateLimitExceeded|rateLimitExceeded/i.test(e?.message ?? "");
+}
+
 export function makeEmailProvider(transport: EmailTransport = defaultTransport): Provider<EmailPayload> {
   return {
     name: "email",
@@ -72,6 +80,11 @@ export function makeEmailProvider(transport: EmailTransport = defaultTransport):
         const out = await transport.send({ to, subject: payload.subject ?? "", bodyText, bodyHtml: payload.bodyHtml ?? undefined, attachments });
         return { responseClass: "accepted", providerRef: out?.id ?? null, providerState: "sent", transmitted: true };
       } catch (err) {
+        // Gmail's per-minute quota refuses the call before anything is sent,
+        // so it is a plain "try again shortly" — not an unknown outcome that
+        // parks the send for reconciliation and burns the approval
+        // (Scott / ABC, 2026-10-17).
+        if (isRateLimitRefusal(err)) return { responseClass: "retryable", error: (err as Error).message, transmitted: false, retryInSeconds: 90 };
         return classifyTransportError(err);
       }
     },

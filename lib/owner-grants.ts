@@ -15,11 +15,10 @@
 //     Decision notification; Joe approves/denies on /engine/permissions.
 
 import { query, queryOne } from "@/lib/db";
-import { notifyOwner } from "@/lib/notify-owner";
+import { announceDecision } from "@/lib/decisions/notify";
 import { runDirect, sessionPrincipal, withTransaction } from "@/lib/commands/db";
 import type { Principal } from "@/lib/commands/principal";
 import { settleDecisionFromGrant, stageGrantDecision } from "@/lib/decisions/grants";
-import { decisionKeyboard } from "@/lib/decisions/telegram";
 import { consumeGrantRun, recordGrantResultRun, refundGrantUseRun } from "@/lib/dispatch/authority";
 
 export {
@@ -29,11 +28,18 @@ export {
   grantCovers,
   grantWaiting,
   isGatedAction,
+  buildStagedSend,
+  describeStagedSend,
+  stagedHeadline,
+  stagedResultOf,
+  stagedSendOf,
   type GatedAction,
+  type StagedSend,
+  type StagedResult,
   type GrantStatus,
   type OwnerGrant,
 } from "@/lib/owner-grant-types";
-import { GATED_ACTIONS, ACTION_LABEL, ACTION_TARGET_KIND, grantCovers, isGatedAction, type GatedAction, type GrantStatus, type OwnerGrant } from "@/lib/owner-grant-types";
+import { GATED_ACTIONS, ACTION_LABEL, ACTION_TARGET_KIND, stagedHeadline, grantCovers, isGatedAction, type GatedAction, type GrantStatus, type OwnerGrant, type StagedSend } from "@/lib/owner-grant-types";
 
 const ISO = (col: string) => `to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
 const COLS = `id, status, actions, target_kind, target_id, scope, reason, requested_by,
@@ -120,8 +126,10 @@ export async function mintRunGrant(runId: string, conversationId: string | null,
   });
 }
 
-/** An agent asks for permission. Lands 'requested' + a Decision notification;
- *  the owner approves/denies on /engine/permissions. */
+/** An agent asks for permission. Lands 'requested' + ONE Decision card (app
+ *  bell + Telegram with buttons). When the request carries the exact send
+ *  (`staged`), approving it on any surface performs that send
+ *  (lib/grant-execution.ts) — Joe's tap is the last step, not a hand-back. */
 export async function requestGrant(input: {
   action: string;
   targetId?: string | null;
@@ -129,16 +137,21 @@ export async function requestGrant(input: {
   requestedBy?: string;
   conversationId?: string | null;
   workItemId?: string | null;
+  staged?: StagedSend | null;
 }): Promise<{ ok: true; grant: OwnerGrant } | { ok: false; error: string }> {
   if (!isGatedAction(input.action)) {
     return { ok: false, error: `Unknown gated action "${input.action}". One of: ${GATED_ACTIONS.join(", ")}.` };
   }
   const reason = input.reason.trim();
   if (!reason) return { ok: false, error: "Say what you want to send and why (reason is required)." };
+  const staged = input.staged ?? null;
+  const pinnedTo = staged?.email?.to ?? null;
   const grant = await createGrant({
     actions: [input.action],
     targetKind: ACTION_TARGET_KIND[input.action],
-    targetId: input.targetId ?? null,
+    targetId: staged?.target_id ?? input.targetId ?? null,
+    // A staged email pins the grant to that one address.
+    scope: staged ? { ...(pinnedTo ? { to: pinnedTo } : {}), staged } : {},
     reason,
     requestedBy: input.requestedBy ?? "agent",
     conversationId: input.conversationId ?? null,
@@ -147,27 +160,26 @@ export async function requestGrant(input: {
     status: "requested",
   });
   // A05/A06 bridge: the same ask is ONE decision row (kind 'grant') so
-  // /engine/permissions, /engine/decisions and the Telegram buttons all
-  // point at the same thing. Deciding either side settles both.
+  // /engine/permissions, /engine/decisions, the corner popup and the Telegram
+  // buttons all point at the same thing. Deciding either side settles both.
   const requester: Principal = { kind: "agent", agent: grant.requested_by, runId: null, onBehalfOf: null };
-  const staged = await withTransaction((run) => stageGrantDecision(run, grant, requester, { workItemId: input.workItemId ?? null }));
-  const withDecision = { ...grant, decision_id: staged.decision.id };
-  // notifyOwner writes the same Decision notification emit() used to (the
-  // `emit` overrides keep the established card copy) and, when the Telegram
-  // channel is configured, pushes to Joe's phone with Approve / Request
-  // changes / Hold buttons — a waiting agent is blocked on this decision, so
-  // grants skip the hourly push cap (not quiet hours).
-  await notifyOwner({
-    kind: "grant",
-    title: `Grant request: ${ACTION_LABEL[input.action]}${grant.target_id ? ` — ${grant.target_id}` : ""}`,
-    body: `Reason: ${reason.slice(0, 160)}`,
-    href: `/engine/decisions?d=${staged.decision.id}`,
+  const staged2 = await withTransaction((run) => stageGrantDecision(run, grant, requester, { workItemId: input.workItemId ?? null }));
+  const withDecision = { ...grant, decision_id: staged2.decision.id };
+  // announceDecision records the 'app' delivery, so the 2-minute
+  // unannounced-decision sweep no longer sends a SECOND card for the same ask
+  // (every request used to buzz twice and land twice in the bell). Grants
+  // skip the hourly push cap (not quiet hours) — an agent is waiting.
+  await announceDecision(staged2.decision, {
+    created: staged2.created,
+    superseded: staged2.superseded,
     emit: {
-      title: `${grant.requested_by} asks to: ${ACTION_LABEL[input.action]}${grant.target_id ? ` (${grant.target_id})` : ""}`,
+      tag: "Permission",
+      title: staged
+        ? `${grant.requested_by} wants to send: ${stagedHeadline(staged)}`
+        : `${grant.requested_by} asks to: ${ACTION_LABEL[input.action]}${grant.target_id ? ` (${grant.target_id})` : ""}`,
       subline: reason.slice(0, 160),
       href: "/engine/permissions",
     },
-    telegram: staged.created ? { buttons: decisionKeyboard(staged.decision.id, staged.decision.content_hash), decisionId: staged.decision.id } : undefined,
   });
   return { ok: true, grant: withDecision };
 }
@@ -198,7 +210,8 @@ export async function decideGrant(
       // Intents parked on this grant will never be allowed: cancel them.
       await withTransaction((run) => run(`UPDATE action_intents SET state = 'cancelled', last_error = $2, completed_at = now() WHERE grant_id = $1 AND state IN ('held','pending','retryable_failure')`, [id, `grant ${decision}`]));
     } else {
-      await withTransaction((run) => run(`UPDATE action_intents SET state = 'pending', hold_reason = NULL, next_attempt_at = now() WHERE grant_id = $1 AND state = 'held'`, [id]));
+      const woke = await withTransaction((run) => run<{ id: string }>(`UPDATE action_intents SET state = 'pending', hold_reason = NULL, next_attempt_at = now() WHERE grant_id = $1 AND state = 'held' RETURNING id`, [id]));
+      (row as OwnerGrant & { wokeIntentIds?: string[] }).wokeIntentIds = woke.map((x) => x.id);
     }
   } catch (err) {
     console.error("[owner-grants] decision bridge failed:", (err as Error).message);

@@ -15,7 +15,7 @@ export async function markAllNotificationsRead() {
   await query(
     `INSERT INTO notification_reads (notification_id, user_id)
        SELECT n.id, $1 FROM notifications n
-        WHERE ${user.role === "owner" ? "(n.audience_user_id IS NULL OR n.audience_user_id = $1)" : "n.audience_user_id = $1"}
+        WHERE ${user.role === "owner" ? "(n.audience_user_id IS NULL OR n.audience_user_id = $1)" : "(n.audience_user_id = $1 OR n.actor_user_id = $1)"}
      ON CONFLICT DO NOTHING`,
     [user.id],
   );
@@ -29,7 +29,7 @@ export async function markNotificationRead(id: string) {
     `INSERT INTO notification_reads (notification_id, user_id)
        SELECT n.id, $2 FROM notifications n
         WHERE n.id = $1
-          AND ${user.role === "owner" ? "(n.audience_user_id IS NULL OR n.audience_user_id = $2)" : "n.audience_user_id = $2"}
+          AND ${user.role === "owner" ? "(n.audience_user_id IS NULL OR n.audience_user_id = $2)" : "(n.audience_user_id = $2 OR n.actor_user_id = $2)"}
      ON CONFLICT DO NOTHING`,
     [id, user.id],
   );

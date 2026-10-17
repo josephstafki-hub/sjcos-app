@@ -98,6 +98,17 @@ export async function resolveFromChannel(run: Run, input: ResolveFromChannelInpu
       [d.id],
     );
     intentIds = rows.map((x) => x.id);
+    // A grant decision's sends are parked on the GRANT, not the decision:
+    // wake those too, or a Telegram approval leaves them held (the
+    // /engine/permissions path always woke them; the channels didn't).
+    if (grantId) {
+      const byGrant = await run<{ id: string }>(
+        `UPDATE action_intents SET state = 'pending', hold_reason = NULL, next_attempt_at = now()
+          WHERE grant_id = $1 AND state = 'held' RETURNING id`,
+        [grantId],
+      );
+      intentIds.push(...byGrant.map((x) => x.id));
+    }
     if (d.action === INITIAL_INVOICE_ACTION) invoice = await issueApprovedInvoice(run, d.id, input.principal);
   } else {
     const rows = await run<{ id: string }>(
@@ -106,6 +117,14 @@ export async function resolveFromChannel(run: Run, input: ResolveFromChannelInpu
       [d.id, note ?? `decision ${outcome}`],
     );
     intentIds = rows.map((x) => x.id);
+    if (grantId) {
+      const byGrant = await run<{ id: string }>(
+        `UPDATE action_intents SET state = 'cancelled', last_error = $2, completed_at = now(), lease_token = NULL, lease_until = NULL
+          WHERE grant_id = $1 AND state IN ('held','pending','retryable_failure') RETURNING id`,
+        [grantId, note ?? `decision ${outcome}`],
+      );
+      intentIds.push(...byGrant.map((x) => x.id));
+    }
   }
   // A24: wake the operating agent so the approved (or refused) work resumes
   // without Joe opening the panel. Idempotent on the decision id.

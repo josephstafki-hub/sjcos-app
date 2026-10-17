@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { can, getCurrentUser } from "@/lib/dal";
 import { RouteTracker } from "@/components/shell/RouteTracker";
 import { LiveUpdates } from "@/components/shell/LiveUpdates";
+import { NotificationCenter } from "@/components/shell/NotificationCenter";
 import { PanelProvider } from "@/components/panel/PanelProvider";
 import { PanelHost } from "@/components/panel/PanelHost";
 import { LiveActionNav } from "@/components/panel/LiveActionNav";
@@ -35,6 +36,8 @@ export default async function OsLayout({ children }: { children: ReactNode }) {
       )}
       <RouteTracker />
       <LiveUpdates />
+      {/* Corner approvals (owner) + live toasts and bell count (everyone). */}
+      {user && (user.role === "owner" || user.role === "staff") && <NotificationCenter />}
     </>
   );
 }

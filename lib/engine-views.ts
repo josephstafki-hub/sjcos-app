@@ -91,6 +91,29 @@ export function matchesQueueFilter(item: QueueFilterItem, f: QueueFilter, ownerI
   return true;
 }
 
+/** "Waiting on me" (Joe, 2026-10-17: "sort out the ones that are not waiting
+ *  on me") — is the next move on this open to-do `userId`'s?
+ *    • waiting on a client or sub, done, cancelled → no, it's on someone else.
+ *    • needs approval → the owner's (he approves).
+ *    • waiting on Joe / blocked → the people on it; nobody on it (an agent
+ *      stuck included) → the owner.
+ *    • queued / in progress → the people on it (isOnPerson); an agent's work
+ *      with nobody on it is the agent's, not his.
+ *  Board only: archived items are all closed, so none are waiting on anyone. */
+export function isWaitingOn(
+  item: QueueFilterItem & { status: string; approvalRequested: boolean },
+  userId: string,
+  ownerId: string | null,
+): boolean {
+  const s = item.status;
+  if (s === "done" || s === "cancelled" || s === "waiting_on_client" || s === "waiting_on_sub") return false;
+  if (s === "approval_needed" || item.approvalRequested) return userId === ownerId;
+  if (s === "waiting_on_human" || s === "blocked") {
+    return item.assignedTo.length === 0 ? userId === ownerId : item.assignedTo.some((a) => a.userId === userId);
+  }
+  return isOnPerson(item, userId, ownerId);
+}
+
 /** The same filter as SQL conditions over `work_items w` LEFT JOIN `projects p`
  *  and `leads l`. Values are appended to `params` and bound as $n. A person id
  *  must be a uuid — the caller checks. */

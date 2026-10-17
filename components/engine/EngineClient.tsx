@@ -14,6 +14,7 @@ import type { EngineData, WorkItemView } from "@/lib/engine";
 import {
   NO_FILTER,
   agentLabel,
+  isWaitingOn,
   matchesQueueFilter,
   queueFolders,
   type QueueFilter,
@@ -92,6 +93,7 @@ export function EngineClient({
   memories,
   activeRunbooks,
   canAssign,
+  meId,
 }: {
   engine: EngineData;
   knowledge: KnowledgeItemView[];
@@ -100,6 +102,8 @@ export function EngineClient({
   activeRunbooks: RunbookInstanceView[];
   /** Owner only — deciding who's on a to-do is his alone (2026-09-27). */
   canAssign: boolean;
+  /** The logged-in user — whose "Waiting on me" it is. */
+  meId: string;
 }) {
   const [tab, setTab] = useState<Tab>("queue");
 
@@ -134,7 +138,7 @@ export function EngineClient({
         ))}
       </div>
 
-      {tab === "queue" && <QueueTab engine={engine} skills={skills} canAssign={canAssign} />}
+      {tab === "queue" && <QueueTab engine={engine} skills={skills} canAssign={canAssign} meId={meId} />}
       {tab === "knowledge" && <KnowledgeTab initial={knowledge} />}
       {tab === "skills" && <SkillsTab skills={skills} />}
       {tab === "memories" && <MemoriesTab memories={memories} />}
@@ -282,25 +286,32 @@ function QueueTab({
   engine,
   skills,
   canAssign,
+  meId,
 }: {
   engine: EngineData;
   skills: SkillsLibrary;
   canAssign: boolean;
+  meId: string;
 }) {
   const [showNew, setShowNew] = useState(false);
   const [view, setView] = useState<"queue" | "archived">("queue");
   const [filter, setFilter] = useState<QueueFilter>(NO_FILTER);
+  // Board-only, so it sits beside QueueFilter rather than in it (the archive
+  // is all closed items — nothing there waits on anyone).
+  const [onMe, setOnMe] = useState(false);
   const router = useRouter();
   const [pending, start] = useTransition();
   const formRef = useRef<HTMLFormElement>(null);
 
   const folders = queueFolders(engine.items, engine.assignees, engine.ownerId);
-  const shown = engine.items.filter((it) => matchesQueueFilter(it, filter, engine.ownerId));
+  const inFolder = engine.items.filter((it) => matchesQueueFilter(it, filter, engine.ownerId));
+  const onMeCount = inFolder.filter((it) => isWaitingOn(it, meId, engine.ownerId)).length;
+  const shown = onMe ? inFolder.filter((it) => isWaitingOn(it, meId, engine.ownerId)) : inFolder;
   const buckets = Object.fromEntries(
     BUCKET_META.map((b) => [b.key, shown.filter((it) => it.bucket === b.key)]),
   ) as Record<QueueBucket, WorkItemView[]>;
   const nonEmpty = BUCKET_META.filter((b) => buckets[b.key].length > 0);
-  const filtered = filter.job !== "" || filter.by !== "" || filter.q.trim() !== "";
+  const filtered = onMe || filter.job !== "" || filter.by !== "" || filter.q.trim() !== "";
 
   const archiveAll = (items: WorkItemView[]) => {
     if (!confirm(`Archive ${items.length} done and cancelled item${items.length === 1 ? "" : "s"}? They move to Archived — nothing is deleted.`)) return;
@@ -419,7 +430,12 @@ function QueueTab({
         />
 
         <div className="min-w-0">
-          <QueueFilters items={engine.items} filter={filter} onChange={setFilter} />
+          <QueueFilters
+            items={engine.items}
+            filter={filter}
+            onChange={setFilter}
+            onMe={view === "queue" ? { on: onMe, count: onMeCount, set: setOnMe } : null}
+          />
 
           {view === "archived" ? (
             <ArchiveList
@@ -524,16 +540,20 @@ function QueueRail({
   );
 }
 
-/** Search + job + "filed by". Options come from what's on the board; the one
- *  picked stays listed even if the board no longer has it (the archive may). */
+/** Search + job + "filed by" (+ "Waiting on me" on the board). Options come
+ *  from what's on the board; the one picked stays listed even if the board no
+ *  longer has it (the archive may). */
 function QueueFilters({
   items,
   filter,
   onChange,
+  onMe,
 }: {
   items: WorkItemView[];
   filter: QueueFilter;
   onChange: (f: QueueFilter) => void;
+  /** Null over the archive, where it means nothing. */
+  onMe: { on: boolean; count: number; set: (on: boolean) => void } | null;
 }) {
   const projects = new Map<string, string>();
   const leads = new Map<string, string>();
@@ -550,10 +570,26 @@ function QueueFilters({
   const byLabel = (m: Map<string, string>) => [...m].sort((a, b) => a[1].localeCompare(b[1]));
   const selectCls =
     "rounded-md border border-rule bg-paper px-2 py-1.5 text-[12px] text-ink-2 outline-none focus:border-accent";
-  const active = filter.job !== "" || filter.by !== "" || filter.q !== "";
+  const active = filter.job !== "" || filter.by !== "" || filter.q !== "" || !!onMe?.on;
 
   return (
     <div className="mb-4 flex flex-wrap items-center gap-2">
+      {onMe && (
+        <button
+          onClick={() => onMe.set(!onMe.on)}
+          aria-pressed={onMe.on}
+          title="Hide what's waiting on a client, a sub, an agent or someone else"
+          className={[
+            "rounded-md border px-2.5 py-1.5 text-[12px] font-semibold transition-colors",
+            onMe.on
+              ? "border-accent bg-accent-soft text-accent-2"
+              : "border-rule bg-paper text-ink-2 hover:border-accent hover:text-accent-2",
+          ].join(" ")}
+        >
+          Waiting on me
+          <span className="ml-1.5 font-mono text-[10px] text-ink-4">{onMe.count}</span>
+        </button>
+      )}
       <input
         value={filter.q}
         onChange={(e) => onChange({ ...filter, q: e.target.value })}
@@ -590,7 +626,13 @@ function QueueFilters({
         ))}
       </select>
       {active && (
-        <button className="text-[11px] text-ink-4 hover:text-accent-2" onClick={() => onChange({ ...filter, job: "", by: "", q: "" })}>
+        <button
+          className="text-[11px] text-ink-4 hover:text-accent-2"
+          onClick={() => {
+            onChange({ ...filter, job: "", by: "", q: "" });
+            onMe?.set(false);
+          }}
+        >
           Clear
         </button>
       )}

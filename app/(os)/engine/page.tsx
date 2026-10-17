@@ -51,6 +51,7 @@ export default async function EnginePage() {
           memories={memories}
           activeRunbooks={activeRunbooks}
           canAssign={user.role === "owner"}
+          meId={user.id}
         />
       </div>
     </Shell>

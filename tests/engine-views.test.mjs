@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import {
   NO_FILTER,
   agentLabel,
+  isWaitingOn,
   matchesQueueFilter,
   queueFilterSql,
   queueFolders,
@@ -129,4 +130,32 @@ test("SQL twin: the owner's folder includes nobody-on-it human work; no filter =
   const sql = queueFilterSql({ ...NO_FILTER, who: `person:${OWNER}` }, OWNER, params).join(" AND ");
   assert.match(sql, /w\.assignee_kind = 'human' AND NOT EXISTS/);
   assert.deepEqual(queueFilterSql(NO_FILTER, OWNER, []), []);
+});
+
+test("waiting on me: what's on a client, a sub, an agent or someone else drops out", () => {
+  const on = (it, who = OWNER) => isWaitingOn({ approvalRequested: false, ...it }, who, OWNER);
+  // Mine to do, open.
+  assert.equal(on(mine), true);
+  assert.equal(on({ ...mine, status: "in_progress" }), true);
+  assert.equal(on(shared), true);
+  assert.equal(on(shared, ABBY), true, "a shared to-do waits on both of them");
+  // Someone else's move.
+  assert.equal(on({ ...mine, status: "waiting_on_client" }), false);
+  assert.equal(on({ ...mine, status: "waiting_on_sub" }), false);
+  assert.equal(on(abbys), false, "handed to Abigail");
+  assert.equal(on(abbys, ABBY), true);
+  assert.equal(on(hermes), false, "an agent running its own work");
+  // Closed.
+  assert.equal(on({ ...mine, status: "done" }), false);
+  assert.equal(on({ ...mine, status: "cancelled" }), false);
+  // An agent stuck on Joe, or blocked with nobody on it, is his.
+  assert.equal(on({ ...hermes, status: "waiting_on_human" }), true);
+  assert.equal(on({ ...hermes, status: "blocked" }), true);
+  assert.equal(on({ ...hermes, status: "blocked" }, ABBY), false);
+  assert.equal(on({ ...hermesWithAbby, status: "waiting_on_human" }), false, "Abigail is on it — hers");
+  assert.equal(on({ ...hermesWithAbby, status: "waiting_on_human" }, ABBY), true);
+  // Approvals wait on the owner, whoever filed or holds them.
+  assert.equal(on({ ...hermes, status: "approval_needed" }), true);
+  assert.equal(on({ ...abbys, approvalRequested: true }), true);
+  assert.equal(on({ ...abbys, approvalRequested: true }, ABBY), false);
 });

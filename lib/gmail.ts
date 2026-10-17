@@ -424,7 +424,12 @@ function sanitizeEmailHtml(html: string): string {
   return sanitizeHtml(html, {
     allowedTags: sanitizeHtml.defaults.allowedTags.concat(["img", "h1", "h2", "span", "u", "font", "center"]),
     allowedAttributes: {
-      "*": ["style", "align", "width", "height", "bgcolor", "color"],
+      "*": ["style", "align", "valign", "width", "height", "bgcolor", "color"],
+      // Layout tables (Menards' receipts) span a fixed column grid; without
+      // colspan the whole body collapses into one narrow column.
+      table: ["cellpadding", "cellspacing", "border"],
+      td: ["colspan", "rowspan"],
+      th: ["colspan", "rowspan"],
       a: ["href", "name", "target", "rel"],
       img: ["src", "alt", "width", "height", "style"],
       font: ["color", "face", "size"],

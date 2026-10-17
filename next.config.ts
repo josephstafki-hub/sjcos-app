@@ -8,6 +8,12 @@ const nextConfig: NextConfig = {
   // production stays untouched:
   //   SJC_DIST_DIR=.next-preview npx next dev --port 3018
   distDir: process.env.SJC_DIST_DIR || ".next",
+  // A staged build (SJC_DIST_DIR=.next-staged, deploy/promote-staged-build.sh)
+  // must not type-check the RUNNING build's generated route types in .next/
+  // or a stale preview's: they still list any page the new code removed, and
+  // the build fails on "Cannot find module app/…/page.js" (removing /automate,
+  // 2026-10-17). tsconfig.staged.json reads only its own dist's types.
+  typescript: process.env.SJC_DIST_DIR === ".next-staged" ? { tsconfigPath: "tsconfig.staged.json" } : undefined,
   // Joe previews remotely through an ephemeral cloudflared tunnel, which is a
   // different origin than localhost. Next 16 dev otherwise blocks the browser
   // from loading /_next/* dev resources (the client JS chunks) cross-origin,

@@ -21,6 +21,7 @@ import {
   skipDelivery,
   type PortalOutboxItem,
 } from "@/lib/portal-delivery";
+import { archiveRoom, restoreRoom } from "@/lib/rooms";
 
 /** How each AI teammate signs its chat posts. */
 const AGENT_IDENTITY: Record<DevAgent, { name: string; initials: string }> = {
@@ -376,6 +377,58 @@ export async function archiveChannel(
       [channelKey],
     );
     await markRead(channelKey, owner.id);
+    revalidatePath("/chat");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/** Restore a removed bare channel from the Archived list — the one-click
+ *  reverse of archiveChannel (members, AI, and transcript were never touched). */
+export async function restoreChannel(
+  channelKey: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireRole("owner");
+  try {
+    const res = await query(
+      `UPDATE chat_channels SET archived_at = NULL WHERE key = $1 AND archived_at IS NOT NULL`,
+      [channelKey],
+    );
+    if (!res.rowCount) return { ok: false, error: "That channel isn't archived." };
+    revalidatePath("/chat");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/** Archive a lead/project room by hand. Rooms archive themselves when the job
+ *  closes (lib/rooms.ts); this is for one that should go early. Reversible
+ *  with restoreChatRoom. */
+export async function archiveChatRoom(
+  roomKey: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireRole("owner");
+  if (!roomKey.startsWith("room:")) return { ok: false, error: "Only rooms can be archived here." };
+  try {
+    if (!(await archiveRoom(roomKey))) return { ok: false, error: "That room no longer exists." };
+    revalidatePath("/chat");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/** Bring an archived room back onto the rail — members and transcript intact.
+ *  For a finished job it stays up until the owner archives it again. */
+export async function restoreChatRoom(
+  roomKey: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireRole("owner");
+  if (!roomKey.startsWith("room:")) return { ok: false, error: "Only rooms can be restored here." };
+  try {
+    if (!(await restoreRoom(roomKey))) return { ok: false, error: "That room no longer exists." };
     revalidatePath("/chat");
     return { ok: true };
   } catch (err) {

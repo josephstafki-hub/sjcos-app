@@ -22,9 +22,8 @@ import {
   closeEntityRoom,
   addSubToEntityRoom,
   removeSubFromEntityRoom,
-  carryRoomMembership,
 } from "@/lib/rooms";
-import { roomKey, warrantyRoomKey } from "@/lib/chat";
+import { roomKey } from "@/lib/chat";
 import type { ProjectStatus } from "@/lib/types";
 
 /** Kebab-case a display name into a URL slug. */
@@ -193,12 +192,10 @@ export async function advanceProjectStatus(slug: string) {
     } catch {
       /* never block the status change on a marketing draft */
     }
-    // Completion = the project case closes and a warranty case opens (P1-D2).
-    // Carry the project room's participants into the warranty room so the
-    // conversation continues. Best-effort — never block the status change.
+    // Finished = the project's room archives (Joe, 2026-10-16: only active
+    // leads and projects have rooms). The leads/projects trigger already did
+    // this; the call is belt-and-braces. Restore on /chat brings it back.
     try {
-      await openEntityRoom("warranty", slug, row.name);
-      await carryRoomMembership(roomKey(slug), warrantyRoomKey(slug));
       await closeEntityRoom(roomKey(slug));
     } catch {
       /* room bookkeeping must never block the status change */

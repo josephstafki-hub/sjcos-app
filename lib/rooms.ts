@@ -1,12 +1,18 @@
 // Entity chat-room bookkeeping (P1-D2). Plain server helpers (NOT "use server"
 // — these are called from already-owner-gated Server Actions in lib/actions/*).
-// A room is auto-opened when a lead/project/warranty case is created and closed
-// (closed_at set, never deleted) when the entity goes lost/completed/closed, so
-// the transcript under the key survives. The stored set lives in chat_rooms;
-// lib/chat.ts reads open rooms from it. All writes here are idempotent so a
-// re-fired action (re-click, retried transition) never duplicates or resurrects
-// state. Room bookkeeping must never block the entity CRUD it rides on, so
-// callers wrap these in try/catch.
+// A room is open while its lead/project is active and archived (closed_at set,
+// never deleted) once the lead is lost/converted or the project reaches
+// warranty, so the transcript under the key survives. The stored set lives in
+// chat_rooms; lib/chat.ts reads it.
+//
+// The lifecycle itself is enforced on the tables (sync_chat_rooms(), fired by
+// triggers on leads and projects — db/apply-chat-room-lifecycle.mjs), so every
+// writer keeps rooms in step, not just the actions that call in here. The
+// open/close calls below still run where they always did (they agree with the
+// reconcile and carry membership); archiveRoom/restoreRoom are the owner's
+// manual override, recorded in chat_rooms.hold. All writes here are idempotent.
+// Room bookkeeping must never block the entity CRUD it rides on, so callers
+// wrap these in try/catch.
 
 import { query } from "./db";
 import { roomKey, leadRoomKey, warrantyRoomKey } from "./chat";
@@ -20,17 +26,23 @@ function keyFor(type: EntityType, ref: string): string {
 }
 
 /** Open (or reopen) the room for an entity. Upsert: creating a room and
- *  reopening a previously-closed one are the same primitive. */
+ *  reopening a previously-closed one are the same primitive. Same rule as the
+ *  table reconcile: a room the owner archived by hand stays archived. */
 export async function openEntityRoom(type: EntityType, ref: string, name: string): Promise<void> {
   await query(
     `INSERT INTO chat_rooms (key, entity_type, entity_ref, name)
      VALUES ($1, $2, $3, $4)
-     ON CONFLICT (key) DO UPDATE SET closed_at = NULL, name = EXCLUDED.name`,
+     ON CONFLICT (key) DO UPDATE
+        SET closed_at = CASE WHEN chat_rooms.hold = 'archived' THEN chat_rooms.closed_at END,
+            hold = NULLIF(chat_rooms.hold, 'open'),
+            name = EXCLUDED.name`,
     [keyFor(type, ref), type, ref, name],
   );
 }
 
-/** Close a room by its channel key. No-op if already closed or missing. Also
+/** Close a room by its channel key. No-op if already closed, missing, or held
+ *  open by the owner (a room restored by hand stays up until the owner archives
+ *  it — the warranty page's aging sweep must not undo that click). Also
  *  clears the nav unread badge for the key (a closed room has no UI to mark it
  *  read), mirroring how archiveChannel handles bare channels.
  *
@@ -39,7 +51,8 @@ export async function openEntityRoom(type: EntityType, ref: string, name: string
  *  single global marker this used to write. */
 export async function closeEntityRoom(key: string): Promise<void> {
   const res = await query(
-    `UPDATE chat_rooms SET closed_at = now() WHERE key = $1 AND closed_at IS NULL`,
+    `UPDATE chat_rooms SET closed_at = now()
+      WHERE key = $1 AND closed_at IS NULL AND hold IS DISTINCT FROM 'open'`,
     [key],
   );
   if (res.rowCount) {
@@ -59,8 +72,38 @@ export async function closeEntityRoom(key: string): Promise<void> {
   }
 }
 
-/** Resolve the currently-open room key backing a project (its project room, or
- *  its warranty room once it has completed construction). */
+/** Is this room's lead/project active right now (i.e. would the reconcile keep
+ *  it open on its own)? */
+async function entityActive(key: string): Promise<boolean> {
+  const { rows } = await query(`SELECT 1 FROM chat_room_entities WHERE key = $1`, [key]);
+  return rows.length > 0;
+}
+
+/** Owner archives a room by hand. On a live job that's an override, so it is
+ *  held archived until the job itself closes; on a finished one it simply
+ *  agrees with the reconcile. Returns false if the room doesn't exist. */
+export async function archiveRoom(key: string): Promise<boolean> {
+  const hold = (await entityActive(key)) ? "archived" : null;
+  const res = await query(
+    `UPDATE chat_rooms SET closed_at = COALESCE(closed_at, now()), hold = $2 WHERE key = $1`,
+    [key, hold],
+  );
+  return (res.rowCount ?? 0) > 0;
+}
+
+/** Owner restores an archived room — the one-click reverse of an archive. On a
+ *  finished job it's held open until the owner archives it again; on a live
+ *  one it simply agrees with the reconcile. Members and transcript were never
+ *  touched, so it comes back exactly as it was. */
+export async function restoreRoom(key: string): Promise<boolean> {
+  const hold = (await entityActive(key)) ? null : "open";
+  const res = await query(`UPDATE chat_rooms SET closed_at = NULL, hold = $2 WHERE key = $1`, [key, hold]);
+  return (res.rowCount ?? 0) > 0;
+}
+
+/** Resolve the currently-open room key backing a project: its project room
+ *  (or, for a job that finished before 2026-10-16, a warranty room the owner
+ *  restored by hand). None once the project is finished and archived. */
 async function openRoomKeyForProject(projectSlug: string): Promise<string | null> {
   const { rows } = await query<{ key: string }>(
     `SELECT key FROM chat_rooms
@@ -91,7 +134,7 @@ export async function removeSubFromEntityRoom(projectSlug: string, subSlug: stri
 }
 
 /** Copy all membership (subs, team, clients) from one room key to another, so a
- *  project's participants follow it into its warranty room on completion.
+ *  lead's participants follow it into its project room on conversion.
  *  Idempotent on every table. */
 export async function carryRoomMembership(fromKey: string, toKey: string): Promise<void> {
   await query(

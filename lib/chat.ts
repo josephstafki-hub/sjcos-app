@@ -24,6 +24,19 @@
 //             is internal chat, so neither appears on a staff rail.
 //   managing  creating/archiving channels, adding subs or clients, moving AI
 //             membership, and releasing portal deliveries stay owner-only.
+//   archive   only active leads and projects have rooms (Joe, 2026-10-16): a
+//             lost/converted lead's or finished project's room is archived by
+//             the leads/projects trigger (lib/rooms.ts). The owner gets an
+//             Archived list (rooms + removed channels) with one-click Restore.
+//
+// ─── The nav badge counts UNANSWERED chats (Joe, 2026-10-16) ─────────────────
+//
+// Not unread messages: the number of conversations, among the ones this person
+// can actually open here, whose latest human message is someone else's. Reading
+// doesn't clear it; replying does. AI posts are skipped (an assistant's answer
+// isn't anyone waiting on you), and client portal threads (`portal:<slug>`) are
+// out — they're answered from the project page, and a badge here that /chat
+// can't clear is exactly what this replaced.
 
 import { query } from "./db";
 import type { DevAgent } from "./dev-agents-meta";
@@ -42,6 +55,12 @@ export interface ChatChannel {
   unread?: number;
   /** Optional per-channel description (project rooms set this). */
   description?: string;
+  /** The latest human message here is someone else's — it's waiting on you.
+   *  The nav badge counts these (getUnansweredChatCount). */
+  awaitingReply?: boolean;
+  /** Archived list only: what it is, and when it was archived. */
+  archivedKind?: "room" | "channel";
+  archivedLabel?: string;
 }
 
 /** Entity-room channel-key conventions (P1-D2). One room per open case; the
@@ -63,6 +82,8 @@ export interface DirectMessage {
   online: boolean;
   /** Unread count from the other party since the owner's last read. */
   unread?: number;
+  /** Their message is the latest one — see ChatChannel.awaitingReply. */
+  awaitingReply?: boolean;
 }
 
 /** DM channel-key conventions (P1-D3). One conversation per person in the shared
@@ -181,6 +202,8 @@ export interface ChannelView {
   /** Day-separator chip, e.g. "Today · Mon May 25". */
   daySeparator: string;
   messages: ChatMessage[];
+  /** An archived room/channel, opened read-only from the Archived list. */
+  archived?: boolean;
 }
 
 // ─── Builders ────────────────────────────────────────────────────────────────
@@ -189,6 +212,9 @@ export interface ChatData {
   channels: ChatChannel[];
   rooms: ChatChannel[];
   directs: DirectMessage[];
+  /** Archived rooms and removed channels, newest first — owner only (empty for
+   *  staff). Each restores in one click. */
+  archived: ChatChannel[];
   /** All channel/room views, keyed by slug. */
   views: Record<string, ChannelView>;
   /** Every sub — the pool the add-member picker draws from. */
@@ -385,18 +411,22 @@ export async function getChatData(viewer: ChatViewer): Promise<ChatData> {
         `SELECT channel_key, agent FROM chat_ai_members`,
       ),
       // Owner-managed bare channels (P1-D1) — replaces the old hardcoded list.
-      // Archived channels are hidden; their transcripts remain in chat_messages.
-      query<{ key: string; name: string; description: string }>(
-        `SELECT key, name, description FROM chat_channels
-          WHERE archived_at IS NULL
+      // Removed (archived) channels come back too, for the owner's Archived
+      // list; their transcripts remain in chat_messages.
+      query<{ key: string; name: string; description: string; archived_at: Date | null }>(
+        `SELECT key, name, description, archived_at FROM chat_channels
           ORDER BY sort_order, created_at, key`,
       ),
-      // Entity rooms (P1-D2) — persistent, one per open lead/project/warranty
-      // case, newest first. Auto-opened on entity create, closed_at set on
-      // lost/completed/closed (closed rooms drop out here, transcript kept).
-      query<{ key: string; name: string; entity_type: "lead" | "project" | "warranty" }>(
-        `SELECT key, name, entity_type FROM chat_rooms
-          WHERE closed_at IS NULL
+      // Entity rooms (P1-D2) — one per active lead/project, newest first. The
+      // archived ones (lost/converted lead, finished project, or archived by
+      // hand) feed the owner's Archived list; transcript and members are kept.
+      query<{
+        key: string;
+        name: string;
+        entity_type: "lead" | "project" | "warranty";
+        closed_at: Date | null;
+      }>(
+        `SELECT key, name, entity_type, closed_at FROM chat_rooms
           ORDER BY opened_at DESC`,
       ),
       // Manually-added client participants per room (P1-D2).
@@ -431,22 +461,60 @@ export async function getChatData(viewer: ChatViewer): Promise<ChatData> {
       ),
     ]);
 
-  const CHANNELS: ChatChannel[] = channelRes.rows.map((c) => ({
-    key: c.key,
-    name: `# ${c.name}`,
-    description: c.description || undefined,
-  }));
+  const CHANNELS: ChatChannel[] = channelRes.rows
+    .filter((c) => !c.archived_at)
+    .map((c) => ({
+      key: c.key,
+      name: `# ${c.name}`,
+      description: c.description || undefined,
+    }));
 
   const roomDescription = (entityType: "lead" | "project" | "warranty", name: string): string => {
     if (entityType === "lead") return `Lead room · ${name}`;
     if (entityType === "warranty") return `Warranty room · ${name}`;
     return `Project room · ${name}`;
   };
-  const ROOMS: ChatChannel[] = roomRes.rows.map((r) => ({
-    key: r.key,
-    name: `# ${r.name}`,
-    description: roomDescription(r.entity_type, r.name),
-  }));
+  const ROOMS: ChatChannel[] = roomRes.rows
+    .filter((r) => !r.closed_at)
+    .map((r) => ({
+      key: r.key,
+      name: `# ${r.name}`,
+      description: roomDescription(r.entity_type, r.name),
+    }));
+
+  // The owner's Archived list: rooms whose job closed (or that were archived by
+  // hand) and removed channels, most recently archived first. Staff don't get
+  // it — archiving and restoring are company decisions.
+  const ARCHIVED: ChatChannel[] = isOwner
+    ? [
+        ...roomRes.rows
+          .filter((r) => r.closed_at)
+          .map((r) => ({
+            at: new Date(r.closed_at!),
+            key: r.key,
+            name: r.name,
+            description: roomDescription(r.entity_type, r.name),
+            kind: "room" as const,
+          })),
+        ...channelRes.rows
+          .filter((c) => c.archived_at)
+          .map((c) => ({
+            at: new Date(c.archived_at!),
+            key: c.key,
+            name: c.name,
+            description: c.description || undefined,
+            kind: "channel" as const,
+          })),
+      ]
+        .sort((a, b) => b.at.getTime() - a.at.getTime())
+        .map((a) => ({
+          key: a.key,
+          name: `# ${a.name}`,
+          description: a.description,
+          archivedKind: a.kind,
+          archivedLabel: `Archived ${a.at.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
+        }))
+    : [];
   // channel_key → its AI members (bare channels only carry rows here).
   const aiByChannel = new Map<string, DevAgent[]>();
   for (const r of aiMemberRes.rows) {
@@ -478,8 +546,23 @@ export async function getChatData(viewer: ChatViewer): Promise<ChatData> {
     ).length;
   };
 
+  // Waiting on me = the latest human message here is someone else's (the nav
+  // badge's rule — see the header, and getUnansweredChatCount below).
+  const awaitingFor = (key: string): boolean => {
+    const rows = byChannel.get(key) ?? [];
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (rows[i].author_kind === "ai") continue;
+      return !isMine(rows[i], viewer);
+    }
+    return false;
+  };
+
   const withUnread = (list: ChatChannel[]): ChatChannel[] =>
-    list.map((c) => ({ ...c, unread: unreadFor(c.key) || undefined }));
+    list.map((c) => ({
+      ...c,
+      unread: unreadFor(c.key) || undefined,
+      awaitingReply: awaitingFor(c.key) || undefined,
+    }));
 
   // Sub roster, keyed by slug, as ChannelMember.
   const roster: ChannelMember[] = subRes.rows.map((s) => ({
@@ -551,7 +634,7 @@ export async function getChatData(viewer: ChatViewer): Promise<ChatData> {
     (ownerSlug ? teamBySlug.get(ownerSlug)?.initials : null) ||
     "JS";
 
-  const viewEntries = visible.map(
+  const viewEntries = [...visible, ...ARCHIVED].map(
     (ch) =>
       [
         ch.key,
@@ -567,6 +650,15 @@ export async function getChatData(viewer: ChatViewer): Promise<ChatData> {
         ),
       ] as const,
   );
+  // Archived views open read-only: no posting, no membership changes.
+  const archivedKeys = new Set(ARCHIVED.map((a) => a.key));
+  for (const [key, v] of viewEntries) {
+    if (!archivedKeys.has(key)) continue;
+    v.archived = true;
+    v.canManageMembers = false;
+    v.canManageAi = false;
+    v.canManageClients = false;
+  }
 
   // Direct messages — the top-of-roster subs (derived, always shown) plus every
   // owner-opened DM in chat_dms (P1-D3). A DM added to both is deduped by key.
@@ -589,6 +681,7 @@ export async function getChatData(viewer: ChatViewer): Promise<ChatData> {
       name: `${firstName} · ${subtitle}`,
       online,
       unread: unreadFor(key) || undefined,
+      awaitingReply: awaitingFor(key) || undefined,
     });
     dmViewEntries.push([
       key,
@@ -648,16 +741,25 @@ export async function getChatData(viewer: ChatViewer): Promise<ChatData> {
     }
   }
 
-  // Safety net: any internal DM that has messages but no chat_dms row still
-  // lists. A conversation that exists in the transcript and not on the rail is
-  // the worst failure mode here — the message is delivered and invisible — so
-  // don't let a missing bookkeeping row cause it.
+  // Safety net: any DM that has messages but no rail entry still lists. A
+  // conversation that exists in the transcript and not on the rail is the worst
+  // failure mode here — the message is delivered and invisible, and the nav
+  // badge would count a chat nobody can open — so don't let a missing
+  // bookkeeping row cause it. That includes a sub outside the top six writing
+  // from their portal (dm:<slug>), which used to land nowhere.
   for (const key of byChannel.keys()) {
-    if (!key.startsWith("dm:team:") || seenDm.has(key)) continue;
-    if (!iAmPartyTo(key)) continue;
-    const otherSlug = teamDmParties(key, ownerSlug).find((x) => x !== viewer.teamSlug);
-    const t = otherSlug ? teamBySlug.get(otherSlug) : undefined;
-    pushDm(key, t?.name ?? otherSlug ?? "Teammate", t?.roleLabel || "Team", false);
+    if (!key.startsWith("dm:") || seenDm.has(key)) continue;
+    if (key.startsWith("dm:team:")) {
+      if (!iAmPartyTo(key)) continue;
+      const otherSlug = teamDmParties(key, ownerSlug).find((x) => x !== viewer.teamSlug);
+      const t = otherSlug ? teamBySlug.get(otherSlug) : undefined;
+      pushDm(key, t?.name ?? otherSlug ?? "Teammate", t?.roleLabel || "Team", false);
+    } else if (isOwner && key.startsWith("dm:client:")) {
+      pushDm(key, key.slice("dm:client:".length), "Client", false);
+    } else if (isOwner) {
+      const s = subBySlug.get(key.slice("dm:".length));
+      pushDm(key, s?.name ?? key.slice("dm:".length), s?.trade ?? "Sub", s?.fav ?? false);
+    }
   }
 
   // Client roster for the person-lookup, deduped by slug.
@@ -682,6 +784,7 @@ export async function getChatData(viewer: ChatViewer): Promise<ChatData> {
     channels: withUnread(CHANNELS),
     rooms: withUnread(visibleRooms),
     directs,
+    archived: ARCHIVED,
     views: Object.fromEntries([...viewEntries, ...dmViewEntries]),
     // The sub roster and the client lookup drive owner-only pickers.
     roster: isOwner ? roster : [],
@@ -696,61 +799,60 @@ export async function getChatData(viewer: ChatViewer): Promise<ChatData> {
   };
 }
 
-/** Total unread chat messages for THIS user's nav badge: messages someone else
- *  wrote, after their own last-read marker, in a channel they can open.
+/** The Team Chat nav badge: how many conversations are waiting on THIS user —
+ *  the ones they can open in /chat whose latest human message is someone
+ *  else's (see the header). Mirrors awaitingFor() and the rail's visibility
+ *  rules in getChatData, in one query so the nav never loads every transcript.
  *
- *  Both halves used to be global — one read marker for everyone, and "from
- *  others" meant "not from the owner" — so the badge was Joe's number shown to
- *  whoever was looking. */
-export async function getUnreadChatCount(userId: string): Promise<number> {
+ *  Replaced an unread-MESSAGE count that also took in client portal threads
+ *  (`portal:<slug>`), which /chat never shows — so the badge sat on a number
+ *  nothing in chat could clear. */
+export async function getUnansweredChatCount(userId: string): Promise<number> {
   const { rows } = await query<{ n: string }>(
-    `SELECT count(*) AS n
-       FROM chat_messages m
-       LEFT JOIN chat_reads_by_user r ON r.channel_key = m.channel_key AND r.user_id = $1
-      -- "Not mine" — see isMine() above. The second arm keeps Joe's pre-staff
-      -- history (his portal replies especially) from counting against him.
-      --
-      -- IS NOT DISTINCT FROM rather than plain equality: author_user_id is NULL
-      -- on every message written before the column existed, and on every
-      -- client/sub portal post. Comparing NULL with = yields NULL, so a plain
-      -- NOT(...) around it evaluates to NULL and the row is dropped — which
-      -- silently emptied the badge of exactly the client messages it exists to
-      -- surface (21 to 0 on Joe's real data).
+    `WITH me AS (
+       SELECT u.id, (u.role = 'owner') AS is_owner, t.slug
+         FROM users u
+         LEFT JOIN team_members t ON t.user_id = u.id AND t.active
+        WHERE u.id = $1
+     ),
+     last AS (
+       -- Latest human message per conversation; AI posts never wait on anyone.
+       SELECT DISTINCT ON (channel_key) channel_key, author_user_id, author_kind
+         FROM chat_messages
+        WHERE author_kind <> 'ai'
+        ORDER BY channel_key, created_at DESC, id DESC
+     )
+     SELECT count(*) AS n
+       FROM last m CROSS JOIN me
+      -- Not mine — see isMine(). IS NOT DISTINCT FROM because author_user_id is
+      -- NULL on portal posts and every pre-staff row, and a NULL comparison
+      -- inside NOT(...) would silently drop exactly those. The second arm keeps
+      -- Joe's pre-staff history counting as his own.
       WHERE NOT (
-              m.author_user_id IS NOT DISTINCT FROM $1::uuid
-              OR (m.author_user_id IS NULL AND m.author_kind = 'owner'
-                  AND EXISTS (SELECT 1 FROM users o WHERE o.id = $1 AND o.role = 'owner'))
+              m.author_user_id IS NOT DISTINCT FROM me.id
+              OR (m.author_user_id IS NULL AND m.author_kind = 'owner' AND me.is_owner)
             )
-        AND (r.last_read_at IS NULL OR m.created_at > r.last_read_at)
-        AND NOT EXISTS (
-          SELECT 1 FROM chat_channels c
-           WHERE c.key = m.channel_key AND c.archived_at IS NOT NULL
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM chat_rooms rm
-           WHERE rm.key = m.channel_key AND rm.closed_at IS NOT NULL
-        )
-        -- Only channels this person actually sees, or the badge promises unread
-        -- behind a door that won't open: bare channels are everyone's, rooms
-        -- need membership, and a DM needs them to be a party to it.
+        -- Only conversations this person can open in /chat.
         AND (
-          position(':' in m.channel_key) = 0
-          OR EXISTS (SELECT 1 FROM users u WHERE u.id = $1 AND u.role = 'owner')
-          OR EXISTS (
-            SELECT 1 FROM chat_team_members tm
-              JOIN team_members t ON t.slug = tm.member_slug
-             WHERE tm.channel_key = m.channel_key AND t.user_id = $1
-          )
-          OR EXISTS (
-            -- Their DMs: 'dm:team:<them>' is the owner↔them conversation, and
-            -- 'dm:team:<a>+<b>' is a staff pair. Anchored on both sides so a
-            -- slug that merely CONTAINS theirs can't match.
-            SELECT 1 FROM team_members t
-             WHERE t.user_id = $1
-               AND (m.channel_key = 'dm:team:' || t.slug
-                    OR m.channel_key LIKE 'dm:team:' || t.slug || '+%'
-                    OR m.channel_key LIKE 'dm:team:%+' || t.slug)
-          )
+          -- a live bare channel: everyone's
+          EXISTS (SELECT 1 FROM chat_channels c
+                   WHERE c.key = m.channel_key AND c.archived_at IS NULL)
+          -- a live room: the owner sees all, staff the ones they're in
+          OR EXISTS (SELECT 1 FROM chat_rooms r
+                      WHERE r.key = m.channel_key AND r.closed_at IS NULL
+                        AND (me.is_owner OR EXISTS (
+                              SELECT 1 FROM chat_team_members tm
+                               WHERE tm.channel_key = r.key AND tm.member_slug = me.slug)))
+          -- sub and client DMs are the owner's
+          OR (me.is_owner AND m.channel_key LIKE 'dm:%' AND m.channel_key NOT LIKE 'dm:team:%')
+          -- internal DMs they're a party to: 'dm:team:<x>' is owner<->x and
+          -- 'dm:team:<a>+<b>' a staff pair. Anchored so a slug that merely
+          -- CONTAINS theirs can't match.
+          OR (m.channel_key LIKE 'dm:team:%' AND (
+                (me.is_owner AND position('+' in m.channel_key) = 0)
+                OR m.channel_key = 'dm:team:' || me.slug
+                OR m.channel_key LIKE 'dm:team:' || me.slug || '+%'
+                OR m.channel_key LIKE 'dm:team:%+' || me.slug))
         )`,
     [userId],
   );

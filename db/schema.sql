@@ -581,10 +581,10 @@ CREATE TABLE IF NOT EXISTS chat_team_members (
   PRIMARY KEY (channel_key, member_slug)
 );
 
--- Persistent entity chat rooms (P1-D2). One room per open lead/project/warranty
--- case, auto-created when the entity is created and closed (closed_at set —
--- never deleted, so the transcript under the key survives in chat_messages) when
--- the entity goes lost/completed/closed. Replaces the old derived project-room
+-- Persistent entity chat rooms (P1-D2). One room per active lead/project,
+-- opened when the entity is created and archived (closed_at set — never
+-- deleted, so the transcript under the key survives in chat_messages) when the
+-- entity goes lost/converted/finished; see the lifecycle block below. Replaces the old derived project-room
 -- query in lib/chat.ts (which only surfaced construction/closeout projects).
 -- No FK on entity_ref: it's a text slug and the room deliberately outlives the
 -- entity on delete so history is kept.
@@ -612,27 +612,88 @@ CREATE TABLE IF NOT EXISTS chat_room_clients (
   UNIQUE (room_key, name)
 );
 
--- Idempotent backfill from live entities so existing leads/projects/warranties
--- get their rooms without a data migration. Safe to re-run: ON CONFLICT DO
--- NOTHING means a room the app later closed never silently reopens on re-apply.
--- Non-warranty projects → project rooms (room:<slug>, preserving any transcript
--- from the old derived era); warranty-stage projects → warranty rooms; leads
--- that are neither lost nor already converted (a converted lead's room is closed
--- at convert, its conversation moved to the project) → lead rooms.
-INSERT INTO chat_rooms (key, entity_type, entity_ref, name)
-SELECT 'room:' || slug, 'project', slug, name FROM projects WHERE status <> 'warranty'
-ON CONFLICT (key) DO NOTHING;
+-- Room lifecycle (2026-10-16, db/apply-chat-room-lifecycle.mjs). Only active
+-- leads and projects have rooms; a lead that is lost/converted or a project that
+-- reaches warranty ("finished") has its room archived (closed_at), never
+-- deleted, so Restore brings it back with its members and transcript. The rule
+-- lives on the tables so every writer (app, MCP, Hermes, workflows) keeps rooms
+-- in step:
+--   chat_room_entities  the rooms that SHOULD be open.
+--   sync_chat_rooms()   opens/reopens those, archives every other room.
+--   chat_rooms.hold     the owner's override, so the reconcile never fights a
+--                       deliberate click: 'open' = restored by hand though the
+--                       job is done, 'archived' = archived by hand though it is
+--                       live, NULL = follow the entity. Clears itself once the
+--                       entity's state agrees.
+-- Warranty rooms (room:wty:*) are no longer opened; old ones stay archived.
+-- Replaces the one-shot backfill INSERTs that used to sit here.
+ALTER TABLE chat_rooms ADD COLUMN IF NOT EXISTS hold text;
+ALTER TABLE chat_rooms DROP CONSTRAINT IF EXISTS chat_rooms_hold_check;
+ALTER TABLE chat_rooms ADD CONSTRAINT chat_rooms_hold_check CHECK (hold IN ('open','archived'));
 
-INSERT INTO chat_rooms (key, entity_type, entity_ref, name)
-SELECT 'room:wty:' || slug, 'warranty', slug, name FROM projects WHERE status = 'warranty'
-ON CONFLICT (key) DO NOTHING;
+CREATE OR REPLACE VIEW chat_room_entities AS
+  SELECT 'room:lead:' || l.slug AS key, 'lead'::text AS entity_type, l.slug AS entity_ref, l.name
+    FROM leads l
+   WHERE l.stage <> 'lost'
+     AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.lead_id = l.id)
+  UNION ALL
+  SELECT 'room:' || p.slug, 'project', p.slug, p.name
+    FROM projects p
+   WHERE p.status <> 'warranty';
 
-INSERT INTO chat_rooms (key, entity_type, entity_ref, name)
-SELECT 'room:lead:' || l.slug, 'lead', l.slug, l.name
-  FROM leads l
- WHERE l.stage <> 'lost'
-   AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.lead_id = l.id)
-ON CONFLICT (key) DO NOTHING;
+CREATE OR REPLACE FUNCTION sync_chat_rooms() RETURNS void AS $$
+BEGIN
+  -- Active entity: open its room (new, or reopened unless the owner archived it
+  -- by hand), keep the name current, and drop an 'open' hold it no longer needs.
+  INSERT INTO chat_rooms (key, entity_type, entity_ref, name)
+  SELECT key, entity_type, entity_ref, name FROM chat_room_entities
+  ON CONFLICT (key) DO UPDATE
+     SET closed_at = CASE WHEN chat_rooms.hold = 'archived' THEN chat_rooms.closed_at END,
+         name      = EXCLUDED.name,
+         hold      = NULLIF(chat_rooms.hold, 'open')
+   WHERE (chat_rooms.closed_at IS NOT NULL AND chat_rooms.hold IS DISTINCT FROM 'archived')
+      OR chat_rooms.name IS DISTINCT FROM EXCLUDED.name
+      OR chat_rooms.hold = 'open';
+
+  -- Lost, converted, finished, deleted (and every warranty room): archive,
+  -- unless the owner restored it by hand.
+  UPDATE chat_rooms r
+     SET closed_at = now()
+   WHERE r.closed_at IS NULL
+     AND r.hold IS DISTINCT FROM 'open'
+     AND NOT EXISTS (SELECT 1 FROM chat_room_entities e WHERE e.key = r.key);
+
+  -- An 'archived' hold on a room whose entity is now inactive anyway is spent.
+  UPDATE chat_rooms r
+     SET hold = NULL
+   WHERE r.hold = 'archived'
+     AND NOT EXISTS (SELECT 1 FROM chat_room_entities e WHERE e.key = r.key);
+END;
+$$ LANGUAGE plpgsql;
+
+-- Room bookkeeping must never block a lead/project write: a failed reconcile is
+-- logged and swallowed (the exception block rolls back only the sync).
+CREATE OR REPLACE FUNCTION trg_sync_chat_rooms() RETURNS trigger AS $$
+BEGIN
+  BEGIN
+    PERFORM sync_chat_rooms();
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'sync_chat_rooms failed: %', SQLERRM;
+  END;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_leads_sync_chat_rooms ON leads;
+CREATE TRIGGER trg_leads_sync_chat_rooms
+  AFTER INSERT OR DELETE OR UPDATE OF stage, name ON leads
+  FOR EACH STATEMENT EXECUTE FUNCTION trg_sync_chat_rooms();
+DROP TRIGGER IF EXISTS trg_projects_sync_chat_rooms ON projects;
+CREATE TRIGGER trg_projects_sync_chat_rooms
+  AFTER INSERT OR DELETE OR UPDATE OF status, name, lead_id ON projects
+  FOR EACH STATEMENT EXECUTE FUNCTION trg_sync_chat_rooms();
+
+SELECT sync_chat_rooms();
 
 -- Owner-opened direct messages (P1-D3). The Direct rail = the derived
 -- top-of-roster sub DMs plus every row here, created by the "New message"

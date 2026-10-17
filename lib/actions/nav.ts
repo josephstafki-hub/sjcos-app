@@ -7,7 +7,7 @@
 import { can, getCurrentUser, type CurrentUser } from "@/lib/dal";
 import { query } from "@/lib/db";
 import { gmailConfigured, gmailInboxUnread } from "@/lib/gmail";
-import { getUnreadChatCount } from "@/lib/chat";
+import { getUnansweredChatCount } from "@/lib/chat";
 import { getUnreadSmsCount } from "@/lib/sms";
 import { withMailboxFor } from "@/lib/mailbox";
 import { runDirect } from "@/lib/commands/db";
@@ -30,7 +30,7 @@ export async function getNavCounts(): Promise<NavCounts> {
   const zero = async () => 0;
   const [inbox, chat, leads, messages, unsorted] = await Promise.all([
     can(user, "inbox") ? inboxUnread(user) : zero(),
-    can(user, "chat") ? getUnreadChatCount(user.id).catch(() => 0) : zero(),
+    can(user, "chat") ? getUnansweredChatCount(user.id).catch(() => 0) : zero(),
     can(user, "leads") ? leadsNeedingAttention() : zero(),
     can(user, "comms") ? getUnreadSmsCount().catch(() => 0) : zero(),
     can(user, "money") ? countPending(runDirect).catch(() => 0) : zero(),

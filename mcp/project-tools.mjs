@@ -63,12 +63,16 @@ export function registerProjectTools(server, { rows, json, strippedDollarError, 
   /** null = allowed; otherwise the refusal message. */
   const accessRefusal = (area) => areaRefusal(rows, currentPrincipal, area);
 
-  /** openEntityRoom("project", slug, name) — upsert, so it also reopens. */
+  /** openEntityRoom("project", slug, name) — upsert, so it also reopens (unless
+   *  the owner archived it by hand: chat_rooms.hold, see lib/rooms.ts). */
   const openProjectRoom = (slug, name) =>
     rows(
       `INSERT INTO chat_rooms (key, entity_type, entity_ref, name)
        VALUES ($1, 'project', $2, $3)
-       ON CONFLICT (key) DO UPDATE SET closed_at = NULL, name = EXCLUDED.name`,
+       ON CONFLICT (key) DO UPDATE
+          SET closed_at = CASE WHEN chat_rooms.hold = 'archived' THEN chat_rooms.closed_at END,
+              hold = NULLIF(chat_rooms.hold, 'open'),
+              name = EXCLUDED.name`,
       [roomKey(slug), slug, name],
     );
 
@@ -166,7 +170,7 @@ export function registerProjectTools(server, { rows, json, strippedDollarError, 
          ON CONFLICT (room_key, name) DO NOTHING`,
         [from, to],
       );
-      const closed = await rows(`UPDATE chat_rooms SET closed_at = now() WHERE key = $1 AND closed_at IS NULL RETURNING key`, [from]);
+      const closed = await rows(`UPDATE chat_rooms SET closed_at = now() WHERE key = $1 AND closed_at IS NULL AND hold IS DISTINCT FROM 'open' RETURNING key`, [from]);
       if (closed.length) {
         await rows(
           `INSERT INTO chat_reads_by_user (channel_key, user_id, last_read_at)

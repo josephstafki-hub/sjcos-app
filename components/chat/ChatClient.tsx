@@ -1,7 +1,17 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Sparkles, Send, UserPlus, X, Plus, ChevronLeft } from "lucide-react";
+import {
+  Sparkles,
+  Send,
+  UserPlus,
+  X,
+  Plus,
+  ChevronLeft,
+  ChevronRight,
+  Archive,
+  ArchiveRestore,
+} from "lucide-react";
 import { Card, Chip, Avatar, VoiceButton } from "@/components/ui";
 import { mergeTranscript } from "@/lib/append-transcript";
 import {
@@ -12,6 +22,9 @@ import {
   removeChannelMember,
   createChannel,
   archiveChannel,
+  restoreChannel,
+  archiveChatRoom,
+  restoreChatRoom,
   addChannelAgent,
   removeChannelAgent,
   addChannelTeamMember,
@@ -66,6 +79,13 @@ function RailLabel({ children }: { children: string }) {
   );
 }
 
+/** Ask the sidebar to re-fetch its nav badges (components/shell/Sidebar.tsx
+ *  listens). Replying or restoring changes the unanswered-chat count without a
+ *  navigation, which is the only other time it refreshes. */
+function refreshNavCounts() {
+  window.dispatchEvent(new Event("sjc:nav-counts"));
+}
+
 /** "7:48am" — matches the server-side format in lib/chat. */
 function clockNow(): string {
   const d = new Date();
@@ -85,6 +105,9 @@ export function ChatClient({ data }: { data: ChatData }) {
   const [channels, setChannels] = useState(data.channels);
   const [rooms, setRooms] = useState(data.rooms);
   const [directs, setDirects] = useState(data.directs);
+  // Archived rooms + removed channels (owner only), folded by default.
+  const [archived, setArchived] = useState(data.archived);
+  const [showArchived, setShowArchived] = useState(false);
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState<string | null>(null);
   const [managing, setManaging] = useState(false);
@@ -280,6 +303,12 @@ export function ChatClient({ data }: { data: ChatData }) {
       mine: true,
     });
     setInput("");
+    // Replying answers the conversation — it stops counting toward the badge.
+    const answered = <T extends { key: string; awaitingReply?: boolean }>(list: T[]) =>
+      list.map((c) => (c.key === key ? { ...c, awaitingReply: undefined } : c));
+    setChannels(answered);
+    setRooms(answered);
+    setDirects(answered);
     const m = text.match(/@(claude|hermes|qwen|ai)\b/i);
     const mentioned = m?.[1].toLowerCase();
     // @ai → the first member model (in preference order); an explicit @model
@@ -291,6 +320,7 @@ export function ChatClient({ data }: { data: ChatData }) {
       : null;
     startTransition(async () => {
       const sent = await runAction(() => sendChatMessage(key, text), { fallback: "Couldn't send the message." });
+      refreshNavCounts();
       const sentQueued = "queued" in sent ? sent.queued : undefined;
       if (sentQueued?.length) setOutbox((list) => [...sentQueued, ...list]);
       if (agent) {
@@ -394,17 +424,73 @@ export function ChatClient({ data }: { data: ChatData }) {
     });
   };
 
+  // ─── Archive / restore ─────────────────────────────────────────────────────
+  // Rooms archive themselves when their lead closes or project finishes; these
+  // are the owner's manual versions. Either way the item moves to the Archived
+  // list (members + transcript untouched) and Restore puts it straight back.
+
+  const toArchived = (c: ChatChannel, kind: "room" | "channel"): ChatChannel => ({
+    key: c.key,
+    name: c.name,
+    description: c.description,
+    archivedKind: kind,
+    archivedLabel: `Archived ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
+  });
+  const markViewArchived = (key: string, isArchived: boolean) =>
+    setViews((v) =>
+      v[key]
+        ? {
+            ...v,
+            [key]: {
+              ...v[key],
+              archived: isArchived,
+              // Membership is editable again once it's back — owner only, and
+              // AI membership only in a bare channel, exactly as on first load.
+              canManageMembers: !isArchived && canManage,
+              canManageAi: !isArchived && canManage && !key.includes(":"),
+              canManageClients: !isArchived && canManage && key.startsWith("room:"),
+            },
+          }
+        : v,
+    );
+
   const archiveChannelHandler = (key: string) => {
-    if (!window.confirm("Remove this channel? Its history is kept and can be restored.")) return;
-    // Pick a fallback selection before dropping it from the list.
-    const remaining = channels.filter((c) => c.key !== key);
-    if (selectedKey === key) {
-      const next = remaining[0]?.key ?? rooms[0]?.key ?? directs[0]?.key ?? "";
-      setSelectedKey(next);
-    }
-    setChannels(remaining);
+    if (!window.confirm("Archive this channel? Its history is kept — restore it any time from Archived.")) return;
+    const ch = channels.find((c) => c.key === key);
+    setChannels((list) => list.filter((c) => c.key !== key));
+    if (ch) setArchived((list) => [toArchived(ch, "channel"), ...list]);
+    markViewArchived(key, true);
     startTransition(async () => {
-      await runAction(() => archiveChannel(key), { fallback: "Couldn't remove the channel." });
+      await runAction(() => archiveChannel(key), { fallback: "Couldn't archive the channel." });
+      refreshNavCounts();
+    });
+  };
+
+  const archiveRoomHandler = (key: string) => {
+    if (!window.confirm("Archive this room? Its members and history are kept — restore it any time from Archived.")) return;
+    const room = rooms.find((c) => c.key === key);
+    setRooms((list) => list.filter((c) => c.key !== key));
+    if (room) setArchived((list) => [toArchived(room, "room"), ...list]);
+    markViewArchived(key, true);
+    startTransition(async () => {
+      await runAction(() => archiveChatRoom(key), { fallback: "Couldn't archive the room." });
+      refreshNavCounts();
+    });
+  };
+
+  const restoreHandler = (item: ChatChannel) => {
+    const isRoom = item.archivedKind === "room";
+    const live: ChatChannel = { key: item.key, name: item.name, description: item.description };
+    setArchived((list) => list.filter((c) => c.key !== item.key));
+    if (isRoom) setRooms((list) => [live, ...list]);
+    else setChannels((list) => [...list, live]);
+    markViewArchived(item.key, false);
+    startTransition(async () => {
+      await runAction(
+        () => (isRoom ? restoreChatRoom(item.key) : restoreChannel(item.key)),
+        { fallback: "Couldn't restore it." },
+      );
+      refreshNavCounts();
     });
   };
 
@@ -515,6 +601,8 @@ export function ChatClient({ data }: { data: ChatData }) {
       ? "No AI in this channel — add a model from the participants menu"
       : `${aiMentions} ${aiMembers.length === 1 ? "is" : "are"} in this channel`;
   const composerHint = aiMembers.length ? `${aiMentions}, Enter to send` : "Enter to send";
+  // The Archived-list entry behind the open view, when it's an archived one.
+  const archivedItem = view?.archived ? archived.find((a) => a.key === view.key) : undefined;
 
   return (
     <div className="flex h-full">
@@ -592,15 +680,72 @@ export function ChatClient({ data }: { data: ChatData }) {
               Joe adds you to a job&apos;s room when you&apos;re on it.
             </p>
           )}
+          {rooms.length === 0 && canManage && (
+            <p className="px-2 py-1 text-[11px] leading-snug text-ink-4">
+              No active leads or projects.
+            </p>
+          )}
           {rooms.map((c) => (
             <ChannelItem
               key={c.key}
               channel={c}
               active={c.key === selectedKey}
               onSelect={() => selectChannel(c.key)}
+              // Rooms archive themselves when the job closes; this is the
+              // owner's early version. Restore lives under Archived.
+              onArchive={canManage ? () => archiveRoomHandler(c.key) : undefined}
             />
           ))}
         </div>
+
+        {/* ─── Archived ── closed leads, finished projects, removed channels.
+            Owner only (staff get an empty list). Folded by default; opening
+            one shows its history read-only, Restore puts it back on the rail
+            with members and transcript intact. */}
+        {archived.length > 0 && (
+          <>
+            <button
+              onClick={() => setShowArchived((s) => !s)}
+              aria-expanded={showArchived}
+              className="mt-1 flex w-full items-center gap-1 rounded-md px-1 py-1 text-left font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-ink-3 transition-colors hover:text-ink-2"
+            >
+              <ChevronRight
+                className={["size-3 flex-none transition-transform", showArchived ? "rotate-90" : ""].join(" ")}
+                strokeWidth={2}
+              />
+              {`Archived (${archived.length})`}
+            </button>
+            {showArchived && (
+              <div className="flex flex-col gap-0.5">
+                {archived.map((c) => (
+                  <div
+                    key={c.key}
+                    className={[
+                      "group flex w-full items-center gap-1 rounded-md px-2 py-1 text-[12px] transition-colors",
+                      c.key === selectedKey ? "bg-paper-3 text-ink-2" : "text-ink-3 hover:bg-paper-3",
+                    ].join(" ")}
+                  >
+                    <button
+                      onClick={() => selectChannel(c.key)}
+                      title={c.archivedLabel}
+                      className="min-w-0 flex-1 truncate text-left"
+                    >
+                      {c.name}
+                    </button>
+                    <button
+                      onClick={() => restoreHandler(c)}
+                      aria-label={`Restore ${c.name}`}
+                      title="Restore"
+                      className="flex-none rounded p-0.5 text-ink-3 transition-colors hover:bg-accent-soft hover:text-accent-2"
+                    >
+                      <ArchiveRestore className="size-3" strokeWidth={2} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
 
         <div className="my-2 h-px bg-rule" />
         <RailLabel>Direct</RailLabel>
@@ -623,11 +768,7 @@ export function ChatClient({ data }: { data: ChatData }) {
                 )}
               </span>
               <span className="flex-1 truncate text-[12px]">{d.name}</span>
-              {d.unread ? (
-                <Chip kind="accent" className="px-1.5">
-                  {d.unread}
-                </Chip>
-              ) : null}
+              <ChatBadge unread={d.unread} awaitingReply={d.awaitingReply} />
             </button>
           ))}
           {pickingDm ? (
@@ -809,7 +950,10 @@ export function ChatClient({ data }: { data: ChatData }) {
             <div className="flex justify-center">
               <Chip kind="ghost">{view.daySeparator}</Chip>
             </div>
-            {view.messages.length === 0 && (
+            {view.messages.length === 0 && view.archived && (
+              <div className="py-8 text-center text-[12px] text-ink-3">No messages.</div>
+            )}
+            {view.messages.length === 0 && !view.archived && (
               <div className="py-8 text-center text-[12px] text-ink-3">
                 No messages yet. Say something
                 {aiMembers.length ? (
@@ -834,6 +978,25 @@ export function ChatClient({ data }: { data: ChatData }) {
           </div>
         </div>
 
+        {view.archived ? (
+          // Archived: history only. Restore brings it back to the rail and
+          // re-opens the composer.
+          <div className="flex flex-none items-center gap-3 border-t border-rule bg-paper-2 px-5 py-3">
+            <Archive className="size-4 flex-none text-ink-3" strokeWidth={1.75} />
+            <span className="flex-1 text-[12px] text-ink-3">
+              Archived — the job closed or it was archived by hand. Members and history are kept.
+            </span>
+            {archivedItem && (
+              <button
+                onClick={() => restoreHandler(archivedItem)}
+                className="flex flex-none items-center gap-1.5 rounded-md border border-accent/40 px-2.5 py-1 text-[12px] font-medium text-accent-2 transition-colors hover:bg-accent-soft"
+              >
+                <ArchiveRestore className="size-3.5" strokeWidth={1.75} />
+                Restore
+              </button>
+            )}
+          </div>
+        ) : (
         <div className="flex-none border-t border-rule px-5 py-3">
           <form
             onSubmit={(e) => {
@@ -866,6 +1029,7 @@ export function ChatClient({ data }: { data: ChatData }) {
             </button>
           </form>
         </div>
+        )}
         </>
         )}
       </section>
@@ -882,7 +1046,7 @@ function ChannelItem({
   channel: ChatChannel;
   active: boolean;
   onSelect: () => void;
-  /** Bare channels only — omit for project rooms (not removable here). */
+  /** Owner only — archives the channel/room (reversible from Archived). */
   onArchive?: () => void;
 }) {
   return (
@@ -894,23 +1058,43 @@ function ChannelItem({
     >
       <button onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-2 text-left">
         <span className="flex-1 truncate">{channel.name}</span>
-        {channel.unread ? (
-          <Chip kind="accent" className="px-1.5">
-            {channel.unread}
-          </Chip>
-        ) : null}
+        <ChatBadge unread={channel.unread} awaitingReply={channel.awaitingReply} />
       </button>
       {onArchive && (
         <button
           onClick={onArchive}
-          aria-label={`Remove ${channel.name}`}
-          className="flex-none rounded p-0.5 text-ink-3 opacity-0 transition-opacity hover:bg-flag-soft hover:text-flag group-hover:opacity-100"
+          aria-label={`Archive ${channel.name}`}
+          title="Archive"
+          className="flex-none rounded p-0.5 text-ink-3 opacity-0 transition-opacity hover:bg-paper-3 hover:text-ink-2 group-hover:opacity-100"
         >
-          <X className="size-3 " strokeWidth={2} />
+          <Archive className="size-3" strokeWidth={2} />
         </button>
       )}
     </div>
   );
+}
+
+/** Rail marker: the unread count when there is one, otherwise a dot when the
+ *  conversation is still waiting on your reply — the conversations the Team
+ *  Chat nav badge is counting. */
+function ChatBadge({ unread, awaitingReply }: { unread?: number; awaitingReply?: boolean }) {
+  if (unread) {
+    return (
+      <Chip kind="accent" className="px-1.5">
+        {unread}
+      </Chip>
+    );
+  }
+  if (awaitingReply) {
+    return (
+      <span
+        title="Waiting on your reply"
+        aria-label="Waiting on your reply"
+        className="size-1.5 flex-none rounded-full bg-accent"
+      />
+    );
+  }
+  return null;
 }
 
 function MembersPopover({

@@ -157,13 +157,20 @@ export function Sidebar({ user }: { user: SidebarUser }) {
   const [counts, setCounts] = useState<NavCounts | null>(null);
 
   // Live nav badges, fetched after mount so they never delay a navigation.
+  // Also on "sjc:nav-counts", which a page fires when it changes a count in
+  // place (e.g. replying in /chat answers a conversation — no navigation).
   useEffect(() => {
     let alive = true;
-    getNavCounts()
-      .then((c) => alive && setCounts(c))
-      .catch(() => {});
+    const load = () => {
+      getNavCounts()
+        .then((c) => alive && setCounts(c))
+        .catch(() => {});
+    };
+    load();
+    window.addEventListener("sjc:nav-counts", load);
     return () => {
       alive = false;
+      window.removeEventListener("sjc:nav-counts", load);
     };
   }, [pathname]);
 

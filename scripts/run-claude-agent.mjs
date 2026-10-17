@@ -23,6 +23,16 @@
 // We stream `--output-format stream-json` so the chat can show what Claude is
 // doing live (reading/editing/thinking) via the row's `activity` column, and
 // honour the per-run model / mode / effort chosen in the Ask window.
+//
+// Input is streamed too (`--input-format stream-json`): the prompt is the
+// first user message on the CLI's stdin, and stdin stays open so STEERS —
+// what Joe types into the panel while this run works (run_steers, see
+// lib/run-steers.ts) — can be written in as more user messages. The CLI
+// injects one at the next tool boundary, or runs it as a follow-up turn in the
+// same session if the answer was already done. stdin closes (and the CLI
+// exits) only after a result with no steer left: steer_closed_at is stamped
+// first, so a steer is either taken here or refused and sent by the panel as
+// the next message.
 
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { spawn } from "node:child_process";
@@ -490,6 +500,11 @@ function onToolResult(block) {
 
 function handleEvent(evt) {
   if (evt?.session_id) lastSessionId = evt.session_id;
+  lastEventAt = Date.now();
+  lastEventWasResult = evt?.type === "result";
+  // --replay-user-messages: the CLI echoes each stdin user message as it reads
+  // it — that is how we know a written steer has been taken in.
+  if (evt?.type === "user" && evt.isReplay) consumed += 1;
   // Tool results come back as user-role messages in the stream.
   if (evt?.type === "user" && Array.isArray(evt.message?.content)) {
     for (const block of evt.message.content) {
@@ -542,7 +557,11 @@ function handleEvent(evt) {
     }
   }
   if (evt?.type === "system") onSystemEvent(evt);
-  if (evt?.type === "result") resultEvent = evt;
+  if (evt?.type === "result") {
+    resultEvent = evt;
+    results.push(evt);
+    serial(onResult);
+  }
 }
 
 /** Auto-compaction is the CLI's (it summarizes the session when the context
@@ -580,6 +599,94 @@ function onSystemEvent(evt) {
 
 let resultEvent = null;
 let lastAssistantText = "";
+/** Every result envelope — more than one when a steer arrived after an
+ *  answer was done and ran as a follow-up turn. */
+const results = [];
+
+// ── steering ──────────────────────────────────────────────────────────────
+// Writes to the CLI's stdin and the close decision run one at a time
+// (serial) so a steer poll can never race the final close.
+let cliStdin = null;
+let stdinOpen = false;
+let written = 0; // user messages written to stdin (prompt + steers)
+let consumed = 0; // ... and replayed back by the CLI (it has read them)
+let lastEventAt = Date.now();
+let lastEventWasResult = false;
+let steerChain = Promise.resolve();
+const serial = (fn) => (steerChain = steerChain.then(fn).catch(() => {}));
+
+function writeUser(text) {
+  cliStdin.write(JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "text", text }] } }) + "\n");
+  written += 1;
+}
+
+function endInput() {
+  if (!stdinOpen) return;
+  stdinOpen = false;
+  try {
+    cliStdin.end();
+  } catch {
+    /* already gone */
+  }
+}
+
+// Same wording as lib/run-steers.ts steerPrompt().
+function steerText(bodies, when = "working") {
+  const lead =
+    when === "working"
+      ? "[Joe sent this while you were working — take it into account from here on:]"
+      : "[Joe sent this while you were finishing your last answer — it arrived too late for that answer, so act on it now. Don't repeat your earlier answer; just add what this changes:]";
+  return `${lead}\n${bodies.join("\n\n")}`;
+}
+
+/** Claim pending steers for this run (or relayed to it by the ladder). */
+async function takeSteers(via) {
+  try {
+    const { rows } = await client.query(
+      `UPDATE run_steers SET status = 'delivered', via = $2, delivered_at = now()
+        WHERE status = 'pending' AND (run_id = $1 OR relay_run_id = $1)
+        RETURNING body, created_at::text AS created_at`,
+      [RUN_ID, via],
+    );
+    return rows.sort((a, b) => a.created_at.localeCompare(b.created_at)).map((r) => r.body);
+  } catch {
+    return []; // pre-migration: nothing to steer with
+  }
+}
+
+function noteSteers(bodies) {
+  for (const b of bodies) pushActivity(`↪ Steer from Joe: ${b.replace(/\s+/g, " ").slice(0, 160)}`);
+}
+
+/** Once a second while the CLI runs: write any new steer into its stdin. */
+async function pollSteers() {
+  if (!stdinOpen) return;
+  const bodies = await takeSteers("mid-turn");
+  if (!bodies.length) return;
+  writeUser(steerText(bodies));
+  noteSteers(bodies);
+}
+
+/** After each result: close stdin unless more input is due. */
+async function onResult() {
+  if (!stdinOpen) return;
+  // A steer is already in the CLI's queue — it will run it and report again.
+  if (consumed < written) return;
+  try {
+    await client.query(`UPDATE dev_agent_runs SET steer_closed_at = now() WHERE id = $1`, [RUN_ID]);
+  } catch {
+    endInput(); // pre-migration
+    return;
+  }
+  const late = await takeSteers("follow-up");
+  if (late.length) {
+    await client.query(`UPDATE dev_agent_runs SET steer_closed_at = NULL WHERE id = $1`, [RUN_ID]).catch(() => {});
+    writeUser(steerText(late, "finished"));
+    noteSteers(late);
+    return;
+  }
+  endInput();
+}
 
 // Stop button: lib/actions/dev-agents.ts stopAgentRun() sends this process
 // SIGTERM (our pid is on the run row). Kill the CLI child; the close handler
@@ -599,10 +706,14 @@ process.on("SIGTERM", () => {
 // If DEV_CLAUDE_TIMEOUT_MS is set, it acts as a sliding DEADLINE, not a fixed
 // timer: while an in-app interaction (question box / permission prompt) is
 // pending, Claude is blocked on Joe, so the clock pauses.
-function runClaude(args, childEnv, conversationId, cwd) {
+function runClaude(args, childEnv, conversationId, cwd, promptText) {
   return new Promise((resolve, reject) => {
     const child = spawn(CLAUDE_BIN, args, { cwd: cwd ?? REPO, env: childEnv });
     currentChild = child;
+    cliStdin = child.stdin;
+    child.stdin.on("error", () => {}); // EPIPE once the CLI has exited
+    stdinOpen = true;
+    writeUser(promptText);
     let buf = "";
     let stderr = "";
     let killed = false;
@@ -661,7 +772,13 @@ function runClaude(args, childEnv, conversationId, cwd) {
         }
       })();
     }, 5000);
-    const flushTimer = setInterval(() => void flushActivity(), 1000);
+    const flushTimer = setInterval(() => {
+      void flushActivity();
+      serial(pollSteers);
+      // Backstop: a result was the last thing the CLI said and nothing has
+      // followed for a minute — whatever we were waiting on isn't coming.
+      if (stdinOpen && lastEventWasResult && Date.now() - lastEventAt > 60_000) serial(async () => endInput());
+    }, 1000);
 
     child.stdout.on("data", (d) => {
       buf += d.toString();
@@ -686,6 +803,7 @@ function runClaude(args, childEnv, conversationId, cwd) {
       reject(e);
     });
     child.on("close", () => {
+      stdinOpen = false;
       clearInterval(guard);
       clearInterval(flushTimer);
       if (stopRequested) reject(Object.assign(new Error("stopped"), { stopped: true }));
@@ -782,7 +900,10 @@ async function main() {
 
   const args = [
     "-p",
-    promptText,
+    // The prompt (and any steers) arrive on stdin — see "steering" above.
+    "--input-format",
+    "stream-json",
+    "--replay-user-messages",
     "--output-format",
     "stream-json",
     "--verbose",
@@ -871,7 +992,7 @@ async function main() {
         };
 
   try {
-    await runClaude(args, childEnv, conversation_id, prof.cwd);
+    await runClaude(args, childEnv, conversation_id, prof.cwd, promptText);
   } catch (err) {
     if (err.stopped) {
       const m = "⏹ Stopped by Joe.";
@@ -920,10 +1041,12 @@ async function main() {
 
   // The result envelope's bookkeeping (tokens, cache splits, context window,
   // turn count, denials) — persisted for the chat's context/usage display.
+  // num_turns is per result; with a steer follow-up the run is their sum.
+  const turnsTotal = results.reduce((n, r) => n + (typeof r.num_turns === "number" ? r.num_turns : 0), 0);
   finalUsage = {
     usage: resultEvent.usage ?? null,
     modelUsage: resultEvent.modelUsage ?? null,
-    num_turns: resultEvent.num_turns ?? null,
+    num_turns: turnsTotal || (resultEvent.num_turns ?? null),
     duration_ms: resultEvent.duration_ms ?? null,
     permission_denials: Array.isArray(resultEvent.permission_denials)
       ? resultEvent.permission_denials.length
@@ -944,7 +1067,10 @@ async function main() {
     await persistToConversation(conversation_id, `⚠️ ${msg}`, resultEvent.total_cost_usd, resultEvent.session_id);
     return;
   }
-  const body = resultEvent.result || "(no output)";
+  // One answer per result: the first answers the prompt, any later one the
+  // steers that arrived after it. total_cost_usd is cumulative already.
+  // Same divider as lib/run-steers.ts STEER_FOLLOW_UP_DIVIDER.
+  const body = results.map((r) => String(r.result ?? "").trim()).filter(Boolean).join("\n\n— ↪ after your steer —\n\n") || "(no output)";
   await finish("done", body, resultEvent.total_cost_usd);
   await recordUsage("done");
   await persistToConversation(conversation_id, body, resultEvent.total_cost_usd, resultEvent.session_id);

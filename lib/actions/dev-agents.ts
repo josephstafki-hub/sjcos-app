@@ -14,6 +14,7 @@ import { query } from "@/lib/db";
 import { ACTION_LABEL } from "@/lib/owner-grant-types";
 import { getRunFocus } from "@/lib/run-focus";
 import { autoSettleQuietThreads } from "@/lib/thread-folders";
+import { enqueueSteer, steersForRun, type SteerStatus } from "@/lib/run-steers";
 import type { RunFocus } from "@/lib/entity-href";
 
 // dev_agent_runs polling. Backs every async agent turn started from the Ask
@@ -30,7 +31,8 @@ import type { RunFocus } from "@/lib/entity-href";
 //   focus        — the page for whatever entity the run touched last
 //                  (run_effects → lib/run-focus.ts), so the app view can
 //                  follow the work (LiveActionNav).
-// Plus the live context size (tokens) the Claude runner streams.
+// Plus the live context size (tokens) the Claude runner streams, and the
+// state of every steer Joe sent into the run (lib/run-steers.ts).
 
 /** A request_owner_permission the panel can approve/deny inline. */
 export interface PendingGrant {
@@ -55,6 +57,7 @@ export type PollResult =
       /** Permission requests (owner grants) waiting on Joe. */
       grants: PendingGrant[];
       focus: RunFocus | null;
+      steers: SteerStatus[];
     }
   | {
       ok: true;
@@ -72,8 +75,9 @@ export type PollResult =
       /** The thread's resumable CLI session id. */
       sessionId: string | null;
       focus: RunFocus | null;
+      steers: SteerStatus[];
     }
-  | { ok: false; error: string };
+  | { ok: false; error: string; nextRunId?: string; steers?: SteerStatus[] };
 
 async function pendingGrants(runId: string, conversationId: string | null): Promise<PendingGrant[]> {
   const { rows } = await query<{
@@ -138,7 +142,7 @@ export async function pollAgentRun(runId: string): Promise<PollResult> {
   const run = await getDevAgentRun(runId);
   if (!run) return { ok: false, error: "That run no longer exists." };
   if (run.status === "error")
-    return { ok: false, error: run.answer ?? "The agent run failed." };
+    return { ok: false, error: run.answer ?? "The agent run failed.", nextRunId: run.nextRunId, steers: await steersForRun(runId) };
   if (run.status === "done")
     return {
       ok: true,
@@ -152,11 +156,13 @@ export async function pollAgentRun(runId: string): Promise<PollResult> {
       tokenUsage: run.tokenUsage,
       sessionId: run.sessionId,
       focus: await getRunFocus(runId),
+      steers: await steersForRun(runId),
     };
-  const [interactions, grants, focus] = await Promise.all([
+  const [interactions, grants, focus, steers] = await Promise.all([
     listPendingInteractions(runId, run.conversationId),
     pendingGrants(runId, run.conversationId),
     getRunFocus(runId),
+    steersForRun(runId),
   ]);
   return {
     ok: true,
@@ -166,6 +172,7 @@ export async function pollAgentRun(runId: string): Promise<PollResult> {
     interactions,
     grants,
     focus,
+    steers,
   };
 }
 
@@ -176,6 +183,22 @@ export async function stopAgentRun(runId: string): Promise<{ ok: boolean; error?
   await requireRunAccess(runId);
   const r = await stopDevAgentRun(runId);
   return r.ok ? { ok: true } : { ok: false, error: r.error };
+}
+
+export type SteerResult =
+  | { ok: true; steerId: string; runId: string }
+  | { ok: false; finished: true }
+  | { ok: false; finished?: false; error: string };
+
+/** Send a steer INTO a live run (the panel's composer while an agent works).
+ *  `finished` = the run already took its last look at steers — the panel
+ *  sends the text as the next message instead. */
+export async function steerAgentRun(runId: string, text: string): Promise<SteerResult> {
+  await requireRunAccess(runId);
+  const r = await enqueueSteer(runId, text.slice(0, 8000));
+  if (r.ok) return { ok: true, steerId: r.steerId, runId: r.runId };
+  if ("finished" in r) return { ok: false, finished: true };
+  return { ok: false, error: r.error };
 }
 
 /** Answer a question box / permission prompt — the blocked agent's poll picks

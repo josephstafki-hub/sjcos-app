@@ -404,9 +404,14 @@ export async function qwenChat(
   context?: string,
   /** Live progress: the answer so far, as Ollama streams tokens. */
   onPartial?: (text: string) => void,
+  /** Abort the stream — a steer restarts Qwen with it (lib/run-steers.ts). */
+  signal?: AbortSignal,
 ): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
+  const onAbort = () => controller.abort();
+  if (signal?.aborted) controller.abort();
+  signal?.addEventListener("abort", onAbort, { once: true });
   // W5: Joe-approved standing instructions ride along on every turn so the
   // in-app agents get them without an MCP round-trip. "" when none exist.
   const standing = await standingInstructionsBlock();
@@ -471,6 +476,7 @@ export async function qwenChat(
     return out;
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
   }
 }
 

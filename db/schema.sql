@@ -3611,3 +3611,27 @@ ALTER TABLE unsorted_docs ADD COLUMN IF NOT EXISTS agent_note_at timestamptz;
 CREATE INDEX IF NOT EXISTS idx_unsorted_docs_open ON unsorted_docs(status, received_at DESC) WHERE status IN ('pending','needs_agent');
 CREATE INDEX IF NOT EXISTS idx_unsorted_docs_resolved ON unsorted_docs(resolved_at DESC) WHERE status IN ('filed','dismissed');
 -- ─── Unsorted documents (end) ───────────────────────────────────────────────
+
+-- ─── Steering a live run (db/apply-run-steers.mjs) ───────────────────────────
+-- What Joe types into the panel while an agent is working goes INTO that run
+-- (lib/run-steers.ts: Claude via the CLI's stdin, Hermes via its gateway's
+-- /v1/runs/{id}/steer, Qwen by restarting its stream). A steer is accepted
+-- only while steer_closed_at is NULL (row-locked), so it is either delivered
+-- or refused and sent as the next message — never stranded.
+ALTER TABLE dev_agent_runs ADD COLUMN IF NOT EXISTS steer_closed_at timestamptz;
+ALTER TABLE ai_messages ADD COLUMN IF NOT EXISTS steer boolean NOT NULL DEFAULT false;
+CREATE TABLE IF NOT EXISTS run_steers (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  run_id          uuid NOT NULL REFERENCES dev_agent_runs(id) ON DELETE CASCADE,
+  relay_run_id    uuid REFERENCES dev_agent_runs(id) ON DELETE SET NULL,  -- Hermes ladder → Claude takeover
+  conversation_id uuid REFERENCES ai_conversations(id) ON DELETE CASCADE,
+  message_id      uuid REFERENCES ai_messages(id) ON DELETE SET NULL,
+  body            text NOT NULL,
+  status          text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','delivered')),
+  via             text CHECK (via IN ('mid-turn','follow-up','restart','round')),
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  delivered_at    timestamptz
+);
+CREATE INDEX IF NOT EXISTS run_steers_run_idx ON run_steers (run_id, created_at);
+CREATE INDEX IF NOT EXISTS run_steers_pending_idx ON run_steers (run_id) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS run_steers_relay_pending_idx ON run_steers (relay_run_id) WHERE status = 'pending' AND relay_run_id IS NOT NULL;

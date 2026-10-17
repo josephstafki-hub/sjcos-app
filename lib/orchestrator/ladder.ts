@@ -1,13 +1,13 @@
 import "server-only";
 
 import { query, queryOne } from "@/lib/db";
-import { insertMessage } from "@/lib/ai-chat";
 import { hermesChat, startClaudeRun, type ChatTurn } from "@/lib/dev-agents";
 import type { ChatAttachment } from "@/lib/attachments";
 import { finalizeHermesAnswer } from "./effects";
 import { reviewHermesRound } from "./claude-review";
 import { hermesProgress, runLog, type RunLog } from "./activity";
 import { composeHermesTurn } from "./thread";
+import { relaySteers, settleSteeredRun, steerPrompt, takePendingSteers } from "@/lib/run-steers";
 
 // The Claude↔Hermes ladder: Hermes attempts OS work, Claude reviews the
 // result, feedback loops back into Hermes' own session (it learns from the
@@ -23,8 +23,17 @@ import { composeHermesTurn } from "./thread";
 // lands as the row's answer with a compact ladder summary, and the
 // orchestration_tasks/_events tables keep the full audit trail. Rounds are
 // NOT persisted as chat messages — the thread stays one ask, one answer.
+//
+// Steering (lib/run-steers.ts): a steer sent while Hermes works is relayed
+// into its live turn; one that lands while Claude reviews becomes another
+// Hermes round (even past the round cap — Joe asked for it); one sent during
+// a takeover is relayed to the Claude run. Every delivered steer is part of
+// the task Claude judges, so "actually, use the other project" is never
+// marked as Hermes getting it wrong.
 
 const MAX_ROUNDS = Number(process.env.ORCH_MAX_ROUNDS ?? 3);
+/** Extra rounds a steer may add past MAX_ROUNDS. */
+const MAX_STEER_ROUNDS = 3;
 /** Server-side wait for a detached takeover run. No wall-clock cap: the run
  *  goes as long as it needs. We only give up when the run's own updated_at
  *  goes quiet past failStaleRuns' 15-minute cutoff — a live runner heartbeats
@@ -113,10 +122,25 @@ export async function runHermesLadder(input: LadderInput): Promise<string> {
   const baseTurns: ChatTurn[] = [{ role: "user", content: opening.content, images: opening.images }];
   // Feedback exchanges live in memory only (see module comment).
   const extra: ChatTurn[] = [];
+  // What Joe steered with, in order — part of the task from then on.
+  const steerNotes: string[] = [];
+  const noteSteers = (bodies: string[]) => {
+    for (const b of bodies) {
+      steerNotes.push(b);
+      log.push(`↪ Steer delivered: ${b}`);
+    }
+  };
+  const taskWithSteers = () =>
+    steerNotes.length
+      ? `${taskPrompt}\n\nJoe steered the work while it ran (these change the task — judge against them too):\n${steerNotes.map((n) => `- ${n}`).join("\n")}`
+      : taskPrompt;
+  const steer = { runId, onDelivered: noteSteers };
 
   let lastAnswer = "";
   let lastNote = "";
-  for (let round = 1; round <= MAX_ROUNDS; round++) {
+  let maxRounds = MAX_ROUNDS;
+  let steerRounds = 0;
+  for (let round = 1; round <= maxRounds; round++) {
     if (taskId) {
       await query(
         `UPDATE orchestration_tasks SET round = $2, stage = 'hermes', updated_at = now() WHERE id = $1`,
@@ -130,11 +154,11 @@ export async function runHermesLadder(input: LadderInput): Promise<string> {
       // Later rounds: the gateway reads only the last user message (the review
       // note) and holds round 1 in its session — don't re-send image bytes.
       const history = round === 1 ? baseTurns : baseTurns.map((t) => ({ role: t.role, content: t.content }));
-      raw = await hermesChat([...history, ...extra], pageContext, conversationId, hermesProgress(log));
+      raw = await hermesChat([...history, ...extra], pageContext, conversationId, hermesProgress(log), steer);
     } catch (err) {
       const msg = (err as Error).message;
       if (taskId) await addEvent(taskId, "hermes", "error", msg, runId);
-      if (round < MAX_ROUNDS) continue; // transient gateway trouble — one more try
+      if (round < maxRounds) continue; // transient gateway trouble — one more try
       if (taskId) await query(`UPDATE orchestration_tasks SET status = 'error', updated_at = now() WHERE id = $1`, [taskId]).catch(() => {});
       return `⚠️ ${msg}`;
     }
@@ -145,13 +169,34 @@ export async function runHermesLadder(input: LadderInput): Promise<string> {
     // the task" matters as much as "did it change the right thing".
     await setActivity(runId, `Claude is reviewing Hermes' work${round > 1 ? ` (round ${round})` : ""}…`);
     const digest = await effectsDigest(runId);
-    let verdict = await reviewHermesRound(taskPrompt, lastAnswer, digest, round);
+    let verdict = await reviewHermesRound(taskWithSteers(), lastAnswer, digest, round);
     if (!verdict) {
       // Review unavailable: retry once on the next round, else take over —
       // never silently approve.
       if (taskId) await addEvent(taskId, "claude-review", "error", "verdict unavailable", runId);
-      verdict = { verdict: round < MAX_ROUNDS ? "retry" : "takeover", feedback: "Claude's review did not complete — redo the task carefully.", userNote: "" };
+      verdict = { verdict: round < maxRounds ? "retry" : "takeover", feedback: "Claude's review did not complete — redo the task carefully.", userNote: "" };
     }
+    // Steers that landed during the review: Hermes hasn't seen them, so this
+    // round's answer can't be the last word — go again with them, approve or
+    // not (a takeover still happens if Claude asked for one).
+    const lateSteers = await takePendingSteers(runId, "round");
+    if (lateSteers.length && verdict.verdict !== "takeover") {
+      noteSteers(lateSteers.map((s) => s.body));
+      if (taskId) await addEvent(taskId, "owner", "steer", lateSteers.map((s) => s.body).join(" / "), runId);
+      maxRounds = Math.min(Math.max(maxRounds, round + 1), MAX_ROUNDS + MAX_STEER_ROUNDS);
+      steerRounds += 1;
+      extra.push({ role: "assistant", content: raw });
+      extra.push({
+        role: "user",
+        content:
+          steerPrompt(lateSteers) +
+          (verdict.verdict === "retry" ? `\n\nClaude also reviewed your work and wants:\n${verdict.feedback}` : "") +
+          `\n\nRedo or adjust the task now.`,
+      });
+      log.push(`↪ Hermes is going again with your steer (round ${round + 1})…`);
+      continue;
+    }
+    if (lateSteers.length) noteSteers(lateSteers.map((s) => s.body));
     if (taskId) await addEvent(taskId, "claude-review", verdict.verdict, verdict.feedback || verdict.userNote, runId);
     log.push(
       verdict.verdict === "approve"
@@ -171,7 +216,9 @@ export async function runHermesLadder(input: LadderInput): Promise<string> {
       const trail =
         round === 1
           ? "✓ Reviewed and approved by Claude"
-          : `✓ Approved by Claude after ${round} rounds of feedback`;
+          : steerRounds === round - 1
+            ? `✓ Approved by Claude after ${round} rounds (your steer${steerRounds > 1 ? "s" : ""} added ${steerRounds > 1 ? "them" : "one"})`
+            : `✓ Approved by Claude after ${round} rounds of feedback${steerRounds ? ` (${steerRounds} from your steers)` : ""}`;
       return `${lastAnswer}\n\n${trail}${verdict.userNote ? ` — ${verdict.userNote}` : ""}`;
     }
 
@@ -198,7 +245,7 @@ export async function runHermesLadder(input: LadderInput): Promise<string> {
     `using the sjcos MCP tools. Client-facing sends and money documents need Joe's express permission: ` +
     `draft and stage; to send, call request_owner_permission and wait for his approval (or use an ` +
     `owner_grant_id Joe already gave).\n\n` +
-    `The task:\n${taskPrompt}\n\n` +
+    `The task:\n${taskWithSteers()}\n\n` +
     `Hermes' last attempt:\n${lastAnswer.slice(0, 2000)}\n\n` +
     `Claude's outstanding critique:\n${lastNote.slice(0, 1000)}\n\n` +
     `Open your reply with a short "Why Hermes couldn't finish:" paragraph, then do the task and ` +
@@ -221,6 +268,8 @@ export async function runHermesLadder(input: LadderInput): Promise<string> {
 
   for (;;) {
     await sleep(TAKEOVER_POLL_MS);
+    // Steers sent to this (the panel's) run now belong to the takeover.
+    await relaySteers(runId, takeoverRunId);
     const row = await queryOne<{ status: string; answer: string | null; activity: string | null; quiet_ms: number }>(
       `SELECT status, answer, activity,
               EXTRACT(EPOCH FROM (now() - updated_at)) * 1000 AS quiet_ms
@@ -292,37 +341,36 @@ export async function escalateToHermesLadder(args: {
   userMessage: string;
   critique: string;
 }): Promise<string | null> {
+  return startLadderRun(args.conversationId, args.userMessage, "Handed to Hermes after Claude held Qwen's attempt…", args.critique);
+}
+
+/** A tracked ladder run of its own in `conversationId` (an escalation, or the
+ *  follow-up for steers that arrived after its answer). Resolves once the run
+ *  row exists; the ladder runs on in the background. */
+async function startLadderRun(
+  conversationId: string,
+  taskPrompt: string,
+  seed: string,
+  initialFeedback?: string,
+): Promise<string | null> {
   try {
     const run = await queryOne<{ id: string }>(
       `INSERT INTO dev_agent_runs (agent, prompt, page_context, status, conversation_id, activity)
        VALUES ('hermes', $1, NULL, 'running', $2, 'Hermes is working…') RETURNING id`,
-      [args.userMessage, args.conversationId],
+      [taskPrompt, conversationId],
     );
     const newRunId = run!.id;
+    const followUp = (text: string) => startLadderRun(conversationId, text, "Hermes is picking up your steer…");
     void (async () => {
-      const log = runLog(newRunId, ["Handed to Hermes after Claude held Qwen's attempt…"]);
+      const log = runLog(newRunId, [seed]);
       try {
-        const answer = await runHermesLadder({
-          runId: newRunId,
-          conversationId: args.conversationId,
-          taskPrompt: args.userMessage,
-          initialFeedback: args.critique,
-          log,
-        });
+        const answer = await runHermesLadder({ runId: newRunId, conversationId, taskPrompt, initialFeedback, log });
         log.push("Done.");
         await log.flush();
-        await insertMessage(args.conversationId, "assistant", answer, { agent: "hermes" });
-        await query(
-          `UPDATE dev_agent_runs SET status = 'done', answer = $2, updated_at = now() WHERE id = $1`,
-          [newRunId, answer],
-        );
+        await settleSteeredRun({ runId: newRunId, conversationId, agent: "hermes", status: "done", answer, followUp });
       } catch (err) {
         const msg = `⚠️ ${(err as Error).message}`;
-        await insertMessage(args.conversationId, "assistant", msg, { agent: "hermes" }).catch(() => {});
-        await query(
-          `UPDATE dev_agent_runs SET status = 'error', answer = $2, updated_at = now() WHERE id = $1`,
-          [newRunId, msg],
-        ).catch(() => {});
+        await settleSteeredRun({ runId: newRunId, conversationId, agent: "hermes", status: "error", answer: msg, followUp }).catch(() => {});
       }
     })();
     return newRunId;

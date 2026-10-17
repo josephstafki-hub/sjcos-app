@@ -5,9 +5,11 @@ import {
   answerInteractionAction,
   dismissInteractionAction,
   pollAgentRun,
+  steerAgentRun,
   stopAgentRun,
   type PendingGrant,
 } from "@/lib/actions/dev-agents";
+import type { SteerStatus } from "@/lib/run-steers";
 import {
   loadConversationAction,
   newConversationAction,
@@ -156,6 +158,20 @@ export function useAgentChat({
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   /** The thread's resumable CLI session (shown as a chip; "Fresh" clears it). */
   const [claudeSessionId, setClaudeSessionId] = useState<string | null>(null);
+  /** Steers sent into the live run, by steer id — fed by the poll, read by
+   *  the transcript's "↪ Steer · delivered" chips. */
+  const [steerStatus, setSteerStatus] = useState<Record<string, SteerStatus>>({});
+  /** A steer the run was too far along to take — sent as the next message
+   *  once the run settles (same thread only). */
+  const [queuedNext, setQueuedNext] = useState<{ text: string; conversationId: string | null } | null>(null);
+  /** The run steers go to. A ref (not activeRunId state) so a steer typed in
+   *  the gap before the run id is known can wait for it (earlySteers). */
+  const runIdRef = useRef<string | null>(null);
+  const conversationIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    conversationIdRef.current = conversationId;
+  }, [conversationId]);
+  const earlySteersRef = useRef<{ localId: string; text: string }[]>([]);
 
   const liveRef = useRef({ alive: true });
   /** Where the next fresh thread files (see NextHome). State for the header
@@ -185,6 +201,14 @@ export function useAgentChat({
     setInteractions([]);
     setGrants([]);
     setActiveRunId(null);
+    runIdRef.current = null;
+    // Typed before the run id ever arrived (the send failed): next message.
+    const early = earlySteersRef.current;
+    earlySteersRef.current = [];
+    if (early.length) {
+      setMessages((m) => m.filter((x) => !early.some((e) => e.localId === x.id)));
+      setQueuedNext({ text: early.map((e) => e.text).join("\n\n"), conversationId: conversationIdRef.current });
+    }
     cbRef.current.onRunEnd?.();
     await cbRef.current.onSettled?.();
   };
@@ -205,12 +229,24 @@ export function useAgentChat({
     // 1440 × 2s = 48 min — past failStaleTasks()'s 45-minute ladder backstop
     // (a multi-round Hermes ladder with a Claude takeover is the long case),
     // so the client outlives every server reaper, never the reverse.
+    // A newer run in the thread picked up where this one left off (an
+    // orchestrator hand-off, or steers that arrived after the answer) — keep
+    // following it so its answer lands live rather than on next reopen.
+    const followNext = async (nextRunId: string, nextAgent: PanelAgent) => {
+      await cbRef.current.onSettled?.();
+      const startedAt = nowMs();
+      setElapsed(0);
+      setRunStartedAt(startedAt);
+      startRun({ runId: nextRunId, agent: nextAgent, subjectId: subjectId ?? null, startedAt });
+      await pollTurn(nextRunId, subjectId, live);
+    };
     for (let i = 0; i < 1440; i++) {
       await sleep(2000);
       if (!live.alive) return;
       const p = await pollAgentRun(runId);
       if (!live.alive) return;
       if (p.ok) relayFocus(p.focus);
+      if (p.steers?.length) mergeSteers(p.steers);
       if (!p.ok) {
         setActivity("");
         setMessages((m) => [
@@ -218,6 +254,10 @@ export function useAgentChat({
           { id: `err-${runId}`, role: "assistant", body: `⚠️ ${p.error}`, costUsd: null, createdAt: "", subjectWorkItemId: subjectId ?? null, agent: null, attachments: null },
         ]);
         postPanelMessage({ type: "run", phase: "end", runId, agent, subjectId: subjectId ?? null }, { local: true });
+        if (p.nextRunId) {
+          await followNext(p.nextRunId, agent);
+          return;
+        }
         await settle();
         return;
       }
@@ -240,12 +280,7 @@ export function useAgentChat({
         // Hermes ladder) starts a follow-on run in the same thread — keep
         // following it so its answer lands live rather than on next reopen.
         if (p.nextRunId) {
-          await cbRef.current.onSettled?.();
-          const startedAt = nowMs();
-          setElapsed(0);
-          setRunStartedAt(startedAt);
-          startRun({ runId: p.nextRunId, agent: "hermes", subjectId: subjectId ?? null, startedAt });
-          await pollTurn(p.nextRunId, subjectId, live);
+          await followNext(p.nextRunId, agent === "qwen" ? "hermes" : agent);
           return;
         }
         await settle();
@@ -270,6 +305,11 @@ export function useAgentChat({
 
   const startRun = (run: ActiveRun) => {
     setActiveRunId(run.runId);
+    runIdRef.current = run.runId;
+    // Steers typed while the send was still in flight go in now.
+    const early = earlySteersRef.current;
+    earlySteersRef.current = [];
+    for (const e of early) void deliverSteer(run.runId, e.localId, e.text);
     cbRef.current.onRunStart?.(run);
     postPanelMessage({ type: "run", phase: "start", runId: run.runId, agent: run.agent, subjectId: run.subjectId }, { local: true });
   };
@@ -291,6 +331,11 @@ export function useAgentChat({
     setInteractions([]);
     setGrants([]);
     setActiveRunId(null);
+    // A steer belongs to the run it was typed into; one waiting to go as the
+    // next message must not land in whatever thread comes next.
+    runIdRef.current = null;
+    earlySteersRef.current = [];
+    setQueuedNext(null);
     if (wasLive) cbRef.current.onRunEnd?.();
     return wasLive;
   };
@@ -327,8 +372,9 @@ export function useAgentChat({
       if (detail.pendingRunId) {
         // A hand-off tags its user turn with the card it's about; carry that
         // through so the resumed run still refreshes followers on the right
-        // entity.
-        const subjectId = detail.messages[detail.messages.length - 1]?.subjectWorkItemId ?? undefined;
+        // entity. (Steers carry none — look past them to the ask.)
+        const ask = [...detail.messages].reverse().find((m) => !m.steer);
+        const subjectId = ask?.subjectWorkItemId ?? undefined;
         const startedAt = detail.pendingRunStartedAt ?? Date.now();
         setRunStartedAt(startedAt);
         startRun({
@@ -394,6 +440,7 @@ export function useAgentChat({
     setActiveRunId(null);
     setContextTokens(null);
     setClaudeSessionId(null);
+    setSteerStatus({});
   };
 
   /** Start a fresh thread — Unfiled. The app view's page and any earlier
@@ -491,6 +538,64 @@ export function useAgentChat({
     setContextTokens(null);
     setContextWindow(null);
     void resetClaudeSessionAction(conversationId);
+  };
+
+  const mergeSteers = (list: SteerStatus[]) =>
+    setSteerStatus((cur) => {
+      let changed = false;
+      const next = { ...cur };
+      for (const st of list) {
+        const was = cur[st.id];
+        if (!was || was.status !== st.status || was.via !== st.via) {
+          next[st.id] = st;
+          changed = true;
+        }
+      }
+      return changed ? next : cur;
+    });
+
+  /** Send one steer to `runId`; the local bubble becomes `steer-<id>` so the
+   *  poll's status lands on it. Refused (the run already took its last look)
+   *  → it goes as the next message instead. */
+  const deliverSteer = async (runId: string, localId: string, text: string) => {
+    const r = await steerAgentRun(runId, text).catch((err: Error) => ({ ok: false as const, error: err.message }));
+    if (r.ok) {
+      setMessages((m) => m.map((x) => (x.id === localId ? { ...x, id: `steer-${r.steerId}` } : x)));
+      mergeSteers([{ id: r.steerId, status: "pending", via: null }]);
+      return;
+    }
+    setMessages((m) => m.filter((x) => x.id !== localId));
+    if ("finished" in r && r.finished) {
+      setQueuedNext((q) => ({ text: q ? `${q.text}\n\n${text}` : text, conversationId: conversationIdRef.current }));
+      setNotice("That run was already wrapping up — your message goes in as the next turn.");
+      return;
+    }
+    setError(`Steer not sent: ${"error" in r ? r.error : "unknown error"}`);
+  };
+
+  /** Steer the live run: what Joe types while an agent works goes INTO that
+   *  run (lib/run-steers.ts) — Claude and Hermes take it at their next tool
+   *  boundary, Qwen starts over with it. Not mid-run → a normal turn. */
+  const steer = (text: string) => {
+    const body = text.trim();
+    if (!body) return;
+    if (!pending) {
+      submit({ directive: body });
+      return;
+    }
+    setError("");
+    const localId = `steer-local-${nowMs()}`;
+    setMessages((m) => [
+      ...m,
+      { id: localId, role: "user", body, costUsd: null, createdAt: "", subjectWorkItemId: null, agent: null, attachments: null, steer: true },
+    ]);
+    const runId = runIdRef.current;
+    if (!runId) {
+      // The send is still creating its run — this goes in once it exists.
+      earlySteersRef.current.push({ localId, text: body });
+      return;
+    }
+    void deliverSteer(runId, localId, body);
   };
 
   const pushUser = (body: string, subjectId?: string) =>
@@ -608,6 +713,17 @@ export function useAgentChat({
     });
   };
 
+  // A steer the run couldn't take: send it as the next turn once the run has
+  // settled — only into the thread it was typed in.
+  useEffect(() => {
+    if (pending || !queuedNext) return;
+    const q = queuedNext;
+    startTransition(() => setQueuedNext(null));
+    if (q.conversationId !== conversationId) return;
+    submit({ directive: q.text });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, queuedNext]);
+
   return {
     agent,
     selectAgent,
@@ -643,6 +759,10 @@ export function useAgentChat({
     dismiss,
     dropGrant,
     freshSession,
+    // Steering (composer while a run is live).
+    steer,
+    steerStatus,
+    queuedNext: queuedNext?.text ?? null,
   };
 }
 

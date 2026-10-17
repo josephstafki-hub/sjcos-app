@@ -37,6 +37,9 @@ export interface ChatMessage {
    *  by the runner — the transcript's token/context read-out. Optional so the
    *  panel's synthesized entries (errors, in-flight echoes) can omit it. */
   tokenUsage?: Record<string, unknown> | null;
+  /** A steer: sent INTO a live run rather than asked as a new turn
+   *  (lib/run-steers.ts). */
+  steer?: boolean;
 }
 
 export interface ConversationDetail {
@@ -154,8 +157,9 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
     agent: string | null;
     attachments: ChatAttachment[] | null;
     token_usage: Record<string, unknown> | null;
+    steer: boolean;
   }>(
-    `SELECT id, role, body, cost_usd, created_at::text AS created_at, subject_work_item_id, agent, attachments, token_usage
+    `SELECT id, role, body, cost_usd, created_at::text AS created_at, subject_work_item_id, agent, attachments, token_usage, steer
        FROM ai_messages WHERE conversation_id = $1 ORDER BY created_at ASC`,
     [id],
   );
@@ -185,6 +189,7 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
       agent: m.agent,
       attachments: m.attachments,
       tokenUsage: m.token_usage,
+      steer: m.steer || undefined,
     })),
     pendingRunId: pending?.id ?? null,
     pendingRunStartedAt: pending ? Number(pending.started_ms) : null,

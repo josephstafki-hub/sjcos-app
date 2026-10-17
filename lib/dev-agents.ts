@@ -20,6 +20,14 @@ import { runDirect } from "@/lib/commands/db";
 import { admitRun } from "@/lib/authority/usage";
 import { sessionRevokedSince } from "@/lib/authority/grants";
 import { profileFor } from "@/lib/authority/run-profile.mjs";
+import {
+  STEER_FOLLOW_UP_DIVIDER,
+  releaseSteers,
+  settleSteeredRun,
+  steerPrompt,
+  steerTicker,
+  takePendingSteers,
+} from "@/lib/run-steers";
 
 const execFileAsync = promisify(execFile);
 
@@ -228,11 +236,22 @@ export interface HermesProgress {
   onPartial?: (text: string) => void;
 }
 
+/** Steering for a panel turn (lib/run-steers.ts): while the turn streams, the
+ *  run's pending steers are relayed into Hermes' live agent. */
+export interface HermesSteer {
+  /** The dev_agent_runs row whose steers this turn takes. */
+  runId: string;
+  /** Steers Hermes accepted mid-turn — the ladder adds them to what Claude
+   *  reviews the work against. */
+  onDelivered?: (bodies: string[]) => void;
+}
+
 export async function hermesChat(
   turns: ChatTurn[],
   context?: string,
   sessionId?: string,
   progress?: HermesProgress,
+  steer?: HermesSteer,
 ): Promise<string> {
   // W5: Joe-approved standing instructions ride along on every turn so the
   // in-app agents get them without an MCP round-trip. "" when none exist.
@@ -249,19 +268,28 @@ export async function hermesChat(
   } catch {
     operating = "";
   }
-  const messages = [
-    ...(operating ? [{ role: "system", content: operating }] : []),
-    ...(context ? [{ role: "system", content: `SJC OS — page the user is viewing:\n${context}` }] : []),
+  const system = [
+    ...(operating ? [operating] : []),
+    ...(context ? [`SJC OS — page the user is viewing:\n${context}`] : []),
     // Today v2 · Phase 7: let Hermes (the feed's default agent) offer one-click
     // chips too. Self-gating — only fires when work_item_ids are in context.
-    { role: "system", content: ACTIONS_HINT },
+    ACTIONS_HINT,
     // Orchestration: ask for a sjcos-effects fence on writes (stripped +
     // recorded by lib/orchestrator/effects.ts at run completion).
-    { role: "system", content: EFFECTS_HINT },
-    ...(standing ? [{ role: "system", content: standing }] : []),
-    ...turns.map(hermesMessage),
+    EFFECTS_HINT,
+    ...(standing ? [standing] : []),
   ];
+  const messages = [...system.map((content) => ({ role: "system", content })), ...turns.map(hermesMessage)];
   const { url, key } = await hermesConfig();
+
+  // A steerable panel turn goes through the gateway's session stream instead:
+  // same session store, same brain, but the turn carries a run id the
+  // gateway's /v1/runs/{id}/steer accepts (chat completions has none).
+  if (steer && sessionId) {
+    const last = [...turns].reverse().find((t) => t.role === "user");
+    if (!last) throw new Error("Hermes turn has no user message.");
+    return hermesSteerableTurn(url, key, `sjcos-${sessionId}`, system.join("\n"), hermesMessage(last).content, progress, steer);
+  }
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -360,6 +388,159 @@ export async function hermesChat(
   return out;
 }
 
+/** Session ids already known to exist on the gateway (this process). */
+const hermesSessionsSeen = new Set<string>();
+
+/** The session stream 404s on an unknown session, where chat completions
+ *  created it on first use — so create it first. 409 = it already exists
+ *  (every thread that talked to Hermes before this change). */
+async function ensureHermesSession(url: string, headers: Record<string, string>, sid: string): Promise<void> {
+  if (hermesSessionsSeen.has(sid)) return;
+  const res = await postJson(`${url}/api/sessions`, headers, JSON.stringify({ id: sid, source: "api_server" }), 15_000);
+  if (res.status !== 201 && res.status !== 409) {
+    if (res.status === 401) throw new Error("Hermes rejected the API key (401).");
+    throw new Error(`Hermes couldn't open the session (HTTP ${res.status}${res.text ? `: ${res.text.slice(0, 160)}` : ""}).`);
+  }
+  hermesSessionsSeen.add(sid);
+}
+
+/**
+ * One steerable Hermes turn: POST /api/sessions/{sid}/chat/stream (SSE), and
+ * while it streams, relay the run's pending steers to the gateway's live
+ * agent via POST /v1/runs/{run_id}/steer — Hermes appends a steer to its next
+ * tool result, so it lands mid-turn without cutting a tool call. A steer the
+ * gateway accepted after the final answer comes back as `pending_steer`;
+ * that's replayed as a follow-up turn in the same session and the answers
+ * are joined, so nothing Joe sent is dropped.
+ */
+async function hermesSteerableTurn(
+  url: string,
+  key: string,
+  sid: string,
+  systemMessage: string,
+  message: unknown,
+  progress: HermesProgress | undefined,
+  steer: HermesSteer,
+): Promise<string> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${key}`,
+    "X-Hermes-Session-Key": HERMES_SESSION_KEY,
+  };
+  await ensureHermesSession(url, headers, sid);
+
+  const answers: string[] = [];
+  let next: unknown = message;
+  // Follow-ups are bounded: each one exists only because Joe sent something.
+  for (let turn = 0; turn < 5 && next != null; turn++) {
+    let hermesRunId: string | null = null;
+    let answer = "";
+    let completed = "";
+    let pendingSteer = "";
+    let streamError = "";
+    let sseBuf = "";
+    let sseEvent = "";
+    const onData = (chunk: string) => {
+      sseBuf += chunk;
+      let nl: number;
+      while ((nl = sseBuf.indexOf("\n")) >= 0) {
+        const line = sseBuf.slice(0, nl).replace(/\r$/, "");
+        sseBuf = sseBuf.slice(nl + 1);
+        if (line.startsWith("event:")) {
+          sseEvent = line.slice(6).trim();
+          continue;
+        }
+        if (!line.startsWith("data:")) {
+          if (line === "") sseEvent = "";
+          continue;
+        }
+        let obj: Record<string, unknown>;
+        try {
+          obj = JSON.parse(line.slice(5).trim());
+        } catch {
+          continue;
+        }
+        if (typeof obj.run_id === "string") hermesRunId = obj.run_id;
+        switch (sseEvent) {
+          case "assistant.delta":
+            if (typeof obj.delta === "string" && obj.delta) {
+              answer += obj.delta;
+              progress?.onPartial?.(answer);
+            }
+            break;
+          case "tool.started":
+            progress?.onTool?.({
+              tool: String(obj.tool_name ?? ""),
+              label: typeof obj.preview === "string" ? obj.preview : undefined,
+              status: "running",
+            });
+            break;
+          case "assistant.completed":
+            if (typeof obj.content === "string") completed = obj.content;
+            break;
+          case "run.completed":
+            if (typeof obj.pending_steer === "string") pendingSteer = obj.pending_steer.trim();
+            break;
+          case "error":
+            streamError = String(obj.message ?? "Hermes run failed.");
+            break;
+        }
+      }
+    };
+
+    // Relay steers once a second while the turn is live. A steer the gateway
+    // won't take yet (agent not created / between states) goes back to
+    // pending and is retried on the next tick.
+    let streaming = true;
+    const ticker = steerTicker(async () => {
+      if (!streaming || !hermesRunId) return;
+      const steers = await takePendingSteers(steer.runId, "mid-turn");
+      if (!steers.length) return;
+      const r = await postJson(
+        `${url}/v1/runs/${hermesRunId}/steer`,
+        headers,
+        JSON.stringify({ text: steerPrompt(steers) }),
+        15_000,
+      ).catch(() => ({ status: 0, text: "" }));
+      if (r.status >= 200 && r.status < 300) steer.onDelivered?.(steers.map((s) => s.body));
+      else await releaseSteers(steers.map((s) => s.id));
+    });
+
+    let res: { status: number; text: string };
+    try {
+      res = await postJson(
+        `${url}/api/sessions/${encodeURIComponent(sid)}/chat/stream`,
+        headers,
+        JSON.stringify({ model: HERMES_MODEL, message: next, system_message: systemMessage }),
+        HERMES_TIMEOUT_MS,
+        onData,
+      );
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException;
+      if (e.message === "TIMEOUT") throw new Error("Hermes took too long to respond (agent may be running a long tool call).");
+      if (e.code === "ECONNREFUSED") throw new Error("Hermes agent gateway isn't running (no api_server on :8642).");
+      throw err;
+    } finally {
+      streaming = false;
+      await ticker.stop();
+    }
+    if (res.status < 200 || res.status >= 300) {
+      if (res.status === 401) throw new Error("Hermes rejected the API key (401).");
+      throw new Error(`Hermes agent HTTP ${res.status}${res.text ? `: ${res.text.slice(0, 200)}` : ""}`);
+    }
+    if (streamError) throw new Error(`Hermes: ${streamError}`);
+    const out = (completed || answer).trim();
+    if (out) answers.push(out);
+    // pending_steer is our own relayed text (already says it's from Joe).
+    next = pendingSteer
+      ? `${pendingSteer}\n\n(This reached you just after your answer was finished — act on it now. Don't repeat your earlier answer; just add what this changes.)`
+      : null;
+  }
+  const joined = answers.join(STEER_FOLLOW_UP_DIVIDER);
+  if (!joined) throw new Error("Hermes returned an empty response.");
+  return joined;
+}
+
 /** Single-turn Hermes ask (team chat / one-offs). */
 export async function askHermes(
   prompt: string,
@@ -440,10 +621,11 @@ export interface DevAgentRun {
   profile: RunProfile;
   /** The person the run acts for (null = unattended). */
   principalUserId: string | null;
-  /** Set on a done run when a newer run is already in flight in the same
+  /** Set on a settled run when a newer run is already in flight in the same
    *  conversation — an orchestrator hand-off (e.g. Qwen's held proposal
-   *  escalated to Hermes) — so the panel keeps following the thread instead
-   *  of stopping at the first answer. */
+   *  escalated to Hermes) or a follow-up for steers that arrived too late —
+   *  so the panel keeps following the thread instead of stopping at the
+   *  first answer. */
   nextRunId?: string;
 }
 
@@ -556,7 +738,8 @@ export async function getDevAgentRun(id: string): Promise<DevAgentRun | null> {
   );
   if (!row) return null;
   let nextRunId: string | undefined;
-  if (row.status === "done" && row.conversation_id) {
+  // A settled run (done, or errored with a steer follow-up behind it).
+  if ((row.status === "done" || row.status === "error") && row.conversation_id) {
     const next = await queryOne<{ id: string }>(
       `SELECT id FROM dev_agent_runs
         WHERE conversation_id = $1 AND id <> $2 AND status IN ('pending','running')
@@ -659,18 +842,20 @@ async function conversationForWorkItem(agent: ApprovalAgent, workItemId: string,
 }
 
 /** Mirrors the Ask window's backgrounded Hermes turn (lib/actions/ai-chat.ts
- *  sendMessageAction): the row is created synchronously so callers/retries can
- *  see it immediately, then updated with the reply or a "⚠️ ..." error once
- *  the turn resolves. Runs in-process (long-lived server, not serverless). */
+ *  sendMessageAction): the row is created before this resolves so callers,
+ *  retries and a steer follow-up can see it immediately, then updated with
+ *  the reply or a "⚠️ ..." error once the turn resolves. Runs in-process
+ *  (long-lived server, not serverless). Steerable like any panel turn: steers
+ *  relay into the live turn, late ones get a follow-up (lib/run-steers.ts). */
 async function runHermesTurnTracked(
   conversationId: string,
   prompt: string,
   pageContext: string | undefined,
   subjectWorkItemId: string,
-): Promise<void> {
+): Promise<string | undefined> {
   // Called fire-and-forget (`void runHermesTurnTracked(...)`) — this must
   // never reject, or a DB hiccup here becomes an unhandled rejection.
-  let runId: string | undefined;
+  let runId: string;
   try {
     const run = await queryOne<{ id: string }>(
       `INSERT INTO dev_agent_runs (agent, prompt, page_context, status, conversation_id, activity, subject_work_item_id)
@@ -679,39 +864,38 @@ async function runHermesTurnTracked(
       [prompt, pageContext ?? null, conversationId, subjectWorkItemId],
     );
     runId = run!.id;
-    const log = runLog(runId, ["Hermes is thinking…"]);
-    // The thread turns Hermes hasn't seen (its gateway session only holds its
-    // own) ride along with the ping — see lib/orchestrator/thread.ts.
-    const turn = await composeHermesTurn(conversationId, { text: prompt });
-    const raw = await hermesChat(
-      [{ role: "user", content: turn.content, images: turn.images }],
-      pageContext,
-      conversationId,
-      hermesProgress(log),
-    );
-    log.push("Done.");
-    await log.flush();
-    const answer = await finalizeHermesAnswer(runId, raw);
-    // Guarded on status: a run Joe ⏹-stopped is already 'error' — don't
-    // overwrite it or double-post the late reply.
-    const settled = await queryOne<{ id: string }>(
-      `UPDATE dev_agent_runs SET status = 'done', answer = $2, updated_at = now()
-        WHERE id = $1 AND status IN ('pending','running') RETURNING id`,
-      [runId, answer],
-    );
-    if (settled) await insertMessage(conversationId, "assistant", answer, { agent: "hermes" });
   } catch (err) {
-    const msg = `⚠️ ${(err as Error).message}`;
-    if (runId) {
-      const settled = await queryOne<{ id: string }>(
-        `UPDATE dev_agent_runs SET status = 'error', answer = $2, updated_at = now()
-          WHERE id = $1 AND status IN ('pending','running') RETURNING id`,
-        [runId, msg],
-      ).catch(() => null);
-      if (!settled) return;
-    }
-    await insertMessage(conversationId, "assistant", msg, { agent: "hermes" }).catch(() => {});
+    await insertMessage(conversationId, "assistant", `⚠️ ${(err as Error).message}`, { agent: "hermes" }).catch(() => {});
+    return undefined;
   }
+  const followUp = (text: string) => runHermesTurnTracked(conversationId, text, pageContext, subjectWorkItemId);
+  void (async () => {
+    const log = runLog(runId, ["Hermes is thinking…"]);
+    try {
+      // The thread turns Hermes hasn't seen (its gateway session only holds its
+      // own) ride along with the ping — see lib/orchestrator/thread.ts.
+      const turn = await composeHermesTurn(conversationId, { text: prompt });
+      const raw = await hermesChat(
+        [{ role: "user", content: turn.content, images: turn.images }],
+        pageContext,
+        conversationId,
+        hermesProgress(log),
+        { runId, onDelivered: (b) => b.forEach((t) => log.push(`↪ Steer delivered: ${t}`)) },
+      );
+      log.push("Done.");
+      await log.flush();
+      const answer = await finalizeHermesAnswer(runId, raw);
+      // Guarded on status inside: a run Joe ⏹-stopped is already 'error' —
+      // don't overwrite it or double-post the late reply.
+      await settleSteeredRun({ runId, conversationId, agent: "hermes", status: "done", answer, followUp });
+    } catch (err) {
+      const msg = `⚠️ ${(err as Error).message}`;
+      log.push(msg);
+      await log.flush();
+      await settleSteeredRun({ runId, conversationId, agent: "hermes", status: "error", answer: msg, followUp }).catch(() => {});
+    }
+  })();
+  return runId;
 }
 
 /** Shared agent dispatch for a work item: persist `prompt` as a user turn in

@@ -21,6 +21,7 @@ import { mergeTranscript } from "@/lib/append-transcript";
 import { useVoiceRound } from "@/lib/use-voice-round";
 import { approveGrant, denyGrant } from "@/lib/actions/owner-grants";
 import type { PendingGrant } from "@/lib/actions/dev-agents";
+import type { SteerStatus } from "@/lib/run-steers";
 import type {
   AgentInteraction,
   InteractionQuestion,
@@ -247,9 +248,19 @@ export function PanelChat({
       setPrompt("");
       return;
     }
-    if (chat.pending || uploading) return;
+    if (uploading) return;
     const files = attachments;
     if (!q && !files.length) return;
+    // Mid-run, the composer steers the live run instead of waiting for it.
+    if (chat.pending) {
+      if (files.length) {
+        flashNotice("Files can't ride along on a steer — send them once this run finishes");
+        return;
+      }
+      setPrompt("");
+      chat.steer(q);
+      return;
+    }
     const display = files.length ? `${q}${q ? "\n\n" : ""}📎 ${files.map((f) => f.name).join(", ")}` : q;
     setPrompt("");
     setAttachments([]);
@@ -498,6 +509,17 @@ export function PanelChat({
           <div className={compact ? "flex flex-col gap-2.5" : "mt-4 flex flex-col gap-2.5 border-t border-rule pt-3"}>
             {chat.notice && <div className="text-[11px] font-medium text-ai-2">{chat.notice}</div>}
             {chat.messages.map((m) => {
+              if (m.role === "user" && m.steer) {
+                const st = m.id.startsWith("steer-") ? chat.steerStatus[m.id.slice(6)] : undefined;
+                return (
+                  <div key={m.id} className="border-l-2 border-ai/40 pl-2">
+                    <div className="mb-0.5 text-[10.5px] font-medium text-ink-4">
+                      ↪ Steer{st ? ` · ${steerStatusLabel(st)}` : m.id.startsWith("steer-local-") ? " · sending…" : ""}
+                    </div>
+                    <div className="whitespace-pre-wrap text-[12.5px] font-medium text-ink-2">{m.body}</div>
+                  </div>
+                );
+              }
               if (m.role === "user") {
                 return (
                   <div key={m.id} className="whitespace-pre-wrap text-[12.5px] font-medium text-ink-2">
@@ -573,6 +595,9 @@ export function PanelChat({
                   )}
                 </div>
                 {activityLines.length > 0 && <ActivityLog text={chat.activity} />}
+                {chat.queuedNext && (
+                  <div className="mt-1 text-[11px] text-ink-4">Sends as your next message when this run finishes.</div>
+                )}
               </div>
             )}
             {/* Plan-mode hand-off: the plan just landed — one click flips to
@@ -783,14 +808,17 @@ export function PanelChat({
           placeholder={
             voice.voiceMode && voice.phase !== "idle"
               ? voicePlaceholder(voice.phase)
-              : `Tell ${meta.label} what to do…`
+              : chat.pending
+                ? `Steer ${meta.label === "Auto" ? "the agent" : meta.label} — it reads this mid-run…`
+                : `Tell ${meta.label} what to do…`
           }
           className="min-w-0 flex-1 bg-transparent font-serif text-[15px] text-ink outline-none placeholder:text-ink-4"
         />
         <button
           type="submit"
-          disabled={chat.pending || uploading || (!prompt.trim() && attachments.length === 0)}
-          aria-label="Send"
+          disabled={uploading || (!prompt.trim() && (chat.pending || attachments.length === 0))}
+          aria-label={chat.pending ? "Steer the running agent" : "Send"}
+          title={chat.pending ? "Steer: send this into the run that's working now" : undefined}
           className="flex size-7 flex-none items-center justify-center rounded-md bg-ink text-paper transition-colors hover:bg-[#232a1e] disabled:opacity-40"
         >
           <ArrowUp className="size-4" strokeWidth={2} />
@@ -863,6 +891,23 @@ function ActivityLog({ text, done = false }: { text: string; done?: boolean }) {
       <div className="mt-1">{body}</div>
     </details>
   );
+}
+
+/** "↪ Steer · …" — where a steer stands (lib/run-steers.ts `via`). */
+function steerStatusLabel(st: SteerStatus): string {
+  if (st.status === "pending") return "waiting for the agent";
+  switch (st.via) {
+    case "mid-turn":
+      return "delivered mid-run";
+    case "restart":
+      return "delivered — restarted with it";
+    case "round":
+      return "delivered — another round";
+    case "follow-up":
+      return "delivered — answered as a follow-up";
+    default:
+      return "delivered";
+  }
 }
 
 function voicePlaceholder(phase: string): string {

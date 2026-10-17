@@ -5,15 +5,16 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { requireAccess, requireRole } from "@/lib/dal";
 import { query, queryOne } from "@/lib/db";
-import { isVisionModel, qwenChat } from "@/lib/ai";
 import { hermesChat, startClaudeRun } from "@/lib/dev-agents";
 import { finalizeHermesAnswer } from "@/lib/orchestrator/effects";
 import { escalateToHermesLadder, runHermesLadder } from "@/lib/orchestrator/ladder";
 import { processQwenProposals, setEscalateHook } from "@/lib/orchestrator/proposals";
 import { routeMessage } from "@/lib/orchestrator/router";
 import { conciergeTurn } from "@/lib/orchestrator/voice";
-import { hermesProgress, qwenProgress, runLog } from "@/lib/orchestrator/activity";
-import { composeHermesTurn, composeQwenTurns, lastAnsweringAgent } from "@/lib/orchestrator/thread";
+import { hermesProgress, runLog } from "@/lib/orchestrator/activity";
+import { qwenSteerable } from "@/lib/orchestrator/qwen-turn";
+import { settleSteeredRun } from "@/lib/run-steers";
+import { composeHermesTurn, lastAnsweringAgent } from "@/lib/orchestrator/thread";
 import { UPLOAD_DIR, sanitizeAttachments } from "@/lib/attachments";
 import {
   bindFolder,
@@ -415,6 +416,10 @@ interface BackgroundTurn {
   pageContext?: string;
   subjectWorkItemId?: string;
   activity?: string;
+  /** Page grounding for a steer follow-up when `pageContext` carries a
+   *  one-off instruction (the voice concierge's delegated task) that must
+   *  not be redone. Defaults to `pageContext`. */
+  followUpContext?: string;
 }
 
 /**
@@ -441,9 +446,21 @@ async function startBackgroundTurn(t: BackgroundTurn): Promise<string> {
   );
   const runId = run!.id;
 
+  // Steers that arrive after the answer is done get their own turn in this
+  // thread (lib/run-steers.ts settleSteeredRun) — same agent, same pipeline.
+  const followUp = (steerText: string) =>
+    startBackgroundTurn({
+      ...t,
+      text: steerText,
+      attachments: [],
+      pageContext: t.followUpContext ?? pageContext,
+      activity: `${label} is picking up your steer…`,
+    });
+
   void (async () => {
     // Live "what it's doing" log — every stage appends; the panel shows it all.
     const log = runLog(runId, [t.activity ?? `${label} is thinking…`]);
+    const onDelivered = (bodies: string[]) => bodies.forEach((b) => log.push(`↪ Steer delivered: ${b}`));
     try {
       // Three completion pipelines:
       //  - Hermes in an 'auto' thread → the full ladder (Claude reviews,
@@ -455,6 +472,9 @@ async function startBackgroundTurn(t: BackgroundTurn): Promise<string> {
       // (lib/orchestrator/thread.ts): Hermes gets the turns its gateway
       // session hasn't seen + this turn's files as text/images; Qwen gets the
       // whole thread with every turn's files inlined.
+      // Steering: Hermes takes steers mid-turn through its gateway; Qwen has
+      // no tool loop to inject into, so a steer restarts its stream with the
+      // steer in the thread.
       let answer: string;
       if (agent === "hermes" && reviewed) {
         answer = await runHermesLadder({ runId, conversationId, taskPrompt: text, attachments, pageContext, log });
@@ -465,34 +485,24 @@ async function startBackgroundTurn(t: BackgroundTurn): Promise<string> {
           pageContext,
           conversationId,
           hermesProgress(log),
+          { runId, onDelivered },
         );
         answer = await finalizeHermesAnswer(runId, raw);
       } else {
-        const turns = await composeQwenTurns(conversationId, { vision: isVisionModel() });
-        const raw = await qwenChat(turns, pageContext, qwenProgress(log));
+        const raw = await qwenSteerable(runId, conversationId, pageContext, log);
         log.push("Checking for proposed changes…");
         answer = await processQwenProposals(runId, conversationId, text, raw, pageContext);
       }
       log.push("Done.");
       await log.flush();
-      // Guarded on status: if Joe hit ⏹ Stop, the row is already 'error' and
-      // this late result must not overwrite it (or double-post a reply).
-      const settled = await queryOne<{ id: string }>(
-        `UPDATE dev_agent_runs SET status = 'done', answer = $2, updated_at = now()
-          WHERE id = $1 AND status IN ('pending','running') RETURNING id`,
-        [runId, answer],
-      );
-      if (settled) await insertMessage(conversationId, "assistant", answer, { agent });
+      // Guarded on status inside: if Joe hit ⏹ Stop, the row is already
+      // 'error' and this late result must not overwrite it (or double-post).
+      await settleSteeredRun({ runId, conversationId, agent, status: "done", answer, followUp });
     } catch (err) {
       const msg = `⚠️ ${(err as Error).message}`;
       log.push(msg);
       await log.flush();
-      const settled = await queryOne<{ id: string }>(
-        `UPDATE dev_agent_runs SET status = 'error', answer = $2, updated_at = now()
-          WHERE id = $1 AND status IN ('pending','running') RETURNING id`,
-        [runId, msg],
-      );
-      if (settled) await insertMessage(conversationId, "assistant", msg, { agent });
+      await settleSteeredRun({ runId, conversationId, agent, status: "error", answer: msg, followUp }).catch(() => {});
     }
   })();
 
@@ -555,6 +565,7 @@ export async function voiceTurnAction(
 
 Delegated by Claude (voice concierge) — do exactly this:
 ${reply.delegate.task}`.trim(),
+    followUpContext: pageContext,
     activity: `${agent === "hermes" ? "Hermes" : "Qwen"} is on it (delegated by Claude)…`,
   });
   return { ok: true, speak: reply.speak, ackMessageId: ack.id, runId, delegatedTo: agent };

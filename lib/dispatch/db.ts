@@ -32,6 +32,7 @@ export async function runDispatchPass(opts: { limit?: number } = {}): Promise<{
   announced: number;
   dispatched: DispatchOutcome[];
   reconciled: Awaited<ReturnType<typeof reconcileUnknown>>;
+  stagedGrants: number;
 }> {
   const d = deps();
   const swept = await withTransaction((run) => sweepForDispatch(run));
@@ -39,7 +40,13 @@ export async function runDispatchPass(opts: { limit?: number } = {}): Promise<{
   const announced = await announceUnannouncedDecisions();
   const dispatched = await dispatchOnce(d, { limit: opts.limit ?? 50 });
   const reconciled = await reconcileUnknown(d);
-  return { swept, expiredDecisions, announced, dispatched, reconciled };
+  // Approved permission requests whose own send never started (lib/grant-
+  // execution.ts). Dynamic import: grant-execution → agent-sends → here.
+  const stagedGrants = await import("@/lib/grant-execution").then((m) => m.sweepStagedGrants()).catch((err) => {
+    console.error("[dispatch] staged-grant sweep failed:", (err as Error).message);
+    return 0;
+  });
+  return { swept, expiredDecisions, announced, dispatched, reconciled, stagedGrants };
 }
 
 /** The agent-facing verdict for one intent's dispatch outcome. `ok` is true

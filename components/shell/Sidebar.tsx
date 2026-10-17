@@ -23,7 +23,6 @@ import {
   Cpu,
   ShieldCheck,
   Star,
-  Zap,
   Megaphone,
   BookOpen,
   Wallet,
@@ -70,7 +69,6 @@ const TOOLS: NavItem[] = [
   { label: "Compliance", href: "/compliance", icon: ShieldCheck },
   { label: "Warranty", href: "/warranty", icon: Star },
   { label: "Marketing", href: "/marketing", icon: Megaphone },
-  { label: "Automate", href: "/automate", icon: Zap },
   { label: "Engine", href: "/engine", icon: Cpu },
   { label: "Books", href: "/books", icon: BookOpen, tag: "soon", disabled: true },
 ];

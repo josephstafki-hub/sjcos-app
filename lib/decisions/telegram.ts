@@ -17,14 +17,10 @@ import type { Principal } from "../commands/principal.ts";
 import { recordSourceEvent } from "../commands/source-events.ts";
 import { cardText } from "./cards.ts";
 import { holdDecision, resolveFromChannel, type ResolveFromChannelResult } from "./resolve.ts";
+import { parseWorkItemCallback, type CallbackVerb, type WorkItemVerb } from "./keyboards.ts";
 
-export type CallbackVerb = "approve" | "changes" | "hold";
-const VERB_CODE: Record<CallbackVerb, string> = { approve: "a", changes: "c", hold: "h" };
+export { buildCallbackData, decisionKeyboard, type CallbackVerb } from "./keyboards.ts";
 const CODE_VERB: Record<string, CallbackVerb> = { a: "approve", c: "changes", h: "hold" };
-
-export function buildCallbackData(decisionId: string, contentHash: string | null, verb: CallbackVerb): string {
-  return `d|${decisionId}|${(contentHash ?? "").slice(0, 12)}|${VERB_CODE[verb]}`;
-}
 
 export function parseCallbackData(data: string | null | undefined): { decisionId: string; hashPrefix: string; verb: CallbackVerb } | null {
   if (!data) return null;
@@ -33,15 +29,7 @@ export function parseCallbackData(data: string | null | undefined): { decisionId
   return { decisionId: m[1].toLowerCase(), hashPrefix: m[2].toLowerCase(), verb: CODE_VERB[m[3].toLowerCase()] };
 }
 
-export function decisionKeyboard(decisionId: string, contentHash: string | null): { text: string; callback_data: string }[][] {
-  return [
-    [
-      { text: "Approve ✓", callback_data: buildCallbackData(decisionId, contentHash, "approve") },
-      { text: "Request changes", callback_data: buildCallbackData(decisionId, contentHash, "changes") },
-      { text: "Hold 4h", callback_data: buildCallbackData(decisionId, contentHash, "hold") },
-    ],
-  ];
-}
+export { parseWorkItemCallback, workItemKeyboard, type WorkItemVerb } from "./keyboards.ts";
 
 /** Constant-time compare of the X-Telegram-Bot-Api-Secret-Token header. An
  *  unset secret fails closed. */
@@ -79,6 +67,10 @@ export interface TelegramHandlerDeps {
   /** Edit the card message to show its new state. Best-effort. */
   edit?(chatId: string, messageId: number, text: string): Promise<void>;
   appUrl?: string;
+  /** When true, an Approve tap is NOT answered here: the caller answers after
+   *  the post-commit effects ran, so the phone's toast says what happened
+   *  ("Sent ✓ …") instead of just "Approved". */
+  deferApproveAnswer?: boolean;
 }
 
 export interface TelegramHandleResult {
@@ -87,6 +79,10 @@ export interface TelegramHandleResult {
   outcome: string;
   decisionId: string | null;
   resolution?: ResolveFromChannelResult;
+  /** A deferred answer the caller must send (see deferApproveAnswer). */
+  pendingAnswer?: { callbackId: string; text: string; chatId: string; messageId: number | null };
+  /** A work-item approval tap the caller performs after commit. */
+  workItem?: { id: string; verb: WorkItemVerb; callbackId: string; chatId: string; messageId: number | null };
 }
 
 /** Handle one update: persist FIRST (source_events + telegram_updates dedupe),
@@ -139,6 +135,13 @@ export async function handleTelegramUpdate(run: Run, update: TelegramUpdate, dep
     await deps.answer(cq.id, "Forwarded cards cannot be used. Open the original.");
     return finish("refused: forwarded message", null);
   }
+  const wi = parseWorkItemCallback(cq.data);
+  if (wi) {
+    // Performed by the caller after this transaction commits (it sends email
+    // through the dispatcher on its own connections).
+    const res = await finish(`work item ${wi.verb}: dispatched`, null);
+    return { ...res, workItem: { id: wi.workItemId, verb: wi.verb, callbackId: cq.id, chatId, messageId: cq.message?.message_id ?? null } };
+  }
   const parsed = parseCallbackData(cq.data);
   if (!parsed) {
     await deps.answer(cq.id, "This button is not recognised.");
@@ -177,8 +180,12 @@ export async function handleTelegramUpdate(run: Run, update: TelegramUpdate, dep
     outcome: parsed.verb === "approve" ? "approved" : "changes_requested",
     note: parsed.verb === "changes" ? "Requested from Telegram — details to follow in SJC OS" : null,
   });
-  await deps.answer(cq.id, r.reply);
   const shown = r.decision ?? decision;
+  if (deps.deferApproveAnswer && r.ok && r.code === "approved") {
+    const res = await finish(r.reply, decision.id, r);
+    return { ...res, pendingAnswer: { callbackId: cq.id, text: r.reply, chatId, messageId: cq.message?.message_id ?? null } };
+  }
+  await deps.answer(cq.id, r.reply);
   if (deps.edit && cq.message) await deps.edit(chatId, cq.message.message_id, cardText(shown, { appUrl: deps.appUrl }));
   return finish(r.reply, decision.id, r);
 }

@@ -111,3 +111,116 @@ export function grantCovers(
   }
   return { ok: true };
 }
+
+// ── Send-on-approval (2026-10-17) ────────────────────────────────────────────
+// Joe tapped Approve in Telegram on "email Scott at ABC" and nothing went out:
+// approving only minted a permission, and the send waited for the agent to
+// come back. A request can now carry the exact send. It's stored on the grant
+// (scope.staged), shown on every approval surface, and run by the app the
+// moment Joe approves (lib/grant-execution.ts), on any channel. The outcome
+// lands in scope.staged_result.
+
+export interface StagedSend {
+  action: GatedAction;
+  /** Record id for record-backed actions; the address/number for email/SMS. */
+  target_id?: string | null;
+  email?: { to: string; subject: string; body: string; attachment_file_ids?: string[]; work_item_id?: string | null };
+  sms?: { to: string; body: string };
+  override?: boolean;
+}
+
+export interface StagedResult {
+  state: "running" | "sent" | "failed" | "held";
+  at: string;
+  summary?: string;
+  error?: string;
+}
+
+/** The send this grant performs on approval, if it carries one. */
+export function stagedSendOf(g: Pick<OwnerGrant, "scope"> | null | undefined): StagedSend | null {
+  const s = (g?.scope as { staged?: unknown } | undefined)?.staged;
+  return s && typeof s === "object" && typeof (s as StagedSend).action === "string" ? (s as StagedSend) : null;
+}
+
+export function stagedResultOf(g: Pick<OwnerGrant, "scope"> | null | undefined): StagedResult | null {
+  const r = (g?.scope as { staged_result?: unknown } | undefined)?.staged_result;
+  return r && typeof r === "object" && typeof (r as StagedResult).state === "string" ? (r as StagedResult) : null;
+}
+
+/** Record-backed actions run from the target id alone. Calls are left to the
+ *  agent: Joe's phone rings first, so it happens when he's ready, not when he
+ *  taps Approve from a job site. */
+const RUN_FROM_TARGET: ReadonlySet<string> = new Set([
+  "send_bid_package",
+  "send_purchase_order",
+  "send_invoice",
+  "release_newsletter_issue",
+  "release_newsletter_outbox_item",
+  "send_document_for_signature",
+]);
+
+/** Build (and validate) the staged send for a request. Returns null when the
+ *  request can't run on its own (no message given, a call, or the agent
+ *  opted out), or an error the agent can relay. */
+export function buildStagedSend(input: {
+  action: string;
+  targetId?: string | null;
+  email?: { to?: string; subject?: string; body?: string; attachment_file_ids?: string[]; work_item_id?: string | null } | null;
+  sms?: { to?: string; body?: string } | null;
+  override?: boolean;
+  sendOnApproval?: boolean;
+}): { ok: true; staged: StagedSend | null; targetId: string | null } | { ok: false; error: string } {
+  if (!isGatedAction(input.action)) return { ok: false, error: `Unknown gated action "${input.action}".` };
+  const action = input.action;
+  const targetId = input.targetId?.toString().trim() || null;
+  if (input.sendOnApproval === false || action === "place_call") return { ok: true, staged: null, targetId };
+  if (action === "send_email") {
+    if (!input.email) return { ok: true, staged: null, targetId };
+    const to = (input.email.to ?? targetId ?? "").trim();
+    const body = (input.email.body ?? "").trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return { ok: false, error: "email.to must be a valid address." };
+    if (!body) return { ok: false, error: "email.body is required — it is sent as written when Joe approves." };
+    if (targetId && targetId.toLowerCase() !== to.toLowerCase()) return { ok: false, error: `target_id (${targetId}) and email.to (${to}) disagree.` };
+    const ids = (input.email.attachment_file_ids ?? []).map(String).filter(Boolean);
+    return {
+      ok: true,
+      targetId: to,
+      staged: {
+        action,
+        target_id: to,
+        email: { to, subject: (input.email.subject ?? "").trim(), body, ...(ids.length ? { attachment_file_ids: ids } : {}), ...(input.email.work_item_id ? { work_item_id: input.email.work_item_id } : {}) },
+      },
+    };
+  }
+  if (action === "send_sms") {
+    if (!input.sms) return { ok: true, staged: null, targetId };
+    const to = (input.sms.to ?? targetId ?? "").trim();
+    const body = (input.sms.body ?? "").trim();
+    if (!to || !body) return { ok: false, error: "sms.to and sms.body are required to send on approval." };
+    return { ok: true, targetId: targetId ?? to, staged: { action, target_id: targetId ?? to, sms: { to, body } } };
+  }
+  if (RUN_FROM_TARGET.has(action)) {
+    const n = Number(targetId);
+    if (!Number.isInteger(n) || n <= 0) return { ok: true, staged: null, targetId };
+    const email = action === "send_purchase_order" && input.email && (input.email.to || input.email.subject || input.email.body)
+      ? { to: (input.email.to ?? "").trim(), subject: (input.email.subject ?? "").trim(), body: (input.email.body ?? "").trim() }
+      : undefined;
+    return { ok: true, targetId: String(n), staged: { action, target_id: String(n), ...(email ? { email } : {}), ...(input.override ? { override: true } : {}) } };
+  }
+  return { ok: true, staged: null, targetId };
+}
+
+/** Short noun phrase for a card title: 'Email scott@… — "Subject"'. */
+export function stagedHeadline(s: StagedSend): string {
+  if (s.action === "send_email" && s.email) return `Email ${s.email.to}${s.email.subject ? ` — "${s.email.subject}"` : ""}`;
+  if (s.action === "send_sms" && s.sms) return `Text ${s.sms.to}`;
+  return `${ACTION_LABEL[s.action] ?? s.action} (${s.target_id})`;
+}
+
+/** One line for cards / popups: what approving this request will do. */
+export function describeStagedSend(s: StagedSend): string {
+  if (s.action === "send_email" && s.email) return `Sends the email to ${s.email.to}${s.email.subject ? ` — "${s.email.subject}"` : ""}${s.email.attachment_file_ids?.length ? ` with ${s.email.attachment_file_ids.length} attachment(s)` : ""}.`;
+  if (s.action === "send_sms" && s.sms) return `Texts ${s.sms.to}.`;
+  const label = ACTION_LABEL[s.action] ?? s.action;
+  return `${label} (${ACTION_TARGET_KIND[s.action] ?? "target"} ${s.target_id}).`;
+}

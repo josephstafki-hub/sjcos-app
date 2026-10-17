@@ -148,10 +148,13 @@ function grantText(grantId) {
       `release_newsletter_issue, send_document_for_signature, send_email…) for exactly the sends this message ` +
       `asks for — nothing else. The grant expires with this turn and every use is audited.`
     : `SENDS NEED PERMISSION: client-/vendor-facing sends (bid packages, POs, invoices, documents for signature, ` +
-      `newsletter release, one-off email) require an owner grant. Joe did not give one on this message, so stage ` +
-      `the work, then either tell Joe it's ready (he can re-send with "Express permission" ticked) or call ` +
-      `request_owner_permission with a specific reason and say you're waiting on his approval. Never try to ` +
-      `send around the grant.`;
+      `newsletter release, one-off email or text) require an owner grant. Joe did not give one on this message, so ` +
+      `stage the work, then call request_owner_permission WITH THE EXACT SEND — for an email pass email ` +
+      `{to, subject, body}; for a text sms {to, body}; for a record send the record id as target_id. Joe gets an ` +
+      `Approve / Decline card (corner popup, Telegram, /engine/permissions) and his Approve tap SENDS IT — you do ` +
+      `not send it afterwards and must not call the send tool for it. Show Joe the message and say it goes out ` +
+      `when he taps Approve. (Or he can re-send this message with "Express permission" ticked.) Never try to send ` +
+      `around the grant.`;
 }
 
 // Business profile: who the run acts for (staff member or unattended) and

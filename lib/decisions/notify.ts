@@ -11,6 +11,7 @@ import "server-only";
 import { runDirect, withTransaction } from "@/lib/commands/db";
 import { recordDelivery, stageDecision, DECISION_COLS, type Decision, type StageDecisionInput } from "@/lib/commands/decisions";
 import { notifyOwner } from "@/lib/notify-owner";
+import type { EmitInput } from "@/lib/notify";
 import { cardText } from "./cards";
 import { normalizeSummary } from "./summary";
 import { decisionKeyboard } from "./telegram";
@@ -33,7 +34,10 @@ export async function telegramMessageFor(decisionId: string): Promise<{ chatId: 
 
 /** Announce a freshly staged (or re-staged) decision. Idempotent per
  *  revision: when stageDecision returned created=false nothing is sent. */
-export async function announceDecision(d: Decision, opts: { created: boolean; superseded: string | null }): Promise<void> {
+export async function announceDecision(
+  d: Decision,
+  opts: { created: boolean; superseded: string | null; emit?: Partial<EmitInput> },
+): Promise<void> {
   if (!opts.created) return;
   const text = cardText(d, { appUrl: appUrl() });
   const prior = opts.superseded ? await telegramMessageFor(opts.superseded) : null;
@@ -47,6 +51,8 @@ export async function announceDecision(d: Decision, opts: { created: boolean; su
       title: `Decision: ${d.title}`,
       subline: (normalizeSummary(d.summary).effect ?? "").slice(0, 160) || undefined,
       href: `/engine/decisions?d=${d.id}`,
+      ref: `decision:${d.id}`,
+      ...opts.emit,
     },
     telegram: {
       buttons: decisionKeyboard(d.id, d.content_hash),
@@ -57,18 +63,21 @@ export async function announceDecision(d: Decision, opts: { created: boolean; su
 }
 
 /** Edit the Telegram card after a resolution so the phone shows the new
- *  state (buttons removed). Best-effort. */
-export async function refreshTelegramCard(d: Decision): Promise<void> {
+ *  state (buttons removed), plus what approving actually did (`note`, e.g.
+ *  "Sent ✓ to scott@…" or why the send failed). Phone only — the app already
+ *  shows the resolution on the original card, so no second in-app row.
+ *  Best-effort. */
+export async function refreshTelegramCard(d: Decision, note?: string | null): Promise<void> {
   const msg = await telegramMessageFor(d.id);
   if (!msg) return;
+  const card = cardText(d, { appUrl: appUrl() }).split("\n").slice(1, 14).join("\n");
   await notifyOwner({
     kind: "decision",
     title: d.title,
-    body: cardText(d, { appUrl: appUrl() }).split("\n").slice(1, 14).join("\n"),
+    body: note ? `${card}\n${note}` : card,
     href: `/engine/decisions?d=${d.id}`,
-    // Editing an existing message must not add another in-app card.
-    emit: { title: `Decision ${d.status}: ${d.title}`, subline: d.decision_note ?? undefined, href: `/engine/decisions?d=${d.id}` },
     telegram: { decisionId: d.id, editMessageId: msg.messageId },
+    phoneOnly: true,
   });
 }
 

@@ -13,7 +13,7 @@
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { performGrantedAction } from "@/lib/agent-sends";
-import { getGrant, grantLive, grantWaiting, listGrants, requestGrant } from "@/lib/owner-grants";
+import { buildStagedSend, getGrant, grantLive, grantWaiting, listGrants, requestGrant, stagedResultOf, stagedSendOf } from "@/lib/owner-grants";
 import { principalMaySpendGrant } from "@/lib/authority/mcp-gate";
 import { runDirect } from "@/lib/commands/db";
 
@@ -42,6 +42,10 @@ const pub = (g: NonNullable<Awaited<ReturnType<typeof getGrant>>>) => ({
   expires_at: g.expires_at,
   decided_at: g.decided_at,
   audit: g.audit,
+  // Send-on-approval: when set, approving performed (or will perform) the
+  // send itself — the agent must not call the send tool for it.
+  sends_on_approval: Boolean(stagedSendOf(g)),
+  sent_on_approval: stagedResultOf(g),
 });
 
 export async function POST(req: Request) {
@@ -59,12 +63,34 @@ export async function POST(req: Request) {
   try {
     switch (action) {
       case "request": {
-        const r = await requestGrant({
+        const obj = (k: string) => (body[k] && typeof body[k] === "object" ? (body[k] as Record<string, unknown>) : null);
+        const em = obj("email");
+        const sm = obj("sms");
+        const built = buildStagedSend({
           action: str("gated_action") ?? "",
           targetId: str("target_id") ?? null,
+          email: em
+            ? {
+                to: em.to == null ? undefined : String(em.to),
+                subject: em.subject == null ? undefined : String(em.subject),
+                body: em.body == null ? undefined : String(em.body),
+                attachment_file_ids: Array.isArray(em.attachment_file_ids) ? em.attachment_file_ids.map(String) : undefined,
+                work_item_id: em.work_item_id == null ? (str("work_item_id") ?? null) : String(em.work_item_id),
+              }
+            : null,
+          sms: sm ? { to: sm.to == null ? undefined : String(sm.to), body: sm.body == null ? undefined : String(sm.body) } : null,
+          override: Boolean(body.override),
+          sendOnApproval: body.send_on_approval === false ? false : undefined,
+        });
+        if (!built.ok) return NextResponse.json(built, { status: 400 });
+        const r = await requestGrant({
+          action: str("gated_action") ?? "",
+          targetId: built.targetId,
           reason: str("reason") ?? "",
           requestedBy: str("agent") ?? "agent",
           conversationId: str("conversation_id") ?? null,
+          workItemId: str("work_item_id") ?? null,
+          staged: built.staged,
         });
         if (!r.ok) return NextResponse.json(r, { status: 400 });
         revalidatePath("/notifications");
@@ -92,6 +118,22 @@ export async function POST(req: Request) {
           amountCents: body.amount_cents == null ? null : Number(body.amount_cents),
         });
         if (!gate.ok) return NextResponse.json({ ok: false, error: gate.reason }, { status: 403 });
+        // A request that carries its send is performed by the app on
+        // approval; an agent sending it too is the double-send this guards.
+        const spending = await getGrant(str("grant_id") ?? "");
+        if (spending && stagedSendOf(spending)) {
+          const done = stagedResultOf(spending);
+          return NextResponse.json(
+            {
+              ok: false,
+              already_handled: true,
+              error: done
+                ? `This permission sent its own message when Joe approved it (${done.state}${done.summary ? `: ${done.summary}` : done.error ? `: ${done.error}` : ""}). Do not send it again.`
+                : "This permission sends its own message the moment Joe approves it — don't call the send tool for it. Check it with check_owner_permission.",
+            },
+            { status: 409 },
+          );
+        }
         const email = body.email && typeof body.email === "object" ? (body.email as Record<string, unknown>) : undefined;
         const sms = body.sms && typeof body.sms === "object" ? (body.sms as Record<string, unknown>) : undefined;
         const call = body.call && typeof body.call === "object" ? (body.call as Record<string, unknown>) : undefined;

@@ -13,7 +13,7 @@ import type { Run } from "../commands/core.ts";
 import { contentHashOf, stageDecision, type Decision, type StageDecisionInput } from "../commands/decisions.ts";
 import type { Principal } from "../commands/principal.ts";
 import type { OwnerGrant } from "../owner-grant-types.ts";
-import { ACTION_LABEL, type GatedAction } from "../owner-grant-types.ts";
+import { ACTION_LABEL, describeStagedSend, stagedHeadline, stagedSendOf, type GatedAction } from "../owner-grant-types.ts";
 
 export function grantDecisionContent(g: Pick<OwnerGrant, "id" | "actions" | "target_kind" | "target_id" | "scope" | "reason">) {
   return {
@@ -23,6 +23,9 @@ export function grantDecisionContent(g: Pick<OwnerGrant, "id" | "actions" | "tar
     target_id: g.target_id ?? null,
     to: typeof g.scope?.to === "string" ? String(g.scope.to).toLowerCase() : null,
     reason: g.reason,
+    // The exact send approval performs, when the request carries one — part
+    // of the hash, so a changed message supersedes the card.
+    staged: stagedSendOf(g),
   };
 }
 
@@ -32,15 +35,30 @@ export async function stageGrantDecision(run: Run, g: OwnerGrant, requestedBy: P
   const label = action === "*" ? "Any send" : (ACTION_LABEL[action as GatedAction] ?? action);
   const to = typeof g.scope?.to === "string" ? String(g.scope.to) : null;
   const content = grantDecisionContent(g);
+  const send = stagedSendOf(g);
+  const effect = send
+    ? `Approving does it now: ${describeStagedSend(send)} Nothing else is needed from the agent.`
+    : `Approving lets ${g.requested_by} perform "${label}"${g.target_id ? ` on ${g.target_kind ?? "target"} ${g.target_id}` : ""}${to ? ` to ${to}` : ""} once (${g.max_uses} use${g.max_uses === 1 ? "" : "s"}), until ${g.expires_at.slice(0, 16).replace("T", " ")}. The send itself still goes through the dispatcher and can be refused there.`;
+  const preview: Record<string, string> = {};
+  if (send?.email) {
+    if (send.email.subject) preview.subject = send.email.subject;
+    preview.message = send.email.body.slice(0, 1500);
+  } else if (send?.sms) {
+    preview.message = send.sms.body.slice(0, 600);
+  }
+  const recipient = send?.email?.to ?? send?.sms?.to ?? to;
   const input: StageDecisionInput = {
     kind: "grant",
     action,
-    title: `${g.requested_by} asks to: ${label}${g.target_id ? ` (${g.target_id})` : ""}${to ? ` → ${to}` : ""}`,
+    title: stagedSendOf(g)
+      ? `${g.requested_by} wants to send: ${stagedHeadline(stagedSendOf(g)!)}`
+      : `${g.requested_by} asks to: ${label}${g.target_id ? ` (${g.target_id})` : ""}${to ? ` → ${to}` : ""}`,
     summary: {
-      recipients: to ? [{ name: to, address: to }] : [],
+      recipients: recipient ? [{ name: recipient, address: recipient }] : [],
+      ...preview,
       inclusions: [label + (g.target_id ? ` — ${g.target_kind ?? "target"} ${g.target_id}` : "")],
       assumptions: g.reason ? [`Agent's reason: ${g.reason}`] : [],
-      effect: `Approving lets ${g.requested_by} perform "${label}"${g.target_id ? ` on ${g.target_kind ?? "target"} ${g.target_id}` : ""}${to ? ` to ${to}` : ""} once (${g.max_uses} use${g.max_uses === 1 ? "" : "s"}), until ${g.expires_at.slice(0, 16).replace("T", " ")}. The send itself still goes through the dispatcher and can be refused there.`,
+      effect,
       grantId: g.id,
     },
     targetKind: g.target_kind ?? null,

@@ -83,7 +83,6 @@ Grouped as the sidebar groups them (`components/shell/Sidebar.tsx`).
 | `/compliance`       | `compliance/page.tsx`      | |
 | `/warranty`         | `warranty/page.tsx`        | |
 | `/marketing`        | `marketing/page.tsx`       | |
-| `/automate`         | `automate/page.tsx`        | Claude-CLI builder |
 | `/engine`           | `engine/page.tsx`          | Work items, skills, runbooks |
 | `/engine/permissions` | `engine/permissions/page.tsx` | Owner grants / decisions |
 | `/workbench`        | `workbench/page.tsx`       | `?s=<subject>` — live entity workbench |

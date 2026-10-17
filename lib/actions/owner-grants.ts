@@ -9,26 +9,53 @@ import { captureAgentMemory } from "@/lib/agent-memory";
 import { requireRole } from "@/lib/dal";
 import { ACTION_TARGET_KIND, createGrant, decideGrant, GATED_ACTIONS, type GatedAction } from "@/lib/owner-grants";
 import { ACTION_LABEL } from "@/lib/owner-grant-types";
+import { runDirect } from "@/lib/commands/db";
+import { getDecision } from "@/lib/commands/decisions";
+import { refreshTelegramCard } from "@/lib/decisions/notify";
+import { dispatchIntentsNow } from "@/lib/dispatch/db";
+import { runStagedGrant } from "@/lib/grant-execution";
 
-type Result = { ok: true; id?: string } | { ok: false; error: string };
+type Result = { ok: true; id?: string; message?: string } | { ok: false; error: string };
 
 function refresh() {
   revalidatePath("/engine/permissions");
+  revalidatePath("/engine/decisions");
   revalidatePath("/notifications");
 }
 
+/** Approve a permission request — and do what it asked. Sends parked on the
+ *  grant are dispatched now, and a request that carries its send (scope.
+ *  staged) is performed (lib/grant-execution.ts). The reply says what went
+ *  out; the Telegram card is edited to match. */
 export async function approveGrant(id: string): Promise<Result> {
   await requireRole("owner");
   const g = await decideGrant(id, "approved");
   if (!g) return { ok: false, error: "That request is no longer pending." };
+  const lines: string[] = [];
+  const woke = (g as typeof g & { wokeIntentIds?: string[] }).wokeIntentIds ?? [];
+  if (woke.length) {
+    const outcomes = await dispatchIntentsNow(woke).catch(() => []);
+    const sent = outcomes.filter((o) => o.responseClass === "accepted" || o.responseClass === "confirmed").length;
+    if (sent) lines.push(`Sent ✓ (${sent}).`);
+  }
+  const staged = await runStagedGrant(g.id);
+  if (staged.ran && staged.line) lines.push(staged.line);
+  if (g.decision_id) {
+    const d = await getDecision(runDirect, g.decision_id).catch(() => null);
+    if (d) await refreshTelegramCard(d, lines.join("\n") || null).catch(() => undefined);
+  }
   refresh();
-  return { ok: true, id: g.id };
+  return { ok: true, id: g.id, message: lines.length ? `Approved. ${lines.join(" ")}` : "Approved — the agent can send it now." };
 }
 
 export async function denyGrant(id: string, note?: string): Promise<Result> {
   await requireRole("owner");
   const g = await decideGrant(id, "denied");
   if (!g) return { ok: false, error: "That request is no longer pending." };
+  if (g.decision_id) {
+    const d = await getDecision(runDirect, g.decision_id).catch(() => null);
+    if (d) await refreshTelegramCard(d, "Declined in the app — nothing was sent.").catch(() => undefined);
+  }
   // W5 learning layer: a denial is a preference signal — park it for review.
   const action = g.actions.includes("*")
     ? "any send"

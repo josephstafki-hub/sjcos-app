@@ -49,7 +49,6 @@ export type PermissionKey =
   | "compliance"
   | "warranty"
   | "marketing"
-  | "automate"
   | "engine"
   | "estimates"
   | "invoices"
@@ -86,7 +85,6 @@ export const PERMISSIONS: readonly PermissionDef[] = [
   { key: "compliance", label: "Compliance", description: "Insurance, permits, safety compliance.", paths: ["/compliance"] },
   { key: "warranty", label: "Warranty", description: "Warranty claims and service calls.", paths: ["/warranty"] },
   { key: "marketing", label: "Marketing", description: "Campaigns and marketing assets.", paths: ["/marketing"] },
-  { key: "automate", label: "Automate", description: "Automations and scheduled jobs.", paths: ["/automate"] },
   { key: "engine", label: "Engine", description: "Open Engine board, skills, runbooks (not owner permissions).", paths: ["/engine"] },
   // ── Money — split so a team member can be trusted with, say, invoices and
   //    purchase orders without seeing bids or margins. `money` is the catch-all

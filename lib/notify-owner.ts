@@ -19,6 +19,8 @@ import { emit, type EmitInput } from "./notify";
 import { recordDelivery } from "./commands/decisions";
 import { runDirect } from "./commands/db";
 import { makeTelegramProvider, type TelegramInlineButton } from "./providers/telegram";
+import { decisionKeyboard, workItemKeyboard } from "./decisions/keyboards";
+import { workItemDraftPreviews } from "./work-item-draft";
 
 export type OwnerPushKind =
   | "grant"
@@ -50,6 +52,8 @@ export interface NotifyOwnerInput {
    *  delivery is recorded with the message id), and a message to edit in
    *  place instead of sending a new one. Survives quiet-hours parking. */
   telegram?: TelegramExtras;
+  /** Skip the in-app row — for edits of a card Joe already has in the app. */
+  phoneOnly?: boolean;
 }
 
 export interface TelegramExtras {
@@ -211,16 +215,18 @@ async function transmit(input: NotifyOwnerInput, now: Date): Promise<void> {
  *  a waiting agent is blocked on them — but still count toward it; nothing
  *  is exempt from quiet hours). Never throws. `nowOverride` is a test seam. */
 export async function notifyOwner(input: NotifyOwnerInput, nowOverride?: Date): Promise<void> {
-  try {
-    await emit({
-      ...EMIT_DEFAULTS[input.kind],
-      title: input.title,
-      subline: input.body,
-      href: input.href,
-      ...input.emit,
-    });
-  } catch (err) {
-    console.error("[notify-owner] emit failed", err);
+  if (!input.phoneOnly) {
+    try {
+      await emit({
+        ...EMIT_DEFAULTS[input.kind],
+        title: input.title,
+        subline: input.body,
+        href: input.href,
+        ...input.emit,
+      });
+    } catch (err) {
+      console.error("[notify-owner] emit failed", err);
+    }
   }
   try {
     if (!enabledChannels().length) {
@@ -228,6 +234,10 @@ export async function notifyOwner(input: NotifyOwnerInput, nowOverride?: Date): 
       return;
     }
     const now = nowOverride ?? new Date();
+    // Editing a card already on the phone (resolved, sent, superseded) makes
+    // no sound, so it goes now — parking it till morning left a stale
+    // Approve button showing all night.
+    if (input.telegram?.editMessageId) return void (await transmit(input, now));
     const g = await gate(now);
     if (!g.awake) return void (await parkRow(input, g.next_morning));
     if (g.sent_last_hour >= MAX_PER_HOUR && !CAP_EXEMPT.has(input.kind)) {
@@ -286,8 +296,9 @@ export async function notifyAgentFailure(
 /** Immediate push the moment a work item flips approval_status → 'requested'
  *  (submit_draft_for_approval and any equivalent path) — a finished draft must
  *  not sit invisible until the 4h stale nudge. One push per work item ever
- *  (reminder_log claim), subject to quiet hours AND the hourly cap (approvals
- *  are not cap-exempt like grants). Never throws. */
+ *  (reminder_log claim). Carries the draft itself and Approve / Decline
+ *  buttons (handled by app/api/telegram/webhook), and is cap-exempt like a
+ *  decision card: someone is waiting on it. Never throws. */
 export async function notifyApprovalNeeded(
   workItemId: string,
   title: string,
@@ -295,8 +306,27 @@ export async function notifyApprovalNeeded(
 ): Promise<void> {
   try {
     if (!(await claimOnce(`apprpush:${workItemId}`))) return;
+    const [draft] = await workItemDraftPreviews({ ids: [workItemId], limit: 1 }).catch(() => []);
+    const lines: string[] = [];
+    if (draft?.to) lines.push(`To: ${draft.to}`);
+    if (draft?.subject) lines.push(`Subject: ${draft.subject}`);
+    if (draft?.body) lines.push("", draft.body.slice(0, 1200));
+    if (draft) lines.push("", draft.sends ? "Approve sends this email now." : draft.note ? `Approve does not email it: ${draft.note}` : "Approve hands it back to the agent to finish.");
     await notifyOwner(
-      { kind: "approval_needed", title: `Approve: ${title}`, href: "/today" },
+      {
+        kind: "decision",
+        title: `Approve: ${title}`,
+        body: lines.join("\n") || undefined,
+        href: draft?.href ?? "/today",
+        emit: {
+          ...EMIT_DEFAULTS.approval_needed,
+          title: `Approve: ${title}`,
+          subline: draft?.to ? `${draft.sends ? "Sends to" : "Draft to"} ${draft.to}${draft.subject ? ` — ${draft.subject}` : ""}` : undefined,
+          href: draft?.href ?? "/today",
+          ref: `work_item:${workItemId}`,
+        },
+        telegram: { buttons: workItemKeyboard(workItemId, { sends: draft?.sends }) },
+      },
       nowOverride,
     );
   } catch (err) {
@@ -429,12 +459,16 @@ export async function runPushDrain(
     target_id: string | null;
     reason: string;
     hours: number;
+    decision_id: string | null;
+    content_hash: string | null;
   }>(
-    `SELECT id, requested_by, actions, target_id, reason,
-            floor(extract(epoch FROM $1::timestamptz - created_at) / 3600)::int AS hours
-       FROM owner_grants
-      WHERE status = 'requested' AND created_at < $1::timestamptz - interval '4 hours'
-        AND expires_at > $1::timestamptz`,
+    `SELECT g.id, g.requested_by, g.actions, g.target_id, g.reason,
+            floor(extract(epoch FROM $1::timestamptz - g.created_at) / 3600)::int AS hours,
+            d.id AS decision_id, d.content_hash
+       FROM owner_grants g
+       LEFT JOIN decisions d ON d.id = g.decision_id AND d.status = 'pending'
+      WHERE g.status = 'requested' AND g.created_at < $1::timestamptz - interval '4 hours'
+        AND g.expires_at > $1::timestamptz`,
     [now],
   );
   for (const grant of staleGrants) {
@@ -446,6 +480,9 @@ export async function runPushDrain(
         title: `Grant request waiting ${grant.hours}h: ${grant.requested_by} asks to ${grant.actions[0] ?? "?"}${grant.target_id ? ` (${grant.target_id})` : ""}`,
         body: grant.reason ? `Reason: ${grant.reason.slice(0, 160)}` : undefined,
         href: "/engine/permissions",
+        emit: grant.decision_id ? { ref: `decision:${grant.decision_id}` } : undefined,
+        // The nudge can be answered right there, like the original card.
+        telegram: grant.decision_id ? { buttons: decisionKeyboard(grant.decision_id, grant.content_hash) } : undefined,
       },
       opts.now,
     );
@@ -469,6 +506,8 @@ export async function runPushDrain(
         kind: "stale_approval",
         title: `Approval waiting ${item.hours}h: ${item.title}`,
         href: "/today",
+        emit: { ref: `work_item:${item.id}` },
+        telegram: { buttons: workItemKeyboard(item.id) },
       },
       opts.now,
     );

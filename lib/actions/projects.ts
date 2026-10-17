@@ -4,7 +4,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { query, queryOne } from "@/lib/db";
+import { query, queryAs, queryOne } from "@/lib/db";
 import { requireRole, requireAccess } from "@/lib/dal";
 import { PROJECT_STATUSES, projectStageLabel, getProjectWeeklyStatus } from "@/lib/projects";
 import { emit } from "@/lib/notify";
@@ -158,7 +158,7 @@ async function billMilestonesForStatus(slug: string, newStatus: string) {
 
 /** Advance a project to the next lifecycle stage. No-op at the final stage. */
 export async function advanceProjectStatus(slug: string) {
-  await requireAccess("projects");
+  const me = await requireAccess("projects");
   const row = await queryOne<{ id: string; status: ProjectStatus; name: string }>(
     `SELECT id, status, name FROM projects WHERE slug = $1`,
     [slug],
@@ -168,10 +168,9 @@ export async function advanceProjectStatus(slug: string) {
   const next = PROJECT_STATUSES[idx + 1];
   if (!next) return;
 
-  await query(
-    `UPDATE projects SET status = $2, updated_at = now() WHERE slug = $1`,
-    [slug, next.key],
-  );
+  // queryAs: the status-change trigger (db/apply-notifications-v2.mjs) files
+  // the "<project> → <stage>" feed card, attributed to whoever clicked.
+  await queryAs(me.id, `UPDATE projects SET status = $2, updated_at = now() WHERE slug = $1`, [slug, next.key]);
 
   // Auto-bill any draw scheduled to invoice on reaching this stage (7-inv).
   await billMilestonesForStatus(slug, next.key);
@@ -205,15 +204,6 @@ export async function advanceProjectStatus(slug: string) {
     }
   }
 
-  await emit({
-    kind: "job",
-    tag: "Job",
-    accent: "accent",
-    icon: "project",
-    title: `${row.name} → ${next.label}`,
-    subline: `Stage advanced from ${projectStageLabel(row.status)}`,
-    href: `/projects/${slug}`,
-  });
   revalidatePath(`/projects/${slug}`);
   revalidatePath("/projects");
   revalidatePath("/today"); // active-job count + outstanding A/R derive from projects

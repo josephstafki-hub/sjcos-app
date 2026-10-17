@@ -3,8 +3,7 @@
 // Open Engine write paths. Owner-gated. Reads stay in lib/engine.ts.
 
 import { revalidatePath } from "next/cache";
-import { captureAgentMemory } from "@/lib/agent-memory";
-import { finishApproval } from "@/lib/approve-work-item";
+import { approveWorkItemById, rejectWorkItemById } from "@/lib/approve-work-item";
 import type { ApproveResult } from "@/lib/approved-draft-rules";
 import { query, queryOne } from "@/lib/db";
 import { requireAccess, requireRole } from "@/lib/dal";
@@ -132,53 +131,14 @@ export async function listArchivedWorkItems(
  *  it and the notice also lands on the card as blocked_reason. */
 export async function approveWorkItem(id: string): Promise<ApproveResult> {
   await requireAccess("engine");
-  const { rows } = await query<{
-    title: string;
-    body: string;
-    assignee_key: string | null;
-    lead_slug: string | null;
-    project_slug: string | null;
-  }>(
-    `UPDATE work_items w
-        SET approval_status = 'approved',
-            status = CASE WHEN status = 'approval_needed' THEN 'queued' ELSE status END
-      WHERE id = $1
-      RETURNING title, body, assignee_key,
-        (SELECT slug FROM leads WHERE id = w.lead_id) AS lead_slug,
-        (SELECT slug FROM projects WHERE id = w.project_id) AS project_slug`,
-    [id],
-  );
-  if (!rows[0]) return { ok: false, error: "Work item not found." };
-  const { title, body, assignee_key, lead_slug, project_slug } = rows[0];
-  const context = project_slug ? `project ${project_slug}` : lead_slug ? `lead ${lead_slug}` : undefined;
-  const result = await finishApproval({ id, assigneeKey: assignee_key, title, body, context });
+  const result = await approveWorkItemById(id);
   revalidatePath("/engine");
   return result;
 }
 
 export async function rejectWorkItem(id: string): Promise<Result> {
   await requireAccess("engine");
-  const { rows } = await query<{ title: string; body: string; assignee_key: string | null }>(
-    `UPDATE work_items SET approval_status = 'rejected', status = 'cancelled' WHERE id = $1
-     RETURNING title, body, assignee_key`,
-    [id],
-  );
-  if (rows[0]) {
-    // W5 learning layer: a rejection is a signal about what NOT to propose.
-    await captureAgentMemory({
-      summary: `Rejected: ${rows[0].title}`,
-      content: [
-        `Work item "${rows[0].title}" was rejected by Joe on /engine.`,
-        rows[0].body ? `What was proposed:\n${rows[0].body.slice(0, 1000)}` : null,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      memoryType: "observation",
-      runtimeName: rows[0].assignee_key ?? undefined,
-      refs: [{ kind: "work_item", id, label: rows[0].title }],
-    });
-  }
-  await maybeAdvanceRunbook(id); // W6: rejecting a runbook step cancels its instance
+  await rejectWorkItemById(id);
   revalidatePath("/engine");
   return { ok: true };
 }

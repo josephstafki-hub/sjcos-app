@@ -136,15 +136,24 @@ export async function maybeStartConstruction(run: Run, projectId: string, ref: s
     payload: { project_slug: proj.slug, address: proj.address, started_by: ref },
   });
 
-  await run(
-    `INSERT INTO notifications (kind, tag, accent, icon, title, subline, when_label, href)
-     VALUES ('job', 'Job', 'accent', 'project', $1, $2, 'Just now', $3)`,
-    [
-      `${proj.name} → Construction`,
-      `Contract signed and deposit paid. Permit research started${draftedDraws.length ? `; ${draftedDraws.length} construction-start draw drafted for review` : ""}.`,
-      `/projects/${proj.slug}`,
-    ],
+  // The status trigger (db/apply-notifications-v2.mjs) already filed
+  // "<project> → Construction" in this transaction; give it the why instead
+  // of adding a second card. Pre-migration there is none, so insert.
+  const why = `Contract signed and deposit paid. Permit research started${draftedDraws.length ? `; ${draftedDraws.length} construction-start draw drafted for review` : ""}.`;
+  const enriched = await run<{ id: string }>(
+    `UPDATE notifications SET subline = $2
+      WHERE id = (SELECT id FROM notifications WHERE title = $1 AND href = $3 AND created_at > now() - interval '5 minutes'
+                   ORDER BY created_at DESC LIMIT 1)
+      RETURNING id`,
+    [`${proj.name} → Construction`, why, `/projects/${proj.slug}`],
   );
+  if (!enriched.length) {
+    await run(
+      `INSERT INTO notifications (kind, tag, accent, icon, title, subline, when_label, href)
+       VALUES ('job', 'Job', 'accent', 'project', $1, $2, 'Just now', $3)`,
+      [`${proj.name} → Construction`, why, `/projects/${proj.slug}`],
+    );
+  }
 
   return { started: true, projectId, slug: proj.slug, draftedDraws, permitTriggerId: trig.trigger.id };
 }

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
+import { useServerState } from "@/lib/use-server-state";
 import { MessageSquare, Phone, PhoneCall, Send, AlertCircle, ExternalLink, Plus, X, ArrowLeft, Ban, Paperclip } from "lucide-react";
 import { Chip } from "@/components/ui";
 import {
@@ -54,10 +55,12 @@ export function MessagesClient({
   problems: string[];
   voiceConfigured: boolean;
 }) {
-  const [threads, setThreads] = useState(initialThreads);
+  // Follows the server: a new inbound text refreshes the page (LiveUpdates)
+  // and the rail re-sorts / shows its unread dot.
+  const [threads, setThreads] = useServerState(initialThreads);
   const [selectedId, setSelectedId] = useState<number | null>(initialThreads[0]?.id ?? null);
   const [messages, setMessages] = useState<SmsMessage[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(initialThreads.length > 0);
   const [draft, setDraft] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
@@ -74,20 +77,38 @@ export function MessagesClient({
   const [, start] = useTransition();
 
   const selected = threads.find((t) => t.id === selectedId) ?? null;
+  const selectedLastAt = selected?.lastMessageAt ?? null;
+
+  // The open conversation's texts: loaded when it's selected (including the
+  // one pre-selected on arrival) and again whenever its last-message time moves
+  // — a reply landed, or a text went out from another tab or an agent. Only
+  // marks it read when the conversation is on screen: below lg the list shows
+  // first, and the pre-selected thread there is unseen until tapped.
+  useEffect(() => {
+    if (selectedId == null) return;
+    let alive = true;
+    const onScreen = mobileThread || window.matchMedia("(min-width: 1024px)").matches;
+    loadSmsThread(selectedId, onScreen)
+      .then((data) => {
+        if (!alive) return;
+        setMessages(data?.messages ?? []);
+        setLoading(false);
+      })
+      .catch(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [selectedId, selectedLastAt, mobileThread]);
 
   function openThread(id: number) {
-    setSelectedId(id);
     setMobileThread(true);
-    setMessages([]);
-    setLoading(true);
     setNotice(null);
     // Optimistically clear the unread dot in the rail.
     setThreads((prev) => prev.map((t) => (t.id === id ? { ...t, unread: false } : t)));
-    start(async () => {
-      const data = await loadSmsThread(id);
-      setMessages(data?.messages ?? []);
-      setLoading(false);
-    });
+    if (id === selectedId) return; // already loaded; the effect re-reads it if needed
+    setSelectedId(id);
+    setMessages([]);
+    setLoading(true);
   }
 
   function send() {

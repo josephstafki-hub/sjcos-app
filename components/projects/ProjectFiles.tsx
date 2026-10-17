@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, useTransition } from "react";
+import { useServerState } from "@/lib/use-server-state";
 import { useRouter } from "next/navigation";
 import { FileText, Upload, Download, Eye, EyeOff, User } from "lucide-react";
 import { Card, Lightbox, type LightboxPhoto } from "@/components/ui";
@@ -33,7 +34,7 @@ export function ProjectFiles({
   /** Header label override, e.g. "Client uploads". */
   title?: string;
 }) {
-  const [rows, setRows] = useState(files);
+  const [rows, setRows] = useServerState(files);
   // Failures toast via runAction; only the success notice stays inline.
   const [notice, setNotice] = useState<string | null>(null);
   const [uploading, startUpload] = useTransition();

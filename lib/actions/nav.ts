@@ -1,8 +1,9 @@
 "use server";
 
-// Live counts for the sidebar nav badges. Fetched client-side on mount (see
-// Sidebar) so they never add latency to a page navigation. Owner-scoped: a
-// non-owner gets zeros (the Shell nav is only used by the owner app anyway).
+// Live counts for the sidebar nav badges. Fetched client-side (see Sidebar) so
+// they never add latency to a page navigation — on mount, when LiveUpdates
+// sees a table behind a badge change, and on a slow timer for Gmail. Owner
+// and staff only; anyone else gets zeros.
 
 import { can, getCurrentUser, type CurrentUser } from "@/lib/dal";
 import { query } from "@/lib/db";
@@ -54,8 +55,10 @@ async function inboxUnread(user: CurrentUser): Promise<number> {
 async function leadsNeedingAttention(): Promise<number> {
   try {
     const { rows } = await query<{ n: string }>(
+      // Same set as Today's "flagged leads": a lost lead needs nothing more,
+      // even if its old "Needs reply" / "Scam" chip is still on the row.
       `SELECT count(*) AS n FROM leads
-        WHERE flag_kind = 'flag'
+        WHERE flag_kind = 'flag' AND stage <> 'lost'
           AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.lead_id = leads.id)`,
     );
     return Number(rows[0]?.n ?? 0);

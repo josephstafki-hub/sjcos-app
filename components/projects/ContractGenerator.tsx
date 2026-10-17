@@ -1,6 +1,7 @@
 "use client";
 
 import { useContext, useState, useTransition } from "react";
+import { useServerState } from "@/lib/use-server-state";
 import { useRouter } from "next/navigation";
 import { FileSignature, Plus, Trash2, ChevronDown, Check, Circle } from "lucide-react";
 import { Card } from "@/components/ui";
@@ -40,7 +41,9 @@ export function ContractGenerator({
   const router = useRouter();
   const goToTab = useContext(TabNavContext);
   const [open, setOpen] = useState(false);
-  const [lines, setLines] = useState<DrawLine[]>(schedule ?? defaultDrawSchedule(10));
+  // Follows the saved schedule when it changes on the server (an agent set the
+  // draws); unsaved edits stay while the saved one is unchanged.
+  const [lines, setLines] = useServerState<DrawLine[]>(schedule ?? defaultDrawSchedule(10));
   const [pending, startTransition] = useTransition();
   const [creating, startCreating] = useTransition();
   const [savedMsg, setSavedMsg] = useState<string | null>(null);

@@ -35,6 +35,7 @@ import { Logo } from "./Logo";
 import { logout } from "@/lib/actions/auth";
 import { getNavCounts, type NavCounts } from "@/lib/actions/nav";
 import { staffMayOpen } from "@/lib/permissions";
+import { subscribePanelBus } from "@/components/panel/panelBus";
 
 type NavItem = {
   label: string;
@@ -77,6 +78,27 @@ const EXTERNAL: NavItem[] = [
   { label: "Client Portal · demo", href: "/client-portal", icon: UserRound },
   { label: "Sub Portal · demo", href: "/sub-portal", icon: UserCheck },
 ];
+
+/** Gmail unread has no write on our side to watch, so the badges also re-read
+ *  on this slow timer. */
+const NAV_POLL_MS = 60_000;
+
+/** Tables behind a badge (lib/actions/nav.ts), plus every chat_* table. ""
+ *  is a write LiveUpdates couldn't name (hidden behind a CTE) — it might be
+ *  one of them. */
+const NAV_COUNT_TABLES = new Set([
+  "",
+  "leads",
+  "projects", // a lead with a project stops counting
+  "sms_threads",
+  "sms_messages",
+  "unsorted_docs",
+  "team_members",
+]);
+
+function affectsNavCounts(scope: string): boolean {
+  return NAV_COUNT_TABLES.has(scope) || scope.startsWith("chat_");
+}
 
 function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(href + "/");
@@ -157,20 +179,55 @@ export function Sidebar({ user }: { user: SidebarUser }) {
   const [counts, setCounts] = useState<NavCounts | null>(null);
 
   // Live nav badges, fetched after mount so they never delay a navigation.
-  // Also on "sjc:nav-counts", which a page fires when it changes a count in
-  // place (e.g. replying in /chat answers a conversation — no navigation).
+  // Re-fetched when:
+  //  • LiveUpdates sees a table behind a badge change — an agent, a timer or
+  //    another tab answered a lead, filed a doc, got a text. router.refresh()
+  //    alone never reaches this client state;
+  //  • a page fires "sjc:nav-counts" after changing a count in place (e.g.
+  //    replying in /chat answers a conversation — no navigation);
+  //  • every NAV_POLL_MS while the tab is visible, for Gmail's unread, which
+  //    changes without any write on our side.
   useEffect(() => {
     let alive = true;
+    let inFlight = false;
+    let again = false;
     const load = () => {
+      if (inFlight) {
+        again = true;
+        return;
+      }
+      inFlight = true;
       getNavCounts()
         .then((c) => alive && setCounts(c))
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => {
+          inFlight = false;
+          if (again && alive) {
+            again = false;
+            load();
+          }
+        });
     };
     load();
     window.addEventListener("sjc:nav-counts", load);
+    // Local only: every tab runs its own LiveUpdates, so a remote copy of the
+    // same "changes" would just double the fetch.
+    const unsubscribe = subscribePanelBus((msg, origin) => {
+      if (origin === "local" && msg.type === "changes" && msg.scopes.some(affectsNavCounts)) load();
+    });
+    const timer = window.setInterval(() => {
+      if (!document.hidden) load();
+    }, NAV_POLL_MS);
+    const onVisible = () => {
+      if (!document.hidden) load();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       alive = false;
       window.removeEventListener("sjc:nav-counts", load);
+      unsubscribe();
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [pathname]);
 

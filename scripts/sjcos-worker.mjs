@@ -43,7 +43,21 @@ if (!process.env.DATABASE_URL) {
 
 const log = (line) => console.log(`${new Date().toISOString()} ${line}`);
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
-const run = async (sql, params) => (await pool.query(sql, params)).rows;
+// Live-update signal for the user-visible writes the loop makes (expiring a
+// stale decision card also clears its notification by trigger): log them to
+// app_change_log like lib/db.ts query() does, so open tabs refresh. Its own
+// bookkeeping (workers, source_events, action_intents) stays out — it runs
+// every few seconds and would refresh every tab for nothing.
+const LIVE_TABLES = new Set(["decisions", "decision_events"]);
+const WRITE_SQL = /^\s*(insert\s+into|update|delete\s+from)\s+(?:only\s+)?"?([a-zA-Z_][a-zA-Z0-9_]*)"?/i;
+const run = async (sql, params) => {
+  const r = await pool.query(sql, params);
+  const table = WRITE_SQL.exec(sql)?.[2]?.toLowerCase();
+  if (table && LIVE_TABLES.has(table) && (r.rowCount ?? 1) > 0) {
+    await pool.query(`INSERT INTO app_change_log (scope, source) VALUES ($1, 'app')`, [table]).catch(() => {});
+  }
+  return r.rows;
+};
 
 function version() {
   const r = spawnSync("git", ["-C", REPO_ROOT, "rev-parse", "--short=12", "HEAD"], { encoding: "utf8" });

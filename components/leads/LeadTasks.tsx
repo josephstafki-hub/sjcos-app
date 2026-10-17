@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useServerState } from "@/lib/use-server-state";
 import { Check, Plus, X, Calendar } from "lucide-react";
 import { Card } from "@/components/ui";
 import { addLeadTask, setLeadTaskDone, deleteLeadTask } from "@/lib/actions/lead-tasks";
@@ -11,7 +12,7 @@ import type { LeadTask } from "@/lib/lead-tasks";
  *  the composer adds a task with an optional due date; rows can be removed.
  *  Owner-only — each action re-checks the role server-side. */
 export function LeadTasks({ slug, tasks }: { slug: string; tasks: LeadTask[] }) {
-  const [rows, setRows] = useState(tasks);
+  const [rows, setRows] = useServerState(tasks);
   const [title, setTitle] = useState("");
   const [due, setDue] = useState("");
   const [adding, setAdding] = useState(false);

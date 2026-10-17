@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useTransition } from "react";
+import { useServerState } from "@/lib/use-server-state";
 import { useRouter } from "next/navigation";
 import { Gift, Check, Send } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
@@ -23,7 +24,7 @@ export function ThankReferrerButton({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [sent, setSent] = useState(thanked);
+  const [sent, setSent] = useServerState(thanked);
 
   if (!referrerName && !referrerEmail) return null;
 

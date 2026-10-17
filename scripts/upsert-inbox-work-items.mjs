@@ -113,6 +113,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === new URL(import.meta.url
     await client.query("BEGIN");
     results = await applyBatch(client, todos);
     await client.query("COMMIT");
+    // Live-update signal: open tabs (Today, /engine) refresh to show the new
+    // to-dos without a reload — same app_change_log row lib/db.ts query() writes.
+    if (results.some((r) => r.action !== "review")) {
+      for (const scope of ["work_items", "obligations"]) {
+        await client.query(`INSERT INTO app_change_log (scope, source) VALUES ($1, 'app')`, [scope]).catch(() => {});
+      }
+    }
   } catch (err) {
     await client.query("ROLLBACK");
     throw err;

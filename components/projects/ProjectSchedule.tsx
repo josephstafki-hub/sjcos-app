@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import { useServerState } from "@/lib/use-server-state";
 import { useRouter } from "next/navigation";
 import { Plus, X, Wand2 } from "lucide-react";
 import { Card } from "@/components/ui";
@@ -41,7 +42,7 @@ export function ProjectSchedule({
   blocks: Block[];
   templates?: TemplateOption[];
 }) {
-  const [rows, setRows] = useState(blocks);
+  const [rows, setRows] = useServerState(blocks);
   const [adding, startTransition] = useTransition();
   const [genOpen, setGenOpen] = useState(false);
   const [templateId, setTemplateId] = useState(templates[0]?.id ?? 0);

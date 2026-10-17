@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useServerState } from "@/lib/use-server-state";
 import { Send, X, RefreshCw, Sparkles, Mail } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import {
@@ -33,9 +34,12 @@ function when(iso: string): string {
  *  draft it wrote, and the owner's controls (send with edits, dismiss, redo,
  *  or pick a different branch). Auto-sent rows show as a receipt. */
 export function LeadFirstResponse({ slug, initial, hasEmail }: { slug: string; initial: Row | null; hasEmail: boolean }) {
-  const [row, setRow] = useState<Row | null>(initial);
-  const [subject, setSubject] = useState(initial?.subject ?? "");
-  const [body, setBody] = useState(initial?.body ?? "");
+  // Follow the server: the first-response timer (or an agent) parks a draft
+  // after the page loaded. Edits in the boxes stay until the saved draft
+  // itself changes.
+  const [row, setRow] = useServerState<Row | null>(initial);
+  const [subject, setSubject] = useServerState(initial?.subject ?? "");
+  const [body, setBody] = useServerState(initial?.body ?? "");
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 

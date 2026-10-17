@@ -129,6 +129,10 @@ export function useAgentChat({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [activity, setActivity] = useState("");
   const [elapsed, setElapsed] = useState(0);
+  /** When the turn being watched started (epoch ms). The timer counts from
+   *  this, not from when this mount began waiting — so leaving a running
+   *  thread and coming back shows the run's real age, not a restart at 0. */
+  const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState(false);
@@ -237,8 +241,10 @@ export function useAgentChat({
         // following it so its answer lands live rather than on next reopen.
         if (p.nextRunId) {
           await cbRef.current.onSettled?.();
+          const startedAt = nowMs();
           setElapsed(0);
-          startRun({ runId: p.nextRunId, agent: "hermes", subjectId: subjectId ?? null, startedAt: nowMs() });
+          setRunStartedAt(startedAt);
+          startRun({ runId: p.nextRunId, agent: "hermes", subjectId: subjectId ?? null, startedAt });
           await pollTurn(p.nextRunId, subjectId, live);
           return;
         }
@@ -254,11 +260,13 @@ export function useAgentChat({
   };
 
   useEffect(() => {
-    if (!pending) return;
-    const started = Date.now();
-    const t = setInterval(() => setElapsed(Math.round((Date.now() - started) / 1000)), 1000);
+    if (!pending || runStartedAt == null) return;
+    // Clamped: the DB stamp comes from the server's clock, the browser's may lag.
+    const tick = () => setElapsed(Math.max(0, Math.round((Date.now() - runStartedAt) / 1000)));
+    tick();
+    const t = setInterval(tick, 1000);
     return () => clearInterval(t);
-  }, [pending]);
+  }, [pending, runStartedAt]);
 
   const startRun = (run: ActiveRun) => {
     setActiveRunId(run.runId);
@@ -278,6 +286,8 @@ export function useAgentChat({
     // claim and won't. Its question boxes, grants and stop target belong to the
     // thread being left, not to whatever comes next.
     setPending(false);
+    setRunStartedAt(null);
+    setElapsed(0);
     setInteractions([]);
     setGrants([]);
     setActiveRunId(null);
@@ -319,12 +329,13 @@ export function useAgentChat({
         // through so the resumed run still refreshes followers on the right
         // entity.
         const subjectId = detail.messages[detail.messages.length - 1]?.subjectWorkItemId ?? undefined;
-        setElapsed(0);
+        const startedAt = detail.pendingRunStartedAt ?? Date.now();
+        setRunStartedAt(startedAt);
         startRun({
           runId: detail.pendingRunId,
           agent: detail.agent,
           subjectId: subjectId ?? null,
-          startedAt: Date.now(),
+          startedAt,
         });
         await pollTurn(detail.pendingRunId, subjectId, live);
       }
@@ -513,6 +524,7 @@ export function useAgentChat({
     setError("");
     setNotice(spec.notice ?? "");
     setElapsed(0);
+    setRunStartedAt(Date.now());
     setActivity("");
     runTurn(async (live) => {
       let convId = switching ? null : conversationId;

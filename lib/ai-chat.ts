@@ -50,6 +50,9 @@ export interface ConversationDetail {
   messages: ChatMessage[];
   /** A Claude run still in flight for this thread (so the UI resumes polling). */
   pendingRunId: string | null;
+  /** When that run started (epoch ms) — so a reopened thread's timer shows
+   *  the run's real age instead of restarting at 0. */
+  pendingRunStartedAt: number | null;
 }
 
 /** Conversations for one agent, most-recent first. Archived optional. */
@@ -157,8 +160,8 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
     [id],
   );
 
-  const pending = await queryOne<{ id: string }>(
-    `SELECT id FROM dev_agent_runs
+  const pending = await queryOne<{ id: string; started_ms: string }>(
+    `SELECT id, (extract(epoch FROM created_at) * 1000)::bigint::text AS started_ms FROM dev_agent_runs
       WHERE conversation_id = $1 AND status IN ('pending','running')
       ORDER BY created_at DESC LIMIT 1`,
     [id],
@@ -184,6 +187,7 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
       tokenUsage: m.token_usage,
     })),
     pendingRunId: pending?.id ?? null,
+    pendingRunStartedAt: pending ? Number(pending.started_ms) : null,
   };
 }
 

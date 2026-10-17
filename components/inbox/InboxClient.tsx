@@ -186,6 +186,26 @@ export function InboxClient({
   const [threads, setThreads] = useState(data.threads);
   const [readers, setReaders] = useState(data.readers);
   const [pageToken, setPageToken] = useState(data.nextPageToken);
+  // Follow the server's first page: a refresh (LiveUpdates, or an action's own
+  // revalidate) re-reads Gmail — new mail, read state, links. Plain useState
+  // kept the first render forever, so counts and the list went stale. Pages
+  // pulled in with "Load more" stay after it; render-phase adjustment, as in
+  // lib/use-server-state.ts.
+  const serverJson = JSON.stringify([data.threads, data.readers]);
+  const [seenServer, setSeenServer] = useState({
+    json: serverJson,
+    ids: data.threads.map((t) => t.id),
+    token: data.nextPageToken,
+  });
+  if (serverJson !== seenServer.json) {
+    const oldFirst = new Set(seenServer.ids);
+    const fresh = new Set(data.threads.map((t) => t.id));
+    setSeenServer({ json: serverJson, ids: [...fresh], token: data.nextPageToken });
+    setThreads((prev) => [...data.threads, ...prev.filter((t) => !oldFirst.has(t.id) && !fresh.has(t.id))]);
+    setReaders((prev) => ({ ...prev, ...data.readers }));
+    // Nothing paged in past the first page yet — the next page starts after the new one.
+    if (pageToken === seenServer.token) setPageToken(data.nextPageToken);
+  }
   const [loadingMore, setLoadingMore] = useState(false);
   // Label + system-view lists are fetched server-side (scoped to that Gmail
   // label / mailbox) so they show the full mail, not just whatever paged into

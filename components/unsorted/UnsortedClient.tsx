@@ -208,7 +208,12 @@ export function UnsortedClient({
 
 function DocPreview({ doc, files }: { doc: UnsortedDocRow; files: Record<string, DocFile> }) {
   const tabs = [...doc.attachment_file_ids, ...(doc.email_file_id ? [doc.email_file_id] : [])].map((id) => files[id]).filter(Boolean);
-  const [active, setActive] = useState(tabs[0]?.id ?? null);
+  // A purchase whose only attachments are rebate forms (Menards' "11% Rebate"
+  // PDF) has its items and total in the email body — open on the email.
+  const rebateFormsOnly =
+    doc.doc_kind !== "rebate" && !!doc.email_file_id && tabs.some((t) => t.id !== doc.email_file_id) &&
+    tabs.every((t) => t.id === doc.email_file_id || /rebate/i.test(t.name));
+  const [active, setActive] = useState((rebateFormsOnly ? doc.email_file_id : tabs[0]?.id) ?? null);
   const f = tabs.find((t) => t.id === active) ?? tabs[0];
   const isEmail = (x: DocFile) => x.id === doc.email_file_id;
   const src = f ? `/api/files/${encodeURIComponent(f.id)}` : "";

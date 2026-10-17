@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import { useServerState } from "@/lib/use-server-state";
 import { useRouter } from "next/navigation";
 import { Phone, Mail, X, UserPlus, CalendarDays, Pencil } from "lucide-react";
 import { Avatar, Card, Chip } from "@/components/ui";
@@ -63,8 +64,8 @@ export function ProjectSubs({
   assigned: AssignedSub[];
   roster: RosterSub[];
 }) {
-  const [rows, setRows] = useState(assigned);
-  const [pool, setPool] = useState(roster);
+  const [rows, setRows] = useServerState(assigned);
+  const [pool, setPool] = useServerState(roster);
   const [pick, setPick] = useState("");
   const [role, setRole] = useState("");
   const [editing, setEditing] = useState<string | null>(null);

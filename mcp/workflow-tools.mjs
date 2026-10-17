@@ -6,6 +6,7 @@
 
 import { z } from "zod";
 import { projectWorkflowView, noteWorkflowEvent } from "../lib/workflow/engine.ts";
+import { txOver } from "./tool-shared.mjs";
 
 export function registerWorkflowTools(server, { rows, json, pool, slugToId }) {
   server.registerTool(
@@ -45,18 +46,12 @@ export function registerWorkflowTools(server, { rows, json, pool, slugToId }) {
     async ({ project_slug, kind, ref, detail }) => {
       const id = await slugToId("projects", project_slug);
       if (!id) return json({ ok: false, error: `No project ${project_slug}` });
-      const client = await pool.connect();
       try {
-        await client.query("BEGIN");
-        const run = async (sql, params) => (await client.query(sql, params)).rows;
-        const r = await noteWorkflowEvent(run, { projectId: id, kind, ref, detail: detail ?? {}, actor: process.env.SJCOS_AGENT_NAME || "agent" });
-        await client.query("COMMIT");
+        const r = await txOver(pool)((run) =>
+          noteWorkflowEvent(run, { projectId: id, kind, ref, detail: detail ?? {}, actor: process.env.SJCOS_AGENT_NAME || "agent" }));
         return json({ ok: true, created: r.created });
       } catch (e) {
-        await client.query("ROLLBACK").catch(() => {});
         return json({ ok: false, error: e.message });
-      } finally {
-        client.release();
       }
     },
   );

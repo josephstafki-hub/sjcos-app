@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useServerState } from "@/lib/use-server-state";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -154,7 +155,8 @@ export function NotificationsClient({ data, approvals = [] }: { data: Notificati
 
 function NotificationRow({ notification: n }: { notification: NotificationCard }) {
   const Icon = ICON[n.icon];
-  const [read, setRead] = useState(n.read);
+  // Follows the server too: marked read from the bell, another tab or "mark all".
+  const [read, setRead] = useServerState(n.read);
   // Mark read on click. Fire-and-forget: the action revalidates /notifications
   // so it stays read on return; we also dim it immediately for feedback.
   function onOpen() {

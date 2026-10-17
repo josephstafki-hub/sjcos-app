@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useServerState } from "@/lib/use-server-state";
 import {
   Sparkles,
   Send,
@@ -99,14 +100,17 @@ function clockNow(): string {
 export function ChatClient({ data }: { data: ChatData }) {
   const { me, canManage } = data;
   const [selectedKey, setSelectedKey] = useState(data.selectedKey);
+  // The lists below follow the server: LiveUpdates refreshes the page when a
+  // message lands (someone else's post, a portal reply, an agent), and
+  // useServerState adopts it. Plain useState kept the first render forever.
   // Mobile master/detail: below lg, show the channel rail OR the messages.
   const [mobileThread, setMobileThread] = useState(false);
-  const [views, setViews] = useState(data.views);
-  const [channels, setChannels] = useState(data.channels);
-  const [rooms, setRooms] = useState(data.rooms);
-  const [directs, setDirects] = useState(data.directs);
+  const [views, setViews] = useServerState(data.views);
+  const [channels, setChannels] = useServerState(data.channels);
+  const [rooms, setRooms] = useServerState(data.rooms);
+  const [directs, setDirects] = useServerState(data.directs);
   // Archived rooms + removed channels (owner only), folded by default.
-  const [archived, setArchived] = useState(data.archived);
+  const [archived, setArchived] = useServerState(data.archived);
   const [showArchived, setShowArchived] = useState(false);
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState<string | null>(null);
@@ -120,7 +124,7 @@ export function ChatClient({ data }: { data: ChatData }) {
   const [dmError, setDmError] = useState<string | null>(null);
   // Portal-delivery outbox (P1-D4): team-chat messages parked for the owner to
   // Release into (or Skip from) a real sub/client portal.
-  const [outbox, setOutbox] = useState<PortalOutboxItem[]>(data.portalOutbox);
+  const [outbox, setOutbox] = useServerState<PortalOutboxItem[]>(data.portalOutbox);
   const [outboxError, setOutboxError] = useState<string | null>(null);
   const [outboxPending, setOutboxPending] = useState<number | null>(null);
   const [, startTransition] = useTransition();
@@ -172,7 +176,7 @@ export function ChatClient({ data }: { data: ChatData }) {
   };
 
   // Internal-team roster — grows when the owner creates a teammate inline.
-  const [teamRoster, setTeamRoster] = useState(data.teamRoster);
+  const [teamRoster, setTeamRoster] = useServerState(data.teamRoster);
 
   const setTeamMembers = (key: string, teamMembers: TeamMember[]) =>
     setViews((v) => ({ ...v, [key]: { ...v[key], teamMembers } }));

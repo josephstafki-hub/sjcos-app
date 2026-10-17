@@ -15,12 +15,14 @@ import { getSmsThread, sendSms, smsConfigured, smsStatus, upsertSmsThread, type 
 
 /** Load a thread's messages and clear its unread flag (opening = reading).
  *  Owner-only. Returns null if the thread is gone. */
-export async function loadSmsThread(id: number): Promise<{ messages: SmsMessage[]; unreadCleared: boolean } | null> {
+/** `markRead` false: load for display without clearing the unread dot — the
+ *  conversation pane isn't on screen yet (phone layout shows the list first). */
+export async function loadSmsThread(id: number, markRead = true): Promise<{ messages: SmsMessage[]; unreadCleared: boolean } | null> {
   await requireAccess("comms");
   const data = await getSmsThread(id);
   if (!data) return null;
   let unreadCleared = false;
-  if (data.thread.unread) {
+  if (markRead && data.thread.unread) {
     await query(`UPDATE sms_threads SET unread = false WHERE id = $1`, [id]);
     unreadCleared = true;
     revalidatePath("/messages");

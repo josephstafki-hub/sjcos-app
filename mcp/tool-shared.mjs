@@ -4,22 +4,52 @@
 
 import { normalizePermissions } from "../lib/permissions.ts";
 
-/** Run fn(run) in ONE transaction on the pool; rolls back on throw. */
+// Mirrors writeScope() in lib/db.ts: the table a single write statement touches.
+const WRITE_SQL = /^\s*(insert\s+into|update|delete\s+from)\s+(?:only\s+)?"?([a-zA-Z_][a-zA-Z0-9_]*)"?/i;
+
+/** Table a write statement touches (lowercased), null for anything else. */
+export function writeTable(sql) {
+  const m = WRITE_SQL.exec(sql);
+  return m ? m[2].toLowerCase() : null;
+}
+
+/** Live-update signal: one app_change_log row per table, so open browser tabs
+ *  (LiveUpdates in the app) refresh without a reload. Awaited — the stdio MCP
+ *  process can exit right after a tool returns, which would drop a
+ *  fire-and-forget insert. Swallowed on error: a missing table (migration not
+ *  applied yet) must not fail the tool call itself. */
+export async function logLiveChanges(pool, tables) {
+  for (const t of new Set(tables)) {
+    if (!t || t === "app_change_log") continue;
+    await pool.query(`INSERT INTO app_change_log (scope, source) VALUES ($1, 'mcp')`, [t]).catch(() => {});
+  }
+}
+
+/** Run fn(run) in ONE transaction on the pool; rolls back on throw. Every
+ *  table a write in it changed is logged for live updates after COMMIT. */
 export function txOver(pool) {
   return async (fn) => {
     const client = await pool.connect();
-    const run = async (sql, params) => (await client.query(sql, params ?? [])).rows;
+    const touched = new Set();
+    const run = async (sql, params) => {
+      const r = await client.query(sql, params ?? []);
+      const t = writeTable(sql);
+      if (t && (r.rowCount ?? 1) > 0) touched.add(t);
+      return r.rows;
+    };
+    let out;
     try {
       await client.query("BEGIN");
-      const out = await fn(run);
+      out = await fn(run);
       await client.query("COMMIT");
-      return out;
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       throw e;
     } finally {
       client.release();
     }
+    await logLiveChanges(pool, touched);
+    return out;
   };
 }
 

@@ -15,7 +15,10 @@ const EMPTY_WAITING = { items: [] as WaitingItem[], total: 0 };
  *  logs, newsletter…) is ignored so a busy Hermes turn doesn't hammer the
  *  queue query for unrelated writes. */
 const QUEUE_SCOPES = new Set([
+  "", // a write LiveUpdates couldn't name (behind a CTE) — might be one of these
   "work_items",
+  "work_item_assignees",
+  "schedule_blocks",
   "leads",
   "lead_activity",
   "projects",
@@ -81,17 +84,29 @@ function LiveQueueRefresh() {
   useEffect(() => {
     refreshRef.current = refresh;
   });
-  useEffect(
-    () =>
-      subscribePanelBus((m) => {
-        if (m.type !== "changes") return;
-        if (!m.scopes.some((s) => QUEUE_SCOPES.has(s))) return;
-        const now = Date.now();
-        if (now - last.current < MIN_GAP_MS) return;
-        last.current = now;
-        void refreshRef.current().catch(() => {});
-      }),
-    [],
-  );
+  useEffect(() => {
+    // A change inside the gap is deferred to its end, not dropped — dropping it
+    // left the queue showing the first write of a burst until the next change.
+    let trailing: number | null = null;
+    const run = () => {
+      trailing = null;
+      last.current = Date.now();
+      void refreshRef.current().catch(() => {});
+    };
+    // Local only: every window runs its own LiveUpdates, so another window's
+    // copy of the same "changes" would refresh twice.
+    const unsubscribe = subscribePanelBus((m, origin) => {
+      if (origin !== "local" || m.type !== "changes") return;
+      if (!m.scopes.some((s) => QUEUE_SCOPES.has(s))) return;
+      if (trailing != null) return;
+      const wait = MIN_GAP_MS - (Date.now() - last.current);
+      if (wait <= 0) run();
+      else trailing = window.setTimeout(run, wait);
+    });
+    return () => {
+      unsubscribe();
+      if (trailing != null) window.clearTimeout(trailing);
+    };
+  }, []);
   return null;
 }

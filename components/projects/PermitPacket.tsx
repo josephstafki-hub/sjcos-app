@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useServerState } from "@/lib/use-server-state";
 import { FileText, Download, FileStack } from "lucide-react";
 import { Card } from "@/components/ui";
 import { generatePermitPacket } from "@/lib/actions/permit";
@@ -11,7 +12,7 @@ import type { PermitFile } from "@/lib/permits";
  *  ones already on file. Owner-only. The scope narrative is Qwen-drafted, so the
  *  Generate button runs ~10–20s on local CPU inference — shows pending. */
 export function PermitPacket({ slug, permits }: { slug: string; permits: PermitFile[] }) {
-  const [rows, setRows] = useState(permits);
+  const [rows, setRows] = useServerState(permits);
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
 

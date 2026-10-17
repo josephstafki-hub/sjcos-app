@@ -12,6 +12,10 @@ const POLL_MS = 2_500;
 const MIN_REFRESH_GAP_MS = 3_000;
 /** Cap for the error backoff — a down server gets pinged at most every 30s. */
 const MAX_BACKOFF_MS = 30_000;
+/** Timer bookkeeping no page shows live: a write that touched only these
+ *  doesn't refetch the open page. They were over half of all change-log rows
+ *  (cron_runs alone ~1,000 a day), each one re-rendering every open tab. */
+const BOOKKEEPING = new Set(["cron_runs", "mailbox_checkpoints", "detector_state", "push_outbox"]);
 
 /**
  * Renders nothing; mounted once in Shell. Polls the app_change_log cursor (see
@@ -45,7 +49,7 @@ export function LiveUpdates() {
         if (cancelled) return;
         // First poll just sets the baseline — the page rendered fresh data on load.
         if (cursor.current != null && next > cursor.current) {
-          needsRefresh.current = true;
+          if (scopes.length === 0 || scopes.some((s) => !BOOKKEEPING.has(s))) needsRefresh.current = true;
           // Tell the operator panel's live-action layer which tables moved —
           // it decides whether the app view should jump there (LiveActionNav).
           if (scopes.length) postPanelMessage({ type: "changes", scopes, agentScopes }, { local: true });

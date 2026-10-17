@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useServerState } from "@/lib/use-server-state";
 import { Check, Plus, X } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import { setPunchDone, addPunchItem, deletePunchItem } from "@/lib/actions/projects";
@@ -17,7 +18,7 @@ interface PunchItem {
  *  persisted via setPunchDone); the composer adds an item and rows can be
  *  removed. Owner-only — each action re-checks the role. */
 export function PunchList({ slug, items }: { slug: string; items: PunchItem[] }) {
-  const [rows, setRows] = useState(items);
+  const [rows, setRows] = useServerState(items);
   const [item, setItem] = useState("");
   const [owner, setOwner] = useState("");
   const [, startTransition] = useTransition();

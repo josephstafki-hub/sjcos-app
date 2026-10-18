@@ -12,7 +12,7 @@ import type { TodayPriority, WaitingItem } from "@/lib/today";
 export function queueContext(priorities: TodayPriority[], waiting: WaitingItem[]): string {
   const rows = priorities.map(
     (p) =>
-      `  - ${p.rank} [${p.tag}] ${p.title}${p.sub ? ` — ${p.sub}` : ""} (${
+      `  - ${p.rank} [${p.tag}] ${p.title}${p.sub ? ` — ${p.sub}` : ""}${p.due ? ` · due ${p.due}` : ""} (${
         p.checkable ? `work_item_id: ${p.id}` : `signal card, not a work item`
       })`,
   );

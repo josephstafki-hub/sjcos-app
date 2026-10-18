@@ -3,7 +3,6 @@ import { Suspense } from "react";
 import { AiBubble, Card, Chip } from "@/components/ui";
 import { TodayCards } from "./TodayCards";
 import { WeekStrip } from "./WeekStrip";
-import { WaitingList, WaitingCount } from "./WaitingList";
 import { TodayQueueProvider } from "./TodayQueueContext";
 import { getTodayBrief, type BriefInput, type TodayData } from "@/lib/today";
 
@@ -15,9 +14,9 @@ const DOT: Record<string, string> = {
   ghost: "bg-ink-4",
 };
 
-/** Inner content of the Today dashboard: brief + priority cards + the day's
- *  schedule/week rail. Chat moved to the universal operator panel — cards
- *  hand off to it over the panel bus. */
+/** Inner content of the Today dashboard: brief + the one to-do list (Up next
+ *  cards, then the rest) + the week/schedule rail. Chat moved to the universal
+ *  operator panel — cards hand off to it over the panel bus. */
 export function TodayBody({ data }: { data: TodayData }) {
   // The AI brief bubble, rendered on the server (Suspense streams the text) and
   // passed into the client feed as its pinned first item.
@@ -66,17 +65,19 @@ export function TodayBody({ data }: { data: TodayData }) {
         </div>
       </div>
 
-      {/* Two-column body. The feed (left) and Waiting on me (right rail) share
-          queue state via TodayQueueProvider (a context, not a wrapping element)
-          so they stay grid siblings — see TodayQueueContext.tsx. */}
-      <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[1.4fr_1fr]">
+      {/* Two-column body: the to-do list (left) and the calendar rail. The
+          list used to be split — five cards here, "Waiting on me" in the rail
+          — but it was one queue, so it's one column now (Joe, 2026-10-17).
+          minmax(0,…) so a long title can't blow the column out. */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)]">
         <TodayQueueProvider
           initialPriorities={data.priorities}
           initialWaiting={data.waiting}
           canAssign={data.canAssign}
           assignees={data.assignees}
+          canPromote={data.canAssign}
         >
-          {/* Brief + priority cards; chat lives in the operator panel now. */}
+          {/* Brief + Up next + the rest; chat lives in the operator panel. */}
           <TodayCards brief={brief} />
 
           {/* Right rail */}
@@ -112,16 +113,6 @@ export function TodayBody({ data }: { data: TodayData }) {
                   );
                 })}
               </div>
-            </Card>
-
-            <Card kind="tan" className="p-3">
-              <div className="flex items-center">
-                <h3 className="flex-1 font-serif text-[13.5px] font-semibold text-ink">
-                  Waiting on me
-                </h3>
-                <WaitingCount />
-              </div>
-              <WaitingList />
             </Card>
           </aside>
         </TodayQueueProvider>

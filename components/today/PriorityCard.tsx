@@ -1,10 +1,8 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { Sparkles, Check, Clock, ArrowUpRight, UserRound } from "lucide-react";
 import { Card } from "@/components/ui";
 import { useTodayQueue } from "./TodayQueueContext";
-import { AssigneePicker } from "./AssigneePicker";
+import { AssignmentLine, QueueActions } from "./QueueActions";
 import type { TodayPriority } from "@/lib/today";
 
 const DOT: Record<string, string> = {
@@ -15,21 +13,8 @@ const DOT: Record<string, string> = {
   ghost: "bg-ink-4",
 };
 
-/** Friendly name for the deep-lane "Open <page>" chip, from the card's href. */
-function pageLabel(href?: string): string {
-  if (!href) return "Open";
-  if (href.startsWith("/leads/")) return "Open lead";
-  if (href.startsWith("/projects/")) return "Open project";
-  if (href.startsWith("/warranty")) return "Open warranty";
-  if (href.startsWith("/compliance")) return "Open compliance";
-  if (href.startsWith("/schedule")) return "Open schedule";
-  return "Open";
-}
-
-/** One Today-feed priority card: the existing card look (dot, mono tag, rank,
- *  serif title, sub) plus a lane-specific chip row. Chips are deterministic
- *  React elements keyed to the work_item id and verified server-side on click
- *  (see lib/actions/today.ts) — never model output. */
+/** One Up next card: dot, mono tag, due date (red once it has passed), rank,
+ *  serif title, sub, who's on it, then the lane's buttons (QueueActions). */
 export function PriorityCard({
   p,
   onHandOff,
@@ -37,136 +22,45 @@ export function PriorityCard({
   p: TodayPriority;
   onHandOff: (p: TodayPriority, kind: "do" | "prep") => void;
 }) {
-  const { busyId, checkingId, complete, snooze, handleCardClick, canAssign, assignees, assign } =
-    useTodayQueue();
-  const router = useRouter();
+  const { busyId, checkingId } = useTodayQueue();
 
   const busy = busyId === p.id || checkingId === p.id;
   const isAllClear = p.id === "all-clear";
 
-  // Which chips show, by lane (§3.2). Signal cards (checkable: false) are
-  // always deep and only get Open + Prep me.
-  const showHermes = p.checkable && p.lane === "chat";
-  const showDone = p.checkable && (p.lane === "chat" || p.lane === "quick");
-  const showSnooze = p.checkable && (p.lane === "quick" || p.lane === "deep");
-  const showPrep = p.lane === "deep" && !isAllClear;
-  const showOpen = Boolean(p.href) && !isAllClear;
-  // Handing work out is the owner's alone (Joe, 2026-09-27), and only a real
-  // work item can be handed over — the lead/job/schedule signal cards aren't
-  // rows anyone can own.
-  const showAssign = canAssign && p.checkable && !isAllClear;
-
-  const open = async () => {
-    if (!p.href) return;
-    if (p.checkable) {
-      const handled = await handleCardClick(p); // stale-check: swaps if already done
-      if (handled) return;
-    }
-    router.push(p.href);
-  };
-
   return (
     <Card className={`p-3 transition-all ${busy ? "opacity-60" : ""}`}>
       <div className="flex items-center gap-2">
-        <span className={`size-2 rounded-full ${DOT[p.dot]}`} />
-        <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.16em] text-ink-3">
+        <span className={`size-2 flex-none rounded-full ${DOT[p.dot]}`} />
+        <span className="min-w-0 truncate font-mono text-[9.5px] font-medium uppercase tracking-[0.16em] text-ink-3">
           {p.tag}
         </span>
+        {p.due && <DueLabel due={p.due} overdue={p.overdue} />}
         <div className="flex-1" />
         <span className="font-mono text-[10px] text-ink-4">{p.rank}</span>
       </div>
       <div className="mt-1 font-serif text-[16px] font-semibold text-ink">{p.title}</div>
       <div className="mt-0.5 text-[12px] text-ink-3">{p.sub}</div>
 
-      {/* Who's on it. A handed-off to-do stays on Joe's Today (his rule,
-          2026-09-27), so this line is what tells the two apart at a glance —
-          deliberately above the chip row and in the accent colour, not a
-          footnote. It names everyone but the viewer ("Assigned to you &
-          Abigail Stafki"), so a shared to-do never reads as one person's. */}
       {p.assignment && (
-        <div className="mt-1.5 flex items-center gap-1.5">
-          <span className="flex flex-none -space-x-1">
-            {p.assignment.others.map((a) => (
-              <span
-                key={a.userId}
-                className="grid size-[18px] place-items-center rounded-full bg-accent-soft font-mono text-[9px] font-semibold text-accent-2 ring-1 ring-paper"
-              >
-                {a.initials}
-              </span>
-            ))}
-          </span>
-          <span className="text-[12px] font-semibold text-accent-2">{p.assignment.label}</span>
+        <div className="mt-1.5">
+          <AssignmentLine assignment={p.assignment} />
         </div>
       )}
 
       {!isAllClear && (
-        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-          {showHermes && (
-            <button
-              onClick={() => onHandOff(p, "do")}
-              disabled={busy}
-              className="inline-flex items-center gap-1 rounded-md border border-ai/40 bg-ai-soft px-2 py-0.5 text-[11px] font-semibold text-ai-2 transition-colors hover:bg-ai/15 disabled:opacity-50"
-            >
-              <Sparkles className="size-3" strokeWidth={1.5} /> Have AI do it
-            </button>
-          )}
-          {showPrep && (
-            <button
-              onClick={() => onHandOff(p, "prep")}
-              disabled={busy}
-              className="inline-flex items-center gap-1 rounded-md border border-ai/40 bg-ai-soft px-2 py-0.5 text-[11px] font-semibold text-ai-2 transition-colors hover:bg-ai/15 disabled:opacity-50"
-            >
-              <Sparkles className="size-3" strokeWidth={1.5} /> Prep me a summary
-            </button>
-          )}
-          {showOpen && (
-            <button
-              onClick={open}
-              disabled={busy}
-              className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold transition-colors disabled:opacity-50 ${
-                p.lane === "deep"
-                  ? "border-ink/25 bg-paper-2 text-ink hover:bg-paper"
-                  : "border-rule bg-paper-2 text-ink-2 hover:bg-paper"
-              }`}
-            >
-              {pageLabel(p.href)} <ArrowUpRight className="size-3" strokeWidth={2} />
-            </button>
-          )}
-          {showDone && (
-            <button
-              onClick={() => complete(p.id)}
-              disabled={busy}
-              className="inline-flex items-center gap-1 rounded-md border border-rule bg-paper-2 px-2 py-0.5 text-[11px] font-semibold text-ink-2 transition-colors hover:bg-paper disabled:opacity-50"
-            >
-              <Check className="size-3" strokeWidth={2} /> Mark done
-            </button>
-          )}
-          {showSnooze && (
-            <button
-              onClick={() => snooze(p.id)}
-              disabled={busy}
-              className="inline-flex items-center gap-1 rounded-md border border-rule bg-paper-2 px-2 py-0.5 text-[11px] font-medium text-ink-3 transition-colors hover:bg-paper disabled:opacity-50"
-            >
-              <Clock className="size-3" strokeWidth={1.5} /> Snooze 3d
-            </button>
-          )}
-          {showAssign && (
-            <AssigneePicker
-              roster={assignees}
-              assigned={p.assignedTo ?? []}
-              onChange={(ids) => assign(p.id, ids)}
-              disabled={busy}
-              triggerClassName="inline-flex items-center gap-1 rounded-md border border-rule bg-paper-2 px-2 py-0.5 text-[11px] font-medium text-ink-3 transition-colors hover:bg-paper disabled:opacity-50"
-              trigger={
-                <>
-                  <UserRound className="size-3" strokeWidth={1.5} />
-                  {p.assignedTo?.length ? "Reassign" : "Assign"}
-                </>
-              }
-            />
-          )}
+        <div className="mt-2.5">
+          <QueueActions p={p} place="card" onHandOff={onHandOff} />
         </div>
       )}
     </Card>
+  );
+}
+
+/** "due Sep 24" — red once the day has passed. */
+export function DueLabel({ due, overdue }: { due: string; overdue?: boolean }) {
+  return (
+    <span className={`flex-none font-mono text-[10px] ${overdue ? "text-flag" : "text-ink-4"}`}>
+      due {due}
+    </span>
   );
 }

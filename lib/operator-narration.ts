@@ -18,7 +18,7 @@ export function queueNarration(
   const lines = real.map((p) => {
     const laneNote =
       p.lane === "chat" ? "agent can complete" : p.lane === "quick" ? "one click" : "needs you";
-    return `${p.rank} [${p.tag}] ${p.title} — ${p.sub} (${laneNote})`;
+    return `${p.rank} [${p.tag}] ${p.title} — ${p.sub}${p.due ? ` · due ${p.due}` : ""} (${laneNote})`;
   });
   return [
     `Here's the queue right now:`,

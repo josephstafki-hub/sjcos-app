@@ -122,7 +122,7 @@ export function todayContext(data: TodayData): string {
       `Priorities:\n${data.priorities
         .map(
           (p) =>
-            `  - [${p.tag}] ${p.title}${p.sub ? ` — ${p.sub}` : ""}` +
+            `  - [${p.tag}] ${p.title}${p.sub ? ` — ${p.sub}` : ""}${p.due ? ` · due ${p.due}` : ""}` +
             // A handed-off to-do reads as Joe's own work without this, and an
             // agent would answer "you still owe X" about someone else's task.
             `${p.assignment ? ` [${p.assignment.label}]` : ""}` +

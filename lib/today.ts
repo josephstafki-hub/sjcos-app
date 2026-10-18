@@ -37,6 +37,14 @@ export interface Assignment {
 
 type DotKind = "flag" | "accent" | "ai" | "money" | "ghost";
 
+/** Which job / lead a to-do belongs to — the heading it sits under in the
+ *  list below Up next. To-dos tied to neither go under "Office & admin". */
+export interface QueueGroup {
+  key: string;
+  name: string;
+  href?: string;
+}
+
 export interface TodayPriority {
   /** work_items.id for backlog-sourced items (checkable on click); a stable
    *  synthetic id (e.g. "lead:slug") for the always-on signal types. */
@@ -62,6 +70,18 @@ export interface TodayPriority {
    *  card on his own Today (his rule, 2026-09-27) — this is what makes it say
    *  who is actually on it. */
   assignment?: Assignment;
+  /** The job / lead heading this sits under in the list. */
+  group: QueueGroup;
+  priority?: TodayWorkItemRow["priority"];
+  /** "Sep 24" — shown on the card / row, red when overdue. */
+  due?: string;
+  /** "2026-09-24", for the By due date view. */
+  dueDay?: string;
+  /** Due on an earlier day than today (Central). */
+  overdue?: boolean;
+  /** status waiting_on_sub: the ball is with a sub/vendor. Listed collapsed
+   *  at the bottom, never pulled into Up next. */
+  waitingOnSub?: boolean;
 }
 
 export interface TodayScheduleBlock {
@@ -101,16 +121,13 @@ export interface TodayData {
   assignees: AssignedTo[];
 }
 
-export interface WaitingItem {
-  id: string;
+/** Everything on Today below Up next. Same shape as a card (a row opens into
+ *  one in place), plus `label` — the one-line "Kind — source — title" the
+ *  agent context and the panel's compact list use. `checkable` is true for
+ *  work_items-backed rows — the only ones the queue actions can mark done /
+ *  snooze / move up. */
+export interface WaitingItem extends Omit<TodayPriority, "rank"> {
   label: string;
-  href?: string;
-  lane: Lane;
-  /** True for work_items-backed rows — the only ones the queue actions can
-   *  mark done / snooze. Signal cards (warranty/lead/compliance/…) are false. */
-  checkable: boolean;
-  /** Who else is on it, when it isn't only the viewer's. */
-  assignment?: Assignment;
 }
 
 export interface BriefInput {
@@ -188,8 +205,11 @@ export interface TodayWorkItemRow {
   priority: "low" | "normal" | "high" | "urgent";
   effort_class: string | null;
   due: string | null;
+  due_day: string | null;
+  overdue: boolean | null;
   snoozed_until: string | null;
   promoted_at: string | null;
+  sent_back_at: string | null;
   project_slug: string | null;
   project_name: string | null;
   project_status: string | null;
@@ -222,6 +242,11 @@ export function workItemCandidate(w: TodayWorkItemRow, viewerId: string): Omit<T
   const assignedTo = toAssigned(w.assigned);
   const isWarranty = w.project_status === "warranty";
   const isProject = Boolean(w.project_slug);
+  const group: QueueGroup = w.lead_slug
+    ? { key: `lead:${w.lead_slug}`, name: w.lead_name ?? "Lead", href: `/leads/${w.lead_slug}` }
+    : w.project_slug
+      ? { key: `project:${w.project_slug}`, name: w.project_name ?? "Project", href: `/projects/${w.project_slug}` }
+      : OFFICE_GROUP;
   return {
     id: w.id,
     checkable: true,
@@ -235,12 +260,22 @@ export function workItemCandidate(w: TodayWorkItemRow, viewerId: string): Omit<T
     dot: w.priority === "urgent" || w.priority === "high" ? "flag" : "accent",
     lane: laneFor({ title: w.title, body: w.body, effortClass: w.effort_class }),
     title: w.title,
-    sub: [w.body, w.due ? `due ${w.due}` : null].filter(Boolean).join(" · ") || w.status.replaceAll("_", " "),
+    // The due date rides separately (`due`) so the card can show it on the
+    // tag line, red when it has passed.
+    sub: w.body || w.status.replaceAll("_", " "),
     href: w.lead_slug ? `/leads/${w.lead_slug}` : isWarranty ? "/warranty" : w.project_slug ? `/projects/${w.project_slug}` : "/engine",
     assignedTo,
     assignment: describeAssignment(assignedTo, viewerId) ?? undefined,
+    group,
+    priority: w.priority,
+    due: w.due ?? undefined,
+    dueDay: w.due_day ?? undefined,
+    overdue: Boolean(w.overdue),
+    waitingOnSub: w.status === "waiting_on_sub",
   };
 }
+
+const OFFICE_GROUP: QueueGroup = { key: "office", name: "Office & admin" };
 
 /** "$32,400" style dollars with thousands separators. */
 function dollars(n: number): string {
@@ -326,29 +361,28 @@ async function fetchQueueSources(viewer: QueueViewer): Promise<QueueSources> {
   };
 }
 
-/** Build the 5-slot Priorities rail + Waiting-on-me backlog from raw sources.
- *  Auto-promotes unpromoted work items to top up empty slots (a DB write) so
- *  the rail backfills even when nobody visited /today to trigger the click-time
- *  swap. The ONE place this ranking/promotion logic lives. */
-async function buildQueue(s: QueueSources, viewer: QueueViewer): Promise<QueueSnapshot> {
-  // ── Priorities: a 5-slot rail, ranked from real signals. Leads are always
-  // first because new revenue beats internal/project follow-ups, then the
-  // rest keep their existing source order (work queue → schedule/job).
-  //
+/** A queue candidate: card fields plus the rail state buildQueue needs. */
+interface Candidate extends Omit<TodayPriority, "rank"> {
+  promotedAt: string | null;
+  /** Set by "Snooze 3d" so a just-demoted item is excluded from
+   *  auto-promotion until the snooze window passes, instead of immediately
+   *  refilling its own freed slot. Null for non-work-item signal candidates
+   *  (always eligible) and for work items that were never snoozed. */
+  snoozedUntil: string | null;
+  /** Set by "↓ Back to list": the top-up skips it until Joe moves it up by
+   *  hand. */
+  sentBackAt: string | null;
+  waitingLabel: string;
+}
+
+/** Every candidate from the raw sources, in display order. Leads are always
+ *  first because new revenue beats internal/project follow-ups, then the rest
+ *  keep their source order (work queue → schedule/job). */
+function rankCandidates(s: QueueSources, viewer: QueueViewer): Candidate[] {
   // Work-item candidates (Hermes's backlog) only occupy a slot once
   // `promoted_at` is set — see db/schema.sql. Non-work-item signals
-  // (leads/warranty/compliance/schedule/job) aren't part of that backlog, so
-  // they're always eligible. If fewer than 5 slots are filled, we
-  // auto-promote the next-ranked unpromoted work items to top up.
-  interface Candidate extends Omit<TodayPriority, "rank"> {
-    promotedAt: string | null;
-    /** Set by "Snooze 3d" so a just-demoted item is excluded from
-     *  auto-promotion until the snooze window passes, instead of immediately
-     *  refilling its own freed slot. Null for non-work-item signal candidates
-     *  (always eligible) and for work items that were never snoozed. */
-    snoozedUntil: string | null;
-    waitingLabel: string;
-  }
+  // (leads/schedule/job) aren't part of that backlog, so they're always
+  // eligible.
   const candidates: Candidate[] = [];
   const workItemLeadSlugs = new Set(s.openWorkItems.map((w) => w.lead_slug).filter(Boolean));
   for (const w of s.openWorkItems) {
@@ -359,6 +393,7 @@ async function buildQueue(s: QueueSources, viewer: QueueViewer): Promise<QueueSn
       ...workItemCandidate(w, viewer.id),
       promotedAt: w.promoted_at,
       snoozedUntil: w.snoozed_until,
+      sentBackAt: w.sent_back_at,
       waitingLabel: [kind, source, w.title].filter(Boolean).join(" — "),
     });
   }
@@ -366,34 +401,31 @@ async function buildQueue(s: QueueSources, viewer: QueueViewer): Promise<QueueSn
   // rows here; the W1 warranty-unacked + compliance-due detectors now file
   // those as work items (already in openWorkItems above), so raw-row
   // candidates would list the same condition twice.
+  const signal = { checkable: false, lane: "deep" as Lane, promotedAt: null, snoozedUntil: null, sentBackAt: null };
   for (const l of s.flaggedLeadRows.filter((l) => !workItemLeadSlugs.has(l.slug))) {
     candidates.push({
+      ...signal,
       id: `lead:${l.slug}`,
-      checkable: false,
-      lane: "deep",
-      promotedAt: null,
-      snoozedUntil: null,
       tag: "LEAD",
       dot: "flag",
       title: `Reply to ${l.name}`,
       sub: [l.flag_label, l.scope].filter(Boolean).join(" · ") || "Needs your attention",
       href: `/leads/${l.slug}`,
+      group: { key: `lead:${l.slug}`, name: l.name, href: `/leads/${l.slug}` },
       waitingLabel: `Reply to ${l.name} — ${l.flag_label ?? "lead"}`,
     });
   }
   const firstJobBlock = s.scheduleRows.find((b) => b.tone === "accent" || b.tone === "ai");
   if (firstJobBlock) {
     candidates.push({
+      ...signal,
       id: `schedule:${firstJobBlock.label}`,
-      checkable: false,
-      lane: "deep",
-      promotedAt: null,
-      snoozedUntil: null,
       tag: "SCHEDULE",
       dot: "accent",
       title: `On site — ${firstJobBlock.label}`,
       sub: `${firstJobBlock.time_label} today`,
       href: "/schedule",
+      group: { key: "schedule", name: "Schedule", href: "/schedule" },
       waitingLabel: `On site — ${firstJobBlock.label} (${firstJobBlock.time_label})`,
     });
   }
@@ -409,25 +441,38 @@ async function buildQueue(s: QueueSources, viewer: QueueViewer): Promise<QueueSn
   );
   if (topActive) {
     candidates.push({
+      ...signal,
       id: `job:${topActive.slug}`,
-      checkable: false,
-      lane: "deep",
-      promotedAt: null,
-      snoozedUntil: null,
       tag: `JOB · ${topActive.name}`,
       dot: "accent",
       title: `Keep ${topActive.name} moving`,
       sub: `${topActive.progress}% complete`,
       href: `/projects/${topActive.slug}`,
+      group: { key: `project:${topActive.slug}`, name: topActive.name, href: `/projects/${topActive.slug}` },
       waitingLabel: `Keep ${topActive.name} moving (${topActive.progress}% complete)`,
     });
   }
-  const isLeadPriority = (c: Candidate): boolean =>
-    c.tag.startsWith("LEAD") || c.href?.startsWith("/leads/") === true;
-  const byLeadFirst = (a: Candidate, b: Candidate) =>
-    Number(isLeadPriority(b)) - Number(isLeadPriority(a));
+  return candidates.toSorted(byLeadFirst);
+}
 
-  const ranked = candidates.toSorted(byLeadFirst);
+const isLeadPriority = (c: Candidate): boolean =>
+  c.tag.startsWith("LEAD") || c.href?.startsWith("/leads/") === true;
+const byLeadFirst = (a: Candidate, b: Candidate) =>
+  Number(isLeadPriority(b)) - Number(isLeadPriority(a));
+
+/** Up next holds five. */
+const UP_NEXT_SLOTS = 5;
+
+/** May this candidate sit in Up next? Promoted work items and the always-on
+ *  signals — never an item that's waiting on a sub (not Joe's move). */
+const inRail = (c: Candidate) => !c.waitingOnSub && (!c.checkable || Boolean(c.promotedAt));
+
+/** Build Up next (5 cards) + the list below it from raw sources. Auto-promotes
+ *  unpromoted work items to top up empty slots (a DB write) so Up next
+ *  backfills even when nobody visited /today to trigger the click-time swap.
+ *  The ONE place this ranking/promotion logic lives. */
+async function buildQueue(s: QueueSources, viewer: QueueViewer): Promise<QueueSnapshot> {
+  const ranked = rankCandidates(s, viewer);
 
   // promoted_at is the OWNER's rail state — one column, one 5-slot rail, and no
   // MCP tool touches it (db/schema.sql). A staff member's Today therefore does
@@ -436,79 +481,124 @@ async function buildQueue(s: QueueSources, viewer: QueueViewer): Promise<QueueSn
   if (!isOwner(viewer)) {
     // Every row here has them on it by construction, so the card's line only
     // names whoever ELSE is (describeAssignment drops the viewer).
-    const displayed = ranked.slice(0, 5);
-    const shown = new Set(displayed.map((c) => c.id));
-    return {
-      priorities: (displayed.length ? displayed : [allClearCard()]).map((c, i) => ({
-        ...c,
-        rank: `#${i + 1}`,
-      })),
-      waiting: {
-        total: ranked.filter((c) => !shown.has(c.id)).length,
-        items: ranked
-          .filter((c) => !shown.has(c.id))
-          .map((c) => ({
-            id: c.id,
-            label: c.waitingLabel,
-            href: c.href,
-            lane: c.lane,
-            checkable: c.checkable,
-            assignment: c.assignment,
-          })),
-      },
-    };
+    return snapshot(ranked, ranked.filter((c) => !c.waitingOnSub).slice(0, UP_NEXT_SLOTS));
   }
 
-  const eligible = ranked.filter((c) => !c.checkable || c.promotedAt);
+  const eligible = ranked.filter(inRail);
   // Exclude just-snoozed items from the auto-promotion pool until their
   // snooze window passes — otherwise a demoted item with no other backlog
   // competing for its lead-first slot gets immediately re-promoted into the
   // very slot it just vacated, which reads as two cards swapping places
-  // instead of the snoozed one leaving Priorities. Only snoozedUntil gates
-  // promotion here — but a future due_at always carries one: the
-  // trg_work_items_snooze_until_due trigger (db/schema.sql) snoozes any item
-  // scheduled for a later day until 00:00 Central of that day, so scheduled
-  // to-dos never surface early (Joe's rule, 2026-09-02).
+  // instead of the snoozed one leaving Priorities. A future due_at always
+  // carries a snooze: the trg_work_items_snooze_until_due trigger
+  // (db/schema.sql) snoozes any item scheduled for a later day until 00:00
+  // Central of that day, so scheduled to-dos never surface early (Joe's rule,
+  // 2026-09-02). An item Joe sent back to the list stays out until he moves
+  // it up himself.
   const now = Date.now();
   const pool = ranked.filter(
-    (c) => c.checkable && !c.promotedAt && (!c.snoozedUntil || new Date(c.snoozedUntil).getTime() <= now),
+    (c) =>
+      c.checkable &&
+      !c.promotedAt &&
+      !c.waitingOnSub &&
+      !c.sentBackAt &&
+      (!c.snoozedUntil || new Date(c.snoozedUntil).getTime() <= now),
   );
-  const toPromote = pool.slice(0, Math.max(0, 5 - eligible.length));
+  const toPromote = pool.slice(0, Math.max(0, UP_NEXT_SLOTS - eligible.length));
+  const displayed = [...eligible, ...toPromote].toSorted(byLeadFirst).slice(0, UP_NEXT_SLOTS);
+  const displayedIds = new Set(displayed.map((c) => c.id));
+  // A promoted item that isn't on screen — it went to waiting on a sub, or
+  // more cards are promoted than Up next holds — loses its slot, so
+  // promoted_at keeps meaning "one of the five Joe sees" (get_today_queue
+  // reports it as such).
+  const toDemote = ranked.filter((c) => c.checkable && c.promotedAt && !displayedIds.has(c.id));
+
   if (toPromote.length) {
     await query(`UPDATE work_items SET promoted_at = now() WHERE id = ANY($1::uuid[])`, [
       toPromote.map((c) => c.id),
     ]);
   }
+  if (toDemote.length) {
+    await query(`UPDATE work_items SET promoted_at = NULL WHERE id = ANY($1::uuid[])`, [
+      toDemote.map((c) => c.id),
+    ]);
+  }
+  return snapshot(ranked, displayed);
+}
 
-  const displayed = [...eligible, ...toPromote].toSorted(byLeadFirst).slice(0, 5);
-  const displayedIds = new Set(displayed.map((c) => c.id));
+/** Up next = `displayed`; the list = everything else, still in rank order. */
+function snapshot(ranked: Candidate[], displayed: Candidate[]): QueueSnapshot {
+  const shown = new Set(displayed.map((c) => c.id));
+  const priorities: TodayPriority[] = (displayed.length ? displayed : [allClearCard()]).map(
+    (c, i) => ({ ...cardFields(c), rank: `#${i + 1}` }),
+  );
+  const items: WaitingItem[] = ranked
+    .filter((c) => !shown.has(c.id))
+    .map((c) => ({ ...cardFields(c), label: c.waitingLabel }));
+  // "Waiting on me" counts what's actually on the viewer: items with a sub
+  // are listed, but not counted.
+  return { priorities, waiting: { items, total: items.filter((i) => !i.waitingOnSub).length } };
+}
 
-  const priorities: TodayPriority[] = (
-    displayed.length ? displayed : [allClearCard()]
-  ).map((c, i) => ({ ...c, rank: `#${i + 1}` }));
+/** A candidate minus the rail state, which stays on the server. */
+function cardFields(c: Candidate): Omit<TodayPriority, "rank"> {
+  const card: Partial<Candidate> = { ...c };
+  delete card.promotedAt;
+  delete card.snoozedUntil;
+  delete card.sentBackAt;
+  delete card.waitingLabel;
+  return card as Omit<TodayPriority, "rank">;
+}
 
-  // ── Waiting on me: the full backlog minus whatever's currently shown in
-  // Priorities. This is the queue Hermes actually updates (work_items) plus
-  // the other live signals — see docs/hermes-mcp.md.
-  const waitingItems: WaitingItem[] = ranked
-    .filter((c) => !displayedIds.has(c.id))
-    .map((c) => ({
-      id: c.id,
-      label: c.waitingLabel,
-      href: c.href,
-      lane: c.lane,
-      checkable: c.checkable,
-      assignment: c.assignment,
-    }));
+/** "↑ Up next": put one to-do in the owner's Up next now, bumping the
+ *  lowest-ranked other work-item card back to the list to keep five. The
+ *  bumped card is not "sent back" — it returns on its own when a slot frees.
+ *  Signal cards are never bumped (they aren't rows). Owner only. */
+export async function promoteIntoUpNext(viewer: QueueViewer, workItemId: string): Promise<QueueSnapshot> {
+  if (!isOwner(viewer)) return getQueueSnapshot(viewer);
+  const promoted = await query(
+    `UPDATE work_items SET promoted_at = COALESCE(promoted_at, now()), sent_back_at = NULL
+      WHERE id = $1 AND status NOT IN ('done','cancelled','waiting_on_client','waiting_on_sub')
+      RETURNING id`,
+    [workItemId],
+  );
+  if (promoted.rows.length) {
+    const ranked = rankCandidates(await fetchQueueSources(viewer), viewer);
+    const rail = ranked.filter(inRail);
+    const bump: string[] = [];
+    for (let i = rail.length - 1; i >= 0 && rail.length - bump.length > UP_NEXT_SLOTS; i--) {
+      if (rail[i].checkable && rail[i].id !== workItemId) bump.push(rail[i].id);
+    }
+    if (bump.length) {
+      await query(`UPDATE work_items SET promoted_at = NULL WHERE id = ANY($1::uuid[])`, [bump]);
+    }
+  }
+  return getQueueSnapshot(viewer);
+}
 
-  return { priorities, waiting: { total: waitingItems.length, items: waitingItems } };
+/** "↓ Back to list": take a card out of Up next without snoozing it. It stays
+ *  in the list, and the top-up skips it until Joe moves it up again. Owner
+ *  only. */
+export async function sendBackToList(viewer: QueueViewer, workItemId: string): Promise<QueueSnapshot> {
+  if (isOwner(viewer)) {
+    await query(
+      `UPDATE work_items SET promoted_at = NULL, sent_back_at = now()
+        WHERE id = $1 AND status NOT IN ('done','cancelled')`,
+      [workItemId],
+    );
+  }
+  return getQueueSnapshot(viewer);
 }
 
 /** The empty-queue card, shared by both viewer paths. */
-function allClearCard(): Omit<TodayPriority, "rank"> & { waitingLabel: string } {
+function allClearCard(): Candidate {
   return {
     id: "all-clear",
     checkable: false,
+    promotedAt: null,
+    snoozedUntil: null,
+    sentBackAt: null,
+    group: OFFICE_GROUP,
     lane: "deep" as Lane,
     tag: "ALL CLEAR",
     dot: "ghost" as DotKind,

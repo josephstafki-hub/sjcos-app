@@ -61,8 +61,11 @@ const OPEN_WORK_ITEMS_SELECT = `
     SELECT w.id, w.title, left(NULLIF(w.body, ''), 140) AS body,
            w.status, w.priority, w.effort_class,
            to_char(w.due_at, 'FMMon FMDD') AS due,
+           to_char(w.due_at, 'YYYY-MM-DD') AS due_day,
+           (work_item_due_day_start(w.due_at) < work_item_due_day_start(now())) AS overdue,
            w.snoozed_until,
            w.promoted_at,
+           w.sent_back_at,
            p.slug AS project_slug, p.name AS project_name, p.status AS project_status,
            l.slug AS lead_slug, l.name AS lead_name,
            asg.assigned

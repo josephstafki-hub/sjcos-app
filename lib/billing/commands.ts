@@ -615,14 +615,30 @@ export async function finalReconciliation(run: Run, projectId: string): Promise<
     contractSource = "contract_value";
   }
   const economicKey = `project:${projectId}:final`;
+  // An approved formal estimate's total is the contract alone. Money billed
+  // before it was approved (a design / pre-con fee) and not keyed to it was
+  // paid for something else, so it doesn't come off the remainder.
+  // Louiselle, 2026-10-19: the $1,500 design fee cut the final draw to $1,329.56.
+  let preContractIds: number[] = [];
+  if (contractSource === "formal_estimate" && est) {
+    const rows = await run<{ id: number }>(
+      `SELECT i.id::int AS id FROM invoices i, estimates e
+        WHERE i.project_id = $1 AND e.id = $2 AND e.approved_at IS NOT NULL
+          AND COALESCE(i.sent_at, i.created_at) < e.approved_at
+          AND NOT (COALESCE(i.economic_key, '') LIKE 'estimate:' || e.id || ':%' OR COALESCE(i.economic_key, '') LIKE 'draw:%')`,
+      [projectId, est.id],
+    );
+    preContractIds = rows.map((r) => Number(r.id));
+  }
   const [co] = await run<{ n: number }>(`SELECT COALESCE(SUM(price_cents), 0)::int AS n FROM change_orders WHERE project_id = $1 AND status = 'approved'`, [projectId]);
   const [inv] = await run<{ issued: number; settled: number; credits: number; pending: number }>(
     `SELECT COALESCE(SUM(i.amount), 0)::int AS issued,
             COALESCE(SUM((SELECT SUM(p.amount_cents) FROM invoice_payments p WHERE p.invoice_id = i.id AND p.kind = 'payment' AND p.status = 'settled')), 0)::int AS settled,
             COALESCE(SUM((SELECT SUM(p.amount_cents) FROM invoice_payments p WHERE p.invoice_id = i.id AND p.kind IN ('credit','writeoff') AND p.status = 'settled')), 0)::int AS credits,
             COALESCE(SUM((SELECT SUM(p.amount_cents) FROM invoice_payments p WHERE p.invoice_id = i.id AND p.kind = 'payment' AND p.status = 'pending')), 0)::int AS pending
-       FROM invoices i WHERE i.project_id = $1 AND i.status NOT IN ('draft','void') AND (i.economic_key IS NULL OR i.economic_key <> $2)`,
-    [projectId, economicKey],
+       FROM invoices i WHERE i.project_id = $1 AND i.status NOT IN ('draft','void') AND (i.economic_key IS NULL OR i.economic_key <> $2)
+        AND NOT (i.id = ANY($3::int[]))`,
+    [projectId, economicKey, preContractIds],
   );
   const remainderCents = contractTotalCents + Number(co.n) - Number(inv.issued);
   const uncertain: string[] = [];

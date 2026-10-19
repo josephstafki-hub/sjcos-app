@@ -444,6 +444,57 @@ export async function issueInitialFromDecision(run: Run, input: { decisionId: st
   return { issued: true, invoiceId: invoice.id, invoiceNumber: invoice.number, status: invoice.status, created };
 }
 
+export const PROGRESS_INVOICE_ACTION = "invoice.issue_progress";
+
+/** Approved progress/final draw card (stage_milestone_confirmation) → the
+ *  draw's invoice, as a draft the caller emails after commit — the same path
+ *  as the first draw. Runs in the resolving transaction; re-checks the draw
+ *  against the estimate as it stands now. Idempotent on the economic key.
+ *  Returns null for any other decision.
+ *  Louiselle, 2026-10-19: the "Upon completion" card was approved and nothing
+ *  happened — only the (uninstalled) weekly-summary timer swept these cards. */
+export async function issueProgressFromDecision(run: Run, input: { decisionId: string; principal: Principal }): Promise<DecisionInvoiceOutcome | null> {
+  const [d] = await run<{ action: string; project_id: string | null; target_id: string | null; amount_cents: string | null }>(
+    `SELECT action, project_id, target_id, amount_cents::text AS amount_cents FROM decisions WHERE id = $1`,
+    [input.decisionId],
+  );
+  if (!d || d.action !== PROGRESS_INVOICE_ACTION) return null;
+  if (!d.project_id || !d.target_id) return { issued: false, reason: "The card is not tied to a project draw." };
+  const draw = await resolveDraw(run, d.project_id, d.target_id);
+  if (!draw || draw.economicKey !== d.target_id) return { issued: false, reason: `The draw ${d.target_id} is no longer on the approved formal estimate. A fresh card is needed.` };
+  const [existing] = await run<{ id: number; number: string; status: string }>(
+    `SELECT id::int AS id, number, status FROM invoices WHERE project_id = $1 AND economic_key = $2 AND status <> 'void'`,
+    [d.project_id, draw.economicKey],
+  );
+  if (existing) return { issued: true, invoiceId: Number(existing.id), invoiceNumber: existing.number, status: existing.status, created: false };
+  if (d.amount_cents != null && Number(d.amount_cents) !== draw.amountCents) {
+    return { issued: false, reason: `The "${draw.line.label}" draw is now ${usdOf(draw.amountCents)}, not the ${usdOf(Number(d.amount_cents))} on the card. A fresh card is needed.` };
+  }
+  const c = await consumeDecision(run, {
+    id: input.decisionId,
+    action: PROGRESS_INVOICE_ACTION,
+    amountCents: draw.amountCents,
+    targetKind: "milestone",
+    targetId: draw.economicKey,
+    contentHash: contentHashOf({ economicKey: draw.economicKey, amountCents: draw.amountCents }),
+    consumer: "invoice.issue_progress_from_decision",
+  });
+  if (!c.ok) return { issued: false, reason: c.reason };
+  const { invoice, created } = await issueMilestoneInvoice(run, {
+    projectId: d.project_id,
+    economicKey: draw.economicKey,
+    milestone: draw.line.label,
+    amountCents: draw.amountCents,
+    source: "progress",
+    estimateId: draw.estimate.id,
+    status: "draft",
+    principal: input.principal,
+  });
+  await logInvoiceEvent(run, invoice.id, "milestone_confirmed", input.principal, { authRef: `decision:${input.decisionId}`, drawIndex: draw.index });
+  await markDrawBilled(run, draw.estimate.id, draw.index);
+  return { issued: true, invoiceId: invoice.id, invoiceNumber: invoice.number, status: invoice.status, created };
+}
+
 // ── W08 (later): signed construction contract links, never rebills ─────────
 
 export async function linkSignedContract(tx: Tx, input: { signatureRequestId: number; principal: Principal }): Promise<{ linked: number[]; reason?: string }> {

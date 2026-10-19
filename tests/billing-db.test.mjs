@@ -24,6 +24,7 @@ import {
   onSignatureSigned,
   stageMilestoneConfirmation,
   stageInitialInvoiceDecision,
+  finalReconciliation,
   POLICY_INITIAL,
   POLICY_FINAL,
 } from "../lib/billing/commands.ts";
@@ -469,5 +470,34 @@ test("Approving a first-draw invoice card creates the invoice (draft, to email);
     assert.match(r3.reply, /No invoice was created: The first draw is now \$1,200\.00/);
     assert.equal((await run(`SELECT count(*)::int AS n FROM invoices WHERE project_id = $1`, [p2]))[0].n, 0);
     assert.equal((await run(`SELECT status FROM decisions WHERE id = $1`, [st.decisionId]))[0].status, "approved");
+  });
+});
+
+test("Approving a progress/final draw card creates that draw's invoice (draft, to email); final remainder ignores a pre-contract design fee", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    const projectId = await seed(client, "zz-bill-draw");
+    const tx = txOver(url);
+    const run = runOn(client);
+    const schedule = [{ label: "Deposit", percent: 50 }, { label: "Cabinets", percent: 40 }, { label: "Upon completion", percent: 10 }];
+    const estimateId = await seedEstimate(client, projectId, { total: 2829564, status: "approved", schedule });
+    await run(`UPDATE estimates SET approved_at = now() - interval '30 minutes' WHERE id = $1`, [estimateId]);
+    // A design fee billed before the estimate was approved, then the two contract draws (hand-entered, no keys).
+    await run(`INSERT INTO invoices (project_id, number, milestone, amount, status, source, sent_at, paid_at) VALUES ($1, 'ZZ-D', 'Design fee', 150000, 'paid', 'manual', now() - interval '2 days', now() - interval '2 days')`, [projectId]);
+    await run(`INSERT INTO invoices (project_id, number, milestone, amount, status, source, sent_at, paid_at) VALUES ($1, 'ZZ-1', 'Deposit', 1414782, 'paid', 'manual', now(), now()), ($1, 'ZZ-2', 'Cabinets', 1131826, 'paid', 'manual', now(), now())`, [projectId]);
+    const rec = await tx((r) => finalReconciliation(r, projectId));
+    assert.equal(rec.remainderCents, 282956, "the design fee doesn't come off the contract");
+
+    const card = await tx((r) => stageMilestoneConfirmation(r, { projectId, milestoneKey: 2, principal: agent }));
+    const r1 = await tx((r) => resolveFromChannel(r, { decisionId: card.decision.id, via: "app", principal: owner, outcome: "approved" }));
+    assert.equal(r1.ok, true);
+    assert.equal(r1.invoice.issued, true);
+    assert.equal(r1.invoice.status, "draft");
+    assert.match(r1.reply, /Invoice .* created/);
+    const [inv] = await run(`SELECT amount::int AS amount, status, source, economic_key FROM invoices WHERE id = $1`, [r1.invoice.invoiceId]);
+    assert.deepEqual(inv, { amount: 282956, status: "draft", source: "progress", economic_key: "draw:2:upon-completion" });
+    assert.equal((await run(`SELECT status FROM decisions WHERE id = $1`, [card.decision.id]))[0].status, "consumed");
+    const r2 = await tx((r) => resolveFromChannel(r, { decisionId: card.decision.id, via: "telegram", principal: owner, outcome: "approved" }));
+    assert.equal(r2.ok, false, "a second tap changes nothing");
+    assert.equal((await run(`SELECT count(*)::int AS n FROM invoices WHERE economic_key = 'draw:2:upon-completion'`))[0].n, 1);
   });
 });

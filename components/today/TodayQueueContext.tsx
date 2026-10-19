@@ -7,6 +7,8 @@ import {
   completeTodayItem,
   snoozeTodayItem,
   assignTodayItem,
+  promoteTodayItem,
+  sendBackTodayItem,
 } from "@/lib/actions/today";
 import type { AssignedTo, TodayPriority, WaitingItem } from "@/lib/today";
 
@@ -42,24 +44,35 @@ interface QueueState {
    *  The card stays on Joe's Today either way; the list is replaced because
    *  the "Assigned to …" line, and possibly the ranking, change. */
   assign: (id: string, userIds: string[]) => Promise<void>;
+  /** True only for the owner — Up next is his (promoted_at), so only he gets
+   *  "↑ Up next" / "↓ Back to list". */
+  canPromote: boolean;
+  /** "↑ Up next" → the to-do becomes a card; the lowest other card drops to
+   *  the list. */
+  promote: (id: string) => Promise<void>;
+  /** "↓ Back to list" → the card drops into the list and stays there until
+   *  moved up by hand. */
+  sendBack: (id: string) => Promise<void>;
 }
 
 const QueueContext = createContext<QueueState | null>(null);
 
-/** Wraps the Today feed and the Waiting-on-me card so queue changes swap both
- *  lists in place: a finished/snoozed card leaves Priorities, and the next
- *  backlog item promotes in (via getQueueSnapshot on the server). */
+/** Shares one queue between Up next (the cards) and the list below it, so a
+ *  change swaps both in place: a finished/snoozed/sent-back card leaves Up
+ *  next and the next item promotes in (via getQueueSnapshot on the server). */
 export function TodayQueueProvider({
   initialPriorities,
   initialWaiting,
   canAssign = false,
   assignees = [],
+  canPromote = false,
   children,
 }: {
   initialPriorities: TodayPriority[];
   initialWaiting: { items: WaitingItem[]; total: number };
   canAssign?: boolean;
   assignees?: AssignedTo[];
+  canPromote?: boolean;
   children: ReactNode;
 }) {
   const [priorities, setPriorities] = useState(initialPriorities);
@@ -129,6 +142,24 @@ export function TodayQueueProvider({
     }
   };
 
+  const promote = async (id: string) => {
+    setBusyId(id);
+    try {
+      applySnapshot(await promoteTodayItem(id));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const sendBack = async (id: string) => {
+    setBusyId(id);
+    try {
+      applySnapshot(await sendBackTodayItem(id));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   // The page's server component re-renders with fresh lists whenever the
   // LiveUpdates poller (or anything else) calls router.refresh() — adopt them,
   // otherwise the queue would stay frozen at whatever this provider first
@@ -168,6 +199,9 @@ export function TodayQueueProvider({
         canAssign,
         assignees,
         assign,
+        canPromote,
+        promote,
+        sendBack,
       }}
     >
       {children}

@@ -11,6 +11,8 @@ import {
   OPEN_WORK_ITEMS_ORDER_SQL,
   workItemCandidate,
   getQueueSnapshot,
+  promoteIntoUpNext,
+  sendBackToList,
   type TodayPriority,
   type TodayWorkItemRow,
   type QueueSnapshot,
@@ -82,6 +84,8 @@ export async function checkPriorityCompletion(workItemId: string): Promise<Prior
   const { rows: nextRows } = await query<TodayWorkItemRow>(
     `${backlog.sql}
        AND w.promoted_at IS NULL
+       AND w.sent_back_at IS NULL
+       AND w.status <> 'waiting_on_sub'
        AND (w.snoozed_until IS NULL OR w.snoozed_until <= now())${OPEN_WORK_ITEMS_ORDER_SQL} LIMIT 1`,
     backlog.params,
   );
@@ -161,6 +165,20 @@ export async function snoozeTodayItem(workItemId: string, days = 3): Promise<Que
     [workItemId, n],
   );
   return getQueueSnapshot(user);
+}
+
+/** "↑ Up next" on a row in the list: the to-do becomes one of the five cards
+ *  now, and the lowest-ranked other card drops back to the list to make room.
+ *  Up next is the owner's (promoted_at), so this is a no-op for staff. */
+export async function promoteTodayItem(workItemId: string): Promise<QueueSnapshot> {
+  return promoteIntoUpNext(await requireAccess("today"), workItemId);
+}
+
+/** "↓ Back to list" on an Up next card: it drops into the list (not snoozed —
+ *  still on Today) and the next item comes up in its place. It isn't pulled
+ *  back up automatically; Joe moves it up himself when he wants it. */
+export async function sendBackTodayItem(workItemId: string): Promise<QueueSnapshot> {
+  return sendBackToList(await requireAccess("today"), workItemId);
 }
 
 // ─── Assignment (owner only) ─────────────────────────────────────────────────

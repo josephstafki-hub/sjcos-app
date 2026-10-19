@@ -4,8 +4,9 @@ import Link from "next/link";
 import { Check } from "lucide-react";
 import { useTodayQueue } from "./TodayQueueContext";
 
-/** "Waiting on me" list: the full backlog minus whatever's currently shown in
- *  Priorities (see TodayQueueContext). When a Priorities card's item turns
+/** Compact "Waiting on me" list for the operator panel's queue rail: the full
+ *  backlog minus whatever's currently in Up next (see TodayQueueContext). The
+ *  Today page itself uses QueueList. When a Priorities card's item turns
  *  out to be done, the item promoted to fill its slot disappears from here
  *  automatically — no separate fetch. */
 export function WaitingList() {
@@ -58,10 +59,4 @@ export function WaitingList() {
       })}
     </div>
   );
-}
-
-/** Live "Waiting on me" count, kept in sync with the shared queue state. */
-export function WaitingCount() {
-  const { waiting } = useTodayQueue();
-  return <span className="text-[11px] text-ink-3">{waiting.length} items</span>;
 }

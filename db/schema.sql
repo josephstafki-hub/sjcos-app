@@ -1871,6 +1871,12 @@ ALTER TABLE work_items ADD COLUMN IF NOT EXISTS promoted_at timestamptz;
 CREATE INDEX IF NOT EXISTS idx_work_items_promoted ON work_items(promoted_at)
   WHERE status NOT IN ('done','cancelled');
 
+-- Today page: "↓ Back to list" on an Up next card clears promoted_at and
+-- stamps sent_back_at, so the automatic top-up skips the item until Joe moves
+-- it up again by hand ("↑ Up next" clears it). App-owned, like promoted_at.
+-- Migration: db/migrations/0028_today_sent_back.sql.
+ALTER TABLE work_items ADD COLUMN IF NOT EXISTS sent_back_at timestamptz;
+
 -- Today page: "Snooze 3d" sets snoozed_until (separate from due_at, which
 -- keeps its normal meaning) so the auto-promotion pool can exclude a just-
 -- demoted item until its snooze window passes.

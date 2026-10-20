@@ -3621,6 +3621,16 @@ ALTER TABLE unsorted_docs ADD COLUMN IF NOT EXISTS agent_note_at timestamptz;
 CREATE INDEX IF NOT EXISTS idx_unsorted_docs_open ON unsorted_docs(status, received_at DESC) WHERE status IN ('pending','needs_agent');
 CREATE INDEX IF NOT EXISTS idx_unsorted_docs_resolved ON unsorted_docs(resolved_at DESC) WHERE status IN ('filed','dismissed');
 -- ─── Unsorted documents (end) ───────────────────────────────────────────────
+-- Receipt scanning (lib/receipt-scan.ts): a receipt photographed on a phone or
+-- texted in is read by Claude; the whole read is kept in `extracted` so
+-- /unsorted shows the key points first. Migration: db/migrations/0030_receipt_scan.sql.
+ALTER TABLE unsorted_docs ADD COLUMN IF NOT EXISTS extracted          jsonb;
+ALTER TABLE unsorted_docs ADD COLUMN IF NOT EXISTS extract_state      text
+  CHECK (extract_state IN ('reading','done','failed'));
+ALTER TABLE unsorted_docs ADD COLUMN IF NOT EXISTS extract_error      text NOT NULL DEFAULT '';
+ALTER TABLE unsorted_docs ADD COLUMN IF NOT EXISTS extract_started_at timestamptz;
+ALTER TABLE unsorted_docs ADD COLUMN IF NOT EXISTS sender_note        text NOT NULL DEFAULT '';
+ALTER TABLE unsorted_docs ADD COLUMN IF NOT EXISTS sender_project_id  uuid REFERENCES projects(id) ON DELETE SET NULL;
 
 -- ─── Steering a live run (db/apply-run-steers.mjs) ───────────────────────────
 -- What Joe types into the panel while an agent is working goes INTO that run

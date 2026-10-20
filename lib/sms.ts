@@ -294,8 +294,8 @@ export async function recordInboundSms(ev: ParsedMessagingEvent): Promise<Inboun
   const blocked = state?.blocked ?? false;
 
   // MMS: Telnyx media URLs expire — download and re-store now.
+  const media: SmsMedia[] = [];
   if (ev.media.length) {
-    const media: SmsMedia[] = [];
     for (const [i, m] of ev.media.entries()) {
       try {
         const { bytes, mime } = await downloadMedia(m.url);
@@ -336,6 +336,17 @@ export async function recordInboundSms(ev: ParsedMessagingEvent): Promise<Inboun
       body: preview,
       href: linkHref(link.linkType, link.linkSlug) ?? href,
     });
+    // A texted receipt photo is read by Claude and filed to its job, or left
+    // on /unsorted (lib/receipt-scan.ts). Pictures that aren't receipts are
+    // ignored. SJC_TEXTED_RECEIPTS=0 turns it off.
+    if (media.length && process.env.SJC_TEXTED_RECEIPTS !== "0") {
+      try {
+        const { scanTextedPhotos } = await import("@/lib/receipt-scan");
+        await scanTextedPhotos({ messageId, from: ev.from, contactName: link.name, text: ev.text, media });
+      } catch (err) {
+        console.error(`[sms] texted receipt scan failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
   }
   return { threadId, messageId, duplicate: false, keyword };
 }

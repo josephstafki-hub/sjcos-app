@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Bot, Building2, Download, FileText, Mail, Search, Send, Sparkles, Undo2, X } from "lucide-react";
+import { Bot, Building2, Camera, Download, FileText, Loader2, Mail, MessageSquareText, PenLine, RefreshCw, Search, Send, Sparkles, Undo2, X } from "lucide-react";
 import { Card, Chip, type ChipKind } from "@/components/ui";
 import { runAction } from "@/lib/run-action";
-import { fileUnsortedAction, noteUnsortedAction, undoUnsortedAction, type FileUnsortedInput } from "@/lib/actions/unsorted";
+import { fileUnsortedAction, noteUnsortedAction, rereadUnsortedAction, undoUnsortedAction, type FileUnsortedInput } from "@/lib/actions/unsorted";
 import type { DocKind, ProjectChoice, UnsortedDocRow } from "@/lib/unsorted-docs-core";
 
 export interface DocFile {
@@ -25,6 +25,13 @@ const money = (cents: number | null | undefined) =>
 const day = (iso: string | null) =>
   iso ? new Date(iso.length === 10 ? `${iso}T12:00:00Z` : iso).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/Chicago" }) : "";
 const vendorOf = (d: UnsortedDocRow) => d.vendor_label || d.from_label.replace(/<[^>]*>/, "").replace(/"/g, "").trim() || "Unknown sender";
+/** Where it came from: a phone scan, a text, or email. */
+const sourceOf = (d: UnsortedDocRow): "scan" | "text" | "email" =>
+  d.source_ref.startsWith("scan:") ? "scan" : d.source_ref.startsWith("sms:") ? "text" : "email";
+/** A read started this long ago with no answer is stuck (a restart mid-read). */
+const STUCK_MS = 3 * 60_000;
+const readingNow = (d: UnsortedDocRow) =>
+  d.extract_state === "reading" && Date.now() - Date.parse(d.extract_started_at ?? d.created_at) < STUCK_MS;
 const isTyping = (el: EventTarget | null) => el instanceof HTMLElement && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
 
 export function UnsortedClient({
@@ -99,6 +106,21 @@ export function UnsortedClient({
     });
   }
 
+  // Claude is reading a photo: look again every few seconds until it answers.
+  const anyReading = open.some(readingNow);
+  useEffect(() => {
+    if (!anyReading) return;
+    const t = setInterval(() => router.refresh(), 4000);
+    return () => clearInterval(t);
+  }, [anyReading, router]);
+
+  function reread(id: number) {
+    start(async () => {
+      const r = await runAction(() => rereadUnsortedAction(id), { fallback: "Couldn't start reading it." });
+      if (r.ok) router.refresh();
+    });
+  }
+
   // j / k (or arrows) move through the list when no field has focus.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -121,13 +143,19 @@ export function UnsortedClient({
   return (
     <div className="flex min-h-full flex-col gap-3 px-4 py-5 sm:px-6">
       <div className="flex flex-wrap items-end gap-3">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[min(100%,18rem)] flex-1">
           <h1 className="font-serif text-[30px] font-medium leading-none tracking-tight text-accent-2">Unsorted</h1>
           <p className="mt-1.5 text-[12.5px] text-ink-3">
-            Invoices and receipts from email the agent couldn&apos;t place. Pick where each one goes — it&apos;s attached to the
-            project and the cost is logged.
+            Invoices and receipts — from email, phone scans and texts — that couldn&apos;t be placed. Pick where each one goes —
+            it&apos;s attached to the project and the cost is logged.
           </p>
         </div>
+        <Link
+          href="/scan"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-accent bg-accent-soft px-3 py-1.5 text-[12px] font-semibold text-accent-2 hover:bg-accent hover:text-white"
+        >
+          <Camera className="size-3.5" /> Scan receipt
+        </Link>
         <div className="flex gap-1 rounded-lg border border-rule bg-paper-2 p-0.5 text-[12px] font-semibold">
           {(["sort", "filed"] as const).map((t) => (
             <button
@@ -185,22 +213,190 @@ export function UnsortedClient({
                   <span className="font-mono text-[11.5px] text-ink-2">{money(d.amount_cents)}</span>
                 </div>
                 <div className="flex items-center gap-1.5">
+                  {sourceOf(d) === "scan" ? (
+                    <Camera className="size-3 flex-none text-ink-3" aria-label="Phone scan" />
+                  ) : sourceOf(d) === "text" ? (
+                    <MessageSquareText className="size-3 flex-none text-ink-3" aria-label="Texted in" />
+                  ) : null}
                   <Chip kind={KIND_CHIP[d.doc_kind]}>{KIND_LABEL[d.doc_kind]}</Chip>
+                  {readingNow(d) && <Chip kind="ai">Reading…</Chip>}
                   {d.status === "needs_agent" && <Chip kind="ai">Claude filing</Chip>}
                   {d.status === "pending" && d.agent_note && <Chip kind="ai">Question</Chip>}
                   <span className="ml-auto font-mono text-[10px] text-ink-3">{day(d.received_at ?? d.created_at)}</span>
                 </div>
-                <div className="truncate text-[11.5px] text-ink-3">{d.subject}</div>
+                <div className="truncate text-[11.5px] text-ink-3">
+                  {d.extracted?.job_hint ? <b className="font-semibold text-accent-2">“{d.extracted.job_hint}” · </b> : null}
+                  {d.extracted?.summary || d.subject}
+                </div>
               </button>
             ))}
           </Card>
 
-          <DocPreview key={`p${selected.id}`} doc={selected} files={files} />
+          <div className="flex min-w-0 flex-col gap-3">
+            {(selected.extracted || selected.extract_state) && (
+              <ReceiptFacts key={`f${selected.id}`} doc={selected} byslug={byslug} busy={busy} onReread={() => reread(selected.id)} />
+            )}
+            <DocPreview key={`p${selected.id}`} doc={selected} files={files} />
+          </div>
           <SortPanel key={`s${selected.id}`} doc={selected} projects={projects} byslug={byslug} busy={busy} onFile={file} onNote={note} />
         </div>
         </div>
       )}
     </div>
+  );
+}
+
+// ─── What Claude read off the receipt ────────────────────────────────────────
+// Shown first, above the photo: on a small texted receipt the store, the job
+// written on it and the total are what you need to place it.
+
+function ReceiptFacts({ doc, byslug, busy, onReread }: { doc: UnsortedDocRow; byslug: Map<string, ProjectChoice>; busy: boolean; onReread: () => void }) {
+  const [allItems, setAllItems] = useState(false);
+  const x = doc.extracted;
+  const reading = readingNow(doc);
+  const stuck = !reading && (doc.extract_state === "failed" || doc.extract_state === "reading");
+  const canReread = doc.attachment_file_ids.length > 0;
+
+  if (reading && !x) {
+    return (
+      <Card className="flex items-center gap-2.5 border-ai bg-ai-soft p-3.5 text-[13px] text-ink-2">
+        <Loader2 className="size-4 flex-none animate-spin text-ai-2" />
+        Claude is reading the receipt — store, items, total and any job written on it.
+      </Card>
+    );
+  }
+  if (!x) {
+    return (
+      <Card className="flex flex-wrap items-center gap-2.5 p-3.5 text-[12.5px] text-ink-2">
+        <span className="min-w-0 flex-1">
+          Claude couldn&apos;t read this one{doc.extract_error ? `: ${doc.extract_error}` : "."}
+        </span>
+        {canReread && (
+          <button onClick={onReread} disabled={busy} className="inline-flex items-center gap-1 font-semibold text-accent-2 hover:underline disabled:opacity-50">
+            <RefreshCw className="size-3.5" /> Read again
+          </button>
+        )}
+      </Card>
+    );
+  }
+
+  const items = allItems ? x.items : x.items.slice(0, 8);
+  const when = [day(x.date), x.time].filter(Boolean).join(" · ");
+  return (
+    <Card className="flex flex-col gap-2.5 p-3.5">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 font-mono text-[9.5px] uppercase tracking-[0.12em] text-ai-2">
+            <Sparkles className="size-3" /> Read off the {x.kind === "invoice" ? "invoice" : "receipt"}
+            {sourceOf(doc) === "text" ? " · texted in" : sourceOf(doc) === "scan" ? " · phone scan" : ""}
+          </div>
+          <div className="mt-0.5 truncate text-[18px] font-semibold leading-tight text-ink">{x.vendor || "Unknown store"}</div>
+          {x.location && <div className="truncate text-[12px] text-ink-3">{x.location}</div>}
+        </div>
+        <div className="text-right">
+          <div className="font-mono text-[20px] font-semibold leading-tight text-ink">{x.total_cents == null ? "—" : money(x.total_cents)}</div>
+          {when && <div className="font-mono text-[11px] text-ink-3">{when}</div>}
+        </div>
+      </div>
+
+      {!x.is_receipt && (
+        <div className="rounded-md bg-flag-soft px-2.5 py-1.5 text-[12px] text-ink">This doesn&apos;t look like a receipt.</div>
+      )}
+
+      {(x.job_hint || doc.sender_note || doc.sender_project_slug) && (
+        <div className="flex flex-col gap-1 rounded-md border border-accent bg-accent-soft px-2.5 py-2 text-[12.5px] text-ink">
+          {x.job_hint && (
+            <div>
+              <span className="text-ink-3">Written on it: </span>
+              <b className="font-semibold">{x.job_hint}</b>
+            </div>
+          )}
+          {doc.sender_project_slug && (
+            <div>
+              <span className="text-ink-3">Sender picked: </span>
+              <b className="font-semibold">{byslug.get(doc.sender_project_slug)?.name ?? doc.sender_project_slug}</b>
+            </div>
+          )}
+          {doc.sender_note && (
+            <div className="flex items-start gap-1">
+              <PenLine className="mt-0.5 size-3 flex-none text-ink-3" />
+              <span>
+                <span className="text-ink-3">{doc.from_label.replace(/^Scanned by |^Text from /, "")} wrote: </span>“{doc.sender_note}”
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {items.length > 0 && (
+        <div className="overflow-hidden rounded-md border border-rule-soft">
+          <table className="w-full text-[12px]">
+            <thead className="bg-paper-2 font-mono text-[9.5px] uppercase tracking-[0.1em] text-ink-3">
+              <tr>
+                <th className="w-10 px-2 py-1 text-right font-normal">Qty</th>
+                <th className="px-2 py-1 text-left font-normal">Item</th>
+                <th className="w-20 px-2 py-1 text-right font-normal">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((it, i) => (
+                <tr key={i} className="border-t border-rule-soft align-top">
+                  <td className="px-2 py-1 text-right font-mono text-ink-2">{it.qty ?? ""}</td>
+                  <td className="px-2 py-1 text-ink">
+                    {it.description}
+                    {it.sku && <span className="ml-1 font-mono text-[10px] text-ink-4">{it.sku}</span>}
+                  </td>
+                  <td className="px-2 py-1 text-right font-mono text-ink-2">{money(it.amount_cents)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="border-t border-rule bg-paper font-mono text-[11px] text-ink-2">
+              {x.subtotal_cents != null && (
+                <tr>
+                  <td />
+                  <td className="px-2 py-0.5 text-right text-ink-3">Subtotal</td>
+                  <td className="px-2 py-0.5 text-right">{money(x.subtotal_cents)}</td>
+                </tr>
+              )}
+              {x.tax_cents != null && (
+                <tr>
+                  <td />
+                  <td className="px-2 py-0.5 text-right text-ink-3">Tax</td>
+                  <td className="px-2 py-0.5 text-right">{money(x.tax_cents)}</td>
+                </tr>
+              )}
+              <tr className="font-semibold text-ink">
+                <td />
+                <td className="px-2 py-0.5 text-right">Total</td>
+                <td className="px-2 py-0.5 text-right">{x.total_cents == null ? "—" : money(x.total_cents)}</td>
+              </tr>
+            </tfoot>
+          </table>
+          {x.items.length > 8 && (
+            <button onClick={() => setAllItems((v) => !v)} className="w-full border-t border-rule-soft py-1 text-[11.5px] font-semibold text-accent-2 hover:bg-paper">
+              {allItems ? "Show fewer" : `Show all ${x.items.length} items`}
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-ink-3">
+        {x.number && <span>#{x.number}</span>}
+        {x.payment && <span>{x.payment}</span>}
+        {x.notes && <span className="text-ink-2">{x.notes}</span>}
+        {reading ? (
+          <span className="ml-auto inline-flex items-center gap-1 text-ai-2">
+            <Loader2 className="size-3 animate-spin" /> Reading again…
+          </span>
+        ) : (
+          canReread && (
+            <button onClick={onReread} disabled={busy} className="ml-auto inline-flex items-center gap-1 hover:text-ink disabled:opacity-50">
+              <RefreshCw className="size-3" /> {stuck ? "Read again" : "Re-read"}
+            </button>
+          )
+        )}
+      </div>
+    </Card>
   );
 }
 

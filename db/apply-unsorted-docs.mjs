@@ -105,6 +105,13 @@ export const STATEMENTS = [
   `ALTER TABLE agent_triggers ADD CONSTRAINT agent_triggers_kind_check
      CHECK (kind IN ('signature','message','note','quote','selection','payment','field_report','approval','signoff','sweep','permit','filing'))`,
   `CREATE INDEX IF NOT EXISTS idx_unsorted_docs_resolved ON unsorted_docs(resolved_at DESC) WHERE status IN ('filed','dismissed')`,
+  // Receipt scanning (db/migrations/0030_receipt_scan.sql).
+  `ALTER TABLE unsorted_docs ADD COLUMN IF NOT EXISTS extracted jsonb`,
+  `ALTER TABLE unsorted_docs ADD COLUMN IF NOT EXISTS extract_state text CHECK (extract_state IN ('reading','done','failed'))`,
+  `ALTER TABLE unsorted_docs ADD COLUMN IF NOT EXISTS extract_error text NOT NULL DEFAULT ''`,
+  `ALTER TABLE unsorted_docs ADD COLUMN IF NOT EXISTS extract_started_at timestamptz`,
+  `ALTER TABLE unsorted_docs ADD COLUMN IF NOT EXISTS sender_note text NOT NULL DEFAULT ''`,
+  `ALTER TABLE unsorted_docs ADD COLUMN IF NOT EXISTS sender_project_id uuid REFERENCES projects(id) ON DELETE SET NULL`,
   {
     sql: `WITH s AS (SELECT id FROM skills WHERE slug = 'file-invoice-receipt-rebate'),
           v AS (

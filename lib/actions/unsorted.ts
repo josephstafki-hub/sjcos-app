@@ -5,7 +5,10 @@
 // money area: filing logs costs on a job.
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
+import { runDirect } from "@/lib/commands/db";
 import { requireAccess } from "@/lib/dal";
+import { readReceipt } from "@/lib/receipt-scan";
 import { fileDocument, sendToAgent, undoDocument, type FileTarget } from "@/lib/unsorted-docs";
 
 export interface FileUnsortedInput {
@@ -37,4 +40,16 @@ export async function undoUnsortedAction(id: number) {
   const r = await undoDocument(id);
   revalidatePath("/unsorted");
   return r;
+}
+
+/** Have Claude read a scanned / texted receipt again (a failed or stuck read). */
+export async function rereadUnsortedAction(id: number) {
+  await requireAccess("money");
+  const rows = await runDirect(
+    `UPDATE unsorted_docs SET extract_state = 'reading', extract_started_at = now(), extract_error = '', why_unsure = 'Claude is reading it…'
+      WHERE id = $1 AND status IN ('pending','needs_agent') AND cardinality(attachment_file_ids) > 0 RETURNING id`, [id]);
+  if (!rows.length) return { ok: false as const, error: "There's no photo to read on that one." };
+  after(() => readReceipt(id));
+  revalidatePath("/unsorted");
+  return { ok: true as const };
 }

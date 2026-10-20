@@ -19,6 +19,7 @@
 import type { Run } from "./budget-queries.ts";
 import { recordSubInvoice, saveExpense } from "./budget-writes.ts";
 import { enqueueAgentTrigger } from "./agent-runtime/triggers.ts";
+import type { ReceiptExtract } from "./receipt-scan-core.ts";
 
 export const DOC_KINDS = ["invoice", "receipt", "rebate", "statement", "other"] as const;
 export type DocKind = (typeof DOC_KINDS)[number];
@@ -63,6 +64,14 @@ export interface UnsortedDocRow {
   resolved_by: string;
   resolved_at: string | null;
   created_at: string;
+  /** Claude's read of a scanned / texted receipt (lib/receipt-scan-core.ts). */
+  extracted: ReceiptExtract | null;
+  extract_state: "reading" | "done" | "failed" | null;
+  extract_error: string;
+  extract_started_at: string | null;
+  /** What the sender said: the job picked on /scan, a note, the text with the photo. */
+  sender_note: string;
+  sender_project_slug: string | null;
 }
 
 type Fail = { ok: false; error: string };
@@ -89,8 +98,9 @@ const COLS = `d.id::int AS id, d.source_ref, d.doc_kind, d.gmail_message_id, d.g
   d.summary, d.why_unsure, d.suggestions, d.overhead_likely, d.email_file_id, d.attachment_file_ids, d.status,
   d.owner_note, d.agent_note, d.agent_note_at::text AS agent_note_at, d.filed_to, p.slug AS filed_project_slug, p.name AS filed_project_name, d.cost_source,
   d.cost_id::int AS cost_id, d.cost_created, d.staged_by, d.resolved_by, d.resolved_at::text AS resolved_at,
-  d.created_at::text AS created_at`;
-const FROM = `FROM unsorted_docs d LEFT JOIN projects p ON p.id = d.filed_project_id`;
+  d.created_at::text AS created_at, d.extracted, d.extract_state, d.extract_error,
+  d.extract_started_at::text AS extract_started_at, d.sender_note, sp.slug AS sender_project_slug`;
+const FROM = `FROM unsorted_docs d LEFT JOIN projects p ON p.id = d.filed_project_id LEFT JOIN projects sp ON sp.id = d.sender_project_id`;
 
 export async function getDoc(run: Run, id: number): Promise<UnsortedDocRow | null> {
   const [row] = await run<UnsortedDocRow>(`SELECT ${COLS} ${FROM} WHERE d.id = $1`, [id]);
@@ -247,6 +257,9 @@ export interface FileOptions {
   note?: string;
   /** Today in Central (YYYY-MM-DD), the fallback date for a cost with none. */
   today: string;
+  /** Wake the filing agent to put a logged cost under the right trade / PO.
+   *  Default: only when Joe filed it (an agent filing places its own cost). */
+  placeCost?: boolean;
 }
 
 export type FileResult = Result<{
@@ -332,7 +345,7 @@ export async function fileDoc(run: Run, id: number, target: FileTarget, opts: Fi
       WHERE id = $1`,
     [id, project.id, kind, amount, vendor, note, cost?.source ?? null, cost?.id ?? null, cost?.created ?? false, by, agentNote]);
   // Joe filed a cost: the agent puts it under the right trade / PO right away.
-  const agentQueued = by === "owner" && cost !== null;
+  const agentQueued = (opts.placeCost ?? by === "owner") && cost !== null;
   if (cost && agentQueued) {
     await queueFilingAgent(run, id, project.id, { mode: "place_cost", project_slug: project.slug, cost_source: cost.source, cost_id: cost.id, owner_note: "" });
   }

@@ -127,7 +127,10 @@ export function registerFilingTools(server, { json, filingCall, strippedDollarEr
       description:
         "Default: everything still open — 'pending' (waiting on Joe) and 'needs_agent' (Joe typed where it goes in " +
         "`owner_note` instead of picking a project: act on it with file_unsorted_document). Ask for 'filed' / " +
-        "'dismissed' to see what was put away and where (filed_project_slug, cost_source/cost_id).",
+        "'dismissed' to see what was put away and where (filed_project_slug, cost_source/cost_id). Receipts " +
+        "photographed on a phone (source_ref 'scan:…') or texted in ('sms:…') carry Claude's read in `extracted` " +
+        "(vendor, location, date, items with qty/description/amount, totals, job_hint written on it) plus " +
+        "`sender_note` / `sender_project_slug` from whoever sent it.",
       inputSchema: {
         statuses: z.array(z.enum(["pending", "needs_agent", "filed", "dismissed"])).optional(),
         limit: z.number().int().min(1).max(200).optional(),

@@ -116,8 +116,9 @@ export const PERMISSIONS: readonly PermissionDef[] = [
 
 export const PERMISSION_KEYS: readonly PermissionKey[] = PERMISSIONS.map((p) => p.key);
 
-/** Reachable by every signed-in staff member regardless of areas. */
-const ALWAYS_ALLOWED = ["/logout"];
+/** Reachable by every signed-in staff member regardless of areas. /scan only
+ *  sends a receipt photo in (lib/receipt-scan.ts); sorting stays behind money. */
+const ALWAYS_ALLOWED = ["/logout", "/scan"];
 
 /** Routes under the internal app that only the owner may open, no matter what
  *  areas a staff account holds. Kept explicit so a future area can't

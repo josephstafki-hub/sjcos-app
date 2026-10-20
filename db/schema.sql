@@ -1583,6 +1583,10 @@ ALTER TABLE sms_threads ADD COLUMN IF NOT EXISTS opted_in_at      timestamptz;
 ALTER TABLE sms_threads ADD COLUMN IF NOT EXISTS last_inbound_at  timestamptz;
 ALTER TABLE sms_threads ADD COLUMN IF NOT EXISTS last_outbound_at timestamptz;
 ALTER TABLE sms_threads ADD COLUMN IF NOT EXISTS business_number  text;
+-- Joe blocked this number on /messages: its texts are recorded but never
+-- unread / pushed / chased, and nothing is sent to it. NULL = not blocked.
+-- Migration: db/migrations/0029_sms_blocked.sql.
+ALTER TABLE sms_threads ADD COLUMN IF NOT EXISTS blocked_at       timestamptz;
 -- MMS attachments are downloaded and re-stored as files rows (Telnyx media
 -- URLs expire): media = [{file_id, mime, name, size}]. Delivery receipts
 -- (message.sent / message.finalized) update status + error_*; failure_kind is

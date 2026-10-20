@@ -54,7 +54,8 @@ export async function routineSendAllowed(run: Run, input: RoutineSendInput): Pro
   const [opt] = await run<{ id: number }>(`SELECT id FROM communication_optouts WHERE channel = $1 AND address = $2 AND revoked_at IS NULL`, [channel, recipient]);
   if (opt) return { ok: false, code: "opt_out", reason: `${recipient} opted out of ${channel}.`, policy };
   if (channel === "sms") {
-    const [t] = await run<{ opted_out: boolean }>(`SELECT opted_out FROM sms_threads WHERE phone = $1`, [recipient]);
+    const [t] = await run<{ opted_out: boolean; blocked: boolean }>(`SELECT opted_out, blocked_at IS NOT NULL AS blocked FROM sms_threads WHERE phone = $1`, [recipient]);
+    if (t?.blocked) return { ok: false, code: "opt_out", reason: `${recipient} is a blocked number.`, policy };
     if (t?.opted_out) return { ok: false, code: "opt_out", reason: `${recipient} texted STOP.`, policy };
   }
 

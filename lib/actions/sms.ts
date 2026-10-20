@@ -121,3 +121,19 @@ export async function setSmsOptOut(threadId: number, optedOut: boolean): Promise
   revalidatePath("/messages");
   return { ok: true };
 }
+
+/** Block or unblock a number (spam, robotexts, wrong numbers). Blocking clears
+ *  the unread dot; from then on its texts are kept but never unread / pushed /
+ *  chased, and nothing is sent to it (lib/sms.ts sendSms, lib/dispatch). The
+ *  carrier still delivers to us — this is the OS ignoring them. Owner-only. */
+export async function setSmsBlocked(threadId: number, blocked: boolean): Promise<{ ok: boolean }> {
+  await requireAccess("comms");
+  await query(
+    blocked
+      ? `UPDATE sms_threads SET blocked_at = now(), unread = false WHERE id = $1`
+      : `UPDATE sms_threads SET blocked_at = NULL WHERE id = $1`,
+    [threadId],
+  );
+  revalidatePath("/messages");
+  return { ok: true };
+}

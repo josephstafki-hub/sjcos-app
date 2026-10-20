@@ -1008,6 +1008,7 @@ async function loadSmsThreads(): Promise<ChannelBuild> {
          SELECT body, direction FROM sms_messages
           WHERE thread_id = t.id ORDER BY created_at DESC, id DESC LIMIT 1
        ) m ON true
+      WHERE t.blocked_at IS NULL
       ORDER BY t.last_message_at DESC NULLS LAST, t.id DESC`,
   );
   if (!rows.length) return { threads: [], readerEntries: [] };

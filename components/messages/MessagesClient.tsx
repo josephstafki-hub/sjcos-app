@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useServerState } from "@/lib/use-server-state";
-import { MessageSquare, Phone, PhoneCall, Send, AlertCircle, ExternalLink, Plus, X, ArrowLeft, Ban, Paperclip } from "lucide-react";
+import { MessageSquare, Phone, PhoneCall, Send, AlertCircle, ExternalLink, Plus, X, ArrowLeft, Ban, Paperclip, ShieldBan } from "lucide-react";
 import { Chip } from "@/components/ui";
 import {
   loadSmsThread,
@@ -11,6 +11,7 @@ import {
   linkSmsThread,
   unlinkSmsThread,
   setSmsOptOut,
+  setSmsBlocked,
 } from "@/lib/actions/sms";
 import { placeCallAction } from "@/lib/actions/calls";
 import { runAction } from "@/lib/run-action";
@@ -58,9 +59,12 @@ export function MessagesClient({
   // Follows the server: a new inbound text refreshes the page (LiveUpdates)
   // and the rail re-sorts / shows its unread dot.
   const [threads, setThreads] = useServerState(initialThreads);
-  const [selectedId, setSelectedId] = useState<number | null>(initialThreads[0]?.id ?? null);
+  const firstOpen = initialThreads.find((t) => !t.blockedAt) ?? null;
+  const [selectedId, setSelectedId] = useState<number | null>(firstOpen?.id ?? null);
   const [messages, setMessages] = useState<SmsMessage[]>([]);
-  const [loading, setLoading] = useState(initialThreads.length > 0);
+  const [loading, setLoading] = useState(firstOpen != null);
+  // Blocked numbers sit in their own list under the conversations.
+  const [showBlocked, setShowBlocked] = useState(false);
   const [draft, setDraft] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
@@ -77,6 +81,8 @@ export function MessagesClient({
   const [, start] = useTransition();
 
   const selected = threads.find((t) => t.id === selectedId) ?? null;
+  const openThreads = threads.filter((t) => !t.blockedAt);
+  const blockedThreads = threads.filter((t) => t.blockedAt);
   const selectedLastAt = selected?.lastMessageAt ?? null;
 
   // The open conversation's texts: loaded when it's selected (including the
@@ -166,6 +172,18 @@ export function MessagesClient({
     });
   }
 
+  function toggleBlocked(t: SmsThreadSummary) {
+    const next = !t.blockedAt;
+    if (next && !confirm(`Block ${threadTitle(t)}? Their texts will still be kept under Blocked, but you won't be notified and nothing can be sent to them until you unblock.`)) return;
+    setThreads((prev) =>
+      prev.map((x) => (x.id === t.id ? { ...x, blockedAt: next ? new Date().toISOString() : null, unread: next ? false : x.unread } : x)),
+    );
+    if (next) setShowBlocked(true);
+    start(async () => {
+      await runAction(() => setSmsBlocked(t.id, next), { fallback: next ? "Couldn't block the number." : "Couldn't unblock the number." });
+    });
+  }
+
   function callSelected() {
     if (!selected || dialing) return;
     setDialing(true);
@@ -202,6 +220,7 @@ export function MessagesClient({
                   lastMessageAt: new Date().toISOString(),
                   optedOut: false,
                   optedOutAt: null,
+                  blockedAt: null,
                 },
                 ...prev,
               ],
@@ -218,7 +237,33 @@ export function MessagesClient({
     });
   }
 
-  const composerDisabled = !configured || Boolean(selected?.optedOut);
+  const composerDisabled = !configured || Boolean(selected?.optedOut) || Boolean(selected?.blockedAt);
+
+  const threadRow = (t: SmsThreadSummary) => (
+    <button
+      key={t.id}
+      type="button"
+      onClick={() => openThread(t.id)}
+      className={`flex w-full items-start gap-2.5 border-b border-rule-soft px-4 py-3 text-left transition-colors hover:bg-paper ${
+        t.id === selectedId ? "bg-paper" : ""
+      }`}
+    >
+      <span
+        className={`mt-1 size-2 flex-none rounded-full ${t.unread ? "bg-accent" : "bg-transparent"}`}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className={`truncate text-[13px] ${t.unread ? "font-semibold text-ink" : "text-ink-2"}`}>
+            {threadTitle(t)}
+          </span>
+          {t.linkType && <Chip kind="ghost">{t.linkType}</Chip>}
+          {t.blockedAt && <Chip kind="flag">blocked</Chip>}
+          {t.optedOut && <Chip kind="flag">opted out</Chip>}
+        </div>
+        <div className="font-mono text-[10px] text-ink-3">{fmtWhen(t.lastMessageAt)}</div>
+      </div>
+    </button>
+  );
 
   return (
     <div className="flex h-full">
@@ -257,35 +302,26 @@ export function MessagesClient({
         )}
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {threads.length === 0 ? (
+          {openThreads.length === 0 ? (
             <div className="px-4 py-10 text-center text-[12px] text-ink-3">
               No conversations yet. Inbound texts to the business number appear here.
             </div>
           ) : (
-            threads.map((t) => (
+            openThreads.map(threadRow)
+          )}
+          {blockedThreads.length > 0 && (
+            <>
               <button
-                key={t.id}
                 type="button"
-                onClick={() => openThread(t.id)}
-                className={`flex w-full items-start gap-2.5 border-b border-rule-soft px-4 py-3 text-left transition-colors hover:bg-paper ${
-                  t.id === selectedId ? "bg-paper" : ""
-                }`}
+                onClick={() => setShowBlocked((v) => !v)}
+                className="flex w-full items-center gap-1.5 border-b border-rule-soft px-4 py-2 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3 hover:bg-paper"
               >
-                <span
-                  className={`mt-1 size-2 flex-none rounded-full ${t.unread ? "bg-accent" : "bg-transparent"}`}
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className={`truncate text-[13px] ${t.unread ? "font-semibold text-ink" : "text-ink-2"}`}>
-                      {threadTitle(t)}
-                    </span>
-                    {t.linkType && <Chip kind="ghost">{t.linkType}</Chip>}
-                    {t.optedOut && <Chip kind="flag">opted out</Chip>}
-                  </div>
-                  <div className="font-mono text-[10px] text-ink-3">{fmtWhen(t.lastMessageAt)}</div>
-                </div>
+                <ShieldBan className="size-3.5" strokeWidth={1.5} />
+                <span className="flex-1">Blocked · {blockedThreads.length}</span>
+                <span>{showBlocked ? "Hide" : "Show"}</span>
               </button>
-            ))
+              {showBlocked && blockedThreads.map(threadRow)}
+            </>
           )}
         </div>
       </aside>
@@ -311,6 +347,7 @@ export function MessagesClient({
               {selected.optedOut && (
                 <Chip kind="flag">opted out{selected.optedOutAt ? ` ${selected.optedOutAt.slice(0, 10)}` : ""}</Chip>
               )}
+              {selected.blockedAt && <Chip kind="flag">blocked</Chip>}
 
               <div className="ml-auto flex items-center gap-1.5">
                 {voiceConfigured && (
@@ -333,6 +370,16 @@ export function MessagesClient({
                   }`}
                 >
                   <Ban className="size-3.5" strokeWidth={1.5} /> {selected.optedOut ? "Opt back in" : "Opt out"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleBlocked(selected)}
+                  title={selected.blockedAt ? "Unblock this number" : "Block this number: keep its texts, but no alerts and nothing sent to it"}
+                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[12px] ${
+                    selected.blockedAt ? "border-flag text-flag hover:bg-flag-soft" : "border-rule text-ink-3 hover:bg-paper-2"
+                  }`}
+                >
+                  <ShieldBan className="size-3.5" strokeWidth={1.5} /> {selected.blockedAt ? "Unblock" : "Block"}
                 </button>
                 <span className="hidden font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3 sm:inline">Linked to</span>
                 <select
@@ -438,7 +485,15 @@ export function MessagesClient({
             {notice && (
               <div className="border-t border-rule bg-flag-soft px-5 py-2 text-[12px] text-flag">{notice}</div>
             )}
-            {selected.optedOut && (
+            {selected.blockedAt && (
+              <div className="border-t border-rule bg-paper-2 px-5 py-2 text-[12px] text-ink-2">
+                <ShieldBan className="mr-1 inline size-3.5 text-flag" strokeWidth={1.5} />
+                You blocked {threadTitle(selected)}
+                {` on ${selected.blockedAt.slice(0, 10)}`}. Their texts are kept here, but you won&apos;t be notified and
+                nothing can be sent to them. Unblock to text them again.
+              </div>
+            )}
+            {selected.optedOut && !selected.blockedAt && (
               <div className="border-t border-rule bg-paper-2 px-5 py-2 text-[12px] text-ink-2">
                 <Ban className="mr-1 inline size-3.5 text-flag" strokeWidth={1.5} />
                 {threadTitle(selected)} opted out (STOP). The OS will not text them until they send START. Calling is still fine.
@@ -457,7 +512,7 @@ export function MessagesClient({
                   }
                 }}
                 rows={1}
-                placeholder={!configured ? "SMS not connected" : selected.optedOut ? "Contact opted out — texting blocked" : "Type a text…"}
+                placeholder={!configured ? "SMS not connected" : selected.blockedAt ? "Blocked number — unblock to text" : selected.optedOut ? "Contact opted out — texting blocked" : "Type a text…"}
                 disabled={composerDisabled}
                 className="max-h-32 min-h-[38px] flex-1 resize-y rounded-lg border border-rule bg-paper px-3 py-2 text-[13px] text-ink outline-none focus:border-accent disabled:bg-paper-2 disabled:text-ink-3"
               />

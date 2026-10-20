@@ -865,7 +865,7 @@ function smsUnansweredDetector(): Detector {
               WHERE thread_id = t.id AND direction = 'in' AND keyword IS NULL
               ORDER BY created_at DESC, id DESC LIMIT 1
            ) m ON true
-          WHERE t.unread = true AND t.opted_out = false
+          WHERE t.unread = true AND t.opted_out = false AND t.blocked_at IS NULL
             AND t.last_inbound_at IS NOT NULL
             AND t.last_inbound_at < now() - make_interval(hours => $1)
             AND (t.last_outbound_at IS NULL OR t.last_outbound_at < t.last_inbound_at)`,
@@ -897,7 +897,7 @@ function smsUnansweredDetector(): Detector {
            FROM detector_state ds
            LEFT JOIN sms_threads t ON t.id = NULLIF(split_part(ds.dedup_key, ':', 2), '')::bigint
           WHERE ds.detector_key = 'sms-unanswered' AND ds.resolved_at IS NULL
-            AND (t.id IS NULL OR t.unread = false OR t.opted_out = true
+            AND (t.id IS NULL OR t.unread = false OR t.opted_out = true OR t.blocked_at IS NOT NULL
                  OR (t.last_outbound_at IS NOT NULL AND t.last_outbound_at >= t.last_inbound_at))`,
       );
       return rows.map((r) => r.dedup_key);

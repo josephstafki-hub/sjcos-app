@@ -80,6 +80,9 @@ export interface SmsThreadSummary {
   lastMessageAt: string | null;
   optedOut: boolean;
   optedOutAt: string | null;
+  /** Joe blocked this number: texts are kept but never unread / pushed, and
+   *  nothing is sent to it. */
+  blockedAt: string | null;
 }
 
 export interface SmsMedia {
@@ -102,7 +105,7 @@ export interface SmsMessage {
   sentBy: string | null;
 }
 
-const THREAD_COLS = `id, phone, contact_name, link_type, link_slug, unread, last_message_at, opted_out, opted_out_at`;
+const THREAD_COLS = `id, phone, contact_name, link_type, link_slug, unread, last_message_at, opted_out, opted_out_at, blocked_at`;
 interface ThreadRow {
   id: number;
   phone: string;
@@ -113,6 +116,7 @@ interface ThreadRow {
   last_message_at: string | null;
   opted_out: boolean;
   opted_out_at: string | null;
+  blocked_at: string | null;
 }
 const toThread = (r: ThreadRow): SmsThreadSummary => ({
   id: r.id,
@@ -124,6 +128,7 @@ const toThread = (r: ThreadRow): SmsThreadSummary => ({
   lastMessageAt: r.last_message_at,
   optedOut: r.opted_out,
   optedOutAt: r.opted_out_at,
+  blockedAt: r.blocked_at,
 });
 
 const MSG_COLS = `id, direction, body, status, created_at, media, error_detail, failure_kind, keyword, sent_by`;
@@ -170,7 +175,7 @@ export async function getSmsThread(id: number): Promise<{ thread: SmsThreadSumma
 
 /** Threads with an inbound message awaiting a reply (nav badge). */
 export async function getUnreadSmsCount(): Promise<number> {
-  const row = await queryOne<{ n: string }>(`SELECT count(*)::text AS n FROM sms_threads WHERE unread = true`);
+  const row = await queryOne<{ n: string }>(`SELECT count(*)::text AS n FROM sms_threads WHERE unread = true AND blocked_at IS NULL`);
   return Number(row?.n ?? 0);
 }
 
@@ -257,7 +262,9 @@ export interface InboundResult {
 
 /** Record an inbound text from a verified Telnyx `message.received` event.
  *  Deduped on the provider message id (Telnyx retries non-200s). Handles the
- *  six keywords, re-stores MMS media, pushes Joe. */
+ *  six keywords, re-stores MMS media, pushes Joe. A blocked number's text is
+ *  still recorded and its keywords still honoured, but it stays read and Joe
+ *  is not pushed. */
 export async function recordInboundSms(ev: ParsedMessagingEvent): Promise<InboundResult> {
   if (!ev.from) throw new Error("inbound message has no sender");
   const businessNumber = ev.to[0] ?? smsConfig()?.fromNumber ?? null;
@@ -274,14 +281,17 @@ export async function recordInboundSms(ev: ParsedMessagingEvent): Promise<Inboun
   if (!inserted) return { threadId, messageId: null, duplicate: true, keyword };
   const messageId = inserted.id;
 
-  // Thread state: a keyword is not a conversation turn Joe needs to answer.
-  await query(
+  // Thread state: a keyword is not a conversation turn Joe needs to answer,
+  // and neither is anything from a number he blocked.
+  const state = await queryOne<{ blocked: boolean }>(
     `UPDATE sms_threads
         SET last_message_at = now(), last_inbound_at = now(),
-            unread = CASE WHEN $2 THEN unread ELSE true END
-      WHERE id = $1`,
+            unread = CASE WHEN $2 OR blocked_at IS NOT NULL THEN unread ELSE true END
+      WHERE id = $1
+      RETURNING blocked_at IS NOT NULL AS blocked`,
     [threadId, keyword !== null],
   );
+  const blocked = state?.blocked ?? false;
 
   // MMS: Telnyx media URLs expire — download and re-store now.
   if (ev.media.length) {
@@ -311,13 +321,14 @@ export async function recordInboundSms(ev: ParsedMessagingEvent): Promise<Inboun
 
   if (keyword === "opt_out") {
     await query(`UPDATE sms_threads SET opted_out = true, opted_out_at = now() WHERE id = $1`, [threadId]);
-    await notifyOwner({ kind: "sms_inbound", title: `${link.name} opted out of texts (${ev.text.trim().toUpperCase()})`, href });
+    if (!blocked) await notifyOwner({ kind: "sms_inbound", title: `${link.name} opted out of texts (${ev.text.trim().toUpperCase()})`, href });
   } else if (keyword === "opt_in") {
     await query(`UPDATE sms_threads SET opted_out = false, opted_in_at = now() WHERE id = $1`, [threadId]);
-    await notifyOwner({ kind: "sms_inbound", title: `${link.name} opted back in to texts`, href });
+    if (!blocked) await notifyOwner({ kind: "sms_inbound", title: `${link.name} opted back in to texts`, href });
   } else if (keyword === "help") {
+    // Carrier-mandated: HELP is answered even from a blocked number.
     await sendHelpReply(threadId, ev.from);
-  } else {
+  } else if (!blocked) {
     const preview = ev.text.trim().replace(/\s+/g, " ").slice(0, 120) || (ev.media.length ? `(${ev.media.length} attachment${ev.media.length === 1 ? "" : "s"})` : "(empty)");
     await notifyOwner({
       kind: "sms_inbound",
@@ -385,7 +396,7 @@ export interface SendSmsInput {
 
 export type SendSmsResult =
   | { ok: true; threadId: number; messageId: number; providerId: string; summary: string }
-  | { ok: false; error: string; threadId?: number; blocked?: "opted_out" | "not_configured" | "grant" | "invalid_number" | "unknown" };
+  | { ok: false; error: string; threadId?: number; blocked?: "opted_out" | "blocked" | "not_configured" | "grant" | "invalid_number" | "unknown" };
 
 /** THE outbound path. Spends the grant, checks opt-out, records the message,
  *  hands it to Telnyx, and turns every failure into a work item. */
@@ -405,10 +416,13 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
   if (!covers.ok) return { ok: false, error: covers.error, blocked: "grant" };
 
   const threadId = await upsertSmsThread(to, input.contactName, cfg.fromNumber);
-  const thread = await queryOne<{ opted_out: boolean; opted_out_at: string | null; contact_name: string | null }>(
-    `SELECT opted_out, opted_out_at::text AS opted_out_at, contact_name FROM sms_threads WHERE id = $1`,
+  const thread = await queryOne<{ opted_out: boolean; opted_out_at: string | null; contact_name: string | null; blocked: boolean }>(
+    `SELECT opted_out, opted_out_at::text AS opted_out_at, contact_name, blocked_at IS NOT NULL AS blocked FROM sms_threads WHERE id = $1`,
     [threadId],
   );
+  if (thread?.blocked) {
+    return { ok: false, error: `Blocked: ${thread.contact_name || to} is a blocked number. Unblock it on /messages first; nothing was sent.`, threadId, blocked: "blocked" };
+  }
   if (thread?.opted_out) {
     const when = thread.opted_out_at ? ` on ${thread.opted_out_at.slice(0, 10)}` : "";
     const error = `Blocked: ${thread.contact_name || to} opted out of texts (STOP)${when}. They must text START to opt back in; nothing was sent.`;

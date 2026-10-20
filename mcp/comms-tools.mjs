@@ -18,8 +18,8 @@ export function registerCommsTools(server, { rows, json }) {
       title: "List text-message threads",
       description:
         "Recent SMS conversations on the business number: counterparty, linked record (lead / project / " +
-        "sub / vendor), unread (inbound awaiting a reply), and opted_out (they texted STOP — do not draft " +
-        "to them). Newest first.",
+        "sub / vendor), unread (inbound awaiting a reply), opted_out (they texted STOP — do not draft " +
+        "to them), and blocked (Joe blocked the number — ignore it, never draft to it). Newest first.",
       inputSchema: {
         unread_only: z.boolean().optional(),
         limit: z.number().int().min(1).max(200).optional(),
@@ -29,6 +29,7 @@ export function registerCommsTools(server, { rows, json }) {
       try {
         const r = await rows(
           `SELECT id, phone, contact_name, link_type, link_slug, unread, opted_out,
+                  blocked_at IS NOT NULL AS blocked,
                   last_message_at, last_inbound_at, last_outbound_at
              FROM sms_threads
             WHERE ($1::boolean IS NOT TRUE OR unread = true)
@@ -55,7 +56,8 @@ export function registerCommsTools(server, { rows, json }) {
     async ({ thread_id, limit }) => {
       try {
         const t = await rows(
-          `SELECT id, phone, contact_name, link_type, link_slug, unread, opted_out, opted_out_at, business_number,
+          `SELECT id, phone, contact_name, link_type, link_slug, unread, opted_out, opted_out_at,
+                  blocked_at IS NOT NULL AS blocked, blocked_at, business_number,
                   last_message_at FROM sms_threads WHERE id = $1`,
           [thread_id],
         );

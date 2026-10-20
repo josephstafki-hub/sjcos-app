@@ -351,9 +351,13 @@ test("V14: a missing/draft policy holds the automatic action; a paused lane stop
     await run(`INSERT INTO sms_threads (phone, opted_out, opted_out_at) VALUES ('+19995550001', true, now())`);
     const { intent: sms } = await enqueueIntent(run, { operationKey: "zz:sms:stop", kind: "send_sms", targetKind: "phone", targetId: "+19995550001", recipient: "+19995550001", payload: { to: "+19995550001", text: "hi", message_id: 0, thread_id: 0 }, policyRef: "owner:click", principal: owner });
     assert.match((await dispatchOnce(deps, { intentIds: [sms.id] }))[0].error, /STOP/);
+    // a number Joe blocked on /messages refuses the same way
+    await run(`INSERT INTO sms_threads (phone, blocked_at) VALUES ('+19995550002', now())`);
+    const { intent: blk } = await enqueueIntent(run, { operationKey: "zz:sms:blocked", kind: "send_sms", targetKind: "phone", targetId: "+19995550002", recipient: "+19995550002", payload: { to: "+19995550002", text: "hi", message_id: 0, thread_id: 0 }, policyRef: "owner:click", principal: owner });
+    assert.match((await dispatchOnce(deps, { intentIds: [blk.id] }))[0].error, /blocked number/);
     await run(`INSERT INTO newsletter_recipients (email, name, active) VALUES ('zz-gone@example.test', 'Gone', false)`);
     const { intent: nl } = await enqueueIntent(run, { operationKey: "zz:nl:unsub", kind: "release_newsletter", targetId: "0", recipient: "zz-gone@example.test", payload: { to: "zz-gone@example.test", subject: "s", bodyText: "b" }, policyRef: "owner:click", principal: owner });
     assert.match((await dispatchOnce(deps, { intentIds: [nl.id] }))[0].error, /unsubscribed/);
-    assert.equal(fakeOutbox.filter((f) => f.payload.to === "+19995550001" || f.payload.to === "zz-gone@example.test").length, 0);
+    assert.equal(fakeOutbox.filter((f) => f.payload.to === "+19995550001" || f.payload.to === "+19995550002" || f.payload.to === "zz-gone@example.test").length, 0);
   });
 });

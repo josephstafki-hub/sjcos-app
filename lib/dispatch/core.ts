@@ -139,7 +139,8 @@ async function optedOut(run: Run, channel: "email" | "sms" | "phone", recipient:
   const [o] = await run<{ reason: string; created_at: string }>(`SELECT reason, created_at::text AS created_at FROM communication_optouts WHERE channel = $1 AND address = $2 AND revoked_at IS NULL`, [channel, rec]);
   if (o) return `${rec} opted out of ${channel} (${o.reason || "no reason recorded"}, ${o.created_at.slice(0, 10)}); nothing was sent.`;
   if (channel === "sms") {
-    const [t] = await run<{ opted_out: boolean; opted_out_at: string | null }>(`SELECT opted_out, opted_out_at::text AS opted_out_at FROM sms_threads WHERE phone = $1`, [rec]);
+    const [t] = await run<{ opted_out: boolean; opted_out_at: string | null; blocked: boolean }>(`SELECT opted_out, opted_out_at::text AS opted_out_at, blocked_at IS NOT NULL AS blocked FROM sms_threads WHERE phone = $1`, [rec]);
+    if (t?.blocked) return `${rec} is a blocked number (unblock it on /messages); nothing was sent.`;
     if (t?.opted_out) return `${rec} opted out of texts (STOP${t.opted_out_at ? ` on ${t.opted_out_at.slice(0, 10)}` : ""}); nothing was sent.`;
   }
   if (channel === "email" && kind === "release_newsletter") {

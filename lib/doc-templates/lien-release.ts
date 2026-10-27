@@ -39,11 +39,13 @@ export function waiverTitle(t: string): string {
 
 export const lienReleaseTemplate: DocTemplate = {
   key: "lien_release",
-  version: "2026-07-10.1",
+  version: "2026-10-27.1",
   title: "Waiver and Release of Lien",
   subtitle: "Mechanic's lien waiver under Minnesota Statutes chapter 514.",
   docClass: "legal",
   scope: "project",
+  // Joe's attorney reviewed and approved the waiver text (Joe, 2026-10-27).
+  attorneyReviewed: true,
   fields: [
     { key: "company_name", label: "Company name", kind: "text", source: "auto", required: true },
     { key: "company_address", label: "Company address", kind: "text", source: "auto", required: true },
@@ -79,6 +81,16 @@ export const lienReleaseTemplate: DocTemplate = {
     { key: "paid_to_date", label: "Total paid to date", kind: "money_cents", source: "auto", required: true },
     { key: "balance_remaining", label: "Balance remaining", kind: "money_cents", source: "auto", required: true },
     { key: "include_notary", label: "Include notary block", kind: "enum", source: "owner", required: false, enumValues: ["yes", "no"] },
+    {
+      key: "signed_by",
+      label: "Signed by (name)",
+      kind: "text",
+      source: "owner",
+      required: false,
+      help: "Joe signing the waiver himself: his name is stamped on the Claimant line. Blank = unsigned line.",
+    },
+    { key: "signed_title", label: "Signer title", kind: "text", source: "owner", required: false },
+    { key: "signed_date", label: "Date signed", kind: "date", source: "owner", required: false },
   ],
   build,
   titleFor: (v) => waiverTitle(str(v, "waiver_type")),
@@ -145,7 +157,14 @@ function build(v: FieldValues): TemplateSection[] {
   out.push(
     heading("Signature"),
     para("The person signing below is authorized to execute this waiver on behalf of Claimant."),
-    signatureBlock([{ role: `${co} — signature / printed name & title` }]),
+    signatureBlock([
+      {
+        role: `${co} — signature / printed name & title`,
+        signed: str(v, "signed_by")
+          ? { name: str(v, "signed_by"), title: str(v, "signed_title") || undefined, date: str(v, "signed_date") || str(v, "document_date") }
+          : undefined,
+      },
+    ]),
   );
 
   // NOTARIZATION (optional)

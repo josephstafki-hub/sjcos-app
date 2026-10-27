@@ -80,7 +80,7 @@ export function checkboxGroup(
   return { kind: "checkbox_group", items, title };
 }
 
-export function signatureBlock(parties: { role: string; name?: string }[]): TemplateSection {
+export function signatureBlock(parties: { role: string; name?: string; signed?: { name: string; title?: string; date: string } }[]): TemplateSection {
   return { kind: "signature_block", parties };
 }
 

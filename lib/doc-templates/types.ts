@@ -74,7 +74,9 @@ export type TemplateSection =
   /** N-column table with a header row (payment schedule, SOW line items). */
   | { kind: "columns_table"; headers: string[]; rows: string[][]; emphasizeLast?: boolean }
   | { kind: "checkbox_group"; title?: string; items: { label: string; checked: boolean }[] }
-  | { kind: "signature_block"; parties: { role: string; name?: string }[] }
+  /** `signed` = the party already signed (e.g. Joe on his own lien waiver):
+   *  their name is stamped on the line in script with the date. */
+  | { kind: "signature_block"; parties: { role: string; name?: string; signed?: { name: string; title?: string; date: string } }[] }
   | { kind: "notary_block" }
   /** Statutory notice — renderer must emit ≥10-pt bold (Minn. Stat. § 514.011). */
   | { kind: "statutory_notice"; runs: Run[] }

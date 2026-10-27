@@ -359,18 +359,21 @@ function renderPdfSection(
         : -1;
       s.parties.forEach((party, partyIdx) => {
         const isSigner = !!signature && partyIdx === signerIdx;
+        // Signed on the document itself (Joe on his own waiver): typed name in
+        // script + date, no certificate — it is his own signature, not an e-sign.
+        const preSigned = !isSigner ? party.signed : undefined;
         const drawn = isSigner && !!signature?.signatureImage;
         // A hand-drawn signature needs real height above the line; the typed
         // italic name fits in the standard gap.
         const IMG_H = 42;
-        ensure(drawn ? 64 + IMG_H : 64);
+        ensure(drawn ? 64 + IMG_H : preSigned ? 80 : 64);
         // Party label is a small gray caption, not bold black text sitting
         // right above the blank line — otherwise it reads as if the line
         // were already filled in. The actual blank + its own small caption
         // below is what should draw the eye.
         const who = party.name ? `${party.role} — ${party.name}` : party.role;
         doc.font("Helvetica").fontSize(8).fillColor(GRAY).text(who.toUpperCase(), PAGE.margin, doc.y, { width: W });
-        doc.moveDown(drawn ? 1.3 + IMG_H / 9.2 : 1.3);
+        doc.moveDown(drawn ? 1.3 + IMG_H / 9.2 : preSigned ? 2.6 : 1.3);
         const lineY = doc.y;
         const sigW = 260;
         const dateX = PAGE.margin + sigW + 30;
@@ -396,9 +399,17 @@ function renderPdfSection(
           doc.font("Helvetica").fontSize(9).fillColor(INK)
             .text(shortStamp(signature.signedAt), dateX + 2, lineY - 12, { width: dateW, lineBreak: false });
         }
+        if (preSigned) {
+          doc.font("Times-Italic").fontSize(15).fillColor(INK)
+            .text(preSigned.name, PAGE.margin + 2, lineY - 17, { width: sigW, lineBreak: false });
+          doc.font("Helvetica").fontSize(9).fillColor(INK)
+            .text(preSigned.date, dateX + 2, lineY - 12, { width: dateW, lineBreak: false });
+        }
         doc.strokeColor("#999").lineWidth(0.8).moveTo(PAGE.margin, lineY).lineTo(PAGE.margin + sigW, lineY).stroke();
         doc.moveTo(dateX, lineY).lineTo(dateX + dateW, lineY).stroke();
-        const caption = !isSigner || !signature
+        const caption = preSigned
+          ? `Signature / Printed name · ${[preSigned.name, preSigned.title].filter(Boolean).join(", ")}`
+          : !isSigner || !signature
           ? "Signature / Printed name"
           : `${signature.method === "in_person" ? "Signed in person (electronic)" : "Signed electronically"} · ${signature.signerName}`;
         doc.font("Helvetica-Oblique").fontSize(7.5).fillColor(GRAY)
@@ -724,7 +735,16 @@ function pushDocxSection(out: (Paragraph | Table)[], s: TemplateSection) {
       for (const party of s.parties) {
         const who = party.name ? `${party.role} — ${party.name}` : party.role;
         out.push(new Paragraph({ spacing: { before: 200, after: 40 }, children: [new TextRun({ text: who, bold: true, font: FONT, size: 20 })] }));
-        out.push(new Paragraph({ spacing: { after: 20 }, children: [new TextRun({ text: "Signature / Printed name: ____________________________        Date: ____________", font: FONT, size: 20 })] }));
+        if (party.signed) {
+          const printed = [party.signed.name, party.signed.title].filter(Boolean).join(", ");
+          out.push(new Paragraph({ spacing: { after: 20 }, children: [
+            new TextRun({ text: "Signature: ", font: FONT, size: 20 }),
+            new TextRun({ text: party.signed.name, italics: true, font: "Times New Roman", size: 28 }),
+            new TextRun({ text: `        Printed name: ${printed}        Date: ${party.signed.date}`, font: FONT, size: 20 }),
+          ] }));
+        } else {
+          out.push(new Paragraph({ spacing: { after: 20 }, children: [new TextRun({ text: "Signature / Printed name: ____________________________        Date: ____________", font: FONT, size: 20 })] }));
+        }
       }
       break;
     case "notary_block":

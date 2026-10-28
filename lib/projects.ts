@@ -455,7 +455,7 @@ export async function getProjectFiles(slug: string): Promise<ProjectFile[]> {
 }
 
 /** Files deleted from the project in the last 30 days, for the Files tab's
- *  Restore list. Empty (not an error) before migration 0031 is applied. */
+ *  Restore list. Empty (not an error) before migration 0032 is applied. */
 export async function getProjectFileTrash(slug: string): Promise<TrashedFile[]> {
   const run = (async (sql: string, params?: unknown[]) => (await query(sql, params)).rows) as Run;
   return listFileTrash(run, slug).catch(() => []);

@@ -1,5 +1,5 @@
 // Where an agent upload's bytes wait before commit_project_upload (see
-// db/migrations/0031_project_uploads.sql). Shared by the signed PUT route
+// db/migrations/0032_project_uploads.sql). Shared by the signed PUT route
 // (app/api/uploads/[id]/route.ts) and mcp/upload-tools.mjs, which run in
 // different processes but write the same uploads/ directory. No "@/" imports:
 // the MCP server loads this file directly with node.

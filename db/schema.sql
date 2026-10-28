@@ -3657,7 +3657,7 @@ CREATE INDEX IF NOT EXISTS run_steers_pending_idx ON run_steers (run_id) WHERE s
 CREATE INDEX IF NOT EXISTS run_steers_relay_pending_idx ON run_steers (relay_run_id) WHERE status = 'pending' AND relay_run_id IS NOT NULL;
 
 -- ─── Agent uploads + file trash ──────────────────────────────────────────────
--- Migration: db/migrations/0031_project_uploads.sql (mcp/upload-tools.mjs,
+-- Migration: db/migrations/0032_project_uploads.sql (mcp/upload-tools.mjs,
 -- lib/file-trash.ts). Kept identical so a fresh database matches the ledger.
 ALTER TABLE files ADD COLUMN IF NOT EXISTS sha256     text;
 ALTER TABLE files ADD COLUMN IF NOT EXISTS updated_at timestamptz;

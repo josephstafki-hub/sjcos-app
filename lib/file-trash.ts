@@ -1,4 +1,4 @@
-// Soft delete for project files (db/migrations/0031_project_uploads.sql).
+// Soft delete for project files (db/migrations/0032_project_uploads.sql).
 //
 // Deleting a file moves its files row, whole, into file_trash for 30 days and
 // leaves the blob on disk, so Restore puts back exactly what was there (same

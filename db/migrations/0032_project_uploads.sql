@@ -1,4 +1,4 @@
--- 0031 — Agent uploads of binary project files (mcp/upload-tools.mjs).
+-- 0032 — Agent uploads of binary project files (mcp/upload-tools.mjs).
 --
 -- save_project_file only takes text. An agent with a PDF plan set, a photo or
 -- an Office file now starts an upload (create_project_upload), sends the bytes

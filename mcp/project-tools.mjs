@@ -94,7 +94,7 @@ export function registerProjectTools(server, { rows, json, strippedDollarError, 
   }
 
   async function convertLead(slug, nameInput) {
-    const lead = await one(`SELECT id, name, scope, scope_city, value_display FROM leads WHERE slug = $1`, [slug]);
+    const lead = await one(`SELECT id, name, scope, scope_city, value_display, email FROM leads WHERE slug = $1`, [slug]);
     if (!lead) return { ok: false, error: `No lead with slug "${slug}".` };
 
     const existing = await one(`SELECT slug, name FROM projects WHERE lead_id = $1`, [lead.id]);
@@ -116,9 +116,9 @@ export function registerProjectTools(server, { rows, json, strippedDollarError, 
 
     const pslug = await uniqueProjectSlug(projectName);
     await rows(
-      `INSERT INTO projects (slug, name, status, client_name, address, value_display, sub_label, lead_id)
-       VALUES ($1, $2, 'floor_plan', $3, $4, $5, $6, $7)`,
-      [pslug, projectName, lead.name, address, lead.value_display, address, lead.id],
+      `INSERT INTO projects (slug, name, status, client_name, address, value_display, sub_label, lead_id, client_email)
+       VALUES ($1, $2, 'floor_plan', $3, $4, $5, $6, $7, $8)`,
+      [pslug, projectName, lead.name, address, lead.value_display, address, lead.id, (lead.email ?? "").trim()],
     );
     // logLeadActivity(slug, "note", …) — actor defaults to "Joe" there too.
     await rows(

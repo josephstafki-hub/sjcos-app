@@ -517,8 +517,9 @@ export async function convertLeadToProject(slug: string, nameInput?: string) {
     scope: string;
     scope_city: string | null;
     value_display: string | null;
+    email: string | null;
   }>(
-    `SELECT id, name, scope, scope_city, value_display FROM leads WHERE slug = $1`,
+    `SELECT id, name, scope, scope_city, value_display, email FROM leads WHERE slug = $1`,
     [slug],
   );
   if (!lead) return;
@@ -550,9 +551,9 @@ export async function convertLeadToProject(slug: string, nameInput?: string) {
   }
 
   await query(
-    `INSERT INTO projects (slug, name, status, client_name, address, value_display, sub_label, lead_id)
-     VALUES ($1, $2, 'floor_plan', $3, $4, $5, $6, $7)`,
-    [pslug, projectName, lead.name, address, lead.value_display, address, lead.id],
+    `INSERT INTO projects (slug, name, status, client_name, address, value_display, sub_label, lead_id, client_email)
+     VALUES ($1, $2, 'floor_plan', $3, $4, $5, $6, $7, $8)`,
+    [pslug, projectName, lead.name, address, lead.value_display, address, lead.id, (lead.email ?? "").trim()],
   );
   await logLeadActivity(slug, "note", `Converted to project "${projectName}"`);
 

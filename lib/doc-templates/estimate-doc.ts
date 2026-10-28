@@ -22,7 +22,7 @@ import {
 
 export const estimateDocTemplate: DocTemplate = {
   key: "estimate_doc",
-  version: "2026-07-16.1",
+  version: "2026-10-28.1",
   title: "Formal Estimate",
   subtitle: "Prepared following site visit, material takeoff, and confirmed selections.",
   docClass: "transactional",
@@ -120,7 +120,12 @@ function build(v: FieldValues): TemplateSection[] {
     ),
     signatureBlock([
       { role: "Client", name: str(v, "client_name") },
-      { role: str(v, "company_name", "SJ Carpentry LLC") },
+      // Joe's own signature, typed in script with the date prepared (same as
+      // his lien waivers); the client's line stays blank.
+      {
+        role: str(v, "company_name", "SJ Carpentry LLC"),
+        signed: { name: "Joseph Stafki", title: "Owner", date: str(v, "date_prepared") },
+      },
     ]),
   );
 

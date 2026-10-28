@@ -96,6 +96,7 @@ import { registerProjectTools } from "./project-tools.mjs";
 import { registerLeadTools } from "./lead-tools.mjs";
 import { areaRefusal, logLiveChanges, writeTable } from "./tool-shared.mjs";
 import { registerFilingTools } from "./filing-tools.mjs";
+import { registerUploadTools } from "./upload-tools.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -2897,6 +2898,15 @@ server.registerTool(
   // Emailed invoices / receipts / rebates: file the sure ones to a job (or
   // overhead), stage the rest in Joe's Unsorted tray. See mcp/filing-tools.mjs.
   registerFilingTools(server, { json, filingCall, strippedDollarError });
+
+  // Binary files (PDF plan sets, photos, xlsx/docx/csv) into a project's
+  // Files: create → signed PUT or base64 parts → commit (size + sha256
+  // checked), plus delete/restore through a 30-day trash. No cost, no
+  // Unsorted, never client-visible. See mcp/upload-tools.mjs.
+  registerUploadTools(server, {
+    rows, json, pool, envValue, currentPrincipal,
+    uploadDir: path.join(__dirname, "..", "uploads"),
+  });
 
   // `search` + `fetch`: the two tools ChatGPT's connector requires by name (it
   // rejects a server without them). Read-only unified lookups over the same

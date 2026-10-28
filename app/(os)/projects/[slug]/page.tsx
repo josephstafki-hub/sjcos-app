@@ -22,12 +22,13 @@ import { BiddingBoard } from "@/components/projects/BiddingBoard";
 import { getProjectBidding, listAllSubs } from "@/lib/bidding";
 import { MoodBoard } from "@/components/projects/MoodBoard";
 import { FloorPlan } from "@/components/projects/FloorPlan";
-import { getProject, getProjectFiles, getProjectSubsData, getProjectDailyLogs, PROJECT_STATUSES, stageToolTab } from "@/lib/projects";
+import { getProject, getProjectFiles, getProjectFileTrash, getProjectSubsData, getProjectDailyLogs, PROJECT_STATUSES, stageToolTab } from "@/lib/projects";
 import { ProjectSubs } from "@/components/projects/ProjectSubs";
 import { SubInvitesPanel } from "@/components/projects/SubInvitesPanel";
 import { getQueuedSubInvites } from "@/lib/sub-invites";
 import { ProjectDailyLog } from "@/components/projects/ProjectDailyLog";
 import { ProjectFiles } from "@/components/projects/ProjectFiles";
+import { DeletedFiles } from "@/components/projects/DeletedFiles";
 import { ProjectComms } from "@/components/projects/ProjectComms";
 import { PortalAccessPanel, type PortalInviteSummary } from "@/components/portal/PortalAccessPanel";
 import { getClientInvite, getPortalClaim } from "@/lib/client-invites";
@@ -550,8 +551,12 @@ export default async function ProjectDetailPage({
   );
 
   // ── Files panel — real upload/download scoped to the project ───────────────
+  const deletedFiles = await getProjectFileTrash(slug);
   const filesPanel = (
-    <ProjectFiles slug={slug} files={projectFiles} showcase={project.files} />
+    <>
+      <ProjectFiles slug={slug} files={projectFiles} showcase={project.files} />
+      <DeletedFiles files={deletedFiles} />
+    </>
   );
 
   // ── Money panel — real invoices (curated draw schedule as a

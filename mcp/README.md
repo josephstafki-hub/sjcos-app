@@ -405,7 +405,7 @@ so they run the exact code the owner's buttons run.
 | `list_bid_packages` | Packages by project/trade/status with invite + bid counts and the low number |
 | `get_bid_package` | One package in full: packet files, invites (per-sub notes, statuses), latest submissions |
 | `compare_bids` | Submitted bids low → high with deltas, line items, exclusions, lead times, docs |
-| `list_project_files` | The project's uploaded files — the pool `attach_bid_file` draws from |
+| `list_project_files` | The project's uploaded files — the pool `attach_bid_file` draws from — with `sha256`, `updated_at` and `created_by` per file |
 | `save_project_file` | Save a document an agent wrote (markdown/text/html) into the project's files, internal only; same name replaces the older copy. Permit briefs use tag `PERMIT · Requirements` and show on the Permits tab |
 | `view_project_image` | The actual pixels of an uploaded project image (downscaled), so an agent can look at photos/plan snapshots |
 | `get_project_file` | One file by id — base64 image block, or a short-lived signed URL (any type, incl. PDFs) |
@@ -440,6 +440,29 @@ checks in on "working" subs at day 4, and a thank-you goes out when a bid is
 recorded (Joe's button or `record_bid`). Agents don't drive those sends —
 keeping invite statuses honest (`mark_bid_working`, `record_bid`, recording
 declines) is what steers them.
+
+## Project file uploads (PDFs, photos, Office files)
+
+`mcp/upload-tools.mjs`. The binary twin of `save_project_file`: a plan set,
+photo, xlsx/docx or csv lands in the project's Files (internal only — no
+cost, nothing in Unsorted, never client-visible). Max 25 MB. Types:
+`application/pdf`, `image/png`, `image/jpeg`, xlsx, docx, `text/csv`.
+
+| Tool | Effect |
+|---|---|
+| `create_project_upload` | Declare name, type, size, sha256, tag, subtitle → `upload_id` + a signed `upload_url` (PUT, 30 min, no auth header) + `chunk_limit_bytes` (48 KB raw) |
+| `append_project_upload` | Fallback when the shell can't reach the app domain: base64 parts 1, 2, 3… (resend overwrites, any order); each part keeps the upload open 30 more minutes |
+| `commit_project_upload` | Checks size + sha256 (PUT body first, else the parts) and files it. Mismatch → clear error, upload stays open to resend. Same name on the project → replaced in place, same `file_id` (`replace_existing: false` keeps both). Committing twice returns the same file |
+| `delete_project_file` | Moves a file to the 30-day trash with a `reason` (project history + the Files tab's "Recently deleted" list, which has Restore). Agent-made files only, unless the call runs on the owner's own login; files a bid packet / document / signature still uses are refused |
+| `restore_project_file` | Undo a delete (same id). Without `file_id`, lists the project's deleted files |
+
+**Typical flow:** `sha256sum plan.pdf` → `create_project_upload` →
+`curl -T plan.pdf -H 'Content-Type: application/pdf' "$upload_url"` (or
+`append_project_upload` ×N) → `commit_project_upload` → `list_project_files`
+shows one copy with the same sha256. The PUT is served by
+`app/api/uploads/[id]/route.ts`; bytes wait in `uploads/.staging/<id>/`.
+A cloud session needs the app domain on its network allowlist for the PUT;
+until then use the parts.
 
 ## Login accounts (Settings › Team & roles for agents)
 

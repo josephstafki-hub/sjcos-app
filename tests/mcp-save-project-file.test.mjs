@@ -25,7 +25,7 @@ function harness(uploadDir) {
     if (/^SELECT id, storage_path FROM files WHERE project_key = \$1 AND name = \$2/i.test(s)) return files.filter((f) => f.project_key === params[0] && f.name === params[1]);
     if (/^SELECT id, name, mime_type, size_label, project_key, storage_path FROM files WHERE id = \$1/i.test(s)) return files.filter((f) => f.id === params[0]);
     if (/^INSERT INTO files/i.test(s)) {
-      files.push({ id: params[0], project_key: params[1], name: params[2], tag: params[3], size_label: params[4], subtitle: params[5], storage_path: params[6], mime_type: params[7], client_visible: /false\)$/.test(s) ? false : null });
+      files.push({ id: params[0], project_key: params[1], name: params[2], tag: params[3], size_label: params[4], subtitle: params[5], storage_path: params[6], mime_type: params[7], client_visible: /-1, \$7, \$8, false/.test(s) ? false : null });
       return [];
     }
     if (/^UPDATE files SET tag/i.test(s)) {

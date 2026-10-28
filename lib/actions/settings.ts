@@ -6,7 +6,7 @@
 import { revalidatePath } from "next/cache";
 import { query } from "@/lib/db";
 import { requireUser, requireRole } from "@/lib/dal";
-import { BILLING_RATE_ROWS, MARKUP_KEY } from "@/lib/billing-rates";
+import { BILLING_RATE_ROWS, MARKUP_KEY, PRECON_FEE_PCT_KEY } from "@/lib/billing-rates";
 
 /** First+last initial of a name, uppercased (e.g. "Joe Stafki" → "JS"). */
 function initialsOf(name: string): string {
@@ -86,6 +86,7 @@ export async function updateProfile(formData: FormData) {
 export async function updateBillingRates(formData: FormData) {
   await requireRole("owner");
   await upsertSetting(MARKUP_KEY, String(formData.get("markup") ?? "").trim());
+  await upsertSetting(PRECON_FEE_PCT_KEY, String(formData.get("preconFeePct") ?? "").trim());
   for (const r of BILLING_RATE_ROWS) {
     await upsertSetting(r.key, String(formData.get(r.key) ?? "").trim());
   }

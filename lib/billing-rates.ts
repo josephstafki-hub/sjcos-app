@@ -16,3 +16,21 @@ export const BILLING_RATE_ROWS: { key: string; label: string; default: string }[
 /** Third-party markup on subs/materials/permits in the precon agreement. */
 export const MARKUP_KEY = "rates.markup";
 export const MARKUP_DEFAULT = "20%";
+
+/** Pre-con fee rule (Joe 2026-10-28): a percentage of the LOW end of the lead's
+ *  rough-estimate total. The Pre-Construction Agreement fills its fee from it;
+ *  Joe can still change the fee on the draft. Blank = no rule (fee left empty). */
+export const PRECON_FEE_PCT_KEY = "rates.precon_fee_pct";
+export const PRECON_FEE_PCT_DEFAULT = "5%";
+
+/** Fee in whole-dollar cents from a rough total ("$233,500 – $360,000" or
+ *  "$295,500") and a percent string ("5%"). Null when either is unusable. */
+export function preconFeeCents(roughTotal: string | null | undefined, pct: string | null | undefined): number | null {
+  const low = /\$?\s*([\d,]+(?:\.\d+)?)/.exec(String(roughTotal ?? ""));
+  const rate = /([\d.]+)/.exec(String(pct ?? ""));
+  if (!low || !rate) return null;
+  const dollars = Number(low[1].replace(/,/g, ""));
+  const p = Number(rate[1]);
+  if (!(dollars > 0) || !(p > 0) || p > 100) return null;
+  return Math.round((dollars * p) / 100) * 100;
+}

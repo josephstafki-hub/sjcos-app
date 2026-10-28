@@ -11,7 +11,7 @@ import { getCurrentUser } from "./dal";
 import { gmailConfigured } from "./gmail";
 import { getClipToken } from "./clip";
 import { getIntakeToken } from "./lead-intake-token";
-import { BILLING_RATE_ROWS, MARKUP_KEY, MARKUP_DEFAULT } from "./billing-rates";
+import { BILLING_RATE_ROWS, MARKUP_KEY, MARKUP_DEFAULT, PRECON_FEE_PCT_KEY, PRECON_FEE_PCT_DEFAULT } from "./billing-rates";
 
 export interface SettingsCategory {
   id: string;
@@ -112,6 +112,8 @@ export interface SettingsData {
    *  Pre-Construction Agreement's rates table. */
   billingRates: {
     markup: string;
+    /** Pre-con fee as a % of the rough estimate's low end ("5%"; "" = no rule). */
+    preconFeePct: string;
     rows: { key: string; label: string; value: string }[];
   };
   /** Browser-extension catalog clipper (Phase 2 A): the auth token (null until
@@ -271,6 +273,7 @@ export async function getSettingsData(): Promise<SettingsData> {
     },
     billingRates: {
       markup: get(MARKUP_KEY, MARKUP_DEFAULT),
+      preconFeePct: get(PRECON_FEE_PCT_KEY, PRECON_FEE_PCT_DEFAULT),
       rows: BILLING_RATE_ROWS.map((r) => ({ key: r.key, label: r.label, value: get(r.key, r.default) })),
     },
     intake: {

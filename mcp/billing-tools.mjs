@@ -4,9 +4,9 @@
 // stage_milestone_confirmation for progress draws) and his approval issues it.
 
 import { z } from "zod";
-import { invoiceBalance, verifiedBalances, recordInvoicePayment, invoiceCollisionReport } from "../lib/billing/core.ts";
+import { invoiceBalance, verifiedBalances, recordInvoicePayment, invoiceCollisionReport, issueMilestoneInvoice } from "../lib/billing/core.ts";
 import { stageMilestoneConfirmation, stageInitialInvoiceDecision, finalReconciliation, resolveDraw } from "../lib/billing/commands.ts";
-import { txOver, principalFor, fail, agentNameOf } from "./tool-shared.mjs";
+import { txOver, principalFor, fail, agentNameOf, areaRefusal } from "./tool-shared.mjs";
 
 export function registerBillingTools(server, { rows, json, pool, slugToId, currentPrincipal }) {
   const tx = txOver(pool);
@@ -110,6 +110,72 @@ export function registerBillingTools(server, { rows, json, pool, slugToId, curre
         const p = await principal();
         if (!p.onBehalfOf) return json({ ok: false, error: "Recording a payment needs a signed-in person behind the agent (Joe or an authorised team member)." });
         return json(await tx((r) => recordInvoicePayment(r, { invoiceId: a.invoice_id, kind: "payment", amountCents: a.amount_cents, method: a.method, provider: a.reference ? "manual" : null, providerRef: a.reference ?? null, receivedAt: a.received_at ?? null, status: "settled", note: a.note ?? "", principal: p })));
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  // A one-off invoice that no draw schedule produces — the pre-con fee once the
+  // lead is converted, a deposit Joe names, a T&M bill. Same as Money › New
+  // invoice: it is created as a DRAFT and nothing is emailed. Sending stays
+  // behind the grant (request_owner_permission action send_invoice, target_id =
+  // the invoice id). Idempotent per (project, key) so a retry never double-bills.
+  server.registerTool(
+    "create_invoice_draft",
+    {
+      title: "Draft a one-off invoice (nothing is sent)",
+      description:
+        "Create a DRAFT invoice on a project with the lines you give, exactly like Money › New invoice in the app. " +
+        "For amounts no draw schedule produces: the pre-con fee (kind 'precon_fee' — use the fee on the job's " +
+        "Pre-Construction Agreement draft, list_document_drafts → precon_fee), a deposit or one-off charge Joe named. " +
+        "Amounts are INTEGER CENTS and must come from a record or from Joe, never invented. Not for the contract's " +
+        "first draw (stage_initial_invoice) or progress draws (stage_milestone_confirmation). Nothing is emailed: to " +
+        "send it, request_owner_permission { action: 'send_invoice', target_id: <invoice id> } — Joe's Approve sends it. " +
+        "Re-running with the same project and key returns the existing invoice instead of a second one.",
+      inputSchema: {
+        project_slug: z.string(),
+        kind: z.enum(["precon_fee", "other"]).describe("precon_fee = the pre-construction retainer (one per job)."),
+        milestone: z.string().min(1).max(120).describe("Invoice title, e.g. 'Pre-construction fee'."),
+        lines: z
+          .array(z.object({ label: z.string().min(1).max(300), amount_cents: z.number().int().positive() }))
+          .min(1)
+          .max(20),
+        key: z
+          .string()
+          .regex(/^[a-z0-9-]{1,40}$/)
+          .optional()
+          .describe("kind 'other' only: a short stable name for this charge (e.g. 'permit-fee'); defaults from the title."),
+        terms: z
+          .string()
+          .max(60)
+          .optional()
+          .describe("Payment terms, e.g. 'Due on receipt' or 'Net 7'. precon_fee is always due on receipt (the agreement says so)."),
+      },
+    },
+    async (a) => {
+      try {
+        const refusal = await areaRefusal(rows, currentPrincipal, "invoices");
+        if (refusal) return json({ ok: false, error: refusal });
+        const id = await project(a.project_slug);
+        const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "charge";
+        const economicKey = a.kind === "precon_fee" ? "precon:fee" : `manual:${a.key ?? slug(a.milestone)}`;
+        const lines = a.lines.map((l) => ({ label: l.label.trim(), amount: l.amount_cents }));
+        const amountCents = lines.reduce((s, l) => s + l.amount, 0);
+        const p = await principal();
+        const { invoice, created } = await tx((r) =>
+          issueMilestoneInvoice(r, { projectId: id, economicKey, milestone: a.milestone, amountCents, lines, source: "manual", status: "draft", terms: a.kind === "precon_fee" ? "Due on receipt" : (a.terms ?? null), principal: p }),
+        );
+        return json({
+          ok: true,
+          created,
+          invoice_id: Number(invoice.id),
+          number: invoice.number,
+          status: invoice.status,
+          amount_cents: Number(invoice.amount),
+          ...(created ? {} : { note: "An invoice with this key already exists on the project — returned it, nothing new was created." }),
+          next: `To send: request_owner_permission { action: "send_invoice", target_id: "${invoice.id}" }. Joe's Approve emails it.`,
+        });
       } catch (e) {
         return fail(e);
       }

@@ -278,6 +278,12 @@ export function SettingsClient({ data }: { data: SettingsData }) {
             <form action={updateBillingRates} className="mt-5 max-w-[720px]">
               <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                 <TextInput name="markup" label="Third-party markup" defaultValue={data.billingRates.markup} placeholder="e.g. 20%" />
+                <TextInput
+                  name="preconFeePct"
+                  label="Pre-con fee (% of rough estimate low end)"
+                  defaultValue={data.billingRates.preconFeePct}
+                  placeholder="e.g. 5% — blank to set each fee by hand"
+                />
                 {data.billingRates.rows.map((r) => (
                   <TextInput key={r.key} name={r.key} label={r.label} defaultValue={r.value} placeholder="e.g. $52 / hr" />
                 ))}

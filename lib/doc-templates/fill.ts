@@ -15,7 +15,14 @@ import {
   type CompanyDocInfo,
 } from "../documents";
 import { DRAW_TRIGGER_STATUSES } from "../draw-schedule";
-import { BILLING_RATE_ROWS, MARKUP_KEY, MARKUP_DEFAULT } from "../billing-rates";
+import {
+  BILLING_RATE_ROWS,
+  MARKUP_KEY,
+  MARKUP_DEFAULT,
+  PRECON_FEE_PCT_KEY,
+  PRECON_FEE_PCT_DEFAULT,
+  preconFeeCents,
+} from "../billing-rates";
 import type { FieldValues, TableValue } from "./types";
 import { getTemplate } from "./registry";
 import { type FillReport, type FillMark } from "./fill-validate";
@@ -162,9 +169,22 @@ async function resolvePrecon(f: Fill, scope: FillScope) {
     }
   }
 
-  const s = await settings([MARKUP_KEY]);
+  const s = await settings([MARKUP_KEY, PRECON_FEE_PCT_KEY]);
   f.set("markup_pct", s.get(MARKUP_KEY) || MARKUP_DEFAULT);
   f.set("billing_rates_table", await billingRatesTable());
+
+  // Fee = the Settings pre-con % of the low end of the lead's rough estimate
+  // (the project's originating lead once converted). Left for Joe if there's
+  // no rough estimate or the rule is blanked out.
+  const pct = s.has(PRECON_FEE_PCT_KEY) ? s.get(PRECON_FEE_PCT_KEY) : PRECON_FEE_PCT_DEFAULT;
+  const est = await queryOne<{ total: string | null }>(
+    `SELECT e.total FROM lead_estimates e JOIN leads l ON l.id = e.lead_id
+      WHERE l.slug = $1 OR l.id = (SELECT lead_id FROM projects WHERE slug = $2)
+      LIMIT 1`,
+    [scope.leadSlug ?? null, scope.slug ?? null],
+  );
+  const fee = preconFeeCents(est?.total, pct);
+  if (fee != null) f.set("precon_fee", fee);
 }
 
 async function resolveLienRelease(f: Fill, scope: FillScope) {

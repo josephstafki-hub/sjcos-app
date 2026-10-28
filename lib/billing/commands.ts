@@ -88,7 +88,7 @@ async function drawScheduleFor(run: Run, est: EstimateRow): Promise<DrawLine[]> 
   if (parsed) return parsed;
   const [row] = await run<{ value: string }>(`SELECT value FROM app_settings WHERE key = 'contract.deposit_pct'`);
   const pct = Number(row?.value);
-  return defaultDrawSchedule(Number.isFinite(pct) && pct > 0 ? pct : 10);
+  return defaultDrawSchedule(Number.isFinite(pct) && pct > 0 ? pct : 50);
 }
 
 function drawAmount(totalCents: number, percent: number): number {

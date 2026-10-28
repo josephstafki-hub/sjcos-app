@@ -29,7 +29,7 @@ export const DRAW_TRIGGER_STATUSES: { key: string; label: string }[] = [
  *  across progress draws + a final payment. Each milestone is pre-wired to a
  *  project stage so it auto-bills as the job advances (owner can change the
  *  triggers, or set them to Manual, before generating the contract). */
-export function defaultDrawSchedule(depositPct = 10): DrawLine[] {
+export function defaultDrawSchedule(depositPct = 50): DrawLine[] {
   const deposit = Math.max(0, Math.min(100, Math.round(depositPct)));
   const remaining = 100 - deposit;
   // Three even draws over the remaining balance: rough-in, progress, final.

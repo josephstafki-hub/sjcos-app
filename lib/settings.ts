@@ -257,7 +257,7 @@ export async function getSettingsData(): Promise<SettingsData> {
     companyDocs: {
       license: get("company.license", ""),
       address: get("company.address", ""),
-      depositPct: get("contract.deposit_pct", "10"),
+      depositPct: get("contract.deposit_pct", "50"),
       terms: get("contract.terms", ""),
       autoSendMilestone: settings.has("invoice.auto_send_on_milestone")
         ? settings.get("invoice.auto_send_on_milestone") === "true"

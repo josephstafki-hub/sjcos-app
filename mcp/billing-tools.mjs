@@ -89,6 +89,57 @@ export function registerBillingTools(server, { rows, json, pool, slugToId, curre
     },
   );
 
+  // Same edit as the payment-schedule editor on the contract generator
+  // (lib/actions/documents.ts updateDrawSchedule). Spaeth, 2026-10-28: the
+  // default 10% deposit went out because no agent could change the schedule.
+  server.registerTool(
+    "set_draw_schedule",
+    {
+      title: "Set the contract's payment schedule",
+      description:
+        "Replace the formal estimate's payment schedule (the draws the contract prints and the invoices bill). Percentages must " +
+        "total 100. Joe's rule: a job this size takes AT LEAST 50% up front; never leave the default small deposit. A draw " +
+        "that already has an invoice keeps billed:true (pass the draws in order; the first is the deposit). triggerStatus = the " +
+        "project stage that auto-bills the draw: construction_contract | construction | closeout | warranty | '' (manual). " +
+        "After changing it, re-create the contract document (create_document_draft contract) so the PDF shows the new draws.",
+      inputSchema: {
+        project_slug: z.string(),
+        draws: z
+          .array(z.object({ label: z.string().min(1).max(120), percent: z.number().min(0).max(100), trigger_status: z.enum(["", "construction_contract", "construction", "closeout", "warranty"]).optional() }))
+          .min(1)
+          .max(12),
+      },
+    },
+    async (a) => {
+      try {
+        const id = await project(a.project_slug);
+        const total = a.draws.reduce((s, d) => s + d.percent, 0);
+        if (Math.abs(total - 100) > 0.5) return json({ ok: false, error: `Percentages must add up to 100% (currently ${total}%).` });
+        const [est] = await run(`SELECT id::int AS id, total::int AS total, draw_schedule FROM estimates WHERE project_id = $1 AND kind = 'formal' ORDER BY (status = 'approved') DESC, (status = 'sent') DESC, id DESC LIMIT 1`, [id]);
+        if (!est) return json({ ok: false, error: "This job has no formal estimate." });
+        const old = Array.isArray(est.draw_schedule) ? est.draw_schedule : [];
+        const lines = a.draws.map((d, i) => ({
+          label: d.label.trim(),
+          percent: Math.round(d.percent * 100) / 100,
+          triggerStatus: d.trigger_status ?? "",
+          billed: old[i]?.billed === true,
+        }));
+        await run(`UPDATE estimates SET draw_schedule = $2::jsonb WHERE id = $1`, [est.id, JSON.stringify(lines)]);
+        const issued = await run(`SELECT number, milestone, amount::int AS amount_cents, status FROM invoices WHERE project_id = $1 AND status <> 'void' ORDER BY id`, [id]);
+        return json({
+          ok: true,
+          estimate_id: est.id,
+          total_cents: est.total,
+          draws: lines.map((l) => ({ ...l, amount_cents: Math.round((est.total * l.percent) / 100) })),
+          invoices_on_job: issued,
+          next: "Re-create the contract document so it prints these draws. If a draw already billed a different amount, bill the difference with create_invoice_draft.",
+        });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
   server.registerTool(
     "final_reconciliation",
     { title: "Final invoice reconciliation preview (W12)", description: "Contract total + approved change-order balances − issued invoices' settled amounts − credits: the verified remaining balance the final invoice will charge after written sign-off, with any uncertainty that would hold it (pending payments, negative remainder).", inputSchema: { project_slug: z.string() } },

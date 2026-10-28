@@ -43,7 +43,7 @@ export function ContractGenerator({
   const [open, setOpen] = useState(false);
   // Follows the saved schedule when it changes on the server (an agent set the
   // draws); unsaved edits stay while the saved one is unchanged.
-  const [lines, setLines] = useServerState<DrawLine[]>(schedule ?? defaultDrawSchedule(10));
+  const [lines, setLines] = useServerState<DrawLine[]>(schedule ?? defaultDrawSchedule(50));
   const [pending, startTransition] = useTransition();
   const [creating, startCreating] = useTransition();
   const [savedMsg, setSavedMsg] = useState<string | null>(null);

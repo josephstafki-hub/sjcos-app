@@ -127,7 +127,7 @@ export async function gatherDocData(estimateId: number, slug: string): Promise<D
     [slug],
   );
 
-  const depositPct = Number(s.get("contract.deposit_pct")) || 10;
+  const depositPct = Number(s.get("contract.deposit_pct")) || 50;
   let drawSchedule = parseDrawSchedule(est.draw_schedule);
   if (!drawSchedule) {
     drawSchedule = defaultDrawSchedule(depositPct);

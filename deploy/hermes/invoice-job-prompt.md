@@ -21,10 +21,27 @@ Start: `get_skill file-invoice-receipt-rebate` and follow it (`record_skill_used
    it goes. Carry it out with `file_unsorted_document` (`agent: "hermes"`). If
    a note is still ambiguous, leave it and list it in your summary.
 
-2. Find new mail since the last run: invoices, bills, statements, payment
-   requests, receipts, payment confirmations, order confirmations and rebates
-   (Menards etc.). Include anything already labeled `Invoices`. Open each one:
-   read the body and its attachments before deciding.
+2. Find the mail: invoices, bills, statements, payment requests, receipts,
+   payment confirmations, order confirmations and rebates (Menards etc.). Joe
+   clears his inbox with Gmail's "Move to" a label, so most of this mail is no
+   longer in the inbox: never add `in:inbox`, and don't rely on keywords alone.
+   Run both searches every pass:
+   a. Everything recent: `newer_than:2d -from:me`. Go through every result's
+      sender, subject and snippet. Anything that could be one of the documents
+      above is a candidate, even without those words (a "Fwd:" with a PDF, a
+      sub's note with an attachment).
+   b. Mail Joe moved into a filing label, including older mail he moved there
+      after it arrived: run `gmail labels` and take `Invoices`, `Receipts`,
+      `Rebates`, and every label under `Projects/` or `Commercial/`. Search
+      `newer_than:14d -from:me {label:invoices label:receipts label:rebates
+      label:projects-mahowald …}`. Gmail search spells a nested label
+      lowercase with dashes (`Projects/Edina Condo` →
+      `label:projects-edina-condo`); `label:Projects` by itself matches
+      nothing.
+   Skip what SJC OS already has: call `list_unsorted_documents` once with
+   `{"statuses":["pending","needs_agent","filed","dismissed"],"limit":200}`
+   and drop any message whose `gmail_message_id` is in it. Open each remaining
+   candidate: read the body and its attachments before deciding.
 
 3. Decide for each message, using its Gmail message id:
    - Sure of the project → `file_email_document` with `project_slug`.

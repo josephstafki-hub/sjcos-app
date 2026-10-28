@@ -29,6 +29,7 @@ import { invoiceBalance, recordInvoicePayment, INVOICE_COLS, type InvoiceRow } f
 import { ProviderDeclinedError, ProviderUnknownOutcomeError, type PaymentMethod, type SquareAdapter, type SquarePayment, type SquareRefund } from "./square/types.ts";
 import type { Tx } from "../billing/commands.ts";
 import { stagePaymentReceipt, type ReceiptOutcome } from "./receipt.ts";
+import { stagePaymentAlert } from "./owner-alert.ts";
 
 export type AttemptState = "created" | "pending" | "completed" | "failed" | "returned" | "refunded" | "disputed" | "unknown";
 
@@ -186,6 +187,9 @@ export interface ApplyResult {
   to: AttemptState;
   /** Set when this call moved the attempt to completed (lib/payments/receipt.ts). */
   receipt?: ReceiptOutcome;
+  /** push_outbox row telling Joe about this transition (lib/payments/owner-alert.ts);
+   *  the caller sends it after commit with sendOwnerPushesNow. */
+  ownerPushId?: string;
 }
 
 /** Idempotent: the same provider state applied twice (duplicate webhook,
@@ -253,7 +257,19 @@ export async function applyProviderPayment(run: Run, input: { attemptId?: string
       receipt = { staged: "skipped", reason: `receipt not staged: ${(err as Error).message}`.slice(0, 300) };
     }
   }
-  return { attempt: updated, changed: true, from: attempt.state, to: next, ...(receipt ? { receipt } : {}) };
+  let ownerPushId: string | null = null;
+  if (next === "completed" || next === "pending" || next === "returned") {
+    // Joe's "you got paid" alert. Same savepoint rule as the receipt.
+    await run(`SAVEPOINT payment_owner_alert`);
+    try {
+      ownerPushId = await stagePaymentAlert(run, { attemptId: attempt.id, invoiceId: attempt.invoice_id, amountCents: attempt.amount_cents, method, state: next });
+      await run(`RELEASE SAVEPOINT payment_owner_alert`);
+    } catch (err) {
+      await run(`ROLLBACK TO SAVEPOINT payment_owner_alert`);
+      console.error("[payments] owner alert not staged:", (err as Error).message);
+    }
+  }
+  return { attempt: updated, changed: true, from: attempt.state, to: next, ...(receipt ? { receipt } : {}), ...(ownerPushId ? { ownerPushId } : {}) };
 }
 
 export async function markAttemptDeclined(run: Run, attemptId: string, code: string, reason: string): Promise<AttemptRow> {
@@ -311,14 +327,14 @@ export function refundFromWebhook(payload: SquareWebhookEnvelope): SquareRefund 
 }
 
 /** Process one verified Square event (already persisted in source_events). */
-export async function processSquareEvent(run: Run, input: { payload: SquareWebhookEnvelope; sourceEventId: string }): Promise<{ handled: string; changed: boolean }> {
+export async function processSquareEvent(run: Run, input: { payload: SquareWebhookEnvelope; sourceEventId: string }): Promise<{ handled: string; changed: boolean; receiptIntentId?: string; ownerPushId?: string }> {
   const type = payload(input.payload.type);
   if (type.startsWith("payment.")) {
     const p = paymentFromWebhook(input.payload);
     if (!p) return { handled: "ignored:malformed", changed: false };
     const r = await applyProviderPayment(run, { payment: p, sourceEventId: input.sourceEventId, actor: "webhook:square" });
     if (!r) return { handled: "ignored:unknown_payment", changed: false };
-    return { handled: `payment:${r.from}->${r.to}`, changed: r.changed, ...(r.receipt?.staged === "intent" ? { receiptIntentId: r.receipt.intentId } : {}) };
+    return { handled: `payment:${r.from}->${r.to}`, changed: r.changed, ...(r.receipt?.staged === "intent" ? { receiptIntentId: r.receipt.intentId } : {}), ...(r.ownerPushId ? { ownerPushId: r.ownerPushId } : {}) };
   }
   if (type.startsWith("refund.")) {
     const rf = refundFromWebhook(input.payload);
@@ -340,6 +356,8 @@ export interface ReconcileSummary {
   changed: number;
   stale: number;
   unresolved: number;
+  /** Owner alerts staged this sweep, for sendOwnerPushesNow after commit. */
+  ownerPushIds: string[];
 }
 
 export async function reconcilePendingAttempts(run: Run, adapter: SquareAdapter, opts: { staleAfterHours?: number; principal?: Principal; now?: Date } = {}): Promise<ReconcileSummary> {
@@ -347,7 +365,7 @@ export async function reconcilePendingAttempts(run: Run, adapter: SquareAdapter,
   const now = opts.now ?? new Date();
   const principal: Principal = opts.principal ?? { kind: "service", name: "cron:payments-reconcile" };
   const rows = await run<AttemptRow>(`SELECT ${ATTEMPT_COLS} FROM payment_attempts WHERE state IN ('created','pending','unknown') ORDER BY created_at`);
-  const out: ReconcileSummary = { checked: 0, changed: 0, stale: 0, unresolved: 0 };
+  const out: ReconcileSummary = { checked: 0, changed: 0, stale: 0, unresolved: 0, ownerPushIds: [] };
   for (const a of rows) {
     out.checked++;
     let payment: SquarePayment | null = null;
@@ -359,6 +377,7 @@ export async function reconcilePendingAttempts(run: Run, adapter: SquareAdapter,
     if (payment) {
       const r = await applyProviderPayment(run, { attemptId: a.id, payment, actor: principal });
       if (r?.changed) out.changed++;
+      if (r?.ownerPushId) out.ownerPushIds.push(r.ownerPushId);
       if (r && r.to === "pending") await maybeEscalateStale(run, r.attempt, staleAfter, now, principal, out);
       continue;
     }

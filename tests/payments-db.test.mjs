@@ -87,6 +87,7 @@ test("V21 card: repeat taps/refresh reuse one attempt; stale amount and stale re
     const adapter = getSquareAdapter();
     assert.equal(adapter.environment, "fake", "tests never touch the real Square");
     const inv = await issued(tx, projectId, "draw:0:deposit", 250000);
+    const pushFloor = (await run(`SELECT COALESCE(max(id), 0)::bigint AS m FROM push_outbox`))[0].m;
 
     const nonce = "tap-0001-abcdef";
     const first = await checkout(tx, adapter, { invoiceId: inv.id, method: "card", nonce, sourceId: "cnon:card-ok", expectedAmountCents: 250000, expectedRevision: 1 });
@@ -119,6 +120,10 @@ test("V21 card: repeat taps/refresh reuse one attempt; stale amount and stale re
     const declined = await checkout(tx, adapter, { invoiceId: inv2.id, method: "card", nonce: "tap-0004-abcdef", sourceId: "cnon:card-decline" });
     assert.equal(declined.attempt.state, "failed");
     assert.equal((await invoiceBalance(run, inv2.id)).balanceCents, 100000);
+    const paid = await run(`SELECT title, body FROM push_outbox WHERE kind = 'payment' AND id > $1 AND title LIKE '%$2,500.00%'`, [pushFloor]);
+    assert.equal(paid.length, 1, "one alert for the paid card, despite the repeat tap");
+    assert.match(paid[0].body, /^Card · Invoice .* · paid in full$/);
+    assert.equal((await run(`SELECT count(*)::int AS n FROM push_outbox WHERE kind = 'payment' AND id > $1 AND title LIKE '%$1,000.00%'`, [pushFloor]))[0].n, 0, "a declined card says nothing");
     assert.equal((await run(`SELECT count(*)::int AS n FROM invoice_payments WHERE invoice_id = $1`, [inv2.id]))[0].n, 0);
     // a draft invoice is not payable
     const draft = await tx((r) => issueMilestoneInvoice(r, { projectId, economicKey: "draw:2:x", milestone: "x", amountCents: 100, source: "draw", status: "draft", principal: owner }));
@@ -234,8 +239,18 @@ test("V21 ACH: pending is not paid and pauses reminders; missed webhook → reco
     await run(`UPDATE invoices SET due_at = CURRENT_DATE - 2 WHERE id = $1`, [inv.id]);
     assert.equal((await routineReminderCandidates(run)).length, 1);
 
+    // Joe's "you got paid" alerts (lib/payments/owner-alert.ts): one per transition.
+    const alerts = async () => run(`SELECT title, body, href FROM push_outbox WHERE kind = 'payment' AND sent_at IS NULL ORDER BY id`);
+    const cards = async () => run(`SELECT title, flagged FROM notifications WHERE tag = 'Payment' ORDER BY created_at, title`);
+    const alertsBefore = (await alerts()).length;
+    const cardsBefore = (await cards()).length;
+
     const ach = await checkout(tx, adapter, { invoiceId: inv.id, method: "ach", nonce: "ach-0001-abcdef", sourceId: "bauth:ok" });
     assert.equal(ach.attempt.state, "pending");
+    let al = (await alerts()).slice(alertsBefore);
+    assert.equal(al.length, 1, "a started bank transfer tells Joe once");
+    assert.match(al[0].title, /^Bank transfer started: \$4,000\.00 from ZZ$/);
+    assert.equal(al[0].href, "/projects/zz-pay-b?tab=Money");
     let b = await invoiceBalance(run, inv.id);
     assert.equal(b.balanceCents, 400000, "pending ACH is not cash");
     assert.equal(b.hasPending, true);
@@ -269,6 +284,10 @@ test("V21 ACH: pending is not paid and pauses reminders; missed webhook → reco
     r = await tx((x) => processSquareEvent(x, { payload: JSON.parse(done.body), sourceEventId: e1.id }));
     assert.equal(r.changed, false);
     assert.equal((await run(`SELECT count(*)::int AS n FROM invoice_payments WHERE invoice_id = $1`, [inv.id]))[0].n, 1, "one ledger row after three webhooks");
+    al = (await alerts()).slice(alertsBefore);
+    assert.equal(al.length, 2, "cleared once after three webhooks");
+    assert.match(al[1].title, /^Paid online: \$4,000\.00 from ZZ$/);
+    assert.match(al[1].body, /^Bank transfer · Invoice .* · paid in full$/);
     const a = await getAttempt(run, ach.attempt.id);
     assert.equal(a.source_event_ids.length, 2, "evidence recorded per distinct event");
 
@@ -282,6 +301,13 @@ test("V21 ACH: pending is not paid and pauses reminders; missed webhook → reco
     assert.equal(b.balanceCents, 400000);
     assert.equal((await run(`SELECT status FROM invoices WHERE id = $1`, [inv.id]))[0].status, "sent");
     assert.equal((await run(`SELECT count(*)::int AS n FROM invoices WHERE project_id = $1`, [projectId]))[0].n, 1, "no invoice fabricated");
+    al = (await alerts()).slice(alertsBefore);
+    assert.equal(al.length, 3);
+    assert.match(al[2].title, /^Payment returned: \$4,000\.00 from ZZ$/);
+    assert.match(al[2].body, /\$4,000\.00 still owed$/);
+    const bell = (await cards()).slice(cardsBefore);
+    assert.equal(bell.length, 3, "each alert also lands on the bell");
+    assert.equal(bell.filter((c) => c.flagged).length, 1, "only the return is flagged");
     assert.equal((await routineReminderCandidates(run)).length, 1, "reminders resume on the real balance");
 
     // Missed webhook: an ACH that never got its event is settled by reconciliation (fake settles on the 2nd poll).
@@ -292,6 +318,7 @@ test("V21 ACH: pending is not paid and pauses reminders; missed webhook → reco
     assert.equal(sum.changed, 0, "first poll: still pending");
     sum = await tx((x) => reconcilePendingAttempts(x, adapter));
     assert.equal(sum.changed, 1);
+    assert.equal(sum.ownerPushIds.length, 1, "the sweep hands its alert back for an immediate send");
     assert.equal((await invoiceBalance(run, inv2.id)).balanceCents, 0);
     // and one that fails at the bank (amount ends in 99)
     const inv3 = await issued(tx, projectId, "draw:2:x", 5099);

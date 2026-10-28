@@ -22,6 +22,7 @@ import {
 } from "./service";
 import type { PaymentMethod } from "./square/types";
 import { dispatchIntentsNow } from "@/lib/dispatch/db";
+import { sendOwnerPushesNow } from "@/lib/notify-owner";
 
 /** Send the client's receipt now instead of on the next 2-minute dispatch
  *  pass. Best-effort: the intent is already durable, the timer retries. */
@@ -92,6 +93,7 @@ export async function checkout(input: { invoiceId: number; method: PaymentMethod
   }
   const applied = await withTransaction((run) => applyProviderPayment(run, { attemptId: prep.attempt.id, payment: outcome.payment, actor: input.actor }));
   if (applied?.receipt?.staged === "intent") await sendReceiptNow(applied.receipt.intentId);
+  await sendOwnerPushesNow([applied?.ownerPushId]);
   const state = applied?.attempt.state ?? "unknown";
   return { ok: true, state, attemptId: prep.attempt.id, amountCents: prep.attempt.amount_cents, reused: prep.reused, message: describe(state, prep.attempt.method) };
 }
@@ -138,7 +140,8 @@ export async function handleSquareWebhook(rawBody: string, signatureHeader: stri
       await run(`UPDATE source_events SET state = 'done', processed_at = now() WHERE id = $1 AND state IN ('pending','failed')`, [event.id]);
       return out;
     });
-    await sendReceiptNow((r as { receiptIntentId?: string }).receiptIntentId);
+    await sendReceiptNow(r.receiptIntentId);
+    await sendOwnerPushesNow([r.ownerPushId]);
     return { status: 200, body: { ok: true, duplicate: !created, ...r } };
   } catch (err) {
     // Durable already; the worker / next delivery retries processing.
@@ -151,5 +154,7 @@ export { SQUARE_SIGNATURE_HEADER };
 
 export async function runPaymentsReconcile(principal: Principal) {
   const adapter = getSquareAdapter();
-  return withTransaction((run) => reconcilePendingAttempts(run, adapter, { principal }));
+  const out = await withTransaction((run) => reconcilePendingAttempts(run, adapter, { principal }));
+  await sendOwnerPushesNow(out.ownerPushIds);
+  return out;
 }

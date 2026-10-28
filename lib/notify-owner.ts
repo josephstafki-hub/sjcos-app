@@ -35,7 +35,10 @@ export type OwnerPushKind =
   // a call outcome / call notes, and a provider/timer failure.
   | "sms_inbound"
   | "voice_call"
-  | "comms";
+  | "comms"
+  // A client paid online through Square (lib/payments/owner-alert.ts, which
+  // stages the row in the payment's transaction; sendOwnerPushesNow sends it).
+  | "payment";
 
 export interface NotifyOwnerInput {
   kind: OwnerPushKind;
@@ -63,8 +66,8 @@ export interface TelegramExtras {
 }
 
 const TZ = "America/Chicago";
-const MAX_PER_HOUR = 4; // transmitted pushes per rolling hour; 'grant' and 'decision' are exempt
-const CAP_EXEMPT: ReadonlySet<OwnerPushKind> = new Set(["grant", "decision"]);
+const MAX_PER_HOUR = 4; // transmitted pushes per rolling hour; 'grant', 'decision' and 'payment' are exempt
+const CAP_EXEMPT: ReadonlySet<OwnerPushKind> = new Set(["grant", "decision", "payment"]);
 
 // ── Channel registry ─────────────────────────────────────────────────────────
 // Keyed by name so a future 'mobile-push' channel (native app push) registers
@@ -143,6 +146,7 @@ const EMIT_DEFAULTS: Record<OwnerPushKind, Omit<EmitInput, "title">> = {
   sms_inbound: { kind: "mention", tag: "Text", accent: "accent", icon: "chat" },
   voice_call: { kind: "job", tag: "Call", accent: "accent", icon: "chat" },
   comms: { kind: "job", tag: "Comms", accent: "flag", icon: "shield", flagged: true },
+  payment: { kind: "money", tag: "Payment", accent: "money", icon: "money" },
 };
 
 // ── Quiet hours + throttle gate (one round trip; all wall-clock math in
@@ -246,6 +250,45 @@ export async function notifyOwner(input: NotifyOwnerInput, nowOverride?: Date): 
     await transmit(input, now);
   } catch (err) {
     console.error("[notify-owner] push failed", err);
+  }
+}
+
+/** Send push_outbox rows that were staged inside a database transaction
+ *  (payment alerts) now that it has committed, instead of waiting for the
+ *  5-minute drain. Same rules as notifyOwner: nothing during quiet hours, and
+ *  only cap-exempt kinds skip the hourly cap. A row left unsent here is still
+ *  due, so the drain delivers it. Never throws. */
+export async function sendOwnerPushesNow(ids: (string | null | undefined)[], nowOverride?: Date): Promise<void> {
+  const want = ids.filter((id): id is string => !!id);
+  if (!want.length || !enabledChannels().length) return;
+  try {
+    const now = nowOverride ?? new Date();
+    const g = await gate(now);
+    if (!g.awake) return;
+    const { rows } = await query<OutboxRow>(
+      `UPDATE push_outbox SET sent_at = $2
+        WHERE id = ANY($1::bigint[]) AND sent_at IS NULL AND send_after <= $2
+        RETURNING id, kind, title, body, href, payload`,
+      [want, now],
+    );
+    let room = MAX_PER_HOUR - g.sent_last_hour;
+    for (const row of rows) {
+      if (!CAP_EXEMPT.has(row.kind) && room-- <= 0) {
+        await query(`UPDATE push_outbox SET sent_at = NULL, send_after = $2 WHERE id = $1`, [row.id, g.next_hour]);
+        continue;
+      }
+      try {
+        for (const ch of enabledChannels()) {
+          const id = await ch.send(pushText(row), row.payload);
+          await noteDelivery(row.payload, id);
+        }
+      } catch (err) {
+        console.error(`[notify-owner] send failed (row ${row.id}) — left for the drain`, err);
+        await query(`UPDATE push_outbox SET sent_at = NULL, send_after = $2::timestamptz + interval '5 minutes' WHERE id = $1`, [row.id, now]);
+      }
+    }
+  } catch (err) {
+    console.error("[notify-owner] sendOwnerPushesNow failed", err);
   }
 }
 
@@ -378,6 +421,7 @@ export async function runPushDrain(
                          WHEN 'decision' THEN 0
                          WHEN 'urgent_item' THEN 1
                          WHEN 'approval_needed' THEN 1
+                         WHEN 'payment' THEN 1
                          ELSE 2 END,
                created_at`,
     [now],

@@ -296,11 +296,14 @@ export async function initialInvoicePlan(run: Run, projectId: string): Promise<{
   if (!proj) return { ok: false, reason: "No such project." };
   const [pick] = await run<{ id: number }>(
     `SELECT id::int AS id FROM estimates
-      WHERE project_id = $1 AND kind = 'formal' AND status IN ('approved','sent')
-      ORDER BY (status = 'approved') DESC, approved_at DESC NULLS LAST, id DESC LIMIT 1`,
+      WHERE project_id = $1 AND kind = 'formal' AND status IN ('approved','sent','draft')
+      ORDER BY (status = 'approved') DESC, (status = 'sent') DESC, approved_at DESC NULLS LAST, id DESC LIMIT 1`,
     [projectId],
   );
-  if (!pick) return { ok: false, reason: `${proj.name} has no formal estimate that was sent to or approved by the client.` };
+  // A draft formal estimate still bills: Joe often walks the client through the
+  // number in person and has the contract signed instead of sending the
+  // estimate. His Approve on the card is the gate; the card says it was never sent.
+  if (!pick) return { ok: false, reason: `${proj.name} has no formal estimate.` };
   const est = await loadEstimate(run, pick.id);
   if (!est || !(est.total > 0)) return { ok: false, reason: `Formal estimate #${pick.id} has no total; nothing to bill.` };
   const lines = await drawScheduleFor(run, est);
@@ -355,7 +358,8 @@ export async function stageInitialInvoiceDecision(run: Run, input: StageInitialI
   const amount = usdOf(plan.amountCents);
   const gaps: string[] = [];
   if (!plan.client.email) gaps.push("No client email on file. Approving creates the invoice as a draft; nothing can be emailed until an address is added.");
-  if (!plan.acceptance) gaps.push(`The client has not signed estimate #${plan.estimate.id}.`);
+  if (plan.estimate.status === "draft") gaps.push(`Formal estimate #${plan.estimate.id} was never sent to the client from the app (it is still a draft). The invoice uses its current total, ${usdOf(plan.estimate.total)}.`);
+  else if (!plan.acceptance) gaps.push(`The client has not signed estimate #${plan.estimate.id}.`);
   else if (plan.acceptance.linesChangedSince) gaps.push(`Estimate #${plan.estimate.id}'s lines changed after ${plan.acceptance.signedName ?? "the client"} signed it. The invoice uses the current total, ${usdOf(plan.estimate.total)}.`);
   for (const g of input.gaps ?? []) if (g?.trim()) gaps.push(g.trim());
   const to = plan.client.email ? `${plan.client.name} <${plan.client.email}>` : plan.client.name;

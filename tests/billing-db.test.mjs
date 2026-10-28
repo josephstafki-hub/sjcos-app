@@ -470,6 +470,19 @@ test("Approving a first-draw invoice card creates the invoice (draft, to email);
     assert.match(r3.reply, /No invoice was created: The first draw is now \$1,200\.00/);
     assert.equal((await run(`SELECT count(*)::int AS n FROM invoices WHERE project_id = $1`, [p2]))[0].n, 0);
     assert.equal((await run(`SELECT status FROM decisions WHERE id = $1`, [st.decisionId]))[0].status, "approved");
+
+    // A draft formal estimate (never sent from the app) still stages the card, flagged.
+    // Spaeth, 2026-10-28: the refusal left Joe no way to bill the deposit.
+    const p3 = await seed(client, "zz-bill-card3");
+    const e3 = await seedEstimate(client, p3, { total: 2000000, status: "draft" });
+    const st3 = await tx((r) => stageInitialInvoiceDecision(r, { projectId: p3, principal: agent }));
+    assert.equal(st3.ok, true);
+    assert.equal(st3.amountCents, 200000);
+    const [card3] = await run(`SELECT target_id, summary FROM decisions WHERE id = $1`, [st3.decisionId]);
+    assert.equal(String(card3.target_id), String(e3));
+    assert.ok(card3.summary.gaps.some((g) => /never sent to the client/.test(g)));
+    const r4 = await tx((r) => resolveFromChannel(r, { decisionId: st3.decisionId, via: "app", principal: owner, outcome: "approved" }));
+    assert.equal(r4.invoice.issued, true);
   });
 });
 

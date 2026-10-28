@@ -388,4 +388,164 @@ export function registerEstimateTools(server, { rows, json, pool, strippedDollar
       }
     },
   );
+
+  // Change or remove lines that are already on an estimate: the same edits as
+  // the pencil and trash buttons in the estimate editor (lib/actions/estimates.ts
+  // updateEstimateLine / deleteEstimateLine), so an agent never has to fake a
+  // removal with a credit line.
+  const lineEditNotes = async (run, est) => {
+    const [docs] = await run(
+      `SELECT count(*)::int AS n FROM document_drafts d JOIN estimates e ON e.project_id = d.project_id
+        WHERE e.id = $1 AND d.template_key IN ('estimate_doc','contract') AND d.status <> 'void'`,
+      [est.id],
+    );
+    return {
+      ...(est.status !== "draft"
+        ? { note: `This estimate is ${est.status} — the client saw the previous total. Tell Joe the total changed.` }
+        : {}),
+      ...(docs?.n
+        ? { note_documents: `${docs.n} Formal Estimate / contract PDF(s) on this job are built from these lines — render_document_draft each one to re-print it with the current lines.` }
+        : {}),
+    };
+  };
+
+  server.registerTool(
+    "update_estimate_line",
+    {
+      title: "Change a line on an estimate",
+      description:
+        "Change one existing estimate line (line ids come from list_project_estimates). Pass only the fields to change; " +
+        "unit_cost_cents is INTEGER CENTS (negative for a credit). extended is recomputed as qty × unit_cost × " +
+        "(1 + markup/100) and so are the estimate's totals. Use it to correct a price, a quantity, the wording, or a " +
+        "lump-sum line that depends on others (e.g. an overhead-and-profit line after another line was removed). " +
+        "Same notes as add_estimate_lines: if the estimate was sent or approved say so to Joe, and re-render its PDFs.",
+      inputSchema: {
+        line_id: z.number().int(),
+        description: z.string().optional(),
+        section: z.string().optional(),
+        unit: z.string().optional(),
+        qty: z.number().min(0).optional(),
+        unit_cost_cents: z.number().int().optional().describe("integer cents; negative for a credit line"),
+        markup_pct: z.number().min(0).max(999).optional(),
+      },
+    },
+    async (a) => {
+      const mangled = strippedDollarError(a.description ?? "", a.section ?? "");
+      if (mangled) return mangled;
+      const client = await pool.connect();
+      try {
+        const run = async (sql, params) => (await client.query(sql, params)).rows;
+        const [line] = await run(
+          `SELECT l.id, l.estimate_id, l.description, l.section, l.unit, l.qty::float AS qty, l.unit_cost, l.markup::float AS markup,
+                  e.status, e.kind, e.title
+             FROM estimate_lines l JOIN estimates e ON e.id = l.estimate_id WHERE l.id = $1`,
+          [a.line_id],
+        );
+        if (!line) return json({ ok: false, error: `No estimate line #${a.line_id}.` });
+        const description = a.description != null ? a.description.trim() : line.description;
+        if (!description) return json({ ok: false, error: "A line needs a description." });
+        const section = a.section != null ? a.section.trim() || "General" : line.section;
+        const unit = a.unit != null ? a.unit.trim() || "ea" : line.unit;
+        const qty = a.qty ?? Number(line.qty);
+        const unitCost = a.unit_cost_cents ?? Number(line.unit_cost);
+        const markup = a.markup_pct ?? Number(line.markup);
+        const extended = Math.round(qty * unitCost * (1 + markup / 100));
+        const before = { description: line.description, qty: Number(line.qty), unit_cost_cents: Number(line.unit_cost), markup_pct: Number(line.markup) };
+
+        await client.query("BEGIN");
+        await run(
+          `UPDATE estimate_lines SET description=$2, section=$3, unit=$4, qty=$5, unit_cost=$6, markup=$7, extended=$8 WHERE id=$1`,
+          [line.id, description, section, unit, qty, unitCost, markup, extended],
+        );
+        const totals = await recomputeTotals(run, line.estimate_id);
+        await client.query("COMMIT");
+        await pool.query(`INSERT INTO app_change_log (scope, source) VALUES ('estimate_lines', 'mcp')`).catch(() => {});
+        return json({
+          ok: true,
+          estimate_id: Number(line.estimate_id),
+          title: line.title,
+          lives_in: estimateLivesIn(line.kind),
+          status: line.status,
+          line: { id: Number(line.id), before, after: { description, qty, unit_cost_cents: unitCost, markup_pct: markup, extended_cents: extended } },
+          totals,
+          ...(await lineEditNotes(run, { id: line.estimate_id, status: line.status })),
+        });
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        return json({ ok: false, error: String(err?.message ?? err) });
+      } finally {
+        client.release();
+      }
+    },
+  );
+
+  server.registerTool(
+    "delete_estimate_lines",
+    {
+      title: "Remove lines from an estimate",
+      description:
+        "Remove one or more lines from ONE estimate (line ids from list_project_estimates; every id must belong to " +
+        "estimate_id). This is the real removal, the same as the trash button in the estimate editor. Use it when Joe " +
+        "drops scope from an estimate that hasn't been signed. Don't use it to fake a credit the client should see; " +
+        "that's a negative line via add_estimate_lines. The estimate's totals are recomputed. Lump-sum lines that " +
+        "were figured from the removed ones (overhead and profit, tax) don't recalculate on their own: fix them with " +
+        "update_estimate_line. Same notes as add_estimate_lines: if the estimate was sent or approved say so to Joe, " +
+        "and re-render its PDFs.",
+      inputSchema: {
+        estimate_id: z.number().int(),
+        line_ids: z.array(z.number().int()).min(1),
+      },
+    },
+    async (a) => {
+      const client = await pool.connect();
+      try {
+        const run = async (sql, params) => (await client.query(sql, params)).rows;
+        const [est] = await run(`SELECT id, status, kind, title FROM estimates WHERE id = $1`, [a.estimate_id]);
+        if (!est) return json({ ok: false, error: `No estimate #${a.estimate_id}.` });
+        const found = await run(
+          `SELECT id::int AS id, description, extended::int AS extended_cents FROM estimate_lines WHERE estimate_id = $1 AND id = ANY($2::bigint[])`,
+          [est.id, a.line_ids],
+        );
+        const missing = a.line_ids.filter((id) => !found.some((f) => f.id === id));
+        if (missing.length) return json({ ok: false, error: `Not lines on estimate #${est.id}: ${missing.join(", ")}. Nothing was removed.` });
+
+        await client.query("BEGIN");
+        await run(`DELETE FROM estimate_lines WHERE estimate_id = $1 AND id = ANY($2::bigint[])`, [est.id, a.line_ids]);
+        const totals = await recomputeTotals(run, est.id);
+        await client.query("COMMIT");
+        await pool.query(`INSERT INTO app_change_log (scope, source) VALUES ('estimate_lines', 'mcp')`).catch(() => {});
+        return json({
+          ok: true,
+          estimate_id: Number(est.id),
+          title: est.title,
+          lives_in: estimateLivesIn(est.kind),
+          status: est.status,
+          removed: found,
+          totals,
+          check: "If a lump-sum line (overhead and profit, tax, contingency) was figured from what you removed, correct it with update_estimate_line.",
+          ...(await lineEditNotes(run, est)),
+        });
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        return json({ ok: false, error: String(err?.message ?? err) });
+      } finally {
+        client.release();
+      }
+    },
+  );
+}
+
+/** Same recompute as lib/actions/estimates.ts — totals live on the row. */
+async function recomputeTotals(run, estimateId) {
+  const [totals] = await run(
+    `UPDATE estimates e
+        SET subtotal = s.sub, total = s.tot, markup_total = s.tot - s.sub
+       FROM (SELECT coalesce(round(sum(qty * unit_cost)), 0)::int AS sub,
+                    coalesce(sum(extended), 0)::int AS tot
+               FROM estimate_lines WHERE estimate_id = $1) s
+      WHERE e.id = $1
+      RETURNING e.subtotal AS subtotal_cents, e.markup_total AS markup_cents, e.total AS total_cents`,
+    [estimateId],
+  );
+  return totals;
 }

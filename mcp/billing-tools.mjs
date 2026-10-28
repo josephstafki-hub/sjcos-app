@@ -52,7 +52,8 @@ export function registerBillingTools(server, { rows, json, pool, slugToId, curre
       title: "Ask Joe to issue the first-draw invoice (contract signing / deposit)",
       description:
         "Stages Joe's card for the project's FIRST draw invoice, figured from the formal estimate's payment schedule as it stands now " +
-        "(amount, client recipient, whether the client signed and whether the lines changed since). When Joe approves it, the app creates " +
+        "(amount, client recipient, whether the client signed and whether the lines changed since). A formal estimate still in draft (never sent " +
+        "from the app) is used too, flagged on the card. When Joe approves it, the app creates " +
         "the invoice and emails it to the client with the PDF and pay link; do not send it yourself. Use this, not stage_decision, for an " +
         "initial invoice: a stage_decision card creates no invoice when approved. Add your findings as gaps / money_check.",
       inputSchema: {

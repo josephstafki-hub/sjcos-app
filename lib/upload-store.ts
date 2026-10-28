@@ -6,7 +6,7 @@ import "server-only";
 // NOT a "use server" file (those may only export async actions) — it's a plain
 // server-only module called by the action files that own each upload.
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { query } from "./db";
@@ -54,6 +54,7 @@ export async function storeUpload(file: unknown, opts: StoreOpts = {}): Promise<
   }
 
   return persistBlob(Buffer.from(await file.arrayBuffer()), {
+    createdBy: "user",
     original: safeName(file.name),
     mime: file.type || "application/octet-stream",
     isImage,
@@ -85,6 +86,7 @@ export async function storeBuffer(buf: Buffer, opts: StoreBufferOpts): Promise<S
   if (!buf || buf.length === 0) return { ok: false, error: "Empty document." };
   if (buf.length > MAX_BYTES) return { ok: false, error: `Document is too large (max ${sizeLabel(MAX_BYTES)}).` };
   return persistBlob(buf, {
+    createdBy: "app",
     original: safeName(opts.filename),
     mime: opts.mime,
     isImage: opts.mime.startsWith("image/"),
@@ -100,6 +102,8 @@ export async function storeBuffer(buf: Buffer, opts: StoreBufferOpts): Promise<S
 async function persistBlob(
   bytes: Buffer,
   o: {
+    /** files.created_by: "user" for an upload, "app" for a generated document. */
+    createdBy: string;
     original: string;
     mime: string;
     isImage: boolean;
@@ -122,8 +126,8 @@ async function persistBlob(
   await query(
     `INSERT INTO files
        (id, project_key, lead_slug, type, name, tag, ai_origin, modified_label, size_label,
-        subtitle, ai_tags, sort, storage_path, mime_type)
-     VALUES ($1, $2, $3, $4, $5, $6, false, 'just now', $7, $8, '{}', -1, $9, $10)`,
+        subtitle, ai_tags, sort, storage_path, mime_type, sha256, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, false, 'just now', $7, $8, '{}', -1, $9, $10, $11, $12)`,
     [
       id,
       o.projectKey ?? "",
@@ -135,6 +139,8 @@ async function persistBlob(
       o.subtitle ?? "Uploaded",
       storedName,
       o.mime,
+      createHash("sha256").update(bytes).digest("hex"),
+      o.createdBy,
     ],
   );
 

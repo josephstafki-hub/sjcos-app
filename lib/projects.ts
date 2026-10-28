@@ -8,6 +8,8 @@ import type { ProjectStatus } from "./types";
 import type { ProjectTab } from "./project-tabs";
 import { ai } from "./ai";
 import { query } from "./db";
+import type { Run } from "./commands/core";
+import { listFileTrash, type TrashedFile } from "./file-trash";
 
 type GroupKey = "active" | "closeout" | "warranty" | "pre_construction";
 
@@ -450,6 +452,13 @@ export async function getProjectFiles(slug: string): Promise<ProjectFile[]> {
     [slug],
   );
   return rows.map(fileRowToProjectFile);
+}
+
+/** Files deleted from the project in the last 30 days, for the Files tab's
+ *  Restore list. Empty (not an error) before migration 0032 is applied. */
+export async function getProjectFileTrash(slug: string): Promise<TrashedFile[]> {
+  const run = (async (sql: string, params?: unknown[]) => (await query(sql, params)).rows) as Run;
+  return listFileTrash(run, slug).catch(() => []);
 }
 
 /** Real uploaded files attached to a LEAD (files.lead_slug), newest first —

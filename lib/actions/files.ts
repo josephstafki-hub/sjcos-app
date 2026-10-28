@@ -14,6 +14,8 @@ import { requireAccess } from "@/lib/dal";
 import { UPLOAD_DIR } from "@/lib/uploads";
 import { storeUpload } from "@/lib/upload-store";
 import { notifyDashboardPublish, type DeliveryNote } from "@/lib/portal-publish";
+import { withTransaction } from "@/lib/commands/db";
+import { restoreProjectFile } from "@/lib/file-trash";
 
 const MAX_BYTES = 25 * 1024 * 1024; // keep in step with next.config bodySizeLimit
 
@@ -199,6 +201,16 @@ export async function setFileClientVisibility(
     ? await notifyDashboardPublish(scope, { what: file.name, section: "documents" })
     : null;
   return { ok: true, delivery };
+}
+
+/** Undo an agent's delete_project_file: the file comes back with its id
+ *  (lib/file-trash.ts). Refused while a newer same-name file is on the job. */
+export async function restoreDeletedFile(fileId: string): Promise<UploadResult> {
+  const user = await requireAccess("projects");
+  const res = await withTransaction((run) => restoreProjectFile(run, { fileId, restoredBy: `user:${user.name}` }));
+  if (!res.ok) return res;
+  revalidatePath(`/projects/${res.project_slug}`);
+  return { ok: true };
 }
 
 interface FileSummaryRow {

@@ -27,10 +27,11 @@
 // are business records; nothing here can touch them (record_bid only ever adds
 // a new revision).
 
-import { createHmac, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import { agentNameOf } from "./tool-shared.mjs";
 
 const t = (v, max = 300) => String(v ?? "").trim().slice(0, max);
 
@@ -287,21 +288,39 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
       title: "List project files",
       description:
         "Uploaded files on a project (plans, takeoff PDFs, photos) — the pool attach_bid_file " +
-        "draws from. Returns file ids with names, types, and sizes; rows with an image/* " +
-        "mime_type can be looked at with view_project_image.",
+        "draws from. Returns file ids with names, types, sizes, sha256 (compare with what you " +
+        "uploaded), updated_at, and created_by ('agent:<name>', 'user', 'client:<slug>', 'app'); " +
+        "rows with an image/* mime_type can be looked at with view_project_image.",
       inputSchema: { project_slug: z.string() },
     },
     async ({ project_slug }) => {
       try {
         const project = await projectBySlug(project_slug);
-        return json(
-          await rows(
-            `SELECT id, name, type, tag, size_label, mime_type, created_at FROM files
-              WHERE project_key = $1 AND storage_path IS NOT NULL
-              ORDER BY created_at DESC`,
-            [project.slug],
-          ),
+        const list = await rows(
+          `SELECT id, name, type, tag, size_label, mime_type, sha256, storage_path,
+                  COALESCE(created_by,
+                           CASE WHEN client_slug IS NOT NULL THEN 'client:' || client_slug
+                                WHEN id LIKE 'agent-%' THEN 'agent'
+                                WHEN ai_origin THEN 'app'
+                                ELSE 'user' END) AS created_by,
+                  created_at, COALESCE(updated_at, created_at) AS updated_at
+             FROM files
+            WHERE project_key = $1 AND storage_path IS NOT NULL
+            ORDER BY created_at DESC`,
+          [project.slug],
         );
+        // Older rows predate the sha256 column: hash their blobs once, here,
+        // and keep the result (a bounded batch per call).
+        let budget = 40;
+        for (const f of list) {
+          if (f.sha256 || budget <= 0) continue;
+          budget--;
+          const buf = await readStored(f).catch(() => null);
+          if (!buf) continue;
+          f.sha256 = createHash("sha256").update(buf).digest("hex");
+          await rows(`UPDATE files SET sha256 = $2 WHERE id = $1 AND sha256 IS NULL`, [f.id, f.sha256]);
+        }
+        return json(list.map(({ storage_path: _s, ...f }) => f));
       } catch (e) {
         return fail(e);
       }
@@ -485,9 +504,10 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
           const f = existing[0];
           await writeFile(path.join(uploadDir, path.basename(f.storage_path)), bytes);
           await rows(
-            `UPDATE files SET tag = $2, subtitle = $3, size_label = $4, mime_type = $5, modified_label = 'just now', created_at = now()
+            `UPDATE files SET tag = $2, subtitle = $3, size_label = $4, mime_type = $5, modified_label = 'just now', created_at = now(),
+                              sha256 = $6, updated_at = now()
               WHERE id = $1`,
-            [f.id, fileTag, sub, size, fmt.mime],
+            [f.id, fileTag, sub, size, fmt.mime, createHash("sha256").update(bytes).digest("hex")],
           );
           return json({ ok: true, file_id: f.id, name, replaced: true });
         }
@@ -496,9 +516,11 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
         await writeFile(path.join(uploadDir, stored), bytes);
         await rows(
           `INSERT INTO files (id, project_key, type, name, tag, ai_origin, modified_label, size_label,
-                              subtitle, ai_tags, sort, storage_path, mime_type, client_visible)
-           VALUES ($1, $2, 'doc', $3, $4, true, 'just now', $5, $6, '{}', -1, $7, $8, false)`,
-          [id, project.slug, name, fileTag, size, sub, stored, fmt.mime],
+                              subtitle, ai_tags, sort, storage_path, mime_type, client_visible,
+                              sha256, created_by, updated_at)
+           VALUES ($1, $2, 'doc', $3, $4, true, 'just now', $5, $6, '{}', -1, $7, $8, false, $9, $10, now())`,
+          [id, project.slug, name, fileTag, size, sub, stored, fmt.mime,
+           createHash("sha256").update(bytes).digest("hex"), `agent:${agentNameOf(server)}`],
         );
         return json({ ok: true, file_id: id, name, replaced: false });
       } catch (e) {

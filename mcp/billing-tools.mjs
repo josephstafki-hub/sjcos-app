@@ -4,7 +4,7 @@
 // stage_milestone_confirmation for progress draws) and his approval issues it.
 
 import { z } from "zod";
-import { invoiceBalance, verifiedBalances, recordInvoicePayment, invoiceCollisionReport, issueMilestoneInvoice } from "../lib/billing/core.ts";
+import { invoiceBalance, verifiedBalances, recordInvoicePayment, invoiceCollisionReport, issueMilestoneInvoice, voidInvoice } from "../lib/billing/core.ts";
 import { stageMilestoneConfirmation, stageInitialInvoiceDecision, finalReconciliation, resolveDraw } from "../lib/billing/commands.ts";
 import { txOver, principalFor, fail, agentNameOf, areaRefusal } from "./tool-shared.mjs";
 
@@ -133,6 +133,45 @@ export function registerBillingTools(server, { rows, json, pool, slugToId, curre
           draws: lines.map((l) => ({ ...l, amount_cents: Math.round((est.total * l.percent) / 100) })),
           invoices_on_job: issued,
           next: "Re-create the contract document so it prints these draws. If a draw already billed a different amount, bill the difference with create_invoice_draft.",
+        });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  // Same as the Void button in Money › Invoices (lib/actions/money.ts). Spaeth,
+  // 2026-10-28: Joe wanted the wrong 10% deposit invoice cancelled, not topped up.
+  server.registerTool(
+    "void_invoice",
+    {
+      title: "Void (cancel) an invoice",
+      description:
+        "Cancel an invoice Joe told you to cancel. It stays on record as void with your reason, can no longer be paid online, " +
+        "and its draw is free to bill again (e.g. stage_initial_invoice re-issues the deposit at the corrected amount). Refused " +
+        "if any payment has settled or is pending on it; then it needs a credit or refund in the app instead. This does NOT tell " +
+        "the client; if the invoice was already sent, the client needs an email (request_owner_permission send_email).",
+      inputSchema: {
+        invoice_id: z.number().int(),
+        reason: z.string().min(3).max(300),
+      },
+    },
+    async (a) => {
+      try {
+        const refusal = await areaRefusal(rows, currentPrincipal, "invoices");
+        if (refusal) return json({ ok: false, error: refusal });
+        const p = await principal();
+        const [before] = await run(`SELECT number, status, amount::int AS amount_cents FROM invoices WHERE id = $1`, [a.invoice_id]);
+        if (!before) return json({ ok: false, error: `No invoice #${a.invoice_id}.` });
+        const inv = await tx((r) => voidInvoice(r, { invoiceId: a.invoice_id, reason: a.reason, principal: p }));
+        return json({
+          ok: true,
+          invoice_id: Number(inv.id),
+          number: inv.number,
+          was: before.status,
+          status: inv.status,
+          amount_cents: before.amount_cents,
+          ...(before.status !== "draft" ? { note: `${inv.number} had been ${before.status}; the client may have it. Tell them it's cancelled.` } : {}),
         });
       } catch (e) {
         return fail(e);

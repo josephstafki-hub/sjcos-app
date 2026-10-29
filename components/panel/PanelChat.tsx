@@ -85,6 +85,7 @@ export function PanelChat({
   showQueueCards,
   compact = false,
   threadsRail = false,
+  showNarration = true,
 }: {
   registerHandOff: (fn: (p: TodayPriority, kind: "do" | "prep") => void) => void;
   onRunStart: (run: ActiveRun) => void;
@@ -97,6 +98,9 @@ export function PanelChat({
    *  always-visible column (T3-style); narrower docks keep the History
    *  overlay drawer instead. */
   threadsRail?: boolean;
+  /** The "Here's the queue right now" opener at the top of the chat. Off in
+   *  the popout window — the to-do list doesn't belong in its chats. */
+  showNarration?: boolean;
 }) {
   const { priorities, waiting, refresh } = useTodayQueue();
   const [prompt, setPrompt] = useState("");
@@ -472,7 +476,7 @@ export function PanelChat({
 
       {/* Scroll area: narration → starters/cards → transcript */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3">
-        {!compact && (
+        {showNarration && !compact && (
           <div className="whitespace-pre-wrap rounded-md bg-ai-soft px-3 py-2 text-[12.5px] leading-relaxed text-ai-2">
             {narration}
           </div>
@@ -492,7 +496,7 @@ export function PanelChat({
         )}
 
         {chat.messages.length === 0 && !compact && (
-          <div className="mt-3 flex flex-wrap gap-1.5">
+          <div className={`flex flex-wrap gap-1.5 ${showNarration || showQueueCards ? "mt-3" : ""}`}>
             {starters.map((s) => (
               <button
                 key={s}
@@ -506,7 +510,13 @@ export function PanelChat({
         )}
 
         {(chat.messages.length > 0 || chat.notice) && (
-          <div className={compact ? "flex flex-col gap-2.5" : "mt-4 flex flex-col gap-2.5 border-t border-rule pt-3"}>
+          <div
+            className={
+              compact || !(showNarration || showQueueCards)
+                ? "flex flex-col gap-2.5"
+                : "mt-4 flex flex-col gap-2.5 border-t border-rule pt-3"
+            }
+          >
             {chat.notice && <div className="text-[11px] font-medium text-ai-2">{chat.notice}</div>}
             {chat.messages.map((m) => {
               if (m.role === "user" && m.steer) {

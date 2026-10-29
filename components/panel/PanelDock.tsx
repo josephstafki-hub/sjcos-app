@@ -29,6 +29,7 @@ export function PanelDock({
   width,
   navigate,
   compact = false,
+  inWindow = false,
 }: {
   width: number;
   /** How this dock reaches the app view. Docked: local router.push (default).
@@ -36,6 +37,9 @@ export function PanelDock({
   navigate?: (href: string) => void;
   /** Mobile drawer over a page: chat only, no queue column or inline cards. */
   compact?: boolean;
+  /** The popped-out /panel window: no to-do list at the top of its chats
+   *  (no queue opener, no inline priority cards). */
+  inWindow?: boolean;
 }) {
   const [, setActiveRun] = useState<ActiveRun | null>(null);
   const [focusedSubjectId, setFocusedSubjectId] = useState<string | null>(null);
@@ -57,7 +61,8 @@ export function PanelDock({
       }}
       onRunStart={setActiveRun}
       onRunEnd={() => setActiveRun(null)}
-      showQueueCards={!twoCol && !compact}
+      showQueueCards={!twoCol && !compact && !inWindow}
+      showNarration={!inWindow}
       compact={compact}
       threadsRail={!compact && width >= THREADS_RAIL_MIN}
     />

@@ -132,7 +132,7 @@ export function PanelWindow() {
       </div>
       <div className="min-h-0 flex-1">
         <PanelQueueProvider>
-          <PanelDock width={width} navigate={requestAppNav} />
+          <PanelDock width={width} navigate={requestAppNav} inWindow />
         </PanelQueueProvider>
         {/* The popout has no (os) layout, so it polls the change log itself —
             that's what keeps its queue cards live while agents write. */}

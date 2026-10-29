@@ -8,6 +8,13 @@ against build `l2-0DgW22qmCczskcD_oC` (main `83f521b`).
 
 You are running the first full import of SJ Carpentry's real QuickBooks Online books into SJC OS, then cleaning up what it brings in. Joe Stafki owns the business and approves anything that is a judgment call. Work carefully and in order. Stop and ask Joe whenever a stop condition below is hit.
 
+The work has **two parts**. Joe will tell you which one to run.
+
+- **Part A (now):** steps 0 to 3, step 4a, step 4b, step 5, then the Part A hand-off in step 6. This is the import, the sure matches, and a cleanup list for Joe's bookkeeper.
+- **Part B (after the bookkeeper has cleaned up QuickBooks):** the Part B steps at the end of this file, then the Part B hand-off.
+
+His QuickBooks categories are unreliable until the bookkeeper is done. So in Part A, do **not** set records aside as "not job money", and do not work through near matches or unmatched job costs. Those wait for Part B.
+
 ## What is already true (checked 2026-10-29)
 
 - SJC OS is connected to the **production** QuickBooks company **SJCarpentry LLC** (company id `9341453358881531`) through the in-app Connect to QuickBooks button. The plan is **Simple Start**.
@@ -138,7 +145,9 @@ A rejected row is kept with `state = 'rejected'` and a note. If Joe changes his 
 
 ## Step 4: cleanup in SJC OS
 
-Do these in order. For each group, show Joe a short summary, for example "41 bank-fee and loan payments, not job costs: mark as not ours?", with three examples. Apply only what he approves.
+Part A does **4a and 4b only**. 4c to 4f are Part B.
+
+For each group, show Joe a short summary, for example "41 bank-fee and loan payments, not job costs: mark as not ours?", with three examples. Apply only what he approves.
 
 **a. Gone from QuickBooks (no approval needed).** List each record type fresh from QuickBooks and reject unmapped rows whose QuickBooks id is no longer present, with the reason `deleted or merged in QuickBooks`. The import cannot see deletions, so this is the only way they get cleared. Use `getQboAdapter().listChanges(kind, null)` from `/home/joe/sjcos-app/lib/accounting/qbo/index.ts`, set up the same way as the helper above.
 
@@ -152,9 +161,9 @@ from qbo_mappings where realm_id = '<REALM>' and state = 'unmapped'
 
 Propose confirming them as one batch. Also check that the payee or memo agrees with the SJC OS record, and leave out any that look wrong.
 
-**c. Likely matches.** Rows with candidates at score 0.6 (same amount, different date), or more than one candidate. Show them to Joe in small batches of 10 to 20, with your recommendation for each.
+**c. Likely matches (Part B).** Rows with candidates at score 0.6 (same amount, different date), or more than one candidate. Show them to Joe in small batches of 10 to 20, with your recommendation for each.
 
-**d. Company overhead and money movement.** Purchases and deposits whose accounts are not job costs: Owner Draw, Loan, MCA Servicing, Bank Charges and Fees, Accounting Software, Advertising, Google business, and transfers coded to a bank account such as `PER CHECKING (9891) - 1` or `BUS CHECKING (8207) - 1`. Group them by account with counts and totals. Propose marking each group "not an SJC OS job record". They stay on file as rejected rows. Find them with:
+**d. Company overhead and money movement (Part B).** Purchases and deposits whose accounts are not job costs: Owner Draw, Loan, MCA Servicing, Bank Charges and Fees, Accounting Software, Advertising, Google business, and transfers coded to a bank account such as `PER CHECKING (9891) - 1` or `BUS CHECKING (8207) - 1`. Group them by account with counts and totals. Propose marking each group "not an SJC OS job record". They stay on file as rejected rows. Find them with:
 
 ```sql
 select a.acct, count(*), sum(m.amount_cents)/100.0 dollars
@@ -163,9 +172,9 @@ where m.realm_id = '<REALM>' and m.state = 'unmapped' and m.entity_kind in ('Pur
 group by 1 order by 2 desc;
 ```
 
-**e. Possible missing job costs.** Unmatched purchases in job-cost accounts (Supplies, Subcontractor Pay, Disposal, and similar) with no candidate. Do not reject these. List them for Joe by vendor and month. They may be costs never recorded against a job in SJC OS.
+**e. Possible missing job costs (Part B).** Unmatched purchases in job-cost accounts (Supplies, Subcontractor Pay, Disposal, and similar) with no candidate. Do not reject these. List them for Joe by vendor and month. They may be costs never recorded against a job in SJC OS.
 
-**f. Customers.** The 64 customers have no automatic match. Leave them unmapped. Report the likely duplicates: Matt McDonnell / Mathew McDonnell, and Tony Bianconi / Anthony Bianconi.
+**f. Customers (Part B).** The 64 customers have no automatic match. Leave them unmapped. Report the likely duplicates: Matt McDonnell / Mathew McDonnell, and Tony Bianconi / Anthony Bianconi.
 
 After each approved batch, run the helper, check the `ok` count equals the batch size, and call `record_receipt`.
 
@@ -185,8 +194,20 @@ Create **one** SJC OS work item, `create_work_item`, titled "QuickBooks bookkeep
 
 ## Step 6: hand-off
 
-1. Leave `import_read` **on**, so later passes pick up QuickBooks edits, and both export switches **off**.
-2. Ask Joe whether to turn on the hourly sync timer. Recommend waiting until his books are cleaned up.
-3. Final check on Settings › Accounting (`/settings/accounting`): the page loads, and the counts match the database.
-4. Call `capture_knowledge` with a short summary covering what was imported, what was confirmed and rejected, what's left for Joe, and the bookkeeping findings. Then `record_agent_run` to close.
-5. Send Joe the result in five lines or fewer: imported counts, matched, set aside as not job records, left for him to review, and the bookkeeping cleanup to-do.
+### Part A hand-off
+
+1. Leave `import_read` **on** and both export switches **off**. Do not install the hourly timer.
+2. Final check on Settings › Accounting (`/settings/accounting`): the page loads, and the counts match the database.
+3. Call `capture_knowledge` with a short summary covering what was imported, how many sure matches were confirmed, how many rows were cleared as deleted in QuickBooks, and the bookkeeping findings. Then call `record_agent_run` to close.
+4. Send Joe the result in five lines or fewer: imported counts, sure matches confirmed, the bookkeeper to-do created, and that Part B waits until the bookkeeper is done. Tell him to start Part B by saying "run Part B".
+
+## Part B (only after Joe says the bookkeeper is done)
+
+1. Repeat the step 0 checks, except that `qbo_mappings` will no longer be empty. Then take a fresh database backup: `bash ~/bin/sjcos-backup --db-only`.
+2. Run one import pass (the step 1 curl, without `?dry=1`). The bookkeeper's fixes then update the stored copies. Check for errors as in step 2.
+3. Redo 4a. Duplicates the bookkeeper deleted or merged must be cleared.
+4. Redo 4b. Cleaned-up records can produce new sure matches.
+5. Work through 4c, 4d, 4e and 4f, each with Joe's approval per batch.
+6. Close the bookkeeper to-do from Part A if the bookkeeper's work is reflected in the data. Otherwise add a note saying what is still off.
+7. Ask Joe whether to turn on the hourly sync timer. Mention that the "send invoices" and "send payments" switches stay off until he and the bookkeeper agree how income is recorded, because otherwise the same money can be counted twice.
+8. Call `capture_knowledge` with a summary, then `record_agent_run`. Send Joe the result in five lines or fewer: matched, set aside as not job money, possible missing job costs for him to review, and anything still open.

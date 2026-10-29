@@ -113,11 +113,15 @@ interface ThreadRow {
   link_type: CommsLinkType | null;
   link_slug: string | null;
   unread: boolean;
-  last_message_at: string | null;
+  last_message_at: Date | null;
   opted_out: boolean;
-  opted_out_at: string | null;
-  blocked_at: string | null;
+  opted_out_at: Date | null;
+  blocked_at: Date | null;
 }
+// node-pg hands timestamptz back as a Date; the client treats these as ISO
+// strings (blockedAt.slice(0, 10)), so a raw Date crashed /messages the moment
+// a block's revalidate swapped the server row in.
+const isoOrNull = (d: Date | null): string | null => (d ? new Date(d).toISOString() : null);
 const toThread = (r: ThreadRow): SmsThreadSummary => ({
   id: r.id,
   phone: r.phone,
@@ -125,10 +129,10 @@ const toThread = (r: ThreadRow): SmsThreadSummary => ({
   linkType: r.link_type,
   linkSlug: r.link_slug,
   unread: r.unread,
-  lastMessageAt: r.last_message_at,
+  lastMessageAt: isoOrNull(r.last_message_at),
   optedOut: r.opted_out,
-  optedOutAt: r.opted_out_at,
-  blockedAt: r.blocked_at,
+  optedOutAt: isoOrNull(r.opted_out_at),
+  blockedAt: isoOrNull(r.blocked_at),
 });
 
 const MSG_COLS = `id, direction, body, status, created_at, media, error_detail, failure_kind, keyword, sent_by`;

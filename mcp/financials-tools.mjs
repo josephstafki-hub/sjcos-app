@@ -33,6 +33,8 @@ import { buildCompanyMoney } from "../lib/budget-company.ts";
 import { findProjects, loadRawProjectMoney, todayCentral } from "../lib/budget-queries.ts";
 import { computeTotals, describeFinancials, proposeBillingReconciliation } from "../lib/budget-types.ts";
 import * as writes from "../lib/budget-writes.ts";
+import { recordWorkflowEvent } from "../lib/workflow/engine.ts";
+import { agentNameOf } from "./tool-shared.mjs";
 
 const pct = (r) => (r == null ? null : Math.round(r * 1000) / 10);
 
@@ -392,6 +394,43 @@ export function registerFinancialsTools(server, { rows, json, pool, strippedDoll
         date: a.date, vendorLabel: a.vendor, kind: a.kind, amountCents: a.amount_cents, memo: a.memo, paidFrom: a.paid_from ?? "card",
         target: await targetOf(run, projectId, a), purchaseOrderId: a.po_id, sourceRef: a.source_ref,
       })),
+  );
+
+  server.registerTool(
+    "delete_expense",
+    {
+      title: "Remove an expense from a job",
+      description:
+        "For a duplicate, or a receipt that was voided or cancelled: removes the expense (`id` from " +
+        "get_project_financials costs[] where source = 'expense') so it no longer counts as spent. `reason` goes in the " +
+        "project history. If filing an Unsorted document logged it, that document stays filed — only its cost link is " +
+        "cleared, and your reason is noted on it. Not for a return: log a negative add_expense instead.",
+      inputSchema: {
+        project_slug: z.string(),
+        id: z.number().int(),
+        reason: z.string().describe('Why, e.g. "Duplicate of #412 — same Home Depot order 4521-00987".'),
+      },
+    },
+    (a) => write(a.project_slug, [a.reason], async (run, projectId) => {
+      const why = String(a.reason ?? "").trim().slice(0, 500);
+      if (!why) return { ok: false, error: "reason is required (it goes in the project history)." };
+      const [e] = await run(
+        `SELECT id::int AS id, expense_date::text AS date, vendor_label, amount_cents, memo, source_ref FROM expenses WHERE id = $1 AND project_id = $2`,
+        [a.id, projectId]);
+      if (!e) return { ok: false, error: `No expense ${a.id} on ${a.project_slug}. Use get_project_financials for ids.` };
+      const docs = await run(
+        `UPDATE unsorted_docs SET cost_source = NULL, cost_id = NULL, cost_created = false,
+                agent_note = $3, agent_note_at = now(), updated_at = now()
+          WHERE cost_source = 'expense' AND cost_id = $1 AND filed_project_id = $2 RETURNING id::int AS id`,
+        [a.id, projectId, `Expense removed: ${why}`.slice(0, 600)]);
+      const r = await writes.deleteExpense(run, projectId, a.id);
+      if (!r.ok) return r;
+      await recordWorkflowEvent(run, {
+        projectId, kind: "expense_deleted", ref: `expense:${e.id}`,
+        detail: { ...e, reason: why }, actor: `agent:${agentNameOf(server)}`,
+      });
+      return { ok: true, id: e.id, deleted: true, vendor: e.vendor_label, amount_cents: e.amount_cents, date: e.date, unsorted_document_ids: docs.map((d) => d.id) };
+    }),
   );
 
   server.registerTool(

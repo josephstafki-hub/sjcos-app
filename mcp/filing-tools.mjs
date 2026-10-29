@@ -13,6 +13,9 @@
 //   • a file Joe dropped into the Ask window → the same tools with file_paths
 //   • your answer on a doc      → reply_on_unsorted_document (a question hands
 //                                 it back to Joe)
+//   • a PDF with no Gmail id    → create/commit_unsorted_upload (vendor portal
+//     (Home Depot, Menards)       receipts; mcp/upload-tools.mjs), then stage
+//                                 with that source_ref or upload_ids
 //
 // Sorting on /unsorted also wakes a small agent run at once (trigger kind
 // 'filing', cheap model): it carries out Joe's note, or files the cost he just
@@ -46,11 +49,16 @@ export function registerFilingTools(server, { json, filingCall, strippedDollarEr
       .max(10)
       .optional()
       .describe("Files you were handed instead of an email: the absolute path of a file Joe dropped into the Ask window (uploads/ai-chat/…). The app reads and stores it; nothing outside the allowed folders is read."),
-    body_text: z.string().optional().describe("Only when there is no Gmail id: the email/document text."),
+    body_text: z.string().optional().describe("Only when there is no Gmail id: the email/document text. Re-staging a document with body_text rewrites its email copy."),
     attachments: z
       .array(z.object({ filename: z.string(), mime_type: z.string(), base64: z.string() }))
       .optional()
-      .describe("Only when there is no Gmail id: PDFs / images as base64 (≤20 MB each)."),
+      .describe("Only when there is no Gmail id: small PDFs / images as base64. For anything bigger or a batch, upload with create_unsorted_upload and pass upload_ids."),
+    upload_ids: z
+      .array(z.string())
+      .max(50)
+      .optional()
+      .describe("Committed create_unsorted_upload ids to attach (commit_unsorted_upload first). Uploads held for this source_ref are attached anyway."),
   };
   const textsOf = (a) => [a.vendor, a.summary, a.why_unsure, a.note, ...(a.suggestions ?? []).map((s) => s.reason)];
 
@@ -64,7 +72,12 @@ export function registerFilingTools(server, { json, filingCall, strippedDollarEr
         "project guesses (`suggestions`, best first, each with a short reason Joe reads), set `overhead_likely` when it " +
         "may be company overhead, and say in `why_unsure` what's missing. Idempotent per Gmail message: staging it " +
         "again refreshes your read; a document Joe already filed is never re-opened. Never force a match from " +
-        "vendor, date or card alone — that's what this tray is for.",
+        "vendor, date or card alone — that's what this tray is for. Re-staging a document that's already there also adds " +
+        "its attachments / upload_ids (a file with the same name replaces the old copy in place) and rewrites the " +
+        "email copy from body_text (a Gmail document keeps the mailbox's copy); files on a document Joe already filed " +
+        "go straight onto that project. Returns `files` (on the document now), files_added, files_replaced, body_updated. " +
+        "Receipts from a vendor portal (no Gmail): give each a stable source_ref (e.g. 'homedepot:<order no>'), " +
+        "upload its PDF with create_unsorted_upload → PUT → commit_unsorted_upload, then stage it.",
       inputSchema: {
         ...docFields,
         suggestions: z
@@ -130,10 +143,14 @@ export function registerFilingTools(server, { json, filingCall, strippedDollarEr
         "'dismissed' to see what was put away and where (filed_project_slug, cost_source/cost_id). Receipts " +
         "photographed on a phone (source_ref 'scan:…') or texted in ('sms:…') carry Claude's read in `extracted` " +
         "(vendor, location, date, items with qty/description/amount, totals, job_hint written on it) plus " +
-        "`sender_note` / `sender_project_slug` from whoever sent it.",
+        "`sender_note` / `sender_project_slug` from whoever sent it. Returns total and next_offset for paging.",
       inputSchema: {
-        statuses: z.array(z.enum(["pending", "needs_agent", "filed", "dismissed"])).optional(),
-        limit: z.number().int().min(1).max(200).optional(),
+        statuses: z.array(z.enum(["pending", "needs_agent", "filed", "dismissed"])).optional()
+          .describe("Default pending + needs_agent; with source_ref_prefix, every status."),
+        source_ref_prefix: z.string().optional().describe('Only documents whose source_ref starts with this, e.g. "homedepot:" — to see what you already staged.'),
+        limit: z.number().int().min(1).max(200).optional().describe("Default 50."),
+        offset: z.number().int().min(0).optional().describe("Skip this many (newest first). The reply's next_offset is the next page, null at the end."),
+        brief: z.boolean().optional().describe("Only id, source_ref, status, kind, vendor, amount, date, number, file count, filed project."),
       },
     },
     async (a) => json(await filingCall("list", a)),
@@ -145,8 +162,9 @@ export function registerFilingTools(server, { json, filingCall, strippedDollarEr
       title: "File a document from the Unsorted tray",
       description:
         "Put away a tray document by `id` (from list_unsorted_documents): to a project (`project_slug`), to " +
-        "`overhead`, or `dismiss` (not a business cost). Same filing as file_email_document — files move onto the " +
-        "project and the cost is logged unless `log_cost: false`. Use it to carry out Joe's `owner_note` on a " +
+        "`overhead`, or `dismiss` (not a business cost). Same filing as file_email_document — every attachment and " +
+        "the email copy move onto the project's Files (tagged e.g. \"RECEIPT · Menards\"), and the cost is logged unless " +
+        "`log_cost: false`; a logged expense links the first attachment as its receipt. Use it to carry out Joe's `owner_note` on a " +
         "needs_agent document; if the note is ambiguous, ask_owner instead of guessing. You may correct the kind, " +
         "amount or vendor while filing.",
       inputSchema: {

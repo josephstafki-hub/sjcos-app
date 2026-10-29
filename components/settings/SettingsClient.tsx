@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import { Avatar, Card, Chip, Eyebrow, Field } from "@/components/ui";
 import { DesignerDefaultsCard } from "@/components/settings/DesignerDefaultsCard";
@@ -122,6 +123,13 @@ function Toggle({
   );
 }
 
+const MORE_SETTINGS = [
+  { title: "Pricing", href: "/settings/pricing" },
+  { title: "Overhead", href: "/settings/overhead" },
+  { title: "Payments · Square", href: "/settings/payments" },
+  { title: "Accounting · QuickBooks", href: "/settings/accounting" },
+];
+
 export function SettingsClient({ data }: { data: SettingsData }) {
   const [active, setActive] = useState("profile");
 
@@ -144,6 +152,25 @@ export function SettingsClient({ data }: { data: SettingsData }) {
             >
               {c.title}
             </button>
+          ))}
+        </div>
+        {/* Owner pages with their own route. Settings is owner-only, so every
+            link here opens for whoever can see this rail. */}
+        <div className="mt-4 hidden lg:block">
+          <Eyebrow muted>More settings</Eyebrow>
+          <div className="mt-2 flex flex-col gap-0.5">
+            {MORE_SETTINGS.map((m) => (
+              <Link key={m.href} href={m.href} className="rounded px-2.5 py-1.5 text-[13px] text-ink-2 hover:bg-paper-3">
+                {m.title}
+              </Link>
+            ))}
+          </div>
+        </div>
+        <div className="mt-2 flex gap-0.5 overflow-x-auto lg:hidden">
+          {MORE_SETTINGS.map((m) => (
+            <Link key={m.href} href={m.href} className="whitespace-nowrap rounded px-2.5 py-1.5 text-[13px] text-ink-2 hover:bg-paper-3">
+              {m.title}
+            </Link>
           ))}
         </div>
       </aside>
@@ -310,17 +337,27 @@ export function SettingsClient({ data }: { data: SettingsData }) {
               {data.integrations.filter((it) => it.connected).length} of {data.integrations.length} connected
             </div>
             <div className="mt-5 grid max-w-[760px] grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-              {data.integrations.map((it) => (
-                <Card key={it.name} className="p-3">
-                  <div className="font-serif text-[13px] font-semibold text-ink">{it.name}</div>
-                  <div className="mt-0.5 text-[11px] text-ink-3">{it.sub}</div>
-                  <div className="mt-2">
-                    <Chip kind={it.connected ? "money" : "ghost"} dot>
-                      {it.connected ? "connected" : "not connected"}
-                    </Chip>
-                  </div>
-                </Card>
-              ))}
+              {data.integrations.map((it) => {
+                const body = (
+                  <Card className={`h-full p-3 ${it.href ? "transition-colors hover:border-accent hover:bg-paper-3" : ""}`}>
+                    <div className="font-serif text-[13px] font-semibold text-ink">{it.name}</div>
+                    <div className="mt-0.5 text-[11px] text-ink-3">{it.sub}</div>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <Chip kind={it.connected ? "money" : "ghost"} dot>
+                        {it.connected ? "connected" : "not connected"}
+                      </Chip>
+                      {it.href && <span className="text-[11px] font-medium text-accent">Open →</span>}
+                    </div>
+                  </Card>
+                );
+                return it.href ? (
+                  <Link key={it.name} href={it.href} className="block">
+                    {body}
+                  </Link>
+                ) : (
+                  <div key={it.name}>{body}</div>
+                );
+              })}
             </div>
 
             <IntakeTokenCard token={data.intake.token} endpoint={data.intake.endpoint} />

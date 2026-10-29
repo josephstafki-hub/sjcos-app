@@ -8,15 +8,15 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/dal";
 import { qboOAuthConfigured } from "@/lib/accounting/qbo/index";
-import { authorizeUrl, newOAuthState, QBO_OAUTH_PATH, QBO_STATE_COOKIE, QBO_STATE_MAX_AGE_S, qboRedirectUri } from "@/lib/accounting/qbo/oauth";
+import { authorizeUrl, newOAuthState, QBO_OAUTH_PATH, QBO_STATE_COOKIE, QBO_STATE_MAX_AGE_S, qboAppBase, qboRedirectUri } from "@/lib/accounting/qbo/oauth";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
+export async function GET() {
   const user = await getCurrentUser();
   if (!user || user.role !== "owner") return NextResponse.json({ error: "owner only" }, { status: 403 });
   if (!qboOAuthConfigured()) {
-    return NextResponse.redirect(new URL("/settings/accounting?qbo=not_configured", request.url));
+    return NextResponse.redirect(new URL("/settings/accounting?qbo=not_configured", qboAppBase()));
   }
   const state = newOAuthState();
   const res = NextResponse.redirect(authorizeUrl({ clientId: process.env.INTUIT_CLIENT_ID!.trim(), redirectUri: qboRedirectUri(), state }));

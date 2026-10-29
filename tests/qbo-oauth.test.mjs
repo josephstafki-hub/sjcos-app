@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { authorizeUrl, exchangeCode, qboRedirectUri, revokeToken, statesMatch, newOAuthState, INTUIT_AUTHORIZE_URL } from "../lib/accounting/qbo/oauth.ts";
+import { authorizeUrl, exchangeCode, qboAppBase, qboRedirectUri, revokeToken, statesMatch, newOAuthState, INTUIT_AUTHORIZE_URL } from "../lib/accounting/qbo/oauth.ts";
 import {
   fileTokenStore,
   getQboAdapter,
@@ -47,6 +47,10 @@ test("authorize URL carries the client, scope, redirect and state; redirect URI 
   const redirectUri = qboRedirectUri({ NEXT_PUBLIC_APP_URL: "https://os.example.com/" });
   assert.equal(redirectUri, "https://os.example.com/api/qbo/oauth/callback");
   assert.equal(qboRedirectUri({}), "https://os.sjcarpentryllc.com/api/qbo/oauth/callback");
+  // Every bounce back to the app uses the public base, never the internal
+  // listener that request.url reports behind nginx (https://localhost:3017).
+  assert.equal(qboAppBase({}), "https://os.sjcarpentryllc.com");
+  assert.equal(qboAppBase({ NEXT_PUBLIC_APP_URL: " https://os.example.com/ " }), "https://os.example.com");
   const u = new URL(authorizeUrl({ clientId: "cid", redirectUri, state: "st-1" }));
   assert.equal(`${u.origin}${u.pathname}`, INTUIT_AUTHORIZE_URL);
   assert.equal(u.searchParams.get("client_id"), "cid");

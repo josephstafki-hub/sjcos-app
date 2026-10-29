@@ -22,11 +22,17 @@ export const QBO_OAUTH_PATH = "/api/qbo/oauth";
 /** Ten minutes to finish signing in at Intuit. */
 export const QBO_STATE_MAX_AGE_S = 600;
 
+/** The public address of the app. Behind nginx, `request.url` reads the
+ *  internal listener (https://localhost:3017), so every redirect a browser
+ *  follows must be built from this, never from the request. */
+export function qboAppBase(env: NodeJS.ProcessEnv = process.env): string {
+  return (env.NEXT_PUBLIC_APP_URL ?? "https://os.sjcarpentryllc.com").trim().replace(/\/$/, "");
+}
+
 /** The callback address. It must be listed under Redirect URIs for BOTH the
  *  Development and the Production keys in the Intuit developer portal. */
 export function qboRedirectUri(env: NodeJS.ProcessEnv = process.env): string {
-  const base = (env.NEXT_PUBLIC_APP_URL ?? "https://os.sjcarpentryllc.com").trim().replace(/\/$/, "");
-  return `${base}${QBO_OAUTH_PATH}/callback`;
+  return `${qboAppBase(env)}${QBO_OAUTH_PATH}/callback`;
 }
 
 export function newOAuthState(): string {

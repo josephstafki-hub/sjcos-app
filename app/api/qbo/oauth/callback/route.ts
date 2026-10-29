@@ -10,12 +10,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getCurrentUser } from "@/lib/dal";
 import { completeQboConnect } from "@/lib/accounting/server";
-import { QBO_OAUTH_PATH, QBO_STATE_COOKIE, statesMatch } from "@/lib/accounting/qbo/oauth";
+import { QBO_OAUTH_PATH, QBO_STATE_COOKIE, qboAppBase, statesMatch } from "@/lib/accounting/qbo/oauth";
 
 export const dynamic = "force-dynamic";
 
-function back(request: NextRequest, result: string, extra: Record<string, string> = {}): NextResponse {
-  const url = new URL("/settings/accounting", request.url);
+function back(result: string, extra: Record<string, string> = {}): NextResponse {
+  // Public address, not request.url: behind nginx that reads localhost:3017.
+  const url = new URL("/settings/accounting", qboAppBase());
   url.searchParams.set("qbo", result);
   for (const [k, v] of Object.entries(extra)) url.searchParams.set(k, v);
   const res = NextResponse.redirect(url);
@@ -28,14 +29,14 @@ export async function GET(request: NextRequest) {
   if (!user || user.role !== "owner") return NextResponse.json({ error: "owner only" }, { status: 403 });
 
   const q = request.nextUrl.searchParams;
-  if (q.get("error")) return back(request, "cancelled");
-  if (!statesMatch(request.cookies.get(QBO_STATE_COOKIE)?.value, q.get("state"))) return back(request, "csrf");
+  if (q.get("error")) return back("cancelled");
+  if (!statesMatch(request.cookies.get(QBO_STATE_COOKIE)?.value, q.get("state"))) return back("csrf");
 
   const code = q.get("code");
   const realmId = q.get("realmId");
-  if (!code || !realmId) return back(request, "failed", { reason: "Intuit did not send back a code and company id." });
+  if (!code || !realmId) return back("failed", { reason: "Intuit did not send back a code and company id." });
 
   const r = await completeQboConnect({ code, realmId });
-  if (!r.ok) return back(request, "failed", { reason: (r.error ?? "unknown error").slice(0, 200) });
-  return back(request, "connected");
+  if (!r.ok) return back("failed", { reason: (r.error ?? "unknown error").slice(0, 200) });
+  return back("connected");
 }

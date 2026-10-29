@@ -22,6 +22,8 @@ export interface Integration {
   name: string;
   sub: string;
   connected: boolean;
+  /** Settings page that manages it, when there is one. */
+  href?: string;
 }
 
 export interface AiToggle {
@@ -141,6 +143,18 @@ export async function getSettingsData(): Promise<SettingsData> {
   // Name + email are the authoritative login identity, read from the current
   // user's row (kept in sync by updateProfile); company + phone live in settings.
   const me = await getCurrentUser();
+  // Live connection state for the two money integrations, read from the rows
+  // their own settings pages write (Settings › Accounting, Settings › Payments).
+  const [qbo] = (
+    await query<{ state: string; environment: string; company_name: string | null }>(
+      `SELECT state, environment, company_name FROM qbo_connection ORDER BY updated_at DESC LIMIT 1`,
+    ).catch(() => ({ rows: [] }))
+  ).rows;
+  const [square] = (
+    await query<{ connection_state: string; environment: string }>(
+      `SELECT connection_state, environment FROM payment_provider_config WHERE provider = 'square'`,
+    ).catch(() => ({ rows: [] }))
+  ).rows;
   const clipToken = await getClipToken();
   const intakeToken = await getIntakeToken();
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://os.sjcarpentryllc.com").replace(/\/$/, "");
@@ -239,9 +253,19 @@ export async function getSettingsData(): Promise<SettingsData> {
         connected: aiProvider !== "mock",
       },
       { name: "PostgreSQL", sub: "sjcos database", connected: true },
-      { name: "QuickBooks", sub: "Books · reconciliation", connected: false },
+      {
+        name: "QuickBooks",
+        sub: qbo?.state === "connected" ? `${qbo.company_name || "Books"} · ${qbo.environment}` : "Books · reconciliation",
+        connected: qbo?.state === "connected",
+        href: "/settings/accounting",
+      },
+      {
+        name: "Square",
+        sub: square ? `Card + bank payments · ${square.environment}` : "Card + bank payments",
+        connected: square?.connection_state === "connected",
+        href: "/settings/payments",
+      },
       { name: "Google Drive", sub: "Doc archive (deferred)", connected: false },
-      { name: "Stripe", sub: "Card payments", connected: false },
     ],
     leadFirstResponseModel: get("ai.leadFirstResponseModel") === "hermes" ? "hermes" : "claude",
     aiToggles: AI_TOGGLES.map((t) => ({

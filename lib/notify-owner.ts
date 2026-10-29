@@ -63,6 +63,9 @@ export interface TelegramExtras {
   buttons?: TelegramInlineButton[][];
   decisionId?: string | null;
   editMessageId?: string | null;
+  /** Thread this message under one of Joe's (an answer to his Telegram
+   *  reply). Goes out at once — he is in the conversation. */
+  replyToMessageId?: string | null;
 }
 
 const TZ = "America/Chicago";
@@ -91,7 +94,7 @@ const telegram: OwnerChannel = {
     Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_OWNER_CHAT_ID),
   async send(text, extras) {
     const r = await telegramProvider.send(
-      { chatId: process.env.TELEGRAM_OWNER_CHAT_ID ?? "", text, buttons: extras?.buttons, editMessageId: extras?.editMessageId ?? null },
+      { chatId: process.env.TELEGRAM_OWNER_CHAT_ID ?? "", text, buttons: extras?.buttons, editMessageId: extras?.editMessageId ?? null, replyToMessageId: extras?.replyToMessageId ?? null },
       { operationKey: `owner-push:${Date.now()}`, intentId: "", attempt: 1 },
     );
     if (r.responseClass !== "accepted" && r.responseClass !== "confirmed") {
@@ -242,6 +245,8 @@ export async function notifyOwner(input: NotifyOwnerInput, nowOverride?: Date): 
     // no sound, so it goes now — parking it till morning left a stale
     // Approve button showing all night.
     if (input.telegram?.editMessageId) return void (await transmit(input, now));
+    // An answer to a note Joe just sent on Telegram: he's in the conversation.
+    if (input.telegram?.replyToMessageId) return void (await transmit(input, now));
     const g = await gate(now);
     if (!g.awake) return void (await parkRow(input, g.next_morning));
     if (g.sent_last_hour >= MAX_PER_HOUR && !CAP_EXEMPT.has(input.kind)) {

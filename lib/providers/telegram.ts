@@ -24,6 +24,8 @@ export interface TelegramPayload {
   buttons?: TelegramInlineButton[][];
   /** Edit this message instead of sending a new one. */
   editMessageId?: number | string | null;
+  /** Send as a reply to this message (threads an answer under Joe's note). */
+  replyToMessageId?: number | string | null;
   [k: string]: unknown;
 }
 
@@ -52,6 +54,9 @@ export function makeTelegramProvider(transport: TelegramTransport = defaultTrans
       };
       const editing = payload.editMessageId != null && payload.editMessageId !== "";
       if (editing) body.message_id = Number(payload.editMessageId);
+      else if (payload.replyToMessageId != null && payload.replyToMessageId !== "") {
+        body.reply_parameters = { message_id: Number(payload.replyToMessageId), allow_sending_without_reply: true };
+      }
       try {
         const res = await transport.call(editing ? "editMessageText" : "sendMessage", body);
         if (!res.ok) {

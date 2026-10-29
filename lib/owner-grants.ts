@@ -20,6 +20,7 @@ import { runDirect, sessionPrincipal, withTransaction } from "@/lib/commands/db"
 import type { Principal } from "@/lib/commands/principal";
 import { settleDecisionFromGrant, stageGrantDecision, supersedeEarlierGrantRequests } from "@/lib/decisions/grants";
 import { consumeGrantRun, recordGrantResultRun, refundGrantUseRun } from "@/lib/dispatch/authority";
+import { closeRepliesRevisedBy } from "@/lib/decisions/owner-replies";
 
 export {
   GATED_ACTIONS,
@@ -136,6 +137,9 @@ export async function requestGrant(input: {
   reason: string;
   requestedBy?: string;
   conversationId?: string | null;
+  /** The in-app run that asked (SJC_RUN_ID) — with conversationId, where a
+   *  Telegram reply to this card is sent back to. */
+  runId?: string | null;
   workItemId?: string | null;
   staged?: StagedSend | null;
 }): Promise<{ ok: true; grant: OwnerGrant; replaced?: string[] } | { ok: false; error: string }> {
@@ -155,6 +159,7 @@ export async function requestGrant(input: {
     reason,
     requestedBy: input.requestedBy ?? "agent",
     conversationId: input.conversationId ?? null,
+    runId: input.runId ?? null,
     maxUses: 1,
     expiresInMinutes: 24 * 60,
     status: "requested",
@@ -176,6 +181,10 @@ export async function requestGrant(input: {
     return [] as { id: string; decision_id: string | null }[];
   });
   const priorDecision = staged2.superseded ?? replaced.find((r) => r.decision_id)?.decision_id ?? null;
+  // Joe asked for this revision from Telegram: his note is answered by it,
+  // and the new card is threaded under his message.
+  const answered = await withTransaction((run) => closeRepliesRevisedBy(run, grant)).catch(() => [] as { message_id: string | null }[]);
+  const replyTo = answered.find((a) => a.message_id)?.message_id ?? null;
   // announceDecision records the 'app' delivery, so the 2-minute
   // unannounced-decision sweep no longer sends a SECOND card for the same ask
   // (every request used to buzz twice and land twice in the bell). Grants
@@ -184,6 +193,7 @@ export async function requestGrant(input: {
     created: staged2.created,
     // The phone edits the replaced request's message in place.
     superseded: priorDecision,
+    replyToMessageId: replyTo,
     emit: {
       tag: "Permission",
       title: detail
@@ -191,7 +201,7 @@ export async function requestGrant(input: {
         : staged
           ? `${grant.requested_by} wants to send: ${stagedHeadline(staged)}`
           : `${grant.requested_by} asks to: ${ACTION_LABEL[input.action]}${grant.target_id ? ` (${grant.target_id})` : ""}`,
-      subline: `${replaced.length ? "Replaces the earlier request. " : ""}${reason}`.slice(0, 160),
+      subline: `${replaced.length || answered.length ? "Revised — replaces the earlier request. " : ""}${reason}`.slice(0, 160),
       href: "/engine/permissions",
     },
   });

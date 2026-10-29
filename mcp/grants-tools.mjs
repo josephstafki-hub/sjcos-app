@@ -10,6 +10,8 @@
 //                               /engine/permissions.
 //   check_owner_permission    → poll a request; list_owner_permissions → what
 //                               is currently granted.
+//   reply_to_owner            → answer Joe's Telegram reply to a request when
+//                               not revising it (no change / a question).
 //   send_* / release_* tools  → each REQUIRES owner_grant_id. The app spends
 //                               the grant for exactly that action + target
 //                               (atomic, audited), then runs the same send
@@ -139,7 +141,10 @@ export function registerGrantTools(server, { json, grantsCall, rows }) {
           sms,
           work_item_id,
           send_on_approval,
-          conversation_id,
+          // The in-app runner exports these: a Telegram reply to this card
+          // comes back to THIS chat (lib/owner-reply-delivery.ts).
+          conversation_id: conversation_id ?? (process.env.SJC_CONVERSATION_ID || undefined),
+          run_id: process.env.SJC_RUN_ID || undefined,
           agent: agentName(),
         });
         if (r?.ok && r.replaced?.length) {
@@ -151,6 +156,35 @@ export function registerGrantTools(server, { json, grantsCall, rows }) {
             "Tell Joe it's waiting for his tap; afterwards check_owner_permission shows sent_on_approval.";
         }
         return json(r);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "reply_to_owner",
+    {
+      title: "Answer Joe on Telegram",
+      description:
+        "Joe replied to one of your permission requests from Telegram and you are NOT filing a revised " +
+        "request — say why, or ask what you need. The message goes to his Telegram as a reply to his note. " +
+        "Pass the owner_reply_id you were given (else the grant_id or decision_id). outcome: no_change " +
+        "(you're keeping it as is — give the reason), question (you need something from him), done (you " +
+        "handled it another way). If you DID change the request, don't call this: file request_owner_permission " +
+        "again — the new card is his answer. Plain, short, no routing notes.",
+      inputSchema: {
+        owner_reply_id: z.string().uuid().optional().describe("From the message that delivered Joe's reply."),
+        grant_id: z.string().uuid().optional(),
+        decision_id: z.string().uuid().optional(),
+        outcome: z.enum(["no_change", "question", "done"]),
+        message: z.string().min(1).max(3000).describe("Sent to Joe as written."),
+      },
+    },
+    async ({ owner_reply_id, grant_id, decision_id, outcome, message }) => {
+      try {
+        if (!owner_reply_id && !grant_id && !decision_id) throw new Error("Pass owner_reply_id (or grant_id / decision_id).");
+        return json(await grantsCall("reply", { owner_reply_id, grant_id, decision_id, outcome, message, agent: agentName() }));
       } catch (e) {
         return fail(e);
       }

@@ -98,3 +98,31 @@ test("exports: one record QuickBooks rejects is recorded and the rest still go; 
     assert.equal(after, 0, "nothing more is attempted once the connection is gone");
   });
 });
+
+test("listChanges pages through QuickBooks' 1000-row limit until a short page, oldest first", async () => {
+  const { QBO_PAGE_SIZE } = await import("../lib/accounting/qbo/https.ts");
+  const total = QBO_PAGE_SIZE * 2 + 3;
+  const starts = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("/oauth2/v1/tokens/bearer")) return res(200, { access_token: "acc", expires_in: 3600, refresh_token: "rt" });
+    const q = decodeURIComponent(new URL(String(url)).searchParams.get("query"));
+    const start = Number(/STARTPOSITION (\d+)/.exec(q)[1]);
+    const max = Number(/MAXRESULTS (\d+)/.exec(q)[1]);
+    assert.match(q, /WHERE Metadata\.LastUpdatedTime >= '2026-01-01' ORDERBY Metadata\.LastUpdatedTime ASC/);
+    starts.push(start);
+    const rows = [];
+    for (let i = start; i < start + max && i <= total; i++) rows.push({ Id: String(i), SyncToken: "0" });
+    return res(200, { QueryResponse: { Purchase: rows } });
+  };
+  try {
+    const qbo = new HttpsQbo({ clientId: "c", clientSecret: "s", realmId: "123", refreshToken: "rt", environment: "sandbox" });
+    const docs = await qbo.listChanges("Purchase", "2026-01-01");
+    assert.equal(docs.length, total, "every record, not just the first page");
+    assert.deepEqual(starts, [1, QBO_PAGE_SIZE + 1, QBO_PAGE_SIZE * 2 + 1]);
+    assert.equal(docs[0].Id, "1");
+    assert.equal(docs.at(-1).Id, String(total));
+  } finally {
+    globalThis.fetch = real;
+  }
+});

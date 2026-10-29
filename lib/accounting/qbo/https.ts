@@ -20,6 +20,10 @@ export interface IntuitCredentials {
 
 const BASE = { sandbox: "https://sandbox-quickbooks.api.intuit.com", production: "https://quickbooks.api.intuit.com" } as const;
 const TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
+/** QuickBooks' maximum rows per query page. */
+export const QBO_PAGE_SIZE = 1000;
+/** Pages per record type per pass (50,000 rows); more resumes next pass. */
+export const QBO_PAGE_CAP = 50;
 
 export class HttpsQbo implements QboAdapter {
   readonly environment: "sandbox" | "production";
@@ -89,11 +93,24 @@ export class HttpsQbo implements QboAdapter {
     return { realmId: this.creds.realmId, companyName: r.CompanyInfo.CompanyName };
   }
 
+  /** Every record of `kind` changed since `sinceIso`, oldest first. Pages
+   *  through QuickBooks' 1000-row query limit with STARTPOSITION. One page
+   *  used to be the whole answer, so a company with more than 500 purchases
+   *  got only the first 500 per pass, and 500+ records saved in the same
+   *  second could stall the cursor for good. Stops after QBO_PAGE_CAP pages;
+   *  the cursor then resumes from the newest record seen. */
   async listChanges(kind: QboEntityKind, sinceIso: string | null): Promise<QboDoc[]> {
     const where = sinceIso ? ` WHERE Metadata.LastUpdatedTime >= '${sinceIso}'` : "";
-    const q = encodeURIComponent(`SELECT * FROM ${kind}${where} ORDERBY Metadata.LastUpdatedTime ASC MAXRESULTS 500`);
-    const r = await this.call<{ QueryResponse: Record<string, QboDoc[] | undefined> }>("GET", `/query?query=${q}`);
-    return r.QueryResponse[kind] ?? [];
+    const all: QboDoc[] = [];
+    for (let page = 0; page < QBO_PAGE_CAP; page++) {
+      const start = page * QBO_PAGE_SIZE + 1;
+      const q = encodeURIComponent(`SELECT * FROM ${kind}${where} ORDERBY Metadata.LastUpdatedTime ASC STARTPOSITION ${start} MAXRESULTS ${QBO_PAGE_SIZE}`);
+      const r = await this.call<{ QueryResponse: Record<string, QboDoc[] | undefined> }>("GET", `/query?query=${q}`);
+      const rows = r.QueryResponse[kind] ?? [];
+      all.push(...rows);
+      if (rows.length < QBO_PAGE_SIZE) break;
+    }
+    return all;
   }
 
   async get(kind: QboEntityKind, id: string): Promise<QboDoc | null> {

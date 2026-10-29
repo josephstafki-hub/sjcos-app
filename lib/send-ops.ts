@@ -184,8 +184,7 @@ interface InvoiceJoin {
   project_name: string;
 }
 
-/** Email a drafted invoice to the project's client; it is marked sent when Gmail accepts. */
-export async function sendInvoiceOp(id: number, auth?: SendAuth): Promise<SendOpResult> {
+async function loadInvoiceForEmail(id: number) {
   const inv = await queryOne<InvoiceJoin>(
     `SELECT i.number, i.milestone, i.amount, i.line_items, i.status,
             p.slug, p.name AS project_name
@@ -193,9 +192,7 @@ export async function sendInvoiceOp(id: number, auth?: SendAuth): Promise<SendOp
       WHERE i.id = $1`,
     [id],
   );
-  if (!inv) return { ok: false, error: "Invoice not found." };
-  if (inv.status !== "draft") return { ok: false, error: `Invoice ${inv.number} is already ${inv.status}.` };
-
+  if (!inv) return null;
   // A link-only client's account sits on a synthetic <slug>@client-portal.invalid
   // address — never a mailbox. Fall back to the project's client_email, as the
   // e-sign and portal-publish sends do.
@@ -209,13 +206,52 @@ export async function sendInvoiceOp(id: number, auth?: SendAuth): Promise<SendOp
       LIMIT 1`,
     [inv.slug],
   );
+  const lineText = (inv.line_items ?? []).map((l) => `  • ${l.label}: ${usd(l.amount)}`).join("\n");
+  const subject = `Invoice ${inv.number} — ${inv.project_name} (${inv.milestone})`;
+  return { inv, client, lineText, subject };
+}
+
+function invoiceEmailBody(p: { name: string; inv: InvoiceJoin; lineText: string; attached: boolean; payUrl: string | null }): string {
+  const first = p.name.split(/\s+/)[0] || "there";
+  const payText = p.payUrl ? `Pay online by card or bank transfer:\n${p.payUrl}\n\n` : "";
+  return (
+    `Hi ${first},\n\nPlease find invoice ${p.inv.number} for "${p.inv.milestone}" on the ` +
+    `${p.inv.project_name} project ${p.attached ? "attached. A summary is below." : "below."}\n\n` +
+    `${p.lineText}\n\nTotal due: ${usd(p.inv.amount)}\n\n` +
+    payText +
+    `You can reply here with any questions. Thank you!\n\nBest,\nJoe\nSJ Carpentry`
+  );
+}
+
+/** The email sendInvoiceOp would put in the client's inbox — for approval
+ *  cards. Read-only: the pay link is shown as a placeholder (minting the real
+ *  one can create a portal invite). */
+export async function previewInvoiceEmail(id: number): Promise<{ ok: true; email: PoEmail; clientName: string } | { ok: false; error: string }> {
+  const loaded = await loadInvoiceForEmail(id);
+  if (!loaded) return { ok: false, error: "Invoice not found." };
+  const { inv, client, lineText, subject } = loaded;
+  const online = await portalPaymentSetup().then((s) => s.online).catch(() => false);
+  return {
+    ok: true,
+    clientName: client?.name ?? "",
+    email: {
+      to: (client?.email ?? "").trim().toLowerCase(),
+      subject,
+      body: invoiceEmailBody({ name: client?.name ?? "", inv, lineText, attached: true, payUrl: online ? "[link to pay this invoice online]" : null }),
+    },
+  };
+}
+
+/** Email a drafted invoice to the project's client; it is marked sent when Gmail accepts. */
+export async function sendInvoiceOp(id: number, auth?: SendAuth): Promise<SendOpResult> {
+  const loaded = await loadInvoiceForEmail(id);
+  if (!loaded) return { ok: false, error: "Invoice not found." };
+  const { inv, client, lineText, subject } = loaded;
+  if (inv.status !== "draft") return { ok: false, error: `Invoice ${inv.number} is already ${inv.status}.` };
   if (!client?.email) return { ok: false, error: "No client email on file for this project." };
   if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
 
-  const first = client.name.split(/\s+/)[0] || "there";
-  const lineText = (inv.line_items ?? []).map((l) => `  • ${l.label}: ${usd(l.amount)}`).join("\n");
   const to = client.email.trim().toLowerCase();
-  const subject = `Invoice ${inv.number} — ${inv.project_name} (${inv.milestone})`;
   const revision = rev(`${to}\n${subject}\n${lineText}\n${inv.amount}`);
 
   // The intent payload is JSON: the PDF is rendered ONCE per revision, kept
@@ -250,14 +286,7 @@ export async function sendInvoiceOp(id: number, auth?: SendAuth): Promise<SendOp
   const payUrl = await portalPaymentSetup()
     .then((setup) => (setup.online ? invoicePayLink(inv.slug, id) : null))
     .catch(() => null);
-  const payText = payUrl ? `Pay online by card or bank transfer:\n${payUrl}\n\n` : "";
-
-  const body =
-    `Hi ${first},\n\nPlease find invoice ${inv.number} for "${inv.milestone}" on the ` +
-    `${inv.project_name} project ${attachments.length ? "attached. A summary is below." : "below."}\n\n` +
-    `${lineText}\n\nTotal due: ${usd(inv.amount)}\n\n` +
-    payText +
-    `You can reply here with any questions. Thank you!\n\nBest,\nJoe\nSJ Carpentry`;
+  const body = invoiceEmailBody({ name: client.name, inv, lineText, attached: attachments.length > 0, payUrl });
   const payload = {
     to,
     subject,

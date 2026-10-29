@@ -18,7 +18,7 @@ import { query, queryOne } from "@/lib/db";
 import { announceDecision } from "@/lib/decisions/notify";
 import { runDirect, sessionPrincipal, withTransaction } from "@/lib/commands/db";
 import type { Principal } from "@/lib/commands/principal";
-import { settleDecisionFromGrant, stageGrantDecision } from "@/lib/decisions/grants";
+import { settleDecisionFromGrant, stageGrantDecision, supersedeEarlierGrantRequests } from "@/lib/decisions/grants";
 import { consumeGrantRun, recordGrantResultRun, refundGrantUseRun } from "@/lib/dispatch/authority";
 
 export {
@@ -138,7 +138,7 @@ export async function requestGrant(input: {
   conversationId?: string | null;
   workItemId?: string | null;
   staged?: StagedSend | null;
-}): Promise<{ ok: true; grant: OwnerGrant } | { ok: false; error: string }> {
+}): Promise<{ ok: true; grant: OwnerGrant; replaced?: string[] } | { ok: false; error: string }> {
   if (!isGatedAction(input.action)) {
     return { ok: false, error: `Unknown gated action "${input.action}". One of: ${GATED_ACTIONS.join(", ")}.` };
   }
@@ -163,25 +163,39 @@ export async function requestGrant(input: {
   // /engine/permissions, /engine/decisions, the corner popup and the Telegram
   // buttons all point at the same thing. Deciding either side settles both.
   const requester: Principal = { kind: "agent", agent: grant.requested_by, runId: null, onBehalfOf: null };
-  const staged2 = await withTransaction((run) => stageGrantDecision(run, grant, requester, { workItemId: input.workItemId ?? null }));
+  // The card says what the send IS (invoice number + amount + client, the
+  // contract's title, the PO's vendor…), not just "send_invoice 28".
+  const { describeGrant } = await import("@/lib/grant-detail");
+  const detail = await describeGrant(grant).catch(() => null);
+  const staged2 = await withTransaction((run) => stageGrantDecision(run, grant, requester, { workItemId: input.workItemId ?? null, detail }));
   const withDecision = { ...grant, decision_id: staged2.decision.id };
+  // A re-ask for the same send (Joe asked for changes, the agent redrafted)
+  // replaces the earlier request instead of leaving both waiting on him.
+  const replaced = await withTransaction((run) => supersedeEarlierGrantRequests(run, grant, staged2.decision.id)).catch((err) => {
+    console.error("[owner-grants] supersede failed:", (err as Error).message);
+    return [] as { id: string; decision_id: string | null }[];
+  });
+  const priorDecision = staged2.superseded ?? replaced.find((r) => r.decision_id)?.decision_id ?? null;
   // announceDecision records the 'app' delivery, so the 2-minute
   // unannounced-decision sweep no longer sends a SECOND card for the same ask
   // (every request used to buzz twice and land twice in the bell). Grants
   // skip the hourly push cap (not quiet hours) — an agent is waiting.
   await announceDecision(staged2.decision, {
     created: staged2.created,
-    superseded: staged2.superseded,
+    // The phone edits the replaced request's message in place.
+    superseded: priorDecision,
     emit: {
       tag: "Permission",
-      title: staged
-        ? `${grant.requested_by} wants to send: ${stagedHeadline(staged)}`
-        : `${grant.requested_by} asks to: ${ACTION_LABEL[input.action]}${grant.target_id ? ` (${grant.target_id})` : ""}`,
-      subline: reason.slice(0, 160),
+      title: detail
+        ? `${grant.requested_by} asks: ${detail.headline}${detail.job ? ` · ${detail.job}` : ""}`
+        : staged
+          ? `${grant.requested_by} wants to send: ${stagedHeadline(staged)}`
+          : `${grant.requested_by} asks to: ${ACTION_LABEL[input.action]}${grant.target_id ? ` (${grant.target_id})` : ""}`,
+      subline: `${replaced.length ? "Replaces the earlier request. " : ""}${reason}`.slice(0, 160),
       href: "/engine/permissions",
     },
   });
-  return { ok: true, grant: withDecision };
+  return { ok: true, grant: withDecision, replaced: replaced.map((r) => r.id) };
 }
 
 /** Owner decides a grant on /engine/permissions. Settles the bridged

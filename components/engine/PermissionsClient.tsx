@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { Card, Chip, Eyebrow } from "@/components/ui";
-import { ACTION_LABEL, GATED_ACTIONS, grantWaiting, stagedResultOf, stagedSendOf, type OwnerGrant } from "@/lib/owner-grant-types";
+import { ACTION_LABEL, GATED_ACTIONS, grantWaiting, stagedResultOf, stagedSendOf, type GrantDetail, type OwnerGrant } from "@/lib/owner-grant-types";
+import { GrantDetails } from "@/components/engine/GrantDetails";
 import { approveGrant, createGrantAction, denyGrant, revokeGrant } from "@/lib/actions/owner-grants";
 import { runAction } from "@/lib/run-action";
 import { toast } from "@/components/ui/Toast";
@@ -22,6 +23,7 @@ function statusChip(g: OwnerGrant) {
   if (grantWaiting(g)) return <Chip kind="flag">Waiting on you</Chip>;
   if (g.status === "requested") return <Chip kind="ghost">Request expired</Chip>;
   if (g.status === "denied") return <Chip kind="ghost">Denied</Chip>;
+  if (g.status === "revoked" && g.audit?.some((a) => a.result === "replaced")) return <Chip kind="ghost">Replaced by a newer request</Chip>;
   if (g.status === "revoked") return <Chip kind="ghost">Revoked</Chip>;
   if (g.uses >= g.max_uses) return <Chip kind="default">Spent</Chip>;
   if (new Date(g.expires_at).getTime() <= Date.now()) return <Chip kind="ghost">Expired</Chip>;
@@ -42,7 +44,7 @@ function fmt(iso: string | null) {
   return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-export function PermissionsClient({ grants }: { grants: OwnerGrant[] }) {
+export function PermissionsClient({ grants, details }: { grants: OwnerGrant[]; details: Record<string, GrantDetail> }) {
   const [pending, start] = useTransition();
   const [notice, setNotice] = useState("");
   const [copied, setCopied] = useState("");
@@ -78,7 +80,7 @@ export function PermissionsClient({ grants }: { grants: OwnerGrant[] }) {
         <Eyebrow>Requests</Eyebrow>
         <div className="mt-2 flex flex-col gap-2">
           {waiting.map((g) => (
-            <RequestCard key={g.id} g={g} pending={pending} run={run} />
+            <RequestCard key={g.id} g={g} detail={details[g.id] ?? null} pending={pending} run={run} />
           ))}
           {waiting.length === 0 && (
             <Card kind="dashed" className="p-6 text-center">
@@ -162,8 +164,9 @@ export function PermissionsClient({ grants }: { grants: OwnerGrant[] }) {
                     <div className="flex-1" />
                     <span className="font-mono text-[10px] text-ink-3">until {fmt(g.expires_at)}</span>
                   </div>
-                  <div className="mt-1 font-serif text-[14px] font-semibold text-ink">{describe(g)}</div>
+                  <Headline g={g} detail={details[g.id] ?? null} />
                   <div className="mt-0.5 text-[12px] text-ink-3">{g.reason}</div>
+                  {details[g.id] && <GrantDetails detail={details[g.id]} showDraft={!stagedSendOf(g)} />}
                   <StagedPreview g={g} />
                   <button
                     type="button"
@@ -215,12 +218,24 @@ export function PermissionsClient({ grants }: { grants: OwnerGrant[] }) {
   );
 }
 
+/** What the grant is for: the resolved headline + job, else the bare label. */
+function Headline({ g, detail }: { g: OwnerGrant; detail: GrantDetail | null }) {
+  return (
+    <>
+      <div className="mt-1 font-serif text-[14px] font-semibold text-ink">{detail?.headline ?? describe(g)}</div>
+      {detail?.job && <div className="text-[12px] text-ink-3">{detail.job}</div>}
+    </>
+  );
+}
+
 function RequestCard({
   g,
+  detail,
   pending,
   run,
 }: {
   g: OwnerGrant;
+  detail: GrantDetail | null;
   pending: boolean;
   run: (fn: () => Promise<{ ok: boolean; error?: string; id?: string; message?: string }>, okMsg?: string) => void;
 }) {
@@ -236,9 +251,9 @@ function RequestCard({
             <div className="flex-1" />
             <span className="font-mono text-[10px] text-ink-3">{fmt(g.created_at)}</span>
           </div>
-          <div className="mt-1 font-serif text-[14px] font-semibold text-ink">{describe(g)}</div>
+          <Headline g={g} detail={detail} />
           <div className="mt-0.5 text-[12px] text-ink-3">{g.reason}</div>
-          {staged && <StagedPreview g={g} />}
+          {detail ? <GrantDetails detail={detail} defaultOpen /> : staged && <StagedPreview g={g} />}
           <input
             className={`${inputCls} mt-1.5`}
             value={note}

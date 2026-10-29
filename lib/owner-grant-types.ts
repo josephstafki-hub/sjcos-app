@@ -224,3 +224,24 @@ export function describeStagedSend(s: StagedSend): string {
   const label = ACTION_LABEL[s.action] ?? s.action;
   return `${label} (${ACTION_TARGET_KIND[s.action] ?? "target"} ${s.target_id}).`;
 }
+
+// ── What a permission is for (2026-10-29) ────────────────────────────────────
+// Joe: the email requests read fine, the rest ("Email an invoice to a client
+// — 28") didn't say what they were for. lib/grant-detail.ts resolves the
+// record behind a request into this shape; every approval surface shows the
+// headline and opens the rest behind a Details toggle.
+
+export interface GrantDetail {
+  /** What approving does, in Joe's words: 'Email invoice INV-003 ($6,609.56) to Michelle Alcantara'. */
+  headline: string;
+  /** The job or lead it's for. */
+  job: string | null;
+  /** Short label/value lines: amount, recipients, document, lines… */
+  facts: { label: string; value: string }[];
+  /** The message that goes out, when there is one. */
+  draft: { to?: string; subject?: string; body: string } | null;
+  /** Said when there is no draft to show, so the empty space isn't a mystery. */
+  draftNote: string | null;
+  /** The document itself, the record's page, and so on. */
+  links: { label: string; href: string }[];
+}

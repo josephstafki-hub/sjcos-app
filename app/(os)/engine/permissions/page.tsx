@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/dal";
 import { listGrants, grantLive } from "@/lib/owner-grants";
 import { grantWaiting } from "@/lib/owner-grant-types";
 import { PermissionsClient } from "@/components/engine/PermissionsClient";
+import { describeGrants } from "@/lib/grant-detail";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,8 @@ export default async function PermissionsPage() {
   const grants = await listGrants(80);
   const pending = grants.filter((g) => grantWaiting(g)).length;
   const live = grants.filter(grantLive).length;
+  // Plain-words "what this is for" for everything still open.
+  const details = await describeGrants(grants.filter((g) => grantWaiting(g) || grantLive(g)));
 
   return (
     <Shell breadcrumb="OPERATIONS ENGINE · PERMISSIONS">
@@ -32,7 +35,7 @@ export default async function PermissionsPage() {
             spent per use and keeps its own audit trail.
           </p>
         </div>
-        <PermissionsClient grants={grants} />
+        <PermissionsClient grants={grants} details={details} />
       </div>
     </Shell>
   );

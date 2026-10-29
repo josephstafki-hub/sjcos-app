@@ -95,7 +95,7 @@ export async function POST(req: Request) {
         if (!r.ok) return NextResponse.json(r, { status: 400 });
         revalidatePath("/notifications");
         revalidatePath("/engine/permissions");
-        return NextResponse.json({ ok: true, grant: pub(r.grant) });
+        return NextResponse.json({ ok: true, grant: pub(r.grant), replaced: r.replaced ?? [] });
       }
       case "check": {
         const g = await getGrant(str("grant_id") ?? "");

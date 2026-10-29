@@ -21,6 +21,7 @@ import { mergeTranscript } from "@/lib/append-transcript";
 import { useVoiceRound } from "@/lib/use-voice-round";
 import { approveGrant, denyGrant } from "@/lib/actions/owner-grants";
 import type { PendingGrant } from "@/lib/actions/dev-agents";
+import { GrantDetails } from "@/components/engine/GrantDetails";
 import type { SteerStatus } from "@/lib/run-steers";
 import type {
   AgentInteraction,
@@ -1299,13 +1300,14 @@ function GrantCard({ grant, onDone }: { grant: PendingGrant; onDone: (id: string
     <div className="rounded-md border-[1.5px] border-flag/60 bg-paper px-3 py-2.5">
       <div className="mb-1 flex items-center gap-1.5 text-[10.5px] font-medium uppercase tracking-[0.1em] text-flag">
         <ShieldQuestion className="size-3.5" strokeWidth={1.75} />
-        Send permission — {grant.requestedBy} asks to
+        Send permission — {grant.requestedBy} asks
       </div>
       <div className="text-[13px] font-medium text-ink">
-        {grant.label}
-        {grant.targetId ? ` — ${grant.targetId}` : ""}
+        {grant.detail?.headline ?? `${grant.label}${grant.targetId ? ` — ${grant.targetId}` : ""}`}
       </div>
+      {grant.detail?.job && <div className="text-[11.5px] text-ink-3">{grant.detail.job}</div>}
       {grant.reason && <div className="mt-0.5 text-[12px] text-ink-3">{grant.reason}</div>}
+      {grant.detail && <GrantDetails detail={grant.detail} />}
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <button
           type="button"

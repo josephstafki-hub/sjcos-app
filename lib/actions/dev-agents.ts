@@ -11,7 +11,8 @@ import {
   type InteractionResponse,
 } from "@/lib/agent-interactions";
 import { query } from "@/lib/db";
-import { ACTION_LABEL } from "@/lib/owner-grant-types";
+import { ACTION_LABEL, type GrantDetail } from "@/lib/owner-grant-types";
+import { describeGrants } from "@/lib/grant-detail";
 import { getRunFocus } from "@/lib/run-focus";
 import { autoSettleQuietThreads } from "@/lib/thread-folders";
 import { enqueueSteer, steersForRun, type SteerStatus } from "@/lib/run-steers";
@@ -43,6 +44,8 @@ export interface PendingGrant {
   targetId: string | null;
   reason: string;
   createdAt: string;
+  /** What approving does, in plain words, plus the draft (lib/grant-detail). */
+  detail: GrantDetail | null;
 }
 
 export type PollResult =
@@ -84,11 +87,13 @@ async function pendingGrants(runId: string, conversationId: string | null): Prom
     id: string;
     requested_by: string;
     actions: string[];
+    target_kind: string | null;
     target_id: string | null;
+    scope: Record<string, unknown>;
     reason: string;
     created_at: string;
   }>(
-    `SELECT id, requested_by, actions, target_id, reason, created_at::text AS created_at
+    `SELECT id, requested_by, actions, target_kind, target_id, scope, reason, created_at::text AS created_at
        FROM owner_grants
       WHERE status = 'requested' AND expires_at > now()
         AND (run_id = $1
@@ -98,8 +103,10 @@ async function pendingGrants(runId: string, conversationId: string | null): Prom
       LIMIT 3`,
     [runId, conversationId],
   );
+  const details = rows.length ? await describeGrants(rows, { cacheMs: 10_000 }) : {};
   return rows.map((g) => ({
     id: g.id,
+    detail: details[g.id] ?? null,
     requestedBy: g.requested_by,
     label: g.actions.includes("*")
       ? "any send"

@@ -101,7 +101,9 @@ export function registerGrantTools(server, { json, grantsCall, rows }) {
         "outcome with check_owner_permission (`sent_on_approval`). Pass send_on_approval:false only " +
         "if you must still change something after approval. place_call never runs on approval. " +
         "Be specific in `reason` (what, to whom, why now). If Joe already gave you a grant id in " +
-        "this conversation, use that instead of asking again.",
+        "this conversation, use that instead of asking again. A new request for the SAME send " +
+        "(same action + same invoice/draft/PO/address) automatically retires your earlier waiting " +
+        "one, so after Joe asks for changes just request again with the revised version.",
       inputSchema: {
         action: z.enum(GATED).describe("Which gated send you want to perform."),
         target_id: z
@@ -140,6 +142,9 @@ export function registerGrantTools(server, { json, grantsCall, rows }) {
           conversation_id,
           agent: agentName(),
         });
+        if (r?.ok && r.replaced?.length) {
+          r.replaced_note = `Your earlier waiting request${r.replaced.length === 1 ? "" : "s"} for this same send (${r.replaced.join(", ")}) ${r.replaced.length === 1 ? "was" : "were"} retired — only this one waits on Joe.`;
+        }
         if (r?.ok && r.grant?.sends_on_approval) {
           r.note =
             "Joe's Approve sends this itself (Telegram, popup, or the app). Do NOT call the send tool for it. " +

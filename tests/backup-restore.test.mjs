@@ -222,3 +222,37 @@ test("backup retention: daily 14 / weekly 8 / monthly 6 keeps the right sets", (
   assert.deepEqual(parseSetStamp("20260923T023000Z-db")?.toISOString(), "2026-09-23T02:30:00.000Z");
   assert.equal(parseSetStamp("junk"), null);
 });
+
+test("retention keeps nightly FULL sets even though the 4-hourly db-only sets are newer each day", () => {
+  // 30 days of the real schedule: a full set at 07:30Z and db-only sets every 4h at :15.
+  const sets = [];
+  const base = Date.UTC(2026, 9, 29);
+  for (let d = 0; d < 30; d++) {
+    const day = base - d * 86400e3;
+    sets.push({ name: setStamp(new Date(day + 7.5 * 3600e3)), at: new Date(day + 7.5 * 3600e3) });
+    for (let h = 1; h < 24; h += 4) {
+      const at = new Date(day + h * 3600e3 + 15 * 60e3);
+      sets.push({ name: setStamp(at, "-db"), at });
+    }
+  }
+  const plan = planRetention(sets);
+  const keptFull = plan.keep.filter((s) => !s.name.endsWith("-db"));
+  const keptDb = plan.keep.filter((s) => s.name.endsWith("-db"));
+  // The last 14 days each keep their full set (files included), not just a monthly anchor.
+  for (let d = 0; d < 14; d++) {
+    const name = setStamp(new Date(base - d * 86400e3 + 7.5 * 3600e3));
+    assert.ok(keptFull.some((s) => s.name === name), `full set of day -${d} kept`);
+  }
+  assert.ok(keptFull.length >= 14, `kept ${keptFull.length} full sets`);
+  // Database-only sets get their own buckets too (newest per day).
+  assert.ok(keptDb.length >= 14 && keptDb.length <= 14 + 8 + 6);
+  // The 2026-10-29 case: two full sets and a later db-only set on one day → the newest full survives.
+  const day = [
+    { name: "20261029T191325Z", at: parseSetStamp("20261029T191325Z") },
+    { name: "20261029T192146Z", at: parseSetStamp("20261029T192146Z") },
+    { name: "20261029T221546Z-db", at: parseSetStamp("20261029T221546Z-db") },
+  ];
+  const p2 = planRetention(day).keep.map((s) => s.name);
+  assert.ok(p2.includes("20261029T192146Z"), "the newest full set of the day is kept");
+  assert.ok(p2.includes("20261029T221546Z-db"));
+});

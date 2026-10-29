@@ -39,9 +39,23 @@ function weekKey(d: Date): string {
   return `${t.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 
+/** Retention for a mix of full sets and "-db" (database-only) sets. Each kind
+ *  gets its own daily / weekly / monthly buckets. Planned together, the
+ *  4-hourly database-only set is always the newest of its day, so it took
+ *  every daily and weekly slot and the nightly FULL sets (the only ones that
+ *  carry uploaded files) were pruned down to the monthly anchor. Found
+ *  2026-10-29: the full set taken after a file fix was deleted within hours. */
+export function planRetention(sets: BackupSetRef[], policy: RetentionPolicy = DEFAULT_RETENTION): { keep: BackupSetRef[]; remove: BackupSetRef[] } {
+  const isDbOnly = (s: BackupSetRef) => s.name.endsWith("-db");
+  const full = planOneKind(sets.filter((s) => !isDbOnly(s)), policy);
+  const db = planOneKind(sets.filter(isDbOnly), policy);
+  const byNewest = (a: BackupSetRef, b: BackupSetRef) => b.at.getTime() - a.at.getTime();
+  return { keep: [...full.keep, ...db.keep].sort(byNewest), remove: [...full.remove, ...db.remove].sort(byNewest) };
+}
+
 /** Keep the newest set of each of the last N days / ISO weeks / months; every
  *  set not covered by a bucket is deleted. Always keeps the newest set. */
-export function planRetention(sets: BackupSetRef[], policy: RetentionPolicy = DEFAULT_RETENTION): { keep: BackupSetRef[]; remove: BackupSetRef[] } {
+function planOneKind(sets: BackupSetRef[], policy: RetentionPolicy): { keep: BackupSetRef[]; remove: BackupSetRef[] } {
   const sorted = [...sets].sort((a, b) => b.at.getTime() - a.at.getTime());
   const keep = new Set<string>();
   const pick = (key: (d: Date) => string, n: number) => {

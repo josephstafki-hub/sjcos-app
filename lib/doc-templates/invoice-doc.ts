@@ -2,8 +2,8 @@
 //
 // VISUAL SOURCE: docs/reference/doc-templates/source/SJC_Invoice_Template.docx.
 // Auto fields from the invoices row. No AI fields; no signature block (an
-// invoice is not signed). Money is CENTS. Transactional — carries its own Net-7
-// payment terms.
+// invoice is not signed). Money is CENTS. Transactional. No standard payment
+// terms — a due date / terms line prints only when the invoice row has one.
 // P1-B7: the retainer ledger is gone, so "previous payments applied" is now an
 // owner-entered credit (same pattern as co_balance), not a retainer read.
 
@@ -22,7 +22,7 @@ import {
 
 export const invoiceDocTemplate: DocTemplate = {
   key: "invoice_doc",
-  version: "2026-07-16.1",
+  version: "2026-10-29.1",
   title: "Invoice",
   subtitle: "",
   docClass: "transactional",
@@ -35,7 +35,8 @@ export const invoiceDocTemplate: DocTemplate = {
     { key: "company_license", label: "Company license", kind: "text", source: "auto", required: false },
     { key: "invoice_number", label: "Invoice #", kind: "text", source: "auto", required: true },
     { key: "invoice_date", label: "Invoice date", kind: "date", source: "auto", required: true },
-    { key: "due_date", label: "Due date", kind: "date", source: "auto", required: true },
+    { key: "due_date", label: "Due date", kind: "date", source: "auto", required: false },
+    { key: "payment_terms", label: "Payment terms", kind: "text", source: "auto", required: false },
     { key: "project_name", label: "Project / job", kind: "text", source: "auto", required: true },
     { key: "client_name", label: "Client name", kind: "text", source: "auto", required: true },
     { key: "billing_address", label: "Billing address", kind: "text", source: "owner", required: false },
@@ -66,12 +67,13 @@ function cents(v: FieldValues, key: string): number {
 function build(v: FieldValues): TemplateSection[] {
   const out: TemplateSection[] = [];
 
+  const strip = [
+    { label: "Invoice #", value: str(v, "invoice_number") },
+    { label: "Invoice Date", value: str(v, "invoice_date") },
+  ];
+  if (str(v, "due_date")) strip.push({ label: "Due Date", value: str(v, "due_date") });
   out.push(
-    infoStrip([
-      { label: "Invoice #", value: str(v, "invoice_number") },
-      { label: "Invoice Date", value: str(v, "invoice_date") },
-      { label: "Due Date", value: str(v, "due_date") },
-    ]),
+    infoStrip(strip),
     infoGrid([
       { label: "Project / Job", value: str(v, "project_name") },
       { label: "Client Name", value: str(v, "client_name") },
@@ -104,7 +106,7 @@ function build(v: FieldValues): TemplateSection[] {
   out.push(
     heading("Payment Terms"),
     bulletList([
-      "Payment is due Net 7 — within 7 days of the invoice date shown above.",
+      ...(str(v, "payment_terms") ? [`Payment terms: ${str(v, "payment_terms")}`] : []),
       "Accepted payment methods: check, ACH/bank transfer, or online payment via Houzz Pro invoice link.",
       `Make checks payable to ${str(v, "company_name", "SJ Carpentry LLC")}.`,
       `Questions about this invoice? Contact us at ${str(v, "company_email")} or ${str(v, "company_phone")}.`,

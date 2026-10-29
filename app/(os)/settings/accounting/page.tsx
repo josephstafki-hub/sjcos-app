@@ -2,17 +2,29 @@ import { Shell } from "@/components/shell/Shell";
 import { Card, Chip, Eyebrow } from "@/components/ui";
 import { requireRole } from "@/lib/dal";
 import { getQboSummary } from "@/lib/accounting/server";
-import { confirmQboMapping, importQboNow, rejectQboMapping, setQboSwitch, testQboConnection } from "@/lib/accounting/actions";
+import { confirmQboMapping, disconnectQboConnection, importQboNow, rejectQboMapping, setQboSwitch, testQboConnection } from "@/lib/accounting/actions";
 import { AccountingSettingsButtons } from "@/components/money/AccountingSettingsButtons";
+import { QboConnectButtons } from "@/components/money/QboConnectButtons";
+
+/** What the Connect round trip came back with (app/api/qbo/oauth/callback). */
+const CONNECT_NOTICE: Record<string, { tone: "ok" | "flag"; text: string }> = {
+  connected: { tone: "ok", text: "QuickBooks connected. Check the company name below is the right one." },
+  cancelled: { tone: "flag", text: "Connecting was cancelled at Intuit. Nothing changed." },
+  csrf: { tone: "flag", text: "That sign-in couldn't be verified, so it was ignored and nothing changed. Press Connect to QuickBooks again and finish within 10 minutes, in this same browser." },
+  failed: { tone: "flag", text: "Intuit didn't complete the connection." },
+  not_configured: { tone: "flag", text: "The Intuit app keys aren't set yet, so Connect can't start." },
+};
 
 // Settings › Accounting (A14). Owner-only. QuickBooks Online stays the
 // bookkeeping authority: this page shows the connection, the three
 // per-direction switches (all OFF = dry-run/read-only), unmapped and
 // conflicting records for review, and the import batches. Secrets are env
 // variables shown as present/absent only.
-export default async function AccountingSettingsPage() {
+export default async function AccountingSettingsPage({ searchParams }: { searchParams: Promise<{ qbo?: string; reason?: string }> }) {
   await requireRole("owner");
   const s = await getQboSummary();
+  const { qbo, reason } = await searchParams;
+  const notice = qbo ? CONNECT_NOTICE[qbo] : undefined;
   const c = s.connection;
   const chip = c?.state === "connected" ? "money" : c?.state === "error" ? "flag" : "ghost";
   const dollars = (cents: number | null) => (cents == null ? "—" : `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}`);
@@ -34,6 +46,13 @@ export default async function AccountingSettingsPage() {
           </p>
         </div>
 
+        {notice && (
+          <div className={`rounded-lg border px-4 py-3 text-[12.5px] leading-snug ${notice.tone === "ok" ? "border-money/40 bg-money-soft text-ink" : "border-flag/30 bg-flag/5 text-ink-2"}`}>
+            {notice.text}
+            {qbo === "failed" && reason ? <div className="mt-1 font-mono text-[11px] text-ink-3">{reason}</div> : null}
+          </div>
+        )}
+
         <Card className="p-3">
           <div className="flex items-center gap-2">
             <span className="flex-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Connection</span>
@@ -44,13 +63,17 @@ export default async function AccountingSettingsPage() {
             <div>Realm: <span className="font-mono">{c?.realm_id ?? "—"}</span></div>
             <div>Last sync: {c?.last_sync_at ?? "never"}</div>
             <div>Last error: {c?.last_error ?? "—"}</div>
+            <div>Connected through: {s.via === "button" ? "Connect to QuickBooks" : s.via === "env" ? "settings file (older setup)" : s.via === "fake" ? "fake mode" : "not connected"}</div>
             {Object.entries(s.secrets).map(([k, v]) => (
               <div key={k}>
                 <span className="font-mono">{k}</span> (env): {v ? "present" : "missing"}
               </div>
             ))}
           </div>
-          <div className="mt-3">
+          <div className="mt-3 flex flex-col gap-2">
+            {s.environment !== "fake" || !s.oauthConfigured ? (
+              <QboConnectButtons connected={c?.state === "connected"} configured={s.oauthConfigured} disconnect={disconnectQboConnection} />
+            ) : null}
             <AccountingSettingsButtons test={testQboConnection} importNow={importQboNow} />
           </div>
         </Card>
@@ -152,9 +175,9 @@ export default async function AccountingSettingsPage() {
         <Card kind="soft" className="p-3">
           <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Setup checklist (Joe / bookkeeper)</div>
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-[12.5px] text-ink-2">
-            <li>Create an Intuit developer app for the SJ Carpentry company (sandbox first), copy the client id/secret.</li>
-            <li>Authorize it once (OAuth) and store <span className="font-mono">INTUIT_CLIENT_ID</span>, <span className="font-mono">INTUIT_CLIENT_SECRET</span>, <span className="font-mono">QBO_REALM_ID</span>, <span className="font-mono">QBO_REFRESH_TOKEN</span>, <span className="font-mono">QBO_ENV=sandbox</span> in .env.local; restart sjcos.service.</li>
-            <li>Press <b>Check connection</b>; the company name above must be the right one.</li>
+            <li>In the Intuit developer portal, add this Redirect URI to the app&apos;s Development <i>and</i> Production keys: <span className="break-all font-mono">{s.redirectUri}</span></li>
+            <li>Put <span className="font-mono">INTUIT_CLIENT_ID</span>, <span className="font-mono">INTUIT_CLIENT_SECRET</span> and <span className="font-mono">QBO_ENV</span> (sandbox or production) in .env.local; restart sjcos.service.</li>
+            <li>Press <b>Connect to QuickBooks</b>, sign in at Intuit and pick the company. The company name above must be the right one.</li>
             <li>Run an import with every switch OFF (dry run) and read the batch counts; then turn <b>Import</b> on and review the unmapped proposals here — confirm only what you are sure of.</li>
             <li>Only after the bookkeeper confirms account, customer, fee/clearing and tax mappings turn the two <b>Mirror</b> switches on, one at a time.</li>
             <li>Enable <span className="font-mono">sjcos-qbo-sync.timer</span> (deploy/).</li>

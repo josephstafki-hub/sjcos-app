@@ -5,29 +5,93 @@ import "server-only";
 // is fake until the Intuit credentials are present (setup item for Joe).
 
 import { withTransaction, runDirect, ownerPrincipalForPolicy } from "@/lib/commands/db";
-import { getQboAdapter, qboEnvironment } from "./qbo/index";
+import {
+  fileTokenStore,
+  getQboAdapter,
+  qboConnectionFile,
+  qboConnectionSource,
+  qboEnvironment,
+  qboOAuthConfigured,
+  qboTokenFile,
+  resetQboAdapter,
+  writeConnectionRecord,
+} from "./qbo/index";
+import { exchangeCode, qboRedirectUri, revokeToken } from "./qbo/oauth";
 import { ensureConnection, importPostedEntities, exportIssuedInvoice, exportConfirmedPayment, qboSummary, switchOn, type ImportResult, type QboSummary } from "./qbo/sync";
 
 export async function qboRealmId(): Promise<string> {
   const env = qboEnvironment();
   if (env === "fake") return (process.env.QBO_REALM_ID ?? "").trim() || "fake-realm";
-  return (process.env.QBO_REALM_ID ?? "").trim();
+  return qboConnectionSource().realmId ?? "";
 }
 
 /** Connection check + status row (fake mode records a 'fake' connection so
- *  the settings page can say so honestly). */
+ *  the settings page can say so honestly). An owner Disconnect records
+ *  'disconnected', not 'error': nothing is wrong, it was turned off. */
 export async function refreshQboConnection(): Promise<{ ok: boolean; environment: string; realmId: string; companyName?: string; error?: string }> {
   const env = qboEnvironment();
   const realmId = await qboRealmId();
+  const src = env === "fake" ? null : qboConnectionSource();
   try {
     const info = await getQboAdapter().companyInfo();
     await withTransaction((run) => ensureConnection(run, { realmId: info.realmId || realmId, environment: env, companyName: info.companyName, state: "connected" }));
     return { ok: true, environment: env, realmId: info.realmId || realmId, companyName: info.companyName };
   } catch (err) {
     const msg = (err as Error).message;
-    await withTransaction((run) => ensureConnection(run, { realmId, environment: env, state: "error", error: msg })).catch(() => undefined);
+    if (realmId) {
+      const state = src?.disconnected ? "disconnected" : "error";
+      await withTransaction((run) => ensureConnection(run, { realmId, environment: env, state, error: src?.disconnected ? null : msg })).catch(() => undefined);
+    }
     return { ok: false, environment: env, realmId, error: msg };
   }
+}
+
+/** Finish "Connect to QuickBooks": trade Intuit's one-time code for the
+ *  refresh token, keep it in the 0600 token file, remember the chosen
+ *  company, then prove the connection and record it. The CSRF state check
+ *  happens in the callback route BEFORE this is called. */
+export async function completeQboConnect(input: { code: string; realmId: string }): Promise<{ ok: boolean; companyName?: string; error?: string }> {
+  const env = qboEnvironment();
+  if (env === "fake" || !qboOAuthConfigured()) return { ok: false, error: "Intuit app keys are not set (INTUIT_CLIENT_ID, INTUIT_CLIENT_SECRET, QBO_ENV)." };
+  if (!/^\d{1,32}$/.test(input.realmId)) return { ok: false, error: "Intuit did not return a valid company id." };
+  const clientId = process.env.INTUIT_CLIENT_ID!.trim();
+  const clientSecret = process.env.INTUIT_CLIENT_SECRET!.trim();
+  let refreshToken: string;
+  try {
+    ({ refreshToken } = await exchangeCode({ clientId, clientSecret, code: input.code, redirectUri: qboRedirectUri() }));
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+  fileTokenStore(qboTokenFile()).save(refreshToken);
+  writeConnectionRecord(qboConnectionFile(), { environment: env, realmId: input.realmId, at: new Date().toISOString() });
+  resetQboAdapter();
+  const r = await refreshQboConnection();
+  return r.ok ? { ok: true, companyName: r.companyName } : { ok: false, error: r.error };
+}
+
+/** "Disconnect": revoke the app's access at Intuit, forget the token, and
+ *  mark the connection off. Every QuickBooks call then refuses with a
+ *  reconnect message until Connect runs again, including the env fallback. */
+export async function disconnectQbo(): Promise<{ ok: boolean; revoked: boolean; error?: string }> {
+  const env = qboEnvironment();
+  if (env === "fake") return { ok: false, revoked: false, error: "QuickBooks is in fake mode; there is nothing to disconnect." };
+  const src = qboConnectionSource();
+  const store = fileTokenStore(qboTokenFile());
+  const clientId = process.env.INTUIT_CLIENT_ID!.trim();
+  const clientSecret = process.env.INTUIT_CLIENT_SECRET!.trim();
+  let revoked = false;
+  for (const token of [...new Set([store.load(), src.refreshSeed].filter((t): t is string => Boolean(t)))]) {
+    try {
+      if ((await revokeToken({ clientId, clientSecret, token })).ok) revoked = true;
+    } catch {
+      // Network trouble: the local disconnect below still stops every call.
+    }
+  }
+  store.clear();
+  writeConnectionRecord(qboConnectionFile(), { environment: env, realmId: src.realmId, disconnected: true, at: new Date().toISOString() });
+  resetQboAdapter();
+  if (src.realmId) await withTransaction((run) => ensureConnection(run, { realmId: src.realmId!, environment: env, state: "disconnected", error: null }));
+  return { ok: true, revoked };
 }
 
 /** The timer pass: import (dry-run unless import_read is on), then mirror
@@ -38,7 +102,13 @@ export async function runQboSync(opts: { dryRun?: boolean } = {}): Promise<{ env
   const realmId = await qboRealmId();
   const principal = await ownerPrincipalForPolicy();
   const adapter = getQboAdapter();
-  await withTransaction((run) => ensureConnection(run, { realmId, environment: env, state: env === "fake" ? "connected" : "connected" }));
+  if (env === "fake") await withTransaction((run) => ensureConnection(run, { realmId, environment: env, state: "connected" }));
+  else {
+    // Prove the connection first (and record it honestly) instead of marking
+    // it connected and failing halfway through the import.
+    const conn = await refreshQboConnection();
+    if (!conn.ok) throw new Error(conn.error ?? "QuickBooks is not connected");
+  }
   const imported = await withTransaction((run) => importPostedEntities(run, adapter, { realmId, dryRun: opts.dryRun, principal }));
   const exported = { invoices: 0, payments: 0, skipped: [] as string[] };
   if (await switchOn(runDirect, "export_invoices")) {
@@ -60,11 +130,15 @@ export async function runQboSync(opts: { dryRun?: boolean } = {}): Promise<{ env
   return { environment: env, import: imported, exported };
 }
 
-export async function getQboSummary(): Promise<QboSummary & { environment: string; secrets: Record<string, boolean> }> {
-  const s = await qboSummary(runDirect, await qboRealmId());
+export async function getQboSummary(): Promise<QboSummary & { environment: string; secrets: Record<string, boolean>; oauthConfigured: boolean; via: "button" | "env" | "none" | "fake"; redirectUri: string }> {
+  const env = qboEnvironment();
+  const s = await qboSummary(runDirect, (await qboRealmId()) || null);
   return {
     ...s,
-    environment: qboEnvironment(),
-    secrets: Object.fromEntries(["INTUIT_CLIENT_ID", "INTUIT_CLIENT_SECRET", "QBO_REALM_ID", "QBO_REFRESH_TOKEN"].map((k) => [k, Boolean((process.env[k] ?? "").trim())])),
+    environment: env,
+    secrets: Object.fromEntries(["INTUIT_CLIENT_ID", "INTUIT_CLIENT_SECRET"].map((k) => [k, Boolean((process.env[k] ?? "").trim())])),
+    oauthConfigured: qboOAuthConfigured(),
+    via: env === "fake" ? "fake" : qboConnectionSource().via,
+    redirectUri: qboRedirectUri(),
   };
 }

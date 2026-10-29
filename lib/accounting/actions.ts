@@ -1,13 +1,14 @@
 "use server";
 
 // Owner-only QuickBooks actions (A14): per-direction switches, connection
-// check, an import pass, and mapping review. No tokens are handled here.
+// check, disconnect, an import pass, and mapping review. Tokens never pass
+// through here: they stay in lib/accounting/server.ts and the 0600 token file.
 
 import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/dal";
 import { withTransaction } from "@/lib/commands/db";
 import { confirmMapping, rejectMapping, setSwitch, type SyncSwitch } from "./qbo/sync";
-import { refreshQboConnection, runQboSync } from "./server";
+import { disconnectQbo, refreshQboConnection, runQboSync } from "./server";
 
 type Result = { ok: boolean; error?: string; detail?: unknown };
 
@@ -25,6 +26,15 @@ export async function setQboSwitch(formData: FormData): Promise<void> {
 export async function testQboConnection(): Promise<Result> {
   await requireRole("owner");
   const r = await refreshQboConnection();
+  revalidatePath("/settings/accounting");
+  return r.ok ? { ok: true, detail: r } : { ok: false, error: r.error };
+}
+
+/** Settings › Accounting "Disconnect": revokes the app at Intuit and stops
+ *  every QuickBooks call until the owner presses Connect again. */
+export async function disconnectQboConnection(): Promise<Result> {
+  await requireRole("owner");
+  const r = await disconnectQbo();
   revalidatePath("/settings/accounting");
   return r.ok ? { ok: true, detail: r } : { ok: false, error: r.error };
 }

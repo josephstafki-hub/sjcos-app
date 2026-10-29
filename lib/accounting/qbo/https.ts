@@ -33,9 +33,9 @@ export class HttpsQbo implements QboAdapter {
   /** Intuit ROTATES the refresh token (the value can change on any refresh and
    *  the old one stops working about a day later). The newest one is kept in
    *  the token store — a 0600 file outside the repo and the database, so no
-   *  agent tool can read it. QBO_REFRESH_TOKEN in .env.local is only the seed
-   *  (and the way to recover: paste a fresh one and the stale stored value is
-   *  dropped on the next refresh). */
+   *  agent tool can read it. "Connect to QuickBooks" writes it; for the older
+   *  env setup, QBO_REFRESH_TOKEN in .env.local is the seed, and a stale stored
+   *  value falls through to it. */
   private async token(): Promise<string> {
     if (this.access && this.access.expiresAt > Date.now() + 60_000) return this.access.token;
     const stored = this.creds.tokenStore?.load() ?? null;
@@ -58,7 +58,7 @@ export class HttpsQbo implements QboAdapter {
       this.access = { token: j.access_token, expiresAt: Date.now() + j.expires_in * 1000 };
       return this.access.token;
     }
-    throw new QboNotConnectedError(`Intuit token refresh failed (${lastStatus}); reconnect QuickBooks: put a fresh QBO_REFRESH_TOKEN in .env.local (Settings › Accounting shows the steps).`);
+    throw new QboNotConnectedError(`Intuit token refresh failed (${lastStatus}); reconnect QuickBooks: use Connect to QuickBooks on Settings › Accounting.`);
   }
 
   private async call<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {

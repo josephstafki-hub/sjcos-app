@@ -26,6 +26,14 @@ export interface HealthThresholds {
   cronFailuresMax: number;
 }
 
+/** Workers that run on a timer instead of a loop: they heartbeat once per
+ *  run, so the loop worker's 90 s limit flags them between every run.
+ *  business-agent-worker runs every 3 minutes (deploy/sjcos-agent-worker.timer,
+ *  OnCalendar=*:0/3): allow two missed runs plus slack before alarming. */
+export const TIMER_WORKER_MAX_AGE_S: Record<string, number> = {
+  "business-agent-worker": 7 * 60,
+};
+
 export const DEFAULT_THRESHOLDS: HealthThresholds = {
   workerHeartbeatMaxAgeS: 90,
   sourceEventMaxAgeS: 15 * 60,
@@ -55,7 +63,8 @@ export async function workerHealth(run: Run, t: Partial<HealthThresholds> = {}):
   if (!workers.length) problems.push("no worker has ever registered (sjcos-worker.service not running?)");
   for (const w of workers) {
     if (w.state === "stopped") continue;
-    if (w.heartbeat_age_s > th.workerHeartbeatMaxAgeS) problems.push(`worker ${w.name} heartbeat is ${w.heartbeat_age_s}s old (limit ${th.workerHeartbeatMaxAgeS}s)`);
+    const limit = TIMER_WORKER_MAX_AGE_S[w.name] ?? th.workerHeartbeatMaxAgeS;
+    if (w.heartbeat_age_s > limit) problems.push(`worker ${w.name} heartbeat is ${w.heartbeat_age_s}s old (limit ${limit}s)`);
     if (w.state === "timed_out") problems.push(`worker ${w.name}: last iteration timed out`);
     const lr = w.last_result as { error?: string | null } | null;
     if (w.state === "error" && lr?.error) problems.push(`worker ${w.name}: last iteration failed: ${String(lr.error).slice(0, 160)}`);

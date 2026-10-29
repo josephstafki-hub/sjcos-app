@@ -317,3 +317,21 @@ test("worker: leaseEvent takes exactly one pending event and the cron ledger cou
     assert.ok(wh.problems.some((x) => /4 consecutive rate-limit skips/.test(x)), wh.problems.join("; "));
   });
 });
+
+test("health: the 3-minute timer worker is not flagged between runs; a stalled one still is", { skip }, async () => {
+  const { workerHealth, TIMER_WORKER_MAX_AGE_S } = await import("../lib/worker/health.ts");
+  await withTestDb(async (url, client) => {
+    await cleanFoundation(client);
+    const run = async (s, p) => (await client.query(s, p)).rows;
+    const at = (secsAgo) => new Date(Date.now() - secsAgo * 1000).toISOString();
+    await run(`INSERT INTO workers (name, instance_id, version, state, heartbeat_at) VALUES ('sjcos-worker','a','t','idle',$1), ('business-agent-worker','b','t','idle',$2)`, [at(5), at(200)]);
+    let h = await workerHealth(run);
+    assert.ok(!h.problems.some((p) => p.includes("business-agent-worker")), "200 s between 3-minute runs is normal");
+    await run(`UPDATE workers SET heartbeat_at = $1 WHERE name = 'business-agent-worker'`, [at(TIMER_WORKER_MAX_AGE_S["business-agent-worker"] + 30)]);
+    h = await workerHealth(run);
+    assert.ok(h.problems.some((p) => p.includes("business-agent-worker heartbeat")), "several missed runs is flagged");
+    await run(`UPDATE workers SET heartbeat_at = $1 WHERE name = 'sjcos-worker'`, [at(120)]);
+    h = await workerHealth(run);
+    assert.ok(h.problems.some((p) => p.includes("sjcos-worker heartbeat")), "the loop worker keeps its 90 s limit");
+  });
+});

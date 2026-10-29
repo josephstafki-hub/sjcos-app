@@ -17,7 +17,7 @@ import {
   writeConnectionRecord,
 } from "./qbo/index";
 import { exchangeCode, qboRedirectUri, revokeToken } from "./qbo/oauth";
-import { ensureConnection, importPostedEntities, exportIssuedInvoice, exportConfirmedPayment, qboSummary, switchOn, type ImportResult, type QboSummary } from "./qbo/sync";
+import { ensureConnection, importPostedEntities, exportEach, exportIssuedInvoice, exportConfirmedPayment, qboSummary, switchOn, type ImportResult, type QboSummary } from "./qbo/sync";
 
 export async function qboRealmId(): Promise<string> {
   const env = qboEnvironment();
@@ -97,7 +97,7 @@ export async function disconnectQbo(): Promise<{ ok: boolean; revoked: boolean; 
 /** The timer pass: import (dry-run unless import_read is on), then mirror
  *  issued invoices / settled payments that have no mapping yet (each
  *  direction only when its switch is on). */
-export async function runQboSync(opts: { dryRun?: boolean } = {}): Promise<{ environment: string; import: ImportResult; exported: { invoices: number; payments: number; skipped: string[] } }> {
+export async function runQboSync(opts: { dryRun?: boolean } = {}): Promise<{ environment: string; import: ImportResult; exported: { invoices: number; payments: number; skipped: string[]; failed: string[] } }> {
   const env = qboEnvironment();
   const realmId = await qboRealmId();
   const principal = await ownerPrincipalForPolicy();
@@ -110,22 +110,26 @@ export async function runQboSync(opts: { dryRun?: boolean } = {}): Promise<{ env
     if (!conn.ok) throw new Error(conn.error ?? "QuickBooks is not connected");
   }
   const imported = await withTransaction((run) => importPostedEntities(run, adapter, { realmId, dryRun: opts.dryRun, principal }));
-  const exported = { invoices: 0, payments: 0, skipped: [] as string[] };
+  const exported = { invoices: 0, payments: 0, skipped: [] as string[], failed: [] as string[] };
   if (await switchOn(runDirect, "export_invoices")) {
     const todo = await runDirect<{ id: number }>(`SELECT i.id::int AS id FROM invoices i WHERE i.status NOT IN ('draft','void') AND (i.external_ref->'qbo'->>'id') IS NULL ORDER BY i.id LIMIT 50`);
-    for (const t of todo) {
-      const r = await withTransaction((run) => exportIssuedInvoice(run, adapter, { realmId, invoiceId: t.id, by: "qbo-sync" }));
-      if (r.ok && r.created) exported.invoices++;
-      else if (!r.ok) exported.skipped.push(`invoice ${t.id}: ${r.reason}`);
-    }
+    const r = await exportEach(todo.map((t) => t.id), "invoice", (id) => withTransaction((run) => exportIssuedInvoice(run, adapter, { realmId, invoiceId: id, by: "qbo-sync" })));
+    exported.invoices = r.created;
+    exported.skipped.push(...r.skipped);
+    exported.failed.push(...r.failed);
   }
   if (await switchOn(runDirect, "export_payments")) {
     const todo = await runDirect<{ id: number }>(`SELECT p.id::int AS id FROM invoice_payments p WHERE p.kind = 'payment' AND p.status = 'settled' AND (p.external_sync->'qbo'->>'id') IS NULL ORDER BY p.id LIMIT 50`);
-    for (const t of todo) {
-      const r = await withTransaction((run) => exportConfirmedPayment(run, adapter, { realmId, invoicePaymentId: t.id, by: "qbo-sync" }));
-      if (r.ok && r.created) exported.payments++;
-      else if (!r.ok) exported.skipped.push(`payment ${t.id}: ${r.reason}`);
-    }
+    const r = await exportEach(todo.map((t) => t.id), "payment", (id) => withTransaction((run) => exportConfirmedPayment(run, adapter, { realmId, invoicePaymentId: id, by: "qbo-sync" })));
+    exported.payments = r.created;
+    exported.skipped.push(...r.skipped);
+    exported.failed.push(...r.failed);
+  }
+  // Keep the latest export failure on the connection row, so Settings ›
+  // Accounting shows it (with its intuit_tid) without digging in logs.
+  if (exported.failed.length && realmId) {
+    const note = `${exported.failed.length} export(s) failed; first: ${exported.failed[0]}`.slice(0, 1000);
+    await runDirect(`UPDATE qbo_connection SET last_error = $2 WHERE realm_id = $1`, [realmId, note]);
   }
   return { environment: env, import: imported, exported };
 }

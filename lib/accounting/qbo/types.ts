@@ -38,3 +38,30 @@ export class QboNotConnectedError extends Error {
     this.name = "QboNotConnectedError";
   }
 }
+
+/** A QuickBooks API call that came back with an error status. Carries
+ *  Intuit's `intuit_tid` (their per-request tracking id: quote it to Intuit
+ *  support) and the Fault messages, e.g. a validation error on a create. */
+export class QboApiError extends Error {
+  readonly status: number;
+  readonly intuitTid: string | null;
+  readonly faults: string[];
+  constructor(input: { method: string; path: string; status: number; intuitTid: string | null; faults: string[]; raw: string }) {
+    const detail = input.faults.length ? input.faults.join("; ") : input.raw.slice(0, 300);
+    super(`QuickBooks ${input.method} ${input.path} → ${input.status}${input.intuitTid ? ` [intuit_tid ${input.intuitTid}]` : ""}: ${detail}`);
+    this.name = "QboApiError";
+    this.status = input.status;
+    this.intuitTid = input.intuitTid;
+    this.faults = input.faults;
+  }
+}
+
+/** Fault text from an Intuit error body: "Message: Detail (code N)". */
+export function qboFaults(raw: string): string[] {
+  try {
+    const j = JSON.parse(raw) as { Fault?: { Error?: Array<{ Message?: string; Detail?: string; code?: string }> } };
+    return (j.Fault?.Error ?? []).map((e) => [e.Message, e.Detail && e.Detail !== e.Message ? e.Detail : null].filter(Boolean).join(": ") + (e.code ? ` (code ${e.code})` : ""));
+  } catch {
+    return [];
+  }
+}

@@ -6,7 +6,7 @@
 // Nothing here is called until Joe connects the company (setup item).
 
 import type { QboAdapter, QboDoc, QboEntityKind, } from "./types.ts";
-import { QboNotConnectedError } from "./types.ts";
+import { QboApiError, QboNotConnectedError, qboFaults } from "./types.ts";
 
 export interface IntuitCredentials {
   clientId: string;
@@ -41,6 +41,7 @@ export class HttpsQbo implements QboAdapter {
     const stored = this.creds.tokenStore?.load() ?? null;
     const candidates = [...new Set([stored, this.creds.refreshToken].filter((t): t is string => Boolean(t)))];
     let lastStatus = 0;
+    let lastTid: string | null = null;
     for (const refreshToken of candidates) {
       const basic = Buffer.from(`${this.creds.clientId}:${this.creds.clientSecret}`).toString("base64");
       const res = await fetch(TOKEN_URL, {
@@ -51,6 +52,7 @@ export class HttpsQbo implements QboAdapter {
       });
       if (!res.ok) {
         lastStatus = res.status;
+        lastTid = res.headers?.get?.("intuit_tid") ?? lastTid;
         continue; // a stale stored token falls through to the env seed
       }
       const j = (await res.json()) as { access_token: string; expires_in: number; refresh_token?: string };
@@ -58,7 +60,9 @@ export class HttpsQbo implements QboAdapter {
       this.access = { token: j.access_token, expiresAt: Date.now() + j.expires_in * 1000 };
       return this.access.token;
     }
-    throw new QboNotConnectedError(`Intuit token refresh failed (${lastStatus}); reconnect QuickBooks: use Connect to QuickBooks on Settings › Accounting.`);
+    const msg = `Intuit token refresh failed (${lastStatus})${lastTid ? ` [intuit_tid ${lastTid}]` : ""}; reconnect QuickBooks: use Connect to QuickBooks on Settings › Accounting.`;
+    console.error(`[qbo] ${msg}`);
+    throw new QboNotConnectedError(msg);
   }
 
   private async call<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
@@ -69,7 +73,14 @@ export class HttpsQbo implements QboAdapter {
       body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(30_000),
     });
-    if (!res.ok) throw new Error(`QuickBooks ${method} ${path} → ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    if (!res.ok) {
+      const raw = await res.text();
+      const err = new QboApiError({ method, path: path.split("?")[0], status: res.status, intuitTid: res.headers?.get?.("intuit_tid") ?? null, faults: qboFaults(raw), raw });
+      // The service journal is the shareable log: one line per failed call,
+      // with the intuit_tid Intuit support asks for.
+      console.error(`[qbo] ${err.message}`);
+      throw err;
+    }
     return (await res.json()) as T;
   }
 

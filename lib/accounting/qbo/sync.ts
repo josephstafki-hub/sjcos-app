@@ -222,6 +222,32 @@ export async function importPostedEntities(
 
 // ── Export (controlled, per-direction switch) ────────────────────────────────
 
+/** Run one export per id. A QuickBooks error on one record (a validation
+ *  error on the create, say) is recorded and the rest still go. Nothing is
+ *  half-written: each export is its own transaction, and the mapping row is
+ *  written only after QuickBooks accepts the record, so the failed one is
+ *  simply tried again next pass. Not connected stops the run. */
+export async function exportEach(
+  ids: number[],
+  label: "invoice" | "payment",
+  one: (id: number) => Promise<ExportResult>,
+): Promise<{ created: number; skipped: string[]; failed: string[] }> {
+  const out = { created: 0, skipped: [] as string[], failed: [] as string[] };
+  for (const id of ids) {
+    try {
+      const r = await one(id);
+      if (r.ok && r.created) out.created++;
+      else if (!r.ok) out.skipped.push(`${label} ${id}: ${r.reason}`);
+    } catch (err) {
+      if (err instanceof QboNotConnectedError) throw err;
+      const line = `${label} ${id}: ${(err as Error).message}`;
+      console.error(`[qbo] export failed, ${line}`);
+      out.failed.push(line);
+    }
+  }
+  return out;
+}
+
 export type ExportResult = { ok: true; mappingId: string; qboId: string; created: boolean } | { ok: false; reason: string; code: "switch_off" | "not_found" | "not_issued" | "no_customer" | "no_invoice_mapping" | "not_settled" };
 
 /** Mirror an ISSUED SJC invoice to QBO once (never drafts, never voids). */

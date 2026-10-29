@@ -110,8 +110,11 @@ if (filesArtifact) {
   const restoredCount = countFiles(filesDir);
   check("file count matches manifest", restoredCount === manifest.files.count, `restored ${restoredCount}, manifest ${manifest.files.count}`);
   // Every blob the database references must exist in the restored file set.
+  // Resolved exactly as the app serves it (lib/uploads.ts, lib/file-serve.ts):
+  // uploads/<basename(storage_path)>. A long or absolute storage_path is not a
+  // second location. The app never reads it, so neither does this check.
   const refs = await run(`SELECT id, storage_path FROM files WHERE storage_path IS NOT NULL`);
-  const missing = refs.filter((r) => !existsSync(path.join(filesDir, "uploads", r.storage_path)));
+  const missing = refs.filter((r) => !existsSync(path.join(filesDir, "uploads", path.basename(r.storage_path))));
   check("every files.storage_path exists in the restored uploads", missing.length === 0, missing.length ? `missing: ${missing.slice(0, 10).map((m) => m.storage_path).join(", ")}` : `${refs.length} references`);
   step(`files unpacked into ${filesDir}`);
 } else {

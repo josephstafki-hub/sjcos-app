@@ -54,8 +54,47 @@ export const IMPORT_KINDS: QboEntityKind[] = ["Customer", "Invoice", "Payment", 
 const cents = (dollars: number | undefined | null) => (dollars == null ? null : Math.round(Number(dollars) * 100));
 const versionHash = (d: QboDoc) =>
   createHash("sha256").update(canonicalJson({ Id: d.Id, SyncToken: d.SyncToken, TotalAmt: d.TotalAmt, TxnDate: d.TxnDate, Voided: !!d.Voided, DocNumber: d.DocNumber, Line: d.Line ?? null })).digest("hex");
-/** What we keep of a QBO document: identity, money, dates — never a full dump. */
-const sanitize = (d: QboDoc): Record<string, unknown> => ({ Id: d.Id, SyncToken: d.SyncToken, TxnDate: d.TxnDate ?? null, TotalAmt: d.TotalAmt ?? null, DocNumber: d.DocNumber ?? null, CustomerRef: d.CustomerRef ?? null, Voided: !!d.Voided, LastUpdatedTime: d.MetaData?.LastUpdatedTime ?? null });
+type Ref = { value?: string; name?: string } | undefined;
+const refName = (r: unknown): string | null => ((r as Ref)?.name ?? "").trim() || null;
+
+/** What we keep of a QBO document: identity, money, dates, and just enough
+ *  to recognise it in review (who, which accounts, the memo). Never a full
+ *  dump: no addresses, emails, phone numbers or line-level detail. */
+export const qboSnapshot = (d: QboDoc): Record<string, unknown> => {
+  const x = d as QboDoc & Record<string, unknown>;
+  const accounts = new Set<string>();
+  for (const l of (d.Line ?? []) as Array<Record<string, unknown>>) {
+    for (const key of ["AccountBasedExpenseLineDetail", "DepositLineDetail", "JournalEntryLineDetail"]) {
+      const n = refName((l[key] as Record<string, unknown> | undefined)?.AccountRef);
+      if (n) accounts.add(n);
+    }
+    for (const key of ["ItemBasedExpenseLineDetail", "SalesItemLineDetail"]) {
+      const n = refName((l[key] as Record<string, unknown> | undefined)?.ItemRef);
+      if (n) accounts.add(n);
+    }
+  }
+  const depositFrom = ((d.Line ?? []) as Array<Record<string, unknown>>)
+    .map((l) => refName((l.DepositLineDetail as Record<string, unknown> | undefined)?.Entity))
+    .find(Boolean);
+  return {
+    Id: d.Id,
+    SyncToken: d.SyncToken,
+    TxnDate: d.TxnDate ?? null,
+    TotalAmt: d.TotalAmt ?? null,
+    DocNumber: d.DocNumber ?? null,
+    CustomerRef: d.CustomerRef ?? null,
+    Voided: !!d.Voided,
+    LastUpdatedTime: d.MetaData?.LastUpdatedTime ?? null,
+    Name: typeof x.DisplayName === "string" ? x.DisplayName : null,
+    Payee: refName(x.EntityRef) ?? refName(x.VendorRef) ?? refName(d.CustomerRef) ?? depositFrom ?? null,
+    Account: refName(x.AccountRef) ?? refName(x.DepositToAccountRef) ?? refName(x.APAccountRef) ?? null,
+    PaymentType: typeof x.PaymentType === "string" ? x.PaymentType : null,
+    Accounts: [...accounts].slice(0, 5),
+    Memo: typeof x.PrivateNote === "string" ? x.PrivateNote.slice(0, 200) : null,
+    Active: typeof x.Active === "boolean" ? x.Active : null,
+  };
+};
+const sanitize = qboSnapshot;
 
 export async function ensureConnection(run: Run, input: { realmId: string; environment: "fake" | "sandbox" | "production"; companyName?: string; state?: "connected" | "disconnected" | "expired" | "error"; error?: string | null }): Promise<void> {
   await run(

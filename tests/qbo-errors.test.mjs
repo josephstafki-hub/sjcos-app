@@ -126,3 +126,33 @@ test("listChanges pages through QuickBooks' 1000-row limit until a short page, o
     globalThis.fetch = real;
   }
 });
+
+test("import snapshot keeps who/which accounts/memo for review, never contact details or a full dump", async () => {
+  const { qboSnapshot } = await import("../lib/accounting/qbo/sync.ts");
+  const purchase = qboSnapshot({
+    Id: "77", SyncToken: "2", TxnDate: "2026-03-04", TotalAmt: 412.5, PaymentType: "CreditCard", PrivateNote: "lumber for Tierney",
+    EntityRef: { value: "9", name: "Menards" }, AccountRef: { value: "41", name: "Business Visa" },
+    Line: [
+      { Amount: 400, DetailType: "AccountBasedExpenseLineDetail", AccountBasedExpenseLineDetail: { AccountRef: { value: "60", name: "Supplies" } } },
+      { Amount: 12.5, DetailType: "AccountBasedExpenseLineDetail", AccountBasedExpenseLineDetail: { AccountRef: { value: "61", name: "Disposal" } } },
+    ],
+    MetaData: { LastUpdatedTime: "2026-03-05T10:00:00-07:00" },
+  });
+  assert.equal(purchase.Payee, "Menards");
+  assert.equal(purchase.Account, "Business Visa");
+  assert.deepEqual(purchase.Accounts, ["Supplies", "Disposal"]);
+  assert.equal(purchase.Memo, "lumber for Tierney");
+  assert.equal(purchase.PaymentType, "CreditCard");
+  assert.equal("Line" in purchase, false, "no line-level dump");
+
+  const customer = qboSnapshot({ Id: "5", SyncToken: "0", DisplayName: "Tony Bianconi", Active: true, PrimaryEmailAddr: { Address: "t@example.com" }, BillAddr: { Line1: "1 Main" }, PrimaryPhone: { FreeFormNumber: "555" } });
+  assert.equal(customer.Name, "Tony Bianconi");
+  assert.equal(customer.Active, true);
+  const text = JSON.stringify(customer);
+  for (const secret of ["t@example.com", "1 Main", "555"]) assert.ok(!text.includes(secret), `snapshot must not keep ${secret}`);
+
+  const deposit = qboSnapshot({ Id: "8", SyncToken: "0", TotalAmt: 5000, DepositToAccountRef: { name: "BUS CHECKING (8207)" }, Line: [{ Amount: 5000, DetailType: "DepositLineDetail", DepositLineDetail: { Entity: { name: "Libby Mahowald" }, AccountRef: { name: "Services" } } }] });
+  assert.equal(deposit.Payee, "Libby Mahowald");
+  assert.equal(deposit.Account, "BUS CHECKING (8207)");
+  assert.deepEqual(deposit.Accounts, ["Services"]);
+});

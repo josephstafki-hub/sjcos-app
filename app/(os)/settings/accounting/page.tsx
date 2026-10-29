@@ -6,6 +6,12 @@ import { confirmQboMapping, disconnectQboConnection, importQboNow, rejectQboMapp
 import { AccountingSettingsButtons } from "@/components/money/AccountingSettingsButtons";
 import { QboConnectButtons } from "@/components/money/QboConnectButtons";
 
+/** "Payee · Account · memo" for a review row, from the import snapshot. */
+function recordLabel(snapshot: unknown): string {
+  const x = (snapshot ?? {}) as { Name?: string | null; Payee?: string | null; Accounts?: string[]; Memo?: string | null };
+  return [x.Name ?? x.Payee, x.Accounts?.length ? x.Accounts.join(", ") : null, x.Memo].filter(Boolean).join(" · ");
+}
+
 /** What the Connect round trip came back with (app/api/qbo/oauth/callback). */
 const CONNECT_NOTICE: Record<string, { tone: "ok" | "flag"; text: string }> = {
   connected: { tone: "ok", text: "QuickBooks connected. Check the company name below is the right one." },
@@ -126,7 +132,8 @@ export default async function AccountingSettingsPage({ searchParams }: { searchP
                 {s.unmapped.map((m) => (
                   <li key={m.id} className="rounded-md border border-rule p-2">
                     <div>
-                      <span className="font-mono">{m.entity_kind} {m.qbo_id}</span> · {dollars(m.amount_cents)} · {m.txn_date ?? "no date"} · {m.note}
+                      <span className="font-mono">{m.entity_kind} {m.qbo_id}</span> · {dollars(m.amount_cents)} · {m.txn_date ?? "no date"}
+                      {recordLabel(m.snapshot) ? <> · <b className="font-medium text-ink">{recordLabel(m.snapshot)}</b></> : null} · {m.note}
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
                       {m.candidates.length > 0 && (

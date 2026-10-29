@@ -516,3 +516,10 @@ test("Approving a progress/final draw card creates that draw's invoice (draft, t
     assert.equal((await run(`SELECT count(*)::int AS n FROM invoices WHERE economic_key = 'draw:2:upon-completion'`))[0].n, 1);
   });
 });
+
+test("the final-invoice policy key in code is the one the migration seeds", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { POLICY_FINAL, POLICY_INITIAL } = await import("../lib/billing/commands.ts");
+  const seed = readFileSync(new URL("../db/migrations/0004_decision_surfaces.sql", import.meta.url), "utf8");
+  for (const key of [POLICY_FINAL, POLICY_INITIAL]) assert.ok(seed.includes(`'${key}'`), `${key} is seeded`);
+});

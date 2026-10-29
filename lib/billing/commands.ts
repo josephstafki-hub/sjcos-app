@@ -33,7 +33,9 @@ import {
 export type Tx = <T>(fn: (run: Run) => Promise<T>) => Promise<T>;
 
 export const POLICY_INITIAL = "invoice.initial_on_acceptance";
-export const POLICY_FINAL = "invoice.final_on_signoff";
+/** Must match the key seeded in db/migrations/0004_decision_surfaces.sql. It read
+ *  "invoice.final_on_signoff", so activating the seeded policy did nothing. */
+export const POLICY_FINAL = "invoice.final_on_client_signoff";
 
 export type IssueOutcome =
   | { issued: true; invoiceId: number; invoiceNumber: string; created: boolean; intentId: string | null; replayed: boolean }

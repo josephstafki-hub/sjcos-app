@@ -112,7 +112,7 @@ export async function handleTelegramUpdate(run: Run, update: TelegramUpdate, dep
   const kind = cq ? "callback_query" : update.message ? "message" : "other";
 
   // 1. persist before acting
-  await recordSourceEvent(run, {
+  const { event } = await recordSourceEvent(run, {
     provider: "telegram",
     account: deps.ownerChatId,
     eventId: String(updateId),
@@ -133,6 +133,10 @@ export async function handleTelegramUpdate(run: Run, update: TelegramUpdate, dep
 
   const finish = async (outcome: string, decisionId: string | null, resolution?: ResolveFromChannelResult): Promise<TelegramHandleResult> => {
     await run(`UPDATE telegram_updates SET outcome = $2, decision_id = $3 WHERE update_id = $1`, [updateId, outcome.slice(0, 300), decisionId]);
+    // This handler IS the processing for a Telegram update: no worker claims
+    // provider "telegram". Close the audit row here, or it sits 'pending'
+    // forever and the monitor reports a stuck queue (15 piled up 10-10..10-29).
+    if (event?.id) await run(`UPDATE source_events SET state = 'done', processed_at = now() WHERE id = $1 AND state = 'pending'`, [event.id]);
     return { handled: true, duplicate: false, outcome, decisionId, resolution };
   };
 

@@ -324,7 +324,9 @@ export async function fileDoc(run: Run, id: number, target: FileTarget, opts: Fi
     if (amount == null || amount === 0) return fail("Enter the amount to log the cost, or file it without the cost.");
     const date = doc.doc_date ?? doc.received_day ?? opts.today;
     const memo = [doc.doc_number && `#${doc.doc_number}`, doc.summary || doc.subject].filter(Boolean).join(" · ");
-    if (kind === "invoice") {
+    // A credit memo (negative invoice) is money back on materials: log it as a
+    // negative expense, since a bill can't be owed below zero.
+    if (kind === "invoice" && amount > 0) {
       const r = await recordSubInvoice(run, project.id, { vendorLabel: vendor, amountCents: amount, date, note: memo, sourceRef: doc.source_ref });
       if (!r.ok) return r;
       cost = { source: "sub_invoice", id: r.id, created: !r.updated };

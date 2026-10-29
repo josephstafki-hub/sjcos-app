@@ -123,8 +123,8 @@ test("V10 identity: concurrent + replayed milestone → one invoice, gapless num
     assert.equal(replay.invoice.id, results[0].invoice.id);
     assert.equal(replay.invoice.number, "INV-001");
     assert.equal(replay.invoice.status, "issued");
-    assert.equal(replay.invoice.due_at != null, true, "Net 30 company default → due date");
-    assert.equal(replay.invoice.terms, "Net 30");
+    assert.equal(replay.invoice.due_at != null, true, "due on receipt → due the day it is issued");
+    assert.equal(replay.invoice.terms, "Due on receipt", "the Net 30 company setting does not apply to invoices");
 
     // A different milestone gets the next number; a changed amount for the same key is NOT a new invoice.
     const second = await tx((run) => issueMilestoneInvoice(run, { projectId, economicKey: "draw:2:final", milestone: "Final", amountCents: 100, source: "draw", principal: owner }));
@@ -219,28 +219,30 @@ test("V10 delivery + balances: failed send never marks sent; partial pay / credi
   });
 });
 
-test("V10 terms: unknown terms → due_at NULL + terms_unknown exception, never a guessed Net 7; collision report is read-only", { skip }, async () => {
+test("V10 terms: every invoice is due on receipt, whatever the contract or caller says; collision report is read-only", { skip }, async () => {
   await withTestDb(async (url, client) => {
     const projectId = await seed(client, "zz-bill-c");
     const tx = txOver(url);
     const run = runOn(client);
+    const today = (await run(`SELECT CURRENT_DATE::text AS d`))[0].d;
     await run(`UPDATE app_settings SET value = 'Per the signed agreement' WHERE key = 'contract.terms'`);
-    const { invoice } = await tx((r) => issueMilestoneInvoice(r, { projectId, economicKey: "draw:0:deposit", milestone: "Deposit", amountCents: 5000, source: "draw", principal: owner }));
-    assert.equal(invoice.due_at, null);
-    assert.deepEqual(invoice.exception_flags, ["terms_unknown"]);
-    const d = await run(`SELECT kind, action, status FROM decisions WHERE dedupe_key = $1`, [`invoice:${invoice.id}:terms`]);
-    assert.equal(d.length, 1);
-    assert.equal(d[0].action, "set_invoice_terms");
-    await run(`UPDATE invoices SET delivery_state = 'delivered' WHERE id = $1`, [invoice.id]);
-    assert.equal((await routineReminderCandidates(run)).length, 0, "unknown terms never start reminders");
+    const { invoice } = await tx((r) => issueMilestoneInvoice(r, { projectId, economicKey: "draw:0:deposit", milestone: "Deposit", amountCents: 5000, source: "draw", terms: "Net 7", principal: owner }));
+    assert.equal(invoice.terms, "Due on receipt");
+    assert.equal(invoice.due_at, today);
+    assert.deepEqual(invoice.exception_flags, []);
+    const d = await run(`SELECT 1 FROM decisions WHERE dedupe_key = $1`, [`invoice:${invoice.id}:terms`]);
+    assert.equal(d.length, 0, "no terms decision is staged");
     await assert.rejects(tx((r) => setInvoiceTerms(r, { invoiceId: invoice.id, terms: "whenever", principal: owner })), /does not read/);
-    const fixed = await tx((r) => setInvoiceTerms(r, { invoiceId: invoice.id, terms: "Net 15", principal: owner }));
-    assert.equal(fixed.exception_flags.length, 0);
-    assert.ok(fixed.due_at);
-    // explicit terms on the input win over the company default
-    const e2 = await tx((r) => issueMilestoneInvoice(r, { projectId, economicKey: "draw:1:x", milestone: "X", amountCents: 100, source: "draw", terms: "Due on receipt", principal: owner }));
-    assert.equal(e2.invoice.terms, "Due on receipt");
-    assert.equal(e2.invoice.due_at, (await run(`SELECT CURRENT_DATE::text AS d`))[0].d);
+    await assert.rejects(tx((r) => setInvoiceTerms(r, { invoiceId: invoice.id, terms: "Net 15", principal: owner })), /always due on receipt/);
+
+    // The trigger holds for raw inserts too: a draft has no due date until it goes out.
+    const [raw] = await run(
+      `INSERT INTO invoices (project_id, number, milestone, amount, status, terms, exception_flags, economic_key) VALUES ($1, 'INV-080', 'Raw', 101, 'draft', 'Net 7', '{terms_unknown}', 'manual:80') RETURNING terms, due_at, exception_flags`,
+      [projectId],
+    );
+    assert.deepEqual([raw.terms, raw.due_at, raw.exception_flags], ["Due on receipt", null, []]);
+    const [sent] = await run(`UPDATE invoices SET status = 'sent', sent_at = now() WHERE number = 'INV-080' AND project_id = $1 RETURNING (due_at)::text AS due_at`, [projectId]);
+    assert.ok(sent.due_at, "sending sets the due date");
 
     // collision report: manual invoices without keys + shared labels/amounts
     await run(`INSERT INTO invoices (project_id, number, milestone, amount, status) VALUES ($1, 'INV-090', 'Deposit', 100, 'sent'), ($1, 'INV-091', 'deposit ', 100, 'draft')`, [projectId]);

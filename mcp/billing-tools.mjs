@@ -240,7 +240,7 @@ export function registerBillingTools(server, { rows, json, pool, slugToId, curre
           .string()
           .max(60)
           .optional()
-          .describe("Payment terms, e.g. 'Due on receipt'. Leave unset when Joe hasn't given terms — there is no standard Net term. precon_fee is always due on receipt (the agreement says so)."),
+          .describe("Ignored: every invoice is due on receipt (Joe's rule; the database enforces it)."),
       },
     },
     async (a) => {

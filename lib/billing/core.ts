@@ -10,7 +10,7 @@
 //   • balance = amount − settled payments − credits/write-offs + refunds/returns;
 //   • issued rows are corrected by void/credit/revision with audit, never
 //     deleted or renumbered;
-//   • due_at only from verified terms; unknown → NULL + `terms_unknown`.
+//   • always due on receipt: due_at = the day it is issued (0033 trigger).
 
 import type { Run } from "../commands/core.ts";
 import type { Principal } from "../commands/principal.ts";
@@ -140,19 +140,14 @@ export async function allocateInvoiceNumber(run: Run, projectId: string): Promis
 export interface ResolvedTerms {
   terms: string | null;
   netDays: number | null;
-  source: "input" | "company_default" | "unknown";
+  source: "company_rule";
 }
 
-/** Verified terms only: the caller's explicit terms (estimate/contract terms
- *  field), else the company default `contract.terms` in app_settings when it
- *  parses to Net N / due on receipt. Otherwise unknown. */
-export async function resolveTerms(run: Run, input: { terms?: string | null }): Promise<ResolvedTerms> {
-  const explicit = parseNetTerms(input.terms);
-  if (explicit) return { terms: explicit.label, netDays: explicit.netDays, source: "input" };
-  const [row] = await run<{ value: string }>(`SELECT value FROM app_settings WHERE key = 'contract.terms'`);
-  const company = parseNetTerms(row?.value);
-  if (company) return { terms: company.label, netDays: company.netDays, source: "company_default" };
-  return { terms: input.terms?.trim() || null, netDays: null, source: "unknown" };
+/** Invoices are always due on receipt (Joe, 2026-10-29). The caller's terms
+ *  and the contract text are ignored; migration 0033's trigger enforces the
+ *  same rule for every other insert path. */
+export async function resolveTerms(_run: Run, _input: { terms?: string | null }): Promise<ResolvedTerms> {
+  return { terms: "Due on receipt", netDays: 0, source: "company_rule" };
 }
 
 // ── Issue ───────────────────────────────────────────────────────────────────
@@ -274,10 +269,12 @@ export async function issueMilestoneInvoice(run: Run, input: IssueMilestoneInput
   return { invoice, created: true };
 }
 
-/** Owner sets verified terms on an issued invoice; clears `terms_unknown`. */
+/** Owner sets terms on an issued invoice; clears `terms_unknown`. Invoices
+ *  are always due on receipt, so that is the only terms this accepts. */
 export async function setInvoiceTerms(run: Run, input: { invoiceId: number; terms: string; principal: Principal }): Promise<InvoiceRow> {
   const parsed = parseNetTerms(input.terms);
   if (!parsed) throw new BillingError("terms_unparsed", `"${input.terms}" does not read as Net N or due on receipt.`);
+  if (parsed.netDays !== 0) throw new BillingError("terms_unparsed", "Invoices are always due on receipt.");
   const [row] = await run<InvoiceRow>(
     `UPDATE invoices
         SET terms = $2, due_at = (COALESCE(issued_at, now())::date + $3::int),

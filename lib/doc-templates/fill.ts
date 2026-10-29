@@ -364,15 +364,12 @@ async function resolveInvoiceDoc(f: Fill, scope: FillScope) {
     number: string;
     amount: number;
     line_items: unknown;
-    due_at: string | null;
-    terms: string | null;
     project_name: string;
     client_name: string;
     address: string | null;
     slug: string;
   }>(
     `SELECT i.number, i.amount, i.line_items,
-            to_char(i.due_at, 'YYYY-MM-DD') AS due_at, i.terms,
             p.name AS project_name, p.client_name, p.address, p.slug
        FROM invoices i JOIN projects p ON p.id = i.project_id
       WHERE i.id = $1`,
@@ -382,10 +379,6 @@ async function resolveInvoiceDoc(f: Fill, scope: FillScope) {
 
   f.set("invoice_number", inv.number || `INV-${scope.invoiceId}`);
   f.set("invoice_date", today());
-  // No standard payment terms: the due date and terms are the invoice's own,
-  // and stay blank when it has none.
-  f.set("due_date", inv.due_at ?? "");
-  f.set("payment_terms", inv.terms ?? "");
   f.set("project_name", inv.project_name);
   f.set("client_name", inv.client_name);
   f.set("job_site_address", inv.address ?? "");

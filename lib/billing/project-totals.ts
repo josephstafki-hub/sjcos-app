@@ -14,6 +14,15 @@
 //     both screens agree on what is left to collect.
 //     Mahowald, 2026-10-14: still read "$17,580 pre-con (remodel TBD)", 100%,
 //     after a $475,116.64 contract was signed and its deposit paid.
+//   adoptInvoiceTracking(run, projectId, paidInvoiceId)
+//     When an invoice on a hand-kept job is paid in full in the app (Square,
+//     Mark paid, MCP). The job switches to invoice-tracked billing; the hand
+//     figure, less the invoices already paid, becomes the opening balance, so
+//     collected = the hand figure + this payment (or the paid invoices, if the
+//     hand figure lagged them). A hand figure that already counts this invoice
+//     is kept as is.
+//     Louiselle, 2026-10-21: final $2,829.56 paid through the Square link, the
+//     invoice went paid, the job stayed at $26,966 / 91%.
 //   syncCollectedFromInvoices(run, projectId)
 //     After every payment (recordInvoicePayment). No-op for hand-kept jobs.
 //
@@ -41,6 +50,37 @@ export async function syncCollectedFromInvoices(run: Run, projectId: string): Pr
   if (!r) return null;
   await run(`UPDATE projects SET progress = ${PROGRESS("collected_to_date", "contract_value")} WHERE id = $1`, [projectId]);
   return { collectedCents: Number(r.collected) };
+}
+
+export async function adoptInvoiceTracking(run: Run, projectId: string, paidInvoiceId: number): Promise<{ adopted: boolean; openingCents?: number }> {
+  const [p] = await run<{ collected_to_date: number; billing_source: string }>(
+    `SELECT collected_to_date, billing_source FROM projects WHERE id = $1 FOR UPDATE`,
+    [projectId],
+  );
+  if (!p || p.billing_source !== "manual") return { adopted: false };
+  const [inv] = await run<{ prior: string; this_paid: string }>(
+    `SELECT COALESCE(SUM(amount) FILTER (WHERE id <> $2), 0)::text AS prior,
+            COALESCE(SUM(amount) FILTER (WHERE id = $2), 0)::text AS this_paid
+       FROM invoices WHERE project_id = $1 AND status = 'paid'`,
+    [projectId, paidInvoiceId],
+  );
+  const handCents = Math.round(Number(p.collected_to_date) * 100);
+  const prior = Number(inv.prior);
+  // The hand figure is whole dollars: within $1 of every paid invoice means it
+  // already counts this one.
+  const alreadyCounted = Math.abs(handCents - (prior + Number(inv.this_paid))) < 100;
+  const rest = handCents - prior;
+  const openingCents = alreadyCounted || rest < 100 ? 0 : rest;
+  await run(
+    `UPDATE projects
+        SET billing_source = 'invoices', opening_collected_cents = $2, opening_billed_cents = GREATEST(opening_billed_cents, $2),
+            opening_note = CASE WHEN opening_note = '' AND $2 > 0 THEN $3 ELSE opening_note END,
+            updated_at = now()
+      WHERE id = $1`,
+    [projectId, openingCents, "Collected outside the app's invoices (the hand-kept figure), carried in when invoices took over."],
+  );
+  await syncCollectedFromInvoices(run, projectId);
+  return { adopted: true, openingCents };
 }
 
 export async function adoptContractTotals(run: Run, projectId: string): Promise<{ adopted: boolean; reason?: string; totalCents?: number; collectedCents?: number }> {

@@ -129,3 +129,43 @@ test("a paid progress draw is not a deposit: nothing starts", { skip }, async ()
     assert.equal((await run(`SELECT status FROM projects WHERE id = $1`, [projectId]))[0].status, "construction_contract");
   });
 });
+
+// Elaine Louiselle, 2026-10-21: a hand-kept job ($26,966 collected, typed in)
+// paid its last invoice through the Square link. The invoice went paid; the
+// job stayed at $26,966 / 91%. A paid invoice now hands the job to its
+// invoices, carrying any hand-kept money not on them as the opening balance.
+test("hand-kept job: a paid invoice moves collected and switches to invoice tracking", { skip }, async () => {
+  await withTestDb(async (_url, client) => {
+    const run = async (s, p) => (await client.query(s, p)).rows;
+    await cleanFoundation(client);
+    await client.query(`DELETE FROM projects WHERE slug LIKE 'zz-%'`);
+    const mk = async (slug, collected) => (await run(
+      `INSERT INTO projects (slug, name, status, client_name, contract_value, collected_to_date, progress) VALUES ($1, 'ZZ Hand', 'warranty', 'ZZ Client', 29796, $2, 0) RETURNING id`,
+      [slug, collected],
+    ))[0].id;
+    const paidInvoice = async (projectId, key, cents) => {
+      const r = await issueMilestoneInvoice(run, { projectId, economicKey: `zz:${key}`, milestone: key, amountCents: cents, source: "manual", principal: owner });
+      await recordInvoicePayment(run, { invoiceId: r.invoice.id, kind: "payment", amountCents: cents, method: "check", principal: owner });
+      return r.invoice.id;
+    };
+    const proj = async (id) => (await run(`SELECT collected_to_date, progress, billing_source, opening_collected_cents::int AS opening FROM projects WHERE id = $1`, [id]))[0];
+
+    // Louiselle: the hand figure matched the invoices already paid; the final lands.
+    const a = await mk("zz-hand-a", 26966);
+    await run(`UPDATE projects SET billing_source = 'invoices' WHERE id = $1`, [a]); // seed the earlier paid invoices without tripping the switch
+    await paidInvoice(a, "deposit", 2696608);
+    await run(`UPDATE projects SET billing_source = 'manual', collected_to_date = 26966, opening_collected_cents = 0 WHERE id = $1`, [a]);
+    await paidInvoice(a, "final", 282956);
+    assert.deepEqual(await proj(a), { collected_to_date: 29796, progress: 100, billing_source: "invoices", opening: 0 });
+
+    // Money kept by hand outside any invoice ($5,000 cash) stays counted.
+    const b = await mk("zz-hand-b", 5000);
+    await paidInvoice(b, "draw", 1000000);
+    assert.deepEqual(await proj(b), { collected_to_date: 15000, progress: 50, billing_source: "invoices", opening: 500000 });
+
+    // Joe already typed the payment in by hand: not counted twice.
+    const c = await mk("zz-hand-c", 10000);
+    await paidInvoice(c, "draw", 1000000);
+    assert.deepEqual(await proj(c), { collected_to_date: 10000, progress: 34, billing_source: "invoices", opening: 0 });
+  });
+});

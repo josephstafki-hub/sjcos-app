@@ -23,7 +23,7 @@ import type { Run } from "../../commands/core.ts";
 import { canonicalJson } from "../../commands/core.ts";
 import { stageDecision } from "../../commands/decisions.ts";
 import type { Principal } from "../../commands/principal.ts";
-import type { QboAdapter, QboDoc, QboEntityKind } from "./types.ts";
+import { QboNotConnectedError, type QboAdapter, type QboDoc, type QboEntityKind } from "./types.ts";
 
 export type SyncSwitch = "import_read" | "export_invoices" | "export_payments";
 
@@ -119,6 +119,18 @@ export interface ImportResult {
   dryRun: boolean;
   kinds: Record<string, { seen: number; created: number; updated: number; conflicts: number; cursor_to: string | null }>;
   conflicts: Array<{ mapping_id: string; entity_kind: string; qbo_id: string; reason: string; decision_id: string | null }>;
+  /** Record types QuickBooks refused this pass (e.g. Bill on Simple Start,
+   *  which has no bills). Not sticky: the cursor stays put, so the next pass
+   *  asks again, and an upgraded plan starts importing them with no change. */
+  skipped: Array<{ entity_kind: string; reason: string }>;
+}
+
+/** Why a record type was skipped, in words for the Accounting page. */
+function skipReason(kind: QboEntityKind, err: Error): string {
+  const raw = err.message.replace(/\s+/g, " ").trim();
+  const planLimit = /feature not supported|not supported|permission denied|not available|ApplicationAuthorizationFailed|\b(?:5020|500[0-9]|6000|6190)\b/i.test(raw);
+  const why = planLimit ? `QuickBooks refused ${kind} records; this QuickBooks plan probably doesn't include them` : `QuickBooks refused ${kind} records this pass; it will be retried`;
+  return `${why} (${raw.slice(0, 160)})`;
 }
 
 export async function importPostedEntities(
@@ -130,10 +142,25 @@ export async function importPostedEntities(
   const dryRun = input.dryRun ?? !enabled; // the switch OFF forces a dry-run
   const [conn] = await run<{ cursors: Record<string, string> }>(`SELECT cursors FROM qbo_connection WHERE realm_id = $1`, [input.realmId]);
   const cursors = conn?.cursors ?? {};
-  const out: ImportResult = { realmId: input.realmId, dryRun, kinds: {}, conflicts: [] };
+  const out: ImportResult = { realmId: input.realmId, dryRun, kinds: {}, conflicts: [], skipped: [] };
   for (const kind of input.kinds ?? IMPORT_KINDS) {
     const since = cursors[kind] ?? null;
-    const docs = await adapter.listChanges(kind, since);
+    let docs: QboDoc[];
+    try {
+      docs = await adapter.listChanges(kind, since);
+    } catch (err) {
+      // Not connected means nothing will work: stop the whole pass.
+      if (err instanceof QboNotConnectedError) throw err;
+      // One record type refused (a plan without that feature, or a passing
+      // error): note it and carry on with the rest. The cursor is untouched.
+      const reason = skipReason(kind, err as Error);
+      out.skipped.push({ entity_kind: kind, reason });
+      await run(
+        `INSERT INTO qbo_import_batches (realm_id, entity_kind, cursor_from, cursor_to, dry_run, error, finished_at) VALUES ($1, $2, $3, $3, $4, $5, now())`,
+        [input.realmId, kind, since, dryRun, reason],
+      );
+      continue;
+    }
     const stat = { seen: docs.length, created: 0, updated: 0, conflicts: 0, cursor_to: since };
     for (const doc of docs) {
       const hash = versionHash(doc);
@@ -331,7 +358,7 @@ export interface QboSummary {
   counts: Record<string, number>;
   unmapped: QboMappingRow[];
   conflicts: QboMappingRow[];
-  batches: Array<{ entity_kind: string; seen: number; created: number; updated: number; conflicts: number; dry_run: boolean; started_at: string }>;
+  batches: Array<{ entity_kind: string; seen: number; created: number; updated: number; conflicts: number; dry_run: boolean; started_at: string; error: string | null }>;
 }
 
 export async function qboSummary(run: Run, realmId: string | null): Promise<QboSummary> {
@@ -346,6 +373,6 @@ export async function qboSummary(run: Run, realmId: string | null): Promise<QboS
   if (realm) for (const r of await run<{ state: string; n: number }>(`SELECT state, count(*)::int AS n FROM qbo_mappings WHERE realm_id = $1 GROUP BY state`, [realm])) counts[r.state] = r.n;
   const unmapped = realm ? await run<QboMappingRow>(`SELECT ${MAP_COLS} FROM qbo_mappings WHERE realm_id = $1 AND state = 'unmapped' ORDER BY txn_date DESC NULLS LAST, created_at DESC LIMIT 100`, [realm]) : [];
   const conflicts = realm ? await run<QboMappingRow>(`SELECT ${MAP_COLS} FROM qbo_mappings WHERE realm_id = $1 AND state = 'conflict' ORDER BY updated_at DESC LIMIT 100`, [realm]) : [];
-  const batches = realm ? await run<QboSummary["batches"][number]>(`SELECT entity_kind, seen, created, updated, conflicts, dry_run, started_at::text AS started_at FROM qbo_import_batches WHERE realm_id = $1 ORDER BY id DESC LIMIT 20`, [realm]) : [];
+  const batches = realm ? await run<QboSummary["batches"][number]>(`SELECT entity_kind, seen, created, updated, conflicts, dry_run, started_at::text AS started_at, error FROM qbo_import_batches WHERE realm_id = $1 ORDER BY id DESC LIMIT 20`, [realm]) : [];
   return { connection: connection ?? null, switches, counts, unmapped, conflicts, batches };
 }

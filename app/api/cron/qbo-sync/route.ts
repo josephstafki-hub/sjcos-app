@@ -15,7 +15,7 @@ async function handle(req: Request) {
   const dry = new URL(req.url).searchParams.get("dry") === "1";
   return runCronJob("quickbooks sync", async () => {
     const r = await runQboSync({ dryRun: dry ? true : undefined });
-    return { environment: r.environment, dry_run: r.import.dryRun, kinds: r.import.kinds, conflicts: r.import.conflicts.length, exported: r.exported };
+    return { environment: r.environment, dry_run: r.import.dryRun, kinds: r.import.kinds, skipped: r.import.skipped, conflicts: r.import.conflicts.length, exported: r.exported };
   });
 }
 

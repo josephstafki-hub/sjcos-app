@@ -138,3 +138,51 @@ test("V16: import twice → no duplicates; export twice → one QBO invoice/paym
     assert.ok(sum.batches.length >= 6);
   });
 });
+
+// Simple Start has no bills: QuickBooks refuses the Bill query. The import
+// must skip that record type (noted, cursor untouched, retried next pass)
+// and still bring in everything else. Not connected still stops the pass.
+test("a record type the QuickBooks plan refuses is skipped, not fatal; it is retried next pass and works after an upgrade", { skip }, async () => {
+  const { QboNotConnectedError } = await import("../lib/accounting/qbo/types.ts");
+  await withTestDb(async (url, client) => {
+    await clean(client);
+    const run = async (s, p) => (await client.query(s, p)).rows;
+    const qbo = new FakeQbo();
+    const realm = qbo.realmId;
+    await ensureConnection(run, { realmId: realm, environment: "fake", companyName: qbo.companyName });
+    await setSwitch(run, "import_read", true, "test");
+    await qbo.create("Invoice", { TxnDate: "2026-10-01", TotalAmt: 100 });
+    await qbo.create("Bill", { TxnDate: "2026-10-02", TotalAmt: 50 });
+    let simpleStart = true;
+    const real = qbo.listChanges.bind(qbo);
+    qbo.listChanges = async (kind, since) => {
+      if (kind === "Bill" && simpleStart) throw new Error('QuickBooks GET /query → 400: {"Fault":{"Error":[{"Message":"Feature Not Supported","code":"5020"}]}}');
+      return real(kind, since);
+    };
+
+    const first = await importPostedEntities(run, qbo, { realmId: realm, principal: owner });
+    assert.equal(first.kinds.Invoice.created, 1, "other kinds still import");
+    assert.equal(first.kinds.Bill, undefined);
+    assert.equal(first.skipped.length, 1);
+    assert.equal(first.skipped[0].entity_kind, "Bill");
+    assert.match(first.skipped[0].reason, /plan probably doesn't include them/);
+    const [batch] = await run(`SELECT error, seen FROM qbo_import_batches WHERE entity_kind = 'Bill'`);
+    assert.match(batch.error, /refused Bill/);
+    const [conn] = await run(`SELECT cursors FROM qbo_connection WHERE realm_id = $1`, [realm]);
+    assert.equal(conn.cursors.Bill, undefined, "Bill cursor untouched, so the next pass asks again");
+    const [sum] = [await qboSummary(run, realm)];
+    assert.ok(sum.batches.some((b) => b.entity_kind === "Bill" && b.error), "the Accounting page sees the skip");
+
+    // Upgraded plan: the very next pass imports the bill, no setting changed.
+    simpleStart = false;
+    const second = await importPostedEntities(run, qbo, { realmId: realm, principal: owner });
+    assert.equal(second.skipped.length, 0);
+    assert.equal(second.kinds.Bill.created, 1);
+
+    // Not connected is not a per-kind skip: the whole pass stops.
+    qbo.listChanges = async () => {
+      throw new QboNotConnectedError("reconnect QuickBooks");
+    };
+    await assert.rejects(importPostedEntities(run, qbo, { realmId: realm, principal: owner }), /reconnect QuickBooks/);
+  });
+});

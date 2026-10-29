@@ -162,11 +162,18 @@ export default async function AccountingSettingsPage({ searchParams }: { searchP
               <tr><th className="text-left">When</th><th className="text-left">Entity</th><th>Seen</th><th>New</th><th>Changed</th><th>Conflicts</th><th>Dry run</th></tr>
             </thead>
             <tbody>
-              {s.batches.map((b, i) => (
-                <tr key={i} className="border-t border-rule text-ink-2">
-                  <td>{b.started_at.slice(0, 16)}</td><td>{b.entity_kind}</td><td className="text-center">{b.seen}</td><td className="text-center">{b.created}</td><td className="text-center">{b.updated}</td><td className="text-center">{b.conflicts}</td><td className="text-center">{b.dry_run ? "yes" : "no"}</td>
-                </tr>
-              ))}
+              {s.batches.map((b, i) =>
+                b.error ? (
+                  <tr key={i} className="border-t border-rule text-ink-3">
+                    <td>{b.started_at.slice(0, 16)}</td><td>{b.entity_kind}</td>
+                    <td colSpan={5} className="italic">skipped: {b.error}</td>
+                  </tr>
+                ) : (
+                  <tr key={i} className="border-t border-rule text-ink-2">
+                    <td>{b.started_at.slice(0, 16)}</td><td>{b.entity_kind}</td><td className="text-center">{b.seen}</td><td className="text-center">{b.created}</td><td className="text-center">{b.updated}</td><td className="text-center">{b.conflicts}</td><td className="text-center">{b.dry_run ? "yes" : "no"}</td>
+                  </tr>
+                ),
+              )}
               {!s.batches.length && <tr><td colSpan={7} className="pt-2 text-ink-3">no runs yet</td></tr>}
             </tbody>
           </table>

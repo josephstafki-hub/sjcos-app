@@ -356,7 +356,7 @@ export async function creditInvoice(id: number, input: { amountCents: number; re
   return { ok: true };
 }
 
-/** Set verified terms (e.g. "Net 30") on an invoice whose terms were unknown. */
+/** Set terms on an invoice whose terms were unknown (only "Due on receipt" is accepted). */
 export async function setInvoiceTerms(id: number, terms: string): Promise<Result> {
   const user = await requireAccess("invoices");
   const inv = await invoiceById(id);

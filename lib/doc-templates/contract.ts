@@ -24,7 +24,7 @@ import {
 
 export const contractTemplate: DocTemplate = {
   key: "contract",
-  version: "2026-07-10.2",
+  version: "2026-10-29.1",
   title: "Construction Contract",
   subtitle: "A binding agreement between the parties named below.",
   docClass: "legal",
@@ -164,7 +164,7 @@ function build(v: FieldValues): TemplateSection[] {
   if (pay) out.push(tableSection(pay));
   out.push(
     para(
-      "Invoices are due **Net 7** — within seven (7) days of the invoice date. Final Payment is the remaining " +
+      "Invoices are due **upon receipt**. Final Payment is the remaining " +
         "balance, calculated as the total contract price minus all prior payments, due upon Substantial Completion.",
     ),
     para(

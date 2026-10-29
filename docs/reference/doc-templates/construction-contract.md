@@ -100,7 +100,7 @@ schedule, as set forth in the SOW:
 milestones, Final at Substantial Completion. Each row: label · % of total · amount · due
 trigger.)*
 
-Invoices are due **Net 7** — within seven (7) days of the invoice date. Final Payment is the
+Invoices are due **upon receipt**. Final Payment is the
 remaining balance, calculated as the total contract price minus all prior payments, due upon
 Substantial Completion.
 
@@ -369,7 +369,7 @@ schedule, and payment terms set forth in this Statement of Work.
 2. **Added a "CONTRACT PRICE AND PAYMENT" total** — the original had payment-schedule blanks
    but no stated total contract price anywhere. Added `{{contract_total}}` in the header and
    the Payment section, and replaced the blank Deposit/Progress/Final list with the
-   auto-generated draw-schedule table (retainer + draws, Net 7) so the legal text matches how
+   auto-generated draw-schedule table (retainer + draws, each due upon receipt) so the legal text matches how
    SJC actually bills (per the SJC_Contract_Template.docx retainer/draw model).
 3. **Specified the demobilization fee base** — original said "a demobilization fee of 5%"
    without saying 5% of what. Now reads "5% of the unbilled balance of the contract price."

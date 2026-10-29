@@ -524,15 +524,37 @@ async function evidenceSection(run: Run, scope: ContextScope, refs: ContextRef[]
   return lines;
 }
 
-function eventSection(scope: ContextScope): string[] {
+/** The stored text of the owner reply a trigger names, or null. */
+async function verifiedOwnerReplyOf(run: Run, scope: ContextScope): Promise<string | null> {
+  const id = (scope.trigger?.payload as { owner_reply_id?: unknown } | null | undefined)?.owner_reply_id;
+  if (typeof id !== "string" || !/^[0-9a-f-]{36}$/i.test(id)) return null;
+  if (!(await tableExists(run, "owner_replies"))) return null;
+  const rows = await safe<{ body: string }>(run, `SELECT body FROM owner_replies WHERE id = $1`, [id]);
+  return rows?.[0]?.body ?? null;
+}
+
+function eventSection(scope: ContextScope, verifiedOwnerReply: string | null): string[] {
   const t = scope.trigger;
   if (!t) return [];
   const lines = [`EVENT that woke this run: kind=${t.kind} ref=${t.ref}`];
   const p = (t.payload ?? {}) as Record<string, unknown>;
   const structured: string[] = [];
   const untrusted: string[] = [];
+  const owner: string[] = [];
   for (const [k, v] of Object.entries(p)) {
     if (v === null || v === undefined) continue;
+    // Joe's own words, from the verified owner chat (lib/decisions/owner-replies.ts):
+    // an instruction from the owner, not third-party text.
+    // Only when it matches the stored reply — any agent can enqueue a
+    // trigger, so a payload alone can't speak for Joe.
+    if (k === "owner_reply" && typeof v === "string" && verifiedOwnerReply != null && v === verifiedOwnerReply) {
+      owner.push(`OWNER REPLY (Joe, verified owner Telegram chat): ${v}`);
+      continue;
+    }
+    if (k === "owner_reply_how" && typeof v === "string" && verifiedOwnerReply != null) {
+      owner.push(v);
+      continue;
+    }
     if (k === "messages" && Array.isArray(v)) {
       for (const m of v as Record<string, unknown>[]) {
         untrusted.push(`[${String(m.at ?? "?")}] ${String(m.channel ?? "message")} from ${String(m.from ?? "?")}${m.subject ? ` — ${String(m.subject)}` : ""}:\n${String(m.text ?? "")}`);
@@ -541,6 +563,7 @@ function eventSection(scope: ContextScope): string[] {
       untrusted.push(`${k}: ${v}`);
     } else structured.push(`${k}=${typeof v === "string" ? v : JSON.stringify(v)}`);
   }
+  if (owner.length) lines.push(...owner.map((o) => `- ${clip(o, 2000)}`));
   if (structured.length) lines.push(`- Facts: ${clip(structured.join("; "), 900)}`);
   if (untrusted.length) lines.push(fenceUntrusted(untrusted.join("\n\n").slice(0, 6000), "event messages/notes"));
   return lines;
@@ -598,7 +621,7 @@ export async function assembleScopedContext(run: Run, scope: ContextScope): Prom
     sections[name] = { text: b.text, available: b.available, ...(b.note ? { note: b.note } : {}) };
     parts.push(`${titles[name]}\n${b.text}`);
   }
-  const ev = eventSection(scope);
+  const ev = eventSection(scope, await verifiedOwnerReplyOf(run, scope));
   let text = [...(ev.length ? [ev.join("\n")] : []), ...parts].join("\n\n");
   if (text.length > TOTAL_CAP) {
     text = `${text.slice(0, TOTAL_CAP)}\n… (context capped at ${TOTAL_CAP} chars; fetch details on demand)`;

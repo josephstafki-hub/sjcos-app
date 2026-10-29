@@ -12,7 +12,7 @@
 import type { Run } from "../commands/core.ts";
 import { contentHashOf, stageDecision, type Decision, type StageDecisionInput } from "../commands/decisions.ts";
 import type { Principal } from "../commands/principal.ts";
-import type { OwnerGrant } from "../owner-grant-types.ts";
+import type { GrantDetail, OwnerGrant } from "../owner-grant-types.ts";
 import { ACTION_LABEL, describeStagedSend, stagedHeadline, stagedSendOf, type GatedAction } from "../owner-grant-types.ts";
 
 export function grantDecisionContent(g: Pick<OwnerGrant, "id" | "actions" | "target_kind" | "target_id" | "scope" | "reason">) {
@@ -30,14 +30,14 @@ export function grantDecisionContent(g: Pick<OwnerGrant, "id" | "actions" | "tar
 }
 
 /** Stage (or re-find) the decision that mirrors a requested grant. */
-export async function stageGrantDecision(run: Run, g: OwnerGrant, requestedBy: Principal, opts: { workItemId?: string | null } = {}): Promise<{ decision: Decision; created: boolean; superseded: string | null }> {
+export async function stageGrantDecision(run: Run, g: OwnerGrant, requestedBy: Principal, opts: { workItemId?: string | null; detail?: GrantDetail | null } = {}): Promise<{ decision: Decision; created: boolean; superseded: string | null }> {
   const action = g.actions[0] ?? "*";
   const label = action === "*" ? "Any send" : (ACTION_LABEL[action as GatedAction] ?? action);
   const to = typeof g.scope?.to === "string" ? String(g.scope.to) : null;
   const content = grantDecisionContent(g);
   const send = stagedSendOf(g);
   const effect = send
-    ? `Approving does it now: ${describeStagedSend(send)} Nothing else is needed from the agent.`
+    ? `Approving does it now: ${opts.detail && send.action !== "send_email" && send.action !== "send_sms" ? `${opts.detail.headline}.` : describeStagedSend(send)} Nothing else is needed from the agent.`
     : `Approving lets ${g.requested_by} perform "${label}"${g.target_id ? ` on ${g.target_kind ?? "target"} ${g.target_id}` : ""}${to ? ` to ${to}` : ""} once (${g.max_uses} use${g.max_uses === 1 ? "" : "s"}), until ${g.expires_at.slice(0, 16).replace("T", " ")}. The send itself still goes through the dispatcher and can be refused there.`;
   const preview: Record<string, string> = {};
   if (send?.email) {
@@ -45,18 +45,27 @@ export async function stageGrantDecision(run: Run, g: OwnerGrant, requestedBy: P
     preview.message = send.email.body.slice(0, 1500);
   } else if (send?.sms) {
     preview.message = send.sms.body.slice(0, 600);
+  } else if (opts.detail?.draft) {
+    // A record-backed send (invoice, PO, newsletter…): the message it puts out.
+    if (opts.detail.draft.subject) preview.subject = opts.detail.draft.subject;
+    preview.message = opts.detail.draft.body.slice(0, 1500);
   }
-  const recipient = send?.email?.to ?? send?.sms?.to ?? to;
+  const detail = opts.detail ?? null;
+  const recipient = send?.email?.to ?? send?.sms?.to ?? to ?? detail?.draft?.to ?? null;
   const input: StageDecisionInput = {
     kind: "grant",
     action,
-    title: stagedSendOf(g)
-      ? `${g.requested_by} wants to send: ${stagedHeadline(stagedSendOf(g)!)}`
-      : `${g.requested_by} asks to: ${label}${g.target_id ? ` (${g.target_id})` : ""}${to ? ` → ${to}` : ""}`,
+    title: detail
+      ? `${g.requested_by} asks: ${detail.headline}${detail.job ? ` · ${detail.job}` : ""}`
+      : stagedSendOf(g)
+        ? `${g.requested_by} wants to send: ${stagedHeadline(stagedSendOf(g)!)}`
+        : `${g.requested_by} asks to: ${label}${g.target_id ? ` (${g.target_id})` : ""}${to ? ` → ${to}` : ""}`,
     summary: {
       recipients: recipient ? [{ name: recipient, address: recipient }] : [],
       ...preview,
-      inclusions: [label + (g.target_id ? ` — ${g.target_kind ?? "target"} ${g.target_id}` : "")],
+      inclusions: detail?.facts.length
+        ? detail.facts.map((f) => `${f.label}: ${f.value}`)
+        : [label + (g.target_id ? ` — ${g.target_kind ?? "target"} ${g.target_id}` : "")],
       assumptions: g.reason ? [`Agent's reason: ${g.reason}`] : [],
       effect,
       grantId: g.id,
@@ -110,4 +119,46 @@ export async function settleDecisionFromGrant(run: Run, grantId: string, outcome
     await run(`INSERT INTO decision_events (decision_id, kind, actor, channel, detail) VALUES ($1, $2, $3, 'app', $4::jsonb)`, [g.decision_id, status, by?.label ?? "owner", JSON.stringify({ via: "grant page", grantId })]);
   }
   return g.decision_id;
+}
+
+/** Retire every still-waiting request for the same send (same action, same
+ *  target — the invoice, the draft, the address) that `fresh` was filed after.
+ *  The old grant is revoked with an audit line pointing at the new one, its
+ *  decision is marked superseded by the new decision, and anything parked on
+ *  it is cancelled. Requests without a target are left alone: there is
+ *  nothing to tell two of them apart by. */
+export async function supersedeEarlierGrantRequests(
+  run: Run,
+  fresh: Pick<OwnerGrant, "id" | "actions" | "target_id" | "created_at" | "requested_by">,
+  freshDecisionId: string,
+): Promise<{ id: string; decision_id: string | null }[]> {
+  if (!fresh.target_id || fresh.actions.length !== 1) return [];
+  const old = await run<{ id: string; decision_id: string | null }>(
+    `UPDATE owner_grants
+        SET status = 'revoked', decided_at = now(), updated_at = now(),
+            audit = audit || jsonb_build_array(jsonb_build_object(
+              'at', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+              'action', actions[1], 'target', coalesce(target_kind, '') || ':' || target_id,
+              'result', 'replaced', 'note', 'Replaced by a newer request ' || $1::text))
+      WHERE status = 'requested' AND id <> $1::uuid AND created_at <= $4::timestamptz
+        AND actions = $2::text[] AND lower(target_id) = lower($3)
+    RETURNING id, decision_id`,
+    [fresh.id, fresh.actions, fresh.target_id, fresh.created_at],
+  );
+  for (const g of old) {
+    await run(`UPDATE action_intents SET state = 'cancelled', last_error = 'grant replaced by a newer request', completed_at = now() WHERE grant_id = $1 AND state IN ('held','pending','retryable_failure')`, [g.id]);
+    if (!g.decision_id) continue;
+    const moved = await run<{ id: string }>(
+      `UPDATE decisions SET status = 'superseded', superseded_by = $2, dedupe_key = NULL WHERE id = $1 AND status = 'pending' RETURNING id`,
+      [g.decision_id, freshDecisionId],
+    );
+    if (moved.length) {
+      await run(`INSERT INTO decision_events (decision_id, kind, actor, detail) VALUES ($1, 'superseded', $2, $3::jsonb)`, [
+        g.decision_id,
+        `agent:${fresh.requested_by}`,
+        JSON.stringify({ by: freshDecisionId, grantId: fresh.id, reason: "newer request for the same send" }),
+      ]);
+    }
+  }
+  return old;
 }

@@ -36,7 +36,7 @@ export async function telegramMessageFor(decisionId: string): Promise<{ chatId: 
  *  revision: when stageDecision returned created=false nothing is sent. */
 export async function announceDecision(
   d: Decision,
-  opts: { created: boolean; superseded: string | null; emit?: Partial<EmitInput> },
+  opts: { created: boolean; superseded: string | null; emit?: Partial<EmitInput>; replyToMessageId?: string | null },
 ): Promise<void> {
   if (!opts.created) return;
   const text = cardText(d, { appUrl: appUrl() });
@@ -58,6 +58,9 @@ export async function announceDecision(
       buttons: decisionKeyboard(d.id, d.content_hash),
       decisionId: d.id,
       editMessageId: prior?.messageId ?? null,
+      // A revision answering Joe's Telegram note: a NEW card under his note
+      // (not an edit of the old one), so he sees it arrive in the thread.
+      ...(opts.replyToMessageId && !prior ? { replyToMessageId: opts.replyToMessageId } : {}),
     },
   });
 }

@@ -14,7 +14,8 @@ import { runDirect } from "@/lib/commands/db";
 import { listOpenDecisions } from "@/lib/decisions/resolve";
 import { normalizeSummary } from "@/lib/decisions/summary";
 import { query } from "@/lib/db";
-import { describeStagedSend, stagedSendOf, type OwnerGrant } from "@/lib/owner-grant-types";
+import { describeStagedSend, stagedSendOf, type GrantDetail, type OwnerGrant } from "@/lib/owner-grant-types";
+import { describeGrants } from "@/lib/grant-detail";
 import { workItemDraftPreviews } from "@/lib/work-item-draft";
 
 export interface PendingApproval {
@@ -34,6 +35,8 @@ export interface PendingApproval {
   effect: string | null;
   /** Approve transmits something (email / text / package). */
   sends: boolean;
+  /** Permission requests: what it's for, the facts and links (Details toggle). */
+  detail: GrantDetail | null;
   href: string;
   createdAt: string;
 }
@@ -46,13 +49,14 @@ export async function listPendingApprovals(opts: { limit?: number } = {}): Promi
   const decisionIds = decisions.map((d) => d.id);
   const grants = decisionIds.length
     ? (
-        await query<Pick<OwnerGrant, "id" | "scope" | "requested_by"> & { decision_id: string }>(
-          `SELECT id, scope, requested_by, decision_id FROM owner_grants WHERE decision_id = ANY($1::uuid[]) AND status = 'requested' AND expires_at > now()`,
+        await query<Pick<OwnerGrant, "id" | "scope" | "requested_by" | "actions" | "target_kind" | "target_id" | "reason"> & { decision_id: string }>(
+          `SELECT id, scope, requested_by, actions, target_kind, target_id, reason, decision_id FROM owner_grants WHERE decision_id = ANY($1::uuid[]) AND status = 'requested' AND expires_at > now()`,
           [decisionIds],
         )
       ).rows
     : [];
   const grantByDecision = new Map(grants.map((g) => [g.decision_id, g]));
+  const details = await describeGrants(grants, { cacheMs: 10_000 });
   // Decisions whose sends are parked on them: approving dispatches those.
   const parked = decisionIds.length
     ? (
@@ -72,19 +76,23 @@ export async function listPendingApprovals(opts: { limit?: number } = {}): Promi
     const grant = grantByDecision.get(d.id);
     const staged = grant ? stagedSendOf(grant as OwnerGrant) : null;
     const note = (label: string) => s.notes.find((n) => n.label.toLowerCase() === label)?.text ?? null;
+    const detail = grant ? (details[grant.id] ?? null) : null;
+    const recordSend = staged && staged.action !== "send_email" && staged.action !== "send_sms";
     out.push({
       key: `decision:${d.id}`,
       kind: "decision",
       id: d.id,
       contentHash: d.content_hash,
       tag: d.kind === "grant" ? "Permission" : "Decision",
-      title: d.title,
+      // Resolved fresh, so cards filed before titles named the record read right too.
+      title: detail ? `${detail.headline}${detail.job ? ` · ${detail.job}` : ""}` : d.title,
       requestedBy: d.requested_by,
-      to: staged?.email?.to ?? staged?.sms?.to ?? (s.recipients.map((r) => r.address || r.name).filter(Boolean).join(", ") || d.recipient || null),
-      subject: staged?.email?.subject || note("subject"),
-      body: staged?.email?.body ?? staged?.sms?.body ?? note("message") ?? null,
-      effect: staged ? describeStagedSend(staged) : (s.effect ?? null),
+      to: staged?.email?.to ?? staged?.sms?.to ?? detail?.draft?.to ?? (s.recipients.map((r) => r.address || r.name).filter(Boolean).join(", ") || d.recipient || null),
+      subject: staged?.email?.subject || detail?.draft?.subject || note("subject"),
+      body: staged?.email?.body ?? staged?.sms?.body ?? detail?.draft?.body ?? note("message") ?? null,
+      effect: recordSend && detail ? `Approving does it now: ${detail.headline}.` : staged ? describeStagedSend(staged) : (s.effect ?? null),
       sends: Boolean(staged) || parkedSet.has(d.id),
+      detail,
       href: d.kind === "grant" ? "/engine/permissions" : `/engine/decisions?d=${d.id}`,
       createdAt: ISO(d.created_at),
     });
@@ -105,6 +113,7 @@ export async function listPendingApprovals(opts: { limit?: number } = {}): Promi
       body: w.body,
       effect: w.sends ? `Sends this email to ${w.to}.` : w.note ? `Approve doesn't email it: ${w.note}.` : "Approve hands it back to the agent to finish.",
       sends: w.sends,
+      detail: null,
       href: w.href,
       createdAt: ISO(w.createdAt),
     });

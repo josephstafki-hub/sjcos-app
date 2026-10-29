@@ -9,6 +9,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { Chip } from "@/components/ui";
 import type { PendingApproval } from "@/lib/approvals";
+import { GrantDetails } from "@/components/engine/GrantDetails";
 
 export function ApprovalCard({
   approval: a,
@@ -50,6 +51,8 @@ export function ApprovalCard({
         </div>
       )}
       {a.effect && <div className="mt-1.5 text-[11.5px] text-ink-3">{a.effect}</div>}
+      {/* The body above already shows the draft; Details adds the facts and links. */}
+      {a.detail && <GrantDetails detail={a.detail} showDraft={!a.body} />}
       <div className="mt-2 flex items-center gap-1.5">
         <Link href={a.href} className="text-[11.5px] font-medium text-ink-3 hover:text-ink hover:underline">
           Open

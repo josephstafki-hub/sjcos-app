@@ -7,6 +7,9 @@ import { performApprovalEffects } from "@/lib/decisions/after-approval";
 import { cardText } from "@/lib/decisions/cards";
 import { approveWorkItemById, rejectWorkItemById } from "@/lib/approve-work-item";
 import { describeApproval } from "@/lib/approved-draft-rules";
+import { askWhatShouldChange, deliverOwnerReply, sendOwnerTelegram } from "@/lib/owner-reply-delivery";
+import { refreshTelegramCard } from "@/lib/decisions/notify";
+import { getDecision } from "@/lib/commands/decisions";
 
 // POST /api/telegram/webhook — Telegram decision buttons (A10).
 //
@@ -17,7 +20,8 @@ import { describeApproval } from "@/lib/approved-draft-rules";
 //        curl -sS "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
 //          -d url="https://os.sjcarpentryllc.com/api/telegram/webhook" \
 //          -d secret_token="$TELEGRAM_WEBHOOK_SECRET" \
-//          -d allowed_updates='["callback_query"]'
+//          -d allowed_updates='["callback_query","message"]'
+//      ("message" lets Joe reply to a card in text — lib/decisions/owner-replies.ts.)
 //   3. nginx must pass /api/telegram/webhook through to :3017 (the /api
 //      prefix already is). Verify with getWebhookInfo.
 //
@@ -100,6 +104,22 @@ export async function POST(req: Request) {
       if (w.messageId != null) await edit(w.chatId, w.messageId, `[SJC OS] ${reply}\n${appUrl()}/today`);
       await runDirect(`UPDATE telegram_updates SET outcome = $2 WHERE update_id = $1`, [update.update_id, reply.slice(0, 300)]).catch(() => undefined);
     }
+    // "Request changes" → ask what should change, under the card.
+    if (result.changesPrompt) await askWhatShouldChange(result.changesPrompt);
+
+    // Joe replied about a card in text: the request is already pulled (in the
+    // transaction above). Show that on the card, send the note to the chat
+    // that filed it (or the operating agent), and acknowledge.
+    if (result.ownerReply) {
+      const r = result.ownerReply;
+      if (r.pulled) {
+        const d = await getDecision(runDirect, r.decisionId).catch(() => null);
+        if (d) await refreshTelegramCard(d, "Changes requested from Telegram — your note went to the agent.").catch(() => undefined);
+      }
+      await deliverOwnerReply(r, String(update.message?.text ?? "").trim().slice(0, 4000));
+    }
+    if (result.help) await sendOwnerTelegram(result.help.text, { replyTo: result.help.messageId });
+
     return NextResponse.json({ ok: true, handled: result.handled, duplicate: result.duplicate, outcome: result.outcome });
   } catch (err) {
     console.error("[telegram] webhook failed:", (err as Error).message);

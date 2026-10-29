@@ -13,6 +13,7 @@
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { performGrantedAction } from "@/lib/agent-sends";
+import { replyToOwner } from "@/lib/owner-reply-delivery";
 import { buildStagedSend, getGrant, grantLive, grantWaiting, listGrants, requestGrant, stagedResultOf, stagedSendOf } from "@/lib/owner-grants";
 import { principalMaySpendGrant } from "@/lib/authority/mcp-gate";
 import { runDirect } from "@/lib/commands/db";
@@ -88,14 +89,30 @@ export async function POST(req: Request) {
           targetId: built.targetId,
           reason: str("reason") ?? "",
           requestedBy: str("agent") ?? "agent",
-          conversationId: str("conversation_id") ?? null,
+          conversationId: uuidOrNull(str("conversation_id")),
+          runId: uuidOrNull(str("run_id")),
           workItemId: str("work_item_id") ?? null,
           staged: built.staged,
         });
         if (!r.ok) return NextResponse.json(r, { status: 400 });
         revalidatePath("/notifications");
         revalidatePath("/engine/permissions");
-        return NextResponse.json({ ok: true, grant: pub(r.grant) });
+        return NextResponse.json({ ok: true, grant: pub(r.grant), replaced: r.replaced ?? [] });
+      }
+      case "reply": {
+        const outcome = str("outcome");
+        if (outcome !== "no_change" && outcome !== "question" && outcome !== "done") {
+          return NextResponse.json({ ok: false, error: "outcome must be no_change, question or done." }, { status: 400 });
+        }
+        const r = await replyToOwner({
+          ownerReplyId: str("owner_reply_id") ?? null,
+          grantId: str("grant_id") ?? null,
+          decisionId: str("decision_id") ?? null,
+          text: str("message") ?? "",
+          outcome,
+          agent: str("agent") ?? "agent",
+        });
+        return NextResponse.json(r, { status: r.ok ? 200 : 400 });
       }
       case "check": {
         const g = await getGrant(str("grant_id") ?? "");
@@ -170,4 +187,10 @@ export async function POST(req: Request) {
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message || "Internal error" }, { status: 500 });
   }
+}
+
+/** Ids from an agent's environment are kept only when well-formed; a reply
+ *  is routed to the thread only if it still exists (owner-replies.ts). */
+function uuidOrNull(v: string | null | undefined): string | null {
+  return v && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v) ? v : null;
 }

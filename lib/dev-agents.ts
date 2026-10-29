@@ -645,7 +645,18 @@ export async function startClaudeRun(
   conversationId?: string,
   options?: Partial<ClaudeOptions>,
   subjectWorkItemId?: string,
-  extras?: { withMcp?: boolean; allowSends?: boolean; orchestrationTaskId?: string; profile?: RunProfile },
+  extras?: {
+    withMcp?: boolean;
+    allowSends?: boolean;
+    orchestrationTaskId?: string;
+    profile?: RunProfile;
+    /** Server-verified owner (a Telegram reply from the owner chat) when
+     *  there is no browser session. Only lib code reaches this. */
+    verifiedOwner?: CurrentUser;
+    /** Raw model / mode / effort / tools of an earlier run in the thread, so
+     *  a follow-up turn resumes the same CLI session the same way. */
+    sameAs?: { model: string | null; mode: string; effort: string; withMcp: boolean };
+  },
 ): Promise<string> {
   const { model, context, mode, effort, withMcp } = { ...CLAUDE_DEFAULTS, ...options };
   // A08a: who is starting this run decides what it may do. The person is
@@ -654,7 +665,7 @@ export async function startClaudeRun(
   //   staff  → 'business', bound to that staff member's id (the MCP layer
   //            scopes sends to their authority); they can never get 'operator'
   //   nobody → unattended 'business' (cron retries, runbook pings)
-  const starter = await currentStarter();
+  const starter = (await currentStarter()) ?? extras?.verifiedOwner ?? null;
   const profile = profileFor(starter ? { role: starter.role, active: true } : null, extras?.profile) as RunProfile;
   if (profile === "operator" && starter?.role !== "owner") throw new Error("Only the owner can start an operator run.");
   const principalUserId = starter?.id ?? null;
@@ -676,12 +687,12 @@ export async function startClaudeRun(
       conversationId ?? null,
       // The exact --model string: alias or pinned id, plus "[1m]" for the 1M
       // window (null = no flag, the CLI's own default).
-      claudeModelArg(model, context),
-      mode,
-      effort,
+      extras?.sameAs ? extras.sameAs.model : claudeModelArg(model, context),
+      extras?.sameAs?.mode ?? mode,
+      extras?.sameAs?.effort ?? effort,
       subjectWorkItemId ?? null,
       // extras wins (orchestrator callers), else the Ask window's Tools toggle.
-      extras?.withMcp ?? withMcp,
+      extras?.sameAs?.withMcp ?? extras?.withMcp ?? withMcp,
       extras?.orchestrationTaskId ?? null,
       profile,
       principalUserId,
@@ -851,7 +862,7 @@ async function runHermesTurnTracked(
   conversationId: string,
   prompt: string,
   pageContext: string | undefined,
-  subjectWorkItemId: string,
+  subjectWorkItemId: string | null,
 ): Promise<string | undefined> {
   // Called fire-and-forget (`void runHermesTurnTracked(...)`) — this must
   // never reject, or a DB hiccup here becomes an unhandled rejection.
@@ -939,6 +950,40 @@ export async function pingAgentWorkItem(
   } catch (err) {
     console.error("[dev-agents] pingAgentWorkItem failed", err);
   }
+}
+
+/** Hand a chat thread a new turn from the server (no browser): Joe's
+ *  Telegram reply about a request goes back to the chat that filed it. The
+ *  prompt is persisted as the user turn; Claude resumes the thread's session
+ *  (unattended 'business' profile — no session cookie here), Hermes runs
+ *  in-process. Returns the run id. Throws on a refused start. */
+export async function pingConversation(conversationId: string, agent: "claude" | "hermes", prompt: string): Promise<string | undefined> {
+  if (agent === "hermes") {
+    await insertMessage(conversationId, "user", prompt);
+    return runHermesTurnTracked(conversationId, prompt, undefined, null);
+  }
+  // Resume the thread exactly as its last turn ran: same profile (an owner
+  // thread's CLI session lives in the repo cwd — a business run in a scratch
+  // dir could not resume it), model, mode, effort and tools.
+  const last = await queryOne<{ profile: string; model: string | null; mode: string; effort: string; with_mcp: boolean; principal_user_id: string | null }>(
+    `SELECT profile, model, mode, effort, with_mcp, principal_user_id FROM dev_agent_runs
+      WHERE conversation_id = $1 AND agent = 'claude' ORDER BY created_at DESC LIMIT 1`,
+    [conversationId],
+  );
+  // The reply came from the verified owner chat: the turn acts for the owner
+  // when the thread is the owner's (a staff thread stays a business run).
+  const owner = await queryOne<{ id: string; email: string; name: string }>(
+    `SELECT id, email, name FROM users WHERE role = 'owner' AND active = true ORDER BY created_at LIMIT 1`,
+  );
+  const ownersThread = !!owner && (!last?.principal_user_id || last.principal_user_id === owner.id);
+  const verifiedOwner: CurrentUser | undefined =
+    owner && ownersThread ? { id: owner.id, email: owner.email, name: owner.name, role: "owner", initials: "", linkSlug: null, permissions: [] } : undefined;
+  await insertMessage(conversationId, "user", prompt);
+  return startClaudeRun(prompt, undefined, conversationId, undefined, undefined, {
+    verifiedOwner,
+    profile: (last?.profile === "operator" && verifiedOwner ? "operator" : "business") as RunProfile,
+    ...(last ? { sameAs: { model: last.model, mode: last.mode, effort: last.effort, withMcp: last.with_mcp } } : {}),
+  });
 }
 
 /** Ping a work item's owner agent that it just cleared approval, prompting it

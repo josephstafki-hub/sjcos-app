@@ -521,6 +521,7 @@ an **owner grant** — Joe's express permission for one action on one target
 |---|---|
 | `request_owner_permission` | Ask: `action` + `target_id` + a specific `reason`, plus the exact send — `email {to, subject, body}` for send_email, `sms {to, body}` for send_sms (record sends need only `target_id`). Joe gets one Approve / Decline card (corner popup, bell, `/engine/permissions`, Telegram) and **his Approve performs the send** — the agent must not call the send tool afterwards (refused). `send_on_approval:false` keeps the old grant-only behaviour; `place_call` never runs on approval. Returns the grant id; `check_owner_permission` shows `sent_on_approval` |
 | `check_owner_permission` | Poll a grant: requested / approved (live) / denied / revoked / spent, with its audit trail |
+| `reply_to_owner` | Answer Joe's Telegram reply to a request when you are **not** revising it: `owner_reply_id` (or `grant_id` / `decision_id`), `outcome` no_change / question / done, `message`. Goes to his Telegram under his note. If you did revise it, file `request_owner_permission` again instead — a new request for the same send replaces the old one and the new card is his answer |
 | `list_owner_permissions` | Grants pending or currently usable |
 | `send_bid_package` | Email the packet to every unsent sub (`package_id`, `owner_grant_id`) |
 | `send_purchase_order` | Email a draft/queued PO to its vendor (`po_id`, `owner_grant_id`) |

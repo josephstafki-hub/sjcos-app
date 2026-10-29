@@ -3,6 +3,7 @@
 // Project write paths (Phase 7-A CRUD). Reads stay in lib/projects.ts.
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { query, queryAs, queryOne } from "@/lib/db";
 import { requireRole, requireAccess } from "@/lib/dal";
@@ -184,13 +185,22 @@ export async function advanceProjectStatus(slug: string) {
     } catch {
       /* runbook auto-start must never block the status change */
     }
-    if (await autoOutreachEnabled()) await sendCompletionOutreach(slug);
-    try {
-      await autoDraftSocialOnCompletion(slug);
-      await autoDraftBlogOnCompletion(slug);
-    } catch {
-      /* never block the status change on a marketing draft */
-    }
+    // The outreach email and the two AI marketing drafts run after the
+    // response: the drafts wait on local Qwen (~30s together), and the button
+    // used to hang on them before the page showed the new stage.
+    after(async () => {
+      try {
+        if (await autoOutreachEnabled()) await sendCompletionOutreach(slug);
+      } catch {
+        /* outreach must never block the status change */
+      }
+      try {
+        await autoDraftSocialOnCompletion(slug);
+        await autoDraftBlogOnCompletion(slug);
+      } catch {
+        /* never block the status change on a marketing draft */
+      }
+    });
     // Finished = the project's room archives (Joe, 2026-10-16: only active
     // leads and projects have rooms). The leads/projects trigger already did
     // this; the call is belt-and-braces. Restore on /chat brings it back.

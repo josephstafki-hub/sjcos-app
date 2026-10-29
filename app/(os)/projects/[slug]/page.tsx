@@ -4,7 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Check, DollarSign, Mail, FileText, ChevronRight, Phone, MapPin, User } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { AiBubble, Card, Chip, Avatar, Eyebrow } from "@/components/ui";
+import { AiBubble, Card, Chip, Avatar, Eyebrow, SubmitButton } from "@/components/ui";
 import { ProjectTabs } from "@/components/projects/ProjectTabs";
 import { PanelSections } from "@/components/projects/PanelSections";
 import { TabLink } from "@/components/projects/TabNav";
@@ -937,12 +937,12 @@ export default async function ProjectDetailPage({
           )}
           {nextStatus && (
             <form action={moveToNextStatus}>
-              <button
-                type="submit"
+              <SubmitButton
+                pendingLabel={`Moving to ${nextStatus.label}…`}
                 className="whitespace-nowrap rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
               >
                 Move to {nextStatus.label}
-              </button>
+              </SubmitButton>
             </form>
           )}
         </div>

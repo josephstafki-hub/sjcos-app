@@ -81,14 +81,10 @@ const clip = (v: unknown, max: number) => String(v ?? "").trim().slice(0, max);
 const isDay = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v));
 const MAX_CENTS = 2_000_000_000;
 
-/** Files tag for a filed document, by kind. Unfiled ones read UNSORTED. */
-export const FILED_TAG: Record<DocKind, string> = {
-  invoice: "INVOICE · Email",
-  receipt: "RECEIPT · Email",
-  rebate: "REBATE · Email",
-  statement: "STATEMENT · Email",
-  other: "DOC · Email",
-};
+/** Files tag for a filed document: its kind and who it's from, e.g.
+ *  "RECEIPT · Menards". Unfiled ones read UNSORTED. */
+const KIND_TAG: Record<DocKind, string> = { invoice: "INVOICE", receipt: "RECEIPT", rebate: "REBATE", statement: "STATEMENT", other: "DOC" };
+export const filedTag = (kind: DocKind, vendor: string) => `${KIND_TAG[kind] ?? "DOC"} · ${clip(vendor, 60) || "Email"}`;
 export const UNSORTED_TAG = "UNSORTED · Email";
 export const NOT_FILED_TAG = "NOT FILED · Email";
 export const overheadTag = (year: number) => `OVERHEAD · ${year}`;
@@ -120,10 +116,22 @@ export async function listResolvedDocs(run: Run, limit = 50): Promise<UnsortedDo
     `SELECT ${COLS} ${FROM} WHERE d.status IN ('filed','dismissed') ORDER BY d.resolved_at DESC NULLS LAST LIMIT $1`, [limit]);
 }
 
-export async function listDocsByStatus(run: Run, statuses: DocStatus[], limit = 100): Promise<UnsortedDocRow[]> {
+/** Newest first, a page at a time. `sourceRefPrefix` (e.g. "homedepot:")
+ *  narrows to one importer's keys, so it can see what it already staged. */
+export async function listDocsByStatus(
+  run: Run, statuses: DocStatus[], limit = 100, opts: { offset?: number; sourceRefPrefix?: string } = {},
+): Promise<UnsortedDocRow[]> {
   return run<UnsortedDocRow>(
-    `SELECT ${COLS} ${FROM} WHERE d.status = ANY($1::text[])
-      ORDER BY COALESCE(d.resolved_at, d.received_at, d.created_at) DESC LIMIT $2`, [statuses, limit]);
+    `SELECT ${COLS} ${FROM} WHERE d.status = ANY($1::text[]) AND ($4 = '' OR left(d.source_ref, length($4)) = $4)
+      ORDER BY COALESCE(d.resolved_at, d.received_at, d.created_at) DESC, d.id DESC LIMIT $2 OFFSET $3`,
+    [statuses, limit, Math.max(0, Math.trunc(opts.offset ?? 0)), clip(opts.sourceRefPrefix, 200)]);
+}
+
+export async function countDocsByStatus(run: Run, statuses: DocStatus[], opts: { sourceRefPrefix?: string } = {}): Promise<number> {
+  const [r] = await run<{ n: string }>(
+    `SELECT count(*) AS n FROM unsorted_docs d WHERE d.status = ANY($1::text[]) AND ($2 = '' OR left(d.source_ref, length($2)) = $2)`,
+    [statuses, clip(opts.sourceRefPrefix, 200)]);
+  return Number(r?.n ?? 0);
 }
 
 /** Waiting on Joe — the sidebar badge. needs_agent rows are the agent's turn. */
@@ -151,7 +159,9 @@ export async function projectChoices(run: Run): Promise<ProjectChoice[]> {
 
 export interface StageInput {
   sourceRef: string;
-  kind: string;
+  /** Default "invoice" on a new row. On a row already there, any field left
+   *  undefined keeps what it has (null / "" clear it). */
+  kind?: string;
   gmailMessageId?: string | null;
   gmailThreadId?: string | null;
   fromLabel?: string;
@@ -186,7 +196,7 @@ export type StageResult = Result<{
 export async function stageDoc(run: Run, input: StageInput): Promise<StageResult> {
   const sourceRef = clip(input.sourceRef, 200);
   if (!sourceRef) return fail("source_ref is required (e.g. 'gmail:<message id>').");
-  if (!(DOC_KINDS as readonly string[]).includes(input.kind)) return fail(`kind must be one of ${DOC_KINDS.join(", ")}.`);
+  if (input.kind !== undefined && !(DOC_KINDS as readonly string[]).includes(input.kind)) return fail(`kind must be one of ${DOC_KINDS.join(", ")}.`);
   if (input.amountCents != null && (!Number.isInteger(input.amountCents) || Math.abs(input.amountCents) > MAX_CENTS)) return fail("amount_cents must be whole cents.");
   if (input.docDate != null && input.docDate !== "" && !isDay(input.docDate)) return fail("doc_date must be YYYY-MM-DD.");
 
@@ -202,7 +212,7 @@ export async function stageDoc(run: Run, input: StageInput): Promise<StageResult
     return { ok: true, id: seen.id, status: seen.status, existed: true, unknown_slugs };
   }
   const fields = [
-    input.kind, clip(input.gmailMessageId, 120) || null, clip(input.gmailThreadId, 120) || null,
+    input.kind ?? "invoice", clip(input.gmailMessageId, 120) || null, clip(input.gmailThreadId, 120) || null,
     clip(input.fromLabel, 200), clip(input.subject, 300), input.receivedAt || null,
     clip(input.vendorLabel, 120), input.amountCents ?? null, input.docDate || null, clip(input.docNumber, 80),
     clip(input.summary, 600), clip(input.whyUnsure, 400), JSON.stringify(suggestions), Boolean(input.overheadLikely),
@@ -211,17 +221,29 @@ export async function stageDoc(run: Run, input: StageInput): Promise<StageResult
   // Fresh files (the caller only stores them for a row without any) read UNSORTED in Files.
   await run(`UPDATE files SET tag = $2 WHERE id = ANY($1::text[])`, [docFileIds({ email_file_id: input.emailFileId ?? null, attachment_file_ids: input.attachmentFileIds ?? [] }), UNSORTED_TAG]);
   if (seen) {
-    // Refresh the agent's read; keep Joe's note/status and any files already stored.
+    // Refresh the agent's read — only the fields it gave, so an agent adding a
+    // file needn't repeat the rest. Joe's note/status and files already stored are kept.
+    const given = ([
+      ["doc_kind", input.kind, ""],
+      ["from_label", input.fromLabel === undefined ? undefined : clip(input.fromLabel, 200), ""],
+      ["subject", input.subject === undefined ? undefined : clip(input.subject, 300), ""],
+      ["vendor_label", input.vendorLabel === undefined ? undefined : clip(input.vendorLabel, 120), ""],
+      ["amount_cents", input.amountCents, ""],
+      ["doc_date", input.docDate === undefined ? undefined : input.docDate || null, "::date"],
+      ["doc_number", input.docNumber === undefined ? undefined : clip(input.docNumber, 80), ""],
+      ["summary", input.summary === undefined ? undefined : clip(input.summary, 600), ""],
+      ["why_unsure", input.whyUnsure === undefined ? undefined : clip(input.whyUnsure, 400), ""],
+      ["suggestions", input.suggestions === undefined ? undefined : JSON.stringify(suggestions), "::jsonb"],
+      ["overhead_likely", input.overheadLikely === undefined ? undefined : Boolean(input.overheadLikely), ""],
+    ] as [string, unknown, string][]).filter(([, v]) => v !== undefined);
     await run(
-      `UPDATE unsorted_docs SET doc_kind = $2, gmail_message_id = COALESCE($3, gmail_message_id), gmail_thread_id = COALESCE($4, gmail_thread_id),
-              from_label = $5, subject = $6, received_at = COALESCE($7::timestamptz, received_at), vendor_label = $8,
-              amount_cents = $9, doc_date = $10::date, doc_number = $11, summary = $12, why_unsure = $13,
-              suggestions = $14::jsonb, overhead_likely = $15,
-              email_file_id = COALESCE(email_file_id, $16),
-              attachment_file_ids = CASE WHEN cardinality(attachment_file_ids) = 0 THEN $17::text[] ELSE attachment_file_ids END,
-              updated_at = now()
+      `UPDATE unsorted_docs SET gmail_message_id = COALESCE($2, gmail_message_id), gmail_thread_id = COALESCE($3, gmail_thread_id),
+              received_at = COALESCE($4::timestamptz, received_at),
+              email_file_id = COALESCE(email_file_id, $5),
+              attachment_file_ids = CASE WHEN cardinality(attachment_file_ids) = 0 THEN $6::text[] ELSE attachment_file_ids END,
+              ${given.map(([col, , cast], i) => `${col} = $${i + 7}${cast}, `).join("")}updated_at = now()
         WHERE id = $1`,
-      [seen.id, ...fields.slice(0, 16)]);
+      [seen.id, fields[1], fields[2], fields[5], fields[14], fields[15], ...given.map(([, v]) => v)]);
     return { ok: true, id: seen.id, status: seen.status, existed: true, unknown_slugs };
   }
   const [row] = await run<{ id: number }>(
@@ -236,6 +258,53 @@ export async function stageDoc(run: Run, input: StageInput): Promise<StageResult
 
 const docFileIds = (d: { email_file_id: string | null; attachment_file_ids: string[] }) =>
   [...(d.attachment_file_ids ?? []), ...(d.email_file_id ? [d.email_file_id] : [])];
+
+// ─── Add files to a doc ──────────────────────────────────────────────────────
+
+/** Where a doc's files sit given where the doc is: UNSORTED in the tray, on the
+ *  project under its filed tag, OVERHEAD · <year>, or NOT FILED. */
+function placementOf(d: { status: DocStatus; filed_to: string | null; filed_project_slug: string | null; doc_kind: DocKind; vendor_label: string; from_label: string; day: string }): { projectKey: string; tag: string } {
+  if (d.status === "filed" && d.filed_to === "project" && d.filed_project_slug)
+    return { projectKey: d.filed_project_slug, tag: filedTag(d.doc_kind, d.vendor_label || vendorFromSender(d.from_label)) };
+  if (d.status === "filed" && d.filed_to === "overhead") return { projectKey: "", tag: overheadTag(Number(d.day.slice(0, 4))) };
+  if (d.status === "dismissed") return { projectKey: "", tag: NOT_FILED_TAG };
+  return { projectKey: "", tag: UNSORTED_TAG };
+}
+
+/** Attach files to a doc already in the tray — an agent enriching it after the
+ *  fact (create/commit_unsorted_upload, re-staging with new attachments). Each
+ *  file goes where the doc's files are: in the tray while it waits, on the
+ *  project once filed. A filed expense whose receipt is the email (or none)
+ *  links the first attachment instead. Ids already on the doc are skipped; the
+ *  email file is only set when the doc has none. */
+export async function attachDocFiles(
+  run: Run, id: number, add: { attachmentFileIds?: string[]; emailFileId?: string | null },
+): Promise<Result<{ id: number; added: string[]; status: DocStatus }>> {
+  const [doc] = await run<{
+    id: number; status: DocStatus; filed_to: string | null; filed_project_slug: string | null; doc_kind: DocKind; vendor_label: string;
+    from_label: string; day: string; cost_source: string | null; cost_id: number | null; email_file_id: string | null; attachment_file_ids: string[];
+  }>(
+    `SELECT d.id::int AS id, d.status, d.filed_to, p.slug AS filed_project_slug, d.doc_kind, d.vendor_label, d.from_label,
+            COALESCE(d.doc_date, (d.received_at AT TIME ZONE 'America/Chicago')::date, (COALESCE(d.resolved_at, d.created_at) AT TIME ZONE 'America/Chicago')::date)::text AS day,
+            d.cost_source, d.cost_id::int AS cost_id, d.email_file_id, d.attachment_file_ids
+       FROM unsorted_docs d LEFT JOIN projects p ON p.id = d.filed_project_id WHERE d.id = $1 FOR UPDATE OF d`, [id]);
+  if (!doc) return fail("No such document.");
+  const fresh = [...new Set(add.attachmentFileIds ?? [])].filter((f) => f && !doc.attachment_file_ids.includes(f) && f !== doc.email_file_id);
+  const email = add.emailFileId && !doc.email_file_id && !fresh.includes(add.emailFileId) ? add.emailFileId : null;
+  const added = [...fresh, ...(email ? [email] : [])];
+  if (added.length) {
+    const place = placementOf(doc);
+    await run(`UPDATE files SET project_key = $2, tag = $3, updated_at = now() WHERE id = ANY($1::text[])`, [added, place.projectKey, place.tag]);
+    await run(
+      `UPDATE unsorted_docs SET attachment_file_ids = attachment_file_ids || $2::text[], email_file_id = COALESCE(email_file_id, $3), updated_at = now()
+        WHERE id = $1`, [id, fresh, email]);
+  }
+  const receipt = [...doc.attachment_file_ids, ...fresh][0];
+  if (doc.cost_source === "expense" && doc.cost_id != null && receipt) {
+    await run(`UPDATE expenses SET receipt_file_id = $2 WHERE id = $1 AND (receipt_file_id IS NULL OR receipt_file_id = $3)`, [doc.cost_id, receipt, doc.email_file_id ?? ""]);
+  }
+  return { ok: true, id, added, status: doc.status };
+}
 
 // ─── File ────────────────────────────────────────────────────────────────────
 
@@ -315,7 +384,7 @@ export async function fileDoc(run: Run, id: number, target: FileTarget, opts: Fi
   const [project] = await run<{ id: string; slug: string }>(`SELECT id, slug FROM projects WHERE slug = $1`, [clip(target.projectSlug, 120)]);
   if (!project) return fail(`No project with slug "${target.projectSlug}".`);
 
-  await run(`UPDATE files SET project_key = $2, tag = $3 WHERE id = ANY($1::text[])`, [files, project.slug, FILED_TAG[kind]]);
+  await run(`UPDATE files SET project_key = $2, tag = $3 WHERE id = ANY($1::text[])`, [files, project.slug, filedTag(kind, vendor)]);
 
   const logCost = opts.logCost ?? ((kind === "invoice" || kind === "receipt") && amount != null && amount !== 0);
   let cost: { source: "expense" | "sub_invoice"; id: number; created: boolean } | null = null;

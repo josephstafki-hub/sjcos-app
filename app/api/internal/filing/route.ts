@@ -6,6 +6,7 @@
 import { NextResponse } from "next/server";
 import { servicePrincipal, runDirect } from "@/lib/commands/db";
 import {
+  countDocsByStatus,
   fileDocument,
   getDoc,
   listDocsByStatus,
@@ -22,27 +23,30 @@ export const dynamic = "force-dynamic";
 type Body = Record<string, unknown>;
 const str = (v: unknown) => (v == null ? undefined : String(v));
 const cents = (v: unknown) => (v == null || v === "" ? null : Number(v));
+/** Left out → undefined: re-staging keeps what the document has. */
+const given = <T>(v: unknown, f: (v: unknown) => T): T | undefined => (v === undefined ? undefined : f(v));
 
 function stageInput(b: Body): StageFromEmailInput {
   return {
     gmailMessageId: str(b.gmail_message_id),
     gmailThreadId: str(b.gmail_thread_id),
     sourceRef: str(b.source_ref),
-    kind: String(b.kind ?? "invoice"),
+    kind: given(b.kind, String),
     fromLabel: str(b.from),
     subject: str(b.subject),
     receivedAt: str(b.received_at),
     vendorLabel: str(b.vendor),
-    amountCents: cents(b.amount_cents),
+    amountCents: given(b.amount_cents, cents),
     docDate: str(b.doc_date),
     docNumber: str(b.doc_number),
     summary: str(b.summary),
     whyUnsure: str(b.why_unsure),
-    suggestions: Array.isArray(b.suggestions) ? (b.suggestions as { project_slug: string; reason: string }[]) : [],
-    overheadLikely: Boolean(b.overhead_likely),
+    suggestions: given(b.suggestions, (v) => (Array.isArray(v) ? (v as { project_slug: string; reason: string }[]) : [])),
+    overheadLikely: given(b.overhead_likely, Boolean),
     bodyText: str(b.body_text),
     attachments: Array.isArray(b.attachments) ? (b.attachments as StageFromEmailInput["attachments"]) : [],
     filePaths: Array.isArray(b.file_paths) ? b.file_paths.map(String) : [],
+    uploadIds: Array.isArray(b.upload_ids) ? b.upload_ids.map(String) : [],
     stagedBy: str(b.agent) ?? "agent",
   };
 }
@@ -104,9 +108,26 @@ export async function POST(req: Request) {
 
       case "list": {
         const allowed: DocStatus[] = ["pending", "needs_agent", "filed", "dismissed"];
-        const wanted = (Array.isArray(body.statuses) ? body.statuses : ["pending", "needs_agent"]).map(String).filter((s): s is DocStatus => (allowed as string[]).includes(s));
-        const docs = await listDocsByStatus(runDirect, wanted.length ? wanted : ["pending", "needs_agent"], Math.min(Number(body.limit) || 50, 200));
-        return NextResponse.json({ ok: true, documents: docs });
+        const prefix = str(body.source_ref_prefix)?.trim() ?? "";
+        // Checking an importer's own keys ("homedepot:") means every status by default.
+        const fallback: DocStatus[] = prefix ? allowed : ["pending", "needs_agent"];
+        const wanted = (Array.isArray(body.statuses) ? body.statuses : fallback).map(String).filter((s): s is DocStatus => (allowed as string[]).includes(s));
+        const statuses = wanted.length ? wanted : fallback;
+        const limit = Math.min(Math.max(Number(body.limit) || 50, 1), 200);
+        const offset = Math.max(Number(body.offset) || 0, 0);
+        const [docs, total] = await Promise.all([
+          listDocsByStatus(runDirect, statuses, limit, { offset, sourceRefPrefix: prefix }),
+          countDocsByStatus(runDirect, statuses, { sourceRefPrefix: prefix }),
+        ]);
+        const next_offset = offset + docs.length < total ? offset + docs.length : null;
+        const documents = body.brief
+          ? docs.map((d) => ({
+              id: d.id, source_ref: d.source_ref, status: d.status, doc_kind: d.doc_kind, vendor: d.vendor_label, amount_cents: d.amount_cents,
+              doc_date: d.doc_date, doc_number: d.doc_number, files: d.attachment_file_ids.length + (d.email_file_id ? 1 : 0),
+              filed_project_slug: d.filed_project_slug,
+            }))
+          : docs;
+        return NextResponse.json({ ok: true, total, offset, next_offset, documents });
       }
 
       case "get": {

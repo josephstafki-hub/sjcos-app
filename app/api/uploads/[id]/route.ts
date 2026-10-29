@@ -9,10 +9,10 @@ import { UPLOAD_DIR } from "@/lib/uploads";
 import { PUT_NAME, UPLOAD_ID_RE, stagingDir, verifyUploadSignature } from "@/lib/upload-staging";
 
 // PUT /api/uploads/<id>?exp=&sig= — the bytes of an agent upload started with
-// the MCP create_project_upload tool. No session: the signature (minted by
-// that tool, 30 min) is the whole credential, and it only ever writes the
-// staging copy of this one upload. Nothing lands in the project's Files until
-// commit_project_upload checks size + sha256. A second PUT replaces the first.
+// the MCP create_project_upload (or create_unsorted_upload) tool. No session:
+// the signature (minted by that tool, 30 min) is the whole credential, and it
+// only ever writes the staging copy of this one upload. Nothing lands in the
+// project's Files or the Unsorted tray until the commit checks size + sha256. A second PUT replaces the first.
 // /api is outside proxy.ts, so the body streams straight here (nginx caps it
 // at 30M; the declared size caps it tighter).
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -23,16 +23,17 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   const q = new URL(req.url).searchParams;
   const secret = process.env.SESSION_SECRET ?? "dev-insecure-secret-change-me";
   if (!verifyUploadSignature(secret, id, Number(q.get("exp")), q.get("sig") ?? ""))
-    return fail(403, "Upload link expired or invalid. Call create_project_upload again for a fresh one.");
+    return fail(403, "Upload link expired or invalid. Start the upload again (create_project_upload / create_unsorted_upload) for a fresh one.");
 
-  const up = await queryOne<{ size_bytes: string; sha256: string; status: string; expired: boolean }>(
-    `SELECT size_bytes::text AS size_bytes, sha256, status, expires_at < now() AS expired
+  const up = await queryOne<{ size_bytes: string; sha256: string; status: string; expired: boolean; target: string }>(
+    `SELECT size_bytes::text AS size_bytes, sha256, status, expires_at < now() AS expired, target
        FROM project_uploads WHERE id = $1`,
     [id],
   );
   if (!up) return fail(404, "No such upload.");
+  const tool = up.target === "unsorted" ? "unsorted_upload" : "project_upload";
   if (up.status === "committed") return fail(409, "This upload is already committed.");
-  if (up.status !== "open" || up.expired) return fail(410, "This upload expired. Call create_project_upload again.");
+  if (up.status !== "open" || up.expired) return fail(410, `This upload expired. Call create_${tool} again.`);
   if (!req.body) return fail(400, "Empty body. PUT the raw file bytes.");
 
   const declared = Number(up.size_bytes);
@@ -75,7 +76,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     sha256,
     matches,
     next: matches
-      ? "Call commit_project_upload with this upload_id."
-      : `Doesn't match what create_project_upload declared (${declared} bytes, sha256 ${up.sha256}). PUT again or send parts.`,
+      ? `Call commit_${tool} with this upload_id.`
+      : `Doesn't match what create_${tool} declared (${declared} bytes, sha256 ${up.sha256}). PUT again or send parts.`,
   });
 }

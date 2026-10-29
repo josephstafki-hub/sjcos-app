@@ -464,6 +464,33 @@ shows one copy with the same sha256. The PUT is served by
 A cloud session needs the app domain on its network allowlist for the PUT;
 until then use the parts.
 
+### Uploads into the Unsorted tray
+
+Same flow, aimed at a tray document instead of a project — receipts pulled from
+a vendor portal (Home Depot, Menards) that have no Gmail message. PDF, PNG or
+JPEG, max 25 MB. Needs the Money area.
+
+| Tool | Effect |
+|---|---|
+| `create_unsorted_upload` | Exactly one target: `document_id`, or `source_ref` (the doc staged under it — or, if none yet, the file is **held** and attached when `stage_unsorted_document` uses that ref). Returns `upload_url` etc. plus `target_document_id` (null = held) and `will_replace_file_id` |
+| `append_unsorted_upload` | The base64-parts fallback, as above |
+| `commit_unsorted_upload` | Checks size + sha256 and adds the file to the doc's `attachment_file_ids` (on its Unsorted card; on the project's Files if the doc is already filed). Same name on the doc → replaced in place, same `file_id`. Committing twice returns the same result |
+
+`stage_unsorted_document` also takes `upload_ids`, and re-staging a document
+already in the tray adds its attachments / upload_ids (same name replaces) and
+rewrites the email copy from `body_text` (a Gmail document keeps the mailbox's).
+Fields left out of a re-stage keep their value. `list_unsorted_documents` takes
+`source_ref_prefix` (every status by default), `offset` (+ `total` /
+`next_offset` in the reply) and `brief`. Filing moves every attachment onto the
+project tagged `<KIND> · <vendor>` (e.g. `RECEIPT · Menards`); a logged expense
+links the first attachment as its receipt. `delete_expense` (financials) removes
+a duplicate or voided expense with a `reason` kept in the project history.
+
+**Batch import:** `list_unsorted_documents { source_ref_prefix: "homedepot:", brief: true }`
+to skip what's there → per receipt `create_unsorted_upload { source_ref:
+"homedepot:<order>" }` → PUT → `commit_unsorted_upload` → `stage_unsorted_document`
+with that source_ref and the read (vendor, amount, date, suggestions).
+
 ## Login accounts (Settings › Team & roles for agents)
 
 Employee and portal logins, with every choice the Team & roles screen offers as

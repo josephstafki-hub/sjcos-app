@@ -76,7 +76,7 @@ test("stage, file, undo and re-stage an emailed document", { skip: !url && "set 
     t = await trig();
     assert.deepEqual([t.state, t.payload.mode, t.payload.cost_source, t.payload.cost_id, t.payload.project_slug], ["pending", "place_cost", "sub_invoice", filed.cost.id, "zz-unsorted-a"]);
     assert.equal((await u.getDoc(run, staged.id)).agent_note, "", "filing clears the agent's old question");
-    assert.ok((await filesOf()).every((f) => f.project_key === "zz-unsorted-a" && f.tag === "INVOICE · Email"));
+    assert.ok((await filesOf()).every((f) => f.project_key === "zz-unsorted-a" && f.tag === "INVOICE · 10 Electric"));
     const [bill] = await run(`SELECT amount, vendor_label, invoice_date::text AS d, source_ref, status FROM sub_invoices WHERE id = $1`, [filed.cost.id]);
     assert.deepEqual([bill.amount, bill.vendor_label, bill.d, bill.source_ref, bill.status], [609000, "10 Electric", "2026-10-14", "gmail:zz0001", "approved"]);
     assert.equal((await u.fileDoc(run, staged.id, { to: "overhead" }, { by: "owner", today: "2026-10-15" })).ok, false, "filed docs need an Undo first");

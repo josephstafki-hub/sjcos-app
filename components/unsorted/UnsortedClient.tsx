@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Bot, Building2, Camera, Download, FileText, Loader2, Mail, MessageSquareText, PenLine, RefreshCw, Search, Send, Sparkles, Undo2, X } from "lucide-react";
-import { Card, Chip, type ChipKind } from "@/components/ui";
+import { Card, Chip, Lightbox, type ChipKind, type LightboxPhoto } from "@/components/ui";
 import { runAction } from "@/lib/run-action";
 import { fileUnsortedAction, noteUnsortedAction, rereadUnsortedAction, undoUnsortedAction, type FileUnsortedInput } from "@/lib/actions/unsorted";
 import type { DocKind, ProjectChoice, UnsortedDocRow } from "@/lib/unsorted-docs-core";
@@ -59,6 +59,8 @@ export function UnsortedClient({
   const [last, setLast] = useState<{ id: number; label: string } | null>(null);
   const [busy, start] = useTransition();
   const byslug = useMemo(() => new Map(projects.map((p) => [p.slug, p])), [projects]);
+  // A card's photo thumbnail open in the same viewer as project Files.
+  const [viewer, setViewer] = useState<{ photos: LightboxPhoto[]; index: number } | null>(null);
 
   const pending = open.filter((d) => d.status === "pending").length;
   const withAgent = open.length - pending;
@@ -182,7 +184,7 @@ export function UnsortedClient({
       )}
 
       {tab === "filed" ? (
-        <FiledList docs={resolved} busy={busy} onUndo={undo} />
+        <FiledList docs={resolved} files={files} busy={busy} onUndo={undo} onView={(photos, index) => setViewer({ photos, index })} />
       ) : !selected ? (
         <Card className="grid place-items-center px-6 py-16 text-center">
           <div>
@@ -203,32 +205,34 @@ export function UnsortedClient({
               {open.length} document{open.length === 1 ? "" : "s"}
             </div>
             {open.map((d) => (
-              <button
+              <div
                 key={d.id}
-                onClick={() => setSelectedId(d.id)}
-                className={`flex w-56 flex-none flex-col gap-0.5 border-r border-rule-soft px-3 py-2.5 text-left @5xl:w-full @5xl:border-b @5xl:border-r-0 ${d.id === selected.id ? "bg-accent-soft" : "hover:bg-paper"}`}
+                className={`flex w-56 flex-none flex-col border-r border-rule-soft @5xl:w-full @5xl:border-b @5xl:border-r-0 ${d.id === selected.id ? "bg-accent-soft" : "hover:bg-paper"}`}
               >
-                <div className="flex items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink">{vendorOf(d)}</span>
-                  <span className="font-mono text-[11.5px] text-ink-2">{money(d.amount_cents)}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  {sourceOf(d) === "scan" ? (
-                    <Camera className="size-3 flex-none text-ink-3" aria-label="Phone scan" />
-                  ) : sourceOf(d) === "text" ? (
-                    <MessageSquareText className="size-3 flex-none text-ink-3" aria-label="Texted in" />
-                  ) : null}
-                  <Chip kind={KIND_CHIP[d.doc_kind]}>{KIND_LABEL[d.doc_kind]}</Chip>
-                  {readingNow(d) && <Chip kind="ai">Reading…</Chip>}
-                  {d.status === "needs_agent" && <Chip kind="ai">Claude filing</Chip>}
-                  {d.status === "pending" && d.agent_note && <Chip kind="ai">Question</Chip>}
-                  <span className="ml-auto font-mono text-[10px] text-ink-3">{day(d.received_at ?? d.created_at)}</span>
-                </div>
-                <div className="truncate text-[11.5px] text-ink-3">
-                  {d.extracted?.job_hint ? <b className="font-semibold text-accent-2">“{d.extracted.job_hint}” · </b> : null}
-                  {d.extracted?.summary || d.subject}
-                </div>
-              </button>
+                <button onClick={() => setSelectedId(d.id)} className="flex flex-col gap-0.5 px-3 pb-1.5 pt-2.5 text-left">
+                  <div className="flex items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink">{vendorOf(d)}</span>
+                    <span className="font-mono text-[11.5px] text-ink-2">{money(d.amount_cents)}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {sourceOf(d) === "scan" ? (
+                      <Camera className="size-3 flex-none text-ink-3" aria-label="Phone scan" />
+                    ) : sourceOf(d) === "text" ? (
+                      <MessageSquareText className="size-3 flex-none text-ink-3" aria-label="Texted in" />
+                    ) : null}
+                    <Chip kind={KIND_CHIP[d.doc_kind]}>{KIND_LABEL[d.doc_kind]}</Chip>
+                    {readingNow(d) && <Chip kind="ai">Reading…</Chip>}
+                    {d.status === "needs_agent" && <Chip kind="ai">Claude filing</Chip>}
+                    {d.status === "pending" && d.agent_note && <Chip kind="ai">Question</Chip>}
+                    <span className="ml-auto font-mono text-[10px] text-ink-3">{day(d.received_at ?? d.created_at)}</span>
+                  </div>
+                  <div className="truncate text-[11.5px] text-ink-3">
+                    {d.extracted?.job_hint ? <b className="font-semibold text-accent-2">“{d.extracted.job_hint}” · </b> : null}
+                    {d.extracted?.summary || d.subject}
+                  </div>
+                </button>
+                <DocThumbs doc={d} files={files} onView={(photos, index) => setViewer({ photos, index })} className="px-3 pb-2" />
+              </div>
             ))}
           </Card>
 
@@ -242,6 +246,68 @@ export function UnsortedClient({
         </div>
         </div>
       )}
+      {viewer && (
+        <Lightbox photos={viewer.photos} index={viewer.index} onClose={() => setViewer(null)} onIndexChange={(index) => setViewer({ ...viewer, index })} />
+      )}
+    </div>
+  );
+}
+
+// ─── A card's attachments ────────────────────────────────────────────────────
+// Photos as thumbnails that open the Files viewer; PDFs and the rest as links
+// that open in a new tab. The email copy isn't repeated here.
+
+const THUMBS_SHOWN = 4;
+
+function DocThumbs({
+  doc,
+  files,
+  onView,
+  className = "",
+}: {
+  doc: UnsortedDocRow;
+  files: Record<string, DocFile>;
+  onView: (photos: LightboxPhoto[], index: number) => void;
+  className?: string;
+}) {
+  const attached = doc.attachment_file_ids.map((id) => files[id]).filter(Boolean);
+  if (!attached.length) return null;
+  const photos: LightboxPhoto[] = attached
+    .filter((f) => f.mime_type.startsWith("image/"))
+    .map((f) => ({ id: f.id, src: `/api/files/${encodeURIComponent(f.id)}`, thumb: `/api/files/${encodeURIComponent(f.id)}?w=320`, name: f.name, caption: f.size_label, downloadHref: `/api/files/${encodeURIComponent(f.id)}?download=1` }));
+  const shown = attached.slice(0, THUMBS_SHOWN);
+  return (
+    <div className={`flex flex-wrap items-center gap-1 ${className}`}>
+      {shown.map((f) => {
+        const src = `/api/files/${encodeURIComponent(f.id)}`;
+        const i = photos.findIndex((p) => p.id === f.id);
+        return i >= 0 ? (
+          <button
+            key={f.id}
+            type="button"
+            onClick={() => onView(photos, i)}
+            title={f.name}
+            aria-label={`View ${f.name}`}
+            className="size-9 flex-none overflow-hidden rounded border border-rule bg-paper-3 hover:border-accent"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={`${src}?w=160`} alt="" loading="lazy" className="size-full object-cover" />
+          </button>
+        ) : (
+          <a
+            key={f.id}
+            href={src}
+            target="_blank"
+            rel="noreferrer"
+            title={`${f.name} (${f.size_label})`}
+            className="inline-flex h-9 max-w-[9rem] items-center gap-1 rounded border border-rule-soft bg-paper-2 px-1.5 text-[11px] text-ink-2 hover:border-accent hover:text-ink"
+          >
+            <FileText className="size-3.5 flex-none text-ink-3" />
+            <span className="truncate">{f.mime_type.startsWith("application/pdf") ? "PDF" : f.name.split(".").pop()?.toUpperCase()} · {f.name}</span>
+          </a>
+        );
+      })}
+      {attached.length > THUMBS_SHOWN && <span className="font-mono text-[10px] text-ink-3">+{attached.length - THUMBS_SHOWN}</span>}
     </div>
   );
 }
@@ -707,7 +773,19 @@ function SortPanel({
 
 // ─── Filed lately ────────────────────────────────────────────────────────────
 
-function FiledList({ docs, busy, onUndo }: { docs: UnsortedDocRow[]; busy: boolean; onUndo: (id: number) => void }) {
+function FiledList({
+  docs,
+  files,
+  busy,
+  onUndo,
+  onView,
+}: {
+  docs: UnsortedDocRow[];
+  files: Record<string, DocFile>;
+  busy: boolean;
+  onUndo: (id: number) => void;
+  onView: (photos: LightboxPhoto[], index: number) => void;
+}) {
   if (!docs.length) {
     return <Card className="px-6 py-12 text-center text-[12.5px] text-ink-3">Nothing filed yet.</Card>;
   }
@@ -725,6 +803,7 @@ function FiledList({ docs, busy, onUndo }: { docs: UnsortedDocRow[]; busy: boole
               <span className="font-mono text-[11.5px] text-ink-2">{money(d.amount_cents)}</span>
             </div>
             <div className="truncate text-[11.5px] text-ink-3">{d.subject}</div>
+            <DocThumbs doc={d} files={files} onView={onView} className="mt-1" />
           </div>
           <div className="max-w-[26rem] text-[12px] text-ink-2">
             {d.status === "dismissed" ? (

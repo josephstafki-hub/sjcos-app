@@ -3703,3 +3703,19 @@ CREATE TABLE IF NOT EXISTS file_trash (
   purge_after  timestamptz NOT NULL DEFAULT now() + interval '30 days'
 );
 CREATE INDEX IF NOT EXISTS idx_file_trash_project ON file_trash(project_slug, deleted_at DESC);
+
+-- Uploads into the Unsorted tray. Migration: db/migrations/0035_unsorted_uploads.sql
+-- (create_unsorted_upload). Kept identical so a fresh database matches the ledger.
+ALTER TABLE project_uploads ADD COLUMN IF NOT EXISTS target          text NOT NULL DEFAULT 'project';
+ALTER TABLE project_uploads ADD COLUMN IF NOT EXISTS unsorted_doc_id bigint REFERENCES unsorted_docs(id) ON DELETE SET NULL;
+ALTER TABLE project_uploads ADD COLUMN IF NOT EXISTS source_ref      text;
+ALTER TABLE project_uploads ALTER COLUMN project_id   DROP NOT NULL;
+ALTER TABLE project_uploads ALTER COLUMN project_slug DROP NOT NULL;
+ALTER TABLE project_uploads DROP CONSTRAINT IF EXISTS project_uploads_target_check;
+ALTER TABLE project_uploads ADD CONSTRAINT project_uploads_target_check CHECK (
+  (target = 'project'  AND project_id IS NOT NULL AND project_slug IS NOT NULL) OR
+  (target = 'unsorted' AND source_ref IS NOT NULL)
+);
+-- Committed files waiting for their source_ref to be staged.
+CREATE INDEX IF NOT EXISTS idx_project_uploads_held ON project_uploads(source_ref)
+  WHERE target = 'unsorted' AND status = 'committed' AND unsorted_doc_id IS NULL;

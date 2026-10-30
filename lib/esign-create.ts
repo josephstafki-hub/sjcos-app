@@ -65,7 +65,7 @@ export async function insertSentRequest(o: SentRequestInput): Promise<number> {
   await query(
     `INSERT INTO signature_events (request_id, kind, actor, detail)
      VALUES ($1, 'created', $2, $3), ($1, 'sent', $2, $4)`,
-    [id, o.ownerName, o.title, `Sent to ${o.signerName || o.signerEmail || "client"}`],
+    [id, o.ownerName, o.title, `Signature requested from ${o.signerName || o.signerEmail || "client"}; email delivery tracked separately`],
   );
   if (o.notify) {
     await emit({
@@ -73,7 +73,7 @@ export async function insertSentRequest(o: SentRequestInput): Promise<number> {
       tag: "Signature",
       icon: "mail",
       accent: "ai",
-      title: `Sent for signature: ${o.title}`,
+      title: `Awaiting signature: ${o.title}`,
       subline: o.notify.subline,
       href: o.notify.href,
     });

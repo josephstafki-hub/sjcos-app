@@ -724,7 +724,7 @@ export default async function ProjectDetailPage({
   //    "signed" label; there's no separate Signatures tab.
   // Deep links (?focus=signature-<id> / draft-<id>) open the template section
   // that owns that draft.
-  const docFocusSections: Record<string, string> = {};
+  const docFocusSections: Record<string, string> = { "formal-estimate": "Formal Estimate" };
   for (const t of docTemplates) {
     for (const d of docDrafts.filter((x) => x.template_key === t.key)) {
       docFocusSections[`draft-${d.id}`] = t.title;

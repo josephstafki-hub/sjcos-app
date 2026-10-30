@@ -310,7 +310,9 @@ export function registerGrantTools(server, { json, grantsCall, rows }) {
       title: "Send a document for signature (needs owner grant)",
       description:
         "Submit a RENDERED document draft for signature (emails the signer a portal link when one is " +
-        "on file). REQUIRES owner_grant_id. Render it first (render_document_draft) and resolve " +
+        "on file). A failed or unconfirmed email on an already-submitted draft retries the SAME open request. " +
+        "Voided documents and closed requests cannot be sent or retried. REQUIRES owner_grant_id, including retries. " +
+        "Render it first (render_document_draft) and resolve " +
         "missing fields; `override` pushes past the missing-fields gate only if Joe said so.",
       inputSchema: {
         draft_id: z.number().int().positive(),

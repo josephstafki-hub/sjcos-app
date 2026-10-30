@@ -27,6 +27,7 @@ import {
   updateDocDraftFieldsAction,
   renderDocDraftAction,
   submitDocDraftForSignatureAction,
+  retryDocDraftSignatureDeliveryAction,
   prepareInPersonSigningAction,
   setDocDraftVisibilityAction,
   voidDocDraftAction,
@@ -34,6 +35,7 @@ import {
   unlockDocDraftForEditAction,
   draftDocNarrative,
 } from "@/lib/actions/doc-drafts";
+import type { SignatureDelivery } from "@/lib/esign-types";
 import { runAction } from "@/lib/run-action";
 
 export interface DocDraftItem {
@@ -60,6 +62,7 @@ export interface DocDraftItem {
   sentAtLabel: string | null;
   declineReason: string | null;
   manifest: TemplateManifest;
+  delivery?: SignatureDelivery;
 }
 
 const STATUS_KIND: Record<string, "money" | "accent" | "flag" | "ghost"> = {
@@ -72,7 +75,7 @@ const STATUS_KIND: Record<string, "money" | "accent" | "flag" | "ghost"> = {
 const STATUS_LABEL: Record<string, string> = {
   draft: "Draft",
   rendered: "Rendered",
-  submitted: "Sent for signature",
+  submitted: "Awaiting signature",
   signed: "Signed",
   void: "Voided",
 };
@@ -104,6 +107,7 @@ export interface DocSourcePicker {
 export function DocTypePanel({
   slug,
   leadSlug,
+  projectSlug,
   templateKey,
   manifest,
   drafts,
@@ -114,6 +118,8 @@ export function DocTypePanel({
 }: {
   slug?: string;
   leadSlug?: string;
+  /** Converted project, for the lead Formal Estimate handoff. */
+  projectSlug?: string;
   templateKey: string;
   manifest: TemplateManifest;
   drafts: DocDraftItem[];
@@ -215,6 +221,32 @@ export function DocTypePanel({
     });
   }
 
+  function retry(d: DocDraftItem) {
+    setNotice(null);
+    startTransition(async () => {
+      const res = await runAction(() => retryDocDraftSignatureDeliveryAction(d.id), { fallback: "Couldn't retry the signature email." });
+      if (res.ok) setNotice(res.delivery.note);
+      router.refresh();
+    });
+  }
+
+  if (leadSlug && templateKey === "estimate_doc") {
+    return (
+      <Card className="p-4">
+        <h3 className="font-serif text-[17px] font-semibold text-ink">Formal Estimate</h3>
+        <p className="mt-1 text-[12px] text-ink-3">
+          A lead uses the Rough estimate. The Formal Estimate is prepared on the project after conversion.
+        </p>
+        <Link
+          href={projectSlug ? `/projects/${projectSlug}?tab=Documents&focus=formal-estimate` : `/leads/${leadSlug}?tab=Rough%20estimate`}
+          className="mt-2 inline-block text-[12px] font-semibold text-accent-2 hover:underline"
+        >
+          {projectSlug ? "Open the project's Formal Estimate →" : "Open Rough estimate →"}
+        </Link>
+      </Card>
+    );
+  }
+
   const editing = editingId != null ? drafts.find((d) => d.id === editingId) ?? null : null;
   const rows = drafts.map((d) => (
     <DraftRow
@@ -226,6 +258,7 @@ export function DocTypePanel({
       onDelete={() => remove(d)}
       onPublish={(to) => publish(d, to)}
       onUpdate={() => update(d)}
+      onRetry={() => retry(d)}
     />
   ));
 
@@ -357,6 +390,7 @@ function DraftRow({
   onDelete,
   onPublish,
   onUpdate,
+  onRetry,
 }: {
   draft: DocDraftItem;
   pending: boolean;
@@ -366,8 +400,11 @@ function DraftRow({
   onDelete: () => void;
   onPublish: (to: boolean) => void;
   onUpdate: () => void;
+  onRetry: () => void;
 }) {
   const fileHref = (id: string | null) => (id ? `/api/files/${id}` : null);
+  const failedDelivery = draft.status === "submitted" && draft.delivery?.status === "failed";
+  const canRetry = draft.status === "submitted" && !["sent", "pending"].includes(draft.delivery?.status ?? "unknown");
   const sentOrSigned = draft.status === "submitted" || draft.status === "signed";
   const editable = draft.status === "draft" || draft.status === "rendered";
   const stale = !!draft.lines_changed && draft.status !== "void";
@@ -383,12 +420,12 @@ function DraftRow({
       className="p-3.5"
       data-focus={draft.signature_request_id ? `signature-${draft.signature_request_id}` : `draft-${draft.id}`}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
         <StatusIcon status={draft.status} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="truncate font-serif text-[15px] font-semibold text-ink">{draft.title}</span>
-            <Chip kind={STATUS_KIND[draft.status] ?? "ghost"}>{STATUS_LABEL[draft.status] ?? draft.status}</Chip>
+            <Chip kind={failedDelivery ? "flag" : STATUS_KIND[draft.status] ?? "ghost"}>{failedDelivery ? "Awaiting signature · email not delivered" : STATUS_LABEL[draft.status] ?? draft.status}</Chip>
             {draft.client_visible && (
               <Chip kind="money" dot>
                 On dashboard
@@ -403,8 +440,7 @@ function DraftRow({
               </span>
             ) : draft.status === "submitted" ? (
               <span>
-                Sent to {draft.signerName || "client"}
-                {draft.sentAtLabel ? ` · ${draft.sentAtLabel}` : ""}
+                {draft.delivery?.status === "sent" ? "Emailed to " : "Awaiting signature from "}{draft.signerName || "client"}
               </span>
             ) : (
               <span>Created {draft.createdAtLabel}</span>
@@ -420,6 +456,11 @@ function DraftRow({
               </a>
             )}
           </div>
+          {draft.status === "submitted" && draft.delivery?.status !== "sent" && (
+            <p className="mt-1.5 text-[12px] text-flag">
+              {draft.delivery?.note || "Email delivery is unconfirmed. Retry the email or have the client sign in person."}
+            </p>
+          )}
           {stale && (
             <div className="mt-1.5 flex items-start gap-1.5 text-[12px] text-flag">
               <TriangleAlert className="mt-0.5 size-3.5 flex-none" strokeWidth={1.75} />
@@ -435,7 +476,12 @@ function DraftRow({
             </div>
           )}
         </div>
-        <div className="flex flex-none items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5 sm:flex-none">
+          {canRetry && (
+            <button type="button" onClick={onRetry} disabled={pending} className="rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink-2 disabled:opacity-60">
+              Retry email
+            </button>
+          )}
           {canUpdate && (
             <button
               type="button"

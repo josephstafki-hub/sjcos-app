@@ -713,15 +713,18 @@ server.registerTool(
     inputSchema: { project_slug: z.string().optional(), status: z.string().optional() },
   },
   async ({ project_slug, status }) => {
+    const requestStatus = `CASE WHEN EXISTS (
+      SELECT 1 FROM document_drafts d WHERE d.signature_request_id = sr.id AND d.status = 'void'
+    ) THEN 'void' ELSE sr.status END`;
     const conds = [];
     const params = [];
     if (project_slug) { params.push(project_slug); conds.push(`p.slug = $${params.length}`); }
-    if (status) { params.push(status); conds.push(`sr.status = $${params.length}`); }
+    if (status) { params.push(status); conds.push(`${requestStatus} = $${params.length}`); }
     const where = conds.length ? `WHERE ${conds.join(" AND ")}` : ``;
     return json(
       await rows(
-        `SELECT sr.id, sr.doc_type, sr.title, sr.status, sr.signer_name, sr.signed_name,
-                sr.signed_at, p.slug AS project_slug
+        `SELECT sr.id, sr.doc_type, sr.title, ${requestStatus} AS status, sr.signer_name, sr.signed_name,
+                sr.signed_at, sr.email_delivery_status, sr.email_delivery_note, sr.emailed_at, p.slug AS project_slug
            FROM signature_requests sr
            LEFT JOIN projects p ON p.id = sr.project_id
            ${where}

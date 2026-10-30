@@ -382,6 +382,7 @@ export default async function LeadDetailPage({
           <DocTypePanel
             key={t.key}
             leadSlug={lead.slug}
+            projectSlug={lead.projectSlug ?? undefined}
             templateKey={t.key}
             manifest={t}
             drafts={leadDocDrafts.filter((d) => d.template_key === t.key)}

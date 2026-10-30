@@ -1,3 +1,4 @@
+import { structuredRowSummary, nextRowTodoSql, type RowTodo } from "./list-row-summary";
 // Leads data builder. DB-backed (Phase 7.2): the list + detail read from the
 // leads table via lib/db. Detail pages still merge curated rich content
 // (intake Q&A, estimate lines) keyed by slug — those aren't modeled as columns
@@ -68,6 +69,7 @@ export function suggestedProjectName(leadName: string, scope: string): string {
 export type LeadTemperature = "hot" | "cooling" | "declined" | "active";
 
 export interface LeadListItem {
+  nextSummary: string;
   slug: string;
   initials: string;
   name: string;
@@ -95,6 +97,8 @@ export interface LeadsData {
 // ─── DB row → display mapping ────────────────────────────────────────────────
 
 interface LeadRow {
+  next_todo?: RowTodo | null;
+  contact_date?: string | null;
   slug: string;
   name: string;
   scope: string;
@@ -113,7 +117,8 @@ interface LeadRow {
 }
 
 const LEAD_SELECT = `
-  SELECT slug, name, scope, stage,
+  SELECT ${nextRowTodoSql("leads")} AS next_todo,
+         to_char(last_contact_at AT TIME ZONE 'America/Chicago', 'Mon FMDD') AS contact_date, slug, name, scope, stage,
          COALESCE(value_display, '?') AS value,
          hot, flag_label, flag_kind, estimate_value, email, phone,
          GREATEST(0, (CURRENT_DATE - last_contact_at::date))::int AS age_days,
@@ -141,6 +146,7 @@ function temperatureOf(r: LeadRow): LeadTemperature {
 
 function rowToItem(r: LeadRow): LeadListItem {
   return {
+    nextSummary: structuredRowSummary(r.next_todo, r.contact_date),
     slug: r.slug,
     initials: initialsFrom(r.name),
     name: r.name,

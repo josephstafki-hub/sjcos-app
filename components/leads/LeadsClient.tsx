@@ -81,7 +81,7 @@ export function LeadsClient({ data }: { data: LeadsData }) {
                   Value
                 </TableHeader>
                 <TableHeader className="hidden @5xl/page:table-cell">
-                  AI take
+                  Next step
                 </TableHeader>
               </tr>
             </TableHead>
@@ -95,11 +95,8 @@ export function LeadsClient({ data }: { data: LeadsData }) {
                     >
                       {l.name}
                     </Link>
-                    <div className="text-meta text-ink-3">
-                      {l.ageDays}d since first contact
-                    </div>
-                    <div className="min-w-0 @4xl/page:hidden"><NextStep text={l.flag?.label ? `${l.flag.label}\n${l.scope}` : l.scope} /></div>
-                    {l.flag?.label && <div className="hidden min-w-0 @4xl/page:block @5xl/page:hidden"><NextStep text={l.flag.label} /></div>}
+                    <div className="min-w-0 @4xl/page:hidden"><NextStep text={l.flag?.label ? `${l.flag.label}\n${l.scope}` : l.scope} summary={l.nextSummary} /></div>
+                    <div className="hidden min-w-0 @4xl/page:block @5xl/page:hidden"><NextStep text={l.flag?.label || ""} summary={l.nextSummary} /></div>
                     <div className="mt-1 text-meta text-ink-3 @xl/page:hidden">
                       {l.stageLabelText}
                       {l.value && l.value !== "?" ? ` · ${l.value}` : ""}
@@ -120,7 +117,7 @@ export function LeadsClient({ data }: { data: LeadsData }) {
                     {l.value === "?" ? "—" : l.value || "—"}
                   </TableCell>
                   <TableCell className="hidden max-w-52 @5xl/page:table-cell">
-                    <NextStep text={l.flag?.label || "—"} />
+                    <NextStep text={l.flag?.label || ""} summary={l.nextSummary} />
                   </TableCell>
                 </TableRow>
               ))}

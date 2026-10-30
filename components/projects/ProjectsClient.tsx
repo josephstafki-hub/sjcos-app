@@ -29,7 +29,7 @@ export function ProjectsClient({ groups, initialFilter }: { groups: ProjectGroup
   const [query, setQuery] = useState("");
   const shown =
     (filter === "all" ? groups : groups.filter((g) => g.key === filter))
-      .map((g) => ({ ...g, items: g.items.filter((p) => `${p.name} ${p.sub} ${p.stage}`.toLowerCase().includes(query.trim().toLowerCase())) }))
+      .map((g) => ({ ...g, items: g.items.filter((p) => `${p.name} ${p.sub} ${p.stage} ${p.nextSummary}`.toLowerCase().includes(query.trim().toLowerCase())) }))
       .filter((g) => g.items.length > 0);
   return (
     <div className="space-y-4">
@@ -83,7 +83,7 @@ export function ProjectsClient({ groups, initialFilter }: { groups: ProjectGroup
                           <div className="line-clamp-1 text-meta text-ink-3">{p.sub}</div>
                         )}
                         <div className="min-w-0 @4xl/page:hidden">
-                          <NextStep text={p.stage} />
+                          <NextStep text={p.stage} summary={p.nextSummary} />
                         </div>
                         <div className="mt-1 tabular-nums text-meta text-ink-3 @xl/page:hidden">
                           {p.hasTotal
@@ -94,7 +94,7 @@ export function ProjectsClient({ groups, initialFilter }: { groups: ProjectGroup
                         </div>
                       </TableCell>
                       <TableCell className="hidden max-w-64 @4xl/page:table-cell">
-                        <NextStep text={p.stage} />
+                        <NextStep text={p.stage} summary={p.nextSummary} />
                       </TableCell>
                       <TableCell className="hidden w-28 @2xl/page:table-cell">
                         {p.hasTotal ? (

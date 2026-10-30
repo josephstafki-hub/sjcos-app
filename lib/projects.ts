@@ -1,3 +1,4 @@
+import { structuredRowSummary, nextRowTodoSql, type RowTodo } from "./list-row-summary";
 // Projects data builder. DB-backed (Phase 7.2): list + detail read the
 // projects table via lib/db. Detail merges curated rich content (milestones,
 // daily log, subs) per slug; the AI weekly-status note still routes through
@@ -15,6 +16,7 @@ import { listFileTrash, type TrashedFile } from "./file-trash";
 type GroupKey = "active" | "closeout" | "warranty" | "pre_construction";
 
 export interface ProjectListItem {
+  nextSummary: string;
   slug: string;
   name: string;
   /** Location + day/phase subtitle, e.g. "Edina · day 74 of ~92". */
@@ -109,6 +111,7 @@ export function projectStageLabel(status: ProjectStatus): string {
 // ─── DB row → display mapping ────────────────────────────────────────────────
 
 interface ProjectRow {
+  next_todo?: RowTodo | null;
   slug: string;
   name: string;
   status: ProjectStatus;
@@ -121,7 +124,7 @@ interface ProjectRow {
 }
 
 const PROJECT_SELECT = `
-  SELECT slug, name, status,
+  SELECT ${nextRowTodoSql("projects")} AS next_todo, slug, name, status,
          COALESCE(value_display, '') AS value,
          progress AS billed,
          COALESCE(sub_label, '') AS sub,
@@ -136,6 +139,7 @@ function dollars(cents: number): string {
 
 function rowToItem(r: ProjectRow): ProjectListItem {
   return {
+    nextSummary: structuredRowSummary(r.next_todo),
     slug: r.slug,
     name: r.name,
     sub: r.sub,

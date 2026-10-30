@@ -10,6 +10,9 @@
 //   • send_invoice                → catalog GATED_ACTION_AUTHORITY → 'proposal'
 //   • send_document_for_signature → 'proposal' (an estimate out for
 //                                    signature is an offer to the client)
+//   • send_rough_estimate         → 'proposal' (a lead's rough estimate is a
+//                                    price in front of the client; no MCP
+//                                    gated action of its own)
 // checked with effectiveAuthority() for the project and the dollar amount.
 //
 // Pure: takes run(sql, params) like grants.ts, so node --test drives it
@@ -21,7 +24,7 @@ import { authorityForGatedAction } from "./catalog.ts";
 import { effectiveAuthority } from "./grants.ts";
 
 /** The gated action an agent would use for the same send. */
-export type ClientSendAction = "send_invoice" | "send_document_for_signature";
+export type ClientSendAction = "send_invoice" | "send_document_for_signature" | "send_rough_estimate";
 
 /** What a team member sees when they can't release the send. */
 export const CLIENT_SEND_REFUSAL = "Joe needs to send this, or give you permission to under Settings › Team.";
@@ -48,7 +51,7 @@ export async function clientSendVerdict(
   scope: { projectId?: string | null; amountCents?: number | null } = {},
 ): Promise<ClientSendVerdict> {
   if (user.role === "owner") return { ok: true, via: "owner" };
-  const kind = authorityForGatedAction(action);
+  const kind = action === "send_rough_estimate" ? "proposal" : authorityForGatedAction(action);
   if (!kind) return { ok: false, error: CLIENT_SEND_REFUSAL, reason: `"${action}" can't be delegated.` };
   const v = await effectiveAuthority(run, user, { actionType: kind, projectId: scope.projectId ?? null, amountCents: scope.amountCents ?? null });
   if (!v.ok) return { ok: false, error: CLIENT_SEND_REFUSAL, reason: v.reason };

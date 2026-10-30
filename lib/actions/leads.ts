@@ -27,6 +27,8 @@ import { ai, type EstimateLine } from "@/lib/ai";
 import { AI_NAME } from "@/lib/ai-name";
 import { sendNewEmailAction } from "@/lib/actions/inbox";
 import { renderRoughEstimatePdf } from "@/lib/doc-drafts";
+import { clientSendVerdict } from "@/lib/authority/client-sends";
+import { runDirect, userPrincipal } from "@/lib/commands/db";
 import type { LeadStage } from "@/lib/types";
 
 /** Kebab-case a display name into a URL slug. */
@@ -424,9 +426,10 @@ export async function saveEstimateNotes(slug: string, notes: string): Promise<{ 
   return { ok: true };
 }
 
-/** Email the rough estimate to the lead via Gmail and mark it sent. Owner-gated. */
+/** Email the rough estimate to the lead via Gmail and mark it sent. Joe, or a
+ *  team member with 'proposal' authority (the same rule as invoices). */
 export async function sendEstimate(slug: string): Promise<{ ok: boolean; error?: string }> {
-  await requireAccess("leads");
+  const user = await requireAccess("leads");
   const lead = await queryOne<{ id: string; name: string; email: string | null }>(
     `SELECT id, name, email FROM leads WHERE slug = $1`,
     [slug],
@@ -439,6 +442,13 @@ export async function sendEstimate(slug: string): Promise<{ ok: boolean; error?:
     [lead.id],
   );
   if (!est) return { ok: false, error: "Draft an estimate first." };
+
+  // Checked against the top of the range: a capped authority must cover it.
+  const figures = (est.total.match(/\d[\d,]*(?:\.\d+)?/g) ?? []).map((n) => Number(n.replace(/,/g, "")));
+  const release = await clientSendVerdict(runDirect, userPrincipal(user), "send_rough_estimate", {
+    amountCents: figures.length ? Math.round(Math.max(...figures) * 100) : null,
+  });
+  if (!release.ok) return { ok: false, error: release.error };
 
   const first = lead.name.split(/\s+/)[0];
   const lines = (est.line_items ?? [])
@@ -478,7 +488,11 @@ export async function sendEstimate(slug: string): Promise<{ ok: boolean; error?:
     `UPDATE lead_estimates SET status = 'sent', sent_at = now(), updated_at = now() WHERE lead_id = $1`,
     [lead.id],
   );
-  await logLeadActivity(slug, "email", `Rough estimate emailed to ${lead.name}`);
+  await logLeadActivity(
+    slug,
+    "email",
+    `Rough estimate emailed to ${lead.name}${release.via === "authority_grant" ? ` — by ${user.name || user.email} under delegated authority` : ""}`,
+  );
   revalidatePath(`/leads/${slug}`);
   return { ok: true };
 }

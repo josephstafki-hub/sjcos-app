@@ -218,7 +218,7 @@ test("A22 client sends: the invoices / estimates AREA alone can't send an invoic
     const run = runOver(client);
     // Abigail can SEE invoices and estimates (both areas ticked) — that is all.
     const abigail = { ...staff, permissions: ["invoices", "estimates"] };
-    const SENDS = ["send_invoice", "send_document_for_signature"];
+    const SENDS = ["send_invoice", "send_document_for_signature", "send_rough_estimate"];
 
     // Owner path unchanged: no lookup, no authority row needed.
     assert.deepEqual(await clientSendVerdict(run, owner, "send_invoice", { projectId: projectA, amountCents: 9_999_999 }), { ok: true, via: "owner" });
@@ -250,9 +250,9 @@ test("A22 client sends: the invoices / estimates AREA alone can't send an invoic
     }
 
     // The actor rides SendAuth into the send intent: lib/send-ops.ts
-    // stageAndSend stores it as policy_ref `owner:<actor>` and principal
-    // `send-ops:<actor>` (mirrored here). The dispatcher lets it through and
-    // the record names the staff member + the authority grant.
+    // stageAndSend stores it as policy_ref `<actor>` (never `owner:`) and the
+    // person as principal (mirrored here). The dispatcher binds it as the
+    // staff member's authority, not the owner's click.
     const actor = staffSendActor(staff.userId, g.id);
     const { intent } = await enqueueIntent(run, {
       operationKey: "zz-invoice:1:send:rev1",
@@ -261,15 +261,16 @@ test("A22 client sends: the invoices / estimates AREA alone can't send an invoic
       targetId: "1",
       recipient: "client@example.test",
       payload: { to: "client@example.test", _auth: { action: "send_invoice", target_kind: "invoice", target_id: "1", amount_cents: 250_000 } },
-      policyRef: `owner:${actor}`,
-      principal: { kind: "service", name: `send-ops:${actor}` },
+      policyRef: actor,
+      principal: abigail,
     });
     const auth = await verifyAuthority(run, intent, "zz-test");
     assert.equal(auth.ok, true, "a staff-released send is not held");
-    const [rec] = await run(`SELECT policy_ref, principal->>'name' AS who FROM action_intents WHERE id = $1`, [intent.id]);
-    assert.match(rec.policy_ref, new RegExp(`staff:${staff.userId}/authority:${g.id}`));
-    assert.doesNotMatch(rec.policy_ref, /click/);
-    assert.match(rec.who, new RegExp(`staff:${staff.userId}`));
+    assert.equal(auth.kind, "staff", "filed as the team member's authority, not the owner's");
+    const [rec] = await run(`SELECT policy_ref, principal->>'userId' AS who FROM action_intents WHERE id = $1`, [intent.id]);
+    assert.equal(rec.policy_ref, `staff:${staff.userId}/authority:${g.id}`);
+    assert.doesNotMatch(rec.policy_ref, /click|^owner/);
+    assert.equal(rec.who, staff.userId);
 
     // Revoke → the next click is refused again.
     await revokeAuthority(run, owner, { grantId: g.id, reason: "test" });

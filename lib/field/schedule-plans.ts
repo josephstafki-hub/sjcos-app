@@ -189,7 +189,7 @@ export async function confirmSchedule(
   const blockers: string[] = [];
   if (!gates.approved) blockers.push("Joe has not approved this plan revision.");
   if (!gates.signedAgreement) blockers.push("No signed construction agreement on record.");
-  if (!gates.initialPayment) blockers.push("Initial payment not received.");
+  if (!gates.initialPayment) blockers.push("Construction deposit not paid yet (the pre-con fee doesn't count).");
   if (blockers.length) return { ok: false, blockers, gates };
   const d = (await getDecision(run, plan.approval_decision_id!))!;
   if (d.status === "approved") {

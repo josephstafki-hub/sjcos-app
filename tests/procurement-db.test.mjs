@@ -269,6 +269,8 @@ test("construction gate blocks purchases until signed + initial payment; unknown
     await seedOwner(client);
     const run = runOver(client);
     const unsigned = await seedProject(client, "zz-unsigned", { signed: false, collectedCents: 1_000_000 });
+    // The fixture's paid "Initial" invoice is the construction deposit (draw 0).
+    await client.query(`UPDATE invoices SET economic_key = 'draw:0:deposit-on-signing' WHERE project_id = $1`, [unsigned]);
     const vendorId = await seedVendor(client);
     const poId = await seedPO(client, unsigned, vendorId, [{ description: "Lumber", qty: 1, unitCents: 10_000 }]);
     const prep = await prepareCommitment(run, { source: { kind: "purchase_order", purchaseOrderId: poId }, principal: agent });

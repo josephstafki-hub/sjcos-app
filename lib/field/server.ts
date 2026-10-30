@@ -7,7 +7,7 @@ import "server-only";
 // Hooks the integration owner should re-point once the sibling workstreams
 // land (see docs/automation-reliability/status/A16.md):
 //   fundingAvailable        → lib/funding (WS-procurement)
-//   initialPaymentReceived  → lib/billing (WS-money)         [default reads invoices/invoice_payments]
+//   initialPaymentReceived  → lib/workflow/deposit           [bound: construction deposit paid; pre-con fee never counts]
 //   onMilestoneConfirmed    → lib/billing issue_progress_on_owner_confirmation (WS-money)
 //   createFollowUp          → lib/obligations (WS-recovery)  [default: a work_items row]
 
@@ -22,6 +22,7 @@ import { buildWeeklyClientSummary, dueWeeklySummaries } from "./weekly-summary";
 import { sweepApprovedFieldDecisions } from "./apply-decisions";
 import { projectFunding } from "@/lib/funding";
 import { issueProgressOnOwnerConfirmation } from "@/lib/billing/commands";
+import { constructionDepositPaid } from "@/lib/workflow/deposit";
 
 /** Default follow-up creator: a work item on the project (WS-recovery's
  *  obligations engine can replace this by re-binding the hook). Deduped on
@@ -48,6 +49,9 @@ export function boundFieldHooks(overrides: Partial<FieldHooks> = {}): { hooks: F
       const f = await projectFunding(run, projectId);
       return { ok: f.status === "known", availableCents: f.status === "known" ? f.availableCents : null, reason: f.reason ?? `${f.collectedSource}: available ${f.availableCents} cents` };
     },
+    // WS-money: confirmed dates wait on the construction deposit, paid in
+    // full. The pre-con fee (often the job's first invoice) never counts.
+    initialPaymentReceived: constructionDepositPaid,
     // WS-money: Joe's confirmed milestone issues its draw invoice once (W10).
     onMilestoneConfirmed: async (run, projectId, milestoneKey, decisionId) => {
       const principal = await ownerPrincipalForPolicy();

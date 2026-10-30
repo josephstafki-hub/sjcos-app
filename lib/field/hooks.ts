@@ -8,6 +8,7 @@
 // caller is told so).
 
 import type { Run } from "../commands/core.ts";
+import { constructionDepositPaid } from "../workflow/deposit.ts";
 
 export interface FundingVerdict {
   ok: boolean;
@@ -38,7 +39,8 @@ export interface OwnerAlert {
 export interface FieldHooks {
   /** WS-procurement `lib/funding/*`: reconciled cash available to this project. */
   fundingAvailable: (run: Run, projectId: string) => Promise<FundingVerdict>;
-  /** WS-money: has the initial (contract) payment been received in full? */
+  /** WS-money: has the construction deposit (the contract's initial payment)
+   *  been paid in full? The pre-con fee never counts. */
   initialPaymentReceived: (run: Run, projectId: string) => Promise<boolean>;
   /** WS-money `invoice.issue_progress_on_owner_confirmation` consumer. Called
    *  exactly once per (project, milestone). */
@@ -64,20 +66,9 @@ export function defaultFieldHooks(overrides: Partial<FieldHooks> = {}): FieldHoo
   };
 }
 
-/** Default reader for the initial payment: if WS-money's invoice_payments
- *  table exists, the first (lowest id) invoice must be covered in full by
- *  recorded payments; else fall back to invoices.status = 'paid' on the
- *  earliest invoice; else false. Never guesses. */
+/** Default reader for the initial payment: the construction deposit invoice,
+ *  paid in full (lib/workflow/deposit.ts). Not the project's first invoice:
+ *  on real jobs that is the pre-con fee. Never guesses. */
 export async function defaultInitialPaymentReceived(run: Run, projectId: string): Promise<boolean> {
-  const [t] = await run<{ present: string | null }>(`SELECT to_regclass('public.invoice_payments')::text AS present`);
-  if (t?.present) {
-    const rows = await run<{ covered: boolean }>(
-      `SELECT COALESCE((SELECT sum(p.amount_cents) FROM invoice_payments p WHERE p.invoice_id = i.id), 0) >= i.amount AS covered
-         FROM invoices i WHERE i.project_id = $1 ORDER BY i.id LIMIT 1`,
-      [projectId],
-    );
-    return rows[0]?.covered === true;
-  }
-  const rows = await run<{ status: string }>(`SELECT status FROM invoices WHERE project_id = $1 ORDER BY id LIMIT 1`, [projectId]);
-  return rows[0]?.status === "paid";
+  return constructionDepositPaid(run, projectId);
 }

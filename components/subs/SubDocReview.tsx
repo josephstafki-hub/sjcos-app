@@ -25,11 +25,11 @@ export function SubDocReview({
   const [reason, setReason] = useState("");
 
   const inputCls =
-    "rounded-md border border-rule bg-card px-2 py-1 text-[12px] text-ink-2 outline-none focus:border-accent";
+    "rounded-md border border-rule bg-card px-2 py-1 text-label text-ink-2 outline-none focus:border-accent";
   const btnCls =
-    "inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-paper-2 disabled:opacity-50";
+    "inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-label font-semibold text-ink hover:bg-paper-2 disabled:opacity-50";
   const btnPrimary =
-    "inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50";
+    "inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-label font-semibold text-paper hover:bg-ink/90 disabled:opacity-50";
 
   function accept() {
     const fd = new FormData();
@@ -37,7 +37,12 @@ export function SubDocReview({
     startTransition(async () => {
       await runAction(() => acceptSubDocument(slug, documentId, fd), {
         fallback: "Could not accept it.",
-        onSuccess: () => toast({ kind: "success", title: "Accepted", message: `COI accepted · expires ${expires}` }),
+        onSuccess: () =>
+          toast({
+            kind: "success",
+            title: "Accepted",
+            message: `COI accepted · expires ${expires}`,
+          }),
       });
     });
   }
@@ -51,7 +56,11 @@ export function SubDocReview({
         onSuccess: (r) => {
           setRejecting(false);
           setReason("");
-          toast({ kind: "info", title: "Rejected", message: r.notice ?? "Rejected." });
+          toast({
+            kind: "info",
+            title: "Rejected",
+            message: r.notice ?? "Rejected.",
+          });
         },
       });
     });
@@ -68,10 +77,20 @@ export function SubDocReview({
           autoFocus
         />
         <div className="flex flex-wrap justify-end gap-1.5">
-          <button type="button" className={btnCls} disabled={pending} onClick={() => setRejecting(false)}>
+          <button
+            type="button"
+            className={btnCls}
+            disabled={pending}
+            onClick={() => setRejecting(false)}
+          >
             Cancel
           </button>
-          <button type="button" className={btnPrimary} disabled={pending || !reason.trim()} onClick={reject}>
+          <button
+            type="button"
+            className={btnPrimary}
+            disabled={pending || !reason.trim()}
+            onClick={reject}
+          >
             <X className="size-3" strokeWidth={2} />
             {pending ? "Rejecting…" : "Reject and ask for a new one"}
           </button>
@@ -82,15 +101,30 @@ export function SubDocReview({
 
   return (
     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-      <label className="flex items-center gap-1 text-[11px] text-ink-3">
+      <label className="flex items-center gap-1 text-meta text-ink-3">
         Expires
-        <input type="date" value={expires} onChange={(e) => setExpires(e.target.value)} className={inputCls} />
+        <input
+          type="date"
+          value={expires}
+          onChange={(e) => setExpires(e.target.value)}
+          className={inputCls}
+        />
       </label>
       <div className="flex-1" />
-      <button type="button" className={btnCls} disabled={pending} onClick={() => setRejecting(true)}>
+      <button
+        type="button"
+        className={btnCls}
+        disabled={pending}
+        onClick={() => setRejecting(true)}
+      >
         Reject
       </button>
-      <button type="button" className={btnPrimary} disabled={pending || !expires} onClick={accept}>
+      <button
+        type="button"
+        className={btnPrimary}
+        disabled={pending || !expires}
+        onClick={accept}
+      >
         <Check className="size-3" strokeWidth={2} />
         {pending ? "Accepting…" : "Accept"}
       </button>

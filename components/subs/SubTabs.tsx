@@ -27,8 +27,12 @@ export function SubTabs({
       <div className="mt-4">
         {content ?? (
           <Card kind="dashed" className="p-8 text-center">
-            <div className="font-serif text-[16px] font-semibold text-ink-2">{labels[active]}</div>
-            <div className="mt-1 text-[12px] text-ink-3">This tab arrives in a later phase.</div>
+            <div className="font-serif text-heading font-semibold text-ink-2">
+              {labels[active]}
+            </div>
+            <div className="mt-1 text-label text-ink-3">
+              This tab arrives in a later phase.
+            </div>
           </Card>
         )}
       </div>

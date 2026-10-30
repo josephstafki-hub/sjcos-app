@@ -1,7 +1,7 @@
 // Subs directory data builder. DB-backed (Phase 7.2): list + detail read the
 // subs table via lib/db. The card shape is display-oriented (initials, fav,
 // star int, trade filter key, COI label) — derived from the row in the mapper.
-// Detail merges curated reliability content per slug; AI summary via lib/ai.ts.
+// Detail uses recorded contacts, paperwork and assignments; AI summary is on demand.
 
 import type { CoiStatus } from "./types";
 import { ai } from "./ai";
@@ -72,10 +72,8 @@ interface SubRow {
   notes: string;
   /** Real assignments still on the board — see live_total. */
   live_open_jobs: number;
-  /** Real rows in project_subs for this sub. The static subs.jobs_count column
-   *  predates project_subs and holds pre-system history, so the card takes the
-   *  GREATER of the two: a sub with 2 live assignments reads 2 instead of 0,
-   *  while an old hand's logged history isn't erased by the switch. */
+  /** Assignment count is separate from completed history: an upcoming job is
+   *  not a completion. Completed count retains pre-system jobs_count history. */
   live_total: number;
   live_completed: number;
   created_label: string;
@@ -169,9 +167,7 @@ export interface SubDetail {
   jobsCount: number;
   rating: number;
   reliability: { label: string; value: string }[];
-  /** Raw text the AI summary is composed from. NOT awaited in getSub — the
-   *  summary streams via getSubSummary() in a Suspense slot so the page never
-   *  blocks on CPU Qwen (~10–20s). */
+  /** Recorded facts for the owner's on-demand reliability summary. */
   aiSummaryInput: string;
   recentJobs: {
     projectSlug: string;
@@ -186,11 +182,6 @@ export interface SubDetail {
   notes: string;
 }
 
-/** Rich curated content keyed by slug. Subs not listed here get a sensible
- *  generic detail built from their card, so every card opens a real page.
- *  NOTE: recentJobs is deliberately NOT curated — a sub's job history comes from
- *  project_subs only (see getSubJobs). Curated jobs here would mask the real
- *  assignments this page exists to show. */
 /** Split a free-form rate string ("$60/hr", "lump sum", "sq ft") into an
  *  amount + unit for the rate card. */
 function splitRate(rate: string): { amount: string; unit: string } {
@@ -273,7 +264,6 @@ export async function getSub(slug: string): Promise<SubDetail | null> {
   if (!rows[0]) return null;
   const card = rowToCard(rows[0]);
 
-  const curated: Partial<SubDetail> = {};
   const recentJobs = await getSubJobs(slug, card.trade);
 
   const fallbackSummary =
@@ -281,10 +271,8 @@ export async function getSub(slug: string): Promise<SubDetail | null> {
     `${card.rating ? `${card.rating}-star rating` : "rating not yet recorded"}. A fuller reliability profile fills in as ` +
     `jobs are logged.`;
 
-  // The reliability blurb is the AI touch-point. It is NOT awaited here — that
-  // would block the page on ~10–20s of CPU inference. The raw input is returned;
-  // getSubSummary() resolves it inside a Suspense slot on the page.
-  const aiSummaryInput = curated.aiSummaryInput ?? fallbackSummary;
+  // Inference runs only after the owner requests a summary; page loads are reads.
+  const aiSummaryInput = fallbackSummary;
 
   const { amount, unit } = splitRate(card.rate);
 
@@ -302,21 +290,19 @@ export async function getSub(slug: string): Promise<SubDetail | null> {
     slug: card.slug,
     initials: card.initials,
     name: card.name,
-    tradeLine: curated.tradeLine ?? card.trade.toLowerCase(),
+    tradeLine: card.trade.toLowerCase(),
     working: card.openJobs > 0,
     coiStatus: card.coiStatus,
     coiLabel: card.coiLabel,
-    w9: curated.w9 ?? (card.w9OnFile ? "on file" : "missing"),
-    contact:
-      curated.contact ??
-      [rows[0].email, rows[0].phone, `Added ${rows[0].created_label}`]
-        .filter(Boolean)
-        .join(" · "),
+    w9: card.w9OnFile ? "on file" : "missing",
+    contact: [rows[0].email, rows[0].phone, `Added ${rows[0].created_label}`]
+      .filter(Boolean)
+      .join(" · "),
     phone: rows[0].phone,
     email: rows[0].email,
     jobsCount: card.jobsCount,
     rating: card.rating,
-    reliability: curated.reliability ?? [
+    reliability: [
       { label: "Jobs completed", value: String(card.jobsCount) },
       {
         label: "Rating",
@@ -327,7 +313,7 @@ export async function getSub(slug: string): Promise<SubDetail | null> {
     ],
     aiSummaryInput,
     recentJobs,
-    paperwork: curated.paperwork ?? [
+    paperwork: [
       {
         label: "COI · GL + WC",
         value: card.coiLabel || "missing",
@@ -340,9 +326,9 @@ export async function getSub(slug: string): Promise<SubDetail | null> {
       },
       { label: "Sub agreement", value: "—", ok: false },
     ],
-    rate: curated.rate ?? { amount, unit, note: "" },
+    rate: { amount, unit, note: "" },
     // No fabricated 1099 reminder — the note only shows when curated/real.
-    taxNote: curated.taxNote ?? "",
+    taxNote: "",
     notes: rows[0].notes,
   };
 }

@@ -117,11 +117,17 @@ test("F8/F9/F11: archive and restore retain identities and history; material edi
     await updateCatalogRecord(run, Number(m.id), {
       name: "Edited",
       sku: "after",
+      price: "$123.45",
     });
     await setDirectoryArchived(run, "catalog_items", m.id, true);
     await setDirectoryArchived(run, "catalog_items", m.id, false);
     const [r] = await run("SELECT * FROM catalog_items WHERE id=$1", [m.id]);
     assert.equal(r.name, "Edited");
+    assert.equal(
+      r.price_cents,
+      12345,
+      "designer pricing must follow an edited catalog price",
+    );
     assert.equal(r.source_url, "https://example.test");
     assert.equal(r.archived_at, null);
   } finally {

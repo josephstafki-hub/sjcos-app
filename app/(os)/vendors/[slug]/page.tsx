@@ -1,70 +1,144 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Shell } from "@/components/shell/Shell";
-import { Avatar, Card, Chip, Eyebrow } from "@/components/ui";
+import {
+  Card,
+  Chip,
+  PageHeader,
+  EmptyState,
+  TableWrapper,
+  Table,
+  TableHead,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TablePrimaryCell,
+  TableCell,
+} from "@/components/ui";
 import { VendorNotes } from "@/components/vendors/VendorNotes";
 import { VendorHeaderEdit } from "@/components/vendors/VendorHeaderEdit";
+import { DirectoryRecordMenu } from "@/components/subs/DirectoryRecordMenu";
 import { getVendor } from "@/lib/vendors";
 import { PO_STATUS_LABEL, PO_STATUS_KIND, type PoStatus } from "@/lib/po-types";
-
-export default async function VendorDetailPage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function VendorDetailPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
   const { slug } = await params;
   const vendor = await getVendor(slug);
   if (!vendor) notFound();
-
   return (
-    <Shell breadcrumb="VENDORS · DIRECTORY">
-      <div className="mx-auto max-w-[900px] px-4 pb-16 pt-6 sm:px-7">
-        <Link href="/vendors" className="text-[12px] font-semibold text-ink-3 hover:text-ink">
-          ← All vendors
-        </Link>
-
-        <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <Avatar initials={vendor.initials} kind={vendor.fav ? "accent" : "gray"} size="lg" />
-            <div>
-              <Eyebrow muted>{vendor.trade || "Vendor"}</Eyebrow>
-              <h1 className="font-serif text-[28px] font-medium leading-none tracking-tight text-accent-2">
-                {vendor.name}
-              </h1>
-              <div className="mt-1 text-[12px] text-ink-3">
-                {vendor.email || "—"}
-                {vendor.phone ? ` · ${vendor.phone}` : ""}
-              </div>
+    <Shell breadcrumb={`VENDORS › ${vendor.name}`}>
+      <div className="mx-auto max-w-6xl px-4 pb-16 pt-6 @2xl/page:px-7">
+        <PageHeader
+          variant="record"
+          title={vendor.name}
+          badge={vendor.archived ? <Chip>Archived</Chip> : undefined}
+          meta={vendor.trade || "Materials supplier"}
+          actions={
+            <>
+              <VendorHeaderEdit {...vendor} />
+              <DirectoryRecordMenu table="vendors" {...vendor} />
+            </>
+          }
+        />
+        {vendor.archived && (
+          <p className="mt-4 rounded-md bg-neutral-soft px-3 py-2 text-body text-ink-2">
+            Archived · purchase orders and notes are preserved. Use the actions
+            menu to restore this vendor.
+          </p>
+        )}
+        <div className="mt-6 grid min-w-0 grid-cols-1 gap-6 @4xl/page:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="min-w-0">
+            <h2 className="mb-3 font-serif text-heading font-semibold">
+              Purchase orders{" "}
+              <span className="ml-1 font-sans text-meta font-normal text-ink-3">
+                {vendor.purchaseOrders.length}
+              </span>
+            </h2>
+            <TableWrapper>
+              <Table density="compact">
+                <TableHead>
+                  <TableRow>
+                    <TableHeader>Order</TableHeader>
+                    <TableHeader className="@max-2xl/page:hidden">
+                      Status
+                    </TableHeader>
+                    <TableHeader numeric>Total</TableHeader>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {vendor.purchaseOrders.map((po) => (
+                    <TableRow key={`${po.projectSlug}-${po.poNumber}`}>
+                      <TablePrimaryCell
+                        meta={
+                          <>
+                            {po.projectName} · {po.createdLabel}
+                            <span className="ml-2 @2xl/page:hidden">
+                              {PO_STATUS_LABEL[po.status as PoStatus] ??
+                                po.status}
+                            </span>
+                          </>
+                        }
+                      >
+                        <Link
+                          href={`/projects/${po.projectSlug}?tab=Money`}
+                          className="hover:underline"
+                        >
+                          <span className="mr-2 font-mono text-meta font-normal text-ink-3">
+                            {po.poNumber}
+                          </span>
+                          {po.title}
+                        </Link>
+                      </TablePrimaryCell>
+                      <TableCell className="@max-2xl/page:hidden">
+                        <Chip
+                          kind={
+                            PO_STATUS_KIND[po.status as PoStatus] ?? "ghost"
+                          }
+                        >
+                          {PO_STATUS_LABEL[po.status as PoStatus] ?? po.status}
+                        </Chip>
+                      </TableCell>
+                      <TableCell numeric className="whitespace-nowrap">
+                        {po.subtotalLabel}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              {!vendor.purchaseOrders.length && (
+                <EmptyState
+                  title="No purchase orders yet"
+                  description="Orders created for this vendor on a project appear here with their status and total."
+                />
+              )}
+            </TableWrapper>
+            <div className="mt-6">
+              <VendorNotes slug={slug} notes={vendor.notes} />
             </div>
           </div>
-          <VendorHeaderEdit slug={vendor.slug} name={vendor.name} trade={vendor.trade} email={vendor.email} phone={vendor.phone} fav={vendor.fav} />
-        </div>
-
-        <div className="mt-5 grid grid-cols-1 gap-3.5 lg:grid-cols-[1fr_320px]">
-          <Card className="overflow-hidden p-0">
-            <div className="border-b border-rule px-4 py-2.5">
-              <h3 className="font-serif text-[15px] font-semibold text-ink">
-                Purchase orders · {vendor.purchaseOrders.length}
-              </h3>
-            </div>
-            {vendor.purchaseOrders.length === 0 ? (
-              <div className="p-6 text-center text-[12px] text-ink-3">No purchase orders yet.</div>
-            ) : (
-              vendor.purchaseOrders.map((po, i) => (
-                <Link
-                  key={`${po.projectSlug}-${po.poNumber}`}
-                  href={`/projects/${po.projectSlug}`}
-                  className={`flex items-center gap-3 px-4 py-2.5 text-[13px] hover:bg-paper-2 ${i ? "border-t border-rule-soft" : ""}`}
-                >
-                  <span className="w-[64px] flex-none font-mono text-[11px] text-ink-3">{po.poNumber}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-ink">{po.title}</div>
-                    <div className="text-[11px] text-ink-3">{po.projectName} · {po.createdLabel}</div>
+          <aside className="order-first min-w-0 @4xl/page:order-last">
+            <Card className="p-4">
+              <h2 className="mb-4 text-subheading font-semibold">Details</h2>
+              <dl className="space-y-4 text-body">
+                {[
+                  ["Category", vendor.trade || "Not recorded"],
+                  ["Email", vendor.email || "Not recorded"],
+                  ["Phone", vendor.phone || "Not recorded"],
+                  ["Favorite", vendor.fav ? "Yes" : "No"],
+                ].map(([k, v]) => (
+                  <div key={k} className="grid grid-cols-[80px_1fr] gap-3">
+                    <dt className="text-meta text-ink-3">{k}</dt>
+                    <dd className="min-w-0 break-words [overflow-wrap:anywhere]">
+                      {v}
+                    </dd>
                   </div>
-                  <Chip kind={PO_STATUS_KIND[po.status as PoStatus] ?? "ghost"}>{PO_STATUS_LABEL[po.status as PoStatus] ?? po.status}</Chip>
-                  <span className="font-mono text-[12px] text-ink-2">{po.subtotalLabel}</span>
-                </Link>
-              ))
-            )}
-          </Card>
-
-          <VendorNotes slug={vendor.slug} notes={vendor.notes} />
+                ))}
+              </dl>
+            </Card>
+          </aside>
         </div>
       </div>
     </Shell>

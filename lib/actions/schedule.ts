@@ -189,16 +189,19 @@ export async function autoLogTodayFromPhotos(): Promise<
   const drafted: string[] = [];
   for (const r of rows) {
     const names = r.photos.slice(0, 8).join(", ");
-    const ai = await askOllamaJson<{ body: string }>(
-      `Write a 1–2 sentence construction daily-log entry for the project "${r.name}", ` +
-        `based only on today's uploaded site-photo filenames: ${names}. ` +
-        `Factual and past tense; do not invent work that the filenames don't show.`,
-      {
-        type: "object",
-        properties: { body: { type: "string" } },
-        required: ["body"],
-      },
-    );
+    // The mock provider must never start a local model as a side effect.
+    const ai = (process.env.AI_PROVIDER ?? "mock") === "mock"
+      ? null
+      : await askOllamaJson<{ body: string }>(
+          `Write a 1–2 sentence construction daily-log entry for the project "${r.name}", ` +
+            `based only on today's uploaded site-photo filenames: ${names}. ` +
+            `Factual and past tense; do not invent work that the filenames don't show.`,
+          {
+            type: "object",
+            properties: { body: { type: "string" } },
+            required: ["body"],
+          },
+        );
     const fallback = `${r.photos.length} site photo${r.photos.length === 1 ? "" : "s"} uploaded (${names}).`;
     await query(
       `INSERT INTO daily_logs (project_id, log_date, body, photos)

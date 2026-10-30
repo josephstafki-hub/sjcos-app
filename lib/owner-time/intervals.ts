@@ -184,6 +184,8 @@ export async function reviewRange(run: Run, userId: string, from: string, to: st
   const flags: ReviewFlag[] = [];
   const now = Date.now();
   for (const [i, a] of intervals.entries()) {
+    // Retain discarded records for recovery, but they no longer need review.
+    if (a.state === "discarded") continue;
     const aS = Date.parse(a.start_at);
     const aE = a.end_at ? Date.parse(a.end_at) : now;
     if (!a.end_at && a.state === "confirmed" && now - aS > 14 * 3600_000) flags.push({ intervalId: a.id, flag: "missing_exit", detail: "running for more than 14 hours" });
@@ -194,7 +196,7 @@ export async function reviewRange(run: Run, userId: string, from: string, to: st
     for (const b of intervals.slice(i + 1)) {
       const bS = Date.parse(b.start_at);
       const bE = b.end_at ? Date.parse(b.end_at) : now;
-      if (bS < aE && aS < bE && a.state !== "discarded" && b.state !== "discarded") {
+      if (bS < aE && aS < bE && b.state !== "discarded") {
         flags.push({ intervalId: a.id, flag: "overlap", relatedIntervalId: b.id, detail: `overlaps ${b.id} (${a.source} vs ${b.source}); counted once` });
       }
     }

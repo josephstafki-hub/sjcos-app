@@ -193,10 +193,8 @@ export function TimeReview({
               {
                 value: "review",
                 label: "Needs review",
-                count: review.flags.filter(
-                  (f) =>
-                    review.intervals.find((i) => i.id === f.intervalId)
-                      ?.state !== "discarded",
+                count: review.intervals.filter(
+                  (i) => i.state !== "discarded" && flagsFor(i.id).length > 0,
                 ).length,
               },
               { value: "discarded", label: "Discarded" },
@@ -256,13 +254,11 @@ export function TimeReview({
                         </Chip>
                       </div>
                       <div className="mt-1 @3xl/page:hidden">
-                        {flagsFor(i.id)
-                          .slice(0, 2)
-                          .map((f) => (
-                            <p key={f.flag} className="text-meta text-warn">
-                              {flagLabel(f, review.intervals, projects)}
-                            </p>
-                          ))}
+                        {flagsFor(i.id).map((f, n) => (
+                          <p key={`${f.flag}-${n}`} className="text-meta text-warn">
+                            {flagLabel(f, review.intervals, projects)}
+                          </p>
+                        ))}
                       </div>
                     </TableCell>
                     <TableCell numeric className="whitespace-nowrap">
@@ -283,6 +279,7 @@ export function TimeReview({
                         <Button
                           variant="secondary"
                           size="sm"
+                          className="max-sm:h-11"
                           onClick={() => adjust(i)}
                         >
                           {i.state === "discarded" ? "Restore" : "Adjust"}
@@ -291,6 +288,7 @@ export function TimeReview({
                           <Button
                             variant="ghost"
                             size="sm"
+                            className="max-sm:h-11"
                             disabled={pending}
                             onClick={() =>
                               act(() =>
@@ -310,6 +308,7 @@ export function TimeReview({
                             <Button
                               variant="ghost"
                               size="sm"
+                              className="max-sm:h-11"
                               disabled={
                                 pending ||
                                 (i.choices.length > 1 && !i.project_id)
@@ -329,6 +328,7 @@ export function TimeReview({
                             <Button
                               variant="ghost"
                               size="sm"
+                              className="max-sm:h-11"
                               disabled={pending}
                               onClick={() =>
                                 act(() =>
@@ -346,7 +346,7 @@ export function TimeReview({
                           <details className="relative">
                             <summary
                               aria-label="More time actions"
-                              className="cursor-pointer list-none rounded-md p-2 hover:bg-hover"
+                              className="cursor-pointer list-none rounded-md p-2 hover:bg-hover max-sm:flex max-sm:size-11 max-sm:items-center max-sm:justify-center"
                             >
                               <MoreHorizontal className="size-4" />
                             </summary>
@@ -354,7 +354,7 @@ export function TimeReview({
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="text-flag"
+                                className="text-flag max-sm:h-11"
                                 disabled={pending}
                                 onClick={() =>
                                   act(() =>

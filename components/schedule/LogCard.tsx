@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { Camera, X } from "lucide-react";
 import { useDialogDismiss } from "@/lib/use-dialog-dismiss";
-import { Card } from "@/components/ui";
+import { Button, Card } from "@/components/ui";
 import type { DailyLogEntry } from "@/lib/schedule";
 
 /** A logged day in the daily-log lane. Click opens the full entry (the truncated
@@ -18,7 +18,7 @@ export function LogCard({ log }: { log: DailyLogEntry }) {
       <button
         ref={trigger}
         onClick={() => setOpen(true)}
-        className="text-left focus:outline-none"
+        className="rounded-lg text-left focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus"
       >
         <Card className="flex min-h-20 flex-col p-2.5 transition-colors hover:bg-paper-2">
           <div className="text-label font-semibold text-accent-2">
@@ -39,14 +39,14 @@ export function LogCard({ log }: { log: DailyLogEntry }) {
 
       {open && (
         <div
-          className="fixed inset-0 z-50 flex items-start justify-center bg-ink/30 p-4 pt-[12vh]"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 p-4"
           onClick={() => setOpen(false)}
         >
           <div
             role="dialog"
             aria-modal="true"
             aria-label="Daily log"
-            className="w-full max-w-lg rounded-xl border border-rule-soft bg-card shadow-modal"
+            className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-xl border border-rule-soft bg-card shadow-modal"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-rule px-4 py-3">
@@ -58,13 +58,13 @@ export function LogCard({ log }: { log: DailyLogEntry }) {
                   {log.iso}
                 </h2>
               </div>
-              <button
+              <Button
                 onClick={() => setOpen(false)}
-                className="text-ink-3 hover:text-ink"
+                icon={X}
+                iconOnly
                 aria-label="Close"
-              >
-                <X className="size-4" strokeWidth={1.5} />
-              </button>
+                title="Close"
+              />
             </div>
             <div className="p-4">
               <p className="whitespace-pre-wrap text-body leading-relaxed text-ink-2">

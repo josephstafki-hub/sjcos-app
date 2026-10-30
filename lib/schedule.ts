@@ -147,10 +147,15 @@ export async function getScheduleData(weekOffset = 0): Promise<ScheduleData> {
       WHERE b.block_date >= ${MONDAY} AND b.block_date <= ${FRIDAY}
       ORDER BY b.block_date, b.sort_min`),
     query<LogRow>(`
-      SELECT to_char(log_date, 'YYYY-MM-DD') AS iso, body, photos
-      FROM daily_logs
-      WHERE project_id IS NULL
-        AND log_date >= ${MONDAY} AND log_date <= ${FRIDAY}`),
+      SELECT to_char(d.log_date, 'YYYY-MM-DD') AS iso,
+             string_agg(CASE WHEN p.id IS NULL THEN d.body
+                        ELSE p.name || E'\\n' || d.body END,
+                        E'\\n\\n' ORDER BY p.name NULLS FIRST, d.id) AS body,
+             sum(d.photos)::int AS photos
+      FROM daily_logs d
+      LEFT JOIN projects p ON p.id = d.project_id
+      WHERE d.log_date >= ${MONDAY} AND d.log_date <= ${FRIDAY}
+      GROUP BY d.log_date`),
     query<WeekRow>(`
       SELECT to_char(${MONDAY}, 'FMIW')           AS weeknum,
              to_char(${MONDAY}, 'FMMon FMDD')     AS range_start,

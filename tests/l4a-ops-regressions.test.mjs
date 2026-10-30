@@ -11,7 +11,7 @@ const stubs = {
   [lib("db")]:
     "export const query = async (s,p=[]) => { globalThis.__l4queries.push({s,p}); return {rows: await globalThis.__l4handler(s,p)}; }; export const queryOne = async (s,p) => (await query(s,p)).rows[0] ?? null;",
   [lib("ai")]:
-    'export const ai = {summarize: async () => ({summary:""})}; export const askOllamaJson = async () => null;',
+    'export const ai = {summarize: async () => ({summary:""})}; export const askOllamaJson = async () => { globalThis.__l4modelCalls++; return null; };',
   [lib("dal")]:
     "export const requireAccess = async () => ({}); export const requireRole = async () => ({});",
   [lib("rooms")]: "export const closeEntityRoom = async () => {};",
@@ -123,6 +123,25 @@ test("F7 malformed schedule time is refused before writing; valid meridiem norma
   const ins = queries.find((q) => /INSERT INTO schedule_blocks/.test(q.s));
   assert.equal(ins.p[1], "17:00");
   assert.equal(ins.p[2], 1020);
+});
+
+test("Schedule photo logging respects mock mode without calling the local model", async () => {
+  const provider = process.env.AI_PROVIDER;
+  process.env.AI_PROVIDER = "mock";
+  globalThis.__l4modelCalls = 0;
+  reset((s) => s.includes("FROM files f JOIN projects") ? [{
+    id: "job", slug: "zz-qa-job", name: "ZZ QA job", photos: ["ZZ QA progress.jpg"],
+  }] : []);
+  try {
+    const result = await schedule.autoLogTodayFromPhotos();
+    assert.equal(result.drafted, 1);
+    assert.equal(globalThis.__l4modelCalls, 0);
+    const insert = queries.find((q) => q.s.includes("INSERT INTO daily_logs"));
+    assert.match(insert.p[1], /1 site photo uploaded \(ZZ QA progress.jpg\)/);
+  } finally {
+    if (provider === undefined) delete process.env.AI_PROVIDER;
+    else process.env.AI_PROVIDER = provider;
+  }
 });
 
 test("F14 resolved warranty claims remain available and can reopen", async () => {
@@ -309,6 +328,27 @@ test("F18 flags identify the conflicting job and Central time without exposing I
   assert.match(detail, /ZZ QA Kitchen/);
   assert.match(detail, /10:00 AM/);
   assert.ok(!/uuid|designer_activity/.test(detail));
+});
+
+test("F18 discarded sessions stay recoverable without inflating active review flags", async () => {
+  const { reviewRange } = await import("../lib/owner-time/intervals.ts");
+  const discarded = {
+    id: "discarded-session",
+    start_at: "2026-10-29T05:00:00Z",
+    end_at: "2026-10-30T05:00:00Z",
+    state: "discarded",
+    category: "site",
+    project_id: null,
+  };
+  const review = await reviewRange(
+    async () => [discarded],
+    "owner",
+    "2026-10-29T00:00:00Z",
+    "2026-10-31T00:00:00Z",
+  );
+  assert.equal(review.intervals.length, 1, "Discarded view can still recover the entry");
+  assert.deepEqual(review.flags, [], "Discarded hours no longer need active review");
+  assert.deepEqual(review.totals, { site: 0, office: 0, overhead: 0 });
 });
 
 test("F2 V45 runtime follow-through does not append unconfigured statutory coverage", async () => {

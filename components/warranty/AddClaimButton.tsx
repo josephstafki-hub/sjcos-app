@@ -3,6 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, X } from "lucide-react";
+import { Button } from "@/components/ui";
 import { createWarrantyClaim } from "@/lib/actions/warranty";
 import { useDialogDismiss } from "@/lib/use-dialog-dismiss";
 import { runAction } from "@/lib/run-action";
@@ -23,14 +24,14 @@ export function AddClaimButton({
   const router = useRouter();
 
   const inputCls =
-    "w-full rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent";
+    "w-full min-w-0 rounded-md border border-rule bg-card px-3 py-2 text-body text-ink focus-visible:outline-2 focus-visible:outline-focus";
 
   return (
     <>
       <button
         ref={trigger}
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-label font-semibold text-paper hover:bg-ink-hover max-sm:h-11"
+        className="inline-flex h-8 items-center gap-1.5 rounded-md bg-ink px-3 text-body font-semibold text-paper hover:bg-ink-hover focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus max-sm:h-11"
       >
         <Plus className="size-3" strokeWidth={2} />
         Log a claim
@@ -38,27 +39,27 @@ export function AddClaimButton({
 
       {open && (
         <div
-          className="fixed inset-0 z-50 flex items-start justify-center bg-ink/30 p-4 pt-[12vh]"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 p-4"
           onClick={() => setOpen(false)}
         >
           <div
             role="dialog"
             aria-modal="true"
             aria-label="Log a warranty claim"
-            className="w-full max-w-lg rounded-xl border border-rule-soft bg-card shadow-modal"
+            className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-xl border border-rule-soft bg-card shadow-modal"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-rule px-4 py-3">
               <h2 className="font-serif text-title font-semibold text-ink">
                 Log a warranty claim
               </h2>
-              <button
+              <Button
                 onClick={() => setOpen(false)}
-                className="text-ink-3 hover:text-ink"
+                icon={X}
+                iconOnly
                 aria-label="Close"
-              >
-                <X className="size-4" strokeWidth={1.5} />
-              </button>
+                title="Close"
+              />
             </div>
             <form
               ref={formRef}
@@ -80,7 +81,7 @@ export function AddClaimButton({
                 });
               }}
             >
-              <label className="flex flex-col gap-1">
+              <label className="flex min-w-0 flex-col gap-1.5">
                 <span className="text-label font-medium text-ink-3">
                   Project
                 </span>
@@ -113,22 +114,22 @@ export function AddClaimButton({
                   className={`${inputCls} resize-y`}
                 />
               </label>
-              {error && <div className="text-label text-flag">{error}</div>}
+              {error && (
+                <div role="alert" className="text-meta text-flag">{error}</div>
+              )}
               <div className="flex justify-end gap-2">
-                <button
-                  type="button"
+                <Button
+                  variant="secondary"
                   onClick={() => setOpen(false)}
-                  className="rounded-md border border-rule px-3 py-1.5 text-label font-semibold text-ink-3 hover:bg-paper-2 max-sm:h-11"
                 >
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
                   type="submit"
                   disabled={pending}
-                  className="rounded-md border border-ink bg-ink px-3 py-1.5 text-label font-semibold text-paper hover:bg-ink-hover max-sm:h-11 disabled:opacity-60"
                 >
                   {pending ? "Logging…" : "Log claim"}
-                </button>
+                </Button>
               </div>
             </form>
           </div>

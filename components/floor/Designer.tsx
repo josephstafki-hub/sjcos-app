@@ -370,7 +370,7 @@ export function Designer(props: DesignerProps) {
 
   const onPrint = () => setView({ panel: "versions" });
   const checks = useChecks(ctx);
-  const warnings = checks.filter(c => !d.doc.ignoredChecks.includes(c.id) && c.severity === "warn").length;
+  const issues = checks.filter(c => !d.doc.ignoredChecks.includes(c.id));
   const fit = () => { canvas.current?.fit(); scene.current?.fit(); };
   const essential = "flex min-h-11 min-w-0 flex-col items-center justify-center rounded-md text-label text-ink-2 hover:bg-hover focus-visible:outline-2 focus-visible:outline-focus disabled:opacity-40 aria-pressed:bg-selected aria-pressed:text-ink";
 
@@ -393,7 +393,7 @@ export function Designer(props: DesignerProps) {
           <button className={essential} aria-label="Zoom out" title="Zoom out" disabled={!showPlan} onClick={() => canvas.current?.zoom(0.8)}><ZoomOut className="size-4" /></button>
           <button className={essential} aria-label="Zoom in" title="Zoom in" disabled={!showPlan} onClick={() => canvas.current?.zoom(1.25)}><ZoomIn className="size-4" /></button>
           <button className={essential} aria-label="Fit drawing" title="Fit drawing" onClick={fit}><Maximize className="size-4" /><span>Fit</span></button>
-          <button className={`${essential} text-warn`} aria-label={`${warnings} warnings — open explanations`} title="Warnings" onClick={() => setView({ panel: "checks" })}><AlertTriangle className="size-4" /><span>{warnings}</span></button>
+          <button className={`${essential} text-warn`} aria-label={`${issues.length} issues — open explanations`} title={issues[0]?.message ?? "No open issues"} onClick={() => setView({ panel: "checks" })}><AlertTriangle className="size-4" /><span>{issues.length} issues</span></button>
           <button className={essential} aria-label="More drawing tools and settings" aria-expanded={controlsOpen} onClick={() => setControlsOpen(true)}><Menu className="size-4" /><span>More</span></button>
         </div>
       ) : <TopBar ctx={ctx} onFit={fit} onPrint={onPrint} />}

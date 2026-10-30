@@ -37,7 +37,8 @@ export function TopBar({
   const router = useRouter();
   const { d, view, setView, design } = ctx;
   const [menu, setMenu] = useState<null | "history" | "snap" | "layers" | "design" | "level">(null);
-  const warnings = useChecks(ctx).filter((c) => c.severity === "warn" && !d.doc.ignoredChecks.includes(c.id)).length;
+  const issues = useChecks(ctx).filter((c) => !d.doc.ignoredChecks.includes(c.id));
+  const warnings = issues.length;
   const levels = d.doc.levels;
   const level = levels.find((l) => l.id === d.levelId) ?? levels[0];
 
@@ -198,11 +199,11 @@ export function TopBar({
       <button
         className={`${btn} ${warnings ? "border-flag/40 text-flag" : ""}`}
         onClick={() => setView({ panel: "checks" })}
-        title="Warnings — open explanations"
-        aria-label={`${warnings} warnings — open explanations`}
+        title={issues[0]?.message ?? "No open issues"}
+        aria-label={`${warnings} issues — open explanations`}
       >
         <AlertTriangle className="size-3.5" />
-        {warnings}
+        {warnings} issues
       </button>
 
       <Button variant="secondary" size="sm" className={btn} onClick={onPrint} title="Print / drawing set">

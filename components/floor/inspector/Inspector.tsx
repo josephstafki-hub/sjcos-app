@@ -34,9 +34,9 @@ const TABS: { key: PanelKey; label: string; Icon: ComponentType<{ className?: st
 function TabStrip({ ctx }: { ctx: DesignerContext }) {
   const checks = useChecks(ctx);
   const ignored = new Set(ctx.d.doc.ignoredChecks);
-  const warnCount = checks.filter((c) => c.severity === "warn" && !ignored.has(c.id)).length;
+  const issueCount = checks.filter((c) => !ignored.has(c.id)).length;
   const commentCount = ctx.comments.filter((c) => !c.resolvedAt).length;
-  const badge = (k: PanelKey) => (k === "checks" ? warnCount : k === "comments" ? commentCount : 0);
+  const badge = (k: PanelKey) => (k === "checks" ? issueCount : k === "comments" ? commentCount : 0);
   return (
     <div className="flex flex-none border-b border-rule bg-paper">
       {TABS.map(({ key, label, Icon }) => {
@@ -58,7 +58,7 @@ function TabStrip({ ctx }: { ctx: DesignerContext }) {
             <Icon className="size-4" strokeWidth={1.75} />
             {n > 0 && (
               <span
-                className={`absolute right-1 top-1 min-w-[14px] rounded-full px-1 text-center font-mono text-[8.5px] font-semibold leading-[14px] ${
+                className={`absolute right-1 top-1 min-w-[14px] rounded-full px-1 text-center text-meta font-semibold leading-[14px] ${
                   key === "checks" ? "bg-flag text-paper" : "bg-info text-paper"
                 }`}
               >
@@ -99,7 +99,7 @@ function PanelTitle({ ctx, right }: { ctx: DesignerContext; right?: ReactNode })
   const tab = TABS.find((t) => t.key === ctx.view.panel);
   return (
     <div className="flex flex-none items-center gap-2 px-3 pt-2.5">
-      <div className="flex-1 font-serif text-[15px] font-semibold text-ink">{tab?.label}</div>
+      <div className="flex-1 font-serif text-heading font-semibold text-ink">{tab?.label}</div>
       {right}
     </div>
   );

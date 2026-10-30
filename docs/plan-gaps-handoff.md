@@ -207,8 +207,10 @@ by Joe/staff don't feed the weekly update (only sub logs do).
 
 ## Tier 3: built but not connected (branch + PR each)
 
-- **Bid-package and supplier-pricing release cards:** approving one sends nothing (`lib/decisions/resolve.ts`).
-  `sendBidPackageOp` (`lib/bidding.ts:~463`) is never given the card, and it needs a second grant.
+- ~~**Bid-package and supplier-pricing release cards:** approving one sends nothing.~~ **Done (branch
+  `t3/tier3-release-cards`):** approving a card emails that one sub (or supplier) through
+  `lib/procurement/release-send.ts`, with the card as the approval (no second grant). The content is rebuilt
+  at approval and must hash to the card's; an edited package, note or address sends nothing.
 - **Construction agreement on acceptance (W08):** it is never generated. `send_document_for_signature`
   always needs a grant, while the agent instructions say there's no further release.
 - **Agent wake-ups:** client, sub and supplier messages, quotes, payments, portal selections, mood-board

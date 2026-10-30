@@ -116,6 +116,10 @@ export function PanelChat({
   // Plain state, never written to panelStore, and reset after every send so a
   // grant never outlives the message that gave it.
   const [allowSends, setAllowSends] = useState(false);
+  // Follow-ups typed mid-run with Tab wait here and go out, one per run, when
+  // the current run ends (T3 Code's queue; Enter still steers). Per tab, and a
+  // queued turn never carries Express permission.
+  const [queued, setQueued] = useState<{ id: string; text: string; refs: typeof mentions.refs }[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -168,6 +172,15 @@ export function PanelChat({
   });
   const meta = AGENT_META[chat.agent];
   useEffect(() => { setAllowSends(false); }, [chat.conversationId, chat.agent]);
+  useEffect(() => { setQueued([]); }, [chat.conversationId]);
+  useEffect(() => {
+    // A steer the run couldn't take goes first (useAgentChat queuedNext).
+    if (chat.pending || chat.queuedNext || queued.length === 0) return;
+    const [next, ...rest] = queued;
+    setQueued(rest);
+    chat.submit({ directive: next.text, contextRefs: next.refs, display: next.text });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat.pending, chat.queuedNext, queued]);
 
   const narration = queueNarration(priorities, { items: waiting, total: waiting.length });
 
@@ -288,6 +301,20 @@ export function PanelChat({
 
   /** Voice-mode send: the transcript goes to the Claude concierge, which
    *  speaks back immediately and delegates any OS work. */
+  /** Tab mid-run: hold this message until the running agent finishes. */
+  const queueText = (raw: string) => {
+    const q = raw.trim();
+    if (!q || !chat.pending) return false;
+    if (attachments.length) {
+      flashNotice("Files can't be queued — send them once this run finishes");
+      return true;
+    }
+    setQueued((cur) => [...cur, { id: `${Date.now()}-${cur.length}`, text: q, refs: mentions.refs }]);
+    setPrompt("");
+    mentions.clear();
+    return true;
+  };
+
   const submitVoice = (text: string) => {
     const q = text.trim();
     if (!q || chat.pending) return;
@@ -779,6 +806,14 @@ export function PanelChat({
         {mentions.results.map((r,i)=><button type="button" key={r.id} role="option" aria-selected={i===mentions.index} onClick={()=>mentions.pick(r)} className={`block w-full rounded-md px-2 py-1.5 text-left text-body ${i===mentions.index?'bg-selected':'hover:bg-hover'}`}>{r.title}<span className="ml-2 text-meta text-ink-3">{r.kind} · {r.detail}</span></button>)}
         {!mentions.results.length&&<p className="text-meta text-ink-3">{mentions.error||'Type a job, client, or invoice name to attach it.'}</p>}
       </div>}
+      {queued.length > 0 && <div className="flex flex-col gap-1 border-t border-rule px-3 py-2" aria-label="Queued messages">
+        {queued.map((m, i) => <div key={m.id} className="flex items-center gap-2 text-meta text-ink-2">
+          <span className="flex-none text-ink-3">{i === 0 ? "Next" : "Then"}</span>
+          <span className="min-w-0 flex-1 truncate">{m.text}</span>
+          <button type="button" className="flex-none text-ink-3 hover:text-ink" aria-label={`Steer now: ${m.text}`} onClick={() => { setQueued((cur) => cur.filter((x) => x.id !== m.id)); chat.steer(m.text); }}>Steer now</button>
+          <button type="button" className="flex-none text-ink-3 hover:text-ink" aria-label={`Remove queued message: ${m.text}`} onClick={() => setQueued((cur) => cur.filter((x) => x.id !== m.id))}><X className="size-3" /></button>
+        </div>)}
+      </div>}
       {/* Composer */}
       <form
         onSubmit={(e) => {
@@ -815,6 +850,11 @@ export function PanelChat({
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={(e) => {
             if (mentions.onKeyDown(e)) return;
+            if (e.key === "Tab" && !e.shiftKey && chat.pending && prompt.trim()) {
+              e.preventDefault();
+              queueText(prompt);
+              return;
+            }
             if ((chat.agent === "claude" || chat.agent === "auto") && e.key === "Tab" && e.shiftKey) {
               e.preventDefault();
               cycleMode(1);
@@ -828,7 +868,7 @@ export function PanelChat({
             voice.voiceMode && voice.phase !== "idle"
               ? voicePlaceholder(voice.phase)
               : chat.pending
-                ? `Steer ${meta.label === "Auto" ? "the agent" : meta.label} — it reads this mid-run…`
+                ? `Steer ${meta.label === "Auto" ? "the agent" : meta.label} (Enter) or queue for after (Tab)…`
                 : `Tell ${meta.label} what to do…`
           }
           className="min-w-0 flex-1 bg-transparent font-serif text-[15px] text-ink outline-none placeholder:text-ink-4"

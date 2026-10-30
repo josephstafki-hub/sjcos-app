@@ -24,7 +24,7 @@ import {
 
 export const contractTemplate: DocTemplate = {
   key: "contract",
-  version: "2026-10-29.1",
+  version: "2026-10-30.1",
   title: "Construction Contract",
   subtitle: "A binding agreement between the parties named below.",
   docClass: "legal",
@@ -60,6 +60,17 @@ export const contractTemplate: DocTemplate = {
       required: false,
       help: "2–5 sentences describing the agreed scope; grounded on the estimate, never invents pricing.",
     },
+    // Joe's own signature (same as estimates and lien waivers)
+    {
+      key: "signed_by",
+      label: "Signed by (name)",
+      kind: "text",
+      source: "owner",
+      required: false,
+      help: "Joe signing for the company: his name is stamped on the company lines. Blank = unsigned lines.",
+    },
+    { key: "signed_title", label: "Signer title", kind: "text", source: "owner", required: false },
+    { key: "signed_date", label: "Date signed", kind: "date", source: "owner", required: false },
   ],
   build,
 };
@@ -400,7 +411,7 @@ function build(v: FieldValues): TemplateSection[] {
     para("By signing below, the Parties agree to be bound by all terms and conditions of this Agreement."),
     signatureBlock([
       { role: "Client", name: str(v, "client_name") },
-      { role: co },
+      { role: co, signed: companySigned(v) },
     ]),
   );
 
@@ -452,9 +463,16 @@ function build(v: FieldValues): TemplateSection[] {
     ),
     signatureBlock([
       { role: "Client", name: str(v, "client_name") },
-      { role: co },
+      { role: co, signed: companySigned(v) },
     ]),
   );
 
   return out;
+}
+
+/** Joe's typed signature on the company lines, when `signed_by` is set. */
+function companySigned(v: FieldValues) {
+  const name = str(v, "signed_by");
+  if (!name) return undefined;
+  return { name, title: str(v, "signed_title") || undefined, date: str(v, "signed_date") || str(v, "contract_date") };
 }

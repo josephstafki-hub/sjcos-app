@@ -175,6 +175,9 @@ export interface IssueResult {
   created: boolean;
 }
 
+/** The deposit's keys (lib/workflow/construction-start.ts isInitialInvoiceKey). */
+const DEPOSIT_KEY = /^(estimate:\d+:initial|draw:0:.+)$/;
+
 /** Idempotent on (project, economic_key). Concurrent or replayed calls return
  *  the same invoice; a different amount for the same key is NOT a new invoice
  *  (the identity already exists — correct it with void/credit/revision). */
@@ -191,6 +194,19 @@ export async function issueMilestoneInvoice(run: Run, input: IssueMilestoneInput
     [input.projectId, input.economicKey],
   );
   if (existing) return { invoice: existing, created: false };
+  // The deposit has two identities: the acceptance invoice
+  // (`estimate:<id>:initial`) and the first draw a stage change bills
+  // (`draw:0:<label>`). Whichever came first IS the deposit; the other path
+  // must find it, never bill the deposit again.
+  if (DEPOSIT_KEY.test(input.economicKey)) {
+    const [deposit] = await run<InvoiceRow>(
+      `SELECT ${INVOICE_COLS} FROM invoices
+        WHERE project_id = $1 AND status <> 'void' AND (economic_key ~ '^estimate:[0-9]+:initial$' OR economic_key LIKE 'draw:0:%')
+        ORDER BY id LIMIT 1`,
+      [input.projectId],
+    );
+    if (deposit) return { invoice: deposit, created: false };
+  }
 
   const lines: InvoiceLine[] = (input.lines?.length ? input.lines : [{ label: input.milestone, amount: input.amountCents }]).map((l) => ({
     label: String(l.label ?? "").trim(),

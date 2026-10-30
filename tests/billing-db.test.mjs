@@ -697,3 +697,25 @@ test("the final-invoice policy key in code is the one the migration seeds", asyn
   const seed = readFileSync(new URL("../db/migrations/0004_decision_surfaces.sql", import.meta.url), "utf8");
   for (const key of [POLICY_FINAL, POLICY_INITIAL]) assert.ok(seed.includes(`'${key}'`), `${key} is seeded`);
 });
+
+test("The deposit bills once whichever path comes first: a draw:0 invoice stops the acceptance invoice and vice versa; a voided one doesn't", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    const tx = txOver(url);
+    const a = await seed(client, "zz-dep-a");
+    const draw = await tx((run) => issueMilestoneInvoice(run, { projectId: a, economicKey: "draw:0:deposit", milestone: "Deposit", amountCents: 250000, source: "draw", principal: owner }));
+    assert.equal(draw.created, true);
+    const accept = await tx((run) => issueMilestoneInvoice(run, { projectId: a, economicKey: "estimate:7:initial", milestone: "Deposit", amountCents: 250000, source: "acceptance", principal: owner }));
+    assert.equal(accept.created, false, "acceptance finds the stage-billed deposit");
+    assert.equal(accept.invoice.id, draw.invoice.id);
+    // A later draw is not a deposit.
+    assert.equal((await tx((run) => issueMilestoneInvoice(run, { projectId: a, economicKey: "draw:1:framing", milestone: "Framing", amountCents: 100, source: "draw", principal: owner }))).created, true);
+
+    const b = await seed(client, "zz-dep-b");
+    const first = await tx((run) => issueMilestoneInvoice(run, { projectId: b, economicKey: "estimate:8:initial", milestone: "Deposit", amountCents: 300000, source: "acceptance", principal: owner }));
+    const again = await tx((run) => issueMilestoneInvoice(run, { projectId: b, economicKey: "draw:0:construction-deposit", milestone: "Deposit", amountCents: 300000, source: "draw", principal: owner }));
+    assert.equal(again.created, false, "a stage change finds the acceptance deposit");
+    assert.equal(again.invoice.id, first.invoice.id);
+    await client.query(`UPDATE invoices SET status = 'void' WHERE id = $1`, [first.invoice.id]);
+    assert.equal((await tx((run) => issueMilestoneInvoice(run, { projectId: b, economicKey: "draw:0:construction-deposit", milestone: "Deposit", amountCents: 300000, source: "draw", principal: owner }))).created, true, "a voided deposit can be re-billed");
+  });
+});

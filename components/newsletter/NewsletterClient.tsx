@@ -50,7 +50,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
   const [outbox, setOutbox] = useState<OutboxItem[]>(data.outbox);
   const [sequences, setSequences] = useState<Sequence[]>(data.sequences);
   const [selectedId, setSelectedId] = useState<number | null>(data.selectedId);
-  const [mode, setMode] = useState<Mode>("Edit");
+  const [mode, setMode] = useState<Mode>(data.issues.find((i) => i.id === data.selectedId)?.status === "queued" ? "Preview" : "Edit");
   // Contacts (the master list + audiences) is global, not scoped to a draft —
   // Joe found it confusing that editing it lived inside a specific issue's tab
   // bar. It now gets its own top-level view; the per-issue Recipients tab is
@@ -257,8 +257,8 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
       );
       if (res.ok) {
         patchCurrent({ status: "queued" }, true);
-        setMode("Outbox");
-        setNotice(`Queued ${res.data?.queued ?? 0} message(s). Release them below when you're ready.`);
+        setMode("Preview");
+        setNotice(`Queued ${res.data?.queued ?? 0} message(s). Review the issue, then open Outbox to request release.`);
         // Pull the real persisted rows (with real ids) so Release is enabled.
         setOutbox(await refreshOutbox());
       }
@@ -418,7 +418,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
             issues.map((it) => (
               <div
                 key={it.id}
-                className={`group flex w-full items-center gap-1.5 rounded-md px-2.5 py-2 ${
+                className={`group grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5 rounded-md px-2.5 py-2 ${
                   it.id === selectedId ? "bg-accent-soft" : "hover:bg-paper"
                 }`}
               >
@@ -426,17 +426,18 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                   type="button"
                   onClick={() => {
                     setSelectedId(it.id);
+                    setMode(it.status === "queued" || it.status === "sent" ? "Preview" : "Edit");
                     setMobileEditor(true);
                   }}
                   aria-label={`Open ${it.title}`}
                   aria-current={it.id === selectedId ? "true" : undefined}
-                  className="min-w-0 flex-1 text-left"
+                  className="col-span-2 min-w-0 w-full text-left"
                 >
                   <div className="flex items-start gap-1 text-body text-ink">
                     {it.isWelcome && (
                       <Star className="size-3 shrink-0 fill-ai text-ai" strokeWidth={1.5} aria-label="Welcome email" />
                     )}
-                    <span className="break-words">{it.title}</span><span className="ml-auto shrink-0 text-meta text-accent">Open →</span>
+                    <span className="break-words">{it.title}</span>
                   </div>
                   <div className="text-meta text-ink-3">
                     {it.status === "sent" ? `Sent · ${it.recipientCount}` : it.createdLabel}
@@ -517,7 +518,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
               </div>
             </div>
 
-            {current.status === "queued" && <p className="shrink-0 border-b border-rule bg-info-soft px-4 py-2 text-meta text-ink-2">Queued — editing is locked. Messages are parked in Outbox; release requires owner approval.</p>}
+            {current.status === "queued" && <div className="shrink-0 border-b border-rule bg-info-soft px-4 py-2"><p className="text-body text-ink-2">Queued — review the email below. Editing is locked; nothing has been emailed. Release requires owner approval.</p><Button variant="secondary" size="sm" className="mt-2" onClick={() => setMode("Outbox")}>Open Outbox · {queuedCount} queued</Button></div>}
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
               {mode === "Edit" && (
                 <div className="mx-auto max-w-[620px] space-y-4">
@@ -739,7 +740,7 @@ function IssuePreview({ issue, baseUrl }: { issue: NewsletterIssue; baseUrl: str
           sandbox=""
           srcDoc={`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="margin:0">${html}</body>`}
           className="h-[70vh] rounded-lg border border-rule bg-white transition-all"
-          style={{ width: width === "mobile" ? 380 : "100%" }}
+          style={{ width: width === "mobile" ? 380 : "100%", maxWidth: "100%" }}
         />
       </div>
       <p className="text-center text-meta text-ink-3">

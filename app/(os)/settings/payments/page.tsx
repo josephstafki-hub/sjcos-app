@@ -43,6 +43,7 @@ export default async function PaymentsSettingsPage() {
     <Shell breadcrumb="SETTINGS / PAYMENTS">
       <SettingsSection active="/settings/payments">
         <PageHeader title="Square payments" meta="Card and bank transfer payments from the client portal." />
+        <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 rounded-md border border-rule bg-card px-3 py-2 shadow-card" role="status"><Chip kind={env === "production" && readiness.connected ? "money" : "warn"} dot>{env === "fake" ? "Sample mode" : env === "sandbox" ? "Sandbox mode" : readiness.connected ? "Live ready" : "Setup incomplete"}</Chip><span className="text-meta text-ink-2">{env === "fake" || env === "sandbox" ? "Test payments only — no real money charged." : readiness.connected ? "Production account verified." : "Real payments are not ready."}</span></div>
         <Card className="p-3">
           <div className="flex items-center gap-2">
             <span className="flex-1 text-meta text-ink-3">Connection</span>

@@ -45,6 +45,7 @@ export default async function AccountingSettingsPage({ searchParams }: { searchP
     <Shell breadcrumb="SETTINGS / ACCOUNTING">
       <SettingsSection active="/settings/accounting">
         <PageHeader title="QuickBooks Online" meta="Review your bookkeeping connection, sync directions and imported records." />
+        <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 rounded-md border border-rule bg-card px-3 py-2 shadow-card" role="status"><Chip kind={s.environment === "production" && c?.state === "connected" ? "money" : "warn"} dot>{s.environment === "fake" ? "Sample mode" : s.environment === "sandbox" ? "Sandbox mode" : c?.state === "connected" ? "Live connected" : "Setup incomplete"}</Chip><span className="text-meta text-ink-2">{s.environment === "fake" || s.environment === "sandbox" ? "Test records only — your live books are untouched." : c?.state === "connected" ? "Production company connected." : "Connect your company before live syncing."}</span></div>
         {s.environment === 'fake' && <p className="text-body text-ink-3">Not connected. Imports use a sample company for testing; your QuickBooks books are untouched.</p>}
 
         {notice && (

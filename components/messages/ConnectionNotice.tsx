@@ -16,6 +16,8 @@ export function ConnectionNotice({ kind }: { kind: "sms" | "voice" }) {
           <p className="mt-1 text-body text-ink-2">{copy.description}</p>
         </div>
       </div>
+      <ol aria-label="Setup checklist" className="mt-2 list-decimal space-y-1 pl-5 text-body text-ink-2">{copy.steps.map((step) => <li key={step}>{step}</li>)}</ol>
+      <p className="mt-2 text-meta text-ink-3">{kind === "sms" ? "New text and Send stay disabled until texting is connected." : "New call and Call back stay disabled until voice is connected."}</p>
       <details className="mt-2 text-body text-ink-2">
         <summary className="w-fit cursor-pointer rounded-md py-1 font-semibold focus-visible:outline-2 focus-visible:outline-focus">
           Connection help

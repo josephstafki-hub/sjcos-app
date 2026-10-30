@@ -380,7 +380,7 @@ export async function getPlaceableCatalog(): Promise<CatalogPlaceable[]> {
   }>(
     `SELECT id, name, supplier, sku, category, series, price, price_cents, image_file_id,
             width_in, depth_in, height_in, place_kind, cost_item_id, model_key, material
-       FROM catalog_items ORDER BY category, series, name LIMIT 2000`,
+       FROM catalog_items WHERE archived_at IS NULL ORDER BY category, series, name LIMIT 2000`,
   );
   const num = (v: string | null) => (v == null ? null : Number(v));
   return rows.map((r) => ({

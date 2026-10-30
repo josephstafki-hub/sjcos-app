@@ -92,6 +92,7 @@ import { registerBillingTools } from "./billing-tools.mjs";
 import { registerContextTools } from "./context-tools.mjs";
 import { registerFieldTools } from "./field-tools.mjs";
 import { editWorkItem } from "../lib/work-item-edit.ts";
+import { registerDirectoryTools } from "./directory-tools.mjs";
 import { registerTeamTools } from "./team-tools.mjs";
 import { registerProjectTools } from "./project-tools.mjs";
 import { registerLeadTools } from "./lead-tools.mjs";
@@ -617,15 +618,15 @@ server.registerTool(
   {
     title: "List subcontractors",
     description: "List subs, optionally filtered by trade (substring match). Includes COI status + expiry.",
-    inputSchema: { trade: z.string().optional() },
+    inputSchema: { trade: z.string().optional(), archived: z.boolean().optional() },
   },
-  async ({ trade }) => {
-    const where = trade ? `WHERE trade ILIKE $1` : ``;
+  async ({ trade, archived = false }) => {
+    const where = `WHERE (archived_at IS NOT NULL) = $1` + (trade ? ` AND trade ILIKE $2` : ``);
     return json(
       await rows(
-        `SELECT slug, name, trade, rate, rating, jobs_count, coi_status, coi_expires_at, email, phone
+        `SELECT slug, name, trade, rate, rating, GREATEST(jobs_count, (SELECT count(*)::int FROM project_subs ps JOIN projects p ON p.id=ps.project_id WHERE ps.sub_slug=subs.slug AND p.status='warranty')) AS jobs_count, CASE WHEN coi_expires_at IS NULL THEN 'missing' WHEN coi_expires_at < CURRENT_DATE THEN 'expired' WHEN coi_expires_at-CURRENT_DATE <= 30 THEN 'expiring' ELSE 'current' END AS coi_status, coi_expires_at, email, phone
            FROM subs ${where} ORDER BY fav DESC, name`,
-        trade ? [`%${trade}%`] : [],
+        trade ? [archived, `%${trade}%`] : [archived],
       ),
     );
   },
@@ -636,10 +637,10 @@ server.registerTool(
   {
     title: "List vendors",
     description: "List materials suppliers (vendors), favorites first. Distinct from subs (labor).",
-    inputSchema: {},
+    inputSchema: { archived: z.boolean().optional() },
   },
-  async () =>
-    json(await rows(`SELECT id, slug, name, trade, email, phone, fav FROM vendors ORDER BY fav DESC, name`)),
+  async ({ archived = false }) =>
+    json(await rows(`SELECT id, slug, name, trade, email, phone, fav FROM vendors WHERE (archived_at IS NOT NULL) = $1 ORDER BY fav DESC, name`, [archived])),
 );
 
 server.registerTool(
@@ -2880,6 +2881,7 @@ server.registerTool(
   // unattended and unknown runs are refused. Never an owner account, and never
   // an owner row, through MCP. Internal records, nothing emailed, no delete.
   // See mcp/team-tools.mjs.
+  registerDirectoryTools(server, { rows, json, currentPrincipal, pool });
   registerTeamTools(server, { rows, json, currentPrincipal });
   registerProjectTools(server, { rows, json, strippedDollarError, currentPrincipal });
   // A lead's Phase 1 rough estimate (the lead page's Rough estimate tab):

@@ -6,6 +6,8 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { query, queryAs, queryOne } from "@/lib/db";
+import { withTransaction } from "@/lib/commands/db";
+import { removeAssignment } from "@/lib/sub-assignment-maintenance";
 import { requireRole, requireAccess } from "@/lib/dal";
 import { PROJECT_STATUSES, projectStageLabel, getProjectWeeklyStatus } from "@/lib/projects";
 import { emit } from "@/lib/notify";
@@ -416,20 +418,8 @@ export async function removeSubFromProject(slug: string, subSlug: string) {
   await requireAccess("projects");
   const proj = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [slug]);
   if (!proj) return;
-  await query(`DELETE FROM project_subs WHERE project_id = $1 AND sub_slug = $2`, [
-    proj.id,
-    subSlug,
-  ]);
-  // Pulling a sub off the job retires the invite you never sent: it drops off
-  // the Subs tab and its token stops working. Invites you already ACTED on
-  // ('approved') are left alone — that link is out in the world in an email you
-  // sent, and killing it mid-job would strand the sub with no warning. Those
-  // expire on their own, or go dead with users.active = false.
-  await query(
-    `UPDATE sub_portal_invites SET status = 'dismissed'
-      WHERE project_id = $1 AND sub_slug = $2 AND status = 'queued'`,
-    [proj.id, subSlug],
-  );
+  const result = await withTransaction(run=>removeAssignment(run,proj.id,subSlug));
+  if (!result.ok) throw new Error(result.error);
   // Pull them from the project's open chat room too (P1-D2). Best-effort.
   try {
     await removeSubFromEntityRoom(slug, subSlug);

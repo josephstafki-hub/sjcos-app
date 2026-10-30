@@ -12,6 +12,7 @@ export { CATEGORIES, MATERIAL_CATEGORIES };
 export type { CatalogCategory, MaterialCategory };
 
 export interface Material {
+  archived: boolean;
   id: number;
   name: string;
   supplier: string;
@@ -41,6 +42,7 @@ export interface CatalogData {
 }
 
 interface MaterialRow {
+  archived: boolean;
   id: number;
   name: string;
   supplier: string;
@@ -56,10 +58,13 @@ interface MaterialRow {
 }
 
 function rowToMaterial(r: MaterialRow): Material {
-  const category = (MATERIAL_CATEGORIES as readonly string[]).includes(r.category)
+  const category = (MATERIAL_CATEGORIES as readonly string[]).includes(
+    r.category,
+  )
     ? (r.category as MaterialCategory)
     : "Cabinets";
   return {
+    archived: r.archived,
     id: r.id,
     name: r.name,
     supplier: r.supplier,
@@ -77,13 +82,14 @@ function rowToMaterial(r: MaterialRow): Material {
 
 export async function getCatalogData(): Promise<CatalogData> {
   const { rows } = await query<MaterialRow>(
-    `SELECT id, name, supplier, sku, category, use_label, price, description, msrp, series,
+    `SELECT archived_at IS NOT NULL AS archived, id, name, supplier, sku, category, use_label, price, description, msrp, series,
             image_file_id, source_url
        FROM catalog_items
        ORDER BY created_at DESC, id DESC`,
   );
   const materials = rows.map(rowToMaterial);
-  const suppliers = new Set(materials.map((m) => m.supplier).filter(Boolean)).size;
+  const suppliers = new Set(materials.map((m) => m.supplier).filter(Boolean))
+    .size;
 
   return {
     eyebrow: `${materials.length} materials · ${suppliers} suppliers`,

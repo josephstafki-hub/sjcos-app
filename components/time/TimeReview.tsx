@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition, type ReactNode } from "react";
 import { Clock, MoreHorizontal } from "lucide-react";
 import {
   Button,
@@ -53,10 +53,12 @@ export function TimeReview({
   review,
   projects,
   rates,
+  children,
 }: {
   review: ReviewList & { running: TimeInterval | null };
   projects: { id: string; name: string; slug: string }[];
   rates: { category: string; rate_cents: number; effective_from: string }[];
+  children?: ReactNode;
   from: string;
   to: string;
 }) {
@@ -181,6 +183,7 @@ export function TimeReview({
           </div>
         )}
       </Card>
+      {children}
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <h2 className="font-serif text-heading">Recorded time</h2>

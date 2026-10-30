@@ -10,7 +10,7 @@
 // real blocks (deterministic — no AI call, nothing invented).
 
 import { query } from "./db";
-import { parseScheduleTime } from "./schedule-time";
+import { formatScheduleTime, parseScheduleTime } from "./schedule-time";
 
 /** Color treatment for a timeblock pill — job (accent), AI-scheduled (ai), or
  *  routine/other (ghost). Matches the design's `d` field. */
@@ -21,6 +21,8 @@ export interface ScheduleBlock {
   projectId?: string;
   /** Time label, e.g. "8:00" / "AM" / "all". */
   time: string;
+  /** Original stored label for the edit form, separate from safe display. */
+  rawTime?: string;
   label: string;
   tone: BlockTone;
   /** The project this block belongs to, if any. NULL = standalone meeting. */
@@ -222,6 +224,7 @@ export async function getScheduleData(weekOffset = 0): Promise<ScheduleData> {
       id: b.id,
       projectId: b.project_id ?? undefined,
       time: b.time_label,
+      rawTime: b.time_label,
       label: b.label,
       tone,
       projectSlug: b.project_slug ?? undefined,
@@ -235,9 +238,7 @@ export async function getScheduleData(weekOffset = 0): Promise<ScheduleData> {
   for (const blocks of blocksByDay.values()) {
     const minutes = (time: string) => { try { return parseScheduleTime(time).minutes; } catch { return Infinity; } };
     blocks.sort((a,b) => minutes(a.time) - minutes(b.time));
-    for (const b of blocks) {
-      try { b.time = parseScheduleTime(b.time).label; } catch { b.time = "Time needs review"; }
-    }
+    for (const b of blocks) b.time = formatScheduleTime(b.time);
   }
 
   // Derived entries append after the day's manual blocks (which carry real

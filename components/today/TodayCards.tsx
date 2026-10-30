@@ -19,7 +19,7 @@ export function TodayCards({ brief }: { brief: ReactNode }) {
   const [view, setView] = useState("active");
   const { priorities, waiting, complete, snooze, busyId } = useTodayQueue();
   const listRef = useRef<HTMLDivElement>(null);
-  const [openId, setOpenId] = useState<string | null>(() => priorities[0]?.id ?? null);
+  const [openId, setOpenId] = useState<string | null>(null);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {

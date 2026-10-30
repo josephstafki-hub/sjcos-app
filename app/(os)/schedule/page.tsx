@@ -15,9 +15,9 @@ import { ScheduleBoard } from "@/components/schedule/ScheduleBoard";
 export default async function SchedulePage({
   searchParams,
 }: {
-  searchParams: Promise<{ w?: string }>;
+  searchParams: Promise<{ w?: string; day?: string }>;
 }) {
-  const { w } = await searchParams;
+  const { w, day } = await searchParams;
   const offset = Math.trunc(Number(w)) || 0;
   const [data, projects, conflictNote] = await Promise.all([
     getScheduleData(offset),
@@ -79,6 +79,8 @@ export default async function SchedulePage({
             {data.rangeLabel}
           </span>
         </div>
+        <details className="group mb-3" open={conflictNote.startsWith("Double-booked") ? true : undefined}>
+          <summary className="cursor-pointer rounded py-2 text-meta text-ink-2 focus-visible:outline-2 focus-visible:outline-focus">{conflictNote.startsWith("Double-booked") ? "Matching start times found · review overlap check" : "Overlap check · durations missing; overlaps still need review"}</summary>
         {/* Conflict note */}
         <ConflictBubble
           weekOffset={offset}
@@ -86,8 +88,9 @@ export default async function SchedulePage({
         >
           {conflictNote}
         </ConflictBubble>
+        </details>
 
-        <ScheduleBoard days={data.days} projects={projects} />
+        <ScheduleBoard key={offset} days={data.days} projects={projects} initialDay={data.days.find(d => d.iso === day)?.iso} />
 
         {/* Daily log lane */}
         <Card className="mt-6 p-4">

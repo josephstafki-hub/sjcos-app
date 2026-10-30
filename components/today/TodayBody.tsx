@@ -8,14 +8,6 @@ import { WeekStrip } from "./WeekStrip";
 import { TodayQueueProvider } from "./TodayQueueContext";
 import { getTodayBrief, type BriefInput, type TodayData } from "@/lib/today";
 
-const DOT: Record<string, string> = {
-  flag: "bg-flag",
-  accent: "bg-accent",
-  ai: "bg-ai",
-  money: "bg-money",
-  ghost: "bg-ink-4",
-};
-
 /** The full work list stays on Today, alongside the compact dock queue. */
 export function TodayBody({ data }: { data: TodayData }) {
   const brief = !data.canAssign ? null : (
@@ -58,61 +50,18 @@ export function TodayBody({ data }: { data: TodayData }) {
         canPromote={data.canAssign}
       >
         <div className="mt-6 grid min-w-0 grid-cols-1 gap-6 @6xl/page:grid-cols-[minmax(0,1fr)_300px]">
-          <TodayCards brief={brief} />
-          <aside className="flex min-w-0 flex-col gap-6">
+          <div className="min-w-0 @6xl/page:col-start-1 @6xl/page:row-start-1"><TodayCards brief={brief} /></div>
+          <aside className="order-first flex min-w-0 flex-col gap-6 @6xl/page:order-none @6xl/page:col-start-2 @6xl/page:row-start-1">
             <Card className="p-4">
               <h2 className="mb-3 font-serif text-heading text-ink">
-                This week
+                Schedule
               </h2>
               <WeekStrip week={data.week} />
-              <div className="mt-5 flex items-center justify-between gap-2 border-t border-rule-soft pt-4">
-                <h2 className="font-serif text-heading text-ink">
-                  Today&apos;s schedule
-                </h2>
-                <Button href="/schedule" variant="ghost" size="sm">
-                  View
-                </Button>
-              </div>
-              <div className="mt-3 divide-y divide-rule-soft">
-                {data.schedule.length === 0 && (
-                  <p className="py-3 text-body text-ink-3">
-                    No events scheduled for today. Add time on the schedule.
-                  </p>
-                )}
-                {data.schedule.map((s, i) => {
-                  const row = (
-                    <>
-                      <span className="w-12 shrink-0 text-meta tabular-nums text-ink-3">
-                        {s.time}
-                      </span>
-                      <span
-                        className={`size-1.5 shrink-0 rounded-full ${DOT[s.dot]}`}
-                      />
-                      <span className="min-w-0 text-body text-ink">
-                        {s.label}
-                      </span>
-                    </>
-                  );
-                  return s.href ? (
-                    <Button
-                      key={i}
-                      href={s.href}
-                      variant="ghost"
-                      className="h-auto w-full justify-start whitespace-normal px-0 py-3 text-left font-normal"
-                    >
-                      {row}
-                    </Button>
-                  ) : (
-                    <div key={i} className="flex items-center gap-2 py-3">
-                      {row}
-                    </div>
-                  );
-                })}
-              </div>
             </Card>
-            <TodayWaitingSummary />
+            <div className="hidden @6xl/page:block"><TodayWaitingSummary /></div>
           </aside>
         </div>
+        <div className="mt-6 @6xl/page:hidden"><TodayWaitingSummary /></div>
       </TodayQueueProvider>
     </div>
   );
@@ -122,7 +71,7 @@ async function BriefText({ inputs }: { inputs: BriefInput }) {
   return (
     <details className="group">
       <summary className="cursor-pointer list-none rounded focus-visible:outline-2 focus-visible:outline-focus">
-        <span className="line-clamp-3 group-open:line-clamp-none">{text}</span>
+        <span className="line-clamp-1 @3xl/page:line-clamp-3 group-open:line-clamp-none">{text}</span>
         <span className="mt-1 block text-meta text-ai-2 group-open:hidden">
           Read brief
         </span>

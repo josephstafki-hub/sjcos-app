@@ -10,6 +10,7 @@
 // SJC OS work_items first, with lead/compliance/job signals filling in after.
 // The AI brief still routes through lib/ai.ts.
 
+import { formatScheduleTime } from "./schedule-time";
 import { ai } from "./ai";
 import { query } from "./db";
 import { laneFor, type Lane } from "./today-triage";
@@ -423,10 +424,10 @@ function rankCandidates(s: QueueSources, viewer: QueueViewer): Candidate[] {
       tag: "SCHEDULE",
       dot: "accent",
       title: `On site — ${firstJobBlock.label}`,
-      sub: `${firstJobBlock.time_label} today`,
+      sub: `${formatScheduleTime(firstJobBlock.time_label)} today`,
       href: "/schedule",
       group: { key: "schedule", name: "Schedule", href: "/schedule" },
-      waitingLabel: `On site — ${firstJobBlock.label} (${firstJobBlock.time_label})`,
+      waitingLabel: `On site — ${firstJobBlock.label} (${formatScheduleTime(firstJobBlock.time_label)})`,
     });
   }
   // Job signal: the top construction job that is neither on the calendar nor
@@ -652,14 +653,14 @@ export async function getTodayData(viewer: QueueViewer): Promise<TodayData> {
   const blocksByDay = new Map<string, { time: string; label: string; dot: DotKind }[]>();
   for (const b of weekRes.rows) {
     const list = blocksByDay.get(b.iso) ?? [];
-    list.push({ time: b.time_label, label: b.label, dot: toneToDot(b.tone) });
+    list.push({ time: formatScheduleTime(b.time_label), label: b.label, dot: toneToDot(b.tone) });
     blocksByDay.set(b.iso, list);
   }
 
   // ── Today's schedule (real blocks; calm placeholder when empty) ──
   const schedule: TodayScheduleBlock[] = scheduleRows.length
     ? scheduleRows.map((b) => ({
-        time: b.time_label,
+        time: formatScheduleTime(b.time_label),
         label: b.label,
         dot: toneToDot(b.tone),
         href: "/schedule",

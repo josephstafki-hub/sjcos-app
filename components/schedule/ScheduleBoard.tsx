@@ -10,7 +10,7 @@ import {
   restoreScheduleBlock,
   type RemovedBlock,
 } from "@/lib/actions/schedule";
-import { groupScheduleSpans } from "@/lib/schedule-time";
+import { formatScheduleTime, groupScheduleSpans } from "@/lib/schedule-time";
 import { runAction } from "@/lib/run-action";
 const TINTS = [
   "border-accent bg-accent-soft/50",
@@ -38,10 +38,14 @@ function readableLabel(label: string) {
 export function ScheduleBoard({
   days,
   projects,
+  initialDay,
 }: {
+  initialDay?: string;
   days: ScheduleDay[];
   projects: ScheduleProject[];
 }) {
+  const [selectedDay, setSelectedDay] = useState(initialDay ?? days.find(d => d.today)?.iso ?? days[0]?.iso);
+  const activeDay = days.some(d => d.iso === selectedDay) ? selectedDay : days.find(d => d.today)?.iso ?? days[0]?.iso;
   const [removed, setRemoved] = useState<RemovedBlock[]>([]);
   const [pending, start] = useTransition();
   const spans = groupScheduleSpans(
@@ -52,6 +56,11 @@ export function ScheduleBoard({
   );
   return (
     <>
+      <label className="mb-3 block text-label text-ink-2 @2xl/page:hidden">Jump to day
+        <select value={activeDay} onChange={e => setSelectedDay(e.target.value)} className="mt-1 block h-11 w-full rounded-md border border-rule bg-card px-3 text-body">
+          {days.map(day => <option key={day.iso} value={day.iso}>{day.today ? "Today · " : ""}{day.dow} · {day.iso}</option>)}
+        </select>
+      </label>
       {!!removed.length && (
         <div
           role="status"
@@ -82,7 +91,7 @@ export function ScheduleBoard({
       {spans.length > 0 && (
         <div
           aria-label="Multi-day work"
-          className="mb-3 grid grid-cols-1 gap-2 @2xl/page:grid-cols-5"
+          className="mb-3 hidden gap-2 @2xl/page:grid @2xl/page:grid-cols-5"
         >
           {spans.map((span, index) => (
             <div
@@ -129,7 +138,7 @@ export function ScheduleBoard({
           <section
             key={day.iso}
             aria-label={`${day.dow} ${day.iso}`}
-            className="group/day min-w-0 border-b border-rule-soft last:border-0 @2xl/page:border-b-0 @2xl/page:border-r"
+            className={`group/day min-w-0 border-b border-rule-soft last:border-0 @2xl/page:block @2xl/page:border-b-0 @2xl/page:border-r ${day.iso === activeDay ? "block" : "hidden"}`}
           >
             <div
               className={`flex min-h-14 items-center justify-between gap-1 border-b border-rule-soft px-3 py-3 ${day.today ? "bg-selected" : "bg-paper-2/40"}`}
@@ -168,7 +177,7 @@ export function ScheduleBoard({
                     className={`min-w-0 rounded-md border-l-4 px-2 py-2 ${tint(b.projectSlug ?? b.label)}`}
                   >
                     <div className="mb-1 text-meta text-ink-3">
-                      {b.time}
+                      {formatScheduleTime(b.time)}
                       {b.auto ? " · From record" : ""}
                     </div>
                     {b.id ? (
@@ -177,7 +186,7 @@ export function ScheduleBoard({
                         projects={projects}
                         block={b}
                         triggerClassName="block w-full break-words text-left text-label font-semibold text-ink hover:underline"
-                        triggerContent={readableLabel(b.label)}
+                        triggerContent={<>{readableLabel(b.label)}{formatScheduleTime(b.time) === "Time needs review" && <span className="mt-1 block text-meta text-accent-2 underline">Edit time</span>}</>}
                       />
                     ) : (
                       <p className="break-words text-label font-semibold text-ink">

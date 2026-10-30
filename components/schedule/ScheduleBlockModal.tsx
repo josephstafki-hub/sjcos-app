@@ -42,7 +42,7 @@ export function ScheduleBlockModal({
   useDialogDismiss(open, () => setOpen(false), trigger);
   let defaultTime = "";
   try {
-    const t = parseScheduleTime(block?.time ?? "");
+    const t = parseScheduleTime(block?.rawTime ?? block?.time ?? "");
     defaultTime = t.label === "All day" ? "" : t.label;
   } catch {
     /* legacy labels must be corrected before saving */

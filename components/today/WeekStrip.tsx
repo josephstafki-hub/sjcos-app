@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { formatScheduleTime } from "@/lib/schedule-time";
 import { useState } from "react";
 import type { TodayCalDay } from "@/lib/today";
 
@@ -17,6 +19,7 @@ export function WeekStrip({ week }: { week: TodayCalDay[] }) {
   // Default the open day to today.
   const todayIso = week.find((d) => d.today)?.iso ?? null;
   const [openIso, setOpenIso] = useState<string | null>(todayIso);
+  const [showAll, setShowAll] = useState(false);
 
   const open = week.find((d) => d.iso === openIso) ?? null;
 
@@ -30,7 +33,7 @@ export function WeekStrip({ week }: { week: TodayCalDay[] }) {
               key={d.iso}
               aria-label={`${d.dow} ${d.day}`}
               aria-pressed={selected}
-              onClick={() => setOpenIso((cur) => (cur === d.iso ? null : d.iso))}
+              onClick={() => { setOpenIso((cur) => (cur === d.iso ? null : d.iso)); setShowAll(false); }}
               className={[
                 "min-h-11 min-w-0 flex-1 rounded-md border py-2 text-center transition-colors focus-visible:outline-2 focus-visible:outline-focus",
                 selected ? "border-accent bg-selected" : "border-rule",
@@ -56,6 +59,7 @@ export function WeekStrip({ week }: { week: TodayCalDay[] }) {
         })}
       </div>
 
+      <Link href="/schedule" className="mt-2 block text-meta text-accent-2 underline">Open schedule</Link>
       {open && (
         <div className="mt-2 rounded-md border border-rule bg-paper-2 p-2.5">
           <div className="mb-1.5 text-meta text-ink-3">
@@ -65,15 +69,16 @@ export function WeekStrip({ week }: { week: TodayCalDay[] }) {
             <div className="text-meta text-ink-3">Nothing scheduled.</div>
           ) : (
             <div className="flex flex-col gap-1.5">
-              {open.blocks.map((b, i) => (
+              {open.blocks.slice(0, showAll ? undefined : 2).map((b, i) => (
                 <div key={i} className="flex items-center gap-2">
-                  <span className="w-12 text-meta tabular-nums text-ink-3">
-                    {b.time}
+                  <span className="w-24 shrink-0 text-meta tabular-nums text-ink-2">
+                    {formatScheduleTime(b.time)}
                   </span>
                   <span className={`size-1.5 rounded-full ${DOT[b.dot]}`} />
-                  <span className="text-body text-ink">{b.label}</span>
+                  <span className="min-w-0 text-body text-ink">{b.label}{formatScheduleTime(b.time) === "Time needs review" && <Link href={`/schedule?day=${open.iso}`} className="ml-2 text-accent-2 underline">Edit time</Link>}</span>
                 </div>
               ))}
+              {open.blocks.length > 2 && <button type="button" aria-expanded={showAll} onClick={() => setShowAll(!showAll)} className="min-h-11 rounded text-left text-meta text-accent-2 underline focus-visible:outline-2 focus-visible:outline-focus">{showAll ? "Show fewer events" : `Show ${open.blocks.length - 2} more events`}</button>}
             </div>
           )}
         </div>

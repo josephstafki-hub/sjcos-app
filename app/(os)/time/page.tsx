@@ -38,6 +38,13 @@ export default async function TimePage({
           title="Job time"
           meta="Confirmed work, recorded hours and corrections · all times Central"
         />
+        <TimeReview
+          review={review}
+          projects={projects}
+          rates={rates}
+          from={from}
+          to={to}
+        >
         <div className="mt-6 grid grid-cols-2 gap-3 @xl/page:grid-cols-4">
           <KpiTile label="Site" value={`${hours(review.totals.site)} h`} />
           <KpiTile label="Office" value={`${hours(review.totals.office)} h`} />
@@ -87,13 +94,7 @@ export default async function TimePage({
           Overlaps count once. Unconfirmed time stays out of verified job cost
           until reviewed. These hours do not bill clients or create payroll.
         </p>
-        <TimeReview
-          review={review}
-          projects={projects}
-          rates={rates}
-          from={from}
-          to={to}
-        />
+        </TimeReview>
       </div>
     </Shell>
   );

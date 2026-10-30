@@ -1,3 +1,14 @@
+/** Safe display for legacy schedule labels. Blank legacy values are unknown,
+ * even though a blank value in the creation form explicitly means all day. */
+export function formatScheduleTime(value: string | null | undefined): string {
+  if (!value?.trim()) return "Time needs review";
+  const dates: Record<string, string> = { START: "Start date", END: "Target completion", DUE: "Due date", WTY: "Warranty ends", ACK: "Acknowledge by", FIX: "Resolve by" };
+  if (dates[value.trim()]) return dates[value.trim()];
+  if (Object.values(dates).includes(value.trim())) return value.trim();
+  try { return parseScheduleTime(value).label; }
+  catch { return "Time needs review"; }
+}
+
 /** One time grammar for schedule writes and comparisons of legacy labels. */
 export function parseScheduleTime(value: string): {
   label: string;

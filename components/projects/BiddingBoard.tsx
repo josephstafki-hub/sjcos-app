@@ -184,6 +184,7 @@ export function BiddingBoard({
    *  and the placeholders are pulled (with the error shown) only if the write
    *  fails. */
   function addSubs(pkgId: number, subs: RosterSub[]) {
+    close();
     const placeholders: BidInvite[] = subs.map((s, i) => ({
       id: -(pkgId * 1000 + i + 1),
       subSlug: s.slug,

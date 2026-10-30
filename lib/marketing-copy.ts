@@ -1,7 +1,8 @@
 /** AI responses sometimes wrap publication copy in JSON. Only known copy fields
  * are accepted; never turn arbitrary metadata into client-facing prose. */
 export function normalizeMarketingCopy(raw: string): { title?: string; body: string } {
-  const source = raw.trim().replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```$/, '').trim();
+  const fence = raw.match(/```(?:json)?\s*\n?([\s\S]*?)```/i);
+  const source = (fence?.[1] ?? raw).trim();
   if (!/^[{[]/.test(source)) return { body: source };
   let value: unknown;
   try { value = JSON.parse(source); } catch { return { body: '' }; }

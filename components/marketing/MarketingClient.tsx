@@ -36,7 +36,7 @@ function DraftRow({draft,initiallyOpen}:{draft:MarketingDraft;initiallyOpen:bool
    </button><Chip kind={draft.status==='posted'?'money':'ghost'}>{draft.status==='posted'?'Posted':'Draft'}</Chip>
   </div>
   {open&&<div className="mt-4 space-y-3">
-   <label className="block text-label text-ink-2">Post copy<textarea value={body} onChange={e=>setBody(e.target.value)} rows={draft.kind==='blog'?10:4} className={`${input} mt-2 w-full resize-y leading-relaxed`}/></label>
+   <label className="block text-label text-ink-2">Post copy<textarea aria-label="Post copy" value={body} onChange={e=>setBody(e.target.value)} rows={draft.kind==='blog'?10:4} className={`${input} mt-2 w-full resize-y leading-relaxed`}/></label>
    <div className="flex flex-wrap items-center gap-2">
     <Button variant="secondary" size="sm" icon={copied?Check:Copy} onClick={async()=>{try{await navigator.clipboard.writeText(body);setCopied(true);setTimeout(()=>setCopied(false),1500);}catch{setCopied(false);}}}>{copied?'Copied':'Copy'}</Button>
     {dirty&&<><Button size="sm" disabled={pending} onClick={()=>run(()=>updateDraft(draft.id,body))}>Save edits</Button><Button variant="ghost" size="sm" onClick={()=>setBody(draft.body)}>Revert</Button></>}

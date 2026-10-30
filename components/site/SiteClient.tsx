@@ -131,8 +131,8 @@ export function SiteClient({
                       : "hover:bg-hover",
                   ].join(" ")}
                 >
-                  <div className="flex items-center gap-1.5">
-                    <span className="min-w-0 flex-1 text-body font-semibold text-ink">
+                  <div className="flex flex-col items-start gap-1.5">
+                    <span className="min-w-0 text-body font-semibold text-ink">
                       {post.projectName || post.title || "Untitled post"}
                     </span>
                     {post.status === "posted" ? (

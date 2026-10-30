@@ -59,9 +59,12 @@ export async function generateDraft(slug: string, kindRaw: string): Promise<Resu
 
   const { prompt, fallback } = draftPrompt(kind, proj.name, proj.scope ?? "", proj.city ?? "");
   let body = "";
+  let title = proj.name;
   try {
     const res = await ai.ask({ prompt });
-    body = normalizeMarketingCopy(res.answer ?? "").body;
+    const copy = normalizeMarketingCopy(res.answer ?? "");
+    body = copy.body;
+    title = copy.title ?? proj.name;
   } catch {
     body = "";
   }
@@ -70,7 +73,7 @@ export async function generateDraft(slug: string, kindRaw: string): Promise<Resu
   await query(
     `INSERT INTO marketing_drafts (project_id, kind, title, body, status)
      VALUES ($1, $2, $3, $4, 'draft')`,
-    [proj.id, kind, proj.name, body],
+    [proj.id, kind, title, body],
   );
   revalidatePath("/marketing");
   revalidatePath("/site"); // blog drafts also surface in the Website composer
@@ -100,9 +103,12 @@ export async function autoDraftSocialOnCompletion(slug: string): Promise<void> {
 
   const { prompt, fallback } = draftPrompt("social", proj.name, proj.scope ?? "", proj.city ?? "");
   let body = "";
+  let title = proj.name;
   try {
     const res = await ai.ask({ prompt });
-    body = normalizeMarketingCopy(res.answer ?? "").body;
+    const copy = normalizeMarketingCopy(res.answer ?? "");
+    body = copy.body;
+    title = copy.title ?? proj.name;
   } catch {
     body = "";
   }
@@ -110,7 +116,7 @@ export async function autoDraftSocialOnCompletion(slug: string): Promise<void> {
   await query(
     `INSERT INTO marketing_drafts (project_id, kind, title, body, status)
      VALUES ($1, 'social', $2, $3, 'draft')`,
-    [proj.id, proj.name, body],
+    [proj.id, title, body],
   );
   revalidatePath("/marketing");
   revalidatePath("/site"); // blog drafts also surface in the Website composer
@@ -142,9 +148,12 @@ export async function autoDraftBlogOnCompletion(slug: string): Promise<void> {
 
   const { prompt, fallback } = draftPrompt("blog", proj.name, proj.scope ?? "", proj.city ?? "");
   let body = "";
+  let title = proj.name;
   try {
     const res = await ai.ask({ prompt });
-    body = normalizeMarketingCopy(res.answer ?? "").body;
+    const copy = normalizeMarketingCopy(res.answer ?? "");
+    body = copy.body;
+    title = copy.title ?? proj.name;
   } catch {
     body = "";
   }
@@ -152,7 +161,7 @@ export async function autoDraftBlogOnCompletion(slug: string): Promise<void> {
   await query(
     `INSERT INTO marketing_drafts (project_id, kind, title, body, status)
      VALUES ($1, 'blog', $2, $3, 'draft')`,
-    [proj.id, proj.name, body],
+    [proj.id, title, body],
   );
 
   // Ask for photos/video if none are on file — the post can't go live without

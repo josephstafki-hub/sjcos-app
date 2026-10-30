@@ -8,6 +8,7 @@ import { principalLabel } from '../lib/commands/principal.ts';
 test('blog envelopes, section arrays and fenced JSON become copyable prose', () => {
   const raw = '```json\n' + JSON.stringify({blogPost:{title:'A kitchen',content:[{heading:'Craft',paragraph:'Careful work.'},'A warm finish.']}}) + '\n```';
   assert.deepEqual(normalizeMarketingCopy(raw), {title:'A kitchen',body:'Craft\n\nCareful work.\n\nA warm finish.'});
+  assert.equal(normalizeMarketingCopy('Here is your post:\n' + raw).body, 'Craft\n\nCareful work.\n\nA warm finish.');
   assert.equal(normalizeMarketingCopy('Plain paragraphs.\n\nStay intact.').body, 'Plain paragraphs.\n\nStay intact.');
   assert.equal(normalizeMarketingCopy(JSON.stringify({post:'New room.',hashtags:['carpentry','#remodel']})).body, 'New room.\n\n#carpentry #remodel');
   assert.equal(normalizeMarketingCopy('{"unrecognized": "debug data"}').body, '');

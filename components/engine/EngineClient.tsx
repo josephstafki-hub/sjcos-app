@@ -944,9 +944,15 @@ function RunbookCard({ runbook }: { runbook: RunbookView }) {
 // here for review; the approved-as-instruction list below is literally Joe's
 // standing orders to all agents (served via get_standing_instructions).
 
-function MemoriesTab({ memories }: { memories: MemoriesData }) {
+function MemoriesTab({ memories: all }: { memories: MemoriesData }) {
+  const [search, setSearch] = useState("");
+  const match = (m: MemoryView) => `${m.summary} ${m.content} ${m.runtimeName ?? ''}`.toLowerCase().includes(search.trim().toLowerCase());
+  const memories = { pending: all.pending.filter(match), instructions: all.instructions.filter(match), examples: all.examples.filter(match), history: all.history.filter(match) };
   return (
     <div className="space-y-6">
+      <label className="block text-label text-ink-2">Search memories
+        <input aria-label="Search memories" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Find a rule, example or rejected memory…" className={`${inputCls} mt-1.5`} />
+      </label>
       {memories.pending.length > 0 && (
         <section>
           <div className="mb-2 flex items-center gap-2">
@@ -1067,7 +1073,7 @@ function MemoryCard({ memory, review }: { memory: MemoryView; review?: boolean }
               Reject
             </button>
           </div>
-        ) : memory.canUseAsInstruction ? (
+        ) : memory.canUseAsInstruction && memory.reviewStatus === "approved" ? (
           <div className="flex flex-none flex-col items-end gap-1.5">
             <button className={btnCls} disabled={pending} onClick={() => run(() => revokeMemoryInstruction(memory.id))}>
               Revoke

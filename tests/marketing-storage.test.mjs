@@ -19,6 +19,7 @@ test('manual and both completion paths store prose rather than an AI envelope',a
  globalThis.__aiCopy=JSON.stringify({blogPost:{title:'A kitchen',content:['First paragraph.','Second paragraph.']}});
  await generateDraft('kitchen','blog');
  assert.equal(stored[0][3],'First paragraph.\n\nSecond paragraph.');
+ assert.equal(stored[0][2],'A kitchen');
  await autoDraftBlogOnCompletion('kitchen');
  assert.equal(stored[1][2],'First paragraph.\n\nSecond paragraph.');
  globalThis.__aiCopy=JSON.stringify({post:'Finished a kitchen.',hashtags:['carpentry','remodel']});

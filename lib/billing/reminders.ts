@@ -7,8 +7,11 @@
 // start them. Legal notices (demand letter, lien) are separate controlled
 // work and never come from this list.
 //
-// WS-recovery: lib/reminders.ts's A/R scan (`status = 'sent' AND sent_at …`)
-// should switch to this helper; the dedup key can stay `ar:<id>:<window>`.
+// lib/reminders.ts's A/R scan reads this list (dedup key `ar:<id>:<window>`).
+//
+// "Went out": status sent / partially_paid is the record of a send (older
+// send paths never stamped delivery_state), and an issued invoice counts only
+// once its delivery was accepted or delivered.
 
 import type { Run } from "../commands/core.ts";
 import { verifiedBalances, type VerifiedBalanceRow } from "./core.ts";
@@ -31,7 +34,7 @@ export async function routineReminderCandidates(run: Run, opts: { projectId?: st
       !r.hasPending &&
       !r.exceptionFlags.includes("hold") &&
       !r.exceptionFlags.includes("terms_unknown") &&
-      r.deliveryState === "delivered",
+      (r.status !== "issued" || r.deliveryState === "delivered" || r.deliveryState === "accepted"),
   );
   if (!eligible.length) return [];
   const ids = [...new Set(eligible.map((r) => r.projectId))];

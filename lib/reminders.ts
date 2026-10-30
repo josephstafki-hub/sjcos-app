@@ -14,6 +14,8 @@ import { query } from "./db";
 import type { Run } from "./commands/core";
 import { flagUnseenForReview } from "./obligations/work-items";
 import { emit } from "./notify";
+import { runDirect } from "./commands/db";
+import { routineReminderCandidates } from "./billing/reminders";
 
 const COMPLIANCE_WINDOWS = [60, 30]; // ≤14d handled on feed-read
 const COI_WINDOWS = [30, 15, 5];
@@ -206,15 +208,16 @@ export async function runReminders(): Promise<ReminderRun> {
     }
   }
 
-  // ── A/R dunning: invoices 15 / 30 days overdue (sent, unpaid) ──
-  const ar = await query<{ id: string; number: string; project: string; days: number }>(
-    `SELECT i.id, i.number, p.name AS project,
-            (CURRENT_DATE - i.sent_at::date) AS days
-       FROM invoices i JOIN projects p ON p.id = i.project_id
-      WHERE i.status = 'sent' AND i.sent_at IS NOT NULL
-        AND CURRENT_DATE - i.sent_at::date >= ${AR_WINDOWS[0]}`,
-  );
-  for (const r of ar.rows) {
+  // ── A/R dunning: invoices 15 / 30 days past due with money still owed ──
+  // Days past the due date, an open verified balance, no payment pending (an
+  // ACH in flight is not a reason for a demand letter), not on hold.
+  const ar = (await routineReminderCandidates(runDirect, { minDaysPastDue: AR_WINDOWS[0] })).map((c) => ({
+    id: String(c.invoiceId),
+    number: c.number,
+    project: c.projectName,
+    days: c.daysPastDue ?? 0,
+  }));
+  for (const r of ar) {
     for (const w of AR_WINDOWS) {
       if (r.days >= w && (await claim(`ar:${r.id}:${w}`))) {
         await emit({

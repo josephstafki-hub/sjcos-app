@@ -108,7 +108,19 @@ export async function ingestCloseoutActuals(run: Run, projectId: string, actuals
  *  and the guard, always through a cost_learning_revisions row. */
 export async function learnFromObservations(run: Run, opts: { principal?: Principal; apply: boolean; min_samples?: number; max_delta_pct?: number } = { apply: false }): Promise<LearningResult> {
   const policy = await activePolicy(run, "learning.cost_update");
-  const cfg = (policy?.config ?? {}) as { min_samples?: number; max_delta_pct?: number; outlier_pct?: number };
+  // The seeded policy writes camelCase (minSamples, outlierSigma, maxDeltaPct);
+  // snake_case is still read for configs written that way.
+  const raw = (policy?.config ?? {}) as Record<string, unknown>;
+  const num = (...keys: string[]) => {
+    for (const k of keys) if (typeof raw[k] === "number" && Number.isFinite(raw[k])) return raw[k] as number;
+    return undefined;
+  };
+  const cfg = {
+    min_samples: num("minSamples", "min_samples"),
+    max_delta_pct: num("maxDeltaPct", "max_delta_pct"),
+    outlier_pct: num("outlierPct", "outlier_pct"),
+    outlier_sigma: num("outlierSigma", "outlier_sigma"),
+  };
   const items = await run<{ cost_item_id: string; name: string; unit: string; unit_cost: number; samples: number[] }>(
     `SELECT ci.id AS cost_item_id, ci.name, ci.unit, ci.unit_cost,
             array_agg(co.unit_cost_cents::int ORDER BY co.observed_at) AS samples
@@ -118,7 +130,7 @@ export async function learnFromObservations(run: Run, opts: { principal?: Princi
   );
   const changes: LearningChange[] = [];
   for (const it of items) {
-    const verdict = outlierGuard(it.unit_cost > 0 ? it.unit_cost : null, it.samples.map(Number), { min_samples: opts.min_samples ?? cfg.min_samples, max_delta_pct: opts.max_delta_pct ?? cfg.max_delta_pct, outlier_pct: cfg.outlier_pct });
+    const verdict = outlierGuard(it.unit_cost > 0 ? it.unit_cost : null, it.samples.map(Number), { min_samples: opts.min_samples ?? cfg.min_samples, max_delta_pct: opts.max_delta_pct ?? cfg.max_delta_pct, outlier_pct: cfg.outlier_pct, outlier_sigma: cfg.outlier_sigma });
     // flag detected outliers on the observations so they never feed the next pass silently
     if (verdict.outliers.length) await run(`UPDATE cost_observations SET outlier = true WHERE cost_item_id = $1 AND superseded_by IS NULL AND unit_cost_cents = ANY($2::bigint[])`, [it.cost_item_id, verdict.outliers]);
     const after = verdict.proposed_unit_cost;

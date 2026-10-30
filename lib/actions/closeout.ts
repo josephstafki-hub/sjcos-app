@@ -22,6 +22,16 @@ import {
 
 type Result = { ok: true; id?: string } | { ok: false; error: string };
 
+/** Mark a job commercial (or not): its after-job warranty email then leaves
+ *  out the Minnesota home-improvement warranty. */
+export async function setProjectCommercial(slug: string, commercial: boolean): Promise<Result> {
+  await requireAccess("projects");
+  const r = await query(`UPDATE projects SET commercial = $2 WHERE slug = $1`, [slug, commercial]);
+  if (!r.rowCount) return { ok: false, error: "Project not found." };
+  revalidatePath(`/projects/${slug}`);
+  return { ok: true };
+}
+
 /** Owner: generate a Certificate of Substantial Completion (AI summary of work
  *  + code-generated figures) → PDF stored in the project Files. */
 export async function generateCompletionCertificate(slug: string): Promise<Result> {

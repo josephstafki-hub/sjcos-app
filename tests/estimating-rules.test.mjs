@@ -254,6 +254,11 @@ test("V25 learning guards: small samples and big jumps are recorded, not applied
   assert.equal(withOutlier.apply, true);
   assert.equal(withOutlier.proposed_unit_cost, 1000);
   assert.equal(outlierGuard(1000, []).apply, false);
+  // The seeded policy's outlierSigma: k robust standard deviations from the median.
+  const sigma = outlierGuard(1000, [1000, 1040, 960, 1020, 1300], { outlier_sigma: 2.5 });
+  assert.deepEqual(sigma.outliers, [1300], "30% away is an outlier when the rest sit within 4%");
+  assert.deepEqual(outlierGuard(1000, [1000, 1040, 960, 1020, 1300]).outliers, [], "the 60% percent rule would keep it");
+  assert.equal(outlierGuard(1000, [5000, 5000, 5000], { outlier_sigma: 2.5 }).outliers.length, 0, "no spread → percent rule");
 });
 
 test("readiness is arithmetic over evidence: hard gaps block a fixed proposal; a rough range is still possible", () => {

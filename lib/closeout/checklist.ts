@@ -193,11 +193,13 @@ export async function recordWrittenSignoff(run: Run, signatureRequestId: number,
 /** Fire the once-only sign-off effects when the gate (no open client punch)
  *  holds. Safe to call any number of times. */
 export async function releaseSignoffHooks(run: Run, projectId: string, hooks: CloseoutHooks): Promise<{ fired: boolean; blocked: string | null }> {
+  // Both punch lists count, as billing's final-invoice gate does (openPunchItems).
   const punch = await getChecklist(run, projectId, "client_punch");
-  const open = (punch?.items ?? []).filter((i) => i.state === "open");
-  if (open.length) {
-    await run(`UPDATE client_signoffs SET hooks_blocked_reason = $2 WHERE project_id = $1 AND hooks_fired_at IS NULL`, [projectId, `${open.length} client punch item(s) still open`]);
-    return { fired: false, blocked: `${open.length} client punch item(s) still open` };
+  const [job] = await run<{ n: number }>(`SELECT count(*)::int AS n FROM project_punch WHERE project_id = $1 AND done = false`, [projectId]);
+  const open = (punch?.items ?? []).filter((i) => i.state === "open").length + Number(job?.n ?? 0);
+  if (open) {
+    await run(`UPDATE client_signoffs SET hooks_blocked_reason = $2 WHERE project_id = $1 AND hooks_fired_at IS NULL`, [projectId, `${open} punch item(s) still open`]);
+    return { fired: false, blocked: `${open} punch item(s) still open` };
   }
   const [row] = await run<{ signature_request_id: string }>(
     `UPDATE client_signoffs SET hooks_fired_at = now(), hooks_blocked_reason = NULL WHERE project_id = $1 AND hooks_fired_at IS NULL RETURNING signature_request_id`,

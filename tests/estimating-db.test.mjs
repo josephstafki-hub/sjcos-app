@@ -555,7 +555,8 @@ test("V25 learning: repeated ingestion does not amplify, late adjustment is a re
     assert.equal(prev.mode, "preview");
     assert.ok(prev.history.some((h) => h.kind === "proposal"));
     // activate policy → applied automatically, recorded with before value
-    const pol = await proposePolicyVersion(run, "learning.cost_update", { min_samples: 3, max_delta_pct: 25 }, "owner:Joe");
+    // The seeded config shape (migration 0004): camelCase, sigma outliers.
+    const pol = await proposePolicyVersion(run, "learning.cost_update", { lane: "agents", minSamples: 3, outlierSigma: 2.5, keepHistory: true }, "owner:Joe");
     await activatePolicy(run, "learning.cost_update", pol.version);
     const i4 = await ingestCloseoutActuals(run, p3.projectId, actualsFor(1050), { principal: owner });
     assert.equal(i4.duplicates, 1);

@@ -105,7 +105,20 @@ export function CompanyMoney({ data }: { data: CompanyMoneyData }) {
 
       <Section title="Needs attention" sub="Most money first.">
         {data.attention.length === 0 ? <EmptyState compact title="No money issues flagged" description="Budget, invoice and cost issues will appear here when they need a decision." /> : (
-          <TableWrapper><Table density="compact">
+          <>
+          {/* Phones: one card per issue, action full width — the table cut the action off. */}
+          <ul className="divide-y divide-rule-soft rounded-lg border border-rule bg-card @xl/page:hidden">
+            {attention.map((a, i) => <li key={`${a.slug}-${a.kind}-${i}-m`} className="flex flex-col gap-2 p-3">
+              <div className="flex items-baseline justify-between gap-3">
+                <Link href={a.href} className="min-w-0 text-subheading font-semibold text-ink hover:underline">{a.name}</Link>
+                <span className="flex-none text-right tabular-nums">{fmtK(a.amountCents)}<span className="block text-meta text-ink-3">{a.kind === "profit_unknown" ? "Job value" : a.kind === "unassigned_costs" ? "Unassigned cost" : "Issue amount"}</span></span>
+              </div>
+              <p className="text-body text-ink-2">{a.text}</p>
+              <Button variant="secondary" size="sm" href={a.href} className="w-full justify-center">{a.kind === "profit_unknown" ? "Add budget" : "Review"}</Button>
+            </li>)}
+            {data.attention.length > ATTENTION_SHOWN && <li><Button variant="ghost" onClick={() => setAllAttention(!allAttention)} className="w-full justify-start">{allAttention ? "Show fewer" : `Show all ${data.attention.length}`}</Button></li>}
+          </ul>
+          <TableWrapper className="@max-xl/page:hidden"><Table density="compact">
             <TableHead><TableRow><TableHeader numeric>Amount</TableHeader><TableHeader>Job</TableHeader><TableHeader className="@max-3xl/page:hidden">Issue</TableHeader><TableHeader><span className="sr-only">Action</span></TableHeader></TableRow></TableHead>
             <TableBody>{attention.map((a,i) => <TableRow key={`${a.slug}-${a.kind}-${i}`}>
               <TableCell numeric className="whitespace-nowrap">{fmtK(a.amountCents)}<div className="text-meta text-ink-3">{a.kind === "profit_unknown" ? "Job value" : a.kind === "unassigned_costs" ? "Unassigned cost" : "Issue amount"}</div></TableCell>
@@ -116,6 +129,7 @@ export function CompanyMoney({ data }: { data: CompanyMoneyData }) {
           </Table>
           {data.attention.length > ATTENTION_SHOWN && <Button variant="ghost" onClick={() => setAllAttention(!allAttention)} className="w-full justify-start border-t border-rule-soft">{allAttention ? "Show fewer" : `Show all ${data.attention.length}`}</Button>}
           </TableWrapper>
+          </>
         )}
       </Section>
 

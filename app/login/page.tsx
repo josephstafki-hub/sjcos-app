@@ -67,6 +67,14 @@ export default async function LoginPage({
           <LoginForm />
         </div>
 
+        {/* No self-serve reset by design: the owner resets staff passwords (Settings › Team),
+            and clients sign in from the link in their project email. */}
+        <p className="mt-4 text-center text-meta text-ink-3">
+          Forgot your password? Joe resets team passwords in Settings › Team &amp; roles.
+          <br />
+          Clients: open the portal link in your project email.
+        </p>
+
         <p className="mt-5 flex justify-center gap-4 text-meta text-ink-3">
           <Link href="/privacy" className="inline-flex min-h-11 items-center hover:text-ink-2">Privacy Policy</Link>
           <Link href="/eula" className="inline-flex min-h-11 items-center hover:text-ink-2">End-User License Agreement</Link>

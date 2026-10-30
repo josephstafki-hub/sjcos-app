@@ -256,12 +256,15 @@ by Joe/staff don't feed the weekly update (only sub logs do).
     (accepted, no longer flagged). Reject = SJC OS is right (stays flagged until fixed in QuickBooks).
   - ~~Deletions never surface.~~ **Done:** read through Change Data Capture (`listDeleted`). A posted record
     becomes a conflict card; an unmatched one leaves the review list.
-- **Square (A20):**
-  - `requestRefund` and `executeApprovedRefund` have no caller.
-  - Dispute events are ignored.
-  - Reconcile misses a refund or return that arrives after completion.
-  - The worker doesn't retry failed Square events.
-  - The "ACH available" flag reads AUTOMATIC_TRANSFERS, which is likely the wrong capability **(inferred)**.
+- ~~**Square (A20):**~~ **Done (branch `t3/tier3-square`):**
+  - Settings › Payments lists recent online payments with **Refund…**. It files a refund card, and approving
+    the card refunds in Square (`executeRefundDecision` from `performApprovalEffects`).
+  - Dispute events: open → disputed, plus a Telegram alert with the reason and answer-by date. Won → stands.
+    Lost or accepted → a `return` on the invoice, once.
+  - The reconcile sweep re-reads completed payments from the last 90 days for late refunds (made in the
+    Dashboard, or with a webhook that never arrived) and bank returns. A refund made outside SJC OS alerts Joe.
+  - The worker retries failed Square events (`lib/worker/square-processor.ts`).
+  - ACH availability is now card processing on a US/USD location, not AUTOMATIC_TRANSFERS (payouts).
 - **Closeout and marketing (A17):** the `lib/closeout/marketing.ts` and `revisions.ts` functions have no
   callers.
 - **Designer (A21):** "estimate from plan" reads the live drawing, not a pinned revision

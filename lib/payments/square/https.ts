@@ -35,6 +35,7 @@ interface RawPayment {
   source_type?: string;
   processing_fee?: { amount_money?: RawMoney }[];
   refunded_money?: RawMoney;
+  refund_ids?: string[];
   card_details?: { card?: { card_brand?: string; card_type?: string; prepaid_type?: string } };
   created_at?: string;
   updated_at?: string;
@@ -59,6 +60,7 @@ export function mapRawPayment(p: RawPayment): SquarePayment {
     receiptUrl: p.receipt_url ?? null,
     feeCents: p.processing_fee?.length ? p.processing_fee.reduce((s, f) => s + Number(f.amount_money?.amount ?? 0), 0) : null,
     refundedCents: Number(p.refunded_money?.amount ?? 0),
+    refundIds: Array.isArray(p.refund_ids) ? p.refund_ids : [],
     card: p.card_details?.card
       ? { brand: p.card_details.card.card_brand ?? null, cardType: p.card_details.card.card_type ?? null, prepaidType: p.card_details.card.prepaid_type ?? null }
       : null,
@@ -195,13 +197,16 @@ export class HttpsSquare implements SquareAdapter {
 
   async verifyConnection(locationId: string | null): Promise<SquareCapabilities> {
     if (!locationId) return { merchantApproved: false, card: false, ach: false, refunds: false, note: "Set the location id first." };
-    const out = await this.call<{ location: { name?: string; status?: string; capabilities?: string[] } }>("GET", `/v2/locations/${encodeURIComponent(locationId)}`);
+    const out = await this.call<{ location: { name?: string; status?: string; capabilities?: string[]; country?: string; currency?: string } }>("GET", `/v2/locations/${encodeURIComponent(locationId)}`);
     const caps = out.location.capabilities ?? [];
     const active = out.location.status === "ACTIVE";
     return {
       merchantApproved: active,
       card: active && caps.includes("CREDIT_CARD_PROCESSING"),
-      ach: active && caps.includes("AUTOMATIC_TRANSFERS"),
+      // AUTOMATIC_TRANSFERS is payouts to Joe's bank, not taking bank
+      // payments. ACH bank payments (Web Payments SDK) need a US location
+      // that takes USD and can process payments.
+      ach: active && caps.includes("CREDIT_CARD_PROCESSING") && (out.location.country ?? "US") === "US" && (out.location.currency ?? "USD") === "USD",
       refunds: active,
       locationName: out.location.name ?? null,
       note: `Square ${this.environment}: ${out.location.status ?? "unknown status"}; capabilities ${caps.join(", ") || "none reported"}`,

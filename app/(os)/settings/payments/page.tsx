@@ -2,11 +2,12 @@ import { Shell } from "@/components/shell/Shell";
 import { Card, Chip, Eyebrow } from "@/components/ui";
 import { requireRole } from "@/lib/dal";
 import { queryOne } from "@/lib/db";
-import { getProviderConfig } from "@/lib/payments/server";
+import { getProviderConfig, recentOnlinePayments } from "@/lib/payments/server";
 import { squareEnvironment } from "@/lib/payments/square/index";
-import { saveSquareConfig, saveOfflineInstructions, saveCardSurcharge, testSquareConnection } from "@/lib/payments/actions";
+import { saveSquareConfig, saveOfflineInstructions, saveCardSurcharge, testSquareConnection, requestRefund } from "@/lib/payments/actions";
 import { fmtPct, offsetPct, parseSurchargeConfig, surchargeNotice, surchargePct, SURCHARGE_SETTING_KEY } from "@/lib/payments/surcharge";
 import { PaymentsSettingsButtons } from "@/components/money/PaymentsSettingsButtons";
+import { RefundPayments } from "@/components/money/RefundPayments";
 
 // Settings › Payments (A20). Owner-only. Connection status, environment,
 // location, verified capability checklist, "Test connection", the client
@@ -15,6 +16,7 @@ import { PaymentsSettingsButtons } from "@/components/money/PaymentsSettingsButt
 export default async function PaymentsSettingsPage() {
   await requireRole("owner");
   const cfg = await getProviderConfig();
+  const online = await recentOnlinePayments();
   const env = squareEnvironment();
   const offline = await queryOne<{ value: string }>(`SELECT value FROM app_settings WHERE key = 'payments.offline_instructions'`);
   const surcharge = parseSurchargeConfig((await queryOne<{ value: string }>(`SELECT value FROM app_settings WHERE key = $1`, [SURCHARGE_SETTING_KEY]))?.value);
@@ -79,6 +81,12 @@ export default async function PaymentsSettingsPage() {
           <div className="mt-3">
             <PaymentsSettingsButtons test={testSquareConnection} />
           </div>
+        </Card>
+
+        <Card className="p-3">
+          <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Recent online payments</div>
+          <p className="mt-1 text-[12px] text-ink-2">A refund goes back to the client&apos;s card or bank. Asking files a refund card on Decisions; approving it refunds in Square and re-opens the invoice by the same amount.</p>
+          <RefundPayments rows={online} request={requestRefund} />
         </Card>
 
         <Card className="p-3">

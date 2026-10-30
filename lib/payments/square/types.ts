@@ -25,6 +25,8 @@ export interface SquarePayment {
   /** Processing fee Square reports (cents), when known. */
   feeCents: number | null;
   refundedCents: number;
+  /** Square's refund ids on this payment (refund_ids), when reported. */
+  refundIds?: string[];
   /** Square's reading of the card (card_details.card); null for ACH. */
   card?: { brand: string | null; cardType: string | null; prepaidType: string | null } | null;
   createdAt: string;

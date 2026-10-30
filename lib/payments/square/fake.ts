@@ -138,6 +138,7 @@ export class FakeSquare implements SquareAdapter {
     const id = `fake_ref_${++this.seq}`;
     const r: SquareRefund = { id, paymentId: p.id, status: "COMPLETED", amountCents: input.amountCents, createdAt: this.now() };
     p.refundedCents += input.amountCents;
+    p.refundIds = [...(p.refundIds ?? []), id];
     p.updatedAt = this.now();
     this.refunds.set(id, r);
     this.refundsByIdempotency.set(input.idempotencyKey, id);
@@ -161,6 +162,19 @@ export class FakeSquare implements SquareAdapter {
     if (!p) throw new Error("no such fake payment");
     p.status = status;
     p.updatedAt = this.now();
+  }
+
+  /** A refund made in the Square Dashboard (no SJC OS request, no webhook). */
+  dashboardRefund(paymentId: string, amountCents: number): SquareRefund {
+    const p = this.payments.get(paymentId);
+    if (!p) throw new Error("no such fake payment");
+    const id = `fake_ref_${++this.seq}`;
+    const r: SquareRefund = { id, paymentId, status: "COMPLETED", amountCents, createdAt: this.now() };
+    p.refundedCents += amountCents;
+    p.refundIds = [...(p.refundIds ?? []), id];
+    p.updatedAt = this.now();
+    this.refunds.set(id, r);
+    return structuredClone(r);
   }
 
   /** Build a signed webhook notification for a payment (replayable). */

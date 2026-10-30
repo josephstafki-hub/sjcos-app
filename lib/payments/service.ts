@@ -378,6 +378,7 @@ export function paymentFromWebhook(payload: SquareWebhookEnvelope): SquarePaymen
     receiptUrl: typeof p.receipt_url === "string" ? p.receipt_url : null,
     feeCents: fees.length ? fees.reduce((s, f) => s + Number(f.amount_money?.amount ?? 0), 0) : null,
     refundedCents: Number((p.refunded_money as { amount?: number } | undefined)?.amount ?? 0),
+    refundIds: Array.isArray(p.refund_ids) ? (p.refund_ids as string[]) : [],
     card: card ? { brand: card.card_brand ?? null, cardType: card.card_type ?? null, prepaidType: card.prepaid_type ?? null } : null,
     createdAt: typeof p.created_at === "string" ? p.created_at : new Date().toISOString(),
     updatedAt: typeof p.updated_at === "string" ? p.updated_at : new Date().toISOString(),
@@ -389,6 +390,91 @@ export function refundFromWebhook(payload: SquareWebhookEnvelope): SquareRefund 
   if (!r || typeof r.id !== "string" || typeof r.payment_id !== "string") return null;
   const money = r.amount_money as { amount?: number } | undefined;
   return { id: r.id, paymentId: r.payment_id, status: (r.status as SquareRefund["status"]) ?? "PENDING", amountCents: Number(money?.amount ?? 0), createdAt: typeof r.created_at === "string" ? r.created_at : new Date().toISOString() };
+}
+
+export interface SquareDispute {
+  id: string;
+  paymentId: string;
+  /** Square's dispute state: EVIDENCE_REQUIRED, PROCESSING, WON, LOST, ACCEPTED, INQUIRY_* … */
+  state: string;
+  amountCents: number;
+  reason: string | null;
+  dueAt: string | null;
+}
+
+export function disputeFromWebhook(payload: SquareWebhookEnvelope): SquareDispute | null {
+  const d = payload.data?.object?.dispute as Record<string, unknown> | undefined;
+  if (!d) return null;
+  const id = typeof d.id === "string" ? d.id : typeof d.dispute_id === "string" ? d.dispute_id : null;
+  const paymentId = (d.disputed_payment as { payment_id?: string } | undefined)?.payment_id ?? (typeof d.payment_id === "string" ? d.payment_id : null);
+  if (!id || !paymentId || typeof d.state !== "string") return null;
+  return {
+    id,
+    paymentId,
+    state: d.state,
+    amountCents: Number((d.amount_money as { amount?: number } | undefined)?.amount ?? 0),
+    reason: typeof d.reason === "string" ? d.reason : null,
+    dueAt: typeof d.due_at === "string" ? d.due_at : null,
+  };
+}
+
+const DISPUTE_WON = new Set(["WON", "INQUIRY_CLOSED"]);
+const DISPUTE_LOST = new Set(["LOST", "ACCEPTED"]);
+
+/** A card dispute (chargeback) from Square. Open → the payment reads
+ *  disputed and Joe is told to answer it in Square. Won → it stands again.
+ *  Lost / accepted → the card company took the money back: a 'return' on
+ *  the invoice (the invoice share, like a refund), and the balance re-opens.
+ *  Idempotent per dispute id + outcome. */
+export async function applyProviderDispute(run: Run, input: { dispute: SquareDispute; actor: Principal | string }): Promise<{ state: string; changed: boolean; ownerPushId?: string } | null> {
+  const found = await getAttemptByProviderId(run, input.dispute.paymentId);
+  if (!found) return null;
+  const [a] = await run<AttemptRow>(`SELECT ${ATTEMPT_COLS} FROM payment_attempts WHERE id = $1 FOR UPDATE`, [found.id]);
+  const principal: Principal = typeof input.actor === "string" ? { kind: "service", name: input.actor } : input.actor;
+  const dz = input.dispute;
+  const amount = dz.amountCents || a.amount_cents;
+  const alert = async (state: "disputed" | "dispute_won" | "dispute_lost", detail?: string | null) => {
+    await run(`SAVEPOINT dispute_alert`);
+    try {
+      const id = await stagePaymentAlert(run, { attemptId: a.id, invoiceId: a.invoice_id, amountCents: amount, method: a.method, state, detail, eventKey: dz.id });
+      await run(`RELEASE SAVEPOINT dispute_alert`);
+      return id ?? undefined;
+    } catch (err) {
+      await run(`ROLLBACK TO SAVEPOINT dispute_alert`);
+      console.error("[payments] dispute alert not staged:", (err as Error).message);
+      return undefined;
+    }
+  };
+  if (DISPUTE_LOST.has(dz.state)) {
+    const invoicePart = a.surcharge_cents > 0 ? Math.round((amount * invoiceShareCents(a)) / a.amount_cents) : amount;
+    const before = await run<{ n: number }>(`SELECT count(*)::int AS n FROM invoice_payments WHERE provider = 'square' AND provider_ref = $1`, [`${dz.id}:chargeback`]);
+    if (Number(before[0].n) > 0) return { state: "lost", changed: false };
+    await recordInvoicePayment(run, {
+      invoiceId: a.invoice_id,
+      kind: "return",
+      amountCents: invoicePart,
+      method: a.method,
+      provider: "square",
+      providerRef: `${dz.id}:chargeback`,
+      status: "settled",
+      principal,
+      externalSync: { square: { dispute_id: dz.id, payment_id: dz.paymentId, state: dz.state } },
+      note: `Card dispute ${dz.state === "ACCEPTED" ? "accepted" : "lost"}${dz.reason ? ` (${dz.reason.toLowerCase().replace(/_/g, " ")})` : ""}`,
+    });
+    await run(`UPDATE payment_attempts SET state = 'returned', last_error = $2 WHERE id = $1`, [a.id, `dispute ${dz.id} ${dz.state}`]);
+    return { state: "lost", changed: true, ownerPushId: await alert("dispute_lost") };
+  }
+  if (DISPUTE_WON.has(dz.state)) {
+    if (a.state !== "disputed") return { state: "won", changed: false };
+    await run(`UPDATE payment_attempts SET state = 'completed', last_error = NULL WHERE id = $1`, [a.id]);
+    return { state: "won", changed: true, ownerPushId: await alert("dispute_won") };
+  }
+  // Still open (evidence required, processing, inquiry): money is held, not lost.
+  if (a.state !== "completed" && a.state !== "refunded") return { state: "open", changed: false };
+  await run(`UPDATE payment_attempts SET state = 'disputed', last_error = $2 WHERE id = $1`, [a.id, `dispute ${dz.id} ${dz.state}`]);
+  const due = dz.dueAt ? `answer by ${dz.dueAt.slice(0, 10)}` : null;
+  const why = dz.reason ? dz.reason.toLowerCase().replace(/_/g, " ") : null;
+  return { state: "open", changed: true, ownerPushId: await alert("disputed", [why, due].filter(Boolean).join(" · ") || null) };
 }
 
 /** Process one verified Square event (already persisted in source_events). */
@@ -405,7 +491,13 @@ export async function processSquareEvent(run: Run, input: { payload: SquareWebho
     const rf = refundFromWebhook(input.payload);
     if (!rf) return { handled: "ignored:malformed", changed: false };
     const r = await applyProviderRefund(run, { refund: rf, actor: "webhook:square" });
-    return { handled: `refund:${r ? r.state : "unknown_payment"}`, changed: !!r?.changed };
+    return { handled: `refund:${r ? r.state : "unknown_payment"}`, changed: !!r?.changed, ...(r?.ownerPushId ? { ownerPushId: r.ownerPushId } : {}) };
+  }
+  if (type.startsWith("dispute.")) {
+    const dz = disputeFromWebhook(input.payload);
+    if (!dz) return { handled: "ignored:malformed", changed: false };
+    const r = await applyProviderDispute(run, { dispute: dz, actor: "webhook:square" });
+    return { handled: `dispute:${r ? r.state : "unknown_payment"}`, changed: !!r?.changed, ...(r?.ownerPushId ? { ownerPushId: r.ownerPushId } : {}) };
   }
   return { handled: `ignored:${type || "untyped"}`, changed: false };
 }
@@ -471,7 +563,49 @@ export async function reconcilePendingAttempts(run: Run, adapter: SquareAdapter,
       out.unresolved++;
     } else out.unresolved++;
   }
+  await sweepSettledAttempts(run, adapter, { principal, now, out });
   return out;
+}
+
+/** After completion Square can still move money: a bank return on an ACH, a
+ *  refund made in the Square Dashboard, or a webhook that never arrived.
+ *  Re-read recent completed payments (90 days) and apply what changed. A
+ *  provider error on one payment skips it; the next sweep tries again. */
+async function sweepSettledAttempts(run: Run, adapter: SquareAdapter, ctx: { principal: Principal; now: Date; out: ReconcileSummary }): Promise<void> {
+  const since = new Date(ctx.now.getTime() - 90 * 86_400_000).toISOString();
+  const rows = await run<AttemptRow>(
+    `SELECT ${ATTEMPT_COLS} FROM payment_attempts WHERE state IN ('completed','refunded') AND provider_payment_id IS NOT NULL AND COALESCE(completed_at, created_at) >= $1 ORDER BY completed_at`,
+    [since],
+  );
+  for (const a of rows) {
+    ctx.out.checked++;
+    let payment: SquarePayment | null;
+    try {
+      payment = await adapter.getPayment(a.provider_payment_id!);
+    } catch (err) {
+      console.error(`[payments] late check of ${a.provider_payment_id} failed:`, (err as Error).message);
+      continue;
+    }
+    if (!payment) continue;
+    if (payment.status === "FAILED" || payment.status === "CANCELED") {
+      const r = await applyProviderPayment(run, { attemptId: a.id, payment, actor: ctx.principal });
+      if (r?.changed) ctx.out.changed++;
+      if (r?.ownerPushId) ctx.out.ownerPushIds.push(r.ownerPushId);
+      continue;
+    }
+    const [{ n: recorded }] = await run<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM invoice_payments WHERE provider = 'square' AND kind = 'refund' AND external_sync->'square'->>'payment_id' = $1`,
+      [payment.id],
+    );
+    if (!payment.refundedCents || (payment.refundIds ?? []).length <= Number(recorded)) continue;
+    for (const refundId of payment.refundIds ?? []) {
+      const rf = await adapter.getRefund(refundId).catch(() => null);
+      if (!rf) continue;
+      const r = await applyProviderRefund(run, { refund: rf, actor: ctx.principal });
+      if (r?.changed) ctx.out.changed++;
+      if (r?.ownerPushId) ctx.out.ownerPushIds.push(r.ownerPushId);
+    }
+  }
 }
 
 async function maybeEscalateStale(run: Run, a: AttemptRow, staleAfterHours: number, now: Date, principal: Principal, out: ReconcileSummary) {
@@ -630,7 +764,7 @@ async function settleRefund(run: Run, rf: RefundRow, refund: SquareRefund, princ
 
 /** A refund event from Square (ours confirming, or one made in the Square
  *  dashboard). Idempotent on the refund id. */
-export async function applyProviderRefund(run: Run, input: { refund: SquareRefund; actor: Principal | string }): Promise<{ state: string; changed: boolean } | null> {
+export async function applyProviderRefund(run: Run, input: { refund: SquareRefund; actor: Principal | string }): Promise<{ state: string; changed: boolean; ownerPushId?: string } | null> {
   const a = await getAttemptByProviderId(run, input.refund.paymentId);
   if (!a) return null;
   const principal: Principal = typeof input.actor === "string" ? { kind: "service", name: input.actor } : input.actor;
@@ -642,5 +776,18 @@ export async function applyProviderRefund(run: Run, input: { refund: SquareRefun
   if (ours && ours.state !== "completed") await run(`UPDATE refunds SET state = 'completed' WHERE id = $1`, [ours.id]);
   const before = await run<{ n: number }>(`SELECT count(*)::int AS n FROM invoice_payments WHERE provider = 'square' AND provider_ref = $1`, [input.refund.id]);
   await settleRefund(run, ours ?? { id: "", payment_attempt_id: a.id, amount_cents: input.refund.amountCents, reason: "", decision_id: "", provider_ref: input.refund.id, state: "completed", last_error: null }, input.refund, principal);
-  return { state: "completed", changed: Number(before[0].n) === 0 };
+  const changed = Number(before[0].n) === 0;
+  // A refund nobody asked for in SJC OS (made in the Square Dashboard) is news.
+  let ownerPushId: string | undefined;
+  if (changed && !ours) {
+    await run(`SAVEPOINT refund_alert`);
+    try {
+      ownerPushId = (await stagePaymentAlert(run, { attemptId: a.id, invoiceId: a.invoice_id, amountCents: input.refund.amountCents, method: a.method, state: "refunded_outside", eventKey: input.refund.id })) ?? undefined;
+      await run(`RELEASE SAVEPOINT refund_alert`);
+    } catch (err) {
+      await run(`ROLLBACK TO SAVEPOINT refund_alert`);
+      console.error("[payments] refund alert not staged:", (err as Error).message);
+    }
+  }
+  return { state: "completed", changed, ...(ownerPushId ? { ownerPushId } : {}) };
 }

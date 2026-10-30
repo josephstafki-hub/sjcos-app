@@ -17,10 +17,12 @@ import {
   markAttemptUnknown,
   processSquareEvent,
   reconcilePendingAttempts,
+  executeRefund,
   type AttemptRow,
   type SquareWebhookEnvelope,
 } from "./service";
 import type { PaymentMethod } from "./square/types";
+import type { SourceEvent } from "@/lib/commands/source-events";
 import { loadSurchargeConfig, type CardFacts, type SurchargeConfig } from "./surcharge";
 import { dispatchIntentsNow } from "@/lib/dispatch/db";
 import { sendOwnerPushesNow } from "@/lib/notify-owner";
@@ -159,4 +161,35 @@ export async function runPaymentsReconcile(principal: Principal) {
   const out = await withTransaction((run) => reconcilePendingAttempts(run, adapter, { principal }));
   await sendOwnerPushesNow(out.ownerPushIds);
   return out;
+}
+
+/** The worker's retry path for a Square event the webhook couldn't finish
+ *  (it was stored as 'failed'). Same processing, same after-commit sends. */
+export async function processStoredSquareEvent(event: SourceEvent): Promise<{ ok: true; note: string }> {
+  const r = await withTransaction((run) => processSquareEvent(run, { payload: event.payload as SquareWebhookEnvelope, sourceEventId: event.id }));
+  await sendReceiptNow(r.receiptIntentId);
+  await sendOwnerPushesNow([r.ownerPushId]);
+  return { ok: true, note: r.handled };
+}
+
+/** An approved refund card (decision action payment.refund): Square refunds
+ *  the original payment now. Returns the line the approval reply shows. */
+export async function executeRefundDecision(decisionId: string, principal: Principal): Promise<string> {
+  const r = await executeRefund(withTransaction, getSquareAdapter(), { decisionId, principal });
+  if (!r.ok) return `The refund didn't go to Square: ${r.reason}`;
+  const amount = `$${(r.refund.amount_cents / 100).toFixed(2)}`;
+  if (r.refund.state === "completed") return `Refunded ${amount} in Square; the invoice balance re-opened by the same amount.`;
+  if (r.refund.state === "pending") return `Refund of ${amount} sent to Square; it shows on the invoice once Square completes it.`;
+  if (r.refund.state === "unknown") return `Square didn't confirm the ${amount} refund; the payments check will find out. Don't refund again by hand.`;
+  return `Square refused the ${amount} refund: ${r.refund.last_error ?? "no reason given"}.`;
+}
+
+/** Recent online payments for Settings › Payments, with what's left to refund. */
+export async function recentOnlinePayments(): Promise<Array<{ id: string; invoice_number: string; client: string; slug: string; method: PaymentMethod; amount_cents: number; refundable_cents: number; state: string; completed_at: string | null }>> {
+  return runDirect(
+    `SELECT a.id, i.number AS invoice_number, COALESCE(NULLIF(p.client_name, ''), p.name) AS client, p.slug, a.method, a.amount_cents, a.state, a.completed_at::text AS completed_at,
+            CASE WHEN a.state IN ('completed','refunded') THEN GREATEST(0, a.amount_cents - COALESCE((SELECT SUM(r.amount_cents) FROM refunds r WHERE r.payment_attempt_id = a.id AND r.state IN ('requested','pending','completed','unknown')), 0))::int ELSE 0 END AS refundable_cents
+       FROM payment_attempts a JOIN invoices i ON i.id = a.invoice_id JOIN projects p ON p.id = i.project_id
+      WHERE a.state IN ('completed','refunded','disputed','returned') ORDER BY COALESCE(a.completed_at, a.created_at) DESC LIMIT 20`,
+  );
 }

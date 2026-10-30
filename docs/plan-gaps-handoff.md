@@ -237,7 +237,9 @@ by Joe/staff don't feed the weekly update (only sub logs do).
   - Still open:
     - The workflow runbooks (`db/seed-workflow-runbooks.mjs`) aren't seeded live. They seed as inactive or
       proposed for Joe to approve in /engine, so run that at deploy.
-    - Live jobs show stage W01 (5 projects) or W09 (2), with no backfill.
+    - ~~Live jobs show stage W01 or W09.~~ **Done (branch `t3/stage-backfill`, migration 0054):** the
+      workflow stage follows the project status forward (trigger), new rows start there, and open jobs are
+      backfilled.
 - ~~**W03 and W11:**~~ **Done (branch `t3/tier3-w11-w03`, `lib/workflow/cards.ts`):**
   - W03: a "Who does what" card lists every scope item (Joe / a sub / a supplier, supply vs install, his
     prices). `stage_package_release` stages it first when the current allocation hasn't been reviewed, and

@@ -201,7 +201,8 @@ export function SettingsClient({ data }: { data: SettingsData }) {
             <div className="mt-1.5 text-meta text-ink-3">{data.profile.meta}</div>
 
             <div className="my-5 border-t border-rule" />
-            <SettingsForm action={updateProfile} className="max-w-2xl">
+            <p className="mb-3 text-body text-ink-2">Profile changes do not autosave. Edit your details, then choose Save profile.</p>
+            <SettingsForm action={updateProfile} className="max-w-2xl" saveLabel="Save profile">
               <div className="grid grid-cols-1 gap-5 @3xl/page:grid-cols-2">
                 <TextInput name="name" label="Display name" defaultValue={data.profile.name} required />
                 <TextInput name="email" label="Email" type="email" defaultValue={data.profile.email} required />

@@ -52,49 +52,66 @@ export default async function MeasurePage({ searchParams }: { searchParams: Prom
 
         <section className="mb-6">
           <Eyebrow muted>Cases by kind</Eyebrow>
+          {/* Two narrower tables (outcomes, then effort) so nothing clips beside the dock. */}
           <div className="mt-2 overflow-x-auto">
-            <table className="w-full min-w-[760px] border-collapse text-body">
+            <table className="w-full min-w-[520px] border-collapse text-body tabular-nums">
               <thead>
                 <tr className="border-b border-rule text-left text-meta text-ink-3">
                   <th className="py-2 pr-3">Kind</th>
-                  <th className="py-2 pr-3">Eligible</th>
-                  <th className="py-2 pr-3">Verified</th>
-                  <th className="py-2 pr-3">Corrected</th>
-                  <th className="py-2 pr-3">Failed</th>
-                  <th className="py-2 pr-3">Unknown effect</th>
-                  <th className="py-2 pr-3">Missed</th>
-                  <th className="py-2 pr-3">Pending</th>
-                  <th className="py-2 pr-3">Rate</th>
-                  <th className="py-2 pr-3">Unattended / one-tap / assisted</th>
-                  <th className="py-2 pr-3">Owner min</th>
-                  <th className="py-2 pr-3">Cost</th>
-                  <th className="py-2 pr-3">Median latency</th>
+                  <th className="py-2 pr-3 text-right">Eligible</th>
+                  <th className="py-2 pr-3 text-right">Verified</th>
+                  <th className="py-2 pr-3 text-right">Corrected</th>
+                  <th className="py-2 pr-3 text-right">Failed</th>
+                  <th className="py-2 pr-3 text-right">Unknown</th>
+                  <th className="py-2 pr-3 text-right">Missed</th>
+                  <th className="py-2 pr-3 text-right">Pending</th>
+                  <th className="py-2 text-right">Verified rate</th>
                 </tr>
               </thead>
               <tbody>
                 {[...summary.kinds, summary.totals].map((k) => (
                   <tr key={k.kind} className={`border-b border-rule-soft ${k.kind === "all" ? "font-semibold" : ""}`}>
                     <td className="py-2 pr-3">{k.kind}{k.excluded ? <span className="ml-1 text-meta font-normal text-ink-3">(+{k.excluded} excluded)</span> : null}</td>
-                    <td className="py-2 pr-3">{k.eligible}</td>
-                    <td className="py-2 pr-3">{k.verified_success}</td>
-                    <td className="py-2 pr-3">{k.corrected}</td>
-                    <td className="py-2 pr-3">{k.failed}</td>
-                    <td className="py-2 pr-3">{k.unknown_effect}</td>
-                    <td className="py-2 pr-3">{k.missed_commitment}</td>
-                    <td className="py-2 pr-3">{k.pending}</td>
-                    <td className="py-2 pr-3">
+                    <td className="py-2 pr-3 text-right">{k.eligible}</td>
+                    <td className="py-2 pr-3 text-right">{k.verified_success}</td>
+                    <td className="py-2 pr-3 text-right">{k.corrected}</td>
+                    <td className="py-2 pr-3 text-right">{k.failed}</td>
+                    <td className="py-2 pr-3 text-right">{k.unknown_effect}</td>
+                    <td className="py-2 pr-3 text-right">{k.missed_commitment}</td>
+                    <td className="py-2 pr-3 text-right">{k.pending}</td>
+                    <td className="py-2 text-right">
                       {pct(k.verified_rate.value)} <span className="text-meta text-ink-3">({k.verified_rate.numerator}/{k.verified_rate.denominator})</span>
                     </td>
-                    <td className="py-2 pr-3">{k.unattended} / {k.one_tap} / {k.assisted}</td>
-                    <td className="py-2 pr-3">
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[520px] border-collapse text-body tabular-nums">
+              <thead>
+                <tr className="border-b border-rule text-left text-meta text-ink-3">
+                  <th className="py-2 pr-3">Kind</th>
+                  <th className="py-2 pr-3 text-right">Unattended / one-tap / assisted</th>
+                  <th className="py-2 pr-3 text-right">Owner minutes</th>
+                  <th className="py-2 pr-3 text-right">Cost</th>
+                  <th className="py-2 text-right">Median latency</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...summary.kinds, summary.totals].map((k) => (
+                  <tr key={k.kind} className={`border-b border-rule-soft ${k.kind === "all" ? "font-semibold" : ""}`}>
+                    <td className="py-2 pr-3">{k.kind}</td>
+                    <td className="py-2 pr-3 text-right">{k.unattended} / {k.one_tap} / {k.assisted}</td>
+                    <td className="py-2 pr-3 text-right">
                       {k.owner_minutes}
                       {k.owner_minutes_unknown ? <span className="text-meta text-ink-3"> (+{k.owner_minutes_unknown} unknown)</span> : null}
                     </td>
-                    <td className="py-2 pr-3">
+                    <td className="py-2 pr-3 text-right">
                       {usd(k.cost_usd)}
                       {k.cost_unknown ? <span className="text-meta text-ink-3"> (+{k.cost_unknown} unknown)</span> : null}
                     </td>
-                    <td className="py-2 pr-3">{k.latency.median_ms === null ? "—" : `${Math.round(k.latency.median_ms / 1000)}s`}</td>
+                    <td className="py-2 text-right">{k.latency.median_ms === null ? "—" : `${Math.round(k.latency.median_ms / 1000)}s`}</td>
                   </tr>
                 ))}
               </tbody>

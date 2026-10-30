@@ -24,7 +24,7 @@ export default async function PortalMoodPage() {
   const signerName = proj?.client_name ?? "";
 
   return (
-    <main className="mx-auto w-full max-w-4xl px-4 py-7 sm:px-8">
+    <main className="mx-auto w-full max-w-6xl px-4 py-7 sm:px-8 [&>*]:max-w-4xl">
       <Eyebrow>Mood boards</Eyebrow>
       <h1 className="mt-1 font-serif text-title font-medium leading-tight text-accent-2">
         The look and feel we&apos;re building toward.

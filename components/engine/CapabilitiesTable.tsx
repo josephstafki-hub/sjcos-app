@@ -51,12 +51,11 @@ export function CapabilitiesTable({ report, canEdit }: { report: CapabilityRepor
         <section key={g.title}>
           <Eyebrow>{g.title}</Eyebrow>
           <div className="mt-2 overflow-x-auto">
-            <table className="w-full min-w-[720px] border-collapse text-body">
+            <table className="w-full min-w-[520px] border-collapse text-body">
               <thead>
                 <tr className="border-b border-rule text-left text-meta text-ink-3">
                   <th className="py-2 pr-3">Key</th>
                   <th className="py-2 pr-3">Capability</th>
-                  <th className="py-2 pr-3">Owner</th>
                   <th className="py-2 pr-3">States</th>
                   <th className="py-2 pr-3">Evidence</th>
                 </tr>
@@ -68,10 +67,10 @@ export function CapabilitiesTable({ report, canEdit }: { report: CapabilityRepor
                     <td className="py-2 pr-3 text-ink">
                       {r.title}
                       {!r.in_catalogue ? <span className="ml-2 text-meta text-ink-3">(not in catalogue)</span> : null}
+                      {r.owner ? <div className="mt-0.5 text-meta text-ink-3">{r.owner}</div> : null}
                       {r.notes ? <div className="mt-1 text-meta text-ink-3">{r.notes}</div> : null}
                     </td>
-                    <td className="py-2 pr-3 text-meta text-ink-3">{r.owner || "—"}</td>
-                    <td className="py-2 pr-3">
+                    <td className="w-44 py-2 pr-3">
                       <div className="flex flex-wrap gap-1">
                         {CAPABILITY_STATES.map((s) => (
                           <StateChip key={s} on={r[s]} label={STATE_LABEL[s]} />
@@ -79,7 +78,7 @@ export function CapabilitiesTable({ report, canEdit }: { report: CapabilityRepor
                       </div>
                     </td>
                     <td className="py-2 pr-3">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-col items-start gap-1 whitespace-nowrap @4xl/page:flex-row @4xl/page:items-center @4xl/page:gap-2">
                         <button type="button" className={btnCls} onClick={() => setOpen(open === r.key ? null : r.key)}>
                           {r.evidence.length} entr{r.evidence.length === 1 ? "y" : "ies"}
                         </button>

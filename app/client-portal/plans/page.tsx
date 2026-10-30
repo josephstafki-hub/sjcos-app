@@ -25,7 +25,7 @@ export default async function PortalPlansPage() {
   const signerName = proj?.client_name || user?.name || "";
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-7 sm:px-8">
+    <main className="mx-auto w-full max-w-6xl px-4 py-7 sm:px-8 [&>*]:max-w-3xl">
       <Eyebrow>Floor plans</Eyebrow>
       <h1 className="mt-1 font-serif text-title font-medium leading-tight text-accent-2">
         Your plans, every version in one place.

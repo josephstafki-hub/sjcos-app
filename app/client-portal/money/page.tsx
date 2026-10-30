@@ -11,7 +11,7 @@ export default async function PortalMoneyPage() {
   const invoices = (money?.invoices ?? []).filter((i) => i.status !== "draft");
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-7 sm:px-8">
+    <main className="mx-auto w-full max-w-6xl px-4 py-7 sm:px-8 [&>*]:max-w-3xl">
       <Eyebrow>Money</Eyebrow>
       <h1 className="mt-1 font-serif text-display font-medium text-accent-2">Where the money stands.</h1>
       <p className="mt-2 text-body text-ink-2">Your project total, recorded payments, and invoices. For a question about a line, message Joe before you pay.</p>

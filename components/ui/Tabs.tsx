@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 type TabsProps = {
   tabs: string[];
@@ -19,6 +19,18 @@ type TabsProps = {
 /** Underline tabs with a scrollable overflow and keyboard navigation. */
 export function Tabs({ tabs, active = 0, onSelect, routes, counts, className = "", "aria-label": label = "Views" }: TabsProps) {
   const container = useRef<HTMLDivElement>(null);
+  // Fade the right edge only while more tabs sit past it.
+  const [moreRight, setMoreRight] = useState(false);
+  useEffect(() => {
+    const el = container.current;
+    if (!el) return;
+    const check = () => setMoreRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+    check();
+    el.addEventListener("scroll", check, { passive: true });
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => { el.removeEventListener("scroll", check); ro.disconnect(); };
+  }, [tabs.length]);
   useEffect(() => {
     const el = container.current;
     const tab = el?.children[active] as HTMLElement | undefined;
@@ -41,7 +53,7 @@ export function Tabs({ tabs, active = 0, onSelect, routes, counts, className = "
 
   return (
     <div ref={container} role={routes ? "navigation" : "tablist"} aria-label={label}
-      className={`relative -mb-px flex overflow-x-auto border-b border-rule [mask-image:linear-gradient(to_right,black_90%,transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${className}`}>
+      className={`relative -mb-px flex overflow-x-auto border-b border-rule ${moreRight ? "[mask-image:linear-gradient(to_right,black_85%,transparent)]" : ""} [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${className}`}>
       {tabs.map((tab, i) => {
         const isActive = i === active;
         const classes = `inline-flex h-10 shrink-0 items-center whitespace-nowrap border-b-2 px-3 font-sans text-body font-medium transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus ${isActive ? "border-ink text-ink" : "border-transparent text-ink-3 hover:text-ink"}`;

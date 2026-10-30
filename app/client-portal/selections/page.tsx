@@ -11,7 +11,7 @@ export default async function PortalSelectionsPage() {
   const view = slug ? await getClientSelections(slug) : EMPTY_SELECTIONS_VIEW;
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-7 sm:px-8">
+    <main className="mx-auto w-full max-w-6xl px-4 py-7 sm:px-8 [&>*]:max-w-3xl">
       <Eyebrow>Selections</Eyebrow>
       <h1 className="mt-1 font-serif text-title font-medium leading-tight text-accent-2">
         Your decisions, room by room.

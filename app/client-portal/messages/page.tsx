@@ -14,7 +14,7 @@ export default async function PortalMessagesPage() {
   const thread = channelSlug ? await getPortalThread(portalChannel("client", channelSlug)) : [];
 
   return (
-    <main className="mx-auto w-full max-w-2xl px-4 py-7 sm:px-8">
+    <main className="mx-auto w-full max-w-6xl px-4 py-7 sm:px-8 [&>*]:max-w-2xl">
       <Eyebrow>Messages</Eyebrow>
       <h1 className="mt-1 font-serif text-title font-medium leading-tight text-accent-2">
         Talk to Joe.

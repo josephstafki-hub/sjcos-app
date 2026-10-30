@@ -1,5 +1,10 @@
+import Link from "next/link";
+import { ScanSearch } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
+import { EmptyState, PageHeader } from "@/components/ui";
 import { WorkbenchLive } from "@/components/panel/WorkbenchLive";
+import { requireAccess } from "@/lib/dal";
+import { query } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +19,15 @@ export default async function WorkbenchPage({
   searchParams: Promise<{ s?: string }>;
 }) {
   const { s } = await searchParams;
+  const user = await requireAccess("today");
+  // With nothing picked, offer the to-dos that moved most recently (the owner's
+  // view only — staff to-dos are per account and live on their own Today).
+  const recent = s || user.role !== "owner" ? [] : (await query<{ id: string; title: string; status: string; updated: string }>(
+    `SELECT id, title, status, to_char(updated_at AT TIME ZONE 'America/Chicago', 'Mon FMDD, FMHH12:MI AM') AS updated
+       FROM work_items
+      WHERE archived_at IS NULL AND status NOT IN ('done','cancelled')
+      ORDER BY updated_at DESC LIMIT 8`,
+  ).catch(() => ({ rows: [] }))).rows;
 
   return (
     <Shell breadcrumb="WORKBENCH">
@@ -21,10 +35,34 @@ export default async function WorkbenchPage({
         {s ? (
           <WorkbenchLive subjectId={s} />
         ) : (
-          <p className="text-[13px] text-ink-3">
-            Nothing to inspect yet — use a queue card&apos;s Inspect chip in the operator
-            panel, or hand an item to an agent and the workbench will follow it.
-          </p>
+          <>
+            <PageHeader title="Workbench" meta="Everything an agent or you is working on for one to-do, live." />
+            {recent.length > 0 ? (
+              <section className="mt-6">
+                <h2 className="text-subheading font-semibold text-ink">Open one</h2>
+                <ul className="mt-2 divide-y divide-rule-soft border-y border-rule">
+                  {recent.map((w) => (
+                    <li key={w.id}>
+                      <Link href={`/workbench?s=${w.id}`} className="flex min-h-11 items-center gap-3 py-2.5 hover:bg-hover">
+                        <span className="min-w-0 flex-1 truncate text-body text-ink">{w.title}</span>
+                        <span className="flex-none text-meta text-ink-3">{w.updated}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-3 text-meta text-ink-3">
+                  The Inspect chip on a queue card opens its to-do here too, and the workbench follows an agent you hand an item to.
+                </p>
+              </section>
+            ) : (
+              <EmptyState
+                icon={ScanSearch}
+                title="Nothing to inspect yet"
+                description="Use Inspect on a queue card in the operator panel, or hand a to-do to an agent; the workbench follows it here."
+                action={{ children: "Open Today", href: "/today" }}
+              />
+            )}
+          </>
         )}
       </div>
     </Shell>

@@ -327,8 +327,14 @@ by Joe/staff don't feed the weekly update (only sub logs do).
   - Fixed: `applyMarkupDecision` never worked, because it didn't present the card's content hash.
     Approving now writes a new pricing setup version plus the setting.
 - **Owner hours (A19):**
-  - `verifiedHoursForCloseout` and `setOwnerLaborRate` are unused.
-  - The phone side was never built; `sjcos-mobile` hasn't changed since 08-29.
+  - ~~`verifiedHoursForCloseout` and `setOwnerLaborRate` are unused.~~ **Done (branch
+    `t3/tier3-owner-hours`):**
+    - /time has a **Save rate** form (kind of work, $/h, from date). It goes through an approved
+      `owner_rate` decision.
+    - `get_project_financials` reports `owner_hours`: confirmed hours valued at those rates. This sits
+      beside cost and profit, not inside them.
+  - The phone side (geofence clock-in prompts) was never built; `sjcos-mobile` hasn't changed since
+    08-29. That's a separate repo.
 
 ## Tier 4: agent safety and operations
 

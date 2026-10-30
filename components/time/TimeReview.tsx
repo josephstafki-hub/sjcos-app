@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { Card, Chip, Eyebrow } from "@/components/ui";
 import { runAction } from "@/lib/run-action";
-import { startTimerAction, stopTimerAction, correctIntervalAction, confirmClockInAction, clockOutAction } from "@/lib/owner-time/actions";
+import { startTimerAction, stopTimerAction, correctIntervalAction, confirmClockInAction, clockOutAction, setLaborRateAction } from "@/lib/owner-time/actions";
 import type { ReviewList, TimeInterval } from "@/lib/owner-time/intervals";
 
 type Category = "site" | "design" | "estimating" | "admin" | "other";
@@ -132,10 +132,47 @@ export function TimeReview({ review, projects, rates, from, to }: { review: Revi
         <Eyebrow>Owner labor rates (internal valuation only)</Eyebrow>
         <Card kind="soft" className="mt-2 px-4 py-3 text-[12px] leading-relaxed text-ink-3">
           {rates.length === 0
-            ? "No approved rate yet — hours are captured and shown, but every job reads “cost not configured”. A rate is set through a markup decision (ask in the Ask window: “set my site rate to …”), never guessed."
+            ? "No rate yet: hours are captured and shown, but every job reads “cost not configured”. Set one below."
             : rates.map((r) => `${r.category}: $${(r.rate_cents / 100).toFixed(2)}/h from ${r.effective_from}`).join(" · ")}
+          <RateForm />
         </Card>
       </section>
     </div>
+  );
+}
+
+/** Joe's own labour rate for one kind of work, from a date. Values his
+ *  verified hours on job costs; bills nobody (lib/owner-time/actions.ts). */
+function RateForm() {
+  const [category, setCategory] = useState<"site" | "design" | "estimating" | "admin" | "other">("site");
+  const [rate, setRate] = useState("");
+  const [from, setFrom] = useState(() => new Date().toISOString().slice(0, 10));
+  const [pending, start] = useTransition();
+  const input = "rounded-md border border-rule bg-card px-2 py-1 text-[12px] text-ink";
+  return (
+    <form
+      className="mt-2 flex flex-wrap items-center gap-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        start(async () => {
+          const r = await runAction(() => setLaborRateAction(category, rate, from), { fallback: "Couldn't save the rate." });
+          if (r && (r as { ok?: boolean }).ok !== false) setRate("");
+        });
+      }}
+    >
+      <select value={category} onChange={(e) => setCategory(e.target.value as typeof category)} className={input}>
+        {(["site", "design", "estimating", "admin", "other"] as const).map((c) => (
+          <option key={c} value={c}>{c}</option>
+        ))}
+      </select>
+      <input value={rate} onChange={(e) => setRate(e.target.value)} placeholder="$ per hour" inputMode="decimal" className={`${input} w-24`} />
+      <label className="flex items-center gap-1 text-[11px] text-ink-3">
+        from
+        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={input} />
+      </label>
+      <button type="submit" disabled={pending || !rate.trim()} className="rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper disabled:opacity-50">
+        {pending ? "Saving…" : "Save rate"}
+      </button>
+    </form>
   );
 }

@@ -36,10 +36,10 @@ this repo every day.
 | Commit | What |
 |---|---|
 | 0811894 | Weekly client update: empty weeks held (no "nothing happened" email); notes that mention a delay, cost or problem held for Joe; reads the seeded `{day, time}` config |
-| 6da8c8f | Automatic invoices (deposit, progress, final) are actually emailed (`lib/billing/invoice-email.ts`); the final invoice waits while punch items are open; approving that card issues it |
-| 2f2eea3 | MCP can't create owners; login admin only for runs acting for Joe; staff need a `proposal` authority grant to send invoices or estimates |
-| bde346b | Estimate recompute keeps Joe's typed prices (markup 0 = no markup; only new evidence lines get the 25% default) |
-| 89ef5cd | Schedule and purchase gates need the construction deposit (`lib/workflow/deposit.ts`), not the pre-con fee |
+| d394966 | Automatic invoices (deposit, progress, final) are actually emailed (`lib/billing/invoice-email.ts`); the final invoice waits while punch items are open; approving that card issues it |
+| 2f5d3ff | MCP can't create owners; login admin only for runs acting for Joe; staff need a `proposal` authority grant to send invoices or estimates |
+| 09dd6bf | Estimate recompute keeps Joe's typed prices (markup 0 = no markup; only new evidence lines get the 25% default) |
+| 0433ead | Schedule and purchase gates need the construction deposit (`lib/workflow/deposit.ts`), not the pre-con fee |
 | e235861 | A sub's COI upload waits for Joe's Accept/Reject (sub page › Paperwork); a stale Approve sends nothing |
 
 ## Tier 0: before or at the next deploy

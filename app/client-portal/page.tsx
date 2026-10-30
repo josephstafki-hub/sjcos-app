@@ -13,6 +13,8 @@ import { getProject, getProjectDailyLogs } from "@/lib/projects";
 import { stageLabel } from "@/lib/leads";
 import type { LeadStage } from "@/lib/types";
 import { queryOne } from "@/lib/db";
+import { runDirect } from "@/lib/commands/db";
+import { renderClientSummary, type SummaryContent } from "@/lib/field/weekly-summary";
 import { getClientWarranty } from "@/lib/warranty";
 import { ClientUploads } from "@/components/portal/ClientUploads";
 import { ClientPunch } from "@/components/portal/ClientPunch";
@@ -41,6 +43,19 @@ export default async function ClientPortalPage() {
         )
       : Promise.resolve(null),
   ]);
+
+  // Friday updates published to this job (lib/field/weekly-summary.ts).
+  const weekly = slug
+    ? (
+        await runDirect<{ id: string; week: string; content: SummaryContent }>(
+          `SELECT w.id, to_char(w.week_start, 'Mon FMDD') AS week, w.content
+             FROM weekly_summaries w JOIN projects p ON p.id = w.project_id
+            WHERE p.slug = $1 AND w.status = 'published'
+            ORDER BY w.week_start DESC, w.revision DESC LIMIT 6`,
+          [slug],
+        ).catch(() => [])
+      ).map((w) => ({ id: w.id, week: w.week, ...renderClientSummary(w.content), photos: w.content.photos ?? [] }))
+    : [];
 
   const data = buildClientPortalData(project, logs);
   if (user.role === "client") data.clientInitials = user.initials || data.clientInitials;
@@ -121,6 +136,29 @@ export default async function ClientPortalPage() {
         </div>
 
         <div className="my-5 border-t border-rule" />
+
+        {weekly.length > 0 && (
+          <div className="mb-6 flex flex-col gap-4">
+            <Eyebrow muted>Weekly updates</Eyebrow>
+            {weekly.map((w) => (
+              <Card key={w.id} className="p-3.5">
+                <div className="font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-ink-3">Week of {w.week}</div>
+                {w.subject && <h2 className="mt-1 font-serif text-[15px] font-semibold text-ink">{w.subject}</h2>}
+                <p className="mt-1 whitespace-pre-wrap text-[13.5px] leading-relaxed text-ink">{w.text}</p>
+                {w.photos.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {w.photos.map((f) => (
+                      <a key={f} href={`/api/portal/project-file/${f}`} target="_blank" rel="noreferrer">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={`/api/portal/project-file/${f}?w=240`} alt="" className="h-20 w-28 rounded-md border border-rule object-cover" />
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            ))}
+          </div>
+        )}
 
         <div className="flex flex-col gap-5">
           {data.entries.length === 0 ? (

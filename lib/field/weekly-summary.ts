@@ -9,9 +9,10 @@
 // material problem are held the same way (policy `screen`). A week with
 // nothing verified is held, never sent as an empty update.
 //
-// Publishing enqueues intents (portal_publish + optional send_email) that the
-// WS-approvals dispatcher delivers. Replay-safe: UNIQUE(project, week,
-// revision) + intent operation keys derived from the summary id.
+// Publishing marks the summary published (the client portal shows it) and
+// enqueues the optional send_email intent the dispatcher delivers.
+// Replay-safe: UNIQUE(project, week, revision) + intent operation keys derived
+// from the summary id.
 
 import type { Run } from "../commands/core.ts";
 import { hashInput } from "../commands/core.ts";
@@ -288,19 +289,9 @@ async function publishSummary(
   const contentHash = hashInput({ rendered, photos: content.photos });
   const artifactRevision = `weekly_summary:${summary.id}:rev${summary.revision}:${contentHash.slice(0, 12)}`;
   const [settings] = await run<{ send_email: boolean }>(`SELECT send_email FROM weekly_summary_settings WHERE project_id = $1`, [summary.project_id]);
-  const { intent: portal } = await enqueueIntent(run, {
-    operationKey: `weekly_summary:${summary.id}:portal:rev${summary.revision}`,
-    kind: "portal_publish",
-    targetKind: "weekly_summary",
-    targetId: summary.id,
-    projectId: summary.project_id,
-    payload: { summaryId: summary.id, weekStart: summary.week_start, rendered, photos: content.photos, claims: content.claims },
-    artifactRevision,
-    decisionId: o.decisionId,
-    policyRef: o.policyRef,
-    commandId: o.commandId,
-    principal,
-  });
+  // The client portal shows a summary once it is 'published' (published_at;
+  // app/client-portal reads weekly_summaries). That is an internal write, not
+  // a send, so it has no dispatcher intent; only the email goes out through it.
   let emailId: string | null = null;
   const wantEmail = o.sendEmail && (settings?.send_email ?? true);
   if (wantEmail) {
@@ -330,7 +321,7 @@ async function publishSummary(
   const [updated] = await run<WeeklySummary>(
     `UPDATE weekly_summaries SET status = 'published', publish_intent_id = $2, email_intent_id = $3, auth_ref = $4, decision_id = COALESCE($5, decision_id), published_at = now()
       WHERE id = $1 RETURNING ${SUMMARY_COLS}`,
-    [summary.id, portal.id, emailId, o.authRef, o.decisionId],
+    [summary.id, null, emailId, o.authRef, o.decisionId],
   );
   return updated;
 }

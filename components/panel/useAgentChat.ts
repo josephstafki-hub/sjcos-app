@@ -251,7 +251,7 @@ export function useAgentChat({
         setActivity("");
         setMessages((m) => [
           ...m,
-          { id: `err-${runId}`, role: "assistant", body: `⚠️ ${p.error}`, costUsd: null, createdAt: "", subjectWorkItemId: subjectId ?? null, agent: null, attachments: null },
+          { id: `err-${runId}`, runId, role: "assistant", body: `⚠️ ${p.error}`, costUsd: null, createdAt: "", subjectWorkItemId: subjectId ?? null, agent: null, attachments: null },
         ]);
         postPanelMessage({ type: "run", phase: "end", runId, agent, subjectId: subjectId ?? null }, { local: true });
         if (p.nextRunId) {
@@ -272,7 +272,7 @@ export function useAgentChat({
         if (p.activity) setLogs((l) => ({ ...l, [`run-${runId}`]: p.activity! }));
         setMessages((m) => [
           ...m,
-          { id: `run-${runId}`, role: "assistant", body: p.answer, costUsd: p.costUsd, createdAt: "", subjectWorkItemId: subjectId ?? null, agent: p.agent ?? null, attachments: null, tokenUsage: p.tokenUsage ?? null },
+          { id: `run-${runId}`, runId, role: "assistant", body: p.answer, costUsd: p.costUsd, createdAt: "", subjectWorkItemId: subjectId ?? null, agent: p.agent ?? null, attachments: null, tokenUsage: p.tokenUsage ?? null },
         ]);
         postPanelMessage({ type: "run", phase: "end", runId, agent, subjectId: subjectId ?? null }, { local: true });
         if (!p.answer.startsWith("⚠️")) cbRef.current.onAnswer?.(runId, p.answer, false);

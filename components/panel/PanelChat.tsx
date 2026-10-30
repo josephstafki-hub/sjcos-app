@@ -16,6 +16,7 @@ import {
   ShieldQuestion,
   CircleHelp,
 } from "lucide-react";
+import { RunReview } from "./RunReview";
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import { PanelDictation } from "./PanelDictation";
 import { mergeTranscript } from "@/lib/append-transcript";
@@ -559,7 +560,7 @@ export function PanelChat({
                     <AssistantMarkdown text={parsed.body} />
                   </div>
                   <ModelActionChips actions={parsed.actions} />
-                  {(m.workLog || chat.logs[m.id]) && <ActivityLog text={m.workLog || chat.logs[m.id]} done />}
+                  {m.runId ? <RunReview runId={m.runId} /> : (m.workLog || chat.logs[m.id]) && <ActivityLog text={m.workLog || chat.logs[m.id]} done />}
                 </div>
               );
             })}

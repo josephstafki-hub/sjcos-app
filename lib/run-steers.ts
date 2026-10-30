@@ -285,7 +285,7 @@ export async function settleSteeredRun(opts: {
   const left = await closeSteering(opts.runId);
   const live = await queryOne<{ status: string }>(`SELECT status FROM dev_agent_runs WHERE id = $1`, [opts.runId]);
   if (!live || (live.status !== "pending" && live.status !== "running")) return false;
-  await insertMessage(opts.conversationId, "assistant", opts.answer, { agent: opts.agent });
+  await insertMessage(opts.conversationId, "assistant", opts.answer, { agent: opts.agent, runId: opts.runId });
   if (left.length) {
     const ids = left.map((s) => s.messageId).filter((id): id is string => !!id);
     if (ids.length) {

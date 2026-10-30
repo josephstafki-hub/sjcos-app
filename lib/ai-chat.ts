@@ -172,9 +172,10 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
        LEFT JOIN LATERAL (
          SELECT r.* FROM dev_agent_runs r WHERE m.role = 'assistant'
            AND r.conversation_id = m.conversation_id AND r.status IN ('done','error')
-           AND (r.answer = m.body OR '⚠️ ' || r.answer = m.body)
-           AND (SELECT count(*) FROM dev_agent_runs x WHERE x.conversation_id = m.conversation_id
-                AND (x.answer = m.body OR '⚠️ ' || x.answer = m.body)) = 1
+           AND (r.id=m.run_id OR (m.run_id IS NULL
+             AND (r.answer = m.body OR '⚠️ ' || r.answer = m.body)
+             AND (SELECT count(*) FROM dev_agent_runs x WHERE x.conversation_id = m.conversation_id
+                  AND (x.answer = m.body OR '⚠️ ' || x.answer = m.body)) = 1))
        ) r ON true
        WHERE m.conversation_id = $1 ORDER BY m.created_at ASC`,
     [id],
@@ -284,6 +285,7 @@ export async function insertMessage(
   role: "user" | "assistant",
   body: string,
   opts: {
+    runId?: string;
     pageContext?: string;
     costUsd?: number;
     subjectWorkItemId?: string;
@@ -304,8 +306,8 @@ export async function insertMessage(
     agent: string | null;
     attachments: ChatAttachment[] | null;
   }>(
-    `INSERT INTO ai_messages (conversation_id, role, body, page_context, cost_usd, subject_work_item_id, agent, attachments)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO ai_messages (conversation_id, role, body, page_context, cost_usd, subject_work_item_id, agent, attachments, run_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING id, role, body, cost_usd, created_at::text AS created_at, subject_work_item_id, agent, attachments`,
     [
       conversationId,
@@ -316,6 +318,7 @@ export async function insertMessage(
       opts.subjectWorkItemId ?? null,
       opts.agent ?? null,
       opts.attachments?.length ? JSON.stringify(opts.attachments) : null,
+      opts.runId ?? null,
     ],
   );
   // last_activity_at is the auto-settle clock and the settled shelf's sort key

@@ -40,7 +40,7 @@ function withTab(name: string, tab?: string | null): string {
 /** Same match the resolver uses everywhere: a slug or a uuid, as text. */
 const BY_REF = `slug = $1 OR id::text = $1`;
 
-async function resolve(kind: string, id: string): Promise<RunFocus | null> {
+export async function resolveRunEntity(kind: string, id: string): Promise<RunFocus | null> {
   if (kind === "project" || kind.startsWith("project_")) {
     const tab = kind === "project" ? null : (PROJECT_TAB[kind.slice("project_".length)] ?? null);
     const p = await queryOne<{ slug: string; name: string }>(
@@ -103,7 +103,7 @@ export async function getRunFocus(runId: string): Promise<RunFocus | null> {
       [runId],
     );
     if (!row) return null;
-    return await resolve(row.entity_kind, row.entity_id);
+    return await resolveRunEntity(row.entity_kind, row.entity_id);
   } catch {
     // Focus is a nicety on top of the poll; never let it fail a turn.
     return null;

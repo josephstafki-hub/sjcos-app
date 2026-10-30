@@ -4,6 +4,7 @@ import { withTestDb, harnessAvailable, cleanFoundation } from "./_harness/testdb
 import { issueMilestoneInvoice, recordInvoicePayment } from "../lib/billing/core.ts";
 import { onSignatureSigned } from "../lib/workflow/engine.ts";
 import { isInitialInvoiceKey } from "../lib/workflow/construction-start.ts";
+import { enqueueMissingFinancials } from "../lib/workflow/financials-fill.ts";
 
 // Libby Mahowald, 2026-10-14: the deposit was paid and the contract signed, but
 // the job sat in "construction contract" with nobody told. A fully paid initial
@@ -84,6 +85,9 @@ test("signed contract, then the deposit is paid → construction, draft draw, on
     assert.deepEqual(draws.map((d) => [d.status, Number(d.amount), d.economic_key]), [["draft", 200000, "draw:1:construction-start"]], "construction-start draw drafted, not sent");
     const [trig] = await run(`SELECT kind, ref, project_id, payload FROM agent_triggers WHERE kind = 'permit'`);
     assert.equal(trig.ref, `project:${projectId}:permit`);
+    // …and one run to fill in the job's financials.
+    const fin = await run(`SELECT ref, state, enqueued_by FROM agent_triggers WHERE kind = 'financials'`);
+    assert.deepEqual(fin, [{ ref: `project:${projectId}:financials`, state: "pending", enqueued_by: "workflow:construction-start" }]);
     assert.equal(trig.payload.address, "1271 Berkeley Ave, Saint Paul, MN 55105");
     assert.equal((await run(`SELECT count(*)::int AS n FROM notifications WHERE title = 'ZZ Start → Construction'`))[0].n, 1);
 
@@ -101,6 +105,7 @@ test("signed contract, then the deposit is paid → construction, draft draw, on
     // Replays change nothing.
     await signContract(client, run, projectId);
     assert.equal((await run(`SELECT count(*)::int AS n FROM agent_triggers WHERE kind = 'permit'`))[0].n, 1);
+    assert.equal((await run(`SELECT count(*)::int AS n FROM agent_triggers WHERE kind = 'financials'`))[0].n, 1);
     assert.equal((await run(`SELECT count(*)::int AS n FROM invoices WHERE project_id = $1 AND economic_key LIKE 'draw:%'`, [projectId]))[0].n, 1);
   });
 });
@@ -127,5 +132,33 @@ test("a paid progress draw is not a deposit: nothing starts", { skip }, async ()
     const r = await issueMilestoneInvoice(run, { projectId, economicKey: "draw:2:final", milestone: "Final", amountCents: 5000, source: "draw", estimateId, principal: owner });
     await recordInvoicePayment(run, { invoiceId: r.invoice.id, kind: "payment", amountCents: 5000, method: "check", principal: owner });
     assert.equal((await run(`SELECT status FROM projects WHERE id = $1`, [projectId]))[0].status, "construction_contract");
+  });
+});
+
+// Joe, 2026-10-30: seven "Fill in the financials" to-dos sat queued for five
+// weeks because nothing woke an agent for them. The worker now catches every
+// construction job with an unfinished budget — once per job, ever.
+test("financials catch-up: construction jobs with an unfinished budget, once each", { skip }, async () => {
+  await withTestDb(async (_url, client) => {
+    const run = async (s, p) => (await client.query(s, p)).rows;
+    await cleanFoundation(client);
+    await client.query(`TRUNCATE agent_triggers RESTART IDENTITY CASCADE`).catch(() => {});
+    await client.query(`DELETE FROM projects WHERE slug LIKE 'zz-%'`);
+    const mk = async (slug, status, complete) => (await run(
+      `INSERT INTO projects (slug, name, status, client_name, budget_complete) VALUES ($1, $1, $2, 'ZZ', $3) RETURNING id`, [slug, status, complete]))[0].id;
+    const a = await mk("zz-fin-a", "construction", false);
+    const b = await mk("zz-fin-b", "construction", false);
+    await mk("zz-fin-done", "construction", true);   // budget finished: nothing to do
+    await mk("zz-fin-precon", "precon_signed", false); // not in construction yet
+    const refs = async () => (await run(`SELECT ref FROM agent_triggers WHERE kind = 'financials' ORDER BY ref`)).map((r) => r.ref);
+
+    assert.equal((await enqueueMissingFinancials(run, { limit: 1 })).length, 1, "a few at a time");
+    assert.equal((await enqueueMissingFinancials(run, { limit: 5 })).length, 1);
+    assert.deepEqual(await refs(), [`project:${a}:financials`, `project:${b}:financials`].sort());
+
+    // A finished run (done, even one that only filed "what's missing") is never re-queued.
+    await run(`UPDATE agent_triggers SET state = 'done', done_at = now() WHERE kind = 'financials'`);
+    assert.deepEqual(await enqueueMissingFinancials(run), []);
+    assert.equal((await run(`SELECT count(*)::int AS n FROM agent_triggers WHERE kind = 'financials' AND state = 'pending'`))[0].n, 0);
   });
 });

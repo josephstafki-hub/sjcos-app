@@ -139,7 +139,7 @@ export default async function ClientPortalPage() {
       <Eyebrow>Client portal · {data.project}</Eyebrow>
       <h1 className="mt-2 font-serif text-display font-medium text-accent-2">{project?.client.name || lead?.name ? `Welcome, ${project?.client.name || lead?.name}.` : "Welcome to your project."}</h1>
       {project?.client.address && <p className="mt-2 text-body text-ink-2">{project.client.address}</p>}
-      {project && data.statusChips.length > 0 && <p className="mt-2 text-body text-ink-3">{data.statusChips.map((status) => status.label).join(" · ")}</p>}
+      {project && data.statusChips.some((status) => status.label !== project.client.address) && <p className="mt-2 text-body text-ink-3">{data.statusChips.filter((status) => status.label !== project.client.address).map((status) => status.label).join(" · ")}</p>}
       {lead && <p className="mt-2 text-body text-ink-3">{stageLabel(lead.stage)} · We’re getting your project ready.</p>}
 
       <div className="mt-8 grid min-w-0 grid-cols-1 gap-8 @4xl/page:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">

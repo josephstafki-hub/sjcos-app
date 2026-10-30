@@ -304,7 +304,7 @@ export function RecipientsPanel({
                   <Tag className="size-3.5" strokeWidth={1.5} />
                 </button>
               )}
-              <button type="button" onClick={() => rmRcpt(r.id)} className="text-ink-3 hover:text-flag" aria-label="Remove">
+              <button type="button" onClick={() => rmRcpt(r.id)} className="text-ink-3 hover:text-flag" aria-label="Remove" title="Remove">
                 <Trash2 className="size-3.5" strokeWidth={1.5} />
               </button>
 
@@ -427,7 +427,7 @@ export function RecipientsPanel({
                   type="button"
                   onClick={() => rmGroup(g.id, g.name)}
                   className="text-ink-3 hover:text-flag"
-                  aria-label={`Delete ${g.name}`}
+                  aria-label={`Delete ${g.name}`} title={`Delete ${g.name}`}
                 >
                   <X className="size-3" strokeWidth={2} />
                 </button>

@@ -202,7 +202,7 @@ function SequenceCard({
           }}
           disabled={pending}
           className="text-ink-3 hover:text-flag disabled:opacity-50"
-          aria-label="Delete automation"
+          aria-label="Delete automation" title="Delete automation"
         >
           <Trash2 className="size-3.5" strokeWidth={1.5} />
         </button>
@@ -268,7 +268,7 @@ function SequenceCard({
               onClick={() => run(() => removeSequenceStep(step.id))}
               disabled={pending || seq.active}
               className="text-ink-3 hover:text-flag disabled:opacity-30"
-              aria-label="Remove step"
+              aria-label="Remove step" title="Remove step"
             >
               <Trash2 className="size-3.5" strokeWidth={1.5} />
             </button>

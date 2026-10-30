@@ -58,7 +58,7 @@ export function BlockEditor({
                 onClick={() => onMove(-1)}
                 disabled={index === 0}
                 className="rounded p-0.5 text-ink-3 hover:bg-paper-2 hover:text-ink-2 disabled:opacity-25"
-                aria-label="Move up"
+                aria-label="Move up" title="Move up"
               >
                 <ChevronUp className="size-3.5" strokeWidth={1.5} />
               </button>
@@ -67,7 +67,7 @@ export function BlockEditor({
                 onClick={() => onMove(1)}
                 disabled={index === total - 1}
                 className="rounded p-0.5 text-ink-3 hover:bg-paper-2 hover:text-ink-2 disabled:opacity-25"
-                aria-label="Move down"
+                aria-label="Move down" title="Move down"
               >
                 <ChevronDown className="size-3.5" strokeWidth={1.5} />
               </button>
@@ -75,7 +75,7 @@ export function BlockEditor({
                 type="button"
                 onClick={onRemove}
                 className="rounded p-0.5 text-ink-3 hover:text-flag"
-                aria-label="Remove section"
+                aria-label="Remove section" title="Remove section"
               >
                 <X className="size-3.5" strokeWidth={1.5} />
               </button>
@@ -340,7 +340,7 @@ function ImageBlock({
               type="button"
               onClick={() => onChange({ buttonUrl: "" })}
               className="shrink-0 text-ink-3 hover:text-flag"
-              aria-label="Remove link"
+              aria-label="Remove link" title="Remove link"
             >
               <X className="size-3" strokeWidth={2} />
             </button>

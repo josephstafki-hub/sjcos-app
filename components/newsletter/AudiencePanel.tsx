@@ -123,7 +123,7 @@ export function AudiencePanel({
                     type="button"
                     onClick={() => removeOneOff(e.email)}
                     className="text-ink-3 hover:text-flag"
-                    aria-label="Remove"
+                    aria-label="Remove" title="Remove"
                   >
                     <Trash2 className="size-3.5" strokeWidth={1.5} />
                   </button>

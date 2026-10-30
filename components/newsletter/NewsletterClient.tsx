@@ -61,8 +61,8 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
   const [picking, setPicking] = useState(false);
   // Phones can't fit the issues rail + editor side by side; show one at a time
   // (selecting/creating an issue reveals the editor, back returns to the list).
-  // Desktop keeps both panes — this only toggles below `lg`.
-  const [mobileEditor, setMobileEditor] = useState(false);
+  // Wide page containers keep both panes; narrower ones show one at a time.
+  const [mobileEditor, setMobileEditor] = useState(data.selectedId != null);
   const [pending, start] = useTransition();
   /** Issues with local edits not yet through Save. A background data sync (the
    *  LiveUpdates poller refreshing after an agent write) keeps these local
@@ -338,7 +338,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 border-b border-rule-soft px-4 py-5">
         <PageHeader title="Newsletter" meta={`${activeCount} active contacts · ${queuedCount} messages queued`} filters={<Segmented aria-label="Newsletter view" value={view} onChange={v=>setView(v as "issues"|"contacts")} options={[{value:"issues",label:"Issues"},{value:"contacts",label:"Contacts",count:activeCount}]} />} />
       </div>
@@ -365,8 +365,8 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
       <div className="flex min-h-0 flex-1">
       {/* Issues rail */}
       <aside
-        className={`w-full flex-none flex-col border-r border-rule-soft bg-paper @3xl/page:w-56 ${
-          mobileEditor ? "hidden @3xl/page:flex" : "flex"
+        className={`min-h-0 w-full flex-none flex-col border-r border-rule-soft bg-paper @4xl/page:w-56 ${
+          mobileEditor ? "hidden @4xl/page:flex" : "flex"
         }`}
       >
         <div className="relative flex items-center gap-2 border-b border-rule px-4 py-3">
@@ -403,9 +403,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
         </div>
         {!issues.some((i) => i.isWelcome) && (
           <div className="border-b border-rule-soft bg-ai-soft/40 px-4 py-2 text-meta leading-snug text-ink-2">
-            No welcome email set — open a draft and use{" "}
-            <Star className="inline size-3 -translate-y-px" strokeWidth={1.5} /> to make it the one new
-            contacts get.
+            Choose a welcome issue: open a draft and select “Set as welcome email”. A past issue titled Welcome is send history.
           </div>
         )}
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -430,13 +428,15 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                     setSelectedId(it.id);
                     setMobileEditor(true);
                   }}
+                  aria-label={`Open ${it.title}`}
+                  aria-current={it.id === selectedId ? "true" : undefined}
                   className="min-w-0 flex-1 text-left"
                 >
                   <div className="flex items-start gap-1 text-body text-ink">
                     {it.isWelcome && (
                       <Star className="size-3 shrink-0 fill-ai text-ai" strokeWidth={1.5} aria-label="Welcome email" />
                     )}
-                    <span className="break-words">{it.title}</span>
+                    <span className="break-words">{it.title}</span><span className="ml-auto shrink-0 text-meta text-accent">Open →</span>
                   </div>
                   <div className="text-meta text-ink-3">
                     {it.status === "sent" ? `Sent · ${it.recipientCount}` : it.createdLabel}
@@ -449,7 +449,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                     the bug being fixed here, and hover-only affordances don't
                     exist at all on a phone. The welcome issue can't be deleted
                     (server-enforced) — demote it first, so no button here. */}
-                {!it.isWelcome && <details className="relative shrink-0"><summary className="cursor-pointer px-2 py-1 text-body" aria-label={`More actions for ${it.title}`}>…</summary><div className="absolute right-0 z-20 rounded-lg border border-rule-soft bg-card p-1 shadow-pop"><Button variant="ghost" size="sm" className="text-flag" disabled={pending} onClick={()=>removeIssue(it.id)}>Delete issue</Button></div></details>}
+                {!it.isWelcome && <details className="relative shrink-0"><summary className="list-none cursor-pointer px-2 py-1 text-body [&::-webkit-details-marker]:hidden" aria-label={`More actions for ${it.title}`} title={`More actions for ${it.title}`}>…</summary><div className="absolute right-0 z-20 rounded-lg border border-rule-soft bg-card p-1 shadow-pop"><Button variant="ghost" size="sm" className="text-flag" disabled={pending} onClick={()=>removeIssue(it.id)}>Delete issue</Button></div></details>}
               </div>
             ))
           )}
@@ -458,14 +458,14 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
 
       {/* Editor / preview / recipients */}
       <section
-        className={`min-w-0 flex-1 flex-col ${mobileEditor ? "flex" : "hidden @3xl/page:flex"}`}
+        className={`min-h-0 min-w-0 flex-1 flex-col ${mobileEditor ? "flex" : "hidden @4xl/page:flex"}`}
       >
         <button
           type="button"
           onClick={() => setMobileEditor(false)}
-          className="m-2 -mb-1 inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-1 text-meta font-semibold text-ink-2 hover:bg-paper-2 @3xl/page:hidden"
+          className="m-2 -mb-1 inline-flex min-h-11 shrink-0 w-fit items-center gap-1 rounded-md px-1.5 py-1 text-meta font-semibold text-ink-2 hover:bg-paper-2 @4xl/page:hidden"
         >
-          <ArrowLeft className="size-3.5" strokeWidth={1.5} /> Issues
+          <ArrowLeft className="size-3.5" strokeWidth={1.5} /> Back to issues
         </button>
         {!current ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
@@ -475,9 +475,9 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
         ) : (
           <>
             {/* Toolbar */}
-            <div className="flex flex-wrap items-center gap-2 border-b border-rule-soft px-4 py-2.5">
+            <div className="shrink-0 flex flex-wrap items-center gap-2 border-b border-rule-soft px-4 py-2.5">
               <div className="min-w-0 w-full"><Tabs tabs={["Edit", "Design", "Preview", "Recipients", "Automations", "Outbox"]} active={["Edit", "Design", "Preview", "Recipients", "Automations", "Outbox"].indexOf(mode)} onSelect={i=>setMode((["Edit", "Design", "Preview", "Recipients", "Automations", "Outbox"] as Mode[])[i])}/></div>
-              <div className="ml-auto flex items-center gap-2">
+              <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2">
                 {!locked && mode === "Edit" && (
                   <button
                     type="button"
@@ -517,6 +517,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
               </div>
             </div>
 
+            {current.status === "queued" && <p className="shrink-0 border-b border-rule bg-info-soft px-4 py-2 text-meta text-ink-2">Queued — editing is locked. Messages are parked in Outbox; release requires owner approval.</p>}
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
               {mode === "Edit" && (
                 <div className="mx-auto max-w-[620px] space-y-4">
@@ -640,14 +641,10 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
               )}
             </div>
 
-            {/* Delete is available at every status now — a queued or sent issue
-                used to be stuck in the rail forever with no way to clear it.
-                Rendered as a real bordered button: as 11px grey text it read as
-                a caption and went unnoticed. The trash icon on each row in the
-                issues rail is the other, more obvious way in. The welcome issue
-                can't be deleted at all (server-enforced) — demote it instead. */}
+            {/* Destructive issue actions stay in the menu at every status.
+                Welcome issues must be demoted before deletion (server-enforced). */}
             {(mode === "Edit" || mode === "Design") && (
-              <div className="flex items-center justify-end gap-2 border-t border-rule px-5 py-2">
+              <div className="shrink-0 flex flex-wrap items-center justify-end gap-2 border-t border-rule px-5 py-2">
                 {current.isWelcome ? (
                   <button
                     type="button"
@@ -669,6 +666,9 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                         <Star className="size-3.5" strokeWidth={1.5} /> Set as welcome email
                       </button>
                     )}
+                    <details className="relative">
+                      <summary aria-label="Issue actions" title="Issue actions" className="list-none cursor-pointer rounded-md border border-rule px-3 py-2 text-body [&::-webkit-details-marker]:hidden">…</summary>
+                      <div className="absolute bottom-full right-0 z-20 mb-1 rounded-md border border-rule bg-card p-1 shadow-pop">
                     <button
                       type="button"
                       onClick={() => removeIssue(current.id)}
@@ -682,6 +682,8 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                           ? "Discard queued issue"
                           : "Delete draft"}
                     </button>
+                      </div>
+                    </details>
                   </>
                 )}
               </div>

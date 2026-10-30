@@ -103,8 +103,9 @@ export function ChatClient({ data }: { data: ChatData }) {
   // The lists below follow the server: LiveUpdates refreshes the page when a
   // message lands (someone else's post, a portal reply, an agent), and
   // useServerState adopts it. Plain useState kept the first render forever.
-  // Mobile master/detail: below lg, show the channel rail OR the messages.
-  const [mobileThread, setMobileThread] = useState(false);
+  // Narrow page containers show the room list OR the conversation.
+  const [mobileThread, setMobileThread] = useState(Boolean(data.selectedKey));
+  const [roomQuery, setRoomQuery] = useState("");
   const [views, setViews] = useServerState(data.views);
   const [channels, setChannels] = useServerState(data.channels);
   const [rooms, setRooms] = useServerState(data.rooms);
@@ -613,16 +614,20 @@ export function ChatClient({ data }: { data: ChatData }) {
       {/* ─── Channel rail ─────────────────────────────────────────── */}
       <aside
         className={[
-          "w-full flex-none flex-col overflow-y-auto border-r border-rule bg-paper-2 p-3 @3xl/page:w-[220px]",
-          mobileThread ? "hidden @3xl/page:flex" : "flex",
+          "min-h-0 w-full flex-none flex-col overflow-y-auto border-r border-rule bg-paper-2 p-3 @4xl/page:w-[220px]",
+          mobileThread ? "hidden @4xl/page:flex" : "flex",
         ].join(" ")}
       >
+        <input type="search" aria-label="Search rooms and people" placeholder="Search rooms and people…"
+          value={roomQuery} onChange={(e) => setRoomQuery(e.target.value)}
+          className="mb-2 w-full rounded-md border border-rule bg-card px-3 py-2 text-body text-ink" />
         <RailLabel>Channels</RailLabel>
         <div className="flex flex-col gap-0.5">
-          {channels.map((c) => (
+          {channels.filter((c) => c.name.toLowerCase().includes(roomQuery.toLowerCase())).map((c) => (
             <ChannelItem
               key={c.key}
               channel={c}
+              lastMessage={views[c.key]?.messages.at(-1)}
               active={c.key === selectedKey}
               onSelect={() => selectChannel(c.key)}
               // Owner only — archiving a channel is a company decision.
@@ -677,7 +682,7 @@ export function ChatClient({ data }: { data: ChatData }) {
         </div>
 
         <div className="my-2 h-px bg-rule" />
-        <RailLabel>Rooms</RailLabel>
+        <RailLabel>Jobs</RailLabel>
         <div className="flex flex-col gap-0.5">
           {rooms.length === 0 && !canManage && (
             <p className="px-2 py-1 text-meta leading-snug text-ink-3">
@@ -689,10 +694,11 @@ export function ChatClient({ data }: { data: ChatData }) {
               No active leads or projects.
             </p>
           )}
-          {rooms.map((c) => (
+          {rooms.filter((c) => c.name.toLowerCase().includes(roomQuery.toLowerCase())).map((c) => (
             <ChannelItem
               key={c.key}
               channel={c}
+              lastMessage={views[c.key]?.messages.at(-1)}
               active={c.key === selectedKey}
               onSelect={() => selectChannel(c.key)}
               // Rooms archive themselves when the job closes; this is the
@@ -752,28 +758,11 @@ export function ChatClient({ data }: { data: ChatData }) {
         )}
 
         <div className="my-2 h-px bg-rule" />
-        <RailLabel>Direct</RailLabel>
+        <RailLabel>People</RailLabel>
         <div className="flex flex-col gap-0.5">
-          {directs.map((d) => (
-            <button
-              key={d.key}
-              onClick={() => selectChannel(d.key)}
-              className={[
-                "flex w-full items-center gap-2 rounded-md px-2 py-1 text-left transition-colors",
-                d.key === selectedKey
-                  ? "bg-accent-soft text-accent-2"
-                  : "text-ink-2 hover:bg-paper-3",
-              ].join(" ")}
-            >
-              <span className="relative flex-none">
-                <Avatar initials={d.initials} size="sm" kind="gray" />
-                {d.online && (
-                  <span className="absolute -bottom-px -right-px size-1.5 rounded-full border border-paper bg-money" />
-                )}
-              </span>
-              <span className="flex-1 truncate text-meta">{d.name}</span>
-              <ChatBadge unread={d.unread} awaitingReply={d.awaitingReply} />
-            </button>
+          {directs.filter((d) => d.name.toLowerCase().includes(roomQuery.toLowerCase())).map((d) => (
+            <ChannelItem key={d.key} channel={d} lastMessage={views[d.key]?.messages.at(-1)}
+              active={d.key === selectedKey} onSelect={() => selectChannel(d.key)} />
           ))}
           {pickingDm ? (
             <div className="px-1 pt-1">
@@ -874,8 +863,8 @@ export function ChatClient({ data }: { data: ChatData }) {
       {/* ─── Messages ─────────────────────────────────────────────── */}
       <section
         className={[
-          "min-w-0 flex-1 flex-col",
-          mobileThread ? "flex" : "hidden @3xl/page:flex",
+          "min-h-0 min-w-0 flex-1 flex-col",
+          mobileThread ? "flex" : "hidden @4xl/page:flex",
         ].join(" ")}
       >
         {!view ? (
@@ -885,14 +874,15 @@ export function ChatClient({ data }: { data: ChatData }) {
         ) : (
         <>
         <div className="flex-none border-b border-rule px-5 py-3">
-          <div className="flex items-center gap-3">
             <button
               onClick={() => setMobileThread(false)}
-              aria-label="Back to channels"
-              className="-ml-1 grid size-11 place-items-center rounded-md text-ink-3 hover:bg-hover @3xl/page:hidden"
+              aria-label="Back to rooms"
+              title="Back to rooms"
+              className="-ml-1 inline-flex min-h-11 shrink-0 items-center gap-1 px-1 rounded-md text-ink-3 hover:bg-hover @4xl/page:hidden"
             >
-              <ChevronLeft className="size-5" strokeWidth={1.5} />
+              <ChevronLeft className="size-4" strokeWidth={1.5} /> Back to rooms
             </button>
+          <div className="flex items-center gap-3">
             <div className="min-w-0 flex-1">
               <h1 className="text-subheading font-semibold text-ink">
                 {view.name}
@@ -914,7 +904,7 @@ export function ChatClient({ data }: { data: ChatData }) {
               {view.canManageMembers && (
                 <button
                   onClick={() => setManaging((m) => !m)}
-                  aria-label="Manage participants"
+                  aria-label="Manage participants" title="Manage participants"
                   className={[
                     "flex-none rounded-full border border-rule p-1 transition-colors",
                     managing ? "bg-accent-soft text-accent-2" : "text-ink-3 hover:bg-paper-3",
@@ -1040,8 +1030,10 @@ function ChannelItem({
   active,
   onSelect,
   onArchive,
+  lastMessage,
 }: {
   channel: ChatChannel;
+  lastMessage?: ChatMessage;
   active: boolean;
   onSelect: () => void;
   /** Owner only — archives the channel/room (reversible from Archived). */
@@ -1054,19 +1046,22 @@ function ChannelItem({
         active ? "bg-accent-soft font-semibold text-accent-2" : "text-ink-2 hover:bg-paper-3",
       ].join(" ")}
     >
-      <button onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-2 text-left">
-        <span className="min-w-0 flex-1 break-words">{channel.name}</span>
+      <button onClick={onSelect} aria-current={active ? "true" : undefined} className="flex min-h-11 min-w-0 flex-1 items-center gap-2 text-left">
+        <span className="min-w-0 flex-1">
+          <span className="block break-words">{channel.name}</span>
+          <span className="block truncate text-meta font-normal text-ink-3">{lastMessage ? `${lastMessage.name}: ${lastMessage.text}` : "No messages yet"}</span>
+        </span>
+        {lastMessage && <span className="shrink-0 text-meta font-normal text-ink-3">{lastMessage.time}</span>}
         <ChatBadge unread={channel.unread} awaitingReply={channel.awaitingReply} />
       </button>
       {onArchive && (
-        <button
-          onClick={onArchive}
-          aria-label={`Archive ${channel.name}`}
-          title="Archive"
-          className="flex-none rounded p-0.5 text-ink-3 opacity-0 transition-opacity hover:bg-paper-3 hover:text-ink-2 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
-        >
-          <Archive className="size-3" strokeWidth={2} />
-        </button>
+        <details className="relative shrink-0">
+          <summary aria-label={`More actions for ${channel.name}`} title={`More actions for ${channel.name}`}
+            className="list-none cursor-pointer rounded-md px-2 py-2 text-ink-2 hover:bg-paper-3 [&::-webkit-details-marker]:hidden">…</summary>
+          <div className="absolute right-0 z-20 w-44 rounded-md border border-rule bg-card p-1 shadow-pop">
+            <Button variant="ghost" size="sm" onClick={onArchive}>Archive room</Button>
+          </div>
+        </details>
       )}
     </div>
   );
@@ -1078,9 +1073,7 @@ function ChannelItem({
 function ChatBadge({ unread, awaitingReply }: { unread?: number; awaitingReply?: boolean }) {
   if (unread) {
     return (
-      <Chip kind="accent" className="px-1.5">
-        {unread}
-      </Chip>
+      <span className="size-2 shrink-0 rounded-full bg-accent" title={`${unread} unread messages`} aria-label={`${unread} unread messages`} />
     );
   }
   if (awaitingReply) {
@@ -1193,7 +1186,7 @@ function MembersPopover({
               </span>
               <button
                 onClick={() => onRemove(m.slug)}
-                aria-label={`Remove ${m.name}`}
+                aria-label={`Remove ${m.name}`} title={`Remove ${m.name}`}
                 className="flex-none rounded p-0.5 text-ink-3 hover:bg-flag-soft hover:text-flag"
               >
                 <X className="size-3.5" strokeWidth={2} />
@@ -1241,7 +1234,7 @@ function MembersPopover({
               </span>
               <button
                 onClick={() => onRemoveTeam(m.slug)}
-                aria-label={`Remove ${m.name}`}
+                aria-label={`Remove ${m.name}`} title={`Remove ${m.name}`}
                 className="flex-none rounded p-0.5 text-ink-3 hover:bg-flag-soft hover:text-flag"
               >
                 <X className="size-3.5" strokeWidth={2} />
@@ -1347,7 +1340,7 @@ function MembersPopover({
                   </span>
                   <button
                     onClick={() => onRemoveClient(c.id)}
-                    aria-label={`Remove ${c.name}`}
+                    aria-label={`Remove ${c.name}`} title={`Remove ${c.name}`}
                     className="flex-none rounded p-0.5 text-ink-3 hover:bg-flag-soft hover:text-flag"
                   >
                     <X className="size-3.5" strokeWidth={2} />

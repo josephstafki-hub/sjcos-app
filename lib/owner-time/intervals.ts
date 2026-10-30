@@ -159,6 +159,7 @@ export async function correctInterval(run: Run, input: CorrectionInput): Promise
 }
 
 export interface ReviewFlag {
+  relatedIntervalId?: string;
   intervalId: string;
   flag: "overlap" | "long" | "missing_exit" | "inferred" | "review" | "no_project";
   detail: string;
@@ -176,7 +177,7 @@ export interface ReviewList {
 export async function reviewRange(run: Run, userId: string, from: string, to: string): Promise<ReviewList> {
   const intervals = await run<TimeInterval>(
     `SELECT ${INTERVAL_COLS} FROM time_intervals
-      WHERE user_id = $1 AND state <> 'discarded' AND start_at < $3::timestamptz AND COALESCE(end_at, now()) > $2::timestamptz
+      WHERE user_id = $1 AND start_at < $3::timestamptz AND COALESCE(end_at, now()) > $2::timestamptz
       ORDER BY start_at`,
     [userId, from, to],
   );
@@ -194,7 +195,7 @@ export async function reviewRange(run: Run, userId: string, from: string, to: st
       const bS = Date.parse(b.start_at);
       const bE = b.end_at ? Date.parse(b.end_at) : now;
       if (bS < aE && aS < bE && a.state !== "discarded" && b.state !== "discarded") {
-        flags.push({ intervalId: a.id, flag: "overlap", detail: `overlaps ${b.id} (${a.source} vs ${b.source}); counted once` });
+        flags.push({ intervalId: a.id, flag: "overlap", relatedIntervalId: b.id, detail: `overlaps ${b.id} (${a.source} vs ${b.source}); counted once` });
       }
     }
   }

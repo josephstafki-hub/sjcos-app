@@ -1,141 +1,69 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Card, Chip, Eyebrow } from "@/components/ui";
+import { useRef, useState, useTransition } from "react";
+import { Clock, MoreHorizontal } from "lucide-react";
+import { Button, Card, Chip, EmptyState, Segmented, Table, TableWrapper, TableHead, TableHeader, TableBody, TableRow, TableCell } from "@/components/ui";
+import { useDialogDismiss } from "@/lib/use-dialog-dismiss";
 import { runAction } from "@/lib/run-action";
 import { startTimerAction, stopTimerAction, correctIntervalAction, confirmClockInAction, clockOutAction } from "@/lib/owner-time/actions";
+import { toBusinessInput, fromBusinessInput } from "@/lib/business-time";
+import { SOURCE_LABELS, CATEGORY_LABELS, flagLabel } from "@/lib/owner-time/labels";
 import type { ReviewList, TimeInterval } from "@/lib/owner-time/intervals";
 
-type Category = "site" | "design" | "estimating" | "admin" | "other";
-const CATEGORIES: Category[] = ["site", "design", "estimating", "admin", "other"];
-const btn = "rounded-md border border-ink-4 px-2.5 py-1 text-[12px] font-medium text-ink-2 transition-colors hover:bg-paper-2 disabled:cursor-not-allowed disabled:opacity-40";
-const input = "rounded-md border border-rule bg-paper px-2 py-1 text-[12px] text-ink outline-none focus:border-accent";
-
+type Category = TimeInterval["category"];
+const CATEGORIES = Object.keys(CATEGORY_LABELS) as Category[];
+const input = "h-9 min-w-0 max-w-full rounded-md border border-rule bg-card px-3 text-body text-ink focus-visible:outline-2 focus-visible:outline-focus max-sm:h-11";
 const fmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-const when = (iso: string | null) => (iso ? fmt.format(new Date(iso)) : "—");
-const dur = (i: TimeInterval) => {
-  const end = i.end_at ? Date.parse(i.end_at) : Date.now();
-  return `${((end - Date.parse(i.start_at)) / 3600_000).toFixed(2)} h${i.end_at ? "" : " (running)"}`;
-};
-/** A stored instant as the browser's local wall time for a datetime-local box
- *  (which Save reads back as local). toISOString() here gave UTC and every
- *  Adjust shifted the times by the UTC offset. */
-const toLocalInput = (iso: string) => {
-  const d = new Date(iso);
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
-};
+const when = (iso: string | null) => iso ? fmt.format(new Date(iso)) : "Running";
+const dur = (i: TimeInterval) => `${(((i.end_at ? Date.parse(i.end_at) : Date.now()) - Date.parse(i.start_at)) / 3600_000).toFixed(2)} h`;
 
-export function TimeReview({ review, projects, rates, from, to }: { review: ReviewList & { running: TimeInterval | null }; projects: { id: string; name: string; slug: string }[]; rates: { category: string; rate_cents: number; effective_from: string }[]; from: string; to: string }) {
+export function TimeReview({ review, projects, rates }: { review: ReviewList & { running: TimeInterval | null }; projects: { id: string; name: string; slug: string }[]; rates: { category: string; rate_cents: number; effective_from: string }[]; from: string; to: string }) {
+  const trigger = useRef<HTMLElement | null>(null);
   const [pending, start] = useTransition();
-  const [projectId, setProjectId] = useState<string>("");
+  const [projectId, setProjectId] = useState("");
   const [category, setCategory] = useState<Category>("site");
   const [note, setNote] = useState("");
+  const [filter, setFilter] = useState("recorded");
   const [editing, setEditing] = useState<string | null>(null);
-  const [edit, setEdit] = useState<{ startAt: string; endAt: string; projectId: string; category: Category; note: string }>({ startAt: "", endAt: "", projectId: "", category: "site", note: "" });
-  const name = (id: string | null) => projects.find((p) => p.id === id)?.name ?? (id ? "(other job)" : "no job");
-  const flagsFor = (id: string) => review.flags.filter((f) => f.intervalId === id);
+  const [error, setError] = useState("");
+  const [edit, setEdit] = useState({ startAt: "", endAt: "", projectId: "", category: "site" as Category, note: "" });
+  useDialogDismiss(Boolean(editing), () => setEditing(null), trigger);
+  const name = (id: string | null) => projects.find(p => p.id === id)?.name ?? (id ? "Other job" : "Overhead · no job");
+  const flagsFor = (id: string) => review.flags.filter(f => f.intervalId === id);
   const act = (fn: () => Promise<{ ok: boolean; error?: string } | void>) => start(async () => { await runAction(fn); });
+  const shown = review.intervals.filter(i => filter === "discarded" ? i.state === "discarded" : filter === "review" ? i.state !== "discarded" && flagsFor(i.id).length > 0 : i.state !== "discarded");
+  const adjust = (i: TimeInterval) => { trigger.current = document.activeElement as HTMLElement; setError(""); setEditing(i.id); setEdit({ startAt: toBusinessInput(i.start_at), endAt: i.end_at ? toBusinessInput(i.end_at) : "", projectId: i.project_id ?? "", category: i.category, note: "" }); };
+  const current = review.intervals.find(i => i.id === editing);
 
-  return (
-    <div className="flex flex-col gap-6">
-      <Card kind="soft" className="px-4 py-3">
-        <div className="flex flex-wrap items-center gap-2 text-[13px]">
-          {review.running ? (
-            <>
-              <Chip kind="money">running</Chip>
-              <span>{name(review.running.project_id)} · {review.running.category} · since {when(review.running.start_at)}</span>
-              <button className={btn} disabled={pending} onClick={() => act(() => stopTimerAction())}>Stop</button>
-            </>
-          ) : (
-            <>
-              <Eyebrow>Manual timer</Eyebrow>
-              <select className={input} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-                <option value="">no job (overhead)</option>
-                {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <select className={input} value={category} onChange={(e) => setCategory(e.target.value as Category)}>
-                {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-              <input className={`${input} w-56`} placeholder="what (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
-              <button className={btn} disabled={pending} onClick={() => act(() => startTimerAction(projectId || null, category, note))}>Start</button>
-            </>
-          )}
-          <span className="ml-auto text-[12px] text-ink-3">{when(from)} → {when(to)}</span>
-        </div>
-      </Card>
-
-      <section>
-        <Eyebrow>Intervals</Eyebrow>
-        <div className="mt-2 overflow-x-auto">
-          <table className="w-full min-w-[760px] border-collapse text-[13px]">
-            <thead>
-              <tr className="border-b border-rule text-left text-[11px] uppercase tracking-wide text-ink-3">
-                <th className="py-2 pr-3">Start</th><th className="py-2 pr-3">End</th><th className="py-2 pr-3">Job</th><th className="py-2 pr-3">Category</th><th className="py-2 pr-3">Source</th><th className="py-2 pr-3">State</th><th className="py-2 pr-3">Hours</th><th className="py-2 pr-3">Flags</th><th className="py-2 pr-3"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {review.intervals.length === 0 && <tr><td colSpan={9} className="py-6 text-center text-ink-3">No time recorded in this range.</td></tr>}
-              {review.intervals.map((i) => (
-                <tr key={i.id} className="border-b border-rule/60 align-top">
-                  <td className="py-2 pr-3 whitespace-nowrap">{when(i.start_at)}</td>
-                  <td className="py-2 pr-3 whitespace-nowrap">{when(i.end_at)}{i.suggested_end_at && !i.end_at ? <span className="text-ink-3"> (suggested {when(i.suggested_end_at)})</span> : null}</td>
-                  <td className="py-2 pr-3">{name(i.project_id)}{i.choices?.length ? <span className="text-ink-3"> · {i.choices.length} nearby</span> : null}</td>
-                  <td className="py-2 pr-3">{i.category}</td>
-                  <td className="py-2 pr-3 text-ink-3">{i.source}</td>
-                  <td className="py-2 pr-3"><Chip kind={i.state === "confirmed" ? "money" : "ghost"}>{i.state}</Chip>{i.review_reason ? <div className="text-[11px] text-ink-3">{i.review_reason}</div> : null}</td>
-                  <td className="py-2 pr-3 whitespace-nowrap">{dur(i)}</td>
-                  <td className="py-2 pr-3 text-[11px] text-ink-3">{flagsFor(i.id).map((f) => <div key={f.flag}>{f.flag}: {f.detail}</div>)}</td>
-                  <td className="py-2 pr-3 whitespace-nowrap">
-                    {editing === i.id ? (
-                      <div className="flex flex-col gap-1">
-                        <input type="datetime-local" className={input} value={edit.startAt} onChange={(e) => setEdit({ ...edit, startAt: e.target.value })} />
-                        <input type="datetime-local" className={input} value={edit.endAt} onChange={(e) => setEdit({ ...edit, endAt: e.target.value })} />
-                        <select className={input} value={edit.projectId} onChange={(e) => setEdit({ ...edit, projectId: e.target.value })}>
-                          <option value="">no job</option>
-                          {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                        </select>
-                        <select className={input} value={edit.category} onChange={(e) => setEdit({ ...edit, category: e.target.value as Category })}>
-                          {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                        <input className={input} placeholder="why" value={edit.note} onChange={(e) => setEdit({ ...edit, note: e.target.value })} />
-                        <div className="flex gap-1">
-                          <button className={btn} disabled={pending} onClick={() => act(async () => { const r = await correctIntervalAction(i.id, { startAt: new Date(edit.startAt).toISOString(), endAt: edit.endAt ? new Date(edit.endAt).toISOString() : null, projectId: edit.projectId || null, category: edit.category, state: "confirmed", note: edit.note }); if (r.ok) setEditing(null); return r; })}>Save</button>
-                          <button className={btn} onClick={() => setEditing(null)}>Cancel</button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex flex-wrap gap-1">
-                        {i.state === "inferred" && i.source === "geofence_prompt" && !i.end_at && (
-                          <button className={btn} disabled={pending || (i.choices.length > 1 && !i.project_id)} title={i.choices.length > 1 ? "Pick the job first (Adjust)" : "Confirm you were at this job"} onClick={() => act(() => confirmClockInAction(i.id, i.project_id))}>Clock in</button>
-                        )}
-                        {i.state === "confirmed" && !i.end_at && i.source !== "designer_activity" && (
-                          <button className={btn} disabled={pending} onClick={() => act(() => clockOutAction(i.id, Boolean(i.suggested_end_at)))}>Clock out</button>
-                        )}
-                        {(i.state === "inferred" || i.state === "review") && (
-                          <button className={btn} disabled={pending} onClick={() => act(() => correctIntervalAction(i.id, { state: "confirmed", note: "kept" }))}>Keep</button>
-                        )}
-                        <button className={btn} onClick={() => { setEditing(i.id); setEdit({ startAt: toLocalInput(i.start_at), endAt: i.end_at ? toLocalInput(i.end_at) : "", projectId: i.project_id ?? "", category: i.category, note: "" }); }}>Adjust</button>
-                        {i.state !== "discarded" && (
-                          <button className={btn} disabled={pending} onClick={() => act(() => correctIntervalAction(i.id, { state: "discarded", note: "discarded in review" }))}>Discard</button>
-                        )}
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section>
-        <Eyebrow>Owner labor rates (internal valuation only)</Eyebrow>
-        <Card kind="soft" className="mt-2 px-4 py-3 text-[12px] leading-relaxed text-ink-3">
-          {rates.length === 0
-            ? "No approved rate yet — hours are captured and shown, but every job reads “cost not configured”. A rate is set through a markup decision (ask in the Ask window: “set my site rate to …”), never guessed."
-            : rates.map((r) => `${r.category}: $${(r.rate_cents / 100).toFixed(2)}/h from ${r.effective_from}`).join(" · ")}
-        </Card>
-      </section>
-    </div>
-  );
+  return <div className="mt-6 space-y-6">
+    <Card className="p-4">
+      <h2 className="text-subheading font-semibold">Manual timer</h2>
+      {review.running ? <div className="mt-3 flex flex-wrap items-center gap-3"><Chip kind="ok" dot>Running</Chip><span className="min-w-0 flex-1 text-body">{name(review.running.project_id)} · since {when(review.running.start_at)}</span><Button disabled={pending} onClick={() => act(() => stopTimerAction())}>Stop timer</Button></div> :
+        <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 @xl/page:grid-cols-2">
+          <label className="min-w-0 text-label text-ink-2">Job<select aria-label="Timer job" className={`${input} mt-1.5 w-full`} value={projectId} onChange={e => setProjectId(e.target.value)}><option value="">Overhead · no job</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+          <label className="min-w-0 text-label text-ink-2">Category<select className={`${input} mt-1.5 w-full`} value={category} onChange={e => setCategory(e.target.value as Category)}>{CATEGORIES.map(c => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}</select></label>
+          <label className="min-w-0 text-label text-ink-2">What are you working on?<input className={`${input} mt-1.5 w-full`} placeholder="Optional note" value={note} onChange={e => setNote(e.target.value)} /></label>
+          <div className="flex items-end justify-end"><Button disabled={pending} icon={Clock} onClick={() => act(() => startTimerAction(projectId || null, category, note))}>Start timer</Button></div>
+        </div>}
+    </Card>
+    <section>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3"><h2 className="font-serif text-heading">Recorded time</h2><Segmented aria-label="Time filter" value={filter} onChange={setFilter} options={[{value:"recorded",label:"Recorded"},{value:"review",label:"Needs review",count:review.flags.filter(f => review.intervals.find(i=>i.id===f.intervalId)?.state!=="discarded").length},{value:"discarded",label:"Discarded"}]} /></div>
+      {!shown.length ? <Card><EmptyState icon={Clock} title={filter === "discarded" ? "No discarded entries" : "No time in this view"} description="Recorded work appears here. Start a timer above or choose another date range or filter." /></Card> : <TableWrapper><Table><TableHead><tr><TableHeader>Job & time · Central</TableHeader><TableHeader numeric>Hours</TableHeader><TableHeader className="@max-3xl/page:hidden">Review</TableHeader><TableHeader><span className="sr-only">Actions</span></TableHeader></tr></TableHead><TableBody>{shown.map(i => <TableRow key={i.id}>
+        <TableCell className="min-w-0"><div className="break-words text-subheading font-semibold">{name(i.project_id)}</div><div className="mt-1 text-meta text-ink-3">{when(i.start_at)} → {when(i.end_at)}</div><div className="mt-1 flex flex-wrap items-center gap-2"><span className="text-meta text-ink-3">{CATEGORY_LABELS[i.category]} · {SOURCE_LABELS[i.source]}</span><Chip kind={i.state === "confirmed" ? "ok" : "neutral"}>{i.state === "inferred" ? "Unconfirmed" : i.state === "review" ? "Needs review" : i.state === "confirmed" ? "Confirmed" : "Discarded"}</Chip></div><div className="mt-1 @3xl/page:hidden">{flagsFor(i.id).slice(0,2).map(f=><p key={f.flag} className="text-meta text-warn">{flagLabel(f,review.intervals,projects)}</p>)}</div></TableCell>
+        <TableCell numeric className="whitespace-nowrap">{dur(i)}</TableCell>
+        <TableCell className="max-w-60 @max-3xl/page:hidden">{flagsFor(i.id).map((f,n)=><p key={`${f.flag}-${n}`} className="text-meta text-warn">{flagLabel(f,review.intervals,projects)}</p>)}</TableCell>
+        <TableCell><div className="flex flex-col items-end gap-1"><Button variant="secondary" size="sm" onClick={()=>adjust(i)}>{i.state === "discarded" ? "Restore" : "Adjust"}</Button>{(i.state === "inferred" || i.state === "review") && <Button variant="ghost" size="sm" disabled={pending} onClick={()=>act(()=>correctIntervalAction(i.id,{state:"confirmed",note:"Kept in review"}))}>Keep</Button>}{i.state === "inferred" && i.source === "geofence_prompt" && !i.end_at && <Button variant="ghost" size="sm" disabled={pending || (i.choices.length>1 && !i.project_id)} onClick={()=>act(()=>confirmClockInAction(i.id,i.project_id))}>Clock in</Button>}{i.state === "confirmed" && !i.end_at && i.source !== "designer_activity" && <Button variant="ghost" size="sm" disabled={pending} onClick={()=>act(()=>clockOutAction(i.id,Boolean(i.suggested_end_at)))}>Clock out</Button>}{i.state !== "discarded" && <details className="relative"><summary aria-label="More time actions" className="cursor-pointer list-none rounded-md p-2 hover:bg-hover"><MoreHorizontal className="size-4" /></summary><div className="absolute right-0 z-10 rounded-lg border border-rule-soft bg-card p-1 shadow-pop"><Button variant="ghost" size="sm" className="text-flag" disabled={pending} onClick={()=>act(()=>correctIntervalAction(i.id,{state:"discarded",note:"Discarded in review"}))}>Discard entry</Button></div></details>}</div></TableCell>
+      </TableRow>)}</TableBody></Table></TableWrapper>}
+    </section>
+    <p className="text-meta text-ink-3">{rates.length ? rates.map(r=>`${CATEGORY_LABELS[r.category as Category] ?? "Other"}: $${(r.rate_cents/100).toFixed(2)}/h from ${r.effective_from.slice(0,10)}`).join(" · ") : "No approved labor rate yet. Hours are recorded; job cost stays unconfigured. Ask to set your rate in the Ask window."}</p>
+    {current && <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 p-4" onClick={()=>setEditing(null)} onKeyDown={e=>{if(e.key==="Escape"){e.stopPropagation();setEditing(null);}}}><form role="dialog" aria-modal="true" aria-label="Adjust time" className="max-h-[90dvh] w-full max-w-lg space-y-4 overflow-y-auto rounded-xl border border-rule-soft bg-card p-5 shadow-modal" onClick={e=>e.stopPropagation()} onSubmit={e=>{e.preventDefault();setError("");start(async()=>{try{const r=await runAction(()=>correctIntervalAction(current.id,{startAt:fromBusinessInput(edit.startAt,current.start_at),endAt:edit.endAt?fromBusinessInput(edit.endAt,current.end_at):null,projectId:edit.projectId||null,category:edit.category,state:"confirmed",note:edit.note}));if(r.ok)setEditing(null);}catch(e){setError(e instanceof Error?e.message:"Couldn't save this time.");}});}}>
+      <h2 className="font-serif text-title">Adjust time</h2><p className="text-meta text-ink-3">All dates and times are Central. Saving keeps the correction history.</p>
+      <label className="block text-label">Start · Central<input autoFocus required type="datetime-local" className={`${input} mt-1.5 w-full`} value={edit.startAt} onChange={e=>setEdit({...edit,startAt:e.target.value})} /></label>
+      <label className="block text-label">End · Central<input type="datetime-local" className={`${input} mt-1.5 w-full`} value={edit.endAt} onChange={e=>setEdit({...edit,endAt:e.target.value})} /></label>
+      <label className="block text-label">Job<select className={`${input} mt-1.5 w-full`} value={edit.projectId} onChange={e=>setEdit({...edit,projectId:e.target.value})}><option value="">Overhead · no job</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+      <label className="block text-label">Category<select className={`${input} mt-1.5 w-full`} value={edit.category} onChange={e=>setEdit({...edit,category:e.target.value as Category})}>{CATEGORIES.map(c=><option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}</select></label>
+      <label className="block text-label">Reason<input className={`${input} mt-1.5 w-full`} value={edit.note} onChange={e=>setEdit({...edit,note:e.target.value})} /></label>
+      {error&&<p role="alert" className="text-meta text-flag">{error}</p>}<div className="flex justify-end gap-2"><Button variant="secondary" onClick={()=>setEditing(null)}>Cancel</Button><Button type="submit" disabled={pending}>{pending?"Saving…":"Save"}</Button></div>
+    </form></div>}
+  </div>;
 }

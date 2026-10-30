@@ -5,6 +5,7 @@
 // with no rate reports "cost not configured" — never zero. Nothing here
 // creates payroll, a QBO expense or a client charge.
 
+import { businessDate, splitBusinessDays } from "../business-time.ts";
 import type { Run } from "../commands/core.ts";
 import { hashInput } from "../commands/core.ts";
 import { getDecision } from "../commands/decisions.ts";
@@ -40,9 +41,9 @@ export async function verifiedHoursForCloseout(run: Run, projectId: string, now:
   const rates = await run<{ category: Category; rate_cents: number; effective_from: string }>(`SELECT category, rate_cents, to_char(effective_from, 'YYYY-MM-DD') AS effective_from FROM owner_labor_rates ORDER BY effective_from DESC`);
   const segs = unionSegments(intervals, 0, now.getTime(), now.getTime());
   const byCat = new Map<Category, { hours: number; cost: number | null; rate: number | null; from: string | null; configured: boolean }>();
-  for (const s of segs) {
+  for (const s of segs.flatMap(segment => splitBusinessDays(segment.start, segment.end).map(piece => ({...segment, ...piece})))) {
     const hours = (s.end - s.start) / 3600_000;
-    const day = new Date(s.start).toISOString().slice(0, 10);
+    const day = businessDate(new Date(s.start));
     const rate = rates.find((r) => r.category === s.category && r.effective_from <= day) ?? null;
     const cur = byCat.get(s.category) ?? { hours: 0, cost: 0, rate: null, from: null, configured: true };
     cur.hours += hours;

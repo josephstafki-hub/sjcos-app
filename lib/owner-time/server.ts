@@ -6,6 +6,7 @@ import "server-only";
 // or project id the client claims. Location suggests attendance; only a
 // confirmation makes time count.
 
+import { requireInstant } from "../business-time";
 import { randomUUID } from "node:crypto";
 import { withTransaction } from "@/lib/commands/db";
 import { ingestLocationEvent, confirmClockIn, clockOut, proposeClockIn, type LocationEventInput, type LocationOutcome } from "./location";
@@ -42,6 +43,7 @@ export async function ingestTimeEvents(userId: string, body: { location?: Locati
   const designer: Array<{ sessionId: string; seq: number; recorded?: boolean; projectId?: string | null; error?: string }> = [];
   for (const ev of body.location ?? []) {
     try {
+      requireInstant(String(ev.at));
       const input: LocationEventInput = { userId, deviceId: String(ev.deviceId ?? "unknown"), clientEventId: String(ev.clientEventId), kind: ev.kind, lat: Number(ev.lat), lng: Number(ev.lng), accuracyM: ev.accuracyM == null ? null : Number(ev.accuracyM), at: String(ev.at) };
       if (!["enter", "exit", "heartbeat"].includes(input.kind) || !Number.isFinite(input.lat) || !Number.isFinite(input.lng) || !input.clientEventId) throw new Error("bad location event");
       location.push({ clientEventId: input.clientEventId, outcome: await withTransaction((run) => ingestLocationEvent(run, input)) });
@@ -51,6 +53,7 @@ export async function ingestTimeEvents(userId: string, body: { location?: Locati
   }
   for (const ev of body.designer ?? []) {
     try {
+      requireInstant(String(ev.at));
       if (!["focus", "heartbeat", "blur", "idle", "end"].includes(ev.kind) || !Number.isFinite(Number(ev.designId)) || !ev.sessionId) throw new Error("bad designer event");
       const r = await withTransaction((run) => ingestDesignerActivity(run, { userId, designId: Number(ev.designId), sessionId: String(ev.sessionId), seq: Number(ev.seq), kind: ev.kind, at: String(ev.at), deviceId: ev.deviceId ? String(ev.deviceId) : undefined }));
       designer.push({ sessionId: String(ev.sessionId), seq: Number(ev.seq), ...r });
@@ -73,6 +76,10 @@ export type TimerActionBody =
 export async function timerAction(user: { id: string; name: string }, body: TimerActionBody): Promise<{ ok: true; interval: TimeInterval | null; applied: boolean } | { ok: false; error: string }> {
   const clientEventId = body.clientEventId ? String(body.clientEventId) : randomUUID();
   try {
+    for (const key of ["startAt", "endAt", "at"] as const) {
+      const value = (body as unknown as Record<string, unknown>)[key];
+      if (value != null) requireInstant(String(value));
+    }
     const out = await withTransaction(async (run) => {
       switch (body.action) {
         case "start":

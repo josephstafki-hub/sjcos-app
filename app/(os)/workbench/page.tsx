@@ -51,14 +51,14 @@ export default async function WorkbenchPage({
                   ))}
                 </ul>
                 <p className="mt-3 text-meta text-ink-3">
-                  The Inspect chip on a queue card opens its to-do here too, and the workbench follows an agent you hand an item to.
+                  View on a queue card in the operator panel opens its to-do here too, and the workbench follows an agent you hand an item to.
                 </p>
               </section>
             ) : (
               <EmptyState
                 icon={ScanSearch}
                 title="Nothing to inspect yet"
-                description="Use Inspect on a queue card in the operator panel, or hand a to-do to an agent; the workbench follows it here."
+                description="Use View on a queue card in the operator panel, or hand a to-do to an agent; the workbench follows it here."
                 action={{ children: "Open Today", href: "/today" }}
               />
             )}

@@ -266,7 +266,7 @@ export function MessagesClient({
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-col"><div className="border-b border-rule-soft px-4 py-5 @2xl/page:px-5"><PageHeader title="Messages" meta="Text conversations with clients, subs and vendors." /></div><div className="flex min-h-0 flex-1">
+    <div className="flex h-full min-h-0 flex-col [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus"><div className="border-b border-rule-soft px-4 py-5 @2xl/page:px-5"><PageHeader title="Messages" meta="Text conversations with clients, subs and vendors." /></div><div className="flex min-h-0 flex-1">
       {/* Thread rail */}
       <aside
         className={`w-full flex-none flex-col border-r border-rule bg-paper-2 @3xl/page:w-[300px] ${
@@ -530,19 +530,12 @@ export function MessagesClient({
           onClick={() => !sending && setComposeOpen(false)}
         >
           <div
-            className="w-full max-w-[420px] rounded-xl border border-rule bg-card p-5 shadow-xl"
+            className="w-full max-w-[420px] rounded-xl border border-rule bg-card p-5 shadow-modal"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-2">
               <h2 className="flex-1 font-serif text-heading font-semibold text-ink">New text message</h2>
-              <button
-                type="button"
-                onClick={() => setComposeOpen(false)}
-                className="text-ink-3 hover:text-ink"
-                aria-label="Close"
-              >
-                <X className="size-4" strokeWidth={1.5} />
-              </button>
+              <Button onClick={() => setComposeOpen(false)} icon={X} iconOnly aria-label="Close" title="Close" />
             </div>
 
             {!configured && (
@@ -588,21 +581,8 @@ export function MessagesClient({
             {composeErr && <p className="mt-2 text-meta text-flag">{composeErr}</p>}
 
             <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setComposeOpen(false)}
-                className="rounded-md border border-rule px-3 py-1.5 text-meta font-semibold text-ink-2 hover:bg-paper-2"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={startNew}
-                disabled={!configured || sending || !newPhone.trim() || !newBody.trim()}
-                className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3.5 py-1.5 text-meta font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
-              >
-                <Send className="size-3.5" strokeWidth={1.5} /> {sending ? "Sending…" : "Send text"}
-              </button>
+              <Button onClick={() => setComposeOpen(false)} variant="secondary">Cancel</Button>
+              <Button onClick={startNew} icon={Send} disabled={!configured || sending || !newPhone.trim() || !newBody.trim()}>{sending ? "Sending…" : "Send text"}</Button>
             </div>
           </div>
         </div>

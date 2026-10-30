@@ -64,7 +64,7 @@ export function TodayRecovery({ view }: { view: "done" | "snoozed" }) {
         placeholder="Search to-dos…"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        className="mb-3 h-9 w-full rounded-md border border-rule bg-card px-3 text-body focus-visible:outline-2 focus-visible:outline-focus"
+        className="mb-3 h-9 max-sm:h-11 w-full rounded-md border border-rule bg-card px-3 text-body focus-visible:outline-2 focus-visible:outline-focus"
       />
       {error && (
         <p role="alert" className="mb-3 text-body text-flag">
@@ -112,6 +112,7 @@ export function TodayRecovery({ view }: { view: "done" | "snoozed" }) {
               </div>
               <Button
                 size="sm"
+                className="max-sm:h-11"
                 variant="secondary"
                 icon={RotateCcw}
                 disabled={busy !== null}

@@ -57,7 +57,7 @@ export function TodayBody({ data }: { data: TodayData }) {
         assignees={data.assignees}
         canPromote={data.canAssign}
       >
-        <div className="mt-6 grid min-w-0 grid-cols-1 gap-6 @5xl/page:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="mt-6 grid min-w-0 grid-cols-1 gap-6 @6xl/page:grid-cols-[minmax(0,1fr)_300px]">
           <TodayCards brief={brief} />
           <aside className="flex min-w-0 flex-col gap-6">
             <Card className="p-4">

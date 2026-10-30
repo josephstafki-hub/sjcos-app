@@ -98,10 +98,10 @@ export function NotificationsClient({ data, approvals = [] }: { data: Notificati
     <div className="mx-auto min-h-full max-w-[1240px] px-4 pb-16 pt-6 @2xl/page:px-5 @5xl/page:px-8">
       <div className="w-full">
         <PageHeader title="Notifications" meta={`${data.unread} unread · ${approvals.length || data.decisionCount} waiting on you`} actions={<form action={markAllNotificationsRead}><Button type="submit" variant="secondary" disabled={data.unread === 0}>Mark all read</Button></form>} />
-        <div className="my-6"><Segmented aria-label="Notification filters" value={filter} onChange={f => setFilter(f as NotifFilter)} options={data.filters.map(f => ({value:f.key,label:f.label}))} /></div>
+        <div className="my-6"><Segmented aria-label="Notification filters" value={filter} onChange={f => setFilter(f as NotifFilter)} className="max-sm:h-12 [&_button]:max-sm:h-11" options={data.filters.map(f => ({value:f.key,label:f.label}))} /></div>
 
         {/* Cards */}
-        <div className="divide-y divide-rule-soft">
+        <div className="divide-y divide-rule-soft overflow-hidden rounded-lg border border-rule-soft bg-card shadow-card">
           {orphans.map((a) => (
             <ApprovalCard key={a.key} approval={a} busy={busy === a.key} disabled={busy !== null} onAnswer={(v) => void answer(a, v)} />
           ))}
@@ -137,23 +137,23 @@ function NotificationRow({ notification: n }: { notification: NotificationCard }
     }
   }
   return (
-    <Link href={n.href} className="block rounded-md focus-visible:outline-2 focus-visible:outline-focus" onClick={onOpen}>
-      <div className="rounded-md px-3 py-2 transition-colors hover:bg-hover focus-within:bg-hover">
+    <Link href={n.href} className="group block rounded-md focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-[-2px]" onClick={onOpen}>
+      <div className="rounded-md px-3 py-2 transition-colors hover:bg-hover group-focus-visible:bg-hover">
         <div className="flex items-center gap-2.5">
           <span className="flex size-8 flex-none items-center justify-center rounded border border-rule bg-paper-2">
             <Icon className={`size-3.5 ${ICON_TINT[n.accent]}`} strokeWidth={1.5} />
           </span>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               <Chip kind={n.accent}>{n.tag}</Chip>{!read && <span className="size-1.5 rounded-full bg-accent" aria-label="Unread" />}
               {n.resolution && <Chip kind="ghost">{RESOLUTION_LABEL[n.resolution] ?? n.resolution}</Chip>}
               <div className="flex-1" />
-              <span className="text-meta text-ink-3" title={n.whenAbsolute}>
+              <span className="shrink-0 text-meta tabular-nums text-ink-3" title={n.whenAbsolute}>
                 {n.when}
               </span>
             </div>
-            <div className="mt-1 text-subheading font-semibold text-ink">{n.title}</div>
-            <div className="mt-0.5 text-meta text-ink-3">{n.subline}</div>
+            <div className={`mt-1 break-words text-subheading text-ink ${read ? "font-normal" : "font-semibold"}`}>{n.title}</div>
+            <div className="mt-0.5 line-clamp-2 text-meta text-ink-3">{n.subline}</div>
           </div>
           <ChevronRight className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
         </div>

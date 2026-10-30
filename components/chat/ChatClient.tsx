@@ -609,7 +609,7 @@ export function ChatClient({ data }: { data: ChatData }) {
   const archivedItem = view?.archived ? archived.find((a) => a.key === view.key) : undefined;
 
   return (
-    <div className="flex h-full min-h-0 flex-col"><div className="border-b border-rule-soft px-4 py-5 @2xl/page:px-5"><PageHeader title="Team Chat" meta="Channels and direct messages for your team and jobs." /></div><div className="flex min-h-0 flex-1">
+    <div className="flex h-full min-h-0 flex-col [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus"><div className="border-b border-rule-soft px-4 py-5 @2xl/page:px-5"><PageHeader title="Team Chat" meta="Channels and direct messages for your team and jobs." /></div><div className="flex min-h-0 flex-1">
       {/* ─── Channel rail ─────────────────────────────────────────── */}
       <aside
         className={[

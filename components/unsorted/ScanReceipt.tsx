@@ -107,7 +107,7 @@ export function ScanReceipt({ jobs, canSort }: { jobs: ScanJob[]; canSort: boole
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-[720px] flex-col gap-3 px-4 py-6 @2xl/page:px-5">
+    <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-4 py-6 @2xl/page:px-5 [&_input]:focus-visible:outline-2 [&_input]:focus-visible:outline-focus [&_select]:focus-visible:outline-2 [&_select]:focus-visible:outline-focus">
       <PageHeader title="Scan a receipt" meta="Photograph or upload a receipt. Claude reads it and files it to the job, or leaves it in Unsorted for review." />
 
       {sent && (
@@ -132,7 +132,7 @@ export function ScanReceipt({ jobs, canSort }: { jobs: ScanJob[]; canSort: boole
       <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { add(e.target.files); e.target.value = ""; }} />
       <input ref={libraryRef} type="file" accept="image/*,application/pdf" multiple className="hidden" onChange={(e) => { add(e.target.files); e.target.value = ""; }} />
 
-      <Card className="mt-3 p-5"><div className="mb-5 flex items-start gap-3"><Camera className="size-8 shrink-0 text-ink-3" strokeWidth={1.25} /><div><h2 className="text-subheading font-semibold text-ink">Add your receipt</h2><p className="mt-1 text-body text-ink-3">Keep the store, date and total in the frame. You can add several photos for a long receipt.</p></div></div><div className="flex flex-wrap gap-2"><Button size="lg" icon={Camera} onClick={() => cameraRef.current?.click()}>{pics.length ? "Take another" : "Take a photo"}</Button><Button size="lg" icon={ImagePlus} variant="secondary" onClick={() => libraryRef.current?.click()}>From photos</Button></div></Card>
+      <Card className="p-4 @2xl/page:p-5"><div className="mb-5 flex items-start gap-3"><Camera className="size-8 shrink-0 text-ink-3" strokeWidth={1.25} /><div><h2 className="text-subheading font-semibold text-ink">Add your receipt</h2><p className="mt-1 text-body text-ink-3">Keep the store, date and total in the frame. You can add several photos for a long receipt.</p></div></div><div className="flex flex-wrap gap-2"><Button size="lg" icon={Camera} onClick={() => cameraRef.current?.click()}>{pics.length ? "Take another" : "Take a photo"}</Button><Button size="lg" icon={ImagePlus} variant="secondary" onClick={() => libraryRef.current?.click()}>From photos</Button></div></Card>
 
       {pics.length > 0 && (
         <Card className="flex flex-col gap-3 p-3.5">
@@ -145,14 +145,7 @@ export function ScanReceipt({ jobs, canSort }: { jobs: ScanJob[]; canSort: boole
                 ) : (
                   <div className="grid size-full place-items-center p-2 text-center text-meta text-ink-3">{p.file.name}</div>
                 )}
-                <button
-                  type="button"
-                  onClick={() => remove(p.key)}
-                  aria-label="Remove photo"
-                  className="absolute right-1 top-1 grid size-6 max-sm:size-11 place-items-center rounded-full bg-black/60 text-white"
-                >
-                  <X className="size-3.5" />
-                </button>
+                <Button onClick={() => remove(p.key)} icon={X} iconOnly aria-label="Remove photo" title="Remove photo" variant="secondary" className="absolute right-1 top-1" />
               </div>
             ))}
           </div>
@@ -167,9 +160,9 @@ export function ScanReceipt({ jobs, canSort }: { jobs: ScanJob[]; canSort: boole
             </label>
           )}
 
-          <label className="flex flex-col gap-1 text-meta text-ink-3">
+          <label className="flex flex-col gap-1 text-label text-ink-2">
             Which job? (optional)
-            <select value={job} onChange={(e) => setJob(e.target.value)} className="rounded-lg border border-rule bg-paper px-2.5 py-2 text-subheading text-ink">
+            <select value={job} onChange={(e) => setJob(e.target.value)} className="h-9 max-sm:h-11 rounded-md border border-rule bg-card px-3 text-body text-ink">
               <option value="">Not sure — let Claude figure it out</option>
               {jobs.map((j) => (
                 <option key={j.slug} value={j.slug}>
@@ -180,22 +173,22 @@ export function ScanReceipt({ jobs, canSort }: { jobs: ScanJob[]; canSort: boole
             </select>
           </label>
 
-          <label className="flex flex-col gap-1 text-meta text-ink-3">
+          <label className="flex flex-col gap-1 text-label text-ink-2">
             Anything to add? (optional)
             <input
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="e.g. trim for the Libby basement"
-              className="rounded-lg border border-rule bg-paper px-2.5 py-2 text-subheading text-ink placeholder:text-ink-3"
+              className="h-9 max-sm:h-11 rounded-md border border-rule bg-card px-3 text-body text-ink placeholder:text-ink-3"
             />
           </label>
 
-          {error && <p className="text-body text-flag">{error}</p>}
+          {error && <p role="alert" className="text-body text-flag">{error}</p>}
 
           <Button size="lg" onClick={send} disabled={sending} icon={sending ? Loader2 : Send}>{sending ? "Sending…" : `Send ${pics.length === 1 || oneReceipt ? "receipt" : `${pics.length} receipts`}`}</Button>
         </Card>
       )}
-      {!pics.length && error && <p className="text-body text-flag">{error}</p>}
+      {!pics.length && error && <p role="alert" className="text-body text-flag">{error}</p>}
     </div>
   );
 }

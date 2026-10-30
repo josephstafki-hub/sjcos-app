@@ -497,7 +497,7 @@ export function InboxClient({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus">
       <div className="border-b border-rule-soft px-4 py-5 @2xl/page:px-5"><PageHeader title="Inbox" meta="Email, texts and portal conversations in one place." /></div>
       {!data.mailbox.connected && <div className="flex flex-wrap items-center gap-3 border-b border-warn/20 bg-warn-soft px-4 py-3"><div className="min-w-0 flex-1"><p className="text-subheading font-semibold text-ink">No email connected</p><p className="mt-1 text-body text-ink-2">{data.mailbox.canConnect ? "Connect Gmail to read and reply to your email here." : "Ask the person who manages SJC OS to finish Gmail setup, then connect your account."}</p></div><Button href="/api/inbox/oauth/start" disabled={!data.mailbox.canConnect} variant="secondary" size="sm" icon={Mail}>Connect Gmail</Button></div>}
       <div className="flex items-center gap-2 border-b border-rule-soft px-3 py-2 @5xl/page:hidden"><Button onClick={() => {setShowSources(v => !v); setMobileReader(false);}} variant="secondary" size="sm" icon={Filter} aria-expanded={showSources}>Views and channels</Button><span className="min-w-0 truncate text-meta text-ink-3">{headerLabel}</span></div>
@@ -745,7 +745,7 @@ export function InboxClient({
                 <button
                   onClick={() => setMobileReader(false)}
                   aria-label="Back to inbox list"
-                  className="-ml-1 rounded p-0.5 text-ink-3 hover:bg-paper-3 @4xl/page:hidden"
+                  className="-ml-1 inline-flex size-11 shrink-0 items-center justify-center rounded-md text-ink-3 hover:bg-paper-3 @4xl/page:hidden"
                 >
                   <ChevronLeft className="size-4" strokeWidth={1.5} />
                 </button>
@@ -934,47 +934,40 @@ function ComposeModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-[560px] rounded-xl border border-rule bg-paper shadow-xl"
+        role="dialog" aria-modal="true" aria-label="New message" className="max-h-[90dvh] w-full max-w-[560px] overflow-y-auto rounded-xl border border-rule-soft bg-card shadow-modal"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 border-b border-rule px-4 py-3">
           <h3 className="flex-1 text-subheading font-semibold text-ink">
             New message
           </h3>
-          <button onClick={onClose} className="text-ink-3 hover:text-ink">
-            <X className="size-4" strokeWidth={1.5} />
-          </button>
+          <Button onClick={onClose} icon={X} iconOnly aria-label="Close new message" title="Close new message" />
         </div>
         <div className="flex flex-col gap-2 p-4">
           <input
             value={to}
             onChange={(e) => setTo(e.target.value)}
-            placeholder="To"
+            aria-label="To" placeholder="To"
             className="rounded-md border border-rule bg-paper px-3 py-2 text-body text-ink focus:outline-none focus:ring-1 focus:ring-accent"
           />
           <input
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
-            placeholder="Subject"
+            aria-label="Subject" placeholder="Subject"
             className="rounded-md border border-rule bg-paper px-3 py-2 text-body text-ink focus:outline-none focus:ring-1 focus:ring-accent"
           />
           <textarea
             value={body}
             onChange={(e) => setBody(e.target.value)}
             rows={8}
-            placeholder="Write your message…"
+            aria-label="Message" placeholder="Write your message…"
             className="resize-y rounded-md border border-rule bg-paper px-3 py-2 text-body leading-relaxed text-ink focus:outline-none focus:ring-1 focus:ring-accent"
           />
           {error && <p className="text-meta text-flag">{error}</p>}
-          <div className="mt-1 flex items-center gap-2">
-            <button
-              onClick={send}
-              disabled={!to.trim() || !body.trim() || sending || sent}
-              className="flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-meta font-medium text-white disabled:opacity-50"
-            >
-              <Send className="size-3" strokeWidth={1.5} />
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <Button onClick={send} icon={Send} disabled={!to.trim() || !body.trim() || sending || sent}>
               {sent ? "Sent ✓" : sending ? "Sending…" : "Send"}
-            </button>
+            </Button>
             <VoiceButton compact onText={(t) => setBody((cur) => mergeTranscript(cur, t))} />
             <span className="text-meta text-ink-3">Sends from your Gmail</span>
           </div>
@@ -1049,7 +1042,7 @@ function ThreadRow({
       onClick={onSelect}
       className={[
         "relative block w-full border-b border-rule-soft px-3.5 py-2.5 text-left transition-colors last:border-b-0",
-        selected ? "bg-paper-2" : thread.urgent ? "bg-flag-soft" : "hover:bg-paper-2",
+        selected ? "bg-selected" : "hover:bg-hover",
       ].join(" ")}
     >
       {selected && <span className="absolute inset-y-0 left-0 w-[3px] bg-accent" />}
@@ -1068,7 +1061,7 @@ function ThreadRow({
             >
               {thread.fromName}
             </span>
-            {unread && <span className="size-1.5 flex-none rounded-full bg-accent" aria-label="Unread" />}
+            {(unread || thread.urgent) && <span className={`size-1.5 flex-none rounded-full ${thread.urgent ? "bg-flag" : "bg-accent"}`} aria-label={thread.urgent ? "Needs attention" : "Unread"} />}
             <Icon className="size-2.5 flex-none text-ink-3" strokeWidth={1.5} />
             <span
               className={`text-meta ${unread ? "font-medium text-accent-2" : "text-ink-3"}`}

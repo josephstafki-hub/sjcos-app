@@ -58,6 +58,7 @@ export function TodayCards({ brief }: { brief: ReactNode }) {
       {brief}
       <Segmented
         aria-label="Today work views"
+        className="max-sm:h-12 [&_button]:max-sm:h-11"
         value={view}
         onChange={setView}
         options={[

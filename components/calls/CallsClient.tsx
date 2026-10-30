@@ -117,7 +117,7 @@ export function CallsClient({
   const c = current?.call ?? calls.find((x) => x.id === selectedId) ?? null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col"><div className="border-b border-rule-soft px-4 py-5 @2xl/page:px-5"><PageHeader title="Calls" meta="Call history, recordings and notes for your business number." /></div><div className="flex min-h-0 flex-1">
+    <div className="flex h-full min-h-0 flex-col [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus"><div className="border-b border-rule-soft px-4 py-5 @2xl/page:px-5"><PageHeader title="Calls" meta="Call history, recordings and notes for your business number." /></div><div className="flex min-h-0 flex-1">
       <aside className={`w-full flex-none flex-col border-r border-rule bg-paper-2 @3xl/page:w-[280px] ${mobileDetail ? "hidden @3xl/page:flex" : "flex"}`}>
         <div className="flex items-center gap-2 border-b border-rule px-4 py-3">
           <PhoneCall className="size-4 text-ink-3" strokeWidth={1.5} />
@@ -148,8 +148,8 @@ export function CallsClient({
               >
                 <span className="mt-1"><DirIcon c={x} /></span>
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className={`truncate text-body ${x.outcome === "voicemail" || x.outcome === "missed" ? "font-semibold text-ink" : "text-ink-2"}`}>{name(x)}</span>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className={`break-words text-subheading ${x.outcome === "voicemail" || x.outcome === "missed" ? "font-semibold text-ink" : "text-ink-2"}`}>{name(x)}</span>
                     {x.link_type && <Chip kind="ghost">{x.link_type}</Chip>}
                   </div>
                   <div className="mt-0.5 flex items-center gap-2 text-meta text-ink-3">
@@ -191,7 +191,7 @@ export function CallsClient({
                     setComposeErr(null);
                     setComposeOpen(true);
                   }}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-accent px-2.5 py-1 text-meta font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
+                  className="inline-flex min-h-8 max-sm:min-h-11 items-center gap-1.5 rounded-md bg-ink px-3 py-1 text-label font-semibold text-paper hover:bg-ink-hover focus-visible:outline-2 focus-visible:outline-focus disabled:opacity-50"
                 >
                   <PhoneCall className="size-3.5" strokeWidth={1.5} /> Call back
                 </button>
@@ -304,10 +304,10 @@ export function CallsClient({
 
       {composeOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 px-4" onClick={() => !dialing && setComposeOpen(false)}>
-          <div className="w-full max-w-[420px] rounded-xl border border-rule bg-card p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-[420px] rounded-xl border border-rule bg-card p-5 shadow-modal" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-2">
               <h2 className="flex-1 font-serif text-heading font-semibold text-ink">Place a call</h2>
-              <button type="button" onClick={() => setComposeOpen(false)} className="text-ink-3 hover:text-ink" aria-label="Close"><X className="size-4" strokeWidth={1.5} /></button>
+              <Button onClick={() => setComposeOpen(false)} icon={X} iconOnly aria-label="Close" title="Close" />
             </div>
             <p className="mt-2 text-meta leading-relaxed text-ink-3">
               Your cell rings first. When you pick up, the OS dials them and connects you. The call is recorded and transcribed, and notes land on the record.
@@ -329,10 +329,8 @@ export function CallsClient({
             </div>
             {composeErr && <p className="mt-2 text-meta text-flag">{composeErr}</p>}
             <div className="mt-4 flex justify-end gap-2">
-              <button type="button" onClick={() => setComposeOpen(false)} className="rounded-md border border-rule px-3 py-1.5 text-meta font-semibold text-ink-2 hover:bg-paper-2">Cancel</button>
-              <button type="button" onClick={dial} disabled={!configured || dialing || !newPhone.trim()} className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3.5 py-1.5 text-meta font-semibold text-white hover:bg-accent-2 disabled:opacity-50">
-                <PhoneCall className="size-3.5" strokeWidth={1.5} /> {dialing ? "Ringing your cell…" : "Ring my cell, then call"}
-              </button>
+              <Button onClick={() => setComposeOpen(false)} variant="secondary">Cancel</Button>
+              <Button onClick={dial} icon={PhoneCall} disabled={!configured || dialing || !newPhone.trim()}>{dialing ? "Ringing your cell…" : "Ring my cell, then call"}</Button>
             </div>
           </div>
         </div>

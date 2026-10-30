@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Bot, Building2, Camera, Download, FileText, Loader2, Mail, MessageSquareText, PenLine, RefreshCw, Search, Send, Sparkles, Undo2, X } from "lucide-react";
+import { Bot, Building2, Camera, Download, FileText, Loader2, Mail, MessageSquareText, MoreHorizontal, PenLine, RefreshCw, Search, Send, Sparkles, Undo2, X } from "lucide-react";
 import { Button, EmptyState, PageHeader, Segmented, Card, Chip, Lightbox, type ChipKind, type LightboxPhoto } from "@/components/ui";
 import { runAction } from "@/lib/run-action";
 import { fileUnsortedAction, noteUnsortedAction, rereadUnsortedAction, undoUnsortedAction, type FileUnsortedInput } from "@/lib/actions/unsorted";
@@ -17,7 +17,7 @@ export interface DocFile {
 }
 
 const KIND_LABEL: Record<DocKind, string> = { invoice: "Invoice", receipt: "Receipt", rebate: "Rebate", statement: "Statement", other: "Other" };
-const KIND_CHIP: Record<DocKind, ChipKind> = { invoice: "flag", receipt: "money", rebate: "info", statement: "default", other: "ghost" };
+const KIND_CHIP: Record<DocKind, ChipKind> = { invoice: "info", receipt: "money", rebate: "info", statement: "default", other: "ghost" };
 const KINDS = Object.keys(KIND_LABEL) as DocKind[];
 
 const money = (cents: number | null | undefined) =>
@@ -142,18 +142,14 @@ export function UnsortedClient({
   }, [tab, open, selected]);
 
   return (
-    <div className="mx-auto flex min-h-full max-w-[1240px] flex-col gap-6 px-4 py-6 @2xl/page:px-5 @5xl/page:px-8">
-      <PageHeader title="Unsorted" meta="Invoices and receipts from email, scans and texts that need a job. Choose where each goes to attach it and log the cost." actions={<Button href="/scan" variant="secondary" icon={Camera}>Scan receipt</Button>} filters={<Segmented aria-label="Unsorted views" value={tab} onChange={t => setTab(t as "sort" | "filed")} options={[{value:"sort",label:"To sort",count:pending || undefined},{value:"filed",label:"Filed lately"}]} />} />
+    <div className="[&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus [&_input]:focus-visible:outline-2 [&_input]:focus-visible:outline-focus [&_select]:focus-visible:outline-2 [&_select]:focus-visible:outline-focus mx-auto flex min-h-full max-w-[1240px] flex-col gap-6 px-4 py-6 @2xl/page:px-5 @5xl/page:px-8">
+      <PageHeader title="Unsorted" meta="Invoices and receipts from email, scans and texts that need a job. Choose where each goes to attach it and log the cost." actions={<Button href="/scan" variant="secondary" icon={Camera}>Scan receipt</Button>} filters={<Segmented aria-label="Unsorted views" className="max-sm:h-12 [&_button]:max-sm:h-11" value={tab} onChange={t => setTab(t as "sort" | "filed")} options={[{value:"sort",label:"To sort",count:pending || undefined},{value:"filed",label:"Filed lately"}]} />} />
 
       {last && tab === "sort" && (
         <div className="flex items-center gap-2 rounded-lg border border-rule bg-money-soft px-3 py-2 text-body text-ink">
-          <span className="min-w-0 flex-1 truncate">{last.label}</span>
-          <button onClick={() => undo(last.id)} disabled={busy} className="inline-flex items-center gap-1 font-semibold text-accent-2 hover:underline">
-            <Undo2 className="size-3.5" /> Undo
-          </button>
-          <button onClick={() => setLast(null)} className="text-ink-3 hover:text-ink" aria-label="Dismiss">
-            <X className="size-3.5" />
-          </button>
+          <span role="status" className="min-w-0 flex-1">{last.label}</span>
+          <Button onClick={() => undo(last.id)} disabled={busy} variant="ghost" icon={Undo2}>Undo</Button>
+          <Button onClick={() => setLast(null)} icon={X} iconOnly aria-label="Dismiss" title="Dismiss" />
         </div>
       )}
 
@@ -165,8 +161,8 @@ export function UnsortedClient({
         // Sized by the page's own width (container queries), not the window's:
         // the operator panel can take half the screen.
         <div className="min-h-0 flex-1">
-        <div className="grid gap-3 @2xl/page:grid-cols-[minmax(0,1fr)_300px] @5xl/page:grid-cols-[230px_minmax(0,1fr)_320px]">
-          <Card className="flex overflow-x-auto p-0 @2xl/page:col-span-2 @5xl/page:col-span-1 @5xl/page:block @5xl/page:max-h-[82vh] @5xl/page:overflow-y-auto">
+        <div className="grid gap-3 @4xl/page:grid-cols-[minmax(0,1fr)_300px] @5xl/page:grid-cols-[230px_minmax(0,1fr)_320px]">
+          <Card className="flex overflow-x-auto p-0 @4xl/page:col-span-2 @5xl/page:col-span-1 @5xl/page:block @5xl/page:max-h-[82vh] @5xl/page:overflow-y-auto">
             <div className="sticky top-0 hidden border-b border-rule bg-paper-2 px-3 py-2 tabular-nums text-meta text-ink-3 @5xl/page:block">
               {open.length} document{open.length === 1 ? "" : "s"}
             </div>
@@ -175,7 +171,7 @@ export function UnsortedClient({
                 key={d.id}
                 className={`flex w-56 flex-none flex-col border-r border-rule-soft @5xl/page:w-full @5xl/page:border-b @5xl/page:border-r-0 ${d.id === selected.id ? "bg-accent-soft" : "hover:bg-paper"}`}
               >
-                <button onClick={() => setSelectedId(d.id)} className="flex flex-col gap-0.5 px-3 pb-1.5 pt-2.5 text-left">
+                <button onClick={() => setSelectedId(d.id)} aria-pressed={d.id === selected.id} className="flex min-w-0 flex-col gap-0.5 px-3 pb-1.5 pt-2.5 text-left">
                   <div className="flex items-center gap-2">
                     <span className="min-w-0 flex-1 break-words text-subheading font-semibold text-ink">{vendorOf(d)}</span>
                     <span className="tabular-nums text-meta text-ink-2">{money(d.amount_cents)}</span>
@@ -202,7 +198,7 @@ export function UnsortedClient({
             ))}
           </Card>
 
-          <div className="flex min-w-0 flex-col gap-3">
+          <div className="order-3 flex min-w-0 flex-col gap-3 @4xl/page:order-none">
             {(selected.extracted || selected.extract_state) && (
               <ReceiptFacts key={`f${selected.id}`} doc={selected} byslug={byslug} busy={busy} onReread={() => reread(selected.id)} />
             )}
@@ -254,7 +250,7 @@ function DocThumbs({
             onClick={() => onView(photos, i)}
             title={f.name}
             aria-label={`View ${f.name}`}
-            className="size-9 flex-none overflow-hidden rounded border border-rule bg-paper-3 hover:border-accent"
+            className="size-11 flex-none overflow-hidden rounded border border-rule bg-paper-3 hover:border-accent"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={`${src}?w=160`} alt="" loading="lazy" className="size-full object-cover" />
@@ -322,7 +318,7 @@ function ReceiptFacts({ doc, byslug, busy, onReread }: { doc: UnsortedDocRow; by
             <Sparkles className="size-3" /> Read off the {x.kind === "invoice" ? "invoice" : "receipt"}
             {sourceOf(doc) === "text" ? " · texted in" : sourceOf(doc) === "scan" ? " · phone scan" : ""}
           </div>
-          <div className="mt-0.5 truncate text-heading font-semibold leading-tight text-ink">{x.vendor || "Unknown store"}</div>
+          <div className="mt-0.5 break-words text-heading font-semibold leading-tight text-ink">{x.vendor || "Unknown store"}</div>
           {x.location && <div className="truncate text-meta text-ink-3">{x.location}</div>}
         </div>
         <div className="text-right">
@@ -460,7 +456,7 @@ function DocPreview({ doc, files }: { doc: UnsortedDocRow; files: Record<string,
           </button>
         ))}
         {f && (
-          <a href={`${src}?download=1`} className="ml-auto inline-flex items-center gap-1 px-2 text-meta text-ink-3 hover:text-ink" title="Download">
+          <a href={`${src}?download=1`} className="ml-auto inline-flex size-9 max-sm:size-11 items-center justify-center rounded-md text-meta text-ink-3 hover:bg-hover hover:text-ink" aria-label="Download document" title="Download">
             <Download className="size-3.5" />
           </a>
         )}
@@ -565,12 +561,12 @@ function SortPanel({
   });
 
   return (
-    <div className="flex min-w-0 flex-col gap-3">
+    <div className="order-2 flex min-w-0 flex-col gap-3 @4xl/page:order-none">
       <Card className="p-3.5">
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
-            <div className="truncate text-subheading font-semibold text-ink">{vendorOf(doc)}</div>
-            <div className="truncate text-meta text-ink-3">{doc.from_label}</div>
+            <div className="break-words text-subheading font-semibold text-ink">{vendorOf(doc)}</div>
+            <div className="break-words text-meta text-ink-3">{doc.from_label}</div>
           </div>
           <div className="text-right">
             <div className="tabular-nums text-subheading font-semibold text-ink">{money(doc.amount_cents)}</div>
@@ -635,6 +631,7 @@ function SortPanel({
         <div className="relative mt-1">
           <Search className="pointer-events-none absolute left-2.5 top-2.5 size-3.5 text-ink-3" />
           <input
+            aria-label="Find a project or tell the agent"
             ref={searchRef}
             value={q}
             onChange={(e) => {
@@ -658,7 +655,7 @@ function SortPanel({
               }
             }}
             placeholder="Another project, or tell the agent…"
-            className="w-full rounded-lg border border-rule bg-paper py-2 pl-8 pr-2 text-body text-ink outline-none placeholder:text-ink-3 focus:border-accent"
+            className="w-full rounded-lg border border-rule bg-paper py-2 pl-8 pr-2 text-body text-ink placeholder:text-ink-3"
           />
           {q.trim() && (
             <div className="mt-1 overflow-hidden rounded-lg border border-rule bg-card">
@@ -670,7 +667,7 @@ function SortPanel({
                   onClick={() => toProject(p)}
                   className={`flex w-full flex-col px-3 py-1.5 text-left ${i === hi ? "bg-accent-soft" : ""}`}
                 >
-                  <span className="truncate text-body font-semibold text-ink">{p.name}</span>
+                  <span className="break-words text-body font-semibold text-ink">{p.name}</span>
                   <span className="truncate text-meta text-ink-3">{[p.client_name, p.address].filter(Boolean).join(" · ")}</span>
                 </button>
               ))}
@@ -699,14 +696,14 @@ function SortPanel({
               setKind(k);
               setLogCost((k === "invoice" || k === "receipt") && amount.trim() !== "");
             }}
-            className="rounded-md border border-rule bg-paper px-2 py-1 text-ink"
+            className="h-9 min-w-0 max-sm:h-11 rounded-md border border-rule bg-card px-2 text-ink"
           >
             {KINDS.map((k) => (
               <option key={k} value={k}>{KIND_LABEL[k]}</option>
             ))}
           </select>
           <label className="text-ink-3" htmlFor="u-vendor">From</label>
-          <input id="u-vendor" value={vendor} onChange={(e) => setVendor(e.target.value)} className="rounded-md border border-rule bg-paper px-2 py-1 text-ink" />
+          <input id="u-vendor" value={vendor} onChange={(e) => setVendor(e.target.value)} className="h-9 min-w-0 max-sm:h-11 rounded-md border border-rule bg-card px-2 text-ink" />
           <label className="text-ink-3" htmlFor="u-amt">Amount</label>
           <input
             id="u-amt"
@@ -714,7 +711,7 @@ function SortPanel({
             inputMode="decimal"
             placeholder="0.00"
             onChange={(e) => setAmount(e.target.value)}
-            className={`rounded-md border bg-paper px-2 py-1 tabular-nums text-ink ${amountOk ? "border-rule" : "border-flag"}`}
+            className={`h-9 min-w-0 max-sm:h-11 rounded-md border bg-card px-2 tabular-nums text-ink ${amountOk ? "border-rule" : "border-flag"}`}
           />
         </div>
         {costable && (
@@ -729,9 +726,12 @@ function SortPanel({
             </span>
           </label>
         )}
-        <button onClick={dismiss} disabled={busy} className="mt-1 self-start text-meta text-ink-3 underline-offset-2 hover:text-flag hover:underline">
-          Not a business cost — set it aside
-        </button>
+        <details className="relative mt-1 self-start">
+          <summary className="flex min-h-9 max-sm:min-h-11 cursor-pointer list-none items-center gap-1.5 rounded-md px-2 text-label font-semibold text-ink-2 hover:bg-hover focus-visible:outline-2 focus-visible:outline-focus"><MoreHorizontal className="size-4" /> More actions</summary>
+          <div className="absolute bottom-full left-0 z-10 mb-1 w-64 rounded-lg border border-rule-soft bg-card p-1 shadow-pop">
+            <Button variant="ghost" onClick={dismiss} disabled={busy} className="h-auto min-h-9 w-full justify-start whitespace-normal py-2 text-left text-flag">Not a business cost — set it aside</Button>
+          </div>
+        </details>
       </Card>
     </div>
   );
@@ -753,7 +753,7 @@ function FiledList({
   onView: (photos: LightboxPhoto[], index: number) => void;
 }) {
   if (!docs.length) {
-    return <Card className="px-6 py-12 text-center text-body text-ink-3">Nothing filed yet.</Card>;
+    return <EmptyState icon={FileText} title="No documents filed yet" description="Receipts and invoices appear here after you file them to a job, overhead, or set them aside. You can undo a filing here." />;
   }
   return (
     <Card className="overflow-hidden p-0">
@@ -800,9 +800,7 @@ function FiledList({
           <div className="w-28 text-right tabular-nums text-meta text-ink-3">
             {d.resolved_by === "owner" ? "you" : d.resolved_by} · {day(d.resolved_at)}
           </div>
-          <button onClick={() => onUndo(d.id)} disabled={busy} className="inline-flex items-center gap-1 text-meta font-semibold text-accent-2 hover:underline disabled:opacity-50">
-            <Undo2 className="size-3.5" /> Undo
-          </button>
+          <Button onClick={() => onUndo(d.id)} disabled={busy} variant="secondary" icon={Undo2}>Undo</Button>
         </div>
       ))}
     </Card>

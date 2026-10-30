@@ -102,7 +102,10 @@ export async function runReminders(): Promise<ReminderRun> {
             to_char(coi_expires_at, 'Mon FMDD') AS exp
        FROM subs
       WHERE coi_expires_at IS NOT NULL
-        AND coi_expires_at - CURRENT_DATE BETWEEN 0 AND ${COI_WINDOWS[0]}`,
+        AND coi_expires_at - CURRENT_DATE BETWEEN 0 AND ${COI_WINDOWS[0]}
+        -- A renewal waiting on Joe's Accept/Reject already has his to-do.
+        AND NOT EXISTS (SELECT 1 FROM sub_documents sd
+                         WHERE sd.sub_slug = subs.slug AND sd.doc_type = 'coi' AND sd.status = 'under_review')`,
   );
   for (const r of coi.rows) {
     for (const w of COI_WINDOWS) {

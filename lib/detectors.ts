@@ -403,6 +403,10 @@ function missingDrawScheduleDetector(): Detector {
 // ─── 5 · w9-missing ─────────────────────────────────────────────────────────
 // Subs who have invoiced us but have no W-9 on file. W-9 evidence lives in
 // sub_documents (doc_type='w9') — uploaded from the sub portal or by the owner.
+// A rejected, expired or superseded W-9 is not on file.
+const W9_ON_FILE = (slugExpr: string) =>
+  `EXISTS (SELECT 1 FROM sub_documents sd WHERE sd.sub_slug = ${slugExpr} AND sd.doc_type = 'w9' AND sd.status IN ('received','under_review','accepted'))`;
+
 function w9MissingDetector(): Detector {
   return {
     key: "w9-missing",
@@ -412,8 +416,7 @@ function w9MissingDetector(): Detector {
                 (SELECT count(*)::int FROM sub_invoices si WHERE si.sub_slug = s.slug) AS invoices
            FROM subs s
           WHERE EXISTS (SELECT 1 FROM sub_invoices si WHERE si.sub_slug = s.slug)
-            AND NOT EXISTS (SELECT 1 FROM sub_documents sd
-                             WHERE sd.sub_slug = s.slug AND sd.doc_type = 'w9')`,
+            AND NOT ${W9_ON_FILE("s.slug")}`,
       );
       return rows.map((r) => ({
         dedupKey: `w9:${r.slug}`,
@@ -434,8 +437,7 @@ function w9MissingDetector(): Detector {
               SELECT 1 FROM subs s
                WHERE s.slug = split_part(ds.dedup_key, ':', 2)
                  AND EXISTS (SELECT 1 FROM sub_invoices si WHERE si.sub_slug = s.slug)
-                 AND NOT EXISTS (SELECT 1 FROM sub_documents sd
-                                  WHERE sd.sub_slug = s.slug AND sd.doc_type = 'w9'))`,
+                 AND NOT ${W9_ON_FILE("s.slug")})`,
       );
       return rows.map((r) => r.dedup_key);
     },
@@ -460,6 +462,11 @@ function reachedWindowSql(daysExpr: string, windows: number[]): string {
   return `CASE ${cases} END`;
 }
 
+/** A sub's COI renewal is uploaded and waiting on Joe's Accept/Reject (sub
+ *  page › Paperwork); that review is already his to-do. */
+const COI_UNDER_REVIEW = (slugExpr: string) =>
+  `EXISTS (SELECT 1 FROM sub_documents sd WHERE sd.sub_slug = ${slugExpr} AND sd.doc_type = 'coi' AND sd.status = 'under_review')`;
+
 // ─── 6 · coi-expiring ───────────────────────────────────────────────────────
 // Same data source as the COI block in lib/reminders.ts (subs.coi_expires_at),
 // same 30/15/5 windows. reminders.ts keeps emitting its bell notification —
@@ -476,7 +483,8 @@ function coiExpiringDetector(): Detector {
                 to_char(coi_expires_at, 'YYYY-MM-DD') AS exp
            FROM subs
           WHERE coi_expires_at IS NOT NULL
-            AND coi_expires_at - CURRENT_DATE <= ${COI_WINDOWS[0]}`,
+            AND coi_expires_at - CURRENT_DATE <= ${COI_WINDOWS[0]}
+            AND NOT ${COI_UNDER_REVIEW("subs.slug")}`,
       );
       return rows.map((r) => {
         const w = reachedWindow(r.days, COI_WINDOWS)!;
@@ -498,7 +506,8 @@ function coiExpiringDetector(): Detector {
     async resolve() {
       // Cleared when the COI was renewed (date out past every window, or gone)
       // — or when expiry crept into a NARROWER window, which retires this key
-      // as its escalation files.
+      // as its escalation files — or while a renewal waits on Joe's review
+      // (it re-files if he rejects it).
       const { rows } = await query<{ dedup_key: string }>(
         `SELECT ds.dedup_key
            FROM detector_state ds
@@ -508,7 +517,8 @@ function coiExpiringDetector(): Detector {
                WHERE s.slug = split_part(ds.dedup_key, ':', 2)
                  AND s.coi_expires_at IS NOT NULL
                  AND ${reachedWindowSql("s.coi_expires_at - CURRENT_DATE", COI_WINDOWS)}
-                     = split_part(ds.dedup_key, ':', 3)::int)`,
+                     = split_part(ds.dedup_key, ':', 3)::int
+                 AND NOT ${COI_UNDER_REVIEW("s.slug")})`,
       );
       return rows.map((r) => r.dedup_key);
     },

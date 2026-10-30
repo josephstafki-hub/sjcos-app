@@ -256,8 +256,18 @@ export async function sendInvoiceOp(id: number, auth?: SendAuth): Promise<SendOp
   if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
 
   const payload = invoiceEmailPayload(e, await invoiceEmailExtras(e));
+  // A resend of an unchanged invoice whose earlier send died for good (Gmail
+  // down, provider refused) needs a fresh intent: the dead one never
+  // dispatches again. invoiceSendBlock above has already refused anything
+  // that may have gone out (accepted, delivered, unknown, live queue).
+  const baseKey = `invoice:${id}:send:${invoiceEmailRevision(e)}`;
+  const dead = (await queryOne<{ dead: number }>(
+    `SELECT count(*)::int AS dead FROM action_intents
+      WHERE (operation_key = $1 OR operation_key LIKE $1 || ':retry%') AND state IN ('permanent_failure','cancelled')`,
+    [baseKey],
+  ))?.dead ?? 0;
   return stageAndSend({
-    operationKey: `invoice:${id}:send:${invoiceEmailRevision(e)}`,
+    operationKey: dead > 0 ? `${baseKey}:retry${dead}` : baseKey,
     kind: "send_invoice",
     targetKind: "invoice",
     targetId: String(id),

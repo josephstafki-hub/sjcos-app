@@ -269,20 +269,33 @@ export default async function ProjectDetailPage({
           </h2>
           <p className="text-body">{project.pulse}</p>
         </AiBubble>
-        <Card className="p-4">
-          <h2 className="font-serif text-heading font-semibold">
-            Weekly status email
-          </h2>
-          <div className="mt-3 text-body text-ink-2">
-            {project.weeklyStatus || <WeeklyStatusDraft slug={slug} />}
-          </div>
-          <div className="mt-4 flex flex-wrap items-start justify-between gap-3 border-t border-rule-soft pt-3">
-            <span className="text-meta text-ink-3">
-              Review the draft before sending.
-            </span>
-            {project.weeklyStatus && <WeeklyStatusSend slug={slug} />}
-          </div>
-        </Card>
+        {project.status === "warranty" ? (
+          // A finished job: coverage and claims matter, not weekly client updates.
+          <Card className="p-4">
+            <h2 className="font-serif text-heading font-semibold">Warranty</h2>
+            <p className="mt-2 text-body text-ink-2">
+              Claims, coverage dates and missing closeout records for this job live on Warranty.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button href="/warranty" size="sm" variant="secondary">Open Warranty</Button>
+            </div>
+          </Card>
+        ) : (
+          <Card className="p-4">
+            <h2 className="font-serif text-heading font-semibold">
+              Weekly status email
+            </h2>
+            <div className="mt-3 text-body text-ink-2">
+              {project.weeklyStatus || <WeeklyStatusDraft slug={slug} />}
+            </div>
+            <div className="mt-4 flex flex-wrap items-start justify-between gap-3 border-t border-rule-soft pt-3">
+              <span className="text-meta text-ink-3">
+                Review the draft before sending.
+              </span>
+              {project.weeklyStatus && <WeeklyStatusSend slug={slug} />}
+            </div>
+          </Card>
+        )}
         <section>
           <div className="mb-3 flex items-center justify-between gap-3">
             <h2 className="font-serif text-heading font-semibold">Activity</h2>

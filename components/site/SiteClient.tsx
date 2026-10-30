@@ -60,8 +60,8 @@ export function SiteClient({
     <div className="flex min-h-full min-w-0">
       {/* ─── Posts rail ───────────────────────────────────────────── */}
       <aside
-        className={`w-full flex-none flex-col overflow-y-auto border-r border-rule-soft bg-paper p-3.5 @5xl/page:w-56 ${
-          mobileEditor ? "hidden @5xl/page:flex" : "flex"
+        className={`w-full flex-none flex-col overflow-y-auto border-r border-rule-soft bg-paper p-3.5 @2xl/page:w-56 ${
+          mobileEditor ? "hidden @2xl/page:flex" : "flex"
         }`}
       >
         <div className="flex items-center gap-1.5">
@@ -139,7 +139,7 @@ export function SiteClient({
                       <Chip kind="flag">needs photos</Chip>
                     ) : null}
                   </div>
-                  <div className="mt-0.5 flex items-center justify-between gap-2 text-meta text-ink-3">{post.createdLabel}<ChevronRight aria-hidden="true" className="size-4 @5xl/page:hidden" /></div>
+                  <div className="mt-0.5 flex items-center justify-between gap-2 text-meta text-ink-3">{post.createdLabel}<ChevronRight aria-hidden="true" className="size-4 @2xl/page:hidden" /></div>
                 </button>
               );
             })}
@@ -150,13 +150,13 @@ export function SiteClient({
       {/* ─── Editor ───────────────────────────────────────────────── */}
       <section
         className={`min-w-0 flex-1 flex-col overflow-y-auto bg-paper p-4 @xl/page:p-6 ${
-          mobileEditor ? "flex" : "hidden @5xl/page:flex"
+          mobileEditor ? "flex" : "hidden @2xl/page:flex"
         }`}
       >
         <button
           type="button"
           onClick={() => setMobileEditor(false)}
-          className="mb-3 -ml-1 inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-1 text-meta font-semibold text-ink-2 hover:bg-paper-2 @5xl/page:hidden"
+          className="mb-3 -ml-1 inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-1 text-meta font-semibold text-ink-2 hover:bg-paper-2 @2xl/page:hidden"
         >
           <ArrowLeft className="size-3.5" strokeWidth={1.5} /> Posts
         </button>

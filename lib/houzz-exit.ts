@@ -90,7 +90,6 @@ export async function houzzExitInventory(run: Run): Promise<HouzzExitInventory> 
     { owner: "Houzz Pro (external)", what: "invoice payment links, reminders, design files — retired by hand", state: "owner-reported: still in use for online payment links" },
   ];
   const code_references = [
-    "lib/doc-templates/invoice-doc.ts — invoice text still offers 'online payment via Houzz Pro invoice link'; switch to the SJC OS pay link when Square is live",
     "lib/budget-writes.ts — Houzz-era estimates carry client prices as unit costs (import handling; keep)",
     "expenses.source_ref 'houzz:<id>' — imported payment history (keep as evidence)",
   ];

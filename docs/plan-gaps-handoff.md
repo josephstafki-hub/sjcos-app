@@ -265,8 +265,14 @@ by Joe/staff don't feed the weekly update (only sub logs do).
     - A stuck instance shows "Needs a look" and its reason on /engine.
     - **Repair** (owner) recreates the missing step from the pinned definition and re-checks the instance.
       A legacy one with no pinned definition says to cancel it.
-- **Leads (A11):** `lib/leads/{match,facts,routine,package}.ts` has no callers. Mind the `routine.followup`
-  key issue above.
+- ~~**Leads (A11):**~~ **Done (branch `t3/tier3-leads`):**
+  - `import_lead` matches by email **and phone** (`matchIntake`). One match → refuse and point to that lead;
+    several leads → a review row, never a guessed merge.
+  - A lead's reply stops any missing-info ask.
+  - The missing-info asks (`collectMissingFacts`) moved to their own `lead.missing_facts` policy
+    (migration 0052, seeded OFF), so the active `routine.followup` (sub paperwork) never emails a lead.
+    The daily reminders pass asks up to 20 recent leads only while that policy is on.
+  - New MCP tools: `get_lead_qualification`, `preview_lead_followups`, `prepare_estimate_inputs`.
 - ~~**Sub paperwork (A12):**~~ **Done (branch `t3/tier3-subdocs`):**
   - Every sub-portal upload (W-9, agreement, other) now goes under review with its own to-do for Joe.
     For a W-9: signed, legal name; the tax ID is never stored.

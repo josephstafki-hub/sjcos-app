@@ -71,12 +71,12 @@ test("W01 collector asks only for missing facts, in plain words, no price/call; 
     assert.match(draft.body, /^Pat, Thanks for reaching out/);
 
     // active policy, in window → sent as an intent citing the policy
-    await activateRoutinePolicy(client);
+    await activateRoutinePolicy(client, "lead.missing_facts");
     await client.query(`DELETE FROM lead_followups`);
     await client.query(`UPDATE decisions SET status = 'revoked'`);
     out = await collectMissingFacts(run, { leadId, principal: agent, at: IN_WINDOW });
     assert.equal(out.action, "sent");
-    assert.equal(out.policyRef, "policy:routine.followup@1");
+    assert.equal(out.policyRef, "policy:lead.missing_facts@1");
     const intent = await client.query(`SELECT kind, recipient, policy_ref, payload FROM action_intents WHERE id = $1`, [out.intentId]);
     assert.equal(intent.rows[0].kind, "send_email");
     assert.equal(intent.rows[0].recipient, "zz-lead-3@example.test");
@@ -122,7 +122,7 @@ test("V15 direct owner reply, decline and opt-out stop follow-up; preview dry-ru
   await withTestDb(async (url, client) => {
     await cleanProcurement(client);
     await seedOwner(client);
-    await activateRoutinePolicy(client);
+    await activateRoutinePolicy(client, "lead.missing_facts");
     const run = runOver(client);
     const joe = await seedLead(client, "zz-lead-joe", { scope: "Replace the deck boards and railing, roughly 12x16 deck." });
     await client.query(`INSERT INTO lead_activity (lead_id, kind, summary, actor) VALUES ($1, 'email', 'Replied by hand', 'Joe')`, [joe]);
@@ -184,5 +184,19 @@ test("V15 direct owner reply, decline and opt-out stop follow-up; preview dry-ru
     await recordFact(run, { leadId: ready, key: "budget_fit", value: "$60k", sourceRef: "call:1" });
     const rev2 = await prepareEstimateInputPackage(run, { leadId: ready, principal: agent, hook: null });
     assert.equal(rev2.package.revision, 2);
+  });
+});
+
+test("routine.followup being on (sub paperwork) never emails a lead; only lead.missing_facts does", { skip }, async () => {
+  await withTestDb(async (_url, client) => {
+    await cleanProcurement(client);
+    await seedOwner(client);
+    const run = runOver(client);
+    await activateRoutinePolicy(client); // routine.followup, as live
+    const leadId = await seedLead(client, "zz-lead-sep", { name: "Kim Ortiz", scope: "New deck, 12x16.", city: "Edina" });
+    const out = await collectMissingFacts(run, { leadId, principal: agent, at: IN_WINDOW });
+    assert.equal(out.action, "staged", "parked for Joe, not sent");
+    assert.match(out.reason, /"lead\.missing_facts" is not active/);
+    assert.equal((await client.query(`SELECT count(*)::int AS n FROM action_intents`)).rows[0].n, 0);
   });
 });

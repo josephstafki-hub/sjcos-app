@@ -33,6 +33,7 @@ import { gmailConfigured, fetchThreadMetadata, gmailCallsSoFar } from "./gmail";
 import { cancelLeadNurture } from "./newsletter-drip";
 import { withTransaction } from "./commands/db";
 import { onInboundMessage } from "./agent-runtime/hooks";
+import { stopLeadFollowups } from "./leads/facts";
 
 export interface LeadThreadSyncChange {
   slug: string;
@@ -224,6 +225,10 @@ export async function syncLeadThreads(
       // for Joe (only while the agent.event_wakeups policy is on). Not while
       // the same-day first response is still being drafted for this lead.
       if (!t.outbound) {
+        // They wrote back: any planned missing-info ask stops (A11).
+        await withTransaction((run) => stopLeadFollowups(run, lead.id, "client replied")).catch((err) =>
+          console.error("[lead-thread-sync] stop follow-ups failed:", (err as Error).message),
+        );
         try {
           const firstPending = await queryOne(`SELECT 1 FROM lead_first_responses WHERE lead_id = $1 AND status <> 'sent'`, [lead.id]);
           if (!firstPending) {

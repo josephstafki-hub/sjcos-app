@@ -17,6 +17,9 @@ import { emit } from "./notify";
 import { runDirect, withTransaction } from "./commands/db";
 import { ensureCallFollowUps } from "./completion/call-followups";
 import { routineReminderCandidates } from "./billing/reminders";
+import { activePolicy } from "./commands/policies";
+import { collectMissingFacts, LEAD_MISSING_FACTS_POLICY } from "./leads/facts";
+import { syncFactsFromIntake } from "./leads/qualification";
 
 const COMPLIANCE_WINDOWS = [60, 30]; // ≤14d handled on feed-read
 const COI_WINDOWS = [30, 15, 5];
@@ -49,6 +52,8 @@ export interface ReminderRun {
   inboxAwaitingReview: number;
   /** Calls whose follow-up to-dos had failed to file and were filed this run. */
   callFollowUpsRetried: number;
+  /** Leads asked (or staged) for missing facts, only while lead.missing_facts is active. */
+  leadFactsAsked: number;
 }
 
 export async function runReminders(): Promise<ReminderRun> {
@@ -61,6 +66,7 @@ export async function runReminders(): Promise<ReminderRun> {
     inboxFlaggedForReview: 0,
     inboxAwaitingReview: 0,
     callFollowUpsRetried: 0,
+    leadFactsAsked: 0,
   };
 
   // ── Compliance items: 60 / 30-day heads-up (unresolved, future-dated) ──
@@ -273,6 +279,27 @@ export async function runReminders(): Promise<ReminderRun> {
       out.callFollowUpsRetried++;
     } catch (err) {
       console.error("[reminders] call follow-up retry failed", c.id, err);
+    }
+  }
+
+  // ── Leads missing facts for the rough estimate (A11) ──
+  // Only while Joe has lead.missing_facts on (migration 0052, seeded off).
+  // collectMissingFacts asks only for what's unknown, at most twice, inside
+  // the policy's window and cadence, and stops on a reply/decline/opt-out.
+  if (await activePolicy(runDirect, LEAD_MISSING_FACTS_POLICY).catch(() => null)) {
+    const leads = await query<{ id: string }>(
+      `SELECT id FROM leads WHERE stage IN ('intake','qualified') AND email IS NOT NULL AND email <> '' AND created_at > now() - interval '30 days' ORDER BY created_at LIMIT 20`,
+    );
+    for (const l of leads.rows) {
+      try {
+        const r = await withTransaction(async (tx) => {
+          await syncFactsFromIntake(tx, l.id);
+          return collectMissingFacts(tx, { leadId: l.id, principal: { kind: "service", name: "reminders:lead-facts" } });
+        });
+        if (r.action === "sent" || r.action === "staged") out.leadFactsAsked++;
+      } catch (err) {
+        console.error("[reminders] lead missing-facts ask failed", l.id, err);
+      }
     }
   }
 

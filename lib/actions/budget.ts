@@ -3,7 +3,7 @@
 // Project-financials write paths (docs/project-financials-plan.md §4.7). Gated
 // on the `money` area — "All other financials", the default fence for every
 // money feature that is not estimates / invoices / POs / COs / bidding — except
-// the billing reconcile, which is the owner's. Money is CENTS. Reads stay in
+// the "outside the app" figures, which are the owner's. Money is CENTS. Reads stay in
 // lib/budget.ts; the SQL and the validation are lib/budget-writes.ts so the MCP
 // tools run the very same statements.
 //
@@ -16,7 +16,7 @@ import * as writes from "@/lib/budget-writes";
 import type { Run } from "@/lib/budget-queries";
 import type {
   AdoptResult, BudgetLineInput, BudgetSettingsInput, ChangeOrderCostsInput, CostSource, CostTarget,
-  ExpenseInput, FundingEventInput, PartyInput, ReconcileBillingInput, WriteResult,
+  ExpenseInput, FundingEventInput, OutsideMoneyInput, PartyInput, WriteResult,
 } from "@/lib/budget-writes";
 
 /** Run `fn` against this job inside one transaction; commit only on `ok`. */
@@ -108,15 +108,16 @@ export async function savePayersAndFunding(slug: string, input: { parties: Party
   });
 }
 
-/** Owner only: it changes which number the whole app calls "collected". */
-export async function reconcileBilling(slug: string, input: ReconcileBillingInput): Promise<WriteResult<{ collectedCents: number }>> {
+/** Owner only: the two typed figures in every job's total and paid amount.
+ *  The projects list, Today and /money all read the result. */
+export async function saveOutsideMoney(slug: string, input: OutsideMoneyInput): Promise<WriteResult<{ totalCents: number; collectedCents: number }>> {
   await requireRole("owner");
-  const result = await inProject(slug, (run, projectId) => writes.reconcileBilling(run, projectId, input));
-  if (result.ok) revalidatePath("/today");
+  const result = await inProject(slug, (run, projectId) => writes.saveOutsideMoney(run, projectId, input));
+  if (result.ok) {
+    bumpLiveChange("projects");
+    revalidatePath("/projects");
+    revalidatePath("/today");
+    revalidatePath("/money");
+  }
   return result;
-}
-
-export async function unreconcileBilling(slug: string): Promise<WriteResult> {
-  await requireRole("owner");
-  return inProject(slug, (run, projectId) => writes.unreconcileBilling(run, projectId));
 }

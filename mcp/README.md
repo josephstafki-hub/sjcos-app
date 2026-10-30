@@ -49,8 +49,6 @@ Safe by construction — internal records, append-only audit, and proposals only
 | `record_agent_run` / `record_receipt` | Open/close a run; append proof-of-work |
 | `create_skill_proposal` | Propose a skill → lands `proposed`, out of the library until Joe approves in `/engine` |
 | `record_skill_used` | Log that an agent followed a skill |
-| `set_project_contract_value` | Set a project's contract amount (whole dollars) + optional `value_display` label; no invoice touched |
-| `set_project_collected` | Set cumulative collected-to-date (`collected` dollars, or `paid_in_full: true` = contract value); optional `stage_label` rewrites the projects-list status line; drives % billed + Today A/R; no invoice marked paid |
 | `start_runbook` | W6 stepper: start a runbook against one lead/project (spawns the step-1 work item + pings its assignee; refuses a duplicate live run). Completing a step's work item advances the run; cancelling an instance is owner-only in `/engine` |
 
 All tools are parameterized SQL. **No raw-SQL tool** is exposed. Before working a
@@ -225,7 +223,6 @@ the `fill-project-financials` skill (`docs/skills/fill-project-financials.md`).
 | `assign_cost` | File a sub invoice, PO or expense under a trade (`line_key`) or change order (`co_number`) |
 | `link_cost_to_po` | Say which PO a bill or payment is against, so the two count once |
 | `set_change_order_costs` | The budget side of an EXISTING change order: planned cost, remaining cost, payer, credits |
-| `propose_billing_reconciliation` | Read-only: hand-kept collected vs the invoices, and the opening balance that would reconcile them |
 
 Rules the tools enforce, so you can rely on them:
 
@@ -241,18 +238,18 @@ Rules the tools enforce, so you can rely on them:
 - **No tool creates a change order or moves one out of draft** — the client
   portal lists every non-draft change order. `set_change_order_costs` cannot
   touch a CO's price or status.
-- **No tool switches a job's billing source.** That is Joe's reviewed step in
-  the app (project › Money › Overview › Reconcile billing).
+- **No tool writes a job's total or paid figure.** Postgres computes both from
+  the records on every write (`db/migrations/0037_job_money_ledger.sql`); the
+  two "outside the app" amounts are Joe's, on project › Money › Overview.
 - Free text passes the same shell-stripped-dollar check as the other write tools.
 
 Three things to read before quoting a number:
 
 - `completeness.profit` is `unknown` until the budget covers the whole job. Then
   there is **no profit and no margin**, only cost so far. Don't compute one.
-- `billing.source: "manual"` means collected is the hand-kept
-  `projects.collected_to_date` and **billed is unknown**. Nothing keeps that
-  column in step with the `invoices` table, so they can disagree;
-  `billing.reconciliation_proposal` shows both side by side.
+- `job_money` is the job total and paid amount the projects list shows, term
+  by term: contract estimate + approved change orders + pre-con fee invoices +
+  agreed outside the app; payments on invoices + paid outside the app.
 - `left_to_collect` is price minus collected and includes work not billed yet.
   It is not receivables — `unpaid_invoices` is.
 

@@ -446,10 +446,10 @@ function rankCandidates(s: QueueSources, viewer: QueueViewer): Candidate[] {
       tag: `JOB · ${topActive.name}`,
       dot: "accent",
       title: `Keep ${topActive.name} moving`,
-      sub: `${topActive.progress}% complete`,
+      sub: `${topActive.progress}% paid`,
       href: `/projects/${topActive.slug}`,
       group: { key: `project:${topActive.slug}`, name: topActive.name, href: `/projects/${topActive.slug}` },
-      waitingLabel: `Keep ${topActive.name} moving (${topActive.progress}% complete)`,
+      waitingLabel: `Keep ${topActive.name} moving (${topActive.progress}% paid)`,
     });
   }
   return candidates.toSorted(byLeadFirst);

@@ -15,14 +15,15 @@ import { Card } from "@/components/ui";
 import { runAction } from "@/lib/run-action";
 import { computeTotals, describeFinancials, fmtK, type BudgetChangeOrder, type BudgetCostRow, type BudgetLine, type BudgetView } from "@/lib/budget-types";
 import {
-  adoptEstimateAsBudget, assignCost, deleteBudgetLine, deleteExpense, linkCostToPurchaseOrder, reconcileBilling,
-  saveBudgetLine, saveBudgetSettings, saveChangeOrderCosts, saveExpense, savePayersAndFunding, setSubInvoicePayment, unreconcileBilling,
+  adoptEstimateAsBudget, assignCost, deleteBudgetLine, deleteExpense, linkCostToPurchaseOrder,
+  saveBudgetLine, saveBudgetSettings, saveChangeOrderCosts, saveExpense, saveOutsideMoney, savePayersAndFunding, setSubInvoicePayment,
 } from "@/lib/actions/budget";
 import { HeadlineStrip } from "./budget/HeadlineStrip";
 import { InOutBars } from "./budget/InOutBars";
 import { CoChart, PayChart, TradeChart } from "./budget/Charts";
 import { ChangeOrderCards, CostsLedger, FundingTable, HowFigured, InvoicesTable, TradesTable } from "./budget/Folds";
-import { CoCostsModal, ExpenseModal, LineModal, PayersModal, PaymentModal, ReconcileModal, SettingsModal, parseTarget } from "./budget/EditModals";
+import { CoCostsModal, ExpenseModal, LineModal, OutsideMoneyModal, PayersModal, PaymentModal, SettingsModal, parseTarget } from "./budget/EditModals";
+import { JobMoneyCard } from "./budget/JobMoneyCard";
 import { BTN, Fold, Section } from "./budget/parts";
 
 type Result = { ok: boolean; error?: string };
@@ -33,13 +34,13 @@ type Modal =
   | { kind: "payment"; row: BudgetCostRow }
   | { kind: "co"; co: BudgetChangeOrder }
   | { kind: "payers" }
-  | { kind: "reconcile" };
+  | { kind: "outside" };
 type FoldKey = "trades" | "cos" | "costs" | "invoices" | "funding" | "notes" | "figured";
 
 export function BudgetPanel({ slug, budget, isOwner, hasApprovedEstimate, poOptions, today }: {
   slug: string;
   budget: BudgetView;
-  /** Only the owner may change which number the app calls "collected". */
+  /** Only the owner may enter the money outside the app. */
   isOwner: boolean;
   hasApprovedEstimate: boolean;
   poOptions: { id: number; label: string }[];
@@ -86,6 +87,12 @@ export function BudgetPanel({ slug, budget, isOwner, hasApprovedEstimate, poOpti
         onShowFigured={showFigured}
       />
 
+      {budget.jobMoney && (
+        <Section title="Job total and paid" sub="What the projects list shows for this job, and what it adds up from.">
+          <JobMoneyCard money={budget.jobMoney} isOwner={isOwner} onEdit={() => setModal({ kind: "outside" })} />
+        </Section>
+      )}
+
       <Section title="Money in, money out" sub="Both bars run from $0 to the price, so they can be read against each other.">
         <InOutBars view={budget} t={t} />
       </Section>
@@ -113,7 +120,6 @@ export function BudgetPanel({ slug, budget, isOwner, hasApprovedEstimate, poOpti
         action={
           <div className="flex flex-wrap gap-1.5">
             <button type="button" onClick={() => setModal({ kind: "payers" })} className={BTN}>Who pays</button>
-            {isOwner && <button type="button" onClick={() => setModal({ kind: "reconcile" })} className={BTN}>{budget.billing.source === "invoices" ? "Billing: from invoices" : "Reconcile billing"}</button>}
           </div>
         }
       >
@@ -175,9 +181,9 @@ export function BudgetPanel({ slug, budget, isOwner, hasApprovedEstimate, poOpti
       {modal?.kind === "payers" && (
         <PayersModal view={budget} pending={pending} onClose={() => setModal(null)} onSave={(input) => run(() => savePayersAndFunding(slug, input))} />
       )}
-      {modal?.kind === "reconcile" && (
-        <ReconcileModal view={budget} pending={pending} onClose={() => setModal(null)}
-          onSave={(input) => run(() => reconcileBilling(slug, input))} onUndo={() => run(() => unreconcileBilling(slug))} />
+      {modal?.kind === "outside" && budget.jobMoney && (
+        <OutsideMoneyModal money={budget.jobMoney} pending={pending} onClose={() => setModal(null)}
+          onSave={(input) => run(() => saveOutsideMoney(slug, input))} />
       )}
     </div>
   );

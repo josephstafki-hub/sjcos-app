@@ -445,7 +445,9 @@ export default async function ProjectDetailPage({
           </div>
           <div className="mt-2 flex flex-col gap-1.5">
             <Row label="Contract" value={m.contract} />
-            <Row label="Paid" value={realMoney ? usd(money.paidTotal) : m.paid} valueClass="text-money" />
+            {/* The job's paid figure (payments on invoices + paid outside the
+                app) — the same number the projects list shows. */}
+            <Row label="Paid" value={m.paid} valueClass="text-money" />
             <Row
               label="Next draw"
               value={realMoney ? (nextInvoice ? usd(nextInvoice.amount) : "—") : m.nextDraw}

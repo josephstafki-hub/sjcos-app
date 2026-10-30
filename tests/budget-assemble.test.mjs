@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { allocateCosts, assembleBudgetView, receivedValue } from "../lib/budget-assemble.ts";
-import { computeTotals, describeFinancials, proposeBillingReconciliation } from "../lib/budget-types.ts";
+import { computeTotals, describeFinancials } from "../lib/budget-types.ts";
 import { KITCHEN_RAW, KITCHEN_AS_OF } from "../lib/budget-fixtures.ts";
 
 // The pure half of the project-financials builder (docs/project-financials-plan.md
@@ -233,9 +233,6 @@ test("Alcantara's shape: a draft invoice never moves a hand-kept collected total
   assert.equal(t.overUnderBilledCents, null);
   assert.equal(t.leftToCollectCents, $(3726));
   assert.match(describeFinancials(view, t)[1], /50% of the price has been collected; billing history isn't tracked here yet\./);
-
-  const p = proposeBillingReconciliation(view.billing);
-  assert.deepEqual([p.proposedOpeningCollectedCents, p.handKeptLooksStale], [$(3726), false]);
 });
 
 test("Louiselle's shape: invoices showing MORE than the hand-kept total are flagged, not adopted", () => {
@@ -246,9 +243,6 @@ test("Louiselle's shape: invoices showing MORE than the hand-kept total are flag
   assert.equal(manual.billing.mismatchCents, -149982);
   assert.equal(manual.billing.mismatchFlagged, true);
   assert.ok(manual.completeness.missing.includes("Hand-kept collected is $1,500 off the invoices"));
-
-  const p = proposeBillingReconciliation(manual.billing);
-  assert.deepEqual([p.proposedOpeningCollectedCents, p.handKeptLooksStale], [0, true]);
 
   const reconciled = assembleBudgetView(raw({ project: { ...job, billingSource: "invoices" }, invoices }), { asOf: AS_OF });
   assert.equal(reconciled.billing.collectedCents, 1564782);
@@ -262,18 +256,6 @@ test("Egan's shape: a deposit carried on the estimate is an opening balance, cou
   const view = assembleBudgetView(raw({ project: job, invoices }), { asOf: AS_OF });
   assert.equal(view.billing.collectedCents, $(30632.5), "never $40,632.50 and never $20,632.50");
   assert.equal(view.billing.mismatchFlagged, false, "a hand-kept total in whole dollars is within $1");
-});
-
-test("reconciling with the proposed opening balance never changes what was collected", () => {
-  const job = { contractValueDollars: 7452, collectedToDateDollars: 3726 };
-  const invoices = [invoice({ amountCents: $(1000) })];
-  const before = assembleBudgetView(raw({ project: job, invoices }), { asOf: AS_OF });
-  const p = proposeBillingReconciliation(before.billing);
-  const after = assembleBudgetView(
-    raw({ project: { ...job, billingSource: "invoices", openingCollectedCents: p.proposedOpeningCollectedCents, openingBilledCents: p.proposedOpeningBilledCents }, invoices }),
-    { asOf: AS_OF },
-  );
-  assert.equal(after.billing.collectedCents, before.billing.collectedCents);
 });
 
 // ─── Acceptance case 5: a receipt on a job without a complete budget ────────

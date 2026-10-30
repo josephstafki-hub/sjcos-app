@@ -20,9 +20,15 @@ export interface ProjectListItem {
   sub: string;
   /** Stage chip label, e.g. "Tile phase". */
   stage: string;
-  /** Display contract value, e.g. "$58,400" or "$28,000 (est)". */
+  /** The job total, e.g. "$46,287" — or, while a job has no total yet, its
+   *  free-text value label ("$44k rough"). */
   value: string;
-  /** 0–100 percent billed (drives the progress bar). */
+  /** What has been paid, e.g. "$24,244". */
+  paid: string;
+  /** The job has a total, so `billed` means something. */
+  hasTotal: boolean;
+  /** 0–100 percent of the job total paid (drives the progress bar). Computed
+   *  by Postgres from the job's records — migration 0037. */
   billed: number;
   group: GroupKey;
 }
@@ -109,8 +115,8 @@ interface ProjectRow {
   billed: number;
   sub: string;
   stage: string;
-  contract_value: number;
-  collected_to_date: number;
+  total_cents: string;
+  collected_cents: string;
 }
 
 const PROJECT_SELECT = `
@@ -119,8 +125,13 @@ const PROJECT_SELECT = `
          progress AS billed,
          COALESCE(sub_label, '') AS sub,
          COALESCE(stage_label, '') AS stage,
-         contract_value, collected_to_date
+         total_cents, collected_cents
   FROM projects`;
+
+/** "$46,287" — whole dollars from cents. */
+function dollars(cents: number): string {
+  return `$${Math.round(cents / 100).toLocaleString("en-US")}`;
+}
 
 function rowToItem(r: ProjectRow): ProjectListItem {
   return {
@@ -128,7 +139,9 @@ function rowToItem(r: ProjectRow): ProjectListItem {
     name: r.name,
     sub: r.sub,
     stage: r.stage,
-    value: r.value,
+    value: Number(r.total_cents) > 0 ? dollars(Number(r.total_cents)) : r.value,
+    paid: dollars(Number(r.collected_cents)),
+    hasTotal: Number(r.total_cents) > 0,
     billed: r.billed,
     group: statusGroup(r.status),
   };
@@ -337,7 +350,7 @@ export async function getProject(slug: string): Promise<ProjectDetail | null> {
         { kind: "ghost", label: item.sub },
       ],
     subtitle: curated.subtitle ?? `${item.sub} · PM: Joe`,
-    pulse: curated.pulse ?? `${item.name} is in the ${item.stage.toLowerCase()} stage. ${item.billed}% billed to date.`,
+    pulse: curated.pulse ?? `${item.name} is in the ${item.stage.toLowerCase()} stage.${item.hasTotal ? ` ${item.billed}% paid to date.` : ""}`,
     milestones: curated.milestones ?? [],
     thisWeek: curated.thisWeek ?? [],
     latestLog: curated.latestLog ?? null,
@@ -347,11 +360,11 @@ export async function getProject(slug: string): Promise<ProjectDetail | null> {
       curated.money ??
       {
         contract: item.value,
-        paid: "—",
+        paid: item.paid,
         nextDraw: "—",
         openCOs: "$0",
         billedPct: item.billed,
-        note: `${item.billed}% billed`,
+        note: item.hasTotal ? `${item.paid} of ${item.value} paid (${item.billed}%)` : "No job total yet",
       },
     subs: curated.subs ?? [],
     files: curated.files ?? [],
@@ -615,11 +628,11 @@ export async function getProjectsData(): Promise<ProjectsData> {
     items: items.filter((p) => p.group === key),
   }));
 
-  const contracted = rows.reduce((s, r) => s + r.contract_value, 0);
-  const billed = rows.reduce((s, r) => s + r.collected_to_date, 0);
+  const contracted = rows.reduce((s, r) => s + Number(r.total_cents), 0) / 100;
+  const paid = rows.reduce((s, r) => s + Number(r.collected_cents), 0) / 100;
 
   return {
-    summary: `${items.length} projects · ${compactK(contracted)} contracted · ${compactK(billed)} billed YTD`,
+    summary: `${items.length} projects · ${compactK(contracted)} in job totals · ${compactK(paid)} paid`,
     groups,
   };
 }

@@ -473,11 +473,10 @@ interface ProjectAccount {
 }
 
 /**
- * Money for the closeout docs. projects.contract_value / collected_to_date are
- * whole DOLLARS (Phase 5.0 left the project headline figures in dollars);
- * approved change_orders.price_cents are CENTS. Everything here is normalized to
- * CENTS. Internally consistent so balance = total − paid (attorney/owner review
- * the figures — see the disclaimer footer).
+ * Money for the closeout docs: the job total and paid amount, to the cent, as
+ * Postgres keeps them (migration 0037 — the total already includes approved
+ * change orders). balance = total − paid (attorney/owner review the figures —
+ * see the disclaimer footer).
  */
 async function projectAccount(slug: string): Promise<ProjectAccount | null> {
   const p = await queryOne<{
@@ -485,26 +484,21 @@ async function projectAccount(slug: string): Promise<ProjectAccount | null> {
     name: string;
     client_name: string;
     address: string | null;
-    contract_value: number;
-    collected_to_date: number;
+    total_cents: string;
+    collected_cents: string;
   }>(
-    `SELECT id, name, client_name, address, contract_value, collected_to_date
+    `SELECT id, name, client_name, address, total_cents, collected_cents
        FROM projects WHERE slug = $1`,
     [slug],
   );
   if (!p) return null;
-  const co = await queryOne<{ sum: number }>(
-    `SELECT COALESCE(sum(price_cents), 0)::int AS sum
-       FROM change_orders WHERE project_id = $1 AND status = 'approved'`,
-    [p.id],
-  );
   return {
     id: p.id,
     name: p.name,
     clientName: p.client_name,
     address: p.address ?? "",
-    contractTotalCents: (p.contract_value ?? 0) * 100 + (co?.sum ?? 0),
-    paidCents: (p.collected_to_date ?? 0) * 100,
+    contractTotalCents: Number(p.total_cents),
+    paidCents: Number(p.collected_cents),
   };
 }
 

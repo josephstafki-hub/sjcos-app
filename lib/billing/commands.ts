@@ -656,7 +656,9 @@ export interface FinalReconciliation {
 }
 
 export async function finalReconciliation(run: Run, projectId: string): Promise<FinalReconciliation | null> {
-  const [p] = await run<{ id: string; price_cents: number | null; contract_value: number }>(`SELECT id, price_cents, contract_value FROM projects WHERE id = $1`, [projectId]);
+  const [p] = await run<{ id: string; price_cents: number | null; contract_value: number; total_cents: string; co_cents: string }>(
+    `SELECT p.id, p.price_cents, p.contract_value, p.total_cents::text AS total_cents, mp.change_orders_cents::text AS co_cents
+       FROM projects p, LATERAL project_money_parts(p.id) mp WHERE p.id = $1`, [projectId]);
   if (!p) return null;
   const est = await approvedFormalEstimate(run, projectId);
   let contractTotalCents: number;
@@ -668,7 +670,9 @@ export async function finalReconciliation(run: Run, projectId: string): Promise<
     contractTotalCents = Number(est.total);
     contractSource = "formal_estimate";
   } else {
-    contractTotalCents = Number(p.contract_value) * 100;
+    // The job total (migration 0037) already holds the approved change orders,
+    // which are added below — take them out here so they count once.
+    contractTotalCents = Number(p.total_cents) - Number(p.co_cents);
     contractSource = "contract_value";
   }
   const economicKey = `project:${projectId}:final`;

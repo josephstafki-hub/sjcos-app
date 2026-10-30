@@ -8,8 +8,8 @@
 import { useState } from "react";
 import { Trash2 } from "lucide-react";
 import { centsToInput, dollarsToCents, fmtUsd } from "@/lib/cost-book-units";
-import { fmtK, proposeBillingReconciliation, type BudgetChangeOrder, type BudgetCostRow, type BudgetLine, type BudgetView } from "@/lib/budget-types";
-import type { BudgetLineInput, BudgetSettingsInput, ChangeOrderCostsInput, CostTarget, ExpenseInput, FundingEventInput, PartyInput, ReconcileBillingInput } from "@/lib/budget-writes";
+import { fmtK, type BudgetChangeOrder, type BudgetCostRow, type BudgetLine, type BudgetView, type JobMoney } from "@/lib/budget-types";
+import type { BudgetLineInput, BudgetSettingsInput, ChangeOrderCostsInput, CostTarget, ExpenseInput, FundingEventInput, OutsideMoneyInput, PartyInput } from "@/lib/budget-writes";
 import { BTN, FIELD, FormField, LABEL, ModalFooter, ModalShell } from "./parts";
 
 const blankable = (v: string): number | null => (v.trim() === "" ? null : dollarsToCents(v));
@@ -72,14 +72,12 @@ export function SettingsModal({ view, pending, onClose, onSave }: {
   const [basis, setBasis] = useState<string>(view.basis);
   const [label, setLabel] = useState(view.budgetLabel);
   const [caption, setCaption] = useState(view.budgetCaption ?? "");
-  // Only a price someone set by hand is shown; otherwise the box stays blank ("from the estimate / contract").
-  const [price, setPrice] = useState(show(view.priceSource === "override" ? view.priceCents : null));
   const [retainage, setRetainage] = useState(show(view.retainageCents ?? 0));
   const [complete, setComplete] = useState(view.completeness.budget);
   const [through, setThrough] = useState(view.completeness.costsThrough ?? "");
   const [notes, setNotes] = useState((view.notes ?? []).join("\n"));
   const save = () => onSave({
-    basis, budgetLabel: label, budgetCaption: caption, priceCents: blankable(price), retainageCents: dollarsToCents(retainage),
+    basis, budgetLabel: label, budgetCaption: caption, retainageCents: dollarsToCents(retainage),
     budgetComplete: complete, costsThrough: through || null, notes: notes.split("\n"),
   });
   return (
@@ -91,13 +89,13 @@ export function SettingsModal({ view, pending, onClose, onSave }: {
             <span className="mt-0.5 block text-[11.5px] leading-snug text-ink-3">Tick this once every trade is listed and its budget is what you really expect to pay. Until then the page shows cost so far and no profit — a profit figured from half a budget is wrong.</span></span>
         </label>
         <div className={TWO}>
-          <FormField label="Base price (before change orders)" hint="Blank = the approved estimate, else the contract total. Set it if that total already includes change orders."><input inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} className={FIELD} placeholder="from estimate / contract" /></FormField>
           <FormField label="Costs entered through" hint="The date your sub invoices and receipts are complete to."><input type="date" value={through} onChange={(e) => setThrough(e.target.value)} className={FIELD} /></FormField>
+          <FormField label="How it's priced"><select value={basis} onChange={(e) => setBasis(e.target.value)} className={FIELD}>{BASES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></FormField>
         </div>
         <div className={TWO}>
-          <FormField label="How it's priced"><select value={basis} onChange={(e) => setBasis(e.target.value)} className={FIELD}>{BASES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></FormField>
           <FormField label="Retainage held"><input inputMode="decimal" value={retainage} onChange={(e) => setRetainage(e.target.value)} className={FIELD} /></FormField>
         </div>
+        <p className="text-[11.5px] leading-snug text-ink-3">The price is the job total under &ldquo;Job total and paid&rdquo; (the contract estimate, approved change orders, and anything agreed outside the app). It isn&rsquo;t set here.</p>
         <div className={TWO}>
           <FormField label="What the price is called"><input value={label} onChange={(e) => setLabel(e.target.value)} className={FIELD} placeholder="contract" /></FormField>
           <FormField label="How it was built (one line)"><input value={caption} onChange={(e) => setCaption(e.target.value)} className={FIELD} /></FormField>
@@ -233,44 +231,39 @@ export function CoCostsModal({ view, co, pending, onClose, onSave }: {
   );
 }
 
-export function ReconcileModal({ view, pending, onClose, onSave, onUndo }: {
-  view: BudgetView; pending: boolean; onClose: () => void; onSave: (input: ReconcileBillingInput) => void; onUndo: () => void;
+/** The two typed figures in a job's total and paid amount (migration 0037).
+ *  Everything else comes from the job's estimate, change orders, invoices and
+ *  payments, so this is the only place a total or a payment is entered by hand. */
+export function OutsideMoneyModal({ money, pending, onClose, onSave }: {
+  money: JobMoney; pending: boolean; onClose: () => void; onSave: (input: OutsideMoneyInput) => void;
 }) {
-  const b = view.billing;
-  const p = proposeBillingReconciliation(b);
-  const tracked = b.source === "invoices";
-  const [opening, setOpening] = useState(centsToInput(tracked ? b.openingCollectedCents : p.proposedOpeningCollectedCents));
-  const [billed, setBilled] = useState(centsToInput(tracked ? b.openingBilledCents : p.proposedOpeningBilledCents));
-  const [note, setNote] = useState(b.openingNote ?? "");
-  const [sync, setSync] = useState(false);
-  const result = dollarsToCents(opening) + b.paidInvoicesCents;
+  const [total, setTotal] = useState(centsToInput(money.openingTotalCents));
+  const [paid, setPaid] = useState(centsToInput(money.openingCollectedCents));
+  const [note, setNote] = useState(money.openingNote ?? "");
+  const totalCents = money.totalCents - money.openingTotalCents + dollarsToCents(total);
+  const paidCents = money.collectedCents - money.openingCollectedCents + dollarsToCents(paid);
+  const needsNote = (dollarsToCents(total) > 0 || dollarsToCents(paid) > 0) && !note.trim();
   const line = (k: string, v: string, strong?: boolean) => (
     <div className={`flex items-center gap-3 ${strong ? "font-semibold text-ink" : "text-ink-2"}`}><span className="flex-1">{k}</span><span className="font-mono">{v}</span></div>
   );
   return (
-    <ModalShell title="Reconcile billing" onClose={onClose} wide>
+    <ModalShell title="Money outside the app" onClose={onClose} wide>
       <div className={BODY}>
-        <p className="text-[12.5px] leading-relaxed text-ink-2">Right now &ldquo;collected&rdquo; on this job is the total you keep by hand. Switching it to the invoices here, plus an opening balance for anything collected before they were tracked, lets the page show what is billed, what is unpaid, and whether billing is ahead of the work.</p>
-        <div className="flex flex-col gap-1 rounded-md border border-rule bg-paper px-3 py-2.5 text-[12.5px]">
-          {line("Your hand-kept collected total", fmtUsd(b.handKeptCollectedCents))}
-          {line(`Paid invoices in SJC OS (${b.invoiceCount} invoice${b.invoiceCount === 1 ? "" : "s"} on file)`, fmtUsd(b.paidInvoicesCents))}
-          {line("Difference", fmtUsd(p.differenceCents), true)}
-          {p.handKeptLooksStale && <p className="mt-1 text-[11.5px] font-semibold text-flag">The invoices show more collected than your hand-kept total — that total looks out of date.</p>}
-        </div>
+        <p className="text-[12.5px] leading-relaxed text-ink-2">The job total and what&rsquo;s been paid add up from the estimate, change orders, invoices and payments in the app. Enter only what those don&rsquo;t show: a Houzz contract, or a pre-con fee or deposit paid before the app billed it. Don&rsquo;t enter anything that has an invoice here, or it counts twice.</p>
         <div className={TWO}>
-          <FormField label="Collected before invoices were tracked" hint="A deposit carried on a Houzz estimate, for example."><input inputMode="decimal" value={opening} onChange={(e) => setOpening(e.target.value)} className={FIELD} /></FormField>
-          <FormField label="Billed before invoices were tracked" hint="Usually the same amount."><input inputMode="decimal" value={billed} onChange={(e) => setBilled(e.target.value)} className={FIELD} /></FormField>
+          <FormField label="Job total agreed outside the app" hint="A Houzz contract, a pre-con fee the app never billed."><input inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} className={FIELD} /></FormField>
+          <FormField label="Paid outside the app's invoices" hint="A Houzz deposit, a check from before the app."><input inputMode="decimal" value={paid} onChange={(e) => setPaid(e.target.value)} className={FIELD} /></FormField>
         </div>
-        <FormField label="Where that opening balance came from"><input value={note} onChange={(e) => setNote(e.target.value)} className={FIELD} placeholder="$10,000 deposit on Houzz estimate ES-10165" /></FormField>
-        <div className="rounded-md border border-rule bg-paper px-3 py-2.5 text-[12.5px]">{line("Collected will read", fmtUsd(result), true)}</div>
-        <label className="flex items-start gap-2 text-[12.5px] text-ink-2">
-          <input type="checkbox" checked={sync} onChange={(e) => setSync(e.target.checked)} className="mt-0.5 size-4 accent-[var(--accent)]" />
-          <span>Also set the hand-kept total to {fmtK(result)}, so Today and the projects list agree.</span>
-        </label>
+        <FormField label="Where these came from"><input value={note} onChange={(e) => setNote(e.target.value)} className={FIELD} placeholder="Pre-con fee $2,200 paid before invoices were in the app" /></FormField>
+        <div className="flex flex-col gap-1 rounded-md border border-rule bg-paper px-3 py-2.5 text-[12.5px]">
+          {line("Job total will read", fmtUsd(totalCents), true)}
+          {line("Paid will read", fmtUsd(paidCents), true)}
+          {totalCents > 0 && line("Paid", `${Math.min(100, Math.round((100 * paidCents) / totalCents))}%`)}
+        </div>
+        {needsNote && <p className="text-[11.5px] font-semibold text-flag">Say where these amounts came from.</p>}
       </div>
-      <ModalFooter onClose={onClose} pending={pending} saveLabel={tracked ? "Update" : "Switch to invoices"}
-        onSave={() => onSave({ openingCollectedCents: dollarsToCents(opening), openingBilledCents: dollarsToCents(billed), note, alsoUpdateHandKept: sync })}
-        danger={tracked ? <button type="button" disabled={pending} onClick={onUndo} className={BTN}>Back to the hand-kept total</button> : undefined} />
+      <ModalFooter onClose={onClose} pending={pending || needsNote}
+        onSave={() => onSave({ totalCents: dollarsToCents(total), collectedCents: dollarsToCents(paid), note })} />
     </ModalShell>
   );
 }

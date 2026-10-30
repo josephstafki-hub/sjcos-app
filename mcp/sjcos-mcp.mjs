@@ -20,7 +20,6 @@
 //   • Gated WRITE tools: capture_knowledge, create_work_item, create_project,
 //     save_lead_rough_estimate,
 //     update_work_item_status, snooze_work_item, submit_draft_for_approval,
-//     set_project_contract_value, set_project_collected,
 //     record_agent_run, record_receipt,
 //     create_skill_proposal, record_skill_used. These are safe by construction —
 //     they only touch internal records, an append-only audit trail, or land as
@@ -548,7 +547,8 @@ server.registerTool(
     const where = status ? `WHERE status = $1` : ``;
     return json(
       await rows(
-        `SELECT slug, name, status, client_name, value_display, collected_to_date, progress, stage_label
+        `SELECT slug, name, status, client_name, value_display, total_cents::float8 AS job_total_cents,
+                collected_cents::float8 AS paid_cents, progress AS paid_pct, stage_label
            FROM projects ${where} ORDER BY created_at DESC`,
         status ? [status] : [],
       ),
@@ -568,22 +568,45 @@ server.registerTool(
       "Money › Pre-con changes), change orders and document drafts, each tagged with where it lives, plus " +
       "`scope_change_path`: whether a client change on this job is a pre-con change estimate or a change order " +
       "right now. Read that block before filing an estimate, a Formal Estimate document, or a change order " +
-      "(docs/estimates-and-change-orders.md).",
+      "(docs/estimates-and-change-orders.md). `job_money` is the job total and paid amount the projects list " +
+      "shows, term by term (integer cents). They are computed from the records — no tool sets them: record a " +
+      "client payment on its invoice and they move; if a total or payment from outside the app is missing, ask " +
+      "Joe to enter it on Money › Overview › Money outside the app.",
     inputSchema: { slug: z.string() },
   },
   async ({ slug }) => {
     const proj = await rows(`SELECT * FROM projects WHERE slug = $1`, [slug]);
     if (proj.length === 0) return json({ error: `No project with slug "${slug}"` });
     const id = proj[0].id;
-    const [invoices, subs, floor_plans, pricing] = await Promise.all([
+    const [invoices, subs, floor_plans, pricing, [parts]] = await Promise.all([
       rows(`SELECT id, number, milestone, amount, status, sent_at, paid_at FROM invoices WHERE project_id = $1 ORDER BY created_at`, [id]),
       rows(`SELECT sub_slug, role_label FROM project_subs WHERE project_id = $1`, [id]),
       rows(`SELECT id, version, file_id, left(notes, 200) AS notes, published_at, client_approved_at, client_approved_name FROM project_floorplans WHERE project_id = $1 ORDER BY version DESC`, [id]),
       pricingAndPaperwork(rows, id),
+      rows(`SELECT * FROM project_money_parts($1)`, [id]),
     ]);
     const paid = invoices.filter((i) => i.status === "paid").reduce((s, i) => s + i.amount, 0);
     const outstanding = invoices.filter((i) => i.status === "sent").reduce((s, i) => s + i.amount, 0);
-    return json({ project: proj[0], invoices, subs, money: { paid, outstanding }, floor_plans, pricing_and_paperwork: pricing });
+    const p = proj[0];
+    const job_money = {
+      job_total_cents: Number(p.total_cents),
+      paid_cents: Number(p.collected_cents),
+      paid_pct: p.total_cents > 0 ? p.progress : null,
+      left_to_collect_cents: Math.max(0, Number(p.total_cents) - Number(p.collected_cents)),
+      total_is: {
+        contract_estimate_id: parts.estimate_id == null ? null : Number(parts.estimate_id),
+        contract_estimate_cents: Number(parts.estimate_cents),
+        approved_change_orders_cents: Number(parts.change_orders_cents),
+        precon_fee_invoices_cents: Number(parts.precon_cents),
+        agreed_outside_the_app_cents: Number(p.opening_total_cents),
+      },
+      paid_is: {
+        payments_on_invoices_cents: Number(parts.payments_cents),
+        paid_outside_the_app_cents: Number(p.opening_collected_cents),
+      },
+      outside_the_app_note: p.opening_note || null,
+    };
+    return json({ project: p, job_money, invoices, subs, money: { paid, outstanding }, floor_plans, pricing_and_paperwork: pricing });
   },
 );
 
@@ -2323,94 +2346,15 @@ server.registerTool(
   },
 );
 
-// Project money (owner-tracked figures). `contract_value` / `collected_to_date`
-// are whole dollars and drive the projects-list "% billed", the Today A/R
-// headline, and the closeout docs. Nothing in the app edits them — they came in
-// from the Houzz import — so these are the only agent path. Internal records
-// only: no invoice is created or sent.
-// `progress` is the "% billed" bar (collected ÷ contract), so both tools
-// recompute it — otherwise a paid-in-full job keeps showing its old percent.
-const PROGRESS_SQL = (collected, contract) =>
-  `CASE WHEN ${contract} > 0 THEN LEAST(100, ROUND(100.0 * ${collected} / ${contract}))::int ELSE progress END`;
-server.registerTool(
-  "set_project_contract_value",
-  {
-    title: "Set a project's contract amount",
-    description:
-      "Set the project's contract value (whole dollars) — the total the client is on the hook for. " +
-      "Optionally set `value_display`, the free-text money label shown on the projects list " +
-      "(e.g. '$28,295.64 kitchen refresh'); pass it whenever the old label would now read stale. " +
-      "Does not create, edit, or send any invoice.",
-    inputSchema: {
-      project_slug: z.string(),
-      contract_value: z.number().int().min(0),
-      value_display: z.string().optional(),
-    },
-  },
-  async (a) => {
-    const mangled = strippedDollarError(a.value_display);
-    if (mangled) return mangled;
-    const projectId = await slugToId("projects", a.project_slug);
-    if (!projectId) return json({ error: `No project with slug "${a.project_slug}"` });
-    const r = await rows(
-      `UPDATE projects
-          SET contract_value = $2::int,
-              value_display = COALESCE($3, value_display),
-              progress = ${PROGRESS_SQL("collected_to_date", "$2::int")},
-              updated_at = now()
-        WHERE id = $1
-        RETURNING slug, name, status, contract_value, collected_to_date, progress, value_display`,
-      [projectId, a.contract_value, a.value_display ?? null],
-    );
-    const p = r[0];
-    return json({ ok: true, ...p, outstanding: p.contract_value - p.collected_to_date });
-  },
-);
-
-server.registerTool(
-  "set_project_collected",
-  {
-    title: "Set how much a project has collected",
-    description:
-      "Record the total collected to date on a project (whole dollars, cumulative — not a single " +
-      "payment). Pass `paid_in_full: true` to set it equal to the contract value. Feeds the " +
-      "projects-list '% billed' and the Today outstanding-A/R figure. Optional `stage_label` " +
-      "replaces the project's status line on the projects list — pass it when the old line " +
-      "states a balance that is no longer true. Internal bookkeeping only: does not mark any " +
-      "invoice paid or send anything.",
-    inputSchema: {
-      project_slug: z.string(),
-      collected: z.number().int().min(0).optional(),
-      paid_in_full: z.boolean().optional(),
-      stage_label: z.string().optional(),
-    },
-  },
-  async (a) => {
-    if (a.collected == null && !a.paid_in_full)
-      return json({ error: "Pass `collected` (whole dollars) or `paid_in_full: true`." });
-    const mangled = strippedDollarError(a.stage_label);
-    if (mangled) return mangled;
-    const projectId = await slugToId("projects", a.project_slug);
-    if (!projectId) return json({ error: `No project with slug "${a.project_slug}"` });
-    const r = await rows(
-      `UPDATE projects
-          SET collected_to_date = CASE WHEN $3 THEN contract_value ELSE $2::int END,
-              stage_label = COALESCE($4, stage_label),
-              progress = ${PROGRESS_SQL("CASE WHEN $3 THEN contract_value ELSE $2::int END", "contract_value")},
-              updated_at = now()
-        WHERE id = $1
-        RETURNING slug, name, status, contract_value, collected_to_date, progress, value_display, stage_label`,
-      [projectId, a.collected ?? 0, a.paid_in_full === true, a.stage_label ?? null],
-    );
-    const p = r[0];
-    return json({
-      ok: true,
-      ...p,
-      outstanding: p.contract_value - p.collected_to_date,
-      paid_in_full: p.collected_to_date >= p.contract_value,
-    });
-  },
-);
+// Project money: there is no tool that writes a job's total or paid figure.
+// Postgres works both out from the job's records on every write (migration
+// 0037 — db/migrations/0037_job_money_ledger.sql): the formal estimate in
+// effect + approved change orders + pre-con fee invoices + what was agreed
+// outside the app; payments on invoices + what was paid outside the app. A
+// payment moves them when it is recorded on its invoice. The two "outside the
+// app" amounts are Joe's, on project › Money › Overview. (set_project_collected
+// and set_project_contract_value were retired 2026-10-30: agents typed those
+// totals by hand, each a little differently, and the projects list drifted.)
 
 server.registerTool(
   "create_selection_section",

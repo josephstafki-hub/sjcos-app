@@ -211,7 +211,7 @@ export function registerProjectTools(server, { rows, json, strippedDollarError, 
         "Idempotent — a lead that already has a project returns it with created: false. `name` optionally " +
         "overrides the suggested \"<Last name> · <scope>\" name. " +
         "(2) No lead = the \"New project\" form: `name` required, plus optional `client_name`, `address`, " +
-        "`value_display` (a label like \"$48,000\"; set the real contract amount with set_project_contract_value). " +
+        "`value_display` (a label like \"$48,000\"; the job total itself comes from the formal estimate, never typed). " +
         "When the job came from a lead, ALWAYS convert the lead instead of creating a blank project — check " +
         "list_leads / get_lead first. Returns the project's slug.",
       inputSchema: {

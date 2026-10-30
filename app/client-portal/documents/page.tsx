@@ -1,6 +1,6 @@
 import { requireRole } from "@/lib/dal";
 import { ChevronDown, FileText, Image as ImageIcon } from "lucide-react";
-import { Card, Chip, Eyebrow } from "@/components/ui";
+import { Button, Card, Chip, Eyebrow } from "@/components/ui";
 import type { ChipKind } from "@/components/ui";
 import { portalScope, getSharedDocs, getSharedFiles } from "@/lib/client-portal";
 import { getClientSignatures, getLeadClientSignatures } from "@/lib/esign";
@@ -38,10 +38,12 @@ export default async function PortalDocumentsPage() {
   // Clients never see internal drafts.
   const clientEstimates = estimates.filter((e) => e.status !== "draft");
   const clientCOs = changeOrders.filter((c) => c.status !== "draft");
+  const signedContracts = signDocs.filter(d => d.docType === "contract" && d.status === "signed");
+  const signedFileIds = new Set(signDocs.filter(d => d.status === "signed" && reviews[d.id]?.hasSignedCopy).map(d => d.fileId));
   const toSign = signDocs.filter((d) => d.status === "sent").length;
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-7 sm:px-8 [&>*]:max-w-3xl">
+    <main className="mx-auto w-full max-w-6xl px-4 py-7 @3xl/page:px-8 [&>*]:max-w-3xl">
       <Eyebrow>Documents</Eyebrow>
       <h1 className="mt-1 font-serif text-title font-medium leading-tight text-accent-2">
         {toSign > 0
@@ -53,6 +55,14 @@ export default async function PortalDocumentsPage() {
         type your name, and the project record updates on Joe&apos;s side instantly.
       </p>
 
+      {signedContracts.map(doc => <Card key={doc.id} className="mt-5 p-4">
+        <h2 className="font-serif text-heading font-semibold">Contract signed</h2>
+        <p className="mt-2 text-body text-ink-2">{doc.title} · Signed {doc.signedAtLabel ?? "— date not recorded"}{doc.signedName ? ` by ${doc.signedName}` : ""}.</p>
+        {reviews[doc.id]?.hasSignedCopy ? <div className="mt-3 flex flex-wrap gap-3">
+          <Button href={`/api/portal/sign-doc/${doc.id}`} target="_blank" rel="noopener">View signed copy</Button>
+          <Button variant="secondary" href={`/api/portal/sign-doc/${doc.id}?download=1`} download>Download signed copy</Button>
+        </div> : <p className="mt-3 text-body text-ink-3">Your signature is recorded. The signed PDF is not available yet. <a href="/client-portal/messages" className="underline">Ask Joe for a copy.</a></p>}
+      </Card>)}
       <div className="my-5 border-t border-rule" />
       <div id="documents" className="scroll-mt-4">
         <Eyebrow muted>To sign</Eyebrow>
@@ -70,12 +80,11 @@ export default async function PortalDocumentsPage() {
           <div className="mt-2 flex flex-col gap-2">
             {sharedDocs.map((d) => (
               <Card key={d.id} className="p-2.5">
-                <div className="flex items-center gap-2.5">
+                <div className="flex flex-wrap items-center gap-2.5">
                   <FileText className="size-3.5 flex-none text-ink-3" strokeWidth={1.5} />
-                  <span className="min-w-0 flex-1 truncate font-serif text-body font-semibold text-ink">
-                    {d.title}
+                  <span className="min-w-0 flex-1 text-body font-semibold text-ink">
+                    {d.title}<span className="mt-1 block text-meta font-normal text-ink-3">{signedFileIds.has(d.pdfFileId) ? "Signed copy" : "Shared reference PDF"} · Created {d.when}</span>
                   </span>
-                  <span className="flex-none font-sans text-meta text-ink-3">{d.when}</span>
                   {d.pdfFileId && (
                     <a
                       href={`/api/portal/project-file/${d.pdfFileId}`}
@@ -100,13 +109,13 @@ export default async function PortalDocumentsPage() {
           <div className="mt-2 flex flex-col gap-2">
             {sharedFiles.map((f) => (
               <Card key={f.id} className="p-2.5">
-                <div className="flex items-center gap-2.5">
+                <div className="flex flex-wrap items-center gap-2.5">
                   {f.isImage ? (
                     <ImageIcon className="size-3.5 flex-none text-ink-3" strokeWidth={1.5} />
                   ) : (
                     <FileText className="size-3.5 flex-none text-ink-3" strokeWidth={1.5} />
                   )}
-                  <span className="min-w-0 flex-1 truncate text-body text-ink">{f.name}</span>
+                  <span className="min-w-0 flex-1 break-words text-body text-ink">{f.name}<span className="mt-1 block text-meta text-ink-3">{signedFileIds.has(f.id) ? "Signed copy" : f.isImage ? "Shared image" : "Shared reference file"} · Added {f.when}</span></span>
                   <span className="flex-none font-sans text-meta text-ink-3">{f.sizeLabel}</span>
                   <a
                     href={`/api/portal/project-file/${f.id}`}

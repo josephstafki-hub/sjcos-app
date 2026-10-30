@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { Check, FileSignature, ChevronDown, FileText, PenLine, Eraser } from "lucide-react";
 import type { PortalSignatureReview } from "@/lib/portal-signature-review";
 import { Card, Chip } from "@/components/ui";
-import { CONSENT_STATEMENT, docTypeLabel, type SignatureRequestView } from "@/lib/esign-types";
+import { CONSENT_STATEMENT, docTypeLabel, STATUS_LABEL, type SignatureRequestView } from "@/lib/esign-types";
 import { signSignatureRequest, declineSignatureRequest } from "@/lib/actions/esign";
 import { runAction } from "@/lib/run-action";
 import { SignaturePad, type SignaturePadHandle } from "@/components/esign/SignaturePad";
@@ -28,26 +28,14 @@ export function ClientSignDocs({ docs, reviews = {}, preview = false }: { previe
         <SignCard key={d.id} doc={d} review={reviews[d.id]} preview={preview} />
       ))}
       {history.map((d) => (
-        <div key={d.id} className="flex items-center gap-2 text-label">
-          <Check
-            className={`size-3 flex-none ${d.status === "signed" ? "text-money" : "text-ink-3"}`}
-            strokeWidth={2}
-          />
-          <span className="min-w-0 flex-1 text-ink-2">{d.title}{d.status === "signed" && <span className="mt-1 block text-meta">Signed{d.signedAtLabel ? ` ${d.signedAtLabel}` : ""} · Your signature is recorded.</span>}</span>
-          {d.fileId && (
-            <a
-              href={`/api/portal/sign-doc/${d.id}`}
-              target="_blank"
-              rel="noopener"
-              className="inline-flex flex-none items-center gap-1 font-semibold text-accent-2 hover:underline"
-            >
-              <FileText className="size-3" strokeWidth={1.75} />
-              PDF
-            </a>
-          )}
-          <Chip kind={d.status === "signed" ? "money" : "ghost"}>
-            {d.status === "signed" ? "signed" : "declined"}
-          </Chip>
+        <div key={d.id} className="flex flex-wrap items-center gap-3 border-b border-rule-soft py-3 text-body">
+          <Check className={`size-3 flex-none ${d.status === "signed" ? "text-money" : "text-ink-3"}`} strokeWidth={2} />
+          <span className="min-w-0 basis-full text-ink-2">{d.title}
+            <span className="mt-1 block text-meta text-ink-3">{d.status === "signed" ? `Signed ${d.signedAtLabel ?? "— date not recorded"} · ${reviews[d.id]?.hasSignedCopy ? "Signed copy" : "Signature recorded; signed PDF unavailable"}` : `${STATUS_LABEL[d.status]} · ${d.sentAtLabel ? `Sent ${d.sentAtLabel}` : `Created ${d.createdAtLabel}`}`}</span>
+          </span>
+          {d.fileId && <a href={`/api/portal/sign-doc/${d.id}`} target="_blank" rel="noopener" className="inline-flex min-h-11 items-center gap-1 font-semibold text-accent-2 hover:underline"><FileText className="size-3" strokeWidth={1.75} />{reviews[d.id]?.hasSignedCopy ? "View signed copy" : "View reference PDF"}</a>}
+          {reviews[d.id]?.hasSignedCopy && <a href={`/api/portal/sign-doc/${d.id}?download=1`} download className="inline-flex min-h-11 items-center font-semibold text-accent-2 hover:underline">Download signed copy</a>}
+          <Chip kind={d.status === "signed" ? "money" : "ghost"}>{STATUS_LABEL[d.status]}</Chip>
         </div>
       ))}
     </div>

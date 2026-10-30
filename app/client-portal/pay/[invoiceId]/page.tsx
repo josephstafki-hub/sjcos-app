@@ -32,7 +32,7 @@ export default async function PortalPayPage({ params }: { params: Promise<{ invo
     <main className="mx-auto w-full max-w-lg px-4 py-7">
       <Card className="p-5 sm:p-6">
         <p className="font-serif text-heading font-semibold">SJ Carpentry</p>
-        <Eyebrow className="mt-4">Pay invoice</Eyebrow>
+        <Eyebrow className="mt-4">{pending > 0 ? "Payment processing" : open <= 0 ? "Settled invoice" : "Invoice"}</Eyebrow>
         <h1 className="mt-1 font-serif text-heading font-medium leading-tight text-accent-2">
           {inv.number} · {inv.milestone}
         </h1>

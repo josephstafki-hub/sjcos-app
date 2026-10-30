@@ -28,3 +28,23 @@ export function messageParts(body: string): { text?: string; href?: string; labe
     return part.length > href.length ? [{ href, label }, { text: part.slice(href.length) }] : [{ href, label }];
   });
 }
+
+/** Pending payments are never offered for repayment. Future dated invoices
+ * stay separate from money due today; narrative notes are not a due-date source. */
+export function portalInvoiceSummary<T extends { status: string; lifecycle: string; amount: number; balance: number; pending: number; dueAt: string | null }>(invoices: T[], today: string, currentCents?: number, outsidePaidCents = 0) {
+  const issued = invoices.filter(i => i.status !== "draft" && i.lifecycle !== "void");
+  const processing = issued.filter(i => i.pending > 0);
+  const settled = issued.filter(i => i.pending <= 0 && i.balance <= 0);
+  const open = issued.filter(i => i.pending <= 0 && i.balance > 0);
+  const review = open.filter(i => i.lifecycle === "disputed");
+  const payable = open.filter(i => i.lifecycle !== "disputed")
+    .sort((a, b) => (a.dueAt ?? today).localeCompare(b.dueAt ?? today));
+  const due = payable.filter(i => !i.dueAt || i.dueAt <= today);
+  const upcoming = payable.filter(i => i.dueAt && i.dueAt > today);
+  return {
+    due, processing, settled, review, upcoming,
+    dueCents: due.reduce((sum, i) => sum + i.balance, 0),
+    processingCents: processing.reduce((sum, i) => sum + i.pending, 0),
+    stillToBillCents: currentCents == null ? null : Math.max(0, currentCents - outsidePaidCents - issued.reduce((sum, i) => sum + i.amount, 0)),
+  };
+}

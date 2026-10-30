@@ -52,10 +52,10 @@ export default async function PortalSchedulePage({
   const next = month === 12 ? monthKey(year + 1, 1) : monthKey(year, month + 1);
 
   const nextEvent = view.upcoming[0];
-  const upcoming = [...view.upcoming, ...view.past].filter((b) => b.iso.startsWith(view.month));
+  const upcoming = view.upcoming.filter((b) => b.iso.startsWith(view.month));
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-7 sm:px-8 [&>*]:max-w-4xl">
+    <main className="mx-auto w-full max-w-6xl px-4 py-7 @3xl/page:px-8 [&>*]:max-w-4xl">
       <Eyebrow>Schedule</Eyebrow>
       <h1 className="mt-1 font-serif text-title font-medium leading-tight text-accent-2">
         Who&apos;s coming, and when.
@@ -66,14 +66,11 @@ export default async function PortalSchedulePage({
       </p>
       <div className="my-5 border-t border-rule" />
 
-      {nextEvent && <Card className="mb-4 p-3"><p className="text-meta text-ink-3">Next scheduled event · {nextEvent.dateLabel} · {nextEvent.time}</p><p className="mt-1 text-subheading font-semibold text-ink">{nextEvent.label}</p><Link href={`/client-portal/schedule?m=${nextEvent.iso.slice(0, 7)}#month-agenda`} className="mt-2 inline-flex min-h-11 items-center text-body font-semibold text-accent-2 underline">Jump to this event’s month</Link></Card>}
+      {nextEvent && <Card className="mb-4 p-3"><p className="text-meta text-ink-3">Next posted work · {nextEvent.dateLabel} · {nextEvent.time}</p><p className="mt-1 text-subheading font-semibold text-ink">{nextEvent.label}</p><Link href={`/client-portal/schedule?m=${nextEvent.iso.slice(0, 7)}#month-agenda`} className="mt-2 inline-flex min-h-11 items-center text-body font-semibold text-accent-2 underline">Jump to this event’s month</Link></Card>}
+
+      {!nextEvent && <Card className="mb-4 p-4"><h2 className="font-serif text-heading font-semibold">No upcoming work posted yet</h2><p className="mt-2 text-body text-ink-3">Joe will post dates here once work is scheduled.</p><Link href="/client-portal/messages" className="mt-2 inline-flex min-h-11 items-center text-body font-semibold text-accent-2 underline">Message Joe</Link></Card>}
       {update?.body && <details className="mb-4 text-body text-ink-2"><summary className="cursor-pointer font-semibold">Dates mentioned in Joe’s update</summary><p className="mt-2">Expected — not yet scheduled unless also posted in the schedule below.</p><p className="mt-2 whitespace-pre-wrap">{update.body}</p></details>}
-      {!nextEvent && <Link href="/client-portal/messages" className="mb-4 inline-flex min-h-11 items-center rounded-md border border-rule px-3 text-body font-semibold text-accent-2">Message Joe about the schedule</Link>}
-      {blocks.length === 0 ? (
-        <p className="text-body leading-relaxed text-ink-3">
-          No schedule posted yet. Once the work is sequenced, the plan will appear here.
-        </p>
-      ) : (
+      {blocks.length > 0 && (
         <>
           {/* month header */}
           <div className="flex items-center gap-2">
@@ -166,11 +163,11 @@ export default async function PortalSchedulePage({
           </div>
 
           {upcoming.length === 0 && <p className="mt-4 text-body text-ink-3">No work scheduled in {monthLabel}. {nextEvent ? "The next posted event is shown above." : "Message Joe to ask about upcoming dates."}</p>}
-          {/* Readable month agenda, including past events in the chosen month. */}
+          {/* Upcoming agenda for the chosen month; past work lives in History. */}
           {upcoming.length > 0 && (
             <>
               <div className="my-5 border-t border-rule" />
-              <Eyebrow muted>This month · upcoming first, then past work</Eyebrow>
+              <Eyebrow muted>Upcoming work this month</Eyebrow>
               <div id="month-agenda" className="mt-2 flex scroll-mt-4 flex-col gap-2">
                 {groupDays(upcoming).map((day) => (
                   <Card key={day.iso} className="p-2.5">
@@ -197,6 +194,7 @@ export default async function PortalSchedulePage({
           )}
         </>
       )}
+      {view.past.length > 0 && <section className="mt-8"><h2 className="font-serif text-heading font-semibold">History</h2><p className="mt-1 text-meta text-ink-3">Past posted work · most recent first</p><div className="mt-3 divide-y divide-rule-soft">{groupDays(view.past).map(day => <div key={day.iso} className="py-3"><p className="text-meta text-ink-3">{day.dateLabel}</p>{day.items.map(b => <div key={b.id} className="mt-1 flex flex-wrap justify-between gap-2 text-body"><span>{b.label}</span><span className="text-ink-3">{b.time}</span></div>)}</div>)}</div></section>}
     </main>
   );
 }

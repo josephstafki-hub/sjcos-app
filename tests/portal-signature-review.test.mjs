@@ -15,3 +15,10 @@ test('a change order sent without a generated document shows its own price, draf
  const reviews=await getPortalSignatureReviews([4,5]);
  assert.equal(reviews[4].amountCents,25050);assert.equal(reviews[5].amountCents,9900);
 });
+
+test('signed copy is identified only by an executed PDF record, not signature status alone', async () => {
+ globalThis.__reviews=[{id:'10',has_signed_copy:true},{id:'11',has_signed_copy:false}];
+ const reviews=await getPortalSignatureReviews([10,11]);
+ assert.equal(reviews[10].hasSignedCopy,true);
+ assert.equal(reviews[11].hasSignedCopy,false);
+});

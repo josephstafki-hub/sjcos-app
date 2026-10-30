@@ -112,6 +112,8 @@ export type CollectResult =
   | { action: "would_send" | "would_stage"; leadId: string; asked: FactKey[]; reason: string; body: string }
   | { action: "nothing"; leadId: string; reason: string; asked: FactKey[] };
 
+export const LEAD_MISSING_FACTS_POLICY = "lead.missing_facts";
+
 export async function collectMissingFacts(run: Run, input: CollectInput): Promise<CollectResult> {
   const [lead] = await run<{ id: string; slug: string; name: string; email: string | null; stage: string }>(`SELECT id, slug, name, email, stage FROM leads WHERE id = $1`, [input.leadId]);
   if (!lead) return { action: "nothing", leadId: input.leadId, reason: "lead not found", asked: [] };
@@ -140,6 +142,9 @@ export async function collectMissingFacts(run: Run, input: CollectInput): Promis
   if (alreadyAskedOnce && Number(prior?.n) >= 2) return { action: "nothing", leadId: lead.id, reason: "already asked twice; stop chasing, hand to Joe", asked };
   const draft = draftMissingFactsEmail(lead.name.split(" ")[0] ?? "", asked, { alreadyAskedOnce });
   const verdict = await routineSendAllowed(run, {
+    // Its own switch (migration 0052), not routine.followup: that one is
+    // active for sub paperwork and must not start emailing leads.
+    policyKey: LEAD_MISSING_FACTS_POLICY,
     channel: "email",
     recipient: email,
     leadId: lead.id,

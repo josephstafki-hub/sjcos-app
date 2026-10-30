@@ -9,6 +9,9 @@ import { z } from "zod";
 import { getScopeRegister, allocateScope, applySiteFindings, getSiteVisitPlan } from "../lib/estimating/scope.ts";
 import { setDesignPath, applyClientExactProduct, applyFeedback, applyClientDirectionApproval, applySelectionChoice, getDesignDecisions } from "../lib/estimating/design.ts";
 import { researchPrice, candidateSuppliers, stageSupplierPricingRequest, recordSupplierEvidence } from "../lib/estimating/pricing.ts";
+import { qualificationChecklist, syncFactsFromIntake } from "../lib/leads/qualification.ts";
+import { previewLeadFollowups } from "../lib/leads/facts.ts";
+import { prepareEstimateInputPackage } from "../lib/leads/package.ts";
 import { stageAllocationReview } from "../lib/workflow/cards.ts";
 import { fakeFetcher } from "../lib/estimating/fetcher.ts";
 import { recordQuote, incorporateQuote, compareCompetingQuotes, chooseSupplierQuote, incorporateSubBid, applyOwnerPricing, recomputeDraftEstimate, freezeOfferedPrices, marginExposureReport, stageAllowanceOverage, loadLines } from "../lib/estimating/assembly.ts";
@@ -55,6 +58,57 @@ export function registerEstimatingTools(server, { rows, json, pool, slugToId, cu
         const id = await project(a.project_slug);
         const p = await principal();
         return json(await tx((r) => allocateScope(r, id, { key: a.key, responsibility: a.responsibility, supply_by: a.supply_by, install_by: a.install_by, dedicated_price_cents: a.dedicated_price_cents ?? null, price_basis: a.price_basis ?? null, price_scope_note: a.price_scope_note, notes: a.notes, principal: p })));
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  const leadId = async (slug) => {
+    const [l] = await run(`SELECT id FROM leads WHERE slug = $1`, [slug]);
+    if (!l) throw new Error(`No lead ${slug}`);
+    return l.id;
+  };
+
+  server.registerTool(
+    "get_lead_qualification",
+    { title: "A lead's qualification checklist (W01)", description: "Service area, job type, scope, budget fit, timeline, goals, photos, measurements, address: what is known (with its source), conflicting or missing, and the verdict (pass / qualified / needs info). Facts are refreshed from the intake answers first. Read-only otherwise.", inputSchema: { lead_slug: z.string() } },
+    async ({ lead_slug }) => {
+      try {
+        const id = await leadId(lead_slug);
+        return json(await tx(async (r) => {
+          await syncFactsFromIntake(r, id);
+          return qualificationChecklist(r, id);
+        }));
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "preview_lead_followups",
+    { title: "Preview missing-info asks to leads (dry run)", description: "What the missing-info asks WOULD do for open leads, lead by lead: the questions, and whether each would send under the lead.missing_facts policy or wait for Joe (and why). Sends nothing. The asks only run while Joe has that policy on.", inputSchema: { lead_slugs: z.array(z.string()).optional() } },
+    async ({ lead_slugs }) => {
+      try {
+        const ids = lead_slugs?.length ? await Promise.all(lead_slugs.map(leadId)) : null;
+        return json(await tx((r) => previewLeadFollowups(r, { dryRun: true, principal: principal(), leadIds: ids })));
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "prepare_estimate_inputs",
+    { title: "Hand a lead's estimate inputs to estimating", description: "Snapshot what is known for the rough estimate (facts with sources, photos on the lead, measurements, open questions) as a numbered package revision. Same facts → the same revision, no duplicate. Use it when the lead is ready for its rough estimate; list extra open questions in extra_questions.", inputSchema: { lead_slug: z.string(), extra_questions: z.array(z.string()).optional() } },
+    async ({ lead_slug, extra_questions }) => {
+      try {
+        const id = await leadId(lead_slug);
+        return json(await tx(async (r) => {
+          await syncFactsFromIntake(r, id);
+          return prepareEstimateInputPackage(r, { leadId: id, principal: principal(), extraQuestions: extra_questions ?? [] });
+        }));
       } catch (e) {
         return fail(e);
       }

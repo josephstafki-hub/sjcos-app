@@ -1297,7 +1297,7 @@ server.registerTool(
       `INSERT INTO work_items
          (title, body, priority, assignee_kind, assignee_key, due_at, project_id, lead_id,
           expected_skill_slug, expected_runbook_slug, requires_approval, source_kind, created_by)
-       VALUES ($1,$2,$3,$4,$5,NULLIF($6,'')::timestamptz,$7,$8,$9,$10,$11,'agent',$12)
+       VALUES ($1,$2,$3,$4,$5,CASE WHEN length($6::text) = 10 THEN ($6::date::timestamp AT TIME ZONE 'America/Chicago') ELSE NULLIF($6,'')::timestamptz END,$7,$8,$9,$10,$11,'agent',$12)
        RETURNING id`,
       [
         a.title, a.body ?? "", a.priority ?? "normal", a.assignee_kind ?? "human",

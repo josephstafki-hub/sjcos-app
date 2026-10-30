@@ -25,4 +25,5 @@ test('historical attribution and missing percentages never print undefined or un
   assert.equal(percentLabel(null), 'Not set');
   assert.equal(percentLabel(20), '20%');
   assert.equal(principalLabel({kind:'unknown'}), 'Author not recorded');
+  assert.equal(principalLabel({kind:'user',role:'owner'}), 'Author not recorded');
 });

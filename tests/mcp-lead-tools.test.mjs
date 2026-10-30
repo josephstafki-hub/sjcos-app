@@ -1,6 +1,6 @@
 // Exercises mcp/lead-tools.mjs (save_lead_rough_estimate) against a fake MCP
 // server and in-memory leads / lead_estimates / lead_activity tables: create,
-// update, notes kept vs replaced, the /leads value mirror, the sent guard,
+// update, notes kept vs replaced, the reported /leads value, the sent guard,
 // converted leads, access, and the shell-mangled-dollar refusal.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -95,7 +95,7 @@ test("registers save_lead_rough_estimate with a description", () => {
   assert.match(t.spec.description, /never contacts the client/);
 });
 
-test("creates a draft, trims lines, mirrors the /leads value, logs a non-contact activity", async () => {
+test("creates a draft, trims lines, reports the /leads value, logs a non-contact activity", async () => {
   const { db, call } = setup();
   const r = await call({ slug: "chen-kitchen", lines: LINES, total: "$24,000–$30,000", notes: "  Assumes stock cabinets.  " });
   assert.equal(r.ok, true);
@@ -107,10 +107,11 @@ test("creates a draft, trims lines, mirrors the /leads value, logs a non-contact
     { label: "Counters", value: "$6,000–$8,000" },
   ]);
   assert.equal(e.notes, "Assumes stock cabinets.");
-  const lead = db.leads[0];
-  assert.equal(lead.value_display, "$24–30k");
-  assert.equal(lead.value_display, compactEstimateValue("$24,000–$30,000").display);
-  assert.equal(lead.estimate_value, 27000);
+  // The lead's own value_display / estimate_value follow the saved total in
+  // Postgres (migration 0039, tests/lead-value-db.test.mjs); the tool only reports it.
+  assert.equal(r.value_display, "$24–30k");
+  assert.equal(r.value_display, compactEstimateValue("$24,000–$30,000").display);
+  assert.equal(db.leads[0].value_display, "?", "the tool no longer writes the lead row itself");
   assert.deepEqual(db.activity, [{ lead_id: "L1", summary: "Rough estimate drafted by Hermes ($24,000–$30,000)", actor: "Hermes" }]);
 });
 

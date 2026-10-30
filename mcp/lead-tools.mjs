@@ -3,8 +3,8 @@
 // the same lead_estimates row the tab's Save / Draft-with-AI buttons do:
 //
 //   • saveEstimateLines / saveEstimateNotes (lib/actions/leads.ts) — the
-//     owner's edits: line items + total (+ steering notes), mirrored onto
-//     leads.value_display / estimate_value so /leads shows the number.
+//     owner's edits: line items + total (+ steering notes). A trigger keeps
+//     leads.value_display / estimate_value in step with the total (0039).
 //   • draftEstimate (same file) — the AI draft: saving puts the estimate back
 //     to 'draft' and logs an 'estimate' activity under the drafter's name.
 //
@@ -116,15 +116,8 @@ export function registerLeadTools(server, { rows, json, strippedDollarError, cur
         [lead.id, JSON.stringify(lines), total, notes],
       );
 
-      // Mirror the total onto the /leads overview columns (syncLeadValueFromEstimate).
+      // The lead's /leads value follows this total on its own (migration 0039).
       const compact = compactEstimateValue(total);
-      if (compact) {
-        await rows(`UPDATE leads SET value_display = $2, estimate_value = $3 WHERE id = $1`, [
-          lead.id,
-          compact.display,
-          compact.value,
-        ]);
-      }
 
       // logLeadActivity(slug, "estimate", …) — not a contact kind, so the
       // lead's last_contact_at and "Needs reply" flag are left alone.

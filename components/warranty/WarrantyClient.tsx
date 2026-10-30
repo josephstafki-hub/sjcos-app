@@ -56,7 +56,7 @@ export function WarrantyClient({
     <>
       <PageHeader
         title="Warranty"
-        meta={`${data.underWarrantyTotal} projects with recorded coverage · ${active.length} active claims`}
+        meta={`${data.underWarrantyTotal} under warranty · ${counts["Needs details"]} need coverage details · ${active.length} active claims`}
         actions={
           <>
             <Button

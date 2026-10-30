@@ -108,10 +108,10 @@ export function CompanyMoney({ data }: { data: CompanyMoneyData }) {
           <TableWrapper><Table density="compact">
             <TableHead><TableRow><TableHeader numeric>Amount</TableHeader><TableHeader>Job</TableHeader><TableHeader className="@max-3xl/page:hidden">Issue</TableHeader><TableHeader><span className="sr-only">Action</span></TableHeader></TableRow></TableHead>
             <TableBody>{attention.map((a,i) => <TableRow key={`${a.slug}-${a.kind}-${i}`}>
-              <TableCell numeric className="whitespace-nowrap">{fmtK(a.amountCents)}</TableCell>
+              <TableCell numeric className="whitespace-nowrap">{fmtK(a.amountCents)}<div className="text-meta text-ink-3">{a.kind === "profit_unknown" ? "Job value" : a.kind === "unassigned_costs" ? "Unassigned cost" : "Issue amount"}</div></TableCell>
               <TablePrimaryCell meta={<span className="@3xl/page:hidden">{a.text}</span>}><Link href={a.href} className="hover:underline">{a.name}</Link></TablePrimaryCell>
               <TableCell className="@max-3xl/page:hidden text-ink-2">{a.text}</TableCell>
-              <TableCell className="text-right @max-xl/page:hidden"><Button variant="ghost" size="sm" href={a.href}>{a.kind === "profit_unknown" ? "Add budget" : "Review"}</Button></TableCell>
+              <TableCell className="text-right"><Button variant="ghost" size="sm" href={a.href}>{a.kind === "profit_unknown" ? "Add budget" : "Review"}</Button></TableCell>
             </TableRow>)}</TableBody>
           </Table>
           {data.attention.length > ATTENTION_SHOWN && <Button variant="ghost" onClick={() => setAllAttention(!allAttention)} className="w-full justify-start border-t border-rule-soft">{allAttention ? "Show fewer" : `Show all ${data.attention.length}`}</Button>}

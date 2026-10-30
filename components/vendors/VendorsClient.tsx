@@ -73,6 +73,10 @@ export function VendorsClient({ data }: { data: VendorsData }) {
                   <Link href={`/vendors/${v.slug}`} className="hover:underline">
                     {v.name}
                   </Link>
+                  <div className="flex flex-wrap gap-3 text-label">
+                    {v.phone && <a href={`tel:${v.phone}`} className="text-accent-2 hover:underline">Call</a>}
+                    {v.email && <a href={`mailto:${v.email}`} className="text-accent-2 hover:underline">Email</a>}
+                  </div>
                   {v.fav && (
                     <Star
                       aria-label="Favorite"

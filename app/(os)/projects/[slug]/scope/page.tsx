@@ -103,7 +103,7 @@ export default async function ScopeRegisterPage({ params }: { params: Promise<{ 
         <section>
           <Eyebrow>Site findings ({reg.findings.length})</Eyebrow>
           {reg.findings.length === 0 ? (
-            <Card kind="soft" className="mt-2 px-4 py-3 text-body text-ink-3">No findings recorded. Upload site notes or photos and the agent extracts source-linked facts here.</Card>
+            <Card kind="soft" className="mt-2 px-4 py-3 text-body text-ink-3">No findings recorded. Upload site notes or photos and the agent extracts source-linked facts here. <Button variant="secondary" size="sm" href={`/projects/${slug}?tab=Files`}>Upload site findings</Button></Card>
           ) : (
             <div className="mt-2 overflow-x-auto">
               <table className="w-full min-w-[720px] border-collapse text-body">

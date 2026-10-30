@@ -6,6 +6,9 @@ import { revalidatePath } from "next/cache";
 import { query } from "@/lib/db";
 import { requireAccess } from "@/lib/dal";
 import { COST_UNIT_VALUES, dollarsToCents } from "@/lib/cost-book-units";
+import { userPrincipal, withTransaction } from "@/lib/commands/db";
+import { resolveDecision } from "@/lib/commands/decisions";
+import { applyMarkupDecision, proposeMarkupChange } from "@/lib/estimating/learning";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -64,16 +67,28 @@ export async function deleteCostItem(id: number): Promise<Result> {
   return { ok: true };
 }
 
-/** Set the company-wide default markup % (app_settings 'estimate.default_markup'). */
-export async function setDefaultMarkup(value: number): Promise<Result> {
-  await requireAccess("cost_book");
+/** Change the company-wide default markup %. It prices every new estimate,
+ *  so it goes through the markup decision (A18): Joe's own change is applied
+ *  at once (a new pricing setup version when one is active, plus the
+ *  estimate.default_markup setting); anyone else's becomes a card Joe
+ *  approves on Decisions. */
+export async function setDefaultMarkup(value: number): Promise<Result & { notice?: string }> {
+  const user = await requireAccess("cost_book");
   const pct = Math.max(0, Math.min(999, Number(value) || 0));
-  await query(
-    `INSERT INTO app_settings (key, value, updated_at)
-     VALUES ('estimate.default_markup', $1, now())
-     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-    [String(pct)],
-  );
+  const principal = userPrincipal(user);
+  const reason = `Set from the Cost book by ${user.name || user.role}`;
+  if (user.role !== "owner") {
+    await withTransaction((run) => proposeMarkupChange(run, { markup_pct: pct, reason, principal }));
+    revalidatePath("/cost-book");
+    return { ok: true, notice: `Asked Joe to change the default markup to ${pct}%. It changes once he approves it on Decisions.` };
+  }
+  const r = await withTransaction(async (run) => {
+    const p = await proposeMarkupChange(run, { markup_pct: pct, reason, principal });
+    if (p.current_pct === pct) return { ok: true as const, markup_pct: pct };
+    const res = await resolveDecision(run, { id: p.decision_id, outcome: "approved", principal, via: "app" });
+    if (!res.ok) return { ok: false as const, error: res.reason };
+    return applyMarkupDecision(run, p.decision_id, principal);
+  });
   revalidatePath("/cost-book");
-  return { ok: true };
+  return r.ok ? { ok: true } : { ok: false, error: r.error };
 }

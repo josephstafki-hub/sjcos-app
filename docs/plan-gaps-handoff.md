@@ -289,10 +289,14 @@ by Joe/staff don't feed the weekly update (only sub logs do).
   callers.
 - **Designer (A21):** "estimate from plan" reads the live drawing, not a pinned revision
   (`lib/actions/plan-estimate.ts:~79`).
-- **Measurement (A18):**
-  - `openCase` and `closeCase` have no callers.
-  - Staff with cost-book access can change the default markup without a decision
-    (`lib/actions/cost-book.ts:~68`).
+- ~~**Measurement (A18):**~~ **Done (branch `t3/tier3-measure`):**
+  - Every outbound send is now a measurement case. A trigger on `action_intents` (migration 0051) opens the
+    case with the mode taken from what authorised the send, and closes it as success, failure or corrected.
+    `openCase`/`closeCase` stay available for non-send work.
+  - The Cost book markup now goes through the markup decision. Staff → a card Joe approves; Joe → applied
+    at once.
+  - Fixed: `applyMarkupDecision` never worked, because it didn't present the card's content hash.
+    Approving now writes a new pricing setup version plus the setting.
 - **Owner hours (A19):**
   - `verifiedHoursForCloseout` and `setOwnerLaborRate` are unused.
   - The phone side was never built; `sjcos-mobile` hasn't changed since 08-29.

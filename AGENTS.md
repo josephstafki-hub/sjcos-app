@@ -4,6 +4,26 @@
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
 <!-- END:nextjs-agent-rules -->
 
+# Server resources — rules for every agent and subagent (admin, 2026-10-30)
+
+This box is shared with the live site and other apps. Joe's account has a hard limit of
+24 GB RAM / 8 CPU threads across everything he runs; at 24 GB Linux kills the biggest
+process. A `next dev` started by an agent in a worktree leaked ~1.5 GB/min and froze the
+server twice.
+
+- **Never run `next dev`.** No exceptions for subagents. To see a change, list what needs a
+  visual check and hand it back; one coordinator does a memory-capped production build.
+- A coordinator who must run the app: `next build` with its own `SJC_DIST_DIR`, then
+  `next start` on a side port inside `systemd-run --user -p MemoryMax=8G -p Restart=no`,
+  check, and stop it the same turn. `pgrep -af next` first. Never build into the live `.next`.
+- No browsers (Chromium/Playwright) in subagents. One niced `tsc --noEmit` at a time;
+  run single test files, not the full suite, unless you are the coordinator.
+- Never stop, restart or rebuild `sjcos.service`, `sjcos-mcp.service`, `sjcos-worker.service`
+  or `ordinem.service` unless Joe asked for a deploy.
+- Killed with exit 137 / "Killed" = you hit the limit. Report it; don't retry.
+- Anyone briefing a subagent must paste these rules into the brief (Codex does not read
+  Claude's rule files).
+
 # SJC OS / SJ Carpentry operating rule
 
 When work is related to SJ Carpentry business operations — clients, leads, projects, jobs, vendors, subcontractors, invoices, estimates, receipts, selections, scheduling, follow-ups, open tasks, or business knowledge — use the `sjcos` MCP server first.

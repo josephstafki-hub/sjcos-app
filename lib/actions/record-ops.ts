@@ -14,7 +14,7 @@ import type { ApproveResult } from "@/lib/approved-draft-rules";
 import { query } from "@/lib/db";
 import { requireAccess } from "@/lib/dal";
 import { WORK_STATUSES } from "@/lib/engine-constants";
-import { maybeAdvanceRunbook } from "@/lib/runbook-engine";
+import { completeByPerson, maybeAdvanceRunbook } from "@/lib/runbook-engine";
 import type { WorkItemStatus } from "@/lib/types";
 import type { RecordKind } from "@/lib/record-ops";
 
@@ -46,8 +46,15 @@ export async function setRecordWorkItemStatus(
   slug: string,
   note?: string,
 ): Promise<Result> {
-  await requireAccess("today");
+  const user = await requireAccess("today");
   if (!WORK_STATUSES.includes(status)) return { ok: false, error: "Unknown status." };
+  if (status === "done") {
+    // Done goes through the evidence command, which writes the receipt and
+    // closes the obligation and runbook step with it.
+    const r = await completeByPerson(id, user, note);
+    revalidateRecord(kind, slug);
+    return r.ok ? { ok: true } : { ok: false, error: r.error };
+  }
   const { rows } = await query<{ title: string }>(
     `UPDATE work_items
         SET status = $2,
@@ -59,8 +66,7 @@ export async function setRecordWorkItemStatus(
     [id, status, note ?? null],
   );
   if (!rows[0]) return { ok: false, error: "Work item not found." };
-  const receiptKind = status === "done" ? "work_item_completed" : "status_change";
-  await writeReceipt(receiptKind, `${rows[0].title} → ${status}`, id);
+  await writeReceipt("status_change", `${rows[0].title} → ${status}`, id);
   await maybeAdvanceRunbook(id); // W6: no-op unless this is a runbook step
   revalidateRecord(kind, slug);
   return { ok: true };

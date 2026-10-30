@@ -40,6 +40,7 @@ import { storeBuffer } from "./upload-store";
 import { notifyOwner } from "./notify-owner";
 import { checkGrantCovers } from "./owner-grants";
 import { withTransaction } from "./commands/db";
+import { onInboundMessage } from "./agent-runtime/hooks";
 import { enqueueIntent } from "./commands/intents";
 import type { Principal } from "./commands/principal";
 import { dispatchIntentsNow } from "./dispatch/db";
@@ -340,6 +341,13 @@ export async function recordInboundSms(ev: ParsedMessagingEvent): Promise<Inboun
       body: preview,
       href: linkHref(link.linkType, link.linkSlug) ?? href,
     });
+    // From someone on a job or lead: wake the operating agent (only while the
+    // agent.event_wakeups policy is on). Best-effort.
+    if (link.projectId || link.leadId) {
+      await withTransaction((run) =>
+        onInboundMessage(run, { provider: "sms", messageId: String(messageId), projectId: link.projectId, leadId: link.leadId, from: link.name, text: ev.text.slice(0, 2000) }),
+      ).catch((err) => console.error("[sms] agent wake-up failed:", (err as Error).message));
+    }
     // A texted receipt photo is read by Claude and filed to its job, or left
     // on /unsorted (lib/receipt-scan.ts). Pictures that aren't receipts are
     // ignored. SJC_TEXTED_RECEIPTS=0 turns it off.

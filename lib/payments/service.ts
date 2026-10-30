@@ -35,6 +35,7 @@ import { ProviderDeclinedError, ProviderUnknownOutcomeError, type PaymentMethod,
 import type { Tx } from "../billing/commands.ts";
 import { stagePaymentReceipt, type ReceiptOutcome } from "./receipt.ts";
 import { stagePaymentAlert } from "./owner-alert.ts";
+import { onPaymentReceived } from "../agent-runtime/hooks.ts";
 import { loadSurchargeConfig, surchargeCents, surchargeable, type CardFacts } from "./surcharge.ts";
 
 const usd = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
@@ -318,6 +319,16 @@ export async function applyProviderPayment(run: Run, input: { attemptId?: string
     } catch (err) {
       await run(`ROLLBACK TO SAVEPOINT payment_receipt`);
       receipt = { staged: "skipped", reason: `receipt not staged: ${(err as Error).message}`.slice(0, 300) };
+    }
+  }
+  if (next === "completed") {
+    // Wakes the operating agent when the agent.event_wakeups policy is on.
+    await run(`SAVEPOINT payment_wakeup`);
+    try {
+      await onPaymentReceived(run, { attemptId: attempt.id, invoiceId: attempt.invoice_id, amountCents: share, method });
+      await run(`RELEASE SAVEPOINT payment_wakeup`);
+    } catch {
+      await run(`ROLLBACK TO SAVEPOINT payment_wakeup`);
     }
   }
   let ownerPushId: string | null = null;

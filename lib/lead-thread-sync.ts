@@ -31,6 +31,8 @@ import type { Run } from "./commands/core";
 import { readCheckpoint, advanceCheckpoint } from "./obligations/catchup";
 import { gmailConfigured, fetchThreadMetadata, gmailCallsSoFar } from "./gmail";
 import { cancelLeadNurture } from "./newsletter-drip";
+import { withTransaction } from "./commands/db";
+import { onInboundMessage } from "./agent-runtime/hooks";
 
 export interface LeadThreadSyncChange {
   slug: string;
@@ -64,6 +66,7 @@ export function extractEmail(raw: string): string {
 }
 
 interface LeadRow {
+  id: string;
   slug: string;
   name: string;
   email: string | null;
@@ -148,7 +151,7 @@ export async function syncLeadThreads(
     // belongs to the project (the needs-reply detector routes it there), so
     // flagging the hidden lead row would surface nowhere.
     query<LeadRow>(
-      `SELECT slug, name, email, flag_kind, last_contact_at::text AS last_contact_at
+      `SELECT id, slug, name, email, flag_kind, last_contact_at::text AS last_contact_at
          FROM leads WHERE email IS NOT NULL AND email <> '' AND stage <> 'lost'
           AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.lead_id = leads.id)`,
     ),
@@ -215,6 +218,21 @@ export async function syncLeadThreads(
           await cancelLeadNurture(lead.email, "client replied");
         } catch {
           /* nurture cancel must never break the sync */
+        }
+      }
+      // The lead wrote: wake the operating agent to read it and draft a reply
+      // for Joe (only while the agent.event_wakeups policy is on). Not while
+      // the same-day first response is still being drafted for this lead.
+      if (!t.outbound) {
+        try {
+          const firstPending = await queryOne(`SELECT 1 FROM lead_first_responses WHERE lead_id = $1 AND status <> 'sent'`, [lead.id]);
+          if (!firstPending) {
+            await withTransaction((run) =>
+              onInboundMessage(run, { provider: "gmail", messageId: `${t.id}:${msgAt.toISOString()}`, leadId: lead.id, from: lead.name, subject: t.subject, at: msgAt.toISOString() }),
+            );
+          }
+        } catch (err) {
+          console.error("[lead-thread-sync] agent wake-up failed:", (err as Error).message);
         }
       }
     }

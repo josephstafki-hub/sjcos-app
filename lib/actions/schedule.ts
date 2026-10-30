@@ -10,77 +10,56 @@ import { requireAccess } from "@/lib/dal";
 import { askOllamaJson } from "@/lib/ai";
 import { getScheduleConflict } from "@/lib/schedule";
 
-const TONES = ["accent", "ai", "ghost"] as const;
-type Tone = (typeof TONES)[number];
+import { scheduleFields } from "../schedule-time";
 
-/** Parse a "8:00" / "13:30" time label into minutes-from-midnight for ordering.
- *  Non-numeric labels ("AM", "all") sort to the top of their day. */
-function sortMinFrom(timeLabel: string): number {
-  const m = /^(\d{1,2}):(\d{2})$/.exec(timeLabel.trim());
-  if (!m) return 0;
-  return Number(m[1]) * 60 + Number(m[2]);
+type Result = { ok: true } | { ok: false; error: string };
+function refreshSchedule() {
+  revalidatePath("/schedule"); revalidatePath("/today"); revalidatePath("/projects", "layout");
 }
 
-/** Create a schedule block from the "Block" form. Date defaults to today so the
- *  new block lands in the visible (current) week strip. */
-export async function createScheduleBlock(formData: FormData) {
-  const label = String(formData.get("label") ?? "").trim();
-  if (!label) return;
-  const date = String(formData.get("date") ?? "").trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
-  const timeLabel = String(formData.get("time") ?? "").trim() || "all";
-  const toneInput = String(formData.get("tone") ?? "accent");
-  const tone: Tone = (TONES as readonly string[]).includes(toneInput)
-    ? (toneInput as Tone)
-    : "accent";
-
-  // Optional project link. Empty → standalone meeting (NULL). Validate it's a
-  // UUID; a bad/foreign value just falls back to NULL rather than erroring.
-  const projectInput = String(formData.get("project_id") ?? "").trim();
-  const projectId = /^[0-9a-f-]{36}$/i.test(projectInput) ? projectInput : null;
-
-  await query(
-    `INSERT INTO schedule_blocks (block_date, time_label, sort_min, label, tone, project_id)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [date, timeLabel, sortMinFrom(timeLabel), label, tone, projectId],
-  );
-
-  revalidatePath("/schedule");
-}
-
-/** Add a schedule block scoped to a project, from the project Schedule tab.
- *  Owner-gated; resolves the project by slug and revalidates both views. */
-export async function createProjectScheduleBlock(slug: string, formData: FormData) {
+/** Shared validation for owner, project and correction entry points. */
+export async function createScheduleBlock(formData: FormData): Promise<Result> {
   await requireAccess("projects");
-  const label = String(formData.get("label") ?? "").trim();
-  if (!label) return;
-  const date = String(formData.get("date") ?? "").trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
-  const timeLabel = String(formData.get("time") ?? "").trim() || "all";
-  const toneInput = String(formData.get("tone") ?? "accent");
-  const tone: Tone = (TONES as readonly string[]).includes(toneInput)
-    ? (toneInput as Tone)
-    : "accent";
-
+  try {
+    const f = scheduleFields(formData);
+    await query(`INSERT INTO schedule_blocks (block_date, time_label, sort_min, label, tone, project_id)
+      VALUES ($1, $2, $3, $4, $5, $6)`, [f.date, f.time.label, f.time.minutes, f.label, f.tone, f.projectId]);
+    refreshSchedule();
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e instanceof Error ? e.message : "Couldn't save this block." }; }
+}
+export async function createProjectScheduleBlock(slug: string, formData: FormData): Promise<Result> {
+  await requireAccess("projects");
   const proj = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [slug]);
-  if (!proj) return;
-
-  await query(
-    `INSERT INTO schedule_blocks (block_date, time_label, sort_min, label, tone, project_id)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [date, timeLabel, sortMinFrom(timeLabel), label, tone, proj.id],
-  );
-
-  revalidatePath(`/projects/${slug}`);
-  revalidatePath("/schedule");
+  if (!proj) return { ok: false, error: "Project not found." };
+  formData.set("project_id", proj.id);
+  return createScheduleBlock(formData);
 }
-
-/** Remove a schedule block (project Schedule tab). Owner-gated. */
-export async function deleteScheduleBlock(id: string, slug: string) {
+export async function updateScheduleBlock(id: string, formData: FormData): Promise<Result> {
   await requireAccess("projects");
-  await query(`DELETE FROM schedule_blocks WHERE id = $1`, [id]);
-  revalidatePath(`/projects/${slug}`);
-  revalidatePath("/schedule");
+  try {
+    const f = scheduleFields(formData);
+    const row = await queryOne(`UPDATE schedule_blocks SET block_date=$2, time_label=$3, sort_min=$4, label=$5, tone=$6, project_id=$7 WHERE id=$1 RETURNING id`, [id, f.date, f.time.label, f.time.minutes, f.label, f.tone, f.projectId]);
+    if (!row) return { ok: false, error: "This block no longer exists. Refresh the schedule." };
+    refreshSchedule(); return { ok: true };
+  } catch (e) { return { ok: false, error: e instanceof Error ? e.message : "Couldn't save this block." }; }
+}
+export type RemovedBlock = { id: string; date: string; time: string; label: string; tone: string; project_id: string | null };
+/** Removal returns the original record for immediate Undo; no invented values. */
+export async function deleteScheduleBlock(id: string, _slug?: string): Promise<{ ok: true; removed: RemovedBlock | null }> {
+  await requireAccess("projects");
+  const removed = await queryOne<RemovedBlock>(`DELETE FROM schedule_blocks WHERE id=$1 RETURNING id, block_date::text AS date, time_label AS time, label, tone, project_id`, [id]);
+  refreshSchedule(); return { ok: true, removed };
+}
+export async function restoreScheduleBlock(block: RemovedBlock): Promise<Result> {
+  await requireAccess("projects");
+  try {
+    const fd = new FormData();
+    for (const [k,v] of Object.entries(block)) fd.set(k, v ?? "");
+    const f = scheduleFields(fd);
+    await query(`INSERT INTO schedule_blocks (id, block_date, time_label, sort_min, label, tone, project_id) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING`, [block.id, f.date, f.time.label, f.time.minutes, f.label, f.tone, f.projectId]);
+    refreshSchedule(); return { ok: true };
+  } catch { return { ok: false, error: "Couldn't restore that block. Add it again with a valid time." }; }
 }
 
 /** "Auto-log from photos" on /schedule: for every project with site photos
@@ -131,15 +110,15 @@ export async function autoLogTodayFromPhotos(): Promise<
 /** Apply on the schedule-conflict note: recheck this week's blocks and, if the
  *  double-booking is real, park a work item in Open Engine so it survives the
  *  page. Deduped on the open item's title. */
-export async function flagScheduleConflict(): Promise<
+export async function flagScheduleConflict(weekOffset = 0): Promise<
   { ok: true; queued: boolean } | { ok: false; error: string }
 > {
   await requireAccess("projects");
-  const text = await getScheduleConflict();
+  const text = await getScheduleConflict(weekOffset);
   if (!text.startsWith("Double-booked")) {
     return { ok: false, error: "No double-booking on this week's schedule — nothing to flag." };
   }
-  const title = "Resolve schedule conflict (this week)";
+  const title = `Resolve schedule conflict (${weekOffset === 0 ? "this week" : `week offset ${weekOffset}`})`;
   const existing = await queryOne<{ id: string }>(
     `SELECT id FROM work_items WHERE title = $1 AND completed_at IS NULL LIMIT 1`,
     [title],

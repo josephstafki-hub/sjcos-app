@@ -7,6 +7,6 @@ export function selectionPriceLabel(price: number, note: string): string {
   const missing = "Price not posted — confirm with Joe";
   if (/\b(?:not|isn.t|is not)\s+(?:included|quoted|priced)\b/i.test(note)) return missing;
   if (/\bincluded\b/i.test(note)) return "Included";
-  if (/\b(?:quoted|priced)\s+(?:with|in|as part of|elsewhere)\b/i.test(note)) return "Priced with other work";
+  if (/\b(?:quoted|priced)\s+(?:with|in|as part of|elsewhere)\b/i.test(note)) return "Priced with other work — effect on total unconfirmed; confirm with Joe";
   return missing;
 }

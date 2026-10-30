@@ -1,3 +1,4 @@
+import { invoiceState } from "@/lib/portal-presentation";
 import { Button, Card, Chip, Eyebrow } from "@/components/ui";
 import { ProjectFinancials } from "@/components/portal/ProjectFinancials";
 import { portalSlug } from "@/lib/client-portal";
@@ -24,7 +25,7 @@ export default async function PortalMoneyPage() {
               <h3 className="text-subheading font-semibold text-ink">{inv.milestone}</h3>
               <div className="mt-2 flex flex-wrap items-center gap-3">
                 <span className="font-mono text-meta text-ink-3">{inv.number}</span>
-                <Chip kind={inv.status === "paid" ? "money" : "info"} dot>{inv.pending > 0 ? "Processing" : inv.lifecycle === "disputed" ? "In review" : inv.status === "paid" ? "Paid" : "Due"}</Chip>
+                <Chip kind={inv.status === "paid" ? "money" : "info"} dot>{invoiceState(inv)}</Chip>
                 <span className="ml-auto text-body font-semibold tabular-nums">{usd(inv.amount)}</span>
               </div>
               {inv.lines.length > 0 && <dl className="mt-3 space-y-2">{inv.lines.map((line, i) => <div key={i} className="flex items-baseline justify-between gap-4 text-body text-ink-2"><dt>{line.label}</dt><dd className="shrink-0 tabular-nums">{usd(line.amount)}</dd></div>)}</dl>}

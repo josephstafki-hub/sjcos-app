@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { Plus, Sparkles, Trash2, Send, Mail, Check, Inbox, ArrowLeft, Star } from "lucide-react";
 import { Card, Chip, Button, PageHeader, Segmented, Tabs } from "@/components/ui";
 import { AI_NAME } from "@/lib/ai-name";
@@ -704,7 +704,18 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
  *  let Tailwind's reset restyle it, so the preview would flatter the email and
  *  hide exactly the layout problems it exists to catch. */
 function IssuePreview({ issue, baseUrl }: { issue: NewsletterIssue; baseUrl: string }) {
-  const [width, setWidth] = useState<"desktop" | "mobile">("desktop");
+  const [width, setWidth] = useState<"desktop" | "mobile">("mobile");
+  const previewRef = useRef<HTMLDivElement>(null);
+  const chosen = useRef(false);
+  useEffect(() => {
+    const el = previewRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (!chosen.current) setWidth(entry.contentRect.width < 600 ? "mobile" : "desktop");
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   // The tracking pixel and unsubscribe link are deliberately omitted: there is no
   // outbox row to attribute an open to, and no recipient to unsubscribe.
@@ -714,7 +725,7 @@ function IssuePreview({ issue, baseUrl }: { issue: NewsletterIssue; baseUrl: str
   );
 
   return (
-    <div className="mx-auto max-w-[720px] space-y-3">
+    <div ref={previewRef} className="mx-auto min-w-0 max-w-[720px] space-y-3">
       <div className="flex items-center gap-2">
         <span className="text-meta text-ink-3">Preview</span>
         <div className="ml-auto flex gap-1">
@@ -722,7 +733,7 @@ function IssuePreview({ issue, baseUrl }: { issue: NewsletterIssue; baseUrl: str
             <button
               key={w}
               type="button"
-              onClick={() => setWidth(w)}
+              onClick={() => { chosen.current = true; setWidth(w); }}
               className={`rounded-md px-2 py-0.5 text-meta font-semibold capitalize ${
                 width === w ? "bg-ink text-paper" : "text-ink-3 hover:bg-paper-2"
               }`}

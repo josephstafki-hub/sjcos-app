@@ -6,15 +6,17 @@ import {
   getClientUploads,
   getSharedFiles,
   getPortalBadgesForScope,
-  parseLinkSlug,
+  portalScope,
+  getPortalProjectUpdate,
   EMPTY_PORTAL_BADGES,
 } from "@/lib/client-portal";
 import { requireRole } from "@/lib/dal";
-import { getProject, getProjectDailyLogs } from "@/lib/projects";
+import { PROJECT_STATUSES, getProject, getProjectDailyLogs } from "@/lib/projects";
 import { getPortalFinancials } from "@/lib/portal-financials";
 import { getProjectMoney, usd } from "@/lib/money";
 import { getProjectScheduleBlocks } from "@/lib/schedule";
 import { ProjectFinancials } from "@/components/portal/ProjectFinancials";
+import { invoiceState } from "@/lib/portal-presentation";
 import { stageLabel } from "@/lib/leads";
 import type { LeadStage } from "@/lib/types";
 import { queryOne } from "@/lib/db";
@@ -34,7 +36,7 @@ import { ClaimAccount } from "@/components/portal/ClaimAccount";
 // before the project row exists.
 export default async function ClientPortalPage() {
   const user = await requireRole("owner", "client");
-  const scope = user.role === "client" ? parseLinkSlug(user.linkSlug) : null;
+  const scope = await portalScope();
   const slug = scope?.kind === "project" ? scope.slug : null;
 
   const [project, logs, badges, lead] = await Promise.all([
@@ -49,9 +51,9 @@ export default async function ClientPortalPage() {
       : Promise.resolve(null),
   ]);
 
-  const [financials, money, schedule] = slug ? await Promise.all([
-    getPortalFinancials(slug), getProjectMoney(slug), getProjectScheduleBlocks(slug),
-  ]) : [null, null, []];
+  const [financials, money, schedule, update] = slug ? await Promise.all([
+    getPortalFinancials(slug), getProjectMoney(slug), getProjectScheduleBlocks(slug), getPortalProjectUpdate(slug),
+  ]) : [null, null, [], null];
   const nextPayment = money?.invoices.filter((i) => i.status !== "draft" && i.balance > 0 && !i.pending && i.lifecycle !== "disputed")
     .sort((a, b) => (a.dueAt ?? "9999").localeCompare(b.dueAt ?? "9999"))[0];
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date());
@@ -139,7 +141,10 @@ export default async function ClientPortalPage() {
       <Eyebrow>Client portal · {data.project}</Eyebrow>
       <h1 className="mt-2 font-serif text-display font-medium text-accent-2">{project?.client.name || lead?.name ? `Welcome, ${project?.client.name || lead?.name}.` : "Welcome to your project."}</h1>
       {project?.client.address && <p className="mt-2 text-body text-ink-2">{project.client.address}</p>}
-      {project && data.statusChips.some((status) => status.label !== project.client.address) && <p className="mt-2 text-body text-ink-3">{data.statusChips.filter((status) => status.label !== project.client.address).map((status) => status.label).join(" · ")}</p>}
+      {project && <p className="mt-2 text-body text-ink-3">{PROJECT_STATUSES.find(s => s.key === project.status)?.label ?? project.status}</p>}
+      {update?.body && <section className="mt-4 border-l-2 border-rule pl-3"><h2 className="text-meta font-semibold text-ink-3">Update from Joe · {update.date}</h2><p className="mt-1 whitespace-pre-wrap text-body text-ink-2">{update.body}</p><p className="mt-1 text-meta text-ink-3">Date shown is when the project record was updated; the note’s original date is not recorded. Current invoice status is shown below. Dates mentioned here are expected — not yet scheduled unless posted in Schedule.</p></section>}
+      {money && <section className="mt-4"><h2 className="text-subheading font-semibold">Current invoices</h2><div className="mt-2 divide-y divide-rule-soft">{money.invoices.filter(i => i.status !== "draft").map(i => <Link key={i.id} href="/client-portal/money" className="flex min-h-11 flex-wrap items-center justify-between gap-2 py-2 text-body"><span>{i.number} · {i.milestone}</span><span className="font-semibold tabular-nums">{invoiceState(i)} · {usd(i.pending > 0 ? i.pending : i.status === "paid" ? i.amount : i.balance)}</span></Link>)}</div></section>}
+
       {lead && <p className="mt-2 text-body text-ink-3">{stageLabel(lead.stage)} · We’re getting your project ready.</p>}
 
       <div className="mt-8 grid min-w-0 grid-cols-1 gap-8 @4xl/page:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
@@ -163,12 +168,12 @@ export default async function ClientPortalPage() {
               <p className="mt-1 text-body text-ink-2">{nextPayment.milestone}</p>
               <p className="mt-1 text-meta text-ink-3">{nextPayment.dueAt ? `Due ${nextPayment.dueAt}` : "No due date set"}</p>
               <Button href={`/client-portal/pay/${nextPayment.id}`} size="lg" className="mt-4 w-full">Pay now</Button>
-            </> : <p className="mt-3 text-body text-ink-3">No payment due right now. Joe’s next invoice will appear here.</p>}
+            </> : <p className="mt-3 text-body text-ink-3">{money?.pendingTotal ? `${usd(money.pendingTotal)} is processing. No need to pay that amount again. See Money for payment details.` : "No payment due right now. Joe’s next invoice will appear here."}</p>}
           </Card>
 
           {donePunch.length > 0 && <section id="punch"><h2 className="mb-3 font-serif text-heading font-semibold">Confirm completed items</h2><ClientPunch items={donePunch} /></section>}
           {warranty && slug && <section id="warranty"><WarrantyClaimForm slug={slug} data={warranty} /></section>}
-          <section id="files"><h2 className="mb-3 font-serif text-heading font-semibold">Share photos or documents</h2><ClientUploads uploads={uploads} /></section>
+          <section id="files"><h2 className="mb-3 font-serif text-heading font-semibold">Share photos or documents</h2>{user.role === "client" ? <ClientUploads uploads={uploads} /> : <p className="text-body text-ink-3">Client uploads appear here. Use the project’s Client portal tab to manage sharing.</p>}</section>
           {user.role === "client" && !portalClaimed && <ClaimAccount defaultEmail={realEmail} />}
         </div>
 

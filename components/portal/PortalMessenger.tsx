@@ -1,8 +1,9 @@
 "use client";
 
-import { useRef } from "react";
-import { LinkedText, SubmitButton } from "@/components/ui";
+import { useLayoutEffect, useRef } from "react";
+import { SubmitButton } from "@/components/ui";
 import { sendPortalMessage } from "@/lib/actions/portal";
+import { messageParts } from "@/lib/portal-presentation";
 import type { PortalMessage } from "@/lib/portal-messages";
 
 /** "Message Joe" thread, used by both portals. Renders recent messages and a
@@ -24,11 +25,22 @@ export function PortalMessenger({
   listMaxHClass?: string;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const latestId = thread.at(-1)?.id;
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const showLatest = () => { list.scrollTop = list.scrollHeight; };
+    showLatest();
+    const observer = new ResizeObserver(showLatest);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [latestId]);
 
   return (
     <div className="mt-2 flex flex-col gap-2">
       {thread.length > 0 && (
-        <div className={`flex ${listMaxHClass} flex-col gap-2 overflow-y-auto`}>
+        <div ref={listRef} className={`flex ${listMaxHClass} flex-col gap-2 overflow-y-auto`}>
           {thread.map((m) => {
             const fromJoe = m.author !== "user";
             return (
@@ -39,7 +51,7 @@ export function PortalMessenger({
                     fromJoe ? "bg-paper-3 text-ink" : "bg-accent text-white",
                   ].join(" ")}
                 >
-                  <LinkedText text={m.body} />
+                  {messageParts(m.body).map((part, i) => part.href ? <a key={i} href={part.href} target="_blank" rel="noopener noreferrer" className="my-2 flex min-h-11 items-center rounded-md border border-current/30 px-3 py-2 font-semibold underline underline-offset-4">{part.label} ↗</a> : <span key={i}>{part.text}</span>)}
                 </div>
                 <span className="mt-0.5 text-meta text-ink-3">
                   {fromJoe ? m.name : "You"} · {m.when}

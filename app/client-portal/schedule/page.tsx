@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Card, Eyebrow } from "@/components/ui";
+import { schedulePresentation } from "@/lib/portal-presentation";
+import { getPortalProjectUpdate } from "@/lib/client-portal";
 import { portalSlug } from "@/lib/client-portal";
 import { getProjectScheduleBlocks, type ProjectScheduleBlock } from "@/lib/schedule";
 
@@ -19,16 +21,12 @@ export default async function PortalSchedulePage({
   searchParams: Promise<{ m?: string }>;
 }) {
   const slug = await portalSlug();
-  const blocks = slug ? await getProjectScheduleBlocks(slug) : [];
+  const [blocks, update] = slug ? await Promise.all([getProjectScheduleBlocks(slug), getPortalProjectUpdate(slug)]) : [[], null];
 
-  // Server-local date is fine — schedule granularity is a day.
-  const now = new Date();
-  const todayIso = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-
+  const todayIso = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date());
   const { m } = await searchParams;
-  const parsed = /^(\d{4})-(\d{2})$/.exec(m ?? "");
-  const year = parsed ? Number(parsed[1]) : now.getFullYear();
-  const month = parsed && Number(parsed[2]) >= 1 && Number(parsed[2]) <= 12 ? Number(parsed[2]) : now.getMonth() + 1; // 1-based
+  const view = schedulePresentation(blocks, todayIso, m);
+  const [year, month] = view.month.split("-").map(Number);
 
   const byDay = new Map<string, ProjectScheduleBlock[]>();
   for (const b of blocks) {
@@ -53,8 +51,8 @@ export default async function PortalSchedulePage({
   const prev = month === 1 ? monthKey(year - 1, 12) : monthKey(year, month - 1);
   const next = month === 12 ? monthKey(year + 1, 1) : monthKey(year, month + 1);
 
-  const nextEvent = blocks.filter((b) => b.iso >= todayIso).sort((a, b) => a.iso.localeCompare(b.iso))[0];
-  const upcoming = blocks.filter((b) => b.iso.startsWith(`${year}-${pad(month)}-`));
+  const nextEvent = view.upcoming[0];
+  const upcoming = [...view.upcoming, ...view.past].filter((b) => b.iso.startsWith(view.month));
 
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-7 sm:px-8 [&>*]:max-w-4xl">
@@ -69,6 +67,7 @@ export default async function PortalSchedulePage({
       <div className="my-5 border-t border-rule" />
 
       {nextEvent && <Card className="mb-4 p-3"><p className="text-meta text-ink-3">Next scheduled event · {nextEvent.dateLabel} · {nextEvent.time}</p><p className="mt-1 text-subheading font-semibold text-ink">{nextEvent.label}</p><Link href={`/client-portal/schedule?m=${nextEvent.iso.slice(0, 7)}#month-agenda`} className="mt-2 inline-flex min-h-11 items-center text-body font-semibold text-accent-2 underline">Jump to this event’s month</Link></Card>}
+      {update?.body && <details className="mb-4 text-body text-ink-2"><summary className="cursor-pointer font-semibold">Dates mentioned in Joe’s update</summary><p className="mt-2">Expected — not yet scheduled unless also posted in the schedule below.</p><p className="mt-2 whitespace-pre-wrap">{update.body}</p></details>}
       {!nextEvent && <Link href="/client-portal/messages" className="mb-4 inline-flex min-h-11 items-center rounded-md border border-rule px-3 text-body font-semibold text-accent-2">Message Joe about the schedule</Link>}
       {blocks.length === 0 ? (
         <p className="text-body leading-relaxed text-ink-3">
@@ -87,7 +86,7 @@ export default async function PortalSchedulePage({
               <ChevronLeft className="size-3.5" strokeWidth={1.75} />
             </Link>
             <Link
-              href="/client-portal/schedule"
+              href={`/client-portal/schedule?m=${todayIso.slice(0, 7)}`}
               className="inline-flex min-h-11 items-center rounded-md border border-rule px-3 text-meta font-medium text-ink-2 hover:bg-paper-2"
             >
               Today
@@ -171,7 +170,7 @@ export default async function PortalSchedulePage({
           {upcoming.length > 0 && (
             <>
               <div className="my-5 border-t border-rule" />
-              <Eyebrow muted>This month</Eyebrow>
+              <Eyebrow muted>This month · upcoming first, then past work</Eyebrow>
               <div id="month-agenda" className="mt-2 flex scroll-mt-4 flex-col gap-2">
                 {groupDays(upcoming).map((day) => (
                   <Card key={day.iso} className="p-2.5">

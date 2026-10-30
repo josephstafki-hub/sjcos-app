@@ -1,3 +1,4 @@
+import { requireRole } from "@/lib/dal";
 import { ChevronDown, FileText, Image as ImageIcon } from "lucide-react";
 import { Card, Chip, Eyebrow } from "@/components/ui";
 import type { ChipKind } from "@/components/ui";
@@ -16,6 +17,7 @@ import { ClientSignDocs } from "@/components/portal/ClientSignDocs";
 // both scopes: a lead-stage session sees its lead-scoped paperwork; estimates
 // and change orders are project machinery and appear once the project exists.
 export default async function PortalDocumentsPage() {
+  const user = await requireRole("owner", "client");
   const scope = await portalScope();
   const slug = scope?.kind === "project" ? scope.slug : null;
 
@@ -54,11 +56,11 @@ export default async function PortalDocumentsPage() {
       <div className="my-5 border-t border-rule" />
       <div id="documents" className="scroll-mt-4">
         <Eyebrow muted>To sign</Eyebrow>
-        {toSign ? <ClientSignDocs reviews={reviews} docs={signDocs.filter((d) => d.status === "sent")} /> : <p className="mt-2 text-body text-ink-2">No documents waiting on your signature. New requests from Joe will appear here.</p>}
+        {toSign ? <ClientSignDocs preview={user.role === "owner"} reviews={reviews} docs={signDocs.filter((d) => d.status === "sent")} /> : <p className="mt-2 text-body text-ink-2">No documents waiting on your signature. New requests from Joe will appear here.</p>}
       </div>
       <div className="mt-6 border-t border-rule-soft pt-4">
         <Eyebrow muted>History</Eyebrow>
-        {signDocs.some((d) => d.status !== "sent") ? <ClientSignDocs reviews={reviews} docs={signDocs.filter((d) => d.status !== "sent")} /> : <p className="mt-2 text-body text-ink-2">Signed and declined documents will appear here for reference.</p>}
+        {signDocs.some((d) => d.status !== "sent") ? <ClientSignDocs preview={user.role === "owner"} reviews={reviews} docs={signDocs.filter((d) => d.status !== "sent")} /> : <p className="mt-2 text-body text-ink-2">Signed and declined documents will appear here for reference.</p>}
       </div>
 
       {sharedDocs.length > 0 && (

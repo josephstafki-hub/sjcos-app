@@ -1,13 +1,14 @@
+import { PreviewPicker } from "@/components/portal/PreviewPicker";
 import Link from "next/link";
 import { Bell, ArrowLeft } from "lucide-react";
 import { Avatar } from "@/components/ui";
 import { requireRole } from "@/lib/dal";
 import { getProject } from "@/lib/projects";
-import { queryOne } from "@/lib/db";
+import { query, queryOne } from "@/lib/db";
 import {
   EMPTY_PORTAL_BADGES,
   getPortalBadgesForScope,
-  parseLinkSlug,
+  portalScope,
   type PortalBadges,
 } from "@/lib/client-portal";
 import { PortalNav, type PortalNavItem } from "@/components/portal/PortalNav";
@@ -29,12 +30,13 @@ export default async function ClientPortalLayout({
   children: React.ReactNode;
 }) {
   const user = await requireRole("owner", "client");
-  const scope = user.role === "client" ? parseLinkSlug(user.linkSlug) : null;
+  const scope = await portalScope();
+  const previewProjects = user.role === "owner" ? (await query<{ slug: string; name: string }>("SELECT slug, name FROM projects ORDER BY name")).rows : [];
 
   // "Client opened the portal" — once per day per client, into the activity
   // ledger the owner reads on the lead/project Client portal tab. Best-effort;
   // an owner previewing is not a visit.
-  if (scope) await logPortalVisit(scope, user.name);
+  if (scope && user.role === "client") await logPortalVisit(scope, user.name);
 
   const [title, badges] = await Promise.all([
     scope?.kind === "project"
@@ -75,7 +77,7 @@ export default async function ClientPortalLayout({
         <div className="min-w-0 flex-1 py-2">
           <span className="font-serif text-heading font-semibold text-accent-2">SJ Carpentry</span>
           <p className="text-body text-ink-2">
-            {title ?? (user.role === "owner" ? "Owner preview — no project selected" : "No project linked — contact Joe")}
+            {title ?? (user.role === "owner" ? "Owner preview" : "No project linked — contact Joe")}
           </p>
         </div>
         {user.role === "owner" && (
@@ -94,6 +96,7 @@ export default async function ClientPortalLayout({
         <Avatar initials={user.initials || "—"} size="sm" />
       </header>
 
+      {user.role === "owner" && <PreviewPicker projects={previewProjects} selected={scope?.slug ?? ""} />}
       <PortalNav items={items} />
 
       <div className="@container/page min-h-0 flex-1 overflow-y-auto max-sm:[&_button]:min-h-11 max-sm:[&_input:not([type=checkbox])]:min-h-11 max-sm:[&_label:has(input[type=file])]:min-h-11 pb-[env(safe-area-inset-bottom)]">{children}</div>

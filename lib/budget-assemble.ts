@@ -1,3 +1,4 @@
+import { fmtUsd } from "./cost-book-units.ts";
 // Project financials — the pure half of the builder. NO db import: plain rows
 // in, a BudgetView out, so every contested rule is unit-testable
 // (tests/budget-assemble.test.mjs) and the MCP .mjs server can load the same
@@ -110,7 +111,10 @@ export interface RawInvoice {
   number: string;
   milestone: string;
   amountCents: number;
-  status: "draft" | "sent" | "paid";
+  status: "draft" | "issued" | "sent" | "partially_paid" | "paid" | "void" | "disputed";
+  /** Settled cash, net of refunds/returns, and remaining balance from invoice_payments. */
+  paidCents?: number;
+  balanceCents?: number;
   createdOn: string | null;
   sentOn: string | null;
   paidOn: string | null;
@@ -452,11 +456,16 @@ export function assembleBudgetView(raw: RawProjectMoney, opts: { asOf: string })
   });
 
   // ---- client invoices
-  const clientInvoices: BudgetClientInvoice[] = raw.invoices.map((i) => {
+  const liveInvoices = raw.invoices.filter(i => i.status !== "void");
+  const isOpenInvoice = (i: RawInvoice) => ["issued", "sent", "partially_paid", "disputed"].includes(i.status);
+  const clientInvoices: BudgetClientInvoice[] = liveInvoices.map((i) => {
     const sentDay = dayNumber(i.sentOn);
-    const days = i.status === "sent" && sentDay != null && asOfDay != null ? Math.max(0, asOfDay - sentDay) : null;
+    const days = isOpenInvoice(i) && sentDay != null && asOfDay != null ? Math.max(0, asOfDay - sentDay) : null;
     const statusLabel =
-      i.status === "paid"
+      i.status === "issued" ? "Issued"
+        : i.status === "partially_paid" ? `${fmtUsd(i.balanceCents ?? i.amountCents)} open`
+        : i.status === "disputed" ? "Disputed"
+        : i.status === "paid"
         ? `Paid ${dayLabel(i.paidOn)}`.trim()
         : i.status === "sent"
           ? `Sent ${dayLabel(i.sentOn)}${days != null ? ` · ${plural(days, "day")}` : ""}`.trim()
@@ -472,7 +481,7 @@ export function assembleBudgetView(raw: RawProjectMoney, opts: { asOf: string })
       dateLabel: dayLabel(i.sentOn ?? i.createdOn),
       label: i.milestone,
       amountCents: i.amountCents,
-      status: i.status,
+      status: i.status === "paid" ? "paid" : i.status === "draft" ? "draft" : "sent",
       statusLabel,
       daysOutstanding: days,
       allocations: allocations.length ? allocations : undefined,
@@ -484,8 +493,9 @@ export function assembleBudgetView(raw: RawProjectMoney, opts: { asOf: string })
   // the invoices table, and on live jobs the two already disagree.
   const ledger = p.ledger;
   const handKept = ledger ? ledger.collectedCents : Math.round(p.collectedToDateDollars * 100);
-  const paidInvoices = ledger ? ledger.paymentsCents : raw.invoices.filter((i) => i.status === "paid").reduce((s, i) => s + i.amountCents, 0);
-  const sentInvoices = raw.invoices.filter((i) => i.status === "sent").reduce((s, i) => s + i.amountCents, 0);
+  const paidInvoices = ledger ? ledger.paymentsCents : liveInvoices.reduce((sum, i) => sum + (i.paidCents ?? (i.status === "paid" ? i.amountCents : 0)), 0);
+  const sentInvoices = liveInvoices.filter(isOpenInvoice).reduce((sum, i) => sum + Math.max(0, i.balanceCents ?? i.amountCents), 0);
+  const issuedTotal = liveInvoices.filter(i => i.status !== "draft").reduce((sum, i) => sum + i.amountCents, 0);
   const tracked = ledger != null || p.billingSource === "invoices";
   const openingCollected = tracked ? p.openingCollectedCents : 0;
   const openingBilled = tracked ? Math.max(p.openingBilledCents, ledger ? p.openingCollectedCents : 0) : 0;
@@ -495,7 +505,7 @@ export function assembleBudgetView(raw: RawProjectMoney, opts: { asOf: string })
   const billing: BudgetBilling = {
     source: ledger ? "invoices" : p.billingSource,
     collectedCents: ledger ? ledger.collectedCents : tracked ? openingCollected + paidInvoices : handKept,
-    billedCents: tracked ? openingBilled + paidInvoices + sentInvoices : null,
+    billedCents: tracked ? openingBilled + issuedTotal : null,
     unpaidInvoicesCents: sentInvoices + openingUnpaid,
     openingUnpaidCents: openingUnpaid,
     openingCollectedCents: openingCollected,

@@ -100,9 +100,17 @@ export async function loadRawProjectMoney(
          FROM change_order_credits c JOIN change_orders co ON co.id = c.change_order_id
         WHERE co.project_id = ANY($1::uuid[]) ORDER BY c.id`, ids),
     q(
-      `SELECT project_id, number, milestone, amount, status, line_items,
-              ${day("created_at")} AS created_on, ${day("sent_at")} AS sent_on, ${day("paid_at")} AS paid_on
-         FROM invoices WHERE project_id = ANY($1::uuid[]) ORDER BY created_at, id`, ids),
+      `SELECT i.project_id, i.number, i.milestone, i.amount, i.status, i.line_items,
+              ${day("i.created_at")} AS created_on, ${day("i.sent_at")} AS sent_on, ${day("i.paid_at")} AS paid_on,
+              cash.paid_cents,
+              CASE WHEN i.status IN ('draft','void') THEN 0 ELSE GREATEST(0, i.amount - cash.applied_cents) END AS balance_cents
+         FROM invoices i
+         LEFT JOIN LATERAL (
+           SELECT COALESCE(sum(CASE WHEN kind = 'payment' THEN amount_cents WHEN kind IN ('refund','return') THEN -amount_cents ELSE 0 END),0)::int AS paid_cents,
+                  COALESCE(sum(CASE WHEN kind IN ('payment','credit','writeoff') THEN amount_cents WHEN kind IN ('refund','return') THEN -amount_cents ELSE 0 END),0)::int AS applied_cents
+             FROM invoice_payments WHERE invoice_id = i.id AND status = 'settled'
+         ) cash ON true
+        WHERE i.project_id = ANY($1::uuid[]) ORDER BY i.created_at, i.id`, ids),
     // `closed` is included on purpose: closing a PO must never erase its cost.
     q(
       `SELECT po.id, po.project_id, po.po_number, po.vendor_name, po.title, po.status, po.subtotal,
@@ -204,6 +212,7 @@ export async function loadRawProjectMoney(
     of(i)?.invoices.push({
       number: text(i.number), milestone: text(i.milestone), amountCents: num(i.amount),
       status: text(i.status) as RawInvoice["status"],
+      paidCents: numOrNull(i.paid_cents) ?? undefined, balanceCents: numOrNull(i.balance_cents) ?? undefined,
       createdOn: i.created_on == null ? null : text(i.created_on),
       sentOn: i.sent_on == null ? null : text(i.sent_on),
       paidOn: i.paid_on == null ? null : text(i.paid_on),

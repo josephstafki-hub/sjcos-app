@@ -15,7 +15,6 @@ import {
   stageLabel,
   suggestedProjectName,
   formatMoneyish,
-  compactEstimateValue,
 } from "@/lib/leads";
 import { logLeadActivity } from "@/lib/lead-activity";
 import { cancelLeadNurture } from "@/lib/newsletter-drip";
@@ -379,24 +378,10 @@ export async function draftEstimate(slug: string): Promise<{ ok: boolean; error?
            status = 'draft', sent_at = NULL, updated_at = now()`,
     [lead.id, JSON.stringify(est.lines), est.total],
   );
-  await syncLeadValueFromEstimate(lead.id, est.total);
   await logLeadActivity(slug, "estimate", `Rough estimate drafted by ${AI_NAME} (${est.total})`, AI_NAME);
   revalidatePath(`/leads/${slug}`);
   revalidatePath("/leads");
   return { ok: true };
-}
-
-/** Mirror a rough estimate's total onto leads.value_display/estimate_value so
- *  the /leads overview list (which reads those columns, not lead_estimates)
- *  shows the current estimate instead of "?". */
-async function syncLeadValueFromEstimate(leadId: string, total: string): Promise<void> {
-  const compact = compactEstimateValue(total);
-  if (!compact) return;
-  await query(`UPDATE leads SET value_display = $2, estimate_value = $3 WHERE id = $1`, [
-    leadId,
-    compact.display,
-    compact.value,
-  ]);
 }
 
 /** Persist owner-edited rough-estimate line items + total. Owner-gated. The
@@ -419,14 +404,7 @@ export async function saveEstimateLines(
     [slug, JSON.stringify(clean), cleanTotal],
   );
   if (res.rowCount === 0) return { ok: false, error: "Lead not found." };
-  const compact = compactEstimateValue(cleanTotal);
-  if (compact) {
-    await query(`UPDATE leads SET value_display = $2, estimate_value = $3 WHERE slug = $1`, [
-      slug,
-      compact.display,
-      compact.value,
-    ]);
-  }
+  // The lead's list value follows this total on its own (migration 0039).
   revalidatePath(`/leads/${slug}`);
   revalidatePath("/leads");
   return { ok: true };

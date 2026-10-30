@@ -29,6 +29,7 @@ import { readUpload } from "@/lib/uploads";
 import { sendSms } from "@/lib/sms";
 import { placeCall } from "@/lib/voice";
 import { withTransaction } from "@/lib/commands/db";
+import { checkRoughEstimateEmail, markRoughEstimateSent, type RoughEstimateCheck } from "@/lib/leads/rough-estimate-email";
 import { enqueueIntent } from "@/lib/commands/intents";
 import { describeOutcome, dispatchIntentsNow } from "@/lib/dispatch/db";
 import {
@@ -163,6 +164,7 @@ export async function performGrantedAction(input: AgentSendInput): Promise<Agent
   // reads the bytes at dispatch); they are read once here only to refuse a bad
   // id, a missing blob or an oversized total before anything is staged.
   let attachmentRefs: { filename: string; mimeType: string; fileId: string }[] = [];
+  let roughEstimate: RoughEstimateCheck = { kind: "pass" };
   if (action === "send_email") {
     to = (input.email?.to ?? "").trim();
     if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return { ok: false, error: "send_email needs a valid `to` address." };
@@ -177,6 +179,12 @@ export async function performGrantedAction(input: AgentSendInput): Promise<Agent
       attachmentRefs = files.attachments.map((a: MailAttachment, i: number) => ({ filename: a.filename, mimeType: a.mimeType, fileId: ids[i] }));
     }
     targetId = to.toLowerCase();
+    // A rough estimate to a lead goes only from the one saved on the lead
+    // (lib/leads/rough-estimate-email.ts). Refused here, before the grant is spent.
+    roughEstimate = await withTransaction((run) =>
+      checkRoughEstimateEmail(run, { to: targetId, subject: input.email?.subject ?? "", body: input.email?.body ?? "" }),
+    );
+    if (roughEstimate.kind === "refuse") return { ok: false, error: roughEstimate.error };
   } else {
     const n = Number(input.target);
     if (!Number.isInteger(n) || n <= 0) return { ok: false, error: `${action} needs a numeric target id.` };
@@ -254,6 +262,11 @@ export async function performGrantedAction(input: AgentSendInput): Promise<Agent
         const [outcome] = await dispatchIntentsNow([intent.id]);
         const d = describeOutcome(outcome, `Email to ${targetId}: "${(email.subject ?? "").slice(0, 80)}"`);
         result = d.ok ? { ok: true, summary: d.summary, intent_id: intent.id } : { ok: false, error: d.error, held: d.held, intent_id: intent.id };
+        if (result.ok && roughEstimate.kind === "mark") {
+          const lead = roughEstimate;
+          await withTransaction((run) => markRoughEstimateSent(run, lead.leadId, agent)).catch(() => undefined);
+          result.summary += ` Marked ${lead.leadName}'s rough estimate as sent.`;
+        }
         if (result.ok && attachmentRefs.length > 0) {
           const names = attachmentRefs.map((a) => a.filename);
           result.summary += ` with ${names.length} attachment${names.length === 1 ? "" : "s"}: ${names.join(", ")}`;

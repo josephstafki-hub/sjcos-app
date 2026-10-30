@@ -1,6 +1,5 @@
 "use client";
-import { useState } from "react";
-import { Check, ChevronDown, Clock } from "lucide-react";
+import { Check, ChevronDown, Clock, ArrowUpRight } from "lucide-react";
 import { Button, EmptyState } from "@/components/ui";
 import { useTodayQueue } from "./TodayQueueContext";
 import { AssignmentLine, QueueActions } from "./QueueActions";
@@ -8,13 +7,16 @@ import type { TodayPriority } from "@/lib/today";
 
 export function TodayPriorityRow({
   p,
+  open,
+  onToggle,
   onHandOff,
 }: {
   p: TodayPriority;
+  open: boolean;
+  onToggle: () => void;
   onHandOff: (p: TodayPriority, kind: "do" | "prep") => void;
 }) {
   const { busyId, checkingId, complete, snooze } = useTodayQueue();
-  const [open, setOpen] = useState(false);
   const busy = busyId === p.id || checkingId === p.id;
   if (p.id === "all-clear")
     return (
@@ -26,7 +28,7 @@ export function TodayPriorityRow({
       />
     );
   return (
-    <div className={`group rounded-md ${busy ? "opacity-60" : ""}`}>
+    <div data-today-item className={`group rounded-md ${busy ? "opacity-60" : ""}`}>
       <div
         className={`flex items-start gap-2 px-2 py-3 hover:bg-hover ${open ? "bg-hover" : ""}`}
       >
@@ -46,8 +48,10 @@ export function TodayPriorityRow({
         )}
         <button
           type="button"
+          data-today-row={p.id}
+          data-checkable={p.checkable}
           aria-expanded={open}
-          onClick={() => setOpen((v) => !v)}
+          onClick={onToggle}
           className="min-w-0 flex-1 rounded text-left focus-visible:outline-2 focus-visible:outline-focus"
         >
           <span className="block text-subheading font-semibold text-ink">
@@ -56,10 +60,12 @@ export function TodayPriorityRow({
           <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-meta text-ink-3">
             <span className="font-mono">{p.rank}</span>
             <span>{p.group?.name ?? p.tag}</span>
+            {p.due && <span aria-hidden className={`size-1.5 rounded-full ${p.overdue ? "bg-flag" : "bg-warn"}`} />}
             {p.due && <DueLabel due={p.due} overdue={p.overdue} />}
           </span>
         </button>
         <div className="flex shrink-0 items-center gap-1">
+          {p.href && <Button href={p.href} icon={ArrowUpRight} iconOnly aria-label={`Open ${p.title}`} title="Open" size="sm" className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100" />}
           {p.checkable && (
             <Button
               icon={Clock}
@@ -79,7 +85,7 @@ export function TodayPriorityRow({
             title={open ? "Collapse" : "Expand"}
             size="sm"
             aria-expanded={open}
-            onClick={() => setOpen((v) => !v)}
+            onClick={onToggle}
             className={open ? "rotate-180" : ""}
           />
         </div>

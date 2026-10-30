@@ -47,7 +47,7 @@ export function WeekStrip({ week }: { week: TodayCalDay[] }) {
                 <div
                   className={[
                     "mx-auto mt-0.5 size-1 rounded-full",
-                    d.today ? "bg-paper/70" : "bg-accent",
+                    "bg-accent",
                   ].join(" ")}
                 />
               )}

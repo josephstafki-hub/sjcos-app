@@ -1,4 +1,6 @@
 import { Suspense } from "react";
+import Link from "next/link";
+import { TodayWaitingSummary } from "./TodayWaitingSummary";
 import { Sparkles } from "lucide-react";
 import { Button, Card, PageHeader } from "@/components/ui";
 import { TodayCards } from "./TodayCards";
@@ -23,7 +25,7 @@ export function TodayBody({ data }: { data: TodayData }) {
           <Sparkles className="size-4" />
           {data.briefHeadline}
         </h2>
-        <Button href="/schedule" variant="ghost" size="sm">
+        <Button href="/schedule" variant="ai" size="sm">
           Open agenda
         </Button>
       </div>
@@ -40,9 +42,10 @@ export function TodayBody({ data }: { data: TodayData }) {
         title={data.greeting}
         meta={
           <span className="flex flex-wrap gap-x-4 gap-y-1">
-            <span>{data.weekLabel.toLowerCase()}</span>
-            {data.headerChips.map((c) => (
-              <span key={c.label}>{c.label}</span>
+            <span className="capitalize">{data.dateLabel.toLowerCase()}</span>
+            {data.canAssign ? <Link href="/projects" className="rounded hover:underline focus-visible:outline-2 focus-visible:outline-focus">{data.weekLabel.toLowerCase()}</Link> : <span>{data.weekLabel.toLowerCase()}</span>}
+            {data.headerChips.map((c, i) => (
+              <Link key={c.label} href={i === 0 ? "/money" : "/leads"} className="rounded hover:underline focus-visible:outline-2 focus-visible:outline-focus">{c.label}</Link>
             ))}
           </span>
         }
@@ -54,17 +57,15 @@ export function TodayBody({ data }: { data: TodayData }) {
         assignees={data.assignees}
         canPromote={data.canAssign}
       >
-        <div className="mt-6 grid min-w-0 grid-cols-1 gap-6 @4xl/page:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="mt-6 grid min-w-0 grid-cols-1 gap-6 @5xl/page:grid-cols-[minmax(0,1fr)_300px]">
           <TodayCards brief={brief} />
           <aside className="flex min-w-0 flex-col gap-6">
-            <section>
+            <Card className="p-4">
               <h2 className="mb-3 font-serif text-heading text-ink">
                 This week
               </h2>
               <WeekStrip week={data.week} />
-            </section>
-            <Card className="p-4">
-              <div className="flex items-center justify-between gap-2">
+              <div className="mt-5 flex items-center justify-between gap-2 border-t border-rule-soft pt-4">
                 <h2 className="font-serif text-heading text-ink">
                   Today&apos;s schedule
                 </h2>
@@ -109,6 +110,7 @@ export function TodayBody({ data }: { data: TodayData }) {
                 })}
               </div>
             </Card>
+            <TodayWaitingSummary />
           </aside>
         </div>
       </TodayQueueProvider>
@@ -119,7 +121,7 @@ async function BriefText({ inputs }: { inputs: BriefInput }) {
   const text = await getTodayBrief(inputs);
   return (
     <details className="group">
-      <summary className="cursor-pointer list-none">
+      <summary className="cursor-pointer list-none rounded focus-visible:outline-2 focus-visible:outline-focus">
         <span className="line-clamp-3 group-open:line-clamp-none">{text}</span>
         <span className="mt-1 block text-meta text-ai-2 group-open:hidden">
           Read brief

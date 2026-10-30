@@ -50,7 +50,7 @@ export function QueueList({ onHandOff }: { onHandOff: (p: TodayPriority, kind: "
   const showAll = (key: string) => setShownGroups((cur) => new Set(cur).add(key));
 
   return (
-    <div>
+    <div id="today-rest" className="scroll-mt-4">
       <div className="mb-1.5 flex flex-wrap items-center gap-2 border-t border-rule-soft pt-3">
         <span className="font-serif text-heading text-ink">The rest</span>
         <span className="text-meta text-ink-3">{active.length}</span>
@@ -167,17 +167,12 @@ function QueueRow({
   const canUp = canPromote && item.checkable && !item.waitingOnSub;
 
   return (
-    <div className={busy ? "opacity-60" : ""}>
+    <div data-today-item className={busy ? "opacity-60" : ""}>
       <div
         className={`group flex items-center gap-2 rounded-md px-2 py-3 transition-colors hover:bg-paper-2 ${
           open ? "bg-paper-2" : ""
         }`}
       >
-        <span
-          className={`w-[3px] self-stretch flex-none rounded-full ${
-            item.priority === "urgent" ? "bg-flag" : item.priority === "high" ? "bg-flag/45" : ""
-          }`}
-        />
         {item.checkable ? (
           <button
             type="button"
@@ -194,9 +189,11 @@ function QueueRow({
         )}
         <button
           type="button"
+          data-today-row={item.id}
+          data-checkable={item.checkable}
           onClick={onToggle}
           aria-expanded={open}
-          className={`min-w-0 flex-1 text-left text-body ${
+          className={`min-w-0 flex-1 rounded text-left text-body focus-visible:outline-2 focus-visible:outline-focus ${
             open ? "font-semibold text-ink" : "text-ink-2"
           }`}
         >

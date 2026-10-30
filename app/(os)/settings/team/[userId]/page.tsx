@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
  *  (authority) as two distinct sections. Owner-only — /settings is in
  *  OWNER_ONLY_PATHS and requireRole backs it. */
 export default async function TeamMemberPage({ params }: { params: Promise<{ userId: string }> }) {
-  await requireRole("owner");
+  const viewer = await requireRole("owner");
   const { userId } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(userId)) notFound();
   const user = await queryOne<{
@@ -62,6 +62,7 @@ export default async function TeamMemberPage({ params }: { params: Promise<{ use
 
         {user.role !== "staff" ? (
           <Card className="space-y-3 p-4 text-body text-ink-2">
+            {user.role === "owner" && viewer.id === user.id && <Button href="/settings?section=profile" variant="secondary">Edit your profile</Button>}
             {user.role === "owner"
               ? "An owner account sees and may approve everything. Authority is not assigned per type."
               : "Portal logins (sub / client) hold no areas and no approval authority."}

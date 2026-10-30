@@ -1009,7 +1009,9 @@ export function ChatClient({ data }: { data: ChatData }) {
                 }
               }}
               rows={1}
-              placeholder={`Message ${view.name}…  (${composerHint})`}
+              placeholder="Write a message…"
+              aria-label={`Message ${view.name}`}
+              title={composerHint}
               className="min-w-0 flex-1 resize-none border-0 bg-transparent px-2 py-1 text-body text-ink outline-none"
             />
             <VoiceButton compact onText={(t) => setInput((cur) => mergeTranscript(cur, t))} />

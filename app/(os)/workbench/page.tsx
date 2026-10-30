@@ -55,9 +55,9 @@ export default async function WorkbenchPage({
                 <ul className="mt-2 divide-y divide-rule-soft border-y border-rule">
                   {recent.slice(0, 30).map((w) => (
                     <li key={w.id}>
-                      <Link href={`/workbench?s=${w.id}`} className="flex min-h-11 items-center gap-3 py-2.5 hover:bg-hover">
+                      <Link href={`/workbench?s=${w.id}`} className="block min-h-11 py-2.5 hover:bg-hover">
                         <span className="min-w-0 flex-1 text-body text-ink">{w.title}<span className="mt-1 block text-meta text-ink-3">{w.job ? `${w.job} · ` : ""}{STATUS_LABEL[w.status as WorkItemStatus] ?? w.status.replaceAll("_", " ")}</span></span>
-                        <span className="flex-none text-meta text-ink-3">{w.updated}</span>
+                        <span className="mt-1 block text-meta text-ink-3">Updated {w.updated}</span>
                       </Link>
                     </li>
                   ))}

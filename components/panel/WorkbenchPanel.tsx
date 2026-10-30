@@ -146,11 +146,10 @@ export function WorkbenchPanel({
         {snap.events.map((e) => (
           <div
             key={e.id}
-            className={`flex gap-2 py-1 text-body ${newEventIds.has(e.id) ? "rounded bg-ai-soft" : ""}`}
+            className={`py-2 text-body ${newEventIds.has(e.id) ? "rounded bg-ai-soft" : ""}`}
           >
-            <span className="w-14 flex-none font-mono text-meta text-ink-4">{e.when}</span>
-            <span className="w-12 flex-none font-mono text-meta text-ink-3">{BADGE[e.source]}</span>
-            <span className="min-w-0 flex-1 text-ink-2">{e.summary}</span>
+            <p className="break-words text-ink-2">{e.summary}</p>
+            <p className="mt-1 text-meta text-ink-3">{BADGE[e.source]} · {e.when}</p>
           </div>
         ))}
       </div>

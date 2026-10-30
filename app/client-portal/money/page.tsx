@@ -1,106 +1,40 @@
-import Link from "next/link";
-import { Card, Chip, Eyebrow } from "@/components/ui";
+import { Button, Card, Chip, Eyebrow } from "@/components/ui";
+import { ProjectFinancials } from "@/components/portal/ProjectFinancials";
 import { portalSlug } from "@/lib/client-portal";
-import { getProject } from "@/lib/projects";
+import { getPortalFinancials } from "@/lib/portal-financials";
 import { getProjectMoney, usd } from "@/lib/money";
 
-// Client-portal money: contract standing plus every sent/paid invoice with its
-// line items. Drafts never show. An open invoice links to its pay page
-// (Square card / bank transfer, or Joe's offline instructions).
 export default async function PortalMoneyPage() {
   const slug = await portalSlug();
-  const [project, money] = slug
-    ? await Promise.all([getProject(slug), getProjectMoney(slug)])
-    : [null, null];
-
-  // Contract value string carries a trailing " contract" — strip it for the row.
-  const contractOnly = project?.contractValue?.replace(/\s*contract$/i, "").trim();
+  const [financials, money] = slug
+    ? await Promise.all([getPortalFinancials(slug), getProjectMoney(slug)]) : [null, null];
   const invoices = (money?.invoices ?? []).filter((i) => i.status !== "draft");
-  const hasMoney = invoices.length > 0;
-
-  const rows = hasMoney
-    ? [
-        ...(contractOnly ? [{ label: "Contract", value: contractOnly, good: false }] : []),
-        { label: "Paid to date", value: usd(money!.paidTotal), good: money!.paidTotal > 0 },
-        { label: "Outstanding", value: usd(money!.outstanding), good: false },
-      ]
-    : contractOnly
-      ? [{ label: "Contract", value: contractOnly, good: false }]
-      : [];
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-9 py-7">
+    <main className="mx-auto w-full max-w-3xl px-4 py-7 sm:px-8">
       <Eyebrow>Money</Eyebrow>
-      <h1 className="mt-1 font-serif text-[26px] font-medium leading-tight text-accent-2">
-        Where the money stands.
-      </h1>
-      <p className="mt-1.5 text-[13px] leading-relaxed text-ink-2">
-        Every invoice on the project, what&apos;s been paid, and what&apos;s open. Questions
-        about a line? Ask in Messages before you pay — no surprises is the whole point.
-      </p>
-      <div className="my-5 border-t border-rule" />
-
-      {rows.length > 0 ? (
-        <Card kind="accent" className="p-3">
-          <div className="flex flex-col gap-1.5">
-            {rows.map((m) => (
-              <div key={m.label} className="flex items-center">
-                <span className="flex-1 text-[12.5px] text-ink-2">{m.label}</span>
-                <span className={`font-mono text-[12px] ${m.good ? "text-money" : "text-ink-2"}`}>
-                  {m.value}
-                </span>
+      <h1 className="mt-1 font-serif text-display font-medium text-accent-2">Where the money stands.</h1>
+      <p className="mt-2 text-body text-ink-2">Your project total, recorded payments, and invoices. For a question about a line, message Joe before you pay.</p>
+      {financials && <Card className="mt-6 p-4"><ProjectFinancials data={financials} /></Card>}
+      <section className="mt-8">
+        <h2 className="font-serif text-heading font-semibold">Invoices</h2>
+        {invoices.length === 0 ? <p className="mt-3 text-body text-ink-3">Nothing billed yet. Joe’s invoices will appear here as milestones are reached.</p> :
+          <div className="mt-3 divide-y divide-rule border-y border-rule">
+            {invoices.map((inv) => <article key={inv.id} className="py-4">
+              <h3 className="text-subheading font-semibold text-ink">{inv.milestone}</h3>
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <span className="font-mono text-meta text-ink-3">{inv.number}</span>
+                <Chip kind={inv.status === "paid" ? "money" : "info"} dot>{inv.pending > 0 ? "Processing" : inv.lifecycle === "disputed" ? "In review" : inv.status === "paid" ? "Paid" : "Due"}</Chip>
+                <span className="ml-auto text-body font-semibold tabular-nums">{usd(inv.amount)}</span>
               </div>
-            ))}
-          </div>
-        </Card>
-      ) : (
-        <p className="text-[13.5px] leading-relaxed text-ink-3">
-          Nothing billed yet. Invoices will appear here as milestones are reached.
-        </p>
-      )}
-
-      {invoices.length > 0 && (
-        <div className="mt-4 flex flex-col gap-2">
-          <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-ink-3">
-            Invoices
-          </span>
-          {invoices.map((inv) => (
-            <Card key={inv.id} className="p-2.5">
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-[10px] text-ink-3">{inv.number}</span>
-                <span className="min-w-0 flex-1 truncate text-[12px] text-ink">{inv.milestone}</span>
-                <span className="font-mono text-[12px] font-semibold text-ink-2">
-                  {usd(inv.amount)}
-                </span>
-                <Chip kind={inv.status === "paid" ? "money" : "accent"} dot>
-                  {inv.status === "paid" ? "paid" : "due"}
-                </Chip>
+              {inv.lines.length > 0 && <dl className="mt-3 space-y-2">{inv.lines.map((line, i) => <div key={i} className="flex items-baseline justify-between gap-4 text-body text-ink-2"><dt>{line.label}</dt><dd className="shrink-0 tabular-nums">{usd(line.amount)}</dd></div>)}</dl>}
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                <span className="text-meta text-ink-3">{inv.statusLabel}</span>
+                {inv.balance > 0 && inv.pending === 0 && inv.lifecycle !== "disputed" && <Button href={`/client-portal/pay/${inv.id}`}>Pay {usd(inv.balance)}</Button>}
               </div>
-              {inv.lines.length > 0 && (
-                <div className="mt-1.5 flex flex-col gap-0.5 border-t border-rule-soft pt-1.5">
-                  {inv.lines.map((l, k) => (
-                    <div key={k} className="flex items-center gap-2 text-[11px]">
-                      <span className="min-w-0 flex-1 truncate text-ink-3">{l.label}</span>
-                      <span className="font-mono text-ink-3">{usd(l.amount)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="mt-1 flex items-center gap-2">
-                <span className="flex-1 font-mono text-[10px] text-ink-3">{inv.statusLabel}</span>
-                {inv.balance > 0 && inv.pending === 0 && inv.lifecycle !== "disputed" && (
-                  <Link
-                    href={`/client-portal/pay/${inv.id}`}
-                    className="rounded-md border border-accent bg-accent px-3 py-1 text-[11.5px] font-semibold text-white hover:bg-accent-2"
-                  >
-                    Pay {usd(inv.balance)}
-                  </Link>
-                )}
-              </div>
-            </Card>
-          ))}
-        </div>
-      )}
+            </article>)}
+          </div>}
+      </section>
     </main>
   );
 }

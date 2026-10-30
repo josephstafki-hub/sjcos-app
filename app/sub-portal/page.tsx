@@ -55,11 +55,11 @@ export default async function SubPortalPage() {
   ];
 
   return (
-    <div className="flex h-screen flex-col bg-paper">
+    <div className="@container/page flex h-dvh flex-col bg-paper">
       {/* slim header */}
-      <header className="flex h-[50px] flex-none items-center gap-3 border-b border-rule bg-paper-2 px-7">
-        <span className="font-serif text-[15px] font-semibold text-accent-2">SJ Carpentry</span>
-        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+      <header className="flex min-h-16 flex-none items-center gap-3 border-b border-rule bg-paper-2 px-4 sm:px-7">
+        <span className="font-serif text-subheading font-semibold text-accent-2">SJ Carpentry</span>
+        <span className="hidden text-meta text-ink-3 sm:block">
           Sub portal · {subName}
           {sub ? ` · ${trade}` : ""}
         </span>
@@ -67,7 +67,7 @@ export default async function SubPortalPage() {
         {user.role === "owner" && (
           <Link
             href="/today"
-            className="inline-flex items-center gap-1 rounded-md border border-rule px-2 py-1 text-[11px] font-medium text-ink-2 transition-colors hover:bg-paper-3"
+            className="inline-flex items-center gap-1 rounded-md border border-rule px-2 py-1 text-meta font-medium text-ink-2 transition-colors hover:bg-paper-3"
           >
             <ArrowLeft className="size-3" strokeWidth={1.75} />
             Return to SJC OS
@@ -86,24 +86,24 @@ export default async function SubPortalPage() {
         <Avatar initials={subInitials} size="sm" />
       </header>
 
-      <main className="min-h-0 flex-1 overflow-y-auto px-8 pb-12 pt-6">
+      <main className="min-h-0 flex-1 overflow-y-auto max-sm:[&_button]:min-h-11 max-sm:[&_input:not([type=checkbox])]:min-h-11 max-sm:[&_label:has(input[type=file])]:min-h-11 px-4 sm:px-8 pb-12 pt-6">
         <Eyebrow>{assignment ? "Current job" : "Sub portal"}</Eyebrow>
-        <h1 className="mt-1 font-serif text-[30px] font-medium leading-none text-accent-2">
+        <h1 className="mt-1 font-serif text-display font-medium leading-none text-accent-2">
           {assignment ? assignment.projectName : "No job assigned yet"}
         </h1>
         {!assignment && (
-          <p className="mt-2 text-[13px] text-ink-3">
+          <p className="mt-2 text-body text-ink-3">
             When Joe assigns you to a job, its scope and schedule show up here.
           </p>
         )}
 
-        <div className="mt-4 grid grid-cols-1 gap-3.5 lg:grid-cols-[1.4fr_1fr]">
+        <div className="mt-4 grid grid-cols-1 gap-3.5 @4xl/page:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
           {/* left column */}
           <div className="flex flex-col gap-3">
             {assignment && (assignment.scope || assignment.dateLabel) && (
               <Card className="border-accent/40 p-3.5">
-                <div className="flex items-center justify-between">
-                  <h2 className="font-serif text-[15px] font-semibold text-ink">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="font-serif text-subheading font-semibold text-ink">
                     Your scope · {assignment.projectName}
                   </h2>
                   {assignment.dateLabel && (
@@ -113,10 +113,10 @@ export default async function SubPortalPage() {
                   )}
                 </div>
                 {assignment.role && (
-                  <div className="mt-0.5 text-[11px] text-ink-3">{assignment.role}</div>
+                  <div className="mt-0.5 text-meta text-ink-3">{assignment.role}</div>
                 )}
                 {assignment.scope && (
-                  <p className="mt-2 whitespace-pre-line text-[13px] leading-snug text-ink">
+                  <p className="mt-2 whitespace-pre-line text-body leading-snug text-ink">
                     {assignment.scope}
                   </p>
                 )}
@@ -124,7 +124,7 @@ export default async function SubPortalPage() {
             )}
 
             <Card className="p-3.5">
-              <h2 className="mb-2 font-serif text-[15px] font-semibold text-ink">Log your day</h2>
+              <h2 className="mb-2 font-serif text-subheading font-semibold text-ink">Log your day</h2>
               <SubLogComposer slug={slug ?? ""} voiceEnabled={whisperAvailable()} />
 
               {logs.length > 0 && (
@@ -134,17 +134,17 @@ export default async function SubPortalPage() {
                     {logs.map((l) => (
                       <div key={l.id} className="border-l-2 border-rule pl-2.5">
                         <div className="flex items-center gap-1.5">
-                          <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">
+                          <span className="font-sans text-meta text-ink-3">
                             {l.when}
                           </span>
                           {l.hasPhoto && (
-                            <span className="inline-flex items-center gap-0.5 text-[10px] text-ink-3">
+                            <span className="inline-flex items-center gap-0.5 text-meta text-ink-3">
                               <ImageIcon className="size-2.5" strokeWidth={1.75} />
                               photo
                             </span>
                           )}
                         </div>
-                        {l.body && <p className="mt-0.5 text-[12.5px] leading-snug text-ink">{l.body}</p>}
+                        {l.body && <p className="mt-0.5 text-body leading-snug text-ink">{l.body}</p>}
                       </div>
                     ))}
                   </div>
@@ -161,15 +161,15 @@ export default async function SubPortalPage() {
                 <div className="mt-2 flex flex-col gap-1.5">
                   {moneyRows.map((m) => (
                     <div key={m.label} className="flex items-center">
-                      <span className="flex-1 text-[12px] text-ink-2">{m.label}</span>
-                      <span className={`font-mono text-[11px] ${m.good ? "text-money" : "text-ink-3"}`}>
+                      <span className="flex-1 text-label text-ink-2">{m.label}</span>
+                      <span className={`font-sans text-meta ${m.good ? "text-money" : "text-ink-3"}`}>
                         {m.value}
                       </span>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="mt-2 text-[12px] text-ink-3">No invoices submitted yet.</div>
+                <div className="mt-2 text-label text-ink-3">No invoices submitted yet.</div>
               )}
               {subInvoices.length > 0 && (
                 <div className="mt-3 border-t border-rule pt-2.5">
@@ -177,8 +177,8 @@ export default async function SubPortalPage() {
                   <div className="mt-2 flex flex-col gap-1.5">
                     {subInvoices.map((inv) => (
                       <div key={inv.id} className="flex items-center gap-2">
-                        <span className="font-mono text-[12px] text-ink-2">{usd(inv.amount)}</span>
-                        <span className="min-w-0 flex-1 truncate text-[11px] text-ink-3">
+                        <span className="font-sans text-label text-ink-2">{usd(inv.amount)}</span>
+                        <span className="min-w-0 flex-1 truncate text-meta text-ink-3">
                           {inv.note || inv.projectName || "Final invoice"}
                         </span>
                         <Chip kind={SUB_INVOICE_CHIP[inv.status]} dot>
@@ -213,7 +213,7 @@ export default async function SubPortalPage() {
               {joePhone && (
                 <div className="mt-2 flex items-center gap-1.5 text-ink-3">
                   <Phone className="size-3" strokeWidth={1.5} />
-                  <span className="font-mono text-[11px]">{joePhone}</span>
+                  <span className="font-sans text-meta">{joePhone}</span>
                 </div>
               )}
             </Card>

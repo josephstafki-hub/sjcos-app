@@ -36,14 +36,14 @@ export default async function PortalDocumentsPage() {
   const toSign = signDocs.filter((d) => d.status === "sent").length;
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-9 py-7">
+    <main className="mx-auto w-full max-w-3xl px-4 py-7 sm:px-8">
       <Eyebrow>Documents</Eyebrow>
-      <h1 className="mt-1 font-serif text-[26px] font-medium leading-tight text-accent-2">
+      <h1 className="mt-1 font-serif text-title font-medium leading-tight text-accent-2">
         {toSign > 0
           ? `${toSign} document${toSign > 1 ? "s" : ""} waiting on your signature.`
           : "Everything we've put in writing."}
       </h1>
-      <p className="mt-1.5 text-[13px] leading-relaxed text-ink-2">
+      <p className="mt-1.5 text-body leading-relaxed text-ink-2">
         Estimates, contracts, and change orders live here. Signing is the approval —
         type your name, and the project record updates on Joe&apos;s side instantly.
       </p>
@@ -63,16 +63,16 @@ export default async function PortalDocumentsPage() {
               <Card key={d.id} className="p-2.5">
                 <div className="flex items-center gap-2.5">
                   <FileText className="size-3.5 flex-none text-ink-3" strokeWidth={1.5} />
-                  <span className="min-w-0 flex-1 truncate font-serif text-[13px] font-semibold text-ink">
+                  <span className="min-w-0 flex-1 truncate font-serif text-body font-semibold text-ink">
                     {d.title}
                   </span>
-                  <span className="flex-none font-mono text-[10px] text-ink-3">{d.when}</span>
+                  <span className="flex-none font-sans text-meta text-ink-3">{d.when}</span>
                   {d.pdfFileId && (
                     <a
                       href={`/api/portal/project-file/${d.pdfFileId}`}
                       target="_blank"
                       rel="noopener"
-                      className="flex-none text-[11px] font-semibold text-accent-2 hover:underline"
+                      className="flex-none text-meta font-semibold text-accent-2 hover:underline"
                     >
                       Open PDF
                     </a>
@@ -97,13 +97,13 @@ export default async function PortalDocumentsPage() {
                   ) : (
                     <FileText className="size-3.5 flex-none text-ink-3" strokeWidth={1.5} />
                   )}
-                  <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{f.name}</span>
-                  <span className="flex-none font-mono text-[10px] text-ink-3">{f.sizeLabel}</span>
+                  <span className="min-w-0 flex-1 truncate text-body text-ink">{f.name}</span>
+                  <span className="flex-none font-sans text-meta text-ink-3">{f.sizeLabel}</span>
                   <a
                     href={`/api/portal/project-file/${f.id}`}
                     target="_blank"
                     rel="noopener"
-                    className="flex-none text-[11px] font-semibold text-accent-2 hover:underline"
+                    className="flex-none text-meta font-semibold text-accent-2 hover:underline"
                   >
                     Open
                   </a>
@@ -134,20 +134,20 @@ export default async function PortalDocumentsPage() {
             {clientCOs.map((co) => (
               <Card key={co.id} className="p-2.5">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="min-w-0 flex-1 font-serif text-[13px] font-semibold text-ink">
+                  <span className="min-w-0 flex-1 font-serif text-body font-semibold text-ink">
                     {co.title}
                   </span>
-                  <span className="font-mono text-[12px] font-semibold text-ink-2">
+                  <span className="font-sans text-label font-semibold text-ink-2">
                     {co.priceLabel}
                   </span>
                   <StatusChip status={co.status} />
                 </div>
                 {co.description && (
-                  <p className="mt-1 whitespace-pre-wrap text-[12px] leading-snug text-ink-2">
+                  <p className="mt-1 whitespace-pre-wrap text-label leading-snug text-ink-2">
                     {co.description}
                   </p>
                 )}
-                <div className="mt-1 font-mono text-[10px] text-ink-3">
+                <div className="mt-1 font-sans text-meta text-ink-3">
                   {co.createdAtLabel}
                   {co.status === "sent" && " · sign it in the list above"}
                 </div>
@@ -189,10 +189,10 @@ function EstimateCard({ estimate: e }: { estimate: EstimateDetail }) {
     <Card className="p-2.5">
       <details className="group">
         <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 [&::-webkit-details-marker]:hidden">
-          <span className="min-w-0 flex-1 font-serif text-[13px] font-semibold text-ink">
+          <span className="min-w-0 flex-1 font-serif text-body font-semibold text-ink">
             {e.title}
           </span>
-          <span className="font-mono text-[12px] font-semibold text-ink-2">{usd(e.total)}</span>
+          <span className="font-sans text-label font-semibold text-ink-2">{usd(e.total)}</span>
           <StatusChip status={e.status} />
           <ChevronDown
             className="size-3.5 flex-none text-ink-3 transition-transform group-open:rotate-180"
@@ -203,17 +203,17 @@ function EstimateCard({ estimate: e }: { estimate: EstimateDetail }) {
         <div className="mt-2.5 border-t border-rule-soft pt-2.5">
           {[...sections.entries()].map(([name, lines]) => (
             <div key={name} className="mb-2.5">
-              <div className="mb-1 font-mono text-[9px] uppercase tracking-[0.12em] text-ink-3">
+              <div className="mb-1 font-sans text-meta text-ink-3">
                 {name}
               </div>
               <div className="flex flex-col gap-1">
                 {lines.map((l) => (
-                  <div key={l.id} className="flex items-baseline gap-2 text-[11.5px]">
+                  <div key={l.id} className="flex items-baseline gap-2 text-label">
                     <span className="min-w-0 flex-1 text-ink-2">{l.description}</span>
-                    <span className="flex-none font-mono text-[10px] text-ink-3">
+                    <span className="flex-none font-sans text-meta text-ink-3">
                       {l.qty} {l.unit}
                     </span>
-                    <span className="w-[76px] flex-none text-right font-mono text-ink-2">
+                    <span className="w-[76px] flex-none text-right font-sans text-ink-2">
                       {usd(l.extended)}
                     </span>
                   </div>
@@ -230,21 +230,21 @@ function EstimateCard({ estimate: e }: { estimate: EstimateDetail }) {
 
           {e.drawSchedule && e.drawSchedule.length > 0 && (
             <div className="mt-2.5 border-t border-rule-soft pt-1.5">
-              <div className="mb-1 font-mono text-[9px] uppercase tracking-[0.12em] text-ink-3">
+              <div className="mb-1 font-sans text-meta text-ink-3">
                 Payment schedule
               </div>
               <div className="flex flex-col gap-0.5">
                 {e.drawSchedule.map((d, i) => (
-                  <div key={i} className="flex items-baseline gap-2 text-[11.5px]">
+                  <div key={i} className="flex items-baseline gap-2 text-label">
                     <span className="min-w-0 flex-1 text-ink-2">{d.label}</span>
-                    <span className="flex-none font-mono text-[10px] text-ink-3">{d.percent}%</span>
+                    <span className="flex-none font-sans text-meta text-ink-3">{d.percent}%</span>
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          <div className="mt-2 font-mono text-[10px] text-ink-3">
+          <div className="mt-2 font-sans text-meta text-ink-3">
             {e.createdAtLabel}
             {e.status === "sent" && " · approve by signing it in the list above"}
           </div>
@@ -256,9 +256,9 @@ function EstimateCard({ estimate: e }: { estimate: EstimateDetail }) {
 
 function TotalRow({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
   return (
-    <div className="flex items-baseline gap-2 text-[11.5px]">
+    <div className="flex items-baseline gap-2 text-label">
       <span className={`flex-1 ${strong ? "font-semibold text-ink" : "text-ink-3"}`}>{label}</span>
-      <span className={`font-mono ${strong ? "font-semibold text-ink" : "text-ink-3"}`}>{value}</span>
+      <span className={`font-sans ${strong ? "font-semibold text-ink" : "text-ink-3"}`}>{value}</span>
     </div>
   );
 }

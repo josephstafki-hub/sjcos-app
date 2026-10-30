@@ -28,7 +28,7 @@ export default async function PortalSchedulePage({
   const { m } = await searchParams;
   const parsed = /^(\d{4})-(\d{2})$/.exec(m ?? "");
   const year = parsed ? Number(parsed[1]) : now.getFullYear();
-  const month = parsed ? Number(parsed[2]) : now.getMonth() + 1; // 1-based
+  const month = parsed && Number(parsed[2]) >= 1 && Number(parsed[2]) <= 12 ? Number(parsed[2]) : now.getMonth() + 1; // 1-based
 
   const byDay = new Map<string, ProjectScheduleBlock[]>();
   for (const b of blocks) {
@@ -53,58 +53,58 @@ export default async function PortalSchedulePage({
   const prev = month === 1 ? monthKey(year - 1, 12) : monthKey(year, month - 1);
   const next = month === 12 ? monthKey(year + 1, 1) : monthKey(year, month + 1);
 
-  const upcoming = blocks.filter((b) => b.iso >= todayIso).slice(0, 10);
+  const upcoming = blocks.filter((b) => b.iso.startsWith(`${year}-${pad(month)}-`));
 
   return (
-    <main className="mx-auto w-full max-w-4xl px-9 py-7">
+    <main className="mx-auto w-full max-w-4xl px-4 py-7 sm:px-8">
       <Eyebrow>Schedule</Eyebrow>
-      <h1 className="mt-1 font-serif text-[26px] font-medium leading-tight text-accent-2">
+      <h1 className="mt-1 font-serif text-title font-medium leading-tight text-accent-2">
         Who&apos;s coming, and when.
       </h1>
-      <p className="mt-1.5 text-[13px] leading-relaxed text-ink-2">
+      <p className="mt-1.5 text-body leading-relaxed text-ink-2">
         The working schedule for your project. Dates can shift with weather and
         inspections — anything that moves shows up here first.
       </p>
       <div className="my-5 border-t border-rule" />
 
       {blocks.length === 0 ? (
-        <p className="text-[13.5px] leading-relaxed text-ink-3">
+        <p className="text-body leading-relaxed text-ink-3">
           No schedule posted yet. Once the work is sequenced, the plan will appear here.
         </p>
       ) : (
         <>
           {/* month header */}
           <div className="flex items-center gap-2">
-            <h2 className="flex-1 font-serif text-[17px] font-semibold text-ink">{monthLabel}</h2>
+            <h2 className="flex-1 font-serif text-heading font-semibold text-ink">{monthLabel}</h2>
             <Link
               href={`/client-portal/schedule?m=${prev}`}
               aria-label="Previous month"
-              className="rounded-md border border-rule p-1.5 text-ink-2 hover:bg-paper-2"
+              className="inline-flex size-11 items-center justify-center rounded-md border border-rule text-ink-2 hover:bg-paper-2"
             >
               <ChevronLeft className="size-3.5" strokeWidth={1.75} />
             </Link>
             <Link
               href="/client-portal/schedule"
-              className="rounded-md border border-rule px-2 py-1 text-[11px] font-medium text-ink-2 hover:bg-paper-2"
+              className="inline-flex min-h-11 items-center rounded-md border border-rule px-3 text-meta font-medium text-ink-2 hover:bg-paper-2"
             >
               Today
             </Link>
             <Link
               href={`/client-portal/schedule?m=${next}`}
               aria-label="Next month"
-              className="rounded-md border border-rule p-1.5 text-ink-2 hover:bg-paper-2"
+              className="inline-flex size-11 items-center justify-center rounded-md border border-rule text-ink-2 hover:bg-paper-2"
             >
               <ChevronRight className="size-3.5" strokeWidth={1.75} />
             </Link>
           </div>
 
           {/* calendar grid */}
-          <div className="mt-3 overflow-hidden rounded-lg border border-rule">
+          <div className="mt-3 hidden @2xl/page:block overflow-hidden rounded-lg border border-rule">
             <div className="grid grid-cols-7 border-b border-rule bg-paper-2">
               {WEEKDAYS.map((d) => (
                 <div
                   key={d}
-                  className="px-2 py-1.5 text-center font-mono text-[9px] uppercase tracking-[0.12em] text-ink-3"
+                  className="px-2 py-1.5 text-center font-sans text-meta text-ink-3"
                 >
                   {d}
                 </div>
@@ -126,7 +126,7 @@ export default async function PortalSchedulePage({
                     {day && (
                       <>
                         <span
-                          className={`inline-flex size-5 items-center justify-center rounded-full font-mono text-[10px] ${
+                          className={`inline-flex size-5 items-center justify-center rounded-full font-sans text-meta ${
                             isToday ? "bg-accent font-semibold text-white" : "text-ink-3"
                           }`}
                         >
@@ -144,13 +144,13 @@ export default async function PortalSchedulePage({
                                       : "bg-ink-4"
                                 }`}
                               />
-                              <span className="min-w-0 truncate text-[10.5px] leading-tight text-ink-2">
+                              <span className="min-w-0 truncate text-meta leading-tight text-ink-2">
                                 {b.label}
                               </span>
                             </div>
                           ))}
                           {dayBlocks.length > 3 && (
-                            <span className="font-mono text-[9px] text-ink-3">
+                            <span className="font-sans text-meta text-ink-3">
                               +{dayBlocks.length - 3} more
                             </span>
                           )}
@@ -163,15 +163,16 @@ export default async function PortalSchedulePage({
             </div>
           </div>
 
-          {/* near-term detail */}
+          {upcoming.length === 0 && <p className="mt-4 text-body text-ink-3">No work scheduled in {monthLabel}. Joe will post dates here when the next work is planned.</p>}
+          {/* Readable month agenda, including past events in the chosen month. */}
           {upcoming.length > 0 && (
             <>
               <div className="my-5 border-t border-rule" />
-              <Eyebrow muted>Coming up</Eyebrow>
+              <Eyebrow muted>This month</Eyebrow>
               <div className="mt-2 flex flex-col gap-2">
                 {groupDays(upcoming).map((day) => (
                   <Card key={day.iso} className="p-2.5">
-                    <div className="font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-ink-3">
+                    <div className="font-sans text-meta font-medium text-ink-3">
                       {day.dateLabel}
                     </div>
                     <div className="mt-1.5 flex flex-col gap-1.5">
@@ -182,8 +183,8 @@ export default async function PortalSchedulePage({
                               b.tone === "accent" ? "bg-accent" : b.tone === "ai" ? "bg-ai" : "bg-ink-4"
                             }`}
                           />
-                          <span className="min-w-0 flex-1 text-[12.5px] text-ink">{b.label}</span>
-                          <span className="font-mono text-[10px] text-ink-3">{b.time}</span>
+                          <span className="min-w-0 flex-1 text-body text-ink">{b.label}</span>
+                          <span className="font-sans text-meta text-ink-3">{b.time}</span>
                         </div>
                       ))}
                     </div>

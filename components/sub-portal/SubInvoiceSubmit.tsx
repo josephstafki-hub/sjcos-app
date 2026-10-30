@@ -18,7 +18,7 @@ export function SubInvoiceSubmit({ slug }: { slug: string }) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="mt-3 inline-flex w-full items-center justify-center gap-1 rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
+        className="mt-3 inline-flex w-full items-center justify-center gap-1 rounded-md border border-ink bg-ink px-3 py-1.5 text-label font-semibold text-paper hover:bg-ink-hover"
       >
         <Plus className="size-3" strokeWidth={1.75} />
         Submit final invoice
@@ -46,7 +46,7 @@ export function SubInvoiceSubmit({ slug }: { slug: string }) {
       className="mt-3 flex flex-col gap-2 rounded-md border border-rule bg-paper-2 p-2.5"
     >
       <div className="flex items-center">
-        <span className="flex-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+        <span className="flex-1 font-sans text-meta text-ink-3">
           Final invoice
         </span>
         <button type="button" onClick={() => setOpen(false)} className="text-ink-3 hover:text-ink" aria-label="Cancel">
@@ -59,22 +59,22 @@ export function SubInvoiceSubmit({ slug }: { slug: string }) {
         required
         autoFocus
         placeholder="$ amount"
-        className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+        className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent"
       />
       <input
         name="note"
         placeholder="Note (optional)"
-        className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+        className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent"
       />
       <button
         type="submit"
         disabled={pending}
-        className="inline-flex items-center justify-center gap-1 rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
+        className="inline-flex items-center justify-center gap-1 rounded-md border border-ink bg-ink px-3 py-1.5 text-label font-semibold text-paper hover:bg-ink-hover disabled:opacity-50"
       >
         <Send className="size-3" strokeWidth={1.75} />
         {pending ? "Submitting…" : "Submit invoice"}
       </button>
-      {error && <div className="text-[11px] text-flag">{error}</div>}
+      {error && <div className="text-meta text-flag">{error}</div>}
     </form>
   );
 }

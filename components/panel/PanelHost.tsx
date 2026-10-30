@@ -1,22 +1,24 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ChevronDown, ChevronUp, ExternalLink, Eye, EyeOff, Mic, PanelLeftClose, Sparkles, X } from "lucide-react";
 import { ackAppNav, postPanelMessage, subscribePanelBus } from "./panelBus";
 import { usePanel } from "./PanelProvider";
 import { readPanelState } from "./panelStore";
 import { PanelDock } from "./PanelDock";
+import { OPEN_MOBILE_OPERATOR } from "@/components/shell/MobileTabBar";
 import { Splitter } from "./Splitter";
 
 /**
  * The one-monitor split: operator dock left, the real app right. The dock is
  * layout-persistent (chat state, poll loops and splitter width survive
  * navigation); the right side is ordinary app pages with their own Shell.
- * Below lg the dock becomes a floating pill that opens a full-screen sheet.
+ * On phones a bottom tab opens the sheet; tablets keep a compact launcher.
  */
 export function PanelHost({ children }: { children: ReactNode }) {
   const { layout, setWidth, commitWidth, toggleCollapsed, setWhere, setFollow } = usePanel();
+  const sheetRef = useRef<HTMLDivElement>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   // Mobile: on the home page the operator is the whole screen (queue cards
   // and all); on any other page it's a bottom drawer so most of the page Joe
@@ -31,6 +33,28 @@ export function PanelHost({ children }: { children: ReactNode }) {
   // width/collapsed, and a wrong-width flash is worse than the dock appearing
   // a frame late.
   const showDock = layout.ready && layout.where === "docked";
+
+  useEffect(() => {
+    const open = () => { postPanelMessage({ type: "redock" }); setWhere("docked"); setSheetFull(false); setSheetOpen(true); };
+    window.addEventListener(OPEN_MOBILE_OPERATOR, open);
+    return () => window.removeEventListener(OPEN_MOBILE_OPERATOR, open);
+  }, [setWhere]);
+  useEffect(() => {
+    if (!sheetOpen || window.matchMedia("(min-width: 1024px)").matches) return;
+    const trigger = document.activeElement as HTMLElement | null;
+    sheetRef.current?.querySelector<HTMLElement>("button")?.focus();
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSheetOpen(false);
+      if (event.key !== "Tab") return;
+      const targets = Array.from(sheetRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex="0"]') ?? [])
+        .filter((el) => el.getClientRects().length > 0);
+      const first = targets[0], last = targets[targets.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    window.addEventListener("keydown", escape);
+    return () => { window.removeEventListener("keydown", escape); trigger?.focus(); };
+  }, [sheetOpen]);
 
   // A hand-off raised while the dock is hidden below lg (mobile) needs the
   // sheet open so the chat can consume the stashed message.
@@ -122,7 +146,7 @@ export function PanelHost({ children }: { children: ReactNode }) {
             >
               <div className="flex items-center gap-2 px-3 pt-2">
                 <Sparkles className="size-3.5 text-ai" strokeWidth={1.5} />
-                <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
+                <span className="text-label text-ink-3">
                   Operator
                 </span>
                 <div className="flex-1" />
@@ -143,7 +167,7 @@ export function PanelHost({ children }: { children: ReactNode }) {
                   onClick={detach}
                   aria-label="Pop out to its own window"
                   title="Pop out to its own window (second monitor)"
-                  className="rounded-md p-1 text-ink-3 transition-colors hover:bg-paper hover:text-ink-2"
+                  className="inline-flex size-11 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-paper hover:text-ink-2"
                 >
                   <ExternalLink className="size-3.5" strokeWidth={1.75} />
                 </button>
@@ -151,7 +175,7 @@ export function PanelHost({ children }: { children: ReactNode }) {
                   onClick={toggleCollapsed}
                   aria-label="Collapse operator panel"
                   title="Collapse operator panel"
-                  className="rounded-md p-1 text-ink-3 transition-colors hover:bg-paper hover:text-ink-2"
+                  className="inline-flex size-11 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-paper hover:text-ink-2"
                 >
                   <PanelLeftClose className="size-3.5" strokeWidth={1.75} />
                 </button>
@@ -181,18 +205,18 @@ export function PanelHost({ children }: { children: ReactNode }) {
             setWhere("docked");
           }}
           title="Bring the operator panel back into this window"
-          className="fixed bottom-4 left-4 z-40 hidden items-center gap-1.5 rounded-full border border-rule bg-paper px-3 py-1.5 text-[11.5px] font-medium text-ink-2 shadow-card hover:bg-paper-2 lg:flex"
+          className="fixed bottom-4 left-4 z-40 hidden items-center gap-1.5 rounded-full border border-rule bg-paper px-3 py-1.5 text-label font-medium text-ink-2 shadow-card hover:bg-paper-2 lg:flex"
         >
           <Sparkles className="size-3.5 text-ai" strokeWidth={1.5} /> Re-dock panel
         </button>
       )}
 
-      {/* Small screens: the dock as a full-screen sheet behind a floating pill. */}
+      {/* Tablet launcher; phones use the Operator tab in MobileTabBar. */}
       {showDock && !sheetOpen && (
         <button
           onClick={() => setSheetOpen(true)}
           aria-label="Open operator panel"
-          className="fixed bottom-5 right-4 z-40 flex items-center gap-2 rounded-full border border-ai bg-paper py-2 pl-3 pr-2 text-[13px] font-medium text-ai-2 shadow-card lg:hidden"
+          className="fixed bottom-5 right-4 z-40 hidden items-center gap-2 rounded-full border border-ai bg-paper py-2 pl-3 pr-2 text-body font-medium text-ai-2 shadow-card sm:flex lg:hidden"
         >
           <Sparkles className="size-4 text-ai" strokeWidth={1.5} /> Operator
           <span className="flex size-8 items-center justify-center rounded-full bg-ink text-paper">
@@ -201,16 +225,20 @@ export function PanelHost({ children }: { children: ReactNode }) {
         </button>
       )}
       {showDock && sheetOpen && (
+        <>
+        <div className="fixed inset-0 z-50 bg-black/30 lg:hidden" onClick={() => setSheetOpen(false)} aria-hidden="true" />
         <div
+          ref={sheetRef} id="mobile-operator-sheet" role="dialog" aria-label="Operator" aria-modal="true"
           className={`fixed inset-x-0 bottom-0 z-50 flex flex-col bg-paper lg:hidden ${
             drawer
-              ? "h-[46dvh] rounded-t-2xl border-t border-rule shadow-[0_-8px_24px_rgba(0,0,0,0.12)]"
+              ? "h-[66dvh] rounded-t-2xl border-t border-rule shadow-[0_-8px_24px_rgba(0,0,0,0.12)]"
               : "top-0"
           }`}
         >
+          <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-rule" aria-hidden="true" />
           <div className="flex items-center gap-2 border-b border-rule px-3 py-2">
             <Sparkles className="size-3.5 text-ai" strokeWidth={1.5} />
-            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
+            <span className="text-label text-ink-3">
               Operator
             </span>
             <div className="flex-1" />
@@ -219,7 +247,7 @@ export function PanelHost({ children }: { children: ReactNode }) {
                 onClick={() => setSheetFull((f) => !f)}
                 aria-label={sheetFull ? "Shrink to a drawer" : "Expand to full screen"}
                 title={sheetFull ? "Shrink to a drawer" : "Expand to full screen"}
-                className="rounded-md p-1 text-ink-3 hover:bg-paper-2"
+                className="inline-flex size-11 items-center justify-center rounded-md text-ink-3 hover:bg-paper-2"
               >
                 {sheetFull ? <ChevronDown className="size-4" strokeWidth={1.75} /> : <ChevronUp className="size-4" strokeWidth={1.75} />}
               </button>
@@ -227,17 +255,18 @@ export function PanelHost({ children }: { children: ReactNode }) {
             <button
               onClick={() => setSheetOpen(false)}
               aria-label="Close operator panel"
-              className="rounded-md p-1 text-ink-3 hover:bg-paper-2"
+              className="inline-flex size-11 items-center justify-center rounded-md text-ink-3 hover:bg-paper-2"
             >
               <X className="size-4" strokeWidth={1.75} />
             </button>
           </div>
-          <div className="min-h-0 flex-1">
+          <div className="min-h-0 flex-1 pb-[env(safe-area-inset-bottom)]">
             {/* Narrow width forces the single-column dock; the drawer is
                 compact (conversation + composer only). */}
             <PanelDock width={400} compact={drawer} />
           </div>
         </div>
+        </>
       )}
     </div>
   );

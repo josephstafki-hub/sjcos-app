@@ -33,13 +33,13 @@ export function PortalMessenger({
               <div key={m.id} className={`flex flex-col ${fromJoe ? "items-start" : "items-end"}`}>
                 <div
                   className={[
-                    "max-w-[85%] whitespace-pre-wrap break-words rounded-lg px-2.5 py-1.5 text-[12px] leading-snug",
-                    fromJoe ? "bg-paper-3 text-ink" : "bg-accent text-ink",
+                    "max-w-[85%] whitespace-pre-wrap break-words rounded-lg px-2.5 py-1.5 text-body leading-snug",
+                    fromJoe ? "bg-paper-3 text-ink" : "bg-accent text-white",
                   ].join(" ")}
                 >
                   <LinkedText text={m.body} />
                 </div>
-                <span className="mt-0.5 font-mono text-[8.5px] uppercase tracking-[0.1em] text-ink-4">
+                <span className="mt-0.5 text-meta text-ink-3">
                   {fromJoe ? m.name : "You"} · {m.when}
                 </span>
               </div>
@@ -62,11 +62,11 @@ export function PortalMessenger({
           required
           rows={2}
           placeholder={placeholder}
-          className="resize-none rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[12px] text-ink outline-none focus:border-accent"
+          className="resize-none rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent"
         />
         <SubmitButton
           pendingLabel="Sending…"
-          className="self-end rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
+          className="min-h-11 self-end rounded-md border border-ink bg-ink px-3 py-1.5 text-body font-semibold text-paper hover:bg-ink-hover"
         >
           Send
         </SubmitButton>

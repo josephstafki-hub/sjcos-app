@@ -391,8 +391,13 @@ export async function getClientSelections(slug: string): Promise<SelectionsView>
     if (g.selections.length === 0 && children.length === 0) return null;
     return { ...g, children };
   };
+  const clientGroups = (groups: SelectionGroup[]): SelectionGroup[] => groups.map((g) => {
+    const children = clientGroups(g.children);
+    return { ...g, children, openCount: g.selections.filter((s) => s.status === "pending").length
+      + children.reduce((n, c) => n + c.openCount, 0) };
+  });
   return totals(
-    view.groups.map(nonEmpty).filter((g): g is SelectionGroup => g !== null),
+    clientGroups(view.groups.map(nonEmpty).filter((g): g is SelectionGroup => g !== null)),
     overallBudget,
   );
 }

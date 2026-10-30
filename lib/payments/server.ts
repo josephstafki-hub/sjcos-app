@@ -5,6 +5,7 @@ import "server-only";
 // reconciliation sweep. Secrets stay in env; nothing here logs a source id.
 
 import { squareReadiness } from "./readiness";
+import { paymentDeclineMessage } from "./messages";
 import { withTransaction, runDirect } from "@/lib/commands/db";
 import type { Principal } from "@/lib/commands/principal";
 import { recordSourceEvent } from "@/lib/commands/source-events";
@@ -61,7 +62,7 @@ export async function portalPaymentSetup(): Promise<
   const cfg = await getProviderConfig();
   const env = squareEnvironment();
   const offline = await runDirect<{ value: string }>(`SELECT value FROM app_settings WHERE key = 'payments.offline_instructions'`);
-  const instructions = offline[0]?.value?.trim() || "Online payment isn't set up yet. Pay by check to SJ Carpentry LLC, or use the payment link Joe sends you.";
+  const instructions = offline[0]?.value?.trim() || "Pay by check to SJ Carpentry LLC, or message Joe to arrange another way to pay.";
   const connected = squareReadiness(env, cfg).connected && !!cfg?.application_id && !!cfg?.location_id;
   if (!connected) return { online: false, instructions };
   const caps = cfg!.capabilities as { card?: boolean; ach?: boolean };
@@ -78,8 +79,8 @@ export type CheckoutResult =
 export async function checkout(input: { invoiceId: number; method: PaymentMethod; nonce: string; sourceId: string; expectedAmountCents?: number | null; expectedRevision?: number | null; card?: CardFacts | null; expectedSurchargeCents?: number | null; buyerEmail?: string | null; actor: Principal | string }): Promise<CheckoutResult> {
   const cfg = await getProviderConfig();
   const adapter = getSquareAdapter();
-  const connected = adapter.environment === "fake" ? true : !!cfg && cfg.connection_state === "connected" && !!cfg.location_id;
-  if (!connected) return { ok: false, code: "not_configured", reason: "Online payment isn't set up yet.", status: 503 };
+  const connected = squareReadiness(adapter.environment, cfg).connected && !!cfg?.location_id && !!cfg?.application_id;
+  if (!connected) return { ok: false, code: "not_configured", reason: "Online payment isn't available right now. Pay by check to SJ Carpentry LLC, or message Joe to arrange another way to pay.", status: 409 };
   const prep = await withTransaction((run) => prepareAttempt(run, { invoiceId: input.invoiceId, method: input.method, nonce: input.nonce, expectedAmountCents: input.expectedAmountCents, expectedRevision: input.expectedRevision, card: input.card, expectedSurchargeCents: input.expectedSurchargeCents, actor: input.actor }));
   if (!prep.ok) return { ok: false, code: prep.code, reason: prep.reason, status: prep.code === "not_found" ? 404 : 409 };
   if (prep.reused && ["pending", "completed", "refunded", "failed", "disputed"].includes(prep.attempt.state)) {
@@ -88,7 +89,7 @@ export async function checkout(input: { invoiceId: number; method: PaymentMethod
   const outcome = await chargeAttempt(adapter, prep.attempt, { sourceId: input.sourceId, locationId: cfg?.location_id || "fake", buyerEmail: input.buyerEmail ?? null, note: `Invoice ${prep.invoice.number}` });
   if (outcome.kind === "declined") {
     await withTransaction((run) => markAttemptDeclined(run, prep.attempt.id, outcome.code, outcome.reason));
-    return { ok: false, code: "declined", reason: outcome.reason, status: 402, detail: outcome.code };
+    return { ok: false, code: "declined", reason: paymentDeclineMessage(outcome.code), status: 402, detail: outcome.code };
   }
   if (outcome.kind === "unknown") {
     await withTransaction((run) => markAttemptUnknown(run, prep.attempt.id, outcome.reason));

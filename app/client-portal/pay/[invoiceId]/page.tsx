@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Card, Eyebrow } from "@/components/ui";
+import { Button, Card, Eyebrow } from "@/components/ui";
 import { portalSlug } from "@/lib/client-portal";
 import { queryOne } from "@/lib/db";
 import { usd } from "@/lib/money";
@@ -29,55 +29,60 @@ export default async function PortalPayPage({ params }: { params: Promise<{ invo
   const pending = balance?.pendingCents ?? 0;
 
   return (
-    <main className="mx-auto w-full max-w-2xl px-9 py-7">
-      <Eyebrow>Pay invoice</Eyebrow>
-      <h1 className="mt-1 font-serif text-[26px] font-medium leading-tight text-accent-2">
-        {inv.number} · {inv.milestone}
-      </h1>
-      <p className="mt-1.5 text-[13px] leading-relaxed text-ink-2">
-        Invoice total {usd(inv.amount)}
-        {inv.due_at ? ` · due ${inv.due_at}` : ""}. Questions about a line? Ask in{" "}
-        <Link href="/client-portal/messages" className="underline">Messages</Link> before you pay.
-      </p>
-      <div className="my-5 border-t border-rule" />
+    <main className="mx-auto w-full max-w-lg px-4 py-7">
+      <Card className="p-5 sm:p-6">
+        <p className="font-serif text-heading font-semibold">SJ Carpentry</p>
+        <Eyebrow className="mt-4">Pay invoice</Eyebrow>
+        <h1 className="mt-1 font-serif text-heading font-medium leading-tight text-accent-2">
+          {inv.number} · {inv.milestone}
+        </h1>
+        <p className="mt-1.5 text-body leading-relaxed text-ink-2">
+          Invoice total {usd(inv.amount)}
+          {inv.due_at ? ` · due ${inv.due_at}` : ""}. Questions about a line? Ask in{" "}
+          <Link href="/client-portal/messages" className="underline">Messages</Link> before you pay.
+        </p>
+        <div className="my-5 border-t border-rule" />
 
-      <Card kind="accent" className="p-3">
-        <div className="flex items-center">
-          <span className="flex-1 text-[12.5px] text-ink-2">Open balance</span>
-          <span className="font-mono text-[15px] font-semibold text-ink">{usd(open)}</span>
-        </div>
-        {pending > 0 && (
-          <div className="mt-1 text-[11.5px] text-ink-3">
-            A bank transfer of {usd(pending)} is still processing. The balance updates when it clears; no need to pay again.
+        <div className="py-2">
+          <div className="flex items-center">
+            <span className="flex-1 text-body text-ink-2">Open balance</span>
+            <span className="font-serif text-kpi tabular-nums text-ink">{usd(open)}</span>
           </div>
-        )}
-      </Card>
+          {pending > 0 && (
+            <div className="mt-1 text-label text-ink-3">
+              A bank transfer of {usd(pending)} is still processing. The balance updates when it clears; no need to pay again.
+            </div>
+          )}
+        </div>
 
-      <div className="mt-4">
-        {open <= 0 ? (
-          <p className="text-[13.5px] text-ink-3">Nothing is due on this invoice. Thank you.</p>
-        ) : pending > 0 ? null : setup.online ? (
-          <PayInvoice
-            invoiceId={inv.id}
-            revision={Number(inv.revision)}
-            amountCents={open}
-            applicationId={setup.applicationId}
-            locationId={setup.locationId}
-            environment={setup.environment}
-            allowCard={setup.card}
-            allowAch={setup.ach}
-            surcharge={setup.surcharge}
-          />
-        ) : (
-          <Card className="p-3">
-            <div className="font-mono text-[9px] uppercase tracking-[0.12em] text-ink-3">How to pay</div>
-            <p className="mt-1 whitespace-pre-line text-[13px] leading-relaxed text-ink">{setup.instructions}</p>
-          </Card>
-        )}
-      </div>
-      <p className="mt-4 text-[11px] text-ink-3">
-        <Link href="/client-portal/money" className="underline">Back to Money</Link>
-      </p>
+        <div className="mt-4">
+          {open <= 0 ? (
+            <p className="text-body text-ink-3">Nothing is due on this invoice. Thank you.</p>
+          ) : pending > 0 ? null : setup.online ? (
+            <PayInvoice
+              invoiceId={inv.id}
+              revision={Number(inv.revision)}
+              amountCents={open}
+              applicationId={setup.applicationId}
+              locationId={setup.locationId}
+              environment={setup.environment}
+              allowCard={setup.card}
+              allowAch={setup.ach}
+              surcharge={setup.surcharge}
+            />
+          ) : (
+            <div className="border-t border-rule pt-4">
+              <p className="mb-3 text-subheading font-semibold text-ink">Online payment isn’t available right now.</p>
+              <div className="font-sans text-meta text-ink-3">How to pay</div>
+              <p className="mt-1 whitespace-pre-line text-body leading-relaxed text-ink">{setup.instructions}</p>
+              <Button href="/client-portal/messages" size="lg" className="mt-4 w-full">Message Joe about payment</Button>
+            </div>
+          )}
+        </div>
+        <p className="mt-4 text-meta text-ink-3">
+          <Link href="/client-portal/money" className="inline-flex min-h-11 items-center underline">Back to Money</Link>
+        </p>
+      </Card>
     </main>
   );
 }

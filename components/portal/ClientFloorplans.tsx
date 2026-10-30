@@ -21,7 +21,7 @@ export function ClientFloorplans({
 }) {
   if (plans.length === 0) {
     return (
-      <p className="text-[13.5px] leading-relaxed text-ink-3">
+      <p className="text-body leading-relaxed text-ink-3">
         No plans posted yet. When Joe uploads a floor plan, the latest version will appear
         here for your review.
       </p>
@@ -35,7 +35,7 @@ export function ClientFloorplans({
       <PlanCard plan={current} current signerName={signerName} />
       {older.length > 0 && (
         <div className="flex flex-col gap-2">
-          <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-ink-3">
+          <span className="font-sans text-meta text-ink-3">
             Earlier versions
           </span>
           {older.map((p) => (
@@ -73,15 +73,15 @@ function PlanCard({
 
   return (
     <Card className={current ? "p-3" : "p-2.5"}>
-      <div className="flex items-center gap-2">
-        <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-sans text-meta text-ink-3">
           Version {plan.version}
         </span>
-        <span className="font-mono text-[10px] text-ink-4">{plan.uploaded}</span>
+        <span className="font-sans text-meta text-ink-3">{plan.uploaded}</span>
         <div className="flex-1" />
         {plan.approvedLabel ? (
           <Chip kind="money" dot>
-            approved {plan.approvedLabel}
+            Approved
           </Chip>
         ) : current ? (
           <Chip kind="info" dot>
@@ -93,7 +93,7 @@ function PlanCard({
       </div>
 
       {plan.notes && (
-        <p className="mt-1.5 text-[12px] leading-snug text-ink-2">{plan.notes}</p>
+        <p className="mt-1.5 text-label leading-snug text-ink-2">{plan.notes}</p>
       )}
 
       <div className="mt-2.5">
@@ -112,7 +112,7 @@ function PlanCard({
               href={plan.fileUrl}
               target="_blank"
               rel="noopener"
-              className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-accent bg-accent-soft px-2.5 py-1.5 text-[12px] font-semibold text-accent-2 hover:bg-accent-soft/70"
+              className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-accent bg-accent-soft px-2.5 py-1.5 text-label font-semibold text-accent-2 hover:bg-accent-soft/70"
             >
               <FileText className="size-3.5" strokeWidth={1.75} />
               Open · download · print
@@ -136,7 +136,7 @@ function PlanCard({
       {plan.designVersionId != null && (
       <Link
         href={`/client-portal/plans/${plan.id}`}
-        className="mt-2 inline-flex min-h-9 items-center gap-1.5 rounded-md border border-rule bg-card px-2.5 text-[12px] font-semibold text-ink-2 hover:bg-paper-2"
+        className="mt-2 inline-flex min-h-9 items-center gap-1.5 rounded-md border border-rule bg-card px-2.5 text-label font-semibold text-ink-2 hover:bg-paper-2"
       >
         <Box className="size-3.5" strokeWidth={1.75} />
         View in 3D
@@ -146,27 +146,27 @@ function PlanCard({
       {current && !plan.approvedLabel && (
         <div className="mt-3 border-t border-rule-soft pt-2.5">
           <label className="block">
-            <span className="mb-1 block text-[11px] font-semibold text-ink-2">
+            <span className="mb-1 block text-meta font-semibold text-ink-2">
               Type your name to approve this plan
             </span>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Your full name"
-              className="w-full max-w-xs rounded-md border border-rule bg-card px-2.5 py-1.5 font-serif text-[15px] italic text-ink focus:border-accent focus:outline-none"
+              className="w-full max-w-xs rounded-md border border-rule bg-card px-2.5 py-1.5 font-serif text-subheading italic text-ink focus:border-accent focus:outline-none"
             />
           </label>
-          {error && <div className="mt-1.5 text-[11px] text-flag">{error}</div>}
+          {error && <div className="mt-1.5 text-meta text-flag">{error}</div>}
           <button
             type="button"
             onClick={approve}
             disabled={pending}
-            className="mt-2 inline-flex items-center gap-1 rounded-md border border-money bg-money px-3 py-1.5 text-[12px] font-semibold text-white hover:opacity-90 disabled:opacity-60"
+            className="mt-2 inline-flex items-center gap-1 rounded-md border border-money bg-money px-3 py-1.5 text-label font-semibold text-white hover:opacity-90 disabled:opacity-60"
           >
             <Check className="size-3" strokeWidth={2.5} />
             {pending ? "Approving…" : "Approve this plan"}
           </button>
-          <p className="mt-1.5 text-[10px] leading-snug text-ink-3">
+          <p className="mt-1.5 text-meta leading-snug text-ink-3">
             Not quite right? Send Joe a note from the Messages tab and a revised version
             will show up here.
           </p>
@@ -174,8 +174,8 @@ function PlanCard({
       )}
 
       {plan.approvedName && (
-        <div className="mt-2 font-mono text-[10px] text-ink-3">
-          Approved by {plan.approvedName}
+        <div className="mt-2 font-sans text-meta text-ink-3">
+          Approved by {plan.approvedName} · {plan.approvedLabel}
         </div>
       )}
     </Card>

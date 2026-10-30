@@ -67,7 +67,7 @@ export function InPersonSigning({
       <header className="flex items-center gap-3 border-b border-rule bg-card px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <Link
           href={backHref}
-          className="inline-flex h-10 flex-none items-center gap-1.5 rounded-md border border-rule bg-card px-3 text-[13px] font-semibold text-ink-2 hover:bg-paper-2"
+          className="inline-flex h-11 flex-none items-center gap-1.5 rounded-md border border-rule bg-card px-3 text-body font-semibold text-ink-2 hover:bg-paper-2"
           style={{ touchAction: "manipulation" }}
         >
           <ArrowLeft className="size-4" strokeWidth={2} />
@@ -75,7 +75,7 @@ export function InPersonSigning({
         </Link>
         <div className="min-w-0 flex-1">
           <Eyebrow>Sign in person{scopeName ? ` · ${scopeName}` : ""}</Eyebrow>
-          <h1 className="truncate font-serif text-[19px] font-semibold leading-tight text-ink sm:text-[22px]">
+          <h1 className="font-serif text-heading font-semibold leading-tight text-ink sm:text-title">
             {request.title}
           </h1>
         </div>
@@ -105,14 +105,14 @@ export function InPersonSigning({
                 <iframe
                   src={`${docHref}#toolbar=1&view=FitH`}
                   title={request.title}
-                  className="h-[52dvh] w-full rounded-lg border border-rule bg-card lg:h-[calc(100dvh-8.5rem)]"
+                  className="h-[52dvh] w-full rounded-lg border border-rule bg-card lg:h-[calc(100dvh-11.5rem)]"
                 />
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-ink-3">
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-label text-ink-3">
                   <a
                     href={docHref}
                     target="_blank"
                     rel="noopener"
-                    className="inline-flex h-10 items-center gap-1.5 rounded-md border border-accent bg-accent-soft px-3 text-[13px] font-semibold text-accent-2 hover:bg-accent-soft/70"
+                    className="inline-flex h-11 items-center gap-1.5 rounded-md border border-accent bg-accent-soft px-3 text-body font-semibold text-accent-2 hover:bg-accent-soft/70"
                     style={{ touchAction: "manipulation" }}
                   >
                     <FileText className="size-4" strokeWidth={1.75} />
@@ -122,7 +122,7 @@ export function InPersonSigning({
                 </div>
               </>
             ) : (
-              <div className="max-h-[52dvh] overflow-y-auto whitespace-pre-wrap rounded-lg border border-rule bg-card p-4 font-mono text-[12px] leading-relaxed text-ink lg:max-h-[calc(100dvh-8.5rem)]">
+              <div className="max-h-[52dvh] overflow-y-auto whitespace-pre-wrap rounded-lg border border-rule bg-card p-4 font-sans text-label leading-relaxed text-ink lg:max-h-[calc(100dvh-11.5rem)]">
                 {request.body}
               </div>
             )}
@@ -134,10 +134,10 @@ export function InPersonSigning({
               <div className="flex items-start gap-2.5">
                 <PenLine className="mt-0.5 size-4 flex-none text-accent" strokeWidth={1.75} />
                 <div className="min-w-0">
-                  <div className="font-serif text-[16px] font-semibold text-ink">
+                  <div className="font-serif text-heading font-semibold text-ink">
                     {request.signerName ? `${request.signerName}, ` : ""}please review and sign
                   </div>
-                  <p className="mt-0.5 text-[12.5px] leading-relaxed text-ink-2">
+                  <p className="mt-0.5 text-body leading-relaxed text-ink-2">
                     Read the {docTypeLabel(request.docType).toLowerCase()} on the left, then sign in the box
                     with your finger or a stylus. {witnessName} is presenting this device and will be recorded as
                     witness.
@@ -146,25 +146,25 @@ export function InPersonSigning({
               </div>
 
               <label className="mt-3.5 block">
-                <span className="mb-1 block text-[11.5px] font-semibold text-ink-2">Signer&rsquo;s full name</span>
+                <span className="mb-1 block text-label font-semibold text-ink-2">Signer&rsquo;s full name</span>
                 <input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Full legal name"
                   autoComplete="off"
                   autoCapitalize="words"
-                  className="h-11 w-full rounded-md border border-rule bg-card px-3 font-serif text-[17px] text-ink focus:border-accent focus:outline-none"
+                  className="h-11 w-full rounded-md border border-rule bg-card px-3 font-serif text-heading text-ink focus:border-accent focus:outline-none"
                 />
               </label>
 
               <div className="mt-3">
                 <div className="mb-1 flex items-center justify-between">
-                  <span className="text-[11.5px] font-semibold text-ink-2">Signature</span>
+                  <span className="text-label font-semibold text-ink-2">Signature</span>
                   <button
                     type="button"
                     onClick={() => padRef.current?.clear()}
                     disabled={pending || !inked}
-                    className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-[12px] font-semibold text-ink-3 hover:text-ink disabled:opacity-40"
+                    className="inline-flex h-11 items-center gap-1 rounded-md px-2 text-label font-semibold text-ink-3 hover:text-ink disabled:opacity-40"
                     style={{ touchAction: "manipulation" }}
                   >
                     <Eraser className="size-3.5" strokeWidth={1.75} />
@@ -174,7 +174,7 @@ export function InPersonSigning({
                 <SignaturePad ref={padRef} height={200} onChange={(e) => setInked(!e)} />
               </div>
 
-              <label className="mt-3 flex items-start gap-2.5 text-[12px] leading-relaxed text-ink-2">
+              <label className="mt-3 flex items-start gap-2.5 text-label leading-relaxed text-ink-2">
                 <input
                   type="checkbox"
                   checked={consent}
@@ -184,20 +184,20 @@ export function InPersonSigning({
                 <span>{CONSENT_STATEMENT.in_person}</span>
               </label>
 
-              {error && <div className="mt-2 text-[12px] font-semibold text-flag">{error}</div>}
+              {error && <div className="mt-2 text-label font-semibold text-flag">{error}</div>}
 
               <button
                 type="button"
                 onClick={sign}
                 disabled={pending}
-                className="mt-3.5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-md border border-money bg-money text-[15px] font-semibold text-white hover:opacity-90 disabled:opacity-60"
+                className="mt-3.5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-md border border-money bg-ink text-subheading font-semibold text-white hover:opacity-90 disabled:opacity-60"
                 style={{ touchAction: "manipulation" }}
               >
                 <Check className="size-4" strokeWidth={2.5} />
                 {pending ? "Recording signature…" : "Sign document"}
               </button>
 
-              <p className="mt-2.5 flex items-start gap-1.5 text-[11px] leading-relaxed text-ink-3">
+              <p className="mt-2.5 flex items-start gap-1.5 text-meta leading-relaxed text-ink-3">
                 <ShieldCheck className="mt-0.5 size-3.5 flex-none" strokeWidth={1.75} />
                 <span>
                   Your signature, the time, this device, and the witness are recorded on a Certificate of
@@ -247,8 +247,8 @@ function SignedState({
       <div className="flex size-16 items-center justify-center rounded-full bg-money-soft text-money">
         <Check className="size-8" strokeWidth={2.5} />
       </div>
-      <h2 className="mt-4 font-serif text-[28px] font-medium leading-tight text-accent-2">Signed. Thank you.</h2>
-      <p className="mt-2 text-[14px] leading-relaxed text-ink-2">
+      <h2 className="mt-4 font-serif text-display font-medium leading-tight text-accent-2">Signed. Thank you.</h2>
+      <p className="mt-2 text-subheading leading-relaxed text-ink-2">
         <span className="font-semibold text-ink">{name}</span> signed &ldquo;{title}&rdquo;
         {when ? ` on ${when}` : ""}, witnessed by {witnessName}. A copy with the signature certificate is in the
         client portal.
@@ -259,7 +259,7 @@ function SignedState({
             href={docHref}
             target="_blank"
             rel="noopener"
-            className="inline-flex h-11 items-center gap-1.5 rounded-md border border-accent bg-accent-soft px-4 text-[13px] font-semibold text-accent-2 hover:bg-accent-soft/70"
+            className="inline-flex h-11 items-center gap-1.5 rounded-md border border-accent bg-accent-soft px-4 text-body font-semibold text-accent-2 hover:bg-accent-soft/70"
             style={{ touchAction: "manipulation" }}
           >
             <FileText className="size-4" strokeWidth={1.75} />
@@ -268,7 +268,7 @@ function SignedState({
         )}
         <Link
           href={backHref}
-          className="inline-flex h-11 items-center gap-1.5 rounded-md border border-ink bg-ink px-4 text-[13px] font-semibold text-paper hover:bg-[#232a1e]"
+          className="inline-flex h-11 items-center gap-1.5 rounded-md border border-ink bg-ink px-4 text-body font-semibold text-paper hover:bg-ink-hover"
           style={{ touchAction: "manipulation" }}
         >
           <ArrowLeft className="size-4" strokeWidth={2} />
@@ -298,11 +298,11 @@ function ClosedState({
         : "This document hasn't been prepared for signing yet. Send it, or use “Sign in person” on the document.";
   return (
     <main className="mx-auto flex w-full max-w-xl flex-1 flex-col items-center px-6 py-14 text-center">
-      <h2 className="font-serif text-[24px] font-medium leading-tight text-ink">Not ready to sign</h2>
-      <p className="mt-2 text-[14px] leading-relaxed text-ink-2">{copy}</p>
+      <h2 className="font-serif text-title font-medium leading-tight text-ink">Not ready to sign</h2>
+      <p className="mt-2 text-subheading leading-relaxed text-ink-2">{copy}</p>
       <Link
         href={backHref}
-        className="mt-6 inline-flex h-11 items-center gap-1.5 rounded-md border border-ink bg-ink px-4 text-[13px] font-semibold text-paper hover:bg-[#232a1e]"
+        className="mt-6 inline-flex h-11 items-center gap-1.5 rounded-md border border-ink bg-ink px-4 text-body font-semibold text-paper hover:bg-ink-hover"
       >
         <ArrowLeft className="size-4" strokeWidth={2} />
         {backLabel}

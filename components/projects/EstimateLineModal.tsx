@@ -2,6 +2,7 @@
 
 import { useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/Button";
 import { X } from "lucide-react";
 import { COST_UNITS, centsToInput } from "@/lib/cost-book-units";
 import type { CostItem } from "@/lib/cost-book";
@@ -71,14 +72,14 @@ export function EstimateLineModal({
     });
   }
 
-  const field = "rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent";
-  const lab = "font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3";
+  const field = "min-w-0 w-full rounded-md border border-rule bg-card px-3 py-2 text-body text-ink outline-none focus:border-accent";
+  const lab = "text-label font-medium text-ink-3";
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink/30 p-4 pt-[10vh]" onClick={onClose}>
-      <div className="w-full max-w-[500px] rounded-lg border border-rule bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" aria-label={mode === "edit" ? "Edit line" : "Add line"} className="max-h-[85dvh] overflow-y-auto w-full max-w-[500px] rounded-lg border border-rule bg-card shadow-modal" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-rule px-4 py-3">
-          <h2 className="font-serif text-[17px] font-semibold text-ink">
+          <h2 className="font-serif text-heading font-semibold text-ink">
             {mode === "edit" ? "Edit line" : "Add line"}
           </h2>
           <button onClick={onClose} className="text-ink-3 hover:text-ink" aria-label="Close">
@@ -107,12 +108,12 @@ export function EstimateLineModal({
             <input name="description" required value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Frame interior walls" className={field} />
           </label>
 
-          <div className="flex gap-3">
-            <label className="flex flex-1 flex-col gap-1">
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex min-w-0 flex-1 flex-col gap-1">
               <span className={lab}>Section</span>
               <input name="section" value={section} onChange={(e) => setSection(e.target.value)} placeholder="Kitchen" className={field} />
             </label>
-            <label className="flex w-[130px] flex-col gap-1">
+            <label className="flex min-w-0 flex-col gap-1">
               <span className={lab}>Unit</span>
               <select name="unit" value={unit} onChange={(e) => setUnit(e.target.value)} className={field}>
                 {COST_UNITS.map((u) => (
@@ -122,37 +123,33 @@ export function EstimateLineModal({
             </label>
           </div>
 
-          <div className="flex gap-3">
-            <label className="flex flex-1 flex-col gap-1">
+          <div className="grid grid-cols-3 gap-3">
+            <label className="flex min-w-0 flex-1 flex-col gap-1">
               <span className={lab}>Qty</span>
-              <input name="qty" inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} className={field} />
+              <input name="qty" type="number" min="0" step="any" required inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} className={field} />
             </label>
-            <label className="flex flex-1 flex-col gap-1">
+            <label className="flex min-w-0 flex-1 flex-col gap-1">
               <span className={lab}>Unit cost ($)</span>
               <input name="unitCost" inputMode="decimal" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} placeholder="12.50" className={field} />
             </label>
-            <label className="flex w-[100px] flex-col gap-1">
+            <label className="flex min-w-0 flex-col gap-1">
               <span className={lab}>Markup %</span>
               <input name="markup" inputMode="decimal" value={markup} onChange={(e) => setMarkup(e.target.value)} className={field} />
             </label>
           </div>
 
           <div className="flex items-center justify-between rounded-md bg-paper-2 px-3 py-2">
-            <span className="text-[12px] text-ink-3">Line total</span>
-            <span className="font-mono text-[14px] font-semibold text-ink">
+            <span className="text-label text-ink-3">Line total</span>
+            <span className="tabular-nums text-subheading font-semibold text-ink">
               {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(extended)}
             </span>
           </div>
 
-          {error && <div className="text-[12px] text-flag">{error}</div>}
+          {error && <div className="text-label text-flag">{error}</div>}
 
-          <div className="mt-1 flex justify-end gap-2">
-            <button type="button" onClick={onClose} className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2">
-              Cancel
-            </button>
-            <button type="submit" disabled={pending} className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-60">
-              {pending ? "Saving…" : mode === "edit" ? "Save line" : "Add line"}
-            </button>
+          <div className="flex items-center justify-end gap-2 border-t border-rule-soft pt-3">
+            <Button variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button type="submit" disabled={pending}>{pending ? "Saving…" : mode === "edit" ? "Save line" : "Add line"}</Button>
           </div>
         </form>
       </div>

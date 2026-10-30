@@ -38,3 +38,14 @@ test('bulk takeoff refuses invalid quantities instead of saving just the valid s
  const r=await addTakeoffLines(1,'zz-qa','General',[{costItemId:1,qty:2},{costItemId:2,qty:-1}]);
  assert.equal(r.ok,false);assert.match(r.error,/quantity/i);assert.equal(calls.length,0);
 });
+
+test('MCP add and edit schemas reject the same invalid quantities',async()=>{
+ const {registerEstimateTools}=await import('../mcp/estimate-tools.mjs');
+ const tools=new Map();registerEstimateTools({registerTool:(name,config)=>tools.set(name,config)},{});
+ const add=tools.get('add_estimate_lines').inputSchema.lines;
+ const edit=tools.get('update_estimate_line').inputSchema.qty;
+ for(const qty of [-1,NaN,Infinity]){
+  assert.equal(add.safeParse([{description:'ZZ QA quantity',qty,unit_cost_cents:10000}]).success,false);
+  assert.equal(edit.safeParse(qty).success,false);
+ }
+});

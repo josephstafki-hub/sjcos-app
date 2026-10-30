@@ -35,6 +35,7 @@ import { findProjects, loadRawProjectMoney, todayCentral } from "../lib/budget-q
 import { computeTotals, describeFinancials } from "../lib/budget-types.ts";
 import * as writes from "../lib/budget-writes.ts";
 import { recordWorkflowEvent } from "../lib/workflow/engine.ts";
+import { verifiedHoursForCloseout } from "../lib/owner-time/costing.ts";
 import { agentNameOf, areaRefusal } from "./tool-shared.mjs";
 
 const pct = (r) => (r == null ? null : Math.round(r * 1000) / 10);
@@ -220,7 +221,13 @@ export function registerFinancialsTools(realServer, { rows, json, pool, stripped
       const [project] = await findProjects(rows, { slug: project_slug });
       if (!project) return json({ error: `No project with slug "${project_slug}"` });
       const money = (await loadRawProjectMoney(rows, [project.id])).get(project.id);
-      return json(projectPayload(assembleBudgetView(money, { asOf: todayCentral() })));
+      // Joe's own verified hours (A19): reported beside the budget, not inside
+      // its cost or profit; valued only by a rate he set on /time.
+      const hours = await verifiedHoursForCloseout(rows, project.id).catch(() => null);
+      const ownerHours = hours && hours.totalHours > 0
+        ? { total_hours: hours.totalHours, value_cents: hours.totalCostCents, by_category: hours.categories.map((c) => ({ category: c.category, hours: c.hours, value_cents: c.costCents, status: c.costStatus })), unconfirmed_intervals: hours.unresolved, note: "Joe's confirmed hours on this job, valued at his /time rates. Not included in cost or profit above." }
+        : null;
+      return json({ ...projectPayload(assembleBudgetView(money, { asOf: todayCentral() })), owner_hours: ownerHours });
     },
   );
 

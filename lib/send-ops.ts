@@ -213,7 +213,9 @@ async function loadInvoiceForEmail(id: number) {
 
 function invoiceEmailBody(p: { name: string; inv: InvoiceJoin; lineText: string; attached: boolean; payUrl: string | null }): string {
   const first = p.name.split(/\s+/)[0] || "there";
-  const payText = p.payUrl ? `Pay online by card or bank transfer:\n${p.payUrl}\n\n` : "";
+  const payText = p.payUrl
+    ? `Pay online by card or bank transfer:\n${p.payUrl}\nCard payments carry a 3% surcharge. Bank transfer and check have no fee.\n\n`
+    : "";
   return (
     `Hi ${first},\n\nPlease find invoice ${p.inv.number} for "${p.inv.milestone}" on the ` +
     `${p.inv.project_name} project ${p.attached ? "attached. A summary is below." : "below."}\n\n` +

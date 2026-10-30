@@ -22,7 +22,7 @@ import {
 
 export const invoiceDocTemplate: DocTemplate = {
   key: "invoice_doc",
-  version: "2026-10-30.1",
+  version: "2026-10-30.2",
   title: "Invoice",
   subtitle: "",
   docClass: "transactional",
@@ -105,6 +105,7 @@ function build(v: FieldValues): TemplateSection[] {
     bulletList([
       "Payment is due upon receipt.",
       "Accepted payment methods: check, ACH/bank transfer, or online by card or bank transfer using the payment link in your invoice email.",
+      "Card payments carry a 3% surcharge. Check and ACH/bank transfer have no fee.",
       `Make checks payable to ${str(v, "company_name", "SJ Carpentry LLC")}.`,
       `Questions about this invoice? Contact us at ${str(v, "company_email")} or ${str(v, "company_phone")}.`,
     ]),

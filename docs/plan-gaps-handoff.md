@@ -53,14 +53,56 @@ this repo every day.
    update would have been empty: `DELETE FROM lane_pauses WHERE lane = 'weekly_summary'`, or use the lane
    switch on /engine/decisions. Note: nothing writes `field_reports` yet (see Tier 2), so weekly updates
    will simply stay held until that's wired.
-4. **Two paid deposits have no billing key.** Alcantara INV-001 and Tierney INV-001. Under the new
-   deposit gate, schedule confirmation and purchase commits on those jobs would be refused. Ask Joe
-   whether to re-key them, for example as `draw:0:<label>`.
+   **0044–0046 (Tier 1 below) are NOT applied yet.** All three only add (a draft policy, two columns,
+   a trigger) and are safe ahead of the code; apply them with `node db/migrate.mjs` at deploy.
+4. ~~**Two paid deposits have no billing key.**~~ Done 2026-10-30 with Joe's OK: Alcantara INV-001 →
+   `draw:0:construction-deposit`, Tierney INV-001 → `draw:0:deposit-on-signing` (each estimate's
+   draw-0 label, so stage advance finds them). Job totals unchanged.
 5. **Ask Joe to keep the backup passphrase and Backblaze keys somewhere off this server**, such as a
    password manager. Without them, the backups can't be decrypted if the server is lost.
 6. Ask Joe to raise the Backblaze daily download cap above $0, if he hasn't already.
 
 ## Tier 1: wrong results that can still happen (small fixes, straight to main)
+
+**Worked 2026-10-30 (all on main, not deployed).** What's left in Tier 1 is marked at the end.
+
+| Commit | What |
+|---|---|
+| 5e1223e | Money panel: issued-but-unsent invoices say "not sent" and get Send / Resend (fresh intent after a dead send); no demand letter on an unsent invoice |
+| 5570a45 | Staff invoice sends filed as `staff:<user>/authority:<grant>` with the person as principal; dispatcher re-checks the account and grant (migration 0042, applied) |
+| c47d0ed | Lead rough-estimate send needs Joe or `proposal` authority (`send_rough_estimate`) |
+| a704e5b | COI nags pause while a renewal is under review; W-9 detector counts only live W-9s |
+| 7c5951c | /subs, sub page, sub portal: COI status from the expiry date on every read; W-9 from a live document (73 of 93 subs now honestly read "W-9 missing"); portal docs show review state |
+| e642e6a | Files route: a sub's restricted paperwork needs the Subs area |
+| 3bbe053 | Overdue nags read `routineReminderCandidates` (days past due, balance > 0, no pending ACH); `sent` status counts as gone out |
+| bca2902 | Deposit bills once whichever key comes first (`estimate:<id>:initial` vs `draw:0:*`) |
+| 529ba5c | Stage advance drafts progress invoices (Joe's Send is the confirmation); honest sent / not emailed / drafted cards |
+| 7f84f18 | Kill switch: billing's lane hold uses the dispatcher's wording, so held invoice sends wake |
+| 0ebfd06 | `schedule.internal_adjust`: harmless moves auto-apply only with the policy active, else a card; migration 0044 seeds it as draft |
+| e39dd3d | Decisions/runbooks routes read the MCP's `principal_user_id`; manual evidence records the real caller |
+| 7e5edc8 | Call follow-ups retried by the reminders cron (`calls.followups_filed_at`, migration 0045); vague due dates ask Joe instead of becoming 2001 |
+| 024f841 | Accepted-revision check notices edited/deleted lines (`estimates.lines_changed_at` trigger, migration 0046) |
+| e5f21b8 | `getProjectEstimates` skips superseded lines |
+| 4cf090b | A stale Decline can't mark a sent draft cancelled |
+| 7c63b79 | Only Joe arms a drip; MCP financial tools need the money area |
+| 12148ce | Job time page: header hours, Adjust timezone shift, sidebar link |
+| 2fe6b17 | Houzz exit page: Square from env, real columns; /engine links its sub-pages |
+
+Stale or no change:
+- **Credits counted as collected:** `lib/billing/project-totals.ts` is gone; the 0037 ledger counts only
+  settled `payment` rows minus refunds/returns. Nothing left.
+- **Keep on /time hits a unique index:** not so (fresh event id each tap, update in place).
+- **`invoice.progress_on_owner_confirmation`:** the progress path already issues only on Joe's confirmation
+  card or his own click; the policy adds nothing. Left as is.
+- **`routine.followup` ACTIVE:** still the live switch for sub paperwork requests (Joe turned all 8 on
+  2026-10-29). Keep in mind before wiring the lead lib (Tier 3 A11).
+
+Still open, needs Joe:
+- **Sent estimates stay editable / prices never frozen on the real send.** Locking a sent estimate (or
+  freezing its prices at send) changes how Joe revises and re-sends; ask him before building it. The
+  acceptance check now at least refuses to bill a changed estimate.
+- The two `milestone_confirmation` card shapes (billing `stageMilestoneConfirmation` vs field
+  `confirmMilestone`) are incompatible: approving the billing one would fail. Belongs with Tier 2/3 wiring.
 
 - **Unsent invoices look sent.** The Money panel treats `issued` as "sent" even when delivery failed, and
   the Send button exists only on drafts (`lib/money.ts`, `components/projects/MoneyPanel.tsx`). Add a

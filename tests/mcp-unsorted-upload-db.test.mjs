@@ -212,7 +212,8 @@ test("Financial tools need the money area when an agent acts for a team member; 
     const dir = await mkdtemp(path.join(tmpdir(), "sjc-fin-area-"));
     const h = await harness(url, dir);
     try {
-      const staff = (await client.query(`INSERT INTO users (email, password_hash, name, role, initials, permissions) VALUES ('zz-fin@example.test','x','Sam','staff','S', ARRAY['projects']) RETURNING id`)).rows[0].id;
+      const staff = (await client.query(`INSERT INTO users (email, password_hash, name, role, initials, permissions) VALUES ('zz-fin@example.test','x','Sam','staff','S', ARRAY['projects'])
+         ON CONFLICT (email) DO UPDATE SET role = 'staff', active = true, permissions = ARRAY['projects'] RETURNING id`)).rows[0].id;
       h.principal.current = { userId: staff, role: "staff", name: "Sam", active: true, revoked: false };
       const refused = await h.call("company_financials", {});
       assert.match(refused.error ?? "", /no "money" access/);

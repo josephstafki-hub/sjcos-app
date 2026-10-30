@@ -499,7 +499,25 @@ export function InboxClient({
   return (
     <div className="flex h-full min-h-0 flex-col [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus">
       <div className="border-b border-rule-soft px-4 py-5 @2xl/page:px-5"><PageHeader title="Inbox" meta="Email, texts and portal conversations in one place." /></div>
-      {!data.mailbox.connected && <div className="flex flex-wrap items-center gap-3 border-b border-warn/20 bg-warn-soft px-4 py-3"><div className="min-w-0 flex-1"><p className="text-subheading font-semibold text-ink">No email connected</p><p className="mt-1 text-body text-ink-2">{data.mailbox.canConnect ? "Connect Gmail to read and reply to your email here." : "Gmail sign-in is unavailable until the server’s one-time setup is complete."}</p></div>{data.mailbox.canConnect ? <Button href="/api/inbox/oauth/start" variant="primary" size="sm" icon={Mail}>Connect Gmail</Button> : <details open className="w-full text-body text-ink-2"><summary className="cursor-pointer font-semibold">Gmail setup checklist</summary><ol className="mt-2 list-decimal space-y-2 pl-5"><li>Open <a href="https://console.cloud.google.com/apis/credentials" className="underline">Google Cloud credentials</a> for your Gmail application.</li><li>Complete the one-time server setup: securely install the Gmail sign-in credentials and register the SJC OS return address.</li><li>Reload Inbox, then choose Connect Gmail and sign in to your mailbox.</li></ol></details>}</div>}
+      {!data.mailbox.connected && (
+        <div className="border-b border-warn/20 bg-warn-soft px-4 py-3">
+          <div className="flex flex-col items-start gap-2 @xl/page:flex-row @xl/page:items-center">
+            <div className="min-w-0 flex-1">
+              <p className="text-subheading font-semibold text-ink">No email connected</p>
+              <p className="mt-1 text-body text-ink-2">{data.mailbox.canConnect ? "Connect Gmail to read and reply here. Saved conversations are below." : "Finish Gmail setup to connect email. Saved conversations are below."}</p>
+            </div>
+            <Button href={data.mailbox.canConnect ? "/api/inbox/oauth/start" : "https://console.cloud.google.com/apis/credentials"} variant="primary" size="sm" className="max-sm:h-11" icon={Mail}>{data.mailbox.canConnect ? "Connect Gmail" : "Set up Gmail"}</Button>
+          </div>
+          {!data.mailbox.canConnect && <details className="mt-2 text-body text-ink-2">
+            <summary className="cursor-pointer py-1 font-semibold">Gmail setup checklist</summary>
+            <ol className="mt-2 list-decimal space-y-2 pl-5">
+              <li>Open Google Cloud credentials for your Gmail application.</li>
+              <li>Have your account administrator securely connect Gmail sign-in and the SJC OS return address.</li>
+              <li>Reload Inbox, then choose Connect Gmail and sign in to your mailbox.</li>
+            </ol>
+          </details>}
+        </div>
+      )}
       <div className="flex items-center gap-2 border-b border-rule-soft px-3 py-2 @5xl/page:hidden"><Button onClick={() => {setShowSources(v => !v); setMobileReader(false);}} variant="secondary" size="sm" icon={Filter} aria-expanded={showSources}>Views and channels</Button><span className="min-w-0 truncate text-meta text-ink-3">{headerLabel}</span></div>
       <div className="flex min-h-0 flex-1">
       {/* ─── Sources rail ─────────────────────────────────────────── */}

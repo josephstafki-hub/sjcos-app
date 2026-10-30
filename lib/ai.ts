@@ -173,40 +173,18 @@ const mockProvider: AiProvider = {
   name: "mock",
 
   async brief(input) {
-    const replies = input.threadsNeedingReply ?? 0;
-    const q = input.queue ?? [];
-    const chat = q.find((i) => i.lane === "chat");
-    const deep = q.find((i) => i.lane === "deep");
-    // Narrate lanes so dev-without-Ollama still demos the Today v2 UX.
-    const laneLine = q.length
-      ? `${chat ? `Say go on ${chat.rank} and I'll handle it in chat. ` : ""}` +
-        `${deep ? `${deep.rank} needs you on its page. ` : ""}` +
-        `The rest are quick check-offs.`
-      : `${replies} ${replies === 1 ? "thread" : "threads"} waiting on a reply.`;
+    // A fallback has no basis for urgency, deadlines, or new suggestions.
+    const facts: string[] = [];
+    if (input.queue?.length) {
+      facts.push(`Up next: ${input.queue.map((item) => item.title).join("; ")}.`);
+    }
+    if (input.threadsNeedingReply !== undefined) {
+      const n = input.threadsNeedingReply;
+      facts.push(`${n} ${n === 1 ? "thread" : "threads"} waiting on a reply.`);
+    }
     return {
-      summary:
-        `Here's your day. ${input.projects?.[0]?.name ?? "Your lead job"} needs eyes this morning. ` +
-        laneLine,
-      priorities: [
-        {
-          kind: "lead",
-          title: "Reply to the oldest waiting lead",
-          reason: "Rough estimate sent — SLA window closing soon.",
-          href: "/leads",
-        },
-        {
-          kind: "job",
-          title: "Confirm today's material delivery",
-          reason: "Crew starts on site; verify materials staged.",
-          href: "/schedule",
-        },
-        {
-          kind: "marketing",
-          title: "Review queued social posts",
-          reason: "AI-drafted posts from a completed job are ready to publish.",
-          href: "/site",
-        },
-      ],
+      summary: facts.length ? facts.join(" ") : "The daily brief is unavailable. Your work list and schedule are below.",
+      priorities: [],
     };
   },
 

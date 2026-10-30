@@ -90,6 +90,7 @@ import { registerProcurementTools } from "./procurement-tools.mjs";
 import { registerBillingTools } from "./billing-tools.mjs";
 import { registerContextTools } from "./context-tools.mjs";
 import { registerFieldTools } from "./field-tools.mjs";
+import { editWorkItem } from "../lib/work-item-edit.ts";
 import { registerTeamTools } from "./team-tools.mjs";
 import { registerProjectTools } from "./project-tools.mjs";
 import { registerLeadTools } from "./lead-tools.mjs";
@@ -1309,6 +1310,24 @@ server.registerTool(
 );
 
 server.registerTool(
+  "update_work_item",
+  {
+    title: "Edit a work item",
+    description: "Correct title, description, priority, due date or linked job without creating a duplicate. Omit fields to keep them; null clears a date or job. Future due dates stay snoozed until that day in Central time. To change people, use assign_work_item (owner instruction required).",
+    inputSchema: {
+      id: z.string().uuid(), title: z.string().optional(), body: z.string().optional(),
+      priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
+      due_at: z.string().nullable().optional(), project_slug: z.string().nullable().optional(), lead_slug: z.string().nullable().optional(),
+    },
+  },
+  async ({id, ...patch}) => {
+    const mangled = strippedDollarError(patch.title, patch.body);
+    if (mangled) return mangled;
+    return json(await editWorkItem(rows, id, patch));
+  },
+);
+
+server.registerTool(
   "assign_work_item",
   {
     title: "Choose who's on a to-do",
@@ -1654,6 +1673,21 @@ server.registerTool(
                  w.due_at NULLS LAST, w.updated_at DESC, w.id`,
     );
     return json(items.map((w) => ({ ...w, lane: laneForMjs(w) })));
+  },
+);
+
+server.registerTool(
+  "restore_work_item",
+  {
+    title: "Restore a done or snoozed to-do",
+    description: "Reopen done/cancelled human work, or explicitly bring snoozed work back today. Reopen preserves its due date; snoozed recovery changes the due day to today. Never promotes work.",
+    inputSchema: { id: z.string(), from: z.enum(["done", "snoozed"]) },
+  },
+  async ({ id, from }) => {
+    const { recoverWorkItem } = await import("../lib/today-recovery.mjs");
+    const ok = await recoverWorkItem(rows, id, from);
+    if (ok) await rows(`INSERT INTO agent_receipts (work_item_id, receipt_kind, label) VALUES ($1, 'db_row', $2)`, [id, from === "done" ? "Reopened to-do" : "Brought snoozed to-do back today"]);
+    return json(ok ? { ok: true, id } : { ok: false, error: "No matching done or snoozed human to-do." });
   },
 );
 

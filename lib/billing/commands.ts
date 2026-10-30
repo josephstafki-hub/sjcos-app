@@ -190,7 +190,8 @@ async function enqueueSend(tx: Tx, invoiceId: number, opts: { principal: Princip
         policyRef: sendAuthority(opts.authRef),
         commandId: opts.commandId,
         principal: opts.principal,
-        hold: lane.open ? null : `sends lane paused: ${lane.reason}`,
+        // Word for word what the dispatcher writes, so its lane sweep wakes it.
+        hold: lane.open ? null : `Lane "${lane.lane}" is paused: ${lane.reason}`,
       });
       intentId = intent.id;
     } catch (err) {

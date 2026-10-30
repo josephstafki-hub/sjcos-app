@@ -30,10 +30,10 @@ import {
   POLICY_FINAL,
 } from "../lib/billing/commands.ts";
 import { loadInvoiceEmail, invoiceEmailPayload, invoiceSendBlock } from "../lib/billing/invoice-email.ts";
-import { proposePolicyVersion, activatePolicy, disablePolicy } from "../lib/commands/policies.ts";
+import { proposePolicyVersion, activatePolicy, disablePolicy, pauseLane, resumeLane } from "../lib/commands/policies.ts";
 import { resolveDecision } from "../lib/commands/decisions.ts";
 import { resolveFromChannel } from "../lib/decisions/resolve.ts";
-import { dispatchOnce } from "../lib/dispatch/core.ts";
+import { dispatchOnce, sweepForDispatch } from "../lib/dispatch/core.ts";
 import { defaultProviders, fakeOutbox, resetFakeOutbox, setFakeOutcome } from "../lib/providers/index.ts";
 import { surchargeNotice, DEFAULT_SURCHARGE } from "../lib/payments/surcharge.ts";
 import { recordClientPunch, resolveClientPunch } from "../lib/closeout/checklist.ts";
@@ -717,5 +717,31 @@ test("The deposit bills once whichever path comes first: a draw:0 invoice stops 
     assert.equal(again.invoice.id, first.invoice.id);
     await client.query(`UPDATE invoices SET status = 'void' WHERE id = $1`, [first.invoice.id]);
     assert.equal((await tx((run) => issueMilestoneInvoice(run, { projectId: b, economicKey: "draw:0:construction-deposit", milestone: "Deposit", amountCents: 300000, source: "draw", principal: owner }))).created, true, "a voided deposit can be re-billed");
+  });
+});
+
+test("Kill switch: an invoice send held because the sends lane was paused wakes when Joe resumes the lane", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    const projectId = await seed(client, "zz-bill-ks");
+    const tx = txOver(url);
+    const run = runOn(client);
+    await seedEstimate(client, projectId, {
+      total: 1000000,
+      status: "approved",
+      schedule: [
+        { label: "Deposit", percent: 50, triggerStatus: "construction_contract" },
+        { label: "Framing", percent: 50, triggerStatus: "" },
+      ],
+    });
+    await pauseLane(run, "sends", "zz", "testing the switch");
+    const out = await issueProgressOnOwnerConfirmation(tx, { projectId, milestoneKey: 1, principal: owner, mail });
+    assert.equal(out.issued, true);
+    const [held] = await run(`SELECT state, hold_reason FROM action_intents WHERE id = $1`, [out.intentId]);
+    assert.equal(held.state, "held");
+    await resumeLane(run, "sends");
+    await sweepForDispatch(run);
+    const [woke] = await run(`SELECT state, hold_reason FROM action_intents WHERE id = $1`, [out.intentId]);
+    assert.equal(woke.state, "pending", `held as: ${held.hold_reason}`);
+    assert.equal(woke.hold_reason, null);
   });
 });

@@ -84,7 +84,7 @@ export function grantWaiting(g: Pick<OwnerGrant, "status" | "expires_at">, nowMs
 export function grantCovers(
   grant: OwnerGrant | null,
   action: GatedAction,
-  target: { kind: string; id: string; to?: string },
+  target: { kind: string; id: string; to?: string; /** The message being sent (email/SMS), for a grant bound to one. */ content?: { subject?: string | null; body: string } | null },
   nowMs: number = Date.now(),
 ): { ok: true } | { ok: false; error: string } {
   if (!grant) {
@@ -108,6 +108,18 @@ export function grantCovers(
   const scopeTo = typeof grant.scope?.to === "string" ? grant.scope.to.toLowerCase() : "";
   if (scopeTo && target.to && scopeTo !== target.to.toLowerCase()) {
     return { ok: false, error: `That permission only allows sending to ${String(grant.scope.to)}.` };
+  }
+  // Tier 4: a permission Joe approved for an exact message (a staged send)
+  // covers that message only, not a rewrite to the same person.
+  const staged = stagedSendOf(grant);
+  const approved = action === "send_email" ? staged?.email : action === "send_sms" ? staged?.sms : null;
+  if (approved) {
+    if (!target.content) return { ok: false, error: "That permission is for the exact message Joe approved; send that message." };
+    const norm = (s: string | null | undefined) => (s ?? "").replace(/\r\n/g, "\n").replace(/[ \t]+\n/g, "\n").trim();
+    const subjectDiffers = "subject" in approved && norm((approved as { subject: string }).subject) !== norm(target.content.subject);
+    if (norm(approved.body) !== norm(target.content.body) || subjectDiffers) {
+      return { ok: false, error: "That message isn't the one Joe approved. Ask him again for this version." };
+    }
   }
   return { ok: true };
 }

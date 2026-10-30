@@ -280,7 +280,7 @@ export async function recordGrantResult(grantId: string, result: string): Promis
 /** Is the grant (if any) live enough to attach to an intent? Used by the
  *  adapters before staging so a typo'd id fails fast with a relayable
  *  reason instead of a held intent. */
-export async function checkGrantCovers(grantId: string, action: GatedAction, target: { kind: string; id: string; to?: string }): Promise<{ ok: true; grant: OwnerGrant } | { ok: false; error: string }> {
+export async function checkGrantCovers(grantId: string, action: GatedAction, target: { kind: string; id: string; to?: string; content?: { subject?: string | null; body: string } | null }): Promise<{ ok: true; grant: OwnerGrant } | { ok: false; error: string }> {
   const g = await getGrant(grantId);
   const covers = grantCovers(g, action, target);
   if (!covers.ok) return covers;

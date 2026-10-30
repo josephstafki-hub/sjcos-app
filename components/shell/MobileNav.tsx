@@ -51,7 +51,7 @@ export function MobileNav({ user }: { user: SidebarUser }) {
             onClick={() => setOpen(false)}
             aria-hidden
           />
-          <div className="absolute inset-y-0 left-0 flex w-[232px] bg-sidebar shadow-xl">
+          <div className="absolute inset-y-0 left-0 flex w-[216px] bg-sidebar shadow-xl">
             <button
               type="button"
               onClick={() => setOpen(false)}

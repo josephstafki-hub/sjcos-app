@@ -181,7 +181,7 @@ function SequenceCard({
             {audience ? `${audience} only` : "whole list"}
           </div>
         </div>
-        {seq.active ? <Chip kind="flag">SENDING</Chip> : <Chip kind="ghost">OFF</Chip>}
+        {seq.active ? <Chip kind="flag">Sending</Chip> : <Chip kind="ghost">Off</Chip>}
         <button
           type="button"
           onClick={toggle}

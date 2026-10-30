@@ -460,7 +460,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                   </div>
                 </button>
                 <Chip kind={it.isWelcome ? "ai" : it.status === "sent" ? "money" : it.status === "queued" ? "accent" : "ghost"}>
-                  {it.isWelcome ? "WELCOME" : it.status === "sent" ? "SENT" : it.status === "queued" ? "QUEUED" : "DRAFT"}
+                  {it.isWelcome ? "Welcome" : it.status === "sent" ? "Sent" : it.status === "queued" ? "Queued" : "Draft"}
                 </Chip>
                 {/* Always rendered, not hover-only: a control you can't find is
                     the bug being fixed here, and hover-only affordances don't
@@ -842,7 +842,7 @@ function OutboxPanel({
                     {o.email} · {o.kind === "greeting" ? "Welcome greeting" : o.issueTitle ?? "Issue"}
                   </div>
                 </div>
-                {o.status === "failed" && <Chip kind="flag">FAILED</Chip>}
+                {o.status === "failed" && <Chip kind="flag">Failed</Chip>}
                 <button
                   type="button"
                   onClick={() => onSkip(o)}

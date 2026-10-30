@@ -6,55 +6,50 @@ export type ChipKind =
   | "ai"
   | "flag"
   | "money"
+  | "ok"
+  | "warn"
+  | "neutral"
   | "info"
   | "ghost"
   | "solid";
 
 const KIND_CLASSES: Record<ChipKind, string> = {
-  default: "border-rule bg-card text-ink-2",
-  accent: "border-transparent bg-accent-soft text-accent-2",
-  ai: "border-ai bg-ai-soft text-ai-2",
-  flag: "border-transparent bg-flag-soft text-flag",
-  money: "border-transparent bg-money-soft text-money",
-  info: "border-transparent bg-info-soft text-info",
-  ghost: "border-ink-4 bg-transparent text-ink-3",
-  solid: "border-ink bg-ink text-paper",
-};
-
-const DOT_CLASSES: Record<ChipKind, string> = {
-  default: "bg-ink",
-  accent: "bg-accent",
-  ai: "bg-ai",
-  flag: "bg-flag",
-  money: "bg-money",
-  info: "bg-info",
-  ghost: "bg-ink-4",
-  solid: "bg-paper",
+  default: "bg-neutral-soft text-ink-2",
+  neutral: "bg-neutral-soft text-ink-2",
+  accent: "bg-accent-soft text-accent-2",
+  ai: "bg-ai-soft text-ai-2",
+  flag: "bg-flag-soft text-flag",
+  money: "bg-money-soft text-money",
+  ok: "bg-ok-soft text-ok",
+  warn: "bg-warn-soft text-warn",
+  info: "bg-info-soft text-info",
+  ghost: "border border-rule text-ink-3",
+  solid: "bg-ink text-paper",
 };
 
 type ChipProps = {
   children: ReactNode;
   kind?: ChipKind;
   dot?: boolean;
+  /** IDs only (INV-0007, PO-001); status labels stay sentence-case sans. */
+  mono?: boolean;
   className?: string;
 };
 
-/** Tag / badge — mono uppercase pill, optional leading status dot. */
-export function Chip({ children, kind = "default", dot, className = "" }: ChipProps) {
+/** Badge: 1–3 words. Render sentences as plain text, never as a Chip. */
+export function Chip({ children, kind = "default", dot, mono, className = "" }: ChipProps) {
   return (
     <span
       // Full text on hover when a label is long enough to get truncated below.
       title={typeof children === "string" ? children : undefined}
       className={[
-        "inline-flex min-w-0 max-w-full items-center gap-1 whitespace-nowrap rounded-full border",
-        "px-2 py-px font-mono text-[9.5px] font-medium uppercase tracking-[0.08em]",
+        "inline-flex h-5 min-w-0 max-w-full items-center gap-1 whitespace-nowrap rounded px-1.5 font-medium leading-none",
+        mono ? "font-mono text-[11px] tracking-normal" : "font-sans text-[11.5px]",
         KIND_CLASSES[kind],
         className,
       ].join(" ")}
     >
-      {dot && <span className={`size-1.5 flex-none rounded-full ${DOT_CLASSES[kind]}`} />}
-      {/* Labels come straight from data (e.g. a project's sub_label can be a
-          whole sentence) — clip with an ellipsis rather than spill off-screen. */}
+      {dot && <span aria-hidden className="size-1.5 flex-none rounded-full bg-current" />}
       <span className="min-w-0 truncate">{children}</span>
     </span>
   );

@@ -16,8 +16,9 @@
 
   /* ink — near-black forest green (text + dark brand surfaces) */
   --ink: #2c3326;
+  --ink-hover: #232a1e;
   --ink-2: #4b5142;
-  --ink-3: #767a69;
+  --ink-3: #6b6f5e;
   --ink-4: #a7a992;
 
   /* brand — forest / olive green */
@@ -33,8 +34,13 @@
   /* semantic */
   --flag: #a6452f;
   --flag-soft: #efd9cf;
-  --money: #5e7046;
-  --money-soft: #dfe4cd;
+  --ok: #5e7046;
+  --ok-soft: #dfe4cd;
+  --money: var(--ok);
+  --money-soft: var(--ok-soft);
+  --warn: #8a5a12;
+  --warn-soft: #f3e4c2;
+  --neutral-soft: #e6e0d1;
   --info: #4c6a8e;
   --info-soft: #d9e1ed;
 
@@ -49,8 +55,15 @@
   --sidebar-text-dim: rgba(241, 236, 225, 0.5);
   --sidebar-sage: #bfd0a6;
 
+  /* interaction */
+  --hover: rgba(44, 51, 38, 0.045);
+  --selected: #e4e7d6;
+  --focus: rgba(76, 90, 64, 0.45);
+
   /* elevation */
-  --shadow-card: 0 1px 2px rgba(44, 51, 38, 0.04);
+  --shadow-card: 0 1px 2px rgba(44, 51, 38, 0.05);
+  --shadow-pop: 0 8px 24px rgba(28, 32, 22, 0.14), 0 1px 3px rgba(28, 32, 22, 0.08);
+  --shadow-modal: 0 24px 64px rgba(28, 32, 22, 0.22);
   --shadow-pill: 0 8px 26px rgba(28, 32, 22, 0.28);
 }
 
@@ -67,6 +80,7 @@
   --color-card: var(--card);
 
   --color-ink: var(--ink);
+  --color-ink-hover: var(--ink-hover);
   --color-ink-2: var(--ink-2);
   --color-ink-3: var(--ink-3);
   --color-ink-4: var(--ink-4);
@@ -79,6 +93,15 @@
   --color-ai-2: var(--ai-2);
   --color-ai-soft: var(--ai-soft);
 
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-neutral-soft: var(--neutral-soft);
+  --color-hover: var(--hover);
+  --color-selected: var(--selected);
+  --color-focus: var(--focus);
+
   --color-flag: var(--flag);
   --color-flag-soft: var(--flag-soft);
   --color-money: var(--money);
@@ -90,6 +113,10 @@
   --color-rule-soft: var(--rule-soft);
 
   --color-sidebar: var(--sidebar);
+  --color-sidebar-active: var(--sidebar-active);
+  --color-sidebar-text: var(--sidebar-text);
+  --color-sidebar-text-dim: var(--sidebar-text-dim);
+  --color-sidebar-sage: var(--sidebar-sage);
 
   --font-serif: var(--font-newsreader), Georgia, serif;
   --font-sans: var(--font-mulish), system-ui, -apple-system, sans-serif;
@@ -97,6 +124,29 @@
 
   --shadow-card: var(--shadow-card);
   --shadow-pill: var(--shadow-pill);
+  --shadow-pop: var(--shadow-pop);
+  --shadow-modal: var(--shadow-modal);
+
+  --text-display: 30px;
+  --text-display--line-height: 36px;
+  --text-display--letter-spacing: -0.01em;
+  --text-title: 24px;
+  --text-title--line-height: 30px;
+  --text-kpi: 26px;
+  --text-kpi--line-height: 32px;
+  --text-heading: 17px;
+  --text-heading--line-height: 24px;
+  --text-subheading: 14px;
+  --text-subheading--line-height: 20px;
+  --text-body: 13px;
+  --text-body--line-height: 20px;
+  --text-label: 12px;
+  --text-label--line-height: 16px;
+  --text-meta: 12px;
+  --text-meta--line-height: 16px;
+  --text-micro: 10.5px;
+  --text-micro--line-height: 14px;
+  --text-micro--letter-spacing: 0.12em;
 }
 
 * {
@@ -117,11 +167,12 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* small-caps mono label, used widely for eyebrows + breadcrumbs */
+/* Small-caps mono, reserved for the page eyebrow and topbar breadcrumb. */
 .eyebrow {
   font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 10px;
-  letter-spacing: 0.14em;
+  font-size: var(--text-micro);
+  line-height: var(--text-micro--line-height);
+  letter-spacing: var(--text-micro--letter-spacing);
   text-transform: uppercase;
   color: var(--accent);
   font-weight: 600;

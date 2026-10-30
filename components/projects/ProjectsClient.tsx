@@ -81,9 +81,9 @@ export function ProjectsClient({ groups }: { groups: ProjectGroup[] }) {
                           {p.name}
                         </Link>
                         {p.sub && (
-                          <div className="text-meta text-ink-3">{p.sub}</div>
+                          <div className="line-clamp-1 text-meta text-ink-3">{p.sub}</div>
                         )}
-                        <div className="line-clamp-2 text-meta text-ink-2 @4xl/page:hidden">
+                        <div className="line-clamp-1 text-meta text-ink-2 @4xl/page:hidden">
                           {p.stage}
                         </div>
                         <div className="mt-1 tabular-nums text-meta text-ink-3 @xl/page:hidden">

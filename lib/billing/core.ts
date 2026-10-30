@@ -535,6 +535,9 @@ export async function linkContractToInvoice(run: Run, input: { invoiceId: number
 // ── Delivery bookkeeping (sendInvoiceOp's result is the only truth) ─────────
 
 export async function recordDeliveryOutcome(run: Run, input: { invoiceId: number; ok: boolean; error?: string | null; principal: Principal | string }): Promise<void> {
+  // The dispatcher's send_invoice effect (lib/dispatch/effects.ts) records the
+  // provider's answer first; the caller's echo of it isn't a second event.
+  const [cur] = await run<{ delivery_state: DeliveryState }>(`SELECT delivery_state FROM invoices WHERE id = $1`, [input.invoiceId]);
   if (input.ok) {
     await run(
       `UPDATE invoices SET delivery_state = 'delivered', delivery_error = NULL, issued_at = COALESCE(issued_at, now()),
@@ -542,7 +545,7 @@ export async function recordDeliveryOutcome(run: Run, input: { invoiceId: number
         WHERE id = $1`,
       [input.invoiceId],
     );
-    await logInvoiceEvent(run, input.invoiceId, "delivered", input.principal);
+    if (cur?.delivery_state !== "delivered") await logInvoiceEvent(run, input.invoiceId, "delivered", input.principal);
   } else {
     // Never mark sent on failure; record the failure only on a still-open row.
     await run(
@@ -550,7 +553,7 @@ export async function recordDeliveryOutcome(run: Run, input: { invoiceId: number
         WHERE id = $1 AND status IN ('draft','issued') AND delivery_state <> 'delivered'`,
       [input.invoiceId, (input.error ?? "send failed").slice(0, 500)],
     );
-    await logInvoiceEvent(run, input.invoiceId, "delivery_failed", input.principal, { error: input.error ?? null });
+    if (cur?.delivery_state !== "failed") await logInvoiceEvent(run, input.invoiceId, "delivery_failed", input.principal, { error: input.error ?? null });
   }
 }
 

@@ -16,22 +16,51 @@ export type Effect = (run: Run, intent: ActionIntent, result: ProviderResult, st
 const OK = new Set<IntentState | null>(["accepted", "confirmed"]);
 const FAILED = new Set<IntentState | null>(["permanent_failure", "cancelled"]);
 
-async function notify(run: Run, n: { kind: string; tag: string; accent: string; icon: string; title: string; subline?: string | null; href?: string | null }): Promise<void> {
+export async function notify(run: Run, n: { kind: string; tag: string; accent: string; icon: string; title: string; subline?: string | null; href?: string | null; flagged?: boolean }): Promise<void> {
   await run(
-    `INSERT INTO notifications (kind, tag, accent, icon, title, subline, when_label, flagged, href) VALUES ($1, $2, $3, $4, $5, $6, 'Just now', false, $7)`,
-    [n.kind, n.tag, n.accent, n.icon, n.title.slice(0, 300), n.subline ?? null, n.href ?? null],
+    `INSERT INTO notifications (kind, tag, accent, icon, title, subline, when_label, flagged, href) VALUES ($1, $2, $3, $4, $5, $6, 'Just now', $8, $7)`,
+    [n.kind, n.tag, n.accent, n.icon, n.title.slice(0, 300), n.subline ?? null, n.href ?? null, n.flagged ?? false],
   );
+}
+
+/** An invoice email that did not (or cannot) go out: the invoice reads "send
+ *  failed" with the reason, never sent, and Joe gets a bell naming the invoice
+ *  and the job. Also used by the billing commands when there is no client
+ *  email to send to. False when the invoice already went out another way. */
+export async function invoiceNotSent(run: Run, invoiceId: number, reason: string, actor = "dispatcher"): Promise<boolean> {
+  const [inv] = await run<{ number: string; project_name: string; slug: string }>(
+    `UPDATE invoices i SET delivery_state = 'failed', delivery_error = $2
+       FROM projects p
+      WHERE i.id = $1 AND p.id = i.project_id AND i.status IN ('draft','issued') AND i.delivery_state <> 'delivered'
+      RETURNING i.number, p.name AS project_name, p.slug`,
+    [invoiceId, reason.slice(0, 500)],
+  );
+  if (!inv) return false;
+  await run(`INSERT INTO invoice_events (invoice_id, kind, actor, detail) VALUES ($1, 'delivery_failed', $2, $3::jsonb)`, [invoiceId, actor, JSON.stringify({ error: reason })]);
+  await notify(run, { kind: "money", tag: "Money", accent: "flag", icon: "money", flagged: true, title: `Invoice ${inv.number} was not emailed · ${inv.project_name}`, subline: reason.slice(0, 300), href: `/projects/${inv.slug}` });
+  return true;
 }
 
 const p = (intent: ActionIntent) => intent.payload as Record<string, unknown>;
 const s = (v: unknown) => (v == null ? "" : String(v));
 
 export const EFFECTS: Record<string, Effect> = {
-  async send_invoice(run, intent, _r, state) {
-    if (!OK.has(state)) return;
+  async send_invoice(run, intent, r, state) {
     const id = Number(intent.target_id);
-    const rows = await run<{ id: number }>(`UPDATE invoices SET status = 'sent', sent_at = now() WHERE id = $1 AND status = 'draft' RETURNING id`, [id]);
+    if (FAILED.has(state)) {
+      await invoiceNotSent(run, id, r.error ?? `The send was ${state === "cancelled" ? "cancelled" : "refused"}.`);
+      return;
+    }
+    if (!OK.has(state)) return;
+    // Joe's Send button sends drafts; billing issues invoices as 'issued'
+    // (lib/billing/commands.ts). Either way the accepted email makes it sent.
+    const rows = await run<{ id: number }>(
+      `UPDATE invoices SET status = 'sent', sent_at = now(), issued_at = COALESCE(issued_at, now()), delivery_state = 'delivered', delivery_error = NULL
+        WHERE id = $1 AND status IN ('draft','issued') RETURNING id`,
+      [id],
+    );
     if (!rows.length) return;
+    await run(`INSERT INTO invoice_events (invoice_id, kind, actor, detail) VALUES ($1, 'delivered', 'dispatcher', $2::jsonb)`, [id, JSON.stringify({ intentId: intent.id, providerRef: r.providerRef ?? null })]);
     const pl = p(intent);
     await notify(run, { kind: "money", tag: "Money", accent: "money", icon: "money", title: `Invoice ${s(pl.number)} sent · ${s(pl.project_name)}`, subline: `${s(pl.amount_label)} · ${s(pl.milestone)}`, href: pl.slug ? `/projects/${s(pl.slug)}` : null });
   },

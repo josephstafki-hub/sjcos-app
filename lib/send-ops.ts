@@ -20,10 +20,19 @@ import { gmailConfigured } from "@/lib/gmail";
 import { renderProjectInvoicePdf } from "@/lib/doc-drafts";
 import { renderInlineDocPdf } from "@/lib/documents";
 import { storeBuffer } from "@/lib/upload-store";
-import { usd, type InvoiceLine } from "@/lib/money";
+import { usd } from "@/lib/money";
 import { fmtPoUsd } from "@/lib/po-types";
 import { fmtUsd } from "@/lib/cost-book-units";
-import { withTransaction } from "@/lib/commands/db";
+import { runDirect, withTransaction } from "@/lib/commands/db";
+import {
+  invoiceEmailBody,
+  invoiceEmailPayload,
+  invoiceEmailRevision,
+  invoiceSendBlock,
+  loadInvoiceEmail,
+  type InvoiceEmail,
+  type InvoiceEmailExtras,
+} from "@/lib/billing/invoice-email";
 import { enqueueIntent, IntentPayloadMismatchError } from "@/lib/commands/intents";
 import type { Principal } from "@/lib/commands/principal";
 import { describeOutcome, dispatchIntentsNow } from "@/lib/dispatch/db";
@@ -175,142 +184,87 @@ export async function sendPurchaseOrderOp(id: number, slug?: string, auth?: Send
   });
 }
 
-interface InvoiceJoin {
-  number: string;
-  milestone: string;
-  amount: number;
-  line_items: InvoiceLine[];
-  status: string;
-  slug: string;
-  project_name: string;
-}
-
-async function loadInvoiceForEmail(id: number) {
-  const inv = await queryOne<InvoiceJoin>(
-    `SELECT i.number, i.milestone, i.amount, i.line_items, i.status,
-            p.slug, p.name AS project_name
-       FROM invoices i JOIN projects p ON p.id = i.project_id
-      WHERE i.id = $1`,
-    [id],
-  );
-  if (!inv) return null;
-  // A link-only client's account sits on a synthetic <slug>@client-portal.invalid
-  // address — never a mailbox. Fall back to the project's client_email, as the
-  // e-sign and portal-publish sends do.
-  const client = await queryOne<{ email: string; name: string }>(
-    `SELECT COALESCE(NULLIF(trim(u.email), ''), NULLIF(trim(p.client_email), '')) AS email,
-            COALESCE(u.name, p.client_name, '') AS name
-       FROM projects p
-       LEFT JOIN users u ON u.role = 'client' AND u.link_slug = p.slug AND u.active = true
-                        AND u.email NOT LIKE '%@client-portal.invalid'
-      WHERE p.slug = $1
-      LIMIT 1`,
-    [inv.slug],
-  );
-  const lineText = (inv.line_items ?? []).map((l) => `  • ${l.label}: ${usd(l.amount)}`).join("\n");
-  const subject = `Invoice ${inv.number} — ${inv.project_name} (${inv.milestone})`;
-  return { inv, client, lineText, subject };
-}
-
-function invoiceEmailBody(p: { name: string; inv: InvoiceJoin; lineText: string; attached: boolean; payUrl: string | null; surchargeNote: string | null }): string {
-  const first = p.name.split(/\s+/)[0] || "there";
-  const payText = p.payUrl ? `Pay online by card or bank transfer:\n${p.payUrl}\n${p.surchargeNote ? `${p.surchargeNote}\n` : ""}\n` : "";
-  return (
-    `Hi ${first},\n\nPlease find invoice ${p.inv.number} for "${p.inv.milestone}" on the ` +
-    `${p.inv.project_name} project ${p.attached ? "attached. A summary is below." : "below."}\n\n` +
-    `${p.lineText}\n\nTotal due: ${usd(p.inv.amount)}\n\n` +
-    payText +
-    `You can reply here with any questions. Thank you!\n\nBest,\nJoe\nSJ Carpentry`
-  );
-}
-
 /** The email sendInvoiceOp would put in the client's inbox — for approval
  *  cards. Read-only: the pay link is shown as a placeholder (minting the real
  *  one can create a portal invite). */
 export async function previewInvoiceEmail(id: number): Promise<{ ok: true; email: PoEmail; clientName: string } | { ok: false; error: string }> {
-  const loaded = await loadInvoiceForEmail(id);
-  if (!loaded) return { ok: false, error: "Invoice not found." };
-  const { inv, client, lineText, subject } = loaded;
+  const e = await loadInvoiceEmail(runDirect, id);
+  if (!e) return { ok: false, error: "Invoice not found." };
   const setup = await portalPaymentSetup().catch(() => null);
   const online = !!setup?.online;
   return {
     ok: true,
-    clientName: client?.name ?? "",
+    clientName: e.client.name,
     email: {
-      to: (client?.email ?? "").trim().toLowerCase(),
-      subject,
-      body: invoiceEmailBody({ name: client?.name ?? "", inv, lineText, attached: true, payUrl: online ? "[link to pay this invoice online]" : null, surchargeNote: setup?.online && setup.card ? surchargeNotice(setup.surcharge) : null }),
+      to: e.client.email ?? "",
+      subject: e.subject,
+      body: invoiceEmailBody({ name: e.client.name, inv: e, lineText: e.lineText, attached: true, payUrl: online ? "[link to pay this invoice online]" : null, surchargeNote: setup?.online && setup.card ? surchargeNotice(setup.surcharge) : null }),
     },
   };
 }
 
-/** Email a drafted invoice to the project's client; it is marked sent when Gmail accepts. */
-export async function sendInvoiceOp(id: number, auth?: SendAuth): Promise<SendOpResult> {
-  const loaded = await loadInvoiceForEmail(id);
-  if (!loaded) return { ok: false, error: "Invoice not found." };
-  const { inv, client, lineText, subject } = loaded;
-  if (inv.status !== "draft") return { ok: false, error: `Invoice ${inv.number} is already ${inv.status}.` };
-  if (!client?.email) return { ok: false, error: "No client email on file for this project." };
-  if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
-
-  const to = client.email.trim().toLowerCase();
-  const revision = rev(`${to}\n${subject}\n${lineText}\n${inv.amount}`);
-
+/** The parts of an invoice email that need the app: the PDF (rendered from
+ *  the stored invoice), the portal pay link and Square's card-surcharge line.
+ *  sendInvoiceOp uses it, and the billing commands load it for the invoices
+ *  they issue on their own (lib/billing/commands.ts enqueueSend). */
+export async function invoiceEmailExtras(e: InvoiceEmail): Promise<InvoiceEmailExtras> {
+  const revision = invoiceEmailRevision(e);
   // The intent payload is JSON: the PDF is rendered ONCE per revision, kept
   // in the project Files (as the sent copy always was) and referenced by id.
   // A retry of the same revision reuses the stored file.
-  const attachments: { filename: string; mimeType: string; fileId: string }[] = [];
-  const existing = await queryOne<{ id: string }>(`SELECT id FROM files WHERE subtitle = $1 LIMIT 1`, [`Invoice — sent to client · ${inv.milestone} · rev ${revision}`]);
-  if (existing) attachments.push({ filename: `Invoice ${inv.number}.pdf`, mimeType: "application/pdf", fileId: existing.id });
+  const attachments: InvoiceEmailExtras["attachments"] = [];
+  const existing = await queryOne<{ id: string }>(`SELECT id FROM files WHERE subtitle = $1 LIMIT 1`, [`Invoice — sent to client · ${e.milestone} · rev ${revision}`]);
+  if (existing) attachments.push({ filename: `Invoice ${e.number}.pdf`, mimeType: "application/pdf", fileId: existing.id });
   else {
     const pdf =
-      (await renderProjectInvoicePdf(inv.slug, id).catch(() => null)) ??
+      (await renderProjectInvoicePdf(e.slug, e.id).catch(() => null)) ??
       (await renderInlineDocPdf({
-        title: `Invoice ${inv.number}`,
-        subtitle: `${inv.project_name} — ${inv.milestone}`,
-        body: `${lineText}\n\nTotal due: ${usd(inv.amount)}`,
+        title: `Invoice ${e.number}`,
+        subtitle: `${e.project_name} — ${e.milestone}`,
+        body: `${e.lineText}\n\nTotal due: ${usd(e.amount)}`,
       }).catch(() => null));
     if (pdf) {
       const stored = await storeBuffer(pdf, {
-        filename: `${inv.project_name} — Invoice ${inv.number}.pdf`,
+        filename: `${e.project_name} — Invoice ${e.number}.pdf`,
         mime: "application/pdf",
         idPrefix: "doc",
-        projectKey: inv.slug,
+        projectKey: e.slug,
         tag: "INVOICE",
-        subtitle: `Invoice — sent to client · ${inv.milestone} · rev ${revision}`,
+        subtitle: `Invoice — sent to client · ${e.milestone} · rev ${revision}`,
       });
-      if (stored.ok && stored.id) attachments.push({ filename: `Invoice ${inv.number}.pdf`, mimeType: "application/pdf", fileId: stored.id });
+      if (stored.ok && stored.id) attachments.push({ filename: `Invoice ${e.number}.pdf`, mimeType: "application/pdf", fileId: stored.id });
     }
   }
 
   // Square connected → a link straight to this invoice's pay page in the
   // portal. A link failure leaves the invoice email as it always was.
   const setup = await portalPaymentSetup().catch(() => null);
-  const payUrl = setup?.online ? await invoicePayLink(inv.slug, id).catch(() => null) : null;
+  const payUrl = setup?.online ? await invoicePayLink(e.slug, e.id).catch(() => null) : null;
   const surchargeNote = setup?.online && setup.card ? surchargeNotice(setup.surcharge) : null;
-  const body = invoiceEmailBody({ name: client.name, inv, lineText, attached: attachments.length > 0, payUrl, surchargeNote });
-  const payload = {
-    to,
-    subject,
-    bodyText: body,
-    attachments,
-    number: inv.number,
-    milestone: inv.milestone,
-    project_name: inv.project_name,
-    amount_label: usd(inv.amount),
-    slug: inv.slug,
-    pay_url: payUrl,
-    _auth: { action: "send_invoice", target_kind: "invoice", target_id: String(id), amount_cents: Number(inv.amount) },
-  };
+  return { attachments, payUrl, surchargeNote };
+}
+
+/** Email an invoice to the project's client; it is marked sent when Gmail
+ *  accepts. A draft, or an issued invoice that never went out (billing found
+ *  no client email, or its send failed). */
+export async function sendInvoiceOp(id: number, auth?: SendAuth): Promise<SendOpResult> {
+  const e = await loadInvoiceEmail(runDirect, id);
+  if (!e) return { ok: false, error: "Invoice not found." };
+  const blocked = invoiceSendBlock(e);
+  if (blocked) return { ok: false, error: blocked };
+  if (!e.client.email) return { ok: false, error: "No client email on file for this project." };
+  if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
+
+  const payload = invoiceEmailPayload(e, await invoiceEmailExtras(e));
   return stageAndSend({
-    operationKey: `invoice:${id}:send:${revision}`,
+    operationKey: `invoice:${id}:send:${invoiceEmailRevision(e)}`,
     kind: "send_invoice",
     targetKind: "invoice",
     targetId: String(id),
-    recipient: to,
+    recipient: e.client.email,
     payload,
     auth,
-    what: `Invoice ${inv.number} to ${client.name} <${client.email}>`,
+    what: `Invoice ${e.number} to ${e.client.name} <${e.client.email}>`,
   });
 }
 

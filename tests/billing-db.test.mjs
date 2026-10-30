@@ -21,6 +21,7 @@ import {
   issueInitialOnAcceptance,
   issueProgressOnOwnerConfirmation,
   issueFinalOnClientSignoff,
+  issueFinalFromDecision,
   onSignatureSigned,
   stageMilestoneConfirmation,
   stageInitialInvoiceDecision,
@@ -28,9 +29,14 @@ import {
   POLICY_INITIAL,
   POLICY_FINAL,
 } from "../lib/billing/commands.ts";
+import { loadInvoiceEmail, invoiceEmailPayload, invoiceSendBlock } from "../lib/billing/invoice-email.ts";
 import { proposePolicyVersion, activatePolicy, disablePolicy } from "../lib/commands/policies.ts";
 import { resolveDecision } from "../lib/commands/decisions.ts";
 import { resolveFromChannel } from "../lib/decisions/resolve.ts";
+import { dispatchOnce } from "../lib/dispatch/core.ts";
+import { defaultProviders, fakeOutbox, resetFakeOutbox, setFakeOutcome } from "../lib/providers/index.ts";
+import { surchargeNotice, DEFAULT_SURCHARGE } from "../lib/payments/surcharge.ts";
+import { recordClientPunch, resolveClientPunch } from "../lib/closeout/checklist.ts";
 
 // V10 (invoice identity, numbering, delivery truth, balances, reminders,
 // unknown terms), V38 (acceptance → initial invoice) and V44 (sign-off →
@@ -98,6 +104,17 @@ async function signature(client, { projectId, docType, estimateId = null, status
 async function sign(client, id) {
   await client.query(`UPDATE signature_requests SET status = 'signed', signed_at = now(), signed_name = 'ZZ Client' WHERE id = $1`, [id]);
 }
+
+// What lib/send-ops.ts invoiceEmailExtras adds in the app (stored PDF, portal
+// pay link, Square's card-surcharge line), without rendering or minting.
+const NOTICE = surchargeNotice(DEFAULT_SURCHARGE);
+const mail = {
+  async extras(e) {
+    return { attachments: [{ filename: `Invoice ${e.number}.pdf`, mimeType: "application/pdf", fileId: `zz-pdf-${e.id}` }], payUrl: `https://os.example.test/client-portal/pay/${e.id}`, surchargeNote: NOTICE };
+  },
+};
+
+const dispatchDeps = (url, client) => ({ tx: txOver(url), run: runOn(client), providers: defaultProviders(), worker: "zz-billing" });
 
 test("terms parse only what is verifiable", () => {
   assert.deepEqual(parseNetTerms("Net 30"), { netDays: 30, label: "Net 30" });
@@ -293,7 +310,7 @@ test("V38 acceptance: owner approval alone issues nothing; client acceptance iss
     // Joe approves the card → issue with the decision.
     const res = await tx((r) => resolveDecision(r, { id: staged[0].id, outcome: "approved", principal: owner, via: "app" }));
     assert.equal(res.ok, true);
-    const viaDecision = await issueInitialOnAcceptance(tx, { signatureRequestId: sigId, principal: owner, decisionId: staged[0].id });
+    const viaDecision = await issueInitialOnAcceptance(tx, { signatureRequestId: sigId, principal: owner, decisionId: staged[0].id, mail });
     assert.equal(viaDecision.issued, true);
     assert.equal(viaDecision.created, true);
     const inv = (await run(`SELECT i.*, i.id::int AS id FROM invoices i WHERE id = $1`, [viaDecision.invoiceId]))[0];
@@ -302,18 +319,28 @@ test("V38 acceptance: owner approval alone issues nothing; client acceptance iss
     assert.equal(inv.status, "issued");
     assert.equal(inv.source, "acceptance");
     assert.equal(inv.delivery_state, "queued");
-    const intents = await run(`SELECT operation_key, kind, state, payload FROM action_intents`);
+    const intents = await run(`SELECT id, operation_key, kind, state, payload, recipient, decision_id, policy_ref FROM action_intents`);
     assert.equal(intents.length, 1);
+    assert.equal(intents[0].id, viaDecision.intentId);
     assert.equal(intents[0].operation_key, `invoice:${inv.id}:send:rev1`);
     assert.equal(intents[0].kind, "send_invoice");
-    assert.deepEqual(intents[0].payload, { invoiceId: inv.id });
+    assert.equal(intents[0].payload.to, "zz-client-zz-bill-d@example.test");
+    assert.equal(intents[0].recipient, "zz-client-zz-bill-d@example.test");
+    // Joe's approval was spent issuing the invoice; the send carries it as his word.
+    assert.equal(intents[0].decision_id, null);
+    assert.equal(intents[0].policy_ref, `owner:decision:${staged[0].id}`);
     assert.equal((await run(`SELECT status FROM decisions WHERE id = $1`, [staged[0].id]))[0].status, "consumed");
+    resetFakeOutbox();
+    const [sent] = await dispatchOnce(dispatchDeps(url, client), { intentIds: [viaDecision.intentId] });
+    assert.equal(sent.responseClass, "accepted", JSON.stringify(sent));
+    assert.equal((await run(`SELECT status FROM invoices WHERE id = $1`, [inv.id]))[0].status, "sent", "the decision path's send is not refused at dispatch");
 
     // Repeated signature events with the policy now active: replay, nothing new.
     await tx(async (r) => activatePolicy(r, POLICY_INITIAL, (await proposePolicyVersion(r, POLICY_INITIAL, { note: "test" }, "test")).version));
-    for (let i = 0; i < 3; i++) out = await onSignatureSigned(tx, sigId, agent);
+    for (let i = 0; i < 3; i++) out = await onSignatureSigned(tx, sigId, agent, mail);
     assert.equal(out.initial.issued, true);
     assert.equal(out.initial.invoiceId, inv.id);
+    assert.equal(out.initial.intentId, viaDecision.intentId);
     assert.equal((await run(`SELECT count(*)::int AS n FROM invoices`))[0].n, 1);
     assert.equal((await run(`SELECT count(*)::int AS n FROM action_intents`))[0].n, 1, "one send intent");
     const sched = (await run(`SELECT draw_schedule FROM estimates WHERE id = $1`, [estimateId]))[0].draw_schedule;
@@ -356,15 +383,17 @@ test("V38 acceptance: owner approval alone issues nothing; client acceptance iss
     const notYet = await issueProgressOnOwnerConfirmation(tx, { projectId, milestoneKey: 1, principal: agent, decisionId: card.decision.id });
     assert.equal(notYet.issued, false, "pending decision is not confirmation");
     await tx((r) => resolveDecision(r, { id: card.decision.id, outcome: "approved", principal: owner, via: "telegram" }));
-    const prog = await issueProgressOnOwnerConfirmation(tx, { projectId, milestoneKey: 1, principal: agent, decisionId: card.decision.id });
+    const prog = await issueProgressOnOwnerConfirmation(tx, { projectId, milestoneKey: 1, principal: agent, decisionId: card.decision.id, mail });
     assert.equal(prog.issued, true);
     assert.equal(prog.created, true);
+    assert.ok(prog.intentId, "the progress draw is queued to the client too");
     const progRow = (await run(`SELECT economic_key, amount, source FROM invoices WHERE id = $1`, [prog.invoiceId]))[0];
     assert.equal(progRow.economic_key, drawEconomicKey(1, "Rough-in complete"));
     assert.equal(progRow.amount, 2000000);
     assert.equal(progRow.source, "progress");
-    const again = await issueProgressOnOwnerConfirmation(tx, { projectId, milestoneKey: "draw:1:rough-in-complete", principal: owner });
+    const again = await issueProgressOnOwnerConfirmation(tx, { projectId, milestoneKey: "draw:1:rough-in-complete", principal: owner, mail });
     assert.equal(again.replayed, true);
+    assert.equal(again.intentId, prog.intentId);
     assert.equal((await run(`SELECT count(*)::int AS n FROM invoices`))[0].n, 2);
     await tx((r) => disablePolicy(r, POLICY_INITIAL));
   });
@@ -396,14 +425,15 @@ test("V44 sign-off: final invoice = verified remainder with CO balances/payments
     await tx((r) => recordInvoicePayment(r, { invoiceId: b.invoice.id, kind: "payment", amountCents: 100, method: "card", provider: "square", providerRef: "p_pending", status: "failed", principal: agent }));
 
     // Clean: 100,000.00 + 10,000.00 − (25,000.00 + 35,000.00) = 50,000.00
-    out = await onSignatureSigned(tx, signoff, agent);
+    out = await onSignatureSigned(tx, signoff, agent, mail);
     assert.equal(out.final.issued, true, JSON.stringify(out.final));
     assert.equal(out.final.created, true);
     const fin = (await run(`SELECT i.*, i.id::int AS id FROM invoices i WHERE id = $1`, [out.final.invoiceId]))[0];
     assert.equal(fin.amount, 5000000, "remainder counts approved COs once and previously issued invoices once; payments/credits sit on their own invoices");
     assert.equal(fin.economic_key, `project:${projectId}:final`);
     assert.equal(fin.source, "final");
-    const dup = await onSignatureSigned(tx, signoff, agent);
+    assert.equal(fin.line_items[0].label, "Final balance — contract $100,000.00 + change orders $10,000.00 − previously invoiced $60,000.00", "the client's line reads in dollars");
+    const dup = await onSignatureSigned(tx, signoff, agent, mail);
     assert.equal(dup.final.issued, true);
     assert.equal(dup.final.invoiceId, fin.id);
     assert.equal(dup.final.replayed, true);
@@ -414,7 +444,7 @@ test("V44 sign-off: final invoice = verified remainder with CO balances/payments
     assert.deepEqual(vb.map((r) => r.balanceCents).sort((x, y) => x - y), [5000000], "b was fully settled by payment + credit; only the final is open");
     // second sign-off document (re-signed) → same identity, nothing new
     const signoff2 = await signature(client, { projectId, docType: "completion", status: "signed" });
-    const again = await issueFinalOnClientSignoff(tx, { signatureRequestId: signoff2, principal: agent });
+    const again = await issueFinalOnClientSignoff(tx, { signatureRequestId: signoff2, principal: agent, mail });
     assert.equal(again.issued, true);
     assert.equal(again.invoiceId, fin.id);
   });
@@ -514,6 +544,150 @@ test("Approving a progress/final draw card creates that draw's invoice (draft, t
     const r2 = await tx((r) => resolveFromChannel(r, { decisionId: card.decision.id, via: "telegram", principal: owner, outcome: "approved" }));
     assert.equal(r2.ok, false, "a second tap changes nothing");
     assert.equal((await run(`SELECT count(*)::int AS n FROM invoices WHERE economic_key = 'draw:2:upon-completion'`))[0].n, 1);
+  });
+});
+
+test("An invoice billing issues on its own is emailed: the Send button's payload, delivered by the dispatcher, marked sent", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    const projectId = await seed(client, "zz-bill-send");
+    const tx = txOver(url);
+    const run = runOn(client);
+    resetFakeOutbox();
+    // The harness keeps the database between runs; notifications aren't foundation tables.
+    await run(`DELETE FROM notifications WHERE title LIKE '%· zz-bill-%'`);
+    const schedule = [{ label: "Deposit", percent: 50 }, { label: "Cabinets", percent: 40 }, { label: "Upon completion", percent: 10 }];
+    const estimateId = await seedEstimate(client, projectId, { total: 4000000, status: "approved", schedule });
+    await tx(async (r) => activatePolicy(r, POLICY_INITIAL, (await proposePolicyVersion(r, POLICY_INITIAL, {}, "test")).version));
+    const sigId = await signature(client, { projectId, docType: "estimate", estimateId, status: "signed" });
+
+    const out = await onSignatureSigned(tx, sigId, agent, mail);
+    assert.equal(out.initial.issued, true, JSON.stringify(out.initial));
+    assert.ok(out.initial.intentId);
+    const [intent] = await run(`SELECT id, operation_key, recipient, policy_ref, decision_id, state, payload FROM action_intents WHERE id = $1`, [out.initial.intentId]);
+    assert.equal(intent.operation_key, `invoice:${out.initial.invoiceId}:send:rev1`, "the operation key is unchanged");
+    assert.match(intent.policy_ref, /^policy:invoice\.initial_on_acceptance@\d+$/);
+    const pl = intent.payload;
+    assert.equal(pl.to, "zz-client-zz-bill-send@example.test");
+    assert.equal(intent.recipient, pl.to);
+    assert.equal(pl.subject, "Invoice INV-001 — zz-bill-send (Deposit)");
+    assert.match(pl.bodyText, /^Hi ZZ,/);
+    assert.match(pl.bodyText, /invoice INV-001 for "Deposit" on the zz-bill-send project attached/);
+    assert.match(pl.bodyText, /Total due: \$20,000\.00/);
+    assert.ok(pl.bodyText.includes(`https://os.example.test/client-portal/pay/${out.initial.invoiceId}`), "pay link");
+    assert.ok(pl.bodyText.includes("a 3% surcharge"), "card surcharge notice");
+    assert.deepEqual(pl.attachments, [{ filename: "Invoice INV-001.pdf", mimeType: "application/pdf", fileId: `zz-pdf-${out.initial.invoiceId}` }]);
+    assert.deepEqual(pl._auth, { action: "send_invoice", target_kind: "invoice", target_id: String(out.initial.invoiceId), amount_cents: 2000000 });
+    // The same builder sendInvoiceOp stages (lib/send-ops.ts): one email, two paths.
+    const built = invoiceEmailPayload(await loadInvoiceEmail(run, out.initial.invoiceId), await mail.extras({ id: out.initial.invoiceId, number: "INV-001" }));
+    assert.deepEqual(JSON.parse(JSON.stringify(built)), pl);
+
+    // A repeated signature event finds the queued send; nothing is staged twice.
+    const replay = await onSignatureSigned(tx, sigId, agent, mail);
+    assert.equal(replay.initial.intentId, intent.id);
+    assert.equal((await run(`SELECT count(*)::int AS n FROM action_intents`))[0].n, 1);
+
+    // The dispatcher delivers it (fake email provider) and the issued invoice reads sent.
+    const [o] = await dispatchOnce(dispatchDeps(url, client), { intentIds: [intent.id] });
+    assert.equal(o.responseClass, "accepted", JSON.stringify(o));
+    const outbox = fakeOutbox.filter((f) => f.operationKey === intent.operation_key);
+    assert.equal(outbox.length, 1);
+    assert.equal(outbox[0].payload.to, "zz-client-zz-bill-send@example.test");
+    const [inv] = await run(`SELECT status, delivery_state, delivery_error, sent_at FROM invoices WHERE id = $1`, [out.initial.invoiceId]);
+    assert.equal(inv.status, "sent", "an issued invoice is marked sent once the email is accepted");
+    assert.equal(inv.delivery_state, "delivered");
+    assert.ok(inv.sent_at);
+    assert.equal((await run(`SELECT count(*)::int AS n FROM notifications WHERE title = 'Invoice INV-001 sent · zz-bill-send'`))[0].n, 1);
+
+    // A send that fails for good: the invoice reads not sent and Joe is told which, where and why.
+    const prog = await issueProgressOnOwnerConfirmation(tx, { projectId, milestoneKey: 1, principal: owner, mail });
+    assert.equal(prog.issued, true);
+    assert.equal((await run(`SELECT policy_ref FROM action_intents WHERE id = $1`, [prog.intentId]))[0].policy_ref, "owner");
+    setFakeOutcome(() => ({ responseClass: "permanent", error: "550 5.1.1 mailbox unavailable", transmitted: false }));
+    const [f] = await dispatchOnce(dispatchDeps(url, client), { intentIds: [prog.intentId] });
+    setFakeOutcome(null);
+    assert.equal(f.state, "permanent_failure");
+    const [bad] = await run(`SELECT number, status, delivery_state, delivery_error, sent_at FROM invoices WHERE id = $1`, [prog.invoiceId]);
+    assert.deepEqual([bad.number, bad.status, bad.delivery_state, bad.sent_at], ["INV-002", "issued", "failed", null]);
+    assert.match(bad.delivery_error, /mailbox unavailable/);
+    const [bell] = await run(`SELECT subline, flagged, href FROM notifications WHERE title = 'Invoice INV-002 was not emailed · zz-bill-send'`);
+    assert.ok(bell, "Joe gets a bell naming the invoice and the job");
+    assert.match(bell.subline, /mailbox unavailable/);
+    assert.equal(bell.flagged, true);
+    assert.equal(bell.href, "/projects/zz-bill-send");
+    assert.equal(invoiceSendBlock(await loadInvoiceEmail(run, prog.invoiceId)), null, "a failed issued invoice can still be sent by hand");
+    assert.match(invoiceSendBlock(await loadInvoiceEmail(run, out.initial.invoiceId)), /already sent/);
+
+    // No client email: nothing doomed is queued; the invoice reads not sent and Joe is told.
+    const [p2] = await run(`INSERT INTO projects (slug, name, status, client_name, contract_value) VALUES ('zz-bill-noemail', 'zz-bill-noemail', 'construction_contract', 'No Email', 10000) RETURNING id`);
+    const e2 = await seedEstimate(client, p2.id, { total: 1000000, status: "approved" });
+    const sig2 = await signature(client, { projectId: p2.id, docType: "estimate", estimateId: e2, status: "signed" });
+    const noEmail = await onSignatureSigned(tx, sig2, agent, mail);
+    assert.equal(noEmail.initial.issued, true);
+    assert.equal(noEmail.initial.intentId, null);
+    assert.equal((await run(`SELECT count(*)::int AS n FROM action_intents WHERE target_id = $1`, [String(noEmail.initial.invoiceId)]))[0].n, 0, "no doomed intent");
+    const [ne] = await run(`SELECT status, delivery_state, delivery_error FROM invoices WHERE id = $1`, [noEmail.initial.invoiceId]);
+    assert.deepEqual([ne.status, ne.delivery_state], ["issued", "failed"]);
+    assert.match(ne.delivery_error, /No client email on file/);
+    const [bell2] = await run(`SELECT subline FROM notifications WHERE title = 'Invoice INV-001 was not emailed · zz-bill-noemail'`);
+    assert.match(bell2.subline, /No client email on file/);
+
+    // An address that opted out is not queued either.
+    await run(`UPDATE projects SET client_email = 'Optout@Example.test' WHERE id = $1`, [p2.id]);
+    await run(`INSERT INTO communication_optouts (channel, address, reason) VALUES ('email', 'optout@example.test', 'zz unsubscribed') ON CONFLICT (channel, address) DO UPDATE SET revoked_at = NULL`);
+    assert.equal((await onSignatureSigned(tx, sig2, agent, mail)).initial.intentId, null);
+    assert.match((await run(`SELECT delivery_error FROM invoices WHERE id = $1`, [noEmail.initial.invoiceId]))[0].delivery_error, /opted out of email \(zz unsubscribed\)/);
+    // Once there is an address to send to, the next signature event queues it.
+    await run(`UPDATE projects SET client_email = 'zz-later@example.test' WHERE id = $1`, [p2.id]);
+    const later = await onSignatureSigned(tx, sig2, agent, mail);
+    assert.ok(later.initial.intentId);
+    assert.equal((await run(`SELECT payload->>'to' AS to FROM action_intents WHERE id = $1`, [later.initial.intentId]))[0].to, "zz-later@example.test");
+    assert.deepEqual((await run(`SELECT delivery_state, delivery_error FROM invoices WHERE id = $1`, [noEmail.initial.invoiceId]))[0], { delivery_state: "queued", delivery_error: null });
+    await run(`DELETE FROM communication_optouts WHERE address = 'optout@example.test'`);
+  });
+});
+
+test("Final invoice on sign-off: an open punch item stages Joe's card naming it instead of issuing; none open still issues", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    const projectId = await seed(client, "zz-bill-punch");
+    const tx = txOver(url);
+    const run = runOn(client);
+    await run(`UPDATE projects SET price_cents = 3000000, status = 'closeout' WHERE id = $1`, [projectId]);
+    await tx(async (r) => activatePolicy(r, POLICY_FINAL, (await proposePolicyVersion(r, POLICY_FINAL, {}, "test")).version));
+    const [punch] = await run(`INSERT INTO project_punch (project_id, item) VALUES ($1, 'Touch up hall paint'), ($1, 'Done already') RETURNING id`, [projectId]);
+    await run(`UPDATE project_punch SET done = true WHERE project_id = $1 AND item = 'Done already'`, [projectId]);
+    await tx((r) => recordClientPunch(r, { projectId, items: [{ label: "Adjust closet door", key: "client:door" }] }));
+    const signoff = await signature(client, { projectId, docType: "completion", status: "signed" });
+
+    const held = await onSignatureSigned(tx, signoff, agent, mail);
+    assert.equal(held.final.issued, false, JSON.stringify(held.final));
+    assert.equal(held.final.code, "open_punch");
+    assert.match(held.final.reason, /Touch up hall paint; Adjust closet door/);
+    const [card] = await run(`SELECT kind, action, status, amount_cents::int AS amount, title, summary FROM decisions WHERE id = $1`, [held.final.decisionId]);
+    assert.deepEqual([card.kind, card.action, card.status, card.amount], ["invoice_issue", "invoice.issue_final", "pending", 3000000], "the no-policy card, for Joe");
+    assert.deepEqual(card.summary.gaps, ["Open punch item: Touch up hall paint", "Open punch item: Adjust closet door"]);
+    assert.match(card.title, /2 punch items still open/);
+    assert.equal((await run(`SELECT count(*)::int AS n FROM invoices WHERE project_id = $1`, [projectId]))[0].n, 0, "no final invoice");
+    assert.equal((await run(`SELECT count(*)::int AS n FROM action_intents`))[0].n, 0, "nothing queued to the client");
+
+    // Joe's tap on that card is not a dead end: approved → the final invoice is issued and queued under his decision.
+    assert.equal(await tx((r) => issueFinalFromDecision(r, { decisionId: held.final.decisionId, principal: owner, mail })).then((o) => o.issued), false, "pending card issues nothing");
+    await tx((r) => resolveDecision(r, { id: held.final.decisionId, outcome: "approved", principal: owner, via: "telegram" }));
+    const tapped = await tx((r) => issueFinalFromDecision(r, { decisionId: held.final.decisionId, principal: owner, mail }));
+    assert.equal(tapped.issued, true, JSON.stringify(tapped));
+    const [queued] = await run(`SELECT payload->>'to' AS to, policy_ref FROM action_intents WHERE target_id = $1`, [String(tapped.invoiceId)]);
+    assert.ok(queued?.to, "queued to the client");
+    assert.match(queued.policy_ref, new RegExp(`decision:${held.final.decisionId}$`), "under Joe's decision, not the policy");
+    await run(`DELETE FROM action_intents`);
+    await run(`DELETE FROM invoices WHERE project_id = $1`, [projectId]);
+    await run(`DELETE FROM commands WHERE name = 'invoice.issue_final_on_client_signoff'`);
+
+    // Punch closed out → the same sign-off issues and queues the final invoice on the policy.
+    await run(`UPDATE project_punch SET done = true WHERE id = $1`, [punch.id]);
+    await tx((r) => resolveClientPunch(r, { projectId, itemKey: "client:door", by: "Joe" }));
+    const fin = await onSignatureSigned(tx, signoff, agent, mail);
+    assert.equal(fin.final.issued, true, JSON.stringify(fin.final));
+    assert.ok(fin.final.intentId);
+    assert.match((await run(`SELECT policy_ref FROM action_intents WHERE id = $1`, [fin.final.intentId]))[0].policy_ref, /^policy:invoice\.final_on_client_signoff@/);
   });
 });
 

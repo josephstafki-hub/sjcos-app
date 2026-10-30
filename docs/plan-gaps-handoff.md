@@ -47,8 +47,10 @@ this repo every day.
 1. ~~**Duplicate migration number on main.**~~ Fixed 2026-10-30: lead value renumbered to
    `db/migrations/0040_lead_value_from_estimate.sql` (and `0041_telegram_draft_replies.sql` added after
    it). Live has applied only up to 0037; `node db/migrate.mjs --status` lists 0038–0041 as pending, and
-   all four were checked against the live schema in a rolled-back transaction. At deploy, run
-   `node db/migrate.mjs` (from the live checkout) before restarting into the new build.
+   all four were checked against the live schema in a rolled-back transaction. At deploy, migrate
+   BEFORE pulling into the live checkout (the 3-minute agent worker runs from it and breaks against the
+   old schema): from an up-to-date checkout of main, `DATABASE_URL=<live url from /home/joe/sjcos-app/.env.local>
+   node db/migrate.mjs`, then pull, build, restart.
 2. **Deploy** everything above with Joe's OK, and restart sjcos, sjcos-mcp and sjcos-worker.
 3. **Resume the weekly update lane** after the deploy. It was paused on 2026-10-30 because every Friday
    update would have been empty: `DELETE FROM lane_pauses WHERE lane = 'weekly_summary'`, or use the lane

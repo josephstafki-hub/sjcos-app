@@ -218,7 +218,7 @@ async function bidDetail(id: number): Promise<GrantDetail | null> {
   );
   const facts: GrantDetail["facts"] = [
     { label: "Package", value: `${pkg.title}${pkg.trade ? ` · ${pkg.trade}` : ""}` },
-    { label: invites.length === 1 ? "Sub" : `${invites.length} subs`, value: invites.map((i) => `${i.sub_name}${i.email ? "" : " (no email — skipped)"}`).join(", ") || "None waiting — the send will be refused" },
+    { label: invites.length === 1 ? "Sub" : `${invites.length} subs`, value: invites.map((i) => `${i.sub_name}${i.email ? ` <${i.email}>` : " (no email — skipped)"}`).join(", ") || "None waiting — the send will be refused" },
     { label: "Packet", value: files.map((f) => f.name).join(", ") || "Nothing attached — the send will be refused" },
   ];
   if (pkg.due_date) facts.push({ label: "Bids due", value: pkg.due_date });
@@ -243,6 +243,8 @@ async function newsletterDetail(id: number): Promise<GrantDetail | null> {
     [id],
   );
   if (!n) return null;
+  const { rows: recipients } = await query<{email:string;name:string|null}>(
+    `SELECT email,name FROM newsletter_outbox WHERE newsletter_id=$1 AND status IN ('queued','failed') ORDER BY email`, [id]);
   return {
     headline: n.queued
       ? `Mail the newsletter "${n.title}" to ${n.queued} recipient${n.queued === 1 ? "" : "s"}`
@@ -250,7 +252,7 @@ async function newsletterDetail(id: number): Promise<GrantDetail | null> {
     job: null,
     facts: [
       { label: "Issue", value: n.title },
-      { label: "Recipients", value: n.queued ? `${n.queued} queued` : "Nothing queued — the release will be refused" },
+      { label: "Recipients", value: n.queued ? recipients.map(r => r.name ? `${r.name} <${r.email}>` : r.email).join(", ") : "Nothing queued — the release will be refused" },
     ],
     draft: n.intro?.trim() ? { subject: n.title, body: n.intro } : null,
     draftNote: "Open the newsletter page to see the full issue as it will be mailed.",

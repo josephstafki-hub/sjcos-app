@@ -21,9 +21,9 @@ import { AssistantMarkdown } from "./AssistantMarkdown";
 import { PanelDictation } from "./PanelDictation";
 import { mergeTranscript } from "@/lib/append-transcript";
 import { useVoiceRound } from "@/lib/use-voice-round";
-import { approveGrant, denyGrant } from "@/lib/actions/owner-grants";
-import type { PendingGrant } from "@/lib/actions/dev-agents";
-import { GrantDetails } from "@/components/engine/GrantDetails";
+import { GrantCard } from "./GrantCard";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import type { SteerStatus } from "@/lib/run-steers";
 import type {
   AgentInteraction,
@@ -1278,59 +1278,6 @@ function ApprovalCard({
 
 /** An agent's request_owner_permission (owner grant), decidable inline —
  *  same decision paths as /engine/permissions, just without leaving the chat. */
-function GrantCard({ grant, onDone }: { grant: PendingGrant; onDone: (id: string) => void }) {
-  const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState("");
-  const decide = async (approve: boolean) => {
-    setBusy(true);
-    try {
-      if (approve) await approveGrant(grant.id);
-      else await denyGrant(grant.id, note.trim() || undefined);
-      onDone(grant.id);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div className="rounded-md border-[1.5px] border-flag/60 bg-paper px-3 py-2.5">
-      <div className="mb-1 flex items-center gap-1.5 text-[10.5px] font-medium uppercase tracking-[0.1em] text-flag">
-        <ShieldQuestion className="size-3.5" strokeWidth={1.75} />
-        Send permission — {grant.requestedBy} asks
-      </div>
-      <div className="text-[13px] font-medium text-ink">
-        {grant.detail?.headline ?? `${grant.label}${grant.targetId ? ` — ${grant.targetId}` : ""}`}
-      </div>
-      {grant.detail?.job && <div className="text-[11.5px] text-ink-3">{grant.detail.job}</div>}
-      {grant.reason && <div className="mt-0.5 text-[12px] text-ink-3">{grant.reason}</div>}
-      {grant.detail && <GrantDetails detail={grant.detail} />}
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void decide(true)}
-          className="rounded-md bg-ink px-2.5 py-1 text-[11.5px] font-medium text-paper transition-colors hover:bg-[#232a1e] disabled:opacity-40"
-        >
-          Approve send
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void decide(false)}
-          className="rounded-md border border-rule px-2.5 py-1 text-[11.5px] font-medium text-flag transition-colors hover:bg-paper-2 disabled:opacity-40"
-        >
-          Deny
-        </button>
-        <input
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          placeholder="Note (kept with a denial)…"
-          className="min-w-0 flex-1 rounded-md border border-rule bg-paper px-2 py-1 text-[11.5px] text-ink outline-none placeholder:text-ink-4"
-        />
-      </div>
-    </div>
-  );
-}
-
 /** Compact labeled dropdown for the Claude run controls. */
 function OptSelect({
   label,

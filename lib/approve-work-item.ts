@@ -33,7 +33,7 @@ export async function finishApproval(opts: {
   }
   if (send.outcome === "held") {
     // The provider could not confirm. The gate stays approved (a second
-    // Approve finds the same intent, never a second send); the agent is told
+    // Approve is refused by claimApproval, never a second send); the agent is told
     // NOT to resend; the reconciliation sweep settles it.
     await notifyAgentOwner(opts.id, opts.assigneeKey, opts.title, opts.body, opts.context, `${send.notice} Do not send it again.`);
     await maybeAdvanceRunbook(opts.id);
@@ -45,29 +45,63 @@ export async function finishApproval(opts: {
     : { ok: true, notice: send.notice };
 }
 
-/** Approve a work item awaiting human approval, session-free — the /engine and
- *  Today buttons, the corner popup and the Telegram button all land here (the
- *  caller has already checked who is asking). Clears the gate, moves the item
- *  to queued, and sends the staged client draft when there is one. */
-export async function approveWorkItemById(id: string): Promise<ApproveResult> {
-  const { rows } = await query<{
-    title: string;
-    body: string;
-    assignee_key: string | null;
-    lead_slug: string | null;
-    project_slug: string | null;
-  }>(
+/** "Still waiting on Joe's approval", as SQL over work_items — the same test
+ *  the board uses to show Approve (lib/engine-constants.ts bucketFor):
+ *  approval_status = 'requested', or parked at approval_needed. A rejected
+ *  draft never counts, whatever its status says: only a fresh
+ *  submit_draft_for_approval (which sets 'requested') can re-open it. */
+export const AWAITING_APPROVAL_SQL = `(approval_status = 'requested' OR (status = 'approval_needed' AND approval_status <> 'rejected'))`;
+
+/** Why an Approve tap found nothing to approve. Nothing was sent. */
+export function staleApprovalError(state: { approval_status: string; status: string } | null): string {
+  if (!state) return "Work item not found.";
+  if (state.approval_status === "rejected") return "Already rejected — nothing was sent.";
+  if (state.approval_status === "approved") return "Already approved — nothing more was sent.";
+  if (state.status === "cancelled") return "This was cancelled — nothing was sent.";
+  return "This isn't waiting for approval any more — nothing was sent.";
+}
+
+export interface ClaimedApproval {
+  title: string;
+  body: string;
+  assignee_key: string | null;
+  lead_slug: string | null;
+  project_slug: string | null;
+}
+
+/** Flip the approval gate — only on an item still awaiting approval, and the
+ *  check is the UPDATE itself. An old Telegram or app button tapped after Joe
+ *  rejected (or already approved) the draft changes nothing, and of two taps
+ *  racing, Postgres lets exactly one through (the loser re-reads the winner's
+ *  row and no longer matches). The caller sends only on `ok: true`. */
+export async function claimApproval(id: string): Promise<({ ok: true } & ClaimedApproval) | { ok: false; error: string }> {
+  const { rows } = await query<ClaimedApproval>(
     `UPDATE work_items w
         SET approval_status = 'approved',
             status = CASE WHEN status = 'approval_needed' THEN 'queued' ELSE status END
-      WHERE id = $1
+      WHERE id = $1 AND ${AWAITING_APPROVAL_SQL}
       RETURNING title, body, assignee_key,
         (SELECT slug FROM leads WHERE id = w.lead_id) AS lead_slug,
         (SELECT slug FROM projects WHERE id = w.project_id) AS project_slug`,
     [id],
   );
-  if (!rows[0]) return { ok: false, error: "Work item not found." };
-  const { title, body, assignee_key, lead_slug, project_slug } = rows[0];
+  if (rows[0]) return { ok: true, ...rows[0] };
+  const { rows: now } = await query<{ approval_status: string; status: string }>(
+    `SELECT approval_status, status FROM work_items WHERE id = $1`,
+    [id],
+  );
+  return { ok: false, error: staleApprovalError(now[0] ?? null) };
+}
+
+/** Approve a work item awaiting human approval, session-free — the /engine and
+ *  Today buttons, the corner popup and the Telegram button all land here (the
+ *  caller has already checked who is asking). Clears the gate, moves the item
+ *  to queued, and sends the staged client draft when there is one. A tap on
+ *  an item no longer awaiting approval is refused and sends nothing. */
+export async function approveWorkItemById(id: string): Promise<ApproveResult> {
+  const claim = await claimApproval(id);
+  if (!claim.ok) return claim;
+  const { title, body, assignee_key, lead_slug, project_slug } = claim;
   const context = project_slug ? `project ${project_slug}` : lead_slug ? `lead ${lead_slug}` : undefined;
   return finishApproval({ id, assigneeKey: assignee_key, title, body, context });
 }

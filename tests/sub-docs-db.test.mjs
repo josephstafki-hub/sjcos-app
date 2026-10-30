@@ -2,7 +2,18 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { withTestDb, harnessAvailable } from "./_harness/testdb.mjs";
 import { owner, agent, runOver, cleanProcurement, seedOwner, seedProject, seedSub, seedFile, activateRoutinePolicy, IN_WINDOW, OUT_OF_WINDOW } from "./_fixtures-procurement.mjs";
-import { detectMissingOrExpiring, requestDocument, ingestSubDocument, acceptDocument, canAccessSubDocument, listOpenRequests } from "../lib/sub-docs/index.ts";
+import {
+  detectMissingOrExpiring,
+  requestDocument,
+  ingestSubDocument,
+  acceptDocument,
+  canAccessSubDocument,
+  listOpenRequests,
+  receiveSubDocument,
+  confirmSubDocument,
+  rejectDocument,
+  subPaperworkForOwner,
+} from "../lib/sub-docs/index.ts";
 
 // VALIDATION V15 (expired/wrong document) + V19 (multi-job sub, cross ids).
 const skip = !harnessAvailable() && "postgresql-16 binaries not installed";
@@ -138,5 +149,141 @@ test("V19 another sub cannot fetch a document by changing ids; restricted docs n
     const client1 = { kind: "user", userId: null, role: "client", name: "C", permissions: [], linkSlug: "zz-job1" };
     assert.equal((await canAccessSubDocument(run, client1, doc.document.id, { via: "portal" })).ok, false);
     assert.equal((await canAccessSubDocument(run, owner, 999999, { via: "owner_route" })).status, 404);
+  });
+});
+
+// Bug 6 (2026-10-30): a sub's typed COI date counted as accepted. A portal
+// upload is now received + under review with a to-do for Joe; only Joe's
+// accept makes it current, and a rejection asks the sub again.
+test("portal COI: the sub's typed date is not coverage; Joe's to-do, accept with his date, reject asks again", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    await cleanProcurement(client);
+    await client.query(`DELETE FROM work_items WHERE source_kind = 'sub_document'`);
+    await seedOwner(client);
+    const run = runOver(client);
+    const job = await seedProject(client, "zz-job1");
+    const day = (n) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+    const subOf = async (slug) => (await client.query(`SELECT coi_status, coi_expires_at::text AS e FROM subs WHERE slug = $1`, [slug])).rows[0];
+    const itemOf = async (id) => (await client.query(`SELECT title, body, status, assignee_kind, assignee_key, project_id, source_kind, source_id, requires_approval FROM work_items WHERE id = $1`, [id])).rows[0];
+    const docOf = async (id) => (await client.query(`SELECT status, review_note, expires_at::text AS e, validated_metadata FROM sub_documents WHERE id = $1`, [id])).rows[0];
+
+    // An existing sub whose COI is current, and a new one with none.
+    const a = await seedSub(client, "zz-sub-a", { coiStatus: "current", coiExpiresAt: day(60) });
+    const b = await seedSub(client, "zz-sub-b");
+    for (const f of ["zz-coi-a1", "zz-coi-b1", "zz-coi-c1", "zz-coi-c2", "zz-coi-d1", "zz-coi-d2", "zz-coi-e1"]) await seedFile(client, f);
+    await detectMissingOrExpiring(run, { subSlugs: [b] }); // opens b's COI + W-9 requests
+    await client.query(`UPDATE sub_document_requests SET next_at = now() WHERE sub_slug = $1`, [b]);
+
+    // ── upload with a future typed date: under review, to-do for Joe, NOT current
+    const got = await receiveSubDocument(run, { subSlug: b, docType: "coi", fileId: "zz-coi-b1", expiresAt: day(400), jobProjectId: job, principal: subPrincipal(b), createdBy: "sub-portal" });
+    assert.equal(got.ok, true);
+    assert.equal(got.document.status, "under_review", "receipt is not acceptance");
+    assert.deepEqual(await subOf(b), { coi_status: "missing", e: null }, "the typed date does not make the COI current");
+    const item = await itemOf(got.reviewItemId);
+    assert.equal(item.status, "waiting_on_human");
+    assert.equal(item.assignee_kind, "human");
+    assert.equal(item.assignee_key, "human-joe");
+    assert.equal(item.project_id, job, "the job is linked");
+    assert.equal(item.source_kind, "sub_document");
+    assert.equal(item.source_id, `subdoc:${got.document.id}:review`, "the document is linked");
+    assert.equal(item.requires_approval, false);
+    assert.match(item.title, /^Review ZZ Sub B's COI \(says it expires /);
+    assert.match(item.body, /\/api\/files\/zz-coi-b1/);
+    assert.match(item.body, /\/subs\/zz-sub-b/);
+    assert.match(item.body, /\/projects\/zz-job1/);
+    const coiReq = (await listOpenRequests(run, { subSlug: b })).find((r) => r.doc_type === "coi");
+    assert.equal(coiReq.state, "open", "the chase keeps going until it's accepted");
+    assert.equal(coiReq.next_at, null, "…but doesn't nag while it's waiting on Joe");
+    assert.ok((await detectMissingOrExpiring(run, { subSlugs: [b], openRequests: false })).requirements.some((r) => r.docType === "coi"), "still missing until accepted");
+
+    // The same on an existing current sub: nothing about its COI changes.
+    const gotA = await receiveSubDocument(run, { subSlug: a, docType: "coi", fileId: "zz-coi-a1", expiresAt: day(30), principal: subPrincipal(a) });
+    assert.equal(gotA.ok, true);
+    assert.deepEqual(await subOf(a), { coi_status: "current", e: day(60) });
+
+    // ── Joe accepts with the date he read; nobody else can, no lapsed date
+    assert.equal((await confirmSubDocument(run, { documentId: got.document.id, expiresAt: day(380), principal: agent })).ok, false, "an agent can't accept on Joe's word");
+    assert.equal((await confirmSubDocument(run, { documentId: got.document.id, subSlug: a, expiresAt: day(380), principal: owner })).ok, false, "wrong sub");
+    const lapsed = await confirmSubDocument(run, { documentId: got.document.id, expiresAt: day(-1), principal: owner });
+    assert.equal(lapsed.ok, false);
+    assert.match(lapsed.reason, /already passed/);
+    assert.equal((await confirmSubDocument(run, { documentId: got.document.id, expiresAt: "", principal: owner })).ok, false, "a COI needs the date");
+    const acc = await confirmSubDocument(run, { documentId: got.document.id, subSlug: b, expiresAt: day(380), principal: owner });
+    assert.equal(acc.ok, true);
+    assert.deepEqual(await subOf(b), { coi_status: "current", e: day(380) }, "Joe's date, not the sub's");
+    const accDoc = await docOf(got.document.id);
+    assert.equal(accDoc.status, "accepted");
+    assert.equal(accDoc.validated_metadata.confirmedByOwner, true);
+    assert.equal(accDoc.validated_metadata.subTypedExpiry, day(400));
+    assert.equal((await itemOf(got.reviewItemId)).status, "done", "the to-do closes");
+    assert.deepEqual(acc.satisfiedRequestIds, [coiReq.id]);
+    assert.equal((await confirmSubDocument(run, { documentId: got.document.id, expiresAt: day(380), principal: owner })).ok, false, "accepted once");
+
+    // ── reject (policy inactive): not current, to-do closes, the ask is staged with the reason
+    const rej = await rejectDocument(run, { documentId: gotA.document.id, subSlug: a, reason: "The policy number is cut off", principal: owner, at: IN_WINDOW });
+    assert.equal(rej.ok, true);
+    assert.equal(rej.document.status, "rejected");
+    assert.equal(rej.ask.mode, "staged");
+    const rejDoc = await docOf(gotA.document.id);
+    assert.equal(rejDoc.review_note, "The policy number is cut off");
+    assert.equal((await itemOf(gotA.reviewItemId)).status, "done");
+    assert.deepEqual(await subOf(a), { coi_status: "current", e: day(60) }, "a rejection does not touch the sub's tracked COI");
+    const staged = await client.query(`SELECT summary, recipient, target_kind FROM decisions WHERE id = $1`, [rej.ask.decisionId]);
+    assert.equal(staged.rows[0].recipient, "zz-sub-a@example.test");
+    assert.equal(staged.rows[0].target_kind, "sub_document_request");
+    assert.match(staged.rows[0].summary.body, /wasn't able to accept that one: The policy number is cut off\./);
+    const aReq = (await listOpenRequests(run, { subSlug: a })).find((r) => r.doc_type === "coi");
+    assert.ok(aReq && aReq.next_at, "the chase resumes");
+    assert.equal((await rejectDocument(run, { documentId: gotA.document.id, reason: "again", principal: owner })).ok, false, "rejected once");
+    assert.equal((await rejectDocument(run, { documentId: got.document.id, reason: "x", principal: owner })).ok, false, "an accepted COI can't be rejected here");
+    assert.equal((await rejectDocument(run, { documentId: gotA.document.id, reason: "  ", principal: owner })).ok, false);
+
+    // ── b's accepted COI is still good: rejecting a junk upload asks nobody
+    await seedFile(client, "zz-coi-b2");
+    const junk = await receiveSubDocument(run, { subSlug: b, docType: "coi", fileId: "zz-coi-b2", expiresAt: day(500), principal: subPrincipal(b) });
+    const rejJunk = await rejectDocument(run, { documentId: junk.document.id, reason: "Not a certificate", principal: owner, at: IN_WINDOW });
+    assert.equal(rejJunk.ask.mode, "skipped");
+    assert.match(rejJunk.ask.reason, /still good/);
+    assert.deepEqual(await subOf(b), { coi_status: "current", e: day(380) });
+
+    // ── another copy waiting on Joe: rejecting one doesn't chase the sub
+    const c = await seedSub(client, "zz-sub-c");
+    const c1 = await receiveSubDocument(run, { subSlug: c, docType: "coi", fileId: "zz-coi-c1", expiresAt: day(200), principal: subPrincipal(c) });
+    await receiveSubDocument(run, { subSlug: c, docType: "coi", fileId: "zz-coi-c2", expiresAt: day(210), principal: subPrincipal(c) });
+    const rejC = await rejectDocument(run, { documentId: c1.document.id, reason: "Blurry", principal: owner, at: IN_WINDOW });
+    assert.equal(rejC.ask.mode, "skipped");
+    assert.match(rejC.ask.reason, /already waiting for your review/);
+
+    // ── accepting the newer of two waiting copies retires the older one and its to-do
+    const d = await seedSub(client, "zz-sub-d");
+    const d1 = await receiveSubDocument(run, { subSlug: d, docType: "coi", fileId: "zz-coi-d1", expiresAt: day(100), principal: subPrincipal(d) });
+    const d2 = await receiveSubDocument(run, { subSlug: d, docType: "coi", fileId: "zz-coi-d2", expiresAt: day(300), principal: subPrincipal(d) });
+    assert.equal((await confirmSubDocument(run, { documentId: d2.document.id, expiresAt: day(300), principal: owner })).ok, true);
+    assert.equal((await docOf(d1.document.id)).status, "superseded");
+    assert.equal((await itemOf(d1.reviewItemId)).status, "done");
+    const paper = await subPaperworkForOwner(run, d);
+    assert.equal(paper.coiStatus, "current");
+    assert.deepEqual(paper.documents.map((x) => x.status), ["accepted", "superseded"]);
+
+    // ── policy active, in the window: the ask goes out under the policy with Joe's reason
+    await activateRoutinePolicy(client);
+    const e = await seedSub(client, "zz-sub-e");
+    const e1 = await receiveSubDocument(run, { subSlug: e, docType: "coi", fileId: "zz-coi-e1", expiresAt: day(90), principal: subPrincipal(e) });
+    const rejE = await rejectDocument(run, { documentId: e1.document.id, reason: "Expired last month", principal: owner, at: IN_WINDOW });
+    assert.equal(rejE.ask.mode, "sent");
+    const intent = await client.query(`SELECT kind, recipient, policy_ref, payload FROM action_intents WHERE id = $1`, [rejE.ask.intentId]);
+    assert.equal(intent.rows[0].kind, "send_email");
+    assert.equal(intent.rows[0].recipient, "zz-sub-e@example.test");
+    assert.equal(intent.rows[0].policy_ref, "policy:routine.followup@1");
+    assert.match(intent.rows[0].payload.bodyText, /I wasn't able to accept that one: Expired last month\./);
+    assert.deepEqual(await subOf(e), { coi_status: "missing", e: null });
+
+    // ── a typed date already past: recorded as expired, no to-do, nothing changes
+    await seedFile(client, "zz-coi-e2");
+    const old = await receiveSubDocument(run, { subSlug: e, docType: "coi", fileId: "zz-coi-e2", expiresAt: day(-5), principal: subPrincipal(e) });
+    assert.equal(old.ok, false);
+    assert.equal(old.exception, "expired");
+    assert.equal((await client.query(`SELECT count(*)::int AS n FROM work_items WHERE source_id = $1`, [`subdoc:${old.documentId}:review`])).rows[0].n, 0);
+    assert.deepEqual(await subOf(e), { coi_status: "missing", e: null });
   });
 });

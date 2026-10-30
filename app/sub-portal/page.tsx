@@ -74,10 +74,14 @@ export default async function SubPortalPage() {
           </Link>
         )}
         {sub &&
-          (sub.coiStatus === "expiring" ? (
-            <Chip kind="flag">COI expiring</Chip>
-          ) : (
+          (sub.coiStatus === "current" ? (
             <Chip kind="money">COI current</Chip>
+          ) : sub.coiStatus === "expiring" ? (
+            <Chip kind="flag">COI expiring</Chip>
+          ) : sub.coiStatus === "expired" ? (
+            <Chip kind="flag">COI expired</Chip>
+          ) : (
+            <Chip kind="flag">No COI on file</Chip>
           ))}
         <Avatar initials={subInitials} size="sm" />
       </header>

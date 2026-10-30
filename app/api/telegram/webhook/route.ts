@@ -7,7 +7,7 @@ import { performApprovalEffects } from "@/lib/decisions/after-approval";
 import { cardText } from "@/lib/decisions/cards";
 import { approveWorkItemById, rejectWorkItemById } from "@/lib/approve-work-item";
 import { describeApproval } from "@/lib/approved-draft-rules";
-import { askWhatShouldChange, deliverOwnerReply, sendOwnerTelegram } from "@/lib/owner-reply-delivery";
+import { askWhatShouldChange, deliverOwnerReply, markDraftCardPulled, sendOwnerTelegram } from "@/lib/owner-reply-delivery";
 import { refreshTelegramCard } from "@/lib/decisions/notify";
 import { getDecision } from "@/lib/commands/decisions";
 
@@ -92,7 +92,16 @@ export async function POST(req: Request) {
     if (result.workItem) {
       const w = result.workItem;
       let reply: string;
-      if (w.verb === "approve") {
+      // Only a draft still waiting on Joe: one he pulled with a Telegram reply
+      // (or already decided) must not send from an old card's button.
+      const [state] = await runDirect<{ approval_status: string; title: string }>(`SELECT approval_status, title FROM work_items WHERE id = $1`, [w.id]);
+      if (!state) reply = "That item no longer exists.";
+      else if (state.approval_status !== "requested") {
+        reply =
+          state.approval_status === "not_requested"
+            ? `Not sent: "${state.title}" was pulled back for changes. The agent's revised draft comes as a new card.`
+            : `Already ${state.approval_status}: ${state.title}`;
+      } else if (w.verb === "approve") {
         const r = await approveWorkItemById(w.id);
         const d = describeApproval(r);
         reply = r.ok ? d.message : r.error;
@@ -112,10 +121,11 @@ export async function POST(req: Request) {
     // that filed it (or the operating agent), and acknowledge.
     if (result.ownerReply) {
       const r = result.ownerReply;
-      if (r.pulled) {
+      if (r.pulled && r.decisionId) {
         const d = await getDecision(runDirect, r.decisionId).catch(() => null);
         if (d) await refreshTelegramCard(d, "Changes requested from Telegram — your note went to the agent.").catch(() => undefined);
       }
+      if (r.pulled && r.workItemId) await markDraftCardPulled(r.workItemId, "Pulled back for changes — your note went to the agent. Its revised draft comes as a new card.").catch(() => undefined);
       await deliverOwnerReply(r, String(update.message?.text ?? "").trim().slice(0, 4000));
     }
     if (result.help) await sendOwnerTelegram(result.help.text, { replyTo: result.help.messageId });

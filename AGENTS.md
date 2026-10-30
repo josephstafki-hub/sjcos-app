@@ -32,6 +32,11 @@ Rule from Joe (2026-09-23); full text in `docs/estimates-and-change-orders.md`.
   published). Don't create a second formal estimate when one exists. Never insert these rows by
   script. `contract` needs `estimate_id` too; `change_order` needs
   `change_order_id`; `invoice_doc` needs `invoice_id`.
+- **A sent estimate is locked** (Joe, 2026-10-30; migration 0047). Once it is
+  out to the client (sent, or a signature request on it is out or signed), its
+  lines can't be added, edited or deleted. To revise before signing, Joe voids
+  the signature request (it goes back to draft), then it is edited and sent
+  again. Signed stays locked: a Pre-con change or a change order instead.
 - **Money › Pre-con changes** holds client additions or changes priced
   **before the contract is signed**: a new estimate with `kind = precon_change`
   (`create_estimate`), not a change order.

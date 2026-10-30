@@ -44,10 +44,36 @@ export interface CallFollowUpsResult {
 
 const OWNER_RE = /^(joe|us|we|sj|owner|sj carpentry)/i;
 
-function dueDate(due: string | null): Date | null {
-  if (!due) return null;
-  const d = new Date(due);
-  return Number.isNaN(d.getTime()) ? null : d;
+const MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+/** "nov", "november", "sept": a month's full name or a 3–4 letter abbreviation. */
+const monthIndex = (w: string) => MONTHS.findIndex((m) => m === w || (w.length >= 3 && w.length <= 4 && m.startsWith(w)));
+
+/** A due date the notes mention, read against the call's own date. Only an
+ *  ISO date or a month + day ("Nov 3", "November 3rd") counts; a month + day
+ *  with no year is the next one on or after the call. Anything else ("end of
+ *  the month", "next week", "Nov") is null: `new Date("Nov 3")` is 2001, so
+ *  a guess never becomes the date — the to-do asks Joe instead. */
+export function dueDate(due: string | null, callDate: string): Date | null {
+  const t = (due ?? "").trim().toLowerCase();
+  if (!t) return null;
+  const at = (y: number, m: number, d: number) => {
+    const out = new Date(Date.UTC(y, m, d, 17)); // noon Central
+    return out.getUTCMonth() === m && out.getUTCDate() === d ? out : null;
+  };
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(t);
+  if (iso) return at(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+  const md = /^(?:by |on |before )?([a-z]{3,9})\.? (\d{1,2})(?:st|nd|rd|th)?(?:,? (\d{4}))?$/.exec(t);
+  if (!md) return null;
+  const m = monthIndex(md[1]);
+  if (m < 0) return null;
+  const day = Number(md[2]);
+  if (md[3]) return at(Number(md[3]), m, day);
+  const base = new Date(`${callDate.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(base.getTime())) return null;
+  const year = base.getUTCFullYear();
+  const same = at(year, m, day);
+  if (!same) return null;
+  return same.getTime() >= base.getTime() ? same : at(year + 1, m, day);
 }
 
 /** Joe's action items from the notes shape, with their stable keys. */
@@ -84,17 +110,19 @@ export async function ensureCallFollowUps(run: Run, callId: string, opts: { by?:
   const flagged = (call.notes.flags ?? []).length > 0;
 
   for (const a of ownerActionItems(call)) {
+    const due = dueDate(a.due, call.started_at);
+    const unclear = a.due && !due ? `\n\nWhen is this due? The call said "${a.due}" and that isn't a date I can set; give it a due date when you pick it up.` : "";
     const r = await refreshSourcedWorkItem(run, {
       sourceKind: "call",
       sourceId: a.key,
       provider: "call",
       title: a.text.slice(0, 140),
-      body: `From the ${call.direction} call with ${who} on ${call.started_at.slice(0, 10)}${a.due ? ` (mentioned: ${a.due})` : ""}.\n\n${summary}\n\n[call:${call.id}]`,
+      body: `From the ${call.direction} call with ${who} on ${call.started_at.slice(0, 10)}${a.due ? ` (mentioned: ${a.due})` : ""}.${unclear}\n\n${summary}\n\n[call:${call.id}]`,
       priority: flagged ? "high" : "normal",
       status: "queued",
       leadId: call.lead_id,
       projectId: call.project_id,
-      dueAt: dueDate(a.due),
+      dueAt: due,
       createdBy: `call-notes:${by}`,
       obligationKind: "call_action",
       occurredAt: call.started_at,
@@ -116,5 +144,7 @@ export async function ensureCallFollowUps(run: Run, callId: string, opts: { by?:
     );
     result.voicemailNote = rows.length ? "appended" : "already";
   }
+  await run(`UPDATE calls SET followups_filed_at = now() WHERE id = $1`, [call.id]);
   return result;
 }
+

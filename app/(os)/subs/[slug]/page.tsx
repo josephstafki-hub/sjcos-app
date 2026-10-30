@@ -4,19 +4,43 @@ import { notFound } from "next/navigation";
 import { Phone, MessageSquare, Sparkles, Check } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
 import { AiBubble, AiStream, Avatar, Card, Chip, Eyebrow, Field } from "@/components/ui";
+import type { ChipKind } from "@/components/ui/Chip";
 import { AssignToJobButton } from "@/components/subs/AssignToJobButton";
 import { getScheduleProjects } from "@/lib/schedule";
 import { SubTabs } from "@/components/subs/SubTabs";
 import { SubNotes } from "@/components/subs/SubNotes";
+import { SubDocReview } from "@/components/subs/SubDocReview";
 import { getSub, getSubSummary } from "@/lib/subs";
 import { can, getCurrentUser } from "@/lib/dal";
 import type { JobDot } from "@/lib/subs";
-import { getSubLogs, getSubInvoices, getSubDocuments } from "@/lib/sub-portal";
+import { getSubLogs, getSubInvoices } from "@/lib/sub-portal";
+import { runDirect } from "@/lib/commands/db";
+import { subPaperworkForOwner, type OwnerSubDocument } from "@/lib/sub-docs";
+import { SUB_DOC_LABEL } from "@/lib/sub-doc-types";
 
 // sub_invoices.amount is CENTS (Phase 5.0).
 const usd = (cents: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format((cents || 0) / 100);
 const SUB_INVOICE_CHIP = { submitted: "info", approved: "accent", paid: "money" } as const;
+
+/** Review state of an uploaded document, as a chip. A W-9 / agreement that was
+ *  simply received reads as on file (no chip) — only a COI needs Joe's OK. */
+function docStatusChip(d: OwnerSubDocument): { kind: ChipKind; label: string } | null {
+  switch (d.status) {
+    case "under_review":
+      return { kind: "info", label: "waiting for review" };
+    case "received":
+      return d.docType === "coi" ? { kind: "ghost", label: "not reviewed" } : null;
+    case "accepted":
+      return { kind: "money", label: "accepted" };
+    case "rejected":
+      return { kind: "flag", label: "rejected" };
+    case "expired":
+      return { kind: "flag", label: "expired" };
+    case "superseded":
+      return { kind: "ghost", label: "replaced" };
+  }
+}
 
 const DOT: Record<JobDot, string> = {
   accent: "bg-accent",
@@ -33,15 +57,21 @@ export default async function SubDetailPage({
   const sub = await getSub(slug);
   if (!sub) notFound();
   // A22 money fence: the sub's rate card / Pricing tab need the `money` area.
-  const showMoney = can(await getCurrentUser(), "money");
+  const user = await getCurrentUser();
+  const showMoney = can(user, "money");
+  // Accepting / rejecting a sub's paperwork is Joe's call (the actions re-check).
+  const isOwner = user?.role === "owner";
 
-  // Real records the sub posted from their portal (logs + submitted invoices).
-  const [subLogs, subInvoices, subDocs, projects] = await Promise.all([
+  // Real records the sub posted from their portal (logs + submitted invoices),
+  // and their paperwork with its review state.
+  const [subLogs, subInvoices, paperwork, projects] = await Promise.all([
     getSubLogs(slug),
     getSubInvoices(slug),
-    getSubDocuments(slug),
+    subPaperworkForOwner(runDirect, slug),
     getScheduleProjects(),
   ]);
+  const subDocs = paperwork.documents;
+  const coiToReview = subDocs.some((d) => d.docType === "coi" && d.status === "under_review");
 
   const overview = (
     <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[1fr_1fr_320px]">
@@ -220,24 +250,51 @@ export default async function SubDetailPage({
         <Card className="p-3.5">
           <Eyebrow muted>Uploaded documents · from the portal</Eyebrow>
           <div className="mt-2.5 flex flex-col gap-2">
-            {subDocs.map((d) => (
-              <div key={d.id} className="flex items-center gap-2 border-t border-rule-soft pt-2 first:border-t-0 first:pt-0">
-                <span className="flex-1 text-[13px] text-ink">{d.docLabel}</span>
-                {d.expiresLabel && <Chip kind="ghost">exp {d.expiresLabel}</Chip>}
-                {d.fileId ? (
-                  <a
-                    href={`/api/files/${d.fileId}`}
-                    target="_blank"
-                    rel="noopener"
-                    className="font-mono text-[11px] font-semibold text-accent-2 hover:underline"
-                  >
-                    Open
-                  </a>
-                ) : (
-                  <span className="font-mono text-[11px] text-ink-3">{d.when}</span>
-                )}
-              </div>
-            ))}
+            {subDocs.map((d) => {
+              const chip = docStatusChip(d);
+              const reviewable = d.docType === "coi" && (d.status === "under_review" || d.status === "received");
+              return (
+                <div key={d.id} className="border-t border-rule-soft pt-2 first:border-t-0 first:pt-0">
+                  <div className="flex items-center gap-2">
+                    <span className="flex-1 text-[13px] text-ink">{SUB_DOC_LABEL[d.docType] ?? "Document"}</span>
+                    {chip && (
+                      <Chip kind={chip.kind} dot>
+                        {chip.label}
+                      </Chip>
+                    )}
+                    {d.expiresLabel && <Chip kind="ghost">exp {d.expiresLabel}</Chip>}
+                    {d.fileId ? (
+                      <a
+                        href={`/api/files/${d.fileId}`}
+                        target="_blank"
+                        rel="noopener"
+                        className="font-mono text-[11px] font-semibold text-accent-2 hover:underline"
+                      >
+                        Open
+                      </a>
+                    ) : (
+                      <span className="font-mono text-[11px] text-ink-3">{d.when}</span>
+                    )}
+                  </div>
+                  {d.status === "rejected" && d.reviewNote && (
+                    <div className="mt-0.5 text-[11px] text-ink-3">{d.reviewNote}</div>
+                  )}
+                  {reviewable &&
+                    (isOwner ? (
+                      <>
+                        <div className="mt-0.5 text-[11px] text-ink-3">
+                          {d.expiresAt
+                            ? "The date is what the sub typed. Check the certificate, then accept it with the date it shows."
+                            : "Check the certificate, then accept it with the expiry date it shows."}
+                        </div>
+                        <SubDocReview slug={slug} documentId={d.id} typedExpiry={d.expiresAt} />
+                      </>
+                    ) : (
+                      <div className="mt-0.5 text-[11px] text-ink-3">Not current until Joe accepts it.</div>
+                    ))}
+                </div>
+              );
+            })}
           </div>
         </Card>
       )}
@@ -304,14 +361,25 @@ export default async function SubDetailPage({
                   Working this wk
                 </Chip>
               )}
-              {sub.coiStatus === "expiring" ? (
+              {paperwork.coiStatus === "expiring" ? (
                 <Chip kind="flag" dot>
                   COI expires {sub.coiLabel}
                 </Chip>
+              ) : paperwork.coiStatus === "expired" ? (
+                <Chip kind="flag" dot>
+                  COI expired{paperwork.coiExpiresLabel ? ` ${paperwork.coiExpiresLabel}` : ""}
+                </Chip>
+              ) : paperwork.coiStatus === "missing" ? (
+                <Chip kind="ghost">No COI</Chip>
               ) : (
                 <Chip kind="money">COI · {sub.coiLabel}</Chip>
               )}
-              <Chip kind="money">W-9 · {sub.w9}</Chip>
+              {coiToReview && (
+                <Chip kind="info" dot>
+                  COI to review
+                </Chip>
+              )}
+              <Chip kind={sub.w9 === "missing" ? "flag" : "money"}>W-9 · {sub.w9}</Chip>
             </div>
             <h1 className="mt-1.5 font-serif text-[30px] font-medium leading-none tracking-tight text-accent-2">
               {sub.name} <span className="text-accent">· {sub.tradeLine}</span>

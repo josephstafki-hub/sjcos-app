@@ -40,7 +40,7 @@ async function harness(url, uploadDir) {
   const server = { registerTool: (name, _meta, fn) => tools.set(name, fn) };
   const envValue = (k) => (k === "SESSION_SECRET" ? "test-secret" : k === "NEXT_PUBLIC_APP_URL" ? "https://os.example.test" : "");
   registerUploadTools(server, { rows, json, pool, uploadDir, envValue, currentPrincipal: async () => principal.current });
-  registerFinancialsTools(server, { rows, json, pool, strippedDollarError: () => null });
+  registerFinancialsTools(server, { rows, json, pool, strippedDollarError: () => null, currentPrincipal: async () => principal.current });
   return { pool, rows, principal, call: async (name, args) => parse(await tools.get(name)(args)) };
 }
 
@@ -205,4 +205,24 @@ test("upload receipts into the Unsorted tray, replace by name, hold by source_re
       await rm(dir, { recursive: true, force: true });
     }
   }, { fresh: true, name: "sjcos_test_unsorted_uploads" });
+});
+
+test("Financial tools need the money area when an agent acts for a team member; owner and unattended runs pass", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    const dir = await mkdtemp(path.join(tmpdir(), "sjc-fin-area-"));
+    const h = await harness(url, dir);
+    try {
+      const staff = (await client.query(`INSERT INTO users (email, password_hash, name, role, initials, permissions) VALUES ('zz-fin@example.test','x','Sam','staff','S', ARRAY['projects'])
+         ON CONFLICT (email) DO UPDATE SET role = 'staff', active = true, permissions = ARRAY['projects'] RETURNING id`)).rows[0].id;
+      h.principal.current = { userId: staff, role: "staff", name: "Sam", active: true, revoked: false };
+      const refused = await h.call("company_financials", {});
+      assert.match(refused.error ?? "", /no "money" access/);
+      await client.query(`UPDATE users SET permissions = ARRAY['projects','money'] WHERE id = $1`, [staff]);
+      assert.equal((await h.call("company_financials", {})).error, undefined);
+      h.principal.current = { userId: null, role: null, name: null, active: false, revoked: false };
+      assert.equal((await h.call("company_financials", {})).error, undefined);
+    } finally {
+      await h.pool.end();
+    }
+  });
 });

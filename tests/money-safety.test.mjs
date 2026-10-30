@@ -13,6 +13,7 @@ const principal = { kind: 'user', userId: user.id, role: 'owner', name: user.nam
 globalThis.__moneyQA = {
   query: async (sql, params) => client.query(sql, params),
   queryOne: async (sql, params) => (await globalThis.__moneyQA.query(sql, params)).rows[0] ?? null,
+  runDirect: async (sql, params) => (await client.query(sql, params)).rows,
   withTransaction: async fn => {
     await client.query('SAVEPOINT money_op');
     try { const r = await fn(run); await client.query('RELEASE SAVEPOINT money_op'); return r; }
@@ -24,7 +25,7 @@ const stubs = {
   'server-only': 'export {};',
   'next/cache': 'export const revalidatePath = () => {};',
   [lib('db')]: forward('query', 'queryOne'),
-  [lib('commands/db')]: forward('withTransaction') + '\nexport const userPrincipal = () => (' + JSON.stringify(principal) + ');',
+  [lib('commands/db')]: forward('withTransaction', 'runDirect') + '\nexport const userPrincipal = () => (' + JSON.stringify(principal) + ');',
   [lib('dal')]: `export const requireAccess = async () => (${JSON.stringify(user)});`,
   [lib('ai')]: 'export const ai = {};',
   [lib('notify')]: 'export const emit = async () => {};',

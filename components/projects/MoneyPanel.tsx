@@ -22,6 +22,12 @@ import { fmtUsd, dollarsToCents, centsToInput } from "@/lib/cost-book-units";
 
 const fmt = (cents: number) => fmtUsd(cents);
 
+/** Issued but never emailed: the send failed, or it was issued with no send
+ *  (a billing command with no email on file). The "sent" bucket would hide it. */
+function unsent(inv: Invoice): boolean {
+  return inv.lifecycle === "issued" && (inv.deliveryState === "none" || inv.deliveryState === "failed");
+}
+
 const STATUS_CHIP: Record<InvoiceStatus, ChipKind> = {
   draft: "ghost",
   sent: "accent",
@@ -85,9 +91,15 @@ export function MoneyPanel({ slug, money }: { slug: string; money: ProjectMoney 
                   </div>
                   <div className="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-1.5">
                     <span className="font-mono text-[12px] text-ink-2">{fmt(inv.amount)}</span>
-                    <Chip kind={STATUS_CHIP[inv.status]} dot>
-                      {inv.status}
-                    </Chip>
+                    {unsent(inv) ? (
+                      <Chip kind="flag" dot>
+                        not sent
+                      </Chip>
+                    ) : (
+                      <Chip kind={STATUS_CHIP[inv.status]} dot>
+                        {inv.status}
+                      </Chip>
+                    )}
                     <div className="flex items-center justify-end gap-1.5">
                       {inv.lines.length > 0 && (
                         <a
@@ -125,6 +137,16 @@ export function MoneyPanel({ slug, money }: { slug: string; money: ProjectMoney 
                             Send
                           </button>
                         </>
+                      )}
+                      {unsent(inv) && (
+                        <button
+                          disabled={pending}
+                          onClick={() => run(() => sendInvoice(inv.id))}
+                          title={inv.deliveryError ?? "Issued but never emailed to the client"}
+                          className="rounded-md border border-accent bg-accent-soft px-2 py-1 text-[11px] font-semibold text-accent-2 hover:bg-accent-soft/70 disabled:opacity-50"
+                        >
+                          {inv.deliveryState === "failed" ? "Resend" : "Send"}
+                        </button>
                       )}
                       {/* Drafts too: a deposit paid by check before the invoice
                           was ever emailed (or a job with no client email on
@@ -164,8 +186,8 @@ export function MoneyPanel({ slug, money }: { slug: string; money: ProjectMoney 
                     ))}
                   </div>
                 )}
-                {/* Collections — overdue sent invoices (P4-7) */}
-                {inv.status === "sent" && inv.daysOverdue !== null && inv.daysOverdue >= 15 && (
+                {/* Collections — overdue sent invoices with money owed and nothing in flight (P4-7) */}
+                {inv.status === "sent" && !unsent(inv) && inv.pending === 0 && inv.balance > 0 && inv.daysOverdue !== null && inv.daysOverdue >= 15 && (
                   <div className="flex flex-wrap items-center gap-2 px-4 pb-3 pl-[80px] pt-1">
                     <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-flag">
                       {inv.daysOverdue}d overdue

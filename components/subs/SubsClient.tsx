@@ -39,7 +39,7 @@ export function SubsClient({ data }: { data: SubsData }) {
 }
 
 function SubGridCard({ sub: s }: { sub: SubCard }) {
-  const expiring = s.coiStatus === "expiring";
+  const expiring = s.coiStatus !== "current";
   return (
     <Link href={`/subs/${s.slug}`} className="block">
       <Card
@@ -87,6 +87,10 @@ function SubGridCard({ sub: s }: { sub: SubCard }) {
           {!s.coiLabel ? (
             <Chip kind="flag" dot>
               COI missing
+            </Chip>
+          ) : s.coiStatus === "expired" ? (
+            <Chip kind="flag" dot>
+              COI expired {s.coiLabel}
             </Chip>
           ) : expiring ? (
             <Chip kind="flag" dot>

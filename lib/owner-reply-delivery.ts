@@ -25,7 +25,7 @@ import { outboundDisabled } from "@/lib/providers/types";
 import { enqueueSteer } from "@/lib/run-steers";
 import { pingConversation } from "@/lib/dev-agents";
 import { enqueueAgentTrigger } from "@/lib/agent-runtime/triggers";
-import { rememberReplyTarget, type RecordedReply } from "@/lib/decisions/owner-replies";
+import { draftReplyHow, rememberReplyTarget, type RecordedReply } from "@/lib/decisions/owner-replies";
 import { describeGrant } from "@/lib/grant-detail";
 import type { OwnerGrant } from "@/lib/owner-grant-types";
 
@@ -70,12 +70,49 @@ export async function askWhatShouldChange(p: { decisionId: string; title: string
   if (id != null) await rememberReplyTarget(runDirect, { chatId: p.chatId, messageId: id, decisionId: p.decisionId, kind: "prompt" }).catch(() => undefined);
 }
 
+/** A staged draft Joe replied about: take the Approve button off its card(s)
+ *  on his phone and say where his note went. */
+export async function markDraftCardPulled(workItemId: string, line: string): Promise<void> {
+  const chat = ownerChat();
+  if (!chat || outboundDisabled() || !defaultTransport.configured()) return;
+  const { rows } = await query<{ message_id: string }>(
+    `SELECT message_id::text AS message_id FROM telegram_reply_targets WHERE chat_id = $1 AND work_item_id = $2 AND kind = 'card'`,
+    [chat, workItemId],
+  );
+  const w = await queryOne<{ title: string }>(`SELECT title FROM work_items WHERE id = $1`, [workItemId]);
+  for (const m of rows) {
+    // No reply_markup → Telegram drops the inline buttons.
+    await defaultTransport
+      .call("editMessageText", { chat_id: chat, message_id: Number(m.message_id), text: `[SJC OS] ${w?.title ?? "Draft"}\n${line}`, disable_web_page_preview: true })
+      .catch(() => undefined);
+  }
+}
+
+/** The text the originating chat receives for a staged draft. */
+function draftPromptFor(r: RecordedReply, text: string): string {
+  const state = r.pulled
+    ? "The draft is pulled back (approval no longer requested, nothing was sent)."
+    : r.priorStatus
+      ? `The draft was already ${r.priorStatus === "approved" ? "approved (and sent, if it was an email)" : r.priorStatus} when he replied.`
+      : "";
+  return (
+    `Joe replied on Telegram to your draft "${r.title}" (work item ${r.workItemId}):\n\n` +
+    `"${text}"\n\n` +
+    `${state}\n` +
+    `Do ONE of these:\n` +
+    `• Make the change and call submit_draft_for_approval on work item ${r.workItemId} again with the revised draft (Joe gets the new card on Telegram, threaded under his note).\n` +
+    `• If you won't change it, or need to ask him something, call reply_to_owner with owner_reply_id "${r.id}" and a short reason — it goes to his Telegram.\n` +
+    `Keep anything you send him short.`
+  );
+}
+
 /** The text the originating chat (or the operating agent) receives. */
 async function promptFor(r: RecordedReply, text: string): Promise<string> {
+  if (r.workItemId) return draftPromptFor(r, text);
   const g = r.grantId
     ? await queryOne<OwnerGrant>(`SELECT id, status, actions, target_kind, target_id, scope, reason, requested_by, conversation_id, run_id, max_uses, uses, expires_at::text AS expires_at, decided_at::text AS decided_at, used_at::text AS used_at, audit, created_at::text AS created_at FROM owner_grants WHERE id = $1`, [r.grantId])
     : null;
-  const what = g ? (await describeGrant(g)).headline : r.decisionTitle;
+  const what = g ? (await describeGrant(g)).headline : r.title;
   const state = r.pulled
     ? "That request is now withdrawn (changes requested)."
     : r.priorStatus
@@ -94,7 +131,7 @@ async function promptFor(r: RecordedReply, text: string): Promise<string> {
 
 /** Route Joe's recorded reply and tell him where it went. Never throws. */
 export async function deliverOwnerReply(r: RecordedReply & { chatId: string; messageId: number }, text: string): Promise<void> {
-  const pulledLine = r.pulled ? `Pulled "${r.decisionTitle}".` : r.priorStatus ? `"${r.decisionTitle}" was already ${r.priorStatus}.` : "";
+  const pulledLine = r.pulled ? `Pulled "${r.title}".` : r.priorStatus ? `"${r.title}" was already ${r.priorStatus}.` : "";
   let ack: string;
   try {
     if (r.route === "session" && r.conversationId) {
@@ -124,7 +161,7 @@ export async function deliverOwnerReply(r: RecordedReply & { chatId: string; mes
       ack = `Got it. ${pulledLine} Your note went to ${name}${thread} (${how}). You'll get its answer here.`;
     } else {
       await query(`UPDATE owner_replies SET state = 'delivered', delivered_at = now() WHERE id = $1`, [r.id]);
-      ack = `Got it. ${pulledLine} No chat is attached to that request, so the operating agent takes your note (within a few minutes). Its answer comes here.`;
+      ack = `Got it. ${pulledLine} No chat is attached to that ${r.workItemId ? "draft" : "request"}, so the operating agent takes your note (within a few minutes). Its answer comes here.`;
     }
   } catch (err) {
     // The chat couldn't take it (run refused, Hermes down…): hand it to the
@@ -133,11 +170,16 @@ export async function deliverOwnerReply(r: RecordedReply & { chatId: string; mes
     console.error("[owner-reply] delivery failed:", msg);
     try {
       await withTransaction(async (run) => {
+        const [w] = r.workItemId ? await run<{ lead_id: string | null; project_id: string | null }>(`SELECT lead_id, project_id FROM work_items WHERE id = $1`, [r.workItemId]) : [];
         const t = await enqueueAgentTrigger(run, {
           kind: "message",
           ref: `owner_reply:${r.id}`,
+          projectId: w?.project_id ?? null,
+          leadId: w?.lead_id ?? null,
           enqueuedBy: "telegram:owner-reply",
-          payload: { owner_reply_id: r.id, owner_reply: text, owner_reply_how: "Joe replied to this card on Telegram. Either file a revised request (request_owner_permission) or tell him why not with reply_to_owner, passing owner_reply_id.", decision_id: r.decisionId, decision_title: r.decisionTitle, ...(r.grantId ? { grant_id: r.grantId } : {}) },
+          payload: r.workItemId
+            ? { owner_reply_id: r.id, owner_reply: text, owner_reply_how: draftReplyHow(r.workItemId), work_item_id: r.workItemId, work_item_title: r.title }
+            : { owner_reply_id: r.id, owner_reply: text, owner_reply_how: "Joe replied to this card on Telegram. Either file a revised request (request_owner_permission) or tell him why not with reply_to_owner, passing owner_reply_id.", decision_id: r.decisionId, decision_title: r.title, ...(r.grantId ? { grant_id: r.grantId } : {}) },
         });
         await run(`UPDATE owner_replies SET state = 'delivered', route = 'agent', trigger_id = $2, delivered_at = now(), error = $3 WHERE id = $1`, [r.id, t.trigger.id, msg.slice(0, 500)]);
       });
@@ -148,7 +190,7 @@ export async function deliverOwnerReply(r: RecordedReply & { chatId: string; mes
     }
   }
   const id = await sendOwnerTelegram(ack.replace(/\s+/g, " ").trim(), { replyTo: r.messageId });
-  if (id != null) await rememberReplyTarget(runDirect, { chatId: r.chatId, messageId: id, decisionId: r.decisionId, ownerReplyId: r.id, kind: "ack" }).catch(() => undefined);
+  if (id != null) await rememberReplyTarget(runDirect, { chatId: r.chatId, messageId: id, decisionId: r.decisionId, workItemId: r.workItemId, ownerReplyId: r.id, kind: "ack" }).catch(() => undefined);
 }
 
 export type ReplyOutcome = "no_change" | "question" | "done";
@@ -167,22 +209,28 @@ export async function replyToOwner(input: {
   const text = input.text.trim();
   if (!text) return { ok: false, error: "Say something — the message is sent to Joe as written." };
   const isUuid = (v: string | null | undefined) => !!v && /^[0-9a-f-]{36}$/i.test(v);
+  type Row = { id: string; decision_id: string | null; work_item_id: string | null; chat_id: string | null; message_id: string | null };
   const reply = isUuid(input.ownerReplyId)
-    ? await queryOne<{ id: string; decision_id: string | null; chat_id: string | null; message_id: string | null }>(`SELECT id, decision_id, chat_id, message_id::text AS message_id FROM owner_replies WHERE id = $1`, [input.ownerReplyId])
+    ? await queryOne<Row>(`SELECT id, decision_id, work_item_id, chat_id, message_id::text AS message_id FROM owner_replies WHERE id = $1`, [input.ownerReplyId])
     : isUuid(input.grantId) || isUuid(input.decisionId)
-      ? await queryOne<{ id: string; decision_id: string | null; chat_id: string | null; message_id: string | null }>(
-          `SELECT id, decision_id, chat_id, message_id::text AS message_id FROM owner_replies
+      ? await queryOne<Row>(
+          `SELECT id, decision_id, work_item_id, chat_id, message_id::text AS message_id FROM owner_replies
             WHERE (grant_id = $1::uuid OR decision_id = $2::uuid) ORDER BY created_at DESC LIMIT 1`,
           [isUuid(input.grantId) ? input.grantId : null, isUuid(input.decisionId) ? input.decisionId : null],
         )
       : null;
   if (input.ownerReplyId && !reply) return { ok: false, error: `No owner reply ${input.ownerReplyId}.` };
   const decisionId = reply?.decision_id ?? (isUuid(input.decisionId) ? input.decisionId! : null);
-  const d = decisionId ? await queryOne<{ title: string }>(`SELECT title FROM decisions WHERE id = $1`, [decisionId]) : null;
+  const workItemId = reply?.work_item_id ?? null;
+  const d = decisionId
+    ? await queryOne<{ title: string }>(`SELECT title FROM decisions WHERE id = $1`, [decisionId])
+    : workItemId
+      ? await queryOne<{ title: string }>(`SELECT title FROM work_items WHERE id = $1`, [workItemId])
+      : null;
   const lead = input.outcome === "no_change" ? "No change" : input.outcome === "question" ? "Question" : "Done";
   const msg = `[SJC OS] ${agentLabel(input.agent)}${d ? ` on "${d.title}"` : ""}\n${lead}: ${text}`;
   const id = await sendOwnerTelegram(msg, { replyTo: reply?.message_id ?? null });
-  if (id != null && decisionId) await rememberReplyTarget(runDirect, { chatId: ownerChat(), messageId: id, decisionId, ownerReplyId: reply?.id ?? null, kind: "agent_answer" }).catch(() => undefined);
+  if (id != null) await rememberReplyTarget(runDirect, { chatId: ownerChat(), messageId: id, decisionId, workItemId, ownerReplyId: reply?.id ?? null, kind: "agent_answer" }).catch(() => undefined);
   if (reply) {
     await query(
       `UPDATE owner_replies SET state = 'answered', answer_kind = $2, answer = $3, answered_at = now() WHERE id = $1 AND state <> 'answered'`,
@@ -199,8 +247,8 @@ export async function replyToOwner(input: {
 export async function sweepUnansweredReplies(): Promise<{ relayed: number; failed: number }> {
   let relayed = 0;
   let failed = 0;
-  const { rows } = await query<{ id: string; route: string; conversation_id: string | null; trigger_id: string | null; message_id: string | null; decision_id: string | null; created_at: string; old: boolean }>(
-    `SELECT id, route, conversation_id, trigger_id, message_id::text AS message_id, decision_id, created_at::text AS created_at,
+  const { rows } = await query<{ id: string; route: string; conversation_id: string | null; trigger_id: string | null; message_id: string | null; decision_id: string | null; work_item_id: string | null; created_at: string; old: boolean }>(
+    `SELECT id, route, conversation_id, trigger_id, message_id::text AS message_id, decision_id, work_item_id, created_at::text AS created_at,
             created_at < now() - interval '24 hours' AS old
        FROM owner_replies
       WHERE state = 'delivered' AND created_at < now() - interval '1 minute'
@@ -247,7 +295,7 @@ export async function sweepUnansweredReplies(): Promise<{ relayed: number; faile
     if (!claimed.rows.length) continue;
     const clipped = answer.length > 1500 ? `${answer.slice(0, 1500)}…` : answer;
     const id = await sendOwnerTelegram(`[SJC OS] ${who} didn't file a new request or answer you directly. Its last message:\n\n${clipped}`, { replyTo: r.message_id });
-    if (id != null && r.decision_id) await rememberReplyTarget(runDirect, { chatId: ownerChat(), messageId: id, decisionId: r.decision_id, ownerReplyId: r.id, kind: "run_reply" }).catch(() => undefined);
+    if (id != null) await rememberReplyTarget(runDirect, { chatId: ownerChat(), messageId: id, decisionId: r.decision_id, workItemId: r.work_item_id, ownerReplyId: r.id, kind: "run_reply" }).catch(() => undefined);
     relayed++;
   }
   return { relayed, failed };

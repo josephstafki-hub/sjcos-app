@@ -8,6 +8,7 @@ import type { ProjectStatus } from "./types";
 import type { ProjectTab } from "./project-tabs";
 import { ai } from "./ai";
 import { query } from "./db";
+import { coiStatusSql } from "./sub-docs";
 import type { Run } from "./commands/core";
 import { listFileTrash, type TrashedFile } from "./file-trash";
 
@@ -535,7 +536,7 @@ export async function getProjectSubsData(
     start_date: string | null;
     end_date: string | null;
   }>(
-    `SELECT s.slug, s.name, s.trade, ps.role_label, s.coi_status, s.email, s.phone,
+    `SELECT s.slug, s.name, s.trade, ps.role_label, ${coiStatusSql("s")} AS coi_status, s.email, s.phone,
             ps.scope_text,
             to_char(ps.start_date, 'YYYY-MM-DD') AS start_date,
             to_char(ps.end_date,   'YYYY-MM-DD') AS end_date

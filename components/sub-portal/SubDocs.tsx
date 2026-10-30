@@ -12,7 +12,15 @@ interface DocRow {
   docLabel: string;
   expiresLabel: string | null;
   when: string;
+  state: "on_file" | "under_review" | "rejected" | "expired" | "superseded";
 }
+
+const STATE_CHIP: Record<Exclude<DocRow["state"], "on_file">, { label: string; kind: "info" | "flag" | "ghost" }> = {
+  under_review: { label: "waiting on review", kind: "info" },
+  rejected: { label: "not accepted", kind: "flag" },
+  expired: { label: "expired", kind: "flag" },
+  superseded: { label: "replaced", kind: "ghost" },
+};
 
 /** Sub-portal document upload — W-9 / COI / signed agreement. A COI expiry date
  *  feeds the reminder engine. Mirrors SubLogComposer; revalidates on success. */
@@ -34,8 +42,13 @@ export function SubDocs({ slug, docs }: { slug: string; docs: DocRow[] }) {
         <div className="mt-2 flex flex-col gap-1.5">
           {docs.map((d) => (
             <div key={d.id} className="flex items-center gap-1.5">
-              <Check className="size-3 flex-none text-money" strokeWidth={2} />
+              {d.state === "on_file" ? (
+                <Check className="size-3 flex-none text-money" strokeWidth={2} />
+              ) : (
+                <FileText className="size-3 flex-none text-ink-3" strokeWidth={1.75} />
+              )}
               <span className="flex-1 text-[12px] text-ink-2">{d.docLabel}</span>
+              {d.state !== "on_file" && <Chip kind={STATE_CHIP[d.state].kind}>{STATE_CHIP[d.state].label}</Chip>}
               {d.expiresLabel && <Chip kind="ghost">exp {d.expiresLabel}</Chip>}
               <span className="font-mono text-[10px] text-ink-3">{d.when}</span>
             </div>

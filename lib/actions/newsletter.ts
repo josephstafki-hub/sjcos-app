@@ -611,7 +611,10 @@ export async function setSequenceAudience(id: number, groupId: number | null): P
  *  enrolls the existing list with the clock starting NOW (see enrollAllInSequence
  *  — back-dating would fire every past-due step immediately). */
 export async function setSequenceActive(id: number, active: boolean): Promise<Result<{ enrolled: number }>> {
-  await requireAccess("newsletter");
+  const user = await requireAccess("newsletter");
+  // Arming a drip is Joe's call alone (AGENTS.md); anyone with the area may
+  // switch one off.
+  if (active && user.role !== "owner") return { ok: false, error: "Only Joe can turn a drip sequence on." };
 
   if (active) {
     const steps = await queryOne<{ n: number; empty: number }>(

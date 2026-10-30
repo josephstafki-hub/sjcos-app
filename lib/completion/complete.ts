@@ -21,7 +21,7 @@
 import { onWorkItemDone } from "../agent-runtime/hooks.ts";
 import type { Run } from "../commands/core.ts";
 import { redactPrincipal } from "../commands/core.ts";
-import type { Principal } from "../commands/principal.ts";
+import { principalLabel, type Principal } from "../commands/principal.ts";
 import { advanceRunbookTx, evidenceSatisfies, loadPinnedDefinition, type AdvanceOutcome, type RequiredEvidence } from "./runbook-core.ts";
 import { resolveObligation } from "../obligations/core.ts";
 
@@ -84,7 +84,7 @@ async function tableHasColumn(run: Run, table: string, column: string): Promise<
   return rows[0]?.ok === true;
 }
 
-async function validate(run: Run, ev: CompletionEvidence): Promise<Validation> {
+async function validate(run: Run, ev: CompletionEvidence, principal: Principal): Promise<Validation> {
   if (!ev || typeof ev !== "object" || !EVIDENCE_KINDS.has((ev as { kind?: string }).kind ?? "")) {
     return { ok: false, error: `evidence.kind must be one of ${[...EVIDENCE_KINDS].join(", ")}` };
   }
@@ -131,10 +131,13 @@ async function validate(run: Run, ev: CompletionEvidence): Promise<Validation> {
       return { ok: false, error: "business_response evidence needs obligation_id or source_event_id" };
     }
     case "manual": {
-      const actor = (ev.actor ?? "").trim();
+      // Who completed it is the caller's identity, never the typed name (an
+      // agent could type "Joe"). A typed name is kept as what they said.
+      const named = (ev.actor ?? "").trim();
       const reason = (ev.reason ?? "").trim();
-      if (!actor || !reason) return { ok: false, error: "manual completion needs actor and reason" };
-      return { ok: true, uri: null, label: `Manual: ${reason.slice(0, 160)}`, metadata: { actor, reason } };
+      if (!named || !reason) return { ok: false, error: "manual completion needs actor and reason" };
+      const actor = principalLabel(principal);
+      return { ok: true, uri: null, label: `Manual: ${reason.slice(0, 160)}`, metadata: { actor, named_actor: named, reason } };
     }
     case "record": {
       const table = String(ev.table ?? "").toLowerCase();
@@ -194,7 +197,7 @@ export async function completeWorkItem(run: Run, input: CompleteWorkItemInput): 
   }
   if (wi.status === "cancelled") return { ok: false, error: `work item ${wi.id} is cancelled; reopen it before completing`, required };
 
-  const v = await validate(run, input.evidence);
+  const v = await validate(run, input.evidence, input.principal);
   if (!v.ok) return { ok: false, error: v.error, required };
   if (!evidenceSatisfies(required, input.evidence.kind)) {
     return { ok: false, error: `this step requires '${required}' evidence; '${input.evidence.kind}' does not satisfy it`, required };

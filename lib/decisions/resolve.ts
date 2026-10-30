@@ -10,7 +10,7 @@
 // commit and edits the Telegram card.
 
 import { onDecisionResolved } from "../agent-runtime/hooks.ts";
-import { INITIAL_INVOICE_ACTION, PROGRESS_INVOICE_ACTION, issueInitialFromDecision, issueProgressFromDecision, type DecisionInvoiceOutcome } from "../billing/commands.ts";
+import { FINAL_INVOICE_ACTION, INITIAL_INVOICE_ACTION, PROGRESS_INVOICE_ACTION, issueFinalFromDecision, issueInitialFromDecision, issueProgressFromDecision, type DecisionInvoiceOutcome } from "../billing/commands.ts";
 import type { Run } from "../commands/core.ts";
 import { DECISION_COLS, getDecision, resolveDecision, type Decision, type ResolveResult } from "../commands/decisions.ts";
 import { isOwner, type Principal } from "../commands/principal.ts";
@@ -111,6 +111,7 @@ export async function resolveFromChannel(run: Run, input: ResolveFromChannelInpu
     }
     if (d.action === INITIAL_INVOICE_ACTION) invoice = await issueApprovedInvoice(run, d.id, input.principal, issueInitialFromDecision);
     else if (d.action === PROGRESS_INVOICE_ACTION) invoice = await issueApprovedInvoice(run, d.id, input.principal, issueProgressFromDecision);
+    else if (d.action === FINAL_INVOICE_ACTION) invoice = await issueApprovedInvoice(run, d.id, input.principal, issueFinalFromDecision);
   } else {
     const rows = await run<{ id: string }>(
       `UPDATE action_intents SET state = 'cancelled', last_error = $2, completed_at = now(), lease_token = NULL, lease_until = NULL

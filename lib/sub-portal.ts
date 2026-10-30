@@ -26,6 +26,9 @@ export interface SubDocEntry {
   fileId: string | null;
   expiresLabel: string | null;
   when: string;
+  /** Where Joe's review left it, in the sub's words: "on file", "waiting on
+   *  review", "not accepted", "expired", "replaced". Only "on file" is green. */
+  state: "on_file" | "under_review" | "rejected" | "expired" | "superseded";
 }
 
 /** A sub's uploaded compliance documents (newest first). */
@@ -36,8 +39,12 @@ export async function getSubDocuments(subSlug: string): Promise<SubDocEntry[]> {
     file_id: string | null;
     expires_label: string | null;
     when_label: string;
+    state: SubDocEntry["state"];
   }>(
     `SELECT id, doc_type, file_id,
+            CASE WHEN status IN ('expired') OR (status IN ('received','accepted') AND expires_at < CURRENT_DATE) THEN 'expired'
+                 WHEN status IN ('received','accepted') THEN 'on_file'
+                 ELSE status END AS state,
             to_char(expires_at, 'Mon FMDD, YYYY') AS expires_label,
             to_char(created_at, 'Mon FMDD') AS when_label
        FROM sub_documents WHERE sub_slug = $1
@@ -51,6 +58,7 @@ export async function getSubDocuments(subSlug: string): Promise<SubDocEntry[]> {
     fileId: r.file_id,
     expiresLabel: r.expires_label,
     when: r.when_label,
+    state: r.state,
   }));
 }
 

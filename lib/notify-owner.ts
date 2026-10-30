@@ -20,6 +20,7 @@ import { recordDelivery } from "./commands/decisions";
 import { runDirect } from "./commands/db";
 import { makeTelegramProvider, type TelegramInlineButton } from "./providers/telegram";
 import { decisionKeyboard, workItemKeyboard } from "./decisions/keyboards";
+import { closeRepliesRevisedByDraft, rememberReplyTarget } from "./decisions/owner-replies";
 import { workItemDraftPreviews } from "./work-item-draft";
 
 export type OwnerPushKind =
@@ -64,6 +65,9 @@ export interface NotifyOwnerInput {
 export interface TelegramExtras {
   buttons?: TelegramInlineButton[][];
   decisionId?: string | null;
+  /** A staged-draft card: its message id is remembered so Joe can reply to
+   *  it in text (lib/decisions/owner-replies.ts). */
+  workItemId?: string | null;
   editMessageId?: string | null;
   /** Thread this message under one of Joe's (an answer to his Telegram
    *  reply). Goes out at once — he is in the conversation. */
@@ -192,10 +196,14 @@ async function parkRow(input: NotifyOwnerInput, sendAfter: Date): Promise<void> 
 }
 
 /** A decision card went out (or was edited): remember the Telegram message
- *  id so a later resolution or supersede can update that same message. */
+ *  id so a later resolution or supersede can update that same message. A
+ *  draft card: remember which draft it is, so a text reply to it lands. */
 async function noteDelivery(extras: TelegramExtras | null | undefined, messageId: string | null): Promise<void> {
-  if (!extras?.decisionId) return;
   const chat = process.env.TELEGRAM_OWNER_CHAT_ID ?? "";
+  if (extras?.workItemId && messageId && !extras.editMessageId) {
+    await rememberReplyTarget(runDirect, { chatId: chat, messageId, workItemId: extras.workItemId, kind: "card" }).catch(() => undefined);
+  }
+  if (!extras?.decisionId) return;
   await recordDelivery(runDirect, extras.decisionId, "telegram", messageId ? `${chat}:${messageId}` : null, extras.editMessageId ? "updated" : "sent").catch(() => undefined);
 }
 
@@ -356,13 +364,20 @@ export async function notifyApprovalNeeded(
   nowOverride?: Date,
 ): Promise<void> {
   try {
-    if (!(await claimOnce(`apprpush:${workItemId}`))) return;
+    // Joe's Telegram note about this draft (or an earlier draft on the same
+    // job) is answered by this one: it goes out even though the item was
+    // pushed before, threaded under his message.
+    const revised = await closeRepliesRevisedByDraft(runDirect, workItemId).catch(() => []);
+    const first = await claimOnce(`apprpush:${workItemId}`);
+    if (!first && !revised.length) return;
+    const answering = revised.find((r) => r.message_id)?.message_id ?? null;
     const [draft] = await workItemDraftPreviews({ ids: [workItemId], limit: 1 }).catch(() => []);
     const lines: string[] = [];
     if (draft?.to) lines.push(`To: ${draft.to}`);
     if (draft?.subject) lines.push(`Subject: ${draft.subject}`);
     if (draft?.body) lines.push("", draft.body.slice(0, 1200));
     if (draft) lines.push("", draft.sends ? "Approve sends this email now." : draft.note ? `Approve does not email it: ${draft.note}` : "Approve hands it back to the agent to finish.");
+    if (revised.length) lines.unshift("Revised after your note.", "");
     await notifyOwner(
       {
         kind: "decision",
@@ -376,7 +391,7 @@ export async function notifyApprovalNeeded(
           href: draft?.href ?? "/today",
           ref: `work_item:${workItemId}`,
         },
-        telegram: { buttons: workItemKeyboard(workItemId, { sends: draft?.sends }) },
+        telegram: { buttons: workItemKeyboard(workItemId, { sends: draft?.sends }), workItemId, replyToMessageId: answering },
       },
       nowOverride,
     );
@@ -559,7 +574,7 @@ export async function runPushDrain(
         title: `Approval waiting ${item.hours}h: ${item.title}`,
         href: "/today",
         emit: { ref: `work_item:${item.id}` },
-        telegram: { buttons: workItemKeyboard(item.id) },
+        telegram: { buttons: workItemKeyboard(item.id), workItemId: item.id },
       },
       opts.now,
     );

@@ -251,7 +251,7 @@ test('MCP send forwards its owner grant, retries failed delivery through the sam
 
 test('delivery migration revokes existing void drafts and is safe to apply twice', { skip }, async () => {
   const f = await fixture('void');
-  const sql = readFileSync(new URL('../db/migrations/0040_signature_delivery.sql', import.meta.url), 'utf8');
+  const sql = readFileSync(new URL('../db/migrations/0048_signature_delivery.sql', import.meta.url), 'utf8');
   await run(sql);
   assert.deepEqual(await state(f), { draft: 'void', request: 'void' });
   await run(sql);

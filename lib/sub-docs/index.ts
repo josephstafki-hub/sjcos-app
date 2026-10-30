@@ -12,6 +12,14 @@
 //   acceptDocument          — reviewer records validated metadata (never the
 //                             TIN) → accepted; open request satisfied; contact
 //                             stops. Missing interpretation escalates to Joe.
+//   receiveSubDocument      — a sub-portal upload: ingest, and a COI goes
+//                             under_review with one to-do for Joe. The date
+//                             the sub typed is their claim, not coverage.
+//   confirmSubDocument      — Joe's own reading: accepts with the expiry date
+//                             he confirms (owner only).
+//   rejectDocument          — not accepted, with a reason; the sub is asked
+//                             again unless another copy is waiting on Joe or
+//                             their accepted one is still good.
 //   canAccessSubDocument    — portal boundary: a sub sees only its own docs;
 //                             restricted docs never leave the owner surface.
 
@@ -23,6 +31,20 @@ import { routineSendAllowed } from "../leads/routine.ts";
 
 export type SubDocType = "w9" | "coi" | "agreement" | "other";
 export type SubDocStatus = "received" | "under_review" | "accepted" | "rejected" | "expired" | "superseded";
+
+/** A sub's COI status, worked out from its tracked expiry date on every read.
+ *  subs.coi_status is stamped when a COI is accepted and goes stale as the
+ *  days pass (a "current" COI that expired last month still says current).
+ *  `alias` is the subs table alias in the query. */
+export const coiStatusSql = (alias: string) =>
+  `CASE WHEN ${alias}.coi_expires_at IS NULL THEN 'missing'
+        WHEN ${alias}.coi_expires_at < CURRENT_DATE THEN 'expired'
+        WHEN ${alias}.coi_expires_at - CURRENT_DATE <= 30 THEN 'expiring'
+        ELSE 'current' END`;
+
+/** A W-9 that counts as on file: not rejected, expired or superseded. */
+export const w9OnFileSql = (alias: string) =>
+  `EXISTS (SELECT 1 FROM sub_documents sd WHERE sd.sub_slug = ${alias}.slug AND sd.doc_type = 'w9' AND sd.status IN ('received','under_review','accepted'))`;
 
 export interface SubDocumentRow {
   id: number;
@@ -123,11 +145,16 @@ export type RequestDocumentResult =
   | { ok: true; mode: "staged"; decision: Decision; reason: string; contact: string; body: string }
   | { ok: false; reason: string };
 
-function draftRequestBody(subName: string, docType: SubDocType, reason: string, projectName: string | null): string {
+function draftRequestBody(subName: string, docType: SubDocType, reason: string, projectName: string | null, rejectedBecause?: string | null): string {
   const doc = DOC_LABEL[docType];
+  const sign = `Thanks,\nJoe\nSJ Carpentry LLC\n612-361-6585`;
+  if (rejectedBecause) {
+    const because = /[.!?]$/.test(rejectedBecause) ? rejectedBecause : `${rejectedBecause}.`;
+    return `Hi ${subName.split(" ")[0]},\n\nThanks for sending your ${doc}. I wasn't able to accept that one: ${because}\n\nCould you send over an updated copy when you get a chance? A reply to this email with the file attached is perfect.\n\n${sign}`;
+  }
   const why =
     reason === "expiring" ? `the ${doc} we have on file is about to expire` : reason === "expired" ? `the ${doc} we have on file has expired` : projectName ? `we need a current ${doc} for ${projectName}` : `we don't have a current ${doc} on file`;
-  return `Hi ${subName.split(" ")[0]},\n\nQuick one: ${why}. Could you send over an updated copy when you get a chance? A reply to this email with the file attached is perfect.\n\nThanks,\nJoe\nSJ Carpentry LLC\n612-361-6585`;
+  return `Hi ${subName.split(" ")[0]},\n\nQuick one: ${why}. Could you send over an updated copy when you get a chance? A reply to this email with the file attached is perfect.\n\n${sign}`;
 }
 
 /** Ask the sub for the document. Stops on receipt (the request is satisfied
@@ -243,8 +270,10 @@ export async function ingestSubDocument(run: Run, input: IngestInput): Promise<I
     return { ok: false, exception: "wrong_job", reason: `Rejected: this file is for a different job than the one requested.`, documentId: doc.id };
   }
   if (input.checksum) {
+    // A rejected or expired copy is not "on file": the same file again (say,
+    // with the expiry date corrected) is a fresh arrival, not a duplicate.
     const [dupe] = await run<{ id: number; version: number; status: string }>(
-      `SELECT id, version, status FROM sub_documents WHERE sub_slug = $1 AND doc_type = $2 AND checksum = $3 AND status <> 'rejected' ORDER BY version DESC LIMIT 1`,
+      `SELECT id, version, status FROM sub_documents WHERE sub_slug = $1 AND doc_type = $2 AND checksum = $3 AND status NOT IN ('rejected', 'expired') ORDER BY version DESC LIMIT 1`,
       [sub.slug, input.docType, input.checksum],
     );
     if (dupe) {
@@ -295,7 +324,7 @@ export async function acceptDocument(
 ): Promise<AcceptResult> {
   const human = humanOf(input.principal);
   if (!human || (human.role !== "owner" && human.role !== "staff")) return { ok: false, reason: "Only the owner or staff can accept a sub document." };
-  const [doc] = await run<SubDocumentRow & { sub_name: string }>(`SELECT ${DOC_COLS.replace(/(^|, )id,/, "$1sub_documents.id,")}, (SELECT name FROM subs s WHERE s.slug = sub_documents.sub_slug) AS sub_name FROM sub_documents WHERE id = $1 FOR UPDATE`, [input.documentId]);
+  const doc = await lockDocument(run, input.documentId);
   if (!doc) return { ok: false, reason: "No such document." };
   if (doc.status !== "received" && doc.status !== "under_review") return { ok: false, reason: `Document is ${doc.status}.` };
   const meta = input.metadata;
@@ -329,16 +358,45 @@ export async function acceptDocument(
     const m = meta as Partial<W9Metadata>;
     if (m.tinPresent !== true || !m.legalName || m.signed !== true) return unclear("W-9 metadata incomplete (needs tinPresent, legalName, signed).");
   }
+  return markAccepted(run, doc, { metadata: meta, reviewerId: human.userId, note: input.note ?? "", expiresAt });
+}
+
+type LockedDocument = SubDocumentRow & { sub_name: string };
+
+/** The document row, locked for this transaction, with the sub's name. */
+async function lockDocument(run: Run, documentId: number): Promise<LockedDocument | null> {
+  const [doc] = await run<LockedDocument>(
+    `SELECT ${DOC_COLS.replace(/(^|, )id,/, "$1sub_documents.id,")}, (SELECT name FROM subs s WHERE s.slug = sub_documents.sub_slug) AS sub_name FROM sub_documents WHERE id = $1 FOR UPDATE`,
+    [documentId],
+  );
+  return doc ? { ...doc, id: Number(doc.id), version: Number(doc.version) } : null;
+}
+
+/** The one place a document becomes accepted: older copies are superseded,
+ *  an accepted COI sets the sub's tracked expiry + coi_status, open requests
+ *  are satisfied, and Joe's review to-dos / cards on it are closed. */
+async function markAccepted(
+  run: Run,
+  doc: LockedDocument,
+  input: { metadata: Record<string, unknown>; reviewerId: string | null; note: string; expiresAt: string | null },
+): Promise<AcceptResult> {
   const [updated] = await run<SubDocumentRow>(
     `UPDATE sub_documents SET status = 'accepted', validated_metadata = $2::jsonb, reviewed_by = $3, reviewed_at = now(), review_note = $4, expires_at = COALESCE($5::date, expires_at), updated_at = now()
       WHERE id = $1 RETURNING ${DOC_COLS}`,
-    [doc.id, JSON.stringify(meta), human.userId, input.note ?? "", expiresAt],
+    [doc.id, JSON.stringify(input.metadata), input.reviewerId, input.note, input.expiresAt],
   );
   await run(`UPDATE sub_documents SET status = 'superseded', updated_at = now() WHERE sub_slug = $1 AND doc_type = $2 AND id <> $3 AND status = 'accepted' AND (project_id IS NOT DISTINCT FROM $4)`, [doc.sub_slug, doc.doc_type, doc.id, doc.project_id]);
-  if (doc.doc_type === "coi" && expiresAt) {
+  // An older copy still waiting on review is moot once a newer one is accepted.
+  const stale = await run<{ id: number }>(
+    `UPDATE sub_documents SET status = 'superseded', updated_at = now()
+      WHERE sub_slug = $1 AND doc_type = $2 AND id <> $3 AND version < $5 AND status IN ('received','under_review') AND (project_id IS NOT DISTINCT FROM $4)
+      RETURNING id`,
+    [doc.sub_slug, doc.doc_type, doc.id, doc.project_id, doc.version],
+  );
+  if (doc.doc_type === "coi" && input.expiresAt) {
     await run(
       `UPDATE subs SET coi_expires_at = $2::date, coi_status = CASE WHEN $2::date < CURRENT_DATE THEN 'expired' WHEN $2::date - CURRENT_DATE <= 30 THEN 'expiring' ELSE 'current' END, updated_at = now() WHERE slug = $1`,
-      [doc.sub_slug, expiresAt],
+      [doc.sub_slug, input.expiresAt],
     );
   }
   const satisfied = await run<{ id: number }>(
@@ -349,7 +407,225 @@ export async function acceptDocument(
   for (const r of satisfied) {
     await run(`UPDATE decisions SET status = 'revoked', decision_note = 'document accepted' WHERE status = 'pending' AND target_kind = 'sub_document_request' AND target_id = $1`, [String(r.id)]);
   }
+  await closeReview(run, [doc.id, ...stale.map((s) => Number(s.id))], "document accepted");
   return { ok: true, document: { ...updated, id: Number(updated.id), version: Number(updated.version) }, satisfiedRequestIds: satisfied.map((r) => Number(r.id)) };
+}
+
+// ── Joe's review of a portal upload ─────────────────────────────────────────
+
+/** work_items.source_kind / source_id of the review to-do for one document. */
+export const REVIEW_SOURCE_KIND = "sub_document";
+export const reviewSourceId = (documentId: number) => `subdoc:${documentId}:review`;
+
+/** Close the review to-dos (and any pending review cards) on these documents. */
+async function closeReview(run: Run, documentIds: number[], note: string): Promise<void> {
+  if (!documentIds.length) return;
+  await run(
+    `UPDATE work_items SET status = 'done', completed_at = now(), blocked_reason = NULL, updated_at = now()
+      WHERE source_kind = $1 AND source_id = ANY($2::text[]) AND status NOT IN ('done','cancelled')`,
+    [REVIEW_SOURCE_KIND, documentIds.map(reviewSourceId)],
+  );
+  await run(
+    `UPDATE decisions SET status = 'revoked', decision_note = $2 WHERE status = 'pending' AND target_kind = 'sub_document' AND target_id = ANY($1::text[])`,
+    [documentIds.map(String), note],
+  );
+}
+
+export interface ReceiveInput extends IngestInput {
+  /** The sub's current job, linked on Joe's review to-do. The document itself
+   *  stays company-level: one COI covers the sub on every job. */
+  jobProjectId?: string | null;
+  /** files.created_by-style tag for the to-do's "filed by". */
+  createdBy?: string;
+}
+
+export type ReceiveResult =
+  | { ok: true; document: SubDocumentRow; requestIds: number[]; reviewItemId: string | null }
+  | Extract<IngestResult, { ok: false }>;
+
+/** A sub-portal upload. The file is recorded as received (ingestSubDocument:
+ *  versioned, exceptions kept, the chase paused). A COI then goes
+ *  under_review with one to-do for Joe. Nothing about the sub's insurance
+ *  status changes here: the expiry date the sub typed is their claim, not
+ *  coverage. Only an acceptance (acceptDocument / confirmSubDocument) makes a
+ *  COI count, and only a rejection asks the sub again. */
+export async function receiveSubDocument(run: Run, input: ReceiveInput): Promise<ReceiveResult> {
+  let checksum = input.checksum ?? null;
+  if (!checksum) {
+    const [f] = await run<{ sha256: string | null }>(`SELECT sha256 FROM files WHERE id = $1`, [input.fileId]);
+    checksum = f?.sha256 ?? null;
+  }
+  const got = await ingestSubDocument(run, { ...input, checksum });
+  if (!got.ok) return got;
+  if (got.document.doc_type !== "coi") return { ok: true, document: got.document, requestIds: got.requestIds, reviewItemId: null };
+
+  const [doc] = await run<SubDocumentRow>(`UPDATE sub_documents SET status = 'under_review', updated_at = now() WHERE id = $1 RETURNING ${DOC_COLS}`, [got.document.id]);
+  const [sub] = await run<{ name: string }>(`SELECT name FROM subs WHERE slug = $1`, [doc.sub_slug]);
+  const [job] = input.jobProjectId ? await run<{ id: string; slug: string; name: string }>(`SELECT id, slug, name FROM projects WHERE id = $1`, [input.jobProjectId]) : [];
+  const name = sub?.name ?? doc.sub_slug;
+  const typed = doc.expires_at ? `typed an expiry date of ${doc.expires_at}` : "did not type an expiry date";
+  const body = [
+    `${name} uploaded a COI (certificate of insurance) from the sub portal and ${typed}. It does not count as current until you accept it.`,
+    `Open the certificate and check the dates and coverage. Then, on the sub's Paperwork tab: Accept it with the expiry date you confirm, or Reject it with a reason (they're asked for a new one).`,
+    doc.file_id ? `Certificate: /api/files/${doc.file_id}` : null,
+    `Sub: /subs/${doc.sub_slug}`,
+    job ? `Job: ${job.name} — /projects/${job.slug}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const [item] = await run<{ id: string }>(
+    `INSERT INTO work_items (title, body, status, priority, assignee_kind, assignee_key, project_id, source_kind, source_id, requires_approval, created_by)
+     SELECT $1, $2, 'waiting_on_human', 'normal', 'human', 'human-joe', $3, $4, $5, false, $6
+      WHERE NOT EXISTS (SELECT 1 FROM work_items WHERE source_kind = $4 AND source_id = $5 AND status NOT IN ('done','cancelled'))
+     RETURNING id`,
+    [
+      `Review ${name}'s COI${doc.expires_at ? ` (says it expires ${doc.expires_at})` : ""}`.slice(0, 200),
+      body,
+      job?.id ?? null,
+      REVIEW_SOURCE_KIND,
+      reviewSourceId(Number(doc.id)),
+      input.createdBy ?? "sub-docs",
+    ],
+  );
+  return { ok: true, document: { ...doc, id: Number(doc.id), version: Number(doc.version) }, requestIds: got.requestIds, reviewItemId: item?.id ?? null };
+}
+
+/** Joe's own reading of a received document: accepted with the expiry date he
+ *  confirms (for a COI, required and not in the past). The owner signed in,
+ *  not an agent acting for him — this is his word, so it skips the
+ *  field-by-field metadata acceptDocument asks of a reviewer; what he
+ *  confirmed is recorded as the metadata. */
+export async function confirmSubDocument(
+  run: Run,
+  input: { documentId: number; subSlug?: string | null; expiresAt?: string | null; note?: string; principal: Principal },
+): Promise<AcceptResult> {
+  const human = input.principal.kind === "user" ? input.principal : null;
+  if (!human || human.role !== "owner") return { ok: false, reason: "Only Joe can accept a sub's paperwork here." };
+  const doc = await lockDocument(run, input.documentId);
+  if (!doc || (input.subSlug && doc.sub_slug !== input.subSlug)) return { ok: false, reason: "No such document." };
+  if (doc.status !== "received" && doc.status !== "under_review") return { ok: false, reason: `This document is already ${doc.status}.` };
+  const expiresAt = (input.expiresAt ?? "").trim() || null;
+  if (expiresAt && !/^\d{4}-\d{2}-\d{2}$/.test(expiresAt)) return { ok: false, reason: "Enter the expiry date as a date." };
+  if (doc.doc_type === "coi") {
+    if (!expiresAt) return { ok: false, reason: "Enter the expiry date shown on the certificate." };
+    const today = new Date().toISOString().slice(0, 10);
+    if (expiresAt < today) return { ok: false, reason: `That date (${expiresAt}) has already passed — a lapsed COI can't be accepted. Reject it instead.` };
+  }
+  const metadata = { expiryDate: expiresAt, confirmedByOwner: true, subTypedExpiry: doc.expires_at };
+  return markAccepted(run, doc, { metadata, reviewerId: human.userId, note: input.note ?? "", expiresAt });
+}
+
+export type RejectResult =
+  | {
+      ok: true;
+      document: SubDocumentRow;
+      /** Whether the sub was asked for a new copy, and how. */
+      ask:
+        | { mode: "sent"; contact: string; intentId: string }
+        | { mode: "staged"; contact: string; decisionId: string; reason: string }
+        | { mode: "skipped"; reason: string };
+    }
+  | { ok: false; reason: string };
+
+/** Not accepted, with the reason. The review to-do closes and the sub is asked
+ *  for a new copy through requestDocument (sent under the routine policy, or
+ *  staged for Joe's OK) — unless another copy is already waiting on review,
+ *  or their accepted one is still good, in which case nobody is chased. */
+export async function rejectDocument(
+  run: Run,
+  input: { documentId: number; subSlug?: string | null; reason: string; principal: Principal; at?: Date; askAgain?: boolean },
+): Promise<RejectResult> {
+  const human = humanOf(input.principal);
+  if (!human || (human.role !== "owner" && human.role !== "staff")) return { ok: false, reason: "Only the owner or staff can reject a sub document." };
+  const reason = input.reason.trim().slice(0, 500);
+  if (!reason) return { ok: false, reason: "Say why it can't be accepted." };
+  const doc = await lockDocument(run, input.documentId);
+  if (!doc || (input.subSlug && doc.sub_slug !== input.subSlug)) return { ok: false, reason: "No such document." };
+  if (doc.status !== "received" && doc.status !== "under_review") return { ok: false, reason: `This document is already ${doc.status}.` };
+
+  const [updated] = await run<SubDocumentRow>(
+    `UPDATE sub_documents SET status = 'rejected', exception = $2::jsonb, review_note = $3, reviewed_by = $4, reviewed_at = now(), updated_at = now()
+      WHERE id = $1 RETURNING ${DOC_COLS}`,
+    [doc.id, JSON.stringify({ reason: "other", detail: reason }), reason, human.userId],
+  );
+  await closeReview(run, [doc.id], "document rejected");
+  const document = { ...updated, id: Number(updated.id), version: Number(updated.version) };
+  if (input.askAgain === false) return { ok: true, document, ask: { mode: "skipped", reason: "Not asked again." } };
+
+  const [waiting] = await run<{ id: number }>(
+    `SELECT id FROM sub_documents WHERE sub_slug = $1 AND doc_type = $2 AND id <> $3 AND status = 'under_review' LIMIT 1`,
+    [doc.sub_slug, doc.doc_type, doc.id],
+  );
+  if (waiting) return { ok: true, document, ask: { mode: "skipped", reason: `Another ${DOC_LABEL[doc.doc_type]} from ${doc.sub_name} is already waiting for your review, so they weren't asked again.` } };
+  const { requirements } = await detectMissingOrExpiring(run, { subSlugs: [doc.sub_slug], openRequests: false });
+  const need = requirements.find((r) => r.docType === doc.doc_type && r.projectId == null);
+  if (!need) return { ok: true, document, ask: { mode: "skipped", reason: `${doc.sub_name}'s accepted ${DOC_LABEL[doc.doc_type]} is still good, so they weren't asked again.` } };
+
+  // Re-open (or reuse) the company-level request and resume its chase.
+  await run(
+    `INSERT INTO sub_document_requests (sub_slug, doc_type, project_id, reason)
+     VALUES ($1, $2, NULL, $3)
+     ON CONFLICT (sub_slug, doc_type, COALESCE(project_id, '00000000-0000-0000-0000-000000000000'::uuid)) WHERE state = 'open' DO NOTHING`,
+    [doc.sub_slug, doc.doc_type, need.reason],
+  );
+  const [req] = await run<{ id: number }>(
+    `UPDATE sub_document_requests SET next_at = now(), updated_at = now() WHERE sub_slug = $1 AND doc_type = $2 AND project_id IS NULL AND state = 'open' RETURNING id`,
+    [doc.sub_slug, doc.doc_type],
+  );
+  const asked = await requestDocument(run, {
+    requestId: Number(req.id),
+    principal: input.principal,
+    at: input.at,
+    body: draftRequestBody(doc.sub_name, doc.doc_type, need.reason, null, reason),
+  });
+  if (!asked.ok) return { ok: true, document, ask: { mode: "skipped", reason: asked.reason } };
+  if (asked.mode === "sent") return { ok: true, document, ask: { mode: "sent", contact: asked.contact, intentId: asked.intentId } };
+  return { ok: true, document, ask: { mode: "staged", contact: asked.contact, decisionId: asked.decision.id, reason: asked.reason } };
+}
+
+export interface OwnerSubDocument {
+  id: number;
+  docType: SubDocType;
+  fileId: string | null;
+  /** The expiry on the row (typed by the sub, or confirmed by Joe), YYYY-MM-DD. */
+  expiresAt: string | null;
+  expiresLabel: string | null;
+  status: SubDocStatus;
+  reviewNote: string;
+  when: string;
+}
+
+/** The sub's documents with their review status, newest first, plus the
+ *  sub's tracked COI status, for the owner's sub page. */
+export async function subPaperworkForOwner(
+  run: Run,
+  subSlug: string,
+): Promise<{ coiStatus: string | null; coiExpiresLabel: string | null; documents: OwnerSubDocument[] }> {
+  const [sub] = await run<{ coi_status: string; coi_label: string | null }>(
+    `SELECT ${coiStatusSql("subs")} AS coi_status, to_char(coi_expires_at, 'FMMon FMDD, YYYY') AS coi_label FROM subs WHERE slug = $1`,
+    [subSlug],
+  );
+  const rows = await run<{ id: number; doc_type: SubDocType; file_id: string | null; expires_at: string | null; expires_label: string | null; status: SubDocStatus; review_note: string; when_label: string }>(
+    `SELECT id, doc_type, file_id, expires_at::text AS expires_at, to_char(expires_at, 'FMMon FMDD, YYYY') AS expires_label,
+            status, review_note, to_char(created_at, 'FMMon FMDD') AS when_label
+       FROM sub_documents WHERE sub_slug = $1
+      ORDER BY created_at DESC, id DESC LIMIT 30`,
+    [subSlug],
+  );
+  return {
+    coiStatus: sub?.coi_status ?? null,
+    coiExpiresLabel: sub?.coi_label ?? null,
+    documents: rows.map((r) => ({
+      id: Number(r.id),
+      docType: r.doc_type,
+      fileId: r.file_id,
+      expiresAt: r.expires_at,
+      expiresLabel: r.expires_label,
+      status: r.status,
+      reviewNote: r.review_note,
+      when: r.when_label,
+    })),
+  };
 }
 
 /** Portal boundary. Owner/staff-with-subs: any. A sub: only its own rows,

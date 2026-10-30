@@ -6,6 +6,7 @@
 import type { CoiStatus } from "./types";
 import { ai } from "./ai";
 import { query } from "./db";
+import { coiStatusSql, w9OnFileSql } from "./sub-docs";
 
 /** Trade filter buttons, in design order. "All" is the default selection. */
 export const TRADES = [
@@ -37,9 +38,11 @@ export interface SubCard {
   rating: number;
   /** Preferred sub — accent avatar + star. */
   fav: boolean;
-  coiStatus: Extract<CoiStatus, "current" | "expiring">;
+  coiStatus: CoiStatus;
   /** COI date display, e.g. "Aug 14" (current) or "Jun 1" (expiring). */
   coiLabel: string;
+  /** A live W-9 document is on file (sub_documents). */
+  w9OnFile: boolean;
 }
 
 export interface SubsData {
@@ -59,8 +62,9 @@ interface SubRow {
   open_jobs: number;
   jobs_count: number;
   rating: string | null;
-  coi_status: string;
+  coi_status: CoiStatus;
   coi_label: string | null;
+  w9_on_file: boolean;
   email: string | null;
   phone: string | null;
   notes: string;
@@ -74,8 +78,10 @@ interface SubRow {
 }
 
 const SUB_SELECT = `
-  SELECT slug, name, trade, rate, fav, open_jobs, jobs_count, rating, coi_status,
-         to_char(coi_expires_at, 'FMMon FMDD') AS coi_label, email, phone,
+  SELECT slug, name, trade, rate, fav, open_jobs, jobs_count, rating,
+         ${coiStatusSql("subs")} AS coi_status,
+         to_char(coi_expires_at, 'FMMon FMDD') AS coi_label,
+         ${w9OnFileSql("subs")} AS w9_on_file, email, phone,
          COALESCE(notes, '') AS notes,
          (SELECT count(*)::int FROM project_subs ps
             JOIN projects p ON p.id = ps.project_id
@@ -106,8 +112,9 @@ function rowToCard(r: SubRow): SubCard {
     jobsCount: Math.max(r.jobs_count, r.live_total),
     rating: Math.round(Number(r.rating ?? 0)),
     fav: r.fav,
-    coiStatus: r.coi_status === "expiring" ? "expiring" : "current",
+    coiStatus: r.coi_status,
     coiLabel: r.coi_label ?? "",
+    w9OnFile: r.w9_on_file,
   };
 }
 
@@ -292,7 +299,7 @@ export async function getSub(slug: string): Promise<SubDetail | null> {
     working: card.openJobs > 0,
     coiStatus: card.coiStatus,
     coiLabel: card.coiLabel,
-    w9: curated.w9 ?? "on file",
+    w9: curated.w9 ?? (card.w9OnFile ? "on file" : "missing"),
     contact: curated.contact ?? `${card.trade} · onboarded 2024`,
     phone: rows[0].phone,
     email: rows[0].email,
@@ -316,7 +323,7 @@ export async function getSub(slug: string): Promise<SubDetail | null> {
           value: card.coiLabel || "missing",
           ok: card.coiStatus === "current" && !!card.coiLabel,
         },
-        { label: "W-9", value: "on file", ok: true },
+        { label: "W-9", value: card.w9OnFile ? "on file" : "missing", ok: card.w9OnFile },
         { label: "Sub agreement", value: "—", ok: false },
       ],
     rate: curated.rate ?? { amount, unit, note: "" },

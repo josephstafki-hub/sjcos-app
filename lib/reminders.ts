@@ -14,6 +14,9 @@ import { query } from "./db";
 import type { Run } from "./commands/core";
 import { flagUnseenForReview } from "./obligations/work-items";
 import { emit } from "./notify";
+import { runDirect, withTransaction } from "./commands/db";
+import { ensureCallFollowUps } from "./completion/call-followups";
+import { routineReminderCandidates } from "./billing/reminders";
 
 const COMPLIANCE_WINDOWS = [60, 30]; // ≤14d handled on feed-read
 const COI_WINDOWS = [30, 15, 5];
@@ -44,6 +47,8 @@ export interface ReminderRun {
   inboxFlaggedForReview: number;
   /** Items already carrying the review flag and still open — for the owner's count. */
   inboxAwaitingReview: number;
+  /** Calls whose follow-up to-dos had failed to file and were filed this run. */
+  callFollowUpsRetried: number;
 }
 
 export async function runReminders(): Promise<ReminderRun> {
@@ -55,6 +60,7 @@ export async function runReminders(): Promise<ReminderRun> {
     ar: 0,
     inboxFlaggedForReview: 0,
     inboxAwaitingReview: 0,
+    callFollowUpsRetried: 0,
   };
 
   // ── Compliance items: 60 / 30-day heads-up (unresolved, future-dated) ──
@@ -102,7 +108,10 @@ export async function runReminders(): Promise<ReminderRun> {
             to_char(coi_expires_at, 'Mon FMDD') AS exp
        FROM subs
       WHERE coi_expires_at IS NOT NULL
-        AND coi_expires_at - CURRENT_DATE BETWEEN 0 AND ${COI_WINDOWS[0]}`,
+        AND coi_expires_at - CURRENT_DATE BETWEEN 0 AND ${COI_WINDOWS[0]}
+        -- A renewal waiting on Joe's Accept/Reject already has his to-do.
+        AND NOT EXISTS (SELECT 1 FROM sub_documents sd
+                         WHERE sd.sub_slug = subs.slug AND sd.doc_type = 'coi' AND sd.status = 'under_review')`,
   );
   for (const r of coi.rows) {
     for (const w of COI_WINDOWS) {
@@ -203,15 +212,16 @@ export async function runReminders(): Promise<ReminderRun> {
     }
   }
 
-  // ── A/R dunning: invoices 15 / 30 days overdue (sent, unpaid) ──
-  const ar = await query<{ id: string; number: string; project: string; days: number }>(
-    `SELECT i.id, i.number, p.name AS project,
-            (CURRENT_DATE - i.sent_at::date) AS days
-       FROM invoices i JOIN projects p ON p.id = i.project_id
-      WHERE i.status = 'sent' AND i.sent_at IS NOT NULL
-        AND CURRENT_DATE - i.sent_at::date >= ${AR_WINDOWS[0]}`,
-  );
-  for (const r of ar.rows) {
+  // ── A/R dunning: invoices 15 / 30 days past due with money still owed ──
+  // Days past the due date, an open verified balance, no payment pending (an
+  // ACH in flight is not a reason for a demand letter), not on hold.
+  const ar = (await routineReminderCandidates(runDirect, { minDaysPastDue: AR_WINDOWS[0] })).map((c) => ({
+    id: String(c.invoiceId),
+    number: c.number,
+    project: c.projectName,
+    days: c.daysPastDue ?? 0,
+  }));
+  for (const r of ar) {
     for (const w of AR_WINDOWS) {
       if (r.days >= w && (await claim(`ar:${r.id}:${w}`))) {
         await emit({
@@ -250,6 +260,21 @@ export async function runReminders(): Promise<ReminderRun> {
         AND wi.scan_review_flagged_at IS NOT NULL`,
   );
   out.inboxAwaitingReview = awaiting.rows[0]?.n ?? 0;
+
+  // ── Call follow-ups whose filing failed after the notes saved ──
+  // Each call runs in its own transaction (ensureCallFollowUps takes a
+  // per-call advisory xact lock).
+  const pending = await query<{ id: string }>(
+    `SELECT id FROM calls WHERE notes_status = 'done' AND followups_filed_at IS NULL AND updated_at > now() - interval '7 days' LIMIT 50`,
+  );
+  for (const c of pending.rows) {
+    try {
+      await withTransaction((tx) => ensureCallFollowUps(tx, c.id, { by: "call-notes:retry" }));
+      out.callFollowUpsRetried++;
+    } catch (err) {
+      console.error("[reminders] call follow-up retry failed", c.id, err);
+    }
+  }
 
   return out;
 }

@@ -5,6 +5,7 @@
 //   catalog.ts          approval action types + labels; gated-action → kind map
 //   grants.ts           grant / revoke / list / effectiveAuthority / session revocations / audit
 //   mcp-gate.ts         principalMaySpendGrant() — the person-behind-the-agent check
+//   client-sends.ts     clientSendVerdict() — may a team member send an invoice / estimate to the client
 //   usage.ts            thresholds + agent_usage rows
 //   worker-identity.ts  worker registry + assertWorkerMay()
 //   run-profile.mjs     operator vs business profile: CLI args, limits, admission
@@ -14,5 +15,6 @@
 export * from "./catalog";
 export * from "./grants";
 export * from "./mcp-gate";
+export * from "./client-sends";
 export * from "./usage";
 export * from "./worker-identity";

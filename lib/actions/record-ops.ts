@@ -9,7 +9,7 @@
 import { createHash } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { captureAgentMemory } from "@/lib/agent-memory";
-import { finishApproval } from "@/lib/approve-work-item";
+import { claimApproval, claimRejection, finishApproval } from "@/lib/approve-work-item";
 import type { ApproveResult } from "@/lib/approved-draft-rules";
 import { query } from "@/lib/db";
 import { requireAccess } from "@/lib/dal";
@@ -70,15 +70,11 @@ export async function setRecordWorkItemStatus(
  *  result says whether the staged draft was emailed (`sent`) or not (`notice`). */
 export async function approveRecordWorkItem(id: string, kind: RecordKind, slug: string): Promise<ApproveResult> {
   await requireAccess("today");
-  const { rows } = await query<{ title: string; body: string; assignee_key: string | null }>(
-    `UPDATE work_items
-        SET approval_status = 'approved',
-            status = CASE WHEN status = 'approval_needed' THEN 'queued' ELSE status END
-      WHERE id = $1 RETURNING title, body, assignee_key`,
-    [id],
-  );
-  if (!rows[0]) return { ok: false, error: "Work item not found." };
-  const { title, body, assignee_key } = rows[0];
+  // Same guard as every other Approve: a stale tap on a rejected or handled
+  // draft changes nothing and sends nothing.
+  const claim = await claimApproval(id);
+  if (!claim.ok) return claim;
+  const { title, body, assignee_key } = claim;
   await writeReceipt("approval", `Approved: ${title}`, id);
   const result = await finishApproval({ id, assigneeKey: assignee_key, title, body, context: `${kind} ${slug}` });
   revalidateRecord(kind, slug);
@@ -87,12 +83,9 @@ export async function approveRecordWorkItem(id: string, kind: RecordKind, slug: 
 
 export async function rejectRecordWorkItem(id: string, kind: RecordKind, slug: string): Promise<Result> {
   await requireAccess("today");
-  const { rows } = await query<{ title: string; body: string; assignee_key: string | null }>(
-    `UPDATE work_items SET approval_status = 'rejected', status = 'cancelled' WHERE id = $1
-     RETURNING title, body, assignee_key`,
-    [id],
-  );
-  if (!rows[0]) return { ok: false, error: "Work item not found." };
+  const claim = await claimRejection(id);
+  if (!claim.ok) return claim;
+  const rows = [claim];
   await writeReceipt("rejection", `Rejected: ${rows[0].title}`, id);
   // W5 learning layer: a rejection is a signal about what NOT to propose.
   await captureAgentMemory({

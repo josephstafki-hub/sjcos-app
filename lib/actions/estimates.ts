@@ -8,6 +8,9 @@
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
 import { requireAccess } from "@/lib/dal";
+import { runDirect, userPrincipal, withTransaction } from "@/lib/commands/db";
+import { freezeOfferedPrices } from "@/lib/estimating/assembly";
+import { clientSendVerdict } from "@/lib/authority/client-sends";
 import { dollarsToCents, fmtUsd, unitLabel } from "@/lib/cost-book-units";
 import { getDefaultMarkup } from "@/lib/cost-book";
 import { getProjectSignerDefaults } from "@/lib/esign";
@@ -85,18 +88,29 @@ export async function deleteEstimate(slug: string, id: number): Promise<Result> 
   return { ok: true };
 }
 
+/** The sent-estimate lock (migration 0047) refuses in Postgres; say why. */
+function lockedRefusal(err: unknown): Result {
+  const e = err as { code?: string; hint?: string; message?: string };
+  if (e?.code === "P0001" && e.hint === "estimate_locked") return { ok: false, error: e.message ?? "This estimate is locked." };
+  throw err;
+}
+
 export async function addEstimateLine(estimateId: number, slug: string, formData: FormData): Promise<Result> {
   await requireAccess("estimates");
   const v = parseLine(formData);
   if (!v.description) return { ok: false, error: "A line description is required." };
-  await query(
-    `INSERT INTO estimate_lines
-       (estimate_id, cost_item_id, description, section, unit, qty, unit_cost, markup, extended,
-        sort_order)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,
-        COALESCE((SELECT max(sort_order)+1 FROM estimate_lines WHERE estimate_id = $1), 0))`,
-    [estimateId, v.costItemId, v.description, v.section, v.unit, v.qty, v.unitCost, v.markup, v.extended],
-  );
+  try {
+    await query(
+      `INSERT INTO estimate_lines
+         (estimate_id, cost_item_id, description, section, unit, qty, unit_cost, markup, extended,
+          sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,
+          COALESCE((SELECT max(sort_order)+1 FROM estimate_lines WHERE estimate_id = $1), 0))`,
+      [estimateId, v.costItemId, v.description, v.section, v.unit, v.qty, v.unitCost, v.markup, v.extended],
+    );
+  } catch (err) {
+    return lockedRefusal(err);
+  }
   await recompute(estimateId);
   revalidatePath(`/projects/${slug}`);
   return { ok: true };
@@ -106,13 +120,18 @@ export async function updateEstimateLine(lineId: number, slug: string, formData:
   await requireAccess("estimates");
   const v = parseLine(formData);
   if (!v.description) return { ok: false, error: "A line description is required." };
-  const row = await queryOne<{ estimate_id: string }>(
-    `UPDATE estimate_lines
-        SET description=$2, section=$3, unit=$4, qty=$5, unit_cost=$6, markup=$7, extended=$8,
-            cost_item_id=$9
-      WHERE id=$1 RETURNING estimate_id`,
-    [lineId, v.description, v.section, v.unit, v.qty, v.unitCost, v.markup, v.extended, v.costItemId],
-  );
+  let row: { estimate_id: string } | null;
+  try {
+    row = await queryOne<{ estimate_id: string }>(
+      `UPDATE estimate_lines
+          SET description=$2, section=$3, unit=$4, qty=$5, unit_cost=$6, markup=$7, extended=$8,
+              cost_item_id=$9
+        WHERE id=$1 RETURNING estimate_id`,
+      [lineId, v.description, v.section, v.unit, v.qty, v.unitCost, v.markup, v.extended, v.costItemId],
+    );
+  } catch (err) {
+    return lockedRefusal(err);
+  }
   if (row) await recompute(Number(row.estimate_id));
   revalidatePath(`/projects/${slug}`);
   return { ok: true };
@@ -120,10 +139,12 @@ export async function updateEstimateLine(lineId: number, slug: string, formData:
 
 export async function deleteEstimateLine(lineId: number, slug: string): Promise<Result> {
   await requireAccess("estimates");
-  const row = await queryOne<{ estimate_id: string }>(
-    `DELETE FROM estimate_lines WHERE id = $1 RETURNING estimate_id`,
-    [lineId],
-  );
+  let row: { estimate_id: string } | null;
+  try {
+    row = await queryOne<{ estimate_id: string }>(`DELETE FROM estimate_lines WHERE id = $1 RETURNING estimate_id`, [lineId]);
+  } catch (err) {
+    return lockedRefusal(err);
+  }
   if (row) await recompute(Number(row.estimate_id));
   revalidatePath(`/projects/${slug}`);
   return { ok: true };
@@ -132,7 +153,12 @@ export async function deleteEstimateLine(lineId: number, slug: string): Promise<
 /** Send an estimate to the client for e-signature approval (B4). Renders the
  *  estimate to a signature_request (doc_type=estimate, linked via estimate_id),
  *  marks the estimate 'sent'. When the client signs (lib/actions/esign), the
- *  linked estimate flips to 'approved'. */
+ *  linked estimate flips to 'approved'.
+ *
+ *  A22: the estimates area lets a team member build an estimate; offering it
+ *  to the client for signature takes Joe's click or delegated authority for
+ *  this project and total (lib/authority/client-sends.ts). The request and its
+ *  history are recorded under whoever sent it. */
 export async function sendEstimate(slug: string, estimateId: number): Promise<Result> {
   const user = await requireAccess("estimates");
 
@@ -155,6 +181,15 @@ export async function sendEstimate(slug: string, estimateId: number): Promise<Re
   if (!est) return { ok: false, error: "Estimate not found." };
   if (est.status === "sent") return { ok: false, error: "This estimate is already out for signature." };
   if (est.status === "approved") return { ok: false, error: "This estimate is already approved." };
+
+  const release = await clientSendVerdict(runDirect, userPrincipal(user), "send_document_for_signature", {
+    projectId: est.project_id,
+    amountCents: Number(est.total),
+  });
+  if (!release.ok) return { ok: false, error: release.error };
+  // Owner: unchanged. A team member is named on the history and on Joe's feed.
+  const byStaff = release.via === "authority_grant";
+  const actorName = user.name || (byStaff ? user.email : "Owner");
 
   const { rows: lines } = await query<{
     description: string;
@@ -228,10 +263,18 @@ export async function sendEstimate(slug: string, estimateId: number): Promise<Re
   await query(
     `INSERT INTO signature_events (request_id, kind, actor, detail)
      VALUES ($1, 'created', $2, $3), ($1, 'sent', $2, $4)`,
-    [reqId, user.name || "Owner", est.title, `Sent to ${signer.name || signer.email || "client"}`],
+    [
+      reqId,
+      actorName,
+      est.title,
+      `Sent to ${signer.name || signer.email || "client"}${byStaff ? ` — by ${actorName} under delegated authority` : ""}`,
+    ],
   );
 
   await query(`UPDATE estimates SET status = 'sent', sent_at = now() WHERE id = $1`, [estimateId]);
+  // The client's prices as sent, kept for margin review; the lines are locked
+  // from here (migration 0047).
+  await withTransaction((run) => freezeOfferedPrices(run, estimateId, userPrincipal(user)));
 
   await emit({
     kind: "decision",
@@ -239,7 +282,7 @@ export async function sendEstimate(slug: string, estimateId: number): Promise<Re
     icon: "mail",
     accent: "ai",
     title: `Estimate sent for approval: ${est.title}`,
-    subline: `${fmtUsd(est.total)} — awaiting client signature`,
+    subline: `${fmtUsd(est.total)} — awaiting client signature${byStaff ? ` · sent by ${actorName}` : ""}`,
     href: `/projects/${slug}`,
   });
 

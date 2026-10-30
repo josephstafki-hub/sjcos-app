@@ -227,14 +227,15 @@ export async function handleTelegramUpdate(run: Run, update: TelegramUpdate, dep
 }
 
 export const REPLY_HELP =
-  "To change a request, reply to its card (swipe left on it) and say what should change. " +
-  "Your reply pulls the request and goes to the agent that filed it; you'll hear back here.";
+  "To change a request or a draft, reply to its card (swipe left on it) and say what should change. " +
+  "Your reply pulls it back and goes to the agent that filed it; you'll hear back here.";
 
 type Finish = (outcome: string, decisionId: string | null) => Promise<TelegramHandleResult>;
 
 /** Joe typed into the bot chat. Only the owner, in the owner chat, never a
- *  forward. A reply about a card is recorded and the request pulled in this
- *  transaction; delivery to the agent happens after commit. */
+ *  forward. A reply about a card (permission request or staged draft) is
+ *  recorded and the request pulled in this transaction; delivery to the
+ *  agent happens after commit. */
 async function handleOwnerMessage(run: Run, m: NonNullable<TelegramUpdate["message"]>, deps: TelegramHandlerDeps, finish: Finish): Promise<TelegramHandleResult> {
   const chatId = String(m.chat?.id ?? "");
   const fromId = String(m.from?.id ?? "");
@@ -259,8 +260,9 @@ async function handleOwnerMessage(run: Run, m: NonNullable<TelegramUpdate["messa
   }
   const owner = await deps.ownerPrincipal();
   if (!owner) return help("message: no owner principal", "No active owner account — nothing was changed.");
-  const recorded = await recordOwnerReply(run, { decisionId: target.decisionId, text, chatId, messageId: m.message_id, principal: owner });
-  const res = await finish(`owner reply ${recorded.id}: ${recorded.route}${recorded.pulled ? ", pulled" : ""}`, recorded.decisionId);
+  const recorded = await recordOwnerReply(run, { decisionId: target.decisionId, workItemId: target.workItemId, text, chatId, messageId: m.message_id, principal: owner });
+  const about = recorded.workItemId ? ` (draft ${recorded.workItemId})` : "";
+  const res = await finish(`owner reply ${recorded.id}: ${recorded.route}${recorded.pulled ? ", pulled" : ""}${about}`, recorded.decisionId);
   return { ...res, ownerReply: { ...recorded, chatId, messageId: m.message_id } };
 }
 

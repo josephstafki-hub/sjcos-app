@@ -176,6 +176,9 @@ export interface IssueResult {
   created: boolean;
 }
 
+/** The deposit's keys (lib/workflow/construction-start.ts isInitialInvoiceKey). */
+const DEPOSIT_KEY = /^(estimate:\d+:initial|draw:0:.+)$/;
+
 /** Idempotent on (project, economic_key). Concurrent or replayed calls return
  *  the same invoice; a different amount for the same key is NOT a new invoice
  *  (the identity already exists — correct it with void/credit/revision). */
@@ -192,6 +195,19 @@ export async function issueMilestoneInvoice(run: Run, input: IssueMilestoneInput
     [input.projectId, input.economicKey],
   );
   if (existing) return { invoice: existing, created: false };
+  // The deposit has two identities: the acceptance invoice
+  // (`estimate:<id>:initial`) and the first draw a stage change bills
+  // (`draw:0:<label>`). Whichever came first IS the deposit; the other path
+  // must find it, never bill the deposit again.
+  if (DEPOSIT_KEY.test(input.economicKey)) {
+    const [deposit] = await run<InvoiceRow>(
+      `SELECT ${INVOICE_COLS} FROM invoices
+        WHERE project_id = $1 AND status <> 'void' AND (economic_key ~ '^estimate:[0-9]+:initial$' OR economic_key LIKE 'draw:0:%')
+        ORDER BY id LIMIT 1`,
+      [input.projectId],
+    );
+    if (deposit) return { invoice: deposit, created: false };
+  }
 
   const lines = cleanInvoiceLines(input.lines?.length ? input.lines : [{ label: input.milestone, amount: input.amountCents }]);
   const lineTotal = lines.reduce((s, l) => s + l.amount, 0);
@@ -602,6 +618,9 @@ export async function linkContractToInvoice(run: Run, input: { invoiceId: number
 // ── Delivery bookkeeping (sendInvoiceOp's result is the only truth) ─────────
 
 export async function recordDeliveryOutcome(run: Run, input: { invoiceId: number; ok: boolean; error?: string | null; principal: Principal | string }): Promise<void> {
+  // The dispatcher's send_invoice effect (lib/dispatch/effects.ts) records the
+  // provider's answer first; the caller's echo of it isn't a second event.
+  const [cur] = await run<{ delivery_state: DeliveryState }>(`SELECT delivery_state FROM invoices WHERE id = $1`, [input.invoiceId]);
   if (input.ok) {
     await run(
       `UPDATE invoices SET delivery_state = 'delivered', delivery_error = NULL, issued_at = COALESCE(issued_at, now()),
@@ -609,7 +628,7 @@ export async function recordDeliveryOutcome(run: Run, input: { invoiceId: number
         WHERE id = $1`,
       [input.invoiceId],
     );
-    await logInvoiceEvent(run, input.invoiceId, "delivered", input.principal);
+    if (cur?.delivery_state !== "delivered") await logInvoiceEvent(run, input.invoiceId, "delivered", input.principal);
   } else {
     // Never mark sent on failure; record the failure only on a still-open row.
     await run(
@@ -617,7 +636,7 @@ export async function recordDeliveryOutcome(run: Run, input: { invoiceId: number
         WHERE id = $1 AND status IN ('draft','issued') AND delivery_state <> 'delivered'`,
       [input.invoiceId, (input.error ?? "send failed").slice(0, 500)],
     );
-    await logInvoiceEvent(run, input.invoiceId, "delivery_failed", input.principal, { error: input.error ?? null });
+    if (cur?.delivery_state !== "failed") await logInvoiceEvent(run, input.invoiceId, "delivery_failed", input.principal, { error: input.error ?? null });
   }
 }
 

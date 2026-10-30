@@ -1736,10 +1736,16 @@ server.registerTool(
         WHERE id = $1`,
       [work_item_id],
     );
+    // The in-app chat that drafted it (the runner exports these): Joe's
+    // Telegram reply to the draft's card goes back to that chat
+    // (lib/decisions/owner-replies.ts). Without them it goes to the operating agent.
+    const origin = {};
+    if (UUID_RE.test(process.env.SJC_CONVERSATION_ID || "")) origin.conversation_id = process.env.SJC_CONVERSATION_ID;
+    if (UUID_RE.test(process.env.SJC_RUN_ID || "")) origin.run_id = process.env.SJC_RUN_ID;
     await rows(
-      `INSERT INTO agent_receipts (work_item_id, receipt_kind, uri, label)
-       VALUES ($1,'draft',$2,$3)`,
-      [work_item_id, knowledgeId ? `knowledge_items/${knowledgeId}` : null, `draft ready for approval (${kind})`],
+      `INSERT INTO agent_receipts (work_item_id, receipt_kind, uri, label, metadata)
+       VALUES ($1,'draft',$2,$3,$4::jsonb)`,
+      [work_item_id, knowledgeId ? `knowledge_items/${knowledgeId}` : null, `draft ready for approval (${kind})`, JSON.stringify(origin)],
     );
     // Tell the agent up front whether Approve will email this. Advisory only —
     // lib/approved-draft-rules.ts is the rule the app actually applies.
@@ -2778,7 +2784,7 @@ server.registerTool(
   // should make — the same queries, math and writes the app's Money › Overview
   // runs. Internal records only: nothing is sent, no change order is created or
   // moved out of draft, and billing is never switched. See mcp/financials-tools.mjs.
-  registerFinancialsTools(server, { rows, json, pool, strippedDollarError });
+  registerFinancialsTools(server, { rows, json, pool, strippedDollarError, currentPrincipal });
 
   // Estimates: list / create / add lines. Carries the where-things-go rule
   // (docs/estimates-and-change-orders.md): the formal estimate lives under
@@ -2833,10 +2839,13 @@ server.registerTool(
   registerAskOwner(server, { pool, json });
 
   // Employee / portal login accounts — the agent-side twin of Settings › Team
-  // & roles: list, create (staff areas / sub + client portal links / owner with
-  // an explicit confirm), edit areas, reset a password, disable / re-enable.
-  // Internal records, nothing emailed, no delete. See mcp/team-tools.mjs.
-  registerTeamTools(server, { rows, json });
+  // & roles: list, create (staff areas / sub + client portal links), edit
+  // areas, reset a password, disable / re-enable. The write tools run ONLY for
+  // a run acting for the owner (currentPrincipal → role 'owner'); staff,
+  // unattended and unknown runs are refused. Never an owner account, and never
+  // an owner row, through MCP. Internal records, nothing emailed, no delete.
+  // See mcp/team-tools.mjs.
+  registerTeamTools(server, { rows, json, currentPrincipal });
   registerProjectTools(server, { rows, json, strippedDollarError, currentPrincipal });
   // A lead's Phase 1 rough estimate (the lead page's Rough estimate tab):
   // save lines + total + notes as a draft, never sent. See mcp/lead-tools.mjs.

@@ -17,7 +17,13 @@ const dur = (i: TimeInterval) => {
   const end = i.end_at ? Date.parse(i.end_at) : Date.now();
   return `${((end - Date.parse(i.start_at)) / 3600_000).toFixed(2)} h${i.end_at ? "" : " (running)"}`;
 };
-const toLocalInput = (iso: string) => new Date(iso).toISOString().slice(0, 16);
+/** A stored instant as the browser's local wall time for a datetime-local box
+ *  (which Save reads back as local). toISOString() here gave UTC and every
+ *  Adjust shifted the times by the UTC offset. */
+const toLocalInput = (iso: string) => {
+  const d = new Date(iso);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+};
 
 export function TimeReview({ review, projects, rates, from, to }: { review: ReviewList & { running: TimeInterval | null }; projects: { id: string; name: string; slug: string }[]; rates: { category: string; rate_cents: number; effective_from: string }[]; from: string; to: string }) {
   const [pending, start] = useTransition();

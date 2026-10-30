@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Shell } from "@/components/shell/Shell";
 import { Eyebrow } from "@/components/ui";
 import { requireAccess } from "@/lib/dal";
@@ -42,6 +43,19 @@ export default async function EnginePage() {
             other agents coordinate through. Agent writes are logged and reversible; anything
             client-facing waits for your approval.
           </p>
+          <nav className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[12px]">
+            {[
+              { href: "/engine/decisions", label: "Decisions" },
+              ...(user.role === "owner" ? [{ href: "/engine/permissions", label: "Permissions" }] : []),
+              { href: "/engine/capabilities", label: "Capabilities" },
+              { href: "/engine/measure", label: "Measurement" },
+              { href: "/engine/houzz-exit", label: "Houzz exit" },
+            ].map((l) => (
+              <Link key={l.href} href={l.href} className="text-accent-2 underline-offset-2 hover:underline">
+                {l.label}
+              </Link>
+            ))}
+          </nav>
         </div>
 
         <EngineClient

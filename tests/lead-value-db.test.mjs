@@ -7,7 +7,7 @@ import { checkRoughEstimateEmail, dollarFigures, mailboxKey, markRoughEstimateSe
 // Dessonville, 2026-10-30: the lead read "?" though an agent had emailed him a
 // $13,500 – $19,500 rough estimate with send_email; nothing was saved on the
 // lead. A lead's value now follows its saved rough estimate in Postgres
-// (migration 0039), and an email that reads as a rough estimate goes to an open
+// (migration 0040), and an email that reads as a rough estimate goes to an open
 // lead only from the estimate saved on it.
 
 const skip = !harnessAvailable() && "postgresql-16 binaries not installed";
@@ -17,6 +17,14 @@ test("mailbox keys and dollar figures", () => {
   assert.equal(mailboxKey("t.d@googlemail.com"), "td@gmail.com");
   assert.equal(mailboxKey("first.last@fastmail.com"), "first.last@fastmail.com", "dots only fold on Gmail");
   assert.deepEqual(dollarFigures("Rough total: $13,500 – $19,500 (about $15k)"), [13500, 19500, 15000]);
+});
+
+test("rough-estimate value: dollar amounts only, never a +$ difference, lowest to highest", () => {
+  assert.deepEqual(compactEstimateValue("Option A $110,000–$146,000  ·  Option B (incl. 2nd floor) $196,000–$259,000"), { display: "$110–259k", value: 177750 });
+  assert.deepEqual(compactEstimateValue("15x15: $44,000 / 18x15: $50,200 (+$6,200)"), { display: "$44–50k", value: 47100 });
+  assert.deepEqual(compactEstimateValue("$51,000 – $64,500"), { display: "$51–65k", value: 57750 });
+  assert.deepEqual(compactEstimateValue("13500-19500"), { display: "$14–20k", value: 16500 }, "no $ at all: every number counts");
+  assert.equal(compactEstimateValue("TBD"), null);
 });
 
 test("a lead's value follows its saved rough estimate, the same as the app's parser", { skip }, async () => {
@@ -29,7 +37,15 @@ test("a lead's value follows its saved rough estimate, the same as the app's par
     // No rough estimate: the intake value stays.
     assert.deepEqual(await value(), { d: "$40k budget", v: 40000 });
 
-    for (const total of ["$13,500 – $19,500", "$125,000–$175,000", "$15,000", "$1,499.50 - $2,500"]) {
+    for (const total of [
+      "$13,500 – $19,500",
+      "$125,000–$175,000",
+      "$15,000",
+      "Option A $110,000–$146,000  ·  Option B (incl. 2nd floor) $196,000–$259,000",
+      "15x15: $44,000 / 18x15: $50,200 (+$6,200)",
+      "13500-19500",
+      "$1,499.50 - $2,500",
+    ]) {
       await q(`INSERT INTO lead_estimates (lead_id, total) VALUES ($1, $2) ON CONFLICT (lead_id) DO UPDATE SET total = EXCLUDED.total`, [id, total]);
       const js = compactEstimateValue(total);
       assert.deepEqual(await value(), { d: js.display, v: js.value }, total);

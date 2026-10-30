@@ -1,23 +1,33 @@
 // SJC OS MCP — employee (login) accounts. The agent-side twin of Settings ›
 // Team & roles (components/settings/TeamAccess.tsx + lib/actions/users.ts):
 // every choice the owner has on that screen is a parameter here, with the
-// same rules — nothing more, nothing less.
+// same rules — except making or touching an owner, which stays in the app.
 //
 //   import { registerTeamTools } from "./team-tools.mjs";
-//   registerTeamTools(server, { rows, json });
+//   registerTeamTools(server, { rows, json, currentPrincipal });
 //
-// What the screen offers, and so what these tools offer:
+// Who may use them (2026-10-30, after an injected email could have minted an
+// owner login): the WRITE tools — create, change areas, reset a password,
+// disable / re-enable — run only when the person behind this run is the
+// OWNER (currentPrincipal(): SJC_PRINCIPAL_USER_ID / the HTTP principal
+// header, role re-read from the users row every call). A staff-started run,
+// an unattended worker, a connector with no person behind it, or a disabled /
+// signed-out owner is refused with "ask Joe or use Settings › Team". The two
+// list tools stay readable by any run (no password material).
+//
+// What the screen offers, and so what these tools offer (owner runs only):
 //   • Role: staff (team member with chosen areas), sub (sub portal login tied
-//     to a subs.slug), client (client portal login tied to a projects.slug),
-//     owner (full app). Owner accounts need `confirm_owner: true` on top — the
-//     one choice on the screen that hands out everything.
+//     to a subs.slug), client (client portal login tied to a projects.slug).
+//     NEVER owner: an owner account hands out everything, so it is made only
+//     by Joe in the app (Settings › Team) — refused here even on Joe's own run.
 //   • Areas for staff: the catalog in lib/permissions.ts, listed live by
 //     list_access_areas so an agent never guesses a key. At least one area,
 //     exactly like the editor refuses an empty tick-list.
 //   • Temp password: given, or generated here and returned ONCE in the result
 //     (never stored, never logged; the DB holds the scrypt hash only).
 //   • Later: replace/add/remove areas, reset the password, disable / re-enable.
-//     Owner rows are protected from reset/disable, same as the app.
+//     Owner rows are never touched: no reset, no disable, no areas, no
+//     promotion (no tool changes a role).
 //
 // Runtime: plain Node ESM importing lib/permissions.ts directly (dependency-
 // free by design — Node 22 strips the types). lib/password.ts is "server-only"
@@ -77,7 +87,48 @@ function publicUser(r) {
 
 const areaEnum = z.enum(PERMISSION_KEYS);
 
-export function registerTeamTools(server, { rows, json }) {
+const ASK_JOE = "Ask Joe, or use Settings › Team in the app.";
+
+/** Owner accounts are made by Joe in the app, never through MCP — not even on
+ *  his own run. */
+export const OWNER_CREATE_REFUSAL =
+  "MCP can't create an owner account, not even on Joe's own run. Joe adds owners himself in the app under Settings › Team. Nothing was changed.";
+
+/** Owner rows are off limits to every MCP tool (password, access, enable). */
+export const OWNER_ROW_REFUSAL =
+  "That's an owner login. MCP can never reset or change an owner's password or access. Joe manages it himself in the app under Settings › Team. Nothing was changed.";
+
+/** May THIS run administer logins? Only when the person behind it is the
+ *  owner. null = allowed, otherwise the refusal message. Fails closed: no
+ *  principal resolver, an unknown person (unattended worker, a connector or
+ *  stdio client with nobody behind it), a disabled / signed-out account, or
+ *  any non-owner role → refused. */
+export async function userAdminRefusal(currentPrincipal) {
+  let p = null;
+  try {
+    p = typeof currentPrincipal === "function" ? await currentPrincipal() : null;
+  } catch {
+    p = null;
+  }
+  if (!p?.userId) {
+    return `Only Joe can add logins or change access, passwords or who's enabled, and this run isn't acting for him (no signed-in person behind it). Nothing was changed. ${ASK_JOE}`;
+  }
+  if (p.revoked || p.active === false) {
+    return `The account this agent acts for is disabled or was signed out. Nothing was changed. ${ASK_JOE}`;
+  }
+  if (p.role !== "owner") {
+    return `Only Joe can add logins or change access, passwords or who's enabled. Nothing was changed. ${ASK_JOE}`;
+  }
+  return null;
+}
+
+export function registerTeamTools(server, { rows, json, currentPrincipal }) {
+  /** The owner-only gate as a tool result, or null when the run may proceed. */
+  async function refuse() {
+    const why = await userAdminRefusal(currentPrincipal);
+    return why ? json({ ok: false, error: why }) : null;
+  }
+
   /** Best-effort audit trail, same shape the app's internal routes write. */
   async function audit(action, summary) {
     try {
@@ -160,7 +211,7 @@ export function registerTeamTools(server, { rows, json }) {
           { role: "staff", label: "Team member — chosen areas", needs: "permissions (≥1 area)" },
           { role: "sub", label: "Sub — portal access", needs: "link_slug = the sub's slug (list_subs)" },
           { role: "client", label: "Client — portal access", needs: "link_slug = the project slug (list_projects)" },
-          { role: "owner", label: "Owner — full app", needs: "confirm_owner: true" },
+          { role: "owner", label: "Owner — full app", needs: "not available through MCP — Joe adds owners in the app (Settings › Team)" },
         ],
         owner_only_paths: ["/settings", "/engine/permissions", "/client-portal", "/sub-portal"],
       }),
@@ -203,22 +254,28 @@ export function registerTeamTools(server, { rows, json }) {
       description:
         "Provision a login exactly like Settings › Team & roles › Add. `role`: 'staff' = team member " +
         "limited to the `permissions` areas you list (at least one; keys from list_access_areas); " +
-        "'sub' / 'client' = portal login tied by `link_slug` to a sub slug / project slug (checked); " +
-        "'owner' = full app, requires `confirm_owner: true`. `temp_password` (≥8 chars) or leave it " +
-        "out and one is generated and returned ONCE — hand it to the person; there is no self-serve " +
-        "reset (use reset_user_password). Refuses a duplicate email. Nothing is emailed.",
+        "'sub' / 'client' = portal login tied by `link_slug` to a sub slug / project slug (checked). " +
+        "'owner' is always refused — Joe adds owner accounts himself in the app (Settings › Team). " +
+        "Only works on a run acting for Joe; any other run is refused. `temp_password` (≥8 chars) or " +
+        "leave it out and one is generated and returned ONCE — hand it to the person; there is no " +
+        "self-serve reset (use reset_user_password). Refuses a duplicate email. Nothing is emailed.",
       inputSchema: {
         name: z.string().min(1),
         email: z.string().email(),
-        role: z.enum(ROLES).optional().describe("Default 'staff'."),
+        role: z.enum(ROLES).optional().describe("Default 'staff'. 'owner' is always refused here."),
         permissions: z.array(areaEnum).optional().describe("Staff only: areas they may open."),
         link_slug: z.string().optional().describe("sub / client only: subs.slug or projects.slug."),
         temp_password: z.string().optional().describe("≥8 chars; generated when omitted."),
-        confirm_owner: z.boolean().optional().describe("Required true to mint an owner account."),
         active: z.boolean().optional().describe("Default true; false parks the login disabled."),
       },
     },
-    async ({ name, email, role = "staff", permissions, link_slug, temp_password, confirm_owner, active = true }) => {
+    async ({ name, email, role = "staff", permissions, link_slug, temp_password, active = true }) => {
+      // Never an owner through MCP, whoever is asking — checked first so even
+      // Joe's own run gets the plain answer.
+      if (role === "owner") return json({ ok: false, error: OWNER_CREATE_REFUSAL });
+      if (!ROLES.includes(role)) return json({ ok: false, error: `Unknown role "${role}".` });
+      const refused = await refuse();
+      if (refused) return refused;
       const cleanName = name.trim();
       const cleanEmail = email.trim().toLowerCase();
       if (!cleanName) return json({ ok: false, error: "Name is required." });
@@ -238,10 +295,6 @@ export function registerTeamTools(server, { rows, json }) {
             ? await rows(`SELECT slug FROM subs WHERE slug = $1`, [slug])
             : await rows(`SELECT slug FROM projects WHERE slug = $1`, [slug]);
         if (hit.length === 0) return json({ ok: false, error: `No ${role === "sub" ? "sub" : "project"} with slug "${slug}".` });
-      } else if (role === "owner") {
-        if (confirm_owner !== true) {
-          return json({ ok: false, error: "An owner account unlocks the whole app. Pass confirm_owner: true to create one." });
-        }
       }
 
       const generated = !temp_password;
@@ -282,7 +335,8 @@ export function registerTeamTools(server, { rows, json }) {
         "Edit which areas a staff account may open (Settings › Team & roles › edit). Either replace the " +
         "whole set with `permissions`, or adjust it with `add` / `remove`. Keys from list_access_areas. " +
         "The result must keep at least one area — disable the account instead of emptying it. Only " +
-        "staff rows carry areas. Takes effect on their next request.",
+        "staff rows carry areas; owner logins are never touched. Takes effect on their next request. " +
+        "Only works on a run acting for Joe; any other run is refused.",
       inputSchema: {
         user: z.string().describe("User id or email."),
         permissions: z.array(areaEnum).optional().describe("Replace the full set."),
@@ -291,8 +345,11 @@ export function registerTeamTools(server, { rows, json }) {
       },
     },
     async ({ user, permissions, add, remove }) => {
+      const refused = await refuse();
+      if (refused) return refused;
       const row = await findUser(user);
       if (!row) return json({ ok: false, error: `No user "${user}".` });
+      if (row.role === "owner") return json({ ok: false, error: OWNER_ROW_REFUSAL });
       if (row.role !== "staff") return json({ ok: false, error: "Only team-member (staff) accounts have areas." });
       if (!permissions && !add?.length && !remove?.length) {
         return json({ ok: false, error: "Pass `permissions` (replace) or `add` / `remove`." });
@@ -319,22 +376,25 @@ export function registerTeamTools(server, { rows, json }) {
       description:
         "Set a new password for a staff / sub / client login (Settings › Team & roles › Reset password). " +
         "Give `new_password` (≥8 chars) or omit it to have one generated and returned ONCE. Owner " +
-        "accounts can't be reset here, same as the app. Nothing is emailed — hand it to the person.",
+        "accounts are never reset through MCP. Only works on a run acting for Joe; any other run is " +
+        "refused. Nothing is emailed — hand it to the person.",
       inputSchema: {
         user: z.string().describe("User id or email."),
         new_password: z.string().optional(),
       },
     },
     async ({ user, new_password }) => {
+      const refused = await refuse();
+      if (refused) return refused;
       const row = await findUser(user);
       if (!row) return json({ ok: false, error: `No user "${user}".` });
-      if (row.role === "owner") return json({ ok: false, error: "That account can't be reset here." });
+      if (row.role === "owner") return json({ ok: false, error: OWNER_ROW_REFUSAL });
       const generated = !new_password;
       const password = new_password ?? generateTempPassword();
       if (password.length < MIN_PASSWORD) return json({ ok: false, error: `Password needs at least ${MIN_PASSWORD} characters.` });
       const hash = await hashPassword(password);
       const res = await rows(`UPDATE users SET password_hash = $2 WHERE id = $1 AND role <> 'owner' RETURNING id`, [row.id, hash]);
-      if (res.length === 0) return json({ ok: false, error: "That account can't be reset here." });
+      if (res.length === 0) return json({ ok: false, error: OWNER_ROW_REFUSAL });
       await audit("reset_user_password", row.email);
       return json({
         ok: true,
@@ -352,22 +412,25 @@ export function registerTeamTools(server, { rows, json }) {
       description:
         "Flip an account's active flag (Settings › Team & roles › Disable / Enable). Disabled logins " +
         "are refused at sign-in and their portal links stop working; the row and its history stay. " +
-        "Owner accounts are protected (no lock-out). There is deliberately no delete tool.",
+        "Owner accounts are protected (no lock-out). Only works on a run acting for Joe; any other " +
+        "run is refused. There is deliberately no delete tool.",
       inputSchema: {
         user: z.string().describe("User id or email."),
         active: z.boolean(),
       },
     },
     async ({ user, active }) => {
+      const refused = await refuse();
+      if (refused) return refused;
       const row = await findUser(user);
       if (!row) return json({ ok: false, error: `No user "${user}".` });
-      if (row.role === "owner") return json({ ok: false, error: "Owner accounts can't be disabled here." });
+      if (row.role === "owner") return json({ ok: false, error: OWNER_ROW_REFUSAL });
       const res = await rows(
         `UPDATE users SET active = $2 WHERE id = $1 AND role <> 'owner'
          RETURNING id, name, email, role, initials, link_slug, active, permissions, created_at`,
         [row.id, active],
       );
-      if (res.length === 0) return json({ ok: false, error: "Owner accounts can't be disabled here." });
+      if (res.length === 0) return json({ ok: false, error: OWNER_ROW_REFUSAL });
       await audit("set_user_active", `${row.email} → ${active ? "enabled" : "disabled"}`);
       return json({ ok: true, user: publicUser(res[0]) });
     },

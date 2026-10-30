@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import pg from "pg";
 import { withTestDb, harnessAvailable, loadSchema } from "./_harness/testdb.mjs";
 import { completeWorkItem, recordRevision } from "../lib/completion/complete.ts";
-import { ensureCallFollowUps } from "../lib/completion/call-followups.ts";
+import { ensureCallFollowUps, dueDate } from "../lib/completion/call-followups.ts";
 import { startRunbookTx } from "../lib/completion/runbook-core.ts";
 import { enqueueIntent } from "../lib/commands/intents.ts";
 import { createOrTouchObligation, resolveObligation, getObligation } from "../lib/obligations/core.ts";
@@ -178,7 +178,14 @@ test("V06 record evidence checks the revision; manual completion on a legacy ite
     assert.equal(rs.length, 1);
     assert.equal(rs[0].receipt_kind, "manual");
     assert.equal(rs[0].uri, null, "no invented provider receipt");
-    assert.deepEqual({ actor: rs[0].metadata.actor, reason: rs[0].metadata.reason }, { actor: "Joe", reason: "answered by phone" });
+    assert.deepEqual({ actor: rs[0].metadata.actor, named: rs[0].metadata.named_actor, reason: rs[0].metadata.reason }, { actor: "owner:Joe", named: "Joe", reason: "answered by phone" });
+    // An agent typing "Joe" is recorded as the agent.
+    const callBack = (await client.query(`INSERT INTO work_items (title, body, status, lead_id, created_by) VALUES ('Call back', '', 'queued', $1, 'test') RETURNING id`, [lead])).rows[0].id;
+    const claimed = await tx((run) => completeWorkItem(run, { workItemId: callBack, principal: agent, evidence: { kind: "manual", actor: "Joe", reason: "Joe said it's handled" } }));
+    assert.equal(claimed.ok, true);
+    const [r2] = await receipts(client, callBack);
+    assert.equal(r2.metadata.actor, "claude (unattended)");
+    assert.equal(r2.metadata.named_actor, "Joe");
     const o = await getObligation(run0, ob.obligation.id);
     assert.equal(o.status, "done");
     assert.equal(o.resolution.kind, "work_item_done");
@@ -238,10 +245,25 @@ test("V06 call follow-ups: a partial failure resumes only the missing actions; n
     const body = (await client.query(`SELECT body FROM work_items WHERE id = $1`, [vm])).rows[0].body;
     assert.equal((body.match(/Voicemail:/g) ?? []).length, 1, "summary appended once");
 
+    assert.ok((await client.query(`SELECT followups_filed_at FROM calls WHERE id = $1`, [call])).rows[0].followups_filed_at, "a successful filing is stamped");
+
     // A Joe-completed action is not resurrected by a later re-run.
     await client.query(`UPDATE work_items SET status = 'done' WHERE source_id = $1`, [`call:${call}:action:2`]);
     const fourth = await tx((run) => ensureCallFollowUps(run, call, { by: "test" }));
     assert.deepEqual(fourth.created, []);
     assert.equal((await client.query(`SELECT count(*)::int AS n FROM work_items WHERE source_kind = 'call'`)).rows[0].n, 2);
   });
+});
+
+test("Call follow-up due dates: ISO or month + day read against the call date; anything vague is no date, never 2001", () => {
+  const iso = (d) => (d ? d.toISOString().slice(0, 10) : null);
+  assert.equal(iso(dueDate("2026-11-03", "2026-10-30T15:00:00Z")), "2026-11-03");
+  assert.equal(iso(dueDate("Nov 3", "2026-10-30T15:00:00Z")), "2026-11-03");
+  assert.equal(iso(dueDate("by November 3rd", "2026-10-30T15:00:00Z")), "2026-11-03");
+  assert.equal(iso(dueDate("Jan 5", "2026-10-30T15:00:00Z")), "2027-01-05", "a month already past rolls to next year");
+  assert.equal(iso(dueDate("Oct 30", "2026-10-30T15:00:00Z")), "2026-10-30", "the call's own day stays");
+  assert.equal(iso(dueDate("March 2, 2027", "2026-10-30T15:00:00Z")), "2027-03-02");
+  for (const vague of ["end of the month", "next week", "Nov", "Friday", "soon", "Feb 30", "Novembre 3"]) {
+    assert.equal(dueDate(vague, "2026-10-30T15:00:00Z"), null, vague);
+  }
 });

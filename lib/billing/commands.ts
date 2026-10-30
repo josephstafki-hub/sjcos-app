@@ -5,7 +5,8 @@
 //   • verifies the business evidence itself (never trusts the caller's word);
 //   • cites an active policy (auth_ref) or a consumed decision / owner;
 //   • issues through issueMilestoneInvoice (idempotent on economic_key);
-//   • enqueues a `send_invoice` intent — WS-approvals' dispatcher delivers.
+//   • after commit, enqueues the client email as a `send_invoice` intent —
+//     WS-approvals' dispatcher delivers (enqueueSend).
 //
 // Owner approval of an estimate ≠ client acceptance: only a SIGNED
 // signature_request of doc_type 'estimate' linked to a kind='formal' estimate
@@ -17,9 +18,11 @@ import { runCommand, CommandConflictError } from "../commands/core.ts";
 import type { Principal } from "../commands/principal.ts";
 import { isOwner } from "../commands/principal.ts";
 import { activePolicy, policyRef, laneOpen } from "../commands/policies.ts";
-import { enqueueIntent } from "../commands/intents.ts";
+import { enqueueIntent, getIntentByKey, IntentPayloadMismatchError } from "../commands/intents.ts";
 import { stageDecision, consumeDecision, contentHashOf } from "../commands/decisions.ts";
 import { parseDrawSchedule, defaultDrawSchedule, type DrawLine } from "../draw-schedule.ts";
+import { getChecklist } from "../closeout/checklist.ts";
+import { invoiceNotSent } from "../dispatch/effects.ts";
 import {
   issueMilestoneInvoice,
   drawEconomicKey,
@@ -29,6 +32,7 @@ import {
   INVOICE_COLS,
   type InvoiceRow,
 } from "./core.ts";
+import { invoiceEmailPayload, loadInvoiceEmail, type InvoiceEmail, type InvoiceEmailExtras } from "./invoice-email.ts";
 
 export type Tx = <T>(fn: (run: Run) => Promise<T>) => Promise<T>;
 
@@ -39,7 +43,21 @@ export const POLICY_FINAL = "invoice.final_on_client_signoff";
 
 export type IssueOutcome =
   | { issued: true; invoiceId: number; invoiceNumber: string; created: boolean; intentId: string | null; replayed: boolean }
-  | { issued: false; reason: string; decisionId?: string | null; code: "not_acceptance" | "policy_inactive" | "changed" | "uncertain" | "nothing_due" | "unauthorized" | "not_signoff" | "no_milestone" };
+  | { issued: false; reason: string; decisionId?: string | null; code: "not_acceptance" | "policy_inactive" | "changed" | "uncertain" | "nothing_due" | "unauthorized" | "not_signoff" | "no_milestone" | "open_punch" };
+
+/** Where an invoice email's PDF, pay link and card-surcharge line come from.
+ *  The app's is lib/send-ops.ts invoiceEmailExtras (Next-only, so loaded
+ *  lazily the way lib/providers/email.ts loads Gmail); node --test passes its own. */
+export interface InvoiceMail {
+  extras: (e: InvoiceEmail) => Promise<InvoiceEmailExtras>;
+}
+
+const appMail: InvoiceMail = {
+  async extras(e) {
+    const ops = await import("../send-ops");
+    return ops.invoiceEmailExtras(e);
+  },
+};
 
 interface SigRow {
   id: number;
@@ -78,7 +96,7 @@ async function loadSignature(run: Run, id: number): Promise<SigRow | null> {
 async function loadEstimate(run: Run, id: number): Promise<EstimateRow | null> {
   const [r] = await run<EstimateRow>(
     `SELECT e.id::int AS id, e.project_id, e.kind, e.status, e.total, e.draw_schedule, e.sent_at::text AS sent_at,
-            (SELECT max(l.created_at)::text FROM estimate_lines l WHERE l.estimate_id = e.id) AS lines_changed_at
+            e.lines_changed_at::text AS lines_changed_at
        FROM estimates e WHERE e.id = $1`,
     [id],
   );
@@ -108,24 +126,97 @@ async function markDrawBilled(run: Run, estimateId: number, index: number): Prom
   await run(`UPDATE estimates SET draw_schedule = $2::jsonb WHERE id = $1`, [estimateId, JSON.stringify(lines)]);
 }
 
-async function enqueueSend(run: Run, invoice: InvoiceRow, opts: { principal: Principal; commandId: string; policyRef?: string | null; decisionId?: string | null }) {
-  const lane = await laneOpen(run, "sends");
-  const { intent } = await enqueueIntent(run, {
-    operationKey: `invoice:${invoice.id}:send:rev${invoice.revision}`,
-    kind: "send_invoice",
-    targetKind: "invoice",
-    targetId: invoice.id,
-    projectId: invoice.project_id,
-    payload: { invoiceId: invoice.id },
-    artifactRevision: `rev${invoice.revision}`,
-    policyRef: opts.policyRef ?? null,
-    decisionId: opts.decisionId ?? null,
-    commandId: opts.commandId,
-    principal: opts.principal,
-    hold: lane.open ? null : `sends lane paused: ${lane.reason}`,
+/** The send's authority at dispatch. A policy names itself. Joe's approved
+ *  card (already spent issuing the invoice) or his own confirmation rides as
+ *  the owner's word, as the approved-card email does (lib/billing/server.ts);
+ *  handed the spent decision, the dispatcher refused the send. */
+function sendAuthority(authRef: string | null): string | null {
+  if (!authRef || authRef.startsWith("policy:") || authRef.startsWith("owner")) return authRef;
+  return `owner:${authRef}`;
+}
+
+/** Email an invoice billing issued: the same message Joe's Send button sends
+ *  (lib/billing/invoice-email.ts), queued as one `send_invoice` intent per
+ *  invoice revision for the dispatcher. Runs after the issuing transaction
+ *  commits, because the PDF is rendered from the stored invoice. A replay
+ *  finds the intent already queued. With no client email, or one that opted
+ *  out, nothing is queued: the invoice reads "send failed" and Joe gets a bell. */
+async function enqueueSend(tx: Tx, invoiceId: number, opts: { principal: Principal; commandId: string; authRef: string | null }, mail: InvoiceMail = appMail): Promise<string | null> {
+  const pre = await tx(async (run) => {
+    const invoice = await getInvoice(run, invoiceId);
+    if (!invoice) return null;
+    const operationKey = `invoice:${invoice.id}:send:rev${invoice.revision}`;
+    const queued = await getIntentByKey(run, operationKey);
+    if (queued) return { queued: true as const, intentId: queued.id };
+    // Voided, paid or sent by hand since: nothing to email.
+    if (invoice.status !== "issued") return null;
+    const email = await loadInvoiceEmail(run, invoice.id);
+    if (!email?.client.email) {
+      await invoiceNotSent(run, invoice.id, "No client email on file for this project.", "billing");
+      return null;
+    }
+    const [optout] = await run<{ reason: string }>(`SELECT reason FROM communication_optouts WHERE channel = 'email' AND address = $1 AND revoked_at IS NULL`, [email.client.email]);
+    if (optout) {
+      await invoiceNotSent(run, invoice.id, `${email.client.email} opted out of email (${optout.reason || "no reason recorded"}).`, "billing");
+      return null;
+    }
+    return { queued: false as const, invoice, operationKey, email };
   });
-  await run(`UPDATE invoices SET send_intent_id = $2, delivery_state = CASE WHEN delivery_state IN ('none','failed') THEN 'queued' ELSE delivery_state END WHERE id = $1`, [invoice.id, intent.id]);
-  return intent;
+  if (!pre) return null;
+  if (pre.queued) return pre.intentId;
+  const { invoice, operationKey, email } = pre;
+
+  let extras: InvoiceEmailExtras;
+  try {
+    extras = await mail.extras(email);
+  } catch (err) {
+    await tx((run) => invoiceNotSent(run, invoice.id, `The invoice email could not be put together: ${(err as Error).message}`, "billing"));
+    return null;
+  }
+
+  return tx(async (run) => {
+    const lane = await laneOpen(run, "sends");
+    let intentId: string;
+    try {
+      const { intent } = await enqueueIntent(run, {
+        operationKey,
+        kind: "send_invoice",
+        targetKind: "invoice",
+        targetId: invoice.id,
+        recipient: email.client.email,
+        projectId: invoice.project_id,
+        payload: invoiceEmailPayload(email, extras),
+        artifactRevision: `rev${invoice.revision}`,
+        policyRef: sendAuthority(opts.authRef),
+        commandId: opts.commandId,
+        principal: opts.principal,
+        // Word for word what the dispatcher writes, so its lane sweep wakes it.
+        hold: lane.open ? null : `Lane "${lane.lane}" is paused: ${lane.reason}`,
+      });
+      intentId = intent.id;
+    } catch (err) {
+      // A concurrent replay queued it first (with its own stored PDF).
+      if (!(err instanceof IntentPayloadMismatchError)) throw err;
+      intentId = (await getIntentByKey(run, operationKey))!.id;
+    }
+    await run(
+      `UPDATE invoices SET send_intent_id = $2,
+              delivery_error = CASE WHEN delivery_state IN ('none','failed') THEN NULL ELSE delivery_error END,
+              delivery_state = CASE WHEN delivery_state IN ('none','failed') THEN 'queued' ELSE delivery_state END
+        WHERE id = $1`,
+      [invoice.id, intentId],
+    );
+    return intentId;
+  });
+}
+
+/** Punch items still open on the job: the project's Punch list and the
+ *  client's walkthrough punch (closeout). The seeded final-invoice policy
+ *  stops on any of them (db/migrations/0004_decision_surfaces.sql). */
+export async function openPunchItems(run: Run, projectId: string): Promise<string[]> {
+  const punch = await run<{ item: string }>(`SELECT item FROM project_punch WHERE project_id = $1 AND done = false ORDER BY sort_order, id`, [projectId]);
+  const client = await getChecklist(run, projectId, "client_punch");
+  return [...punch.map((p) => p.item), ...(client?.items ?? []).filter((i) => i.state === "open").map((i) => i.label)];
 }
 
 // ── W08: client acceptance → initial invoice ────────────────────────────────
@@ -168,6 +259,7 @@ export interface IssueInitialInput {
   principal: Principal;
   /** An approved 'invoice_issue' decision when the policy is not active. */
   decisionId?: string | null;
+  mail?: InvoiceMail;
 }
 
 export async function issueInitialOnAcceptance(tx: Tx, input: IssueInitialInput): Promise<IssueOutcome> {
@@ -220,7 +312,7 @@ export async function issueInitialOnAcceptance(tx: Tx, input: IssueInitialInput)
         principal: input.principal,
         authRef,
       },
-      async ({ run, commandId }) => {
+      async ({ run }) => {
         if (input.decisionId && !policy) {
           const c = await consumeDecision(run, {
             id: input.decisionId,
@@ -244,11 +336,11 @@ export async function issueInitialOnAcceptance(tx: Tx, input: IssueInitialInput)
         });
         await logInvoiceEvent(run, invoice.id, "acceptance_recorded", input.principal, { signatureRequestId: ctx.sig.id, signedBy: ctx.sig.signed_name, authRef });
         await markDrawBilled(run, ctx.estimate.id, 0);
-        const intent = await enqueueSend(run, invoice, { principal: input.principal, commandId, policyRef: policy ? authRef : null, decisionId: policy ? null : input.decisionId });
-        return { result: { invoiceId: invoice.id, invoiceNumber: invoice.number, created, intentId: intent.id } };
+        return { result: { invoiceId: invoice.id, invoiceNumber: invoice.number, created } };
       },
     );
-    return { issued: true, ...out.result, replayed: out.replayed };
+    const intentId = await enqueueSend(tx, out.result.invoiceId, { principal: input.principal, commandId: out.commandId, authRef }, input.mail);
+    return { issued: true, ...out.result, intentId, replayed: out.replayed };
   } catch (err) {
     if (err instanceof CommandConflictError) {
       return { issued: false, code: "changed", reason: "The accepted terms differ from the ones already billed under this economic identity; nothing was issued twice." };
@@ -534,6 +626,7 @@ export interface IssueProgressInput {
   decisionId?: string | null;
   /** Evidence noted on the audit row (photo ids, inspection, note). */
   evidence?: Record<string, unknown>;
+  mail?: InvoiceMail;
 }
 
 async function approvedFormalEstimate(run: Run, projectId: string): Promise<EstimateRow | null> {
@@ -593,8 +686,9 @@ export async function issueProgressOnOwnerConfirmation(tx: Tx, input: IssueProgr
   else if (isOwner(input.principal)) authRef = "owner";
   else return { issued: false, code: "unauthorized", reason: "Progress billing needs Joe's milestone confirmation (a resolved decision) or the owner acting directly." };
 
+  let out: { result: { invoiceId: number; invoiceNumber: string; created: boolean }; replayed: boolean; commandId: string };
   try {
-    const out = await runCommand(
+    out = await runCommand(
       tx,
       {
         name: "invoice.issue_progress_on_owner_confirmation",
@@ -603,7 +697,7 @@ export async function issueProgressOnOwnerConfirmation(tx: Tx, input: IssueProgr
         principal: input.principal,
         authRef,
       },
-      async ({ run, commandId }) => {
+      async ({ run }) => {
         if (input.decisionId) {
           const c = await consumeDecision(run, {
             id: input.decisionId,
@@ -627,16 +721,16 @@ export async function issueProgressOnOwnerConfirmation(tx: Tx, input: IssueProgr
         });
         await logInvoiceEvent(run, invoice.id, "milestone_confirmed", input.principal, { authRef, evidence: input.evidence ?? {}, drawIndex: d.index });
         await markDrawBilled(run, d.estimate.id, d.index);
-        const intent = await enqueueSend(run, invoice, { principal: input.principal, commandId, decisionId: input.decisionId ?? null });
-        return { result: { invoiceId: invoice.id, invoiceNumber: invoice.number, created, intentId: intent.id } };
+        return { result: { invoiceId: invoice.id, invoiceNumber: invoice.number, created } };
       },
     );
-    return { issued: true, ...out.result, replayed: out.replayed };
   } catch (err) {
     if (err instanceof CommandConflictError) return { issued: false, code: "changed", reason: "This milestone was already billed under a different amount; nothing issued twice." };
     if (err instanceof Error && /decision/i.test(err.message)) return { issued: false, code: "unauthorized", reason: err.message };
     throw err;
   }
+  const intentId = await enqueueSend(tx, out.result.invoiceId, { principal: input.principal, commandId: out.commandId, authRef }, input.mail);
+  return { issued: true, ...out.result, intentId, replayed: out.replayed };
 }
 
 // ── W12: written client sign-off → final invoice = verified remainder ───────
@@ -723,7 +817,7 @@ export async function finalReconciliation(run: Run, projectId: string): Promise<
   };
 }
 
-export async function issueFinalOnClientSignoff(tx: Tx, input: { signatureRequestId: number; principal: Principal; decisionId?: string | null }): Promise<IssueOutcome> {
+export async function issueFinalOnClientSignoff(tx: Tx, input: { signatureRequestId: number; principal: Principal; decisionId?: string | null; mail?: InvoiceMail }): Promise<IssueOutcome> {
   const sig = await tx((run) => loadSignature(run, input.signatureRequestId));
   if (!sig || sig.doc_type !== "completion" || sig.status !== "signed" || !sig.project_id) {
     return { issued: false, code: "not_signoff", reason: "Only a signed completion sign-off on a project issues the final invoice." };
@@ -753,21 +847,32 @@ export async function issueFinalOnClientSignoff(tx: Tx, input: { signatureReques
 
   let authRef: string | null = null;
   const policy = await tx((run) => activePolicy(run, POLICY_FINAL));
-  if (policy) authRef = policyRef(policy);
+  // The policy's stop condition: a punch item still open on the job means the
+  // client signed off on unfinished work, so the final invoice waits for Joe.
+  const openPunch = await tx((run) => openPunchItems(run, projectId));
+  const auto = policy && !openPunch.length ? policy : null;
+  if (auto) authRef = policyRef(auto);
   else if (input.decisionId) authRef = `decision:${input.decisionId}`;
   else {
+    const n = openPunch.length;
+    const held = Boolean(policy) && n > 0;
     const staged = await tx((run) =>
       stageDecision(run, {
         kind: "invoice_issue",
-        action: "invoice.issue_final",
-        title: `Issue the final invoice (${rec.remainderCents} cents) — client signed off`,
+        action: FINAL_INVOICE_ACTION,
+        title: held
+          ? `Issue the final invoice (${rec.remainderCents} cents)? The client signed off with ${n} punch item${n === 1 ? "" : "s"} still open`
+          : `Issue the final invoice (${rec.remainderCents} cents) — client signed off`,
         summary: {
-          effect: `Policy "${POLICY_FINAL}" is not active, so this needs your tap.`,
+          effect: held
+            ? `No final invoice was issued: ${n} punch item${n === 1 ? " is" : "s are"} still open on this job, so policy "${POLICY_FINAL}" stopped. This needs your tap.`
+            : `Policy "${POLICY_FINAL}" is not active, so this needs your tap.`,
           quantities: [
             { label: "contract", qty: rec.contractTotalCents },
             { label: "approved change orders", qty: rec.approvedChangeOrdersCents },
             { label: "previously invoiced", qty: rec.previouslyIssuedCents },
           ],
+          ...(n ? { gaps: openPunch.map((item) => `Open punch item: ${item}`) } : {}),
         },
         targetKind: "project",
         targetId: projectId,
@@ -778,6 +883,7 @@ export async function issueFinalOnClientSignoff(tx: Tx, input: { signatureReques
         content: { economicKey: rec.economicKey, amountCents: rec.remainderCents },
       }),
     );
+    if (held) return { issued: false, code: "open_punch", reason: `${n} punch item${n === 1 ? "" : "s"} still open (${openPunch.join("; ")}); staged a decision instead of issuing the final invoice.`, decisionId: staged.decision.id };
     return { issued: false, code: "policy_inactive", reason: `Policy ${POLICY_FINAL} is not active; staged a decision instead.`, decisionId: staged.decision.id };
   }
 
@@ -791,11 +897,11 @@ export async function issueFinalOnClientSignoff(tx: Tx, input: { signatureReques
         principal: input.principal,
         authRef,
       },
-      async ({ run, commandId }) => {
-        if (input.decisionId && !policy) {
+      async ({ run }) => {
+        if (input.decisionId && !auto) {
           const c = await consumeDecision(run, {
             id: input.decisionId,
-            action: "invoice.issue_final",
+            action: FINAL_INVOICE_ACTION,
             amountCents: rec.remainderCents,
             targetKind: "project",
             targetId: projectId,
@@ -804,7 +910,8 @@ export async function issueFinalOnClientSignoff(tx: Tx, input: { signatureReques
           });
           if (!c.ok) throw new Error(c.reason);
         }
-        const label = `Final balance — contract ${rec.contractTotalCents} + change orders ${rec.approvedChangeOrdersCents} − previously invoiced ${rec.previouslyIssuedCents} (cents)`;
+        // The client reads this line on the emailed invoice and its PDF: dollars, not cents.
+        const label = `Final balance — contract ${usdOf(rec.contractTotalCents)} + change orders ${usdOf(rec.approvedChangeOrdersCents)} − previously invoiced ${usdOf(rec.previouslyIssuedCents)}`;
         const { invoice, created } = await issueMilestoneInvoice(run, {
           projectId,
           economicKey: rec.economicKey,
@@ -816,15 +923,38 @@ export async function issueFinalOnClientSignoff(tx: Tx, input: { signatureReques
           principal: input.principal,
         });
         await logInvoiceEvent(run, invoice.id, "signoff_recorded", input.principal, { signatureRequestId: sig.id, reconciliation: rec, authRef });
-        const intent = await enqueueSend(run, invoice, { principal: input.principal, commandId, policyRef: policy ? authRef : null, decisionId: policy ? null : input.decisionId });
-        return { result: { invoiceId: invoice.id, invoiceNumber: invoice.number, created, intentId: intent.id } };
+        return { result: { invoiceId: invoice.id, invoiceNumber: invoice.number, created } };
       },
     );
-    return { issued: true, ...out.result, replayed: out.replayed };
+    const intentId = await enqueueSend(tx, out.result.invoiceId, { principal: input.principal, commandId: out.commandId, authRef }, input.mail);
+    return { issued: true, ...out.result, intentId, replayed: out.replayed };
   } catch (err) {
     if (err instanceof CommandConflictError) return { issued: false, code: "changed", reason: "A final invoice was already issued for a different remainder; reconcile instead of issuing twice." };
     throw err;
   }
+}
+
+export const FINAL_INVOICE_ACTION = "invoice.issue_final";
+
+/** Approved final-invoice card (policy off, or held for open punch items) →
+ *  the final invoice, issued and queued to email as the sign-off would have.
+ *  The remainder is re-checked: a changed total refuses (a fresh card is
+ *  needed). Returns null for any other decision. */
+export async function issueFinalFromDecision(run: Run, input: { decisionId: string; principal: Principal; mail?: InvoiceMail }): Promise<DecisionInvoiceOutcome | null> {
+  const [d] = await run<{ action: string; status: string; project_id: string | null }>(`SELECT action, status, project_id FROM decisions WHERE id = $1`, [input.decisionId]);
+  if (!d || d.action !== FINAL_INVOICE_ACTION) return null;
+  if (d.status !== "approved") return { issued: false, reason: `The card is ${d.status}, not approved.` };
+  if (!d.project_id) return { issued: false, reason: "The card is not tied to a project." };
+  const [sig] = await run<{ id: number }>(
+    `SELECT id FROM signature_requests WHERE project_id = $1 AND doc_type = 'completion' AND status = 'signed' ORDER BY signed_at DESC NULLS LAST, id DESC LIMIT 1`,
+    [d.project_id],
+  );
+  if (!sig) return { issued: false, reason: "No signed completion sign-off on this job." };
+  const inTx: Tx = (fn) => fn(run);
+  const out = await issueFinalOnClientSignoff(inTx, { signatureRequestId: sig.id, principal: input.principal, decisionId: input.decisionId, mail: input.mail });
+  if (!out.issued) return { issued: false, reason: out.reason };
+  const invoice = await getInvoice(run, out.invoiceId);
+  return { issued: true, invoiceId: out.invoiceId, invoiceNumber: out.invoiceNumber, status: invoice?.status ?? "issued", created: out.created };
 }
 
 // ── Event entry point (esign handler, worker source-event processor) ────────
@@ -840,13 +970,13 @@ export interface SignatureSignedOutcome {
 /** Idempotent on repeated signature events: every branch is keyed on the
  *  economic identity, so calling this twice (or from two processors) issues
  *  nothing twice. */
-export async function onSignatureSigned(tx: Tx, signatureRequestId: number, principal: Principal): Promise<SignatureSignedOutcome> {
+export async function onSignatureSigned(tx: Tx, signatureRequestId: number, principal: Principal, mail?: InvoiceMail): Promise<SignatureSignedOutcome> {
   const sig = await tx((run) => loadSignature(run, signatureRequestId));
   const out: SignatureSignedOutcome = { signatureRequestId, docType: sig?.doc_type ?? null };
   if (!sig || sig.status !== "signed") return out;
-  if (sig.doc_type === "estimate") out.initial = await issueInitialOnAcceptance(tx, { signatureRequestId, principal });
+  if (sig.doc_type === "estimate") out.initial = await issueInitialOnAcceptance(tx, { signatureRequestId, principal, mail });
   else if (sig.doc_type === "contract") out.contract = await linkSignedContract(tx, { signatureRequestId, principal });
-  else if (sig.doc_type === "completion") out.final = await issueFinalOnClientSignoff(tx, { signatureRequestId, principal });
+  else if (sig.doc_type === "completion") out.final = await issueFinalOnClientSignoff(tx, { signatureRequestId, principal, mail });
   return out;
 }
 

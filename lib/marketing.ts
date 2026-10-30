@@ -14,6 +14,7 @@ export interface MarketingDraft {
   kindLabel: string;
   title: string;
   body: string;
+  copyError?: string;
   status: "draft" | "posted";
   projectName: string | null;
   createdLabel: string;
@@ -35,16 +36,20 @@ export async function getMarketingDrafts(): Promise<MarketingDraft[]> {
        LEFT JOIN projects p ON p.id = d.project_id
       ORDER BY d.created_at DESC`,
   );
-  return rows.map((r) => ({
-    id: r.id,
-    kind: r.kind,
-    kindLabel: DRAFT_KIND_LABEL[r.kind] ?? "Post",
-    title: normalizeMarketingCopy(r.body).title ?? r.title,
-    body: normalizeMarketingCopy(r.body).body || "This draft could not be read. Replace it with your copy or generate a new draft.",
-    status: r.status,
-    projectName: r.project_name,
-    createdLabel: r.created_label,
-  }));
+  return rows.map((r) => {
+    const copy = normalizeMarketingCopy(r.body);
+    return {
+      id: r.id,
+      kind: r.kind,
+      kindLabel: DRAFT_KIND_LABEL[r.kind] ?? "Post",
+      title: copy.title ?? r.title,
+      body: copy.body,
+      ...(!copy.body ? {copyError: "This draft could not be read. Replace it with your copy or generate a new draft."} : {}),
+      status: r.status,
+      projectName: r.project_name,
+      createdLabel: r.created_label,
+    };
+  });
 }
 
 /** Projects the owner can draft a post about (for the /marketing picker). */

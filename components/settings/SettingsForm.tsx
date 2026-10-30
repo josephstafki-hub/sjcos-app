@@ -12,7 +12,7 @@ export function SettingsForm({action,children,className='',saveLabel='Save chang
   const result=await runAction(()=>action(fd));if(!result){setDirty(false);router.refresh();}
  });}} className={className}>
   {children}
-  {dirty&&<div role="status" className="sticky bottom-3 z-10 mt-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rule bg-card px-4 py-3 shadow-pop">
+  {dirty&&<div role="status" className="col-span-full sticky bottom-3 z-10 mt-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rule bg-card px-4 py-3 shadow-pop">
    <span className="text-body text-ink-2">Unsaved changes</span><div className="flex gap-2"><Button variant="ghost" disabled={pending} onClick={()=>{ref.current?.reset();setDirty(false);}}>Discard</Button><Button type="submit" disabled={pending}>{pending?'Saving…':saveLabel}</Button></div>
   </div>}
  </form>;

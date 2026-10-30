@@ -44,7 +44,7 @@ export default async function HouzzExitPage() {
         </section>
 
         <section className="mb-8">
-          <Eyebrow>Invoices sent and unpaid ({inv.invoices.outstanding.length}) · all invoices {Object.entries(inv.invoices.by_status).map(([k, v]) => `${k} ${v}`).join(" · ") || "none"}</Eyebrow>
+          <Eyebrow muted>Invoices sent and unpaid ({inv.invoices.outstanding.length}) · all invoices {Object.entries(inv.invoices.by_status).map(([k, v]) => `${k} ${v}`).join(" · ") || "none"}</Eyebrow>
           {inv.invoices.outstanding.length === 0 ? (
             <Card kind="soft" className="mt-2 px-4 py-3 text-body text-ink-3">No open invoices. Nothing to finish or migrate.</Card>
           ) : (
@@ -68,17 +68,17 @@ export default async function HouzzExitPage() {
 
         <section className="mb-8 grid gap-3 @3xl/page:grid-cols-2">
           <Card kind="soft" className="px-4 py-3 text-body">
-            <Eyebrow>Imported Houzz history (kept as evidence)</Eyebrow>
+            <Eyebrow muted>Imported Houzz history (kept as evidence)</Eyebrow>
             <div className="mt-1 text-ink-3">{inv.imported_history.houzz_expenses} payment records · {money(inv.imported_history.houzz_expense_cents)} · {inv.imported_history.houzz_lead_imports} lead imports · {inv.imported_history.retainers_recorded} retainers</div>
           </Card>
           <Card kind="soft" className="px-4 py-3 text-body">
-            <Eyebrow>Designer</Eyebrow>
+            <Eyebrow muted>Designer</Eyebrow>
             <div className="mt-1 text-ink-3">{inv.designer.designs} designs · {inv.designer.versions} versions · {inv.designer.pinned_versions} pinned for estimates · {inv.designer.exports} exported files</div>
           </Card>
         </section>
 
         <section className="mb-8">
-          <Eyebrow>Who sends what</Eyebrow>
+          <Eyebrow muted>Who sends what</Eyebrow>
           <ul className="mt-2 text-body">{inv.active_senders.map((s, i) => <li key={i} className="border-b border-rule/60 py-2"><span className="font-medium">{s.owner}</span> — {s.what} · <span className="text-ink-3">{s.state}</span></li>)}</ul>
         </section>
 

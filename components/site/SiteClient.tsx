@@ -45,6 +45,7 @@ export function SiteClient({
       const r = await runAction(() => generateDraft(slug, "blog"), { fallback: "Couldn't draft." });
       if (!r.ok) setError(r.error ?? "Couldn't draft.");
       else {
+        if (r.id != null) setSelectedId(r.id);
         setMobileEditor(true);
         router.refresh();
       }
@@ -72,7 +73,7 @@ export function SiteClient({
 
         {/* Compose a new post */}
         <Card className="mt-3 p-2.5">
-          <div className="mb-1.5 flex items-center gap-1 text-micro font-medium text-ink-3">
+          <div className="mb-1.5 flex items-center gap-1 text-label font-medium text-ink-3">
             <Sparkles className="size-3 text-accent" strokeWidth={1.75} /> Write a post
           </div>
           {projects.length === 0 ? (
@@ -82,6 +83,7 @@ export function SiteClient({
           ) : (
             <>
               <select
+                aria-label="Project"
                 value={slug}
                 onChange={(e) => setSlug(e.target.value)}
                 className={`${selectCls} w-full`}
@@ -93,14 +95,9 @@ export function SiteClient({
                   </option>
                 ))}
               </select>
-              <button
-                type="button"
-                onClick={generate}
-                disabled={pending}
-                className="mt-2 w-full rounded-md border border-ink bg-ink px-3 py-1.5 text-meta font-semibold text-paper hover:bg-ink-hover disabled:opacity-60"
-              >
+              <Button variant="ai" icon={Sparkles} onClick={generate} disabled={pending} className="mt-2 w-full">
                 {pending ? "Writing…" : "Write blog post"}
-              </button>
+              </Button>
             </>
           )}
           {error && <div className="mt-1.5 text-meta text-flag">{error}</div>}
@@ -187,9 +184,10 @@ export function SiteClient({
 function PostEditor({ post, project }: { post: BlogPost; project?: ComposerProject }) {
   const router = useRouter();
   const [body, setBody] = useState(post.body);
+  const [title, setTitle] = useState(post.title);
   const [pending, startTransition] = useTransition();
   const [copied, setCopied] = useState(false);
-  const dirty = body !== post.body;
+  const dirty = body !== post.body || title !== post.title;
   const needsPhotos = project ? project.photoCount === 0 : false;
   const needsVideo = project ? project.photoCount > 0 && project.videoCount === 0 : false;
 
@@ -201,7 +199,7 @@ function PostEditor({ post, project }: { post: BlogPost; project?: ComposerProje
   }
   function save() {
     startTransition(async () => {
-      await runAction(() => updateDraft(post.id, body), { fallback: "Couldn't save the edits." });
+      await runAction(() => updateDraft(post.id, body, title), { fallback: "Couldn't save the edits." });
       router.refresh();
     });
   }
@@ -250,6 +248,10 @@ function PostEditor({ post, project }: { post: BlogPost; project?: ComposerProje
         </div>
       )}
 
+      <label className="mb-4 block text-label text-ink-2">Headline
+        <input value={title} onChange={e=>setTitle(e.target.value)} className="mt-1.5 w-full rounded-md border border-rule bg-card px-3 py-2 text-body text-ink focus:border-accent" />
+      </label>
+      {post.copyError && <p role="status" className="mb-3 text-body text-warn">{post.copyError}</p>}
       <div className="relative">
         <textarea
           value={body}
@@ -264,9 +266,9 @@ function PostEditor({ post, project }: { post: BlogPost; project?: ComposerProje
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button variant="secondary" size="sm" icon={copied?Check:Copy} onClick={copy}>{copied?'Copied':'Copy'}</Button>
-        {dirty&&<><Button size="sm" disabled={pending} onClick={save}>Save edits</Button><Button variant="ghost" size="sm" onClick={()=>setBody(post.body)}>Revert</Button></>}
-        <Button variant="secondary" size="sm" disabled={pending||dirty} onClick={()=>startTransition(async()=>{await runAction(()=>post.status==='posted'?markDraft(post.id):markPosted(post.id));router.refresh();})}>{post.status==='posted'?'Move to drafts':'Mark posted'}</Button>
+        <Button variant="secondary" size="sm" icon={copied?Check:Copy} disabled={!body.trim()} onClick={copy}>{copied?'Copied':'Copy'}</Button>
+        {dirty&&<><Button size="sm" disabled={pending||!body.trim()||!title.trim()} onClick={save}>Save edits</Button><Button variant="ghost" size="sm" onClick={()=>{setBody(post.body);setTitle(post.title);}}>Revert</Button></>}
+        <Button variant="secondary" size="sm" disabled={pending||dirty||(!body.trim()&&post.status!=='posted')} onClick={()=>startTransition(async()=>{await runAction(()=>post.status==='posted'?markDraft(post.id):markPosted(post.id));router.refresh();})}>{post.status==='posted'?'Move to drafts':'Mark posted'}</Button>
         <details className="relative ml-auto"><summary aria-label="More post actions" className="cursor-pointer px-3 py-1 text-body">…</summary><div className="absolute right-0 z-10 rounded-lg border border-rule-soft bg-card p-1 shadow-pop"><Button variant="ghost" size="sm" className="text-flag" disabled={pending} onClick={()=>{if(confirm('Delete this post?'))remove();}}>Delete post</Button></div></details>
       </div>
 

@@ -20,6 +20,7 @@ export interface BlogPost {
   id: number;
   title: string;
   body: string;
+  copyError?: string;
   status: "draft" | "posted";
   projectName: string | null;
   projectSlug: string | null;
@@ -66,15 +67,19 @@ async function getBlogPosts(): Promise<BlogPost[]> {
       WHERE d.kind = 'blog'
       ORDER BY d.created_at DESC`,
   );
-  return rows.map((r) => ({
-    id: r.id,
-    title: normalizeMarketingCopy(r.body).title ?? r.title,
-    body: normalizeMarketingCopy(r.body).body || "This draft could not be read. Replace it with your copy or generate a new draft.",
-    status: r.status,
-    projectName: r.project_name,
-    projectSlug: r.project_slug,
-    createdLabel: r.created_label,
-  }));
+  return rows.map((r) => {
+    const copy = normalizeMarketingCopy(r.body);
+    return {
+      id: r.id,
+      title: copy.title ?? r.title,
+      body: copy.body,
+      ...(!copy.body ? {copyError: "This draft could not be read. Replace it with your copy or generate a new draft."} : {}),
+      status: r.status,
+      projectName: r.project_name,
+      projectSlug: r.project_slug,
+      createdLabel: r.created_label,
+    };
+  });
 }
 
 async function getComposerProjects(): Promise<ComposerProject[]> {

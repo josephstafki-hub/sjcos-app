@@ -51,7 +51,7 @@ export default async function MeasurePage({ searchParams }: { searchParams: Prom
         </div>
 
         <section className="mb-6">
-          <Eyebrow>Cases by kind</Eyebrow>
+          <Eyebrow muted>Cases by kind</Eyebrow>
           <div className="mt-2 overflow-x-auto">
             <table className="w-full min-w-[760px] border-collapse text-body">
               <thead>
@@ -109,7 +109,7 @@ export default async function MeasurePage({ searchParams }: { searchParams: Prom
 
         <div className="mb-6 grid gap-4 @3xl/page:grid-cols-3">
           <Card className="px-4 py-3">
-            <Eyebrow>Owner touches (recorded)</Eyebrow>
+            <Eyebrow muted>Owner touches (recorded)</Eyebrow>
             <div className="mt-1 text-title font-medium text-ink">{summary.owner_touches.touches}</div>
             <div className="text-meta text-ink-3">
               {summary.owner_touches.minutes_known} min known · {summary.owner_touches.touches_unknown_seconds} untimed
@@ -121,7 +121,7 @@ export default async function MeasurePage({ searchParams }: { searchParams: Prom
             </ul>
           </Card>
           <Card className="px-4 py-3">
-            <Eyebrow>Baseline from existing records</Eyebrow>
+            <Eyebrow muted>Baseline from existing records</Eyebrow>
             <div className="mt-1 text-title font-medium text-ink">{baseline.owner_touches_estimated}</div>
             <div className="text-meta text-ink-3">estimated touches · {Math.round(baseline.owner_seconds_known / 60)} min measured</div>
             <ul className="mt-2 text-meta text-ink-2">
@@ -132,7 +132,7 @@ export default async function MeasurePage({ searchParams }: { searchParams: Prom
             <div className="mt-2 text-meta text-ink-3">Derived sources were never timed; this is a touch count over the window, not an automation percentage.</div>
           </Card>
           <Card className="px-4 py-3">
-            <Eyebrow>Agent cost (recorded)</Eyebrow>
+            <Eyebrow muted>Agent cost (recorded)</Eyebrow>
             <div className="mt-1 text-title font-medium text-ink">{usd(summary.agent_cost.known_total_usd)}</div>
             <div className="text-meta text-ink-3">
               panel runs {usd(summary.agent_cost.dev_agent_runs_usd)} ({summary.agent_cost.dev_agent_runs}) · ops runs {usd(summary.agent_cost.agent_runs_usd)} ({summary.agent_cost.agent_runs})
@@ -143,7 +143,7 @@ export default async function MeasurePage({ searchParams }: { searchParams: Prom
         </div>
 
         <section className="mb-6">
-          <Eyebrow>Overhead · {overhead.month}</Eyebrow>
+          <Eyebrow muted>Overhead · {overhead.month}</Eyebrow>
           <Card className="mt-2 px-4 py-3 text-body">
             <div className="flex flex-wrap gap-4">
               <div>Fixed subscriptions <strong>{cents(overhead.fixed.monthly_cents)}</strong>/mo</div>
@@ -168,7 +168,7 @@ export default async function MeasurePage({ searchParams }: { searchParams: Prom
 
         <section className="mb-6">
           <div className="flex items-center justify-between">
-            <Eyebrow>Procedure checks · {checks.length} open</Eyebrow>
+            <Eyebrow muted>Procedure checks · {checks.length} open</Eyebrow>
             {user.role === "owner" ? <MeasureActions /> : null}
           </div>
           <Card className="mt-2 px-4 py-3 text-body">
@@ -189,7 +189,7 @@ export default async function MeasurePage({ searchParams }: { searchParams: Prom
         </section>
 
         <section>
-          <Eyebrow>Pending agent memories · classified ({memories.length})</Eyebrow>
+          <Eyebrow muted>Pending agent memories · classified ({memories.length})</Eyebrow>
           <Card className="mt-2 px-4 py-3 text-body">
             {memories.length === 0 ? (
               <div className="text-ink-3">Nothing pending.</div>

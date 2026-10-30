@@ -799,7 +799,7 @@ function KnowledgeTab({ initial }: { initial: KnowledgeItemView[] }) {
 
       <div>
         <Card kind="ai" className="p-4">
-          <Eyebrow>Capture knowledge</Eyebrow>
+          <Eyebrow muted>Capture knowledge</Eyebrow>
           <form
             ref={captureRef}
             action={(fd) =>
@@ -830,7 +830,7 @@ function SkillsTab({ skills }: { skills: SkillsLibrary }) {
       {skills.proposed.length > 0 && (
         <section>
           <div className="mb-2 flex items-center gap-2">
-            <Chip kind="flag" dot>Proposed · needs review</Chip>
+            <Chip kind="flag" dot>Needs review</Chip>
             <span className="text-meta text-ink-3">{skills.proposed.length}</span>
           </div>
           <div className="divide-y divide-rule-soft">
@@ -895,7 +895,7 @@ function SkillCard({ skill, review }: { skill: SkillView; review?: boolean }) {
             </button>
           )}
           {open && (
-            <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-rule bg-paper-2 p-3 text-meta leading-relaxed text-ink-2">
+            <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-paper-2 p-3 font-sans text-body leading-relaxed text-ink-2">
               {skill.body}
             </pre>
           )}
@@ -956,7 +956,7 @@ function MemoriesTab({ memories: all }: { memories: MemoriesData }) {
       {memories.pending.length > 0 && (
         <section>
           <div className="mb-2 flex items-center gap-2">
-            <Chip kind="flag" dot>Pending · needs review</Chip>
+            <Chip kind="flag" dot>Pending review</Chip>
             <span className="text-meta text-ink-3">{memories.pending.length}</span>
           </div>
           <div className="divide-y divide-rule-soft">
@@ -967,7 +967,7 @@ function MemoriesTab({ memories: all }: { memories: MemoriesData }) {
 
       <section>
         <div className="mb-2 flex items-center gap-2">
-          <Chip kind="accent" dot>Standing orders to all agents</Chip>
+          <Chip kind="accent" dot>Standing instructions</Chip>
           <span className="text-meta text-ink-3">{memories.instructions.length}</span>
         </div>
         {memories.instructions.length === 0 ? (
@@ -1024,7 +1024,7 @@ function MemoryCard({ memory, review }: { memory: MemoryView; review?: boolean }
   });
 
   return (
-    <Card className="p-3.5">
+    <div className="py-4">
       <div className="flex flex-col items-start justify-between gap-3 @3xl/page:flex-row">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
@@ -1040,7 +1040,7 @@ function MemoryCard({ memory, review }: { memory: MemoryView; review?: boolean }
             {open ? "Hide details" : "View details"}
           </button>
           {open && (
-            <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-rule bg-paper-2 p-3 text-meta leading-relaxed text-ink-2">
+            <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-paper-2 p-3 font-sans text-body leading-relaxed text-ink-2">
               {memory.content}
             </pre>
           )}
@@ -1097,7 +1097,7 @@ function MemoryCard({ memory, review }: { memory: MemoryView; review?: boolean }
           {memory.reviewStatus==='approved'&&<Button variant="ghost" size="sm" disabled={pending} onClick={()=>run(()=>rejectMemory(memory.id))}>Revoke example</Button>}
         </div>}
       </div>
-    </Card>
+    </div>
   );
 }
 

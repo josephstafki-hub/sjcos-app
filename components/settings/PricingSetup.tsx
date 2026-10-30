@@ -21,34 +21,34 @@ function DraftEditor({ row }: { row: PricingSetupRow }) {
   return (
     <div className="mt-2 grid gap-3 text-body @3xl/page:grid-cols-2">
       <div>
-        <Eyebrow>Labor rates ($/h)</Eyebrow>
+        <Eyebrow muted>Labor rates ($/h)</Eyebrow>
         {Object.entries(cfg.labor_rates).map(([k, v]) => (
-          <div key={k} className="mt-1 flex items-center gap-2">
+          <div key={k} className="mt-2 flex flex-wrap items-center gap-2">
             <span className="w-28 text-ink-3">{k}</span>
-            <input className={`${input} w-24`} type="number" step="0.01" value={v.cents_per_hour == null ? "" : (v.cents_per_hour / 100).toString()} onChange={(e) => setRate(k, e.target.value)} />
-            <span className="text-meta text-ink-3">{v.cents_per_hour == null ? v.reason : ""}</span>
+            <input aria-label={`${k} hourly rate`} className={`${input} w-24`} type="number" step="0.01" value={v.cents_per_hour == null ? "" : (v.cents_per_hour / 100).toString()} onChange={(e) => setRate(k, e.target.value)} />
+            <span className="min-w-0 basis-full text-meta text-ink-3 @3xl/page:basis-auto @3xl/page:flex-1">{v.cents_per_hour == null ? v.reason : ""}</span>
           </div>
         ))}
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <span className="w-28 text-ink-3">markup %</span>
-          <input className={`${input} w-24`} type="number" step="0.1" value={cfg.markup_pct ?? ""} onChange={(e) => setCfg({ ...cfg, markup_pct: e.target.value === "" ? null : Number(e.target.value) })} />
+          <input className={`${input} w-24`} aria-label="Markup percent" type="number" step="0.1" value={cfg.markup_pct ?? ""} onChange={(e) => setCfg({ ...cfg, markup_pct: e.target.value === "" ? null : Number(e.target.value) })} />
         </div>
-        <div className="mt-1 flex items-center gap-2">
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <span className="w-28 text-ink-3">margin target %</span>
-          <input className={`${input} w-24`} type="number" step="0.1" value={cfg.margin_target_pct ?? ""} onChange={(e) => setCfg({ ...cfg, margin_target_pct: e.target.value === "" ? null : Number(e.target.value) })} />
+          <input className={`${input} w-24`} aria-label="Margin target percent" type="number" step="0.1" value={cfg.margin_target_pct ?? ""} onChange={(e) => setCfg({ ...cfg, margin_target_pct: e.target.value === "" ? null : Number(e.target.value) })} />
         </div>
       </div>
       <div>
-        <Eyebrow>Default allowances ($)</Eyebrow>
+        <Eyebrow muted>Default allowances ($)</Eyebrow>
         {Object.entries(cfg.default_allowances).length === 0 && <div className="mt-1 text-meta text-ink-3">none proposed</div>}
         {Object.entries(cfg.default_allowances).map(([k, v]) => (
-          <div key={k} className="mt-1 flex items-center gap-2">
+          <div key={k} className="mt-2 flex flex-wrap items-center gap-2">
             <span className="w-28 text-ink-3">{k}</span>
-            <input className={`${input} w-24`} type="number" step="1" value={v.cents == null ? "" : (v.cents / 100).toString()} onChange={(e) => setAllowance(k, e.target.value)} />
-            <span className="text-meta text-ink-3">{v.cents == null ? v.reason : ""}</span>
+            <input aria-label={`${k} allowance`} className={`${input} w-24`} type="number" step="1" value={v.cents == null ? "" : (v.cents / 100).toString()} onChange={(e) => setAllowance(k, e.target.value)} />
+            <span className="min-w-0 basis-full text-meta text-ink-3 @3xl/page:basis-auto @3xl/page:flex-1">{v.cents == null ? v.reason : ""}</span>
           </div>
         ))}
-        <Eyebrow>Uncertainty rules</Eyebrow>
+        <Eyebrow muted>Uncertainty rules</Eyebrow>
         <div className="mt-1 text-meta text-ink-3">
           rough range −{cfg.uncertainty_rules.rough_range_low_pct}% / +{cfg.uncertainty_rules.rough_range_high_pct}% · prices stale after {cfg.uncertainty_rules.stale_after_days} days · fixed proposal requires: {cfg.uncertainty_rules.fixed_requires.join(", ")}
         </div>
@@ -67,7 +67,7 @@ export function PricingSetup({ setups }: { setups: PricingSetupRow[] }) {
   return (
     <div className="flex flex-col gap-4">
       <Card kind="soft" className="flex flex-wrap items-center gap-2 px-4 py-3 text-body">
-        <input className={`${input} w-72`} placeholder="notes for the proposal (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
+        <input className={`${input} w-full min-w-0 @3xl/page:w-72`} aria-label="Proposal notes" placeholder="notes for the proposal (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
         <button className={btn} disabled={pending} onClick={() => start(async () => { await runAction(() => proposePricingSetupAction(notes)); })}>Propose a new draft from evidence</button>
       </Card>
       {setups.length === 0 && <Card kind="soft" className="px-4 py-3 text-body text-ink-3">No pricing setup versions yet.</Card>}

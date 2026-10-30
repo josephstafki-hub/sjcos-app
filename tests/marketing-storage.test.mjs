@@ -1,9 +1,9 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {registerHooks} from 'node:module';
-const stored=[];
+const stored=[],updates=[];
 globalThis.__marketingDb={
- query:async(sql,args)=>{if(sql.includes('INSERT INTO marketing_drafts'))stored.push(args);return {rows:[]};},
+ query:async(sql,args)=>{if(sql.includes('INSERT INTO marketing_drafts'))stored.push(args);if(sql.includes('UPDATE marketing_drafts'))updates.push(args);return {rows:[{id:42}]};},
  queryOne:async(sql)=>sql.includes('FROM projects')?{id:'project',name:'Kitchen',scope:'Cabinets',city:'St Paul'}:sql.includes('count(*)')?{n:1}:null,
 };
 registerHooks({resolve(s,c,n){
@@ -14,10 +14,11 @@ registerHooks({resolve(s,c,n){
  if(s.startsWith('@/'))return n(new URL('../'+s.slice(2)+'.ts',import.meta.url).href,c);
  return n(s,c);
 }});
-const {generateDraft,autoDraftBlogOnCompletion,autoDraftSocialOnCompletion}=await import('../lib/actions/marketing.ts');
+const {generateDraft,autoDraftBlogOnCompletion,autoDraftSocialOnCompletion,updateDraft}=await import('../lib/actions/marketing.ts');
 test('manual and both completion paths store prose rather than an AI envelope',async()=>{
  globalThis.__aiCopy=JSON.stringify({blogPost:{title:'A kitchen',content:['First paragraph.','Second paragraph.']}});
- await generateDraft('kitchen','blog');
+ const created = await generateDraft('kitchen','blog');
+ assert.equal(created.id,42,'Website can select the exact newly generated draft');
  assert.equal(stored[0][3],'First paragraph.\n\nSecond paragraph.');
  assert.equal(stored[0][2],'A kitchen');
  await autoDraftBlogOnCompletion('kitchen');
@@ -25,4 +26,9 @@ test('manual and both completion paths store prose rather than an AI envelope',a
  globalThis.__aiCopy=JSON.stringify({post:'Finished a kitchen.',hashtags:['carpentry','remodel']});
  await autoDraftSocialOnCompletion('kitchen');
  assert.equal(stored[2][2],'Finished a kitchen.\n\n#carpentry #remodel');
+});
+
+test('editing repaired copy preserves an editable headline alongside the prose',async()=>{
+ const r=await updateDraft(42,'Edited paragraphs.','A better kitchen');
+ assert.equal(r.ok,true);assert.deepEqual(updates.at(-1),[42,'Edited paragraphs.','A better kitchen']);
 });

@@ -48,7 +48,7 @@ function draftPrompt(kind: DraftKind, name: string, scope: string, city: string)
 
 /** Generate (and store) a draft for a project. Returns ok; the draft appears on
  *  /marketing. AI failure falls back to a deterministic template. */
-export async function generateDraft(slug: string, kindRaw: string): Promise<Result> {
+export async function generateDraft(slug: string, kindRaw: string): Promise<Result & {id?: number}> {
   await requireAccess("marketing");
   const kind: DraftKind = KINDS.includes(kindRaw as DraftKind) ? (kindRaw as DraftKind) : "social";
   const proj = await queryOne<{ id: string; name: string; scope: string | null; city: string | null }>(
@@ -70,14 +70,14 @@ export async function generateDraft(slug: string, kindRaw: string): Promise<Resu
   }
   if (!body) body = fallback;
 
-  await query(
+  const created = await query<{id:number}>(
     `INSERT INTO marketing_drafts (project_id, kind, title, body, status)
-     VALUES ($1, $2, $3, $4, 'draft')`,
+     VALUES ($1, $2, $3, $4, 'draft') RETURNING id`,
     [proj.id, kind, title, body],
   );
   revalidatePath("/marketing");
   revalidatePath("/site"); // blog drafts also surface in the Website composer
-  return { ok: true };
+  return { ok: true, id: created.rows[0]?.id };
 }
 
 /** Auto-draft a social post when a project reaches completion (P6-2). Gated by
@@ -189,12 +189,14 @@ export async function autoDraftBlogOnCompletion(slug: string): Promise<void> {
   revalidatePath("/site"); // blog drafts also surface in the Website composer
 }
 
-/** Edit a draft's body. */
-export async function updateDraft(id: number, body: string): Promise<Result> {
+/** Save readable copy and its headline together. */
+export async function updateDraft(id: number, body: string, title?: string): Promise<Result> {
   await requireAccess("marketing");
   const clean = normalizeMarketingCopy(body);
   if (!clean.body) return {ok:false,error:"Enter the post as readable text before saving."};
-  await query(`UPDATE marketing_drafts SET body = $2 WHERE id = $1`, [id, clean.body]);
+  const headline = title?.trim() ?? clean.title;
+  if (title !== undefined && !headline) return {ok:false,error:"Enter a headline before saving."};
+  await query(`UPDATE marketing_drafts SET body = $2, title = COALESCE($3, title) WHERE id = $1`, [id, clean.body, headline ?? null]);
   revalidatePath("/marketing");
   revalidatePath("/site"); // blog drafts also surface in the Website composer
   return { ok: true };

@@ -23,11 +23,11 @@ function statusChip(g: OwnerGrant) {
   if (grantWaiting(g)) return <Chip kind="flag">Waiting on you</Chip>;
   if (g.status === "requested") return <Chip kind="ghost">Request expired</Chip>;
   if (g.status === "denied") return <Chip kind="ghost">Denied</Chip>;
-  if (g.status === "revoked" && g.audit?.some((a) => a.result === "replaced")) return <Chip kind="ghost">Replaced by a newer request</Chip>;
+  if (g.status === "revoked" && g.audit?.some((a) => a.result === "replaced")) return <Chip kind="ghost">Replaced</Chip>;
   if (g.status === "revoked") return <Chip kind="ghost">Revoked</Chip>;
   if (g.uses >= g.max_uses) return <Chip kind="default">Spent</Chip>;
   if (new Date(g.expires_at).getTime() <= Date.now()) return <Chip kind="ghost">Expired</Chip>;
-  return <Chip kind="money">Live · {g.max_uses - g.uses} use{g.max_uses - g.uses === 1 ? "" : "s"} left</Chip>;
+  return <span className="inline-flex flex-wrap items-center gap-2"><Chip kind="money">Live</Chip><span className="text-meta text-ink-3">{g.max_uses - g.uses} use{g.max_uses - g.uses === 1 ? "" : "s"} left</span></span>;
 }
 
 function describe(g: OwnerGrant) {

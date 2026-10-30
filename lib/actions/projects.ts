@@ -98,13 +98,15 @@ async function autoOutreachEnabled(): Promise<boolean> {
   return row ? row.value === "true" : true;
 }
 
-/** Auto-bill any draw whose triggerStatus matches the project's new stage (7-inv).
- *  Reads the most recent approved estimate's draw schedule and generates (and,
- *  per the setting, sends) an invoice for each due draw. The guard against
- *  double billing is the invoice's economic_key (`draw:<index>:<label-slug>`,
- *  A07a): re-flipping the stage finds the existing invoice. The schedule's
- *  `billed` flag is kept as a display hint only. Draw 0 is also covered by the
- *  acceptance invoice (`estimate:<id>:initial`, A07b) when one was issued. */
+/** Bill any draw whose triggerStatus matches the project's new stage (7-inv).
+ *  Reads the most recent approved estimate's draw schedule. The deposit (draw
+ *  0) is created and, per the setting, sent. A progress draw is only DRAFTED:
+ *  reaching a stage isn't Joe confirming the milestone was done, and his Send
+ *  on the Money panel is that confirmation. The guard against double billing
+ *  is the invoice's economic_key (`draw:<index>:<label-slug>`, A07a; the
+ *  deposit also matches `estimate:<id>:initial`): re-flipping the stage finds
+ *  the existing invoice. The schedule's `billed` flag is a display hint only.
+ *  The bell card says what actually happened: sent, drafted, or not emailed. */
 async function billMilestonesForStatus(slug: string, newStatus: string) {
   const est = await queryOne<{ id: string; total: number; draw_schedule: unknown; project_id: string }>(
     `SELECT e.id, e.total, e.draw_schedule, e.project_id
@@ -121,39 +123,71 @@ async function billMilestonesForStatus(slug: string, newStatus: string) {
 
   const autoSend = await autoSendMilestone();
   const totalCents = est.total ?? 0; // estimates.total is already cents
-  let billed = 0;
+  const sent: string[] = [];
+  const drafted: string[] = [];
+  const notEmailed: string[] = [];
   for (const { l, index } of due) {
     const economicKey = drawEconomicKey(index, l.label);
     const keys = index === 0 ? [economicKey, `estimate:${est.id}:initial`] : [economicKey];
     const existing = await queryOne<{ id: string }>(
-      `SELECT id FROM invoices WHERE project_id = $1 AND economic_key = ANY($2::text[]) AND status <> 'void' LIMIT 1`,
-      [est.project_id, keys],
+      `SELECT id FROM invoices WHERE project_id = $1 AND (economic_key = ANY($2::text[])
+          OR ($3 AND (economic_key ~ '^estimate:[0-9]+:initial$' OR economic_key LIKE 'draw:0:%'))) AND status <> 'void' LIMIT 1`,
+      [est.project_id, keys, index === 0],
     );
     if (existing) {
       l.billed = true;
       continue;
     }
     const amount = Math.round((totalCents * l.percent) / 100); // draw % of total, in cents
-    const res = await createMilestoneInvoice(slug, { milestone: l.label, amount, autoSend, economicKey, estimateId: Number(est.id) });
-    if (res.ok) {
-      l.billed = true;
-      if (res.created) billed++;
-    }
+    const send = autoSend && index === 0;
+    const res = await createMilestoneInvoice(slug, { milestone: l.label, amount, autoSend: send, economicKey, estimateId: Number(est.id) });
+    if (!res.ok || !res.created) continue;
+    l.billed = true;
+    if (!send) drafted.push(l.label);
+    else if (res.sent) sent.push(l.label);
+    else notEmailed.push(l.label);
   }
   await query(`UPDATE estimates SET draw_schedule = $1::jsonb WHERE id = $2`, [
     JSON.stringify(lines),
     est.id,
   ]);
-  if (billed === 0) return;
-  await emit({
-    kind: "money",
-    tag: "Money",
-    accent: "money",
-    icon: "money",
-    title: `${billed} milestone invoice${billed > 1 ? "s" : ""} ${autoSend ? "sent" : "drafted"}`,
-    subline: `Triggered by reaching ${projectStageLabel(newStatus as ProjectStatus)}`,
-    href: `/projects/${slug}`,
-  });
+  const stage = projectStageLabel(newStatus as ProjectStatus);
+  const list = (xs: string[]) => xs.map((x) => `"${x}"`).join(", ");
+  if (sent.length) {
+    await emit({
+      kind: "money",
+      tag: "Money",
+      accent: "money",
+      icon: "money",
+      title: `Invoice emailed to the client: ${list(sent)}`,
+      subline: `Billed on reaching ${stage}`,
+      href: `/projects/${slug}`,
+    });
+  }
+  if (notEmailed.length) {
+    await emit({
+      kind: "money",
+      tag: "Money",
+      accent: "flag",
+      icon: "money",
+      flagged: true,
+      title: `Invoice created but NOT emailed: ${list(notEmailed)}`,
+      subline: `Reached ${stage}; open Money to send it`,
+      href: `/projects/${slug}`,
+    });
+  }
+  if (drafted.length) {
+    await emit({
+      kind: "money",
+      tag: "Money",
+      accent: "money",
+      icon: "money",
+      flagged: true,
+      title: `Draft invoice${drafted.length > 1 ? "s" : ""} ready: ${list(drafted)}`,
+      subline: `Reached ${stage}. Nothing was sent; check the work is done, then Send it from Money`,
+      href: `/projects/${slug}`,
+    });
+  }
 }
 
 /** Advance a project to the next lifecycle stage. No-op at the final stage. */

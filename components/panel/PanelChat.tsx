@@ -16,7 +16,8 @@ import {
   ShieldQuestion,
   CircleHelp,
 } from "lucide-react";
-import { VoiceButton } from "@/components/ui";
+import { AssistantMarkdown } from "./AssistantMarkdown";
+import { PanelDictation } from "./PanelDictation";
 import { mergeTranscript } from "@/lib/append-transcript";
 import { useVoiceRound } from "@/lib/use-voice-round";
 import { approveGrant, denyGrant } from "@/lib/actions/owner-grants";
@@ -163,6 +164,7 @@ export function PanelChat({
     },
   });
   const meta = AGENT_META[chat.agent];
+  useEffect(() => { setAllowSends(false); }, [chat.conversationId, chat.agent]);
 
   const narration = queueNarration(priorities, { items: waiting, total: waiting.length });
 
@@ -345,6 +347,7 @@ export function PanelChat({
   // ─── Thread navigation (ThreadList: rail beside the chat, or drawer) ───────
 
   const openThread = (id: string) => {
+    setAllowSends(false);
     setThreadsOpen(false);
     void chat.openConversation(id);
     inputRef.current?.focus();
@@ -352,6 +355,7 @@ export function PanelChat({
 
   /** Plain New = Unfiled; a folder (scope / a header's "+") files it there. */
   const newThread = (folder?: RailFolder | null) => {
+    setAllowSends(false);
     setThreadsOpen(false);
     if (folder) chat.newChatIn(folder.id, folder.name);
     else chat.newChat();
@@ -360,6 +364,7 @@ export function PanelChat({
 
   /** "New chat in job…": under that job's folder, created on first use. */
   const newThreadFor = (entity: FolderEntityRef, name: string) => {
+    setAllowSends(false);
     setThreadsOpen(false);
     chat.newChatFor(entity, name);
     inputRef.current?.focus();
@@ -382,6 +387,7 @@ export function PanelChat({
             <button
               key={a}
               onClick={() => {
+                setAllowSends(false);
                 chat.selectAgent(a);
                 inputRef.current?.focus();
               }}
@@ -562,10 +568,10 @@ export function PanelChat({
                       m.body.startsWith("⚠️") ? "text-flag" : "text-ai-2"
                     }`}
                   >
-                    {parsed.body}
+                    <AssistantMarkdown text={parsed.body} />
                   </div>
                   <ModelActionChips actions={parsed.actions} />
-                  {chat.logs[m.id] && <ActivityLog text={chat.logs[m.id]} done />}
+                  {(m.workLog || chat.logs[m.id]) && <ActivityLog text={m.workLog || chat.logs[m.id]} done />}
                 </div>
               );
             })}
@@ -798,7 +804,7 @@ export function PanelChat({
         >
           <Paperclip className={`size-4 ${uploading ? "animate-pulse" : ""}`} strokeWidth={1.75} />
         </button>
-        <VoiceButton compact onText={(t) => setPrompt((cur) => mergeTranscript(cur, t))} />
+        <PanelDictation onText={(t) => setPrompt((cur) => mergeTranscript(cur, t))} />
         <span className="hidden sm:contents">
           <VoiceRoundButton voice={voice} />
         </span>
@@ -807,7 +813,7 @@ export function PanelChat({
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={(e) => {
-            if (chat.agent === "claude" && e.key === "Tab" && e.shiftKey) {
+            if ((chat.agent === "claude" || chat.agent === "auto") && e.key === "Tab" && e.shiftKey) {
               e.preventDefault();
               cycleMode(1);
             }

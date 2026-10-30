@@ -692,7 +692,13 @@ export function ThreadList({
         {showArchived && archived && (
           <div className="mt-2 border-t border-rule pt-1.5">
             <div className="px-2 pb-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-4">Archived</div>
-            {archived.length === 0 && <p className="px-2 py-1 text-[11px] text-ink-4">Nothing archived.</p>}
+            {folders.filter((f) => f.archivedAt).map((f) => (
+              <div key={f.id} className="flex items-center gap-2 px-2 py-2 text-body">
+                <span className="min-w-0 flex-1 break-words">{f.name}</span>
+                <button type="button" onClick={() => void archiveFolder(f, false)} className="rounded-md px-2 py-1 text-label hover:bg-hover" aria-label={`Restore folder ${f.name}`}>Restore folder</button>
+              </div>
+            ))}
+            {archived.length === 0 && !folders.some((f) => f.archivedAt) && <p className="px-2 py-1 text-[11px] text-ink-4">Nothing archived.</p>}
             {archived.map((t) => (
               <div key={t.id} className="group flex items-center gap-1.5 rounded-md px-2 py-1.5 opacity-60 hover:bg-card/60 hover:opacity-100">
                 <AgentBadge agent={t.agent} />

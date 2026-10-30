@@ -40,6 +40,9 @@ export interface ChatMessage {
   /** A steer: sent INTO a live run rather than asked as a new turn
    *  (lib/run-steers.ts). */
   steer?: boolean;
+  runId?: string;
+  workLog?: string;
+  durationSeconds?: number;
 }
 
 export interface ConversationDetail {
@@ -158,9 +161,22 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
     attachments: ChatAttachment[] | null;
     token_usage: Record<string, unknown> | null;
     steer: boolean;
+    run_id: string | null;
+    activity: string | null;
+    duration_seconds: number | null;
   }>(
-    `SELECT id, role, body, cost_usd, created_at::text AS created_at, subject_work_item_id, agent, attachments, token_usage, steer
-       FROM ai_messages WHERE conversation_id = $1 ORDER BY created_at ASC`,
+    `SELECT m.id, m.role, m.body, m.cost_usd, m.created_at::text AS created_at, m.subject_work_item_id,
+            m.agent, m.attachments, m.token_usage, m.steer, r.id AS run_id, r.activity,
+            extract(epoch FROM r.updated_at - r.created_at)::int AS duration_seconds
+       FROM ai_messages m
+       LEFT JOIN LATERAL (
+         SELECT r.* FROM dev_agent_runs r WHERE m.role = 'assistant'
+           AND r.conversation_id = m.conversation_id AND r.status IN ('done','error')
+           AND (r.answer = m.body OR '⚠️ ' || r.answer = m.body)
+           AND (SELECT count(*) FROM dev_agent_runs x WHERE x.conversation_id = m.conversation_id
+                AND (x.answer = m.body OR '⚠️ ' || x.answer = m.body)) = 1
+       ) r ON true
+       WHERE m.conversation_id = $1 ORDER BY m.created_at ASC`,
     [id],
   );
 
@@ -190,6 +206,9 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
       attachments: m.attachments,
       tokenUsage: m.token_usage,
       steer: m.steer || undefined,
+      runId: m.run_id ?? undefined,
+      workLog: m.activity ?? undefined,
+      durationSeconds: m.duration_seconds ?? undefined,
     })),
     pendingRunId: pending?.id ?? null,
     pendingRunStartedAt: pending ? Number(pending.started_ms) : null,

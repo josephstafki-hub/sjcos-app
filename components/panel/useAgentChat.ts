@@ -48,6 +48,7 @@ export interface ActiveRun {
  *  show "✦ Have Hermes do it — …". Setting `agent` forces the turn onto that
  *  agent, abandoning the current thread if it belongs to a different one. */
 export interface PanelSend {
+  contextRefs?: import("@/lib/panel-context").PanelContextRef[];
   directive: string;
   display?: string;
   agent?: PanelAgent;
@@ -690,6 +691,7 @@ export function useAgentChat({
         spec.attachments,
         spec.subjectId,
         spec.allowSends,
+        spec.contextRefs,
       );
       if (!live.alive) return;
       if (!r.ok) {

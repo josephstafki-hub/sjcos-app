@@ -3,6 +3,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { loadPanelContext, type PanelContextRef } from "@/lib/panel-context";
 import { requireAccess, requireRole } from "@/lib/dal";
 import { query, queryOne } from "@/lib/db";
 import { hermesChat, startClaudeRun } from "@/lib/dev-agents";
@@ -148,8 +149,11 @@ export async function sendMessageAction(
   attachments?: ChatAttachment[],
   subjectWorkItemId?: string,
   allowSends?: boolean,
+  contextRecords?: PanelContextRef[],
 ): Promise<SendResult> {
   await requireAccess("ai");
+  const explicitContext = await loadPanelContext(contextRecords ?? []);
+  if (explicitContext) pageContext = [pageContext, explicitContext].filter(Boolean).join("\n\n");
   const text = prompt.trim();
   const files = sanitizeAttachments(attachments);
   if (!text && !files.length) return { ok: false, error: "Ask something first." };

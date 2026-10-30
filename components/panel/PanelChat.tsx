@@ -16,6 +16,7 @@ import {
   ShieldQuestion,
   CircleHelp,
 } from "lucide-react";
+import { useRecordMentions } from "./useRecordMentions";
 import { RunReview } from "./RunReview";
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import { PanelDictation } from "./PanelDictation";
@@ -107,6 +108,7 @@ export function PanelChat({
 }) {
   const { priorities, waiting, refresh } = useTodayQueue();
   const [prompt, setPrompt] = useState("");
+  const mentions = useRecordMentions(prompt, setPrompt);
   const [flash, setFlash] = useState("");
   const [threadsOpen, setThreadsOpen] = useState(false);
   // Per-message express permission: the next Claude turn gets a short-lived
@@ -274,12 +276,14 @@ export function PanelChat({
     setAttachments([]);
     chat.submit({
       directive: q,
+      contextRefs: mentions.refs,
       display,
       attachments: files,
       // Auto counts too — the router may hand this turn to Claude.
       allowSends: (chat.agent === "claude" || chat.agent === "auto") && allowSends ? true : undefined,
     });
     setAllowSends(false);
+    mentions.clear();
   };
 
   /** Voice-mode send: the transcript goes to the Claude concierge, which
@@ -337,6 +341,7 @@ export function PanelChat({
 
   const openThread = (id: string) => {
     setAllowSends(false);
+    mentions.clear();
     setThreadsOpen(false);
     void chat.openConversation(id);
     inputRef.current?.focus();
@@ -345,6 +350,7 @@ export function PanelChat({
   /** Plain New = Unfiled; a folder (scope / a header's "+") files it there. */
   const newThread = (folder?: RailFolder | null) => {
     setAllowSends(false);
+    mentions.clear();
     setThreadsOpen(false);
     if (folder) chat.newChatIn(folder.id, folder.name);
     else chat.newChat();
@@ -354,6 +360,7 @@ export function PanelChat({
   /** "New chat in job…": under that job's folder, created on first use. */
   const newThreadFor = (entity: FolderEntityRef, name: string) => {
     setAllowSends(false);
+    mentions.clear();
     setThreadsOpen(false);
     chat.newChatFor(entity, name);
     inputRef.current?.focus();
@@ -767,6 +774,11 @@ export function PanelChat({
         onStart={() => voice.startWithBriefing(spokenQueue(priorities, { items: waiting, total: waiting.length }))}
       />
 
+      {mentions.records.length > 0 && <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 text-meta text-ink-3"><span>Working on</span>{mentions.records.map(r=><span key={r.id} className="flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1"><a href={r.href} className="text-accent">{r.title}</a><button type="button" aria-label={`Remove context ${r.title}`} onClick={()=>mentions.remove(r.id)}><X className="size-3"/></button></span>)}</div>}
+      {mentions.open && <div role="listbox" aria-label="Attach record context" className="max-h-48 overflow-y-auto border-t border-rule bg-card p-2">
+        {mentions.results.map((r,i)=><button type="button" key={r.id} role="option" aria-selected={i===mentions.index} onClick={()=>mentions.pick(r)} className={`block w-full rounded-md px-2 py-1.5 text-left text-body ${i===mentions.index?'bg-selected':'hover:bg-hover'}`}>{r.title}<span className="ml-2 text-meta text-ink-3">{r.kind} · {r.detail}</span></button>)}
+        {!mentions.results.length&&<p className="text-meta text-ink-3">{mentions.error||'Type a job, client, or invoice name to attach it.'}</p>}
+      </div>}
       {/* Composer */}
       <form
         onSubmit={(e) => {
@@ -802,6 +814,7 @@ export function PanelChat({
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={(e) => {
+            if (mentions.onKeyDown(e)) return;
             if ((chat.agent === "claude" || chat.agent === "auto") && e.key === "Tab" && e.shiftKey) {
               e.preventDefault();
               cycleMode(1);

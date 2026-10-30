@@ -2830,10 +2830,13 @@ server.registerTool(
   registerAskOwner(server, { pool, json });
 
   // Employee / portal login accounts — the agent-side twin of Settings › Team
-  // & roles: list, create (staff areas / sub + client portal links / owner with
-  // an explicit confirm), edit areas, reset a password, disable / re-enable.
-  // Internal records, nothing emailed, no delete. See mcp/team-tools.mjs.
-  registerTeamTools(server, { rows, json });
+  // & roles: list, create (staff areas / sub + client portal links), edit
+  // areas, reset a password, disable / re-enable. The write tools run ONLY for
+  // a run acting for the owner (currentPrincipal → role 'owner'); staff,
+  // unattended and unknown runs are refused. Never an owner account, and never
+  // an owner row, through MCP. Internal records, nothing emailed, no delete.
+  // See mcp/team-tools.mjs.
+  registerTeamTools(server, { rows, json, currentPrincipal });
   registerProjectTools(server, { rows, json, strippedDollarError, currentPrincipal });
   // A lead's Phase 1 rough estimate (the lead page's Rough estimate tab):
   // save lines + total + notes as a draft, never sent. See mcp/lead-tools.mjs.

@@ -18,7 +18,8 @@ import { ai } from "@/lib/ai";
 import { emit } from "@/lib/notify";
 import { usd, type InvoiceLine } from "@/lib/money";
 import { sendInvoiceOp } from "@/lib/send-ops";
-import { withTransaction, userPrincipal } from "@/lib/commands/db";
+import { withTransaction, userPrincipal, runDirect } from "@/lib/commands/db";
+import { clientSendVerdict } from "@/lib/authority/client-sends";
 import {
   allocateInvoiceNumber,
   issueMilestoneInvoice,
@@ -213,6 +214,7 @@ interface InvoiceJoin {
   amount: number;
   line_items: InvoiceLine[];
   status: string;
+  project_id: string;
   slug: string;
   project_name: string;
 }
@@ -220,7 +222,7 @@ interface InvoiceJoin {
 async function invoiceById(id: number) {
   return queryOne<InvoiceJoin>(
     `SELECT i.number, i.milestone, i.amount, i.line_items, i.status,
-            p.slug, p.name AS project_name
+            i.project_id, p.slug, p.name AS project_name
        FROM invoices i JOIN projects p ON p.id = i.project_id
       WHERE i.id = $1`,
     [id],
@@ -231,12 +233,22 @@ async function invoiceById(id: number) {
  *  lib/send-ops.ts is the ONLY authority on whether it went out: its result is
  *  recorded as the delivery state, and a failure never marks the invoice sent
  *  (sendInvoiceOp refuses before flipping status; we only record). Agents
- *  reach it via an owner grant / the send_invoice intent. */
+ *  reach it via an owner grant / the send_invoice intent.
+ *
+ *  A22: the invoices area lets a team member see and draft invoices; sending
+ *  one to the client takes Joe's click or delegated authority for this
+ *  project and amount (lib/authority/client-sends.ts). A send under that
+ *  authority is recorded as the team member, not as the owner's click. */
 export async function sendInvoice(id: number): Promise<Result> {
   const user = await requireAccess("invoices");
   const inv = await invoiceById(id);
   if (!inv) return { ok: false, error: "Invoice not found." };
-  const res = await sendInvoiceOp(id);
+  const release = await clientSendVerdict(runDirect, userPrincipal(user), "send_invoice", {
+    projectId: inv.project_id,
+    amountCents: Number(inv.amount),
+  });
+  if (!release.ok) return { ok: false, error: release.error };
+  const res = await sendInvoiceOp(id, release.via === "authority_grant" ? { actor: release.actor } : undefined);
   try {
     await withTransaction((run) =>
       recordDeliveryOutcome(run, { invoiceId: id, ok: res.ok, error: res.ok ? null : res.error, principal: userPrincipal(user) }),

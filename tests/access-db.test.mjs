@@ -19,6 +19,9 @@ import {
   sessionRevokedSince,
 } from "../lib/authority/grants.ts";
 import { principalMaySpendGrant } from "../lib/authority/mcp-gate.ts";
+import { CLIENT_SEND_REFUSAL, clientSendVerdict, staffSendActor } from "../lib/authority/client-sends.ts";
+import { enqueueIntent } from "../lib/commands/intents.ts";
+import { verifyAuthority } from "../lib/dispatch/authority.ts";
 import { admitRun, recordUsage } from "../lib/authority/usage.ts";
 import { SETTING_MAX_RUNS_PER_HOUR } from "../lib/authority/run-profile.mjs";
 
@@ -206,6 +209,78 @@ test("A08a MCP gate: owner passes, unattended refused, staff only with matching 
     // Disabled account: refused even without a revocation row.
     await run(`UPDATE users SET active = false WHERE id = $1`, [owner.userId]);
     assert.equal((await principalMaySpendGrant(run, owner.userId, "send_invoice")).ok, false);
+  });
+});
+
+test("A22 client sends: the invoices / estimates AREA alone can't send an invoice or an estimate; a proposal grant can, within project + limit, recorded as the staff member", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    await seed(client);
+    const run = runOver(client);
+    // Abigail can SEE invoices and estimates (both areas ticked) — that is all.
+    const abigail = { ...staff, permissions: ["invoices", "estimates"] };
+    const SENDS = ["send_invoice", "send_document_for_signature"];
+
+    // Owner path unchanged: no lookup, no authority row needed.
+    assert.deepEqual(await clientSendVerdict(run, owner, "send_invoice", { projectId: projectA, amountCents: 9_999_999 }), { ok: true, via: "owner" });
+    assert.deepEqual(await clientSendVerdict(run, owner, "send_document_for_signature", { projectId: projectB, amountCents: 1 }), { ok: true, via: "owner" });
+
+    // Staff, no authority: both refused with the plain message.
+    for (const action of SENDS) {
+      const r = await clientSendVerdict(run, abigail, action, { projectId: projectA, amountCents: 250_000 });
+      assert.equal(r.ok, false, `${action} without authority`);
+      assert.equal(r.error, "Joe needs to send this, or give you permission to under Settings › Team.");
+      assert.equal(r.error, CLIENT_SEND_REFUSAL);
+    }
+    // An unrelated kind (purchase) does not stand in for it.
+    await grantAuthority(run, owner, { userId: staff.userId, actionType: "purchase", projectId: projectA });
+    assert.equal((await clientSendVerdict(run, abigail, "send_invoice", { projectId: projectA, amountCents: 100 })).ok, false);
+
+    // Joe grants 'proposal' on Alpha up to $5,000.
+    const g = await grantAuthority(run, owner, { userId: staff.userId, actionType: "proposal", projectId: projectA, maxAmountCents: 500_000 });
+    for (const action of SENDS) {
+      const r = await clientSendVerdict(run, abigail, action, { projectId: projectA, amountCents: 250_000 });
+      assert.equal(r.ok, true, `${action} with authority`);
+      assert.equal(r.via, "authority_grant");
+      assert.equal(r.grantId, g.id);
+      assert.equal(r.actor, `staff:${staff.userId}/authority:${g.id}`);
+      assert.doesNotMatch(r.actor, /click|^owner/, "never recorded as the owner's click");
+      // Over the limit, or another job: refused.
+      assert.equal((await clientSendVerdict(run, abigail, action, { projectId: projectA, amountCents: 500_001 })).ok, false);
+      assert.equal((await clientSendVerdict(run, abigail, action, { projectId: projectB, amountCents: 100 })).ok, false);
+    }
+
+    // The actor rides SendAuth into the send intent: lib/send-ops.ts
+    // stageAndSend stores it as policy_ref `owner:<actor>` and principal
+    // `send-ops:<actor>` (mirrored here). The dispatcher lets it through and
+    // the record names the staff member + the authority grant.
+    const actor = staffSendActor(staff.userId, g.id);
+    const { intent } = await enqueueIntent(run, {
+      operationKey: "zz-invoice:1:send:rev1",
+      kind: "send_invoice",
+      targetKind: "invoice",
+      targetId: "1",
+      recipient: "client@example.test",
+      payload: { to: "client@example.test", _auth: { action: "send_invoice", target_kind: "invoice", target_id: "1", amount_cents: 250_000 } },
+      policyRef: `owner:${actor}`,
+      principal: { kind: "service", name: `send-ops:${actor}` },
+    });
+    const auth = await verifyAuthority(run, intent, "zz-test");
+    assert.equal(auth.ok, true, "a staff-released send is not held");
+    const [rec] = await run(`SELECT policy_ref, principal->>'name' AS who FROM action_intents WHERE id = $1`, [intent.id]);
+    assert.match(rec.policy_ref, new RegExp(`staff:${staff.userId}/authority:${g.id}`));
+    assert.doesNotMatch(rec.policy_ref, /click/);
+    assert.match(rec.who, new RegExp(`staff:${staff.userId}`));
+
+    // Revoke → the next click is refused again.
+    await revokeAuthority(run, owner, { grantId: g.id, reason: "test" });
+    for (const action of SENDS) {
+      assert.equal((await clientSendVerdict(run, abigail, action, { projectId: projectA, amountCents: 100 })).ok, false, `${action} after revoke`);
+    }
+    // A disabled account holds nothing even with a live grant.
+    await grantAuthority(run, owner, { userId: staff.userId, actionType: "proposal" });
+    assert.equal((await clientSendVerdict(run, abigail, "send_invoice", { projectId: projectB, amountCents: 100 })).ok, true);
+    await run(`UPDATE users SET active = false WHERE id = $1`, [staff.userId]);
+    assert.equal((await clientSendVerdict(run, abigail, "send_invoice", { projectId: projectB, amountCents: 100 })).ok, false);
   });
 });
 

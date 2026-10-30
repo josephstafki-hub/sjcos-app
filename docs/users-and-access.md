@@ -61,6 +61,31 @@ project and capped at a dollar amount. New accounts hold **none**.
 - `/engine/permissions` (owner grants for agents) stays owner-only;
   `/engine/decisions` (WS-approvals) uses `authorityFor`, so a staff member
   with a fitting grant sees and resolves only what they may.
+- **Sending to the client from the app** (2026-10-30). The `invoices` /
+  `estimates` areas let a team member see and draft; **Send invoice**
+  (`lib/actions/money.ts` `sendInvoice`) and **Send for signature**
+  (`lib/actions/estimates.ts` `sendEstimate`) also need **`proposal`**
+  authority for that project and amount — the same kind the MCP gate maps
+  `send_invoice` / `send_document_for_signature` to
+  (`lib/authority/client-sends.ts` `clientSendVerdict` → `effectiveAuthority`).
+  Without it: *"Joe needs to send this, or give you permission to under
+  Settings › Team."* With it the send goes out recorded as the team member
+  (`SendAuth.actor = staff:<userId>/authority:<grantId>`, the invoice's
+  delivery event, the signature request's `created_by` + history, a "sent by"
+  line on Joe's feed) — not as the owner's click. Joe's own click is unchanged.
+
+## Logins through MCP (2026-10-30)
+
+The MCP twins of Settings › Team (`mcp/team-tools.mjs`) are **owner-run only**
+for every write: `create_user`, `update_user_access`, `reset_user_password`,
+`set_user_active` refuse unless the run's principal (`SJC_PRINCIPAL_USER_ID`
+or the HTTP `X-SJC-Principal-User` header, role re-read from `users`) is an
+active, un-revoked owner. A staff-started run, an unattended worker, and a
+claude.ai / ChatGPT / plain stdio client with no person behind it are refused
+with "Ask Joe, or use Settings › Team". On top of that, **no run — not even
+Joe's — can create an owner account** (the `confirm_owner` switch is gone),
+and owner rows are never reset, re-scoped or disabled through MCP. Owners are
+managed only in the app. `list_users` / `list_access_areas` stay readable.
 
 ## How it's enforced (three layers)
 

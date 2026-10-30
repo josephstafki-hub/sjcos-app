@@ -8,6 +8,8 @@
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
 import { requireAccess } from "@/lib/dal";
+import { runDirect, userPrincipal } from "@/lib/commands/db";
+import { clientSendVerdict } from "@/lib/authority/client-sends";
 import { dollarsToCents, fmtUsd, unitLabel } from "@/lib/cost-book-units";
 import { getDefaultMarkup } from "@/lib/cost-book";
 import { getProjectSignerDefaults } from "@/lib/esign";
@@ -132,7 +134,12 @@ export async function deleteEstimateLine(lineId: number, slug: string): Promise<
 /** Send an estimate to the client for e-signature approval (B4). Renders the
  *  estimate to a signature_request (doc_type=estimate, linked via estimate_id),
  *  marks the estimate 'sent'. When the client signs (lib/actions/esign), the
- *  linked estimate flips to 'approved'. */
+ *  linked estimate flips to 'approved'.
+ *
+ *  A22: the estimates area lets a team member build an estimate; offering it
+ *  to the client for signature takes Joe's click or delegated authority for
+ *  this project and total (lib/authority/client-sends.ts). The request and its
+ *  history are recorded under whoever sent it. */
 export async function sendEstimate(slug: string, estimateId: number): Promise<Result> {
   const user = await requireAccess("estimates");
 
@@ -155,6 +162,15 @@ export async function sendEstimate(slug: string, estimateId: number): Promise<Re
   if (!est) return { ok: false, error: "Estimate not found." };
   if (est.status === "sent") return { ok: false, error: "This estimate is already out for signature." };
   if (est.status === "approved") return { ok: false, error: "This estimate is already approved." };
+
+  const release = await clientSendVerdict(runDirect, userPrincipal(user), "send_document_for_signature", {
+    projectId: est.project_id,
+    amountCents: Number(est.total),
+  });
+  if (!release.ok) return { ok: false, error: release.error };
+  // Owner: unchanged. A team member is named on the history and on Joe's feed.
+  const byStaff = release.via === "authority_grant";
+  const actorName = user.name || (byStaff ? user.email : "Owner");
 
   const { rows: lines } = await query<{
     description: string;
@@ -228,7 +244,12 @@ export async function sendEstimate(slug: string, estimateId: number): Promise<Re
   await query(
     `INSERT INTO signature_events (request_id, kind, actor, detail)
      VALUES ($1, 'created', $2, $3), ($1, 'sent', $2, $4)`,
-    [reqId, user.name || "Owner", est.title, `Sent to ${signer.name || signer.email || "client"}`],
+    [
+      reqId,
+      actorName,
+      est.title,
+      `Sent to ${signer.name || signer.email || "client"}${byStaff ? ` — by ${actorName} under delegated authority` : ""}`,
+    ],
   );
 
   await query(`UPDATE estimates SET status = 'sent', sent_at = now() WHERE id = $1`, [estimateId]);
@@ -239,7 +260,7 @@ export async function sendEstimate(slug: string, estimateId: number): Promise<Re
     icon: "mail",
     accent: "ai",
     title: `Estimate sent for approval: ${est.title}`,
-    subline: `${fmtUsd(est.total)} — awaiting client signature`,
+    subline: `${fmtUsd(est.total)} — awaiting client signature${byStaff ? ` · sent by ${actorName}` : ""}`,
     href: `/projects/${slug}`,
   });
 

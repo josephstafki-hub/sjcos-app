@@ -4,7 +4,7 @@
 // stage_milestone_confirmation for progress draws) and his approval issues it.
 
 import { z } from "zod";
-import { invoiceBalance, verifiedBalances, recordInvoicePayment, invoiceCollisionReport, issueMilestoneInvoice, voidInvoice } from "../lib/billing/core.ts";
+import { invoiceBalance, verifiedBalances, listInvoicePayments, recordManualInvoicePayment, reverseManualInvoicePayment, invoiceCollisionReport, issueMilestoneInvoice, voidInvoice } from "../lib/billing/core.ts";
 import { stageMilestoneConfirmation, stageInitialInvoiceDecision, finalReconciliation, resolveDraw } from "../lib/billing/commands.ts";
 import { txOver, principalFor, fail, agentNameOf, areaRefusal } from "./tool-shared.mjs";
 
@@ -197,12 +197,40 @@ export function registerBillingTools(server, { rows, json, pool, slugToId, curre
     { title: "Record a payment Joe received outside Square", description: "A check / cash / bank transfer Joe confirmed: applied to the invoice once (idempotent on provider_ref when given). Requires a person behind the call with the invoices area; agents record what Joe told them, with the reference.", inputSchema: { invoice_id: z.number().int(), amount_cents: z.number().int().positive(), method: z.enum(["check", "cash", "ach", "card", "manual"]), reference: z.string().optional(), received_at: z.string().optional(), note: z.string().optional() } },
     async (a) => {
       try {
+        const refusal = await areaRefusal(rows, currentPrincipal, "invoices");
+        if (refusal) return json({ ok: false, error: refusal });
         const p = await principal();
         if (!p.onBehalfOf) return json({ ok: false, error: "Recording a payment needs a signed-in person behind the agent (Joe or an authorised team member)." });
-        return json(await tx((r) => recordInvoicePayment(r, { invoiceId: a.invoice_id, kind: "payment", amountCents: a.amount_cents, method: a.method, provider: a.reference ? "manual" : null, providerRef: a.reference ?? null, receivedAt: a.received_at ?? null, status: "settled", note: a.note ?? "", principal: p })));
+        return json(await tx((r) => recordManualInvoicePayment(r, { invoiceId: a.invoice_id, amountCents: a.amount_cents, method: a.method, reference: a.reference, receivedAt: a.received_at, note: a.note, principal: p })));
       } catch (e) {
         return fail(e);
       }
+    },
+  );
+
+  server.registerTool(
+    "invoice_payment_history",
+    { title: "Invoice payment history", description: "Read payment ids, amounts, dates, methods, notes and compensating returns. Use the original settled manual payment's id with reverse_manual_payment to correct a mistaken entry. Online payments must be refunded through their provider.", inputSchema: { invoice_id: z.number().int() } },
+    async a => {
+      try {
+        const refusal = await areaRefusal(rows, currentPrincipal, "invoices");
+        if (refusal) return json({ ok: false, error: refusal });
+        return json({ invoice_id: a.invoice_id, payments: await listInvoicePayments(run, a.invoice_id) });
+      } catch (e) { return fail(e); }
+    },
+  );
+
+  server.registerTool(
+    "reverse_manual_payment",
+    { title: "Undo a mistaken manual payment", description: "Correct a settled manual payment entry with an audited compensating return. Requires a reason. Does not transfer or refund money; online payments must be refunded at their provider. Idempotent per original payment.", inputSchema: { invoice_id: z.number().int(), payment_id: z.number().int(), reason: z.string().min(3).max(500) } },
+    async a => {
+      try {
+        const refusal = await areaRefusal(rows, currentPrincipal, "invoices");
+        if (refusal) return json({ ok: false, error: refusal });
+        const p = await principal();
+        if (!p.onBehalfOf) return json({ ok: false, error: "Undoing a payment needs a signed-in person behind the agent." });
+        return json(await tx(r => reverseManualInvoicePayment(r, { invoiceId: a.invoice_id, paymentId: a.payment_id, reason: a.reason, principal: p })));
+      } catch (e) { return fail(e); }
     },
   );
 
@@ -228,7 +256,7 @@ export function registerBillingTools(server, { rows, json, pool, slugToId, curre
         kind: z.enum(["precon_fee", "other"]).describe("precon_fee = the pre-construction retainer (one per job)."),
         milestone: z.string().min(1).max(120).describe("Invoice title, e.g. 'Pre-construction fee'."),
         lines: z
-          .array(z.object({ label: z.string().min(1).max(300), amount_cents: z.number().int().positive() }))
+          .array(z.object({ label: z.string().min(1).max(300), amount_cents: z.number().int().describe("Signed cents; negative for a credit line. The invoice total must be non-negative.") }))
           .min(1)
           .max(20),
         key: z

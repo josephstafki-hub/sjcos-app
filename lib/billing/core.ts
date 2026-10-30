@@ -12,6 +12,7 @@
 //     deleted or renumbered;
 //   • always due on receipt: due_at = the day it is issued (0033 trigger).
 
+import { cleanInvoiceLines } from "../invoice-lines.ts";
 import type { Run } from "../commands/core.ts";
 import type { Principal } from "../commands/principal.ts";
 import { principalLabel } from "../commands/principal.ts";
@@ -192,10 +193,7 @@ export async function issueMilestoneInvoice(run: Run, input: IssueMilestoneInput
   );
   if (existing) return { invoice: existing, created: false };
 
-  const lines: InvoiceLine[] = (input.lines?.length ? input.lines : [{ label: input.milestone, amount: input.amountCents }]).map((l) => ({
-    label: String(l.label ?? "").trim(),
-    amount: Math.max(0, Math.round(Number(l.amount) || 0)),
-  }));
+  const lines = cleanInvoiceLines(input.lines?.length ? input.lines : [{ label: input.milestone, amount: input.amountCents }]);
   const lineTotal = lines.reduce((s, l) => s + l.amount, 0);
   if (lineTotal !== input.amountCents) {
     throw new BillingError("lines_mismatch", `Line items total ${lineTotal} cents but the invoice amount is ${input.amountCents}.`);
@@ -422,6 +420,12 @@ export interface PaymentRow {
 
 const PAYMENT_COLS = `id::int AS id, invoice_id::int AS invoice_id, kind, amount_cents, method, provider, provider_ref, received_at::text AS received_at, status, actor, note, external_sync`;
 
+/** Full payment lineage, including compensating returns; ids support an
+ *  explicit correction of the original entry from either UI or MCP. */
+export async function listInvoicePayments(run: Run, invoiceId: number): Promise<PaymentRow[]> {
+  return run<PaymentRow>(`SELECT ${PAYMENT_COLS} FROM invoice_payments WHERE invoice_id = $1 ORDER BY received_at, id`, [invoiceId]);
+}
+
 /** Record a ledger row. Idempotent on (provider, provider_ref): a replayed
  *  webhook or a retried manual entry with the same reference returns the
  *  existing row and moves its status forward only (pending → settled/failed,
@@ -483,6 +487,69 @@ export async function recordInvoicePayment(run: Run, input: RecordPaymentInput):
   // The job's paid figure / % paid follow this payment on their own: a trigger
   // on invoice_payments recomputes the project (migration 0037).
   return { payment: payment!, created, invoice };
+}
+
+/** Owner-confirmed offline payment; drafts billed outside the app are issued
+ *  atomically with payment recording. All manual entry points use this gate. */
+export async function recordManualInvoicePayment(run: Run, input: {
+  invoiceId: number; amountCents?: number; method?: string; note?: string;
+  receivedAt?: string | null; reference?: string | null; principal: Principal;
+}) {
+  const [inv] = await run<InvoiceRow>(`SELECT ${INVOICE_COLS} FROM invoices WHERE id = $1 FOR UPDATE`, [input.invoiceId]);
+  if (!inv) throw new BillingError("not_found", "Invoice not found.");
+  if (inv.status === "void") throw new BillingError("not_live", "A void invoice cannot receive payments.");
+  // A reference retry must return its original row even if the balance is now zero.
+  if (input.reference) {
+    const [existing] = await run<PaymentRow>(`SELECT ${PAYMENT_COLS} FROM invoice_payments WHERE provider = 'manual' AND provider_ref = $1`, [input.reference]);
+    if (existing) {
+      if (existing.invoice_id !== inv.id || existing.kind !== "payment" || existing.amount_cents !== input.amountCents) {
+        throw new BillingError("ref_conflict", "That payment reference already records a different payment.");
+      }
+      return { payment: existing, created: false, invoice: inv };
+    }
+  }
+  const b = (await invoiceBalance(run, inv.id))!;
+  if (b.hasPending) throw new BillingError("pending", "An online payment is in flight; wait for it to settle before recording a manual payment.");
+  const balance = inv.status === "draft" ? inv.amount : b.balanceCents;
+  const amount = input.amountCents ?? balance;
+  if (!Number.isSafeInteger(amount) || amount <= 0) throw new BillingError("bad_amount", "Enter a positive payment amount in whole cents.");
+  if (amount > balance) throw new BillingError("over", "That payment is more than the invoice's open balance.");
+  if (input.receivedAt && !Number.isFinite(new Date(input.receivedAt).getTime())) throw new BillingError("bad_date", "Enter a valid payment date.");
+  if (inv.status === "draft") {
+    await run(`UPDATE invoices SET status = 'issued', issued_at = COALESCE(issued_at, now()) WHERE id = $1`, [inv.id]);
+    await logInvoiceEvent(run, inv.id, "issued", input.principal, { reason: "Manual payment confirmed; billed outside SJC OS" });
+  }
+  return recordInvoicePayment(run, {
+    invoiceId: inv.id, kind: "payment", amountCents: amount, method: input.method?.trim() || "manual",
+    note: input.note ?? "", receivedAt: input.receivedAt, provider: input.reference ? "manual" : null,
+    providerRef: input.reference, principal: input.principal,
+  });
+}
+
+/** Correct an erroneous manual entry, without deleting its audit or moving
+ *  money at a provider. A compensating return row reopens the invoice and the
+ *  Postgres ledger recomputes the job's collected amount. Retry-safe per row. */
+export async function reverseManualInvoicePayment(run: Run, input: {
+  invoiceId: number; paymentId: number; reason: string; principal: Principal;
+}) {
+  if (input.reason.trim().length < 3) throw new BillingError("reason", "Enter a reason for undoing this payment.");
+  const [inv] = await run<InvoiceRow>(`SELECT ${INVOICE_COLS} FROM invoices WHERE id = $1 FOR UPDATE`, [input.invoiceId]);
+  if (!inv) throw new BillingError("not_found", "Invoice not found.");
+  const [original] = await run<PaymentRow>(`SELECT ${PAYMENT_COLS} FROM invoice_payments WHERE id = $1 AND invoice_id = $2 FOR UPDATE`, [input.paymentId, inv.id]);
+  if (!original || original.kind !== "payment" || original.status !== "settled" || (original.provider !== null && original.provider !== "manual")) {
+    throw new BillingError("not_manual", "Only a settled manual payment can be undone here. Online payments must be refunded through their provider.");
+  }
+  const ref = `payment:${original.id}`;
+  const [existing] = await run<PaymentRow>(`SELECT ${PAYMENT_COLS} FROM invoice_payments WHERE provider = 'manual_reversal' AND provider_ref = $1`, [ref]);
+  if (existing) return { payment: existing, created: false, invoice: inv };
+  const b = (await invoiceBalance(run, inv.id))!;
+  if (b.settledCents - b.returnsCents < original.amount_cents) throw new BillingError("already_returned", "This payment has already been returned or refunded; review the payment history.");
+  return recordInvoicePayment(run, {
+    invoiceId: inv.id, kind: "return", amountCents: original.amount_cents,
+    method: original.method, provider: "manual_reversal", providerRef: ref,
+    note: `Undo manual payment #${original.id}: ${input.reason.trim()}`,
+    externalSync: { reversed_payment_id: original.id }, principal: input.principal,
+  });
 }
 
 /** Void an issued invoice that has no settled cash on it (otherwise credit or

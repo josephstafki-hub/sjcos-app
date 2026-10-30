@@ -5,13 +5,14 @@ import { Plus, X, DollarSign, Pencil, Trash2, Sparkles, FileText } from "lucide-
 import { runAction } from "@/lib/run-action";
 import { Card, Chip, Eyebrow } from "@/components/ui";
 import type { ChipKind } from "@/components/ui/Chip";
-import type { ProjectMoney, InvoiceStatus, Invoice, InvoiceLine } from "@/lib/money";
+import type { ProjectMoney, InvoiceStatus, Invoice, InvoiceLine, ManualPaymentView } from "@/lib/money";
 import {
   createInvoice,
   updateInvoice,
   deleteInvoice,
   sendInvoice,
-  markInvoicePaid,
+  recordManualPayment,
+  reverseManualPayment,
 } from "@/lib/actions/money";
 import { generateDemandLetter, generateLienPackage } from "@/lib/actions/collections";
 // Money helpers from the db-free cost-book-units module (safe in the client
@@ -36,6 +37,8 @@ export function MoneyPanel({ slug, money }: { slug: string; money: ProjectMoney 
   const [pending, startTransition] = useTransition();
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState<Invoice | null>(null);
+  const [recording, setRecording] = useState<Invoice | null>(null);
+  const [undoing, setUndoing] = useState<{ invoice: Invoice; payment: ManualPaymentView } | null>(null);
 
   // runAction raises the site-wide toast on failure; a modal stays open on
   // failure so the typed-in values survive.
@@ -129,10 +132,10 @@ export function MoneyPanel({ slug, money }: { slug: string; money: ProjectMoney 
                       {(inv.status === "sent" || inv.status === "draft") && (
                         <button
                           disabled={pending}
-                          onClick={() => run(() => markInvoicePaid(inv.id))}
+                          onClick={() => setRecording(inv)}
                           className="rounded-md border border-money/40 bg-money/10 px-2 py-1 text-[11px] font-semibold text-money hover:bg-money/20 disabled:opacity-50"
                         >
-                          Mark paid
+                          Record payment
                         </button>
                       )}
                     </div>
@@ -145,6 +148,18 @@ export function MoneyPanel({ slug, money }: { slug: string; money: ProjectMoney 
                       <div key={k} className="flex items-center gap-2 text-[11px]">
                         <span className="min-w-0 flex-1 truncate text-ink-3">{l.label}</span>
                         <span className="font-mono text-ink-3">{fmt(l.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {(inv.manualPayments ?? []).length > 0 && (
+                  <div className="space-y-1 px-4 py-2">
+                    {(inv.manualPayments ?? []).map(payment => (
+                      <div key={payment.id} className="flex flex-wrap items-center gap-2 text-[11px] text-ink-3">
+                        <span>{payment.receivedAt} · {payment.method} · {fmt(payment.amount)}{payment.reversed ? " · Undone" : " received"}</span>
+                        {payment.note && <span>{payment.note}</span>}
+                        {!payment.reversed && <button disabled={pending} onClick={() => setUndoing({ invoice: inv, payment })}
+                          className="rounded border border-rule px-2 py-1 text-ink hover:bg-paper-2 disabled:opacity-50">Undo payment</button>}
                       </div>
                     ))}
                   </div>
@@ -207,6 +222,11 @@ export function MoneyPanel({ slug, money }: { slug: string; money: ProjectMoney 
         />
       )}
 
+      {recording && <PaymentModal invoice={recording} pending={pending} onClose={() => setRecording(null)}
+        onSave={input => run(() => recordManualPayment(recording.id, input), "Could not record the payment.", () => setRecording(null))} />}
+      {undoing && <UndoPaymentModal payment={undoing.payment} pending={pending} onClose={() => setUndoing(null)}
+        onUndo={reason => run(() => reverseManualPayment(undoing.invoice.id, undoing.payment.id, reason), "Could not undo the payment.", () => setUndoing(null))} />}
+
       {editing && (
         <EditInvoiceModal
           invoice={editing}
@@ -221,6 +241,40 @@ export function MoneyPanel({ slug, money }: { slug: string; money: ProjectMoney 
       )}
     </div>
   );
+}
+
+function PaymentModal({ invoice, pending, onClose, onSave }: {
+  invoice: Invoice; pending: boolean; onClose: () => void;
+  onSave: (input: { amountCents: number; method: string; receivedAt: string; note: string }) => void;
+}) {
+  const open = invoice.lifecycle === "draft" ? invoice.amount : invoice.balance;
+  const [amount, setAmount] = useState(centsToInput(open));
+  const [method, setMethod] = useState("check");
+  const [date, setDate] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()));
+  const [note, setNote] = useState("");
+  return <ModalShell title={`Record payment · ${invoice.number}`} onClose={onClose}>
+    <form className="flex flex-col gap-3 p-4" onSubmit={e => { e.preventDefault(); onSave({ amountCents: dollarsToCents(amount), method, receivedAt: date, note }); }}>
+      <p className="text-[12px] text-ink-2">{fmt(open)} open. Enter the amount actually received; partial payments leave the rest open.</p>
+      {invoice.lifecycle === "draft" && <p className="text-[12px] text-ink-3">This records a payment received outside the app and issues this draft invoice. Nothing is emailed.</p>}
+      <label className="flex flex-col gap-1"><span className={LABEL}>Amount received ($)</span><input className={FIELD} type="number" step="0.01" min="0.01" max={open / 100} value={amount} onChange={e => setAmount(e.target.value)} required autoFocus /></label>
+      <label className="flex flex-col gap-1"><span className={LABEL}>Date received</span><input className={FIELD} type="date" value={date} onChange={e => setDate(e.target.value)} required /></label>
+      <label className="flex flex-col gap-1"><span className={LABEL}>Method</span><select className={FIELD} value={method} onChange={e => setMethod(e.target.value)}><option value="check">Check</option><option value="cash">Cash</option><option value="ach">Bank transfer</option><option value="card">Card received outside the app</option><option value="manual">Other</option></select></label>
+      <label className="flex flex-col gap-1"><span className={LABEL}>Reference / note</span><input className={FIELD} value={note} onChange={e => setNote(e.target.value)} placeholder="Check number or payment reference" /></label>
+      <div className="flex justify-end gap-2"><button type="button" className={FIELD} onClick={onClose}>Cancel</button><button disabled={pending || invoice.pending > 0} className="rounded-md bg-ink px-3 py-1.5 text-[12px] text-paper disabled:opacity-50">{pending ? "Recording…" : "Record payment"}</button></div>
+      {invoice.pending > 0 && <p role="status" className="text-[12px] text-flag">An online payment is in flight. Wait for it to settle before recording another.</p>}
+    </form>
+  </ModalShell>;
+}
+
+function UndoPaymentModal({ payment, pending, onClose, onUndo }: { payment: ManualPaymentView; pending: boolean; onClose: () => void; onUndo: (reason: string) => void }) {
+  const [reason, setReason] = useState("");
+  return <ModalShell title="Undo manual payment" onClose={onClose}>
+    <form className="flex flex-col gap-3 p-4" onSubmit={e => { e.preventDefault(); onUndo(reason); }}>
+      <p className="text-[12px] text-ink-2">Undo the {fmt(payment.amount)} {payment.method} entry from {payment.receivedAt}. The original stays in the history, and the invoice balance reopens. This corrects the record; no money is transferred.</p>
+      <label className="flex flex-col gap-1"><span className={LABEL}>Reason</span><input autoFocus required minLength={3} value={reason} onChange={e => setReason(e.target.value)} className={FIELD} /></label>
+      <div className="flex justify-end gap-2"><button type="button" className={FIELD} onClick={onClose}>Cancel</button><button disabled={pending || reason.trim().length < 3} className="rounded-md bg-ink px-3 py-1.5 text-[12px] text-paper disabled:opacity-50">{pending ? "Undoing…" : "Undo payment"}</button></div>
+    </form>
+  </ModalShell>;
 }
 
 function Row({ label, value, valueClass = "text-ink-2" }: { label: string; value: string; valueClass?: string }) {

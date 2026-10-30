@@ -23,6 +23,7 @@ import { commitOnApproval, prepareCommitment, stagePurchaseDecision, type Commit
 import type { ConstructionGate } from "./gate.ts";
 import { usd } from "./types.ts";
 import { manualMarketplaceFor } from "./vendor-rules.ts";
+import { allocationReviewed, stageAllocationReview } from "../workflow/cards.ts";
 
 export interface PackageReleaseInput {
   packageId: number;
@@ -109,6 +110,11 @@ export async function stagePackageRelease(run: Run, input: PackageReleaseInput):
   const loaded = await packageForRelease(run, input.packageId);
   if (!loaded) return { ok: false, reason: "Bid package not found." };
   const { pkg, attachments } = loaded;
+  // W03: Joe reviews who does what before any bid request goes out.
+  if (!(await allocationReviewed(run, pkg.project_id))) {
+    const review = await stageAllocationReview(run, pkg.project_id, input.principal);
+    return { ok: false, reason: `Joe hasn't reviewed who does what on this job yet${review.ok ? `; that card is staged (decision ${review.decision.id})` : ""}. Release cards come after he approves it.` };
+  }
   const invites = await run<{ id: number; sub_slug: string; message: string; status: string; name: string; trade: string; email: string | null; phone: string | null }>(
     `SELECT i.id, i.sub_slug, i.message, i.status, s.name, s.trade, s.email, s.phone FROM bid_invites i JOIN subs s ON s.slug = i.sub_slug
       WHERE i.package_id = $1 AND ($2::bigint[] IS NULL OR i.id = ANY($2::bigint[])) ORDER BY i.id`,

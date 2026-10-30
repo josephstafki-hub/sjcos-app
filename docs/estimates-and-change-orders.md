@@ -91,7 +91,9 @@ together with the job's estimates (each tagged `lives_in`, and
 - "Client wants to add/change Y" → check `scope_change_path`. `precon_estimate`
   → `create_estimate { kind: "precon_change" }` + `add_estimate_lines`.
   `change_order` → a change order; no tool creates one, so draft it in the app
-  or `ask_owner`.
+  or `ask_owner`. Exception: a selection over its allowance →
+  `stage_allowance_overage`; Joe approving that card drafts the change order
+  (a Pre-con change estimate before the contract).
 - "Make the formal estimate document" → `create_document_draft
   { template_key: "estimate_doc", estimate_id }`, fill `scope_summary`, render.
 - Never insert into `estimates`, `estimate_lines`, `change_orders` or

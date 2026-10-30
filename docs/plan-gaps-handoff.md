@@ -238,10 +238,13 @@ by Joe/staff don't feed the weekly update (only sub logs do).
     - The workflow runbooks (`db/seed-workflow-runbooks.mjs`) aren't seeded live. They seed as inactive or
       proposed for Joe to approve in /engine, so run that at deploy.
     - Live jobs show stage W01 (5 projects) or W09 (2), with no backfill.
-- **W03 and W11:**
-  - W03: no allocation-review card is ever staged.
-  - W11: the over-allowance `prepare_change_order` card has no handler. Joe's rule is that no tool creates
-    change orders, so ask him how this card should end.
+- ~~**W03 and W11:**~~ **Done (branch `t3/tier3-w11-w03`, `lib/workflow/cards.ts`):**
+  - W03: a "Who does what" card lists every scope item (Joe / a sub / a supplier, supply vs install, his
+    prices). `stage_package_release` stages it first when the current allocation hasn't been reviewed, and
+    the agent can stage it with `stage_scope_allocation_review`. Approving records the review and sends
+    nothing. A later allocation change needs a new review.
+  - W11 (Joe: the no-change-order rule doesn't apply here): approving the over-allowance card drafts the
+    change order, or a Pre-con change estimate before the contract.
 - **Email intake (A01):**
   - Hermes files email to-dos directly, with no message identity or obligation.
   - `catchUpMailbox` and `handleReply` (`lib/obligations/*`) have no callers.

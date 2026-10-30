@@ -62,7 +62,10 @@ Rule from Joe (2026-09-23); full text in `docs/estimates-and-change-orders.md`.
   (`create_estimate`), not a change order.
 - **After the contract is signed** → a change order (Money › Change orders).
   Never in pre-construction; the table refuses the row. No MCP tool creates a
-  change order — draft it in the app or ask Joe with `ask_owner`.
+  change order — draft it in the app or ask Joe with `ask_owner`. One
+  exception (Joe, 2026-10-30): a selection over its allowance stages a
+  `prepare_change_order` card (`stage_allowance_overage`); Joe approving it
+  drafts the change order (or a Pre-con change before the contract).
 - Lead phase: the rough estimate on the lead page. Not a project estimate.
 
 # Job total and paid (the projects-list bar)

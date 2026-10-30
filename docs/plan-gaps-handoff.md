@@ -300,8 +300,13 @@ by Joe/staff don't feed the weekly update (only sub logs do).
     Dashboard, or with a webhook that never arrived) and bank returns. A refund made outside SJC OS alerts Joe.
   - The worker retries failed Square events (`lib/worker/square-processor.ts`).
   - ACH availability is now card processing on a US/USD location, not AUTOMATIC_TRANSFERS (payouts).
-- **Closeout and marketing (A17):** the `lib/closeout/marketing.ts` and `revisions.ts` functions have no
-  callers.
+- **Closeout and marketing (A17):**
+  - ~~`revisions.ts` has no callers.~~ **Done (branch `t3/tier3-closeout`):** every signed document's
+    content is pinned as its revision (a signature step in `lib/esign-hooks.ts`). The designer also pins
+    through it (#83).
+  - `lib/closeout/marketing.ts` (publication rights, marketing drafts, the publish card) is still unwired.
+    The dispatcher has no `publication` kind and no social/website provider, so there is nowhere to post.
+    **Ask Joe** where marketing posts should go before wiring it.
 - ~~**Designer (A21):**~~ **Done (branch `t3/tier3-designer`):**
   - "Estimate from plan" now reads a pinned design version. It reuses the newest version when that version
     is the live drawing; otherwise it snapshots a new one first.

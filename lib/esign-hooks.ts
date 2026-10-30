@@ -7,7 +7,8 @@ import "server-only";
 //                operating agent woken (A23);
 //   closeout   — a completion sign-off schedules after-job care (W12);
 //   agreement  — an accepted formal estimate drafts the construction
-//                agreement (W08, lib/workflow/agreement.ts).
+//                agreement (W08, lib/workflow/agreement.ts);
+//   revision   — the signed content is pinned (lib/closeout/revisions.ts).
 // Every step is idempotent, and none may fail the signature. A step that
 // throws used to be only logged; now the whole set is recorded as a failed
 // 'esign' source event and the worker runs it again (lib/worker/esign-processor.ts)
@@ -19,6 +20,7 @@ import { billingOnSignatureSigned } from "@/lib/billing/server";
 import { workflowOnSignatureSigned } from "@/lib/workflow/server";
 import { recordWrittenSignoffCmd } from "@/lib/closeout/server";
 import { prepareAgreementOnAcceptance } from "@/lib/workflow/agreement";
+import { pinSignedSignatureRequest } from "@/lib/closeout/revisions";
 
 /** Run every step; returns the ones that failed ("step: message"). */
 export async function runSignatureHooks(signatureRequestId: number): Promise<string[]> {
@@ -31,6 +33,9 @@ export async function runSignatureHooks(signatureRequestId: number): Promise<str
       failed.push(`${name}: ${(err as Error)?.message ?? String(err)}`.slice(0, 400));
     }
   };
+  // The signed content (title, body, file, signer, time) is pinned as the
+  // document's revision, so a later decision can prove it binds what was signed.
+  await step("revision", () => pinSignedSignatureRequest(runDirect, signatureRequestId));
   await step("billing", () => billingOnSignatureSigned(signatureRequestId));
   await step("workflow", () => workflowOnSignatureSigned(signatureRequestId));
   const [sr] = await runDirect<{ doc_type: string }>(`SELECT doc_type FROM signature_requests WHERE id = $1`, [signatureRequestId]);

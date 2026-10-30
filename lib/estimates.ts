@@ -104,6 +104,7 @@ export async function getProjectEstimates(slug: string): Promise<EstimateDetail[
     `SELECT id, estimate_id, cost_item_id, description, section, unit, qty, unit_cost, markup, extended
        FROM estimate_lines
       WHERE estimate_id = ANY($1::bigint[])
+        AND superseded_by IS NULL AND superseded_at IS NULL -- a replaced option is not on the estimate (rules.ts clientFacingLines)
       ORDER BY section, sort_order, id`,
     [ids],
   );

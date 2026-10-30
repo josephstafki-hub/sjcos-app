@@ -263,7 +263,11 @@ by Joe/staff don't feed the weekly update (only sub logs do).
   - `needs_review` isn't shown anywhere, and there's no owner Repair button.
 - **Leads (A11):** `lib/leads/{match,facts,routine,package}.ts` has no callers. Mind the `routine.followup`
   key issue above.
-- **Sub paperwork (A12):** the review functions are now used for COIs. Extend them to W-9s and other documents.
+- ~~**Sub paperwork (A12):**~~ **Done (branch `t3/tier3-subdocs`):**
+  - Every sub-portal upload (W-9, agreement, other) now goes under review with its own to-do for Joe.
+    For a W-9: signed, legal name; the tax ID is never stored.
+  - The Paperwork tab has Accept/Reject for each one, plus a "papers to review" chip. Only a COI needs an
+    expiry date.
 - **Procurement (A13):**
   - The real PO send (`lib/send-ops.ts:~137`) skips commitments, cash and the construction gate.
   - Funding ignores hand-kept `collected_to_date` (`lib/funding/index.ts:~73-86`).

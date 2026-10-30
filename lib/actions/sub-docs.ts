@@ -93,12 +93,10 @@ export async function uploadSubDocument(slug: string, formData: FormData): Promi
     tag: "Sub doc",
     accent: "accent",
     icon: "shield",
-    title: coi ? `${name} uploaded a COI — review it` : `${name} uploaded a ${SUB_DOC_LABEL[docType]}`,
+    title: coi ? `${name} uploaded a COI — review it` : `${name} uploaded a ${SUB_DOC_LABEL[docType]} — review it`,
     subline: coi
       ? `${expires ? `Says it expires ${expires} · ` : ""}not current until you accept it`
-      : expires
-        ? `Expires ${expires}`
-        : "On file",
+      : "Accept or reject it on the sub's Paperwork tab",
     href: `/subs/${subSlug}`,
   });
 

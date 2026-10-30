@@ -12,9 +12,11 @@
 //   acceptDocument          — reviewer records validated metadata (never the
 //                             TIN) → accepted; open request satisfied; contact
 //                             stops. Missing interpretation escalates to Joe.
-//   receiveSubDocument      — a sub-portal upload: ingest, and a COI goes
-//                             under_review with one to-do for Joe. The date
-//                             the sub typed is their claim, not coverage.
+//   receiveSubDocument      — a sub-portal upload: ingest, then it goes
+//                             under_review with one to-do for Joe (COI, W-9,
+//                             agreement or other, each with its own check).
+//                             A COI date the sub typed is their claim, not
+//                             coverage.
 //   confirmSubDocument      — Joe's own reading: accepts with the expiry date
 //                             he confirms (owner only).
 //   rejectDocument          — not accepted, with a reason; the sub is asked
@@ -415,6 +417,14 @@ async function markAccepted(
 
 /** work_items.source_kind / source_id of the review to-do for one document. */
 export const REVIEW_SOURCE_KIND = "sub_document";
+
+/** What Joe checks on each kind of upload (the review to-do's words). */
+const REVIEW_TEXT: Record<SubDocType, { noun: string; short: string; label: string; check: string }> = {
+  coi: { noun: "a COI", short: "COI", label: "Certificate", check: "Open the certificate and check the dates and coverage." },
+  w9: { noun: "a W-9", short: "W-9", label: "W-9", check: "Open it and check it's signed and the legal name and business type match the sub. SJC OS never stores the tax ID." },
+  agreement: { noun: "a signed sub agreement", short: "sub agreement", label: "Agreement", check: "Open it and check it's the current agreement, signed by the sub." },
+  other: { noun: "a document", short: "document", label: "Document", check: "Open it and check what it is." },
+};
 export const reviewSourceId = (documentId: number) => `subdoc:${documentId}:review`;
 
 /** Close the review to-dos (and any pending review cards) on these documents. */
@@ -457,17 +467,19 @@ export async function receiveSubDocument(run: Run, input: ReceiveInput): Promise
   }
   const got = await ingestSubDocument(run, { ...input, checksum });
   if (!got.ok) return got;
-  if (got.document.doc_type !== "coi") return { ok: true, document: got.document, requestIds: got.requestIds, reviewItemId: null };
 
   const [doc] = await run<SubDocumentRow>(`UPDATE sub_documents SET status = 'under_review', updated_at = now() WHERE id = $1 RETURNING ${DOC_COLS}`, [got.document.id]);
   const [sub] = await run<{ name: string }>(`SELECT name FROM subs WHERE slug = $1`, [doc.sub_slug]);
   const [job] = input.jobProjectId ? await run<{ id: string; slug: string; name: string }>(`SELECT id, slug, name FROM projects WHERE id = $1`, [input.jobProjectId]) : [];
   const name = sub?.name ?? doc.sub_slug;
   const typed = doc.expires_at ? `typed an expiry date of ${doc.expires_at}` : "did not type an expiry date";
+  const what = REVIEW_TEXT[doc.doc_type];
   const body = [
-    `${name} uploaded a COI (certificate of insurance) from the sub portal and ${typed}. It does not count as current until you accept it.`,
-    `Open the certificate and check the dates and coverage. Then, on the sub's Paperwork tab: Accept it with the expiry date you confirm, or Reject it with a reason (they're asked for a new one).`,
-    doc.file_id ? `Certificate: /api/files/${doc.file_id}` : null,
+    doc.doc_type === "coi"
+      ? `${name} uploaded a COI (certificate of insurance) from the sub portal and ${typed}. It does not count as current until you accept it.`
+      : `${name} uploaded ${what.noun} from the sub portal.`,
+    `${what.check} Then, on the sub's Paperwork tab: Accept it${doc.doc_type === "coi" ? " with the expiry date you confirm" : ""}, or Reject it with a reason (they're asked for a new one).`,
+    doc.file_id ? `${what.label}: /api/files/${doc.file_id}` : null,
     `Sub: /subs/${doc.sub_slug}`,
     job ? `Job: ${job.name} — /projects/${job.slug}` : null,
   ]
@@ -479,7 +491,7 @@ export async function receiveSubDocument(run: Run, input: ReceiveInput): Promise
       WHERE NOT EXISTS (SELECT 1 FROM work_items WHERE source_kind = $4 AND source_id = $5 AND status NOT IN ('done','cancelled'))
      RETURNING id`,
     [
-      `Review ${name}'s COI${doc.expires_at ? ` (says it expires ${doc.expires_at})` : ""}`.slice(0, 200),
+      `Review ${name}'s ${what.short}${doc.doc_type === "coi" && doc.expires_at ? ` (says it expires ${doc.expires_at})` : ""}`.slice(0, 200),
       body,
       job?.id ?? null,
       REVIEW_SOURCE_KIND,

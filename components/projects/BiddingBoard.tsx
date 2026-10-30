@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionMenu } from "./ActionMenu";
+
 // The project Bidding tab (Houzz-Pro-style bid management). The flow reads
 // top to bottom the way the work happens:
 //
@@ -38,7 +40,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { Card, Chip, Eyebrow, type ChipKind } from "@/components/ui";
+import { Button, Card, Chip, EmptyState, Eyebrow, type ChipKind } from "@/components/ui";
 import type { BiddingView, BidPackage, BidInvite, BidInviteStatus } from "@/lib/bidding";
 import type { ProjectFile } from "@/lib/projects";
 
@@ -102,12 +104,12 @@ const INVITE_CHIP: Record<BidInviteStatus, { kind: ChipKind; label: string }> = 
 };
 
 const INPUT =
-  "rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent";
-const LABEL = "font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3";
+  "rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent";
+const LABEL = "text-label font-medium text-ink-3";
 const BTN_GHOST =
-  "inline-flex items-center gap-1 rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2";
+  "inline-flex items-center gap-1 rounded-md border border-rule px-2.5 py-1 text-label font-semibold text-ink-2 hover:bg-paper-2";
 const BTN_SOLID =
-  "inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50";
+  "inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-3 py-1.5 text-label font-semibold text-paper hover:bg-ink-hover disabled:opacity-50";
 
 type Modal =
   | { kind: "pkg"; pkg: BidPackage | null }
@@ -304,20 +306,20 @@ export function BiddingBoard({
   }
 
   return (
-    <div className="flex max-w-[880px] flex-col gap-4">
-      <div className="flex items-start gap-2">
-        <div className="flex-1">
-          <h3 className="font-serif text-[16px] font-semibold text-ink">Bidding</h3>
-          <p className="mt-0.5 text-[12px] text-ink-3">
+    <div className="flex max-w-[880px] flex-col gap-4 max-sm:[&_button]:min-h-11 max-sm:[&_button]:min-w-11">
+      <div className="flex flex-col items-start gap-3 @3xl/page:flex-row">
+        <div className="min-w-0 basis-full @3xl/page:basis-auto flex-1">
+          <h3 className="font-serif text-heading font-semibold text-ink">Bidding</h3>
+          <p className="mt-0.5 text-label text-ink-3">
             {packages.length > 0
               ? "Packets emailed to subs, grouped by trade. Record the numbers that come back and compare side by side."
               : "Email plans and takeoffs to a group of subs and collect their numbers in one place."}
           </p>
         </div>
-        <button className={BTN_SOLID} onClick={() => setModal({ kind: "pkg", pkg: null })}>
+        <Button onClick={() => setModal({ kind: "pkg", pkg: null })}>
           <Plus className="size-3" strokeWidth={2} />
           New bid package
-        </button>
+        </Button>
       </div>
 
       {view.trades.length > 1 && (
@@ -334,10 +336,7 @@ export function BiddingBoard({
       )}
 
       {packages.length === 0 && (
-        <Card kind="dashed" className="p-6 text-center text-[13px] text-ink-3">
-          No bid packages yet. Start one for a category of work — framing, HVAC, tile — attach the
-          plans, and pick which subs price it.
-        </Card>
+        <EmptyState compact icon={Users} title="No bid packages yet" description="Start a package for a trade, attach the plans, and choose the subs who will price the work." />
       )}
 
       {[...groups.entries()].map(([trade, pkgs]) => (
@@ -476,27 +475,21 @@ function PackageCard({
   return (
     <Card className={`p-3.5 ${pkg.status === "closed" ? "opacity-70" : ""}`}>
       <div className="flex flex-wrap items-center gap-2">
-        <h4 className="font-serif text-[15px] font-semibold text-ink">{pkg.title}</h4>
+        <h4 className="text-subheading font-semibold text-ink">{pkg.title}</h4>
         {pkg.trade && <Chip kind="accent">{pkg.trade}</Chip>}
         <Chip kind={chip.kind} dot>
           {chip.label}
         </Chip>
-        {pkg.dueLabel && <span className="font-mono text-[11px] text-ink-3">bids due {pkg.dueLabel}</span>}
+        {pkg.dueLabel && <span className="tabular-nums text-meta text-ink-3">bids due {pkg.dueLabel}</span>}
         <div className="flex-1" />
         {pkg.lowTotal !== null && (
-          <span className="font-mono text-[12px] text-money">low {usd(pkg.lowTotal)}</span>
+          <span className="tabular-nums text-label text-money">low {usd(pkg.lowTotal)}</span>
         )}
-        <button className="text-ink-3 hover:text-ink" title="Edit package" onClick={onEdit}>
-          <Pencil className="size-3.5" strokeWidth={1.5} />
-        </button>
-        {pkg.status === "draft" && (
-          <button className="text-ink-3 hover:text-flag" title="Delete package" onClick={onRemove}>
-            <Trash2 className="size-3.5" strokeWidth={1.5} />
-          </button>
-        )}
+        <Button variant="ghost" iconOnly icon={Pencil} aria-label={`Edit ${pkg.title}`} title="Edit package" onClick={onEdit} />
+        {pkg.status === "draft" && <ActionMenu label={`More actions for ${pkg.title}`}><Button variant="ghost" className="text-flag" onClick={onRemove}>Delete package</Button></ActionMenu>}
       </div>
       {pkg.scopeNotes && (
-        <p className="mt-1.5 whitespace-pre-line text-[12.5px] leading-snug text-ink-2">{pkg.scopeNotes}</p>
+        <p className="mt-1.5 whitespace-pre-line text-body leading-snug text-ink-2">{pkg.scopeNotes}</p>
       )}
 
       {/* The packet */}
@@ -511,15 +504,15 @@ function PackageCard({
               href={`/api/portal/bid-file/${f.fileId}`}
               target="_blank"
               rel="noreferrer"
-              className="max-w-[220px] truncate text-[11.5px] text-ink-2 hover:text-ink"
+              className="max-w-[220px] truncate text-meta text-ink-2 hover:text-ink"
               title={f.name}
             >
               {f.label || f.name}
             </a>
-            <span className="font-mono text-[9.5px] text-ink-4">{f.sizeLabel}</span>
+            <span className="tabular-nums text-meta text-ink-3">{f.sizeLabel}</span>
             {live && (
               <button
-                className="text-ink-4 hover:text-flag"
+                className="text-ink-3 hover:text-flag"
                 title="Remove from packet"
                 onClick={() => onRemoveFile(f.id)}
               >
@@ -535,14 +528,14 @@ function PackageCard({
           </button>
         )}
         {!live && pkg.files.length === 0 && (
-          <span className="text-[11.5px] text-ink-4">No packet files.</span>
+          <span className="text-meta text-ink-3">No packet files.</span>
         )}
       </div>
 
       {/* Recipients */}
       <div className="mt-3 border-t border-rule-soft pt-2.5">
         {pkg.invites.length === 0 ? (
-          <div className="flex items-center gap-2 text-[12.5px] text-ink-3">
+          <div className="flex items-center gap-2 text-body text-ink-3">
             No subs picked yet.
             {live && (
               <button className={BTN_GHOST} onClick={onSubs}>
@@ -558,33 +551,33 @@ function PackageCard({
               return (
                 <div
                   key={inv.id}
-                  className={`flex items-center gap-2 py-1.5 ${idx ? "border-t border-rule-soft" : ""}`}
+                  className={`flex flex-wrap items-center gap-2 py-3 ${idx ? "border-t border-rule-soft" : ""}`}
                 >
-                  <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
+                  <span className="w-full min-w-0 break-words text-subheading font-semibold text-ink @3xl/page:w-auto @3xl/page:flex-1">
                     {inv.subName}
                     {inv.message && (
-                      <span className="ml-1.5 text-[11px] italic text-ink-3" title={inv.message}>
+                      <span className="ml-1.5 text-meta italic text-ink-3" title={inv.message}>
                         + note
                       </span>
                     )}
                   </span>
                   {inv.status === "draft" && !inv.subEmail && (
-                    <Chip kind="flag">no email</Chip>
+                    <Chip kind="flag">No email</Chip>
                   )}
                   <Chip kind="ghost">{inv.subTrade || "—"}</Chip>
                   {inv.autoLabel && (
-                    <span className="font-mono text-[10px] text-ink-4" title="Auto follow-up email">
+                    <span className="tabular-nums text-meta text-ink-3" title="Auto follow-up email">
                       {inv.autoLabel}
                     </span>
                   )}
                   <Chip kind={ic.kind} dot>
                     {ic.label}
                   </Chip>
-                  <span className="w-[76px] text-right font-mono text-[12px] text-ink-2">
+                  <span className="w-[76px] text-right tabular-nums text-label text-ink-2">
                     {inv.submission ? usd(inv.submission.total) : "—"}
                   </span>
                   {inv.id < 0 ? (
-                    <span className="font-mono text-[10px] text-ink-4">saving…</span>
+                    <span className="tabular-nums text-meta text-ink-3">saving…</span>
                   ) : (
                     <>
                   <button
@@ -598,7 +591,7 @@ function PackageCard({
                     className={
                       ["sent", "viewed"].includes(inv.status)
                         ? "text-ink-3 hover:text-accent"
-                        : "text-ink-4"
+                        : "text-ink-3"
                     }
                     title={
                       ["sent", "viewed"].includes(inv.status)
@@ -612,7 +605,7 @@ function PackageCard({
                     <Hammer className="size-3.5" strokeWidth={1.5} />
                   </button>
                   <button
-                    className={inv.status === "draft" ? "text-ink-4" : "text-ink-3 hover:text-money"}
+                    className={inv.status === "draft" ? "text-ink-3" : "text-ink-3 hover:text-money"}
                     title={
                       inv.status === "draft"
                         ? "Record a bid once the request is emailed"
@@ -624,7 +617,7 @@ function PackageCard({
                   </button>
                   {inv.status === "draft" ? (
                     <button
-                      className="text-ink-4 hover:text-flag"
+                      className="text-ink-3 hover:text-flag"
                       title="Remove from this bid"
                       onClick={() => onRemoveInvite(inv.id)}
                     >
@@ -665,7 +658,7 @@ function PackageCard({
           </button>
         )}
         {winner && (
-          <span className="inline-flex items-center gap-1 text-[12px] font-semibold text-money">
+          <span className="inline-flex items-center gap-1 text-label font-semibold text-money">
             <Trophy className="size-3.5" strokeWidth={1.75} />
             {winner.subName} · {winner.submission ? usd(winner.submission.total) : ""}
           </span>
@@ -673,7 +666,7 @@ function PackageCard({
         <div className="flex-1" />
         {live && (
           <button
-            className="text-[11.5px] text-ink-3 underline-offset-2 hover:underline"
+            className="text-meta text-ink-3 underline-offset-2 hover:underline"
             title="Auto emails while the package is open: nudge subs who haven't answered (day 2 & 5), check in on subs working on it (day 4), and thank each sub when their bid is recorded"
             onClick={onToggleFollowUps}
           >
@@ -681,12 +674,12 @@ function PackageCard({
           </button>
         )}
         {pkg.status === "open" && (
-          <button className="text-[11.5px] text-ink-3 underline-offset-2 hover:underline" onClick={onClose}>
+          <button className="text-meta text-ink-3 underline-offset-2 hover:underline" onClick={onClose}>
             Close without awarding
           </button>
         )}
         {pkg.status === "open" && pkg.sentLabel && (
-          <span className="font-mono text-[10.5px] text-ink-4">sent {pkg.sentLabel}</span>
+          <span className="tabular-nums text-meta text-ink-3">sent {pkg.sentLabel}</span>
         )}
       </div>
     </Card>
@@ -803,8 +796,8 @@ function FilesModal({
                 <label key={f.id} className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 hover:bg-paper-2">
                   <input type="checkbox" name="fileId" value={f.id} className="accent-ink" />
                   <FileText className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
-                  <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink">{f.name}</span>
-                  <span className="font-mono text-[10px] text-ink-4">{f.sizeLabel}</span>
+                  <span className="min-w-0 flex-1 truncate text-body text-ink">{f.name}</span>
+                  <span className="tabular-nums text-meta text-ink-3">{f.sizeLabel}</span>
                 </label>
               ))}
             </div>
@@ -821,7 +814,7 @@ function FilesModal({
             name="file"
             type="file"
             required
-            className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[12px] text-ink-2 outline-none file:mr-2 file:rounded file:border-0 file:bg-paper-3 file:px-2 file:py-1 file:text-[11px] file:text-ink-2"
+            className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-label text-ink-2 outline-none file:mr-2 file:rounded file:border-0 file:bg-paper-3 file:px-2 file:py-1 file:text-meta file:text-ink-2"
           />
           <div className="flex items-center gap-2">
             <input name="label" placeholder='Label the sub sees, e.g. "Material takeoff"' className={`${INPUT} flex-1`} />
@@ -841,16 +834,16 @@ function FilesModal({
                 className="flex items-center gap-2"
               >
                 <FileText className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
-                <span className="min-w-0 max-w-[200px] flex-none truncate text-[12px] text-ink-2" title={f.name}>
+                <span className="min-w-0 max-w-[200px] flex-none truncate text-label text-ink-2" title={f.name}>
                   {f.name}
                 </span>
-                <input name="label" defaultValue={f.label} placeholder="Label…" className={`${INPUT} min-w-0 flex-1 py-1 text-[12px]`} />
+                <input name="label" defaultValue={f.label} placeholder="Label…" className={`${INPUT} min-w-0 flex-1 py-1 text-label`} />
                 <button type="submit" disabled={pending} className="text-ink-3 hover:text-ink" title="Save label">
                   <Check className="size-3.5" strokeWidth={1.75} />
                 </button>
                 <button
                   type="button"
-                  className="text-ink-4 hover:text-flag"
+                  className="text-ink-3 hover:text-flag"
                   title="Remove from packet"
                   onClick={() => onRemoveFile(f.id)}
                 >
@@ -935,7 +928,7 @@ function RecipientsModal({
         />
         <div className="flex max-h-[300px] flex-col gap-2.5 overflow-y-auto">
           {candidates.length === 0 && (
-            <div className="py-4 text-center text-[12.5px] text-ink-3">
+            <div className="py-4 text-center text-body text-ink-3">
               {roster.length === invited.size
                 ? "Every sub on the roster is already on this bid."
                 : "No subs match."}
@@ -952,7 +945,7 @@ function RecipientsModal({
                   <button
                     type="button"
                     onClick={() => toggleTrade(trade)}
-                    className="text-[11px] font-semibold text-accent-2 underline-offset-2 hover:underline"
+                    className="text-meta font-semibold text-accent-2 underline-offset-2 hover:underline"
                   >
                     {allIn ? "Clear all" : `Select all ${members.length}`}
                   </button>
@@ -969,7 +962,7 @@ function RecipientsModal({
                         onChange={() => toggle(s.slug)}
                         className="accent-ink"
                       />
-                      <span className="flex-1 text-[13px] text-ink">{s.name}</span>
+                      <span className="flex-1 text-body text-ink">{s.name}</span>
                     </label>
                   ))}
                 </div>
@@ -978,7 +971,7 @@ function RecipientsModal({
           })}
         </div>
         {invited.size > 0 && (
-          <p className="text-[11px] text-ink-4">
+          <p className="text-meta text-ink-3">
             Already on this bid: {pkg.invites.map((i) => i.subName).join(", ")}
           </p>
         )}
@@ -1012,7 +1005,7 @@ function NoteModal({
         className="flex flex-col gap-3 p-4"
       >
         <ModalError error={error} />
-        <p className="text-[12px] text-ink-3">
+        <p className="text-label text-ink-3">
           Rides on top of the shared scope notes — only {invite.subName} sees it. Use it to tailor the
           packet: &quot;your number should include the detached garage&quot;, &quot;ignore sheet A-301&quot;, etc.
         </p>
@@ -1052,8 +1045,8 @@ function CompareModal({
     <ModalShell title={`Compare bids · ${pkg.title}`} onClose={onClose} wide>
       <div className="flex flex-col gap-3 p-4">
         <ModalError error={error} />
-        {bids.length === 0 && <p className="text-[13px] text-ink-3">No bids in yet.</p>}
-        <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.max(bids.length, 1)}, minmax(220px, 1fr))` }}>
+        {bids.length === 0 && <p className="text-body text-ink-3">No bids in yet.</p>}
+        <div className="grid gap-3 overflow-x-auto" style={{ gridTemplateColumns: `repeat(${Math.max(bids.length, 1)}, minmax(220px, 1fr))` }}>
           {bids.map((inv) => {
             const s = inv.submission!;
             const isLow = s.total === low;
@@ -1066,14 +1059,14 @@ function CompareModal({
                 }`}
               >
                 <div className="flex items-center gap-1.5">
-                  <span className="min-w-0 flex-1 truncate font-serif text-[14px] font-semibold text-ink">
+                  <span className="min-w-0 flex-1 break-words text-subheading font-semibold text-ink">
                     {inv.subName}
                   </span>
                   {isWinner && <Chip kind="money" dot>Awarded</Chip>}
                   {!isWinner && isLow && <Chip kind="accent">Low bid</Chip>}
                 </div>
-                <div className="font-mono text-[20px] text-ink">{usd(s.total)}</div>
-                <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-4">
+                <div className="tabular-nums text-title text-ink">{usd(s.total)}</div>
+                <div className="text-label font-medium text-ink-3">
                   rev {s.revision} · {s.whenLabel}
                   {s.leadTime ? ` · lead ${s.leadTime}` : ""}
                 </div>
@@ -1082,10 +1075,10 @@ function CompareModal({
                   <div className="border-t border-rule-soft pt-1.5">
                     {s.lines.map((l, i) => (
                       <div key={i} className="flex items-baseline gap-2 py-0.5">
-                        <span className="min-w-0 flex-1 truncate text-[12px] text-ink-2" title={l.description}>
+                        <span className="min-w-0 flex-1 truncate text-label text-ink-2" title={l.description}>
                           {l.description}
                         </span>
-                        <span className="font-mono text-[11px] text-ink-3">{l.amount ? usd(l.amount) : ""}</span>
+                        <span className="tabular-nums text-meta text-ink-3">{l.amount ? usd(l.amount) : ""}</span>
                       </div>
                     ))}
                   </div>
@@ -1093,11 +1086,11 @@ function CompareModal({
                 {s.exclusions && (
                   <div className="border-t border-rule-soft pt-1.5">
                     <Eyebrow muted>Excludes</Eyebrow>
-                    <p className="mt-0.5 whitespace-pre-line text-[12px] leading-snug text-flag">{s.exclusions}</p>
+                    <p className="mt-0.5 whitespace-pre-line text-label leading-snug text-flag">{s.exclusions}</p>
                   </div>
                 )}
                 {s.notes && (
-                  <p className="whitespace-pre-line border-t border-rule-soft pt-1.5 text-[12px] leading-snug text-ink-2">
+                  <p className="whitespace-pre-line border-t border-rule-soft pt-1.5 text-label leading-snug text-ink-2">
                     {s.notes}
                   </p>
                 )}
@@ -1109,7 +1102,7 @@ function CompareModal({
                         href={`/api/portal/bid-file/${f.fileId}`}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex items-center gap-1.5 text-[12px] text-ink-2 hover:text-ink"
+                        className="inline-flex items-center gap-1.5 text-label text-ink-2 hover:text-ink"
                       >
                         <FileText className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
                         <span className="truncate">{f.name}</span>
@@ -1178,7 +1171,7 @@ function RecordBidModal({
             <button
               type="button"
               onClick={() => setDeclining(false)}
-              className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2"
+              className="rounded-md border border-rule px-3 py-1.5 text-label font-semibold text-ink-3 hover:bg-paper-2"
             >
               Back
             </button>
@@ -1202,7 +1195,7 @@ function RecordBidModal({
         }}
         className="flex flex-col gap-3 p-4"
       >
-        <p className="text-[12px] text-ink-3">
+        <p className="text-label text-ink-3">
           Type in what {invite.subName} sent back by email
           {invite.submission ? " — this files a new revision over their last number" : ""}.
         </p>
@@ -1230,7 +1223,7 @@ function RecordBidModal({
         <button
           type="button"
           onClick={() => setLineCount((n) => n + 1)}
-          className="self-start text-[11.5px] font-semibold text-accent-2 underline-offset-2 hover:underline"
+          className="self-start text-meta font-semibold text-accent-2 underline-offset-2 hover:underline"
         >
           + line item
         </button>
@@ -1254,7 +1247,7 @@ function RecordBidModal({
             name="files"
             type="file"
             multiple
-            className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[12px] text-ink-2 outline-none file:mr-2 file:rounded file:border-0 file:bg-paper-3 file:px-2 file:py-1 file:text-[11px] file:text-ink-2"
+            className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-label text-ink-2 outline-none file:mr-2 file:rounded file:border-0 file:bg-paper-3 file:px-2 file:py-1 file:text-meta file:text-ink-2"
           />
         </label>
         <div className="mt-1 flex items-center gap-2">
@@ -1262,7 +1255,7 @@ function RecordBidModal({
             <button
               type="button"
               onClick={() => setDeclining(true)}
-              className="text-[11.5px] text-ink-3 underline-offset-2 hover:underline"
+              className="text-meta text-ink-3 underline-offset-2 hover:underline"
             >
               Mark declined…
             </button>
@@ -1271,7 +1264,7 @@ function RecordBidModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2"
+            className="rounded-md border border-rule px-3 py-1.5 text-label font-semibold text-ink-3 hover:bg-paper-2"
           >
             Cancel
           </button>
@@ -1304,11 +1297,11 @@ function ModalShell({
       onClick={onClose}
     >
       <div
-        className={`w-full ${wide ? "max-w-[880px]" : "max-w-[520px]"} rounded-lg border border-rule bg-card shadow-xl`}
+        className={`w-full ${wide ? "max-w-[880px]" : "max-w-[520px]"} rounded-lg border border-rule bg-card shadow-modal`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-rule px-4 py-3">
-          <h2 className="font-serif text-[17px] font-semibold text-ink">{title}</h2>
+          <h2 className="font-serif text-heading font-semibold text-ink">{title}</h2>
           <button onClick={onClose} className="text-ink-3 hover:text-ink" aria-label="Close">
             <X className="size-4" strokeWidth={1.5} />
           </button>
@@ -1322,7 +1315,7 @@ function ModalShell({
 function ModalError({ error }: { error: string }) {
   if (!error) return null;
   return (
-    <div className="rounded-md border border-flag/40 bg-flag-soft px-3 py-2 text-[12px] text-flag">{error}</div>
+    <div className="rounded-md border border-flag/40 bg-flag-soft px-3 py-2 text-label text-flag">{error}</div>
   );
 }
 
@@ -1340,7 +1333,7 @@ function ModalActions({
       <button
         type="button"
         onClick={onClose}
-        className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2"
+        className="rounded-md border border-rule px-3 py-1.5 text-label font-semibold text-ink-3 hover:bg-paper-2"
       >
         Cancel
       </button>

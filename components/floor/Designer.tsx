@@ -5,6 +5,7 @@
 // bar. State lives in useDesigner (doc + undo + autosave) and ViewState
 // (per-session display options); every edit is a PlanOp.
 
+import { Button } from "@/components/ui/Button";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CatalogPlaceable, PlanDesign, PlanDesignComment, PlanDesignFile, PlanDesignVersion } from "@/lib/plan-designs";
@@ -64,16 +65,17 @@ export function Designer(props: DesignerProps) {
   );
   const canvas = useRef<Canvas2DHandle>(null);
   const scene = useRef<Scene3DHandle>(null);
-  const [narrow, setNarrow] = useState(false);
+  const container = useRef<HTMLDivElement>(null);
+  const [narrow, setNarrow] = useState(true);
   const [sheetOpen, setSheetOpen] = useState(false);
 
   // Narrow layout (tablet portrait / phone): rail becomes a strip, inspector a sheet.
   useEffect(() => {
-    const mq = window.matchMedia("(max-width: 1023px)");
-    const apply = () => setNarrow(mq.matches);
-    apply();
-    mq.addEventListener("change", apply);
-    return () => mq.removeEventListener("change", apply);
+    const element = container.current;
+    if (!element) return;
+    const observer = new ResizeObserver(([entry]) => setNarrow(entry.contentRect.width < 960));
+    observer.observe(element);
+    return () => observer.disconnect();
   }, []);
 
   // Refresh server-loaded lists (comments, files, versions) when the tab regains focus.
@@ -275,7 +277,7 @@ export function Designer(props: DesignerProps) {
   );
 
   const threeDBar = (
-    <div className="absolute left-3 top-3 z-10 flex flex-wrap gap-1 rounded-md border border-rule bg-paper/90 p-1 text-[11px]">
+    <div className="absolute left-3 top-3 z-10 flex flex-wrap gap-1 rounded-md border border-rule bg-paper/90 p-1 text-meta">
       {(["orbit", "walk", "plan"] as const).map((m) => (
         <button key={m} onClick={() => setView({ cameraMode: m })} className={`rounded px-2 py-0.5 capitalize ${view.cameraMode === m ? "bg-ink text-paper" : "text-ink-2 hover:bg-paper-2"}`}>
           {m}
@@ -338,7 +340,7 @@ export function Designer(props: DesignerProps) {
         <select
           value={view.activeCameraId ?? ""}
           onChange={(e) => e.target.value && ctx.flyTo(e.target.value)}
-          className="rounded border border-rule bg-paper px-1 py-0.5 text-[11px]"
+          className="rounded border border-rule bg-paper px-1 py-0.5 text-meta"
         >
           <option value="">Cameras…</option>
           {d.doc.cameras.map((c) => (
@@ -361,7 +363,7 @@ export function Designer(props: DesignerProps) {
   const onPrint = () => setView({ panel: "versions" });
 
   return (
-    <div className="flex h-[calc(100vh-var(--topbar-h,56px))] min-h-[480px] flex-col overflow-hidden">
+    <div ref={container} className="flex h-[calc(100dvh-var(--topbar-h,48px))] min-h-[480px] flex-col overflow-hidden max-sm:pb-14">
       {/* A19: owner office time from real interaction only; server resolves the job from the design. */}
       <ActivityEmitter designId={design.id} enabled={props.isOwner && !readOnly} />
       <TopBar ctx={ctx} onFit={() => { canvas.current?.fit(); scene.current?.fit(); }} onPrint={onPrint} />
@@ -386,12 +388,12 @@ export function Designer(props: DesignerProps) {
             </div>
           )}
           {narrow && (
-            <button
+            <Button
               onClick={() => setSheetOpen((o) => !o)}
-              className="absolute bottom-3 right-3 z-20 rounded-full border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper shadow-lg"
+              className="absolute bottom-3 right-3 z-20 rounded-full border border-ink bg-ink px-3 py-1.5 text-label font-semibold text-paper shadow-pop"
             >
               {sheetOpen ? "Hide panel" : "Panel"}
-            </button>
+            </Button>
           )}
         </div>
         {!narrow && <Inspector ctx={ctx} />}

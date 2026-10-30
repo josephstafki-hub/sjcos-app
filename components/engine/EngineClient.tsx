@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { WorkItemEditor } from "./WorkItemEditor";
@@ -232,6 +232,14 @@ function ActiveRunbooks({ instances }: { instances: RunbookInstanceView[] }) {
 // in lib/engine-views.ts), filters on top, and Queue vs Archived. The board
 // filters in the browser; the archive is paged from the server.
 
+function QueueFilterDisclosure({ children, label }: { children: ReactNode; label: string }) {
+  const [open, setOpen] = useState(false);
+  return <div className="mb-4">
+    <Button variant="secondary" className="mb-3 @3xl/page:hidden" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Hide folders and filters" : "Folders and filters"} · {label}</Button>
+    <div className={`${open ? "block" : "hidden"} @3xl/page:block`}>{children}</div>
+  </div>;
+}
+
 function QueueTab({
   engine,
   skills,
@@ -371,7 +379,8 @@ function QueueTab({
         </Card>
       )}
 
-      <div className="grid gap-5 @5xl/page:grid-cols-[180px_minmax(0,1fr)]">
+      <QueueFilterDisclosure label={folders.all.who === filter.who ? folders.all.label : [...folders.people, ...folders.agents].find(f => f.who === filter.who)?.label ?? "Selected folder"}>
+      <div className="grid gap-3 @5xl/page:grid-cols-[180px_minmax(0,1fr)]">
         <QueueRail
           folders={folders}
           active={filter.who}
@@ -387,6 +396,11 @@ function QueueTab({
             onMe={view === "queue" ? { on: onMe, count: onMeCount, set: setOnMe } : null}
           />
 
+        </div>
+      </div>
+      </QueueFilterDisclosure>
+      <p className="mb-3 text-meta text-ink-2">{view === "queue" ? `${shown.length} shown · ${inFolder.length} in this folder and filters · ${onMeCount} waiting on me · ${shown.filter(it => it.bucket === "waiting").length} waiting / blocked shown` : "Archived records · folder and filters apply"}</p>
+      <div className="min-w-0">
           {view === "archived" ? (
             <ArchiveList
               filter={filter}
@@ -435,7 +449,6 @@ function QueueTab({
               ))}
             </div>
           )}
-        </div>
       </div>
     </div>
   );

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Card, Chip, Eyebrow, toast } from "@/components/ui";
+import { Card, Chip, Eyebrow, Button, toast } from "@/components/ui";
 import { runAction } from "@/lib/run-action";
 import { normalizeSummary } from "@/lib/decisions/summary";
 import {
@@ -56,7 +56,7 @@ function fmt(iso: string | null) {
 
 function KindChip({ d }: { d: DecisionView }) {
   if (d.status !== "pending") return <Chip kind={d.status === "approved" || d.status === "consumed" ? "money" : "ghost"}>{d.status}</Chip>;
-  if (d.heldUntil && new Date(d.heldUntil).getTime() > Date.now()) return <Chip kind="ghost">On hold until {fmt(d.heldUntil)}</Chip>;
+  if (d.heldUntil && new Date(d.heldUntil).getTime() > Date.now()) return <><Chip kind="ghost">On hold</Chip><span className="text-meta text-ink-2">Until {fmt(d.heldUntil)}</span></>;
   return <Chip kind="flag">Waiting on you</Chip>;
 }
 
@@ -171,6 +171,9 @@ function DecisionCard({ d, open, onToggle, owner }: { d: DecisionView; open: boo
           <button type="button" className={primary} disabled={pending || !d.canResolve} onClick={() => run(() => approveDecisionAction(d.id, d.contentHash))}>
             Approve
           </button>
+          <details className="relative">
+            <summary aria-label={`More actions for ${d.title}`} title="More actions" className="cursor-pointer list-none rounded-md border border-rule px-3 py-2 text-body text-ink-2">…</summary>
+            <div className="absolute right-0 z-10 mt-1 flex min-w-48 flex-col gap-2 rounded-lg border border-rule bg-card p-2 shadow-pop">
           <button type="button" className={btn} disabled={pending || !d.canResolve} onClick={() => setMode(mode === "changes" ? "none" : "changes")}>
             Request changes
           </button>
@@ -185,6 +188,8 @@ function DecisionCard({ d, open, onToggle, owner }: { d: DecisionView; open: boo
               Revoke
             </button>
           ) : null}
+            </div>
+          </details>
           <span className="basis-full text-meta text-ink-3">Expires {fmt(d.expiresAt)}</span>
         </div>
       )}
@@ -236,18 +241,22 @@ function LaneSwitches({ lanes, pauses }: { lanes: string[]; pauses: { lane: stri
         unknown state stays held for reconciliation either way. &ldquo;all&rdquo; stops everything.
       </div>
       <input className={`${inputCls} mt-2`} placeholder="Reason (shown on every held send)" value={reason} onChange={(e) => setReason(e.target.value)} />
-      <div className="mt-2 flex flex-wrap gap-2">
+      <div className="mt-3 divide-y divide-rule-soft">
         {lanes.map((lane) => {
           const p = paused.get(lane);
-          return p ? (
-            <button key={lane} type="button" className={`${btn} border-flag text-flag`} disabled={pending} onClick={() => run(() => resumeLaneAction(lane))} title={`${p.reason} · ${p.paused_by} · ${fmt(p.paused_at)}`}>
-              Resume {lane}
-            </button>
-          ) : (
-            <button key={lane} type="button" className={btn} disabled={pending} onClick={() => run(() => pauseLaneAction(lane, reason))}>
-              Pause {lane}
-            </button>
-          );
+          const stopped = p ?? paused.get("all");
+          return <div key={lane} className="flex flex-wrap items-center gap-3 py-3">
+            <span className="min-w-0 flex-1 text-body font-semibold text-ink">{lane.replace(/_/g, " ")}</span>
+            <Chip kind={stopped ? "flag" : "money"}>{stopped ? "Paused" : "Running"}</Chip>
+            {p ? <Button variant="secondary" size="sm" disabled={pending} onClick={() => run(() => resumeLaneAction(lane))}>Resume</Button> : <details className="relative">
+              <summary aria-label={`More controls for ${lane}`} title="Lane controls" className="cursor-pointer list-none rounded-md border border-rule px-3 py-2 text-body">…</summary>
+              <div className="absolute right-0 z-10 mt-1 min-w-48 rounded-lg border border-rule bg-card p-2 shadow-pop">
+                <Button variant="ghost" size="sm" disabled={pending || Boolean(stopped)} onClick={() => run(() => pauseLaneAction(lane, reason))}>Pause {lane === "all" ? "everything" : "lane"}</Button>
+                {stopped && <p className="text-meta text-ink-2">Resume “all” to reopen this lane.</p>}
+              </div>
+            </details>}
+            {stopped && <p className="basis-full text-meta text-ink-2">{stopped.reason || "Paused by owner"} · {stopped.paused_by} · {fmt(stopped.paused_at)}</p>}
+          </div>;
         })}
       </div>
     </Card>
@@ -290,16 +299,19 @@ function PolicySwitches({ policies }: { policies: PolicyVersionView[] }) {
         return (
           <Card key={key} className="p-3">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="font-mono text-[12px] font-semibold text-ink">{key}</span>
+              <span className="text-body font-semibold text-ink">{key}</span>
               <Chip kind={active ? "money" : "ghost"} dot>
                 {active ? `on · v${active.version}` : "off"}
               </Chip>
               {held > 0 && <Chip kind="flag">{held} send{held === 1 ? "" : "s"} held for it</Chip>}
               <div className="ml-auto flex gap-2">
                 {active ? (
-                  <button type="button" className={`${btn} border-flag text-flag`} disabled={pending} onClick={() => run(() => disablePolicyAction(key))}>
-                    Turn off
-                  </button>
+                  <details className="relative">
+                    <summary aria-label={`More controls for ${key}`} title="Policy controls" className="cursor-pointer list-none rounded-md border border-rule px-3 py-2 text-body">…</summary>
+                    <div className="absolute right-0 z-10 min-w-40 rounded-lg border border-rule bg-card p-2 shadow-pop">
+                      <Button variant="ghost" size="sm" disabled={pending} onClick={() => run(() => disablePolicyAction(key))}>Turn off</Button>
+                    </div>
+                  </details>
                 ) : null}
                 {latest && latest.state !== "active" && (
                   <button type="button" className={btn} disabled={pending} onClick={() => run(() => activatePolicyAction(key, latest.version))}>
@@ -308,18 +320,18 @@ function PolicySwitches({ policies }: { policies: PolicyVersionView[] }) {
                 )}
               </div>
             </div>
-            {(active ?? latest)?.notes && <p className="mt-1.5 text-[12px] leading-relaxed text-ink-3">{(active ?? latest)!.notes}</p>}
+            {(active ?? latest)?.notes && <p className="mt-1.5 text-body leading-relaxed text-ink-3">{(active ?? latest)!.notes}</p>}
             <details className="mt-1.5">
-              <summary className="cursor-pointer text-[11px] text-ink-3">Versions and settings</summary>
+              <summary className="cursor-pointer text-meta text-ink-3">Versions and settings</summary>
               <div className="mt-1.5 flex flex-col gap-1.5">
                 {versions.map((v) => (
                   <div key={v.version} className="rounded-md border border-rule p-2">
-                    <div className="flex items-center gap-2 text-[11px] text-ink-3">
+                    <div className="flex items-center gap-2 text-meta text-ink-3">
                       <span className="font-mono">v{v.version}</span>
                       <Chip kind={POLICY_CHIP[v.state]}>{v.state}</Chip>
                       <span>{v.effectiveFrom ? `since ${fmt(v.effectiveFrom)}` : `by ${v.createdBy}`}</span>
                     </div>
-                    <pre className="mt-1 overflow-x-auto whitespace-pre-wrap font-mono text-[11px] text-ink-2">{JSON.stringify(v.config, null, 2)}</pre>
+                    <pre className="mt-1 overflow-x-auto whitespace-pre-wrap font-mono text-meta text-ink-2">{JSON.stringify(v.config, null, 2)}</pre>
                   </div>
                 ))}
               </div>
@@ -328,7 +340,7 @@ function PolicySwitches({ policies }: { policies: PolicyVersionView[] }) {
         );
       })}
       {keys.length === 0 && (
-        <Card kind="dashed" className="p-4 text-center text-[12px] text-ink-3">
+        <Card kind="dashed" className="p-4 text-center text-body text-ink-3">
           No policies yet.
         </Card>
       )}
@@ -394,7 +406,7 @@ export function DecisionsClient({
       {owner && (
         <section id="policies">
           <Eyebrow>Policies</Eyebrow>
-          <p className="mt-1 max-w-[680px] text-[12px] text-ink-3">
+          <p className="mt-1 max-w-[680px] text-body text-ink-3">
             A policy that is on lets that kind of automatic action go out without a card each time, inside its settings. Off, the same
             action waits for you as a card. Only you can turn one on.
           </p>

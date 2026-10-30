@@ -280,7 +280,7 @@ export default async function ProjectDetailPage({
               Claims, coverage dates and missing closeout records for this job live on Warranty.
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <TabLink tab="Closeout">Repair closeout records →</TabLink>
+              <TabLink tab="Closeout" className="inline-flex min-h-11 items-center rounded-md bg-ink px-3 text-label font-semibold text-paper @xl/page:min-h-8">Review closeout</TabLink>
               <Button href="/warranty" size="sm" variant="secondary">Open Warranty</Button>
             </div>
           </Card>
@@ -308,8 +308,8 @@ export default async function ProjectDetailPage({
           </div>
           {dailyLogs.length === 0 && !ops?.receipts.length ? (
             <EmptyState
-              title="No activity recorded yet"
-              description="Daily logs and completed actions will appear here. Use Log update to record the next site update."
+              title={isHistorical ? "No closeout history recorded" : "No activity recorded yet"}
+              description={isHistorical ? "Imported jobs may have no daily logs here. Review closeout to record completion and coverage; attach past notes, signed documents and photos in Files." : "Daily logs and completed actions will appear here. Use Log update to record the next site update."}
             />
           ) : (
             <ol className="divide-y divide-rule-soft">

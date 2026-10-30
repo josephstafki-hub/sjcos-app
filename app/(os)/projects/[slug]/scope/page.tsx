@@ -19,8 +19,9 @@ export const dynamic = "force-dynamic";
 export default async function ScopeRegisterPage({ params }: { params: Promise<{ slug: string }> }) {
   const viewer = await requireAccess("projects");
   const { slug } = await params;
-  const [project] = await runDirect<{ id: string; name: string }>(`SELECT id, name FROM projects WHERE slug = $1`, [slug]);
+  const [project] = await runDirect<{ id: string; name: string; status: string }>(`SELECT id, name, status FROM projects WHERE slug = $1`, [slug]);
   if (!project) notFound();
+  const isHistorical = project.status === "warranty" || project.status === "closeout";
   const showPrices = can(viewer, "estimates");
   const [reg, design, workflow] = await Promise.all([getScopeRegister(runDirect, project.id), getDesignDecisions(runDirect, project.id), projectWorkflowView(runDirect, project.id).catch(() => null)]);
   const live = reg.items.filter((i) => i.status !== "superseded");
@@ -31,13 +32,13 @@ export default async function ScopeRegisterPage({ params }: { params: Promise<{ 
       <div className="mx-auto max-w-[1400px] px-4 @xl/page:px-7 pb-16 pt-6">
         <PageHeader title="Scope register" className="mb-5"
           meta={`${reg.register ? `Revision ${reg.register.revision} · ${reg.register.status}` : "No scope register yet"} · ${live.length} work packages · ${reg.findings.length} site findings`}
-          actions={<Button variant="secondary" href={`/projects/${slug}`}>← Project</Button>}
+          actions={<><Button variant="secondary" href={`/projects/${slug}`}>← Project</Button>{isHistorical && <Button href={`/projects/${slug}?tab=Closeout`}>Review closeout</Button>}</>}
         />
-        <p className="mb-5 max-w-prose text-body text-ink-3">Work packages, responsibilities and site findings for {project.name}. Unverified assumptions stay open until a site finding or quote answers them.</p>
+        <p className="mb-5 max-w-prose text-body text-ink-3">{isHistorical ? `Historical scope and site records for ${project.name}. Missing records can be added from the original job files.` : `Work packages, responsibilities and site findings for ${project.name}. Unverified assumptions stay open until a site finding or quote answers them.`}</p>
 
         {!reg.register && (
           <Card kind="soft" className="px-4 py-3 text-body text-ink-3">
-            The register is created automatically when a signed pre-construction agreement is recorded. Nothing to review yet.
+            {isHistorical ? "No scope register was imported for this completed job. Keep the original contract, scope, change orders and completion records in Files; review closeout to confirm dates and coverage." : "The register is created automatically when a signed pre-construction agreement is recorded. Nothing to review yet."}
           </Card>
         )}
 
@@ -100,10 +101,10 @@ export default async function ScopeRegisterPage({ params }: { params: Promise<{ 
           </section>
         )}
 
-        <section>
+        <section className="mt-8">
           <Eyebrow>Site findings ({reg.findings.length})</Eyebrow>
           {reg.findings.length === 0 ? (
-            <Card kind="soft" className="mt-2 px-4 py-3 text-body text-ink-3">No findings recorded. Upload site notes or photos and the agent extracts source-linked facts here. <Button variant="secondary" size="sm" href={`/projects/${slug}?tab=Files`}>Upload site findings</Button></Card>
+            <Card kind="soft" className="mt-2 px-4 py-3 text-body text-ink-3">{isHistorical ? "No historical site findings were imported. Add past site notes or photos in Files to preserve the record." : "No findings recorded. Upload site notes or photos and the agent extracts source-linked facts here."} <Button variant="secondary" size="sm" href={`/projects/${slug}?tab=Files`}>{isHistorical ? "Add historical records" : "Upload site findings"}</Button></Card>
           ) : (
             <div className="mt-2 overflow-x-auto">
               <table className="w-full min-w-[720px] border-collapse text-body">

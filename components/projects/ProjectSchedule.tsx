@@ -4,8 +4,13 @@ import { useRef, useState, useTransition } from "react";
 import { useServerState } from "@/lib/use-server-state";
 import { useRouter } from "next/navigation";
 import { Plus, X, Wand2 } from "lucide-react";
-import { Card } from "@/components/ui";
-import { createProjectScheduleBlock, deleteScheduleBlock } from "@/lib/actions/schedule";
+import { Button, Card } from "@/components/ui";
+import {
+  createProjectScheduleBlock,
+  deleteScheduleBlock,
+  restoreScheduleBlock,
+  type RemovedBlock,
+} from "@/lib/actions/schedule";
 import { generateScheduleFromTemplate } from "@/lib/actions/schedule-templates";
 import { runAction } from "@/lib/run-action";
 
@@ -43,6 +48,8 @@ export function ProjectSchedule({
   templates?: TemplateOption[];
 }) {
   const [rows, setRows] = useServerState(blocks);
+  const [removed, setRemoved] = useState<RemovedBlock | null>(null);
+  const [error, setError] = useState("");
   const [adding, startTransition] = useTransition();
   const [genOpen, setGenOpen] = useState(false);
   const [templateId, setTemplateId] = useState(templates[0]?.id ?? 0);
@@ -60,9 +67,16 @@ export function ProjectSchedule({
     }
     setGenMsg("");
     startGen(async () => {
-      const res = await runAction(() => generateScheduleFromTemplate(slug, templateId, genStart), { fallback: "Couldn't generate the schedule." });
+      const res = await runAction(
+        () => generateScheduleFromTemplate(slug, templateId, genStart),
+        { fallback: "Couldn't generate the schedule." },
+      );
       if (res.ok) {
-        setGenMsg(res.created > 0 ? `Added ${res.created} block${res.created === 1 ? "" : "s"}.` : "Already up to date.");
+        setGenMsg(
+          res.created > 0
+            ? `Added ${res.created} block${res.created === 1 ? "" : "s"}.`
+            : "Already up to date.",
+        );
         setGenOpen(false);
         router.refresh();
       } else {
@@ -72,14 +86,30 @@ export function ProjectSchedule({
   }
 
   function remove(id: string) {
-    const prev = rows;
-    setRows((r) => r.filter((x) => x.id !== id));
+    setError("");
     startTransition(async () => {
-      try {
-        await deleteScheduleBlock(id, slug);
-      } catch {
-        setRows(prev);
-      }
+      const result = await runAction(() => deleteScheduleBlock(id, slug), {
+        fallback: "Could not remove the block.",
+      });
+      if (result.ok) {
+        setRows((current) => current.filter((block) => block.id !== id));
+        setRemoved(result.removed);
+        router.refresh();
+      } else setError(result.error);
+    });
+  }
+
+  function undo() {
+    if (!removed) return;
+    setError("");
+    startTransition(async () => {
+      const result = await runAction(() => restoreScheduleBlock(removed), {
+        fallback: "Could not restore the block.",
+      });
+      if (result.ok) {
+        setRemoved(null);
+        router.refresh();
+      } else setError(result.error);
     });
   }
 
@@ -131,10 +161,40 @@ export function ProjectSchedule({
           >
             {genPending ? "Generating…" : "Generate"}
           </button>
-          <span className="text-meta text-ink-3">Weekdays from the start date. Won&apos;t duplicate existing blocks.</span>
+          <span className="text-meta text-ink-3">
+            Weekdays from the start date. Won&apos;t duplicate existing blocks.
+          </span>
         </div>
       )}
-      {genMsg && <div className="border-b border-rule px-4 py-1.5 text-meta text-ink-3">{genMsg}</div>}
+      {removed && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-2 border-b border-rule-soft px-4 py-2 text-body text-ink-2"
+        >
+          <span>Removed {removed.label}</span>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={adding}
+            onClick={undo}
+          >
+            Undo
+          </Button>
+        </div>
+      )}
+      {error && (
+        <p
+          role="alert"
+          className="border-b border-rule-soft px-4 py-2 text-body text-flag"
+        >
+          {error}
+        </p>
+      )}
+      {genMsg && (
+        <div className="border-b border-rule px-4 py-1.5 text-meta text-ink-3">
+          {genMsg}
+        </div>
+      )}
 
       {rows.length === 0 ? (
         <div className="px-4 py-8 text-center text-label text-ink-3">
@@ -146,15 +206,22 @@ export function ProjectSchedule({
             key={b.id}
             className={`group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-3 @xl/page:flex ${i ? "border-t border-rule-soft" : ""}`}
           >
-            <span className="@xl/page:w-24 flex-none text-meta text-ink-3">{b.dateLabel}</span>
-            <span className={`hidden @xl/page:block size-1.5 flex-none rounded-full ${DOT[b.tone]}`} />
-            <span className="col-start-1 row-start-2 min-w-0 flex-1 break-words text-body text-ink">{b.label}</span>
+            <span className="@xl/page:w-24 flex-none text-meta text-ink-3">
+              {b.dateLabel}
+            </span>
+            <span
+              className={`hidden @xl/page:block size-1.5 flex-none rounded-full ${DOT[b.tone]}`}
+            />
+            <span className="col-start-1 row-start-2 min-w-0 flex-1 break-words text-body text-ink">
+              {b.label}
+            </span>
             <span className="col-start-1 text-meta text-ink-3">{b.time}</span>
             <button
               type="button"
               onClick={() => remove(b.id)}
+              disabled={adding}
               aria-label="Remove block"
-              className="col-start-2 row-span-3 row-start-1 flex size-8 shrink-0 items-center justify-center rounded-md text-ink-3 hover:bg-flag-soft hover:text-flag focus-visible:outline-focus"
+              className="col-start-2 row-span-3 row-start-1 flex size-11 @xl/page:size-8 shrink-0 items-center justify-center rounded-md text-ink-3 hover:bg-flag-soft hover:text-flag focus-visible:outline-focus"
             >
               <X className="size-3.5" strokeWidth={1.75} />
             </button>
@@ -165,10 +232,19 @@ export function ProjectSchedule({
       {/* Composer */}
       <form
         ref={formRef}
-        action={async (fd) => {
-          await add(fd);
-          formRef.current?.reset();
-          router.refresh();
+        onSubmit={(event) => {
+          event.preventDefault();
+          const fields = new FormData(event.currentTarget);
+          setError("");
+          startTransition(async () => {
+            const result = await runAction(() => add(fields), {
+              fallback: "Could not add the block.",
+            });
+            if (result.ok) {
+              formRef.current?.reset();
+              router.refresh();
+            } else setError(result.error);
+          });
         }}
         className="flex flex-wrap items-center gap-2 border-t border-rule bg-paper-2 px-4 py-2.5"
       >

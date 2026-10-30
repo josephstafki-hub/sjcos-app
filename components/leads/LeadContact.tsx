@@ -7,9 +7,9 @@ import { updateLeadContact } from "@/lib/actions/leads";
 import { runAction } from "@/lib/run-action";
 
 const BTN =
-  "inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-label font-semibold text-ink hover:bg-paper-2";
+  "inline-flex h-8 max-sm:h-11 items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-label font-semibold text-ink hover:bg-paper-2";
 const BTN_OFF =
-  "inline-flex cursor-not-allowed items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-label font-semibold text-ink-3";
+  "inline-flex h-8 max-sm:h-11 cursor-not-allowed items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-label font-semibold text-ink-3";
 
 /** Lead Call + Email buttons. Call reveals the number (so it's usable on a
  *  desktop, where tel: does nothing) with a copy + dial affordance. Email opens

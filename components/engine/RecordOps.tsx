@@ -81,7 +81,7 @@ function StageGateCard({ ops }: { ops: RecordOps }) {
       <div className="mt-1.5 text-label text-ink-2">
         Current {g.kind === "project" ? "status" : "stage"}:{" "}
         <span className="font-semibold text-ink">{readable(g.currentStatus)}</span>
-        {g.phase && <span className="text-ink-3"> · {g.phase}</span>}
+        {g.phase && <span className="text-ink-3"> · {readable(g.phase)}</span>}
       </div>
       {g.nextStages.length === 0 ? (
         <p className="mt-2 text-label text-ink-3">No further stages — this record is at the end of the ladder.</p>
@@ -312,7 +312,7 @@ function Receipts({ ops }: { ops: RecordOps }) {
         <ul className="mt-2 space-y-1.5">
           {ops.receipts.map((r) => (
             <li key={r.id} className="flex items-center gap-2 text-label">
-              <Chip kind="ghost">{r.receiptKind}</Chip>
+              <Chip kind="ghost">{readable(r.receiptKind)}</Chip>
               <span className="min-w-0 flex-1 truncate text-ink-3">{r.label || r.uri || "—"}</span>
               <span className="text-meta text-ink-3">{r.createdAt.slice(0, 10)}</span>
             </li>

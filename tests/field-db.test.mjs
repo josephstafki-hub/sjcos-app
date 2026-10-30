@@ -217,6 +217,11 @@ test("V42 schedule and snags: harmless internal move auto, downstream commitment
     // Unknown cost effect is not automatic either.
     const unk = await adjustInternalSchedule(run, f.owner, { planId: ok.plan.id, changes: [{ phaseKey: "trim", start: "2026-10-15", end: "2026-10-16" }], costDeltaCents: null }, hooks, null);
     assert.equal(unk.applied, false);
+    // A harmless move with the policy off is Joe's tap, never applied under a made-up policy.
+    const off = await adjustInternalSchedule(run, f.owner, { planId: ok.plan.id, changes: [{ phaseKey: "trim", start: "2026-10-15", end: "2026-10-16" }], costDeltaCents: 0 }, hooks, null);
+    assert.equal(off.applied, false);
+    assert.equal(off.checks.noCommitmentChange.ok && off.checks.noCostIncrease.ok && off.checks.noFundingGap.ok, true);
+    assert.match(off.decision.title, /^Internal schedule change/);
 
     // Snag: alert immediate, decision pending, the agent cannot decide.
     const snag = await reportSnag(run, f.subB, { projectId: f.p2, body: "Panel is undersized", affectedScope: "electrical", recommendation: "pause", actualSiteStatus: "still working", clientEventId: "s1" }, hooks);

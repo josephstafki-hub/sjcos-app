@@ -288,13 +288,15 @@ export async function adjustInternalSchedule(
   if ((input.costDeltaCents ?? 1) <= 0) checks.noFundingGap = { ok: true, detail: "no spend involved" };
 
   const allOk = checks.noCommitmentChange.ok && checks.noCostIncrease.ok && checks.noFundingGap.ok;
-  if (allOk) {
+  // Applied on its own only under Joe's active schedule.internal_adjust
+  // policy; with it off, even a harmless move is his tap.
+  if (allOk && policyRef) {
     const phases = newPhases.map((p) => ({ ...p, ...shifted.get(p.key)! }));
     const [row] = await run<SchedulePlan>(
       `INSERT INTO schedule_plans (project_id, revision, status, phases, dependencies, inspections, material_lead_times, funding_readiness, based_on_revision, change_note, auth_ref, created_by)
        VALUES ($1, (SELECT max(revision) FROM schedule_plans WHERE project_id = $1) + 1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10, 'system')
        RETURNING ${PLAN_COLS}`,
-      [plan.project_id, plan.status, JSON.stringify(phases), JSON.stringify(plan.dependencies), JSON.stringify(plan.inspections), JSON.stringify(plan.material_lead_times), JSON.stringify(plan.funding_readiness), plan.revision, input.note ?? "internal adjustment", policyRef ?? "policy:schedule.internal_adjust@0"],
+      [plan.project_id, plan.status, JSON.stringify(phases), JSON.stringify(plan.dependencies), JSON.stringify(plan.inspections), JSON.stringify(plan.material_lead_times), JSON.stringify(plan.funding_readiness), plan.revision, input.note ?? "internal adjustment", policyRef],
     );
     await run(`UPDATE schedule_plans SET status = 'superseded' WHERE id = $1`, [plan.id]);
     await run(`UPDATE schedule_commitments SET plan_id = $2 WHERE plan_id = $1`, [plan.id, row.id]);
@@ -311,10 +313,12 @@ export async function stageScheduleImpactAlert(run: Run, principal: Principal, p
     ...(checks.noCostIncrease.ok ? [] : [`Cost: ${checks.noCostIncrease.detail}`]),
     ...(checks.noFundingGap.ok ? [] : [`Funding: ${checks.noFundingGap.detail}`]),
   ];
+  const harmless = checks.noCommitmentChange.ok && checks.noCostIncrease.ok && checks.noFundingGap.ok;
+  if (harmless) consequences.push(`No client, sub or supplier date moves and no cost. Policy "schedule.internal_adjust" is off, so this needs your tap; turn it on to let moves like this through.`);
   const staged = await stageDecision(run, {
     kind: "schedule_impact",
     action: "approve_schedule_change",
-    title: `Schedule change affects ${checks.noCommitmentChange.ok ? "cost/funding" : "a commitment"} · ${proj?.name ?? ""}`,
+    title: `${harmless ? "Internal schedule change" : `Schedule change affects ${checks.noCommitmentChange.ok ? "cost/funding" : "a commitment"}`} · ${proj?.name ?? ""}`,
     summary: {
       changes: input.changes.map((c) => `${c.phaseKey}: ${c.start} → ${c.end}`),
       effect: consequences.join("\n"),

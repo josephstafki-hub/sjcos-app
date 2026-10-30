@@ -35,7 +35,7 @@ import { findProjects, loadRawProjectMoney, todayCentral } from "../lib/budget-q
 import { computeTotals, describeFinancials } from "../lib/budget-types.ts";
 import * as writes from "../lib/budget-writes.ts";
 import { recordWorkflowEvent } from "../lib/workflow/engine.ts";
-import { agentNameOf } from "./tool-shared.mjs";
+import { agentNameOf, areaRefusal } from "./tool-shared.mjs";
 
 const pct = (r) => (r == null ? null : Math.round(r * 1000) / 10);
 
@@ -148,7 +148,20 @@ export async function openJobsSnapshot(rows) {
   return totalsRow(buildCompanyMoney(projects.map((p) => assembleBudgetView(raw.get(p.id), { asOf }))).totals);
 }
 
-export function registerFinancialsTools(server, { rows, json, pool, strippedDollarError }) {
+export function registerFinancialsTools(realServer, { rows, json, pool, strippedDollarError, currentPrincipal }) {
+  // Every tool here reads or writes a job's money: an agent acting for a team
+  // member needs that person's "money" area, as the /money page does
+  // (areaRefusal: owner and unattended runs pass).
+  const server = {
+    server: realServer.server,
+    registerTool(name, def, handler) {
+      return realServer.registerTool(name, def, async (args, extra) => {
+        const refusal = currentPrincipal ? await areaRefusal(rows, currentPrincipal, "money") : null;
+        if (refusal) return json({ error: refusal });
+        return handler(args, extra);
+      });
+    },
+  };
   /** One write = one transaction against one job. Commits only on `ok`, then
    *  logs the change so open browser tabs refresh (as rows() does for plain writes). */
   async function write(projectSlug, texts, fn) {

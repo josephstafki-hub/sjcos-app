@@ -2781,7 +2781,7 @@ server.registerTool(
   // should make — the same queries, math and writes the app's Money › Overview
   // runs. Internal records only: nothing is sent, no change order is created or
   // moved out of draft, and billing is never switched. See mcp/financials-tools.mjs.
-  registerFinancialsTools(server, { rows, json, pool, strippedDollarError });
+  registerFinancialsTools(server, { rows, json, pool, strippedDollarError, currentPrincipal });
 
   // Estimates: list / create / add lines. Carries the where-things-go rule
   // (docs/estimates-and-change-orders.md): the formal estimate lives under

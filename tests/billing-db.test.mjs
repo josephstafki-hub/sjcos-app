@@ -19,6 +19,7 @@ import { parseNetTerms } from "../lib/billing/terms.ts";
 import { routineReminderCandidates } from "../lib/billing/reminders.ts";
 import {
   issueInitialOnAcceptance,
+  acceptanceContext,
   issueProgressOnOwnerConfirmation,
   issueFinalOnClientSignoff,
   issueFinalFromDecision,
@@ -743,5 +744,28 @@ test("Kill switch: an invoice send held because the sends lane was paused wakes 
     const [woke] = await run(`SELECT state, hold_reason FROM action_intents WHERE id = $1`, [out.intentId]);
     assert.equal(woke.state, "pending", `held as: ${held.hold_reason}`);
     assert.equal(woke.hold_reason, null);
+  });
+});
+
+test("Accepting the exact revision: an edited price or a deleted line after the offer went out is a change, not just an added line; internal cost bookkeeping isn't", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    const run = runOn(client);
+    for (const [slug, edit, changed] of [
+      ["zz-rev-price", (id) => run(`UPDATE estimate_lines SET extended = extended + 50000 WHERE estimate_id = $1`, [id]), true],
+      ["zz-rev-delete", (id) => run(`DELETE FROM estimate_lines WHERE estimate_id = $1`, [id]), true],
+      ["zz-rev-cost", (id) => run(`UPDATE estimate_lines SET internal_cost_cents = 1234 WHERE estimate_id = $1`, [id]), false],
+    ]) {
+      const projectId = await seed(client, slug);
+      const estimateId = await seedEstimate(client, projectId, { total: 1000000, status: "approved", schedule: [{ label: "Deposit", percent: 50, triggerStatus: "" }] });
+      const sigId = await signature(client, { projectId, docType: "estimate", estimateId, status: "signed" });
+      await edit(estimateId);
+      const r = await acceptanceContext(run, sigId);
+      if (changed) {
+        assert.equal(r.ok, false, slug);
+        assert.equal(r.code, "changed", slug);
+      } else {
+        assert.equal(r.ok, true, slug);
+      }
+    }
   });
 });

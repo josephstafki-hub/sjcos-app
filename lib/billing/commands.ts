@@ -96,7 +96,7 @@ async function loadSignature(run: Run, id: number): Promise<SigRow | null> {
 async function loadEstimate(run: Run, id: number): Promise<EstimateRow | null> {
   const [r] = await run<EstimateRow>(
     `SELECT e.id::int AS id, e.project_id, e.kind, e.status, e.total, e.draw_schedule, e.sent_at::text AS sent_at,
-            (SELECT max(l.created_at)::text FROM estimate_lines l WHERE l.estimate_id = e.id) AS lines_changed_at
+            e.lines_changed_at::text AS lines_changed_at
        FROM estimates e WHERE e.id = $1`,
     [id],
   );

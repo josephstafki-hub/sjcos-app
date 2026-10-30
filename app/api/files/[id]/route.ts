@@ -4,8 +4,8 @@ import { queryOne } from "@/lib/db";
 import { serveFile } from "@/lib/file-serve";
 import { verifyFileSignature } from "@/lib/file-sign";
 
-// Serves an uploaded file blob by id. Owner-only (the whole /files browser is
-// owner-scoped) — except a request carrying a valid short-lived signature
+// Serves an uploaded file blob by id. Owner, or staff with the Projects area
+// (and the Subs area for a sub's restricted paperwork) — except a request carrying a valid short-lived signature
 // (`?exp=<unix>&sig=<hmac>`, minted by the MCP get_project_file tool), which
 // serves without a session. Showcase rows have no storage_path → 404 (nothing
 // to stream). `?w=<px>` returns a cached thumbnail for images; `?download=1`
@@ -25,6 +25,12 @@ export async function GET(
     const user = await getCurrentUser();
     if (!user) return new Response("Unauthorized", { status: 401 });
     if (!hasAccess(user, "projects")) return new Response("Forbidden", { status: 403 });
+    // A sub's restricted paperwork (W-9s carry a tax id, COIs) stays with Joe
+    // and team members who hold the Subs area (lib/sub-docs canAccessSubDocument).
+    if (!hasAccess(user, "subs")) {
+      const restricted = await queryOne(`SELECT 1 FROM sub_documents WHERE file_id = $1 AND restricted LIMIT 1`, [id]);
+      if (restricted) return new Response("Forbidden", { status: 403 });
+    }
   }
 
   const row = await queryOne<{ storage_path: string | null; mime_type: string | null; name: string }>(

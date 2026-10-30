@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -193,6 +193,12 @@ export function Sidebar({ user, collapsible = false }: { user: SidebarUser; coll
     return () => window.removeEventListener("keydown", onKey);
   }, [collapsible]);
   const pathname = usePathname();
+  // Keep the current page's row in view: on a short screen the list scrolls,
+  // and a highlighted row cut off at the bottom edge reads as a stray bar.
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    listRef.current?.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView({ block: "nearest" });
+  }, [pathname]);
   const perms = user.staffPerms;
   const visible = (items: NavItem[]) => (perms ? items.filter((i) => staffMayOpen(perms, i.href)) : items);
   const work = visible(WORK);
@@ -296,7 +302,7 @@ export function Sidebar({ user, collapsible = false }: { user: SidebarUser; coll
         </button>}
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto [scrollbar-color:var(--sidebar-text-dim)_transparent] [scrollbar-width:thin]">
+      <div ref={listRef} className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto [scrollbar-color:var(--sidebar-text-dim)_transparent] [scrollbar-width:thin]">
         <RailLabel collapsed={collapsed}>Work</RailLabel>
         {work.map((item) => <NavLink key={item.href} item={{ ...item, badge: badgeFor(item.href) }} pathname={pathname} collapsed={collapsed} />)}
         {tools.length > 0 && <>

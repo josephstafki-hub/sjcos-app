@@ -8,7 +8,7 @@
 // never automatic: they go through a 'markup' decision.
 
 import type { Run } from "../commands/core.ts";
-import { consumeDecision, stageDecision } from "../commands/decisions.ts";
+import { consumeDecision, contentHashOf, stageDecision } from "../commands/decisions.ts";
 import { activePolicy, policyRef } from "../commands/policies.ts";
 import type { Principal } from "../commands/principal.ts";
 import { isOwner, principalLabel } from "../commands/principal.ts";
@@ -209,12 +209,16 @@ export async function proposeMarkupChange(run: Run, input: { markup_pct: number;
 /** After Joe approves the markup decision: write the new default (as a fresh
  *  pricing setup version when one is active, else the legacy setting). */
 export async function applyMarkupDecision(run: Run, decisionId: string, principal: Principal): Promise<{ ok: true; markup_pct: number } | { ok: false; error: string }> {
-  const c = await consumeDecision(run, { id: decisionId, action: "change_markup", targetKind: "pricing", targetId: "default_markup", consumer: principalLabel(principal) });
-  if (!c.ok) return { ok: false, error: c.reason };
+  // The card's content is { markup_pct, from }; both are in its summary line
+  // ("markup 25% → 30%", "unset" when there was none), so the exact content
+  // is rebuilt and presented (consumeDecision refuses a card without it).
   const [d] = await run<{ summary: { changes?: string[] } }>(`SELECT summary FROM decisions WHERE id = $1`, [decisionId]);
-  const m = /→ ([\d.]+)%/.exec(d?.summary?.changes?.[0] ?? "");
+  const m = /markup (unset|[\d.]+)% → ([\d.]+)%/.exec(d?.summary?.changes?.[0] ?? "");
   if (!m) return { ok: false, error: "decision does not carry a markup value" };
-  const pct = Number(m[1]);
+  const pct = Number(m[2]);
+  const from = m[1] === "unset" ? null : Number(m[1]);
+  const c = await consumeDecision(run, { id: decisionId, action: "change_markup", targetKind: "pricing", targetId: "default_markup", contentHash: contentHashOf({ markup_pct: pct, from }), consumer: principalLabel(principal) });
+  if (!c.ok) return { ok: false, error: c.reason };
   const [ps] = await run<{ id: string; version: number; config: Record<string, unknown> }>(`SELECT id, version, config FROM pricing_setups WHERE state = 'active'`);
   if (ps) {
     await run(`UPDATE pricing_setups SET state = 'retired' WHERE id = $1`, [ps.id]);

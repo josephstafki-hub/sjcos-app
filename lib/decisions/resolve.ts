@@ -12,6 +12,7 @@
 
 import { resolveAccountingConflict } from "../accounting/qbo/sync.ts";
 import { onDecisionResolved } from "../agent-runtime/hooks.ts";
+import { applyMarkupDecision } from "../estimating/learning.ts";
 import { FINAL_INVOICE_ACTION, INITIAL_INVOICE_ACTION, PROGRESS_INVOICE_ACTION, issueFinalFromDecision, issueInitialFromDecision, issueProgressFromDecision, type DecisionInvoiceOutcome } from "../billing/commands.ts";
 import type { Run } from "../commands/core.ts";
 import { DECISION_COLS, getDecision, resolveDecision, type Decision, type ResolveResult } from "../commands/decisions.ts";
@@ -93,6 +94,7 @@ export async function resolveFromChannel(run: Run, input: ResolveFromChannelInpu
   const grantId = await settleGrantFromDecision(run, d, outcome === "approved" ? "approved" : "rejected");
   let intentIds: string[] = [];
   let invoice: DecisionInvoiceOutcome | null = null;
+  let markupLine: string | null = null;
   if (outcome === "approved") {
     const rows = await run<{ id: string }>(
       `UPDATE action_intents SET state = 'pending', hold_reason = NULL, next_attempt_at = now()
@@ -114,6 +116,7 @@ export async function resolveFromChannel(run: Run, input: ResolveFromChannelInpu
     if (d.action === INITIAL_INVOICE_ACTION) invoice = await issueApprovedInvoice(run, d.id, input.principal, issueInitialFromDecision);
     else if (d.action === PROGRESS_INVOICE_ACTION) invoice = await issueApprovedInvoice(run, d.id, input.principal, issueProgressFromDecision);
     else if (d.action === FINAL_INVOICE_ACTION) invoice = await issueApprovedInvoice(run, d.id, input.principal, issueFinalFromDecision);
+    else if (d.action === MARKUP_ACTION) markupLine = await applyMarkup(run, d.id, input.principal);
   } else {
     const rows = await run<{ id: string }>(
       `UPDATE action_intents SET state = 'cancelled', last_error = $2, completed_at = now(), lease_token = NULL, lease_until = NULL
@@ -138,7 +141,7 @@ export async function resolveFromChannel(run: Run, input: ResolveFromChannelInpu
   // without Joe opening the panel. Idempotent on the decision id.
   await onDecisionResolved(run, d.id).catch(() => null);
   const withInvoice = !invoice ? reply : invoice.issued ? `${reply} Invoice ${invoice.invoiceNumber} created.` : `${reply} No invoice was created: ${invoice.reason}`;
-  return { ok: true, code: input.outcome, reply: extra ? `${withInvoice} ${extra}` : withInvoice, decision: d, intentIds, grantId, first: true, invoice };
+  return { ok: true, code: input.outcome, reply: [withInvoice, markupLine, extra].filter(Boolean).join(" "), decision: d, intentIds, grantId, first: true, invoice };
 }
 
 /** Approval of a first-draw or progress/final draw invoice card creates the
@@ -176,6 +179,22 @@ async function settleAccountingConflict(run: Run, mappingId: string, outcome: "a
     await run(`ROLLBACK TO SAVEPOINT accounting_conflict`);
     console.error(`[decisions] QuickBooks conflict ${mappingId} failed:`, (err as Error).message);
     return `The QuickBooks record wasn't updated: ${(err as Error).message}`;
+  }
+}
+
+const MARKUP_ACTION = "change_markup";
+
+/** An approved markup card (staff asked from the Cost book, or a learning
+ *  proposal) changes the company default now, under a savepoint. */
+async function applyMarkup(run: Run, decisionId: string, principal: Principal): Promise<string> {
+  await run(`SAVEPOINT apply_markup`);
+  try {
+    const r = await applyMarkupDecision(run, decisionId, principal);
+    await run(`RELEASE SAVEPOINT apply_markup`);
+    return r.ok ? `Default markup is now ${r.markup_pct}%.` : `The markup didn't change: ${r.error}`;
+  } catch (err) {
+    await run(`ROLLBACK TO SAVEPOINT apply_markup`);
+    return `The markup didn't change: ${(err as Error).message}`;
   }
 }
 

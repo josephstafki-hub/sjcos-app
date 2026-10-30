@@ -7,6 +7,7 @@ import { Card, Chip } from "@/components/ui";
 import { unitLabel, fmtUsd } from "@/lib/cost-book-units";
 import type { CostBookData, CostItem } from "@/lib/cost-book";
 import { setCostItemArchived, deleteCostItem, setDefaultMarkup } from "@/lib/actions/cost-book";
+import { toast } from "@/components/ui/Toast";
 import { CostItemModal } from "./CostItemModal";
 
 export function CostBookClient({ data }: { data: CostBookData }) {
@@ -44,7 +45,9 @@ export function CostBookClient({ data }: { data: CostBookData }) {
     const v = Number(markup);
     if (!Number.isFinite(v)) return;
     startTransition(async () => {
-      await setDefaultMarkup(v);
+      const r = await setDefaultMarkup(v);
+      if (!r.ok) toast({ kind: "error", message: r.error });
+      else if (r.notice) toast({ kind: "info", message: r.notice });
       router.refresh();
     });
   }

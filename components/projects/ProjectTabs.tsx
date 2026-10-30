@@ -77,10 +77,10 @@ export function ProjectTabs({
           <FocusScroll focus={focus} />
         </Suspense>
         {header}
-        <div className="border-b border-rule bg-paper-2 px-4 sm:px-7">
+        <div className="border-b border-rule px-4 @xl/page:px-7">
           <Tabs tabs={[...TABS]} active={active} onSelect={setActive} />
         </div>
-        <div className="mx-auto max-w-[1200px] px-4 py-5 sm:px-7">
+        <div className="mx-auto max-w-[1400px] px-4 py-5 @xl/page:px-7">
           {TABS.map((label, i) => (
             <div key={label} hidden={i !== active}>
               {panels[label] ??

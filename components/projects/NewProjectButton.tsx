@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Plus, X } from "lucide-react";
 import { createProject } from "@/lib/actions/projects";
-import { SubmitButton } from "@/components/ui";
+import { Button, SubmitButton } from "@/components/ui";
 
 /** "New project" button + modal form. Submits the createProject Server Action,
  *  which inserts the project (pre-construction) and redirects to its detail. */
@@ -12,13 +12,7 @@ export function NewProjectButton() {
 
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        className="ml-1 inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper transition-colors hover:bg-[#232a1e]"
-      >
-        <Plus className="size-3" strokeWidth={1.5} />
-        New project
-      </button>
+      <Button icon={Plus} onClick={() => setOpen(true)}>New project</Button>
 
       {open && (
         <div
@@ -26,11 +20,11 @@ export function NewProjectButton() {
           onClick={() => setOpen(false)}
         >
           <div
-            className="w-full max-w-[440px] rounded-lg border border-rule bg-card shadow-xl"
+            className="w-full max-w-[440px] rounded-lg border border-rule bg-card shadow-pop"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-rule px-4 py-3">
-              <h2 className="font-serif text-[17px] font-semibold text-ink">New project</h2>
+              <h2 className="font-serif text-heading font-semibold text-ink">New project</h2>
               <button
                 onClick={() => setOpen(false)}
                 className="text-ink-3 hover:text-ink"
@@ -42,7 +36,7 @@ export function NewProjectButton() {
 
             <form action={createProject} className="flex flex-col gap-3 p-4">
               <label className="flex flex-col gap-1">
-                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+                <span className="text-meta text-ink-3">
                   Project name
                 </span>
                 <input
@@ -50,38 +44,38 @@ export function NewProjectButton() {
                   required
                   autoFocus
                   placeholder="Henderson kitchen"
-                  className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+                  className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent"
                 />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+                <span className="text-meta text-ink-3">
                   Client
                 </span>
                 <input
                   name="client_name"
                   placeholder="Mark & Dana Henderson"
-                  className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+                  className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent"
                 />
               </label>
               <div className="flex gap-3">
                 <label className="flex flex-1 flex-col gap-1">
-                  <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+                  <span className="text-meta text-ink-3">
                     Address
                   </span>
                   <input
                     name="address"
                     placeholder="Edina"
-                    className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+                    className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent"
                   />
                 </label>
                 <label className="flex flex-1 flex-col gap-1">
-                  <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+                  <span className="text-meta text-ink-3">
                     Est. value
                   </span>
                   <input
                     name="value"
                     placeholder="$60k (est)"
-                    className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+                    className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent"
                   />
                 </label>
               </div>
@@ -90,13 +84,13 @@ export function NewProjectButton() {
                 <button
                   type="button"
                   onClick={() => setOpen(false)}
-                  className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2"
+                  className="rounded-md border border-rule px-3 py-1.5 text-label font-semibold text-ink-3 hover:bg-paper-2"
                 >
                   Cancel
                 </button>
                 <SubmitButton
                   pendingLabel="Creating…"
-                  className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
+                  className="rounded-md border border-ink bg-ink px-3 py-1.5 text-label font-semibold text-paper hover:bg-ink-hover"
                 >
                   Create project
                 </SubmitButton>

@@ -2,128 +2,154 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronRight } from "lucide-react";
-import { Card, Chip, Eyebrow } from "@/components/ui";
-import { NewLeadButton } from "@/components/leads/NewLeadButton";
-// Type-only — never pull lib/leads (→ lib/db → pg) into the client bundle.
-import type { LeadsData, LeadListItem, LeadTemperature } from "@/lib/leads";
+import {
+  Chip,
+  EmptyState,
+  PageHeader,
+  Segmented,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableWrapper,
+} from "@/components/ui";
+import { NewLeadButton } from "./NewLeadButton";
+import type { LeadsData } from "@/lib/leads";
 
-type FilterKey = "All" | "lost" | LeadTemperature;
-
-const FILTERS: { key: FilterKey; label: string }[] = [
-  { key: "All", label: "All" },
-  { key: "hot", label: "Hot" },
-  { key: "cooling", label: "Cooling" },
-  { key: "lost", label: "Lost / Archived" },
+const FILTERS = [
+  { value: "All", label: "All" },
+  { value: "hot", label: "Hot" },
+  { value: "cooling", label: "Cooling" },
+  { value: "lost", label: "Lost / Archived" },
 ];
-
 export function LeadsClient({ data }: { data: LeadsData }) {
-  const [filter, setFilter] = useState<FilterKey>("All");
-
-  // Terminal lost/archived leads are hidden from the active views (All/Hot/
-  // Cooling) and only shown under their own filter.
+  const [filter, setFilter] = useState("All");
+  const [stage, setStage] = useState("all");
   const active = data.leads.filter((l) => l.stage !== "lost");
-  const lost = data.leads.filter((l) => l.stage === "lost");
-  const visible =
-    filter === "All"
-      ? active
-      : filter === "lost"
-        ? lost
-        : active.filter((l) => l.temperature === filter);
-
-  return (
-    <>
-      {/* Header */}
-      <div className="mb-3.5 flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
-        <div className="min-w-0 flex-1">
-          <Eyebrow>{data.summary}</Eyebrow>
-          <h1 className="mt-1 font-serif text-[34px] font-medium leading-none tracking-tight text-accent-2">
-            Leads
-          </h1>
-        </div>
-        <div className="flex items-center gap-1.5">
-          {FILTERS.map((f) => (
-            <button key={f.key} onClick={() => setFilter(f.key)}>
-              <Chip kind={filter === f.key ? "solid" : "ghost"}>{f.label}</Chip>
-            </button>
-          ))}
-          <NewLeadButton />
-        </div>
-      </div>
-
-      {/* Pipeline stage strip */}
-      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-        {data.stages.map((s, i) => (
-          <Card key={s.key} kind="tan" className="p-2.5">
-            <div className="font-mono text-[9px] uppercase tracking-[0.12em] text-ink-3">
-              Stage {i + 1}
-            </div>
-            <div className="mt-0.5 font-serif text-[13.5px] font-semibold text-ink">{s.label}</div>
-            <div className="mt-1.5 flex items-end gap-1">
-              <span className="font-mono text-[22px] font-bold leading-none text-accent-2 tabular-nums">
-                {s.count}
-              </span>
-              <span className="text-[11px] text-ink-3">leads</span>
-            </div>
-          </Card>
-        ))}
-      </div>
-
-      {/* Lead table */}
-      <Card className="overflow-hidden p-0">
-        {/* Column headers */}
-        <div className="flex items-center gap-2 border-b border-rule bg-paper-2 px-4 py-2.5 font-mono text-[9.5px] font-medium uppercase tracking-[0.16em] text-ink-3">
-          <span className="w-[200px]">Lead</span>
-          <span className="hidden w-[150px] md:block">Scope</span>
-          <span className="w-[130px] md:w-[172px]">Stage</span>
-          <span className="hidden w-[72px] md:block">Value</span>
-          <div className="flex-1" />
-          <span>AI take</span>
-          <span className="w-3" />
-        </div>
-
-        {visible.map((l) => (
-          <LeadRow key={l.slug} lead={l} />
-        ))}
-        {visible.length === 0 && (
-          <div className="px-4 py-10 text-center text-[13px] text-ink-3">
-            No {filter === "All" ? "" : filter + " "}leads right now.
-          </div>
-        )}
-      </Card>
-    </>
+  const filtered = data.leads.filter((l) =>
+    filter === "lost"
+      ? l.stage === "lost"
+      : l.stage !== "lost" && (filter === "All" || l.temperature === filter),
   );
-}
-
-function LeadRow({ lead: l }: { lead: LeadListItem }) {
+  const visible = filtered.filter((l) => stage === "all" || l.stage === stage);
   return (
-    <Link
-      href={`/leads/${l.slug}`}
-      className="flex items-center gap-2 border-b border-rule-soft px-4 py-3 transition-colors last:border-b-0 hover:bg-paper-2"
-    >
-      <div className="flex w-[200px] items-center gap-2">
-        <div className="min-w-0">
-          <div className="truncate font-serif text-[13.5px] font-semibold text-ink">{l.name}</div>
-          <div className="text-[11px] text-ink-3">{l.ageDays}d since first contact</div>
+    <div className="space-y-4">
+      <PageHeader
+        title="Leads"
+        meta={data.summary}
+        actions={<NewLeadButton />}
+      />
+      <Segmented
+        aria-label="Lead filters"
+        value={filter}
+        onChange={(v) => {
+          setFilter(v);
+          setStage("all");
+        }}
+        options={FILTERS.map((f) => ({
+          ...f,
+          count:
+            f.value === "All"
+              ? active.length
+              : data.leads.filter((l) =>
+                  f.value === "lost"
+                    ? l.stage === "lost"
+                    : l.stage !== "lost" && l.temperature === f.value,
+                ).length,
+        }))}
+      />
+      {filter !== "lost" && (
+        <div>
+          <Segmented
+            aria-label="Pipeline stage"
+            value={stage}
+            onChange={setStage}
+            options={[
+              { value: "all", label: "All stages", count: filtered.length },
+              ...data.stages.map((s) => ({
+                value: s.key,
+                label: s.label,
+                count: filtered.filter((l) => l.stage === s.key).length,
+              })),
+            ]}
+          />
         </div>
-      </div>
-      <div className="hidden w-[150px] truncate text-[12px] text-ink-2 md:block">{l.scope}</div>
-      <div className="w-[130px] min-w-0 md:w-[172px]">
-        <Chip kind={l.stageAdvanced ? "accent" : "ghost"} className="max-w-full">
-          <span className="min-w-0 truncate">{l.stageLabelText}</span>
-        </Chip>
-      </div>
-      <div className="hidden w-[72px] truncate font-mono text-[12px] text-ink-2 md:block">
-        {l.value}
-      </div>
-      <div className="flex min-w-0 flex-1 justify-end">
-        {l.flag && (
-          <Chip kind={l.flag.kind} dot className="max-w-full">
-            <span className="min-w-0 truncate">{l.flag.label}</span>
-          </Chip>
-        )}
-      </div>
-      <ChevronRight className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
-    </Link>
+      )}
+      {!visible.length ? (
+        <EmptyState
+          title="No leads in this view"
+          description="New inquiries appear here. Choose another filter or add a new lead."
+        />
+      ) : (
+        <TableWrapper>
+          <Table>
+            <TableHead>
+              <tr>
+                <TableHeader>Lead</TableHeader>
+                <TableHeader className="hidden @4xl/page:table-cell">
+                  Scope
+                </TableHeader>
+                <TableHeader className="hidden @xl/page:table-cell">
+                  Stage
+                </TableHeader>
+                <TableHeader numeric className="hidden @2xl/page:table-cell">
+                  Value
+                </TableHeader>
+                <TableHeader className="hidden @5xl/page:table-cell">
+                  AI take
+                </TableHeader>
+              </tr>
+            </TableHead>
+            <TableBody>
+              {visible.map((l) => (
+                <TableRow key={l.slug} className="relative">
+                  <TableCell twoLine className="@xl/page:min-w-[180px]">
+                    <Link
+                      href={`/leads/${l.slug}`}
+                      className="block break-words text-subheading font-semibold text-ink hover:text-accent after:absolute after:inset-0 focus-visible:outline-2 focus-visible:outline-focus"
+                    >
+                      {l.name}
+                    </Link>
+                    <div className="text-meta text-ink-3">
+                      {l.ageDays}d since first contact
+                    </div>
+                    <div className="text-meta text-ink-2 @4xl/page:hidden">
+                      {l.scope}
+                    </div>
+                    <div className="mt-1 text-meta text-ink-3 @xl/page:hidden">
+                      {l.stageLabelText}
+                      {l.value && l.value !== "?" ? ` · ${l.value}` : ""}
+                    </div>
+                  </TableCell>
+                  <TableCell className="hidden max-w-60 @4xl/page:table-cell">
+                    <div className="truncate text-ink-2" title={l.scope}>
+                      {l.scope || "—"}
+                    </div>
+                  </TableCell>
+                  <TableCell className="hidden @xl/page:table-cell">
+                    <Chip kind={l.stageAdvanced ? "accent" : "ghost"}>
+                      {l.stageLabelText}
+                    </Chip>
+                  </TableCell>
+                  <TableCell
+                    numeric
+                    className="hidden whitespace-nowrap @2xl/page:table-cell"
+                  >
+                    {l.value === "?" ? "—" : l.value || "—"}
+                  </TableCell>
+                  <TableCell className="hidden max-w-52 @5xl/page:table-cell">
+                    <div className="text-meta text-ink-2">
+                      {l.flag?.label || "—"}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableWrapper>
+      )}
+    </div>
   );
 }

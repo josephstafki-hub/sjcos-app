@@ -1,103 +1,150 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import Link from "next/link";
-import { ChevronRight } from "lucide-react";
-import { Card, Chip } from "@/components/ui";
+import {
+  EmptyState,
+  Segmented,
+  Table,
+  TableBody,
+  TableCell,
+  TableGroupRow,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableWrapper,
+} from "@/components/ui";
 import type { ProjectGroup } from "@/lib/projects";
 
-const DOT: Record<string, string> = {
-  accent: "bg-accent",
-  ai: "bg-ai",
-  ghost: "bg-ink-4",
-};
-
-type Filter = "all" | "active" | "pre_construction" | "closeout" | "warranty";
-
-const FILTERS: { key: Filter; label: string }[] = [
-  { key: "all", label: "All open" },
-  { key: "active", label: "On site" },
-  { key: "pre_construction", label: "Pre-con · design" },
-  { key: "closeout", label: "Closeout" },
-  { key: "warranty", label: "Warranty" },
+const FILTERS = [
+  { value: "all", label: "All open" },
+  { value: "active", label: "On site" },
+  { value: "pre_construction", label: "Pre-con" },
+  { value: "closeout", label: "Closeout" },
+  { value: "warranty", label: "Warranty" },
 ];
 
-/** Projects list with working status filters over the grouped data. */
 export function ProjectsClient({ groups }: { groups: ProjectGroup[] }) {
-  const [filter, setFilter] = useState<Filter>("all");
-  const shown = filter === "all" ? groups : groups.filter((g) => g.key === filter);
-
+  const [filter, setFilter] = useState("all");
+  const shown =
+    filter === "all" ? groups : groups.filter((g) => g.key === filter);
   return (
-    <>
-      {/* Wraps on phones — as a single non-wrapping row the last filter
-          ("Warranty") sat past the right edge with no way to scroll to it. */}
-      <div className="mb-4 flex flex-wrap items-center gap-1.5">
-        {FILTERS.map((f) => (
-          <button key={f.key} onClick={() => setFilter(f.key)} className="focus:outline-none">
-            <Chip kind={filter === f.key ? "solid" : "ghost"}>{f.label}</Chip>
-          </button>
-        ))}
-      </div>
-
-      {shown.length === 0 && (
-        <p className="py-10 text-center text-[13px] text-ink-3">No projects in this view.</p>
+    <div className="space-y-4">
+      <Segmented
+        aria-label="Project stage"
+        value={filter}
+        onChange={setFilter}
+        options={FILTERS.map((f) => ({
+          ...f,
+          count: groups
+            .filter((g) => f.value === "all" || g.key === f.value)
+            .reduce((n, g) => n + g.items.length, 0),
+        }))}
+      />
+      {!shown.length ? (
+        <EmptyState
+          title="No projects in this view"
+          description="Projects appear here as they move into this stage. Choose All open to see your other jobs."
+        />
+      ) : (
+        <TableWrapper>
+          <Table>
+            <TableHead>
+              <tr>
+                <TableHeader className="@xl/page:min-w-[220px]">
+                  Project
+                </TableHeader>
+                <TableHeader className="hidden @4xl/page:table-cell">
+                  Next step
+                </TableHeader>
+                <TableHeader className="hidden @2xl/page:table-cell">
+                  Paid
+                </TableHeader>
+                <TableHeader numeric className="hidden @xl/page:table-cell">
+                  Paid / Total
+                </TableHeader>
+              </tr>
+            </TableHead>
+            <TableBody>
+              {shown.map((g) => (
+                <Fragment key={g.key}>
+                  <TableGroupRow colSpan={4} count={g.items.length}>
+                    {g.title}
+                  </TableGroupRow>
+                  {g.items.map((p) => (
+                    <TableRow key={p.slug} className="relative">
+                      <TableCell twoLine className="@xl/page:min-w-[220px]">
+                        <Link
+                          href={`/projects/${p.slug}`}
+                          className="block break-words text-subheading font-semibold text-ink hover:text-accent after:absolute after:inset-0 focus-visible:outline-2 focus-visible:outline-focus"
+                        >
+                          {p.name}
+                        </Link>
+                        {p.sub && (
+                          <div className="text-meta text-ink-3">{p.sub}</div>
+                        )}
+                        <div className="text-meta text-ink-2 @4xl/page:hidden">
+                          {p.stage}
+                        </div>
+                        <div className="mt-1 tabular-nums text-meta text-ink-3 @xl/page:hidden">
+                          {p.hasTotal
+                            ? `${p.paid} / ${p.value} · ${p.billed}% paid`
+                            : p.value
+                              ? `${p.value} estimated · No job total yet`
+                              : "No job total yet"}
+                        </div>
+                      </TableCell>
+                      <TableCell className="hidden max-w-64 @4xl/page:table-cell">
+                        <div className="truncate text-ink-2" title={p.stage}>
+                          {p.stage}
+                        </div>
+                      </TableCell>
+                      <TableCell className="hidden w-28 @2xl/page:table-cell">
+                        {p.hasTotal ? (
+                          <>
+                            <div className="h-1.5 w-20 overflow-hidden rounded-full bg-paper-3">
+                              <div
+                                className="h-full bg-accent"
+                                style={{
+                                  width: `${Math.min(100, Math.max(0, p.billed))}%`,
+                                }}
+                              />
+                            </div>
+                            <div className="mt-1 text-meta text-ink-3 tabular-nums">
+                              {p.billed}%
+                            </div>
+                          </>
+                        ) : (
+                          <span className="text-meta text-ink-3">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell numeric className="hidden @xl/page:table-cell">
+                        {p.hasTotal ? (
+                          <span className="whitespace-nowrap">
+                            {p.paid}{" "}
+                            <span className="text-ink-3">/ {p.value}</span>
+                          </span>
+                        ) : (
+                          <>
+                            <div className="text-meta text-ink-3">
+                              No job total yet
+                            </div>
+                            {p.value && (
+                              <div className="text-meta text-ink-3">
+                                {p.value} estimated
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </Fragment>
+              ))}
+            </TableBody>
+          </Table>
+        </TableWrapper>
       )}
-
-      {shown.map((g) => (
-        <section key={g.key} className="mb-6">
-          <div className="mb-2 flex items-center gap-1.5">
-            <span className={`size-2 rounded-full ${DOT[g.dot]}`} />
-            <h2 className="font-serif text-[16px] font-semibold text-ink">{g.title}</h2>
-            <span className="text-[11px] text-ink-3">{g.items.length}</span>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            {g.items.map((p) => (
-              <Link key={p.slug} href={`/projects/${p.slug}`}>
-                <Card className="flex items-center gap-3 p-3.5 transition-colors hover:bg-paper-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      {/* Shrinks + truncates on narrow screens; `flex-none`
-                          here let long client names ("Jeffrey Plumbon / New
-                          Kingdom Healthcare") run under the chevron on phones. */}
-                      <span className="min-w-0 truncate font-serif text-[16px] font-semibold text-ink">
-                        {p.name}
-                      </span>
-                      {/* long AI stage labels truncate instead of overflowing
-                          into the billed column */}
-                      <Chip kind={g.chip} dot className="min-w-0 overflow-hidden">
-                        <span className="truncate">{p.stage}</span>
-                      </Chip>
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-ink-3">{p.sub}</div>
-                  </div>
-                  {/* Paid ÷ job total, both computed from the job's records
-                      (migration 0037) — the same figures as Money › Overview. */}
-                  <div className="hidden w-[220px] sm:block">
-                    {p.hasTotal ? (
-                      <>
-                        <div className="mb-1 flex items-center gap-2">
-                          <span className="flex-1 font-mono text-[11px] text-ink-3">{p.billed}% paid</span>
-                          <span className="font-mono text-[12px] text-ink-2">{p.paid} / {p.value}</span>
-                        </div>
-                        <div className="h-1.5 overflow-hidden rounded-full bg-paper-3">
-                          <div className={`h-full ${g.bar}`} style={{ width: `${p.billed}%` }} />
-                        </div>
-                      </>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <span className="flex-1 font-mono text-[11px] text-ink-3">No job total yet</span>
-                        {p.value && <span className="truncate font-mono text-[12px] text-ink-3">{p.value}</span>}
-                      </div>
-                    )}
-                  </div>
-                  <ChevronRight className="size-3.5 flex-none text-ink-3" strokeWidth={1.5} />
-                </Card>
-              </Link>
-            ))}
-          </div>
-        </section>
-      ))}
-    </>
+    </div>
   );
 }

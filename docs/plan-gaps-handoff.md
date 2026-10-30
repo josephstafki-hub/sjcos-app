@@ -213,9 +213,20 @@ by Joe/staff don't feed the weekly update (only sub logs do).
   at approval and must hash to the card's; an edited package, note or address sends nothing.
 - **Construction agreement on acceptance (W08):** it is never generated. `send_document_for_signature`
   always needs a grant, while the agent instructions say there's no further release.
-- **Agent wake-ups:** client, sub and supplier messages, quotes, payments, portal selections, mood-board
-  approvals and sub reports don't wake the agent. `onInboundMessage` (`lib/agent-runtime/hooks.ts:~91`)
-  has no callers.
+- ~~**Agent wake-ups:**~~ **Done (branch `t3/tier3-wakeups`), behind a switch that ships OFF:**
+  - These now wake the operating agent:
+    - texts from a known contact
+    - client portal messages
+    - a lead's email reply (not while the first response is still being drafted)
+    - portal selections and mood-board approvals
+    - Square payments
+    - bids Joe records
+    - sub day logs
+  - They only fire while the `agent.event_wakeups` policy is active and lists the kind (migration 0049 seeds
+    it as a draft). Joe turns it on from /engine/decisions › Policies.
+  - Each wake-up is one agent run, about 16¢.
+  - Not wired: sub portal messages (no job to tie them to), and project client emails (part of A01 email
+    intake below).
 - **W02 hook failure:** a failure is only logged (`lib/actions/esign.ts:~275`), with no retry or repair.
   The workflow runbooks (`db/seed-workflow-runbooks.mjs`) aren't seeded live, and live jobs show stage W01.
 - **W03 and W11:**

@@ -19,6 +19,8 @@ import { logClientActivity, ownerHref } from "@/lib/client-activity";
 import { storeUpload } from "@/lib/upload-store";
 import { fetchProductDraft } from "@/lib/product-fetch";
 import { notifyDashboardPublish } from "@/lib/portal-publish";
+import { withTransaction } from "@/lib/commands/db";
+import { onClientSelection } from "@/lib/agent-runtime/hooks";
 
 type Result = { ok: boolean; error?: string };
 
@@ -623,6 +625,8 @@ export async function decideSelection(
       actorName: user.name,
       href: ownerHref({ kind: "project", slug: sel.slug }, { tab: "Selections", focus: `selection-${id}` }),
     });
+    // Wake the operating agent (only while agent.event_wakeups is on).
+    await withTransaction((run) => onClientSelection(run, id)).catch((err) => console.error("[selections] agent wake-up failed:", (err as Error).message));
   }
   revalidatePath(`/projects/${sel.slug}`);
   revalidatePath("/client-portal");

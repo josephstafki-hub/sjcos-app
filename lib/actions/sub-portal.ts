@@ -17,6 +17,7 @@ import { getSubCurrentProject } from "@/lib/sub-portal";
 import { getSub } from "@/lib/subs";
 import { userPrincipal, withTransaction } from "@/lib/commands/db";
 import { recordSubProgress } from "@/lib/field/reports";
+import { onSubReport } from "@/lib/agent-runtime/hooks";
 
 type Result = { ok: boolean; error?: string };
 
@@ -82,16 +83,18 @@ export async function submitSubLog(slug: string, formData: FormData): Promise<Re
   // cost or problems in it are held for Joe there, never sent as-is.
   if (project && rows[0]) {
     try {
-      await withTransaction((run) =>
-        recordSubProgress(run, userPrincipal(user), {
+      await withTransaction(async (run) => {
+        const { report } = await recordSubProgress(run, userPrincipal(user), {
           projectId: project.id,
           subSlug,
           body,
           photos: photoFileId ? [{ fileId: photoFileId }] : [],
           clientEventId: `sublog:${rows[0].id}`,
           subLogId: rows[0].id,
-        }),
-      );
+        });
+        // Wake the operating agent (only while agent.event_wakeups is on).
+        await onSubReport(run, report.id);
+      });
     } catch (err) {
       console.error("[sub-portal] field report from sub log failed:", (err as Error).message);
     }

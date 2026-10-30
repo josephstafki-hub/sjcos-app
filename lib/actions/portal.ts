@@ -14,6 +14,8 @@ import { parseLinkSlug } from "@/lib/client-portal";
 import { emit } from "@/lib/notify";
 import { logClientActivity, ownerHref } from "@/lib/client-activity";
 import { storeUpload } from "@/lib/upload-store";
+import { withTransaction } from "@/lib/commands/db";
+import { onInboundMessage } from "@/lib/agent-runtime/hooks";
 
 const PREVIEW_SLUG = { client: "henderson", sub: "marco" } as const;
 
@@ -169,6 +171,20 @@ export async function sendPortalMessage(formData: FormData) {
         href,
       });
       revalidatePath(ownerHref(clientScope));
+      // Wake the operating agent (only while agent.event_wakeups is on).
+      try {
+        const ids = await queryOne<{ project_id: string | null; lead_id: string | null }>(
+          clientScope.kind === "project"
+            ? `SELECT id AS project_id, NULL::uuid AS lead_id FROM projects WHERE slug = $1`
+            : `SELECT NULL::uuid AS project_id, id AS lead_id FROM leads WHERE slug = $1`,
+          [clientScope.slug],
+        );
+        if (ids && inserted?.id) {
+          await withTransaction((run) => onInboundMessage(run, { provider: "portal", messageId: inserted.id, projectId: ids.project_id, leadId: ids.lead_id, from: name, text: body.slice(0, 2000) }));
+        }
+      } catch (err) {
+        console.error("[portal] agent wake-up failed:", (err as Error).message);
+      }
     }
   }
 

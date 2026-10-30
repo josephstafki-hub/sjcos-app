@@ -230,7 +230,7 @@ async function finish(call: CallRow, notes: CallNotesShape, by: string, rounds: 
   try {
     await withTransaction((run) => ensureCallFollowUps(run, call.id, { by: `call-notes:${by}` }));
   } catch (err) {
-    console.error("[call-notes] follow-up filing failed (retry sweep will resume it)", err);
+    console.error("[call-notes] follow-up filing failed (the reminders cron retries it)", err);
   }
 
   const flagLine = notes.flags.length ? ` · flags: ${notes.flags.map((f) => f.kind.replace("_", " ")).join(", ")}` : "";

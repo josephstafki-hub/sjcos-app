@@ -14,7 +14,8 @@ import { query } from "./db";
 import type { Run } from "./commands/core";
 import { flagUnseenForReview } from "./obligations/work-items";
 import { emit } from "./notify";
-import { runDirect } from "./commands/db";
+import { runDirect, withTransaction } from "./commands/db";
+import { ensureCallFollowUps } from "./completion/call-followups";
 import { routineReminderCandidates } from "./billing/reminders";
 
 const COMPLIANCE_WINDOWS = [60, 30]; // ≤14d handled on feed-read
@@ -46,6 +47,8 @@ export interface ReminderRun {
   inboxFlaggedForReview: number;
   /** Items already carrying the review flag and still open — for the owner's count. */
   inboxAwaitingReview: number;
+  /** Calls whose follow-up to-dos had failed to file and were filed this run. */
+  callFollowUpsRetried: number;
 }
 
 export async function runReminders(): Promise<ReminderRun> {
@@ -57,6 +60,7 @@ export async function runReminders(): Promise<ReminderRun> {
     ar: 0,
     inboxFlaggedForReview: 0,
     inboxAwaitingReview: 0,
+    callFollowUpsRetried: 0,
   };
 
   // ── Compliance items: 60 / 30-day heads-up (unresolved, future-dated) ──
@@ -256,6 +260,21 @@ export async function runReminders(): Promise<ReminderRun> {
         AND wi.scan_review_flagged_at IS NOT NULL`,
   );
   out.inboxAwaitingReview = awaiting.rows[0]?.n ?? 0;
+
+  // ── Call follow-ups whose filing failed after the notes saved ──
+  // Each call runs in its own transaction (ensureCallFollowUps takes a
+  // per-call advisory xact lock).
+  const pending = await query<{ id: string }>(
+    `SELECT id FROM calls WHERE notes_status = 'done' AND followups_filed_at IS NULL AND updated_at > now() - interval '7 days' LIMIT 50`,
+  );
+  for (const c of pending.rows) {
+    try {
+      await withTransaction((tx) => ensureCallFollowUps(tx, c.id, { by: "call-notes:retry" }));
+      out.callFollowUpsRetried++;
+    } catch (err) {
+      console.error("[reminders] call follow-up retry failed", c.id, err);
+    }
+  }
 
   return out;
 }

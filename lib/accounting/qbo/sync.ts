@@ -14,6 +14,12 @@
 //                          mapping + Deposit match; never a second revenue.
 //   confirmMapping /       owner review of unmapped/conflict rows.
 //   rejectMapping
+//   resolveAccountingConflict  what Joe's answer on a conflict card does.
+//
+// Exports never duplicate what QuickBooks already has: a customer with the
+// same display name is reused, and an invoice or payment that looks like an
+// unmatched QuickBooks record is held back (possible_duplicate) until the
+// match is confirmed or rejected on Settings › Accounting.
 //
 // Every write is keyed on (realm, entity, qbo_id) or (realm, entity, internal)
 // so repeated runs create no duplicate revenue or cash (VALIDATION V16).
@@ -153,6 +159,10 @@ async function candidatesFor(run: Run, kind: QboEntityKind, doc: QboDoc): Promis
 
 // ── Import ───────────────────────────────────────────────────────────────────
 
+/** What Approve / Reject mean on a conflict card (resolveAccountingConflict). */
+const CONFLICT_EFFECT =
+  "Approve if QuickBooks is right: SJC OS accepts its version and stops flagging it (nothing in SJC OS or QuickBooks is changed). Reject if SJC OS is right: it stays flagged on Settings › Accounting until it is fixed in QuickBooks.";
+
 export interface ImportResult {
   realmId: string;
   dryRun: boolean;
@@ -234,7 +244,7 @@ export async function importPostedEntities(
           kind: "other",
           action: "resolve_accounting_conflict",
           title: `QuickBooks ${kind} ${doc.DocNumber ?? doc.Id} ${doc.Voided ? "voided" : "changed"} after SJC OS posted it`,
-          summary: { effect: "Decide which record is right: keep the QuickBooks change (SJC OS re-maps), or re-post from SJC OS. Nothing is changed automatically.", changes: [reason], gaps: [`internal ${existing.internal_kind ?? "?"} ${existing.internal_id ?? "?"}`] },
+          summary: { effect: CONFLICT_EFFECT, changes: [reason], gaps: [`internal ${existing.internal_kind ?? "?"} ${existing.internal_id ?? "?"}`] },
           targetKind: "qbo_mapping",
           targetId: existing.id,
           content: { mapping_id: existing.id, version_hash: hash },
@@ -256,7 +266,58 @@ export async function importPostedEntities(
       await run(`UPDATE qbo_connection SET cursors = cursors || $2::jsonb, last_sync_at = now() WHERE realm_id = $1`, [input.realmId, JSON.stringify({ [kind]: stat.cursor_to })]);
     }
   }
+  await importDeletions(run, adapter, { realmId: input.realmId, kinds: input.kinds ?? IMPORT_KINDS, cursor: cursors.deleted ?? null, dryRun, principal: input.principal, out });
   return out;
+}
+
+/** Deleted in QuickBooks (only Change Data Capture says so). A record we
+ *  posted or matched becomes a conflict card; one nobody matched yet just
+ *  leaves the review list. The first pass only sets the cursor. */
+async function importDeletions(
+  run: Run,
+  adapter: QboAdapter,
+  input: { realmId: string; kinds: QboEntityKind[]; cursor: string | null; dryRun: boolean; principal: Principal; out: ImportResult },
+): Promise<void> {
+  // First pass: start from the newest QuickBooks time seen (QuickBooks' own
+  // clock), so nothing deleted after this pass is missed.
+  const seen = Object.values(input.out.kinds).map((k) => k.cursor_to).filter((x): x is string => Boolean(x));
+  const started = seen.sort().at(-1) ?? new Date().toISOString();
+  let gone;
+  try {
+    gone = input.cursor ? await adapter.listDeleted(input.kinds, input.cursor) : [];
+  } catch (err) {
+    if (err instanceof QboNotConnectedError) throw err;
+    input.out.skipped.push({ entity_kind: "deleted records", reason: `QuickBooks didn't report deletions this pass; retried next pass (${(err as Error).message.slice(0, 160)})` });
+    return;
+  }
+  if (input.dryRun) return;
+  for (const g of gone) {
+    const [m] = await run<QboMappingRow>(`SELECT ${MAP_COLS} FROM qbo_mappings WHERE realm_id = $1 AND entity_kind = $2 AND qbo_id = $3 FOR UPDATE`, [input.realmId, g.kind, g.id]);
+    if (!m || m.snapshot?.Deleted === true) continue;
+    const snap = { ...m.snapshot, Deleted: true };
+    if (m.state === "unmapped") {
+      await run(`UPDATE qbo_mappings SET state = 'rejected', qbo_voided = true, snapshot = $2::jsonb, note = 'deleted in QuickBooks before it was matched' WHERE id = $1`, [m.id, JSON.stringify(snap)]);
+      continue;
+    }
+    if (!["posted", "settled", "reconciled"].includes(m.state)) continue;
+    const reason = "deleted in QuickBooks after we posted it";
+    await run(`UPDATE qbo_mappings SET state = 'conflict', qbo_voided = true, snapshot = $2::jsonb, note = $3 WHERE id = $1`, [m.id, JSON.stringify(snap), reason]);
+    const { decision } = await stageDecision(run, {
+      kind: "other",
+      action: "resolve_accounting_conflict",
+      title: `QuickBooks ${g.kind} ${String(m.snapshot?.DocNumber ?? g.id)} deleted after SJC OS posted it`,
+      summary: { effect: CONFLICT_EFFECT, changes: [reason], gaps: [`internal ${m.internal_kind ?? "?"} ${m.internal_id ?? "?"}`] },
+      targetKind: "qbo_mapping",
+      targetId: m.id,
+      content: { mapping_id: m.id, deleted: true },
+      dedupeKey: `qbo_conflict:${m.id}`,
+      requestedBy: input.principal,
+      href: "/settings/accounting",
+    });
+    input.out.conflicts.push({ mapping_id: m.id, entity_kind: g.kind, qbo_id: g.id, reason, decision_id: decision.id });
+  }
+  const newest = gone.reduce<string>((acc, g) => (g.at && g.at > acc ? g.at : acc), input.cursor ?? started);
+  await run(`UPDATE qbo_connection SET cursors = cursors || $2::jsonb WHERE realm_id = $1`, [input.realmId, JSON.stringify({ deleted: input.cursor ? newest : started })]);
 }
 
 // ── Export (controlled, per-direction switch) ────────────────────────────────
@@ -287,7 +348,44 @@ export async function exportEach(
   return out;
 }
 
-export type ExportResult = { ok: true; mappingId: string; qboId: string; created: boolean } | { ok: false; reason: string; code: "switch_off" | "not_found" | "not_issued" | "no_customer" | "no_invoice_mapping" | "not_settled" };
+export type ExportResult = { ok: true; mappingId: string; qboId: string; created: boolean } | { ok: false; reason: string; code: "switch_off" | "not_found" | "not_issued" | "no_customer" | "no_invoice_mapping" | "not_settled" | "possible_duplicate" };
+
+const usdOf = (c: number | null) => (c == null ? "?" : `$${(c / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+
+/** An unmatched QuickBooks invoice that is probably this one: same amount and
+ *  the same number or customer, or the import already proposed it. Checks
+ *  QuickBooks itself too, in case the import hasn't pulled it yet. */
+async function existingQboInvoice(run: Run, adapter: QboAdapter, realmId: string, inv: { id: number; number: string; amount: number; client_name: string }): Promise<string | null> {
+  const [m] = await run<{ qbo_id: string; doc: string | null; who: string | null; txn_date: string | null }>(
+    `SELECT qbo_id, snapshot->>'DocNumber' AS doc, COALESCE(snapshot->'CustomerRef'->>'name', snapshot->>'Payee') AS who, txn_date::text AS txn_date
+       FROM qbo_mappings
+      WHERE realm_id = $1 AND entity_kind = 'Invoice' AND state = 'unmapped' AND amount_cents = $2
+        AND (snapshot->>'DocNumber' = $3 OR lower(btrim(COALESCE(snapshot->'CustomerRef'->>'name', snapshot->>'Payee', ''))) = lower(btrim($4)) OR candidates @> $5::jsonb)
+      ORDER BY (snapshot->>'DocNumber' = $3) DESC LIMIT 1`,
+    [realmId, inv.amount, inv.number, inv.client_name, JSON.stringify([{ internal_kind: "invoice", internal_id: String(inv.id) }])],
+  );
+  if (m) return `QuickBooks may already have this invoice: #${m.doc ?? m.qbo_id} for ${usdOf(inv.amount)}${m.who ? ` (${m.who})` : ""}${m.txn_date ? `, ${m.txn_date}` : ""}. Match it or reject the match on Settings › Accounting; nothing was exported.`;
+  const live = (await adapter.findBy("Invoice", "DocNumber", inv.number)).filter((d) => cents(d.TotalAmt) === inv.amount);
+  for (const d of live) {
+    const [known] = await run<{ id: string }>(`SELECT id FROM qbo_mappings WHERE realm_id = $1 AND entity_kind = 'Invoice' AND qbo_id = $2 AND (state = 'rejected' OR internal_id IS NOT NULL)`, [realmId, d.Id]);
+    if (!known) return `QuickBooks already has invoice #${inv.number} for ${usdOf(inv.amount)} (id ${d.Id}) that SJC OS hasn't matched. Let the import pull it, then match or reject it on Settings › Accounting; nothing was exported.`;
+  }
+  return null;
+}
+
+/** An unmatched QuickBooks payment that is probably this one: same amount,
+ *  within 5 days, and the same customer or already proposed by the import. */
+async function existingQboPayment(run: Run, realmId: string, p: { id: number; amount_cents: number; received_at: string; client_name: string }): Promise<string | null> {
+  const [m] = await run<{ qbo_id: string; who: string | null; txn_date: string | null }>(
+    `SELECT qbo_id, COALESCE(snapshot->'CustomerRef'->>'name', snapshot->>'Payee') AS who, txn_date::text AS txn_date
+       FROM qbo_mappings
+      WHERE realm_id = $1 AND entity_kind = 'Payment' AND state = 'unmapped' AND amount_cents = $2
+        AND (candidates @> $5::jsonb OR (abs(COALESCE(txn_date, $3::date) - $3::date) <= 5 AND lower(btrim(COALESCE(snapshot->'CustomerRef'->>'name', snapshot->>'Payee', ''))) = lower(btrim($4))))
+      LIMIT 1`,
+    [realmId, p.amount_cents, p.received_at, p.client_name, JSON.stringify([{ internal_kind: "invoice_payment", internal_id: String(p.id) }])],
+  );
+  return m ? `QuickBooks may already have this payment: ${usdOf(p.amount_cents)}${m.who ? ` from ${m.who}` : ""}${m.txn_date ? ` on ${m.txn_date}` : ""} (id ${m.qbo_id}). Match it or reject the match on Settings › Accounting; nothing was exported.` : null;
+}
 
 /** Mirror an ISSUED SJC invoice to QBO once (never drafts, never voids). */
 export async function exportIssuedInvoice(run: Run, adapter: QboAdapter, input: { realmId: string; invoiceId: number; by: string }): Promise<ExportResult> {
@@ -301,6 +399,8 @@ export async function exportIssuedInvoice(run: Run, adapter: QboAdapter, input: 
   if (["draft", "void"].includes(inv.status)) return { ok: false, reason: `invoice ${inv.number} is ${inv.status}; only issued invoices are mirrored`, code: "not_issued" };
   const [existing] = await run<QboMappingRow>(`SELECT ${MAP_COLS} FROM qbo_mappings WHERE realm_id = $1 AND entity_kind = 'Invoice' AND internal_kind = 'invoice' AND internal_id = $2 AND state <> 'rejected'`, [input.realmId, String(inv.id)]);
   if (existing?.qbo_id) return { ok: true, mappingId: existing.id, qboId: existing.qbo_id, created: false };
+  const dup = await existingQboInvoice(run, adapter, input.realmId, inv);
+  if (dup) return { ok: false, reason: dup, code: "possible_duplicate" };
   const customer = await customerFor(run, adapter, input.realmId, inv.client_name);
   const doc = await adapter.create("Invoice", { DocNumber: inv.number, TxnDate: inv.issued_at ?? undefined, TotalAmt: inv.amount / 100, CustomerRef: { value: customer.qboId, name: inv.client_name }, Line: [{ Amount: inv.amount / 100, DetailType: "SalesItemLineDetail", Description: `SJC OS invoice ${inv.number} (${inv.project_slug})` }] });
   const [m] = await run<{ id: string }>(
@@ -316,6 +416,26 @@ async function customerFor(run: Run, adapter: QboAdapter, realmId: string, clien
   const key = clientName.trim().toLowerCase() || "unknown";
   const [m] = await run<{ qbo_id: string }>(`SELECT qbo_id FROM qbo_mappings WHERE realm_id = $1 AND entity_kind = 'Customer' AND internal_kind = 'client' AND internal_id = $2 AND qbo_id IS NOT NULL`, [realmId, key]);
   if (m) return { qboId: m.qbo_id };
+  // QuickBooks display names are unique: the same name IS that customer.
+  // Reuse an imported one, or one QuickBooks has that the import hasn't pulled.
+  const [imp] = await run<{ id: string; qbo_id: string }>(
+    `SELECT id, qbo_id FROM qbo_mappings WHERE realm_id = $1 AND entity_kind = 'Customer' AND qbo_id IS NOT NULL AND state <> 'rejected' AND internal_id IS NULL AND lower(btrim(snapshot->>'Name')) = $2 LIMIT 1`,
+    [realmId, key],
+  );
+  if (imp) {
+    await run(`UPDATE qbo_mappings SET internal_kind = 'client', internal_id = $2, state = 'posted', candidates = '[]'::jsonb, note = 'same display name as the SJC OS client' WHERE id = $1`, [imp.id, key]);
+    return { qboId: imp.qbo_id };
+  }
+  const [found] = clientName.trim() ? await adapter.findBy("Customer", "DisplayName", clientName.trim()) : [];
+  if (found) {
+    await run(
+      `INSERT INTO qbo_mappings (realm_id, entity_kind, qbo_id, sync_token, version_hash, internal_kind, internal_id, direction, state, snapshot, note)
+       VALUES ($1, 'Customer', $2, $3, $4, 'client', $5, 'import', 'posted', $6::jsonb, 'same display name as the SJC OS client')
+       ON CONFLICT (realm_id, entity_kind, qbo_id) WHERE qbo_id IS NOT NULL DO UPDATE SET internal_kind = 'client', internal_id = EXCLUDED.internal_id, state = 'posted', note = EXCLUDED.note`,
+      [realmId, found.Id, found.SyncToken, versionHash(found), key, JSON.stringify(sanitize(found))],
+    );
+    return { qboId: found.Id };
+  }
   const doc = await adapter.create("Customer", { DisplayName: clientName.trim() || "Unknown client" } as Partial<QboDoc>);
   await run(`INSERT INTO qbo_mappings (realm_id, entity_kind, qbo_id, sync_token, version_hash, internal_kind, internal_id, direction, state, snapshot) VALUES ($1, 'Customer', $2, $3, $4, 'client', $5, 'export', 'posted', $6::jsonb) ON CONFLICT DO NOTHING`, [realmId, doc.Id, doc.SyncToken, versionHash(doc), key, JSON.stringify({ Id: doc.Id, DisplayName: clientName })]);
   return { qboId: doc.Id };
@@ -324,8 +444,9 @@ async function customerFor(run: Run, adapter: QboAdapter, realmId: string, clien
 /** Mirror a SETTLED customer payment once, applied to the mirrored invoice. */
 export async function exportConfirmedPayment(run: Run, adapter: QboAdapter, input: { realmId: string; invoicePaymentId: number; by: string }): Promise<ExportResult> {
   if (!(await switchOn(run, "export_payments"))) return { ok: false, reason: "export_payments is off", code: "switch_off" };
-  const [p] = await run<{ id: number; invoice_id: number; amount_cents: number; status: string; kind: string; received_at: string; provider: string | null; provider_ref: string | null }>(
-    `SELECT id::int AS id, invoice_id::int AS invoice_id, amount_cents, status, kind, received_at::date::text AS received_at, provider, provider_ref FROM invoice_payments WHERE id = $1 FOR UPDATE`,
+  const [p] = await run<{ id: number; invoice_id: number; amount_cents: number; status: string; kind: string; received_at: string; provider: string | null; provider_ref: string | null; client_name: string }>(
+    `SELECT ip.id::int AS id, ip.invoice_id::int AS invoice_id, ip.amount_cents, ip.status, ip.kind, ip.received_at::date::text AS received_at, ip.provider, ip.provider_ref, COALESCE(pr.client_name, '') AS client_name
+       FROM invoice_payments ip JOIN invoices i ON i.id = ip.invoice_id JOIN projects pr ON pr.id = i.project_id WHERE ip.id = $1 FOR UPDATE OF ip`,
     [input.invoicePaymentId],
   );
   if (!p) return { ok: false, reason: "payment not found", code: "not_found" };
@@ -334,6 +455,8 @@ export async function exportConfirmedPayment(run: Run, adapter: QboAdapter, inpu
   if (existing?.qbo_id) return { ok: true, mappingId: existing.id, qboId: existing.qbo_id, created: false };
   const [invMap] = await run<{ qbo_id: string }>(`SELECT qbo_id FROM qbo_mappings WHERE realm_id = $1 AND entity_kind = 'Invoice' AND internal_kind = 'invoice' AND internal_id = $2 AND qbo_id IS NOT NULL AND state <> 'rejected'`, [input.realmId, String(p.invoice_id)]);
   if (!invMap) return { ok: false, reason: `invoice ${p.invoice_id} is not mirrored yet; export the invoice first`, code: "no_invoice_mapping" };
+  const dupPay = await existingQboPayment(run, input.realmId, p);
+  if (dupPay) return { ok: false, reason: dupPay, code: "possible_duplicate" };
   const doc = await adapter.create("Payment", { TxnDate: p.received_at, TotalAmt: p.amount_cents / 100, Line: [{ Amount: p.amount_cents / 100, LinkedTxn: [{ TxnId: invMap.qbo_id, TxnType: "Invoice" }] }], PrivateNote: p.provider ? `${p.provider} ${p.provider_ref ?? ""}`.trim() : "recorded in SJC OS" } as Partial<QboDoc>);
   const [m] = await run<{ id: string }>(
     `INSERT INTO qbo_mappings (realm_id, entity_kind, qbo_id, sync_token, version_hash, internal_kind, internal_id, direction, state, snapshot, amount_cents, txn_date, note)
@@ -410,6 +533,28 @@ export async function confirmMapping(run: Run, input: { mappingId: string; inter
   if (m.entity_kind === "Invoice" && input.internalKind === "invoice" && m.qbo_id) await run(`UPDATE invoices SET external_ref = external_ref || $2::jsonb WHERE id = $1`, [Number(input.internalId), JSON.stringify({ qbo: { id: m.qbo_id, sync_token: m.sync_token, realm: m.realm_id } })]);
   if (m.entity_kind === "Payment" && input.internalKind === "invoice_payment" && m.qbo_id) await run(`UPDATE invoice_payments SET external_sync = external_sync || $2::jsonb WHERE id = $1`, [Number(input.internalId), JSON.stringify({ qbo: { id: m.qbo_id, sync_token: m.sync_token, realm: m.realm_id } })]);
   return { ok: true };
+}
+
+/** Joe's answer on a conflict card. Approve = QuickBooks is right: the
+ *  mapping takes QuickBooks' current version as the agreed one and leaves the
+ *  conflict list (a deleted record stops being tracked). Reject = SJC OS is
+ *  right: it stays on the list, noted, until it is fixed in QuickBooks.
+ *  Nothing is written to QuickBooks or to the SJC OS invoice/payment. */
+export async function resolveAccountingConflict(run: Run, input: { mappingId: string; outcome: "approved" | "rejected"; by: string }): Promise<string | null> {
+  const [m] = await run<QboMappingRow>(`SELECT ${MAP_COLS} FROM qbo_mappings WHERE id = $1 FOR UPDATE`, [input.mappingId]);
+  if (!m || m.state !== "conflict") return null;
+  const what = `QuickBooks ${m.entity_kind} ${String(m.snapshot?.DocNumber ?? m.qbo_id ?? "")}`.trim();
+  if (input.outcome === "rejected") {
+    await run(`UPDATE qbo_mappings SET note = $2 WHERE id = $1`, [m.id, `${m.note} · ${input.by}: SJC OS is right; fix it in QuickBooks`.slice(0, 1000)]);
+    return `${what} stays flagged on Settings › Accounting until it's fixed in QuickBooks.`;
+  }
+  if (m.snapshot?.Deleted === true) {
+    await run(`UPDATE qbo_mappings SET state = 'rejected', note = $2 WHERE id = $1`, [m.id, `deleted in QuickBooks; accepted by ${input.by}`]);
+    return `${what} was deleted in QuickBooks; SJC OS stops tracking it.${m.internal_kind === "invoice" ? " If the invoice itself is wrong, void it in SJC OS too." : ""}`;
+  }
+  await run(`UPDATE qbo_mappings SET state = CASE WHEN entity_kind = 'Payment' THEN 'settled' ELSE 'posted' END, note = $2 WHERE id = $1`, [m.id, `QuickBooks version accepted by ${input.by}`]);
+  if (m.entity_kind === "Invoice" && m.internal_kind === "invoice" && m.internal_id) await run(`UPDATE invoices SET external_ref = jsonb_set(external_ref, '{qbo,sync_token}', to_jsonb($2::text)) WHERE id = $1 AND external_ref ? 'qbo'`, [Number(m.internal_id), m.sync_token ?? ""]);
+  return `${what}: QuickBooks' version is accepted.${m.qbo_voided ? " It was voided there; void it in SJC OS too if that's right." : ""}`;
 }
 
 export async function rejectMapping(run: Run, mappingId: string, by: string, reason: string): Promise<boolean> {

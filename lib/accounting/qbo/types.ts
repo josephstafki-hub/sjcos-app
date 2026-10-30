@@ -30,6 +30,19 @@ export interface QboAdapter {
   listChanges(kind: QboEntityKind, sinceIso: string | null): Promise<QboDoc[]>;
   get(kind: QboEntityKind, id: string): Promise<QboDoc | null>;
   create(kind: QboEntityKind, doc: Partial<QboDoc>): Promise<QboDoc>;
+  /** Records whose `field` is exactly `value` (asked of QuickBooks itself, so
+   *  an export can see a record the import hasn't pulled yet). */
+  findBy(kind: QboEntityKind, field: "DocNumber" | "DisplayName", value: string): Promise<QboDoc[]>;
+  /** Records deleted in QuickBooks since `sinceIso` (Change Data Capture; the
+   *  query endpoint never returns deleted records). QuickBooks keeps 30 days. */
+  listDeleted(kinds: QboEntityKind[], sinceIso: string): Promise<QboDeleted[]>;
+}
+
+export interface QboDeleted {
+  kind: QboEntityKind;
+  id: string;
+  /** When QuickBooks deleted it (MetaData.LastUpdatedTime), if given. */
+  at: string | null;
 }
 
 export class QboNotConnectedError extends Error {

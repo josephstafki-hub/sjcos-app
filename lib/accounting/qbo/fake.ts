@@ -5,18 +5,20 @@
 // without any network. `reset()` between tests; `mutate()`/`void_()` are the
 // "bookkeeper edited it in QBO" seams.
 
-import type { QboAdapter, QboDoc, QboEntityKind } from "./types.ts";
+import type { QboAdapter, QboDeleted, QboDoc, QboEntityKind } from "./types.ts";
 
 export class FakeQbo implements QboAdapter {
   readonly environment = "fake" as const;
   private seq = 100;
   private docs = new Map<string, QboDoc[]>();
+  private deleted: QboDeleted[] = [];
   private clock = Date.parse("2026-09-20T12:00:00Z");
   realmId = "fake-realm";
   companyName = "SJ Carpentry LLC (fake)";
 
   reset(): void {
     this.docs.clear();
+    this.deleted = [];
     this.seq = 100;
     this.clock = Date.parse("2026-09-20T12:00:00Z");
   }
@@ -53,6 +55,24 @@ export class FakeQbo implements QboAdapter {
     const full: QboDoc = { ...doc, Id: String(++this.seq), SyncToken: "0", MetaData: { CreateTime: now, LastUpdatedTime: now } } as QboDoc;
     this.list(kind).push(full);
     return structuredClone(full);
+  }
+
+  async findBy(kind: QboEntityKind, field: "DocNumber" | "DisplayName", value: string): Promise<QboDoc[]> {
+    return this.list(kind).filter((d) => d[field] === value).map((d) => structuredClone(d));
+  }
+
+  async listDeleted(kinds: QboEntityKind[], sinceIso: string): Promise<QboDeleted[]> {
+    const since = Date.parse(sinceIso);
+    return this.deleted.filter((d) => kinds.includes(d.kind) && Date.parse(d.at ?? "1970-01-01") >= since).map((d) => ({ ...d }));
+  }
+
+  /** Test seam: deleted in QBO (gone from queries, reported by CDC). */
+  delete_(kind: QboEntityKind, id: string): void {
+    const list = this.list(kind);
+    const i = list.findIndex((x) => x.Id === id);
+    if (i < 0) throw new Error(`fake qbo: no ${kind} ${id}`);
+    list.splice(i, 1);
+    this.deleted.push({ kind, id, at: this.tick() });
   }
 
   /** Test seam: a bookkeeper edited the document in QBO (version bumps). */

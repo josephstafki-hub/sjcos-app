@@ -3,12 +3,14 @@
 // — first tap wins, later taps are replay_ignored — and then does what a
 // resolution must cause: settle a bridged owner grant, wake or cancel the
 // intents parked on this decision, and for an approved first-draw or
-// progress/final draw invoice card, create the invoice. Returns the reply text every
+// progress/final draw invoice card, create the invoice; for a QuickBooks
+// conflict card, settle the mapping. Returns the reply text every
 // channel shows ("Approved ✓", "Approved ✓ — already approved 2 min ago").
 //
 // Pure: `run` only. The Next glue (actions.ts) kicks the dispatcher after
 // commit and edits the Telegram card.
 
+import { resolveAccountingConflict } from "../accounting/qbo/sync.ts";
 import { onDecisionResolved } from "../agent-runtime/hooks.ts";
 import { FINAL_INVOICE_ACTION, INITIAL_INVOICE_ACTION, PROGRESS_INVOICE_ACTION, issueFinalFromDecision, issueInitialFromDecision, issueProgressFromDecision, type DecisionInvoiceOutcome } from "../billing/commands.ts";
 import type { Run } from "../commands/core.ts";
@@ -128,11 +130,15 @@ export async function resolveFromChannel(run: Run, input: ResolveFromChannelInpu
       intentIds.push(...byGrant.map((x) => x.id));
     }
   }
+  let extra: string | null = null;
+  if (d.action === ACCOUNTING_CONFLICT_ACTION && d.target_kind === "qbo_mapping" && d.target_id) {
+    extra = await settleAccountingConflict(run, d.target_id, outcome === "approved" ? "approved" : "rejected", actorOf(input.principal));
+  }
   // A24: wake the operating agent so the approved (or refused) work resumes
   // without Joe opening the panel. Idempotent on the decision id.
   await onDecisionResolved(run, d.id).catch(() => null);
   const withInvoice = !invoice ? reply : invoice.issued ? `${reply} Invoice ${invoice.invoiceNumber} created.` : `${reply} No invoice was created: ${invoice.reason}`;
-  return { ok: true, code: input.outcome, reply: withInvoice, decision: d, intentIds, grantId, first: true, invoice };
+  return { ok: true, code: input.outcome, reply: extra ? `${withInvoice} ${extra}` : withInvoice, decision: d, intentIds, grantId, first: true, invoice };
 }
 
 /** Approval of a first-draw or progress/final draw invoice card creates the
@@ -153,6 +159,23 @@ async function issueApprovedInvoice(
     await run(`ROLLBACK TO SAVEPOINT approved_invoice`);
     console.error(`[decisions] invoice for approved decision ${decisionId} failed:`, (err as Error).message);
     return { issued: false, reason: (err as Error).message };
+  }
+}
+
+const ACCOUNTING_CONFLICT_ACTION = "resolve_accounting_conflict";
+
+/** A QuickBooks conflict card's answer, under a savepoint like the invoice
+ *  cards: a failure leaves the answer standing and says so. */
+async function settleAccountingConflict(run: Run, mappingId: string, outcome: "approved" | "rejected", by: string): Promise<string | null> {
+  await run(`SAVEPOINT accounting_conflict`);
+  try {
+    const line = await resolveAccountingConflict(run, { mappingId, outcome, by });
+    await run(`RELEASE SAVEPOINT accounting_conflict`);
+    return line;
+  } catch (err) {
+    await run(`ROLLBACK TO SAVEPOINT accounting_conflict`);
+    console.error(`[decisions] QuickBooks conflict ${mappingId} failed:`, (err as Error).message);
+    return `The QuickBooks record wasn't updated: ${(err as Error).message}`;
   }
 }
 

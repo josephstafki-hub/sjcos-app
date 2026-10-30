@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Plus, Sparkles, Trash2, Send, Mail, Check, Inbox, ArrowLeft, Star } from "lucide-react";
-import { Card, Chip } from "@/components/ui";
+import { Card, Chip, Button, PageHeader, Segmented, Tabs } from "@/components/ui";
 import { AI_NAME } from "@/lib/ai-name";
 import { NEWSLETTER_TEMPLATES } from "@/lib/newsletter-templates";
 import { DEFAULT_SETTINGS } from "@/lib/newsletter-design";
@@ -339,29 +339,12 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center gap-1 border-b border-rule bg-paper-2 px-3 py-1.5">
-        <button
-          type="button"
-          onClick={() => setView("issues")}
-          className={`rounded-md px-2.5 py-1 text-[12px] font-semibold ${
-            view === "issues" ? "bg-ink text-paper" : "text-ink-3 hover:bg-paper"
-          }`}
-        >
-          Issues
-        </button>
-        <button
-          type="button"
-          onClick={() => setView("contacts")}
-          className={`rounded-md px-2.5 py-1 text-[12px] font-semibold ${
-            view === "contacts" ? "bg-ink text-paper" : "text-ink-3 hover:bg-paper"
-          }`}
-        >
-          Contacts · {activeCount}
-        </button>
+      <div className="shrink-0 border-b border-rule-soft px-4 py-5">
+        <PageHeader title="Newsletter" meta={`${activeCount} active contacts · ${queuedCount} messages queued`} filters={<Segmented aria-label="Newsletter view" value={view} onChange={v=>setView(v as "issues"|"contacts")} options={[{value:"issues",label:"Issues"},{value:"contacts",label:"Contacts",count:activeCount}]} />} />
       </div>
 
       {notice && (
-        <div className="shrink-0 border-b border-rule bg-paper-2 px-5 py-2 text-[12px] text-ink-2">{notice}</div>
+        <div className="shrink-0 border-b border-rule bg-paper-2 px-5 py-2 text-meta text-ink-2">{notice}</div>
       )}
 
       {view === "contacts" ? (
@@ -382,17 +365,17 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
       <div className="flex min-h-0 flex-1">
       {/* Issues rail */}
       <aside
-        className={`w-full flex-none flex-col border-r border-rule bg-paper-2 lg:w-[240px] ${
-          mobileEditor ? "hidden lg:flex" : "flex"
+        className={`w-full flex-none flex-col border-r border-rule-soft bg-paper @3xl/page:w-56 ${
+          mobileEditor ? "hidden @3xl/page:flex" : "flex"
         }`}
       >
         <div className="relative flex items-center gap-2 border-b border-rule px-4 py-3">
-          <h2 className="flex-1 font-serif text-[15px] font-semibold text-ink">Issues</h2>
+          <h2 className="flex-1 font-serif text-subheading font-semibold text-ink">Issues</h2>
           <button
             type="button"
             onClick={() => setPicking((p) => !p)}
             disabled={pending}
-            className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2 py-1 text-[11px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-60"
+            className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2 py-1 text-meta font-semibold text-paper hover:bg-ink-hover disabled:opacity-60"
           >
             <Plus className="size-3" strokeWidth={2} /> New
           </button>
@@ -400,7 +383,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
             <>
               <div className="fixed inset-0 z-10" onClick={() => setPicking(false)} />
               <div className="absolute right-3 top-12 z-20 w-[220px] rounded-lg border border-rule bg-card p-1.5 shadow-lg">
-                <div className="px-2 pb-1 pt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+                <div className="px-2 pb-1 pt-1 text-meta text-ink-3">
                   Start from a template
                 </div>
                 {NEWSLETTER_TEMPLATES.map((t) => (
@@ -410,8 +393,8 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                     onClick={() => newIssue(t.key)}
                     className="block w-full rounded-md px-2 py-1.5 text-left hover:bg-paper-2"
                   >
-                    <div className="text-[12.5px] font-semibold text-ink">{t.label}</div>
-                    <div className="text-[11px] leading-snug text-ink-3">{t.description}</div>
+                    <div className="text-body font-semibold text-ink">{t.label}</div>
+                    <div className="text-meta leading-snug text-ink-3">{t.description}</div>
                   </button>
                 ))}
               </div>
@@ -419,7 +402,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
           )}
         </div>
         {!issues.some((i) => i.isWelcome) && (
-          <div className="border-b border-rule-soft bg-ai-soft/40 px-4 py-2 text-[11px] leading-snug text-ink-2">
+          <div className="border-b border-rule-soft bg-ai-soft/40 px-4 py-2 text-meta leading-snug text-ink-2">
             No welcome email set — open a draft and use{" "}
             <Star className="inline size-3 -translate-y-px" strokeWidth={1.5} /> to make it the one new
             contacts get.
@@ -427,7 +410,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
         )}
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {issues.length === 0 ? (
-            <div className="px-2 py-8 text-center text-[12px] text-ink-3">
+            <div className="px-2 py-8 text-center text-meta text-ink-3">
               No issues yet. Start one with “New”.
             </div>
           ) : (
@@ -449,13 +432,13 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                   }}
                   className="min-w-0 flex-1 text-left"
                 >
-                  <div className="flex items-center gap-1 truncate text-[13px] text-ink">
+                  <div className="flex items-start gap-1 text-body text-ink">
                     {it.isWelcome && (
                       <Star className="size-3 shrink-0 fill-ai text-ai" strokeWidth={1.5} aria-label="Welcome email" />
                     )}
-                    <span className="truncate">{it.title}</span>
+                    <span className="break-words">{it.title}</span>
                   </div>
-                  <div className="font-mono text-[10px] text-ink-3">
+                  <div className="text-meta text-ink-3">
                     {it.status === "sent" ? `Sent · ${it.recipientCount}` : it.createdLabel}
                   </div>
                 </button>
@@ -466,18 +449,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                     the bug being fixed here, and hover-only affordances don't
                     exist at all on a phone. The welcome issue can't be deleted
                     (server-enforced) — demote it first, so no button here. */}
-                {!it.isWelcome && (
-                  <button
-                    type="button"
-                    onClick={() => removeIssue(it.id)}
-                    disabled={pending}
-                    title={`Delete "${it.title}"`}
-                    aria-label={`Delete ${it.title}`}
-                    className="shrink-0 rounded p-1 text-ink-4 hover:bg-flag-soft hover:text-flag disabled:opacity-40"
-                  >
-                    <Trash2 className="size-3.5" strokeWidth={1.5} />
-                  </button>
-                )}
+                {!it.isWelcome && <details className="relative shrink-0"><summary className="cursor-pointer px-2 py-1 text-body" aria-label={`More actions for ${it.title}`}>…</summary><div className="absolute right-0 z-20 rounded-lg border border-rule-soft bg-card p-1 shadow-pop"><Button variant="ghost" size="sm" className="text-flag" disabled={pending} onClick={()=>removeIssue(it.id)}>Delete issue</Button></div></details>}
               </div>
             ))
           )}
@@ -486,46 +458,32 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
 
       {/* Editor / preview / recipients */}
       <section
-        className={`min-w-0 flex-1 flex-col ${mobileEditor ? "flex" : "hidden lg:flex"}`}
+        className={`min-w-0 flex-1 flex-col ${mobileEditor ? "flex" : "hidden @3xl/page:flex"}`}
       >
         <button
           type="button"
           onClick={() => setMobileEditor(false)}
-          className="m-2 -mb-1 inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 lg:hidden"
+          className="m-2 -mb-1 inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-1 text-meta font-semibold text-ink-2 hover:bg-paper-2 @3xl/page:hidden"
         >
           <ArrowLeft className="size-3.5" strokeWidth={1.5} /> Issues
         </button>
         {!current ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-            <Mail className="size-8 text-ink-4" strokeWidth={1.25} />
-            <div className="text-[13px] text-ink-3">Select or create an issue.</div>
+            <Mail className="size-8 text-ink-3" strokeWidth={1.25} />
+            <div className="text-body text-ink-3">Select or create an issue.</div>
           </div>
         ) : (
           <>
             {/* Toolbar */}
-            <div className="flex items-center gap-2 border-b border-rule px-5 py-2.5">
-              {(["Edit", "Design", "Preview", "Recipients", "Automations", "Outbox"] as Mode[]).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setMode(m)}
-                  className={`rounded-md px-2.5 py-1 text-[12px] font-semibold ${
-                    mode === m ? "bg-ink text-paper" : "text-ink-3 hover:bg-paper-2"
-                  }`}
-                >
-                  {m}
-                  {m === "Recipients" ? ` · ${audienceCount}` : ""}
-                  {m === "Automations" && liveSequenceCount ? ` · ${liveSequenceCount} on` : ""}
-                  {m === "Outbox" && queuedCount ? ` · ${queuedCount}` : ""}
-                </button>
-              ))}
+            <div className="flex flex-wrap items-center gap-2 border-b border-rule-soft px-4 py-2.5">
+              <div className="min-w-0 w-full"><Tabs tabs={["Edit", "Design", "Preview", "Recipients", "Automations", "Outbox"]} active={["Edit", "Design", "Preview", "Recipients", "Automations", "Outbox"].indexOf(mode)} onSelect={i=>setMode((["Edit", "Design", "Preview", "Recipients", "Automations", "Outbox"] as Mode[])[i])}/></div>
               <div className="ml-auto flex items-center gap-2">
                 {!locked && mode === "Edit" && (
                   <button
                     type="button"
                     onClick={save}
                     disabled={pending}
-                    className="inline-flex items-center gap-1 rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-60"
+                    className="inline-flex items-center gap-1 rounded-md border border-rule px-2.5 py-1 text-meta font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-60"
                   >
                     {saved ? <Check className="size-3.5 text-money" strokeWidth={2} /> : null}
                     {saved ? "Saved" : "Save"}
@@ -534,7 +492,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                 {!locked && !current.isWelcome && (
                   <>
                     {(targetGroupIds.length > 0 || current.extraRecipients.length > 0) && (
-                      <span className="text-[11px] text-ink-3">
+                      <span className="text-meta text-ink-3">
                         {targetGroupIds.length > 0
                           ? `${targetGroupIds.length} audience${targetGroupIds.length === 1 ? "" : "s"}`
                           : "Everyone"}
@@ -547,14 +505,14 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                       onClick={queue}
                       disabled={pending || audienceCount === 0}
                       title={audienceCount === 0 ? "Add recipients first" : "Parks each message in the Outbox — nothing sends yet"}
-                      className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1 text-[12px] font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 rounded-md bg-ink px-3 py-1.5 text-label font-semibold text-paper hover:bg-ink-hover disabled:opacity-50"
                     >
                       <Inbox className="size-3.5" strokeWidth={1.5} /> Queue for {audienceCount}
                     </button>
                   </>
                 )}
-                {current.isWelcome && <Chip kind="ai">Sends automatically to new contacts</Chip>}
-                {current.status === "queued" && <Chip kind="accent">Queued — release in Outbox</Chip>}
+                {current.isWelcome && <Chip kind="ai">Welcome email</Chip>}
+                {current.status === "queued" && <Chip kind="info">Queued</Chip>}
                 {sent && <Chip kind="money">Sent · {current.recipientCount}</Chip>}
               </div>
             </div>
@@ -563,24 +521,24 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
               {mode === "Edit" && (
                 <div className="mx-auto max-w-[620px] space-y-4">
                   <div>
-                    <label className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Title / subject</label>
+                    <label className="text-meta text-ink-3">Title / subject</label>
                     <input
                       value={current.title}
                       onChange={(e) => patchCurrent({ title: e.target.value })}
                       disabled={locked}
-                      className="mt-1 w-full rounded-md border border-rule bg-paper px-3 py-2 font-serif text-[18px] font-semibold text-ink outline-none focus:border-accent disabled:bg-paper-2"
+                      className="mt-1 w-full rounded-md border border-rule bg-paper px-3 py-2 font-serif text-heading font-semibold text-ink outline-none focus:border-accent disabled:bg-paper-2"
                     />
                   </div>
 
                   <div>
                     <div className="flex items-center gap-2">
-                      <label className="flex-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Intro</label>
+                      <label className="flex-1 text-meta text-ink-3">Intro</label>
                       {!locked && (
                         <button
                           type="button"
                           onClick={draftTheIntro}
                           disabled={pending}
-                          className="inline-flex items-center gap-1 rounded-md border border-ai bg-ai-soft px-2 py-0.5 text-[11px] font-semibold text-ai-2 hover:bg-ai-soft/70 disabled:opacity-60"
+                          className="inline-flex items-center gap-1 rounded-md border border-ai bg-ai-soft px-2 py-0.5 text-meta font-semibold text-ai-2 hover:bg-ai-soft/70 disabled:opacity-60"
                         >
                           <Sparkles className="size-3" strokeWidth={1.5} /> Draft with {AI_NAME}
                         </button>
@@ -592,13 +550,13 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                       disabled={locked}
                       rows={4}
                       placeholder="A warm opening for this issue…"
-                      className="mt-1 w-full resize-y rounded-md border border-rule bg-paper px-3 py-2 text-[13px] text-ink outline-none focus:border-accent disabled:bg-paper-2"
+                      className="mt-1 w-full resize-y rounded-md border border-rule bg-paper px-3 py-2 text-body text-ink outline-none focus:border-accent disabled:bg-paper-2"
                     />
                   </div>
 
                   {/* Blocks */}
                   <div className="space-y-3">
-                    <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Sections</div>
+                    <div className="text-meta text-ink-3">Sections</div>
                     {current.blocks.map((b, idx) => (
                       <BlockEditor
                         key={idx}
@@ -695,7 +653,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                     type="button"
                     onClick={() => demoteWelcome(current.id)}
                     disabled={pending}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-rule px-2.5 py-1 text-meta font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50"
                   >
                     <Star className="size-3.5" strokeWidth={1.5} /> Remove as welcome email
                   </button>
@@ -706,7 +664,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                         type="button"
                         onClick={() => promoteWelcome(current.id)}
                         disabled={pending}
-                        className="inline-flex items-center gap-1.5 rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 rounded-md border border-rule px-2.5 py-1 text-meta font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50"
                       >
                         <Star className="size-3.5" strokeWidth={1.5} /> Set as welcome email
                       </button>
@@ -715,7 +673,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                       type="button"
                       onClick={() => removeIssue(current.id)}
                       disabled={pending}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:border-flag hover:bg-flag-soft hover:text-flag disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 rounded-md border border-rule px-2.5 py-1 text-meta font-semibold text-ink-2 hover:border-flag hover:bg-flag-soft hover:text-flag disabled:opacity-50"
                     >
                       <Trash2 className="size-3.5" strokeWidth={1.5} />
                       {current.status === "sent"
@@ -755,14 +713,14 @@ function IssuePreview({ issue, baseUrl }: { issue: NewsletterIssue; baseUrl: str
   return (
     <div className="mx-auto max-w-[720px] space-y-3">
       <div className="flex items-center gap-2">
-        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Preview</span>
+        <span className="text-meta text-ink-3">Preview</span>
         <div className="ml-auto flex gap-1">
           {(["desktop", "mobile"] as const).map((w) => (
             <button
               key={w}
               type="button"
               onClick={() => setWidth(w)}
-              className={`rounded-md px-2 py-0.5 text-[11px] font-semibold capitalize ${
+              className={`rounded-md px-2 py-0.5 text-meta font-semibold capitalize ${
                 width === w ? "bg-ink text-paper" : "text-ink-3 hover:bg-paper-2"
               }`}
             >
@@ -782,7 +740,7 @@ function IssuePreview({ issue, baseUrl }: { issue: NewsletterIssue; baseUrl: str
           style={{ width: width === "mobile" ? 380 : "100%" }}
         />
       </div>
-      <p className="text-center text-[11px] text-ink-3">
+      <p className="text-center text-meta text-ink-3">
         Photos load from this server, so recipients see them only once the issue is sent from a
         reachable address.
       </p>
@@ -812,14 +770,14 @@ function OutboxPanel({
     <div className="mx-auto max-w-[640px] space-y-4">
       <div className="flex items-start gap-2 rounded-md border border-accent/40 bg-accent-soft/60 px-3 py-2">
         <Inbox className="mt-0.5 size-4 text-accent-2" strokeWidth={1.5} />
-        <p className="text-[12px] leading-snug text-ink-2">
+        <p className="text-meta leading-snug text-ink-2">
           Everything here is <b>parked</b> — no email has been sent. Review each message and press{" "}
           <b>Release</b> to actually email that person via Gmail, or <b>Discard</b> to drop it.
         </p>
       </div>
 
       {pendingRows.length === 0 ? (
-        <div className="px-2 py-8 text-center text-[12px] text-ink-3">Nothing waiting to send.</div>
+        <div className="px-2 py-8 text-center text-meta text-ink-3">Nothing waiting to send.</div>
       ) : (
         <>
           <div className="text-right">
@@ -827,7 +785,7 @@ function OutboxPanel({
               type="button"
               onClick={onReleaseAll}
               disabled={pending}
-              className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-meta font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
             >
               <Send className="size-3.5" strokeWidth={1.5} /> Release all {pendingRows.length}
             </button>
@@ -837,8 +795,8 @@ function OutboxPanel({
             <div key={o.id} className={`px-4 py-3 ${i ? "border-t border-rule-soft" : ""}`}>
               <div className="flex items-center gap-2">
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] text-ink">{o.name || o.email}</div>
-                  <div className="truncate font-mono text-[10px] text-ink-3">
+                  <div className="truncate text-body text-ink">{o.name || o.email}</div>
+                  <div className="truncate text-meta text-ink-3">
                     {o.email} · {o.kind === "greeting" ? "Welcome greeting" : o.issueTitle ?? "Issue"}
                   </div>
                 </div>
@@ -847,7 +805,7 @@ function OutboxPanel({
                   type="button"
                   onClick={() => onSkip(o)}
                   disabled={pending}
-                  className="inline-flex items-center gap-1 rounded-md border border-rule px-2 py-1 text-[11px] font-semibold text-ink-3 hover:bg-paper-2 disabled:opacity-50"
+                  className="inline-flex items-center gap-1 rounded-md border border-rule px-2 py-1 text-meta font-semibold text-ink-3 hover:bg-paper-2 disabled:opacity-50"
                 >
                   <Trash2 className="size-3" strokeWidth={1.5} /> Discard
                 </button>
@@ -855,13 +813,13 @@ function OutboxPanel({
                   type="button"
                   onClick={() => onRelease(o)}
                   disabled={pending}
-                  className="inline-flex items-center gap-1 rounded-md bg-accent px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
+                  className="inline-flex items-center gap-1 rounded-md bg-accent px-2.5 py-1 text-meta font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
                 >
                   <Send className="size-3" strokeWidth={1.5} /> {o.status === "failed" ? "Retry" : "Release"}
                 </button>
               </div>
-              <div className="mt-1 truncate text-[11.5px] text-ink-3">{o.subject}</div>
-              {o.error && <div className="mt-1 text-[11px] text-flag">{o.error}</div>}
+              <div className="mt-1 truncate text-meta text-ink-3">{o.subject}</div>
+              {o.error && <div className="mt-1 text-meta text-flag">{o.error}</div>}
             </div>
           ))}
           </Card>
@@ -870,13 +828,13 @@ function OutboxPanel({
 
       {doneRows.length > 0 && (
         <div>
-          <div className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">History</div>
+          <div className="mb-1.5 text-meta text-ink-3">History</div>
           <Card className="overflow-hidden p-0">
             {doneRows.map((o, i) => (
               <div key={o.id} className={`flex items-center gap-2 px-4 py-2.5 ${i ? "border-t border-rule-soft" : ""}`}>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[12.5px] text-ink-2">{o.name || o.email}</div>
-                  <div className="truncate font-mono text-[10px] text-ink-3">
+                  <div className="truncate text-body text-ink-2">{o.name || o.email}</div>
+                  <div className="truncate text-meta text-ink-3">
                     {o.kind === "greeting" ? "Welcome greeting" : o.issueTitle ?? "Issue"}
                   </div>
                 </div>
@@ -884,7 +842,7 @@ function OutboxPanel({
                   <Chip kind="ghost">skipped</Chip>
                 ) : (
                   <>
-                    <span className="font-mono text-[10px] text-ink-3">
+                    <span className="text-meta text-ink-3">
                       {o.openedLabel ? `opened ${o.openedLabel}${o.openCount > 1 ? ` · ${o.openCount}×` : ""}` : "not opened"}
                     </span>
                     <Chip kind="money">sent</Chip>

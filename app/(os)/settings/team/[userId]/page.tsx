@@ -1,7 +1,8 @@
+import { SettingsSection } from "@/components/settings/SettingsSection";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Shell } from "@/components/shell/Shell";
-import { Card, Chip, Eyebrow } from "@/components/ui";
+import { Card, Chip, Eyebrow, PageHeader } from "@/components/ui";
 import { requireRole } from "@/lib/dal";
 import { query, queryOne } from "@/lib/db";
 import { normalizePermissions } from "@/lib/permissions";
@@ -44,24 +45,21 @@ export default async function TeamMemberPage({ params }: { params: Promise<{ use
 
   return (
     <Shell breadcrumb="SETTINGS · TEAM">
-      <div className="mx-auto max-w-[820px] px-7 pb-16 pt-6">
+      <SettingsSection active="/settings">
         <div className="mb-4">
-          <Eyebrow>
-            <Link href="/settings" className="hover:underline">
+          <PageHeader title={<> {user.name} </>} meta={<> <Link href="/settings" className="hover:underline">
               Team &amp; roles
             </Link>{" "}
             · {user.role}
-            {!user.active ? " · disabled" : ""}
-          </Eyebrow>
-          <h1 className="mt-1 font-serif text-[30px] font-medium leading-none tracking-tight text-accent-2">{user.name}</h1>
-          <p className="mt-1 text-[12px] text-ink-3">
+            {!user.active ? " · disabled" : ""} </>} />
+          <p className="mt-1 text-meta text-ink-3">
             {user.email}
             {user.last_permission_change_at ? ` · permissions last changed ${new Date(user.last_permission_change_at).toLocaleString("en-US")}` : ""}
           </p>
         </div>
 
         {user.role !== "staff" ? (
-          <Card className="p-4 text-[13px] text-ink-2">
+          <Card className="p-4 text-body text-ink-2">
             {user.role === "owner"
               ? "An owner account sees and may approve everything. Authority is not assigned per type."
               : "Portal logins (sub / client) hold no areas and no approval authority."}
@@ -71,14 +69,14 @@ export default async function TeamMemberPage({ params }: { params: Promise<{ use
             <Card className="p-4">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div>
-                  <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Areas · what they can open</div>
-                  <div className="mt-0.5 text-[11px] text-ink-3">Visibility only. Seeing a tab never lets them approve anything on it.</div>
+                  <div className="text-meta text-ink-3">Areas · what they can open</div>
+                  <div className="mt-0.5 text-meta text-ink-3">Visibility only. Seeing a tab never lets them approve anything on it.</div>
                 </div>
                 <StaffAccessButton id={user.id} name={user.name} email={user.email} permissions={perms} />
               </div>
               <AreasSummary permissions={perms} />
               {perms.includes("ai") && (
-                <div className="mt-2 rounded-md border border-flag/40 bg-flag/5 px-3 py-2 text-[11px] text-ink-2">
+                <div className="mt-2 rounded-md border border-flag/40 bg-flag/5 px-3 py-2 text-meta text-ink-2">
                   Holds the AI panel: their agent runs use the <strong>business profile</strong> (sjcos tools scoped to their areas
                   and the authority below; no code, shell, web or repo access). They can never start an operator run.
                 </div>
@@ -86,21 +84,21 @@ export default async function TeamMemberPage({ params }: { params: Promise<{ use
             </Card>
 
             <Card className="p-4">
-              <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Authority · what they may approve</div>
+              <div className="mb-2 text-meta text-ink-3">Authority · what they may approve</div>
               <AuthorityEditor userId={user.id} userName={user.name} live={live} revoked={revoked} projects={projects} />
             </Card>
 
             <Card className="p-4">
-              <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Permission history</div>
+              <div className="mb-2 text-meta text-ink-3">Permission history</div>
               {audit.length === 0 ? (
-                <div className="text-[12px] text-ink-3">No changes recorded yet.</div>
+                <div className="text-meta text-ink-3">No changes recorded yet.</div>
               ) : (
                 <ul className="flex flex-col gap-1">
                   {audit.map((a, i) => (
-                    <li key={i} className="flex items-center gap-2 text-[12px] text-ink-2">
+                    <li key={i} className="flex items-center gap-2 text-meta text-ink-2">
                       <Chip kind="ghost">{a.change}</Chip>
                       <span className="text-ink-3">{a.actor_label}</span>
-                      <span className="ml-auto font-mono text-[10px] text-ink-3">{new Date(a.created_at).toLocaleString("en-US")}</span>
+                      <span className="ml-auto text-meta text-ink-3">{new Date(a.created_at).toLocaleString("en-US")}</span>
                     </li>
                   ))}
                 </ul>
@@ -108,7 +106,7 @@ export default async function TeamMemberPage({ params }: { params: Promise<{ use
             </Card>
           </div>
         )}
-      </div>
+      </SettingsSection>
     </Shell>
   );
 }

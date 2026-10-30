@@ -12,12 +12,12 @@ import { runAction } from "@/lib/run-action";
 // is lib/permissions.ts — this file only renders it.
 
 const inputCls =
-  "rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent";
+  "rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent";
 const primaryBtn =
-  "rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e]";
-const ghostBtn = "rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2";
+  "rounded-md border border-ink bg-ink px-3 py-1.5 text-meta font-semibold text-paper hover:bg-ink-hover";
+const ghostBtn = "rounded-md border border-rule px-3 py-1.5 text-meta font-semibold text-ink-3 hover:bg-paper-2";
 const rowBtn =
-  "inline-flex items-center gap-1 rounded-md border border-rule px-2 py-0.5 text-[11px] font-semibold text-ink-3 transition-colors hover:bg-paper-2";
+  "inline-flex items-center gap-1 rounded-md border border-rule px-2 py-0.5 text-meta font-semibold text-ink-3 transition-colors hover:bg-paper-2";
 
 function TextInput({
   name,
@@ -38,7 +38,7 @@ function TextInput({
 }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{label}</span>
+      <span className="text-meta text-ink-3">{label}</span>
       <input
         name={name}
         type={type}
@@ -60,7 +60,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-rule px-4 py-3">
-          <h2 className="font-serif text-[17px] font-semibold text-ink">{title}</h2>
+          <h2 className="font-serif text-heading font-semibold text-ink">{title}</h2>
           <button onClick={onClose} className="text-ink-3 hover:text-ink" aria-label="Close">
             <X className="size-4" strokeWidth={1.5} />
           </button>
@@ -88,7 +88,7 @@ export function PermissionPicker({ selected }: { selected: readonly string[] }) 
     <label
       key={p.key}
       className={[
-        "flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-2 text-[12px] leading-snug transition-colors",
+        "flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-2 text-meta leading-snug transition-colors",
         picked.has(p.key)
           ? p.sensitive
             ? "border-flag/50 bg-flag/5"
@@ -106,7 +106,7 @@ export function PermissionPicker({ selected }: { selected: readonly string[] }) 
       />
       <span className="min-w-0">
         <span className="font-semibold text-ink">{p.label}</span>
-        <span className="block text-[11px] text-ink-3">{p.description}</span>
+        <span className="block text-meta text-ink-3">{p.description}</span>
       </span>
     </label>
   );
@@ -114,8 +114,8 @@ export function PermissionPicker({ selected }: { selected: readonly string[] }) 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">What they can open</span>
-        <span className="flex gap-2 text-[11px]">
+        <span className="text-meta text-ink-3">What they can open</span>
+        <span className="flex gap-2 text-meta">
           <button
             type="button"
             className="text-accent-2 hover:underline"
@@ -128,9 +128,9 @@ export function PermissionPicker({ selected }: { selected: readonly string[] }) 
           </button>
         </span>
       </div>
-      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">{everyday.map(box)}</div>
-      <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-flag">Sensitive</div>
-      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">{sensitive.map(box)}</div>
+      <div className="grid grid-cols-1 gap-1.5 @xl/page:grid-cols-2">{everyday.map(box)}</div>
+      <div className="mt-1 text-meta text-flag">Sensitive</div>
+      <div className="grid grid-cols-1 gap-1.5 @xl/page:grid-cols-2">{sensitive.map(box)}</div>
     </div>
   );
 }
@@ -176,7 +176,7 @@ export function AddUserButton() {
           setError(null);
           setOpen(true);
         }}
-        className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper transition-colors hover:bg-[#232a1e]"
+        className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-meta font-semibold text-paper transition-colors hover:bg-ink-hover"
       >
         <Plus className="size-3" strokeWidth={1.5} />
         Add user
@@ -189,7 +189,7 @@ export function AddUserButton() {
             <TextInput name="email" label="Email" type="email" required placeholder="marco@…" defaultValue={val("email")} />
             <div className="flex gap-3">
               <label className="flex flex-1 flex-col gap-1">
-                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Role</span>
+                <span className="text-meta text-ink-3">Role</span>
                 <select name="role" value={role} onChange={(e) => setRole(e.target.value as typeof role)} className={inputCls}>
                   <option value="staff">Team member — chosen areas</option>
                   <option value="sub">Sub — portal access</option>
@@ -221,13 +221,13 @@ export function AddUserButton() {
 
             {role === "staff" && <PermissionPicker selected={["today", "projects", "leads", "chat"]} />}
             {role === "owner" && (
-              <div className="rounded-md border border-flag/40 bg-flag/5 px-3 py-2 text-[12px] text-ink-2">
+              <div className="rounded-md border border-flag/40 bg-flag/5 px-3 py-2 text-meta text-ink-2">
                 A second owner sees and can do everything, including Settings, Money and the AI panel. Use a team member
                 with areas unless they really need all of it.
               </div>
             )}
 
-            {error && <div className="text-[12px] text-flag">{error}</div>}
+            {error && <div className="text-meta text-flag">{error}</div>}
 
             <div className="mt-1 flex justify-end gap-2">
               <button type="button" onClick={() => setOpen(false)} className={ghostBtn}>
@@ -289,13 +289,13 @@ export function StaffAccessButton({
 
       {open && (
         <Modal title={`${name} · access`} onClose={() => setOpen(false)}>
-          <div className="px-4 pt-3 text-[11px] text-ink-3">{email}</div>
+          <div className="px-4 pt-3 text-meta text-ink-3">{email}</div>
           <form
             action={(fd) => run(() => updateUserAccess(id, fd), "Couldn't save access.", "Saved.", true)}
             className="flex flex-col gap-3 p-4"
           >
             <PermissionPicker selected={permissions} />
-            <div className="text-[11px] text-ink-3">
+            <div className="text-meta text-ink-3">
               Changes bite on their next click — anything unticked disappears from their sidebar and is refused
               server-side. Areas are what they can <em>see</em>; what they may <em>approve</em> is set separately on{" "}
               <a href={`/settings/team/${id}`} className="text-accent-2 hover:underline">
@@ -303,7 +303,7 @@ export function StaffAccessButton({
               </a>
               .
             </div>
-            {error && <div className="text-[12px] text-flag">{error}</div>}
+            {error && <div className="text-meta text-flag">{error}</div>}
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setOpen(false)} className={ghostBtn}>
                 Cancel
@@ -331,7 +331,7 @@ export function StaffAccessButton({
               <KeyRound className="size-3" strokeWidth={1.5} />
               Reset
             </SubmitButton>
-            {saved && <span className="pb-2 text-[11px] text-accent-2">{saved}</span>}
+            {saved && <span className="pb-2 text-meta text-accent-2">{saved}</span>}
           </form>
         </Modal>
       )}

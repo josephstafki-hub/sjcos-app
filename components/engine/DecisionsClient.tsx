@@ -41,9 +41,9 @@ export interface DecisionView {
   authorityReason: string | null;
 }
 
-const btn = "rounded-md border border-ink-4 px-2.5 py-1 text-[12px] font-medium text-ink-2 transition-colors hover:bg-paper-2 disabled:cursor-not-allowed disabled:opacity-40";
-const primary = "rounded-md border border-accent bg-accent-soft px-2.5 py-1 text-[12px] font-semibold text-accent-2 hover:bg-accent-soft/70 disabled:opacity-50";
-const inputCls = "w-full rounded-md border border-rule bg-paper px-3 py-2 text-[13px] text-ink outline-none focus:border-accent";
+const btn = "rounded-md border border-ink-4 px-2.5 py-1 text-meta font-medium text-ink-2 transition-colors hover:bg-paper-2 disabled:cursor-not-allowed disabled:opacity-40";
+const primary = "rounded-md border border-accent bg-accent-soft px-2.5 py-1 text-meta font-semibold text-accent-2 hover:bg-accent-soft/70 disabled:opacity-50";
+const inputCls = "w-full rounded-md border border-rule bg-paper px-3 py-2 text-body text-ink outline-none focus:border-accent";
 
 const usd = (c: number) => `$${(c / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 function fmt(iso: string | null) {
@@ -62,8 +62,8 @@ function Section({ label, items }: { label: string; items: string[] }) {
   if (!items.length) return null;
   return (
     <div>
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">{label}</div>
-      <ul className="mt-0.5 list-disc pl-4 text-[13px] leading-relaxed text-ink-2">
+      <div className="text-meta font-semibold text-ink-3">{label}</div>
+      <ul className="mt-0.5 list-disc pl-4 text-body leading-relaxed text-ink-2">
         {items.map((x, i) => (
           <li key={i}>{x}</li>
         ))}
@@ -80,8 +80,8 @@ function Preview({ d }: { d: DecisionView }) {
     <div className="flex flex-col gap-3">
       {recipients.length > 0 && (
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Recipients</div>
-          <ul className="mt-0.5 text-[13px] leading-relaxed text-ink-2">
+          <div className="text-meta font-semibold text-ink-3">Recipients</div>
+          <ul className="mt-0.5 text-body leading-relaxed text-ink-2">
             {recipients.map((r, i) => (
               <li key={i}>
                 {r.name}
@@ -92,12 +92,12 @@ function Preview({ d }: { d: DecisionView }) {
           </ul>
         </div>
       )}
-      {!recipients.length && d.recipient ? <div className="text-[13px] text-ink-2">To: {d.recipient}</div> : null}
-      {d.amountCents != null ? <div className="text-[13px] text-ink-2">Amount: {usd(d.amountCents)}</div> : null}
+      {!recipients.length && d.recipient ? <div className="text-body text-ink-2">To: {d.recipient}</div> : null}
+      {d.amountCents != null ? <div className="text-body text-ink-2">Amount: {usd(d.amountCents)}</div> : null}
       {s.notes.map((n, i) => (
         <div key={i}>
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">{n.label}</div>
-          <p className="mt-0.5 whitespace-pre-line text-[13px] leading-relaxed text-ink-2">{n.text}</p>
+          <div className="text-meta font-semibold text-ink-3">{n.label}</div>
+          <p className="mt-0.5 whitespace-pre-line text-body leading-relaxed text-ink-2">{n.text}</p>
         </div>
       ))}
       <Section label="Included" items={s.inclusions} />
@@ -110,12 +110,12 @@ function Preview({ d }: { d: DecisionView }) {
       <Section label="Missing or open" items={s.gaps} />
       <Section label="Since last review" items={s.changes} />
       {s.effect ? (
-        <div className="rounded-md border border-rule bg-paper-2 p-2 text-[13px] leading-relaxed text-ink">
+        <div className="rounded-md border border-rule bg-paper-2 p-2 text-body leading-relaxed text-ink">
           <span className="font-semibold">If approved:</span> {s.effect}
         </div>
       ) : null}
       {d.href ? (
-        <a href={d.href} className="text-[12px] font-medium text-accent-2 underline">
+        <a href={d.href} className="text-meta font-medium text-accent-2 underline">
           Open the full artifact
         </a>
       ) : null}
@@ -144,14 +144,14 @@ function DecisionCard({ d, open, onToggle, owner }: { d: DecisionView; open: boo
           <div className="flex flex-wrap items-center gap-2">
             <KindChip d={d} />
             <Chip kind="ghost">{d.kind.replace(/_/g, " ")}</Chip>
-            <span className="text-[11px] text-ink-3">asked by {d.requestedBy} · {fmt(d.createdAt)}</span>
+            <span className="text-meta text-ink-3">asked by {d.requestedBy} · {fmt(d.createdAt)}</span>
           </div>
-          <div className="mt-1 text-[14px] font-medium text-ink">{d.title}</div>
-          {normalizeSummary(d.summary).effect && !open ? <div className="mt-0.5 line-clamp-2 text-[12px] text-ink-3">{normalizeSummary(d.summary).effect}</div> : null}
-          {d.holdNote && live ? <div className="mt-0.5 text-[12px] text-ink-3">Hold note: {d.holdNote}</div> : null}
-          {d.decisionNote && !live ? <div className="mt-0.5 text-[12px] text-ink-3">{d.decisionNote}</div> : null}
-          {!live && d.decidedAt ? <div className="mt-0.5 text-[11px] text-ink-3">{d.status} via {d.decidedVia ?? "app"} · {fmt(d.decidedAt)}</div> : null}
-          {live && !d.canResolve && d.authorityReason ? <div className="mt-0.5 text-[12px] text-flag">{d.authorityReason}</div> : null}
+          <div className="mt-1 text-subheading font-medium text-ink">{d.title}</div>
+          {normalizeSummary(d.summary).effect && !open ? <div className="mt-0.5 line-clamp-2 text-meta text-ink-3">{normalizeSummary(d.summary).effect}</div> : null}
+          {d.holdNote && live ? <div className="mt-0.5 text-meta text-ink-3">Hold note: {d.holdNote}</div> : null}
+          {d.decisionNote && !live ? <div className="mt-0.5 text-meta text-ink-3">{d.decisionNote}</div> : null}
+          {!live && d.decidedAt ? <div className="mt-0.5 text-meta text-ink-3">{d.status} via {d.decidedVia ?? "app"} · {fmt(d.decidedAt)}</div> : null}
+          {live && !d.canResolve && d.authorityReason ? <div className="mt-0.5 text-meta text-flag">{d.authorityReason}</div> : null}
         </div>
         <button type="button" className={btn} onClick={onToggle}>
           {open ? "Hide preview" : "Full preview"}
@@ -183,13 +183,13 @@ function DecisionCard({ d, open, onToggle, owner }: { d: DecisionView; open: boo
               Revoke
             </button>
           ) : null}
-          <span className="basis-full text-[11px] text-ink-3">Expires {fmt(d.expiresAt)}</span>
+          <span className="basis-full text-meta text-ink-3">Expires {fmt(d.expiresAt)}</span>
         </div>
       )}
 
       {live && mode !== "none" && (
         <form
-          className="mt-2 flex flex-col gap-2 sm:flex-row"
+          className="mt-2 flex flex-col gap-2 @xl/page:flex-row"
           onSubmit={(e) => {
             e.preventDefault();
             if (mode === "changes") run(() => requestChangesAction(d.id, note, d.contentHash));
@@ -229,7 +229,7 @@ function LaneSwitches({ lanes, pauses }: { lanes: string[]; pauses: { lane: stri
   const paused = new Map(pauses.map((p) => [p.lane, p]));
   return (
     <Card className="p-3">
-      <div className="text-[12px] text-ink-3">
+      <div className="text-meta text-ink-3">
         A paused lane stops NEW dispatch on it — nothing is lost, held sends wake when it reopens. Anything already in an
         unknown state stays held for reconciliation either way. &ldquo;all&rdquo; stops everything.
       </div>
@@ -286,7 +286,7 @@ export function DecisionsClient({
           {ready.map(card)}
           {ready.length === 0 && (
             <Card kind="dashed" className="p-6 text-center">
-              <div className="text-[13px] text-ink-3">Nothing is waiting for a decision.</div>
+              <div className="text-body text-ink-3">Nothing is waiting for a decision.</div>
             </Card>
           )}
         </div>

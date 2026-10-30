@@ -7,8 +7,8 @@ import { updateCapability } from "@/lib/measure/actions";
 import { runAction } from "@/lib/run-action";
 
 const btnCls =
-  "rounded-md border border-ink-4 px-2.5 py-1 text-[12px] font-medium text-ink-2 transition-colors hover:bg-paper-2 disabled:cursor-not-allowed disabled:opacity-40";
-const inputCls = "w-full rounded-md border border-rule bg-paper px-2 py-1 text-[12px] text-ink outline-none focus:border-accent";
+  "rounded-md border border-ink-4 px-2.5 py-1 text-meta font-medium text-ink-2 transition-colors hover:bg-paper-2 disabled:cursor-not-allowed disabled:opacity-40";
+const inputCls = "w-full rounded-md border border-rule bg-paper px-2 py-1 text-meta text-ink outline-none focus:border-accent";
 
 const STATE_LABEL: Record<CapabilityState, string> = {
   implemented: "Implemented",
@@ -44,16 +44,16 @@ export function CapabilitiesTable({ report, canEdit }: { report: CapabilityRepor
 
   return (
     <div className="flex flex-col gap-6">
-      <Card kind="soft" className="px-4 py-3 text-[12px] leading-relaxed text-ink-3">
+      <Card kind="soft" className="px-4 py-3 text-meta leading-relaxed text-ink-3">
         {report.caveat} Counts: {CAPABILITY_STATES.map((s) => `${STATE_LABEL[s].toLowerCase()} ${report.counts[s]}`).join(" · ")} of {report.counts.total}.
       </Card>
       {groups.map((g) => (
         <section key={g.title}>
           <Eyebrow>{g.title}</Eyebrow>
           <div className="mt-2 overflow-x-auto">
-            <table className="w-full min-w-[720px] border-collapse text-[13px]">
+            <table className="w-full min-w-[720px] border-collapse text-body">
               <thead>
-                <tr className="border-b border-rule text-left text-[11px] uppercase tracking-wide text-ink-3">
+                <tr className="border-b border-rule text-left text-meta text-ink-3">
                   <th className="py-2 pr-3">Key</th>
                   <th className="py-2 pr-3">Capability</th>
                   <th className="py-2 pr-3">Owner</th>
@@ -64,13 +64,13 @@ export function CapabilitiesTable({ report, canEdit }: { report: CapabilityRepor
               <tbody>
                 {g.rows.map((r) => (
                   <tr key={r.key} className="border-b border-rule-soft align-top">
-                    <td className="py-2 pr-3 font-mono text-[12px] text-ink-2">{r.key}</td>
+                    <td className="py-2 pr-3 text-meta text-ink-2">{r.key}</td>
                     <td className="py-2 pr-3 text-ink">
                       {r.title}
-                      {!r.in_catalogue ? <span className="ml-2 text-[11px] text-ink-4">(not in catalogue)</span> : null}
-                      {r.notes ? <div className="mt-1 text-[12px] text-ink-3">{r.notes}</div> : null}
+                      {!r.in_catalogue ? <span className="ml-2 text-meta text-ink-3">(not in catalogue)</span> : null}
+                      {r.notes ? <div className="mt-1 text-meta text-ink-3">{r.notes}</div> : null}
                     </td>
-                    <td className="py-2 pr-3 text-[12px] text-ink-3">{r.owner || "—"}</td>
+                    <td className="py-2 pr-3 text-meta text-ink-3">{r.owner || "—"}</td>
                     <td className="py-2 pr-3">
                       <div className="flex flex-wrap gap-1">
                         {CAPABILITY_STATES.map((s) => (
@@ -90,13 +90,13 @@ export function CapabilitiesTable({ report, canEdit }: { report: CapabilityRepor
                         ) : null}
                       </div>
                       {open === r.key ? (
-                        <ul className="mt-2 flex flex-col gap-1 text-[12px] text-ink-2">
-                          {r.evidence.length === 0 ? <li className="text-ink-4">No evidence recorded — every state is a claim until one is.</li> : null}
+                        <ul className="mt-2 flex flex-col gap-1 text-meta text-ink-2">
+                          {r.evidence.length === 0 ? <li className="text-ink-3">No evidence recorded — every state is a claim until one is.</li> : null}
                           {r.evidence.map((e, i) => (
                             <li key={i}>
-                              <span className="font-mono text-ink-3">{e.date}</span> · <span className="font-mono">{e.version}</span> ·{" "}
+                              <span className="text-ink-3">{e.date}</span> · <span className="font-mono">{e.version}</span> ·{" "}
                               {(e.states ?? []).join(", ") || "—"} · {e.note}
-                              {e.by ? <span className="text-ink-4"> — {e.by}</span> : null}
+                              {e.by ? <span className="text-ink-3"> — {e.by}</span> : null}
                             </li>
                           ))}
                         </ul>

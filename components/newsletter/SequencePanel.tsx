@@ -68,7 +68,7 @@ export function SequencePanel({
     <div className="mx-auto max-w-[640px] space-y-4">
       <div className="flex items-start gap-2 rounded-md border border-flag/40 bg-flag-soft/40 px-3 py-2">
         <Zap className="mt-0.5 size-4 shrink-0 text-flag" strokeWidth={1.5} />
-        <p className="text-[12px] leading-snug text-ink-2">
+        <p className="text-meta leading-snug text-ink-2">
           A sequence that is <b>on</b> emails people automatically — no Outbox, no Release step.
           Everyone you add from then on gets these issues on this schedule. Sent mail still appears
           in the Outbox history so you can see exactly what went out.
@@ -76,7 +76,7 @@ export function SequencePanel({
       </div>
 
       {sequences.length === 0 && (
-        <div className="px-2 py-6 text-center text-[12px] text-ink-3">
+        <div className="px-2 py-6 text-center text-meta text-ink-3">
           No automations yet. A welcome series is the usual first one: a hello right away, a
           project story a week later, a seasonal tip after a month.
         </div>
@@ -94,7 +94,7 @@ export function SequencePanel({
       ))}
 
       <Card className="p-3">
-        <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">New automation</div>
+        <div className="text-meta text-ink-3">New automation</div>
         <div className="mt-1.5 flex gap-2">
           <input
             value={newName}
@@ -106,7 +106,7 @@ export function SequencePanel({
               }
             }}
             placeholder="Welcome series"
-            className="flex-1 rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+            className="flex-1 rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent"
           />
           <button
             type="button"
@@ -115,12 +115,12 @@ export function SequencePanel({
               run(() => createSequence(newName));
               setNewName("");
             }}
-            className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1.5 text-meta font-semibold text-paper hover:bg-ink-hover disabled:opacity-50"
           >
             <Plus className="size-3.5" strokeWidth={2} /> Create
           </button>
         </div>
-        <p className="mt-1.5 text-[11px] text-ink-3">Starts switched off. Add steps, then turn it on.</p>
+        <p className="mt-1.5 text-meta text-ink-3">Starts switched off. Add steps, then turn it on.</p>
       </Card>
     </div>
   );
@@ -174,8 +174,8 @@ function SequenceCard({
     <Card className="p-0">
       <div className="flex items-center gap-2 border-b border-rule-soft px-4 py-3">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[14px] font-semibold text-ink">{seq.name}</div>
-          <div className="font-mono text-[10px] text-ink-3">
+          <div className="truncate text-subheading font-semibold text-ink">{seq.name}</div>
+          <div className="text-meta text-ink-3">
             {seq.steps.length} step{seq.steps.length === 1 ? "" : "s"} ·{" "}
             {seq.subscriberCount} active subscriber{seq.subscriberCount === 1 ? "" : "s"} ·{" "}
             {audience ? `${audience} only` : "whole list"}
@@ -186,7 +186,7 @@ function SequenceCard({
           type="button"
           onClick={toggle}
           disabled={pending}
-          className={`rounded-md px-2.5 py-1 text-[12px] font-semibold disabled:opacity-50 ${
+          className={`rounded-md px-2.5 py-1 text-meta font-semibold disabled:opacity-50 ${
             seq.active
               ? "border border-rule text-ink-2 hover:bg-paper-2"
               : "bg-accent text-white hover:bg-accent-2"
@@ -201,7 +201,7 @@ function SequenceCard({
               run(() => deleteSequence(seq.id));
           }}
           disabled={pending}
-          className="text-ink-4 hover:text-flag disabled:opacity-50"
+          className="text-ink-3 hover:text-flag disabled:opacity-50"
           aria-label="Delete automation"
         >
           <Trash2 className="size-3.5" strokeWidth={1.5} />
@@ -211,7 +211,7 @@ function SequenceCard({
       {/* Audience scope: who this automation is allowed to enroll. Frozen while
           live for the same reason the steps are — enrollment happened at arming. */}
       <div className="flex items-center gap-2 border-b border-rule-soft px-4 py-2.5">
-        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Audience</span>
+        <span className="text-meta text-ink-3">Audience</span>
         <select
           value={seq.groupId ?? ""}
           disabled={pending || seq.active}
@@ -223,7 +223,7 @@ function SequenceCard({
                 : `"${seq.name}" now enrolls the whole list.`,
             )
           }
-          className="min-w-0 flex-1 rounded-md border border-rule bg-paper px-2 py-1 text-[12px] text-ink-2 outline-none focus:border-accent disabled:bg-paper-2"
+          className="min-w-0 flex-1 rounded-md border border-rule bg-paper px-2 py-1 text-meta text-ink-2 outline-none focus:border-accent disabled:bg-paper-2"
         >
           <option value="">Whole list (everyone active)</option>
           {groups.map((g) => (
@@ -235,20 +235,20 @@ function SequenceCard({
       </div>
 
       {seq.steps.length === 0 ? (
-        <div className="px-4 py-4 text-center text-[12px] text-ink-3">
+        <div className="px-4 py-4 text-center text-meta text-ink-3">
           No steps yet — add an issue below.
         </div>
       ) : (
         seq.steps.map((step, i) => (
           <div key={step.id} className={`flex items-center gap-2 px-4 py-2.5 ${i ? "border-t border-rule-soft" : ""}`}>
-            <Clock className="size-3.5 shrink-0 text-ink-4" strokeWidth={1.5} />
+            <Clock className="size-3.5 shrink-0 text-ink-3" strokeWidth={1.5} />
             <div className="min-w-0 flex-1">
-              <div className="truncate text-[13px] text-ink">{step.issueTitle}</div>
-              <div className="font-mono text-[10px] text-ink-3">
+              <div className="truncate text-body text-ink">{step.issueTitle}</div>
+              <div className="text-meta text-ink-3">
                 sends {delayLabel(step.delayDays)}
               </div>
             </div>
-            <label className="flex items-center gap-1 text-[11px] text-ink-3">
+            <label className="flex items-center gap-1 text-meta text-ink-3">
               day
               <input
                 type="number"
@@ -260,14 +260,14 @@ function SequenceCard({
                   const v = Number(e.target.value);
                   if (v !== step.delayDays) run(() => updateSequenceStep(step.id, v));
                 }}
-                className="w-14 rounded-md border border-rule bg-paper px-1.5 py-0.5 text-[12px] text-ink outline-none focus:border-accent disabled:bg-paper-2"
+                className="w-14 rounded-md border border-rule bg-paper px-1.5 py-0.5 text-meta text-ink outline-none focus:border-accent disabled:bg-paper-2"
               />
             </label>
             <button
               type="button"
               onClick={() => run(() => removeSequenceStep(step.id))}
               disabled={pending || seq.active}
-              className="text-ink-4 hover:text-flag disabled:opacity-30"
+              className="text-ink-3 hover:text-flag disabled:opacity-30"
               aria-label="Remove step"
             >
               <Trash2 className="size-3.5" strokeWidth={1.5} />
@@ -279,7 +279,7 @@ function SequenceCard({
       {/* Steps are frozen while live — re-timing a running sequence mid-flight is
           how people accidentally re-mail their whole list. */}
       {seq.active ? (
-        <div className="border-t border-rule-soft px-4 py-2.5 text-[11px] text-ink-3">
+        <div className="border-t border-rule-soft px-4 py-2.5 text-meta text-ink-3">
           Turn this off to change its steps.
         </div>
       ) : (
@@ -287,7 +287,7 @@ function SequenceCard({
           <select
             value={addIssue}
             onChange={(e) => setAddIssue(e.target.value)}
-            className="min-w-0 flex-1 rounded-md border border-rule bg-paper px-2 py-1 text-[12px] text-ink-2 outline-none focus:border-accent"
+            className="min-w-0 flex-1 rounded-md border border-rule bg-paper px-2 py-1 text-meta text-ink-2 outline-none focus:border-accent"
           >
             <option value="">Add an issue as a step…</option>
             {available.map((i) => (
@@ -296,7 +296,7 @@ function SequenceCard({
               </option>
             ))}
           </select>
-          <label className="flex items-center gap-1 text-[11px] text-ink-3">
+          <label className="flex items-center gap-1 text-meta text-ink-3">
             day
             <input
               type="number"
@@ -304,7 +304,7 @@ function SequenceCard({
               max={3650}
               value={addDelay}
               onChange={(e) => setAddDelay(e.target.value)}
-              className="w-14 rounded-md border border-rule bg-paper px-1.5 py-0.5 text-[12px] text-ink outline-none focus:border-accent"
+              className="w-14 rounded-md border border-rule bg-paper px-1.5 py-0.5 text-meta text-ink outline-none focus:border-accent"
             />
           </label>
           <button
@@ -314,7 +314,7 @@ function SequenceCard({
               run(() => addSequenceStep(seq.id, Number(addIssue), Number(addDelay)));
               setAddIssue("");
             }}
-            className="inline-flex items-center gap-1 rounded-md border border-rule px-2 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-md border border-rule px-2 py-1 text-meta font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50"
           >
             <Plus className="size-3.5" strokeWidth={2} /> Add
           </button>

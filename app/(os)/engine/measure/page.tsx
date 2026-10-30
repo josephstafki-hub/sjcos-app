@@ -1,5 +1,5 @@
 import { Shell } from "@/components/shell/Shell";
-import { Card, Chip, Eyebrow } from "@/components/ui";
+import { Card, Chip, Eyebrow, PageHeader } from "@/components/ui";
 import { requireAccess } from "@/lib/dal";
 import { measurementSummary } from "@/lib/measure/cases";
 import { baselineOwnerTouches } from "@/lib/measure/baseline";
@@ -33,18 +33,15 @@ export default async function MeasurePage({ searchParams }: { searchParams: Prom
 
   return (
     <Shell breadcrumb="OPERATIONS ENGINE · MEASUREMENT">
-      <div className="mx-auto max-w-[1120px] px-7 pb-16 pt-6">
+      <div className="mx-auto max-w-6xl px-4 @3xl/page:px-6 pb-16 pt-6">
         <div className="mb-4">
-          <Eyebrow>
-            Window {day(window.from)} → {day(window.to)} ({n} days) · {summary.totals.eligible} eligible case{summary.totals.eligible === 1 ? "" : "s"}
-          </Eyebrow>
-          <h1 className="mt-1 font-serif text-[34px] font-medium leading-none tracking-tight text-accent-2">Measurement</h1>
-          <p className="mt-2 max-w-[680px] text-[13px] leading-relaxed text-ink-3">
+          <PageHeader title={<> Measurement </>} meta={<> Window {day(window.from)} → {day(window.to)} ({n} days) · {summary.totals.eligible} eligible case{summary.totals.eligible === 1 ? "" : "s"} </>} />
+          <p className="mt-2 max-w-[680px] text-body leading-relaxed text-ink-3">
             Every rate on this page names its numerator, denominator and window. Failed, corrected, unknown-effect and
             missed-commitment cases stay in the denominator. One-tap approvals are assisted work, not unattended
             completions. Unknown time or cost is shown as unknown, never as zero.
           </p>
-          <div className="mt-2 flex gap-2 text-[12px]">
+          <div className="mt-2 flex gap-2 text-meta">
             {[7, 30, 90].map((d) => (
               <a key={d} href={`/engine/measure?days=${d}`} className={`rounded-md border px-2 py-0.5 ${d === n ? "border-accent text-accent-2" : "border-rule text-ink-3"}`}>
                 {d} days
@@ -56,9 +53,9 @@ export default async function MeasurePage({ searchParams }: { searchParams: Prom
         <section className="mb-6">
           <Eyebrow>Cases by kind</Eyebrow>
           <div className="mt-2 overflow-x-auto">
-            <table className="w-full min-w-[760px] border-collapse text-[13px]">
+            <table className="w-full min-w-[760px] border-collapse text-body">
               <thead>
-                <tr className="border-b border-rule text-left text-[11px] uppercase tracking-wide text-ink-3">
+                <tr className="border-b border-rule text-left text-meta text-ink-3">
                   <th className="py-2 pr-3">Kind</th>
                   <th className="py-2 pr-3">Eligible</th>
                   <th className="py-2 pr-3">Verified</th>
@@ -77,7 +74,7 @@ export default async function MeasurePage({ searchParams }: { searchParams: Prom
               <tbody>
                 {[...summary.kinds, summary.totals].map((k) => (
                   <tr key={k.kind} className={`border-b border-rule-soft ${k.kind === "all" ? "font-semibold" : ""}`}>
-                    <td className="py-2 pr-3">{k.kind}{k.excluded ? <span className="ml-1 text-[11px] font-normal text-ink-4">(+{k.excluded} excluded)</span> : null}</td>
+                    <td className="py-2 pr-3">{k.kind}{k.excluded ? <span className="ml-1 text-meta font-normal text-ink-3">(+{k.excluded} excluded)</span> : null}</td>
                     <td className="py-2 pr-3">{k.eligible}</td>
                     <td className="py-2 pr-3">{k.verified_success}</td>
                     <td className="py-2 pr-3">{k.corrected}</td>
@@ -86,16 +83,16 @@ export default async function MeasurePage({ searchParams }: { searchParams: Prom
                     <td className="py-2 pr-3">{k.missed_commitment}</td>
                     <td className="py-2 pr-3">{k.pending}</td>
                     <td className="py-2 pr-3">
-                      {pct(k.verified_rate.value)} <span className="text-[11px] text-ink-4">({k.verified_rate.numerator}/{k.verified_rate.denominator})</span>
+                      {pct(k.verified_rate.value)} <span className="text-meta text-ink-3">({k.verified_rate.numerator}/{k.verified_rate.denominator})</span>
                     </td>
                     <td className="py-2 pr-3">{k.unattended} / {k.one_tap} / {k.assisted}</td>
                     <td className="py-2 pr-3">
                       {k.owner_minutes}
-                      {k.owner_minutes_unknown ? <span className="text-[11px] text-ink-4"> (+{k.owner_minutes_unknown} unknown)</span> : null}
+                      {k.owner_minutes_unknown ? <span className="text-meta text-ink-3"> (+{k.owner_minutes_unknown} unknown)</span> : null}
                     </td>
                     <td className="py-2 pr-3">
                       {usd(k.cost_usd)}
-                      {k.cost_unknown ? <span className="text-[11px] text-ink-4"> (+{k.cost_unknown} unknown)</span> : null}
+                      {k.cost_unknown ? <span className="text-meta text-ink-3"> (+{k.cost_unknown} unknown)</span> : null}
                     </td>
                     <td className="py-2 pr-3">{k.latency.median_ms === null ? "—" : `${Math.round(k.latency.median_ms / 1000)}s`}</td>
                   </tr>
@@ -103,21 +100,21 @@ export default async function MeasurePage({ searchParams }: { searchParams: Prom
               </tbody>
             </table>
           </div>
-          <ul className="mt-2 flex flex-col gap-0.5 text-[12px] text-ink-3">
+          <ul className="mt-2 flex flex-col gap-0.5 text-meta text-ink-3">
             {summary.caveats.map((c) => (
               <li key={c}>· {c}</li>
             ))}
           </ul>
         </section>
 
-        <div className="mb-6 grid gap-4 md:grid-cols-3">
+        <div className="mb-6 grid gap-4 @3xl/page:grid-cols-3">
           <Card className="px-4 py-3">
             <Eyebrow>Owner touches (recorded)</Eyebrow>
-            <div className="mt-1 text-[22px] font-medium text-ink">{summary.owner_touches.touches}</div>
-            <div className="text-[12px] text-ink-3">
+            <div className="mt-1 text-title font-medium text-ink">{summary.owner_touches.touches}</div>
+            <div className="text-meta text-ink-3">
               {summary.owner_touches.minutes_known} min known · {summary.owner_touches.touches_unknown_seconds} untimed
             </div>
-            <ul className="mt-2 text-[12px] text-ink-2">
+            <ul className="mt-2 text-meta text-ink-2">
               {summary.owner_touches.by_kind.map((k) => (
                 <li key={k.kind}>{k.kind}: {k.touches} ({k.minutes_known} min{k.unknown ? `, ${k.unknown} untimed` : ""})</li>
               ))}
@@ -125,29 +122,29 @@ export default async function MeasurePage({ searchParams }: { searchParams: Prom
           </Card>
           <Card className="px-4 py-3">
             <Eyebrow>Baseline from existing records</Eyebrow>
-            <div className="mt-1 text-[22px] font-medium text-ink">{baseline.owner_touches_estimated}</div>
-            <div className="text-[12px] text-ink-3">estimated touches · {Math.round(baseline.owner_seconds_known / 60)} min measured</div>
-            <ul className="mt-2 text-[12px] text-ink-2">
+            <div className="mt-1 text-title font-medium text-ink">{baseline.owner_touches_estimated}</div>
+            <div className="text-meta text-ink-3">estimated touches · {Math.round(baseline.owner_seconds_known / 60)} min measured</div>
+            <ul className="mt-2 text-meta text-ink-2">
               {baseline.sources.map((s) => (
                 <li key={s.source} title={s.what}>{s.source}: {s.touches}</li>
               ))}
             </ul>
-            <div className="mt-2 text-[11px] text-ink-4">Derived sources were never timed; this is a touch count over the window, not an automation percentage.</div>
+            <div className="mt-2 text-meta text-ink-3">Derived sources were never timed; this is a touch count over the window, not an automation percentage.</div>
           </Card>
           <Card className="px-4 py-3">
             <Eyebrow>Agent cost (recorded)</Eyebrow>
-            <div className="mt-1 text-[22px] font-medium text-ink">{usd(summary.agent_cost.known_total_usd)}</div>
-            <div className="text-[12px] text-ink-3">
+            <div className="mt-1 text-title font-medium text-ink">{usd(summary.agent_cost.known_total_usd)}</div>
+            <div className="text-meta text-ink-3">
               panel runs {usd(summary.agent_cost.dev_agent_runs_usd)} ({summary.agent_cost.dev_agent_runs}) · ops runs {usd(summary.agent_cost.agent_runs_usd)} ({summary.agent_cost.agent_runs})
               {summary.agent_cost.agent_usage_usd !== null ? ` · worker ${usd(summary.agent_cost.agent_usage_usd)} (${summary.agent_cost.agent_usage_runs})` : ""}
             </div>
-            <div className="mt-2 text-[11px] text-ink-4">{summary.agent_cost.caveat}</div>
+            <div className="mt-2 text-meta text-ink-3">{summary.agent_cost.caveat}</div>
           </Card>
         </div>
 
         <section className="mb-6">
           <Eyebrow>Overhead · {overhead.month}</Eyebrow>
-          <Card className="mt-2 px-4 py-3 text-[13px]">
+          <Card className="mt-2 px-4 py-3 text-body">
             <div className="flex flex-wrap gap-4">
               <div>Fixed subscriptions <strong>{cents(overhead.fixed.monthly_cents)}</strong>/mo</div>
               <div>Metered charges <strong>{cents(overhead.metered.cents)}</strong></div>
@@ -158,13 +155,13 @@ export default async function MeasurePage({ searchParams }: { searchParams: Prom
                 </div>
               ) : null}
             </div>
-            <ul className="mt-2 text-[12px] text-ink-3">
+            <ul className="mt-2 text-meta text-ink-3">
               {overhead.caveats.map((c) => (
                 <li key={c}>· {c}</li>
               ))}
             </ul>
             {user.role === "owner" ? (
-              <a href="/settings/overhead" className="mt-2 inline-block text-[12px] text-accent-2 underline">Edit subscriptions and charges</a>
+              <a href="/settings/overhead" className="mt-2 inline-block text-meta text-accent-2 underline">Edit subscriptions and charges</a>
             ) : null}
           </Card>
         </section>
@@ -174,7 +171,7 @@ export default async function MeasurePage({ searchParams }: { searchParams: Prom
             <Eyebrow>Procedure checks · {checks.length} open</Eyebrow>
             {user.role === "owner" ? <MeasureActions /> : null}
           </div>
-          <Card className="mt-2 px-4 py-3 text-[13px]">
+          <Card className="mt-2 px-4 py-3 text-body">
             {checks.length === 0 ? (
               <div className="text-ink-3">No open findings. Run the checks after changing skills, runbooks, policies or the MCP tool list.</div>
             ) : (
@@ -187,13 +184,13 @@ export default async function MeasurePage({ searchParams }: { searchParams: Prom
                 ))}
               </ul>
             )}
-            <div className="mt-2 text-[11px] text-ink-4">Findings are recorded only. Nothing here approves, retires or promotes a skill, memory or policy.</div>
+            <div className="mt-2 text-meta text-ink-3">Findings are recorded only. Nothing here approves, retires or promotes a skill, memory or policy.</div>
           </Card>
         </section>
 
         <section>
           <Eyebrow>Pending agent memories · classified ({memories.length})</Eyebrow>
-          <Card className="mt-2 px-4 py-3 text-[13px]">
+          <Card className="mt-2 px-4 py-3 text-body">
             {memories.length === 0 ? (
               <div className="text-ink-3">Nothing pending.</div>
             ) : (
@@ -206,7 +203,7 @@ export default async function MeasurePage({ searchParams }: { searchParams: Prom
                 ))}
               </ul>
             )}
-            <div className="mt-2 text-[11px] text-ink-4">Labels only. Review and approval stay in /engine; a proposed company rule is not authority until Joe approves it.</div>
+            <div className="mt-2 text-meta text-ink-3">Labels only. Review and approval stay in /engine; a proposed company rule is not authority until Joe approves it.</div>
           </Card>
         </section>
       </div>

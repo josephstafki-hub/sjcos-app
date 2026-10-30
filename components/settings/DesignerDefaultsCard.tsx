@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Card } from "@/components/ui";
+import { Card, Button } from "@/components/ui";
 import { runAction } from "@/lib/run-action";
 import { DEFAULTS, fmtIn, parseIn, type DesignerDefaults } from "@/lib/plan-doc";
 import { DOOR_STYLES, FINISH_PRESETS } from "@/lib/plan-library";
@@ -31,6 +31,8 @@ export function DesignerDefaultsCard({ defaults }: { defaults: DesignerDefaults 
     out.finish = defaults.finish;
     return out;
   });
+  const initialValues = Object.fromEntries([...NUMBER_FIELDS.map(f=>[f.key,fmtIn(defaults[f.key] as number)]), ["doorStyle",defaults.doorStyle], ["finish",defaults.finish]]);
+  const dirty = Object.keys(values).some(k=>values[k]!==initialValues[k]);
   const [pending, start] = useTransition();
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
@@ -69,24 +71,24 @@ export function DesignerDefaultsCard({ defaults }: { defaults: DesignerDefaults 
 
   return (
     <Card className="max-w-[760px] p-4">
-      <div className="grid grid-cols-1 gap-x-5 gap-y-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-x-5 gap-y-3 @xl/page:grid-cols-2">
         {NUMBER_FIELDS.map((f) => (
           <label key={f.key} className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{f.label}</span>
+            <span className="text-meta text-ink-3">{f.label}</span>
             <input
               value={values[f.key] ?? ""}
               onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
-              className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+              className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent"
             />
-            {f.hint && <span className="text-[10px] text-ink-4">{f.hint}</span>}
+            {f.hint && <span className="text-meta text-ink-3">{f.hint}</span>}
           </label>
         ))}
         <label className="flex flex-col gap-1">
-          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Default door style</span>
+          <span className="text-meta text-ink-3">Default door style</span>
           <select
             value={values.doorStyle}
             onChange={(e) => setValues((v) => ({ ...v, doorStyle: e.target.value }))}
-            className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+            className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent"
           >
             {DOOR_STYLES.map((d) => (
               <option key={d.key} value={d.key}>
@@ -96,11 +98,11 @@ export function DesignerDefaultsCard({ defaults }: { defaults: DesignerDefaults 
           </select>
         </label>
         <label className="flex flex-col gap-1">
-          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Default cabinet finish</span>
+          <span className="text-meta text-ink-3">Default cabinet finish</span>
           <select
             value={values.finish}
             onChange={(e) => setValues((v) => ({ ...v, finish: e.target.value }))}
-            className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+            className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent"
           >
             {cabinetFinishes.map((f) => (
               <option key={f.key} value={f.key}>
@@ -110,19 +112,13 @@ export function DesignerDefaultsCard({ defaults }: { defaults: DesignerDefaults 
           </select>
         </label>
       </div>
-      {error && <div className="mt-3 text-[12px] text-flag">{error}</div>}
-      <div className="mt-4 flex items-center gap-2">
-        <button
-          onClick={save}
-          disabled={pending}
-          className="inline-flex items-center rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-60"
-        >
-          {pending ? "Saving…" : "Save defaults"}
-        </button>
-        <button onClick={reset} className="text-[12px] text-ink-3 hover:text-ink">
+      {error && <div className="mt-3 text-meta text-flag">{error}</div>}
+      <div className="sticky bottom-3 z-10 mt-4 flex flex-wrap items-center gap-2 rounded-lg bg-card p-3">
+        {dirty && <Button onClick={save} disabled={pending}>{pending ? "Saving…" : "Save defaults"}</Button>}
+        <button onClick={reset} className="text-meta text-ink-3 hover:text-ink">
           Reset to built-in
         </button>
-        {saved && <span className="text-[12px] text-money">Saved.</span>}
+        {saved && <span className="text-meta text-money">Saved.</span>}
       </div>
     </Card>
   );

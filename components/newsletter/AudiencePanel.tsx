@@ -68,15 +68,15 @@ export function AudiencePanel({
       <div>
         <div className="flex items-center gap-2">
           <Tag className="size-4 text-ink-3" strokeWidth={1.5} />
-          <span className="text-[13px] font-semibold text-ink">Audience for this issue</span>
+          <span className="text-body font-semibold text-ink">Audience for this issue</span>
         </div>
-        <p className="mt-1 text-[11px] text-ink-3">
+        <p className="mt-1 text-meta text-ink-3">
           Choose which audiences get this issue when you Queue it. None selected means everyone
           active. Create or manage audiences and the contact list from{" "}
           <b>Contacts</b> at the top of the page.
         </p>
         {groups.length === 0 ? (
-          <p className="mt-2 text-[12px] text-ink-3">
+          <p className="mt-2 text-meta text-ink-3">
             No audiences yet — create one from Contacts, then it will show up here.
           </p>
         ) : (
@@ -84,7 +84,7 @@ export function AudiencePanel({
             {groups.map((g) => (
               <label
                 key={g.id}
-                className={`flex items-center gap-2 rounded-md px-1 py-1 text-[13px] text-ink ${
+                className={`flex items-center gap-2 rounded-md px-1 py-1 text-body text-ink ${
                   locked ? "opacity-60" : "cursor-pointer hover:bg-paper-2"
                 }`}
               >
@@ -105,8 +105,8 @@ export function AudiencePanel({
       </div>
 
       <div className="border-t border-rule-soft pt-4">
-        <div className="text-[13px] font-semibold text-ink">One-time additions</div>
-        <p className="mt-1 text-[11px] text-ink-3">
+        <div className="text-body font-semibold text-ink">One-time additions</div>
+        <p className="mt-1 text-meta text-ink-3">
           Extra addresses that get just this issue — they are NOT added to the contact list.
         </p>
         {extraRecipients.length > 0 && (
@@ -116,13 +116,13 @@ export function AudiencePanel({
                 key={e.email}
                 className="flex items-center gap-2 rounded-md border border-rule-soft px-2.5 py-1.5"
               >
-                <div className="min-w-0 flex-1 truncate text-[12.5px] text-ink">{e.name || e.email}</div>
-                {e.name && <div className="truncate font-mono text-[10px] text-ink-3">{e.email}</div>}
+                <div className="min-w-0 flex-1 truncate text-body text-ink">{e.name || e.email}</div>
+                {e.name && <div className="truncate text-meta text-ink-3">{e.email}</div>}
                 {!locked && (
                   <button
                     type="button"
                     onClick={() => removeOneOff(e.email)}
-                    className="text-ink-4 hover:text-flag"
+                    className="text-ink-3 hover:text-flag"
                     aria-label="Remove"
                   >
                     <Trash2 className="size-3.5" strokeWidth={1.5} />
@@ -139,20 +139,20 @@ export function AudiencePanel({
               onChange={(e) => setOneOffEmail(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && addOneOff()}
               placeholder="one-off@email.com"
-              className="flex-1 rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+              className="flex-1 rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent"
             />
             <input
               value={oneOffName}
               onChange={(e) => setOneOffName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && addOneOff()}
               placeholder="Name · optional"
-              className="w-[140px] rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+              className="w-[140px] rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent"
             />
             <button
               type="button"
               onClick={addOneOff}
               disabled={pending || !oneOffEmail.trim()}
-              className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1.5 text-meta font-semibold text-paper hover:bg-ink-hover disabled:opacity-50"
             >
               <Plus className="size-3.5" strokeWidth={2} /> Add
             </button>

@@ -19,10 +19,10 @@ function CopyRow({ label, value, mono = true }: { label: string; value: string; 
   }
   return (
     <div>
-      <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{label}</div>
+      <div className="text-meta text-ink-3">{label}</div>
       <div className="mt-1 flex items-center gap-2">
         <code
-          className={`min-w-0 flex-1 truncate rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[12px] text-ink ${
+          className={`min-w-0 flex-1 truncate rounded-md border border-rule bg-paper px-2.5 py-1.5 text-meta text-ink ${
             mono ? "font-mono" : ""
           }`}
         >
@@ -55,8 +55,8 @@ export function ClipTokenCard({ token, endpoint }: { token: string | null; endpo
 
   return (
     <Card className="mt-5 max-w-[760px] p-4">
-      <div className="font-serif text-[14px] font-semibold text-ink">Browser extension · catalog clipper</div>
-      <div className="mt-0.5 text-[11px] text-ink-3">
+      <div className="font-serif text-subheading font-semibold text-ink">Browser extension · catalog clipper</div>
+      <div className="mt-0.5 text-meta text-ink-3">
         Clip products from any supplier page straight into your catalog. Load the unpacked extension
         (see <code className="font-mono">browser-extension/</code>), then paste the endpoint and token below into its options.
       </div>
@@ -66,7 +66,7 @@ export function ClipTokenCard({ token, endpoint }: { token: string | null; endpo
         {current ? (
           <CopyRow label="Clip token" value={current} />
         ) : (
-          <div className="rounded-md border border-dashed border-rule bg-paper px-2.5 py-2 text-[12px] text-ink-3">
+          <div className="rounded-md border border-dashed border-rule bg-paper px-2.5 py-2 text-meta text-ink-3">
             No token yet — generate one to connect the extension.
           </div>
         )}
@@ -77,7 +77,7 @@ export function ClipTokenCard({ token, endpoint }: { token: string | null; endpo
           type="button"
           onClick={regenerate}
           disabled={pending}
-          className="inline-flex items-center gap-1.5 rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper transition-colors hover:bg-[#232a1e] disabled:opacity-60"
+          className="inline-flex items-center gap-1.5 rounded-md border border-ink bg-ink px-3 py-1.5 text-meta font-semibold text-paper transition-colors hover:bg-ink-hover disabled:opacity-60"
         >
           <RefreshCw className={`size-3.5 ${pending ? "animate-spin" : ""}`} strokeWidth={1.5} />
           {current ? "Regenerate token" : "Generate token"}

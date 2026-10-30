@@ -4,7 +4,7 @@
 //
 //   • saveEstimateLines / saveEstimateNotes (lib/actions/leads.ts) — the
 //     owner's edits: line items + total (+ steering notes). A trigger keeps
-//     leads.value_display / estimate_value in step with the total (0039).
+//     leads.value_display / estimate_value in step with the total (0040).
 //   • draftEstimate (same file) — the AI draft: saving puts the estimate back
 //     to 'draft' and logs an 'estimate' activity under the drafter's name.
 //
@@ -116,7 +116,7 @@ export function registerLeadTools(server, { rows, json, strippedDollarError, cur
         [lead.id, JSON.stringify(lines), total, notes],
       );
 
-      // The lead's /leads value follows this total on its own (migration 0039).
+      // The lead's /leads value follows this total on its own (migration 0040).
       const compact = compactEstimateValue(total);
 
       // logLeadActivity(slug, "estimate", …) — not a contact kind, so the

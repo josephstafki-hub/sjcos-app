@@ -404,7 +404,7 @@ export async function saveEstimateLines(
     [slug, JSON.stringify(clean), cleanTotal],
   );
   if (res.rowCount === 0) return { ok: false, error: "Lead not found." };
-  // The lead's list value follows this total on its own (migration 0039).
+  // The lead's list value follows this total on its own (migration 0040).
   revalidatePath(`/leads/${slug}`);
   revalidatePath("/leads");
   return { ok: true };

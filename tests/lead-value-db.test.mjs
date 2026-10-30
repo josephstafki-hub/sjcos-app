@@ -7,7 +7,7 @@ import { checkRoughEstimateEmail, dollarFigures, mailboxKey, markRoughEstimateSe
 // Dessonville, 2026-10-30: the lead read "?" though an agent had emailed him a
 // $13,500 – $19,500 rough estimate with send_email; nothing was saved on the
 // lead. A lead's value now follows its saved rough estimate in Postgres
-// (migration 0039), and an email that reads as a rough estimate goes to an open
+// (migration 0040), and an email that reads as a rough estimate goes to an open
 // lead only from the estimate saved on it.
 
 const skip = !harnessAvailable() && "postgresql-16 binaries not installed";

@@ -1,4 +1,4 @@
--- 0039 — a lead's value comes from its saved rough estimate, never a typed figure.
+-- 0040 — a lead's value comes from its saved rough estimate, never a typed figure.
 --
 -- Joe, 2026-10-30: Timothy Dessonville's lead showed "?" although a rough
 -- estimate ($13,500 – $19,500) had been emailed to him on Oct 5 — an agent sent

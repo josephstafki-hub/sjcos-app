@@ -44,13 +44,11 @@ this repo every day.
 
 ## Tier 0: before or at the next deploy
 
-1. **Duplicate migration number on main.** This came from other sessions' PRs #73 and #74:
-   - `db/migrations/0039_contract_signed_push.sql`
-   - `db/migrations/0039_lead_value_from_estimate.sql`
-
-   `db/migrate.mjs` and the test harness both refuse duplicate numbers. Live has applied only up to 0037,
-   so neither file is live yet. Renumber the later one (lead value) to 0040. Ask Joe first, or check that
-   its session isn't already doing it. Then apply 0038–0040 before restarting into a build with that code.
+1. ~~**Duplicate migration number on main.**~~ Fixed 2026-10-30: lead value renumbered to
+   `db/migrations/0040_lead_value_from_estimate.sql` (and `0041_telegram_draft_replies.sql` added after
+   it). Live has applied only up to 0037; `node db/migrate.mjs --status` lists 0038–0041 as pending, and
+   all four were checked against the live schema in a rolled-back transaction. At deploy, run
+   `node db/migrate.mjs` (from the live checkout) before restarting into the new build.
 2. **Deploy** everything above with Joe's OK, and restart sjcos, sjcos-mcp and sjcos-worker.
 3. **Resume the weekly update lane** after the deploy. It was paused on 2026-10-30 because every Friday
    update would have been empty: `DELETE FROM lane_pauses WHERE lane = 'weekly_summary'`, or use the lane

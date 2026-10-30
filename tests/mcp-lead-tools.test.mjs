@@ -108,7 +108,7 @@ test("creates a draft, trims lines, reports the /leads value, logs a non-contact
   ]);
   assert.equal(e.notes, "Assumes stock cabinets.");
   // The lead's own value_display / estimate_value follow the saved total in
-  // Postgres (migration 0039, tests/lead-value-db.test.mjs); the tool only reports it.
+  // Postgres (migration 0040, tests/lead-value-db.test.mjs); the tool only reports it.
   assert.equal(r.value_display, "$24–30k");
   assert.equal(r.value_display, compactEstimateValue("$24,000–$30,000").display);
   assert.equal(db.leads[0].value_display, "?", "the tool no longer writes the lead row itself");

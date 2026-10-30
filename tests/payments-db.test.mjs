@@ -12,6 +12,8 @@ import {
   markAttemptUnknown,
   processSquareEvent,
   reconcilePendingAttempts,
+  SURCHARGE_MISMATCH,
+  squareKeyFor,
   stageRefundDecision,
   executeRefund,
   getAttempt,
@@ -68,12 +70,12 @@ async function issued(tx, projectId, key, amount) {
 }
 
 /** The create route's core, without HTTP: prepare → charge → apply. */
-async function checkout(tx, adapter, { invoiceId, method, nonce, sourceId, expectedAmountCents, expectedRevision }) {
-  const prep = await tx((r) => prepareAttempt(r, { invoiceId, method, nonce, expectedAmountCents, expectedRevision, actor: "portal:client" }));
+async function checkout(tx, adapter, { invoiceId, method, nonce, sourceId, expectedAmountCents, expectedRevision, card, expectedSurchargeCents }) {
+  const prep = await tx((r) => prepareAttempt(r, { invoiceId, method, nonce, expectedAmountCents, expectedRevision, card, expectedSurchargeCents, actor: "portal:client" }));
   if (!prep.ok) return prep;
   if (prep.reused && ["pending", "completed", "refunded"].includes(prep.attempt.state)) return { ok: true, reused: true, attempt: prep.attempt, charged: false };
   const outcome = await chargeAttempt(adapter, prep.attempt, { sourceId, locationId: "L1" });
-  if (outcome.kind === "declined") return { ok: true, charged: true, attempt: await tx((r) => markAttemptDeclined(r, prep.attempt.id, outcome.code, outcome.reason)) };
+  if (outcome.kind === "declined") return { ok: true, charged: true, code: outcome.code, attempt: await tx((r) => markAttemptDeclined(r, prep.attempt.id, outcome.code, outcome.reason)) };
   if (outcome.kind === "unknown") return { ok: true, charged: true, attempt: await tx((r) => markAttemptUnknown(r, prep.attempt.id, outcome.reason)) };
   const applied = await tx((r) => applyProviderPayment(r, { attemptId: prep.attempt.id, payment: outcome.payment, actor: "portal:client" }));
   return { ok: true, charged: true, reused: prep.reused, attempt: applied.attempt, payment: outcome.payment };
@@ -393,5 +395,91 @@ test("V21 refunds: need an approved, consumed decision bound to the payment + am
     assert.equal((await invoiceBalance(run, inv.id)).balanceCents, 100000);
     assert.equal((await getAttempt(run, paid.attempt.id)).state, "refunded");
     await assert.rejects(tx((r) => stageRefundDecision(r, { attemptId: paid.attempt.id, amountCents: 1, reason: "x", principal: owner })), /Only 0 cents/);
+  });
+});
+
+test("Credit card surcharge: credit pays balance + surcharge, invoice credited the balance only; debit/prepaid none; Square's debit reading voids a surcharged card; stranded authorization finishes; refunds split", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    const projectId = await seed(client, "zz-pay-surcharge");
+    const tx = txOver(url);
+    const run = runOn(client);
+    const adapter = getSquareAdapter();
+    // Seeded by migration 0036: Square fee 4%, cap 3% → 3% on every credit card.
+    assert.match((await run(`SELECT value FROM app_settings WHERE key = 'payments.card_surcharge'`))[0].value, /"capPct":3/);
+    const visaCredit = { brand: "VISA", cardType: "CREDIT", prepaidType: "NOT_PREPAID" };
+    const pushFloor = (await run(`SELECT COALESCE(max(id), 0)::bigint AS m FROM push_outbox`))[0].m;
+
+    // 1. Credit card: $22,000 balance + $660 surcharge, authorized then completed.
+    const inv = await issued(tx, projectId, "draw:0:deposit", 2200000);
+    const stale = await checkout(tx, adapter, { invoiceId: inv.id, method: "card", nonce: "sur-0001-abcdef", sourceId: "cnon:card-ok", expectedAmountCents: 2200000, card: visaCredit, expectedSurchargeCents: 1 });
+    assert.equal(stale.code, "stale", "the page showed a different surcharge");
+    const paid = await checkout(tx, adapter, { invoiceId: inv.id, method: "card", nonce: "sur-0002-abcdef", sourceId: "cnon:card-ok", expectedAmountCents: 2200000, card: visaCredit, expectedSurchargeCents: 66000 });
+    assert.equal(paid.attempt.state, "completed");
+    assert.equal(paid.attempt.amount_cents, 2266000, "Square charges balance + surcharge");
+    assert.equal(paid.attempt.surcharge_cents, 66000);
+    assert.equal(paid.attempt.card_type, "CREDIT");
+    assert.equal(paid.payment.amountCents, 2266000);
+    assert.equal(paid.payment.status, "COMPLETED");
+    const [row] = await run(`SELECT amount_cents, external_sync, note FROM invoice_payments WHERE invoice_id = $1`, [inv.id]);
+    assert.equal(row.amount_cents, 2200000, "only the balance is credited to the invoice");
+    assert.equal(row.external_sync.card_surcharge_cents, 66000);
+    assert.equal(row.external_sync.charged_cents, 2266000);
+    assert.match(row.note, /\$660\.00 credit card surcharge/);
+    assert.equal((await invoiceBalance(run, inv.id)).balanceCents, 0);
+    assert.equal((await run(`SELECT status FROM invoices WHERE id = $1`, [inv.id]))[0].status, "paid", "paid, not overpaid");
+    const [alert] = await run(`SELECT title, body FROM push_outbox WHERE kind = 'payment' AND id > $1`, [pushFloor]);
+    assert.match(alert.title, /\$22,660\.00/);
+    assert.match(alert.body, /incl\. \$660\.00 card surcharge · paid in full/);
+
+    // 2. Debit and prepaid cards carry no surcharge (autocomplete path).
+    const inv2 = await issued(tx, projectId, "draw:1:rough", 100000);
+    const debit = await checkout(tx, adapter, { invoiceId: inv2.id, method: "card", nonce: "sur-0003-abcdef", sourceId: "cnon:debit-ok", expectedAmountCents: 100000, card: { brand: "VISA", cardType: "DEBIT", prepaidType: "NOT_PREPAID" }, expectedSurchargeCents: 0 });
+    assert.equal(debit.attempt.state, "completed");
+    assert.equal(debit.attempt.amount_cents, 100000);
+    assert.equal(debit.attempt.surcharge_cents, 0);
+    const inv3 = await issued(tx, projectId, "draw:2:trim", 100000);
+    const prepaidPrep = await tx((r) => prepareAttempt(r, { invoiceId: inv3.id, method: "card", nonce: "sur-0004-abcdef", card: { brand: "VISA", cardType: "CREDIT", prepaidType: "PREPAID" }, actor: "portal:client" }));
+    assert.equal(prepaidPrep.attempt.surcharge_cents, 0, "prepaid cards are never surcharged");
+    const achPrep = await tx((r) => prepareAttempt(r, { invoiceId: inv3.id, method: "ach", nonce: "sur-0005-abcdef", card: visaCredit, actor: "portal:client" }));
+    assert.equal(achPrep.ok, true);
+    assert.equal(achPrep.attempt.surcharge_cents, 0, "bank transfer never carries it");
+    await run(`DELETE FROM payment_attempts WHERE invoice_id = $1`, [inv3.id]);
+
+    // 3. The page read CREDIT but Square reads DEBIT: voided, nothing charged; retry pays the plain balance.
+    const lie = await checkout(tx, adapter, { invoiceId: inv3.id, method: "card", nonce: "sur-0006-abcdef", sourceId: "cnon:debit-ok", card: visaCredit, expectedSurchargeCents: 3000 });
+    assert.equal(lie.code, SURCHARGE_MISMATCH);
+    assert.equal(lie.attempt.state, "failed");
+    assert.equal((await invoiceBalance(run, inv3.id)).balanceCents, 100000);
+    assert.equal((await adapter.listPaymentsSince(new Date(Date.now() - 60_000).toISOString())).filter((p) => p.referenceId === lie.attempt.id)[0].status, "CANCELED");
+    assert.equal((await run(`SELECT count(*)::int AS n FROM invoice_payments WHERE invoice_id = $1`, [inv3.id]))[0].n, 0);
+    const retry = await checkout(tx, adapter, { invoiceId: inv3.id, method: "card", nonce: "sur-0007-abcdef", sourceId: "cnon:debit-ok", card: null, expectedSurchargeCents: 0 });
+    assert.equal(retry.attempt.state, "completed");
+    assert.equal(retry.attempt.amount_cents, 100000);
+
+    // 4. Authorized, then the server died before completing: the sweep finishes it.
+    const inv4 = await issued(tx, projectId, "draw:3:final", 50000);
+    const prep = await tx((r) => prepareAttempt(r, { invoiceId: inv4.id, method: "card", nonce: "sur-0008-abcdef", card: visaCredit, actor: "portal:client" }));
+    assert.equal(prep.attempt.amount_cents, 51500);
+    const approved = await adapter.createPayment({ idempotencyKey: squareKeyFor(prep.attempt), sourceId: "cnon:card-ok", amountCents: 51500, currency: "USD", locationId: "L1", method: "card", referenceId: squareKeyFor(prep.attempt), autocomplete: false });
+    assert.equal(approved.status, "APPROVED");
+    // A payment.created webhook for the authorization is not money yet.
+    const early = await tx((r) => applyProviderPayment(r, { attemptId: prep.attempt.id, payment: approved, actor: "webhook:square" }));
+    assert.equal(early.changed, false);
+    assert.equal((await run(`SELECT count(*)::int AS n FROM invoice_payments WHERE invoice_id = $1`, [inv4.id]))[0].n, 0);
+    await tx((r) => reconcilePendingAttempts(r, adapter, {}));
+    const finished = await getAttempt(run, prep.attempt.id);
+    assert.equal(finished.state, "completed");
+    assert.equal((await adapter.getPayment(approved.id)).status, "COMPLETED");
+    assert.equal((await invoiceBalance(run, inv4.id)).balanceCents, 0);
+
+    // 5. Refunds: the whole charge is refundable; only the invoice share re-opens the invoice.
+    await assert.rejects(tx((r) => stageRefundDecision(r, { attemptId: paid.attempt.id, amountCents: 2266001, reason: "too much", principal: owner })), /refundable/);
+    const staged = await tx((r) => stageRefundDecision(r, { attemptId: paid.attempt.id, amountCents: 2266000, reason: "job cancelled", principal: owner }));
+    await tx((r) => resolveDecision(r, { id: staged.decision.id, outcome: "approved", principal: owner, via: "app" }));
+    const refunded = await executeRefund(tx, adapter, { decisionId: staged.decision.id, principal: owner });
+    assert.equal(refunded.ok, true, JSON.stringify(refunded));
+    assert.equal((await run(`SELECT amount_cents FROM invoice_payments WHERE invoice_id = $1 AND kind = 'refund'`, [inv.id]))[0].amount_cents, 2200000);
+    assert.equal((await invoiceBalance(run, inv.id)).balanceCents, 2200000, "balance re-opens to the invoice amount, not the surcharged total");
+    assert.equal((await getAttempt(run, paid.attempt.id)).state, "refunded");
   });
 });

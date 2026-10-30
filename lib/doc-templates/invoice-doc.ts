@@ -22,7 +22,7 @@ import {
 
 export const invoiceDocTemplate: DocTemplate = {
   key: "invoice_doc",
-  version: "2026-10-30.2",
+  version: "2026-10-30.3",
   title: "Invoice",
   subtitle: "",
   docClass: "transactional",
@@ -52,6 +52,14 @@ export const invoiceDocTemplate: DocTemplate = {
     },
     { key: "co_balance", label: "Change order balance", kind: "money_cents", source: "owner", required: false },
     { key: "total_due", label: "Total due", kind: "money_cents", source: "auto", required: true },
+    {
+      key: "card_surcharge_note",
+      label: "Credit card surcharge notice",
+      kind: "text",
+      source: "auto",
+      required: false,
+      help: "From Settings › Payments (lib/payments/surcharge.ts). Blank when the surcharge is off.",
+    },
   ],
   build,
 };
@@ -105,7 +113,7 @@ function build(v: FieldValues): TemplateSection[] {
     bulletList([
       "Payment is due upon receipt.",
       "Accepted payment methods: check, ACH/bank transfer, or online by card or bank transfer using the payment link in your invoice email.",
-      "Card payments carry a 3% surcharge. Check and ACH/bank transfer have no fee.",
+      ...(str(v, "card_surcharge_note") ? [str(v, "card_surcharge_note")] : []),
       `Make checks payable to ${str(v, "company_name", "SJ Carpentry LLC")}.`,
       `Questions about this invoice? Contact us at ${str(v, "company_email")} or ${str(v, "company_phone")}.`,
     ]),

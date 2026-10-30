@@ -66,6 +66,7 @@ export default async function PortalPayPage({ params }: { params: Promise<{ invo
             environment={setup.environment}
             allowCard={setup.card}
             allowAch={setup.ach}
+            surcharge={setup.surcharge}
           />
         ) : (
           <Card className="p-3">

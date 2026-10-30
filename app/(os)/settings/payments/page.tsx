@@ -4,7 +4,8 @@ import { requireRole } from "@/lib/dal";
 import { queryOne } from "@/lib/db";
 import { getProviderConfig } from "@/lib/payments/server";
 import { squareEnvironment } from "@/lib/payments/square/index";
-import { saveSquareConfig, saveOfflineInstructions, testSquareConnection } from "@/lib/payments/actions";
+import { saveSquareConfig, saveOfflineInstructions, saveCardSurcharge, testSquareConnection } from "@/lib/payments/actions";
+import { fmtPct, offsetPct, parseSurchargeConfig, surchargeNotice, surchargePct, SURCHARGE_SETTING_KEY } from "@/lib/payments/surcharge";
 import { PaymentsSettingsButtons } from "@/components/money/PaymentsSettingsButtons";
 
 // Settings › Payments (A20). Owner-only. Connection status, environment,
@@ -16,6 +17,13 @@ export default async function PaymentsSettingsPage() {
   const cfg = await getProviderConfig();
   const env = squareEnvironment();
   const offline = await queryOne<{ value: string }>(`SELECT value FROM app_settings WHERE key = 'payments.offline_instructions'`);
+  const surcharge = parseSurchargeConfig((await queryOne<{ value: string }>(`SELECT value FROM app_settings WHERE key = $1`, [SURCHARGE_SETTING_KEY]))?.value);
+  const surchargeBrands = [
+    { key: "VISA", label: "Visa" },
+    { key: "MASTERCARD", label: "Mastercard" },
+    { key: "AMERICAN_EXPRESS", label: "American Express" },
+    { key: "DISCOVER", label: "Discover" },
+  ];
   const caps = (cfg?.capabilities ?? {}) as { merchant_approved?: boolean; card?: boolean; ach?: boolean; refunds?: boolean; location_name?: string | null; note?: string | null };
   const secrets = {
     accessToken: !!(process.env.SQUARE_ACCESS_TOKEN ?? "").trim(),
@@ -97,6 +105,39 @@ export default async function PaymentsSettingsPage() {
             </label>
             <div className="sm:col-span-2">
               <button type="submit" className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper">Save</button>
+            </div>
+          </form>
+        </Card>
+
+        <Card className="p-3">
+          <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Credit card surcharge</div>
+          <p className="mt-1 text-[12px] text-ink-3">
+            Credit cards pay enough on top of the invoice to cover Square&rsquo;s fee, up to each brand&rsquo;s cap. Debit and prepaid cards, bank transfer and check pay no surcharge. Square&rsquo;s own surcharge setting doesn&rsquo;t reach online payments, so this is what applies on the client portal.
+          </p>
+          <form action={saveCardSurcharge} className="mt-2 grid gap-2 sm:grid-cols-2">
+            <label className="flex flex-col gap-1 text-[12px] text-ink-2">
+              Square&rsquo;s fee per card payment (%) — 0 turns the surcharge off
+              <input name="feePct" type="number" step="0.01" min="0" max="20" defaultValue={surcharge.feePct} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-[13px] text-ink" />
+            </label>
+            <label className="flex flex-col gap-1 text-[12px] text-ink-2">
+              Cap for any brand not listed below (%)
+              <input name="capPct" type="number" step="0.01" min="0" max="5" defaultValue={surcharge.capPct} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-[13px] text-ink" />
+            </label>
+            {surchargeBrands.map((b) => (
+              <label key={b.key} className="flex flex-col gap-1 text-[12px] text-ink-2">
+                {b.label} cap (%) — blank uses the cap above
+                <input name={`cap_${b.key}`} type="number" step="0.01" min="0" max="5" defaultValue={surcharge.brandCapPct[b.key] ?? ""} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-[13px] text-ink" />
+              </label>
+            ))}
+            <div className="sm:col-span-2 text-[12px] text-ink-3">
+              Covering a {fmtPct(surcharge.feePct)} fee in full takes {fmtPct(offsetPct(surcharge))}. Charged now:{" "}
+              {surchargeBrands.map((b) => `${b.label} ${fmtPct(surchargePct(surcharge, b.key))}`).join(" · ")}
+              {" · other brands "}{fmtPct(surchargePct(surcharge, null))}.
+              <br />
+              Clients read: {surchargeNotice(surcharge) ?? "(no surcharge notice — surcharge is off)"}
+            </div>
+            <div className="sm:col-span-2">
+              <button type="submit" className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper">Save surcharge</button>
             </div>
           </form>
         </Card>

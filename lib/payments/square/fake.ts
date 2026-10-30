@@ -3,7 +3,10 @@
 // the network. Behaviour is chosen to exercise the real edge cases:
 //   • idempotency: a repeated createPayment with the same key returns the
 //     SAME payment (no second charge);
-//   • card: COMPLETED at once; a source id containing "decline" is refused;
+//   • card: COMPLETED at once (APPROVED when autocomplete is false, until
+//     completePayment / cancelPayment); a source id containing "decline" is
+//     refused; the card reads as a Visa credit card unless the source id
+//     contains "debit" or "prepaid";
 //     "timeout" throws ProviderUnknownOutcomeError AFTER the payment is
 //     recorded (the classic accepted-then-timeout);
 //   • ACH: PENDING on creation; the second getPayment() poll settles it —
@@ -62,7 +65,7 @@ export class FakeSquare implements SquareAdapter {
     const id = `fake_pay_${++this.seq}`;
     const p: SquarePayment = {
       id,
-      status: input.method === "ach" ? "PENDING" : "COMPLETED",
+      status: input.method === "ach" ? "PENDING" : input.autocomplete === false ? "APPROVED" : "COMPLETED",
       amountCents: input.amountCents,
       currency: input.currency,
       method: input.method,
@@ -71,12 +74,40 @@ export class FakeSquare implements SquareAdapter {
       receiptUrl: `https://squareup.com/receipt/preview/${id}`,
       feeCents: input.method === "card" ? Math.round(input.amountCents * 0.029) + 30 : Math.min(500, Math.round(input.amountCents * 0.01)),
       refundedCents: 0,
+      card:
+        input.method === "card"
+          ? {
+              brand: "VISA",
+              cardType: input.sourceId.includes("debit") || input.sourceId.includes("prepaid") ? "DEBIT" : "CREDIT",
+              prepaidType: input.sourceId.includes("prepaid") ? "PREPAID" : "NOT_PREPAID",
+            }
+          : null,
       createdAt: this.now(),
       updatedAt: this.now(),
     };
     this.payments.set(id, p);
     this.byIdempotency.set(input.idempotencyKey, id);
     if (input.sourceId.includes("timeout")) throw new ProviderUnknownOutcomeError("socket hang up after the request was transmitted");
+    return structuredClone(p);
+  }
+
+  async completePayment(paymentId: string): Promise<SquarePayment> {
+    const p = this.payments.get(paymentId);
+    if (!p) throw new ProviderDeclinedError("NOT_FOUND", "No such payment.");
+    if (p.status === "APPROVED") {
+      p.status = "COMPLETED";
+      p.updatedAt = this.now();
+    } else if (p.status !== "COMPLETED") throw new ProviderDeclinedError("BAD_REQUEST", `Payment is ${p.status}; only APPROVED payments can be completed.`);
+    return structuredClone(p);
+  }
+
+  async cancelPayment(paymentId: string): Promise<SquarePayment> {
+    const p = this.payments.get(paymentId);
+    if (!p) throw new ProviderDeclinedError("NOT_FOUND", "No such payment.");
+    if (p.status === "APPROVED") {
+      p.status = "CANCELED";
+      p.updatedAt = this.now();
+    } else if (p.status !== "CANCELED") throw new ProviderDeclinedError("BAD_REQUEST", `Payment is ${p.status}; only APPROVED payments can be canceled.`);
     return structuredClone(p);
   }
 
@@ -153,6 +184,7 @@ export class FakeSquare implements SquareAdapter {
             reference_id: p.referenceId,
             order_id: p.orderId,
             source_type: p.method === "ach" ? "BANK_ACCOUNT" : "CARD",
+            ...(p.card ? { card_details: { card: { card_brand: p.card.brand, card_type: p.card.cardType, prepaid_type: p.card.prepaidType } } } : {}),
             refunded_money: { amount: p.refundedCents, currency: p.currency },
             processing_fee: p.feeCents == null ? [] : [{ amount_money: { amount: p.feeCents, currency: p.currency }, type: "INITIAL" }],
             updated_at: p.updatedAt,

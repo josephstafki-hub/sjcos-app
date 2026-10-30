@@ -15,6 +15,7 @@ import {
   type CompanyDocInfo,
 } from "../documents";
 import { DRAW_TRIGGER_STATUSES } from "../draw-schedule";
+import { parseSurchargeConfig, surchargeNotice, SURCHARGE_SETTING_KEY } from "../payments/surcharge";
 import {
   BILLING_RATE_ROWS,
   MARKUP_KEY,
@@ -392,6 +393,8 @@ async function resolveInvoiceDoc(f: Fill, scope: FillScope) {
   const rows = items.map((it) => [String(it.label ?? ""), "", "", fmtUsd(Number(it.amount) || 0)]);
   if (rows.length === 0) rows.push([inv.number || "Invoice", "", "", fmtUsd(inv.amount)]);
   f.set("line_items_table", { columns: ["Description", "Qty", "Rate", "Amount"], rows } as TableValue);
+  const surcharge = await queryOne<{ value: string }>(`SELECT value FROM app_settings WHERE key = $1`, [SURCHARGE_SETTING_KEY]);
+  f.set("card_surcharge_note", surchargeNotice(parseSurchargeConfig(surcharge?.value)) ?? "");
 }
 
 async function resolveRoughEstimate(f: Fill, scope: FillScope) {

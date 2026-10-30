@@ -92,6 +92,8 @@ function PlanCard({
         )}
       </div>
 
+      {plan.approvedLabel && <p className="mt-2 text-body text-ink-2">Portal version {plan.version} was approved {plan.approvedLabel}{plan.approvedName ? ` by ${plan.approvedName}` : ""}. This approval records your acknowledgment of this version; any DRAFT stamp is part of the uploaded sheet and is not changed by portal approval. Confirm construction-ready plans with Joe.</p>}
+
       {plan.notes && (
         <p className="mt-1.5 text-label leading-snug text-ink-2">{plan.notes}</p>
       )}
@@ -101,22 +103,23 @@ function PlanCard({
           <>
             {/* Plans are issued as PDFs — show the sheet inline; the link opens
                 the browser viewer for download/print. */}
-            <iframe
-              src={`${plan.fileUrl}#toolbar=1`}
-              title={`Floor plan version ${plan.version}`}
-              className={`w-full rounded-md border border-rule bg-card ${
-                current ? "h-[560px]" : "h-[280px]"
-              }`}
-            />
             <a
               href={plan.fileUrl}
               target="_blank"
               rel="noopener"
-              className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-accent bg-accent-soft px-2.5 py-1.5 text-label font-semibold text-accent-2 hover:bg-accent-soft/70"
+              className="mb-2 inline-flex items-center gap-1.5 rounded-md border border-accent bg-accent-soft px-2.5 py-1.5 text-label font-semibold text-accent-2 hover:bg-accent-soft/70"
             >
               <FileText className="size-3.5" strokeWidth={1.75} />
-              Open · download · print
+              Open full screen · download · print
             </a>
+            <iframe
+              src={`${plan.fileUrl}#toolbar=1`}
+              title={`Floor plan version ${plan.version}`}
+              className={`w-full rounded-md border border-rule bg-card ${
+                current ? "h-72 @2xl/page:h-[560px]" : "h-48 @2xl/page:h-[280px]"
+              }`}
+            />
+
           </>
         ) : (
           <a href={plan.fileUrl} target="_blank" rel="noopener">

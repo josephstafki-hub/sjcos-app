@@ -5,6 +5,7 @@ import { portalScope, getSharedDocs, getSharedFiles } from "@/lib/client-portal"
 import { getClientSignatures, getLeadClientSignatures } from "@/lib/esign";
 import { getProjectEstimates, type EstimateDetail } from "@/lib/estimates";
 import { getProjectChangeOrders } from "@/lib/change-orders";
+import { getPortalSignatureReviews } from "@/lib/portal-signature-review";
 import { usd } from "@/lib/money";
 import { ClientSignDocs } from "@/components/portal/ClientSignDocs";
 
@@ -30,6 +31,8 @@ export default async function PortalDocumentsPage() {
     scope ? getSharedFiles(scope) : Promise.resolve([]),
   ]);
 
+  const reviews = await getPortalSignatureReviews(signDocs.map((d) => d.id));
+
   // Clients never see internal drafts.
   const clientEstimates = estimates.filter((e) => e.status !== "draft");
   const clientCOs = changeOrders.filter((c) => c.status !== "draft");
@@ -51,11 +54,11 @@ export default async function PortalDocumentsPage() {
       <div className="my-5 border-t border-rule" />
       <div id="documents" className="scroll-mt-4">
         <Eyebrow muted>To sign</Eyebrow>
-        {toSign ? <ClientSignDocs docs={signDocs.filter((d) => d.status === "sent")} /> : <p className="mt-2 text-body text-ink-2">No documents waiting on your signature. New requests from Joe will appear here.</p>}
+        {toSign ? <ClientSignDocs reviews={reviews} docs={signDocs.filter((d) => d.status === "sent")} /> : <p className="mt-2 text-body text-ink-2">No documents waiting on your signature. New requests from Joe will appear here.</p>}
       </div>
       <div className="mt-6 border-t border-rule-soft pt-4">
         <Eyebrow muted>History</Eyebrow>
-        {signDocs.some((d) => d.status !== "sent") ? <ClientSignDocs docs={signDocs.filter((d) => d.status !== "sent")} /> : <p className="mt-2 text-body text-ink-2">Signed and declined documents will appear here for reference.</p>}
+        {signDocs.some((d) => d.status !== "sent") ? <ClientSignDocs reviews={reviews} docs={signDocs.filter((d) => d.status !== "sent")} /> : <p className="mt-2 text-body text-ink-2">Signed and declined documents will appear here for reference.</p>}
       </div>
 
       {sharedDocs.length > 0 && (

@@ -8,6 +8,7 @@ import type {
   Selection, SelectionOption, SelectionStatus, SelectionsView, SelectionGroup,
 } from "@/lib/selections";
 import { decideSelection } from "@/lib/actions/selections";
+import { selectionPriceLabel } from "@/lib/portal-selection-price";
 import { splitSelectionGroups } from "@/lib/portal-selection-groups";
 import { runAction } from "@/lib/run-action";
 
@@ -258,22 +259,22 @@ function ClientOption({
   const delta = allowance > 0 && o.price > 0 ? o.price - allowance : 0;
   return (
     <div
-      className={`flex flex-col overflow-hidden rounded-md border ${
+      className={`grid grid-cols-[80px_minmax(0,1fr)] @lg/page:flex @lg/page:flex-col overflow-hidden rounded-md border ${
         isChosen ? "border-money ring-1 ring-money/30" : "border-rule"
       }`}
     >
       {o.imageUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={o.imageUrl} alt={o.name} className="aspect-[4/3] w-full border-b border-rule object-cover" />
+        <img src={o.imageUrl} alt={o.name} className="h-24 w-full object-cover @lg/page:h-32" />
       ) : (
-        <div className="aspect-[4/3] border-b border-rule bg-paper-3" />
+        <div className="hidden @lg/page:block @lg/page:h-16 bg-paper-3" aria-hidden="true" />
       )}
-      <div className="flex flex-1 flex-col gap-0.5 p-2">
+      <div className={`flex min-w-0 flex-1 flex-col gap-0.5 p-2 ${!o.imageUrl ? "col-span-2" : ""}`}>
         {o.brand && (
           <span className="font-sans text-meta text-ink-3">{o.brand}</span>
         )}
         <span className="text-meta leading-snug text-ink">{o.name}</span>
-        {o.price > 0 && (
+        {o.price > 0 ? (
           <span className="text-meta font-semibold text-ink-2">
             {fmt(o.price)}
             {delta !== 0 && (
@@ -282,8 +283,8 @@ function ClientOption({
               </span>
             )}
           </span>
-        )}
-        {o.note && <span className="text-meta leading-snug text-ink-3">{o.note}</span>}
+        ) : <span className="text-meta font-semibold text-ink-2">{selectionPriceLabel(o.price, o.note)}</span>}
+        {o.note && <details className="text-meta text-ink-3"><summary className="cursor-pointer py-1">Option details</summary><p className="leading-snug">{o.note}</p></details>}
         <div className="mt-auto pt-1.5">
           {isChosen ? (
             <Chip kind="money" dot>your pick</Chip>

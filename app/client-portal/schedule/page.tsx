@@ -53,6 +53,7 @@ export default async function PortalSchedulePage({
   const prev = month === 1 ? monthKey(year - 1, 12) : monthKey(year, month - 1);
   const next = month === 12 ? monthKey(year + 1, 1) : monthKey(year, month + 1);
 
+  const nextEvent = blocks.filter((b) => b.iso >= todayIso).sort((a, b) => a.iso.localeCompare(b.iso))[0];
   const upcoming = blocks.filter((b) => b.iso.startsWith(`${year}-${pad(month)}-`));
 
   return (
@@ -67,6 +68,8 @@ export default async function PortalSchedulePage({
       </p>
       <div className="my-5 border-t border-rule" />
 
+      {nextEvent && <Card className="mb-4 p-3"><p className="text-meta text-ink-3">Next scheduled event · {nextEvent.dateLabel} · {nextEvent.time}</p><p className="mt-1 text-subheading font-semibold text-ink">{nextEvent.label}</p><Link href={`/client-portal/schedule?m=${nextEvent.iso.slice(0, 7)}#month-agenda`} className="mt-2 inline-flex min-h-11 items-center text-body font-semibold text-accent-2 underline">Jump to this event’s month</Link></Card>}
+      {!nextEvent && <Link href="/client-portal/messages" className="mb-4 inline-flex min-h-11 items-center rounded-md border border-rule px-3 text-body font-semibold text-accent-2">Message Joe about the schedule</Link>}
       {blocks.length === 0 ? (
         <p className="text-body leading-relaxed text-ink-3">
           No schedule posted yet. Once the work is sequenced, the plan will appear here.
@@ -163,13 +166,13 @@ export default async function PortalSchedulePage({
             </div>
           </div>
 
-          {upcoming.length === 0 && <p className="mt-4 text-body text-ink-3">No work scheduled in {monthLabel}. Joe will post dates here when the next work is planned.</p>}
+          {upcoming.length === 0 && <p className="mt-4 text-body text-ink-3">No work scheduled in {monthLabel}. {nextEvent ? "The next posted event is shown above." : "Message Joe to ask about upcoming dates."}</p>}
           {/* Readable month agenda, including past events in the chosen month. */}
           {upcoming.length > 0 && (
             <>
               <div className="my-5 border-t border-rule" />
               <Eyebrow muted>This month</Eyebrow>
-              <div className="mt-2 flex flex-col gap-2">
+              <div id="month-agenda" className="mt-2 flex scroll-mt-4 flex-col gap-2">
                 {groupDays(upcoming).map((day) => (
                   <Card key={day.iso} className="p-2.5">
                     <div className="font-sans text-meta font-medium text-ink-3">

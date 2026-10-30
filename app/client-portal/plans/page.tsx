@@ -31,8 +31,8 @@ export default async function PortalPlansPage() {
         Your plans, every version in one place.
       </h1>
       <p className="mt-1.5 text-body leading-relaxed text-ink-2">
-        The newest version is what&apos;s current. Approving it tells Joe you&apos;re good to
-        build from it.
+        The newest posted version appears first. Review the sheet before approving;
+        approval records your acknowledgment of that portal version. Ask Joe to confirm which plans are ready for construction.
       </p>
       <div className="my-5 border-t border-rule" />
       <ClientFloorplans plans={plans} signerName={signerName} />

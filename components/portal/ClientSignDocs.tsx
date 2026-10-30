@@ -2,16 +2,19 @@
 
 import { useRef, useState, useTransition } from "react";
 import { Check, FileSignature, ChevronDown, FileText, PenLine, Eraser } from "lucide-react";
+import type { PortalSignatureReview } from "@/lib/portal-signature-review";
 import { Card, Chip } from "@/components/ui";
 import { CONSENT_STATEMENT, docTypeLabel, type SignatureRequestView } from "@/lib/esign-types";
 import { signSignatureRequest, declineSignatureRequest } from "@/lib/actions/esign";
 import { runAction } from "@/lib/run-action";
 import { SignaturePad, type SignaturePadHandle } from "@/components/esign/SignaturePad";
 
+const usd = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
+
 /** Client-portal "Documents to sign" section. Pending requests expand into a
  *  review-and-sign panel (read the document, consent, type name → Sign), with a
  *  decline path. Signed/declined items show as history. */
-export function ClientSignDocs({ docs }: { docs: SignatureRequestView[] }) {
+export function ClientSignDocs({ docs, reviews = {} }: { docs: SignatureRequestView[]; reviews?: Record<number, PortalSignatureReview> }) {
   const pending = docs.filter((d) => d.status === "sent");
   const history = docs.filter((d) => d.status !== "sent");
 
@@ -22,7 +25,7 @@ export function ClientSignDocs({ docs }: { docs: SignatureRequestView[] }) {
   return (
     <div className="mt-2 flex flex-col gap-2">
       {pending.map((d) => (
-        <SignCard key={d.id} doc={d} />
+        <SignCard key={d.id} doc={d} review={reviews[d.id]} />
       ))}
       {history.map((d) => (
         <div key={d.id} className="flex items-center gap-2 text-label">
@@ -51,7 +54,7 @@ export function ClientSignDocs({ docs }: { docs: SignatureRequestView[] }) {
   );
 }
 
-function SignCard({ doc }: { doc: SignatureRequestView }) {
+function SignCard({ doc, review }: { doc: SignatureRequestView; review?: PortalSignatureReview }) {
   const [open, setOpen] = useState(false);
   const [declining, setDeclining] = useState(false);
   const [name, setName] = useState(doc.signerName ?? "");
@@ -95,18 +98,26 @@ function SignCard({ doc }: { doc: SignatureRequestView }) {
     <Card kind="accent" className="p-2.5">
       <button
         type="button"
+        aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-2 text-left"
       >
         <FileSignature className="size-3.5 flex-none text-accent" strokeWidth={1.75} />
         <span className="min-w-0 flex-1">
-          <span className="block truncate font-serif text-body font-semibold text-ink">{doc.title}</span>
+          <span className="block text-subheading font-semibold text-ink">{doc.title}</span>
           <span className="font-sans text-meta text-ink-3">
             {docTypeLabel(doc.docType)} · needs your signature
           </span>
         </span>
         <ChevronDown className={`size-3.5 flex-none text-ink-3 transition-transform ${open ? "rotate-180" : ""}`} strokeWidth={1.75} />
       </button>
+
+      <div className="mt-2 space-y-1 text-body text-ink-2">
+        <p>{review?.version ? `Template version ${review.version} · ` : ""}{doc.sentAtLabel ? `Sent ${doc.sentAtLabel}` : `Created ${doc.createdAtLabel}`}</p>
+        <p className="font-semibold tabular-nums">Amount: {review?.amountCents != null ? usd(review.amountCents) : "See document — no separate amount recorded"}</p>
+        <p>Signing records your legal electronic signature on this {docTypeLabel(doc.docType).toLowerCase()}{doc.docType === "estimate" || doc.docType === "change_order" ? " and approves it in the project record" : ""}. Review its scope, terms and payment obligations first.</p>
+      </div>
+      <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="mt-3 inline-flex min-h-11 items-center rounded-md bg-ink px-3 text-label font-semibold text-paper">{open ? "Close review" : "Review & sign"}</button>
 
       {open && (
         <div className="mt-2.5 border-t border-rule-soft pt-2.5">

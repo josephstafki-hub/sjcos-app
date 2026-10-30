@@ -397,7 +397,7 @@ export function registerEstimatingTools(server, { rows, json, pool, slugToId, cu
 
   server.registerTool(
     "stage_allowance_overage",
-    { title: "Client chose above an allowance → change-order payload + decision (W07/W11)", description: "Prices the overage (chosen cost with the active markup minus the allowance) as a change-order payload and stages a change_order decision for Joe. No change_orders row is written here; under the allowance returns the credit.", inputSchema: { project_slug: z.string(), item_key: z.string(), chosen: z.object({ description: z.string(), cost_cents: z.number().int(), source_ref: z.record(z.string(), z.unknown()).optional() }) } },
+    { title: "Client chose above an allowance after the contract → change-order card (W11)", description: "Only for a job UNDER CONTRACT whose contract carries an allowance: prices the overage (chosen cost with the active markup minus the allowance) and stages a change-order card; Joe approving it drafts the change order. Before the contract there is nothing to change-order: it stages nothing and says so (before_contract: true); put the choice into the estimate with apply_selection_choice instead. Under the allowance returns the credit.", inputSchema: { project_slug: z.string(), item_key: z.string(), chosen: z.object({ description: z.string(), cost_cents: z.number().int(), source_ref: z.record(z.string(), z.unknown()).optional() }) } },
     async (a) => {
       try {
         const id = await project(a.project_slug);

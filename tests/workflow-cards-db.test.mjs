@@ -21,7 +21,7 @@ async function approve(client, run, id) {
   return r;
 }
 
-test("W11: approving the over-allowance card drafts a change order under contract, a Pre-con change before it", { skip }, async () => {
+test("W11: approving the over-allowance card drafts a change order under contract; before the contract it creates nothing", { skip }, async () => {
   await withTestDb(async (_url, client) => {
     const run = async (s, p) => (await client.query(s, p)).rows;
     await cleanFoundation(client);
@@ -38,11 +38,11 @@ test("W11: approving the over-allowance card drafts a change order under contrac
     assert.deepEqual([co.price_cents, co.status], [185000, "draft"]);
     assert.match(co.description, /Fireclay/);
 
+    // An older card on a job not yet under contract: nothing to change-order, nothing created.
     const r2 = await approve(client, run, (await card(pre.id, "b")).id);
-    assert.match(r2.reply, /Pre-con change #\d+/);
+    assert.match(r2.reply, /No change order: the contract isn't signed yet/);
     assert.equal((await run(`SELECT count(*)::int AS n FROM change_orders WHERE project_id = $1`, [pre.id]))[0].n, 0);
-    const [est] = await run(`SELECT kind, total FROM estimates WHERE project_id = $1`, [pre.id]);
-    assert.deepEqual([est.kind, Number(est.total)], ["precon_change", 185000]);
+    assert.equal((await run(`SELECT count(*)::int AS n FROM estimates WHERE project_id = $1`, [pre.id]))[0].n, 0);
   });
 });
 

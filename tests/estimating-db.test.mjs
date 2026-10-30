@@ -409,7 +409,13 @@ test("V37 + V17 price commitment: offer frozen at send, later supplier cost move
     assert.equal(rc.offer_invalidated, false, "a draft is not an offer; the re-send freezes again");
     assert.ok((await loadLines(run, estimateId)).some((l) => l.item_key === "item:screens"));
 
-    // allowance exceeded → priced CO payload + change_order decision, no change_orders row
+    // allowance exceeded before the contract → no change order, no card: it goes into the estimate
+    const pre = await stageAllowanceOverage(run, { estimate_id: estimateId, item_key: "allow:hardware", chosen: { description: "Brass hardware set", cost_cents: 70000 }, principal: owner });
+    assert.equal(pre.before_contract, true);
+    assert.equal(pre.decision_id, null);
+    assert.match(pre.note, /apply_selection_choice/);
+    // under contract → priced CO payload + change_order decision, no change_orders row
+    await run(`UPDATE projects SET status = 'construction' WHERE id = $1`, [projectId]);
     const over = await stageAllowanceOverage(run, { estimate_id: estimateId, item_key: "allow:hardware", chosen: { description: "Brass hardware set", cost_cents: 70000 }, principal: owner });
     assert.equal(over.payload.overage_cents, 84000 - 60000);
     assert.equal(over.payload.price_cents, 24000);

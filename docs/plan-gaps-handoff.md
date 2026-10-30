@@ -243,8 +243,9 @@ by Joe/staff don't feed the weekly update (only sub logs do).
     prices). `stage_package_release` stages it first when the current allocation hasn't been reviewed, and
     the agent can stage it with `stage_scope_allocation_review`. Approving records the review and sends
     nothing. A later allocation change needs a new review.
-  - W11 (Joe: the no-change-order rule doesn't apply here): approving the over-allowance card drafts the
-    change order, or a Pre-con change estimate before the contract.
+  - W11: after the contract, approving the over-allowance card drafts the change order. Before the
+    contract no card is staged (Joe, 2026-10-30: there is no contract to change); the choice goes into the
+    estimate.
 - ~~**Email intake (A01):**~~ **Done (branch `t3/tier3-email-intake`):**
   - `create_work_item` takes `email: { message_id, thread_id }`. An email to-do is keyed on its message,
     with an obligation (`lib/obligations/email.ts`); the same email filed twice returns the open one.

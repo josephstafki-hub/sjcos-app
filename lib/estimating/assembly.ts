@@ -681,7 +681,7 @@ export async function incorporateSubBid(run: Run, input: { bid_submission_id: nu
 /** W07 allowance overage: build the priced CO payload (pure helper) and stage
  *  a change_order decision for Joe. No change_orders row is written here —
  *  WS-money/WS-field own that table. */
-export async function stageAllowanceOverage(run: Run, input: { estimate_id: number; item_key: string; chosen: { description: string; cost_cents: number; source_ref?: Record<string, unknown> }; principal: Principal }): Promise<{ payload: AllowanceOveragePayload | null; decision_id: string | null; credit_cents: number | null }> {
+export async function stageAllowanceOverage(run: Run, input: { estimate_id: number; item_key: string; chosen: { description: string; cost_cents: number; source_ref?: Record<string, unknown> }; principal: Principal }): Promise<{ payload: AllowanceOveragePayload | null; decision_id: string | null; credit_cents: number | null; before_contract?: boolean; note?: string }> {
   const e = await loadEstimate(run, input.estimate_id);
   const lines = await loadLines(run, input.estimate_id);
   const line = lines.find((l) => l.item_key === input.item_key);
@@ -691,6 +691,20 @@ export async function stageAllowanceOverage(run: Run, input: { estimate_id: numb
   if (!payload) {
     const chosenClient = Math.round(input.chosen.cost_cents * (1 + (pct ?? 0) / 100));
     return { payload: null, decision_id: null, credit_cents: (line.allowance_cents ?? 0) - chosenClient };
+  }
+  // Joe, 2026-10-30: a change order needs a contract to change. Before the
+  // contract, a selection over its allowance just goes into the estimate
+  // (apply_selection_choice), priced at what was chosen; no card. Only after
+  // the contract (an allowance in the signed contract) is it a change order.
+  const [path] = await run<{ path: string | null }>(`SELECT project_scope_change_path($1) AS path`, [e.project_id]);
+  if (path?.path !== "change_order") {
+    return {
+      payload,
+      decision_id: null,
+      credit_cents: null,
+      before_contract: true,
+      note: "The contract isn't signed yet, so there is nothing to change-order: put the choice into the estimate (apply_selection_choice); its price replaces the allowance. If the estimate is already out with the client, Joe revises it (void the signature request, edit, send again).",
+    };
   }
   const { decision } = await stageDecision(run, {
     kind: "change_order",

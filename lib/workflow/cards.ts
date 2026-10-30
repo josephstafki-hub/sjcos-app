@@ -10,10 +10,10 @@
 //                                this card first (lib/procurement/packages.ts).
 //   W11 prepare_change_order   — a selection over its allowance. Approving
 //                                drafts the change order (Joe, 2026-10-30:
-//                                approving this card is what creates it);
-//                                before the contract it is a Pre-con change
-//                                estimate instead (the same rule the tables
-//                                enforce: project_scope_change_path). Nothing is
+//                                approving this card is what creates it).
+//                                Only under contract: before it there is no
+//                                contract to change, so no card is staged and
+//                                the choice goes into the estimate. Nothing is
 //                                sent to the client by this step.
 //
 // settleWorkflowCard is called from lib/decisions/resolve.ts on approval, under
@@ -120,8 +120,7 @@ export async function settleWorkflowCard(run: Run, d: Decision, principal: Princ
     const summary = d.summary as { changes?: string[] };
     const description = summary.changes?.[0] ?? d.title;
     const price = Number(d.amount_cents ?? 0);
-    // The same rule the tables enforce: a change order once under contract,
-    // a Pre-con change estimate before that.
+    // A change order only once under contract (the rule the tables enforce).
     const [path] = await run<{ path: string }>(`SELECT project_scope_change_path($1) AS path`, [d.project_id]);
     if (path?.path === "change_order") {
       const [co] = await run<{ id: string }>(
@@ -130,18 +129,9 @@ export async function settleWorkflowCard(run: Run, d: Decision, principal: Princ
       );
       return `Change order #${co.id} drafted (${usd(price)}) under Money › Change orders. Send it to the client from there; the extra work waits for their acceptance and payment.`;
     }
-    // Before the contract: a Pre-con change estimate (one line at the client price).
-    const [est] = await run<{ id: string }>(
-      `INSERT INTO estimates (project_id, kind, title, status) VALUES ($1, 'precon_change', $2, 'draft') RETURNING id`,
-      [d.project_id, d.title.slice(0, 300)],
-    );
-    await run(
-      `INSERT INTO estimate_lines (estimate_id, description, section, unit, qty, unit_cost, markup, extended, sort_order)
-       VALUES ($1, $2, 'Selection over allowance', 'ea', 1, $3, 0, $3, 0)`,
-      [est.id, description, price],
-    );
-    await run(`UPDATE estimates SET subtotal = $2, total = $2, markup_total = 0 WHERE id = $1`, [est.id, price]);
-    return `The contract isn't signed yet, so this is Pre-con change #${est.id} (${usd(price)}) under Money › Pre-con changes. Send it to the client from there.`;
+    // Before the contract there is no contract to change (Joe, 2026-10-30): an
+    // older card approved now creates nothing; the choice goes into the estimate.
+    return "No change order: the contract isn't signed yet, so this selection goes into the estimate at its chosen price (apply it on the job's selections). Nothing was created.";
   }
   return null;
 }

@@ -11,7 +11,7 @@ import { proposePricingSetupAction, updatePricingDraftAction, activatePricingSet
 const btn = "rounded-md border border-ink-4 px-2.5 py-1 text-meta font-medium text-ink-2 transition-colors hover:bg-paper-2 disabled:cursor-not-allowed disabled:opacity-40";
 const input = "rounded-md border border-rule bg-paper px-2 py-1 text-meta text-ink outline-none focus:border-accent";
 
-function DraftEditor({ row }: { row: PricingSetupRow }) {
+function DraftEditor({ row, active }: { row: PricingSetupRow; active: PricingSetupRow | null }) {
   const [pending, start] = useTransition();
   const [feedback, setFeedback] = useState("");
   const [baseline, setBaseline] = useState(row.config);
@@ -21,12 +21,17 @@ function DraftEditor({ row }: { row: PricingSetupRow }) {
   const dirty = JSON.stringify(cfg) !== JSON.stringify(baseline);
   const save = () => start(async () => { await runAction(() => updatePricingDraftAction(row.version, cfg), {onSuccess:()=>{setBaseline(cfg);setFeedback("Saved");},onError:setFeedback}); });
   const activate = () => start(async () => { await runAction(() => activatePricingSetupAction(row.version), {onSuccess:()=>setFeedback("Activation request saved. Review Decisions if this version is still a draft."),onError:setFeedback}); });
+  const changedRates = Array.from(new Set([...Object.keys(cfg.labor_rates), ...Object.keys(active?.config.labor_rates ?? {})])).filter(k => (cfg.labor_rates[k]?.cents_per_hour ?? null) !== (active?.config.labor_rates[k]?.cents_per_hour ?? null)).length;
+  const changedAllowances = Array.from(new Set([...Object.keys(cfg.default_allowances), ...Object.keys(active?.config.default_allowances ?? {})])).filter(k => (cfg.default_allowances[k]?.cents ?? null) !== (active?.config.default_allowances[k]?.cents ?? null)).length;
   const missingRates = Object.values(cfg.labor_rates).filter(v => v.cents_per_hour == null).length;
   const missingAllowances = Object.values(cfg.default_allowances).filter(v => v.cents == null).length;
   return (
     <div>
       <aside className="mb-3 rounded-md border border-rule-soft bg-paper-2 p-3 text-body">
-        <p>{missingRates} labor rates and {missingAllowances} allowances lack evidence{cfg.markup_pct == null || cfg.margin_target_pct == null ? "; markup or margin also needs your decision" : ""}.</p>
+        <h3 className="font-semibold">Before activating v{row.version}</h3>
+        <p className="mt-1">{active ? `Replaces v${active.version} for new estimate pricing` : "Replaces legacy defaults for new estimate pricing"}: {changedRates} labor rates and {changedAllowances} allowances change. Markup {active ? percentLabel(active.config.markup_pct) : "legacy default"} → {percentLabel(cfg.markup_pct)}; margin target {active ? percentLabel(active.config.margin_target_pct) : "not set"} → {percentLabel(cfg.margin_target_pct)}.</p>
+        <p className="mt-1">Rough ranges use −{cfg.uncertainty_rules.rough_range_low_pct}% / +{cfg.uncertainty_rules.rough_range_high_pct}%; prices become stale after {cfg.uncertainty_rules.stale_after_days} days. Offers already sent keep their prices.</p>
+        <p className="mt-2">Still missing: {missingRates} labor rates and {missingAllowances} allowances lack evidence{cfg.markup_pct == null || cfg.margin_target_pct == null ? "; markup or margin also needs your decision" : ""}.</p>
         <div className="mt-2 flex flex-wrap gap-4 text-accent-2"><Link href="/cost-book" className="underline">Review cost book</Link><Link href="/projects?stage=closeout" className="underline">Review job closeouts</Link></div>
       </aside>
       <div className="mt-2 flex flex-wrap items-center gap-3"><span className="font-medium">v{row.version}</span><Chip kind="ghost">Draft</Chip><button className={btn} disabled={pending || dirty} onClick={activate}>Activate v{row.version}</button><span role="status" className="text-meta text-ink-2">{pending ? "Saving…" : feedback || (dirty ? "Unsaved changes" : "")}</span></div>
@@ -95,7 +100,7 @@ export function PricingSetup({ setups }: { setups: PricingSetupRow[] }) {
             {s.notes ? <span className="text-ink-3">· {s.notes}</span> : null}
           </div>}
           {s.state === "draft" ? (
-            <DraftEditor row={s} />
+            <DraftEditor row={s} active={setups.find(setup => setup.state === "active") ?? null} />
           ) : (
             <div className="mt-2 text-meta text-ink-3">
               Markup {percentLabel(s.config.markup_pct)} · margin target {percentLabel(s.config.margin_target_pct)} · rates: {Object.entries(s.config.labor_rates).map(([k, v]) => `${k} ${v.cents_per_hour == null ? "unset" : `$${(v.cents_per_hour / 100).toFixed(2)}/h`}`).join(", ") || "none"}

@@ -350,7 +350,7 @@ export function FilesClient({ data }: { data: FilesData }) {
                           ) : (
                             <FileText className="size-4 shrink-0 text-ink-3" />
                           )}
-                          <span className="break-words [overflow-wrap:anywhere]">
+                          <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
                             {f.name}
                           </span>
                         </button>

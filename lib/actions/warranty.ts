@@ -163,3 +163,11 @@ export async function editWarrantyClaim(id: string, issue: string): Promise<{ ok
   revalidatePath("/warranty");
   return row ? { ok: true } : { ok: false, error: "That claim could not be found." };
 }
+
+/** Owner-requested summary; no automatic inference on page load. */
+export async function summarizeWarrantyClaims() {
+  await requireAccess("warranty");
+  const { getWarrantyData, getWarrantySummary } = await import("../warranty");
+  const data = await getWarrantyData();
+  return { ok: true as const, summary: await getWarrantySummary(data.summaryInput) };
+}

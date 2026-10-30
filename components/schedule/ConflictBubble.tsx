@@ -11,7 +11,15 @@ import { runAction } from "@/lib/run-action";
  *  in Open Engine (deduped), so the flag survives the page; Dismiss hides the
  *  note for this visit — it comes back while the conflict still exists, which
  *  is the point. `conflict` mirrors the server's own "is this a clash" test. */
-export function ConflictBubble({ conflict, children, weekOffset = 0 }: { conflict: boolean; children: ReactNode; weekOffset?: number }) {
+export function ConflictBubble({
+  conflict,
+  children,
+  weekOffset = 0,
+}: {
+  conflict: boolean;
+  children: ReactNode;
+  weekOffset?: number;
+}) {
   const [state, setState] = useState<"open" | "flagged" | "dismissed">("open");
   const [note, setNote] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -31,7 +39,9 @@ export function ConflictBubble({ conflict, children, weekOffset = 0 }: { conflic
 
   function flag() {
     startTransition(async () => {
-      const res = await runAction(() => flagScheduleConflict(weekOffset), { fallback: "Couldn't flag the conflict." });
+      const res = await runAction(() => flagScheduleConflict(weekOffset), {
+        fallback: "Couldn't flag the conflict.",
+      });
       if (res.ok) {
         setNote(
           res.queued

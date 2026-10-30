@@ -285,7 +285,7 @@ export async function getScheduleData(weekOffset = 0): Promise<ScheduleData> {
   const week = weekRes.rows[0];
 
   return {
-    weekLabel: `WEEK ${week?.weeknum ?? ""}`,
+    weekLabel: `Week ${week?.weeknum ?? ""}`,
     rangeLabel: `${week?.range_start ?? ""} – ${week?.range_end ?? ""}`,
     days,
     logs: {

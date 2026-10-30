@@ -50,6 +50,7 @@ export interface ComplianceData {
   filters: string[];
   windows: ComplianceWindowCard[];
   timeline: TimelineRow[];
+  history: TimelineRow[];
 }
 
 // ─── DB row → display mapping ────────────────────────────────────────────────
@@ -84,7 +85,13 @@ const COMPLIANCE_SELECT = `
   ORDER BY due_date`;
 
 export async function getComplianceData(): Promise<ComplianceData> {
-  const { rows } = await query<ComplianceRow>(COMPLIANCE_SELECT);
+  const [{ rows }, historyRes] = await Promise.all([
+    query<ComplianceRow>(COMPLIANCE_SELECT),
+    query<TimelineRow>(`SELECT id::text AS id, to_char(due_date, 'FMMon FMDD') AS date,
+      'ghost' AS dot, title AS what, COALESCE(who, '') AS who,
+      COALESCE(step, '') AS step, COALESCE(kind, 'other') AS kind, COALESCE(notes, '') AS notes
+      FROM compliance_items WHERE resolved = true ORDER BY due_date DESC`),
+  ]);
 
   // Bucket open items by days-until-due. Overdue items fall into the urgent
   // window. Items beyond 90 days (e.g. next year's 1099 run) stay on the
@@ -128,6 +135,7 @@ export async function getComplianceData(): Promise<ComplianceData> {
     filters: ["All", "COI", "Licenses", "Tax", "Insurance"],
     windows,
     timeline,
+    history: historyRes.rows,
   };
 }
 

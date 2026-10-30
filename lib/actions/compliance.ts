@@ -52,3 +52,18 @@ export async function queueRenewalRequests(): Promise<
   }
   return { ok: true, queued, alreadyQueued };
 }
+
+/** Recover a mistakenly resolved compliance record. */
+export async function reopenComplianceItem(id: string) {
+  await requireAccess("compliance");
+  await query(`UPDATE compliance_items SET resolved = false WHERE id = $1`, [id]);
+  revalidatePath("/compliance");
+  return { ok: true };
+}
+
+export async function summarizeCompliance() {
+  await requireAccess("compliance");
+  const { getComplianceData, getComplianceSummary } = await import("../compliance");
+  const data = await getComplianceData();
+  return { ok: true as const, summary: await getComplianceSummary(data.summaryInput) };
+}

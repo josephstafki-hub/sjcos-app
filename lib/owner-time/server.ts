@@ -110,6 +110,8 @@ export async function timerAction(user: { id: string; name: string }, body: Time
  *  a forgotten timer or a dead designer tab shows as a review item, never as
  *  hours that keep counting. */
 export async function timeReview(userId: string, from: string, to: string): Promise<ReviewList & { running: TimeInterval | null }> {
+  requireInstant(from); requireInstant(to);
+  if (Date.parse(from) >= Date.parse(to)) throw new Error("Choose a valid time range.");
   return withTransaction(async (run) => {
     await closeStaleIntervals(run, { maxHours: 14 });
     await closeStaleDesignerSessions(run, userId);

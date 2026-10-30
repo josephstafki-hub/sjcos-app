@@ -14,10 +14,15 @@ export function AutoLogButton() {
   function run() {
     setNote(null);
     startTransition(async () => {
-      const res = await runAction(() => autoLogTodayFromPhotos(), { fallback: "Could not draft today's logs." });
+      const res = await runAction(() => autoLogTodayFromPhotos(), {
+        fallback: "Could not draft today's logs.",
+      });
       if (!res.ok) return;
       if (res.drafted === 0) setNote("No new photos today");
-      else setNote(`Drafted ${res.drafted} log${res.drafted === 1 ? "" : "s"}: ${res.projects.join(", ")}`);
+      else
+        setNote(
+          `Drafted ${res.drafted} log${res.drafted === 1 ? "" : "s"}: ${res.projects.join(", ")}`,
+        );
     });
   }
 

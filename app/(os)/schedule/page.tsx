@@ -5,7 +5,11 @@ import { AutoLogButton } from "@/components/schedule/AutoLogButton";
 import { ScheduleBlockModal } from "@/components/schedule/ScheduleBlockModal";
 import { LogCard } from "@/components/schedule/LogCard";
 import { ConflictBubble } from "@/components/schedule/ConflictBubble";
-import { getScheduleData, getScheduleConflict, getScheduleProjects } from "@/lib/schedule";
+import {
+  getScheduleData,
+  getScheduleConflict,
+  getScheduleProjects,
+} from "@/lib/schedule";
 import { ScheduleBoard } from "@/components/schedule/ScheduleBoard";
 
 export default async function SchedulePage({
@@ -27,13 +31,59 @@ export default async function SchedulePage({
   return (
     <Shell breadcrumb="SCHEDULE">
       <div className="mx-auto max-w-[1240px] px-4 pb-16 pt-6 @3xl/page:px-5 @5xl/page:px-8">
-        <PageHeader title={offset===0?"This week on site":"Week on site"} meta={`${data.weekLabel} · ${data.rangeLabel} · Central time`} actions={<>
-          <ScheduleBlockModal meeting projects={projects} triggerClassName="inline-flex h-8 items-center gap-1.5 rounded-md border border-rule bg-card px-3 text-body font-semibold hover:bg-hover max-sm:h-11" triggerContent="New meeting" />
-          <ScheduleBlockModal projects={projects} triggerClassName="inline-flex h-8 items-center gap-1.5 rounded-md bg-ink px-3 text-body font-semibold text-paper hover:bg-ink-hover max-sm:h-11" triggerContent={<><Plus className="size-3.5" />Block</>} />
-        </>} />
-        <div className="mb-4 mt-6 flex flex-wrap items-center gap-2"><Button href={hrefFor(offset-1)} variant="secondary" icon={ChevronLeft} iconOnly aria-label="Previous week" title="Previous week" /><Button href="/schedule" variant="secondary">This week</Button><Button href={hrefFor(offset+1)} variant="secondary" icon={ChevronRight} iconOnly aria-label="Next week" title="Next week" /><span className="ml-auto text-meta text-ink-3">{data.rangeLabel}</span></div>
+        <PageHeader
+          title={offset === 0 ? "This week on site" : "Week on site"}
+          meta={`${data.weekLabel} · ${data.rangeLabel} · Central time`}
+          actions={
+            <>
+              <ScheduleBlockModal
+                meeting
+                projects={projects}
+                triggerClassName="inline-flex h-8 items-center gap-1.5 rounded-md border border-rule bg-card px-3 text-body font-semibold hover:bg-hover max-sm:h-11"
+                triggerContent="New meeting"
+              />
+              <ScheduleBlockModal
+                projects={projects}
+                triggerClassName="inline-flex h-8 items-center gap-1.5 rounded-md bg-ink px-3 text-body font-semibold text-paper hover:bg-ink-hover max-sm:h-11"
+                triggerContent={
+                  <>
+                    <Plus className="size-3.5" />
+                    Block
+                  </>
+                }
+              />
+            </>
+          }
+        />
+        <div className="mb-4 mt-6 flex flex-wrap items-center gap-2">
+          <Button
+            href={hrefFor(offset - 1)}
+            variant="secondary"
+            icon={ChevronLeft}
+            iconOnly
+            aria-label="Previous week"
+            title="Previous week"
+          />
+          <Button href="/schedule" variant="secondary">
+            This week
+          </Button>
+          <Button
+            href={hrefFor(offset + 1)}
+            variant="secondary"
+            icon={ChevronRight}
+            iconOnly
+            aria-label="Next week"
+            title="Next week"
+          />
+          <span className="ml-auto text-meta text-ink-3">
+            {data.rangeLabel}
+          </span>
+        </div>
         {/* Conflict note */}
-        <ConflictBubble weekOffset={offset} conflict={conflictNote.startsWith("Double-booked")}>
+        <ConflictBubble
+          weekOffset={offset}
+          conflict={conflictNote.startsWith("Double-booked")}
+        >
           {conflictNote}
         </ConflictBubble>
 
@@ -54,15 +104,18 @@ export default async function SchedulePage({
           <div className="mt-3 grid grid-cols-1 gap-2 @2xl/page:grid-cols-5">
             {data.logs.entries.map((log) =>
               log.body ? (
-                <LogCard key={log.dow} log={log} />
+                <LogCard
+                  key={log.dow[0] + log.dow.slice(1).toLowerCase()}
+                  log={log}
+                />
               ) : (
                 <Card
-                  key={log.dow}
+                  key={log.dow[0] + log.dow.slice(1).toLowerCase()}
                   kind="soft"
                   className="flex flex-col gap-1 p-3"
                 >
                   <div className="text-label font-semibold text-ink-2">
-                    {log.dow}
+                    {log.dow[0] + log.dow.slice(1).toLowerCase()}
                   </div>
                   <span className="text-meta text-ink-3">Not yet logged</span>
                 </Card>

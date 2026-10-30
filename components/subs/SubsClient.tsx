@@ -16,7 +16,6 @@ import {
   TablePrimaryCell,
   TableCell,
 } from "@/components/ui";
-import { CoiUpload } from "./CoiUpload";
 import type { SubsData } from "@/lib/subs";
 export function SubsClient({ data }: { data: SubsData }) {
   const [trade, setTrade] = useState("All"),
@@ -78,7 +77,7 @@ export function SubsClient({ data }: { data: SubsData }) {
         </label>
         <Button variant={missingCoi ? "primary" : "secondary"} size="sm" aria-pressed={missingCoi} onClick={() => setMissingCoi(!missingCoi)}>Missing COI</Button>
         <span className="self-center text-meta text-ink-3">
-          {subs.length} shown
+          {subs.length} shown · {data.subs.filter((s) => s.archived === (view === "archived") && s.coiStatus === "missing").length} missing COI
         </span>
       </div>
       <TableWrapper>
@@ -141,8 +140,7 @@ export function SubsClient({ data }: { data: SubsData }) {
                           ? "COI expired"
                           : "COI missing"}
                   </Chip>
-                  {s.coiStatus !== "current" && <Link href={`/subs/${s.slug}?tab=Paperwork`} className="mt-2 block text-label text-accent-2 hover:underline">Review COI paperwork →</Link>}
-                  <CoiUpload slug={s.slug} />
+                  <Link href={`/subs/${s.slug}?tab=Paperwork`} className="mt-2 block text-label text-accent-2 hover:underline">{s.coiStatus === "current" ? "View COI" : "Review / add COI"} →</Link>
                 </TableCell>
                 <TableCell className="@max-3xl/page:hidden">
                   {s.rate || "—"}

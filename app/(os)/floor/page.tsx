@@ -4,6 +4,7 @@ import { Shell } from "@/components/shell/Shell";
 import { Card, Chip, PageHeader, EmptyState, TableWrapper, Table, TableHead, TableBody, TableHeader, TableRow, TablePrimaryCell, TableCell } from "@/components/ui";
 import { requireAccess } from "@/lib/dal";
 import { query } from "@/lib/db";
+import { PlanOutline } from "@/components/floor/PlanOutline";
 import { NewPlanButton } from "@/components/floor/NewPlanButton";
 import { listPlanDesigns } from "@/lib/plan-designs";
 
@@ -26,7 +27,7 @@ export default async function FloorIndexPage() {
           <TableWrapper><Table>
             <TableHead><TableRow><TableHeader>Design</TableHeader><TableHeader className="@max-3xl/page:hidden">Rooms / area</TableHeader><TableHeader className="@max-4xl/page:hidden">Updated</TableHeader><TableHeader>Version</TableHeader></TableRow></TableHead>
             <TableBody>{live.map(d => <TableRow key={d.id}>
-              <TablePrimaryCell meta={<>{d.projectSlug ? <Link href={`/projects/${d.projectSlug}?tab=Floor`} className="hover:underline">{d.projectName}</Link> : d.leadSlug ? <Link href={`/leads/${d.leadSlug}`} className="hover:underline">Lead · {d.leadName}</Link> : "Unattached"}</>}><Link href={`/floor/${d.id}`} className="hover:underline">{d.name}</Link><div className="mt-1 text-meta font-normal text-ink-3">Design #{d.id} · {d.counts.rooms} rooms · {d.counts.areaSf} sf · updated {d.updatedLabel}</div></TablePrimaryCell>
+              <TablePrimaryCell meta={<>{d.projectSlug ? <Link href={`/projects/${d.projectSlug}?tab=Floor`} className="hover:underline">{d.projectName}</Link> : d.leadSlug ? <Link href={`/leads/${d.leadSlug}`} className="hover:underline">Lead · {d.leadName}</Link> : "Unattached"}</>}><div className="flex items-center gap-3"><Link href={`/floor/${d.id}`} aria-label={`Open ${d.name}`}><PlanOutline design={d} /></Link><Link href={`/floor/${d.id}`} className="min-w-0 break-words hover:underline">{d.name}</Link></div><div className="mt-1 text-meta font-normal text-ink-3">Design #{d.id} · {d.counts.rooms} rooms · {d.counts.areaSf} sf · updated {d.updatedLabel}</div></TablePrimaryCell>
               <TableCell className="@max-3xl/page:hidden">{d.counts.rooms} rooms · {d.counts.areaSf} sf<div className="text-meta text-ink-3">{d.counts.cabinets} cabinets</div></TableCell>
               <TableCell className="@max-4xl/page:hidden text-ink-3">{d.updatedLabel}</TableCell>
               <TableCell><Chip kind={d.latestVersion ? "ok" : "neutral"}>{d.latestVersion ? `v${d.latestVersion.number}` : "No version"}</Chip><div className="mt-1 text-meta text-ink-3">Revision {d.rev}</div></TableCell>
@@ -40,6 +41,7 @@ export default async function FloorIndexPage() {
             <div className="grid grid-cols-1 gap-2.5 @xl/page:grid-cols-2 @4xl/page:grid-cols-3">
               {templates.map((t) => (
                 <Card key={t.id} kind="soft" className="p-3">
+                  <Link href={`/floor/${t.id}`} aria-label={`Open ${t.name}`} className="mb-2 block"><PlanOutline design={t} /></Link>
                   <Link href={`/floor/${t.id}`} className="text-body font-semibold text-ink hover:underline">
                     {t.name}
                   </Link>

@@ -143,7 +143,7 @@ export function UnsortedClient({
 
   return (
     <div className="[&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus [&_input]:focus-visible:outline-2 [&_input]:focus-visible:outline-focus [&_select]:focus-visible:outline-2 [&_select]:focus-visible:outline-focus mx-auto flex min-h-full max-w-[1240px] flex-col gap-6 px-4 py-6 @2xl/page:px-5 @5xl/page:px-8">
-      <PageHeader title="Unsorted" meta={<span className="block whitespace-normal break-words">Invoices and receipts from email, scans and texts that need a job. Choose where each goes to attach it and log the cost.</span>} actions={<Button href="/scan" variant="secondary" icon={Camera}>Scan receipt</Button>} filters={<Segmented aria-label="Unsorted views" className="max-sm:h-12 [&_button]:max-sm:h-11" value={tab} onChange={t => setTab(t as "sort" | "filed")} options={[{value:"sort",label:"To sort",count:pending || undefined},{value:"filed",label:"Filed lately"}]} />} />
+      <PageHeader className="[&>div>div:first-child]:w-full" title="Unsorted" meta={<span className="block whitespace-normal break-words">Invoices and receipts from email, scans and texts that need a job. Choose where each goes to attach it and log the cost.</span>} actions={<Button href="/scan" variant="secondary" icon={Camera}>Scan receipt</Button>} filters={<Segmented aria-label="Unsorted views" className="max-sm:h-12 [&_button]:max-sm:h-11" value={tab} onChange={t => setTab(t as "sort" | "filed")} options={[{value:"sort",label:"To sort",count:pending || undefined},{value:"filed",label:"Filed lately"}]} />} />
 
       {last && tab === "sort" && (
         <div className="flex items-center gap-2 rounded-lg border border-rule bg-money-soft px-3 py-2 text-body text-ink">
@@ -161,8 +161,17 @@ export function UnsortedClient({
         // Sized by the page's own width (container queries), not the window's:
         // the operator panel can take half the screen.
         <div className="min-h-0 flex-1">
-        <div className="grid gap-3 @4xl/page:grid-cols-[minmax(0,1fr)_300px] @5xl/page:grid-cols-[230px_minmax(0,1fr)_320px]">
-          <Card className="flex overflow-x-auto p-0 @4xl/page:col-span-2 @5xl/page:col-span-1 @5xl/page:block @5xl/page:max-h-[82vh] @5xl/page:overflow-y-auto">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <label className="flex min-w-0 flex-1 items-center gap-2 text-label">Receipt
+            <select aria-label="Choose receipt" value={selected.id} onChange={(e) => setSelectedId(Number(e.target.value))} className="h-11 min-w-0 flex-1 rounded-md border border-rule bg-card px-2 text-body">
+              {open.map((d, i) => <option key={d.id} value={d.id}>{i + 1} of {open.length} · {vendorOf(d)} · {money(d.amount_cents)}</option>)}
+            </select>
+          </label>
+          <Button variant="secondary" disabled={busy || open.findIndex((d) => d.id === selected.id) === 0} onClick={() => setSelectedId(open[open.findIndex((d) => d.id === selected.id) - 1].id)}>Previous</Button>
+          <Button variant="secondary" disabled={busy || open.findIndex((d) => d.id === selected.id) === open.length - 1} onClick={() => setSelectedId(open[open.findIndex((d) => d.id === selected.id) + 1].id)}>Next</Button>
+        </div>
+        <div className="grid items-start gap-3 @5xl/page:grid-cols-[230px_minmax(0,1fr)]">
+          <Card className="hidden p-0 @5xl/page:row-span-2 @5xl/page:block @5xl/page:max-h-[82vh] @5xl/page:overflow-y-auto">
             <div className="sticky top-0 hidden border-b border-rule bg-paper-2 px-3 py-2 tabular-nums text-meta text-ink-3 @5xl/page:block">
               {open.length} document{open.length === 1 ? "" : "s"}
             </div>
@@ -198,7 +207,8 @@ export function UnsortedClient({
             ))}
           </Card>
 
-          <details className="order-3 min-w-0 @4xl/page:order-none">
+          <SortPanel key={`s${selected.id}`} doc={selected} projects={projects} byslug={byslug} busy={busy} onFile={file} onNote={note} />
+          <details className="min-w-0 @5xl/page:col-start-2">
             <summary className="cursor-pointer py-3 text-label text-accent-2">Document facts & preview</summary>
             <div className="space-y-3">
             {(selected.extracted || selected.extract_state) && (
@@ -207,7 +217,7 @@ export function UnsortedClient({
             <DocPreview key={`p${selected.id}`} doc={selected} files={files} />
             </div>
           </details>
-          <SortPanel key={`s${selected.id}`} doc={selected} projects={projects} byslug={byslug} busy={busy} onFile={file} onNote={note} />
+
         </div>
         </div>
       )}
@@ -564,63 +574,10 @@ function SortPanel({
   });
 
   return (
-    <div className="order-2 flex min-w-0 flex-col gap-3 @4xl/page:order-none">
-      <Card className="p-3.5">
-        <div className="flex items-start gap-2">
-          <div className="min-w-0 flex-1">
-            <div className="break-words text-subheading font-semibold text-ink">{vendorOf(doc)}</div>
-            <div className="break-words text-meta text-ink-3">{doc.from_label}</div>
-          </div>
-          <div className="text-right">
-            <div className="tabular-nums text-subheading font-semibold text-ink">{money(doc.amount_cents)}</div>
-            <div className="tabular-nums text-meta text-ink-3">{day(doc.doc_date ?? doc.received_at)}{doc.doc_number && ` · #${doc.doc_number}`}</div>
-          </div>
-        </div>
-        {(doc.summary || doc.why_unsure) && (
-          <div className="mt-2.5 rounded-md border border-ai bg-ai-soft px-2.5 py-2 text-meta text-ink-2">
-            <div className="mb-0.5 flex items-center gap-1 tabular-nums text-meta text-ai-2">
-              <Sparkles className="size-3" /> {doc.staged_by || "Agent"}
-            </div>
-            {doc.summary && <p>{doc.summary}</p>}
-            {doc.why_unsure && <p className="mt-1 text-ink-3">Not sure because: {doc.why_unsure}</p>}
-          </div>
-        )}
-        {doc.status === "needs_agent" && (
-          <div className="mt-2 flex items-start gap-1.5 rounded-md bg-paper-2 px-2.5 py-2 text-meta text-ink-2">
-            <Bot className="mt-0.5 size-3.5 flex-none animate-pulse text-ai-2" />
-            <span>
-              Claude is filing it from your note: “{doc.owner_note}”. Usually under a minute — or pick a spot yourself.
-            </span>
-          </div>
-        )}
-        {doc.status === "pending" && doc.agent_note && (
-          <div className="mt-2 flex items-start gap-1.5 rounded-md border border-ai bg-ai-soft px-2.5 py-2 text-meta text-ink">
-            <Bot className="mt-0.5 size-3.5 flex-none text-ai-2" />
-            <span>
-              <b className="font-semibold">Claude asks:</b> {doc.agent_note}
-              {doc.owner_note && <span className="block text-ink-3">Your note was “{doc.owner_note}”.</span>}
-            </span>
-          </div>
-        )}
-      </Card>
-
+    <div className="flex min-w-0 flex-col gap-3">
       <Card className="flex flex-col gap-2 p-3.5">
         <div className="tabular-nums text-meta text-ink-3">Where does it go?</div>
         <p className="text-meta text-ink-2">Choose a destination below to file this document.</p>
-        {suggestions.map((s, i) => (
-          <button
-            key={s.project_slug}
-            disabled={busy}
-            onClick={() => toProject(s.project!)}
-            className="group flex items-start gap-2.5 rounded-lg border border-rule bg-card px-3 py-2 text-left hover:border-accent hover:bg-accent-soft disabled:opacity-50"
-          >
-            <kbd className="mt-0.5 grid size-5 flex-none place-items-center rounded border border-rule bg-paper-2 tabular-nums text-meta text-ink-3">{i + 1}</kbd>
-            <span className="min-w-0 flex-1">
-              <span className="block break-words text-subheading font-semibold text-ink">File to {s.project!.name}</span>
-              <span className="block text-meta leading-snug text-ink-3">{s.reason || s.project!.client_name}</span>
-            </span>
-          </button>
-        ))}
         <button
           disabled={busy}
           onClick={toOverhead}
@@ -629,7 +586,7 @@ function SortPanel({
           <kbd className="grid size-5 flex-none place-items-center rounded border border-rule bg-paper-2 tabular-nums text-meta text-ink-3">O</kbd>
           <Building2 className="size-3.5 flex-none text-ink-3" />
           <span className="flex-1 text-body font-semibold text-ink">File as overhead</span>
-          <span className="text-meta text-ink-3">company, not a job</span>
+          <span className="hidden text-meta text-ink-3 @xl/page:inline">company, not a job</span>
         </button>
 
         <div className="relative mt-1">
@@ -686,6 +643,60 @@ function SortPanel({
             </div>
           )}
         </div>
+        {suggestions.map((s, i) => (
+          <button
+            key={s.project_slug}
+            disabled={busy}
+            onClick={() => toProject(s.project!)}
+            className="group flex items-start gap-2.5 rounded-lg border border-rule bg-card px-3 py-2 text-left hover:border-accent hover:bg-accent-soft disabled:opacity-50"
+          >
+            <kbd className="mt-0.5 grid size-5 flex-none place-items-center rounded border border-rule bg-paper-2 tabular-nums text-meta text-ink-3">{i + 1}</kbd>
+            <span className="min-w-0 flex-1">
+              <span className="block break-words text-subheading font-semibold text-ink">File to {s.project!.name}</span>
+              <span className="block text-meta leading-snug text-ink-3">{s.reason || s.project!.client_name}</span>
+            </span>
+          </button>
+        ))}
+      </Card>
+
+
+      <Card className="p-3.5">
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="break-words text-subheading font-semibold text-ink">{vendorOf(doc)}</div>
+            <div className="break-words text-meta text-ink-3">{doc.from_label}</div>
+          </div>
+          <div className="text-right">
+            <div className="tabular-nums text-subheading font-semibold text-ink">{money(doc.amount_cents)}</div>
+            <div className="tabular-nums text-meta text-ink-3">{day(doc.doc_date ?? doc.received_at)}{doc.doc_number && ` · #${doc.doc_number}`}</div>
+          </div>
+        </div>
+        {(doc.summary || doc.why_unsure) && (
+          <div className="mt-2.5 rounded-md border border-ai bg-ai-soft px-2.5 py-2 text-meta text-ink-2">
+            <div className="mb-0.5 flex items-center gap-1 tabular-nums text-meta text-ai-2">
+              <Sparkles className="size-3" /> {doc.staged_by || "Agent"}
+            </div>
+            {doc.summary && <p>{doc.summary}</p>}
+            {doc.why_unsure && <p className="mt-1 text-ink-3">Not sure because: {doc.why_unsure}</p>}
+          </div>
+        )}
+        {doc.status === "needs_agent" && (
+          <div className="mt-2 flex items-start gap-1.5 rounded-md bg-paper-2 px-2.5 py-2 text-meta text-ink-2">
+            <Bot className="mt-0.5 size-3.5 flex-none animate-pulse text-ai-2" />
+            <span>
+              Claude is filing it from your note: “{doc.owner_note}”. Usually under a minute — or pick a spot yourself.
+            </span>
+          </div>
+        )}
+        {doc.status === "pending" && doc.agent_note && (
+          <div className="mt-2 flex items-start gap-1.5 rounded-md border border-ai bg-ai-soft px-2.5 py-2 text-meta text-ink">
+            <Bot className="mt-0.5 size-3.5 flex-none text-ai-2" />
+            <span>
+              <b className="font-semibold">Claude asks:</b> {doc.agent_note}
+              {doc.owner_note && <span className="block text-ink-3">Your note was “{doc.owner_note}”.</span>}
+            </span>
+          </div>
+        )}
       </Card>
 
       <details className="rounded-lg border border-rule-soft bg-card p-3.5 text-body">

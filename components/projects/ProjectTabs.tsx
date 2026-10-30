@@ -78,7 +78,13 @@ export function ProjectTabs({
         </Suspense>
         {header}
         <div className="border-b border-rule px-4 @xl/page:px-7">
-          <Tabs tabs={[...TABS]} active={active} onSelect={setActive} />
+      <label className="flex items-center gap-2 py-2 text-label @xl/page:hidden">
+        Section
+        <select aria-label="Section" value={active} onChange={(e) => setActive(Number(e.target.value))} className="h-11 min-w-0 flex-1 rounded-md border border-rule bg-card px-3 text-body">
+          {TABS.map((label, i) => <option key={label} value={i}>{label}</option>)}
+        </select>
+      </label>
+      <div className="hidden @xl/page:block"><Tabs tabs={[...TABS]} active={active} onSelect={setActive} /></div>
         </div>
         <div className="mx-auto max-w-[1400px] px-4 py-5 @xl/page:px-7">
           {TABS.map((label, i) => (

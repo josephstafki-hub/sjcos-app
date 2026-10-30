@@ -1,3 +1,4 @@
+import { formatUsPhone } from "@/lib/comms/phone";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -142,12 +143,6 @@ export default async function LeadDetailPage({
     <div className="grid grid-cols-1 gap-6 @4xl/page:grid-cols-[minmax(0,1fr)_300px]">
       {/* Main column */}
       <div className="min-w-0 flex flex-col gap-3.5">
-        <LeadScore slug={lead.slug} initial={score} />
-
-        <LeadFirstResponse slug={lead.slug} initial={firstResponse} hasEmail={!!lead.email} />
-
-        <LeadIntake slug={lead.slug} items={lead.intake} />
-
         {lead.estimate && showEstimate && (
           <Card className="p-3.5">
             <div className="flex items-center gap-2">
@@ -178,21 +173,35 @@ export default async function LeadDetailPage({
             </div>
           </Card>
         )}
+        <LeadIntake slug={lead.slug} items={lead.intake} />
+        <details className="rounded-lg border border-rule-soft p-3">
+          <summary className="cursor-pointer text-label text-ai-2">AI score & first response</summary>
+          <div className="mt-3 space-y-3">
+            <LeadScore slug={lead.slug} initial={score} />
+            <LeadFirstResponse slug={lead.slug} initial={firstResponse} hasEmail={!!lead.email} />
+          </div>
+        </details>
       </div>
 
       {/* Properties rail */}
-      <aside className="min-w-0 flex flex-col gap-4">
+      <aside className="order-first min-w-0 flex flex-col gap-4 @4xl/page:order-last">
         <section className="px-1 pb-1">
           <h2 className="mb-3 text-subheading font-semibold">Contact</h2>
           <dl className="grid grid-cols-[96px_minmax(0,1fr)] gap-x-3 gap-y-2 text-body">
             <dt className="text-meta text-ink-3">Name</dt><dd className="break-words">{lead.name}</dd>
             <dt className="text-meta text-ink-3">Email</dt><dd className="break-words">{lead.email || "No email on file"}</dd>
-            <dt className="text-meta text-ink-3">Phone</dt><dd>{lead.phone || "No phone on file"}</dd>
+            <dt className="text-meta text-ink-3">Phone</dt><dd>{formatUsPhone(lead.phone) || "No phone on file"}</dd>
             <dt className="text-meta text-ink-3">Source</dt><dd>{lead.source || "Not recorded"}</dd>
           </dl>
         </section>
-        <Card kind="tan" className="p-3">
-          <Eyebrow muted>Pipeline stage</Eyebrow>
+        {(!lead.email || !lead.phone) && <div className="text-body text-ink-2">
+          <p className="mb-2">Missing contact details — add an email or phone to follow up.</p>
+          <LeadContact mode="edit" slug={lead.slug} name={lead.name} phone={lead.phone} email={lead.email} />
+        </div>}
+        <p className="text-body"><strong>Next action:</strong> {lead.projectSlug ? "Continue in the linked project." : isLost ? "Reopen this lead to continue." : nextStage ? `Move to ${nextStage.label} when ready.` : "Review this lead for project conversion."}</p>
+        {showEstimate && <p className="text-body"><strong>Rough total:</strong> {lead.estimate?.total || "Not recorded — open Rough estimate to price this work."}</p>}
+        <details className="rounded-lg border border-rule-soft bg-paper-2 p-3">
+          <summary className="cursor-pointer text-label font-semibold">Stage: {isLost ? "Lost / archived" : stageLabel(lead.stage)}</summary>
           {isLost ? (
             <div className="mt-2 text-body text-ink-2">
               This lead is <span className="font-semibold text-flag">lost / archived</span> — off the
@@ -226,8 +235,10 @@ export default async function LeadDetailPage({
           </div>
           )}
           {!isLost && currentStageIdx >= stageIndex("rough_estimate") && <SendPreconButton />}
-        </Card>
+        </details>
 
+        <details><summary className="cursor-pointer text-label text-accent-2">Follow-up cadence, referral & photos</summary>
+        <div className="mt-3 space-y-3">
         <Card className="p-3">
           <Eyebrow muted>Cadence · SLA</Eyebrow>
           <div className="mt-2 flex flex-col gap-2">
@@ -252,6 +263,7 @@ export default async function LeadDetailPage({
         />
 
         <LeadPhotos slug={lead.slug} photos={lead.photos} placeholderCount={lead.photosCount} />
+        </div></details>
       </aside>
     </div>
   );
@@ -417,11 +429,11 @@ export default async function LeadDetailPage({
           title={lead.name}
           badge={<Chip kind={isLost ? "flag" : "accent"}>{isLost ? "Lost / Archived" : stageLabel(lead.stage)}</Chip>}
           meta={<><p className="max-w-prose text-body text-ink-2">{lead.scope}</p><p className="mt-1">{[lead.loggedLabel, lead.source ? `Source: ${lead.source}` : null].filter(Boolean).join(" · ")}</p></>}
-          className="mt-3"
+          className="mt-3 [&>div>div:last-child]:flex-nowrap [&>div>div:last-child]:gap-1"
           actions={<>
             {lead.projectSlug ? <Button href={`/projects/${lead.projectSlug}`}>View project</Button>
               : isLost ? <form action={reopen}><Button type="submit">Reopen lead</Button></form>
-              : nextStage ? <form action={moveToNextStage}><Button type="submit" className="max-w-full !whitespace-normal !h-auto min-h-8 py-1.5 text-left">Move to {nextStage.label}</Button></form>
+              : nextStage ? <form action={moveToNextStage} className="min-w-0 flex-1"><Button type="submit" className="w-full max-w-full !whitespace-normal !h-auto min-h-8 py-1.5 text-left">Move to {nextStage.label}</Button></form>
               : <ConvertLeadButton slug={lead.slug} suggestedName={suggestedProjectName(lead.name, lead.scope)} />}
             <LeadContact mode="contact" slug={lead.slug} name={lead.name} phone={lead.phone} email={lead.email} />
             <details className="relative">

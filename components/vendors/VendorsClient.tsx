@@ -1,4 +1,5 @@
 "use client";
+import { formatUsPhone } from "@/lib/comms/phone";
 import { useState } from "react";
 import Link from "next/link";
 import { Search, Star } from "lucide-react";
@@ -88,7 +89,7 @@ export function VendorsClient({ data }: { data: VendorsData }) {
                   <div className="break-all text-body">
                     {v.email || "No email recorded"}
                   </div>
-                  <div className="text-meta text-ink-3">{v.phone}</div>
+                  <div className="text-meta text-ink-3">{formatUsPhone(v.phone)}</div>
                 </TableCell>
                 <TableCell numeric>{v.poCount}</TableCell>
               </TableRow>

@@ -1,3 +1,4 @@
+import { formatUsPhone } from "@/lib/comms/phone";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -12,6 +13,7 @@ import { DirectoryRecordMenu } from "@/components/subs/DirectoryRecordMenu";
 import { RemoveAssignmentButton } from "@/components/subs/RemoveAssignmentButton";
 import { RestoreAssignmentButton } from "@/components/subs/RestoreAssignmentButton";
 import { SubSummary } from "@/components/subs/SubSummary";
+import { CoiUpload } from "@/components/subs/CoiUpload";
 import { SubTabs } from "@/components/subs/SubTabs";
 import { SubNotes } from "@/components/subs/SubNotes";
 import { SubDocReview } from "@/components/subs/SubDocReview";
@@ -90,8 +92,15 @@ export default async function SubDetailPage({
     (d) => d.docType === "coi" && d.status === "under_review",
   );
 
+  const editRate = <DirectoryRecordMenu table="subs" slug={slug} name={sub.name} trade={sub.rawTrade} email={sub.email ?? ""} phone={sub.phone ?? ""} rate={showMoney ? sub.rawRate : undefined} archived={sub.archived} editLabel="Edit rate & details" />;
+  const requestCoi = sub.email ? <a href={`mailto:${sub.email}?subject=${encodeURIComponent("Certificate of insurance requested")}&body=${encodeURIComponent("Please send your current certificate of insurance for our records. Thank you.")}`} className="inline-flex min-h-9 items-center text-label font-semibold text-accent-2 hover:underline" title="Opens an email draft for you to review and send">Request COI ↗</a> : <p className="text-meta text-ink-3">Add an email in Edit details to request a COI.</p>;
+
   const overview = (
     <div className="grid grid-cols-1 gap-4 @4xl/page:grid-cols-2">
+      <div className="space-y-3 @4xl/page:col-span-2">
+        {sub.paperwork.some((p) => !p.ok) && <div className="flex flex-wrap items-center gap-3 text-body text-ink-2"><Link href={`/subs/${slug}?tab=Paperwork`} className="font-semibold text-accent-2 hover:underline">Repair missing paperwork →</Link>{paperwork.coiStatus !== "current" && requestCoi}</div>}
+        {showMoney && !sub.rate.amount && <div className="flex flex-wrap items-center gap-3 text-body">Rate not recorded {editRate}</div>}
+      </div>
       {/* Reliability + AI summary */}
       <Card className="p-3.5">
         <h3 className="mb-2.5 font-serif text-heading font-semibold text-ink">
@@ -316,6 +325,10 @@ export default async function SubDetailPage({
     <div className="flex max-w-[520px] flex-col gap-3.5">
       <Card className="p-3.5">
         <Eyebrow muted>Paperwork on file</Eyebrow>
+        {paperwork.coiStatus !== "current" && requestCoi}
+        <CoiUpload slug={slug} initiallyOpen={paperwork.coiStatus === "missing"} />
+        <CoiUpload slug={slug} docType="w9" initiallyOpen={sub.w9 === "missing"} />
+        <CoiUpload slug={slug} docType="agreement" initiallyOpen={!subDocs.some((d) => d.docType === "agreement" && (d.status === "received" || d.status === "accepted"))} />
         <div className="mt-2.5 flex flex-col gap-2">
           {sub.paperwork.map((p) => (
             <div
@@ -412,6 +425,7 @@ export default async function SubDetailPage({
   // ── Pricing panel — rate card + 1099 note ──────────────────────────────────
   const pricingPanel = (
     <div className="grid max-w-[680px] grid-cols-1 gap-3.5 @xl/page:grid-cols-2">
+      <div className="@xl/page:col-span-2">{editRate}</div>
       <Card className="p-3.5">
         <Eyebrow muted>Rate</Eyebrow>
         <div
@@ -496,7 +510,7 @@ export default async function SubDetailPage({
           meta={
             <>
               <span className="block text-body text-ink-2">{sub.rawTrade}</span>
-              <span className="break-words">{sub.contact}</span>
+              <span className="break-words">{[sub.email, formatUsPhone(sub.phone)].filter(Boolean).join(" · ") || "No contact details recorded"}</span>
             </>
           }
           actions={

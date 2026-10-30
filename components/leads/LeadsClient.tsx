@@ -25,6 +25,7 @@ const FILTERS = [
   { value: "lost", label: "Lost / Archived" },
 ];
 export function LeadsClient({ data }: { data: LeadsData }) {
+  const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("All");
   const [stage, setStage] = useState("all");
   const active = data.leads.filter((l) => l.stage !== "lost");
@@ -33,7 +34,7 @@ export function LeadsClient({ data }: { data: LeadsData }) {
       ? l.stage === "lost"
       : l.stage !== "lost" && (filter === "All" || l.temperature === filter),
   );
-  const visible = filtered.filter((l) => stage === "all" || l.stage === stage);
+  const visible = filtered.filter((l) => (stage === "all" || l.stage === stage) && `${l.name} ${l.scope} ${l.stageLabelText} ${l.flag?.label ?? ""}`.toLowerCase().includes(query.trim().toLowerCase()));
   return (
     <div className="space-y-4">
       <PageHeader
@@ -41,6 +42,7 @@ export function LeadsClient({ data }: { data: LeadsData }) {
         meta={data.summary}
         actions={<NewLeadButton />}
       />
+      <input type="search" aria-label="Search leads" placeholder="Search leads, scope or stage…" value={query} onChange={(e) => setQuery(e.target.value)} className="h-11 w-full rounded-md border border-rule bg-card px-3 text-body @xl/page:h-9" />
       <Segmented
         aria-label="Lead filters"
         value={filter}
@@ -108,7 +110,7 @@ export function LeadsClient({ data }: { data: LeadsData }) {
                   <TableCell twoLine className="@xl/page:min-w-[180px]">
                     <Link
                       href={`/leads/${l.slug}`}
-                      className="block break-words text-subheading font-semibold text-ink hover:text-accent after:absolute after:inset-0 focus-visible:outline-2 focus-visible:outline-focus"
+                      className="block break-words text-subheading font-semibold text-ink hover:text-accent focus-visible:outline-2 focus-visible:outline-focus"
                     >
                       {l.name}
                     </Link>
@@ -118,13 +120,14 @@ export function LeadsClient({ data }: { data: LeadsData }) {
                     <div className="text-meta text-ink-2 @4xl/page:hidden">
                       {l.scope}
                     </div>
+                    {l.flag?.label && <p className="mt-1 break-words text-meta text-ink-2 @5xl/page:hidden">{l.flag.label}</p>}
                     <div className="mt-1 text-meta text-ink-3 @xl/page:hidden">
                       {l.stageLabelText}
                       {l.value && l.value !== "?" ? ` · ${l.value}` : ""}
                     </div>
                   </TableCell>
                   <TableCell className="hidden max-w-60 @4xl/page:table-cell">
-                    <div className="truncate text-ink-2" title={l.scope}>
+                    <div className="whitespace-normal break-words text-ink-2" title={l.scope}>
                       {l.scope || "—"}
                     </div>
                   </TableCell>

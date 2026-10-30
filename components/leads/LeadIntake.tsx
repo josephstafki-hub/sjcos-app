@@ -10,13 +10,13 @@ type Item = { label: string; value: string };
 export function LeadIntake({ slug, items }: { slug: string; items: Item[] }) {
   return (
     <Card className="p-4">
-      <h3 className="mb-4 font-serif text-heading font-semibold">
-        5-Question intake
-      </h3>
+      <h3 className="mb-4 font-serif text-heading font-semibold">5-Question intake</h3>
       <div className="grid gap-4 @4xl/page:grid-cols-2">
-        {items.map((it) => (
-          <IntakeField key={it.label} slug={slug} {...it} />
-        ))}
+        {items.filter((it) => it.value.trim()).map((it) => <IntakeField key={it.label} slug={slug} {...it} />)}
+        {items.some((it) => !it.value.trim()) && <details className="@4xl/page:col-span-2">
+          <summary className="cursor-pointer text-label text-accent-2">Complete intake · {items.filter((it) => !it.value.trim()).length} unanswered</summary>
+          <div className="mt-3 grid gap-4 @4xl/page:grid-cols-2">{items.filter((it) => !it.value.trim()).map((it) => <IntakeField key={it.label} slug={slug} {...it} />)}</div>
+        </details>}
       </div>
     </Card>
   );

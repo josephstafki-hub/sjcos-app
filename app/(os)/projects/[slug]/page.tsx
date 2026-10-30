@@ -1,3 +1,4 @@
+import { formatUsPhone } from "@/lib/comms/phone";
 import type { ReactNode } from "react";
 import { can, getCurrentUser } from "@/lib/dal";
 import Link from "next/link";
@@ -260,29 +261,33 @@ export default async function ProjectDetailPage({
   // Profit for the Overview rail: only when the budget allows one to be claimed.
   const finTotals = budget ? computeTotals(budget) : null;
 
+  const isHistorical = project.status === "warranty" || project.status === "closeout";
+
   const overview = (
     <div className="grid grid-cols-1 items-start gap-6 @4xl/page:grid-cols-[minmax(0,1fr)_300px]">
       <div className="min-w-0 space-y-5">
-        <AiBubble>
+        {project.pulse && <details><summary className="cursor-pointer text-label text-ai-2">Project pulse</summary><AiBubble>
           <h2 className="mb-1 text-subheading font-semibold text-ai-2">
             Project pulse
           </h2>
           <p className="text-body">{project.pulse}</p>
-        </AiBubble>
-        {project.status === "warranty" ? (
+        </AiBubble></details>}
+        {isHistorical ? (
           // A finished job: coverage and claims matter, not weekly client updates.
           <Card className="p-4">
-            <h2 className="font-serif text-heading font-semibold">Warranty</h2>
+            <h2 className="font-serif text-heading font-semibold">Warranty & closeout</h2>
             <p className="mt-2 text-body text-ink-2">
               Claims, coverage dates and missing closeout records for this job live on Warranty.
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
+              <TabLink tab="Closeout">Repair closeout records →</TabLink>
               <Button href="/warranty" size="sm" variant="secondary">Open Warranty</Button>
             </div>
           </Card>
         ) : (
-          <Card className="p-4">
-            <h2 className="font-serif text-heading font-semibold">
+          <details className="rounded-lg border border-rule-soft bg-card p-4">
+            <summary className="cursor-pointer text-subheading font-semibold">Weekly status email</summary>
+            <h2 className="sr-only">
               Weekly status email
             </h2>
             <div className="mt-3 text-body text-ink-2">
@@ -294,7 +299,7 @@ export default async function ProjectDetailPage({
               </span>
               {project.weeklyStatus && <WeeklyStatusSend slug={slug} />}
             </div>
-          </Card>
+          </details>
         )}
         <section>
           <div className="mb-3 flex items-center justify-between gap-3">
@@ -359,7 +364,7 @@ export default async function ProjectDetailPage({
           )}
         </section>
       </div>
-      <aside className="min-w-0 space-y-5 @4xl/page:border-l @4xl/page:border-rule-soft @4xl/page:pl-5">
+      <aside className="order-first min-w-0 space-y-5 @4xl/page:order-last @4xl/page:border-l @4xl/page:border-rule-soft @4xl/page:pl-5">
         <section>
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-subheading font-semibold">Client</h2>
@@ -388,7 +393,7 @@ export default async function ProjectDetailPage({
                 <dt className="text-meta text-ink-3">Phone</dt>
                 <dd>
                   <a href={`tel:${project.client.phone}`}>
-                    {project.client.phone}
+                    {formatUsPhone(project.client.phone)}
                   </a>
                 </dd>
               </>
@@ -399,6 +404,12 @@ export default async function ProjectDetailPage({
             </dd>
           </dl>
         </section>
+        {isHistorical && <section className="border-t border-rule-soft pt-4">
+          <h2 className="text-subheading font-semibold">Closeout records</h2>
+          <p className="mt-2 text-body text-ink-2">{closeoutView.docs.length ? `${closeoutView.docs.length} closeout documents on file.` : "No closeout documents on file."} Lien waiver: {closeoutView.lienWaiverStatus || "Not recorded"}.</p>
+          <TabLink tab="Closeout">Review & repair closeout →</TabLink>
+          <div className="mt-2"><Button href="/warranty" variant="secondary" size="sm">Review coverage</Button></div>
+        </section>}
         {showMoney && (
           <section className="border-t border-rule-soft pt-4">
             <div className="mb-3 flex items-center justify-between">
@@ -428,6 +439,7 @@ export default async function ProjectDetailPage({
               />
             </div>
             <p className="mt-1 text-meta text-ink-3">{m.note}</p>
+            {showEstimates && <div className="mt-2"><TabLink tab="Documents" section="Formal Estimate">Review estimate & missing pricing →</TabLink></div>}
           </section>
         )}
         <section className="border-t border-rule-soft pt-4">
@@ -854,30 +866,31 @@ export default async function ProjectDetailPage({
       <PageHeader
         variant="record"
         title={project.name}
-        className="mt-3"
+        className="mt-3 [&>div>div:last-child]:flex-nowrap [&>div>div:last-child]:gap-1"
         badge={<Chip kind="accent">{projectStageLabel(project.status)}</Chip>}
         meta={[showMoney ? project.contractValue : null, project.subtitle]
           .filter(Boolean)
           .join(" · ")}
         actions={
           <>
+            {isHistorical && <TabLink tab="Closeout" className="inline-flex h-11 items-center rounded-md bg-ink px-3 text-label font-semibold text-paper @xl/page:h-8">Review closeout</TabLink>}
             {showMoney && (
               <TabLink
                 tab="Money"
                 section="Invoices"
-                className="inline-flex h-8 items-center gap-1.5 rounded-md bg-ink px-3 text-body font-semibold text-paper hover:bg-ink-hover max-sm:h-11"
+                className={isHistorical ? "inline-flex h-11 items-center rounded-md border border-rule bg-card px-2 text-label font-semibold @xl/page:h-8" : "inline-flex h-11 items-center rounded-md bg-ink px-3 text-label font-semibold text-paper @xl/page:h-8"}
               >
                 <DollarSign className="size-3.5" />
                 Send invoice
               </TabLink>
             )}
-            <TabLink
+            {!isHistorical && <TabLink
               tab="Daily log"
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-rule bg-card px-3 text-body font-semibold hover:bg-hover max-sm:h-11"
             >
               <Check className="size-3.5" />
               Log update
-            </TabLink>
+            </TabLink>}
             <details className="relative">
               <summary
                 aria-label="More project actions"

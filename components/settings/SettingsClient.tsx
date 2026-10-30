@@ -2,6 +2,7 @@
 
 import { SettingsForm } from "./SettingsForm";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Avatar, Button, Card, Chip, Eyebrow, Field, PageHeader } from "@/components/ui";
 import { DesignerDefaultsCard } from "@/components/settings/DesignerDefaultsCard";
@@ -150,19 +151,26 @@ const MORE_SETTINGS = [
 
 export function SettingsClient({ data }: { data: SettingsData }) {
   const [active, setActive] = useState("profile");
+  const router = useRouter();
 
   return (
     <div className="flex min-h-full flex-col @4xl/page:flex-row">
       {/* Category rail — horizontal scrolling tabs on mobile, vertical rail on desktop */}
-      <aside className="flex-none border-b border-rule bg-paper-2 p-3.5 @4xl/page:w-44 @4xl/page:border-b-0 @4xl/page:border-r">
+      <aside className="flex-none border-b border-rule bg-paper-2 p-3.5 @4xl/page:w-52 @4xl/page:border-b-0 @4xl/page:border-r">
         <Eyebrow muted>Settings</Eyebrow>
-        <div className="mt-2 flex gap-0.5 overflow-x-auto @4xl/page:flex-col">
+        <label className="mt-2 flex items-center gap-2 text-label @4xl/page:hidden">Section
+          <select aria-label="Settings section" value={active} onChange={(e) => e.target.value.startsWith("/") ? router.push(e.target.value) : setActive(e.target.value)} className="h-11 min-w-0 flex-1 rounded-md border border-rule bg-card px-2 text-body">
+            {data.categories.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+            {MORE_SETTINGS.map((m) => <option key={m.href} value={m.href}>{m.title}</option>)}
+          </select>
+        </label>
+        <div className="mt-2 hidden gap-0.5 @4xl/page:flex @4xl/page:flex-col">
           {data.categories.map((c) => (
             <button
               key={c.id}
               onClick={() => setActive(c.id)}
               className={[
-                "whitespace-nowrap rounded px-2.5 py-1.5 text-left text-body transition-colors",
+                "whitespace-normal break-words rounded px-2.5 py-1.5 text-left text-body transition-colors",
                 c.id === active
                   ? "bg-accent-soft font-medium text-accent-2"
                   : "text-ink-2 hover:bg-paper-3",
@@ -184,13 +192,7 @@ export function SettingsClient({ data }: { data: SettingsData }) {
             ))}
           </div>
         </div>
-        <div className="mt-2 flex gap-0.5 overflow-x-auto @4xl/page:hidden">
-          {MORE_SETTINGS.map((m) => (
-            <Link key={m.href} href={m.href} className="whitespace-nowrap rounded px-2.5 py-1.5 text-body text-ink-2 hover:bg-paper-3">
-              {m.title}
-            </Link>
-          ))}
-        </div>
+
       </aside>
 
       {/* Content */}

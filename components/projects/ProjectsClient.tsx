@@ -26,10 +26,14 @@ const FILTERS = [
 
 export function ProjectsClient({ groups }: { groups: ProjectGroup[] }) {
   const [filter, setFilter] = useState("all");
+  const [query, setQuery] = useState("");
   const shown =
-    filter === "all" ? groups : groups.filter((g) => g.key === filter);
+    (filter === "all" ? groups : groups.filter((g) => g.key === filter))
+      .map((g) => ({ ...g, items: g.items.filter((p) => `${p.name} ${p.sub} ${p.stage}`.toLowerCase().includes(query.trim().toLowerCase())) }))
+      .filter((g) => g.items.length > 0);
   return (
     <div className="space-y-4">
+      <input type="search" aria-label="Search projects" placeholder="Search projects or next steps…" value={query} onChange={(e) => setQuery(e.target.value)} className="h-11 w-full rounded-md border border-rule bg-card px-3 text-body @xl/page:h-9" />
       <Segmented
         aria-label="Project stage"
         value={filter}
@@ -76,14 +80,14 @@ export function ProjectsClient({ groups }: { groups: ProjectGroup[] }) {
                       <TableCell twoLine className="@xl/page:min-w-[220px]">
                         <Link
                           href={`/projects/${p.slug}`}
-                          className="block break-words text-subheading font-semibold text-ink hover:text-accent after:absolute after:inset-0 focus-visible:outline-2 focus-visible:outline-focus"
+                          className="block break-words text-subheading font-semibold text-ink hover:text-accent focus-visible:outline-2 focus-visible:outline-focus"
                         >
                           {p.name}
                         </Link>
                         {p.sub && (
                           <div className="line-clamp-1 text-meta text-ink-3">{p.sub}</div>
                         )}
-                        <div className="line-clamp-1 text-meta text-ink-2 @4xl/page:hidden">
+                        <div className="break-words text-meta text-ink-2 @4xl/page:hidden">
                           {p.stage}
                         </div>
                         <div className="mt-1 tabular-nums text-meta text-ink-3 @xl/page:hidden">
@@ -95,7 +99,7 @@ export function ProjectsClient({ groups }: { groups: ProjectGroup[] }) {
                         </div>
                       </TableCell>
                       <TableCell className="hidden max-w-64 @4xl/page:table-cell">
-                        <div className="truncate text-ink-2" title={p.stage}>
+                        <div className="whitespace-normal break-words text-ink-2" title={p.stage}>
                           {p.stage}
                         </div>
                       </TableCell>

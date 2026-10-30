@@ -1,7 +1,9 @@
+import { formatUsPhone } from "@/lib/comms/phone";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Shell } from "@/components/shell/Shell";
 import {
+  Button,
   Card,
   Chip,
   PageHeader,
@@ -38,6 +40,8 @@ export default async function VendorDetailPage({
           meta={vendor.trade || "Materials supplier"}
           actions={
             <>
+              {vendor.phone && <Button href={`tel:${vendor.phone}`} variant="secondary">Call</Button>}
+              {vendor.email && <Button href={`mailto:${vendor.email}`} variant="secondary">Email</Button>}
               <VendorHeaderEdit {...vendor} />
               <DirectoryRecordMenu table="vendors" {...vendor} />
             </>
@@ -126,7 +130,7 @@ export default async function VendorDetailPage({
                 {[
                   ["Category", vendor.trade || "Not recorded"],
                   ["Email", vendor.email || "Not recorded"],
-                  ["Phone", vendor.phone || "Not recorded"],
+                  ["Phone", formatUsPhone(vendor.phone) || "Not recorded"],
                   ["Favorite", vendor.fav ? "Yes" : "No"],
                 ].map(([k, v]) => (
                   <div key={k} className="grid grid-cols-[80px_1fr] gap-3">

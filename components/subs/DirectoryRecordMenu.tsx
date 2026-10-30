@@ -19,6 +19,7 @@ type RecordProps = {
   phone: string;
   rate?: string;
   archived: boolean;
+  editLabel?: string;
 };
 export function DirectoryRecordMenu(props: RecordProps) {
   const [open, setOpen] = useState(false),
@@ -40,9 +41,10 @@ export function DirectoryRecordMenu(props: RecordProps) {
   }
   return (
     <div className="relative">
-      <details className="relative">
+      {props.editLabel && <button type="button" ref={(node) => { if (node) trigger.current = node; }} className="inline-flex min-h-9 items-center rounded-md border border-rule bg-card px-3 text-label font-semibold hover:bg-hover" onClick={() => { setError(""); setOpen(true); }}>{props.editLabel}</button>}
+      <details className={props.editLabel ? "hidden" : "relative"}>
         <summary
-          ref={trigger}
+          ref={props.editLabel ? undefined : trigger}
           aria-label={`More actions for ${props.name}`}
           title="More actions"
           className="flex size-8 cursor-pointer list-none items-center justify-center rounded-md border border-rule bg-card text-ink-2 hover:bg-hover max-sm:size-11"

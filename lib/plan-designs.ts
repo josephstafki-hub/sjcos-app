@@ -22,6 +22,7 @@ export interface PlanDesignSummary {
   updatedAt: string;
   updatedLabel: string;
   counts: DocCounts;
+  outline?: { a: { x: number; y: number }; b: { x: number; y: number } }[];
   versionCount: number;
   latestVersion: { id: number; number: number; label: string } | null;
 }
@@ -155,6 +156,7 @@ function rowToSummary(r: DesignRow): PlanDesignSummary {
     updatedAt: r.updated_at.toISOString(),
     updatedLabel: whenLabel(r.updated_at),
     counts: docCounts(doc),
+    outline: doc.walls.filter((w) => w.levelId === doc.walls[0]?.levelId).map((w) => ({ a: w.a, b: w.b })),
     versionCount: Number(r.version_count),
     latestVersion: r.latest_version_id
       ? { id: Number(r.latest_version_id), number: r.latest_version_number ?? 0, label: r.latest_version_label ?? "" }

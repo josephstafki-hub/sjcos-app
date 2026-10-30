@@ -1,5 +1,6 @@
 "use client";
 
+import { formatUsPhone } from "@/lib/comms/phone";
 import { useState, useTransition } from "react";
 import { Phone, Mail, X, Copy, Check, Pencil } from "lucide-react";
 import { sendNewEmailAction } from "@/lib/actions/inbox";
@@ -59,7 +60,7 @@ export function LeadContact({
           <div className="absolute right-0 top-[calc(100%+6px)] z-40 w-[200px] rounded-lg border border-rule bg-card p-3 shadow-pop">
             <div className="text-meta text-ink-3">{name}</div>
             <a href={`tel:${phone.replace(/[^\d+]/g, "")}`} className="mt-0.5 block font-serif text-heading font-semibold text-ink hover:text-accent-2">
-              {phone}
+              {formatUsPhone(phone)}
             </a>
             <div className="mt-2 flex gap-1.5">
               <button

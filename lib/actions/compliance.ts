@@ -4,6 +4,7 @@
 
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
+import { COMPLIANCE_SOURCE, CENTRAL_TODAY } from "../compliance-source.mjs";
 import { requireAccess } from "@/lib/dal";
 
 /** Mark a compliance item resolved — drops it from the windows + timeline. */
@@ -22,8 +23,8 @@ export async function queueRenewalRequests(): Promise<
   await requireAccess("compliance");
   const { rows } = await query<{ id: string; title: string; due: string }>(
     `SELECT id, title, to_char(due_date, 'FMMon FMDD') AS due
-       FROM compliance_items
-      WHERE NOT resolved AND due_date <= CURRENT_DATE + 45
+       FROM (${COMPLIANCE_SOURCE}) compliance
+      WHERE due_date <= ${CENTRAL_TODAY} + 45
       ORDER BY due_date`,
   );
   let queued = 0;
@@ -41,7 +42,7 @@ export async function queueRenewalRequests(): Promise<
     await query(
       `INSERT INTO work_items (title, body, priority, assignee_kind, source_kind, source_id, created_by)
        VALUES ($1, $2, 'normal', 'human', 'manual', $3, 'user')`,
-      [title, `Due ${r.due}. Chase the renewal document, then mark the compliance item resolved.`, r.id],
+      [title, `Due ${r.due}. Collect the renewal document and update the policy or compliance record.`, r.id],
     );
     queued++;
   }

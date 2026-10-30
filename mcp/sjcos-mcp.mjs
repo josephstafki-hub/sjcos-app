@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { COMPLIANCE_SOURCE, CENTRAL_TODAY } from "../lib/compliance-source.mjs";
 // SJC OS — MCP server (AI-agnostic).
 //
 // A standard Model Context Protocol server exposing curated tools over the SJC OS
@@ -434,7 +435,7 @@ server.registerTool(
       rows(`SELECT status, count(*)::int AS n FROM projects GROUP BY status ORDER BY status`),
       rows(`SELECT count(*)::int AS subs FROM subs`),
       rows(`SELECT COALESCE(sum(amount),0)::int AS outstanding FROM invoices WHERE status = 'sent'`),
-      rows(`SELECT count(*)::int AS due_60d FROM compliance_items WHERE resolved = false AND due_date - CURRENT_DATE BETWEEN 0 AND 60`),
+      rows(`SELECT count(*)::int AS due_60d FROM (${COMPLIANCE_SOURCE}) compliance WHERE due_date <= ${CENTRAL_TODAY} + 60`),
       rows(`SELECT status, count(*)::int AS n FROM work_items GROUP BY status ORDER BY status`),
       rows(`SELECT count(*)::int AS n FROM work_items WHERE approval_status = 'requested'`),
       // Never let a financials hiccup take the whole snapshot down.
@@ -696,9 +697,9 @@ server.registerTool(
   async ({ within_days = 90 }) => {
     return json(
       await rows(
-        `SELECT title, kind, due_date, (due_date - CURRENT_DATE) AS days_out, owner, step
-           FROM compliance_items
-          WHERE resolved = false AND due_date - CURRENT_DATE BETWEEN 0 AND $1
+        `SELECT title, kind, due_date, (due_date - ${CENTRAL_TODAY}) AS days_out, who AS owner, step
+           FROM (${COMPLIANCE_SOURCE}) compliance
+          WHERE due_date <= ${CENTRAL_TODAY} + $1
           ORDER BY due_date`,
         [within_days],
       ),

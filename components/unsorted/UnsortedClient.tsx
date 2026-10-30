@@ -143,7 +143,7 @@ export function UnsortedClient({
 
   return (
     <div className="[&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus [&_input]:focus-visible:outline-2 [&_input]:focus-visible:outline-focus [&_select]:focus-visible:outline-2 [&_select]:focus-visible:outline-focus mx-auto flex min-h-full max-w-[1240px] min-w-0 flex-col gap-6 px-4 py-6 @2xl/page:px-5 @5xl/page:px-8">
-      <PageHeader className="[&>div>div:first-child]:w-full [&>div>div:first-child]:flex-auto [&>div]:min-w-0" title="Unsorted" meta={<span className="block whitespace-normal break-words">Invoices and receipts from email, scans and texts that need a job. Choose where each goes to attach it and log the cost.</span>} actions={<Button href="/scan" variant="secondary" icon={Camera}>Scan receipt</Button>} filters={<Segmented aria-label="Unsorted views" className="max-sm:h-12 [&_button]:max-sm:h-11" value={tab} onChange={t => setTab(t as "sort" | "filed")} options={[{value:"sort",label:"To sort",count:pending || undefined},{value:"filed",label:"Filed lately"}]} />} />
+      <PageHeader className="[&>div>div:first-child]:w-full [&>div>div:first-child]:max-w-full [&>div>div:first-child]:min-w-0 [&>div>div:first-child]:flex-auto [&>div]:min-w-0" title="Unsorted" meta={<span className="block whitespace-normal break-words">Invoices and receipts from email, scans and texts that need a job. Choose where each goes to attach it and log the cost.</span>} actions={<Button href="/scan" variant="secondary" icon={Camera}>Scan receipt</Button>} filters={<Segmented aria-label="Unsorted views" className="max-sm:h-12 [&_button]:max-sm:h-11" value={tab} onChange={t => setTab(t as "sort" | "filed")} options={[{value:"sort",label:"To sort",count:pending || undefined},{value:"filed",label:"Filed lately"}]} />} />
 
       {last && tab === "sort" && (
         <div className="flex items-center gap-2 rounded-lg border border-rule bg-money-soft px-3 py-2 text-body text-ink">
@@ -170,7 +170,13 @@ export function UnsortedClient({
           <Button variant="secondary" disabled={busy || open.findIndex((d) => d.id === selected.id) === 0} onClick={() => setSelectedId(open[open.findIndex((d) => d.id === selected.id) - 1].id)}>Previous</Button>
           <Button variant="secondary" disabled={busy || open.findIndex((d) => d.id === selected.id) === open.length - 1} onClick={() => setSelectedId(open[open.findIndex((d) => d.id === selected.id) + 1].id)}>Next</Button>
         </div>
-        <p className="mb-3 break-words text-body font-semibold">{vendorOf(selected)} · {money(selected.amount_cents)}</p>
+        <div className="mb-3 flex min-w-0 flex-wrap items-center gap-3">
+          <p className="min-w-0 flex-1 break-words text-body font-semibold">{vendorOf(selected)} · {money(selected.amount_cents)}</p>
+          {(() => {
+            const fileId = [...selected.attachment_file_ids, ...(selected.email_file_id ? [selected.email_file_id] : [])].find(id => files[id]);
+            return fileId ? <Button href={`/api/files/${encodeURIComponent(fileId)}`} target="_blank" rel="noopener noreferrer" variant="secondary" size="sm">Open document</Button> : <span className="text-meta text-ink-3">No saved document</span>;
+          })()}
+        </div>
         <div className="grid items-start gap-3 @5xl/page:grid-cols-[230px_minmax(0,1fr)]">
           <Card className="hidden p-0 @5xl/page:row-span-2 @5xl/page:block @5xl/page:max-h-[82vh] @5xl/page:overflow-y-auto">
             <div className="sticky top-0 hidden border-b border-rule bg-paper-2 px-3 py-2 tabular-nums text-meta text-ink-3 @5xl/page:block">

@@ -37,8 +37,9 @@ export function Topbar({ breadcrumb = "TODAY", unread = 0, leading }: TopbarProp
       <nav aria-label="Breadcrumb" className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none]">
         <ol className="flex items-center gap-2 whitespace-nowrap font-mono text-micro uppercase text-ink-3">
           {segments.map((segment, index) => {
+            // The last crumb is this page; middle crumbs follow the path.
             const href = BREADCRUMB_ROUTES[segment.toLowerCase()]
-              ?? (index < pathParts.length ? `/${pathParts.slice(0, index + 1).join("/")}` : pathname);
+              ?? (index < segments.length - 1 && index < pathParts.length ? `/${pathParts.slice(0, index + 1).join("/")}` : pathname);
             return <li key={`${index}-${segment}`} className="flex items-center gap-2">
               {index > 0 && <span aria-hidden className="text-ink-4">/</span>}
               <Link href={href} aria-current={index === segments.length - 1 && href === pathname ? "page" : undefined}

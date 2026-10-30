@@ -35,6 +35,7 @@ import {
   approveWorkItem,
   rejectWorkItem,
   cancelRunbook,
+  repairRunbook,
 } from "@/lib/actions/engine";
 import { captureKnowledge, deleteKnowledge, searchKnowledgeAction } from "@/lib/actions/brain";
 import { approveSkill, rejectSkill } from "@/lib/actions/skills";
@@ -232,6 +233,8 @@ function ActiveRunbooks({ instances }: { instances: RunbookInstanceView[] }) {
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <Chip kind={runbookStatusChip(i.status)} dot>{RUNBOOK_STATUS_LABEL[i.status]}</Chip>
+                  {i.repairState === "needs_review" && <Chip kind="flag" dot>Needs a look</Chip>}
+                  {i.repairState === "repaired" && <Chip kind="ghost">repaired</Chip>}
                   <span className="font-mono text-[11px] text-ink-4">{i.runbookSlug}</span>
                 </div>
                 <div className="mt-1 text-[13.5px] font-semibold text-ink">
@@ -255,7 +258,28 @@ function ActiveRunbooks({ instances }: { instances: RunbookInstanceView[] }) {
                 <div className="mt-1 font-mono text-[10px] text-ink-4">
                   started {i.startedAt.slice(0, 10)} · {i.startedBy}
                 </div>
+                {i.repairState === "needs_review" && (
+                  <div className="mt-1.5 text-[12px] text-flag">
+                    Stuck{i.blockedReason ? `: ${i.blockedReason}` : ""}. Repair recreates a missing step from its runbook; if it can&apos;t, cancel it.
+                  </div>
+                )}
               </div>
+              {i.repairState === "needs_review" && (
+                <button
+                  className={btnCls}
+                  disabled={pending}
+                  onClick={() =>
+                    start(async () => {
+                      const r = await runAction(() => repairRunbook(i.id), { fallback: "Could not repair that runbook." });
+                      const notice = (r as { notice?: string } | undefined)?.notice;
+                      if (notice) toast({ kind: "info", message: notice });
+                      router.refresh();
+                    })
+                  }
+                >
+                  Repair
+                </button>
+              )}
               <button
                 className={btnCls}
                 disabled={pending}

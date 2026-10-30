@@ -473,7 +473,7 @@ export interface RepairReport {
 /** Find live instances whose current step has no work item and recreate
  *  ONLY that step. Replay-safe (the step-log key), logged (runbook_repairs)
  *  and bounded (`limit`). */
-export async function repairRunbookInstancesTx(run: Run, opts: { dryRun?: boolean; limit?: number; by?: string } = {}): Promise<RepairReport> {
+export async function repairRunbookInstancesTx(run: Run, opts: { dryRun?: boolean; limit?: number; by?: string; instanceId?: string | null } = {}): Promise<RepairReport> {
   const dryRun = opts.dryRun ?? true;
   const by = opts.by ?? "repair";
   const report: RepairReport = { dryRun, scanned: 0, actions: [] };
@@ -482,10 +482,11 @@ export async function repairRunbookInstancesTx(run: Run, opts: { dryRun?: boolea
        FROM runbook_instances i
       WHERE i.status NOT IN ('done','cancelled')
         AND NOT EXISTS (SELECT 1 FROM work_items w WHERE w.runbook_instance_id = i.id AND w.runbook_step_order = i.current_step)
+        AND ($2::uuid IS NULL OR i.id = $2)
       ORDER BY i.started_at
       LIMIT $1
       ${dryRun ? "" : "FOR UPDATE OF i SKIP LOCKED"}`,
-    [Math.min(Math.max(opts.limit ?? 50, 1), 500)],
+    [Math.min(Math.max(opts.limit ?? 50, 1), 500), opts.instanceId ?? null],
   );
   report.scanned = candidates.length;
   for (const inst of candidates) {

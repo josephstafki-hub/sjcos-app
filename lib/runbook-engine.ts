@@ -103,6 +103,22 @@ export async function maybeAdvanceRunbook(workItemId: string): Promise<void> {
   }
 }
 
+/** Owner's Repair on one instance (the /engine runbook card): recreate its
+ *  missing current step from the pinned definition, then re-judge it. A
+ *  legacy instance with no pinned definition can't be repaired without
+ *  guessing; the answer says so (cancel it instead). Returns a plain line. */
+export async function repairRunbookInstance(instanceId: string, by: string): Promise<string> {
+  const report = await withTransaction((run) => repairRunbookInstancesTx(run, { dryRun: false, instanceId, by }));
+  const a = report.actions[0];
+  if (a?.action === "recreate_step") await drainRunbookWakeups();
+  const out = await advanceRunbookInstance(instanceId);
+  if (a?.action === "needs_review") return `Can't repair it: ${a.detail}. Cancel it and start the runbook again.`;
+  if (a?.action === "recreate_step") return `Recreated the missing step: ${a.detail.replace(/^recreated /, "")}.`;
+  if (out.outcome === "needs_review") return `Still stuck: ${out.reason}`;
+  await query(`UPDATE runbook_instances SET repair_state = 'ok', blocked_reason = NULL WHERE id = $1 AND repair_state = 'needs_review'`, [instanceId]);
+  return out.outcome === "advanced" ? "It moved on to the next step." : "Its current step is in place; nothing needed repairing.";
+}
+
 /** Owner-only (via lib/actions/engine.ts): cancel an instance and close out
  *  its open step work items so nothing orphaned stays in the queue. */
 export async function cancelRunbookInstance(instanceId: string, note = "Cancelled by owner."): Promise<void> {

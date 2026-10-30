@@ -260,7 +260,11 @@ by Joe/staff don't feed the weekly update (only sub logs do).
   - ~~The owner path marks a step done, then advances separately and swallows errors.~~ Done paths are
     fixed by the A04 change above. Other status changes (cancelled, blocked) still use the best-effort
     `maybeAdvanceRunbook`.
-  - `needs_review` isn't shown anywhere, and there's no owner Repair button.
+  - ~~`needs_review` isn't shown anywhere, and there's no owner Repair button.~~ **Done (branch
+    `t3/tier3-runbooks`):**
+    - A stuck instance shows "Needs a look" and its reason on /engine.
+    - **Repair** (owner) recreates the missing step from the pinned definition and re-checks the instance.
+      A legacy one with no pinned definition says to cancel it.
 - **Leads (A11):** `lib/leads/{match,facts,routine,package}.ts` has no callers. Mind the `routine.followup`
   key issue above.
 - ~~**Sub paperwork (A12):**~~ **Done (branch `t3/tier3-subdocs`):**

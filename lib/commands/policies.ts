@@ -43,7 +43,9 @@ export async function proposePolicyVersion(run: Run, key: string, config: Record
   return row;
 }
 
-/** Make one version active; any previously active version is retired. */
+/** Make one version active; any previously active version is retired. Sends
+ *  the dispatcher held because this exact version was off wake for the next
+ *  dispatch pass (it re-checks the policy when it transmits). */
 export async function activatePolicy(run: Run, key: string, version: number): Promise<Policy | null> {
   await run(`UPDATE policies SET state = 'retired' WHERE key = $1 AND state = 'active' AND version <> $2`, [key, version]);
   const [row] = await run<Policy>(
@@ -51,7 +53,23 @@ export async function activatePolicy(run: Run, key: string, version: number): Pr
      RETURNING id, key, version, config, state, effective_from::text AS effective_from, notes`,
     [key, version],
   );
+  if (row) {
+    await run(
+      `UPDATE action_intents SET state = 'pending', hold_reason = NULL, next_attempt_at = now()
+        WHERE state = 'held' AND policy_ref = $1`,
+      [policyRef(row)],
+    );
+  }
   return row ?? null;
+}
+
+/** Every policy version, for the owner's Policies screen (latest first per key). */
+export async function listPolicies(run: Run): Promise<(Policy & { created_by: string; created_at: string; held_sends: number })[]> {
+  return run(
+    `SELECT p.id, p.key, p.version, p.config, p.state, p.effective_from::text AS effective_from, p.notes, p.created_by, p.created_at::text AS created_at,
+            (SELECT count(*)::int FROM action_intents a WHERE a.state = 'held' AND a.policy_ref = 'policy:' || p.key || '@' || p.version) AS held_sends
+       FROM policies p ORDER BY p.key, p.version DESC`,
+  );
 }
 
 export async function disablePolicy(run: Run, key: string): Promise<number> {

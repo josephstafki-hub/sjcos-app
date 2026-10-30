@@ -6,7 +6,9 @@ import { Card, Chip, Eyebrow, toast } from "@/components/ui";
 import { runAction } from "@/lib/run-action";
 import { normalizeSummary } from "@/lib/decisions/summary";
 import {
+  activatePolicyAction,
   approveDecisionAction,
+  disablePolicyAction,
   holdDecisionAction,
   pauseLaneAction,
   rejectDecisionAction,
@@ -252,6 +254,88 @@ function LaneSwitches({ lanes, pauses }: { lanes: string[]; pauses: { lane: stri
   );
 }
 
+export interface PolicyVersionView {
+  key: string;
+  version: number;
+  state: "draft" | "active" | "disabled" | "retired";
+  notes: string;
+  config: Record<string, unknown>;
+  effectiveFrom: string | null;
+  createdBy: string;
+  heldSends: number;
+}
+
+const POLICY_CHIP: Record<PolicyVersionView["state"], "money" | "ghost" | "flag" | "default"> = { active: "money", draft: "default", disabled: "flag", retired: "ghost" };
+
+/** Owner's policy switches: one row per policy, its versions underneath. A
+ *  policy lets one kind of automatic action happen without a card each time;
+ *  off, the same action waits for Joe. */
+function PolicySwitches({ policies }: { policies: PolicyVersionView[] }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const run = (fn: () => Promise<DecisionActionResult>) =>
+    start(async () => {
+      const r = await runAction(fn);
+      if (r.ok && "reply" in r) toast({ kind: "info", title: "Policy", message: String(r.reply) });
+      router.refresh();
+    });
+  const keys = [...new Set(policies.map((p) => p.key))];
+  return (
+    <div className="flex flex-col gap-2">
+      {keys.map((key) => {
+        const versions = policies.filter((p) => p.key === key);
+        const active = versions.find((v) => v.state === "active");
+        const latest = versions[0];
+        const held = versions.reduce((n, v) => n + v.heldSends, 0);
+        return (
+          <Card key={key} className="p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-[12px] font-semibold text-ink">{key}</span>
+              <Chip kind={active ? "money" : "ghost"} dot>
+                {active ? `on · v${active.version}` : "off"}
+              </Chip>
+              {held > 0 && <Chip kind="flag">{held} send{held === 1 ? "" : "s"} held for it</Chip>}
+              <div className="ml-auto flex gap-2">
+                {active ? (
+                  <button type="button" className={`${btn} border-flag text-flag`} disabled={pending} onClick={() => run(() => disablePolicyAction(key))}>
+                    Turn off
+                  </button>
+                ) : null}
+                {latest && latest.state !== "active" && (
+                  <button type="button" className={btn} disabled={pending} onClick={() => run(() => activatePolicyAction(key, latest.version))}>
+                    Turn on v{latest.version}
+                  </button>
+                )}
+              </div>
+            </div>
+            {(active ?? latest)?.notes && <p className="mt-1.5 text-[12px] leading-relaxed text-ink-3">{(active ?? latest)!.notes}</p>}
+            <details className="mt-1.5">
+              <summary className="cursor-pointer text-[11px] text-ink-3">Versions and settings</summary>
+              <div className="mt-1.5 flex flex-col gap-1.5">
+                {versions.map((v) => (
+                  <div key={v.version} className="rounded-md border border-rule p-2">
+                    <div className="flex items-center gap-2 text-[11px] text-ink-3">
+                      <span className="font-mono">v{v.version}</span>
+                      <Chip kind={POLICY_CHIP[v.state]}>{v.state}</Chip>
+                      <span>{v.effectiveFrom ? `since ${fmt(v.effectiveFrom)}` : `by ${v.createdBy}`}</span>
+                    </div>
+                    <pre className="mt-1 overflow-x-auto whitespace-pre-wrap font-mono text-[11px] text-ink-2">{JSON.stringify(v.config, null, 2)}</pre>
+                  </div>
+                ))}
+              </div>
+            </details>
+          </Card>
+        );
+      })}
+      {keys.length === 0 && (
+        <Card kind="dashed" className="p-4 text-center text-[12px] text-ink-3">
+          No policies yet.
+        </Card>
+      )}
+    </div>
+  );
+}
+
 export function DecisionsClient({
   ready,
   held,
@@ -259,6 +343,7 @@ export function DecisionsClient({
   owner,
   lanes,
   pauses,
+  policies,
   focusId,
 }: {
   ready: DecisionView[];
@@ -267,6 +352,7 @@ export function DecisionsClient({
   owner: boolean;
   lanes: string[];
   pauses: { lane: string; paused_at: string; paused_by: string; reason: string }[];
+  policies: PolicyVersionView[];
   focusId: string | null;
 }) {
   const [open, setOpen] = useState<string | null>(focusId);
@@ -302,6 +388,18 @@ export function DecisionsClient({
           <Eyebrow>Kill switches</Eyebrow>
           <div className="mt-2">
             <LaneSwitches lanes={lanes} pauses={pauses} />
+          </div>
+        </section>
+      )}
+      {owner && (
+        <section id="policies">
+          <Eyebrow>Policies</Eyebrow>
+          <p className="mt-1 max-w-[680px] text-[12px] text-ink-3">
+            A policy that is on lets that kind of automatic action go out without a card each time, inside its settings. Off, the same
+            action waits for you as a card. Only you can turn one on.
+          </p>
+          <div className="mt-2">
+            <PolicySwitches policies={policies} />
           </div>
         </section>
       )}

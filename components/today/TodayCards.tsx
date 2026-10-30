@@ -54,7 +54,7 @@ export function TodayCards({ brief }: { brief: ReactNode }) {
   const onYou = shown + waiting.filter((w) => !w.waitingOnSub).length;
 
   return (
-    <section className="flex min-w-0 flex-col gap-6">
+    <section className="flex min-w-0 flex-col gap-3">
       {brief}
       <Segmented
         aria-label="Today work views"
@@ -70,7 +70,7 @@ export function TodayCards({ brief }: { brief: ReactNode }) {
       {view !== "active" ? (
         <TodayRecovery key={view} view={view as "done" | "snoozed"} />
       ) : (
-        <div ref={listRef} className="flex min-w-0 flex-col gap-6">
+        <div ref={listRef} className="flex min-w-0 flex-col gap-3">
           <div>
             <div className="mb-1.5 flex items-baseline gap-2">
               <span className="font-serif text-heading text-ink">Up next</span>

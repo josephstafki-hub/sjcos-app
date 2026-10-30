@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { queueScopeMatches, type QueueScope } from "@/lib/daily-work-presentation";
 import { WorkItemEditor } from "./WorkItemEditor";
 import { Card, Chip, Eyebrow, Button, Tabs, EmptyState as UiEmptyState, type ChipKind } from "@/components/ui";
 import {
@@ -256,7 +257,7 @@ function QueueTab({
   const [filter, setFilter] = useState<QueueFilter>(NO_FILTER);
   // Board-only, so it sits beside QueueFilter rather than in it (the archive
   // is all closed items — nothing there waits on anyone).
-  const [onMe, setOnMe] = useState(false);
+  const [scope, setScope] = useState<QueueScope>("all");
   const router = useRouter();
   const [pending, start] = useTransition();
   const formRef = useRef<HTMLFormElement>(null);
@@ -264,12 +265,13 @@ function QueueTab({
   const folders = queueFolders(engine.items, engine.assignees, engine.ownerId);
   const inFolder = engine.items.filter((it) => matchesQueueFilter(it, filter, engine.ownerId));
   const onMeCount = inFolder.filter((it) => isWaitingOn(it, meId, engine.ownerId)).length;
-  const shown = onMe ? inFolder.filter((it) => isWaitingOn(it, meId, engine.ownerId)) : inFolder;
+  const othersCount = inFolder.filter(it => queueScopeMatches(it.status, false, "others")).length;
+  const shown = inFolder.filter(it => queueScopeMatches(it.status, isWaitingOn(it, meId, engine.ownerId), scope));
   const buckets = Object.fromEntries(
     BUCKET_META.map((b) => [b.key, shown.filter((it) => it.bucket === b.key)]),
   ) as Record<QueueBucket, WorkItemView[]>;
   const nonEmpty = BUCKET_META.filter((b) => buckets[b.key].length > 0);
-  const filtered = onMe || filter.job !== "" || filter.by !== "" || filter.q.trim() !== "";
+  const filtered = scope !== "all" || filter.job !== "" || filter.by !== "" || filter.q.trim() !== "";
 
   const archiveAll = (items: WorkItemView[]) => {
     if (!confirm(`Archive ${items.length} done and cancelled item${items.length === 1 ? "" : "s"}? They move to Archived — nothing is deleted.`)) return;
@@ -379,27 +381,21 @@ function QueueTab({
         </Card>
       )}
 
-      <QueueFilterDisclosure label={folders.all.who === filter.who ? folders.all.label : [...folders.people, ...folders.agents].find(f => f.who === filter.who)?.label ?? "Selected folder"}>
-      <div className="grid gap-3 @5xl/page:grid-cols-[180px_minmax(0,1fr)]">
-        <QueueRail
-          folders={folders}
-          active={filter.who}
-          showCounts={view === "queue"}
-          onPick={(who) => setFilter((f) => ({ ...f, who }))}
-        />
-
+      <p className="mb-3 text-meta text-ink-3">Folder counts are open to-dos. Everything has {folders.all.open} open out of {engine.items.length} records, including done and cancelled; archived records are separate.</p>
+      <div className="grid items-start gap-4 @5xl/page:grid-cols-[180px_minmax(0,1fr)]">
+        <aside className="min-w-0">
+          <QueueFilterDisclosure label="Choose folder">
+            <QueueRail folders={folders} active={filter.who} showCounts={view === "queue"} onPick={who => setFilter(f => ({ ...f, who }))} />
+          </QueueFilterDisclosure>
+        </aside>
         <div className="min-w-0">
-          <QueueFilters
-            items={engine.items}
-            filter={filter}
-            onChange={setFilter}
-            onMe={view === "queue" ? { on: onMe, count: onMeCount, set: setOnMe } : null}
-          />
-
-        </div>
-      </div>
-      </QueueFilterDisclosure>
-      <p className="mb-3 text-meta text-ink-2">{view === "queue" ? `${shown.length} shown · ${inFolder.length} in this folder and filters · ${onMeCount} waiting on me · ${shown.filter(it => it.bucket === "waiting").length} waiting / blocked shown` : "Archived records · folder and filters apply"}</p>
+          <QueueFilterDisclosure label="Search and filters">
+            <QueueFilters items={engine.items} filter={filter} onChange={setFilter} onMe={null} />
+          </QueueFilterDisclosure>
+          {view === "queue" && <div className="mb-3 flex flex-wrap gap-2" aria-label="Work scope">
+            {([{ key: "all", label: "All records", count: inFolder.length }, { key: "mine", label: "Waiting on me", count: onMeCount }, { key: "others", label: "Waiting on client / sub", count: othersCount }] as const).map(s => <Button key={s.key} variant={scope === s.key ? "primary" : "secondary"} size="sm" aria-pressed={scope === s.key} onClick={() => setScope(s.key)}>{s.label} {s.count}</Button>)}
+          </div>}
+          <p className="mb-3 text-meta text-ink-2">{view === "queue" ? `${shown.length} shown · ${inFolder.length} records match this folder and filters` : "Archived records · folder and filters apply"}</p>
       <div className="min-w-0">
           {view === "archived" ? (
             <ArchiveList
@@ -449,6 +445,8 @@ function QueueTab({
               ))}
             </div>
           )}
+      </div>
+        </div>
       </div>
     </div>
   );

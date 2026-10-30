@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Card, Chip, Eyebrow, Button, toast } from "@/components/ui";
 import { runAction } from "@/lib/run-action";
+import { laneLabel } from "@/lib/daily-work-presentation";
 import { normalizeSummary } from "@/lib/decisions/summary";
 import {
   activatePolicyAction,
@@ -238,21 +239,21 @@ function LaneSwitches({ lanes, pauses }: { lanes: string[]; pauses: { lane: stri
     <Card className="p-3">
       <div className="text-meta text-ink-3">
         A paused lane stops NEW dispatch on it — nothing is lost, held sends wake when it reopens. Anything already in an
-        unknown state stays held for reconciliation either way. &ldquo;all&rdquo; stops everything.
+        unknown state stays held for reconciliation either way. All lanes stops everything.
       </div>
       <input className={`${inputCls} mt-2`} placeholder="Reason (shown on every held send)" value={reason} onChange={(e) => setReason(e.target.value)} />
       <div className="mt-3 divide-y divide-rule-soft">
-        {lanes.map((lane) => {
+        {[...lanes].sort((a, b) => Number(paused.has(b)) - Number(paused.has(a))).map((lane) => {
           const p = paused.get(lane);
           const stopped = p ?? paused.get("all");
           return <div key={lane} className="flex flex-wrap items-center gap-3 py-3">
-            <span className="min-w-0 flex-1 text-body font-semibold text-ink">{lane.replace(/_/g, " ")}</span>
+            <span className="min-w-0 flex-1 text-body font-semibold text-ink">{laneLabel(lane)}</span>
             <Chip kind={stopped ? "flag" : "money"}>{stopped ? "Paused" : "Running"}</Chip>
             {p ? <Button variant="secondary" size="sm" disabled={pending} onClick={() => run(() => resumeLaneAction(lane))}>Resume</Button> : <details className="relative">
               <summary aria-label={`More controls for ${lane}`} title="Lane controls" className="cursor-pointer list-none rounded-md border border-rule px-3 py-2 text-body">…</summary>
               <div className="absolute right-0 z-10 mt-1 min-w-48 rounded-lg border border-rule bg-card p-2 shadow-pop">
                 <Button variant="ghost" size="sm" disabled={pending || Boolean(stopped)} onClick={() => run(() => pauseLaneAction(lane, reason))}>Pause {lane === "all" ? "everything" : "lane"}</Button>
-                {stopped && <p className="text-meta text-ink-2">Resume “all” to reopen this lane.</p>}
+                {stopped && <p className="text-meta text-ink-2">Resume All lanes to reopen this lane.</p>}
               </div>
             </details>}
             {stopped && <p className="basis-full text-meta text-ink-2">{stopped.reason || "Paused by owner"} · {stopped.paused_by} · {fmt(stopped.paused_at)}</p>}
@@ -378,6 +379,16 @@ export function DecisionsClient({
   );
   return (
     <div className="flex flex-col gap-6">
+      {owner && (
+        <section>
+          <Eyebrow>Kill switches</Eyebrow>
+          {pauses.length > 0 ? <div className="mt-2"><LaneSwitches lanes={lanes.filter(lane => pauses.some(p => p.lane === lane))} pauses={pauses} /></div> : null}
+          <details className="mt-2">
+            <summary className="cursor-pointer text-meta text-ink-3">Other lane controls</summary>
+            <LaneSwitches lanes={lanes.filter(lane => !pauses.some(p => p.lane === lane))} pauses={pauses} />
+          </details>
+        </section>
+      )}
       <section>
         <Eyebrow>Waiting on you</Eyebrow>
         <div className="mt-2 flex flex-col gap-2">
@@ -393,14 +404,6 @@ export function DecisionsClient({
         <section>
           <Eyebrow>On hold</Eyebrow>
           <div className="mt-2 flex flex-col gap-2">{held.map(card)}</div>
-        </section>
-      )}
-      {owner && (
-        <section>
-          <Eyebrow>Kill switches</Eyebrow>
-          <div className="mt-2">
-            <LaneSwitches lanes={lanes} pauses={pauses} />
-          </div>
         </section>
       )}
       {owner && (

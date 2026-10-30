@@ -97,7 +97,7 @@ export function NotificationsClient({ data, approvals = [] }: { data: Notificati
   return (
     <div className="mx-auto min-h-full max-w-[1240px] px-4 pb-16 pt-6 @2xl/page:px-5 @5xl/page:px-8">
       <div className="w-full">
-        <PageHeader title="Notifications" meta={`${data.unread} unread · ${approvals.length || data.decisionCount} waiting on you`} actions={<form action={markAllNotificationsRead}><Button type="submit" variant="secondary" disabled={data.unread === 0}>Mark all read</Button></form>} />
+        <PageHeader title="Notifications" meta={`${data.unread} unread · ${approvals.filter(a => !answered.has(a.key)).length} waiting on you`} actions={<form action={markAllNotificationsRead}><Button type="submit" variant="secondary" disabled={data.unread === 0}>Mark all read</Button></form>} />
         <div className="my-6"><Segmented aria-label="Notification filters" value={filter} onChange={f => setFilter(f as NotifFilter)} className="max-sm:h-12 [&_button]:max-sm:h-11" options={data.filters.map(f => ({value:f.key,label:f.label}))} /></div>
 
         {/* Cards */}

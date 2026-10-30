@@ -83,7 +83,7 @@ export function MobileNav({ user }: { user: SidebarUser }) {
             <button
               type="button"
               onClick={() => setOpen(false)}
-              aria-label="Close navigation menu"
+              aria-label="Close navigation menu" title="Close navigation menu"
               className="absolute right-2 top-3 z-10 inline-flex size-11 items-center justify-center rounded-md text-paper/80 hover:bg-white/10"
             >
               <X className="size-4" strokeWidth={1.5} />

@@ -245,12 +245,18 @@ by Joe/staff don't feed the weekly update (only sub logs do).
     nothing. A later allocation change needs a new review.
   - W11 (Joe: the no-change-order rule doesn't apply here): approving the over-allowance card drafts the
     change order, or a Pre-con change estimate before the contract.
-- **Email intake (A01):**
-  - Hermes files email to-dos directly, with no message identity or obligation.
-  - `catchUpMailbox` and `handleReply` (`lib/obligations/*`) have no callers.
-  - Lead-thread sync and the detectors read one page of 150 threads, and the watermark moves anyway
-    (`lib/lead-thread-sync.ts:~142,~227`, `lib/detectors.ts:~139`).
-  - Title matching is left in `lib/actions/compliance.ts:~34` and `lib/actions/schedule.ts:~144`.
+- ~~**Email intake (A01):**~~ **Done (branch `t3/tier3-email-intake`):**
+  - `create_work_item` takes `email: { message_id, thread_id }`. An email to-do is keyed on its message,
+    with an obligation (`lib/obligations/email.ts`); the same email filed twice returns the open one.
+  - `handleReply` is called from the lead-thread sync: our reply on that thread resolves the obligation
+    and completes the to-do ("Replied by email").
+  - Lead-thread sync pages through every thread since the watermark (cap 2000) and holds the watermark if
+    capped.
+  - The needs-reply detector reads headers for the last 45 days, paged, instead of 150 full bodies.
+  - The compliance renewal and schedule conflict to-dos dedupe on their source (item id / ISO week),
+    not their title.
+  - `catchUpMailbox` stays unused; the paging and watermark hold above cover what it was for.
+  - Hermes still has to pass `email` when it files from the inbox. The tool description says so.
 - ~~**Completion (A04):**~~ **Done (branch `t3/tier3-completion`):**
   - Joe's Mark done (Today card, /engine, lead and project pages) now goes through `completeWorkItem` via
     `completeByPerson` (`lib/runbook-engine.ts`): a manual receipt by the signed-in person, with the

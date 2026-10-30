@@ -759,15 +759,29 @@ export async function fetchThreadMetadata(opts: {
   since?: number | null;
   q?: string;
   concurrency?: number;
-} = {}): Promise<RawGmailThreadMeta[]> {
+  /** Page through every matching thread (up to `max`), not just the first
+   *  page. The result's `capped` says the cap cut it short. */
+  allPages?: boolean;
+} = {}): Promise<RawGmailThreadMeta[] & { capped?: boolean }> {
   const api = gmail();
   const me = await fetchProfileEmail();
   const baseQ = opts.q ?? "-in:spam -in:trash";
   const q = opts.since ? `${baseQ} after:${Math.floor(opts.since / 1000)}` : baseQ;
-  const list = await withGmailRetry("threads.list", () =>
-    api.users.threads.list({ userId: "me", maxResults: opts.max ?? 150, q }),
-  );
-  const ids = (list.data.threads ?? []).map((t) => t.id!).filter(Boolean);
+  const max = opts.max ?? 150;
+  const ids: string[] = [];
+  let pageToken: string | undefined;
+  let capped = false;
+  do {
+    const list = await withGmailRetry("threads.list", () =>
+      api.users.threads.list({ userId: "me", maxResults: Math.min(500, max - ids.length), q, pageToken }),
+    );
+    for (const t of list.data.threads ?? []) if (t.id) ids.push(t.id);
+    pageToken = opts.allPages ? (list.data.nextPageToken ?? undefined) : undefined;
+    if (pageToken && ids.length >= max) {
+      capped = true;
+      pageToken = undefined;
+    }
+  } while (pageToken);
 
   const threads = await mapLimit(ids, opts.concurrency ?? 5, async (id) => {
     const { data } = await withGmailRetry("threads.get(metadata)", () =>
@@ -793,7 +807,7 @@ export async function fetchThreadMetadata(opts: {
       labelIds,
     } satisfies RawGmailThreadMeta;
   });
-  return threads.sort((a, b) => b.date - a.date);
+  return Object.assign(threads.sort((a, b) => b.date - a.date), { capped });
 }
 
 // ─── Sending ─────────────────────────────────────────────────────────────────

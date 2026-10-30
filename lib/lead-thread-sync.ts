@@ -34,6 +34,7 @@ import { cancelLeadNurture } from "./newsletter-drip";
 import { withTransaction } from "./commands/db";
 import { onInboundMessage } from "./agent-runtime/hooks";
 import { stopLeadFollowups } from "./leads/facts";
+import { settleEmailReplies } from "./obligations/email";
 
 export interface LeadThreadSyncChange {
   slug: string;
@@ -143,7 +144,9 @@ export async function syncLeadThreads(
   const since = watermark ? watermark - WATERMARK_OVERLAP_MS : null;
 
   const [threads, leadRows, linkRows] = await Promise.all([
-    fetchThreadMetadata({ max: opts.max ?? 150, since, concurrency: 5 }),
+    // Incremental: EVERY thread since the watermark (paged, capped at 2000);
+    // a full rescan is the newest `max`.
+    since ? fetchThreadMetadata({ max: 2000, since, concurrency: 5, allPages: true }) : fetchThreadMetadata({ max: opts.max ?? 150, since, concurrency: 5 }),
     // Exclude 'lost' leads — they're off-pipeline by explicit owner action
     // (see lib/leads.ts stageIsLost). Their Gmail history is irrelevant to
     // "needs reply," and syncing would stomp a legitimate "Passed"/"Lost"
@@ -247,7 +250,18 @@ export async function syncLeadThreads(
   // thrown quota error leaves it where it was so the next run re-covers the
   // window. Stamped with the run's START so anything that arrived mid-run is
   // inside the next window.
-  if (!dryRun) await writeWatermark(startedAt, { scanned: threads.length, matched: matchedThreads, changes: changes.length });
+  // Email to-dos (A01): a reply on a thread with an open email obligation
+  // settles it and completes its to-do. Best-effort; the flag sync stands.
+  if (!dryRun) {
+    await withTransaction((tx) => settleEmailReplies(tx, threads, "lead-thread-sync")).catch((err) =>
+      console.error("[lead-thread-sync] email reply settle failed:", (err as Error).message),
+    );
+  }
+
+  // A capped incremental walk left older threads unseen: hold the watermark
+  // so the next run covers them, instead of skipping past them for good.
+  if (!dryRun && !threads.capped) await writeWatermark(startedAt, { scanned: threads.length, matched: matchedThreads, changes: changes.length });
+  else if (!dryRun) console.warn(`[lead-thread-sync] ${threads.length} threads since the watermark hit the cap; watermark held`);
 
   return finish({
     configured: true,

@@ -18,7 +18,7 @@ import "server-only";
 
 import { query } from "./db";
 import { notifyOwner } from "./notify-owner";
-import { gmailConfigured, fetchThreadPage } from "./gmail";
+import { gmailConfigured, fetchThreadMetadata } from "./gmail";
 import { extractEmail } from "./lead-thread-sync";
 import { computeStageGate } from "./record-ops";
 import { linkIds } from "./comms-shared";
@@ -28,6 +28,7 @@ import { resolveObligation } from "./obligations/core";
 
 // ─── Thresholds (tune here; locked 2026-08-19) ──────────────────────────────
 const CLIENT_REPLY_DAYS = 3; // client message with no reply from us
+const NEEDS_REPLY_LOOKBACK_DAYS = 45; // how far back a thread can still be owed a reply
 const SUB_SILENT_DAYS = 5; // waiting_on_sub item untouched
 const ESTIMATE_UNANSWERED_DAYS = 7; // sent estimate, no signature/decision
 const GATE_STALLED_DAYS = 7; // lead/project sitting at a stage gate
@@ -135,8 +136,11 @@ function needsReplyDetector(): Detector {
 
   async function doScan(): Promise<Scan> {
     if (!gmailConfigured()) return { configured: false, items: [], outboundThreadIds: new Set() };
-    const [{ threads }, leadRes, linkRes, projRes] = await Promise.all([
-      fetchThreadPage(150),
+    // Every thread from the last 45 days, headers only, paged (A01): the
+    // newest 150 full bodies missed older open threads on a busy inbox and
+    // burned Gmail quota.
+    const [threads, leadRes, linkRes, projRes] = await Promise.all([
+      fetchThreadMetadata({ since: Date.now() - NEEDS_REPLY_LOOKBACK_DAYS * 86_400_000, max: 1000, allPages: true, concurrency: 5 }),
       query<{ id: string; slug: string; name: string; email: string }>(
         `SELECT id, slug, name, email FROM leads
           WHERE email IS NOT NULL AND email <> '' AND stage <> 'lost'

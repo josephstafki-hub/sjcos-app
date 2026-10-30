@@ -140,9 +140,16 @@ export async function flagScheduleConflict(): Promise<
     return { ok: false, error: "No double-booking on this week's schedule — nothing to flag." };
   }
   const title = "Resolve schedule conflict (this week)";
+  // Keyed on the ISO week (A01), not the title; the legacy untagged row of
+  // the same title is still found so it isn't duplicated.
+  const week = await queryOne<{ wk: string }>(`SELECT to_char(now() AT TIME ZONE 'America/Chicago', 'IYYY-"W"IW') AS wk`);
+  const sourceId = `week:${week?.wk ?? "unknown"}`;
   const existing = await queryOne<{ id: string }>(
-    `SELECT id FROM work_items WHERE title = $1 AND completed_at IS NULL LIMIT 1`,
-    [title],
+    `SELECT id FROM work_items
+      WHERE completed_at IS NULL
+        AND ((source_kind = 'schedule_conflict' AND source_id = $1) OR (source_kind = 'manual' AND source_id IS NULL AND title = $2))
+      LIMIT 1`,
+    [sourceId, title],
   );
   if (existing) {
     await query(`UPDATE work_items SET body = $2, updated_at = now() WHERE id = $1`, [existing.id, text]);
@@ -150,9 +157,9 @@ export async function flagScheduleConflict(): Promise<
     return { ok: true, queued: false };
   }
   await query(
-    `INSERT INTO work_items (title, body, priority, assignee_kind, source_kind, created_by)
-     VALUES ($1, $2, 'high', 'human', 'manual', 'user')`,
-    [title, text],
+    `INSERT INTO work_items (title, body, priority, assignee_kind, source_kind, source_id, created_by)
+     VALUES ($1, $2, 'high', 'human', 'schedule_conflict', $3, 'user')`,
+    [title, text, sourceId],
   );
   revalidatePath("/engine");
   revalidatePath("/today");

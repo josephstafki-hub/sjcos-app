@@ -30,9 +30,12 @@ export async function queueRenewalRequests(): Promise<
   let alreadyQueued = 0;
   for (const r of rows) {
     const title = `Collect renewal — ${r.title}`;
+    // Keyed on the compliance item, not the title (A01): a renamed item or a
+    // to-do someone retitled still dedupes; two items with the same name don't.
     const existing = await queryOne<{ id: string }>(
-      `SELECT id FROM work_items WHERE title = $1 AND completed_at IS NULL LIMIT 1`,
-      [title],
+      `SELECT id FROM work_items
+        WHERE source_id = $1 AND source_kind IN ('compliance_renewal','manual') AND completed_at IS NULL LIMIT 1`,
+      [r.id],
     );
     if (existing) {
       alreadyQueued++;
@@ -40,7 +43,7 @@ export async function queueRenewalRequests(): Promise<
     }
     await query(
       `INSERT INTO work_items (title, body, priority, assignee_kind, source_kind, source_id, created_by)
-       VALUES ($1, $2, 'normal', 'human', 'manual', $3, 'user')`,
+       VALUES ($1, $2, 'normal', 'human', 'compliance_renewal', $3, 'user')`,
       [title, `Due ${r.due}. Chase the renewal document, then mark the compliance item resolved.`, r.id],
     );
     queued++;

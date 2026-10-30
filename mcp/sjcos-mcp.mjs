@@ -81,6 +81,7 @@ import { registerGrantTools } from "./grants-tools.mjs";
 import { registerCommsTools } from "./comms-tools.mjs";
 import { registerRunbookTools } from "./runbook-tools.mjs";
 import { registerAskOwner } from "./interact-tools.mjs";
+import { prepareEmailWorkItem } from "../lib/obligations/email.ts";
 import { registerObligationTools } from "./obligation-tools.mjs";
 import { registerDecisionTools } from "./decision-tools.mjs";
 import { registerMeasureTools } from "./measure-tools.mjs";
@@ -1277,11 +1278,31 @@ server.registerTool(
       expected_runbook_slug: z.string().optional(),
       requires_approval: z.boolean().optional(),
       created_by: z.string().optional(),
+      email: z
+        .object({ message_id: z.string(), thread_id: z.string().optional(), from: z.string().optional(), received_at: z.string().optional() })
+        .optional()
+        .describe(
+          "When the to-do comes from an email, the Gmail message it answers. Required for email to-dos: the same email filed twice is one to-do, and a reply on that thread closes it.",
+        ),
     },
   },
   async (a) => {
     const mangled = strippedDollarError(a.title, a.body);
     if (mangled) return mangled;
+    // An email to-do is keyed on its message (A01): a re-read of the same
+    // email returns the open to-do instead of filing another.
+    let emailSource = null;
+    if (a.email?.message_id) {
+      const prep = await prepareEmailWorkItem(rows, {
+        email: { messageId: a.email.message_id, threadId: a.email.thread_id ?? null, from: a.email.from ?? null, receivedAt: a.email.received_at ?? null },
+        title: a.title,
+        projectId: await slugToId("projects", a.project_slug),
+        leadId: await slugToId("leads", a.lead_slug),
+        createdBy: a.created_by ?? "agent",
+      });
+      if (prep.existingId) return json({ ok: true, id: prep.existingId, duplicate: true, note: "This email already has an open to-do." });
+      emailSource = { messageId: a.email.message_id.trim(), obligationId: prep.obligationId };
+    }
     // Who's on it — resolved before the insert so a bad name files nothing.
     // Nobody (or just Joe) = Joe's own, one spelling across the app, MCP,
     // detectors and runbooks.
@@ -1290,14 +1311,16 @@ server.registerTool(
     const r = await rows(
       `INSERT INTO work_items
          (title, body, priority, assignee_kind, assignee_key, due_at, project_id, lead_id,
-          expected_skill_slug, expected_runbook_slug, requires_approval, source_kind, created_by)
-       VALUES ($1,$2,$3,$4,$5,NULLIF($6,'')::timestamptz,$7,$8,$9,$10,$11,'agent',$12)
+          expected_skill_slug, expected_runbook_slug, requires_approval, source_kind, created_by,
+          source_id, obligation_id)
+       VALUES ($1,$2,$3,$4,$5,NULLIF($6,'')::timestamptz,$7,$8,$9,$10,$11,$13,$12,$14,$15)
        RETURNING id`,
       [
         a.title, a.body ?? "", a.priority ?? "normal", a.assignee_kind ?? "human",
         a.assignee_key ?? null, a.due_at ?? "", await slugToId("projects", a.project_slug),
         await slugToId("leads", a.lead_slug), a.expected_skill_slug ?? null,
         a.expected_runbook_slug ?? null, a.requires_approval ?? true, a.created_by ?? "agent",
+        emailSource ? "email" : "agent", emailSource?.messageId ?? null, emailSource?.obligationId ?? null,
       ],
     );
     const onIt = resolved.people.length ? await writeAssignees(r[0].id, resolved.people) : [];

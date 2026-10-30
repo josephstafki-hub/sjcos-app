@@ -272,10 +272,14 @@ by Joe/staff don't feed the weekly update (only sub logs do).
     For a W-9: signed, legal name; the tax ID is never stored.
   - The Paperwork tab has Accept/Reject for each one, plus a "papers to review" chip. Only a COI needs an
     expiry date.
-- **Procurement (A13):**
-  - The real PO send (`lib/send-ops.ts:~137`) skips commitments, cash and the construction gate.
-  - Funding ignores hand-kept `collected_to_date` (`lib/funding/index.ts:~73-86`).
-  - There's no app UI.
+- ~~**Procurement (A13):**~~ **Done (branch `t3/tier3-procurement`):**
+  - "Send to vendor" now checks the purchases lane, the construction gate and the job's cash
+    (`commitOwnerPurchaseOrder`), then records the commitment and holds the cash.
+    - Joe sees why a PO is held and can send it anyway. Staff and agents can't.
+  - A PO committed through its purchase decision now carries its email; before, the intent had no
+    body, so the email provider refused it.
+  - Funding counts money paid outside the app (the ledger's opening collected).
+  - Each PO row shows what it has bound: "Committed · $X of job cash held · N bills".
 - **QuickBooks (A14), which must be done before the bookkeeper's Part B turns exports on:**
   - ~~Export never matches existing QBO records.~~ **Done (branch `t3/tier3-qbo`):** a customer with the
     same display name is reused (imported or asked of QuickBooks). An invoice or payment that looks like

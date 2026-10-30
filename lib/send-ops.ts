@@ -22,8 +22,9 @@ import { renderInlineDocPdf } from "@/lib/documents";
 import { storeBuffer } from "@/lib/upload-store";
 import { usd } from "@/lib/money";
 import { fmtPoUsd } from "@/lib/po-types";
-import { fmtUsd } from "@/lib/cost-book-units";
 import { runDirect, withTransaction } from "@/lib/commands/db";
+import { composePoEmail, type PoEmail, type PoForEmail } from "@/lib/procurement/po-email";
+import { commitOwnerPurchaseOrder } from "@/lib/procurement/commitments";
 import {
   invoiceEmailBody,
   invoiceEmailPayload,
@@ -40,7 +41,7 @@ import { invoicePayLink } from "@/lib/client-invites";
 import { portalPaymentSetup } from "@/lib/payments/server";
 import { surchargeNotice } from "@/lib/payments/surcharge";
 
-export type SendOpResult = { ok: true; summary: string; intent_id?: string } | { ok: false; error: string; held?: boolean; intent_id?: string };
+export type SendOpResult = { ok: true; summary: string; intent_id?: string } | { ok: false; error: string; held?: boolean; intent_id?: string; /** Joe may send anyway after seeing why. */ confirm?: boolean };
 
 /** Who authorised the send. Omitted = the owner's own click (the caller
  *  already required access). */
@@ -65,77 +66,13 @@ const rev = (s: string) => createHash("sha256").update(s).digest("hex").slice(0,
 /** The email a PO send would put in the vendor's inbox. The owner can edit any
  *  of it before sending (Send to vendor opens it first); an agent can pass the
  *  same overrides to send_purchase_order. */
-export interface PoEmail {
-  to: string;
-  subject: string;
-  body: string;
-}
+export type { PoEmail } from "@/lib/procurement/po-email";
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
-type PoForEmail =
-  | { ok: true; po: { po_number: string; vendor_name: string; subtotal: number; slug: string; project_name: string }; email: PoEmail }
-  | { ok: false; error: string };
-
-/** Load a draft/queued PO and build its default email. The recipient falls
- *  back from the PO's own address to the saved vendor's / sub's email. */
+/** Load a draft/queued PO and build its default email (lib/procurement/po-email.ts). */
 async function loadPoEmail(id: number, slug?: string): Promise<PoForEmail> {
-  const po = await queryOne<{
-    po_number: string;
-    title: string;
-    notes: string;
-    vendor_name: string;
-    vendor_email: string;
-    status: string;
-    subtotal: number;
-    slug: string;
-    project_name: string;
-  }>(
-    `SELECT po.po_number, po.title, po.notes, po.vendor_name, po.status, po.subtotal,
-            COALESCE(NULLIF(trim(po.vendor_email), ''), NULLIF(trim(v.email), ''), NULLIF(trim(s.email), ''), '') AS vendor_email,
-            p.slug, p.name AS project_name
-       FROM purchase_orders po
-       JOIN projects p ON p.id = po.project_id
-       LEFT JOIN vendors v ON po.vendor_kind = 'vendor' AND v.id = po.vendor_id
-       LEFT JOIN subs s ON po.vendor_kind = 'sub' AND s.slug = po.sub_slug
-      WHERE po.id = $1 AND ($2::text IS NULL OR p.slug = $2)`,
-    [id, slug ?? null],
-  );
-  if (!po) return { ok: false, error: "Purchase order not found." };
-  if (!["draft", "queued"].includes(po.status)) {
-    return { ok: false, error: "This purchase order has already been sent." };
-  }
-
-  const { rows: lines } = await query<{
-    description: string;
-    unit: string;
-    qty_ordered: string;
-    unit_cost: number;
-    extended: number;
-  }>(
-    `SELECT description, unit, qty_ordered, unit_cost, extended
-       FROM purchase_order_lines WHERE purchase_order_id = $1 ORDER BY sort_order, id`,
-    [id],
-  );
-  if (lines.length === 0) return { ok: false, error: "Add at least one line before sending." };
-
-  const lineText = lines
-    .map((l) => `  • ${l.description}: ${Number(l.qty_ordered)} ${l.unit} × ${fmtUsd(l.unit_cost)} = ${fmtUsd(l.extended)}`)
-    .join("\n");
-  const body =
-    `${po.po_number} — ${po.title}\n${po.project_name}\n\n${lineText}\n\n` +
-    `Total: ${fmtUsd(po.subtotal)}\n\n` +
-    `${po.notes ? `${po.notes}\n\n` : ""}` +
-    `Please confirm receipt and expected delivery. Thank you!\n\nBest,\nJoe\nSJ Carpentry`;
-  return {
-    ok: true,
-    po,
-    email: {
-      to: po.vendor_email.toLowerCase(),
-      subject: `Purchase Order ${po.po_number} — ${po.project_name}`,
-      body,
-    },
-  };
+  return composePoEmail(runDirect, id, slug ?? null);
 }
 
 /** The default email for a PO, for the owner to review/edit before sending. */
@@ -147,10 +84,18 @@ export async function previewPurchaseOrderEmail(id: number, slug?: string): Prom
 /** Email a draft/queued PO to its vendor; it is marked sent when Gmail accepts.
  *  `edit` replaces any of the default To / Subject / Body (blank = keep the
  *  default). A new To is saved on the PO so the record shows where it went. */
-export async function sendPurchaseOrderOp(id: number, slug?: string, auth?: SendAuth, edit?: Partial<PoEmail>): Promise<SendOpResult> {
+export async function sendPurchaseOrderOp(id: number, slug?: string, auth?: SendAuth, edit?: Partial<PoEmail>, opts: { override?: boolean } = {}): Promise<SendOpResult> {
   const loaded = await loadPoEmail(id, slug);
   if (!loaded.ok) return loaded;
   const { po } = loaded;
+  // A13: a PO is a commitment. Before it goes out: the purchases lane, the
+  // construction gate (signed contract + initial payment) and the job's cash;
+  // then the commitment is recorded and the cash held. Joe can send anyway
+  // after seeing why (override); an agent's grant can't.
+  const guard = await withTransaction((run) =>
+    commitOwnerPurchaseOrder(run, { purchaseOrderId: id, principal: auth?.principal ?? { kind: "service", name: `owner:${auth?.actor ?? "click"}` }, override: Boolean(opts.override) && !auth?.grantId }),
+  );
+  if (!guard.ok) return { ok: false, error: guard.reason, ...(guard.overridable && !auth?.grantId ? { confirm: true } : {}) };
   const to = (edit?.to?.trim() || loaded.email.to).toLowerCase();
   const subject = edit?.subject?.trim() || loaded.email.subject;
   const body = edit?.body?.trim() || loaded.email.body;

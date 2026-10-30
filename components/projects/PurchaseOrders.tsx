@@ -260,7 +260,13 @@ export function PurchaseOrders({
     if (!sendModal) return;
     const { poId, to, subject, body } = sendModal;
     startTransition(async () => {
-      const res = await runAction(() => sendPurchaseOrder(slug, poId, { to, subject, body }), { fallback: "Couldn't send the purchase order." });
+      // A PO held by the construction gate or the job's cash comes back with
+      // confirm: Joe sees why and can send it anyway.
+      const first = await sendPurchaseOrder(slug, poId, { to, subject, body });
+      const res =
+        !first.ok && "confirm" in first && first.confirm && confirm(`${first.error}\n\nSend it to the vendor anyway?`)
+          ? await runAction(() => sendPurchaseOrder(slug, poId, { to, subject, body }, true), { fallback: "Couldn't send the purchase order." })
+          : first;
       if (res.ok) setSendModal(null);
       else setError(res.error ?? "Couldn't send the purchase order.");
       router.refresh();
@@ -398,6 +404,7 @@ export function PurchaseOrders({
                       <div className="mt-1 text-[11px] text-ink-3">
                         {o.vendorName} · Created {o.createdAtLabel} · {o.lines.length} line{o.lines.length === 1 ? "" : "s"}
                       </div>
+                      {o.commitmentLabel && <div className="mt-0.5 text-[11px] text-ink-3">{o.commitmentLabel}</div>}
                     </div>
                     <div className="flex flex-none flex-col items-end gap-1.5">
                       <button

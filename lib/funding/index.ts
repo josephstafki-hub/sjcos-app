@@ -48,9 +48,14 @@ async function tableExists(run: Run, name: string): Promise<boolean> {
 
 /** Cash available to commit right now. `forUpdate` locks the project row for
  *  the rest of the caller's transaction (used by reserveFunds). */
+async function tableHasColumn(run: Run, table: string, column: string): Promise<boolean> {
+  const [r] = await run<{ ok: boolean }>(`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2) AS ok`, [table, column]);
+  return r?.ok === true;
+}
+
 export async function projectFunding(run: Run, projectId: string, opts: { forUpdate?: boolean } = {}): Promise<ProjectFunding> {
-  const [project] = await run<{ id: string; collected_to_date: number }>(
-    `SELECT id, collected_to_date FROM projects WHERE id = $1${opts.forUpdate ? " FOR UPDATE" : ""}`,
+  const [project] = await run<{ id: string; collected_to_date: number; opening_collected_cents: string | null }>(
+    `SELECT id, collected_to_date, ${(await tableHasColumn(run, "projects", "opening_collected_cents")) ? "opening_collected_cents" : "NULL::bigint AS opening_collected_cents"} FROM projects WHERE id = $1${opts.forUpdate ? " FOR UPDATE" : ""}`,
     [projectId],
   );
   const unknown = (reason: string): ProjectFunding => ({
@@ -81,7 +86,10 @@ export async function projectFunding(run: Run, projectId: string, opts: { forUpd
         WHERE i.project_id = $1`,
       [projectId],
     );
-    collectedCents = n(c?.settled);
+    // Invoice payments, plus what Joe recorded as paid outside the app (the
+    // job money ledger's opening collected, migration 0037); before this a
+    // job paid through Houzz or by hand looked like it had no cash.
+    collectedCents = n(c?.settled) + n(project.opening_collected_cents);
     pendingCents += n(c?.pending);
   }
   const [inv] = await run<{ outstanding: string }>(

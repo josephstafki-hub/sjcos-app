@@ -15,6 +15,7 @@
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
 import { requireAccess } from "@/lib/dal";
+import { userPrincipal } from "@/lib/commands/db";
 import { previewPurchaseOrderEmail, sendPurchaseOrderOp, type PoEmail } from "@/lib/send-ops";
 import { poDollarsToCents, type PoVendorKind } from "@/lib/po-types";
 import { recomputePurchaseOrder as recompute } from "@/lib/po-recompute";
@@ -198,10 +199,13 @@ export async function getPurchaseOrderEmail(
 /** Owner-only: email the PO to the vendor, then mark it sent. The send core
  *  lives in lib/send-ops.ts; the only other caller is the agent path, which
  *  must first spend an owner grant (lib/agent-sends.ts). */
-export async function sendPurchaseOrder(slug: string, id: number, email?: Partial<PoEmail>): Promise<Result> {
-  await requireAccess("purchase_orders");
-  const res = await sendPurchaseOrderOp(id, slug, undefined, email);
-  if (!res.ok) return res;
+export async function sendPurchaseOrder(slug: string, id: number, email?: Partial<PoEmail>, override = false): Promise<Result & { confirm?: boolean }> {
+  const me = await requireAccess("purchase_orders");
+  // Sending anyway past the construction gate or a cash shortfall is Joe's call.
+  const isOwner = me.role === "owner";
+  // Authority unchanged (the click, as before); the principal names who sent it on the commitment.
+  const res = await sendPurchaseOrderOp(id, slug, { principal: userPrincipal(me) }, email, { override: override && isOwner });
+  if (!res.ok) return { ok: false, error: isOwner || !res.confirm ? res.error : `${res.error} Only Joe can send it anyway.`, ...(res.confirm && isOwner ? { confirm: true } : {}) };
   revalidatePath(`/projects/${slug}`);
   revalidatePath("/notifications");
   return { ok: true };

@@ -14,6 +14,7 @@ import {
   TableRow,
   TableWrapper,
 } from "@/components/ui";
+import { NextStep } from "./NextStep";
 import type { ProjectGroup } from "@/lib/projects";
 
 const FILTERS = [
@@ -52,7 +53,7 @@ export function ProjectsClient({ groups }: { groups: ProjectGroup[] }) {
         />
       ) : (
         <TableWrapper>
-          <Table>
+          <Table className="table-fixed">
             <TableHead>
               <tr>
                 <TableHeader className="@xl/page:min-w-[220px]">
@@ -87,8 +88,8 @@ export function ProjectsClient({ groups }: { groups: ProjectGroup[] }) {
                         {p.sub && (
                           <div className="line-clamp-1 text-meta text-ink-3">{p.sub}</div>
                         )}
-                        <div className="break-words text-meta text-ink-2 @4xl/page:hidden">
-                          {p.stage}
+                        <div className="min-w-0 @4xl/page:hidden">
+                          <NextStep text={p.stage} />
                         </div>
                         <div className="mt-1 tabular-nums text-meta text-ink-3 @xl/page:hidden">
                           {p.hasTotal
@@ -99,9 +100,7 @@ export function ProjectsClient({ groups }: { groups: ProjectGroup[] }) {
                         </div>
                       </TableCell>
                       <TableCell className="hidden max-w-64 @4xl/page:table-cell">
-                        <div className="whitespace-normal break-words text-ink-2" title={p.stage}>
-                          {p.stage}
-                        </div>
+                        <NextStep text={p.stage} />
                       </TableCell>
                       <TableCell className="hidden w-28 @2xl/page:table-cell">
                         {p.hasTotal ? (

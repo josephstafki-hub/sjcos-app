@@ -6,6 +6,8 @@ import { ConnectionNotice } from "@/components/messages/ConnectionNotice";
 import { Button, PageHeader, Chip } from "@/components/ui";
 import { loadCall, placeCallAction, type CallDetail } from "@/lib/actions/calls";
 import { runAction } from "@/lib/run-action";
+import { formatUsPhone } from "@/lib/comms/phone";
+import { callIdentityLabel } from "@/lib/comms/call-identity";
 import type { CallRow } from "@/lib/voice";
 
 const LINK_ROUTE: Record<string, string> = { lead: "leads", sub: "subs", project: "projects", client: "projects", vendor: "vendors" };
@@ -25,7 +27,7 @@ function fmtDuration(s: number | null): string {
 }
 
 function name(c: CallRow): string {
-  return c.contact_name?.trim() || c.counterparty_number;
+  return callIdentityLabel(c);
 }
 
 const OUTCOME_LABEL: Record<string, string> = {
@@ -176,7 +178,7 @@ export function CallsClient({
               </button>
               <DirIcon c={c} />
               <span className="text-subheading font-semibold text-ink">{name(c)}</span>
-              <span className="text-meta text-ink-3">{c.counterparty_number}</span>
+              <span className="text-meta text-ink-3">{formatUsPhone(c.counterparty_number)}</span>
               <OutcomeChip c={c} />
               <div className="ml-auto flex items-center gap-2">
                 {c.link_type && c.link_slug && LINK_ROUTE[c.link_type] && (

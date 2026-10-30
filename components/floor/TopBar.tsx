@@ -8,7 +8,7 @@ import {
   Undo2, Redo2, ChevronDown, Printer, Share2, Layers, AlertTriangle, MoreHorizontal, Check, Grid3x3, Magnet, ImageUp,
 } from "lucide-react";
 import { runAction } from "@/lib/run-action";
-import { runChecks } from "@/lib/plan-checks";
+import { useChecks } from "./inspector/ChecksPanel";
 import { renamePlanDesign, duplicatePlanDesign, deletePlanDesign, savePlanAsTemplate } from "@/lib/actions/plan-designs";
 import type { DesignerContext, ViewMode } from "./view-state";
 import { ALL_LAYERS } from "./view-state";
@@ -37,7 +37,7 @@ export function TopBar({
   const router = useRouter();
   const { d, view, setView, design } = ctx;
   const [menu, setMenu] = useState<null | "history" | "snap" | "layers" | "design" | "level">(null);
-  const warnings = runChecks(d.doc).filter((c) => c.severity === "warn").length;
+  const warnings = useChecks(ctx).filter((c) => c.severity === "warn" && !d.doc.ignoredChecks.includes(c.id)).length;
   const levels = d.doc.levels;
   const level = levels.find((l) => l.id === d.levelId) ?? levels[0];
 
@@ -198,7 +198,8 @@ export function TopBar({
       <button
         className={`${btn} ${warnings ? "border-flag/40 text-flag" : ""}`}
         onClick={() => setView({ panel: "checks" })}
-        title="Checks"
+        title="Warnings — open explanations"
+        aria-label={`${warnings} warnings — open explanations`}
       >
         <AlertTriangle className="size-3.5" />
         {warnings}

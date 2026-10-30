@@ -51,7 +51,7 @@ function TabStrip({ ctx }: { ctx: DesignerContext }) {
             data-tab={key}
             aria-pressed={active}
             onClick={() => ctx.setView({ panel: key })}
-            className={`relative flex flex-1 items-center justify-center py-2 transition-colors ${
+            className={`relative flex min-h-11 flex-1 items-center justify-center py-2 transition-colors ${
               active ? "border-b-2 border-ink text-ink" : "border-b-2 border-transparent text-ink-3 hover:text-ink"
             }`}
           >
@@ -122,7 +122,7 @@ export function Inspector({ ctx }: { ctx: DesignerContext }) {
  *  is optional (the shell may hide the sheet through its own state). */
 export function InspectorSheet({ ctx, onClose }: { ctx: DesignerContext; onClose?: () => void }) {
   return (
-    <div className="fixed inset-x-0 bottom-0 z-40 flex h-[45vh] flex-col rounded-t-xl border-t border-rule bg-paper shadow-[0_-8px_24px_rgba(0,0,0,.12)]">
+    <div role="dialog" aria-label="Drawing details" className="fixed inset-x-0 bottom-0 z-40 flex h-[55dvh] flex-col rounded-t-xl border-t border-rule bg-paper pb-14 shadow-modal">
       <div className="flex flex-none items-center justify-center py-1.5">
         <span className="h-1 w-10 rounded-full bg-ink-4" />
       </div>
@@ -131,7 +131,7 @@ export function InspectorSheet({ ctx, onClose }: { ctx: DesignerContext; onClose
         ctx={ctx}
         right={
           onClose ? (
-            <button type="button" onClick={onClose} className="text-ink-3 hover:text-ink" aria-label="Close">
+            <button type="button" onClick={onClose} className="flex size-11 items-center justify-center text-ink-3 hover:text-ink focus-visible:outline-2 focus-visible:outline-focus" aria-label="Close">
               <X className="size-4" strokeWidth={1.5} />
             </button>
           ) : undefined

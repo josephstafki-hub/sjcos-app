@@ -16,6 +16,7 @@ import {
   TableWrapper,
 } from "@/components/ui";
 import { NewLeadButton } from "./NewLeadButton";
+import { NextStep } from "@/components/projects/NextStep";
 import type { LeadsData } from "@/lib/leads";
 
 const FILTERS = [
@@ -86,7 +87,7 @@ export function LeadsClient({ data }: { data: LeadsData }) {
         />
       ) : (
         <TableWrapper>
-          <Table>
+          <Table className="table-fixed">
             <TableHead>
               <tr>
                 <TableHeader>Lead</TableHeader>
@@ -117,19 +118,15 @@ export function LeadsClient({ data }: { data: LeadsData }) {
                     <div className="text-meta text-ink-3">
                       {l.ageDays}d since first contact
                     </div>
-                    <div className="text-meta text-ink-2 @4xl/page:hidden">
-                      {l.scope}
-                    </div>
-                    {l.flag?.label && <p className="mt-1 break-words text-meta text-ink-2 @5xl/page:hidden">{l.flag.label}</p>}
+                    <div className="min-w-0 @4xl/page:hidden"><NextStep text={l.flag?.label ? `${l.flag.label}\n${l.scope}` : l.scope} /></div>
+                    {l.flag?.label && <div className="hidden min-w-0 @4xl/page:block @5xl/page:hidden"><NextStep text={l.flag.label} /></div>}
                     <div className="mt-1 text-meta text-ink-3 @xl/page:hidden">
                       {l.stageLabelText}
                       {l.value && l.value !== "?" ? ` · ${l.value}` : ""}
                     </div>
                   </TableCell>
                   <TableCell className="hidden max-w-60 @4xl/page:table-cell">
-                    <div className="whitespace-normal break-words text-ink-2" title={l.scope}>
-                      {l.scope || "—"}
-                    </div>
+                    <NextStep text={l.scope || "—"} />
                   </TableCell>
                   <TableCell className="hidden @xl/page:table-cell">
                     <Chip kind={l.stageAdvanced ? "accent" : "ghost"}>
@@ -143,9 +140,7 @@ export function LeadsClient({ data }: { data: LeadsData }) {
                     {l.value === "?" ? "—" : l.value || "—"}
                   </TableCell>
                   <TableCell className="hidden max-w-52 @5xl/page:table-cell">
-                    <div className="text-meta text-ink-2">
-                      {l.flag?.label || "—"}
-                    </div>
+                    <NextStep text={l.flag?.label || "—"} />
                   </TableCell>
                 </TableRow>
               ))}

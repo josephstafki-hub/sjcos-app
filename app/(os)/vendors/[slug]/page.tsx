@@ -40,8 +40,8 @@ export default async function VendorDetailPage({
           meta={vendor.trade || "Materials supplier"}
           actions={
             <>
-              {vendor.phone && <Button href={`tel:${vendor.phone}`} variant="secondary">Call</Button>}
-              {vendor.email && <Button href={`mailto:${vendor.email}`} variant="secondary">Email</Button>}
+              {vendor.phone && <Button href={`tel:${vendor.phone}`} variant="secondary" className="min-h-11">Call</Button>}
+              {vendor.email && <Button href={`mailto:${vendor.email}`} variant="secondary" className="min-h-11">Email</Button>}
               <VendorHeaderEdit {...vendor} />
               <DirectoryRecordMenu table="vendors" {...vendor} />
             </>

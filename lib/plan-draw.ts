@@ -1,3 +1,4 @@
+import { clearLabelPosition } from "./plan-labels.ts";
 // Plan → DrawOp[]: the 2D drafting layer of the floor-plan designer
 // (docs/floor-plan-designer-plan.md §3, §5, §6, §8). Pure and client-safe:
 // this module knows nothing about React or SVG; components/floor/DrawOps.tsx
@@ -68,6 +69,8 @@ export interface PlanDrawOptions {
   showDims: boolean;
   /** Room name + area centred in the room. */
   showRoomLabels: boolean;
+  /** Live canvas pins, in plan inches. */
+  labelMarkers?: readonly { x: number; y: number; radius: number }[];
   /** The canvas draws the grid itself; ignored here. */
   showGrid?: boolean;
   /** Hint so text can be scaled for readability at the current zoom. */
@@ -547,7 +550,13 @@ function drawRooms(ctx: Ctx): void {
     });
     ctx.outlines.set(r.id, { pts: r.polygon, layer: "rooms" });
     if (ctx.opts.showRoomLabels) {
-      const c = centroid(r.polygon);
+      const markers = [
+        ...(ctx.opts.labelMarkers ?? []),
+        ...(on(ctx, "photos") ? ctx.slice.photos.map(p => ({ x: p.x, y: p.y, radius: 12 })) : []),
+        ...(on(ctx, "cameras") && !ctx.print ? ctx.slice.cameras.map(c => ({ x: c.pos[0], y: c.pos[2], radius: 18 })) : []),
+        ...(on(ctx, "electrical") ? ctx.slice.electrical.map(e => ({ x: e.x, y: e.y, radius: 8 })) : []),
+      ];
+      const c = clearLabelPosition(centroid(r.polygon), Math.max(r.name.length * ctx.T.room * 0.3, 20), ctx.T.room * 1.5, markers);
       push(ctx, textOp(ctx, "rooms", { x: c.x, y: c.y - ctx.T.room * 0.55 }, r.name, ctx.T.room, { weight: "bold" }, ctx.ink));
       push(ctx, textOp(ctx, "rooms", { x: c.x, y: c.y + ctx.T.base * 0.7 }, `${Math.round(r.areaSf)} sf`, ctx.T.base, {}, DRAW_COLORS.ink2));
     }

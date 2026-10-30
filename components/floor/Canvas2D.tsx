@@ -332,8 +332,9 @@ export const Canvas2D = forwardRef<Canvas2DHandle, { ctx: DesignerContext; class
         showDims: view.showDims,
         showRoomLabels: view.showRoomLabels,
         scalePxPerIn: vp.k,
+        labelMarkers: view.layers.has("comments") ? ctx.comments.filter(c => c.anchor.levelId === levelId && !c.resolvedAt).map(c => ({ x: c.anchor.x, y: c.anchor.y, radius: 10 / vp.k })) : [],
       }),
-    [d.doc, levelId, view.phase, view.layers, selectedSet, d.hover, view.showTags, view.showDims, view.showRoomLabels, vp.k],
+    [d.doc, levelId, view.phase, view.layers, selectedSet, d.hover, view.showTags, view.showDims, view.showRoomLabels, vp.k, ctx.comments],
   );
 
   // Room fills / finish regions sit under the plan image; everything else over it.

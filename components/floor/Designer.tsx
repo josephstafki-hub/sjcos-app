@@ -5,6 +5,8 @@
 // bar. State lives in useDesigner (doc + undo + autosave) and ViewState
 // (per-session display options); every edit is a PlanOp.
 
+import { MousePointer2, Minus, Undo2, ZoomOut, ZoomIn, Maximize, AlertTriangle, Menu, X } from "lucide-react";
+import { useChecks } from "./inspector/ChecksPanel";
 import { Button } from "@/components/ui/Button";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -51,10 +53,17 @@ export function Designer(props: DesignerProps) {
   const { design, readOnly } = props;
   const router = useRouter();
   const d = useDesigner(design.id, design.doc, design.rev, readOnly);
+  const [narrow, setNarrow] = useState(true);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [controlsOpen, setControlsOpen] = useState(false);
   const [view, setViewState] = useState<ViewState>(() => ({ ...defaultViewState(), panel: props.initialPanel ?? "properties" }));
   const setView = useCallback((patch: Partial<ViewState> | ((v: ViewState) => Partial<ViewState>)) => {
     setViewState((v) => ({ ...v, ...(typeof patch === "function" ? patch(v) : patch) }));
-  }, []);
+    if (typeof patch !== "function" && patch.panel && narrow) {
+      setControlsOpen(false);
+      setSheetOpen(true);
+    }
+  }, [narrow]);
   // Picking any tool ends an underlay scale / move in progress.
   const pickTool = useCallback(
     (t: ToolId) => {
@@ -66,8 +75,6 @@ export function Designer(props: DesignerProps) {
   const canvas = useRef<Canvas2DHandle>(null);
   const scene = useRef<Scene3DHandle>(null);
   const container = useRef<HTMLDivElement>(null);
-  const [narrow, setNarrow] = useState(true);
-  const [sheetOpen, setSheetOpen] = useState(false);
 
   // Narrow layout (tablet portrait / phone): rail becomes a strip, inspector a sheet.
   useEffect(() => {
@@ -134,6 +141,7 @@ export function Designer(props: DesignerProps) {
   // Keyboard shortcuts.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (controlsOpen) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
       const meta = e.metaKey || e.ctrlKey;
@@ -249,7 +257,7 @@ export function Designer(props: DesignerProps) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [d, pickTool, readOnly, setView, view.paint]);
+  }, [d, pickTool, readOnly, setView, view.paint, controlsOpen]);
 
   const showPlan = view.mode === "plan" || view.mode === "split";
   const show3d = view.mode === "3d" || view.mode === "split";
@@ -361,13 +369,44 @@ export function Designer(props: DesignerProps) {
   );
 
   const onPrint = () => setView({ panel: "versions" });
+  const checks = useChecks(ctx);
+  const warnings = checks.filter(c => !d.doc.ignoredChecks.includes(c.id) && c.severity === "warn").length;
+  const fit = () => { canvas.current?.fit(); scene.current?.fit(); };
+  const essential = "flex min-h-11 min-w-0 flex-col items-center justify-center rounded-md text-label text-ink-2 hover:bg-hover focus-visible:outline-2 focus-visible:outline-focus disabled:opacity-40 aria-pressed:bg-selected aria-pressed:text-ink";
+
+  useEffect(() => {
+    if (!controlsOpen) return;
+    const close = (e: KeyboardEvent) => { if (e.key === "Escape") setControlsOpen(false); };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [controlsOpen]);
 
   return (
     <div ref={container} className="flex h-[calc(100dvh-var(--topbar-h,48px))] min-h-[480px] flex-col overflow-hidden max-sm:pb-14">
       {/* A19: owner office time from real interaction only; server resolves the job from the design. */}
       <ActivityEmitter designId={design.id} enabled={props.isOwner && !readOnly} />
-      <TopBar ctx={ctx} onFit={() => { canvas.current?.fit(); scene.current?.fit(); }} onPrint={onPrint} />
-      {narrow && <ToolPalette tool={d.tool} onSelect={pickTool} compact />}
+      {narrow ? (
+        <div role="toolbar" aria-label="Essential drawing tools" className="grid flex-none grid-cols-8 gap-0.5 border-b border-rule bg-paper px-2 py-1">
+          <button className={essential} aria-label="Select" title="Select" aria-pressed={d.tool === "select"} onClick={() => pickTool("select")}><MousePointer2 className="size-4" /><span>Select</span></button>
+          <button className={essential} aria-label="Draw wall" title="Draw wall" aria-pressed={d.tool === "wall"} disabled={readOnly} onClick={() => pickTool("wall")}><Minus className="size-4" /><span>Wall</span></button>
+          <button className={essential} aria-label="Undo" title="Undo" disabled={!d.canUndo} onClick={d.undo}><Undo2 className="size-4" /></button>
+          <button className={essential} aria-label="Zoom out" title="Zoom out" disabled={!showPlan} onClick={() => canvas.current?.zoom(0.8)}><ZoomOut className="size-4" /></button>
+          <button className={essential} aria-label="Zoom in" title="Zoom in" disabled={!showPlan} onClick={() => canvas.current?.zoom(1.25)}><ZoomIn className="size-4" /></button>
+          <button className={essential} aria-label="Fit drawing" title="Fit drawing" onClick={fit}><Maximize className="size-4" /><span>Fit</span></button>
+          <button className={`${essential} text-warn`} aria-label={`${warnings} warnings — open explanations`} title="Warnings" onClick={() => setView({ panel: "checks" })}><AlertTriangle className="size-4" /><span>{warnings}</span></button>
+          <button className={essential} aria-label="More drawing tools and settings" aria-expanded={controlsOpen} onClick={() => setControlsOpen(true)}><Menu className="size-4" /><span>More</span></button>
+        </div>
+      ) : <TopBar ctx={ctx} onFit={fit} onPrint={onPrint} />}
+      {narrow && controlsOpen && (
+        <div className="fixed inset-0 z-40 bg-ink/30" onClick={() => setControlsOpen(false)}>
+          <section role="dialog" aria-modal="true" aria-label="Drawing tools and settings" className="absolute inset-x-0 bottom-0 max-h-[75dvh] overflow-y-auto rounded-t-xl bg-paper pb-16 shadow-modal" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-2"><h2 className="font-serif text-heading">Drawing tools and settings</h2><Button variant="ghost" icon={X} iconOnly aria-label="Close tools" title="Close tools" onClick={() => setControlsOpen(false)} /></div>
+            <TopBar ctx={ctx} onFit={fit} onPrint={onPrint} />
+            <ToolPalette tool={d.tool} onSelect={t => { pickTool(t); setControlsOpen(false); }} compact />
+            <Button variant="secondary" className="m-3 min-h-11" onClick={() => setView({ panel: "properties" })}>Properties and panels</Button>
+          </section>
+        </div>
+      )}
       <div className="flex min-h-0 flex-1">
         {!narrow && <ToolPalette tool={d.tool} onSelect={pickTool} />}
         <div className="relative flex min-w-0 flex-1">
@@ -390,9 +429,9 @@ export function Designer(props: DesignerProps) {
           {narrow && (
             <Button
               onClick={() => setSheetOpen((o) => !o)}
-              className="absolute bottom-3 right-3 z-20 rounded-full border border-ink bg-ink px-3 py-1.5 text-label font-semibold text-paper shadow-pop"
+              className="absolute top-3 right-3 z-20 rounded-full border border-ink bg-ink px-3 py-1.5 text-label font-semibold text-paper shadow-pop"
             >
-              {sheetOpen ? "Hide panel" : "Panel"}
+              {sheetOpen ? "Hide details" : "Details"}
             </Button>
           )}
         </div>

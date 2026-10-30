@@ -132,16 +132,13 @@ export function WarrantyClient({
                               : "Unconfirmed"}
                         </Chip>
                       </div>
-                      {projects.find(project => project.name === p.project) && <Link href={`/projects/${projects.find(project => project.name === p.project)!.slug}?tab=Closeout`} className="mt-2 block text-label font-normal text-accent-2 hover:underline">{p.status === "unconfirmed" ? "Record closeout & coverage" : "Review project closeout"} →</Link>}
-                      <p className="mt-2 whitespace-pre-line text-body font-normal text-ink-2">
-                        {p.warranty}
-                      </p>
-                      <p className="mt-1 text-meta font-normal text-ink-3">
-                        {p.coverageNote}
-                      </p>
-                      <p className="mt-1 text-meta font-normal text-ink-3 @3xl/page:hidden">
-                        Closeout / sign-off: {p.closed}
-                      </p>
+                      <Link href={projects.find(project => project.name === p.project) ? `/projects/${projects.find(project => project.name === p.project)!.slug}?tab=Closeout` : "/projects"} className="mt-1 inline-flex min-h-11 items-center text-label font-normal text-accent-2 hover:underline @xl/page:min-h-7">{!projects.some(project => project.name === p.project) ? "Find project to record coverage" : p.status === "unconfirmed" ? "Record closeout & coverage" : "Review project closeout"} →</Link>
+                      <details className="mt-1 text-meta font-normal text-ink-3">
+                        <summary className="cursor-pointer py-1 hover:text-ink focus-visible:outline-2 focus-visible:outline-focus">Coverage details</summary>
+                        <p className="mt-1 whitespace-pre-line text-body text-ink-2">{p.warranty}</p>
+                        <p className="mt-1">{p.coverageNote}</p>
+                        <p className="mt-1 @3xl/page:hidden">Closeout / sign-off: {p.closed}</p>
+                      </details>
                     </TablePrimaryCell>
                     <TableCell className="@max-3xl/page:hidden">
                       {p.closed}

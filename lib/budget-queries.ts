@@ -78,8 +78,10 @@ export async function loadRawProjectMoney(
       `SELECT id, slug, name, status, client_name, contract_value, collected_to_date,
               budget_basis, budget_label, budget_caption, price_cents, retainage_cents, budget_notes,
               budget_complete, to_char(costs_through, 'YYYY-MM-DD') AS costs_through,
-              billing_source, opening_collected_cents, opening_billed_cents, opening_note
-         FROM projects WHERE id = ANY($1::uuid[])`, ids),
+              billing_source, opening_collected_cents, opening_billed_cents, opening_note,
+              opening_total_cents, total_cents, collected_cents,
+              mp.estimate_id, mp.estimate_cents, mp.change_orders_cents, mp.precon_cents, mp.payments_cents
+         FROM projects, LATERAL project_money_parts(projects.id) mp WHERE id = ANY($1::uuid[])`, ids),
     // The job's approved estimate: the newest one if there are several.
     q(
       `SELECT DISTINCT ON (project_id) project_id, total
@@ -160,6 +162,18 @@ export async function loadRawProjectMoney(
         openingCollectedCents: num(p.opening_collected_cents),
         openingBilledCents: num(p.opening_billed_cents),
         openingNote: text(p.opening_note) || undefined,
+        // The job total and paid figures Postgres keeps (migration 0037) —
+        // the same numbers the projects list shows.
+        ledger: {
+          totalCents: num(p.total_cents),
+          collectedCents: num(p.collected_cents),
+          openingTotalCents: num(p.opening_total_cents),
+          estimateId: numOrNull(p.estimate_id),
+          estimateCents: num(p.estimate_cents),
+          changeOrdersCents: num(p.change_orders_cents),
+          preconCents: num(p.precon_cents),
+          paymentsCents: num(p.payments_cents),
+        },
       },
       lines: [], changeOrders: [], invoices: [], purchaseOrders: [], subInvoices: [], expenses: [], parties: [], fundingEvents: [],
     });

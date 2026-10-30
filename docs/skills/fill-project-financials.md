@@ -78,11 +78,12 @@ All money is **integer cents** in every tool.
    - `budget_complete: true` **only** when every trade is listed and every
      budget is a real expected cost. This is the switch that lets a profit
      show. If in doubt, leave it off and say what is missing.
-8. **Billing — look, don't touch.** "Collected" on a job is Joe's hand-kept
-   total until he reconciles it. If the documents show money collected that the
-   invoices in SJC OS don't (a deposit carried on a Houzz estimate), run
-   `propose_billing_reconciliation` and tell Joe with `ask_owner` or
-   `create_work_item`. No tool switches billing; that is his reviewed step.
+8. **Job total and paid — look, don't touch.** Both are computed from the
+   job's records (`job_money` in `get_project_financials`); no tool writes
+   them. If the documents show a total or a payment the app's estimates and
+   invoices don't (a deposit carried on a Houzz estimate), tell Joe with
+   `ask_owner` or `create_work_item`: he enters it on Money › Overview › Money
+   outside the app.
 9. **Read it back.** `get_project_financials` again. Check the summary sentences
    read true, nothing is "possible duplicate", and unassigned is $0 or explained.
 10. **Proof.** `record_receipt` with what you entered, from which documents, and

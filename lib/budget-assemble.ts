@@ -27,6 +27,7 @@ import {
   type BudgetLineKind,
   type BudgetParty,
   type BudgetView,
+  type JobMoney,
   type FundingEvent,
 } from "./budget-types.ts";
 
@@ -61,7 +62,14 @@ export interface RawProject {
   openingCollectedCents: number;
   openingBilledCents: number;
   openingNote?: string;
+  /** The job total and paid figures Postgres computes for every job (migration
+   *  0037, db function project_money_parts). When present they ARE the price and
+   *  the collected figure, so this page and the projects list read the same
+   *  numbers. Fixtures without it use the older per-field rules below. */
+  ledger?: RawJobLedger;
 }
+
+export type RawJobLedger = Omit<JobMoney, "openingCollectedCents" | "openingNote">;
 
 export interface RawBudgetLine {
   id: number;
@@ -474,18 +482,19 @@ export function assembleBudgetView(raw: RawProjectMoney, opts: { asOf: string })
   // ---- billing. The source is a per-job setting, never inferred from whether
   // invoice rows exist: nothing keeps projects.collected_to_date in step with
   // the invoices table, and on live jobs the two already disagree.
-  const handKept = Math.round(p.collectedToDateDollars * 100);
-  const paidInvoices = raw.invoices.filter((i) => i.status === "paid").reduce((s, i) => s + i.amountCents, 0);
+  const ledger = p.ledger;
+  const handKept = ledger ? ledger.collectedCents : Math.round(p.collectedToDateDollars * 100);
+  const paidInvoices = ledger ? ledger.paymentsCents : raw.invoices.filter((i) => i.status === "paid").reduce((s, i) => s + i.amountCents, 0);
   const sentInvoices = raw.invoices.filter((i) => i.status === "sent").reduce((s, i) => s + i.amountCents, 0);
-  const tracked = p.billingSource === "invoices";
+  const tracked = ledger != null || p.billingSource === "invoices";
   const openingCollected = tracked ? p.openingCollectedCents : 0;
-  const openingBilled = tracked ? p.openingBilledCents : 0;
-  const mismatchCents = handKept - (openingCollected + paidInvoices);
+  const openingBilled = tracked ? Math.max(p.openingBilledCents, ledger ? p.openingCollectedCents : 0) : 0;
+  const mismatchCents = ledger ? 0 : handKept - (openingCollected + paidInvoices);
   // Billed before invoices were tracked here and still unpaid is receivable too.
   const openingUnpaid = tracked ? Math.max(0, openingBilled - openingCollected) : 0;
   const billing: BudgetBilling = {
-    source: p.billingSource,
-    collectedCents: tracked ? openingCollected + paidInvoices : handKept,
+    source: ledger ? "invoices" : p.billingSource,
+    collectedCents: ledger ? ledger.collectedCents : tracked ? openingCollected + paidInvoices : handKept,
     billedCents: tracked ? openingBilled + paidInvoices + sentInvoices : null,
     unpaidInvoicesCents: sentInvoices + openingUnpaid,
     openingUnpaidCents: openingUnpaid,
@@ -507,8 +516,11 @@ export function assembleBudgetView(raw: RawProjectMoney, opts: { asOf: string })
   const allLinesPriced = raw.lines.length > 0 && linePrices.every((x) => x != null);
   const linePriceSum = linePrices.reduce((s: number, x) => s + (x ?? 0), 0);
   let priceCents = 0;
-  let priceSource: "override" | "estimate" | "contract" | "lines" | "none" = "none";
-  if (p.priceCentsOverride != null) [priceCents, priceSource] = [p.priceCentsOverride, "override"];
+  let priceSource: NonNullable<BudgetView["priceSource"]> = "none";
+  // The job total less approved change orders (computeTotals adds them back).
+  if (ledger && ledger.totalCents > 0) [priceCents, priceSource] = [ledger.totalCents - ledger.changeOrdersCents, "ledger"];
+  else if (ledger) [priceCents, priceSource] = [0, "none"];
+  else if (p.priceCentsOverride != null) [priceCents, priceSource] = [p.priceCentsOverride, "override"];
   else if (p.approvedEstimateTotalCents != null) [priceCents, priceSource] = [p.approvedEstimateTotalCents, "estimate"];
   else if (contractCents > 0) [priceCents, priceSource] = [contractCents, "contract"];
   else if (allLinesPriced && linePriceSum > 0) [priceCents, priceSource] = [linePriceSum, "lines"];
@@ -583,6 +595,7 @@ export function assembleBudgetView(raw: RawProjectMoney, opts: { asOf: string })
     costs,
     unassigned,
     billing,
+    ...(ledger ? { jobMoney: { ...ledger, openingCollectedCents: p.openingCollectedCents, openingNote: p.openingNote } } : {}),
     completeness,
     retainageCents: p.retainageCents || undefined,
     notes: p.notes?.length ? p.notes : undefined,
@@ -592,6 +605,11 @@ export function assembleBudgetView(raw: RawProjectMoney, opts: { asOf: string })
   // what exists
   const b = completeness.basedOn;
   if (priceSource === "override") b.push(`Price set to ${fmtK(priceCents)}`);
+  if (priceSource === "ledger" && ledger) {
+    if (ledger.estimateCents) b.push(`Contract estimate ${fmtK(ledger.estimateCents)}`);
+    if (ledger.openingTotalCents) b.push(`Agreed outside the app ${fmtK(ledger.openingTotalCents)}`);
+    if (ledger.preconCents) b.push(`Pre-con fee invoices ${fmtK(ledger.preconCents)}`);
+  }
   if (priceSource === "estimate") b.push(`Approved estimate ${fmtK(priceCents)}`);
   if (priceSource === "contract") b.push(`Contract ${fmtK(priceCents)}`);
   if (priceSource === "lines") b.push(`Budget line prices ${fmtK(priceCents)}`);
@@ -599,7 +617,7 @@ export function assembleBudgetView(raw: RawProjectMoney, opts: { asOf: string })
   if (raw.changeOrders.length) b.push(plural(raw.changeOrders.length, "change order"));
   if (raw.invoices.length) b.push(plural(raw.invoices.length, "invoice"));
   if (!tracked) b.push(`Hand-kept collected ${fmtK(handKept)}`);
-  if (tracked && openingCollected > 0) b.push(`Opening balance ${fmtK(openingCollected)}`);
+  if (tracked && openingCollected > 0) b.push(`${ledger ? "Paid outside the app" : "Opening balance"} ${fmtK(openingCollected)}`);
   if (raw.subInvoices.length) b.push(plural(raw.subInvoices.length, "sub invoice"));
   const livePos = raw.purchaseOrders.filter((po) => po.status !== "void").length;
   if (livePos) b.push(plural(livePos, "purchase order"));
@@ -608,7 +626,7 @@ export function assembleBudgetView(raw: RawProjectMoney, opts: { asOf: string })
   // what is missing or soft
   const m = completeness.missing;
   if (!completeness.budget) m.push(raw.lines.length ? "Budget isn't finished — not marked as covering the whole job" : "No budget yet");
-  if (priceSource === "none") m.push("No price set");
+  if (priceSource === "none") m.push(ledger ? "No job total yet — no contract estimate, and nothing entered as agreed outside the app" : "No price set");
   if (
     priceSource === "estimate" && contractCents > 0 &&
     Math.abs((p.approvedEstimateTotalCents ?? 0) - contractCents) > ONE_DOLLAR

@@ -71,14 +71,25 @@ export function ProjectsClient({ groups }: { groups: ProjectGroup[] }) {
                     </div>
                     <div className="mt-0.5 text-[11px] text-ink-3">{p.sub}</div>
                   </div>
+                  {/* Paid ÷ job total, both computed from the job's records
+                      (migration 0037) — the same figures as Money › Overview. */}
                   <div className="hidden w-[220px] sm:block">
-                    <div className="mb-1 flex items-center">
-                      <span className="flex-1 font-mono text-[11px] text-ink-3">{p.billed}% billed</span>
-                      <span className="font-mono text-[12px] text-ink-2">{p.value}</span>
-                    </div>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-paper-3">
-                      <div className={`h-full ${g.bar}`} style={{ width: `${p.billed}%` }} />
-                    </div>
+                    {p.hasTotal ? (
+                      <>
+                        <div className="mb-1 flex items-center gap-2">
+                          <span className="flex-1 font-mono text-[11px] text-ink-3">{p.billed}% paid</span>
+                          <span className="font-mono text-[12px] text-ink-2">{p.paid} / {p.value}</span>
+                        </div>
+                        <div className="h-1.5 overflow-hidden rounded-full bg-paper-3">
+                          <div className={`h-full ${g.bar}`} style={{ width: `${p.billed}%` }} />
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="flex-1 font-mono text-[11px] text-ink-3">No job total yet</span>
+                        {p.value && <span className="truncate font-mono text-[12px] text-ink-3">{p.value}</span>}
+                      </div>
+                    )}
                   </div>
                   <ChevronRight className="size-3.5 flex-none text-ink-3" strokeWidth={1.5} />
                 </Card>

@@ -221,8 +221,8 @@ export async function getWorkbenchSnapshot(ref: EntityRef): Promise<WorkbenchSna
       fields: [
         { label: "Status", value: projectStageLabel(p.status) },
         { label: "Stage label", value: p.stage_label ?? "—" },
-        { label: "Progress", value: `${p.progress}%` },
-        { label: "Contract", value: p.value_display ?? money(p.contract_value) },
+        { label: "Paid", value: p.contract_value > 0 ? `${p.progress}%` : "—" },
+        { label: "Job total", value: p.contract_value > 0 ? money(p.contract_value) : p.value_display ?? "—" },
         { label: "Collected", value: money(p.collected_to_date) },
         { label: "Target end", value: p.target_end_date ?? "—" },
       ],

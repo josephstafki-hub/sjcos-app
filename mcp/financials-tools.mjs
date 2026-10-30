@@ -11,8 +11,9 @@
 // These are INTERNAL records — no owner grant, nothing is sent. Two hard lines:
 //   • No tool here creates a change order or moves one out of draft. The client
 //     portal lists every non-draft change order (plan §14 #19).
-//   • No tool flips a job's billing source. `propose_billing_reconciliation`
-//     shows the numbers; the switch is the owner's reviewed step in the app.
+//   • No tool writes a job's total or paid figure. Postgres computes both from
+//     the records (migration 0037); the "outside the app" amounts are the
+//     owner's, on Money › Overview.
 // Every import-shaped write is idempotent on a stable key (a line's `key`, a
 // cost's `source_ref`), so a retried import changes nothing.
 //
@@ -31,7 +32,7 @@ import { z } from "zod";
 import { assembleBudgetView } from "../lib/budget-assemble.ts";
 import { buildCompanyMoney } from "../lib/budget-company.ts";
 import { findProjects, loadRawProjectMoney, todayCentral } from "../lib/budget-queries.ts";
-import { computeTotals, describeFinancials, proposeBillingReconciliation } from "../lib/budget-types.ts";
+import { computeTotals, describeFinancials } from "../lib/budget-types.ts";
 import * as writes from "../lib/budget-writes.ts";
 import { recordWorkflowEvent } from "../lib/workflow/engine.ts";
 import { agentNameOf } from "./tool-shared.mjs";
@@ -40,7 +41,6 @@ const pct = (r) => (r == null ? null : Math.round(r * 1000) / 10);
 
 function projectPayload(view) {
   const t = computeTotals(view);
-  const needsReconcile = view.billing.source === "manual" && view.billing.invoiceCount > 0;
   return {
     project: view.project,
     as_of: view.asOfLabel,
@@ -80,20 +80,16 @@ function projectPayload(view) {
       planned_margin_pct: pct(t.plannedMarginPct),
     },
     progress: { work_done_by_cost_pct: pct(t.workDonePct), earned_cents: t.earnedCents },
+    job_money: view.jobMoney ?? null,
     billing: {
-      source: view.billing.source,
       collected_cents: t.collectedCents,
       left_to_collect_cents: t.leftToCollectCents,
       unpaid_invoices_cents: t.unpaidInvoicesCents,
       billed_cents: t.billedCents,
       left_to_bill_cents: t.leftToBillCents,
       billed_ahead_of_work_cents: t.overUnderBilledCents,
-      opening_collected_cents: view.billing.openingCollectedCents,
-      hand_kept_collected_cents: view.billing.handKeptCollectedCents,
-      paid_invoices_cents: view.billing.paidInvoicesCents,
-      mismatch_cents: view.billing.mismatchCents,
-      mismatch_flagged: view.billing.mismatchFlagged,
-      reconciliation_proposal: needsReconcile ? proposeBillingReconciliation(view.billing) : null,
+      paid_outside_the_app_cents: view.billing.openingCollectedCents,
+      payments_on_invoices_cents: view.billing.paidInvoicesCents,
     },
     who_pays: t.paidBy.map((p) => ({ party: p.label, amount_cents: p.amountCents, is_owner: p.isOwner })),
     lines: view.lines.map((l, i) => ({
@@ -203,8 +199,8 @@ export function registerFinancialsTools(server, { rows, json, pool, strippedDoll
         "every budget line with its spent · owed · on order · still to spend, change orders, the cost ledger " +
         "(sub invoices, POs, expenses — each counted once), client invoices and notes. ALL MONEY IS INTEGER CENTS. " +
         "`completeness.profit` is 'unknown' until the budget covers the whole job: then no profit or margin is " +
-        "given, only cost so far — do not compute one yourself. `billing.source` 'manual' means collected is the " +
-        "hand-kept total and billed is unknown. Read-only.",
+        "given, only cost so far — do not compute one yourself. `job_money` is the job total and paid amount the " +
+        "projects list shows, term by term; the price is that total. Read-only.",
       inputSchema: { project_slug: z.string() },
     },
     async ({ project_slug }) => {
@@ -308,15 +304,14 @@ export function registerFinancialsTools(server, { rows, json, pool, strippedDoll
       description:
         "Change only what you pass. `budget_complete: true` is the claim that the lines cover the WHOLE job with " +
         "real costs — it is what allows a profit to be shown, so set it only when that is true. `costs_through` " +
-        "(YYYY-MM-DD) is the date the sub invoices and receipts you entered run to. `price_cents` is the base price " +
-        "EXCLUDING change orders; set it when the hand-kept contract total already includes them; null = use the " +
-        "approved estimate / contract. `notes` REPLACES the list: assumptions, open questions, next moves — one per " +
-        "item. Does not touch billing.",
+        "(YYYY-MM-DD) is the date the sub invoices and receipts you entered run to. The job's price is its job total " +
+        "(see get_project_financials `job_money`), never set here. `notes` REPLACES the list: assumptions, open " +
+        "questions, next moves — one per item. Does not touch billing.",
       inputSchema: {
         project_slug: z.string(),
         basis: z.enum(["fixed_price", "insurance", "cost_plus", "time_materials"]).optional(),
         budget_label: z.string().optional(), budget_caption: z.string().optional(),
-        price_cents: cents.nullable().optional(), retainage_cents: cents.optional(),
+        retainage_cents: cents.optional(),
         budget_complete: z.boolean().optional(), costs_through: z.string().nullable().optional(),
         notes: z.array(z.string()).optional(),
       },
@@ -326,7 +321,6 @@ export function registerFinancialsTools(server, { rows, json, pool, strippedDoll
       if ("basis" in a) patch.basis = a.basis;
       if ("budget_label" in a) patch.budgetLabel = a.budget_label;
       if ("budget_caption" in a) patch.budgetCaption = a.budget_caption;
-      if ("price_cents" in a) patch.priceCents = a.price_cents;
       if ("retainage_cents" in a) patch.retainageCents = a.retainage_cents;
       if ("budget_complete" in a) patch.budgetComplete = a.budget_complete;
       if ("costs_through" in a) patch.costsThrough = a.costs_through;
@@ -525,32 +519,5 @@ export function registerFinancialsTools(server, { rows, json, pool, strippedDoll
         credits: "credits" in a ? credits : curCredits.map((c) => ({ lineId: Number(c.budget_line_id), amountCents: Number(c.amount_cents) })),
       });
     }),
-  );
-
-  server.registerTool(
-    "propose_billing_reconciliation",
-    {
-      title: "Show what reconciling a job's billing would do",
-      description:
-        "READ ONLY. A job's Collected figure is either the hand-kept projects.collected_to_date ('manual', the " +
-        "default) or an opening balance plus the paid invoices in SJC OS. Nothing keeps those two in step, so they " +
-        "can disagree. This returns both side by side and the opening balance that would make the switch change " +
-        "nothing. It does NOT switch: that is Joe's reviewed step (project › Money › Overview › Reconcile billing). " +
-        "If the documents show collections the invoices lack, tell Joe with ask_owner or create_work_item.",
-      inputSchema: { project_slug: z.string() },
-    },
-    async ({ project_slug }) => {
-      const [project] = await findProjects(rows, { slug: project_slug });
-      if (!project) return json({ error: `No project with slug "${project_slug}"` });
-      const view = assembleBudgetView((await loadRawProjectMoney(rows, [project.id])).get(project.id), { asOf: todayCentral() });
-      const p = proposeBillingReconciliation(view.billing);
-      return json({
-        project: view.project, billing_source: view.billing.source, invoices_on_file: view.billing.invoiceCount,
-        hand_kept_collected_cents: p.handKeptCents, paid_invoices_cents: p.paidInvoicesCents, difference_cents: p.differenceCents,
-        proposed_opening_collected_cents: p.proposedOpeningCollectedCents, proposed_opening_billed_cents: p.proposedOpeningBilledCents,
-        hand_kept_looks_stale: p.handKeptLooksStale,
-        how_to_apply: "Joe reviews and applies it in the app: project › Money › Overview › Reconcile billing. No tool can.",
-      });
-    },
   );
 }

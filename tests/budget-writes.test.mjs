@@ -43,7 +43,7 @@ function fakeDb({ estimate = { id: "10", total: 2829564 }, existingLines = 0, li
     if (/count\(\*\).*FROM budget_lines/.test(sql)) return [{ n: existingLines }];
     if (/FROM estimate_lines/.test(sql)) return lines;
     if (/INSERT INTO budget_lines/.test(sql)) { writes.push({ table: "budget_lines", params }); return []; }
-    if (/UPDATE projects/.test(sql)) { writes.push({ table: "projects", sql, params }); return [{ budget_complete: params[2] }]; }
+    if (/UPDATE projects/.test(sql)) { writes.push({ table: "projects", sql, params }); return [{ budget_complete: params[1] }]; }
     throw new Error(`unexpected query: ${sql}`);
   };
   return { run, writes };
@@ -55,8 +55,8 @@ test("adopting a no-markup estimate writes lines and prices but does NOT mark th
   const r = await adoptEstimateAsBudget(db.run, { projectId: "p" });
   assert.deepEqual([r.ok, r.linesWritten, r.hasMarkup, r.budgetComplete, r.warning], [true, 2, false, false, NO_MARKUP_NOTE]);
   const project = db.writes.find((w) => w.table === "projects");
-  assert.deepEqual(project.params, ["p", 2829564, false, NO_MARKUP_NOTE], "price pinned to the estimate total; complete = false; the note explains why");
-  assert.match(project.sql, /COALESCE\(price_cents, \$2\)/, "never overwrites a price the owner set");
+  assert.deepEqual(project.params, ["p", false, NO_MARKUP_NOTE], "complete = false; the note explains why");
+  assert.doesNotMatch(project.sql, /price_cents/, "the job's price is its computed job total, never pinned here");
 });
 
 test("re-syncing a no-markup estimate over a confirmed budget WITHDRAWS the confirmation", async () => {
@@ -65,8 +65,8 @@ test("re-syncing a no-markup estimate over a confirmed budget WITHDRAWS the conf
   const r = await adoptEstimateAsBudget(db.run, { projectId: "p", replace: true });
   assert.deepEqual([r.ok, r.hasMarkup, r.budgetComplete], [true, false, false]);
   const project = db.writes.find((w) => w.table === "projects");
-  assert.match(project.sql, /budget_complete = \$3/, "set, not OR-ed: a re-sync without markup un-confirms");
-  assert.equal(project.params[2], false);
+  assert.match(project.sql, /budget_complete = \$2/, "set, not OR-ed: a re-sync without markup un-confirms");
+  assert.equal(project.params[1], false);
 });
 
 test("adopting an estimate with real markup marks the budget complete", async () => {

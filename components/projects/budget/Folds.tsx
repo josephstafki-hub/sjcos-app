@@ -261,9 +261,11 @@ export function HowFigured({ view, t }: { view: BudgetView; t: BudgetTotals }) {
   } else {
     rows.push(["Profit", "not shown: until the budget covers the whole job there is no honest figure for what is still to spend."]);
   }
-  rows.push(["Collected", view.billing.source === "invoices"
-    ? `opening balance ${fmtK(view.billing.openingCollectedCents)} + paid invoices ${fmtK(view.billing.paidInvoicesCents)} = ${fmtK(t.collectedCents)}`
-    : `${fmtK(t.collectedCents)} — the hand-kept total on the project, not the invoices`]);
+  rows.push(["Collected", view.jobMoney
+    ? `paid outside the app ${fmtK(view.jobMoney.openingCollectedCents)} + payments on invoices ${fmtK(view.jobMoney.paymentsCents)} = ${fmtK(t.collectedCents)}`
+    : view.billing.source === "invoices"
+      ? `opening balance ${fmtK(view.billing.openingCollectedCents)} + paid invoices ${fmtK(view.billing.paidInvoicesCents)} = ${fmtK(t.collectedCents)}`
+      : `${fmtK(t.collectedCents)} — the hand-kept total on the project, not the invoices`]);
   rows.push(["Left to collect", `price ${fmtK(t.priceCents)} − collected ${fmtK(t.collectedCents)} = ${fmtK(t.leftToCollectCents)}. This includes work not billed yet, so it is not the same as unpaid invoices (${fmtK(t.unpaidInvoicesCents)}).`]);
   if (t.overUnderBilledCents != null) rows.push(["Billing vs the work", `billed ${fmtK(t.billedCents ?? 0)} − earned ${fmtK(t.earnedCents ?? 0)} = ${fmtSigned(t.overUnderBilledCents)} (${t.overUnderBilledCents >= 0 ? "billed ahead of the work" : "work not billed yet"})`]);
 

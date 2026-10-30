@@ -80,9 +80,9 @@ export type AdoptResult =
 
 /** Turn a job's approved estimate (or a named one) into budget lines. Upserts
  *  on (project, key) and never deletes: a line that costs are already linked to
- *  must not vanish because an estimate was re-synced. Pins projects.price_cents
- *  to the estimate total when no price is set. Marks the budget complete ONLY
- *  when the estimate has real markup. */
+ *  must not vanish because an estimate was re-synced. Marks the budget complete
+ *  ONLY when the estimate has real markup. (The job's price is the job total
+ *  Postgres keeps — migration 0037 — not something this writes.) */
 export async function adoptEstimateAsBudget(
   run: Run,
   args: { projectId: string; estimateId?: number; replace?: boolean },
@@ -121,14 +121,13 @@ export async function adoptEstimateAsBudget(
   // confirmation is withdrawn until someone sets real costs and ticks it again.
   const [project] = await run<{ budget_complete: boolean }>(
     `UPDATE projects
-        SET price_cents = COALESCE(price_cents, $2),
-            budget_complete = $3,
-            budget_notes = CASE WHEN $3 OR budget_notes @> to_jsonb($4::text) THEN budget_notes
-                                ELSE budget_notes || to_jsonb($4::text) END,
+        SET budget_complete = $2,
+            budget_notes = CASE WHEN $2 OR budget_notes @> to_jsonb($3::text) THEN budget_notes
+                                ELSE budget_notes || to_jsonb($3::text) END,
             updated_at = now()
       WHERE id = $1
       RETURNING budget_complete`,
-    [args.projectId, Number(estimate.total), plan.hasMarkup, NO_MARKUP_NOTE],
+    [args.projectId, plan.hasMarkup, NO_MARKUP_NOTE],
   );
 
   return {
@@ -227,8 +226,6 @@ export interface BudgetSettingsInput {
   basis: string;
   budgetLabel: string;
   budgetCaption: string;
-  /** The base price EXCLUDING change orders. null = use the estimate / contract. */
-  priceCents: number | null;
   retainageCents: number;
   /** The lines cover the whole job, with real costs: profit may be shown. */
   budgetComplete: boolean;
@@ -238,15 +235,14 @@ export interface BudgetSettingsInput {
 
 export async function saveBudgetSettings(run: Run, projectId: string, input: BudgetSettingsInput): Promise<WriteResult> {
   if (!BASES.includes(input.basis)) return fail("Unknown pricing basis.");
-  if (!isCentsOrNull(input.priceCents, 0)) return fail("The price has to be $0 or more, or left blank.");
   if (!isCents(input.retainageCents, 0)) return fail("Retainage has to be $0 or more.");
   if (input.costsThrough !== null && !isDay(input.costsThrough)) return fail("That date isn't valid.");
   const notes = (Array.isArray(input.notes) ? input.notes : []).map((n) => clip(n, 500)).filter(Boolean).slice(0, 40);
   const rows = await run(
-    `UPDATE projects SET budget_basis = $2, budget_label = $3, budget_caption = $4, price_cents = $5, retainage_cents = $6,
-            budget_complete = $7, costs_through = $8, budget_notes = $9::jsonb, updated_at = now()
+    `UPDATE projects SET budget_basis = $2, budget_label = $3, budget_caption = $4, retainage_cents = $5,
+            budget_complete = $6, costs_through = $7, budget_notes = $8::jsonb, updated_at = now()
       WHERE id = $1 RETURNING id`,
-    [projectId, input.basis, clip(input.budgetLabel, 60), clip(input.budgetCaption, 300), input.priceCents, input.retainageCents,
+    [projectId, input.basis, clip(input.budgetLabel, 60), clip(input.budgetCaption, 300), input.retainageCents,
      input.budgetComplete === true, input.costsThrough, JSON.stringify(notes)]);
   return rows.length ? { ok: true } : fail("Project not found.");
 }
@@ -422,35 +418,32 @@ export async function saveChangeOrderCosts(run: Run, projectId: string, input: C
   return { ok: true };
 }
 
-export interface ReconcileBillingInput {
-  /** Money collected before invoices were tracked here (a Houzz deposit). */
-  openingCollectedCents: number;
-  openingBilledCents: number;
+export interface OutsideMoneyInput {
+  /** Agreed outside the app's estimates and change orders: a Houzz contract, a
+   *  pre-con fee paid before the app billed it. Added to the job total. */
+  totalCents: number;
+  /** Paid outside the app's invoices: a Houzz deposit, a check from before the
+   *  app. Added to what has been paid. */
+  collectedCents: number;
+  /** Where those figures came from. Required when either is above $0. */
   note: string;
-  /** Also bring projects.collected_to_date (what /today and the projects list
-   *  read) into line with the reconciled figure. */
-  alsoUpdateHandKept: boolean;
 }
 
-/** The reviewed switch from the hand-kept collected total to invoices + an
- *  opening balance. The caller shows both totals side by side first. */
-export async function reconcileBilling(run: Run, projectId: string, input: ReconcileBillingInput): Promise<WriteResult<{ collectedCents: number }>> {
-  if (!isCents(input.openingCollectedCents, 0) || !isCents(input.openingBilledCents, 0)) return fail("Opening balances have to be $0 or more.");
-  if (input.openingBilledCents < input.openingCollectedCents) return fail("What was billed before can't be less than what was collected before.");
-  const [{ paid }] = await run<{ paid: string }>(`SELECT COALESCE(SUM(amount), 0) AS paid FROM invoices WHERE project_id = $1 AND status = 'paid'`, [projectId]);
-  const collectedCents = input.openingCollectedCents + Number(paid);
-  const rows = await run(
-    `UPDATE projects SET billing_source = 'invoices', opening_collected_cents = $2, opening_billed_cents = $3, opening_note = $4,
-            collected_to_date = CASE WHEN $5 THEN $6 ELSE collected_to_date END, updated_at = now()
-      WHERE id = $1 RETURNING id`,
-    [projectId, input.openingCollectedCents, input.openingBilledCents, clip(input.note, 300), input.alsoUpdateHandKept === true, Math.round(collectedCents / 100)]);
-  return rows.length ? { ok: true, collectedCents } : fail("Project not found.");
-}
-
-/** Back to the hand-kept total. The opening balance is kept, not erased. */
-export async function unreconcileBilling(run: Run, projectId: string): Promise<WriteResult> {
-  const rows = await run(`UPDATE projects SET billing_source = 'manual', updated_at = now() WHERE id = $1 RETURNING id`, [projectId]);
-  return rows.length ? { ok: true } : fail("Project not found.");
+/** The only typed part of a job's money (migration 0037). Everything else in
+ *  the job total and paid figures comes from estimates, change orders, invoices
+ *  and payments; Postgres recomputes both the moment this is saved. */
+export async function saveOutsideMoney(run: Run, projectId: string, input: OutsideMoneyInput): Promise<WriteResult<{ totalCents: number; collectedCents: number }>> {
+  if (!isCents(input.totalCents, 0) || !isCents(input.collectedCents, 0)) return fail("Both amounts have to be $0 or more.");
+  const note = clip(input.note, 300);
+  if ((input.totalCents > 0 || input.collectedCents > 0) && !note) return fail("Say where these amounts came from (a Houzz estimate number, a check, the pre-con fee).");
+  const rows = await run<{ total_cents: string; collected_cents: string }>(
+    `UPDATE projects SET opening_total_cents = $2, opening_collected_cents = $3,
+            opening_billed_cents = GREATEST(opening_billed_cents, $3), opening_note = $4, updated_at = now()
+      WHERE id = $1 RETURNING total_cents, collected_cents`,
+    [projectId, input.totalCents, input.collectedCents, note]);
+  return rows.length
+    ? { ok: true, totalCents: Number(rows[0].total_cents), collectedCents: Number(rows[0].collected_cents) }
+    : fail("Project not found.");
 }
 
 // ---------------------------------------------------------------------------
@@ -536,12 +529,12 @@ export async function setBudgetLines(
 /** Change only the settings that were passed; the rest keep their values. */
 export async function patchBudgetSettings(run: Run, projectId: string, patch: Partial<BudgetSettingsInput>): Promise<WriteResult> {
   const [p] = await run<Record<string, unknown>>(
-    `SELECT budget_basis, budget_label, budget_caption, price_cents, retainage_cents, budget_complete,
+    `SELECT budget_basis, budget_label, budget_caption, retainage_cents, budget_complete,
             to_char(costs_through, 'YYYY-MM-DD') AS costs_through, budget_notes FROM projects WHERE id = $1`, [projectId]);
   if (!p) return fail("Project not found.");
   return saveBudgetSettings(run, projectId, {
     basis: String(p.budget_basis), budgetLabel: String(p.budget_label ?? ""), budgetCaption: String(p.budget_caption ?? ""),
-    priceCents: p.price_cents == null ? null : Number(p.price_cents), retainageCents: Number(p.retainage_cents ?? 0),
+    retainageCents: Number(p.retainage_cents ?? 0),
     budgetComplete: p.budget_complete === true, costsThrough: p.costs_through == null ? null : String(p.costs_through),
     notes: Array.isArray(p.budget_notes) ? p.budget_notes.map(String) : [],
     ...patch,

@@ -26,8 +26,8 @@ test("every Money › Overview write round-trips through the real loader", { ski
   try {
     await client.query("BEGIN");
     const mk = async (slug) => (await run(
-      `INSERT INTO projects (slug, name, status, client_name, contract_value, collected_to_date)
-       VALUES ($1, $1, 'construction', 'ZZ Test', 60000, 9000) RETURNING id`, [slug]))[0].id;
+      `INSERT INTO projects (slug, name, status, client_name, opening_total_cents, opening_collected_cents)
+       VALUES ($1, $1, 'construction', 'ZZ Test', 6000000, 900000) RETURNING id`, [slug]))[0].id;
     const job = await mk("zz-fin-test-a");
     const other = await mk("zz-fin-test-b");
 
@@ -105,27 +105,25 @@ test("every Money › Overview write round-trips through the real loader", { ski
 
     // ---- settings: marking the budget complete is what allows a profit
     assert.equal((await view(job)).completeness.profit, "unknown");
-    assert.ok((await w.saveBudgetSettings(run, job, { basis: "fixed_price", budgetLabel: "contract", budgetCaption: "", priceCents: null, retainageCents: 0, budgetComplete: true, costsThrough: "2026-09-14", notes: ["  Check the cabinet quote  ", ""] })).ok);
+    assert.ok((await w.saveBudgetSettings(run, job, { basis: "fixed_price", budgetLabel: "contract", budgetCaption: "", retainageCents: 0, budgetComplete: true, costsThrough: "2026-09-14", notes: ["  Check the cabinet quote  ", ""] })).ok);
     v = await view(job);
     assert.deepEqual([v.completeness.profit, v.completeness.costsThrough, v.notes], ["projected", "2026-09-14", ["Check the cabinet quote"]]);
-    assert.equal((await w.saveBudgetSettings(run, job, { basis: "fixed_price", budgetLabel: "", budgetCaption: "", priceCents: null, retainageCents: 0, budgetComplete: true, costsThrough: "2026-13-45", notes: [] })).ok, false);
+    assert.equal((await w.saveBudgetSettings(run, job, { basis: "fixed_price", budgetLabel: "", budgetCaption: "", retainageCents: 0, budgetComplete: true, costsThrough: "2026-13-45", notes: [] })).ok, false);
 
-    // ---- billing: the reviewed switch, and back
-    await run(`INSERT INTO invoices (project_id, number, milestone, amount, status, sent_at, paid_at) VALUES ($1, 'INV-001', 'Draw 1', $2, 'paid', now(), now())`, [job, $(4000)]);
-    assert.equal((await view(job)).billing.collectedCents, $(9000), "a paid invoice does not move a manual job");
-    // An opening balance that makes the reconciled figure DIFFER from the hand-kept $9,000 —
-    // otherwise "did it leave the hand-kept total alone?" can't be told from "did it overwrite it?".
-    const r = await w.reconcileBilling(run, job, { openingCollectedCents: $(5500), openingBilledCents: $(5500), note: "Houzz deposit", alsoUpdateHandKept: false });
-    assert.deepEqual(r, { ok: true, collectedCents: $(9500) });
+    // ---- job money: a paid invoice counts at once; the outside-the-app figures are the only typed ones
+    const [{ id: inv1 }] = await run(`INSERT INTO invoices (project_id, number, milestone, amount, status, sent_at, paid_at) VALUES ($1, 'INV-001', 'Draw 1', $2, 'paid', now(), now()) RETURNING id`, [job, $(4000)]);
+    await run(`INSERT INTO invoice_payments (invoice_id, kind, amount_cents, method, status) VALUES ($1, 'payment', $2, 'check', 'settled')`, [inv1, $(4000)]);
     v = await view(job);
-    assert.deepEqual([v.billing.source, v.billing.collectedCents, v.billing.billedCents], ["invoices", $(9500), $(9500)]);
-    assert.equal((await run(`SELECT collected_to_date FROM projects WHERE id = $1`, [job]))[0].collected_to_date, 9000, "the hand-kept total is left alone unless asked");
-    assert.deepEqual([v.billing.mismatchCents, v.billing.mismatchFlagged], [-$(500), true], "…and the page says the two now disagree");
-    assert.equal((await w.reconcileBilling(run, job, { openingCollectedCents: $(5000), openingBilledCents: $(100), note: "", alsoUpdateHandKept: false })).ok, false);
-    assert.ok((await w.reconcileBilling(run, job, { openingCollectedCents: $(6000), openingBilledCents: $(6000), note: "", alsoUpdateHandKept: true })).ok);
-    assert.equal((await run(`SELECT collected_to_date FROM projects WHERE id = $1`, [job]))[0].collected_to_date, 10000, "the hand-kept total follows only when asked to");
-    assert.ok((await w.unreconcileBilling(run, job)).ok);
-    assert.equal((await view(job)).billing.source, "manual");
+    assert.deepEqual([v.billing.collectedCents, v.jobMoney.paymentsCents, v.jobMoney.openingCollectedCents], [$(13000), $(4000), $(9000)]);
+    // The total = $61,000 typed + the $9,000 change order approved above.
+    const r = await w.saveOutsideMoney(run, job, { totalCents: $(61000), collectedCents: $(5500), note: "Houzz deposit" });
+    assert.deepEqual(r, { ok: true, totalCents: $(70000), collectedCents: $(9500) });
+    v = await view(job);
+    assert.deepEqual([v.billing.collectedCents, v.billing.billedCents, v.priceCents, computeTotals(v).priceCents], [$(9500), $(9500), $(61000), $(70000)]);
+    assert.deepEqual((await run(`SELECT contract_value, collected_to_date, progress FROM projects WHERE id = $1`, [job]))[0], { contract_value: 70000, collected_to_date: 9500, progress: 14 }, "the projects list reads the same");
+    assert.equal((await w.saveOutsideMoney(run, job, { totalCents: $(100), collectedCents: 0, note: "  " })).ok, false, "a note is required");
+    assert.equal((await w.saveOutsideMoney(run, job, { totalCents: -1, collectedCents: 0, note: "x" })).ok, false);
+    assert.ok((await w.saveOutsideMoney(run, job, { totalCents: $(60000), collectedCents: $(5000), note: "Houzz deposit" })).ok);
 
     // ---- bulk lines: merge keeps what you left out, replace refuses to orphan money
     const bulk = await w.setBudgetLines(run, job, [

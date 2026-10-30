@@ -9,9 +9,9 @@
 //   maybeStartConstruction(run, projectId, ref, principal)
 //     Also called when the construction agreement is signed (engine.ts), for
 //     the job that paid before it signed. With BOTH gates met and the project
-//     still before construction: projects.status → construction, the project
-//     total / % billed adopt the contract (lib/billing/project-totals.ts), the draws set
-//     to bill at "Construction start" are DRAFTED for Joe (never sent from
+//     still before construction: projects.status → construction (the job
+//     total / % paid already follow the contract estimate on their own —
+//     migration 0037), the draws set to bill at "Construction start" are DRAFTED for Joe (never sent from
 //     here), a notification lands, and the business agent is woken with a
 //     'permit' trigger to work out the city's permit requirements and file a
 //     permit brief on the project. Idempotent: a second call finds the project
@@ -23,7 +23,6 @@ import type { Run } from "../commands/core.ts";
 import { principalLabel, type Principal } from "../commands/principal.ts";
 import { drawEconomicKey, issueMilestoneInvoice } from "../billing/core.ts";
 import { parseDrawSchedule } from "../draw-schedule.ts";
-import { adoptContractTotals } from "../billing/project-totals.ts";
 import { enqueueAgentTrigger } from "../agent-runtime/triggers.ts";
 import { getProjectWorkflow, noteWorkflowEvent, recordWorkflowEvent } from "./engine.ts";
 
@@ -91,10 +90,6 @@ export async function maybeStartConstruction(run: Run, projectId: string, ref: s
     detail: { contract_signed_at: wf.contract_signed_at, by: ref },
     actor,
   });
-
-  // The projects-list total / % billed: pre-con money + the signed contract,
-  // invoice-tracked from here on.
-  await adoptContractTotals(run, projectId);
 
   // Draws pre-wired to "Construction start" — drafted, never sent from here.
   const draftedDraws: number[] = [];

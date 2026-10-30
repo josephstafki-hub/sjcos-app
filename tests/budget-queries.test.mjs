@@ -35,12 +35,18 @@ const projectRow = (over = {}) => ({
   id: P1, slug: "job-one", name: "Job One", status: "construction", client_name: "Pat",
   contract_value: 28296, collected_to_date: 14148, budget_basis: "fixed_price", budget_label: "", budget_caption: "",
   price_cents: null, retainage_cents: 0, budget_notes: [], budget_complete: false, costs_through: null,
-  billing_source: "manual", opening_collected_cents: 0, opening_billed_cents: 0, opening_note: "", ...over,
+  billing_source: "invoices", opening_collected_cents: "1414800", opening_billed_cents: 0, opening_note: "Houzz",
+  // The job money Postgres computes (migration 0037), as pg returns it: strings.
+  opening_total_cents: "2829600", total_cents: "2829600", collected_cents: "1414800",
+  estimate_id: null, estimate_cents: "0", change_orders_cents: "0", precon_cents: "0", payments_cents: "0", ...over,
 });
 
 test("rows become raw rows: string ids and numerics are numbers, dollars stay dollars until the assembler", async () => {
   const { run } = fakeDb({
-    projects: [projectRow({ budget_complete: true, costs_through: "2026-09-14" })],
+    projects: [projectRow({
+      budget_complete: true, costs_through: "2026-09-14",
+      opening_total_cents: "0", total_cents: "2899564", estimate_id: "9", estimate_cents: "2829564", change_orders_cents: "70000",
+    })],
     estimates: [{ project_id: P1, total: "2829564" }],
     budget_lines: [{ id: "7", project_id: P1, key: "cabinets", trade: "Cabinets", detail: "", source: "", kind: "trade", budget_cents: 2000000, price_cents: null, est_to_finish_cents: null, percent_complete: null, status: "", status_kind: "", credited_co_id: "3", flags: ["Quote expired"] }],
     change_orders: [{ id: "3", project_id: P1, number: "CO-1", title: "Add", description: "", vendor_label: "", price_cents: 120000, status: "approved", paid_by: "owner", funder_share_cents: 0, budget_cost_cents: null, est_to_finish_cents: null, created_on: "2026-09-01" }],
@@ -56,14 +62,20 @@ test("rows become raw rows: string ids and numerics are numbers, dollars stay do
   assert.deepEqual([raw.project.budgetComplete, raw.project.costsThrough, raw.project.priceCentsOverride], [true, "2026-09-14", null]);
   assert.deepEqual([raw.lines[0].id, raw.lines[0].creditedCoId, raw.lines[0].priceCents, raw.lines[0].statusKind], [7, 3, null, "ghost"]);
   assert.deepEqual(raw.changeOrders[0].credits, [{ budgetLineId: 7, amountCents: 50000 }]);
+  assert.deepEqual(raw.project.ledger, {
+    totalCents: 2899564, collectedCents: 1414800, openingTotalCents: 0, estimateId: 9, estimateCents: 2829564,
+    changeOrdersCents: 70000, preconCents: 0, paymentsCents: 0,
+  });
   assert.strictEqual(raw.purchaseOrders[0].receivedValueCents, 1200000);
   assert.deepEqual([raw.subInvoices[0].paidCents, raw.subInvoices[0].changeOrderId, raw.subInvoices[0].sourceRef], [20000, 3, "minne:1004"]);
   assert.deepEqual([raw.expenses[0].purchaseOrderId, raw.expenses[0].sourceRef], [31, undefined]);
 
-  // …and the whole thing assembles: the expense consumed the PO, the dollars became cents once.
+  // …and the whole thing assembles: the expense consumed the PO; the price is
+  // the job total less the approved change order, which computeTotals adds back.
   const view = assembleBudgetView(raw, { asOf: "2026-09-21" });
   const t = computeTotals(view);
   assert.equal(view.priceCents, 2829564);
+  assert.equal(t.priceCents, 2899564, "the same total the projects list shows");
   assert.equal(view.billing.collectedCents, 1414800);
   assert.deepEqual([t.paidCents, t.owedCents, t.orderedCents], [1000000 + 20000, 200000 + 22500, 600000]);
   assert.equal(view.changeOrders[0].ageDays, 20);
@@ -94,12 +106,12 @@ test("a closed PO is still loaded — its cost must survive — and no projects 
   assert.equal(empty.calls.length, 0);
 });
 
-test("a job with nothing but a contract and a hand-kept total still assembles to something honest", async () => {
+test("a job with nothing but figures from outside the app still assembles to something honest", async () => {
   const { run } = fakeDb({ projects: [projectRow()] });
   const view = assembleBudgetView((await loadRawProjectMoney(run, [P1])).get(P1), { asOf: "2026-09-21" });
   const t = computeTotals(view);
   assert.deepEqual([t.priceCents, t.collectedCents, t.leftToCollectCents], [2829600, 1414800, 1414800]);
-  assert.deepEqual([view.completeness.profit, t.headlineProfitCents, t.billedCents], ["unknown", null, null]);
+  assert.deepEqual([view.completeness.profit, t.headlineProfitCents, t.billedCents], ["unknown", null, 1414800], "paid outside the app was billed outside it too");
 });
 
 test("findProjects by slug, or all; the as-of day is the shop's day, not UTC's", async () => {

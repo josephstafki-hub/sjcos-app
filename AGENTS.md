@@ -40,6 +40,21 @@ Rule from Joe (2026-09-23); full text in `docs/estimates-and-change-orders.md`.
   change order — draft it in the app or ask Joe with `ask_owner`.
 - Lead phase: the rough estimate on the lead page. Not a project estimate.
 
+# Job total and paid (the projects-list bar)
+
+Rule from Joe (2026-10-30). A job's total, paid amount and "% paid" bar are
+computed by Postgres from its records on every write
+(`db/migrations/0037_job_money_ledger.sql`): formal estimate in effect + approved
+change orders + pre-con fee invoices + agreed outside the app; payments on
+invoices + paid outside the app. No tool writes them, and a direct write to
+`contract_value` / `collected_to_date` / `progress` is overwritten.
+
+- A client paid → record the payment on its invoice; the bar moves by itself.
+- A total or payment from outside the app (Houzz, a pre-con fee the app never
+  billed) → Joe enters it on Money › Overview › "Money outside the app".
+  Ask him with `ask_owner`; never script it.
+- Read the breakdown from `get_project → job_money`.
+
 # Claude in the app
 
 Claude in the Ask window is Joe's full in-app operator, not just a dev helper: every run loads the sjcos MCP tools alongside repo edit access, so it can take any action any agent can. The same grant rule applies to its sends.

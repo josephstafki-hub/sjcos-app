@@ -218,6 +218,28 @@ export interface BudgetBilling {
   mismatchFlagged: boolean;
 }
 
+/** A job's total and paid amount, term by term. Postgres computes them on
+ *  every write (migration 0037); the only typed parts are the two "outside
+ *  the app" figures, entered on Money › Overview with a note. */
+export interface JobMoney {
+  totalCents: number;
+  collectedCents: number;
+  /** Agreed outside the app: a Houzz contract, a pre-con fee paid before the app billed it. */
+  openingTotalCents: number;
+  /** The formal estimate that is the contract (approved, signed, or billed against). */
+  estimateId: number | null;
+  estimateCents: number;
+  /** Approved change orders, net of their credits. */
+  changeOrdersCents: number;
+  /** Pre-con fee invoices (economic_key precon:…). */
+  preconCents: number;
+  /** Paid outside the app's invoices. */
+  openingCollectedCents: number;
+  /** Settled payments on the job's invoices, less refunds. */
+  paymentsCents: number;
+  openingNote?: string;
+}
+
 /** Sources and completeness are separate things, never merged into one
  *  "confidence" grade (plan §3.6). */
 export interface BudgetCompleteness {
@@ -241,8 +263,10 @@ export interface BudgetView {
   budgetCaption?: string;
   /** The base price: what the payer pays before change orders. */
   priceCents: number;
-  /** Where that price came from. "override" = set by hand in Budget settings. */
-  priceSource?: "override" | "estimate" | "contract" | "lines" | "none";
+  /** Where that price came from. "ledger" = the job total Postgres keeps
+   *  (contract estimate + agreed outside the app + pre-con fee invoices), less
+   *  approved change orders. The others are only reached by fixtures. */
+  priceSource?: "ledger" | "override" | "estimate" | "contract" | "lines" | "none";
   parties: BudgetParty[];
   lines: BudgetLine[];
   changeOrders: BudgetChangeOrder[];
@@ -252,6 +276,9 @@ export interface BudgetView {
   /** Cost rows that name no trade and no CO. Always counted. */
   unassigned: { paidCents: number; owedCents: number; orderedCents: number };
   billing: BudgetBilling;
+  /** How the job total and paid figures are made up (the same figures the
+   *  projects list shows). Absent only on fixtures. */
+  jobMoney?: JobMoney;
   completeness: BudgetCompleteness;
   retainageCents?: number;
   notes?: string[];
@@ -570,38 +597,6 @@ export function computeTotals(v: BudgetView): BudgetTotals {
     collectedPct: ratio(collectedCents, priceCents),
     paidBy, unfundedCents,
     lines, changeOrders, overLines, underLines,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Billing reconciliation (the reviewed switch from `manual` to `invoices`)
-// ---------------------------------------------------------------------------
-
-export interface BillingReconciliationProposal {
-  handKeptCents: number;
-  paidInvoicesCents: number;
-  /** hand-kept − paid invoices. */
-  differenceCents: number;
-  /** Money collected before invoices were tracked here. */
-  proposedOpeningCollectedCents: number;
-  proposedOpeningBilledCents: number;
-  /** The invoices show more collected than the hand-kept total. */
-  handKeptLooksStale: boolean;
-}
-
-/** Side-by-side numbers for the reconcile screen. Proposes, never applies. */
-export function proposeBillingReconciliation(
-  b: Pick<BudgetBilling, "handKeptCollectedCents" | "paidInvoicesCents">,
-): BillingReconciliationProposal {
-  const differenceCents = b.handKeptCollectedCents - b.paidInvoicesCents;
-  const opening = Math.max(0, differenceCents);
-  return {
-    handKeptCents: b.handKeptCollectedCents,
-    paidInvoicesCents: b.paidInvoicesCents,
-    differenceCents,
-    proposedOpeningCollectedCents: opening,
-    proposedOpeningBilledCents: opening,
-    handKeptLooksStale: differenceCents <= -ONE_DOLLAR,
   };
 }
 

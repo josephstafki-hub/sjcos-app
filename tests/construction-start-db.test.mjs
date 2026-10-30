@@ -27,7 +27,7 @@ async function seed(client, slug) {
   await client.query(`DELETE FROM projects WHERE slug LIKE 'zz-%'`);
   await client.query(`DELETE FROM notifications WHERE title = 'ZZ Start → Construction'`);
   const p = await client.query(
-    `INSERT INTO projects (slug, name, status, client_name, address, contract_value, collected_to_date, progress, value_display) VALUES ($1, 'ZZ Start', 'construction_contract', 'ZZ Client', '1271 Berkeley Ave, Saint Paul, MN 55105', 17580, 17580, 100, '$17,580 pre-con (remodel TBD)') RETURNING id`,
+    `INSERT INTO projects (slug, name, status, client_name, address, opening_total_cents, opening_collected_cents, value_display) VALUES ($1, 'ZZ Start', 'construction_contract', 'ZZ Client', '1271 Berkeley Ave, Saint Paul, MN 55105', 1758000, 1758000, '$17,580 pre-con (remodel TBD)') RETURNING id`,
     [slug],
   );
   const projectId = p.rows[0].id;
@@ -87,10 +87,10 @@ test("signed contract, then the deposit is paid → construction, draft draw, on
     assert.equal(trig.payload.address, "1271 Berkeley Ave, Saint Paul, MN 55105");
     assert.equal((await run(`SELECT count(*)::int AS n FROM notifications WHERE title = 'ZZ Start → Construction'`))[0].n, 1);
 
-    // The projects-list total: pre-con $17,580 + the $10,000 contract; the
-    // $1,000 deposit is collected; invoice-tracked from here on.
-    const [pj] = await run(`SELECT contract_value, collected_to_date, progress, value_display, billing_source, opening_collected_cents::int AS opening, price_cents::int AS price FROM projects WHERE id = $1`, [projectId]);
-    assert.deepEqual(pj, { contract_value: 27580, collected_to_date: 18580, progress: 67, value_display: "$27,580 ($10,000 contract + $17,580 pre-con)", billing_source: "invoices", opening: 1758000, price: 2758000 });
+    // The projects-list total: pre-con $17,580 (paid outside the app) + the
+    // $10,000 contract; the $1,000 deposit is paid on top of the pre-con.
+    const [pj] = await run(`SELECT contract_value, collected_to_date, progress, total_cents::int AS total, collected_cents::int AS paid FROM projects WHERE id = $1`, [projectId]);
+    assert.deepEqual(pj, { contract_value: 27580, collected_to_date: 18580, progress: 67, total: 2758000, paid: 1858000 });
     // A later draw, once paid, moves collected and the bar on its own.
     const [draw] = await run(`SELECT id::int AS id FROM invoices WHERE project_id = $1 AND economic_key = 'draw:1:construction-start'`, [projectId]);
     await run(`UPDATE invoices SET status = 'sent' WHERE id = $1`, [draw.id]);
@@ -127,45 +127,5 @@ test("a paid progress draw is not a deposit: nothing starts", { skip }, async ()
     const r = await issueMilestoneInvoice(run, { projectId, economicKey: "draw:2:final", milestone: "Final", amountCents: 5000, source: "draw", estimateId, principal: owner });
     await recordInvoicePayment(run, { invoiceId: r.invoice.id, kind: "payment", amountCents: 5000, method: "check", principal: owner });
     assert.equal((await run(`SELECT status FROM projects WHERE id = $1`, [projectId]))[0].status, "construction_contract");
-  });
-});
-
-// Elaine Louiselle, 2026-10-21: a hand-kept job ($26,966 collected, typed in)
-// paid its last invoice through the Square link. The invoice went paid; the
-// job stayed at $26,966 / 91%. A paid invoice now hands the job to its
-// invoices, carrying any hand-kept money not on them as the opening balance.
-test("hand-kept job: a paid invoice moves collected and switches to invoice tracking", { skip }, async () => {
-  await withTestDb(async (_url, client) => {
-    const run = async (s, p) => (await client.query(s, p)).rows;
-    await cleanFoundation(client);
-    await client.query(`DELETE FROM projects WHERE slug LIKE 'zz-%'`);
-    const mk = async (slug, collected) => (await run(
-      `INSERT INTO projects (slug, name, status, client_name, contract_value, collected_to_date, progress) VALUES ($1, 'ZZ Hand', 'warranty', 'ZZ Client', 29796, $2, 0) RETURNING id`,
-      [slug, collected],
-    ))[0].id;
-    const paidInvoice = async (projectId, key, cents) => {
-      const r = await issueMilestoneInvoice(run, { projectId, economicKey: `zz:${key}`, milestone: key, amountCents: cents, source: "manual", principal: owner });
-      await recordInvoicePayment(run, { invoiceId: r.invoice.id, kind: "payment", amountCents: cents, method: "check", principal: owner });
-      return r.invoice.id;
-    };
-    const proj = async (id) => (await run(`SELECT collected_to_date, progress, billing_source, opening_collected_cents::int AS opening FROM projects WHERE id = $1`, [id]))[0];
-
-    // Louiselle: the hand figure matched the invoices already paid; the final lands.
-    const a = await mk("zz-hand-a", 26966);
-    await run(`UPDATE projects SET billing_source = 'invoices' WHERE id = $1`, [a]); // seed the earlier paid invoices without tripping the switch
-    await paidInvoice(a, "deposit", 2696608);
-    await run(`UPDATE projects SET billing_source = 'manual', collected_to_date = 26966, opening_collected_cents = 0 WHERE id = $1`, [a]);
-    await paidInvoice(a, "final", 282956);
-    assert.deepEqual(await proj(a), { collected_to_date: 29796, progress: 100, billing_source: "invoices", opening: 0 });
-
-    // Money kept by hand outside any invoice ($5,000 cash) stays counted.
-    const b = await mk("zz-hand-b", 5000);
-    await paidInvoice(b, "draw", 1000000);
-    assert.deepEqual(await proj(b), { collected_to_date: 15000, progress: 50, billing_source: "invoices", opening: 500000 });
-
-    // Joe already typed the payment in by hand: not counted twice.
-    const c = await mk("zz-hand-c", 10000);
-    await paidInvoice(c, "draw", 1000000);
-    assert.deepEqual(await proj(c), { collected_to_date: 10000, progress: 34, billing_source: "invoices", opening: 0 });
   });
 });

@@ -15,6 +15,9 @@ import { getDefaultMarkup } from "@/lib/cost-book";
 import { addTakeoffLines } from "@/lib/actions/estimates";
 import { migrateDoc } from "@/lib/plan-doc";
 import { computeMeasures, productLines, type Measure } from "@/lib/plan-measures";
+import type { Run } from "@/lib/commands/core";
+import { hashInput } from "@/lib/commands/core";
+import { pinDesignVersion } from "@/lib/designer-contract";
 
 type Result = { ok: boolean; error?: string };
 
@@ -56,6 +59,37 @@ export interface GenerateResult {
   unmapped: { key: string; label: string; unit: string; qty: number; materialTag: string }[];
   unpriced: { label: string; tag: string; qty: number }[];
   delta: { added: string[]; removed: string[] };
+  /** The pinned design version the lines came from ("design:<id>@v<n>#<hash>"). */
+  revision: string;
+  versionNumber: number;
+}
+
+const run: Run = async (sql, params) => (await query(sql, params)).rows as never;
+
+/** The version this generation reads: the newest saved version when it is
+ *  exactly the live drawing, else a new snapshot of the live drawing. Either
+ *  way it is pinned, so the estimate cites a drawing that can't change under
+ *  it (A21: generating from the live autosave cited nothing). */
+async function pinnedVersionFor(design: { id: string; doc: unknown }, estimateTitle: string, userId: string | null) {
+  const doc = migrateDoc(design.doc);
+  const latest = await queryOne<{ id: string; number: number; doc: unknown }>(
+    `SELECT id, number, doc FROM plan_design_versions WHERE design_id = $1 ORDER BY number DESC LIMIT 1`,
+    [design.id],
+  );
+  let versionId = latest && hashInput(migrateDoc(latest.doc)) === hashInput(doc) ? Number(latest.id) : 0;
+  if (!versionId) {
+    const row = await queryOne<{ id: string }>(
+      `INSERT INTO plan_design_versions (design_id, number, label, doc, created_by)
+       VALUES ($1, (SELECT COALESCE(MAX(number), 0) + 1 FROM plan_design_versions WHERE design_id = $1), $2, $3::jsonb, $4)
+       RETURNING id`,
+      [design.id, `Estimate: ${estimateTitle}`.slice(0, 120), JSON.stringify(doc), userId],
+    );
+    versionId = Number(row!.id);
+  }
+  const pinned = await pinDesignVersion(run, versionId, "estimate-from-plan");
+  if ("error" in pinned) throw new Error(pinned.error);
+  const v = await queryOne<{ doc: unknown }>(`SELECT doc FROM plan_design_versions WHERE id = $1`, [versionId]);
+  return { doc: migrateDoc(v!.doc), revision: pinned.ref.revision, versionNumber: pinned.ref.versionNumber ?? 0 };
 }
 
 /** Pick the rule for a measure: exact material tag first, then the blank tag. */
@@ -75,14 +109,13 @@ export async function generateEstimateFromDesign(
   designId: number,
   target: { estimateId?: number; newTitle?: string },
 ): Promise<{ ok: true; result: GenerateResult } | { ok: false; error: string }> {
-  await requireAccess("estimates");
+  const user = await requireAccess("estimates");
   const design = await queryOne<{ id: string; name: string; doc: unknown; project_id: string | null; lead_slug: string | null; slug: string | null }>(
     `SELECT d.id, d.name, d.doc, d.project_id, d.lead_slug, p.slug
        FROM plan_designs d LEFT JOIN projects p ON p.id = d.project_id WHERE d.id = $1`,
     [designId],
   );
   if (!design) return { ok: false, error: "Design not found." };
-  const doc = migrateDoc(design.doc);
   const slug = design.slug ?? design.lead_slug ?? "";
 
   // Resolve the estimate.
@@ -95,10 +128,13 @@ export async function generateEstimateFromDesign(
     );
     estimateId = Number(row!.id);
   } else {
-    const est = await queryOne<{ id: string; status: string }>(`SELECT id, status FROM estimates WHERE id = $1`, [estimateId]);
+    const est = await queryOne<{ id: string; status: string; out: string | null }>(`SELECT id, status, estimate_out_to_client(id) AS out FROM estimates WHERE id = $1`, [estimateId]);
     if (!est) return { ok: false, error: "Estimate not found." };
     if (est.status === "approved") return { ok: false, error: "That estimate is approved — generate into a new one." };
+    if (est.out) return { ok: false, error: `That estimate is ${est.out === "signed" ? "signed" : "out with the client"}, so its lines are locked. Generate into a new one.` };
   }
+  const estTitle = (await queryOne<{ title: string }>(`SELECT title FROM estimates WHERE id = $1`, [estimateId]))?.title ?? design.name;
+  const { doc, revision, versionNumber } = await pinnedVersionFor(design, estTitle, user.id);
 
   // Snapshot what the generator wrote last time (for the delta), then clear it.
   const { rows: before } = await query<{ description: string; qty: string; section: string }>(
@@ -112,7 +148,7 @@ export async function generateEstimateFromDesign(
   );
   const measures = computeMeasures(doc).filter((m) => m.qty > 0);
   const sectionFor = (phase: Measure["phase"]) =>
-    `${PLAN_SECTION_PREFIX} · ${design.name} · ${phase === "remove" ? "Demo" : phase === "existing" ? "Existing" : "New"}`;
+    `${PLAN_SECTION_PREFIX} · ${design.name} v${versionNumber} · ${phase === "remove" ? "Demo" : phase === "existing" ? "Existing" : "New"}`;
 
   // Group measure lines by section so addTakeoffLines runs once per section.
   const bySection = new Map<string, { costItemId: number; qty: number }[]>();
@@ -149,7 +185,7 @@ export async function generateEstimateFromDesign(
     );
     const byId = new Map(cat.map((c) => [Number(c.id), c]));
     const def = await getDefaultMarkup();
-    const sec = `${PLAN_SECTION_PREFIX} · ${design.name} · Products`;
+    const sec = `${PLAN_SECTION_PREFIX} · ${design.name} v${versionNumber} · Products`;
     const install: { costItemId: number; qty: number }[] = [];
     for (const p of products) {
       const c = byId.get(p.catalogId!);
@@ -201,7 +237,7 @@ export async function generateEstimateFromDesign(
   if (design.slug) revalidatePath(`/projects/${design.slug}`);
   if (design.lead_slug) revalidatePath(`/leads/${design.lead_slug}`);
   revalidatePath(`/floor/${designId}`);
-  return { ok: true, result: { estimateId, linesAdded, unmapped, unpriced, delta } };
+  return { ok: true, result: { estimateId, linesAdded, unmapped, unpriced, delta, revision, versionNumber } };
 }
 
 /** Estimates a design could generate into (same project / lead, not approved). */

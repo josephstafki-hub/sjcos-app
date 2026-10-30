@@ -219,8 +219,8 @@ function EstimateDialog({ ctx, onClose }: { ctx: DesignerContext; onClose: () =>
                 {result.linesAdded} line{result.linesAdded === 1 ? "" : "s"} written to{" "}
                 <a className="underline" href={`/estimates/${result.estimateId}`}>
                   estimate #{result.estimateId}
-                </a>
-                .
+                </a>{" "}
+                from version {result.versionNumber} of this drawing.
               </div>
               {(result.delta.added.length > 0 || result.delta.removed.length > 0) && (
                 <div>

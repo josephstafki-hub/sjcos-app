@@ -287,8 +287,11 @@ by Joe/staff don't feed the weekly update (only sub logs do).
   - ACH availability is now card processing on a US/USD location, not AUTOMATIC_TRANSFERS (payouts).
 - **Closeout and marketing (A17):** the `lib/closeout/marketing.ts` and `revisions.ts` functions have no
   callers.
-- **Designer (A21):** "estimate from plan" reads the live drawing, not a pinned revision
-  (`lib/actions/plan-estimate.ts:~79`).
+- ~~**Designer (A21):**~~ **Done (branch `t3/tier3-designer`):**
+  - "Estimate from plan" now reads a pinned design version. It reuses the newest version when that version
+    is the live drawing; otherwise it snapshots a new one first.
+  - The lines' sections cite it (`· Kitchen v3 · New`), and the panel says which version was used.
+  - A sent or signed estimate is refused up front (sent-estimate lock).
 - ~~**Measurement (A18):**~~ **Done (branch `t3/tier3-measure`):**
   - Every outbound send is now a measurement case. A trigger on `action_intents` (migration 0051) opens the
     case with the mode taken from what authorised the send, and closes it as success, failure or corrected.

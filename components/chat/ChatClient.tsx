@@ -614,8 +614,8 @@ export function ChatClient({ data }: { data: ChatData }) {
       {/* ─── Channel rail ─────────────────────────────────────────── */}
       <aside
         className={[
-          "min-h-0 w-full flex-none flex-col overflow-y-auto border-r border-rule bg-paper-2 p-3 @4xl/page:w-[220px]",
-          mobileThread ? "hidden @4xl/page:flex" : "flex",
+          "min-h-0 w-full flex-none flex-col overflow-y-auto border-r border-rule bg-paper-2 p-3 @2xl/page:w-[208px]",
+          mobileThread ? "hidden @2xl/page:flex" : "flex",
         ].join(" ")}
       >
         <input type="search" aria-label="Search rooms and people" placeholder="Search rooms and people…"
@@ -864,7 +864,7 @@ export function ChatClient({ data }: { data: ChatData }) {
       <section
         className={[
           "min-h-0 min-w-0 flex-1 flex-col",
-          mobileThread ? "flex" : "hidden @4xl/page:flex",
+          mobileThread ? "flex" : "hidden @2xl/page:flex",
         ].join(" ")}
       >
         {!view ? (
@@ -878,7 +878,7 @@ export function ChatClient({ data }: { data: ChatData }) {
               onClick={() => setMobileThread(false)}
               aria-label="Back to rooms"
               title="Back to rooms"
-              className="-ml-1 inline-flex min-h-11 shrink-0 items-center gap-1 px-1 rounded-md text-ink-3 hover:bg-hover @4xl/page:hidden"
+              className="-ml-1 inline-flex min-h-11 shrink-0 items-center gap-1 px-1 rounded-md text-ink-3 hover:bg-hover @2xl/page:hidden"
             >
               <ChevronLeft className="size-4" strokeWidth={1.5} /> Back to rooms
             </button>

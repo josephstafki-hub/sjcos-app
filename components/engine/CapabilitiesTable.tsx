@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Card, Chip, Eyebrow } from "@/components/ui";
+import { Chip, Eyebrow } from "@/components/ui";
 import { CAPABILITY_STATES, type CapabilityReport, type CapabilityState } from "@/lib/measure/capabilities";
 import { updateCapability } from "@/lib/measure/actions";
 import { runAction } from "@/lib/run-action";
@@ -44,15 +44,12 @@ export function CapabilitiesTable({ report, canEdit }: { report: CapabilityRepor
 
   return (
     <div className="flex flex-col gap-6">
-      <Card kind="soft" className="px-4 py-3 text-meta leading-relaxed text-ink-3">
-        {report.caveat} Counts: {CAPABILITY_STATES.map((s) => `${STATE_LABEL[s].toLowerCase()} ${report.counts[s]}`).join(" · ")} of {report.counts.total}.
-      </Card>
       {groups.map((g) => (
         <section key={g.title}>
           <Eyebrow>{g.title}</Eyebrow>
-          <div className="mt-2 overflow-x-auto">
-            <table className="w-full min-w-[520px] border-collapse text-body">
-              <thead>
+          <div className="mt-2 @xl/page:overflow-x-auto">
+            <table className="w-full border-collapse text-body @xl/page:min-w-[520px] @max-xl/page:block">
+              <thead className="@max-xl/page:hidden">
                 <tr className="border-b border-rule text-left text-meta text-ink-3">
                   <th className="py-2 pr-3">Key</th>
                   <th className="py-2 pr-3">Capability</th>
@@ -60,9 +57,9 @@ export function CapabilitiesTable({ report, canEdit }: { report: CapabilityRepor
                   <th className="py-2 pr-3">Evidence</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="@max-xl/page:block">
                 {g.rows.map((r) => (
-                  <tr key={r.key} className="border-b border-rule-soft align-top">
+                  <tr key={r.key} className="border-b border-rule-soft align-top @max-xl/page:grid @max-xl/page:grid-cols-[3.5rem_minmax(0,1fr)] @max-xl/page:gap-x-2 @max-xl/page:py-2">
                     <td className="py-2 pr-3 text-meta text-ink-2">{r.key}</td>
                     <td className="py-2 pr-3 text-ink">
                       {r.title}
@@ -70,14 +67,14 @@ export function CapabilitiesTable({ report, canEdit }: { report: CapabilityRepor
                       {r.owner ? <div className="mt-0.5 text-meta text-ink-3">{r.owner}</div> : null}
                       {r.notes ? <div className="mt-1 text-meta text-ink-3">{r.notes}</div> : null}
                     </td>
-                    <td className="w-44 py-2 pr-3">
+                    <td className="w-44 py-2 pr-3 @max-xl/page:col-start-2 @max-xl/page:w-auto @max-xl/page:py-1">
                       <div className="flex flex-wrap gap-1">
                         {CAPABILITY_STATES.map((s) => (
                           <StateChip key={s} on={r[s]} label={STATE_LABEL[s]} />
                         ))}
                       </div>
                     </td>
-                    <td className="py-2 pr-3">
+                    <td className="py-2 pr-3 @max-xl/page:col-start-2 @max-xl/page:py-1">
                       <div className="flex flex-col items-start gap-1 whitespace-nowrap @4xl/page:flex-row @4xl/page:items-center @4xl/page:gap-2">
                         <button type="button" className={btnCls} onClick={() => setOpen(open === r.key ? null : r.key)}>
                           {r.evidence.length} entr{r.evidence.length === 1 ? "y" : "ies"}

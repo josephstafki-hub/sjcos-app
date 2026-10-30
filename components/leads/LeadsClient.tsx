@@ -67,7 +67,7 @@ export function LeadsClient({ data }: { data: LeadsData }) {
         />
       ) : (
         <TableWrapper>
-          <Table className="table-fixed">
+          <Table className="@xl/page:table-fixed">
             <TableHead>
               <tr>
                 <TableHeader>Lead</TableHeader>

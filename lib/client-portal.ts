@@ -30,8 +30,12 @@ export async function portalScope(): Promise<PortalScope | null> {
   const user = await requireRole("owner", "client");
   if (user.role === "client") return parseLinkSlug(user.linkSlug);
   const slug = (await cookies()).get("portal_preview_project")?.value;
-  if (!slug) return null;
-  const project = await queryOne<{ slug: string }>("SELECT slug FROM projects WHERE slug = $1", [slug]);
+  // No pick yet (or a deleted one): preview the job that moved most recently, so
+  // the owner lands on a real portal instead of an empty one. The picker switches it.
+  const project = (slug ? await queryOne<{ slug: string }>("SELECT slug FROM projects WHERE slug = $1", [slug]) : null)
+    ?? await queryOne<{ slug: string }>(
+      `SELECT slug FROM projects WHERE status NOT IN ('warranty') ORDER BY updated_at DESC NULLS LAST LIMIT 1`,
+    );
   return project ? { kind: "project", slug: project.slug } : null;
 }
 

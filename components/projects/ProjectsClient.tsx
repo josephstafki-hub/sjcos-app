@@ -47,7 +47,7 @@ export function ProjectsClient({ groups, initialFilter }: { groups: ProjectGroup
         />
       ) : (
         <TableWrapper>
-          <Table className="table-fixed">
+          <Table className="@xl/page:table-fixed">
             <TableHead>
               <tr>
                 <TableHeader className="@xl/page:min-w-[220px]">

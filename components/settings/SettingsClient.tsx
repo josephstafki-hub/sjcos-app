@@ -20,6 +20,7 @@ import { AddUserButton, StaffAccessButton } from "./TeamAccess";
 import { runAction } from "@/lib/run-action";
 import { ClipTokenCard } from "./ClipTokenCard";
 import { IntakeTokenCard } from "./IntakeTokenCard";
+import { MORE_SETTINGS } from "./settings-nav";
 
 /** Shared text input for the editable forms, themed to match the modals. */
 function TextInput({
@@ -142,12 +143,7 @@ export function UserActiveButton({id, active}: {id:string;active:boolean}) {
   </div>;
 }
 
-const MORE_SETTINGS = [
-  { title: "Pricing", href: "/settings/pricing" },
-  { title: "Overhead", href: "/settings/overhead" },
-  { title: "Payments · Square", href: "/settings/payments" },
-  { title: "Accounting · QuickBooks", href: "/settings/accounting" },
-];
+
 
 export function SettingsClient({ data, initialSection = "profile" }: { data: SettingsData; initialSection?: string }) {
   const [active, setActive] = useState(initialSection);

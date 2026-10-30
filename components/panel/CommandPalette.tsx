@@ -68,7 +68,7 @@ export function CommandPalette() {
         <input ref={input} value={query} onChange={e=>setQuery(e.target.value)} aria-label="Search" role="combobox" aria-expanded aria-controls="command-results" aria-activedescendant={items[index]?'command-'+index:undefined}
           placeholder="Search pages, jobs, people, threads…" className="min-w-0 flex-1 bg-transparent text-body outline-none"
           onKeyDown={e=>{if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();setIndex(n=>(n+(e.key==='ArrowDown'?1:-1)+items.length)%Math.max(items.length,1));}else if(e.key==='Enter'){e.preventDefault();choose(index);}}}/>
-        <button type="button" onClick={()=>setOpen(false)} aria-label="Close search" className="rounded p-1 hover:bg-hover"><X className="size-4"/></button>
+        <button type="button" onClick={()=>setOpen(false)} aria-label="Close search" title="Close search" className="rounded p-1 hover:bg-hover"><X className="size-4"/></button>
       </div>
       <div id="command-results" role="listbox" aria-label="Search results" className="max-h-96 overflow-y-auto p-2">
         {items.map((item,i)=><button key={item.id} id={'command-'+i} role="option" aria-selected={i===index} tabIndex={-1}

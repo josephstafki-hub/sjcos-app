@@ -125,6 +125,7 @@ export function useAgentChat({
 }: UseAgentChatOptions) {
   const [agent, setAgent] = useState<PanelAgent>(PANEL_DEFAULT_AGENT);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [conversationTitle, setConversationTitle] = useState("New chat");
   /** The job folder the open thread is filed under (header chip). */
   const [folderName, setFolderName] = useState<string | null>(null);
   /** This tab's thread-rail scope (a folder id); new chats file under it. */
@@ -359,11 +360,13 @@ export function useAgentChat({
       if (!detail) {
         writePanelState({ conversationId: null });
         setConversationId(null);
+        setConversationTitle("New chat");
         setMessages([]);
         return;
       }
       setAgent(detail.agent);
       setConversationId(detail.id);
+      setConversationTitle(detail.title || "New chat");
       setFolderName(detail.folderName);
       setMessages(detail.messages);
       setClaudeSessionId(detail.claudeSessionId);
@@ -454,6 +457,7 @@ export function useAgentChat({
     setNextHome(null);
     writePanelState({ conversationId: null });
     setConversationId(null);
+    setConversationTitle("New chat");
     resetView();
     if (leftRunning) setNotice(LEFT_RUNNING_NOTICE);
   };
@@ -466,6 +470,7 @@ export function useAgentChat({
     writePanelState({ conversationId: null, agent: a });
     setAgent(a);
     setConversationId(null);
+    setConversationTitle("New chat");
     resetView();
     if (leftRunning) setNotice(LEFT_RUNNING_NOTICE);
   };
@@ -653,6 +658,7 @@ export function useAgentChat({
         }
         writePanelState({ conversationId: convId, agent: target });
         setConversationId(convId);
+        setConversationTitle((spec.display ?? spec.directive).replace(/\s+/g, " ").trim().slice(0, 80) || "New chat");
         setNextHome(null);
         setFolderName(home?.name ?? null);
       }
@@ -730,6 +736,7 @@ export function useAgentChat({
     agent,
     selectAgent,
     conversationId,
+    conversationTitle,
     folderName,
     folderScope,
     setFolderScope,

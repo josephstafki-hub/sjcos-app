@@ -254,7 +254,7 @@ export function PanelHost({ children }: { children: ReactNode }) {
             )}
             <button
               onClick={() => setSheetOpen(false)}
-              aria-label="Close operator panel"
+              aria-label="Close operator panel" title="Close operator panel"
               className="inline-flex size-11 items-center justify-center rounded-md text-ink-3 hover:bg-paper-2"
             >
               <X className="size-4" strokeWidth={1.75} />

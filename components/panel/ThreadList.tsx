@@ -522,7 +522,7 @@ export function ThreadList({
           <Plus className="size-3" strokeWidth={2} /> New
         </button>
         {onClose && (
-          <button onClick={onClose} aria-label="Close threads" className="rounded p-0.5 text-ink-3 hover:bg-paper-2">
+          <button onClick={onClose} aria-label="Close threads" title="Close threads" className="rounded p-0.5 text-ink-3 hover:bg-paper-2">
             <X className="size-3.5" strokeWidth={1.75} />
           </button>
         )}
@@ -612,7 +612,7 @@ export function ThreadList({
                         <button
                           onMouseDown={(e) => e.stopPropagation()}
                           onClick={() => setMenu(menu?.id === f.id ? null : { kind: "folder", id: f.id })}
-                          aria-label="Folder menu"
+                          aria-label="Folder menu" title="Folder menu"
                           className="rounded p-0.5 hover:bg-paper-2"
                         >
                           <MoreHorizontal className="size-3 text-ink-4" strokeWidth={2} />
@@ -819,7 +819,7 @@ export function ThreadList({
                 setMover(null);
                 setMenu(menuOpen ? null : { kind: "thread", id: t.id });
               }}
-              aria-label="More"
+              aria-label="More" title="More"
               className="rounded p-0.5 hover:bg-paper-2"
             >
               <MoreHorizontal className="size-3 text-ink-4" strokeWidth={2} />

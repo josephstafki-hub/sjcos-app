@@ -3,12 +3,13 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { TodayPriority } from "@/lib/today";
+import { Segmented } from "@/components/ui/Segmented";
 import { QueueRail } from "./QueueRail";
 import { PanelChat } from "./PanelChat";
 import type { ActiveRun } from "./useAgentChat";
 
 /** Dock width at which the queue gets its own column beside the chat; below
- *  it the priority cards render inline in the chat instead. Decided by the
+ *  it an explicit Queue / Chat switch shows one view at a time. Decided by the
  *  dock's own width, not a viewport breakpoint. */
 const TWO_COLUMN_MIN = 560;
 
@@ -20,8 +21,8 @@ const THREADS_RAIL_MIN = 880;
 
 /**
  * The operator panel: the old operator console's left + center columns as one
- * dock. Two columns (queue · chat) when the dock is wide enough, chat with
- * inline cards when not. The old far-right workbench column is gone — a
+ * dock. Two columns (queue · chat) when the dock is wide enough, a Queue / Chat
+ * switch when not. The old far-right workbench column is gone — a
  * card's Inspect chip opens /workbench in the app view beside the dock, which
  * now plays the live-action role.
  */
@@ -35,17 +36,18 @@ export function PanelDock({
   /** How this dock reaches the app view. Docked: local router.push (default).
    *  In the popout window: requestAppNav over the bus. */
   navigate?: (href: string) => void;
-  /** Mobile drawer over a page: chat only, no queue column or inline cards. */
+  /** Mobile drawer: one queue or chat view at a time. */
   compact?: boolean;
   /** The popped-out /panel window: no to-do list at the top of its chats
    *  (no queue opener, no inline priority cards). */
   inWindow?: boolean;
 }) {
   const [, setActiveRun] = useState<ActiveRun | null>(null);
+  const [narrowView, setNarrowView] = useState("chat");
   const [focusedSubjectId, setFocusedSubjectId] = useState<string | null>(null);
   const handOffRef = useRef<((p: TodayPriority, kind: "do" | "prep") => void) | null>(null);
   const router = useRouter();
-  const twoCol = width >= TWO_COLUMN_MIN;
+  const twoCol = !compact && width >= TWO_COLUMN_MIN;
 
   const inspect = (id: string) => {
     setFocusedSubjectId(id);
@@ -61,14 +63,25 @@ export function PanelDock({
       }}
       onRunStart={setActiveRun}
       onRunEnd={() => setActiveRun(null)}
-      showQueueCards={!twoCol && !compact && !inWindow}
+      showQueueCards={false}
       showNarration={!inWindow}
       compact={compact}
       threadsRail={!compact && width >= THREADS_RAIL_MIN}
     />
   );
 
-  if (!twoCol || compact) return <div className="h-full min-h-0 p-2">{chatPanel}</div>;
+  if (inWindow && !twoCol) return <div className="h-full min-h-0 p-2">{chatPanel}</div>;
+
+  if (!twoCol) return (
+    <div className="flex h-full min-h-0 flex-col gap-2 p-2">
+      <Segmented aria-label="Operator view" value={narrowView} onChange={setNarrowView}
+        options={[{ value: "queue", label: "Queue" }, { value: "chat", label: "Chat" }]} />
+      <div className={`min-h-0 flex-1 ${narrowView === "chat" ? "flex" : "hidden"}`}>{chatPanel}</div>
+      {narrowView === "queue" && <QueueRail className="flex min-h-0 flex-1"
+        onHandOff={(p, k) => { handOffRef.current?.(p, k); setNarrowView("chat"); }}
+        onInspect={inspect} focusedSubjectId={focusedSubjectId} />}
+    </div>
+  );
 
   return (
     <div

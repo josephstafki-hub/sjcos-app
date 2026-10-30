@@ -402,9 +402,10 @@ export function PanelChat({
   const starters = startersForRoute(route, chat.agent);
 
   const chatSection = (
-    <section className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[10px] border-[1.5px] border-ai bg-paper shadow-card">
+    <section className="@container/chat relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[10px] border-[1.5px] border-ai bg-paper shadow-card">
       {/* Header: agent picker + history + New chat */}
-      <div className="flex items-center gap-2 border-b border-rule px-3 py-2">
+      <div className="relative shrink-0 border-b border-rule">
+        <div className="flex flex-wrap items-center gap-1 px-3 pt-2">
         <div className="flex rounded-md border border-rule bg-paper-2 p-0.5">
           {AGENT_ORDER.map((a) => (
             <button
@@ -431,7 +432,7 @@ export function PanelChat({
         </div>
         {chat.folderName && (
           <span
-            className="hidden max-w-36 truncate rounded-full bg-paper-2 px-1.5 py-px font-mono text-[10px] text-ink-3 min-[460px]:inline"
+            className="hidden max-w-36 truncate rounded-full bg-paper-2 px-1.5 py-px font-mono text-[10px] text-ink-3 @lg/chat:inline"
             title="The job this thread is filed under — the agent is told"
           >
             {chat.folderName}
@@ -439,13 +440,13 @@ export function PanelChat({
         )}
         {!chat.conversationId && chat.nextHome && (
           <span
-            className="hidden max-w-44 items-center gap-1 rounded-full bg-ai-soft px-1.5 py-px font-mono text-[10px] text-ai-2 min-[460px]:inline-flex"
+            className="hidden max-w-44 items-center gap-1 rounded-full bg-ai-soft px-1.5 py-px font-mono text-[10px] text-ai-2 @lg/chat:inline-flex"
             title="This new chat will file under this job once you send — ✕ starts it Unfiled instead"
           >
             <span className="truncate">New in {chat.nextHome.name}</span>
             <button
               onClick={chat.clearNextHome}
-              aria-label="Start Unfiled instead"
+              aria-label="Start Unfiled instead" title="Start Unfiled instead"
               className="flex-none rounded-full p-px hover:bg-paper"
             >
               <X className="size-2.5" strokeWidth={2.25} />
@@ -453,7 +454,7 @@ export function PanelChat({
           </span>
         )}
         {route && (
-          <span className="hidden truncate font-mono text-[10.5px] text-ink-4 min-[460px]:inline" title="The page the app view is showing — turns are grounded in it">
+          <span className="hidden truncate font-mono text-[10.5px] text-ink-4 @lg/chat:inline" title="The page the app view is showing — turns are grounded in it">
             {route}
           </span>
         )}
@@ -482,11 +483,14 @@ export function PanelChat({
             <Plus className="size-3" strokeWidth={2} /> New
           </button>
         )}
+        </div>
+        <h2 className="break-words px-3 py-2 text-body font-semibold text-ink">{chat.conversationTitle}</h2>
       </div>
 
+      <div className="relative flex min-h-0 flex-1 flex-col">
       {/* Thread drawer — overlays the transcript on narrow docks/mobile */}
       {!threadsRail && threadsOpen && (
-        <div className="absolute inset-x-0 top-[41px] bottom-0 z-10 flex flex-col bg-paper">
+        <div className="absolute inset-x-0 inset-y-0 z-10 flex flex-col bg-paper">
           <ThreadList
             variant="drawer"
             className="min-h-0 flex-1"
@@ -505,7 +509,7 @@ export function PanelChat({
       )}
 
       {/* Scroll area: narration → starters/cards → transcript */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         {showNarration && !compact && (
           <div className="whitespace-pre-wrap rounded-md bg-ai-soft px-3 py-2 text-[12.5px] leading-relaxed text-ai-2">
             {narration}
@@ -675,7 +679,7 @@ export function PanelChat({
       {/* Claude run controls — also shown on Auto (they apply whenever the
           router hands the turn to Claude). */}
       {(chat.agent === "claude" || chat.agent === "auto") && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-rule px-3 py-1.5 text-[11px] text-ink-4">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-rule px-3 py-1.5 text-meta text-ink-2">
           <OptSelect
             label="Model"
             value={chat.claudeOpts.model}
@@ -723,7 +727,7 @@ export function PanelChat({
               checked={chat.claudeOpts.withMcp}
               disabled={chat.pending}
               onChange={(e) => chat.setClaudeOpts({ withMcp: e.target.checked })}
-              className="size-3 accent-ai disabled:opacity-50"
+              className="size-3 accent-ai disabled:opacity-100 disabled:text-ink-3"
             />
             <span>Tools</span>
           </label>
@@ -736,7 +740,7 @@ export function PanelChat({
               checked={allowSends}
               disabled={chat.pending}
               onChange={(e) => setAllowSends(e.target.checked)}
-              className="size-3 accent-ai disabled:opacity-50"
+              className="size-3 accent-ai disabled:opacity-100 disabled:text-ink-3"
             />
             <span className={allowSends ? "font-medium text-flag" : undefined}>Express permission (sends)</span>
           </label>
@@ -759,7 +763,7 @@ export function PanelChat({
               </button>
             </span>
           )}
-          <span className="hidden text-ink-4/70 min-[520px]:inline">
+          <span className="hidden text-ink-3 @xl/chat:inline">
             ⇧Tab cycles · /model /context /effort /mode /mcp /session /stop
           </span>
         </div>
@@ -780,7 +784,7 @@ export function PanelChat({
               <span className="max-w-[140px] truncate">{a.name}</span>
               <button
                 type="button"
-                aria-label={`Remove ${a.name}`}
+                aria-label={`Remove ${a.name}`} title={`Remove ${a.name}`}
                 onClick={() => removeAttachment(i)}
                 className="rounded p-0.5 hover:bg-paper-2"
               >
@@ -801,7 +805,7 @@ export function PanelChat({
         onStart={() => voice.startWithBriefing(spokenQueue(priorities, { items: waiting, total: waiting.length }))}
       />
 
-      {mentions.records.length > 0 && <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 text-meta text-ink-3"><span>Working on</span>{mentions.records.map(r=><span key={r.id} className="flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1"><a href={r.href} className="text-accent">{r.title}</a><button type="button" aria-label={`Remove context ${r.title}`} onClick={()=>mentions.remove(r.id)}><X className="size-3"/></button></span>)}</div>}
+      {mentions.records.length > 0 && <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 text-meta text-ink-3"><span>Working on</span>{mentions.records.map(r=><span key={r.id} className="flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1"><a href={r.href} className="text-accent">{r.title}</a><button type="button" aria-label={`Remove context ${r.title}`} title={`Remove context ${r.title}`} onClick={()=>mentions.remove(r.id)}><X className="size-3"/></button></span>)}</div>}
       {mentions.open && <div role="listbox" aria-label="Attach record context" className="max-h-48 overflow-y-auto border-t border-rule bg-card p-2">
         {mentions.results.map((r,i)=><button type="button" key={r.id} role="option" aria-selected={i===mentions.index} onClick={()=>mentions.pick(r)} className={`block w-full rounded-md px-2 py-1.5 text-left text-body ${i===mentions.index?'bg-selected':'hover:bg-hover'}`}>{r.title}<span className="ml-2 text-meta text-ink-3">{r.kind} · {r.detail}</span></button>)}
         {!mentions.results.length&&<p className="text-meta text-ink-3">{mentions.error||'Type a job, client, or invoice name to attach it.'}</p>}
@@ -811,7 +815,7 @@ export function PanelChat({
           <span className="flex-none text-ink-3">{i === 0 ? "Next" : "Then"}</span>
           <span className="min-w-0 flex-1 truncate">{m.text}</span>
           <button type="button" className="flex-none text-ink-3 hover:text-ink" aria-label={`Steer now: ${m.text}`} onClick={() => { setQueued((cur) => cur.filter((x) => x.id !== m.id)); chat.steer(m.text); }}>Steer now</button>
-          <button type="button" className="flex-none text-ink-3 hover:text-ink" aria-label={`Remove queued message: ${m.text}`} onClick={() => setQueued((cur) => cur.filter((x) => x.id !== m.id))}><X className="size-3" /></button>
+          <button type="button" className="flex-none text-ink-3 hover:text-ink" aria-label={`Remove queued message: ${m.text}`} title={`Remove queued message: ${m.text}`} onClick={() => setQueued((cur) => cur.filter((x) => x.id !== m.id))}><X className="size-3" /></button>
         </div>)}
       </div>}
       {/* Composer */}
@@ -877,12 +881,13 @@ export function PanelChat({
           type="submit"
           disabled={uploading || (!prompt.trim() && (chat.pending || attachments.length === 0))}
           aria-label={chat.pending ? "Steer the running agent" : "Send"}
-          title={chat.pending ? "Steer: send this into the run that's working now" : undefined}
+          title={chat.pending ? "Steer: send this into the run that's working now" : "Send"}
           className="flex size-7 flex-none items-center justify-center rounded-md bg-ink text-paper transition-colors hover:bg-[#232a1e] disabled:opacity-40"
         >
           <ArrowUp className="size-4" strokeWidth={2} />
         </button>
       </form>
+      </div>
     </section>
   );
 
@@ -1036,7 +1041,7 @@ function VoiceBar({
         <button
           type="button"
           onClick={() => voice.setVoiceMode(false)}
-          aria-label="Exit voice mode"
+          aria-label="Exit voice mode" title="Exit voice mode"
           className="flex size-9 flex-none items-center justify-center rounded-full border border-rule text-ink-3"
         >
           <X className="size-4" strokeWidth={2} />
@@ -1045,7 +1050,7 @@ function VoiceBar({
       <button
         type="button"
         onClick={voice.voiceMode ? voice.micTap : onStart}
-        aria-label={label}
+        aria-label={label} title={label}
         style={{ boxShadow: ring }}
         className={`flex size-16 flex-none items-center justify-center rounded-full transition-[box-shadow,background-color] duration-150 ${
           p === "recording"
@@ -1363,7 +1368,7 @@ function OptSelect({
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
-        className="rounded border border-rule bg-card px-1.5 py-0.5 text-[11px] text-ink-2 outline-none disabled:opacity-50"
+        className="rounded border border-rule bg-card px-1.5 py-0.5 text-label text-ink-2 outline-none disabled:opacity-100 disabled:text-ink-3"
       >
         {options.filter((o) => !o.group).map(render)}
         {groups.map((g) => (

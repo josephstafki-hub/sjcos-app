@@ -8,7 +8,7 @@ export function PanelDictation({ onText }: { onText: (text: string) => void }) {
   const mic = useDictation({ onText, onError: setError });
   if (!mic.supported) return null;
   return <span className="relative flex items-center">
-    <button type="button" aria-label={mic.state === "recording" ? "Stop dictation" : "Dictate"}
+    <button type="button" aria-label={mic.state === "recording" ? "Stop dictation" : "Dictate"} title={mic.state === "recording" ? "Stop dictation" : "Dictate"}
       disabled={mic.state === "transcribing"} className="rounded-md p-1.5 text-ink-3 hover:bg-hover"
       onClick={() => { setError(""); if (mic.state === "recording") mic.stop(); else void mic.start(); }}>
       {mic.state === "recording" ? <Square className="size-4 text-flag" /> : mic.state === "transcribing" ? <Loader2 className="size-4 animate-spin" /> : <Mic className="size-4" />}

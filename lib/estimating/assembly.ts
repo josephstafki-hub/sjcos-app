@@ -207,8 +207,16 @@ export interface RecomputeResult {
  *  gap set and totals, and — if a sent offer changed — stages (or supersedes)
  *  the 'proposal' decision so the revised offer needs fresh approval. */
 export async function recomputeDraftEstimate(run: Run, estimateId: number, opts: { principal?: Principal } = {}): Promise<RecomputeResult> {
-  const e = await loadEstimate(run, estimateId, true);
-  await ensureScopeLines(run, estimateId);
+  let e = await loadEstimate(run, estimateId, true);
+  // Out to the client, the estimate is locked (migration 0047): no new scope
+  // lines, and its client prices are the ones sent. The lock means today's
+  // lines still are what went out, so a send that never froze them freezes now.
+  const locked = await estimateOutToClient(run, estimateId);
+  if (locked && !e.offered_snapshot) {
+    await freezeOfferedPrices(run, estimateId, opts.principal ?? { kind: "service", name: "estimate-lock" });
+    e = await loadEstimate(run, estimateId, true);
+  }
+  if (!locked) await ensureScopeLines(run, estimateId);
   const { pct: markupPct } = await activeMarkupPct(run);
   const lines = await loadLines(run, estimateId);
   const gaps: Gap[] = [];
@@ -281,6 +289,13 @@ export async function recomputeDraftEstimate(run: Run, estimateId: number, opts:
   );
   const [rev] = await run<{ revision: number }>(`SELECT revision FROM estimates WHERE id = $1`, [estimateId]);
   return { estimate_id: estimateId, revision: rev.revision, subtotal_cents: subtotal, total_cents: total, markup_total_cents: total - subtotal, unknown_cost_lines: unknown, gaps, offer_invalidated: offered && offerChanged, proposal_decision_id: decisionId, markup_pct: markupPct };
+}
+
+/** 'sent' / 'signed' when the estimate is out to the client (and its lines
+ *  locked, migration 0047), else null. */
+export async function estimateOutToClient(run: Run, estimateId: number): Promise<"sent" | "signed" | null> {
+  const [r] = await run<{ state: "sent" | "signed" | null }>(`SELECT estimate_out_to_client($1) AS state`, [estimateId]);
+  return r?.state ?? null;
 }
 
 /** At send: snapshot every live line's client price. Immutable afterwards. */

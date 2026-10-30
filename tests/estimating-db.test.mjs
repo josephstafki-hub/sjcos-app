@@ -396,21 +396,18 @@ test("V37 + V17 price commitment: offer frozen at send, later supplier cost move
     assert.equal((await run(`SELECT total FROM estimates WHERE id = $1`, [estimateId]))[0].total, 812000);
     assert.equal((await run(`SELECT count(*)::int AS n FROM decisions WHERE kind = 'proposal'`))[0].n, 0, "no re-approval needed for an internal cost move");
 
-    // V17: an estimate CHANGE after the offer invalidates it → proposal decision, superseded on the next change
+    // Joe 2026-10-30: a sent estimate is LOCKED (migration 0047). A change after the offer is refused;
+    // to revise, the signature request is voided (back to draft), edited, then sent again (a fresh freeze).
+    await assert.rejects(
+      upsertEstimateLine(run, estimateId, { item_key: "item:screens", description: "Screens", unit: "ea", qty: 6, source_kind: "owner_price", internal_cost_cents: 12000, cost_basis: "owner" }),
+      /out to the client and locked/,
+    );
+    await assert.rejects(run(`UPDATE estimate_lines SET qty = 7 WHERE estimate_id = $1 AND item_key = 'item:windows'`, [estimateId]), /locked/);
+    await run(`UPDATE estimates SET status = 'draft' WHERE id = $1`, [estimateId]); // what voiding its request does
     await upsertEstimateLine(run, estimateId, { item_key: "item:screens", description: "Screens", unit: "ea", qty: 6, source_kind: "owner_price", internal_cost_cents: 12000, cost_basis: "owner" });
     const rc = await recomputeDraftEstimate(run, estimateId, { principal: owner });
-    assert.equal(rc.offer_invalidated, true);
-    assert.ok(rc.proposal_decision_id);
-    const [d1] = await run(`SELECT kind, action, status FROM decisions WHERE id = $1`, [rc.proposal_decision_id]);
-    assert.deepEqual([d1.kind, d1.action, d1.status], ["proposal", "send_estimate", "pending"]);
-    assert.equal((await run(`SELECT offer_stale FROM estimates WHERE id = $1`, [estimateId]))[0].offer_stale, true);
-    await run(`UPDATE estimate_lines SET qty = 7 WHERE estimate_id = $1 AND item_key = 'item:windows'`, [estimateId]);
-    const rc2 = await recomputeDraftEstimate(run, estimateId, { principal: owner });
-    assert.notEqual(rc2.proposal_decision_id, rc.proposal_decision_id);
-    assert.equal((await run(`SELECT status FROM decisions WHERE id = $1`, [rc.proposal_decision_id]))[0].status, "superseded", "changed content supersedes the earlier proposal");
-    assert.equal((await loadLines(run, estimateId)).find((l) => l.item_key === "item:windows").extended, 432000, "still never silently repriced");
-    r = await estimateReadiness(run, estimateId);
-    assert.ok(r.hard_gaps.some((g) => g.kind === "offer_changed"));
+    assert.equal(rc.offer_invalidated, false, "a draft is not an offer; the re-send freezes again");
+    assert.ok((await loadLines(run, estimateId)).some((l) => l.item_key === "item:screens"));
 
     // allowance exceeded → priced CO payload + change_order decision, no change_orders row
     const over = await stageAllowanceOverage(run, { estimate_id: estimateId, item_key: "allow:hardware", chosen: { description: "Brass hardware set", cost_cents: 70000 }, principal: owner });
@@ -609,5 +606,22 @@ test("V25 learning: repeated ingestion does not amplify, late adjustment is a re
     assert.equal(act.state, "active");
     assert.equal((await run(`SELECT state FROM pricing_setups WHERE version = $1`, [ps.version]))[0].state, "active");
     assert.equal((await run(`SELECT status, decided_via FROM decisions WHERE id = $1`, [act.decision_id]))[0].decided_via, "app");
+  });
+});
+
+test("Recompute on a sent estimate that was never frozen takes the freeze from its (locked) lines and adds no scope lines", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    const run = await seed(client);
+    const { projectId, estimateId } = await mkProject(run, "zz-est-lockrc", "Replace 6 windows");
+    await upsertEstimateLine(run, estimateId, { item_key: "item:typed", description: "Typed work", unit: "ls", qty: 1 });
+    await run(`UPDATE estimate_lines SET unit_cost = 100000, markup = 0, extended = 100000 WHERE estimate_id = $1`, [estimateId]);
+    await run(`INSERT INTO signature_requests (project_id, estimate_id, doc_type, title, status, sent_at) VALUES ($1, $2, 'estimate', 'Est', 'sent', now())`, [projectId, estimateId]);
+    await prepareScopeRegisterFromLead(run, projectId, await loadLeadFacts(run, projectId)); // scope arrives after the send
+    const before = (await loadLines(run, estimateId)).length;
+    const rc = await recomputeDraftEstimate(run, estimateId, { principal: owner });
+    assert.equal((await loadLines(run, estimateId)).length, before, "no scope lines added to a sent estimate");
+    const [e] = await run(`SELECT offered_snapshot FROM estimates WHERE id = $1`, [estimateId]);
+    assert.equal(e.offered_snapshot.total, 100000);
+    assert.equal(rc.total_cents, 100000);
   });
 });

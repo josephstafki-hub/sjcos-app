@@ -123,6 +123,14 @@ export async function voidSignatureRequest(slug: string, id: number): Promise<Re
   );
   if (r.rowCount === 0) return { ok: false, error: "Only unsigned requests can be voided." };
   await logEvent(id, "voided", user.name || "Owner");
+  // Voiding the offer unlocks its estimate for revision (migration 0047):
+  // back to draft unless another request on it is still out or signed.
+  await query(
+    `UPDATE estimates e SET status = 'draft'
+      WHERE e.id = (SELECT estimate_id FROM signature_requests WHERE id = $1) AND e.status = 'sent'
+        AND NOT EXISTS (SELECT 1 FROM signature_requests s WHERE s.estimate_id = e.id AND s.status IN ('sent','signed'))`,
+    [id],
+  );
   revalidatePath(`/projects/${slug}`);
   revalidatePath("/client-portal");
   return { ok: true };

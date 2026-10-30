@@ -8,7 +8,8 @@
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
 import { requireAccess } from "@/lib/dal";
-import { runDirect, userPrincipal } from "@/lib/commands/db";
+import { runDirect, userPrincipal, withTransaction } from "@/lib/commands/db";
+import { freezeOfferedPrices } from "@/lib/estimating/assembly";
 import { clientSendVerdict } from "@/lib/authority/client-sends";
 import { dollarsToCents, fmtUsd, unitLabel } from "@/lib/cost-book-units";
 import { getDefaultMarkup } from "@/lib/cost-book";
@@ -87,18 +88,29 @@ export async function deleteEstimate(slug: string, id: number): Promise<Result> 
   return { ok: true };
 }
 
+/** The sent-estimate lock (migration 0047) refuses in Postgres; say why. */
+function lockedRefusal(err: unknown): Result {
+  const e = err as { code?: string; hint?: string; message?: string };
+  if (e?.code === "P0001" && e.hint === "estimate_locked") return { ok: false, error: e.message ?? "This estimate is locked." };
+  throw err;
+}
+
 export async function addEstimateLine(estimateId: number, slug: string, formData: FormData): Promise<Result> {
   await requireAccess("estimates");
   const v = parseLine(formData);
   if (!v.description) return { ok: false, error: "A line description is required." };
-  await query(
-    `INSERT INTO estimate_lines
-       (estimate_id, cost_item_id, description, section, unit, qty, unit_cost, markup, extended,
-        sort_order)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,
-        COALESCE((SELECT max(sort_order)+1 FROM estimate_lines WHERE estimate_id = $1), 0))`,
-    [estimateId, v.costItemId, v.description, v.section, v.unit, v.qty, v.unitCost, v.markup, v.extended],
-  );
+  try {
+    await query(
+      `INSERT INTO estimate_lines
+         (estimate_id, cost_item_id, description, section, unit, qty, unit_cost, markup, extended,
+          sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,
+          COALESCE((SELECT max(sort_order)+1 FROM estimate_lines WHERE estimate_id = $1), 0))`,
+      [estimateId, v.costItemId, v.description, v.section, v.unit, v.qty, v.unitCost, v.markup, v.extended],
+    );
+  } catch (err) {
+    return lockedRefusal(err);
+  }
   await recompute(estimateId);
   revalidatePath(`/projects/${slug}`);
   return { ok: true };
@@ -108,13 +120,18 @@ export async function updateEstimateLine(lineId: number, slug: string, formData:
   await requireAccess("estimates");
   const v = parseLine(formData);
   if (!v.description) return { ok: false, error: "A line description is required." };
-  const row = await queryOne<{ estimate_id: string }>(
-    `UPDATE estimate_lines
-        SET description=$2, section=$3, unit=$4, qty=$5, unit_cost=$6, markup=$7, extended=$8,
-            cost_item_id=$9
-      WHERE id=$1 RETURNING estimate_id`,
-    [lineId, v.description, v.section, v.unit, v.qty, v.unitCost, v.markup, v.extended, v.costItemId],
-  );
+  let row: { estimate_id: string } | null;
+  try {
+    row = await queryOne<{ estimate_id: string }>(
+      `UPDATE estimate_lines
+          SET description=$2, section=$3, unit=$4, qty=$5, unit_cost=$6, markup=$7, extended=$8,
+              cost_item_id=$9
+        WHERE id=$1 RETURNING estimate_id`,
+      [lineId, v.description, v.section, v.unit, v.qty, v.unitCost, v.markup, v.extended, v.costItemId],
+    );
+  } catch (err) {
+    return lockedRefusal(err);
+  }
   if (row) await recompute(Number(row.estimate_id));
   revalidatePath(`/projects/${slug}`);
   return { ok: true };
@@ -122,10 +139,12 @@ export async function updateEstimateLine(lineId: number, slug: string, formData:
 
 export async function deleteEstimateLine(lineId: number, slug: string): Promise<Result> {
   await requireAccess("estimates");
-  const row = await queryOne<{ estimate_id: string }>(
-    `DELETE FROM estimate_lines WHERE id = $1 RETURNING estimate_id`,
-    [lineId],
-  );
+  let row: { estimate_id: string } | null;
+  try {
+    row = await queryOne<{ estimate_id: string }>(`DELETE FROM estimate_lines WHERE id = $1 RETURNING estimate_id`, [lineId]);
+  } catch (err) {
+    return lockedRefusal(err);
+  }
   if (row) await recompute(Number(row.estimate_id));
   revalidatePath(`/projects/${slug}`);
   return { ok: true };
@@ -253,6 +272,9 @@ export async function sendEstimate(slug: string, estimateId: number): Promise<Re
   );
 
   await query(`UPDATE estimates SET status = 'sent', sent_at = now() WHERE id = $1`, [estimateId]);
+  // The client's prices as sent, kept for margin review; the lines are locked
+  // from here (migration 0047).
+  await withTransaction((run) => freezeOfferedPrices(run, estimateId, userPrincipal(user)));
 
   await emit({
     kind: "decision",

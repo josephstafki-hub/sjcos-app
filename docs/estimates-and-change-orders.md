@@ -23,6 +23,14 @@
    `create_document_draft { template_key: "estimate_doc", estimate_id }` for
    the PDF, and `render_document_draft` it again after the lines change. A job
    normally has one formal estimate; don't create a second one to add to it.
+   **Once sent, it is locked** (Joe, 2026-10-30; migration 0047): while the
+   estimate is out to the client (status sent, or a signature request on it,
+   or on a contract built on it, is out or signed) Postgres refuses any line
+   added, deleted, or changed in what the client sees. Internal cost and
+   markup bookkeeping still moves (margin only). The send freezes the client
+   prices (`offered_snapshot`). To revise before signing: void the signature
+   request (the estimate goes back to draft), edit, send again. A signed
+   estimate stays locked; changes go to rule 2 or 3.
 2. **Money › Pre-con changes** holds client additions or changes priced
    **before the contract is signed**: a new estimate with
    `kind = 'precon_change'`, priced and approved like any estimate. Not a

@@ -98,9 +98,9 @@ Stale or no change:
   2026-10-29). Keep in mind before wiring the lead lib (Tier 3 A11).
 
 Still open, needs Joe:
-- **Sent estimates stay editable / prices never frozen on the real send.** Locking a sent estimate (or
-  freezing its prices at send) changes how Joe revises and re-sends; ask him before building it. The
-  acceptance check now at least refuses to bill a changed estimate.
+- ~~**Sent estimates stay editable / prices never frozen on the real send.**~~ Joe: lock it. Done in
+  migration 0047 (Postgres refuses client-visible line changes while out or signed; voiding the request
+  returns it to draft; the send freezes prices; recompute on a locked estimate freezes and adds no lines).
 - The two `milestone_confirmation` card shapes (billing `stageMilestoneConfirmation` vs field
   `confirmMilestone`) are incompatible: approving the billing one would fail. Belongs with Tier 2/3 wiring.
 

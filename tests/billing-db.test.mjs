@@ -83,14 +83,27 @@ async function seed(client, slug = "zz-bill-a") {
 }
 
 async function seedEstimate(client, projectId, { total = 5000000, status = "sent", schedule } = {}) {
+  // Lines go on while it is a draft; then it is sent/approved (and locked, 0047).
   const e = await client.query(
     `INSERT INTO estimates (project_id, title, kind, status, total, draw_schedule, sent_at)
-     VALUES ($1, 'Formal', 'formal', $2, $3, $4::jsonb, now() - interval '1 hour') RETURNING id`,
-    [projectId, status, total, schedule ? JSON.stringify(schedule) : null],
+     VALUES ($1, 'Formal', 'formal', 'draft', $2, $3::jsonb, now() - interval '1 hour') RETURNING id`,
+    [projectId, total, schedule ? JSON.stringify(schedule) : null],
   );
   const id = Number(e.rows[0].id);
   await client.query(`INSERT INTO estimate_lines (estimate_id, description, qty, unit_cost, extended, created_at) VALUES ($1, 'Work', 1, $2, $2, now() - interval '2 hours')`, [id, total]);
+  await client.query(`UPDATE estimates SET status = $2 WHERE id = $1`, [id, status]);
   return id;
+}
+
+/** Change a sent/signed estimate's lines as the lock (0047) would never let
+ *  the app: the backstop checks below must still catch it. */
+async function bypassLock(client, fn) {
+  await client.query(`ALTER TABLE estimate_lines DISABLE TRIGGER trg_estimate_lines_locked_when_sent`);
+  try {
+    return await fn();
+  } finally {
+    await client.query(`ALTER TABLE estimate_lines ENABLE TRIGGER trg_estimate_lines_locked_when_sent`);
+  }
 }
 
 async function signature(client, { projectId, docType, estimateId = null, status = "sent" }) {
@@ -354,7 +367,7 @@ test("V38 acceptance: owner approval alone issues nothing; client acceptance iss
     assert.equal((await run(`SELECT count(*)::int AS n FROM invoices`))[0].n, 1);
 
     // Changed terms: lines edited after the offer was sent → refused.
-    await run(`INSERT INTO estimate_lines (estimate_id, description, qty, unit_cost, extended, created_at) VALUES ($1, 'Added', 1, 100, 100, now())`, [estimateId]);
+    await bypassLock(client, () => run(`INSERT INTO estimate_lines (estimate_id, description, qty, unit_cost, extended, created_at) VALUES ($1, 'Added', 1, 100, 100, now())`, [estimateId]));
     const sig2 = await signature(client, { projectId, docType: "estimate", estimateId, status: "signed" });
     const changed = await issueInitialOnAcceptance(tx, { signatureRequestId: sig2, principal: agent });
     assert.equal(changed.issued, false);
@@ -459,7 +472,7 @@ test("Approving a first-draw invoice card creates the invoice (draft, to email);
     const estimateId = await seedEstimate(client, projectId, { total: 4000000, status: "approved" });
     // The client signed, then a line was added: the hook cannot issue on its own.
     const sigId = await signature(client, { projectId, docType: "estimate", estimateId, status: "signed" });
-    await run(`INSERT INTO estimate_lines (estimate_id, description, qty, unit_cost, extended, created_at) VALUES ($1, 'Credit', 1, 0, 0, now())`, [estimateId]);
+    await bypassLock(client, () => run(`INSERT INTO estimate_lines (estimate_id, description, qty, unit_cost, extended, created_at) VALUES ($1, 'Credit', 1, 0, 0, now())`, [estimateId]));
     const out = await onSignatureSigned(tx, sigId, agent);
     assert.equal(out.initial.issued, false);
     assert.equal(out.initial.code, "changed");
@@ -758,7 +771,7 @@ test("Accepting the exact revision: an edited price or a deleted line after the 
       const projectId = await seed(client, slug);
       const estimateId = await seedEstimate(client, projectId, { total: 1000000, status: "approved", schedule: [{ label: "Deposit", percent: 50, triggerStatus: "" }] });
       const sigId = await signature(client, { projectId, docType: "estimate", estimateId, status: "signed" });
-      await edit(estimateId);
+      await bypassLock(client, () => edit(estimateId));
       const r = await acceptanceContext(run, sigId);
       if (changed) {
         assert.equal(r.ok, false, slug);
@@ -767,5 +780,31 @@ test("Accepting the exact revision: an edited price or a deleted line after the 
         assert.equal(r.ok, true, slug);
       }
     }
+  });
+});
+
+test("A sent estimate is locked: adding, repricing or deleting a line is refused until its signature request is voided; signed stays locked; internal cost still moves; deleting the estimate still works", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    const run = runOn(client);
+    const projectId = await seed(client, "zz-lock");
+    const estimateId = await seedEstimate(client, projectId, { total: 100000, status: "draft" });
+    await run(`INSERT INTO estimate_lines (estimate_id, description, qty, unit_cost, extended) VALUES ($1, 'Trim', 1, 500, 500)`, [estimateId]);
+    const sigId = await signature(client, { projectId, docType: "estimate", estimateId, status: "sent" });
+    await assert.rejects(run(`INSERT INTO estimate_lines (estimate_id, description, qty, unit_cost, extended) VALUES ($1, 'More', 1, 1, 1)`, [estimateId]), /out to the client and locked/);
+    await assert.rejects(run(`UPDATE estimate_lines SET extended = extended + 1 WHERE estimate_id = $1`, [estimateId]), /locked/);
+    await assert.rejects(run(`DELETE FROM estimate_lines WHERE estimate_id = $1 AND description = 'Trim'`, [estimateId]), /locked/);
+    await run(`UPDATE estimate_lines SET internal_cost_cents = 42 WHERE estimate_id = $1`, [estimateId]);
+    // Voided → editable again.
+    await run(`UPDATE signature_requests SET status = 'void' WHERE id = $1`, [sigId]);
+    await run(`DELETE FROM estimate_lines WHERE estimate_id = $1 AND description = 'Trim'`, [estimateId]);
+    // Signed → locked for good.
+    const s2 = await signature(client, { projectId, docType: "estimate", estimateId, status: "signed" });
+    assert.ok(s2);
+    await assert.rejects(run(`UPDATE estimate_lines SET qty = 2 WHERE estimate_id = $1`, [estimateId]), /signed and locked/);
+    // Removing the whole estimate (cascade) isn't a line edit.
+    await run(`DELETE FROM signature_requests WHERE estimate_id = $1`, [estimateId]);
+    const d = await seedEstimate(client, projectId, { total: 100, status: "sent" });
+    await run(`DELETE FROM estimates WHERE id = $1`, [d]);
+    assert.equal((await run(`SELECT count(*)::int AS n FROM estimate_lines WHERE estimate_id = $1`, [d]))[0].n, 0);
   });
 });

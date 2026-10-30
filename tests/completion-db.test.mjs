@@ -178,7 +178,14 @@ test("V06 record evidence checks the revision; manual completion on a legacy ite
     assert.equal(rs.length, 1);
     assert.equal(rs[0].receipt_kind, "manual");
     assert.equal(rs[0].uri, null, "no invented provider receipt");
-    assert.deepEqual({ actor: rs[0].metadata.actor, reason: rs[0].metadata.reason }, { actor: "Joe", reason: "answered by phone" });
+    assert.deepEqual({ actor: rs[0].metadata.actor, named: rs[0].metadata.named_actor, reason: rs[0].metadata.reason }, { actor: "owner:Joe", named: "Joe", reason: "answered by phone" });
+    // An agent typing "Joe" is recorded as the agent.
+    const callBack = (await client.query(`INSERT INTO work_items (title, body, status, lead_id, created_by) VALUES ('Call back', '', 'queued', $1, 'test') RETURNING id`, [lead])).rows[0].id;
+    const claimed = await tx((run) => completeWorkItem(run, { workItemId: callBack, principal: agent, evidence: { kind: "manual", actor: "Joe", reason: "Joe said it's handled" } }));
+    assert.equal(claimed.ok, true);
+    const [r2] = await receipts(client, callBack);
+    assert.equal(r2.metadata.actor, "claude (unattended)");
+    assert.equal(r2.metadata.named_actor, "Joe");
     const o = await getObligation(run0, ob.obligation.id);
     assert.equal(o.status, "done");
     assert.equal(o.resolution.kind, "work_item_done");

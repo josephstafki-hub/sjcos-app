@@ -64,7 +64,7 @@ export async function POST(req: Request) {
   try {
     switch (action) {
       case "stage": {
-        const principal = await agentPrincipal(str("agent") ?? "agent", { onBehalfOfUserId: str("on_behalf_of_user_id") ?? null });
+        const principal = await agentPrincipal(str("agent") ?? "agent", { onBehalfOfUserId: str("principal_user_id") ?? null, runId: str("run_id") ?? null });
         const kind = str("kind") ?? "other";
         const decisionAction = str("decision_action") ?? "";
         if (!decisionAction) return NextResponse.json({ ok: false, error: "decision_action is required (the gated action the consumer will present)." }, { status: 400 });

@@ -10,7 +10,7 @@
 //   advance   — after the MCP update_work_item_status / submit_draft_for_approval
 //               handlers touch a runbook step item; no-op for ordinary items.
 //   complete  — evidence-backed completion (lib/completion/complete.ts):
-//               { work_item_id, evidence, agent?, on_behalf_of_user_id?, run_id?,
+//               { work_item_id, evidence, agent?, principal_user_id?, run_id?,
 //                 agent_run_id?, note? }. Validates the evidence, writes the
 //               receipt, flips done and advances the runbook in ONE transaction.
 //   repair    — { dry_run (default true), limit } → repairRunbookInstances.
@@ -75,7 +75,7 @@ export async function POST(req: Request) {
         // The agent is data; its authority comes from the user it acts for,
         // looked up server-side (an unknown id = unattended agent).
         const principal = str("agent")
-          ? await agentPrincipal(str("agent")!, { onBehalfOfUserId: str("on_behalf_of_user_id") ?? null, runId: str("run_id") ?? null })
+          ? await agentPrincipal(str("agent")!, { onBehalfOfUserId: str("principal_user_id") ?? null, runId: str("run_id") ?? null })
           : service;
         const r = await withTransaction((run) =>
           completeWorkItem(run, { workItemId, principal, evidence, agentRunId: str("agent_run_id") ?? null, note: str("note") ?? null }),

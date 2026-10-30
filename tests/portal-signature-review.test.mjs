@@ -10,3 +10,8 @@ test('review preserves document money including zero and credits, without guessi
  assert.equal(reviews[1].version,'2026-09');
 });
 test('empty scoped requests returns no review data',async()=>{assert.deepEqual(await getPortalSignatureReviews([]),{});});
+test('a change order sent without a generated document shows its own price, draft money wins when present',async()=>{
+ globalThis.__reviews=[{id:'4',template_version:null,field_values:null,co_price_cents:'25050'},{id:'5',template_version:'v3',field_values:{net_change:9900},co_price_cents:'25050'}];
+ const reviews=await getPortalSignatureReviews([4,5]);
+ assert.equal(reviews[4].amountCents,25050);assert.equal(reviews[5].amountCents,9900);
+});

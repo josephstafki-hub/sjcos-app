@@ -29,19 +29,15 @@ export default async function EnginePage() {
     <Shell breadcrumb="OPERATIONS ENGINE">
       <div className="mx-auto max-w-6xl px-4 @3xl/page:px-6 pb-16 pt-6">
         <div className="mb-4">
-          <PageHeader title={<> Operations engine </>} meta={<> {counts.total} records across all folders · {counts.approval} awaiting approval ·{" "}
-            {counts.waiting} waiting · {skills.proposed.length} skill proposal
-            {skills.proposed.length === 1 ? "" : "s"} · {memories.pending.length} memor
-            {memories.pending.length === 1 ? "y" : "ies"} pending </>} />
+          <PageHeader title={<> Operations engine </>} meta={<> {counts.approval} approvals · {counts.active} active · {counts.waiting} waiting </>} />
           <details className="mt-2">
-          <summary className="cursor-pointer py-2 text-meta text-ink-2">About the engine and record counts</summary>
+          <summary className="cursor-pointer py-1 text-meta text-ink-2">Engine tools and record counts</summary>
           <p className="mt-2 max-w-[640px] text-body leading-relaxed text-ink-3">
             The shared work queue, knowledge base, and skill library that Joe, Hermes, Claude Code and
             other agents coordinate through. Agent writes are logged and reversible; anything
             client-facing waits for your approval.
           </p>
           <p className="mt-2 text-meta text-ink-2">The work-item total covers all unarchived records, including done and cancelled. Approval and waiting counts cover all folders; waiting includes blocked work. Folder counts cover open work; “Waiting on me” narrows the current folder and filters to work waiting on you.</p>
-          </details>
           <nav className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-meta">
             {[
               { href: "/engine/decisions", label: "Decisions" },
@@ -55,6 +51,7 @@ export default async function EnginePage() {
               </Link>
             ))}
           </nav>
+          </details>
         </div>
 
         <EngineClient

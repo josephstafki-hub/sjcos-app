@@ -4,7 +4,6 @@ import { Fragment, useState } from "react";
 import Link from "next/link";
 import {
   EmptyState,
-  Segmented,
   Table,
   TableBody,
   TableCell,
@@ -25,8 +24,8 @@ const FILTERS = [
   { value: "warranty", label: "Warranty" },
 ];
 
-export function ProjectsClient({ groups }: { groups: ProjectGroup[] }) {
-  const [filter, setFilter] = useState("all");
+export function ProjectsClient({ groups, initialFilter }: { groups: ProjectGroup[]; initialFilter?: string }) {
+  const [filter, setFilter] = useState(FILTERS.some(f => f.value === initialFilter) ? initialFilter! : "all");
   const [query, setQuery] = useState("");
   const shown =
     (filter === "all" ? groups : groups.filter((g) => g.key === filter))
@@ -35,17 +34,12 @@ export function ProjectsClient({ groups }: { groups: ProjectGroup[] }) {
   return (
     <div className="space-y-4">
       <input type="search" aria-label="Search projects" placeholder="Search projects or next steps…" value={query} onChange={(e) => setQuery(e.target.value)} className="h-11 w-full rounded-md border border-rule bg-card px-3 text-body @xl/page:h-9" />
-      <Segmented
-        aria-label="Project stage"
-        value={filter}
-        onChange={setFilter}
-        options={FILTERS.map((f) => ({
-          ...f,
-          count: groups
-            .filter((g) => f.value === "all" || g.key === f.value)
-            .reduce((n, g) => n + g.items.length, 0),
-        }))}
-      />
+      <label className="flex min-w-0 items-center gap-2 text-label">
+        Project stage
+        <select aria-label="Project stage" value={filter} onChange={e => setFilter(e.target.value)} className="h-11 min-w-0 flex-1 rounded-md border border-rule bg-card px-2 text-body">
+          {FILTERS.map(f => <option key={f.value} value={f.value}>{f.label} ({groups.filter(g => f.value === "all" || g.key === f.value).reduce((n, g) => n + g.items.length, 0)})</option>)}
+        </select>
+      </label>
       {!shown.length ? (
         <EmptyState
           title="No projects in this view"

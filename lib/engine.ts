@@ -136,6 +136,12 @@ const WORK_SELECT = `
          LEFT JOIN projects p ON p.id = w.project_id
          LEFT JOIN leads l ON l.id = w.lead_id${ASSIGNEES_JOIN_SQL}`;
 
+/** Read one to-do, including completed and archived items. Caller gates visibility. */
+export async function getEngineWorkItem(id: string): Promise<WorkItemView | null> {
+  const { rows } = await query<WorkRow>(`${WORK_SELECT} WHERE w.id = $1`, [id]);
+  return rows[0] ? rowToItem(rows[0]) : null;
+}
+
 export async function getEngineData(): Promise<EngineData> {
   const [{ rows: work }, { rows: ledgers }, { rows: receipts }, { rows: people }, { rows: archived }] = await Promise.all([
     query<WorkRow>(

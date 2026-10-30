@@ -142,8 +142,8 @@ export function UnsortedClient({
   }, [tab, open, selected]);
 
   return (
-    <div className="[&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus [&_input]:focus-visible:outline-2 [&_input]:focus-visible:outline-focus [&_select]:focus-visible:outline-2 [&_select]:focus-visible:outline-focus mx-auto flex min-h-full max-w-[1240px] flex-col gap-6 px-4 py-6 @2xl/page:px-5 @5xl/page:px-8">
-      <PageHeader className="[&>div>div:first-child]:w-full" title="Unsorted" meta={<span className="block whitespace-normal break-words">Invoices and receipts from email, scans and texts that need a job. Choose where each goes to attach it and log the cost.</span>} actions={<Button href="/scan" variant="secondary" icon={Camera}>Scan receipt</Button>} filters={<Segmented aria-label="Unsorted views" className="max-sm:h-12 [&_button]:max-sm:h-11" value={tab} onChange={t => setTab(t as "sort" | "filed")} options={[{value:"sort",label:"To sort",count:pending || undefined},{value:"filed",label:"Filed lately"}]} />} />
+    <div className="[&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus [&_input]:focus-visible:outline-2 [&_input]:focus-visible:outline-focus [&_select]:focus-visible:outline-2 [&_select]:focus-visible:outline-focus mx-auto flex min-h-full max-w-[1240px] min-w-0 flex-col gap-6 px-4 py-6 @2xl/page:px-5 @5xl/page:px-8">
+      <PageHeader className="[&>div>div:first-child]:w-full [&>div>div:first-child]:flex-auto [&>div]:min-w-0" title="Unsorted" meta={<span className="block whitespace-normal break-words">Invoices and receipts from email, scans and texts that need a job. Choose where each goes to attach it and log the cost.</span>} actions={<Button href="/scan" variant="secondary" icon={Camera}>Scan receipt</Button>} filters={<Segmented aria-label="Unsorted views" className="max-sm:h-12 [&_button]:max-sm:h-11" value={tab} onChange={t => setTab(t as "sort" | "filed")} options={[{value:"sort",label:"To sort",count:pending || undefined},{value:"filed",label:"Filed lately"}]} />} />
 
       {last && tab === "sort" && (
         <div className="flex items-center gap-2 rounded-lg border border-rule bg-money-soft px-3 py-2 text-body text-ink">
@@ -162,7 +162,7 @@ export function UnsortedClient({
         // the operator panel can take half the screen.
         <div className="min-h-0 flex-1">
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <label className="flex min-w-0 flex-1 items-center gap-2 text-label">Receipt
+          <label className="flex min-w-0 basis-full items-center gap-2 text-label @2xl/page:basis-auto @2xl/page:flex-1">Receipt
             <select aria-label="Choose receipt" value={selected.id} onChange={(e) => setSelectedId(Number(e.target.value))} className="h-11 min-w-0 flex-1 rounded-md border border-rule bg-card px-2 text-body">
               {open.map((d, i) => <option key={d.id} value={d.id}>{i + 1} of {open.length} · {vendorOf(d)} · {money(d.amount_cents)}</option>)}
             </select>
@@ -170,6 +170,7 @@ export function UnsortedClient({
           <Button variant="secondary" disabled={busy || open.findIndex((d) => d.id === selected.id) === 0} onClick={() => setSelectedId(open[open.findIndex((d) => d.id === selected.id) - 1].id)}>Previous</Button>
           <Button variant="secondary" disabled={busy || open.findIndex((d) => d.id === selected.id) === open.length - 1} onClick={() => setSelectedId(open[open.findIndex((d) => d.id === selected.id) + 1].id)}>Next</Button>
         </div>
+        <p className="mb-3 break-words text-body font-semibold">{vendorOf(selected)} · {money(selected.amount_cents)}</p>
         <div className="grid items-start gap-3 @5xl/page:grid-cols-[230px_minmax(0,1fr)]">
           <Card className="hidden p-0 @5xl/page:row-span-2 @5xl/page:block @5xl/page:max-h-[82vh] @5xl/page:overflow-y-auto">
             <div className="sticky top-0 hidden border-b border-rule bg-paper-2 px-3 py-2 tabular-nums text-meta text-ink-3 @5xl/page:block">

@@ -73,7 +73,7 @@ export function PlanRulesPanel({
       .concat(costItems.filter((c) => c.unit !== unit));
 
   return (
-    <div className="mt-10">
+    <div id="plan-rules" className="mb-8">
       <div className="mb-3 flex flex-wrap items-end gap-3">
         <div className="flex-1">
           <div className="text-label font-medium text-ink-3">

@@ -2,14 +2,15 @@ import { SettingsSection } from "@/components/settings/SettingsSection";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Shell } from "@/components/shell/Shell";
-import { Card, Chip, Eyebrow, PageHeader } from "@/components/ui";
+import { Button, Card, Chip, Eyebrow, PageHeader } from "@/components/ui";
 import { requireRole } from "@/lib/dal";
 import { query, queryOne } from "@/lib/db";
 import { normalizePermissions } from "@/lib/permissions";
 import { authoritySummary } from "@/lib/authority/grants";
 import { runDirect } from "@/lib/commands/db";
 import { AreasSummary, AuthorityEditor } from "@/components/settings/Authority";
-import { StaffAccessButton } from "@/components/settings/TeamAccess";
+import { UserActiveButton } from "@/components/settings/SettingsClient";
+import { ResetPasswordButton, StaffAccessButton } from "@/components/settings/TeamAccess";
 
 export const dynamic = "force-dynamic";
 
@@ -45,9 +46,10 @@ export default async function TeamMemberPage({ params }: { params: Promise<{ use
 
   return (
     <Shell breadcrumb="SETTINGS · TEAM">
-      <SettingsSection active="/settings">
+      <SettingsSection active="/settings?section=team">
+        <div className="flex flex-wrap items-center gap-2"><Button href="/settings?section=team" variant="secondary">Back to team</Button>{user.role !== "owner" && <><UserActiveButton id={user.id} active={user.active} />{user.role !== "staff" && <ResetPasswordButton id={user.id} name={user.name} />}</>}</div>
         <div className="mb-4">
-          <PageHeader title={<> {user.name} </>} meta={<> <Link href="/settings" className="hover:underline">
+          <PageHeader title={<> {user.name} </>} meta={<> <Link href="/settings?section=team" className="hover:underline">
               Team &amp; roles
             </Link>{" "}
             · {user.role}
@@ -59,7 +61,7 @@ export default async function TeamMemberPage({ params }: { params: Promise<{ use
         </div>
 
         {user.role !== "staff" ? (
-          <Card className="p-4 text-body text-ink-2">
+          <Card className="space-y-3 p-4 text-body text-ink-2">
             {user.role === "owner"
               ? "An owner account sees and may approve everything. Authority is not assigned per type."
               : "Portal logins (sub / client) hold no areas and no approval authority."}

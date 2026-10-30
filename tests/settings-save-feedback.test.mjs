@@ -22,7 +22,7 @@ async function submit(result, thrown=false) {
   form.props.onChange();states.length=0;
   form.props.onSubmit({preventDefault(){},currentTarget:{}});
   await Promise.all(pending);
-  return {states,refreshed};
+  return {states,refreshed,form};
 }
 
 test("successful settings saves clear dirty state for void and object actions",async()=>{
@@ -37,4 +37,16 @@ test("failed settings saves retain edits and report the error",async()=>{
     assert.ok(!states.includes(false));assert.ok(!states.includes("Saved"));assert.equal(refreshed,0);
     assert.ok(states.includes(thrown?"Network error":"Refused"));
   }
+});
+
+test("clean settings keep the named save action visible and disabled", async()=>{
+ const {form}=await submit(undefined);
+ function find(node) {
+  if (!node || typeof node !== 'object') return [];
+  const children = node.props?.children;
+  return [node,...(Array.isArray(children)?children:[children]).flatMap(find)];
+ }
+ const save=find(form).find(node=>node.props?.type==='submit');
+ assert.ok(save, 'Save must render before any edits');
+ assert.equal(save.props.disabled,true);
 });

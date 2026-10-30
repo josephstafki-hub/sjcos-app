@@ -6,7 +6,6 @@ import {
   Chip,
   EmptyState,
   PageHeader,
-  Segmented,
   Table,
   TableBody,
   TableCell,
@@ -44,40 +43,21 @@ export function LeadsClient({ data }: { data: LeadsData }) {
         actions={<NewLeadButton />}
       />
       <input type="search" aria-label="Search leads" placeholder="Search leads, scope or stage…" value={query} onChange={(e) => setQuery(e.target.value)} className="h-11 w-full rounded-md border border-rule bg-card px-3 text-body @xl/page:h-9" />
-      <Segmented
-        aria-label="Lead filters"
-        value={filter}
-        onChange={(v) => {
-          setFilter(v);
-          setStage("all");
-        }}
-        options={FILTERS.map((f) => ({
-          ...f,
-          count:
-            f.value === "All"
-              ? active.length
-              : data.leads.filter((l) =>
-                  f.value === "lost"
-                    ? l.stage === "lost"
-                    : l.stage !== "lost" && l.temperature === f.value,
-                ).length,
-        }))}
-      />
+      <label className="flex min-w-0 items-center gap-2 text-label">
+        Lead filters
+        <select aria-label="Lead filters" value={filter} onChange={e => { setFilter(e.target.value); setStage("all"); }} className="h-11 min-w-0 flex-1 rounded-md border border-rule bg-card px-2 text-body">
+          {FILTERS.map(f => <option key={f.value} value={f.value}>{f.label} ({f.value === "All" ? active.length : data.leads.filter(l => f.value === "lost" ? l.stage === "lost" : l.stage !== "lost" && l.temperature === f.value).length})</option>)}
+        </select>
+      </label>
       {filter !== "lost" && (
         <div>
-          <Segmented
-            aria-label="Pipeline stage"
-            value={stage}
-            onChange={setStage}
-            options={[
-              { value: "all", label: "All stages", count: filtered.length },
-              ...data.stages.map((s) => ({
-                value: s.key,
-                label: s.label,
-                count: filtered.filter((l) => l.stage === s.key).length,
-              })),
-            ]}
-          />
+          <label className="flex min-w-0 items-center gap-2 text-label">
+            Pipeline stage
+            <select aria-label="Pipeline stage" value={stage} onChange={e => setStage(e.target.value)} className="h-11 min-w-0 flex-1 rounded-md border border-rule bg-card px-2 text-body">
+              <option value="all">All stages ({filtered.length})</option>
+              {data.stages.map(s => <option key={s.key} value={s.key}>{s.label} ({filtered.filter(l => l.stage === s.key).length})</option>)}
+            </select>
+          </label>
         </div>
       )}
       {!visible.length ? (

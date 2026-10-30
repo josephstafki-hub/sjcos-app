@@ -5,7 +5,8 @@ import { ProjectsClient } from "@/components/projects/ProjectsClient";
 import { getProjectsData } from "@/lib/projects";
 import { projectsContext } from "@/lib/page-context";
 
-export default async function ProjectsPage() {
+export default async function ProjectsPage({ searchParams }: { searchParams: Promise<{ stage?: string }> }) {
+  const { stage } = await searchParams;
   const data = await getProjectsData();
   const { summary, groups } = data;
 
@@ -14,7 +15,7 @@ export default async function ProjectsPage() {
       <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-7">
         <PageHeader title="Projects" meta={summary} actions={<NewProjectButton />} className="mb-5" />
 
-        <ProjectsClient groups={groups} />
+        <ProjectsClient groups={groups} initialFilter={stage} />
       </div>
     </Shell>
   );

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Shell } from "@/components/shell/Shell";
-import { Card, Chip, Eyebrow, PageHeader } from "@/components/ui";
+import { Button, Card, Chip, Eyebrow, PageHeader } from "@/components/ui";
 import { requireAccess } from "@/lib/dal";
 import { runDirect } from "@/lib/commands/db";
 import { houzzExitInventory } from "@/lib/houzz-exit";
@@ -13,8 +13,18 @@ export const dynamic = "force-dynamic";
 export default async function HouzzExitPage() {
   await requireAccess("engine");
   const inv = await houzzExitInventory(runDirect);
+  const nextActions: Record<number, { label: string; href: string }> = {
+    1: { label: "Complete payment setup", href: "/settings/payments" },
+    2: { label: "Verify a saved design export", href: "/floor" },
+    3: { label: "File Houzz exports on their jobs", href: "/files" },
+    4: { label: "Review the first unpaid invoice", href: inv.invoices.outstanding[0] ? `/projects/${inv.invoices.outstanding[0].slug}?tab=Money` : "/money" },
+    5: { label: "Review reminder policies", href: "/engine/decisions" },
+  };
+  const titles: Record<number, string> = { 1: "Payments and reconciliation", 2: "Designer workflow verification", 3: "Preserve Houzz records", 4: "Finish existing payment links", 5: "Confirm one sender per action" };
+  const priority = [4, 1, 5, 3, 2];
+  const checklist = [...inv.criteria].sort((a, b) => Number(a.status === "met") - Number(b.status === "met") || priority.indexOf(a.n) - priority.indexOf(b.n));
   const money = (c: number) => `$${(c / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
-  const chip = (s: string) => (s === "met" ? <Chip kind="money">met</Chip> : s === "not_met" ? <Chip kind="flag">not met</Chip> : <Chip kind="ghost">needs your evidence</Chip>);
+  const chip = (s: string) => (s === "met" ? <Chip kind="money">met</Chip> : s === "not_met" ? <Chip kind="flag">not met</Chip> : <Chip kind="ghost">Needs evidence</Chip>);
   return (
     <Shell breadcrumb="OPERATIONS ENGINE · HOUZZ EXIT">
       <div className="mx-auto max-w-6xl px-4 @3xl/page:px-6 pb-16 pt-6">
@@ -28,14 +38,17 @@ export default async function HouzzExitPage() {
         </div>
 
         <section className="mb-8 flex flex-col gap-3">
-          {inv.criteria.map((c) => (
+          {checklist.map((c) => (
             <Card key={c.n} kind="default" className="px-4 py-3">
               <div className="flex flex-wrap items-start gap-3 text-body">
                 <span className="text-ink-3">{c.n}.</span>
                 <div className="min-w-0 flex-1">
-                  <div className="font-medium text-ink">{c.title}</div>
+                  <div className="font-medium text-ink">{titles[c.n]}</div>
+                  {c.status !== "met" && <Button variant="secondary" size="sm" className="mt-2 h-auto! min-h-11 max-w-full whitespace-normal! py-2 text-left" href={nextActions[c.n].href}>{nextActions[c.n].label}</Button>}
+                  <details className="mt-2"><summary className="cursor-pointer text-meta text-ink-3">Evidence and remaining gaps</summary><p className="mt-2 text-body text-ink-2">{c.title}</p>
                   {c.evidence.length > 0 && <ul className="mt-1 list-disc pl-5 text-meta text-ink-3">{c.evidence.map((e, i) => <li key={i}>{e}</li>)}</ul>}
                   {c.gaps.length > 0 && <ul className="mt-1 list-disc pl-5 text-meta text-flag">{c.gaps.map((g, i) => <li key={i}>{g}</li>)}</ul>}
+                  </details>
                 </div>
                 {chip(c.status)}
               </div>
@@ -43,6 +56,7 @@ export default async function HouzzExitPage() {
           ))}
         </section>
 
+        <details><summary className="cursor-pointer py-2 text-body text-ink-2">Technical inventory and history</summary>
         <section className="mb-8">
           <Eyebrow muted>Invoices sent and unpaid ({inv.invoices.outstanding.length}) · all invoices {Object.entries(inv.invoices.by_status).map(([k, v]) => `${k} ${v}`).join(" · ") || "none"}</Eyebrow>
           {inv.invoices.outstanding.length === 0 ? (
@@ -86,6 +100,7 @@ export default async function HouzzExitPage() {
           <ul className="mt-2 list-disc pl-5 text-body text-ink-3">{inv.code_references.map((r,i)=><li key={i}>{r}</li>)}</ul>
           <p className="mt-3 text-body text-ink-3">Before cancelling Houzz, export the records you still need and attach them to the matching job in Files.</p>
         </section>
+        </details>
       </div>
     </Shell>
   );

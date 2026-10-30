@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-const links = [["Settings", "/settings"], ["Pricing", "/settings/pricing"], ["Overhead", "/settings/overhead"], ["Square payments", "/settings/payments"], ["QuickBooks", "/settings/accounting"]];
+const links = [["Settings", "/settings"], ["Team", "/settings?section=team"], ["Pricing", "/settings/pricing"], ["Overhead", "/settings/overhead"], ["Square payments", "/settings/payments"], ["QuickBooks", "/settings/accounting"]];
 export function SettingsSection({ active, children }: { active: string; children: ReactNode }) {
   const router = useRouter();
   return <div className="mx-auto grid w-full max-w-6xl gap-6 px-4 py-6 @4xl/page:grid-cols-[192px_minmax(0,1fr)] @4xl/page:px-6">

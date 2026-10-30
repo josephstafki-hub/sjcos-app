@@ -131,7 +131,7 @@ function Toggle({
   );
 }
 
-function UserActiveButton({id, active}: {id:string;active:boolean}) {
+export function UserActiveButton({id, active}: {id:string;active:boolean}) {
   const [pending,start] = useTransition();
   const [feedback,setFeedback] = useState("");
   return <div className="space-y-1">
@@ -149,8 +149,8 @@ const MORE_SETTINGS = [
   { title: "Accounting · QuickBooks", href: "/settings/accounting" },
 ];
 
-export function SettingsClient({ data }: { data: SettingsData }) {
-  const [active, setActive] = useState("profile");
+export function SettingsClient({ data, initialSection = "profile" }: { data: SettingsData; initialSection?: string }) {
+  const [active, setActive] = useState(initialSection);
   const router = useRouter();
 
   return (
@@ -373,7 +373,7 @@ export function SettingsClient({ data }: { data: SettingsData }) {
 
         {active === "team" && (
           <>
-            <div className="flex items-start justify-between">
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <PageHeader title={<> Team &amp; roles </>} />
                 <div className="mt-1.5 text-meta text-ink-3">
@@ -392,7 +392,7 @@ export function SettingsClient({ data }: { data: SettingsData }) {
                 >
                   <Avatar initials={m.initials} size="sm" kind={m.chip === "accent" ? "accent" : m.chip === "ai" ? "ai" : "gray"} />
                   <div className="min-w-0 flex-1">
-                    <div className="font-serif text-subheading font-semibold text-ink">{m.name}</div>
+                    <div className="text-subheading font-semibold text-ink">{m.id ? <Link href={`/settings/team/${m.id}`} className="hover:underline">{m.name}</Link> : m.name}</div>
                     <div className="text-meta text-ink-3">{m.role}</div>
                   </div>
                   {/* Team members get an Access editor; every real non-owner row gets enable/disable. */}

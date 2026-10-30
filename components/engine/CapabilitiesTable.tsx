@@ -17,8 +17,14 @@ const STATE_LABEL: Record<CapabilityState, string> = {
   proven: "Proven",
 };
 
-function StateChip({ on, label }: { on: boolean; label: string }) {
-  return on ? <Chip kind="money">{label}</Chip> : <Chip kind="ghost">{label}</Chip>;
+function StateSummary({ row }: { row: CapabilityReport["rows"][number] }) {
+  const furthest = [...CAPABILITY_STATES].reverse().find(state => row[state]);
+  return <div className="space-y-1">
+    <Chip kind={furthest === "proven" ? "money" : "ghost"}>{furthest ? STATE_LABEL[furthest] : "Not implemented"}</Chip>
+    <ol aria-label="Capability progress" className="flex gap-1">
+      {CAPABILITY_STATES.map(state => <li key={state} title={`${STATE_LABEL[state]}: ${row[state] ? "recorded" : "not recorded"}`} className={`h-1.5 w-5 rounded-full ${row[state] ? "bg-accent" : "bg-paper-3"}`}><span className="sr-only">{STATE_LABEL[state]}: {row[state] ? "recorded" : "not recorded"}</span></li>)}
+    </ol>
+  </div>;
 }
 
 export function CapabilitiesTable({ report, canEdit }: { report: CapabilityReport; canEdit: boolean }) {
@@ -68,11 +74,7 @@ export function CapabilitiesTable({ report, canEdit }: { report: CapabilityRepor
                       {r.notes ? <div className="mt-1 text-meta text-ink-3">{r.notes}</div> : null}
                     </td>
                     <td className="w-44 py-2 pr-3 @max-xl/page:col-start-2 @max-xl/page:w-auto @max-xl/page:py-1">
-                      <div className="flex flex-wrap gap-1">
-                        {CAPABILITY_STATES.map((s) => (
-                          <StateChip key={s} on={r[s]} label={STATE_LABEL[s]} />
-                        ))}
-                      </div>
+                      <StateSummary row={r} />
                     </td>
                     <td className="py-2 pr-3 @max-xl/page:col-start-2 @max-xl/page:py-1">
                       <div className="flex flex-col items-start gap-1 whitespace-nowrap @4xl/page:flex-row @4xl/page:items-center @4xl/page:gap-2">

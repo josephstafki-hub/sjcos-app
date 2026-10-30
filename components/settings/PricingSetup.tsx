@@ -1,6 +1,7 @@
 "use client";
 
 import { historicalAuthor, percentLabel } from "@/lib/pricing-labels";
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import { Card, Chip, Eyebrow } from "@/components/ui";
 import { runAction } from "@/lib/run-action";
@@ -20,8 +21,14 @@ function DraftEditor({ row }: { row: PricingSetupRow }) {
   const dirty = JSON.stringify(cfg) !== JSON.stringify(baseline);
   const save = () => start(async () => { await runAction(() => updatePricingDraftAction(row.version, cfg), {onSuccess:()=>{setBaseline(cfg);setFeedback("Saved");},onError:setFeedback}); });
   const activate = () => start(async () => { await runAction(() => activatePricingSetupAction(row.version), {onSuccess:()=>setFeedback("Activation request saved. Review Decisions if this version is still a draft."),onError:setFeedback}); });
+  const missingRates = Object.values(cfg.labor_rates).filter(v => v.cents_per_hour == null).length;
+  const missingAllowances = Object.values(cfg.default_allowances).filter(v => v.cents == null).length;
   return (
     <div>
+      <aside className="mb-3 rounded-md border border-rule-soft bg-paper-2 p-3 text-body">
+        <p>{missingRates} labor rates and {missingAllowances} allowances lack evidence{cfg.markup_pct == null || cfg.margin_target_pct == null ? "; markup or margin also needs your decision" : ""}.</p>
+        <div className="mt-2 flex flex-wrap gap-4 text-accent-2"><Link href="/cost-book" className="underline">Review cost book</Link><Link href="/projects?stage=closeout" className="underline">Review job closeouts</Link></div>
+      </aside>
       <div className="mt-2 flex flex-wrap items-center gap-3"><span className="font-medium">v{row.version}</span><Chip kind="ghost">Draft</Chip><button className={btn} disabled={pending || dirty} onClick={activate}>Activate v{row.version}</button><span role="status" className="text-meta text-ink-2">{pending ? "Saving…" : feedback || (dirty ? "Unsaved changes" : "")}</span></div>
       <p className="mt-2 text-meta text-ink-3">{historicalAuthor(row.proposed_by)} · {row.created_at.slice(0,10)}{row.notes ? ` · ${row.notes}` : ""}</p>
       <div className="mt-3 grid gap-3 text-body @3xl/page:grid-cols-2">

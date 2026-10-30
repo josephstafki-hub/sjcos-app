@@ -23,7 +23,6 @@ export default async function CostBookPage() {
           className="mb-5"
         />
 
-        <CostBookClient data={data} />
         <PlanRulesPanel
           rules={planRules}
           costItems={data.items
@@ -35,6 +34,7 @@ export default async function CostBookPage() {
               category: i.category,
             }))}
         />
+        <CostBookClient data={data} />
       </div>
     </Shell>
   );

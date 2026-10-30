@@ -84,8 +84,8 @@ type Tab = "queue" | "knowledge" | "skills" | "memories";
 const BUCKET_META: { key: QueueBucket; label: string; kind: ChipKind }[] = [
   { key: "approval", label: "Needs approval", kind: "flag" },
   { key: "active", label: "In progress", kind: "accent" },
-  { key: "waiting", label: "Waiting / blocked", kind: "info" },
   { key: "queued", label: "Queued", kind: "default" },
+  { key: "waiting", label: "Waiting / blocked", kind: "info" },
   { key: "done", label: "Done · cancelled", kind: "ghost" },
 ];
 
@@ -119,16 +119,16 @@ export function EngineClient({
 
   return (
     <div>
-      <EngineStatusStrip engine={engine} />
 
       {activeRunbooks.length > 0 && <ActiveRunbooks instances={activeRunbooks} />}
 
-      <Tabs className="mb-5 mt-4" tabs={tabs.map(t=>t.label)} counts={tabs.map(t=>t.count)} active={tabs.findIndex(t=>t.key===tab)} onSelect={i=>setTab(tabs[i].key)} />
+      <Tabs className="mb-2" tabs={tabs.map(t=>t.label)} counts={tabs.map(t=>t.count)} active={tabs.findIndex(t=>t.key===tab)} onSelect={i=>setTab(tabs[i].key)} />
 
       {tab === "queue" && <QueueTab engine={engine} skills={skills} canAssign={canAssign} meId={meId} />}
       {tab === "knowledge" && <KnowledgeTab initial={knowledge} />}
       {tab === "skills" && <SkillsTab skills={skills} />}
       {tab === "memories" && <MemoriesTab memories={memories} />}
+      <div className="mt-6"><EngineStatusStrip engine={engine} /></div>
     </div>
   );
 }
@@ -234,11 +234,10 @@ function ActiveRunbooks({ instances }: { instances: RunbookInstanceView[] }) {
 // filters in the browser; the archive is paged from the server.
 
 function QueueFilterDisclosure({ children, label }: { children: ReactNode; label: string }) {
-  const [open, setOpen] = useState(false);
-  return <div className="mb-4">
-    <Button variant="secondary" className="mb-3 @3xl/page:hidden" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Hide folders and filters" : "Folders and filters"} · {label}</Button>
-    <div className={`${open ? "block" : "hidden"} @3xl/page:block`}>{children}</div>
-  </div>;
+  return <details className="mb-2 min-w-0">
+    <summary className="cursor-pointer py-2 text-label font-semibold text-ink-2">Folders and filters · {label}</summary>
+    <div className="grid gap-3 py-2 @3xl/page:grid-cols-[180px_minmax(0,1fr)]">{children}</div>
+  </details>;
 }
 
 function QueueTab({
@@ -288,7 +287,7 @@ function QueueTab({
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="mb-1 flex items-center justify-between gap-3">
         <div className="flex rounded-md border border-rule bg-paper-2 p-0.5">
           {(
             [
@@ -381,21 +380,16 @@ function QueueTab({
         </Card>
       )}
 
-      <p className="mb-3 text-meta text-ink-3">Folder counts are open to-dos. Everything has {folders.all.open} open out of {engine.items.length} records, including done and cancelled; archived records are separate.</p>
-      <div className="grid items-start gap-4 @5xl/page:grid-cols-[180px_minmax(0,1fr)]">
-        <aside className="min-w-0">
-          <QueueFilterDisclosure label="Choose folder">
-            <QueueRail folders={folders} active={filter.who} showCounts={view === "queue"} onPick={who => setFilter(f => ({ ...f, who }))} />
-          </QueueFilterDisclosure>
-        </aside>
+      <QueueFilterDisclosure label={folders.all.who === filter.who && !filtered ? "Everything" : "Filtered"}>
+        <QueueRail folders={folders} active={filter.who} showCounts={view === "queue"} onPick={who => setFilter(f => ({ ...f, who }))} />
         <div className="min-w-0">
-          <QueueFilterDisclosure label="Search and filters">
-            <QueueFilters items={engine.items} filter={filter} onChange={setFilter} onMe={null} />
-          </QueueFilterDisclosure>
-          {view === "queue" && <div className="mb-3 flex flex-wrap gap-2" aria-label="Work scope">
-            {([{ key: "all", label: "All records", count: inFolder.length }, { key: "mine", label: "Waiting on me", count: onMeCount }, { key: "others", label: "Waiting on client / sub", count: othersCount }] as const).map(s => <Button key={s.key} variant={scope === s.key ? "primary" : "secondary"} size="sm" aria-pressed={scope === s.key} onClick={() => setScope(s.key)}>{s.label} {s.count}</Button>)}
-          </div>}
-          <p className="mb-3 text-meta text-ink-2">{view === "queue" ? `${shown.length} shown · ${inFolder.length} records match this folder and filters` : "Archived records · folder and filters apply"}</p>
+          <QueueFilters items={engine.items} filter={filter} onChange={setFilter} onMe={null} />
+          {view === "queue" && <label className="text-label text-ink-3">Work scope <select className={inputCls} value={scope} onChange={e => setScope(e.target.value as QueueScope)}>
+            <option value="all">All records ({inFolder.length})</option><option value="mine">Waiting on me ({onMeCount})</option><option value="others">Waiting on client / sub ({othersCount})</option>
+          </select></label>}
+        </div>
+      </QueueFilterDisclosure>
+      <p className="mb-2 text-meta text-ink-3">{view === "queue" ? `${shown.length} shown · ${folders.all.open} open / ${engine.items.length} total records` : "Archived records · folder and filters apply"}</p>
       <div className="min-w-0">
           {view === "archived" ? (
             <ArchiveList
@@ -415,7 +409,7 @@ function QueueTab({
               body={filtered ? "No work items match these filters." : "Nothing is on the queue for this folder right now."}
             />
           ) : (
-            <div className="space-y-6">
+            <div className="space-y-3">
               {nonEmpty.map((b) => (
                 <section key={b.key}>
                   <div className="mb-2 flex items-center gap-2">
@@ -445,8 +439,6 @@ function QueueTab({
               ))}
             </div>
           )}
-      </div>
-        </div>
       </div>
     </div>
   );
@@ -692,7 +684,7 @@ function WorkItemCard({item,assignees,canAssign,onRestored}: {
   const [open,setOpen]=useState(false); const [editing,setEditing]=useState(false);
   const run=(fn:()=>Promise<ActionLike>)=>start(async()=>{await runAction(fn);router.refresh();});
   return <div className="group min-w-0 py-1">
-    <div className="flex items-start gap-3 rounded-md px-3 py-3 hover:bg-hover">
+    <div className="flex items-start gap-3 rounded-md px-2 py-2 hover:bg-hover">
       <div className="min-w-0 flex-1">
         <button onClick={()=>setOpen(!open)} aria-expanded={open} className="text-left text-subheading font-semibold text-ink hover:text-accent-2">{item.title}</button>
         <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-meta text-ink-3">

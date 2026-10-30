@@ -179,11 +179,11 @@ export function AddUserButton() {
         className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-meta font-semibold text-paper transition-colors hover:bg-ink-hover"
       >
         <Plus className="size-3" strokeWidth={1.5} />
-        Add user
+        Add team member
       </button>
 
       {open && (
-        <Modal title="Add a user" onClose={() => setOpen(false)}>
+        <Modal title="Add a team member" onClose={() => setOpen(false)}>
           <form action={handle} className="flex flex-col gap-3 p-4">
             <TextInput name="name" label="Name" required placeholder="Marco Rivas" defaultValue={val("name")} />
             <TextInput name="email" label="Email" type="email" required placeholder="marco@…" defaultValue={val("email")} />
@@ -234,7 +234,7 @@ export function AddUserButton() {
                 Cancel
               </button>
               <SubmitButton pendingLabel="Adding…" className={primaryBtn}>
-                Add user
+                Add team member
               </SubmitButton>
             </div>
           </form>
@@ -314,27 +314,22 @@ export function StaffAccessButton({
             </div>
           </form>
 
-          <form
-            action={(fd) => run(() => resetUserPassword(id, fd), "Couldn't reset the password.", "Password reset.", false)}
-            className="flex items-end gap-2 border-t border-rule px-4 py-3"
-          >
-            <div className="flex-1">
-              <TextInput
-                name="password"
-                label="Reset password"
-                type="password"
-                placeholder="new temp password (8+)"
-                autoComplete="new-password"
-              />
-            </div>
-            <SubmitButton pendingLabel="Resetting…" className={`${ghostBtn} inline-flex items-center gap-1`}>
-              <KeyRound className="size-3" strokeWidth={1.5} />
-              Reset
-            </SubmitButton>
-            {saved && <span className="pb-2 text-meta text-accent-2">{saved}</span>}
-          </form>
+          <PasswordResetForm id={id} />
         </Modal>
       )}
     </>
   );
+}
+
+function PasswordResetForm({ id }: { id: string }) {
+  const [feedback, setFeedback] = useState("");
+  return <form action={async fd => { await runAction(() => resetUserPassword(id, fd), { onSuccess: () => setFeedback("Password reset."), onError: setFeedback }); }} className="flex flex-wrap items-end gap-2 border-t border-rule px-4 py-3">
+    <div className="min-w-0 flex-1"><TextInput name="password" label="Reset password" type="password" placeholder="new temp password (8+)" autoComplete="new-password" /></div>
+    <SubmitButton pendingLabel="Resetting…" className={ghostBtn}><KeyRound className="size-3" /> Reset</SubmitButton>
+    {feedback && <p role="status" className="basis-full text-body text-ink-2">{feedback}</p>}
+  </form>;
+}
+export function ResetPasswordButton({ id, name }: { id: string; name: string }) {
+  const [open, setOpen] = useState(false);
+  return <><button type="button" className={rowBtn} onClick={() => setOpen(true)}>Reset password</button>{open && <Modal title={`${name} · reset password`} onClose={() => setOpen(false)}><PasswordResetForm id={id} /></Modal>}</>;
 }

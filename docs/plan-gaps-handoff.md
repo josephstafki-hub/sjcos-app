@@ -354,14 +354,17 @@ by Joe/staff don't feed the weekly update (only sub logs do).
   limits nor the A24 operating instructions. It has the full environment, the live repo and no timeout
   (`scripts/run-claude-agent.mjs` `buildPrompt` `~175-200`, `DEV_CLAUDE_TIMEOUT_MS` unset). Discuss with
   Joe before limiting his own tool.
-- **Hermes picked by a staff member runs as Joe**, with no person attached and no revocation check
-  (`lib/actions/ai-chat.ts:~152-183`).
+- ~~**Hermes picked by a staff member runs as Joe.**~~ **Done (branch `t3/tier4-hermes-staff`):**
+  - A staff turn in an Auto thread goes to Claude, which runs bound to that person.
+  - A staff thread pinned to Hermes or Qwen is refused, and voice won't delegate to them for staff.
 - **No database role isolation or dollar cap:**
   - `deploy/db-roles.sql` was never applied, and `DATABASE_URL_AGENT` is unused.
   - The worker identity lib (`lib/authority/worker-identity.ts`) has no callers.
   - There's no dollar cap on worker runs (`scripts/run-business-agent.mjs:~66`).
 - **Owner grants aren't tied to the content** of the send (`lib/owner-grant-types.ts:~84-113`).
-- **Direct sends skip lanes, opt-outs and unknown-outcome handling:**
+- ~~**Direct sends skip lanes, opt-outs and unknown-outcome handling.**~~ **Done (same branch,
+  `lib/direct-send-gate.ts`):** all five check the lane and opt-outs first. A bid follow-up whose send may
+  have gone out is marked "unknown outcome" and never retried on its own (Joe gets a flag). The five:
   - `lib/bid-follow-ups.ts:~199`
   - `lib/newsletter-drip.ts:~243`
   - `lib/doc-drafts.ts:~871`

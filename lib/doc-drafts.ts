@@ -15,6 +15,10 @@ import path from "node:path";
 import { captureAgentMemory } from "./agent-memory";
 import { fieldValuesText, materialDiff } from "./agent-draft-diff";
 import { query, queryOne } from "./db";
+import { directSendBlocked } from "./direct-send-gate";
+import type { Run } from "./commands/core";
+
+const runQ: Run = async (sql, params) => (await query(sql, params as never[])).rows as never;
 import { storeBuffer } from "./upload-store";
 import { UPLOAD_DIR } from "./uploads";
 import { sendNewEmail, gmailConfigured, type MailAttachment } from "./gmail";
@@ -849,6 +853,8 @@ async function emailDocForSignature(o: {
   if (!o.projectSlug && !o.leadSlug) {
     return { sent: false, note: "No project or lead behind this document — send it manually." };
   }
+  const blocked = await directSendBlocked(runQ, { lane: "sends", to: o.signerEmail });
+  if (blocked) return { sent: false, note: `No email went out: ${blocked} The document is waiting in their portal.` };
   try {
     const invite = await ensureClientInvite(
       o.projectSlug ? { project: o.projectSlug } : { lead: o.leadSlug! },

@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useEffect, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
+import { type ReactNode } from "react";
 import { Search } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { CommandPalette, PALETTE_EVENT } from "@/components/panel/CommandPalette";
 import { NotificationBell } from "./NotificationBell";
 
 type TopbarProps = {
@@ -27,21 +28,8 @@ const BREADCRUMB_ROUTES: Record<string, string> = {
 
 export function Topbar({ breadcrumb = "TODAY", unread = 0, leading }: TopbarProps) {
   const pathname = usePathname();
-  const router = useRouter();
   const segments = breadcrumb.split(/\s*[·›/]\s*/).filter(Boolean);
   const pathParts = pathname.split("/").filter(Boolean);
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k" && !event.defaultPrevented) {
-        event.preventDefault();
-        // /cmdk is the app's existing command entry route (currently redirects to Today).
-        router.push("/cmdk");
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [router]);
 
   return (
     <div className="flex h-[calc(3rem_+_env(safe-area-inset-top))] flex-none items-center gap-3 border-b border-rule bg-paper pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[env(safe-area-inset-top)]">
@@ -59,7 +47,8 @@ export function Topbar({ breadcrumb = "TODAY", unread = 0, leading }: TopbarProp
           })}
         </ol>
       </nav>
-      <Button href="/cmdk" variant="ghost" size="sm" icon={Search} aria-label="Search" title="Search (⌘K)">
+      <CommandPalette />
+      <Button onClick={() => window.dispatchEvent(new Event(PALETTE_EVENT))} variant="ghost" size="sm" icon={Search} aria-label="Search" title="Search (⌘K)">
         <span className="max-sm:hidden">Search… <kbd className="ml-3 font-mono text-meta text-ink-3">⌘K</kbd></span>
       </Button>
       <NotificationBell initial={unread} />

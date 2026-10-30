@@ -332,18 +332,6 @@ export function PanelChat({
     });
   }, []);
 
-  // ⌘/Ctrl+K focuses the composer — the panel is the app's one Ask surface.
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        inputRef.current?.focus();
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
   // ─── Thread navigation (ThreadList: rail beside the chat, or drawer) ───────
 
   const openThread = (id: string) => {

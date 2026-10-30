@@ -406,7 +406,7 @@ export function useAgentChat({
     startTransition(() => {
       setClaudeOptsState(st.claude);
       setFolderScopeState(st.folderId);
-      const open = deepLink ?? st.conversationId;
+      const open = new URLSearchParams(window.location.search).has("new") ? null : deepLink ?? st.conversationId;
       if (open) {
         void openConversation(open);
       } else if (st.agent !== PANEL_DEFAULT_AGENT) {

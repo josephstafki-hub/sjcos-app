@@ -21,9 +21,7 @@ import { finalizeSignedDraft } from "@/lib/doc-drafts";
 import { storeBuffer } from "@/lib/upload-store";
 import { parseSignatureDataUrl } from "@/lib/signature-image";
 import type { DocType, SigMethod } from "@/lib/esign-types";
-import { billingOnSignatureSigned } from "@/lib/billing/server";
-import { workflowOnSignatureSigned } from "@/lib/workflow/server";
-import { recordWrittenSignoffCmd } from "@/lib/closeout/server";
+import { signatureHooksWithRetry } from "@/lib/esign-hooks";
 import { classifySignedDoc } from "@/lib/workflow/engine";
 
 type Result = { ok: true; id?: number } | { ok: false; error: string };
@@ -269,34 +267,12 @@ async function applySignature(o: ApplySignatureInput): Promise<boolean> {
     await query(`UPDATE change_orders SET status = 'approved' WHERE id = $1`, [o.doc.change_order_id]);
   }
 
-  // A07b (WORKFLOW W08/W12): a client's acceptance of the formal estimate
-  // issues the initial invoice; a signed contract links to it; a signed
-  // completion sign-off issues the final invoice. Keyed on the economic
-  // identity, so a repeated signature event issues nothing twice. The
-  // signature is already binding above — billing must never fail the sign.
-  try {
-    await billingOnSignatureSigned(o.id);
-  } catch (err) {
-    console.error(`[esign] billing hook failed for request ${o.id}:`, err);
-  }
-  // A23 (WORKFLOW W02/W08/W09/W12): a signed pre-construction agreement starts
-  // scope/site-visit/design/estimate preparation now (no payment gate); other
-  // signed documents move the project workflow and wake the operating agent.
-  // Idempotent; never fails the binding signature.
-  try {
-    await workflowOnSignatureSigned(o.id);
-  } catch (err) {
-    console.error(`[esign] workflow hook failed for request ${o.id}:`, err);
-  }
-  // W12: a signed completion sign-off is the written client sign-off; once no
-  // punch item is open it schedules the after-job care (warranty, review
-  // request, check-in, learning — policy postproject.followthrough).
-  try {
-    const [sr] = (await query<{ doc_type: string }>(`SELECT doc_type FROM signature_requests WHERE id = $1`, [o.id])).rows;
-    if (sr?.doc_type === "completion") await recordWrittenSignoffCmd({ kind: "service", name: "esign:signed" }, o.id);
-  } catch (err) {
-    console.error(`[esign] closeout sign-off hook failed for request ${o.id}:`, err);
-  }
+  // What the signature sets off: billing (A07b initial/final invoice),
+  // workflow (A23 W02 preparation, stage moves, agent wake-up), closeout (W12
+  // after-job care) and the W08 construction agreement on acceptance. Each is
+  // idempotent and none fails the binding signature; a failed step is retried
+  // by the worker (lib/esign-hooks.ts).
+  await signatureHooksWithRetry(o.id);
   return true;
 }
 

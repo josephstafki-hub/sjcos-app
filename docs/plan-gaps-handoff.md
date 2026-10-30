@@ -211,8 +211,11 @@ by Joe/staff don't feed the weekly update (only sub logs do).
   `t3/tier3-release-cards`):** approving a card emails that one sub (or supplier) through
   `lib/procurement/release-send.ts`, with the card as the approval (no second grant). The content is rebuilt
   at approval and must hash to the card's; an edited package, note or address sends nothing.
-- **Construction agreement on acceptance (W08):** it is never generated. `send_document_for_signature`
-  always needs a grant, while the agent instructions say there's no further release.
+- ~~**Construction agreement on acceptance (W08):**~~ **Done (branch `t3/tier3-w08`):** a signed formal
+  estimate drafts and prints the construction agreement from that estimate (`lib/workflow/agreement.ts`).
+  It sends for signature on its own only while the `contract.send_on_acceptance` policy is active
+  (migration 0050, seeded OFF), and the contract approval gate still applies. Otherwise Joe is told it's
+  ready on Documents.
 - ~~**Agent wake-ups:**~~ **Done (branch `t3/tier3-wakeups`), behind a switch that ships OFF:**
   - These now wake the operating agent:
     - texts from a known contact
@@ -227,8 +230,14 @@ by Joe/staff don't feed the weekly update (only sub logs do).
   - Each wake-up is one agent run, about 16¢.
   - Not wired: sub portal messages (no job to tie them to), and project client emails (part of A01 email
     intake below).
-- **W02 hook failure:** a failure is only logged (`lib/actions/esign.ts:~275`), with no retry or repair.
-  The workflow runbooks (`db/seed-workflow-runbooks.mjs`) aren't seeded live, and live jobs show stage W01.
+- **W02 hook failure:**
+  - ~~A failure is only logged.~~ **Done (same branch):** the post-signature steps (billing, workflow,
+    closeout, W08) run through `lib/esign-hooks.ts`. A failed step leaves a failed `esign` source event
+    that the worker retries; the steps are idempotent.
+  - Still open:
+    - The workflow runbooks (`db/seed-workflow-runbooks.mjs`) aren't seeded live. They seed as inactive or
+      proposed for Joe to approve in /engine, so run that at deploy.
+    - Live jobs show stage W01 (5 projects) or W09 (2), with no backfill.
 - **W03 and W11:**
   - W03: no allocation-review card is ever staged.
   - W11: the over-allowance `prepare_change_order` card has no handler. Joe's rule is that no tool creates

@@ -15,7 +15,7 @@ import { ArrowDown, ArrowUp } from "lucide-react";
 import { Button, Card, Chip, EmptyState, KpiTile, Table, TableWrapper, TableHead, TableBody, TableHeader, TableRow, TableCell, TablePrimaryCell } from "@/components/ui";
 import type { ChipKind } from "@/components/ui/Chip";
 import { fmtK, fmtPct, type CompanyTotals, type ProfitStatus } from "@/lib/budget-types";
-import { sortCompanyRows, type CompanyJobRow, type CompanyMoney as CompanyMoneyData, type CompanySortKey } from "@/lib/budget-company";
+import { groupAttention, attentionAmountLabel, sortCompanyRows, type CompanyJobRow, type CompanyMoney as CompanyMoneyData, type CompanySortKey } from "@/lib/budget-company";
 import { Fold, Section } from "@/components/projects/budget/parts";
 
 const STATUS: Record<ProfitStatus, { label: string; kind: ChipKind }> = {
@@ -92,9 +92,9 @@ function JobsList({ rows }: { rows: CompanyJobRow[] }) {
 const ATTENTION_SHOWN = 8;
 
 export function CompanyMoney({ data }: { data: CompanyMoneyData }) {
-  const [allAttention, setAllAttention] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const [closedOpen, setClosedOpen] = useState(false);
-  const attention = allAttention ? data.attention : data.attention.slice(0, ATTENTION_SHOWN);
+  const groups = groupAttention(data.attention);
 
   return (
     <div className="flex flex-col gap-6">
@@ -103,34 +103,25 @@ export function CompanyMoney({ data }: { data: CompanyMoneyData }) {
       {data.totals.profitJobs > 0 && <p className="text-body text-ink-2">Profit {fmtK(data.totals.profitCents)} · {fmtPct(data.totals.blendedMarginPct)} margin, known on {data.totals.profitJobs} of {jobs(data.totals.jobCount)}.</p>}
       {data.totals.unbilledJobs > 0 && <p className="text-body text-ink-2">Work done, not billed: {fmtK(data.totals.unbilledCents)} · known on {jobs(data.totals.unbilledJobs)}.</p>}
 
-      <Section title="Needs attention" sub="Most money first.">
-        {data.attention.length === 0 ? <EmptyState compact title="No money issues flagged" description="Budget, invoice and cost issues will appear here when they need a decision." /> : (
-          <>
-          {/* Phones: one card per issue, action full width — the table cut the action off. */}
-          <ul className="divide-y divide-rule-soft rounded-lg border border-rule bg-card @xl/page:hidden">
-            {attention.map((a, i) => <li key={`${a.slug}-${a.kind}-${i}-m`} className="flex flex-col gap-2 p-3">
-              <div className="flex items-baseline justify-between gap-3">
-                <Link href={a.href} className="min-w-0 text-subheading font-semibold text-ink hover:underline">{a.name}</Link>
-                <span className="flex-none text-right tabular-nums">{fmtK(a.amountCents)}<span className="block text-meta text-ink-3">{a.kind === "profit_unknown" ? "Job value" : a.kind === "unassigned_costs" ? "Unassigned cost" : "Issue amount"}</span></span>
-              </div>
-              <p className="text-body text-ink-2">{a.text}</p>
-              <Button variant="secondary" size="sm" href={a.href} className="w-full justify-center">{a.kind === "profit_unknown" ? "Add budget" : "Review"}</Button>
-            </li>)}
-            {data.attention.length > ATTENTION_SHOWN && <li><Button variant="ghost" onClick={() => setAllAttention(!allAttention)} className="w-full justify-start">{allAttention ? "Show fewer" : `Show all ${data.attention.length}`}</Button></li>}
-          </ul>
-          <TableWrapper className="@max-xl/page:hidden"><Table density="compact">
-            <TableHead><TableRow><TableHeader numeric>Amount</TableHeader><TableHeader>Job</TableHeader><TableHeader className="@max-3xl/page:hidden">Issue</TableHeader><TableHeader><span className="sr-only">Action</span></TableHeader></TableRow></TableHead>
-            <TableBody>{attention.map((a,i) => <TableRow key={`${a.slug}-${a.kind}-${i}`}>
-              <TableCell numeric className="whitespace-nowrap">{fmtK(a.amountCents)}<div className="text-meta text-ink-3">{a.kind === "profit_unknown" ? "Job value" : a.kind === "unassigned_costs" ? "Unassigned cost" : "Issue amount"}</div></TableCell>
-              <TablePrimaryCell meta={<span className="@3xl/page:hidden">{a.text}</span>}><Link href={a.href} className="hover:underline">{a.name}</Link></TablePrimaryCell>
-              <TableCell className="@max-3xl/page:hidden text-ink-2">{a.text}</TableCell>
-              <TableCell className="text-right"><Button variant="ghost" size="sm" href={a.href}>{a.kind === "profit_unknown" ? "Add budget" : "Review"}</Button></TableCell>
-            </TableRow>)}</TableBody>
-          </Table>
-          {data.attention.length > ATTENTION_SHOWN && <Button variant="ghost" onClick={() => setAllAttention(!allAttention)} className="w-full justify-start border-t border-rule-soft">{allAttention ? "Show fewer" : `Show all ${data.attention.length}`}</Button>}
-          </TableWrapper>
-          </>
-        )}
+      <Section title="Needs attention" sub="Grouped by kind. Oldest invoices first; other groups show the largest amounts first.">
+        {!groups.length ? <EmptyState compact title="No money issues flagged" description="Budget, invoice and cost issues will appear here when they need a decision." /> : groups.map(group => {
+          const expanded = expandedGroups.includes(group.title);
+          const attention = expanded ? group.items : group.items.slice(0, ATTENTION_SHOWN);
+          return <section key={group.title} className="mb-5">
+            <h3 className="mb-2 text-subheading font-semibold">{group.title} <span className="text-meta font-normal text-ink-3">{group.items.length}</span></h3>
+            <ul className="divide-y divide-rule-soft rounded-lg border border-rule bg-card">
+              {attention.map((a, i) => <li key={`${a.slug}-${a.kind}-${i}`} className="flex flex-wrap items-center gap-3 p-3">
+                <div className="min-w-0 flex-1 basis-40">
+                  <Link href={a.href} className="text-subheading font-semibold hover:underline">{a.name}</Link>
+                  <p className="mt-1 text-meta text-ink-2">{a.text}</p>
+                </div>
+                <div className="text-right tabular-nums">{fmtK(a.amountCents)}<div className="text-meta text-ink-3">{attentionAmountLabel(a.kind)}</div></div>
+                <Button variant="secondary" size="sm" href={a.href}>{a.kind === "profit_unknown" ? "Add budget" : "Review"}</Button>
+              </li>)}
+            </ul>
+            {group.items.length > ATTENTION_SHOWN && <Button variant="ghost" size="sm" onClick={() => setExpandedGroups(expanded ? expandedGroups.filter(t => t !== group.title) : [...expandedGroups, group.title])}>{expanded ? "Show fewer" : `Show all ${group.items.length}`}</Button>}
+          </section>;
+        })}
       </Section>
 
       <Section title="Open jobs" sub="The bar is what each job has cost and is still expected to, against its price. A job with no finished budget shows cost so far and no profit.">

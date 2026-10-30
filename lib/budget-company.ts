@@ -54,7 +54,7 @@ export interface CompanyJobRow {
 }
 
 export type AttentionKind =
-  | "trade_over" | "invoice_overdue" | "under_billed" | "unsigned_co_spend" | "collected_mismatch"
+  | "invoice_unpaid" | "trade_over" | "invoice_overdue" | "under_billed" | "unsigned_co_spend" | "collected_mismatch"
   | "billed_over_po" | "possible_duplicate" | "profit_unknown" | "costs_stale" | "co_pending" | "unassigned_costs";
 
 export interface AttentionItem {
@@ -65,6 +65,7 @@ export interface AttentionItem {
   /** What is at stake — the list sorts on it, most money first. */
   amountCents: number;
   href: string;
+  urgencyDays?: number;
 }
 
 export interface CompanyMoney {
@@ -124,9 +125,14 @@ export function buildCompanyMoney(views: BudgetView[]): CompanyMoney {
 
     for (const o of t.overLines)
       if (o.varianceCents > ATTENTION.tradeOverCents) add("trade_over", `${o.line.trade} is ${fmtSigned(o.varianceCents)} over budget`, o.varianceCents);
-    for (const i of view.clientInvoices)
-      if (i.status === "sent" && (i.daysOutstanding ?? 0) > ATTENTION.invoiceOverdueDays)
-        add("invoice_overdue", `${i.number} (${fmtK(i.amountCents)}) has been out ${i.daysOutstanding} days`, i.amountCents);
+    for (const i of view.clientInvoices) {
+      const balance = i.balanceCents ?? i.amountCents;
+      if (i.status !== "sent" || balance <= 0) continue;
+      const days = i.daysOutstanding ?? 0;
+      add(days > ATTENTION.invoiceOverdueDays ? "invoice_overdue" : "invoice_unpaid",
+        `${i.number} (${fmtK(balance)}) ${i.daysOutstanding == null ? "is unpaid" : `has been out ${days} days`}`, balance);
+      attention[attention.length - 1].urgencyDays = days;
+    }
     if (t.overUnderBilledCents != null && -t.overUnderBilledCents > ATTENTION.underBilledCents)
       add("under_billed", `About ${fmtK(-t.overUnderBilledCents)} of work is done and not billed`, -t.overUnderBilledCents);
     for (const co of view.changeOrders) {
@@ -186,4 +192,34 @@ export function sortCompanyRows(rows: CompanyJobRow[], key: CompanySortKey, dir:
     if (x == null || y == null) return x == null && y == null ? a.name.localeCompare(b.name) : x == null ? 1 : -1;
     return sign * (x - y) || a.name.localeCompare(b.name);
   });
+}
+
+/** Separate actionable balances from job values; age first, then financial impact. */
+export function groupAttention(items: AttentionItem[]) {
+  const groups = [
+    { title: "Unpaid / overdue invoices", kinds: ["invoice_overdue", "invoice_unpaid"] },
+    { title: "Unassigned costs", kinds: ["unassigned_costs"] },
+    { title: "Jobs missing a budget", kinds: ["profit_unknown"] },
+    { title: "Other money issues", kinds: [] as string[] },
+  ];
+  const groupedKinds = groups.flatMap(g => g.kinds);
+  return groups.map(g => ({ title: g.title, items: items.filter(i => g.kinds.length ? g.kinds.includes(i.kind) : !groupedKinds.includes(i.kind))
+    .sort((a, b) => (b.urgencyDays ?? 0) - (a.urgencyDays ?? 0) || b.amountCents - a.amountCents || a.name.localeCompare(b.name)) }))
+    .filter(g => g.items.length);
+}
+
+export function attentionAmountLabel(kind: AttentionKind): string {
+  switch (kind) {
+    case "invoice_overdue": case "invoice_unpaid": return "Unpaid balance";
+    case "profit_unknown": return "Job value";
+    case "unassigned_costs": return "Unassigned cost";
+    case "trade_over": return "Over budget";
+    case "under_billed": return "Not billed";
+    case "unsigned_co_spend": return "Spent / committed";
+    case "collected_mismatch": return "Difference";
+    case "billed_over_po": return "Bill amount";
+    case "possible_duplicate": return "Largest flagged cost";
+    case "costs_stale": return "Cost recorded so far";
+    case "co_pending": return "Change value";
+  }
 }

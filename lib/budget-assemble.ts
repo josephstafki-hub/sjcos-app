@@ -478,6 +478,7 @@ export function assembleBudgetView(raw: RawProjectMoney, opts: { asOf: string })
       }));
     return {
       number: i.number,
+      balanceCents: Math.max(0, i.balanceCents ?? (i.status === "paid" ? 0 : i.amountCents)),
       dateLabel: dayLabel(i.sentOn ?? i.createdOn),
       label: i.milestone,
       amountCents: i.amountCents,

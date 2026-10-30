@@ -151,6 +151,8 @@ export interface BudgetParty {
 }
 
 export interface BudgetClientInvoice {
+  /** Remaining balance, including partial payments. */
+  balanceCents?: number;
   number: string;
   dateLabel: string;
   label: string;

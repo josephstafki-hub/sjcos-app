@@ -1063,7 +1063,7 @@ function ChannelItem({
           onClick={onArchive}
           aria-label={`Archive ${channel.name}`}
           title="Archive"
-          className="flex-none rounded p-0.5 text-ink-3 opacity-0 transition-opacity hover:bg-paper-3 hover:text-ink-2 group-hover:opacity-100"
+          className="flex-none rounded p-0.5 text-ink-3 opacity-0 transition-opacity hover:bg-paper-3 hover:text-ink-2 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
         >
           <Archive className="size-3" strokeWidth={2} />
         </button>

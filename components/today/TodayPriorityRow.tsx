@@ -54,6 +54,7 @@ export function TodayPriorityRow({
             {p.title}
           </span>
           <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-meta text-ink-3">
+            <span className="font-mono">{p.rank}</span>
             <span>{p.group?.name ?? p.tag}</span>
             {p.due && <DueLabel due={p.due} overdue={p.overdue} />}
           </span>

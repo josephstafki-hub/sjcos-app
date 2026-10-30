@@ -15,7 +15,7 @@ import {
   ChevronRight,
   type LucideIcon,
 } from "lucide-react";
-import { Card, Chip, Eyebrow } from "@/components/ui";
+import { Button, EmptyState, PageHeader, Segmented, Chip } from "@/components/ui";
 import type {
   NotifAccent,
   NotifFilter,
@@ -95,40 +95,13 @@ export function NotificationsClient({ data, approvals = [] }: { data: Notificati
   };
 
   return (
-    <div className="flex h-full justify-center overflow-y-auto px-7 pb-16 pt-6">
-      <div className="w-[720px] max-w-full">
-        {/* Header */}
-        <div className="mb-3.5 flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
-          <div className="min-w-0 flex-1">
-            <Eyebrow>
-              {data.unread} unread · {approvals.length || data.decisionCount} waiting on you
-            </Eyebrow>
-            <h1 className="mt-1 font-serif text-[34px] font-medium leading-none tracking-tight text-accent-2">
-              Notifications
-            </h1>
-          </div>
-          <form action={markAllNotificationsRead}>
-            <button
-              type="submit"
-              disabled={data.unread === 0}
-              className="rounded-md border border-ink-4 px-2.5 py-1 text-[12px] font-medium text-ink-2 transition-colors hover:bg-paper-2 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Mark all read
-            </button>
-          </form>
-        </div>
-
-        {/* Filter chips */}
-        <div className="mb-4 flex flex-wrap items-center gap-1.5">
-          {data.filters.map((f) => (
-            <button key={f.key} onClick={() => setFilter(f.key)}>
-              <Chip kind={filter === f.key ? "solid" : "ghost"}>{f.label}</Chip>
-            </button>
-          ))}
-        </div>
+    <div className="mx-auto min-h-full max-w-[1240px] px-4 pb-16 pt-6 @2xl/page:px-5 @5xl/page:px-8">
+      <div className="w-full">
+        <PageHeader title="Notifications" meta={`${data.unread} unread · ${approvals.length || data.decisionCount} waiting on you`} actions={<form action={markAllNotificationsRead}><Button type="submit" variant="secondary" disabled={data.unread === 0}>Mark all read</Button></form>} />
+        <div className="my-6"><Segmented aria-label="Notification filters" value={filter} onChange={f => setFilter(f as NotifFilter)} options={data.filters.map(f => ({value:f.key,label:f.label}))} /></div>
 
         {/* Cards */}
-        <div className="flex flex-col gap-2">
+        <div className="divide-y divide-rule-soft">
           {orphans.map((a) => (
             <ApprovalCard key={a.key} approval={a} busy={busy === a.key} disabled={busy !== null} onAnswer={(v) => void answer(a, v)} />
           ))}
@@ -143,9 +116,7 @@ export function NotificationsClient({ data, approvals = [] }: { data: Notificati
             return <NotificationRow key={n.id} notification={n} />;
           })}
           {visible.length === 0 && (
-            <Card kind="dashed" className="p-8 text-center">
-              <div className="text-[13px] text-ink-3">Nothing here right now.</div>
-            </Card>
+            <EmptyState icon={Mail} title={filter === "unread" ? "You're caught up" : "No matching notifications"} description="Updates, mentions and decisions appear here as work happens. Choose All to see the full feed." />
           )}
         </div>
       </div>
@@ -166,33 +137,27 @@ function NotificationRow({ notification: n }: { notification: NotificationCard }
     }
   }
   return (
-    <Link href={n.href} className="block" onClick={onOpen}>
-      <Card
-        className={[
-          "p-3 transition-colors hover:bg-paper-2",
-          n.flagged && !read ? "border-flag" : "",
-          read ? "opacity-55" : "",
-        ].join(" ")}
-      >
+    <Link href={n.href} className="block rounded-md focus-visible:outline-2 focus-visible:outline-focus" onClick={onOpen}>
+      <div className="rounded-md px-3 py-2 transition-colors hover:bg-hover focus-within:bg-hover">
         <div className="flex items-center gap-2.5">
           <span className="flex size-8 flex-none items-center justify-center rounded border border-rule bg-paper-2">
             <Icon className={`size-3.5 ${ICON_TINT[n.accent]}`} strokeWidth={1.5} />
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
-              <Chip kind={n.accent}>{n.tag}</Chip>
+              <Chip kind={n.accent}>{n.tag}</Chip>{!read && <span className="size-1.5 rounded-full bg-accent" aria-label="Unread" />}
               {n.resolution && <Chip kind="ghost">{RESOLUTION_LABEL[n.resolution] ?? n.resolution}</Chip>}
               <div className="flex-1" />
-              <span className="font-mono text-[10px] text-ink-3" title={n.whenAbsolute}>
+              <span className="text-meta text-ink-3" title={n.whenAbsolute}>
                 {n.when}
               </span>
             </div>
-            <div className="mt-1 font-serif text-[14px] font-semibold text-ink">{n.title}</div>
-            <div className="mt-0.5 text-[12px] text-ink-3">{n.subline}</div>
+            <div className="mt-1 text-subheading font-semibold text-ink">{n.title}</div>
+            <div className="mt-0.5 text-meta text-ink-3">{n.subline}</div>
           </div>
           <ChevronRight className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
         </div>
-      </Card>
+      </div>
     </Link>
   );
 }

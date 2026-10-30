@@ -25,7 +25,9 @@ import { query, queryOne } from "./db";
 import { gmailConfigured } from "./gmail";
 import { emit } from "./notify";
 import { UPLOAD_DIR } from "./uploads";
-import { withTransaction } from "./commands/db";
+import { runDirect, withTransaction } from "./commands/db";
+import type { Decision } from "./commands/decisions";
+import { enqueueApprovedRelease, releaseFileIds, type ReleaseFile } from "./procurement/release-send";
 import { enqueueIntent } from "./commands/intents";
 import type { Principal } from "./commands/principal";
 import { dispatchIntentsNow } from "./dispatch/db";
@@ -33,6 +35,7 @@ import type { EmailAttachmentRef as MailAttachmentRef } from "./providers/email"
 import { after } from "next/server";
 import { sendBidThanks } from "./bid-follow-ups";
 import { MAX_ATTACHMENT_BYTES } from "./mail-attachments";
+import { composeBidEmail } from "./bidding-email";
 
 export type BidPackageStatus = "draft" | "open" | "awarded" | "closed";
 export type BidInviteStatus =
@@ -406,42 +409,6 @@ export async function bidInviteById(id: number): Promise<InviteJoin | null> {
   );
 }
 
-/** The bid request email itself — plain text, packet attached. */
-function bidGreetingName(subName: string, notes?: string | null): string {
-  const contact = notes?.match(/(?:^|\n)Greeting contact:\s*([^\.\n]+)/i)?.[1]?.trim();
-  if (contact) {
-    if (/\band\b/i.test(contact)) return contact.replace(/\s+[A-Z][a-z]+$/, "");
-    return contact.split(/\s+/)[0] || contact;
-  }
-  return subName.split(/\s+/)[0] || subName;
-}
-
-function composeBidEmail(
-  subName: string,
-  subNotes: string | null,
-  pkg: PackageJoin,
-  personalNote: string,
-  fileLabels: string[],
-): { subject: string; body: string } {
-  const firstName = bidGreetingName(subName, subNotes);
-  const subject = `Bid request: ${pkg.title} — ${pkg.project_name}`;
-  const body = [
-    `Hi ${firstName},`,
-    "",
-    `I'd like your price on ${pkg.title} for ${pkg.project_name}.`,
-    ...(pkg.scope_notes ? ["", "Scope:", pkg.scope_notes] : []),
-    ...(personalNote ? ["", `A note for you: ${personalNote}`] : []),
-    ...(pkg.due_label ? ["", `Bids are due by ${pkg.due_label}.`] : []),
-    "",
-    `The packet is attached (${fileLabels.join(", ")}). Reply to this email with your number — ` +
-      "line items, exclusions, and lead time all welcome. Questions, just reply.",
-    "",
-    "— Joe Stafki",
-    "SJ Carpentry LLC",
-  ].join("\n");
-  return { subject, body };
-}
-
 /** Send a package: every draft invite whose sub has an email address gets the
  *  bid request emailed to them directly (scope + per-sub note in the body,
  *  packet files attached) and flips 'sent'. Subs with no email stay draft and
@@ -606,6 +573,46 @@ export async function sendBidPackageOp(packageId: number, auth?: BidSendAuth): P
     return { ok: false, error: `Emailed ${sent.join(", ") || "nobody yet"}, but ${problems.join("; ")}. The rest stay unsent — fix and send again.`, sent: sent.length, held: held.length, failed: failed.length };
   }
   return { ok: true, sent: sent.length, held: 0, failed: 0 };
+}
+
+/** An approved release card (one sub's bid request, or a supplier pricing
+ *  request) sends its one email. The card is the approval; no grant needed.
+ *  Files are checked on disk first (a half packet is worse than none), the
+ *  intent is queued against the decision and dispatched now. Returns the line
+ *  the approval reply shows. */
+export async function sendApprovedRelease(d: Decision): Promise<string> {
+  if (!gmailConfigured()) return "Nothing was emailed: Gmail isn't connected. Connect it from the Inbox, then release again.";
+  const ids = await releaseFileIds(runDirect, d);
+  const files: ReleaseFile[] = [];
+  let totalBytes = 0;
+  if (ids.length) {
+    const { rows } = await query<{ id: string; name: string; storage_path: string | null; mime_type: string | null; label: string | null }>(
+      `SELECT f.id, f.name, f.storage_path, f.mime_type,
+              (SELECT bf.label FROM bid_package_files bf WHERE bf.file_id = f.id AND bf.label <> '' LIMIT 1) AS label
+         FROM files f WHERE f.id::text = ANY($1::text[])`,
+      [ids],
+    );
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    for (const id of ids) {
+      const f = byId.get(id);
+      if (!f) return "Nothing was emailed: a file on this card was deleted. Fix the files and release again.";
+      try {
+        totalBytes += (await stat(path.join(UPLOAD_DIR, f.storage_path ?? ""))).size;
+      } catch {
+        return `Nothing was emailed: "${f.name}" is missing from storage. Re-upload it and release again.`;
+      }
+      files.push({ fileId: f.id, filename: f.name, mimeType: f.mime_type || "application/octet-stream", label: f.label || f.name });
+    }
+  }
+  if (totalBytes > MAX_ATTACHMENT_BYTES) return "Nothing was emailed: the files are over Gmail's ~25 MB limit.";
+  const r = await withTransaction((run) => enqueueApprovedRelease(run, d, files));
+  if (!r.ok) return r.reason;
+  if (r.state !== "pending" && r.state !== "retryable_failure") return `The ${r.label} email is ${r.state.replace(/_/g, " ")}.`;
+  const [o] = await dispatchIntentsNow([r.intentId]);
+  if (!o) return `The ${r.label} email is queued and goes out on the next dispatch pass.`;
+  if (o.responseClass === "accepted" || o.responseClass === "confirmed") return `Emailed the ${r.label} (${r.to}).`;
+  if (o.responseClass === "unknown") return `The ${r.label} email wasn't confirmed by Gmail; it's held for a check, not resent.`;
+  return `The ${r.label} email didn't go out: ${o.error ?? o.responseClass}.`;
 }
 
 /** A sub replied that they're pricing it (said so by email or phone). The

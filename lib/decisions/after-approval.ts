@@ -6,9 +6,12 @@ import "server-only";
 // tap has the same effect wherever Joe makes it:
 //   • dispatch the sends the approval woke (and say how they went),
 //   • email a first-draw invoice the approval created,
-//   • perform a permission request's staged send (lib/grant-execution.ts).
+//   • perform a permission request's staged send (lib/grant-execution.ts),
+//   • send the one email an approved release card covers (bid package to a
+//     sub, pricing request to a supplier).
 // Returns plain lines for the reply / toast / Telegram card edit.
 
+import { sendApprovedRelease } from "@/lib/bidding";
 import { emailApprovedInvoice } from "@/lib/billing/server";
 import { dispatchIntentsNow } from "@/lib/dispatch/db";
 import { runStagedGrant } from "@/lib/grant-execution";
@@ -38,6 +41,14 @@ export async function performApprovalEffects(r: ResolveFromChannelResult): Promi
     } catch (err) {
       console.error("[decisions] invoice email after approval failed:", (err as Error).message);
       lines.push("The invoice was created but the email step failed; send it from the project's invoices.");
+    }
+  }
+  if (r.code === "approved" && r.decision.kind === "package_release") {
+    try {
+      lines.push(await sendApprovedRelease(r.decision));
+    } catch (err) {
+      console.error("[decisions] release send after approval failed:", (err as Error).message);
+      lines.push(`Approved, but the email step failed: ${(err as Error).message}`);
     }
   }
   if (r.code === "approved" && r.grantId) {

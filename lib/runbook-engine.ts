@@ -26,7 +26,9 @@ import "server-only";
 // definition goes to repair_state 'needs_review' — never to a false 'done'.
 
 import { query } from "@/lib/db";
-import { withTransaction } from "@/lib/commands/db";
+import { userPrincipal, withTransaction } from "@/lib/commands/db";
+import type { CurrentUser } from "@/lib/dal";
+import { completeWorkItem } from "@/lib/completion/complete";
 import { pingAgentWorkItem } from "@/lib/dev-agents";
 import { notifyOwner } from "@/lib/notify-owner";
 import {
@@ -71,6 +73,20 @@ export async function advanceRunbookInstance(instanceId: string): Promise<Advanc
   const out = await withTransaction((run) => advanceRunbookTx(run, instanceId));
   if (out.outcome === "advanced") await drainRunbookWakeups();
   return out;
+}
+
+/** A person's "Mark done" (Today card, /engine, a lead or project page). The
+ *  same evidence command the agents use: a manual resolution by the signed-in
+ *  person, receipt written, obligation closed and runbook advanced in ONE
+ *  transaction. A failure comes back as an error, never swallowed. */
+export async function completeByPerson(workItemId: string, user: CurrentUser, reason?: string | null): Promise<{ ok: true; alreadyDone: boolean } | { ok: false; error: string }> {
+  const principal = userPrincipal(user);
+  const r = await withTransaction((run) =>
+    completeWorkItem(run, { workItemId, principal, evidence: { kind: "manual", actor: principal.name, reason: reason?.trim() || "Marked done in the app" } }),
+  );
+  if (!r.ok) return { ok: false, error: r.error };
+  if (r.runbook?.outcome === "advanced") await drainRunbookWakeups();
+  return { ok: true, alreadyDone: r.alreadyDone };
 }
 
 /** The completion-path hook: no-op unless the work item belongs to a runbook

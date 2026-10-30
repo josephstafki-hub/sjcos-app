@@ -10,7 +10,7 @@ import { requireAccess, requireRole } from "@/lib/dal";
 import { WORK_STATUSES } from "@/lib/engine-constants";
 import { getArchivedWorkItems, type WorkItemView } from "@/lib/engine";
 import { splitWho, type QueueFilter } from "@/lib/engine-views";
-import { maybeAdvanceRunbook, cancelRunbookInstance } from "@/lib/runbook-engine";
+import { completeByPerson, maybeAdvanceRunbook, cancelRunbookInstance } from "@/lib/runbook-engine";
 import { assignNewItem, pickedPeople, setAssignees } from "@/lib/work-item-assign";
 import type { WorkItemStatus } from "@/lib/types";
 
@@ -63,8 +63,15 @@ export async function setWorkItemAssignees(id: string, userIds: string[]): Promi
 }
 
 export async function setWorkItemStatus(id: string, status: WorkItemStatus, note?: string): Promise<Result> {
-  await requireAccess("engine");
+  const user = await requireAccess("engine");
   if (!WORK_STATUSES.includes(status)) return { ok: false, error: "Unknown status." };
+  if (status === "done") {
+    // Done goes through the evidence command (receipt, obligation, runbook).
+    const r = await completeByPerson(id, user, note);
+    revalidatePath("/engine");
+    revalidatePath("/today");
+    return r.ok ? { ok: true } : { ok: false, error: r.error };
+  }
   await query(
     `UPDATE work_items
         SET status = $2,

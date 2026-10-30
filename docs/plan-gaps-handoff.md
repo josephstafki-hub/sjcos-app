@@ -228,13 +228,15 @@ by Joe/staff don't feed the weekly update (only sub logs do).
   - Lead-thread sync and the detectors read one page of 150 threads, and the watermark moves anyway
     (`lib/lead-thread-sync.ts:~142,~227`, `lib/detectors.ts:~139`).
   - Title matching is left in `lib/actions/compliance.ts:~34` and `lib/actions/schedule.ts:~144`.
-- **Completion (A04):**
-  - Joe's own Mark done paths skip the evidence command and never resolve the obligation
-    (`lib/actions/today.ts:~140`, `lib/actions/engine.ts:~66`, `lib/actions/record-ops.ts:~51`).
-  - Evidence from another job is accepted (`lib/completion/complete.ts:~92-118`).
+- ~~**Completion (A04):**~~ **Done (branch `t3/tier3-completion`):**
+  - Joe's Mark done (Today card, /engine, lead and project pages) now goes through `completeWorkItem` via
+    `completeByPerson` (`lib/runbook-engine.ts`): a manual receipt by the signed-in person, with the
+    obligation closed and the runbook advanced in the same transaction.
+  - Evidence from another job or lead is refused (`evidenceJobMismatch` in `lib/completion/complete.ts`).
 - **Runbooks (A02):**
-  - The owner path marks a step done, then advances separately and swallows errors
-    (`lib/runbook-engine.ts:~79-88`).
+  - ~~The owner path marks a step done, then advances separately and swallows errors.~~ Done paths are
+    fixed by the A04 change above. Other status changes (cancelled, blocked) still use the best-effort
+    `maybeAdvanceRunbook`.
   - `needs_review` isn't shown anywhere, and there's no owner Repair button.
 - **Leads (A11):** `lib/leads/{match,facts,routine,package}.ts` has no callers. Mind the `routine.followup`
   key issue above.

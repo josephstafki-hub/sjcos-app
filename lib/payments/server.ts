@@ -4,6 +4,7 @@ import "server-only";
 // checkout core the portal route calls, webhook processing and the
 // reconciliation sweep. Secrets stay in env; nothing here logs a source id.
 
+import { squareReadiness } from "./readiness";
 import { withTransaction, runDirect } from "@/lib/commands/db";
 import type { Principal } from "@/lib/commands/principal";
 import { recordSourceEvent } from "@/lib/commands/source-events";
@@ -61,7 +62,7 @@ export async function portalPaymentSetup(): Promise<
   const env = squareEnvironment();
   const offline = await runDirect<{ value: string }>(`SELECT value FROM app_settings WHERE key = 'payments.offline_instructions'`);
   const instructions = offline[0]?.value?.trim() || "Online payment isn't set up yet. Pay by check to SJ Carpentry LLC, or use the payment link Joe sends you.";
-  const connected = !!cfg && cfg.connection_state === "connected" && !!cfg.application_id && !!cfg.location_id;
+  const connected = squareReadiness(env, cfg).connected && !!cfg?.application_id && !!cfg?.location_id;
   if (!connected) return { online: false, instructions };
   const caps = cfg!.capabilities as { card?: boolean; ach?: boolean };
   const surcharge = await loadSurchargeConfig(runDirect);

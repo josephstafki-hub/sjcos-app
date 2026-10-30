@@ -3,6 +3,9 @@
 // persist through lib/actions/settings.ts. Integrations + the non-profile
 // categories stay static placeholders.
 
+import { squareReadiness } from "./payments/readiness";
+import { squareEnvironment } from "./payments/square";
+import { qboEnvironment } from "./accounting/qbo";
 import { getDesignerDefaults } from "./plan-designs";
 import type { DesignerDefaults } from "./plan-doc";
 import { query } from "./db";
@@ -40,7 +43,6 @@ const AI_TOGGLES: { key: string; label: string; default: boolean }[] = [
   { key: "ai.autoPinWatchouts", label: "Auto-pin watchouts in team chat", default: true },
   { key: "ai.summarizeVoicemails", label: "Auto-summarize incoming voicemails", default: true },
   { key: "ai.weeklyStatusEmails", label: "Auto-generate weekly client status emails (review before send)", default: true },
-  { key: "ai.autoPublishSocial", label: "Auto-publish social posts on job completion", default: false },
   { key: "ai.sendBeforeReview", label: "Send before drafts are reviewed", default: false },
   {
     key: "ai.leadFirstResponseAutoSend",
@@ -151,8 +153,8 @@ export async function getSettingsData(): Promise<SettingsData> {
     ).catch(() => ({ rows: [] }))
   ).rows;
   const [square] = (
-    await query<{ connection_state: string; environment: string }>(
-      `SELECT connection_state, environment FROM payment_provider_config WHERE provider = 'square'`,
+    await query<{ connection_state: string; environment: string; capabilities: Record<string, unknown> }>(
+      `SELECT connection_state, environment, capabilities FROM payment_provider_config WHERE provider = 'square'`,
     ).catch(() => ({ rows: [] }))
   ).rows;
   const clipToken = await getClipToken();
@@ -255,14 +257,14 @@ export async function getSettingsData(): Promise<SettingsData> {
       { name: "PostgreSQL", sub: "sjcos database", connected: true },
       {
         name: "QuickBooks",
-        sub: qbo?.state === "connected" ? `${qbo.company_name || "Books"} · ${qbo.environment}` : "Books · reconciliation",
-        connected: qbo?.state === "connected",
+        sub: qboEnvironment() !== "fake" && qbo?.state === "connected" ? `${qbo.company_name || "Books"} · ${qbo.environment}` : "Books · reconciliation",
+        connected: qboEnvironment() !== "fake" && qbo?.state === "connected",
         href: "/settings/accounting",
       },
       {
         name: "Square",
         sub: square ? `Card + bank payments · ${square.environment}` : "Card + bank payments",
-        connected: square?.connection_state === "connected",
+        connected: squareReadiness(squareEnvironment(), square ?? null).connected,
         href: "/settings/payments",
       },
       { name: "Google Drive", sub: "Doc archive (deferred)", connected: false },

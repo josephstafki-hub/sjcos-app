@@ -64,6 +64,7 @@ export function hasArea(p: Principal, area: PermissionKey): boolean {
 export function principalLabel(p: Principal): string {
   if (p.kind === "user") return `${p.role}:${p.name}`;
   if (p.kind === "service") return p.name;
+  if (p.kind !== "agent" || !p.agent?.trim()) return "Author not recorded";
   return `${p.agent}${p.onBehalfOf ? ` for ${p.onBehalfOf.name}` : " (unattended)"}`;
 }
 

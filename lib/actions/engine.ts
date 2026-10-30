@@ -5,6 +5,8 @@
 import { revalidatePath } from "next/cache";
 import { approveWorkItemById, rejectWorkItemById } from "@/lib/approve-work-item";
 import type { ApproveResult } from "@/lib/approved-draft-rules";
+import { editWorkItem } from "@/lib/work-item-edit";
+import { runDirect } from "@/lib/commands/db";
 import { query, queryOne } from "@/lib/db";
 import { requireAccess, requireRole } from "@/lib/dal";
 import { WORK_STATUSES } from "@/lib/engine-constants";
@@ -39,7 +41,7 @@ export async function createWorkItem(formData: FormData): Promise<Result> {
   const created = await queryOne<{ id: string }>(
     `INSERT INTO work_items
        (title, body, priority, assignee_kind, assignee_key, due_at, expected_skill_slug, source_kind, created_by)
-     VALUES ($1,$2,$3,$4,$5, NULLIF($6,'')::timestamptz, $7, 'manual', 'user')
+     VALUES ($1,$2,$3,$4,$5, CASE WHEN length($6::text) = 10 THEN ($6::date::timestamp AT TIME ZONE 'America/Chicago') ELSE NULLIF($6,'')::timestamptz END, $7, 'manual', 'user')
      RETURNING id`,
     [title, body, priority, assigneeKind, assigneeKey, dueAt, expectedSkill],
   );
@@ -47,6 +49,34 @@ export async function createWorkItem(formData: FormData): Promise<Result> {
   revalidatePath("/engine");
   revalidatePath("/today");
   return { ok: true };
+}
+
+/** Edit existing details; assignment uses the same owner-only service as Today. */
+export async function updateWorkItem(id: string, fd: FormData): Promise<Result> {
+  const me = await requireAccess("engine");
+  const ids = fd.getAll("assigned_user_ids").map(String);
+  if (me.role === "owner" && !await pickedPeople(ids)) return {ok:false,error:"Choose an active team member."};
+  const job = String(fd.get("job") ?? "");
+  const [kind, ...parts] = job.split(":");
+  const slug = parts.join(":");
+  const result = await editWorkItem(runDirect, id, {
+    title: String(fd.get("title") ?? ""), body: String(fd.get("body") ?? ""),
+    priority: String(fd.get("priority") ?? "normal"), due_at: String(fd.get("due_at") ?? "") || null,
+    project_slug: kind === "project" ? slug : null, lead_slug: kind === "lead" ? slug : null,
+  });
+  if (!result.ok) return result;
+  if (me.role === "owner") {
+    const assigned = await setAssignees(id, ids);
+    if (!assigned.ok) return assigned;
+  }
+  revalidatePath("/engine"); revalidatePath("/today");
+  return {ok:true};
+}
+
+export async function getWorkItemJobOptions(): Promise<{value:string;label:string}[]> {
+  await requireAccess("engine");
+  return runDirect<{value:string;label:string}>(`SELECT 'project:' || slug AS value, name AS label FROM projects
+    UNION ALL SELECT 'lead:' || slug, name || ' · Lead' FROM leads ORDER BY label`);
 }
 
 /** Put exactly these people on an existing to-do from the /engine board (the

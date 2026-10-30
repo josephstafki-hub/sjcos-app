@@ -9,6 +9,7 @@ import { query, queryOne } from "@/lib/db";
 import { requireAccess } from "@/lib/dal";
 import { ai } from "@/lib/ai";
 import { emit } from "@/lib/notify";
+import { normalizeMarketingCopy } from "@/lib/marketing-copy";
 import { type DraftKind } from "@/lib/marketing-types";
 
 type Result = { ok: boolean; error?: string };
@@ -24,7 +25,7 @@ function draftPrompt(kind: DraftKind, name: string, scope: string, city: string)
         `Write a short blog post (3–4 short paragraphs) for a residential carpentry/remodeling company, ` +
         `SJ Carpentry LLC, about a completed project: "${name}"${scope ? ` (${scope})` : ""}${where}. ` +
         `Warm, professional, homeowner-friendly; highlight craftsmanship and the client experience. Do NOT ` +
-        `invent specific prices, dates, or names beyond what's given. End with a soft call to action.`,
+        `invent specific prices, dates, or names beyond what's given. End with a soft call to action. Return only plain prose, no JSON or code fences.`,
       fallback:
         `${name}\n\nWe recently wrapped up ${scope || "a remodeling project"}${where}, and we couldn't be ` +
         `happier with how it turned out. From the first walkthrough to the final punch list, our team focused ` +
@@ -37,7 +38,7 @@ function draftPrompt(kind: DraftKind, name: string, scope: string, city: string)
     prompt:
       `Write a short, upbeat social media post (2–3 sentences) for SJ Carpentry LLC celebrating a completed ` +
       `project: "${name}"${scope ? ` (${scope})` : ""}${where}. Friendly and proud, homeowner-friendly. End ` +
-      `with 3–5 relevant hashtags. Do NOT invent specific prices, dates, or client names.`,
+      `with 3–5 relevant hashtags. Do NOT invent specific prices, dates, or client names. Return plain prose with hashtags as text, no JSON or arrays.`,
     fallback:
       `Another one in the books! We just finished ${scope || "a great project"}${where} and we're proud of ` +
       `how it came together. Thanks to our client for trusting us with their home. 🛠️\n\n` +
@@ -60,7 +61,7 @@ export async function generateDraft(slug: string, kindRaw: string): Promise<Resu
   let body = "";
   try {
     const res = await ai.ask({ prompt });
-    body = (res.answer ?? "").trim();
+    body = normalizeMarketingCopy(res.answer ?? "").body;
   } catch {
     body = "";
   }
@@ -101,7 +102,7 @@ export async function autoDraftSocialOnCompletion(slug: string): Promise<void> {
   let body = "";
   try {
     const res = await ai.ask({ prompt });
-    body = (res.answer ?? "").trim();
+    body = normalizeMarketingCopy(res.answer ?? "").body;
   } catch {
     body = "";
   }
@@ -143,7 +144,7 @@ export async function autoDraftBlogOnCompletion(slug: string): Promise<void> {
   let body = "";
   try {
     const res = await ai.ask({ prompt });
-    body = (res.answer ?? "").trim();
+    body = normalizeMarketingCopy(res.answer ?? "").body;
   } catch {
     body = "";
   }
@@ -182,7 +183,9 @@ export async function autoDraftBlogOnCompletion(slug: string): Promise<void> {
 /** Edit a draft's body. */
 export async function updateDraft(id: number, body: string): Promise<Result> {
   await requireAccess("marketing");
-  await query(`UPDATE marketing_drafts SET body = $2 WHERE id = $1`, [id, body.trim()]);
+  const clean = normalizeMarketingCopy(body);
+  if (!clean.body) return {ok:false,error:"Enter the post as readable text before saving."};
+  await query(`UPDATE marketing_drafts SET body = $2 WHERE id = $1`, [id, clean.body]);
   revalidatePath("/marketing");
   revalidatePath("/site"); // blog drafts also surface in the Website composer
   return { ok: true };
@@ -195,6 +198,14 @@ export async function markPosted(id: number): Promise<Result> {
   revalidatePath("/marketing");
   revalidatePath("/site"); // blog drafts also surface in the Website composer
   return { ok: true };
+}
+
+/** Undo a manual "posted" marker. No external post is changed. */
+export async function markDraft(id: number): Promise<Result> {
+  await requireAccess("marketing");
+  await query(`UPDATE marketing_drafts SET status = 'draft' WHERE id = $1`, [id]);
+  revalidatePath("/marketing"); revalidatePath("/site");
+  return {ok:true};
 }
 
 /** Delete a draft. */

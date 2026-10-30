@@ -12,6 +12,7 @@ import "server-only";
 // Writes reuse lib/actions/marketing.ts (generateDraft/updateDraft/markPosted/
 // deleteDraft with kind='blog', plus autoDraftBlogOnCompletion on close-out).
 
+import { normalizeMarketingCopy } from "./marketing-copy";
 import { query } from "./db";
 
 /** A website blog post draft, grounded on a completed project. */
@@ -67,8 +68,8 @@ async function getBlogPosts(): Promise<BlogPost[]> {
   );
   return rows.map((r) => ({
     id: r.id,
-    title: r.title,
-    body: r.body,
+    title: normalizeMarketingCopy(r.body).title ?? r.title,
+    body: normalizeMarketingCopy(r.body).body || "This draft could not be read. Replace it with your copy or generate a new draft.",
     status: r.status,
     projectName: r.project_name,
     projectSlug: r.project_slug,

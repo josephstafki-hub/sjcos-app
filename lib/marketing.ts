@@ -4,6 +4,7 @@ import "server-only";
 // blog posts; the owner edits, copies, and marks them posted (manual posting —
 // no social API). Writes stay in lib/actions/marketing.ts.
 
+import { normalizeMarketingCopy } from "./marketing-copy";
 import { query } from "./db";
 import { DRAFT_KIND_LABEL, type DraftKind } from "./marketing-types";
 
@@ -38,8 +39,8 @@ export async function getMarketingDrafts(): Promise<MarketingDraft[]> {
     id: r.id,
     kind: r.kind,
     kindLabel: DRAFT_KIND_LABEL[r.kind] ?? "Post",
-    title: r.title,
-    body: r.body,
+    title: normalizeMarketingCopy(r.body).title ?? r.title,
+    body: normalizeMarketingCopy(r.body).body || "This draft could not be read. Replace it with your copy or generate a new draft.",
     status: r.status,
     projectName: r.project_name,
     createdLabel: r.created_label,

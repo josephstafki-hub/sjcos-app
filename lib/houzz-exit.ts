@@ -80,14 +80,14 @@ export async function houzzExitInventory(run: Run): Promise<HouzzExitInventory> 
   // Square is configured by env (SQUARE_ENV + SQUARE_ACCESS_TOKEN, lib/payments/square), not app settings.
   const squareMode = squareEnvironment();
   const active_senders = [
-    { owner: "SJC OS dispatcher (lib/dispatch)", what: "invoice emails, reminders, bid packages, POs, weekly summaries", state: `sends lane ${await laneState(run, "sends")}` },
+    { owner: "SJC OS delivery", what: "invoice emails, reminders, bid packages, POs, weekly summaries", state: `Delivery ${await laneState(run, "sends")}` },
     { owner: "SJC OS Square adapter", what: "card / ACH customer payments (checkout on the client portal)", state: squareMode === "fake" ? "not configured" : `configured (${squareMode})` },
-    { owner: "SJC OS payments lane", what: "vendor payments (manual confirmation only — no rail)", state: `payments lane ${await laneState(run, "payments")}` },
+    { owner: "SJC OS payments lane", what: "vendor payments (manual confirmation only — no rail)", state: `Payments ${await laneState(run, "payments")}` },
     { owner: "Houzz Pro (external)", what: "invoice payment links, reminders, design files — retired by hand", state: "owner-reported: still in use for online payment links" },
   ];
   const code_references = [
-    "lib/budget-writes.ts — Houzz-era estimates carry client prices as unit costs (import handling; keep)",
-    "expenses.source_ref 'houzz:<id>' — imported payment history (keep as evidence)",
+    "Imported Houzz estimates preserve the original client prices. Keep these records.",
+    "Imported Houzz payment history is retained as evidence.",
   ];
 
   const crit: HouzzCriterion[] = [];
@@ -95,18 +95,18 @@ export async function houzzExitInventory(run: Run): Promise<HouzzExitInventory> 
   {
     const ev: string[] = [];
     const gaps: string[] = [];
-    if (square?.proven) ev.push("feature.square proven"); else gaps.push(`Square payments not proven (${square ? `implemented=${square.implemented} deployed=${square.deployed} enabled=${square.enabled}` : "no capability row"})`);
+    if (square?.proven) ev.push("Square payments verified on real work"); else gaps.push("Square payments have not been verified on a real job. Finish setup in Settings › Payments, then verify payments and reconciliation.");
     if (squareMode === "production") ev.push("Square production credentials configured");
-    else gaps.push(squareMode === "sandbox" ? "Square is on sandbox credentials, not production" : "Square account not configured (SQUARE_ENV / SQUARE_ACCESS_TOKEN unset)");
-    if (qbo?.enabled) ev.push("QBO sync enabled"); else gaps.push("QuickBooks reconciliation not enabled");
-    if (a20?.proven) ev.push("A20 proven"); else gaps.push("A20 (refunds/returns/existing invoices) not proven");
+    else gaps.push(squareMode === "sandbox" ? "Square is on sandbox credentials, not production" : "Square is not connected. Add your Square keys using the setup checklist in Settings › Payments.");
+    if (qbo?.enabled) ev.push("QuickBooks sync enabled"); else gaps.push("QuickBooks reconciliation not enabled");
+    if (a20?.proven) ev.push("Refunds and existing invoice payments verified"); else gaps.push("Refunds, returns and existing invoice payments still need verification");
     crit.push({ n: 1, title: "SJC/Square card and bank payments live and reconciled (refunds, returns, existing invoices)", status: gaps.length ? "not_met" : "met", evidence: ev, gaps });
   }
   // 2. Full designer meets real workflows.
   {
     const ev: string[] = [`${designer.designs} designs · ${designer.versions} versions · ${designer.pinned_versions} pinned · ${designer.exports} exported files`];
     const gaps: string[] = [];
-    if (a21?.proven) ev.push("A21 proven on real projects"); else gaps.push("A21 not proven: needs Joe's sign-off that saved/exported designs cover the workflows he used in Houzz (docs/designer-contract.md)");
+    if (a21?.proven) ev.push("Designer verified on real projects"); else gaps.push("Needs your confirmation that saved and exported designs cover the work you do in Houzz");
     crit.push({ n: 2, title: "Full designer meets the agreed real project workflows with saved/exported data", status: gaps.length ? "not_met" : "met", evidence: ev, gaps });
   }
   // 3. Houzz records exported and linked.

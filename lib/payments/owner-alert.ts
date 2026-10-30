@@ -1,7 +1,8 @@
 // Tell Joe when a client pays online (Joe, 2026-10-28). Square moves an
 // attempt to completed (card, or an ACH that cleared), pending (an ACH the
-// client just started) or returned (the bank reversed it); each of those
-// drops one in-app card on Joe's bell and one Telegram push.
+// client just started) or returned (the bank reversed it); a card dispute
+// (opened, won, lost) and a refund made in the Square Dashboard are news too.
+// Each drops one in-app card on Joe's bell and one Telegram push.
 //
 // Written inside the same transaction that records the payment, so a payment
 // can't land without its alert and a rolled-back one can't announce itself.
@@ -16,7 +17,7 @@
 import type { Run } from "../commands/core.ts";
 import { invoiceBalance } from "../billing/core.ts";
 
-export type AlertState = "completed" | "pending" | "returned";
+export type AlertState = "completed" | "pending" | "returned" | "disputed" | "dispute_won" | "dispute_lost" | "refunded_outside";
 
 const usd = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 
@@ -29,6 +30,10 @@ export interface PaymentAlertInput {
   surchargeCents?: number;
   method: "card" | "ach";
   state: AlertState;
+  /** Extra words for the card (a dispute's reason and answer-by date). */
+  detail?: string | null;
+  /** Dedup per event when one attempt can have several (refund id, dispute id). */
+  eventKey?: string | null;
 }
 
 /** Stage the alert; returns the push_outbox row id, or null when this
@@ -36,7 +41,7 @@ export interface PaymentAlertInput {
 export async function stagePaymentAlert(run: Run, input: PaymentAlertInput): Promise<string | null> {
   // A pending card is just Square thinking; only a started bank transfer is news.
   if (input.state === "pending" && input.method !== "ach") return null;
-  const claimed = await run(`INSERT INTO reminder_log (dedup_key) VALUES ($1) ON CONFLICT DO NOTHING RETURNING dedup_key`, [`paypush:${input.attemptId}:${input.state}`]);
+  const claimed = await run(`INSERT INTO reminder_log (dedup_key) VALUES ($1) ON CONFLICT DO NOTHING RETURNING dedup_key`, [`paypush:${input.attemptId}:${input.state}${input.eventKey ? `:${input.eventKey}` : ""}`]);
   if (!claimed.length) return null;
 
   const [inv] = await run<{ number: string; milestone: string | null; slug: string; project_name: string; client_name: string | null }>(
@@ -58,7 +63,15 @@ export async function stagePaymentAlert(run: Run, input: PaymentAlertInput): Pro
       ? { title: `Paid online: ${usd(input.amountCents)} from ${who}`, body: `${how} · ${invoice}${incl} · ${owed}`, accent: "money", flagged: false }
       : input.state === "pending"
         ? { title: `Bank transfer started: ${usd(input.amountCents)} from ${who}`, body: `${invoice} · settles in 3–5 business days; not counted as paid until it clears`, accent: "money", flagged: false }
-        : { title: `Payment returned: ${usd(input.amountCents)} from ${who}`, body: `The bank reversed the ${how.toLowerCase()} payment on ${invoice} · ${owed}`, accent: "flag", flagged: true };
+        : input.state === "returned"
+          ? { title: `Payment returned: ${usd(input.amountCents)} from ${who}`, body: `The bank reversed the ${how.toLowerCase()} payment on ${invoice} · ${owed}`, accent: "flag", flagged: true }
+          : input.state === "disputed"
+            ? { title: `Card payment disputed: ${usd(input.amountCents)} from ${who}`, body: `${invoice} · answer it in the Square Dashboard${input.detail ? ` · ${input.detail}` : ""}`, accent: "flag", flagged: true }
+            : input.state === "dispute_won"
+              ? { title: `Dispute won: ${usd(input.amountCents)} from ${who}`, body: `${invoice} · the payment stands · ${owed}`, accent: "money", flagged: false }
+              : input.state === "dispute_lost"
+                ? { title: `Dispute lost: ${usd(input.amountCents)} from ${who}`, body: `The card company took the money back on ${invoice} · ${owed}`, accent: "flag", flagged: true }
+                : { title: `Refunded in Square: ${usd(input.amountCents)} to ${who}`, body: `A refund made outside SJC OS on ${invoice} · ${owed}`, accent: "flag", flagged: true };
   const href = `/projects/${inv.slug}?tab=Money`;
 
   await run(

@@ -85,15 +85,15 @@ export function ProjectSchedule({
 
   return (
     <Card className="max-w-[680px] overflow-hidden p-0">
-      <div className="flex items-center gap-2 border-b border-rule bg-paper-2 px-4 py-2.5">
-        <span className="flex-1 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
+      <div className="flex flex-wrap items-center gap-2 border-b border-rule bg-paper-2 px-4 py-2.5">
+        <span className="flex-1 text-meta text-ink-3">
           {rows.length} block{rows.length === 1 ? "" : "s"} scheduled
         </span>
         {templates.length > 0 && (
           <button
             type="button"
             onClick={() => setGenOpen((v) => !v)}
-            className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-0.5 text-[11px] font-semibold text-ink-2 hover:bg-paper-3"
+            className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-0.5 text-meta font-semibold text-ink-2 hover:bg-paper-3"
           >
             <Wand2 className="size-3" strokeWidth={1.75} />
             Generate from template
@@ -106,7 +106,7 @@ export function ProjectSchedule({
           <select
             value={templateId}
             onChange={(e) => setTemplateId(Number(e.target.value))}
-            className="rounded border border-rule bg-card px-1.5 py-1 text-[12px] text-ink-2 outline-none"
+            className="rounded border border-rule bg-card px-1.5 py-1 text-label text-ink-2 outline-none"
           >
             {templates.map((t) => (
               <option key={t.id} value={t.id}>
@@ -114,47 +114,47 @@ export function ProjectSchedule({
               </option>
             ))}
           </select>
-          <label className="flex items-center gap-1 text-[11px] text-ink-3">
+          <label className="flex items-center gap-1 text-meta text-ink-3">
             Start
             <input
               type="date"
               value={genStart}
               onChange={(e) => setGenStart(e.target.value)}
-              className="rounded border border-rule bg-card px-1.5 py-1 text-[12px] text-ink-2 outline-none"
+              className="rounded border border-rule bg-card px-1.5 py-1 text-label text-ink-2 outline-none"
             />
           </label>
           <button
             type="button"
             onClick={generate}
             disabled={genPending}
-            className="rounded-md bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
+            className="rounded-md bg-ink px-2.5 py-1 text-label font-semibold text-paper hover:bg-ink-hover disabled:opacity-50"
           >
             {genPending ? "Generating…" : "Generate"}
           </button>
-          <span className="text-[11px] text-ink-3">Weekdays from the start date. Won&apos;t duplicate existing blocks.</span>
+          <span className="text-meta text-ink-3">Weekdays from the start date. Won&apos;t duplicate existing blocks.</span>
         </div>
       )}
-      {genMsg && <div className="border-b border-rule px-4 py-1.5 text-[11px] text-ink-3">{genMsg}</div>}
+      {genMsg && <div className="border-b border-rule px-4 py-1.5 text-meta text-ink-3">{genMsg}</div>}
 
       {rows.length === 0 ? (
-        <div className="px-4 py-8 text-center text-[12px] text-ink-3">
+        <div className="px-4 py-8 text-center text-label text-ink-3">
           No blocks scheduled for this project yet.
         </div>
       ) : (
         rows.map((b, i) => (
           <div
             key={b.id}
-            className={`group flex items-center gap-3 px-4 py-3 ${i ? "border-t border-rule-soft" : ""}`}
+            className={`group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-3 @xl/page:flex ${i ? "border-t border-rule-soft" : ""}`}
           >
-            <span className="w-24 flex-none font-mono text-[11px] text-ink-3">{b.dateLabel}</span>
-            <span className={`size-1.5 flex-none rounded-full ${DOT[b.tone]}`} />
-            <span className="flex-1 text-[13px] text-ink">{b.label}</span>
-            <span className="flex-none font-mono text-[11px] text-ink-3">{b.time}</span>
+            <span className="@xl/page:w-24 flex-none text-meta text-ink-3">{b.dateLabel}</span>
+            <span className={`hidden @xl/page:block size-1.5 flex-none rounded-full ${DOT[b.tone]}`} />
+            <span className="col-start-1 row-start-2 min-w-0 flex-1 break-words text-body text-ink">{b.label}</span>
+            <span className="col-start-1 text-meta text-ink-3">{b.time}</span>
             <button
               type="button"
               onClick={() => remove(b.id)}
               aria-label="Remove block"
-              className="flex-none rounded p-0.5 text-ink-4 opacity-0 transition-opacity hover:text-flag group-hover:opacity-100"
+              className="col-start-2 row-span-3 row-start-1 flex size-8 shrink-0 items-center justify-center rounded-md text-ink-3 hover:bg-flag-soft hover:text-flag focus-visible:outline-focus"
             >
               <X className="size-3.5" strokeWidth={1.75} />
             </button>
@@ -177,23 +177,23 @@ export function ProjectSchedule({
           name="date"
           type="date"
           required
-          className="rounded border border-rule bg-card px-1.5 py-0.5 text-[12px] text-ink-2 outline-none"
+          className="rounded border border-rule bg-card px-1.5 py-0.5 text-label text-ink-2 outline-none"
         />
         <input
           name="time"
           placeholder="8:00"
-          className="w-16 rounded border border-rule bg-card px-1.5 py-0.5 text-[12px] text-ink-2 outline-none placeholder:text-ink-4"
+          className="w-16 rounded border border-rule bg-card px-1.5 py-0.5 text-label text-ink-2 outline-none placeholder:text-ink-3"
         />
         <input
           name="label"
           required
           placeholder="What's happening…"
-          className="min-w-[120px] flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-4"
+          className="min-w-[120px] flex-1 bg-transparent text-body text-ink outline-none placeholder:text-ink-3"
         />
         <button
           type="submit"
           disabled={adding}
-          className="flex-none rounded-md bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper transition-colors hover:bg-[#232a1e] disabled:opacity-50"
+          className="flex-none rounded-md bg-ink px-2.5 py-1 text-label font-semibold text-paper transition-colors hover:bg-ink-hover disabled:opacity-50"
         >
           Add
         </button>

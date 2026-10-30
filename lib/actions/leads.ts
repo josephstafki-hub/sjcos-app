@@ -326,8 +326,11 @@ export async function updateLeadContact(
   slug: string,
   email: string,
   phone: string,
-): Promise<{ ok: boolean }> {
+): Promise<{ ok: boolean; error?: string }> {
   await requireAccess("leads");
+  if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    return { ok: false, error: "Enter a valid email address, such as name@example.com." };
+  }
   const res = await query(
     `UPDATE leads SET email = NULLIF($2, ''), phone = NULLIF($3, ''), updated_at = now()
       WHERE slug = $1`,

@@ -139,7 +139,7 @@ function rowToItem(r: ProjectRow): ProjectListItem {
     slug: r.slug,
     name: r.name,
     sub: r.sub,
-    stage: r.stage,
+    stage: r.stage || projectStageLabel(r.status),
     value: Number(r.total_cents) > 0 ? dollars(Number(r.total_cents)) : r.value,
     paid: dollars(Number(r.collected_cents)),
     hasTotal: Number(r.total_cents) > 0,
@@ -343,24 +343,22 @@ export async function getProject(slug: string): Promise<ProjectDetail | null> {
     slug: item.slug,
     name: item.name,
     status: rows[0].status,
-    contractValue: curated.contractValue ?? `${item.value} contract`,
+    contractValue: item.hasTotal ? `${item.value} job total` : item.value ? `${item.value} estimated` : "No job total yet",
     statusChips:
       curated.statusChips ??
       [
         { kind: meta.chip, label: item.stage, dot: true },
-        { kind: "ghost", label: item.sub },
-      ],
-    subtitle: curated.subtitle ?? `${item.sub} · PM: Joe`,
+        { kind: "ghost" as const, label: item.sub },
+      ].filter((c) => c.label.trim()),
+    subtitle: curated.subtitle ?? [item.sub, "PM Joe"].filter(Boolean).join(" · "),
     pulse: curated.pulse ?? `${item.name} is in the ${item.stage.toLowerCase()} stage.${item.hasTotal ? ` ${item.billed}% paid to date.` : ""}`,
     milestones: curated.milestones ?? [],
     thisWeek: curated.thisWeek ?? [],
     latestLog: curated.latestLog ?? null,
     weeklyStatus,
     weeklyStatusName,
-    money:
-      curated.money ??
-      {
-        contract: item.value,
+    money: {
+        contract: item.hasTotal ? item.value : "—",
         paid: item.paid,
         nextDraw: "—",
         openCOs: "$0",
@@ -550,7 +548,7 @@ export async function getProjectSubsData(
   const rosterQ = query<RosterSub>(
     `SELECT s.slug, s.name, s.trade
        FROM subs s
-      WHERE s.slug NOT IN (
+      WHERE s.archived_at IS NULL AND s.slug NOT IN (
         SELECT ps.sub_slug FROM project_subs ps
         JOIN projects p ON p.id = ps.project_id WHERE p.slug = $1
       )

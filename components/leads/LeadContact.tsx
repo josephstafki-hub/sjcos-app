@@ -7,9 +7,9 @@ import { updateLeadContact } from "@/lib/actions/leads";
 import { runAction } from "@/lib/run-action";
 
 const BTN =
-  "inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-paper-2";
+  "inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-label font-semibold text-ink hover:bg-paper-2";
 const BTN_OFF =
-  "inline-flex cursor-not-allowed items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-4";
+  "inline-flex cursor-not-allowed items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-label font-semibold text-ink-3";
 
 /** Lead Call + Email buttons. Call reveals the number (so it's usable on a
  *  desktop, where tel: does nothing) with a copy + dial affordance. Email opens
@@ -19,11 +19,13 @@ export function LeadContact({
   name,
   phone,
   email,
+  mode = "all",
 }: {
   slug: string;
   name: string;
   phone: string | null;
   email: string | null;
+  mode?: "all" | "contact" | "edit";
 }) {
   const [showPhone, setShowPhone] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -39,6 +41,7 @@ export function LeadContact({
 
   return (
     <>
+      {mode !== "edit" && <>
       {/* Call — reveals the number in a popover */}
       <div className="relative">
         {phone ? (
@@ -53,16 +56,16 @@ export function LeadContact({
           </span>
         )}
         {showPhone && phone && (
-          <div className="absolute right-0 top-[calc(100%+6px)] z-40 w-[200px] rounded-lg border border-rule bg-card p-3 shadow-xl">
-            <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{name}</div>
-            <a href={`tel:${phone.replace(/[^\d+]/g, "")}`} className="mt-0.5 block font-serif text-[18px] font-semibold text-ink hover:text-accent-2">
+          <div className="absolute right-0 top-[calc(100%+6px)] z-40 w-[200px] rounded-lg border border-rule bg-card p-3 shadow-pop">
+            <div className="text-meta text-ink-3">{name}</div>
+            <a href={`tel:${phone.replace(/[^\d+]/g, "")}`} className="mt-0.5 block font-serif text-heading font-semibold text-ink hover:text-accent-2">
               {phone}
             </a>
             <div className="mt-2 flex gap-1.5">
               <button
                 type="button"
                 onClick={copy}
-                className="inline-flex items-center gap-1 rounded-md border border-rule px-2 py-1 text-[11px] font-semibold text-ink-2 hover:bg-paper-2"
+                className="inline-flex items-center gap-1 rounded-md border border-rule px-2 py-1 text-meta font-semibold text-ink-2 hover:bg-paper-2"
               >
                 {copied ? <Check className="size-3 text-money" strokeWidth={2} /> : <Copy className="size-3" strokeWidth={1.5} />}
                 {copied ? "Copied" : "Copy"}
@@ -85,11 +88,13 @@ export function LeadContact({
         </span>
       )}
 
+      </>}
       {/* Edit contact info */}
+      {mode !== "contact" && (
       <button type="button" onClick={() => setEdit(true)} className={BTN} title="Edit contact info">
         <Pencil className="size-3" strokeWidth={1.5} />
         Edit
-      </button>
+      </button>)}
 
       {compose && email && (
         <ComposeModal name={name} email={email} onClose={() => setCompose(false)} />
@@ -134,45 +139,47 @@ function EditContactModal({
         setSaved(true);
         setTimeout(onClose, 700);
       } else {
-        setError("Could not save.");
+        setError(res.error ?? "Could not save.");
       }
     });
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink/30 p-4 pt-[10vh]" onClick={onClose}>
-      <div className="w-full max-w-[420px] rounded-lg border border-rule bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-[420px] rounded-lg border border-rule bg-card shadow-pop" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-rule px-4 py-3">
-          <h2 className="font-serif text-[17px] font-semibold text-ink">Edit contact · {name}</h2>
+          <h2 className="font-serif text-heading font-semibold text-ink">Edit contact · {name}</h2>
           <button onClick={onClose} className="text-ink-3 hover:text-ink" aria-label="Close">
             <X className="size-4" strokeWidth={1.5} />
           </button>
         </div>
         <div className="flex flex-col gap-3 p-4">
           <label className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Email</span>
+            <span className="text-meta text-ink-3">Email</span>
             <input
+              type="email"
+              aria-invalid={!!error}
               value={em}
               onChange={(e) => setEm(e.target.value)}
               placeholder="name@example.com"
-              className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+              className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent"
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Phone</span>
+            <span className="text-meta text-ink-3">Phone</span>
             <input
               value={ph}
               onChange={(e) => setPh(e.target.value)}
               placeholder="(612) 555-0100"
-              className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+              className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent"
             />
           </label>
-          {error && <div className="text-[11px] text-flag">{error}</div>}
+          {error && <div className="text-meta text-flag">{error}</div>}
           <div className="flex justify-end gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2"
+              className="rounded-md border border-rule px-3 py-1.5 text-label font-semibold text-ink-3 hover:bg-paper-2"
             >
               Cancel
             </button>
@@ -180,7 +187,7 @@ function EditContactModal({
               type="button"
               onClick={save}
               disabled={saving || saved}
-              className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
+              className="rounded-md border border-ink bg-ink px-3 py-1.5 text-label font-semibold text-paper hover:bg-ink-hover disabled:opacity-50"
             >
               {saved ? "Saved ✓" : saving ? "Saving…" : "Save"}
             </button>
@@ -213,23 +220,23 @@ function ComposeModal({ name, email, onClose }: { name: string; email: string; o
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink/30 p-4 pt-[10vh]" onClick={onClose}>
-      <div className="w-full max-w-[520px] rounded-lg border border-rule bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-[520px] rounded-lg border border-rule bg-card shadow-pop" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-rule px-4 py-3">
-          <h2 className="font-serif text-[17px] font-semibold text-ink">Email {name}</h2>
+          <h2 className="font-serif text-heading font-semibold text-ink">Email {name}</h2>
           <button onClick={onClose} className="text-ink-3 hover:text-ink" aria-label="Close">
             <X className="size-4" strokeWidth={1.5} />
           </button>
         </div>
         <div className="flex flex-col gap-3 p-4">
-          <div className="flex items-center gap-2 text-[12px]">
-            <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">To</span>
+          <div className="flex items-center gap-2 text-label">
+            <span className="text-meta text-ink-3">To</span>
             <span className="text-ink-2">{email}</span>
           </div>
           <input
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
             placeholder="Subject"
-            className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+            className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent"
           />
           <textarea
             value={body}
@@ -237,14 +244,14 @@ function ComposeModal({ name, email, onClose }: { name: string; email: string; o
             rows={8}
             autoFocus
             placeholder={`Hi ${name.split(" ")[0]},`}
-            className="resize-y rounded-md border border-rule bg-paper px-2.5 py-2 text-[13px] leading-relaxed text-ink outline-none focus:border-accent"
+            className="resize-y rounded-md border border-rule bg-paper px-2.5 py-2 text-body leading-relaxed text-ink outline-none focus:border-accent"
           />
-          {error && <div className="text-[11px] text-flag">{error}</div>}
+          {error && <div className="text-meta text-flag">{error}</div>}
           <div className="flex justify-end gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2"
+              className="rounded-md border border-rule px-3 py-1.5 text-label font-semibold text-ink-3 hover:bg-paper-2"
             >
               Cancel
             </button>
@@ -252,7 +259,7 @@ function ComposeModal({ name, email, onClose }: { name: string; email: string; o
               type="button"
               onClick={send}
               disabled={!body.trim() || sending || sent}
-              className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
+              className="rounded-md border border-ink bg-ink px-3 py-1.5 text-label font-semibold text-paper hover:bg-ink-hover disabled:opacity-50"
             >
               {sent ? "Sent ✓" : sending ? "Sending…" : "Send"}
             </button>

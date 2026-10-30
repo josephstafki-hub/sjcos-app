@@ -272,3 +272,19 @@ test("migration 0003 backfill pinned every seeded runbook", { skip }, async () =
     assert.match(v.checksum, /^[0-9a-f]{64}$/);
   });
 });
+
+test("A02 repair of ONE instance (the owner's Repair button) leaves the others alone", { skip }, async () => {
+  await withDb(async (url, client) => {
+    await clean(client);
+    const { lead } = await seed(client);
+    const lead2 = (await client.query(`INSERT INTO leads (slug, name) VALUES ('zz-rb-lead-2', 'ZZ Two') RETURNING id`)).rows[0].id;
+    const a = (await txOver(url)((run) => startRunbookTx(run, "zz-runbook", { leadId: lead }, "test"))).out.instanceId;
+    const b = (await txOver(url)((run) => startRunbookTx(run, "zz-runbook", { leadId: lead2 }, "test"))).out.instanceId;
+    await client.query(`DELETE FROM work_items WHERE runbook_instance_id = ANY($1::uuid[])`, [[a, b]]);
+    const one = await txOver(url)((run) => repairRunbookInstancesTx(run, { dryRun: false, instanceId: b, by: "owner:test" }));
+    assert.equal(one.out.scanned, 1);
+    assert.equal(one.out.actions[0].instanceId, b);
+    assert.equal((await client.query(`SELECT count(*)::int AS n FROM work_items WHERE runbook_instance_id = $1`, [a])).rows[0].n, 0, "the other instance is untouched");
+    assert.equal((await client.query(`SELECT count(*)::int AS n FROM work_items WHERE runbook_instance_id = $1`, [b])).rows[0].n, 1);
+  });
+});

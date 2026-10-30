@@ -22,7 +22,7 @@ export default async function TimePage({ searchParams }: { searchParams: Promise
     runDirect<{ id: string; name: string; slug: string }>(`SELECT id, name, slug FROM projects WHERE status NOT IN ('warranty') ORDER BY name`),
     runDirect<{ category: string; rate_cents: number; effective_from: string }>(`SELECT category, rate_cents::int AS rate_cents, effective_from::text AS effective_from FROM owner_labor_rates ORDER BY category, effective_from DESC`).catch(() => []),
   ]);
-  const hours = (s: number) => (s / 3600).toFixed(1);
+  const hours = (h: number) => h.toFixed(1); // reviewRange totals are already hours
   return (
     <Shell breadcrumb="TIME">
       <div className="mx-auto max-w-[1100px] px-7 pb-16 pt-6">

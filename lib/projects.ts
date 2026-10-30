@@ -124,12 +124,13 @@ interface ProjectRow {
 }
 
 const PROJECT_SELECT = `
-  SELECT ${nextRowTodoSql("projects")} AS next_todo, slug, name, status,
+  SELECT slug, name, status,
          COALESCE(value_display, '') AS value,
          progress AS billed,
          COALESCE(sub_label, '') AS sub,
          COALESCE(stage_label, '') AS stage,
-         total_cents, collected_cents
+         total_cents, collected_cents,
+         ${nextRowTodoSql("projects")} AS next_todo
   FROM projects`;
 
 /** "$46,287" — whole dollars from cents. */

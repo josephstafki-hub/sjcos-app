@@ -16,6 +16,8 @@ registerHooks({
     if (s === "./coi-status" || s === "./sub-docs")
       return { url: "stub:coi", shortCircuit: true };
     if (s === "./file-trash") return { url: "stub:trash", shortCircuit: true };
+    if (s === "./list-row-summary")
+      return { url: new URL("../lib/list-row-summary.ts", import.meta.url).href, shortCircuit: true };
     if (s === "./ai" || s === "@/lib/ai")
       return { url: "stub:ai", shortCircuit: true };
     if (s === "@/lib/leads") return { url: "stub:leads", shortCircuit: true };

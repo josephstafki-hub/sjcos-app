@@ -173,3 +173,50 @@ test("sub-portal COI upload is not coverage; only Joe's Accept makes it current;
     assert.equal((await client.query(`SELECT count(*)::int AS n FROM action_intents`)).rows[0].n, 0, "nothing was sent");
   });
 });
+
+test("a sub's W-9 upload waits for Joe's review like a COI, and is accepted without an expiry date", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    await cleanProcurement(client);
+    await client.query(`DELETE FROM work_items WHERE source_kind = 'sub_document'`);
+    const owner = await seedOwner(client);
+    const jobId = await seedProject(client, "zz-job-w9", { name: "ZZ Deck" });
+    const slug = await seedSub(client, "zz-sub-w9", { name: "ZZ Decks" });
+    const emitted = [];
+    let fileN = 0;
+    const w = {
+      user: null,
+      revalidatePath: () => {},
+      requireRole: async (...roles) => {
+        if (!roles.includes(w.user.role)) throw new Error("NEXT_REDIRECT");
+        return w.user;
+      },
+      emit: async (n) => emitted.push(n),
+      storeUpload: async (file) => {
+        const buf = Buffer.from(await file.arrayBuffer());
+        const id = `zz-w9doc-${++fileN}`;
+        await client.query(`INSERT INTO files (id, project_key, type, name, storage_path, mime_type, sha256) VALUES ($1, '', 'doc', $2, $3, 'application/pdf', $4)`, [id, file.name, `${id}.pdf`, createHash("sha256").update(buf).digest("hex")]);
+        return { ok: true, id, type: "doc" };
+      },
+      getSub: async () => ({ name: "ZZ Decks" }),
+      getSubCurrentProject: async () => ({ id: jobId, name: "ZZ Deck" }),
+      withTransaction: txOver(url),
+      userPrincipal: (u) => ({ kind: "user", userId: u.id, role: u.role, name: u.name, permissions: [], linkSlug: u.linkSlug }),
+    };
+    globalThis.__subdocs = w;
+    const { uploadSubDocument, acceptSubDocument } = await import("../lib/actions/sub-docs.ts");
+    w.user = { id: null, role: "sub", name: slug, linkSlug: slug, permissions: [] };
+    assert.deepEqual(await uploadSubDocument(slug, form({ docType: "w9", file: pdf("w9 signed") })), { ok: true });
+    const [doc] = (await client.query(`SELECT id, status FROM sub_documents WHERE sub_slug = $1`, [slug])).rows;
+    assert.equal(doc.status, "under_review");
+    const [item] = (await client.query(`SELECT title, body, status FROM work_items WHERE source_kind = 'sub_document' AND source_id = $1`, [`subdoc:${doc.id}:review`])).rows;
+    assert.equal(item.title, "Review ZZ Decks's W-9");
+    assert.match(item.body, /never stores the tax ID/);
+    assert.match(emitted.at(-1).title, /uploaded a W-9 — review it/);
+
+    w.user = { id: owner.userId, role: "owner", name: "Joe", linkSlug: null, permissions: [] };
+    const ok = await acceptSubDocument(slug, Number(doc.id), form({}));
+    assert.equal(ok.ok, true, ok.error);
+    assert.equal((await client.query(`SELECT status FROM sub_documents WHERE id = $1`, [doc.id])).rows[0].status, "accepted");
+    assert.equal((await client.query(`SELECT status FROM work_items WHERE source_id = $1`, [`subdoc:${doc.id}:review`])).rows[0].status, "done");
+  });
+});

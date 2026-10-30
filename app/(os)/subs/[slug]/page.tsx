@@ -23,14 +23,14 @@ const usd = (cents: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format((cents || 0) / 100);
 const SUB_INVOICE_CHIP = { submitted: "info", approved: "accent", paid: "money" } as const;
 
-/** Review state of an uploaded document, as a chip. A W-9 / agreement that was
- *  simply received reads as on file (no chip) — only a COI needs Joe's OK. */
+/** Review state of an uploaded document, as a chip. Every upload waits for
+ *  Joe's OK (a COI also needs the expiry date he reads on it). */
 function docStatusChip(d: OwnerSubDocument): { kind: ChipKind; label: string } | null {
   switch (d.status) {
     case "under_review":
       return { kind: "info", label: "waiting for review" };
     case "received":
-      return d.docType === "coi" ? { kind: "ghost", label: "not reviewed" } : null;
+      return { kind: "ghost", label: "not reviewed" };
     case "accepted":
       return { kind: "money", label: "accepted" };
     case "rejected":
@@ -72,6 +72,7 @@ export default async function SubDetailPage({
   ]);
   const subDocs = paperwork.documents;
   const coiToReview = subDocs.some((d) => d.docType === "coi" && d.status === "under_review");
+  const papersToReview = subDocs.filter((d) => d.docType !== "coi" && d.status === "under_review").length;
 
   const overview = (
     <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[1fr_1fr_320px]">
@@ -252,7 +253,7 @@ export default async function SubDetailPage({
           <div className="mt-2.5 flex flex-col gap-2">
             {subDocs.map((d) => {
               const chip = docStatusChip(d);
-              const reviewable = d.docType === "coi" && (d.status === "under_review" || d.status === "received");
+              const reviewable = d.status === "under_review" || d.status === "received";
               return (
                 <div key={d.id} className="border-t border-rule-soft pt-2 first:border-t-0 first:pt-0">
                   <div className="flex items-center gap-2">
@@ -283,11 +284,15 @@ export default async function SubDetailPage({
                     (isOwner ? (
                       <>
                         <div className="mt-0.5 text-[11px] text-ink-3">
-                          {d.expiresAt
-                            ? "The date is what the sub typed. Check the certificate, then accept it with the date it shows."
-                            : "Check the certificate, then accept it with the expiry date it shows."}
+                          {d.docType === "coi"
+                            ? d.expiresAt
+                              ? "The date is what the sub typed. Check the certificate, then accept it with the date it shows."
+                              : "Check the certificate, then accept it with the expiry date it shows."
+                            : d.docType === "w9"
+                              ? "Check it's signed and the legal name matches, then accept it."
+                              : "Open it and check it, then accept it."}
                         </div>
-                        <SubDocReview slug={slug} documentId={d.id} typedExpiry={d.expiresAt} />
+                        <SubDocReview slug={slug} documentId={d.id} typedExpiry={d.expiresAt} docType={d.docType} />
                       </>
                     ) : (
                       <div className="mt-0.5 text-[11px] text-ink-3">Not current until Joe accepts it.</div>
@@ -377,6 +382,11 @@ export default async function SubDetailPage({
               {coiToReview && (
                 <Chip kind="info" dot>
                   COI to review
+                </Chip>
+              )}
+              {papersToReview > 0 && (
+                <Chip kind="info" dot>
+                  {papersToReview === 1 ? "1 paper to review" : `${papersToReview} papers to review`}
                 </Chip>
               )}
               <Chip kind={sub.w9 === "missing" ? "flag" : "money"}>W-9 · {sub.w9}</Chip>

@@ -1733,10 +1733,16 @@ server.registerTool(
         WHERE id = $1`,
       [work_item_id],
     );
+    // The in-app chat that drafted it (the runner exports these): Joe's
+    // Telegram reply to the draft's card goes back to that chat
+    // (lib/decisions/owner-replies.ts). Without them it goes to the operating agent.
+    const origin = {};
+    if (UUID_RE.test(process.env.SJC_CONVERSATION_ID || "")) origin.conversation_id = process.env.SJC_CONVERSATION_ID;
+    if (UUID_RE.test(process.env.SJC_RUN_ID || "")) origin.run_id = process.env.SJC_RUN_ID;
     await rows(
-      `INSERT INTO agent_receipts (work_item_id, receipt_kind, uri, label)
-       VALUES ($1,'draft',$2,$3)`,
-      [work_item_id, knowledgeId ? `knowledge_items/${knowledgeId}` : null, `draft ready for approval (${kind})`],
+      `INSERT INTO agent_receipts (work_item_id, receipt_kind, uri, label, metadata)
+       VALUES ($1,'draft',$2,$3,$4::jsonb)`,
+      [work_item_id, knowledgeId ? `knowledge_items/${knowledgeId}` : null, `draft ready for approval (${kind})`, JSON.stringify(origin)],
     );
     // Tell the agent up front whether Approve will email this. Advisory only —
     // lib/approved-draft-rules.ts is the rule the app actually applies.

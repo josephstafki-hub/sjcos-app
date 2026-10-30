@@ -18,7 +18,12 @@
 //     COMPLETED; FAILED / returned later restores the balance via the ledger
 //     without fabricating invoices;
 //   • refunds run only after a consumed 'refund' decision bound to the
-//     original payment + exact amount.
+//     original payment + exact amount;
+//   • a credit card pays a surcharge on top of the balance (surcharge.ts):
+//     amount_cents is what Square charges, surcharge_cents the part never
+//     credited to the invoice. A surcharged card is authorized first and only
+//     completed once Square's own reading says it is a credit card — a debit
+//     or prepaid card is voided, so it is never charged the surcharge.
 
 import type { Run } from "../commands/core.ts";
 import { runCommand } from "../commands/core.ts";
@@ -30,6 +35,9 @@ import { ProviderDeclinedError, ProviderUnknownOutcomeError, type PaymentMethod,
 import type { Tx } from "../billing/commands.ts";
 import { stagePaymentReceipt, type ReceiptOutcome } from "./receipt.ts";
 import { stagePaymentAlert } from "./owner-alert.ts";
+import { loadSurchargeConfig, surchargeCents, surchargeable, type CardFacts } from "./surcharge.ts";
+
+const usd = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 
 export type AttemptState = "created" | "pending" | "completed" | "failed" | "returned" | "refunded" | "disputed" | "unknown";
 
@@ -38,7 +46,12 @@ export interface AttemptRow {
   invoice_id: number;
   invoice_revision: number;
   intent_key: string;
+  /** What Square charges: the invoice share + surcharge_cents. */
   amount_cents: number;
+  /** Credit card surcharge inside amount_cents; never credited to the invoice. */
+  surcharge_cents: number;
+  card_brand: string | null;
+  card_type: string | null;
   currency: string;
   method: PaymentMethod;
   provider: string;
@@ -54,7 +67,7 @@ export interface AttemptRow {
   completed_at: string | null;
 }
 
-const ATTEMPT_COLS = `id, invoice_id::int AS invoice_id, invoice_revision, intent_key, amount_cents, currency, method, provider, provider_payment_id,
+const ATTEMPT_COLS = `id, invoice_id::int AS invoice_id, invoice_revision, intent_key, amount_cents, surcharge_cents, card_brand, card_type, currency, method, provider, provider_payment_id,
   provider_order_id, provider_status, state, source_event_ids, last_error, actor, created_at::text AS created_at, updated_at::text AS updated_at,
   completed_at::text AS completed_at`;
 
@@ -68,6 +81,11 @@ export function intentKeyFor(invoiceId: number, revision: number, nonce: string)
  *  attempt per intent_key, so this is just as stable across retries. */
 export function squareKeyFor(attempt: Pick<AttemptRow, "id">): string {
   return attempt.id;
+}
+
+/** The part of an attempt that pays the invoice (what the ledger records). */
+export function invoiceShareCents(attempt: Pick<AttemptRow, "amount_cents" | "surcharge_cents">): number {
+  return attempt.amount_cents - (attempt.surcharge_cents ?? 0);
 }
 
 /** Does a provider reference_id point at this attempt? Accepts the uuid and
@@ -96,6 +114,10 @@ export interface PrepareInput {
   /** What the browser displayed; must equal the verified balance. */
   expectedAmountCents?: number | null;
   expectedRevision?: number | null;
+  /** The pay page's reading of the card (Web Payments SDK tokenize details). */
+  card?: CardFacts | null;
+  /** The surcharge the pay page showed; must equal the server's. */
+  expectedSurchargeCents?: number | null;
   actor: Principal | string;
 }
 
@@ -127,10 +149,13 @@ export async function prepareAttempt(run: Run, input: PrepareInput): Promise<Pre
     [inv.id],
   );
   if (inflight) return { ok: false, code: "in_flight", reason: `A ${inflight.method === "ach" ? "bank transfer" : "payment"} for this invoice is still processing. It will show here once it settles.` };
+  const surcharge = input.method === "card" ? surchargeCents(b.balanceCents, await loadSurchargeConfig(run), input.card) : 0;
+  if (input.expectedSurchargeCents != null && Number(input.expectedSurchargeCents) !== surcharge) return { ok: false, code: "stale", reason: "The card surcharge changed after the page loaded. Reload to see the current amount." };
+  const card = input.method === "card" && input.card ? input.card : null;
   const [row] = await run<AttemptRow>(
-    `INSERT INTO payment_attempts (invoice_id, invoice_revision, intent_key, amount_cents, currency, method, actor)
-     VALUES ($1, $2, $3, $4, 'USD', $5, $6) RETURNING ${ATTEMPT_COLS}`,
-    [inv.id, inv.revision, key, b.balanceCents, input.method, typeof input.actor === "string" ? input.actor : principalLabel(input.actor)],
+    `INSERT INTO payment_attempts (invoice_id, invoice_revision, intent_key, amount_cents, surcharge_cents, card_brand, card_type, currency, method, actor)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 'USD', $8, $9) RETURNING ${ATTEMPT_COLS}`,
+    [inv.id, inv.revision, key, b.balanceCents + surcharge, surcharge, card?.brand ?? null, card?.cardType ?? null, input.method, typeof input.actor === "string" ? input.actor : principalLabel(input.actor)],
   );
   return { ok: true, attempt: row, invoice: inv, reused: false };
 }
@@ -139,7 +164,14 @@ export async function prepareAttempt(run: Run, input: PrepareInput): Promise<Pre
 
 export type ChargeOutcome = { kind: "payment"; payment: SquarePayment } | { kind: "declined"; code: string; reason: string } | { kind: "unknown"; reason: string };
 
+/** Code a voided surcharged card comes back with: Square read it as debit /
+ *  prepaid. The pay page retries once without the surcharge. */
+export const SURCHARGE_MISMATCH = "SURCHARGE_CARD_MISMATCH";
+
 export async function chargeAttempt(adapter: SquareAdapter, attempt: AttemptRow, opts: { sourceId: string; locationId: string; buyerEmail?: string | null; note?: string }): Promise<ChargeOutcome> {
+  // A surcharged card is authorized only; finishSurchargedCard completes it
+  // once Square confirms a credit card, or voids it.
+  const authorizeOnly = attempt.method === "card" && attempt.surcharge_cents > 0;
   try {
     const payment = await adapter.createPayment({
       idempotencyKey: squareKeyFor(attempt),
@@ -151,11 +183,32 @@ export async function chargeAttempt(adapter: SquareAdapter, attempt: AttemptRow,
       referenceId: squareKeyFor(attempt),
       note: opts.note,
       buyerEmail: opts.buyerEmail ?? null,
+      ...(authorizeOnly ? { autocomplete: false } : {}),
     });
+    if (authorizeOnly && payment.status === "APPROVED") return await finishSurchargedCard(adapter, payment);
     return { kind: "payment", payment };
   } catch (err) {
     if (err instanceof ProviderDeclinedError) return { kind: "declined", code: err.code, reason: err.message };
     if (err instanceof ProviderUnknownOutcomeError) return { kind: "unknown", reason: err.message };
+    return { kind: "unknown", reason: (err as Error).message };
+  }
+}
+
+/** Complete an authorized surcharged card if Square reads it as a credit
+ *  card; otherwise void it (debit / prepaid cards can't carry a surcharge)
+ *  and report a decline — nothing was charged. Also used by the reconcile
+ *  sweep for an authorization the checkout never finished. */
+export async function finishSurchargedCard(adapter: SquareAdapter, payment: SquarePayment): Promise<ChargeOutcome> {
+  try {
+    if (surchargeable(payment.card)) return { kind: "payment", payment: await adapter.completePayment(payment.id) };
+    await adapter.cancelPayment(payment.id);
+    return {
+      kind: "declined",
+      code: SURCHARGE_MISMATCH,
+      reason: "Square reads this as a debit or prepaid card, which doesn't carry the credit card surcharge.",
+    };
+  } catch (err) {
+    if (err instanceof ProviderDeclinedError) return { kind: "unknown", reason: `finishing authorized payment ${payment.id}: ${err.message}` };
     return { kind: "unknown", reason: (err as Error).message };
   }
 }
@@ -211,29 +264,39 @@ export async function applyProviderPayment(run: Run, input: { attemptId?: string
     await run(`UPDATE payment_attempts SET last_error = $2, state = 'disputed' WHERE id = $1 AND state NOT IN ('completed','refunded')`, [attempt.id, `provider amount ${input.payment.amountCents} ≠ attempt ${attempt.amount_cents}`]);
     return { attempt: (await getAttempt(run, attempt.id))!, changed: true, from: attempt.state, to: "disputed" };
   }
-  const next = stateFor(attempt.state, input.payment.status);
+  // An APPROVED card is a surcharged authorization still being checked
+  // (finishSurchargedCard): not money yet, and not worth a "pending" row.
+  const next = input.payment.status === "APPROVED" && attempt.method === "card" ? null : stateFor(attempt.state, input.payment.status);
   // Always record ids/status/event evidence even when the state does not move.
   await run(
     `UPDATE payment_attempts
         SET provider_payment_id = COALESCE(provider_payment_id, $2), provider_order_id = COALESCE(provider_order_id, $3), provider_status = $4,
-            source_event_ids = CASE WHEN $5::uuid IS NULL OR $5::uuid = ANY(source_event_ids) THEN source_event_ids ELSE array_append(source_event_ids, $5::uuid) END
+            source_event_ids = CASE WHEN $5::uuid IS NULL OR $5::uuid = ANY(source_event_ids) THEN source_event_ids ELSE array_append(source_event_ids, $5::uuid) END,
+            card_brand = COALESCE($6, card_brand), card_type = COALESCE($7, card_type)
       WHERE id = $1`,
-    [attempt.id, input.payment.id, input.payment.orderId, input.payment.status, input.sourceEventId ?? null],
+    [attempt.id, input.payment.id, input.payment.orderId, input.payment.status, input.sourceEventId ?? null, input.payment.card?.brand ?? null, input.payment.card?.cardType ?? null],
   );
   if (!next) return { attempt: (await getAttempt(run, attempt.id))!, changed: false, from: attempt.state, to: attempt.state };
 
   const method = attempt.method;
   const refCommon = { invoiceId: attempt.invoice_id, method, provider: "square", principal: typeof input.actor === "string" ? ({ kind: "service", name: input.actor } as Principal) : input.actor };
-  const sync = { square: { payment_id: input.payment.id, order_id: input.payment.orderId, fee_cents: input.payment.feeCents, receipt_url: input.payment.receiptUrl } };
+  // The ledger credits the invoice share only; a credit card surcharge is
+  // carried on the row's external_sync and on the attempt.
+  const share = invoiceShareCents(attempt);
+  const surchargeNote = attempt.surcharge_cents > 0 ? ` (charged ${usd(attempt.amount_cents)} incl. ${usd(attempt.surcharge_cents)} credit card surcharge)` : "";
+  const sync = {
+    square: { payment_id: input.payment.id, order_id: input.payment.orderId, fee_cents: input.payment.feeCents, receipt_url: input.payment.receiptUrl },
+    ...(attempt.surcharge_cents > 0 ? { charged_cents: attempt.amount_cents, card_surcharge_cents: attempt.surcharge_cents } : {}),
+  };
   if (next === "pending") {
-    await recordInvoicePayment(run, { ...refCommon, kind: "payment", amountCents: attempt.amount_cents, providerRef: input.payment.id, status: "pending", externalSync: sync, note: `Square ${method} pending` });
+    await recordInvoicePayment(run, { ...refCommon, kind: "payment", amountCents: share, providerRef: input.payment.id, status: "pending", externalSync: sync, note: `Square ${method} pending${surchargeNote}` });
   } else if (next === "completed") {
-    await recordInvoicePayment(run, { ...refCommon, kind: "payment", amountCents: attempt.amount_cents, providerRef: input.payment.id, status: "settled", externalSync: sync, receivedAt: input.payment.updatedAt, note: `Square ${method}` });
+    await recordInvoicePayment(run, { ...refCommon, kind: "payment", amountCents: share, providerRef: input.payment.id, status: "settled", externalSync: sync, receivedAt: input.payment.updatedAt, note: `Square ${method}${surchargeNote}` });
   } else if (next === "failed") {
     // A pending ledger row (ACH) flips to failed; a card that never completed has no row.
     await run(`UPDATE invoice_payments SET status = 'failed' WHERE provider = 'square' AND provider_ref = $1 AND status = 'pending'`, [input.payment.id]);
   } else if (next === "returned") {
-    await recordInvoicePayment(run, { ...refCommon, kind: "return", amountCents: attempt.amount_cents, providerRef: `${input.payment.id}:return`, status: "settled", externalSync: { ...sync, original_payment_id: input.payment.id }, note: `Square ${method} returned by the bank` });
+    await recordInvoicePayment(run, { ...refCommon, kind: "return", amountCents: share, providerRef: `${input.payment.id}:return`, status: "settled", externalSync: { ...sync, original_payment_id: input.payment.id }, note: `Square ${method} returned by the bank` });
   }
   const [updated] = await run<AttemptRow>(
     `UPDATE payment_attempts SET state = $2, completed_at = CASE WHEN $2 = 'completed' THEN COALESCE(completed_at, now()) ELSE completed_at END,
@@ -250,7 +313,7 @@ export async function applyProviderPayment(run: Run, input: { attemptId?: string
     // never undo the payment we just recorded.
     await run(`SAVEPOINT payment_receipt`);
     try {
-      receipt = await stagePaymentReceipt(run, { attemptId: attempt.id, invoiceId: attempt.invoice_id, amountCents: attempt.amount_cents, method, receiptUrl: input.payment.receiptUrl, principal: refCommon.principal });
+      receipt = await stagePaymentReceipt(run, { attemptId: attempt.id, invoiceId: attempt.invoice_id, amountCents: attempt.amount_cents, surchargeCents: attempt.surcharge_cents, method, receiptUrl: input.payment.receiptUrl, principal: refCommon.principal });
       await run(`RELEASE SAVEPOINT payment_receipt`);
     } catch (err) {
       await run(`ROLLBACK TO SAVEPOINT payment_receipt`);
@@ -262,7 +325,7 @@ export async function applyProviderPayment(run: Run, input: { attemptId?: string
     // Joe's "you got paid" alert. Same savepoint rule as the receipt.
     await run(`SAVEPOINT payment_owner_alert`);
     try {
-      ownerPushId = await stagePaymentAlert(run, { attemptId: attempt.id, invoiceId: attempt.invoice_id, amountCents: attempt.amount_cents, method, state: next });
+      ownerPushId = await stagePaymentAlert(run, { attemptId: attempt.id, invoiceId: attempt.invoice_id, amountCents: attempt.amount_cents, surchargeCents: attempt.surcharge_cents, method, state: next });
       await run(`RELEASE SAVEPOINT payment_owner_alert`);
     } catch (err) {
       await run(`ROLLBACK TO SAVEPOINT payment_owner_alert`);
@@ -303,6 +366,7 @@ export function paymentFromWebhook(payload: SquareWebhookEnvelope): SquarePaymen
   if (!p || typeof p.id !== "string" || typeof p.status !== "string") return null;
   const money = p.amount_money as { amount?: number; currency?: string } | undefined;
   const fees = (p.processing_fee as { amount_money?: { amount?: number } }[] | undefined) ?? [];
+  const card = (p.card_details as { card?: { card_brand?: string; card_type?: string; prepaid_type?: string } } | undefined)?.card;
   return {
     id: p.id,
     status: p.status as SquarePayment["status"],
@@ -314,6 +378,7 @@ export function paymentFromWebhook(payload: SquareWebhookEnvelope): SquarePaymen
     receiptUrl: typeof p.receipt_url === "string" ? p.receipt_url : null,
     feeCents: fees.length ? fees.reduce((s, f) => s + Number(f.amount_money?.amount ?? 0), 0) : null,
     refundedCents: Number((p.refunded_money as { amount?: number } | undefined)?.amount ?? 0),
+    card: card ? { brand: card.card_brand ?? null, cardType: card.card_type ?? null, prepaidType: card.prepaid_type ?? null } : null,
     createdAt: typeof p.created_at === "string" ? p.created_at : new Date().toISOString(),
     updatedAt: typeof p.updated_at === "string" ? p.updated_at : new Date().toISOString(),
   };
@@ -373,6 +438,21 @@ export async function reconcilePendingAttempts(run: Run, adapter: SquareAdapter,
     else {
       const since = new Date(new Date(a.created_at).getTime() - 5 * 60_000).toISOString();
       payment = (await adapter.listPaymentsSince(since)).find((p) => referencesAttempt(p.referenceId, a)) ?? null;
+    }
+    if (payment && payment.status === "APPROVED" && a.method === "card" && a.surcharge_cents > 0) {
+      // A surcharged authorization the checkout never finished (crash or
+      // lost response between authorize and complete): finish it now.
+      const done = await finishSurchargedCard(adapter, payment);
+      if (done.kind === "payment") payment = done.payment;
+      else if (done.kind === "declined") {
+        await markAttemptDeclined(run, a.id, done.code, done.reason);
+        await run(`UPDATE payment_attempts SET provider_payment_id = COALESCE(provider_payment_id, $2), provider_status = 'CANCELED' WHERE id = $1`, [a.id, payment.id]);
+        out.changed++;
+        continue;
+      } else {
+        out.unresolved++;
+        continue;
+      }
     }
     if (payment) {
       const r = await applyProviderPayment(run, { attemptId: a.id, payment, actor: principal });
@@ -529,10 +609,13 @@ async function applyRefundOutcome(run: Run, refundId: string, outcome: { refund?
 async function settleRefund(run: Run, rf: RefundRow, refund: SquareRefund, principal: Principal): Promise<void> {
   const a = await getAttempt(run, rf.payment_attempt_id);
   if (!a) return;
+  // A surcharged payment refunds the surcharge in proportion; only the
+  // invoice share of the refund re-opens the invoice.
+  const invoicePart = a.surcharge_cents > 0 ? Math.round((refund.amountCents * invoiceShareCents(a)) / a.amount_cents) : refund.amountCents;
   await recordInvoicePayment(run, {
     invoiceId: a.invoice_id,
     kind: "refund",
-    amountCents: refund.amountCents,
+    amountCents: invoicePart,
     method: a.method,
     provider: "square",
     providerRef: refund.id,

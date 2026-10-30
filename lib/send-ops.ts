@@ -29,6 +29,7 @@ import type { Principal } from "@/lib/commands/principal";
 import { describeOutcome, dispatchIntentsNow } from "@/lib/dispatch/db";
 import { invoicePayLink } from "@/lib/client-invites";
 import { portalPaymentSetup } from "@/lib/payments/server";
+import { surchargeNotice } from "@/lib/payments/surcharge";
 
 export type SendOpResult = { ok: true; summary: string; intent_id?: string } | { ok: false; error: string; held?: boolean; intent_id?: string };
 
@@ -211,11 +212,9 @@ async function loadInvoiceForEmail(id: number) {
   return { inv, client, lineText, subject };
 }
 
-function invoiceEmailBody(p: { name: string; inv: InvoiceJoin; lineText: string; attached: boolean; payUrl: string | null }): string {
+function invoiceEmailBody(p: { name: string; inv: InvoiceJoin; lineText: string; attached: boolean; payUrl: string | null; surchargeNote: string | null }): string {
   const first = p.name.split(/\s+/)[0] || "there";
-  const payText = p.payUrl
-    ? `Pay online by card or bank transfer:\n${p.payUrl}\nCard payments carry a 3% surcharge. Bank transfer and check have no fee.\n\n`
-    : "";
+  const payText = p.payUrl ? `Pay online by card or bank transfer:\n${p.payUrl}\n${p.surchargeNote ? `${p.surchargeNote}\n` : ""}\n` : "";
   return (
     `Hi ${first},\n\nPlease find invoice ${p.inv.number} for "${p.inv.milestone}" on the ` +
     `${p.inv.project_name} project ${p.attached ? "attached. A summary is below." : "below."}\n\n` +
@@ -232,14 +231,15 @@ export async function previewInvoiceEmail(id: number): Promise<{ ok: true; email
   const loaded = await loadInvoiceForEmail(id);
   if (!loaded) return { ok: false, error: "Invoice not found." };
   const { inv, client, lineText, subject } = loaded;
-  const online = await portalPaymentSetup().then((s) => s.online).catch(() => false);
+  const setup = await portalPaymentSetup().catch(() => null);
+  const online = !!setup?.online;
   return {
     ok: true,
     clientName: client?.name ?? "",
     email: {
       to: (client?.email ?? "").trim().toLowerCase(),
       subject,
-      body: invoiceEmailBody({ name: client?.name ?? "", inv, lineText, attached: true, payUrl: online ? "[link to pay this invoice online]" : null }),
+      body: invoiceEmailBody({ name: client?.name ?? "", inv, lineText, attached: true, payUrl: online ? "[link to pay this invoice online]" : null, surchargeNote: setup?.online && setup.card ? surchargeNotice(setup.surcharge) : null }),
     },
   };
 }
@@ -285,10 +285,10 @@ export async function sendInvoiceOp(id: number, auth?: SendAuth): Promise<SendOp
 
   // Square connected → a link straight to this invoice's pay page in the
   // portal. A link failure leaves the invoice email as it always was.
-  const payUrl = await portalPaymentSetup()
-    .then((setup) => (setup.online ? invoicePayLink(inv.slug, id) : null))
-    .catch(() => null);
-  const body = invoiceEmailBody({ name: client.name, inv, lineText, attached: attachments.length > 0, payUrl });
+  const setup = await portalPaymentSetup().catch(() => null);
+  const payUrl = setup?.online ? await invoicePayLink(inv.slug, id).catch(() => null) : null;
+  const surchargeNote = setup?.online && setup.card ? surchargeNotice(setup.surcharge) : null;
+  const body = invoiceEmailBody({ name: client.name, inv, lineText, attached: attachments.length > 0, payUrl, surchargeNote });
   const payload = {
     to,
     subject,

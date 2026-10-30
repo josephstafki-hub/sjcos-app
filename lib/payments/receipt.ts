@@ -33,7 +33,10 @@ const usd = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency
 export interface ReceiptInput {
   attemptId: string;
   invoiceId: number;
+  /** What Square charged, surcharge included. */
   amountCents: number;
+  /** Credit card surcharge inside amountCents (0 = none). */
+  surchargeCents?: number;
   method: "card" | "ach";
   receiptUrl: string | null;
   principal: Principal;
@@ -55,14 +58,16 @@ export async function stagePaymentReceipt(run: Run, input: ReceiptInput): Promis
   const first = (inv.client_name ?? "").split(/\s+/)[0] || "there";
   const balance = (await invoiceBalance(run, input.invoiceId))?.balanceCents ?? 0;
   const how = input.method === "ach" ? "bank transfer" : "card";
+  const surcharge = input.surchargeCents ?? 0;
+  const breakdown = surcharge > 0 ? ` (${usd(input.amountCents - surcharge)} toward the invoice plus a ${usd(surcharge)} credit card surcharge)` : "";
   const subject = `Payment received — Invoice ${inv.number}`;
   const bodyText =
     `Hi ${first},\n\n` +
-    `Thank you. We received your ${how} payment of ${usd(input.amountCents)} for invoice ${inv.number} (${inv.milestone}) on ${inv.project_name}.\n\n` +
+    `Thank you. We received your ${how} payment of ${usd(input.amountCents)}${breakdown} for invoice ${inv.number} (${inv.milestone}) on ${inv.project_name}.\n\n` +
     (balance > 0 ? `Remaining balance on this invoice: ${usd(balance)}.\n\n` : `This invoice is now paid in full.\n\n`) +
     (input.receiptUrl ? `Your receipt from Square:\n${input.receiptUrl}\n\n` : "") +
     `Any questions, just reply to this email.\n\nThanks,\nJoe\nSJ Carpentry LLC\n612-361-6585`;
-  const payload = { to, subject, bodyText, kind: "payment_receipt", invoice_number: inv.number, amount_cents: input.amountCents };
+  const payload = { to, subject, bodyText, kind: "payment_receipt", invoice_number: inv.number, amount_cents: input.amountCents, ...(surcharge > 0 ? { card_surcharge_cents: surcharge } : {}) };
   const operationKey = `payment:${input.attemptId}:receipt`;
   const common = {
     operationKey,

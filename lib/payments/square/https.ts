@@ -5,6 +5,7 @@
 //
 // Endpoints (Square-Version pinned): POST /v2/payments (idempotency_key),
 // GET /v2/payments/{id}, GET /v2/payments?updated_at… (reconciliation),
+// POST /v2/payments/{id}/complete|cancel (authorize-only surcharged cards),
 // POST /v2/refunds, GET /v2/refunds/{id}, GET /v2/locations/{id}.
 
 import {
@@ -34,6 +35,7 @@ interface RawPayment {
   source_type?: string;
   processing_fee?: { amount_money?: RawMoney }[];
   refunded_money?: RawMoney;
+  card_details?: { card?: { card_brand?: string; card_type?: string; prepaid_type?: string } };
   created_at?: string;
   updated_at?: string;
 }
@@ -57,6 +59,9 @@ export function mapRawPayment(p: RawPayment): SquarePayment {
     receiptUrl: p.receipt_url ?? null,
     feeCents: p.processing_fee?.length ? p.processing_fee.reduce((s, f) => s + Number(f.amount_money?.amount ?? 0), 0) : null,
     refundedCents: Number(p.refunded_money?.amount ?? 0),
+    card: p.card_details?.card
+      ? { brand: p.card_details.card.card_brand ?? null, cardType: p.card_details.card.card_type ?? null, prepaidType: p.card_details.card.prepaid_type ?? null }
+      : null,
     createdAt: p.created_at ?? new Date().toISOString(),
     updatedAt: p.updated_at ?? p.created_at ?? new Date().toISOString(),
   };
@@ -127,10 +132,20 @@ export class HttpsSquare implements SquareAdapter {
         reference_id: input.referenceId,
         note: input.note?.slice(0, 500),
         buyer_email_address: input.buyerEmail ?? undefined,
-        autocomplete: true,
+        autocomplete: input.autocomplete ?? true,
       },
       { transmitIsUnknown: true },
     );
+    return mapRawPayment(out.payment);
+  }
+
+  async completePayment(paymentId: string): Promise<SquarePayment> {
+    const out = await this.call<{ payment: RawPayment }>("POST", `/v2/payments/${encodeURIComponent(paymentId)}/complete`, {}, { transmitIsUnknown: true });
+    return mapRawPayment(out.payment);
+  }
+
+  async cancelPayment(paymentId: string): Promise<SquarePayment> {
+    const out = await this.call<{ payment: RawPayment }>("POST", `/v2/payments/${encodeURIComponent(paymentId)}/cancel`, {}, { transmitIsUnknown: true });
     return mapRawPayment(out.payment);
   }
 

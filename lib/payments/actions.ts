@@ -10,6 +10,7 @@ import { query } from "@/lib/db";
 import { withTransaction, userPrincipal } from "@/lib/commands/db";
 import { getSquareAdapter, squareEnvironment } from "./square/index";
 import { stageRefundDecision, executeRefund } from "./service";
+import { parseSurchargeConfig, SURCHARGE_SETTING_KEY } from "./surcharge";
 
 type Result = { ok: boolean; error?: string };
 
@@ -39,6 +40,24 @@ export async function saveOfflineInstructions(formData: FormData): Promise<void>
     `INSERT INTO app_settings (key, value, updated_at) VALUES ('payments.offline_instructions', $1, now())
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
     [text],
+  );
+  revalidatePath("/settings/payments");
+}
+
+/** Settings › Payments: Square's fee and the per-brand caps for the credit
+ *  card surcharge (lib/payments/surcharge.ts). Values are clamped on read. */
+export async function saveCardSurcharge(formData: FormData): Promise<void> {
+  await requireRole("owner");
+  const brandCapPct: Record<string, number> = {};
+  for (const [k, v] of formData.entries()) {
+    if (!k.startsWith("cap_") || String(v).trim() === "") continue;
+    brandCapPct[k.slice(4)] = Number(v);
+  }
+  const cfg = parseSurchargeConfig(JSON.stringify({ feePct: Number(formData.get("feePct")), capPct: Number(formData.get("capPct")), brandCapPct }));
+  await query(
+    `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, now())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [SURCHARGE_SETTING_KEY, JSON.stringify(cfg)],
   );
   revalidatePath("/settings/payments");
 }

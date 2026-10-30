@@ -25,6 +25,8 @@ export interface SquarePayment {
   /** Processing fee Square reports (cents), when known. */
   feeCents: number | null;
   refundedCents: number;
+  /** Square's reading of the card (card_details.card); null for ACH. */
+  card?: { brand: string | null; cardType: string | null; prepaidType: string | null } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -48,6 +50,10 @@ export interface CreatePaymentInput {
   referenceId: string;
   note?: string;
   buyerEmail?: string | null;
+  /** false = authorize only (status APPROVED); completePayment / cancelPayment
+   *  finish it. Surcharged card payments use this so the card type Square
+   *  reports can be checked before any money moves. Default true. */
+  autocomplete?: boolean;
 }
 
 export interface CreateRefundInput {
@@ -92,6 +98,10 @@ export interface SquareAdapter {
   /** True when a real charge can be attempted (fake: always). */
   readonly ready: boolean;
   createPayment(input: CreatePaymentInput): Promise<SquarePayment>;
+  /** Capture an APPROVED (authorize-only) payment. */
+  completePayment(paymentId: string): Promise<SquarePayment>;
+  /** Void an APPROVED (authorize-only) payment; nothing is charged. */
+  cancelPayment(paymentId: string): Promise<SquarePayment>;
   getPayment(paymentId: string): Promise<SquarePayment | null>;
   /** Payments created/updated since `sinceIso` (reconciliation sweep). */
   listPaymentsSince(sinceIso: string, locationId?: string | null): Promise<SquarePayment[]>;

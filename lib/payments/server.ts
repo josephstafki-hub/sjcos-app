@@ -21,6 +21,7 @@ import {
   type SquareWebhookEnvelope,
 } from "./service";
 import type { PaymentMethod } from "./square/types";
+import { loadSurchargeConfig, type CardFacts, type SurchargeConfig } from "./surcharge";
 import { dispatchIntentsNow } from "@/lib/dispatch/db";
 import { sendOwnerPushesNow } from "@/lib/notify-owner";
 
@@ -53,7 +54,7 @@ export async function getProviderConfig(): Promise<ProviderConfig | null> {
 
 /** What the portal needs to decide between the Square SDK and the offline text. */
 export async function portalPaymentSetup(): Promise<
-  | { online: true; applicationId: string; locationId: string; environment: "sandbox" | "production" | "fake"; card: boolean; ach: boolean }
+  | { online: true; applicationId: string; locationId: string; environment: "sandbox" | "production" | "fake"; card: boolean; ach: boolean; surcharge: SurchargeConfig }
   | { online: false; instructions: string }
 > {
   const cfg = await getProviderConfig();
@@ -63,29 +64,30 @@ export async function portalPaymentSetup(): Promise<
   const connected = !!cfg && cfg.connection_state === "connected" && !!cfg.application_id && !!cfg.location_id;
   if (!connected) return { online: false, instructions };
   const caps = cfg!.capabilities as { card?: boolean; ach?: boolean };
-  return { online: true, applicationId: cfg!.application_id, locationId: cfg!.location_id, environment: env === "fake" ? "fake" : cfg!.environment, card: caps.card !== false, ach: caps.ach === true };
+  const surcharge = await loadSurchargeConfig(runDirect);
+  return { online: true, applicationId: cfg!.application_id, locationId: cfg!.location_id, environment: env === "fake" ? "fake" : cfg!.environment, card: caps.card !== false, ach: caps.ach === true, surcharge };
 }
 
 export type CheckoutResult =
   | { ok: true; state: AttemptRow["state"]; attemptId: string; amountCents: number; reused: boolean; message: string }
-  | { ok: false; code: string; reason: string; status: number };
+  | { ok: false; code: string; reason: string; status: number; detail?: string };
 
 /** Checkout core: prepare (server amount, idempotent attempt) → provider call
  *  outside the tx → apply provider state. */
-export async function checkout(input: { invoiceId: number; method: PaymentMethod; nonce: string; sourceId: string; expectedAmountCents?: number | null; expectedRevision?: number | null; buyerEmail?: string | null; actor: Principal | string }): Promise<CheckoutResult> {
+export async function checkout(input: { invoiceId: number; method: PaymentMethod; nonce: string; sourceId: string; expectedAmountCents?: number | null; expectedRevision?: number | null; card?: CardFacts | null; expectedSurchargeCents?: number | null; buyerEmail?: string | null; actor: Principal | string }): Promise<CheckoutResult> {
   const cfg = await getProviderConfig();
   const adapter = getSquareAdapter();
   const connected = adapter.environment === "fake" ? true : !!cfg && cfg.connection_state === "connected" && !!cfg.location_id;
   if (!connected) return { ok: false, code: "not_configured", reason: "Online payment isn't set up yet.", status: 503 };
-  const prep = await withTransaction((run) => prepareAttempt(run, { invoiceId: input.invoiceId, method: input.method, nonce: input.nonce, expectedAmountCents: input.expectedAmountCents, expectedRevision: input.expectedRevision, actor: input.actor }));
+  const prep = await withTransaction((run) => prepareAttempt(run, { invoiceId: input.invoiceId, method: input.method, nonce: input.nonce, expectedAmountCents: input.expectedAmountCents, expectedRevision: input.expectedRevision, card: input.card, expectedSurchargeCents: input.expectedSurchargeCents, actor: input.actor }));
   if (!prep.ok) return { ok: false, code: prep.code, reason: prep.reason, status: prep.code === "not_found" ? 404 : 409 };
   if (prep.reused && ["pending", "completed", "refunded", "failed", "disputed"].includes(prep.attempt.state)) {
     return { ok: true, state: prep.attempt.state, attemptId: prep.attempt.id, amountCents: prep.attempt.amount_cents, reused: true, message: describe(prep.attempt.state, prep.attempt.method) };
   }
   const outcome = await chargeAttempt(adapter, prep.attempt, { sourceId: input.sourceId, locationId: cfg?.location_id || "fake", buyerEmail: input.buyerEmail ?? null, note: `Invoice ${prep.invoice.number}` });
   if (outcome.kind === "declined") {
-    const a = await withTransaction((run) => markAttemptDeclined(run, prep.attempt.id, outcome.code, outcome.reason));
-    return { ok: false, code: "declined", reason: outcome.reason, status: 402, ...(a ? {} : {}) };
+    await withTransaction((run) => markAttemptDeclined(run, prep.attempt.id, outcome.code, outcome.reason));
+    return { ok: false, code: "declined", reason: outcome.reason, status: 402, detail: outcome.code };
   }
   if (outcome.kind === "unknown") {
     await withTransaction((run) => markAttemptUnknown(run, prep.attempt.id, outcome.reason));

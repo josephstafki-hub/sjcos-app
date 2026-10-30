@@ -23,7 +23,10 @@ const usd = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency
 export interface PaymentAlertInput {
   attemptId: string;
   invoiceId: number;
+  /** What Square charged, surcharge included. */
   amountCents: number;
+  /** Credit card surcharge inside amountCents (0 = none). */
+  surchargeCents?: number;
   method: "card" | "ach";
   state: AlertState;
 }
@@ -47,10 +50,12 @@ export async function stagePaymentAlert(run: Run, input: PaymentAlertInput): Pro
   const invoice = `Invoice ${inv.number}${inv.milestone ? ` (${inv.milestone})` : ""}`;
   const balance = (await invoiceBalance(run, input.invoiceId))?.balanceCents ?? 0;
   const owed = balance > 0 ? `${usd(balance)} still owed` : "paid in full";
+  const surcharge = input.surchargeCents ?? 0;
+  const incl = surcharge > 0 ? ` · incl. ${usd(surcharge)} card surcharge` : "";
 
   const msg =
     input.state === "completed"
-      ? { title: `Paid online: ${usd(input.amountCents)} from ${who}`, body: `${how} · ${invoice} · ${owed}`, accent: "money", flagged: false }
+      ? { title: `Paid online: ${usd(input.amountCents)} from ${who}`, body: `${how} · ${invoice}${incl} · ${owed}`, accent: "money", flagged: false }
       : input.state === "pending"
         ? { title: `Bank transfer started: ${usd(input.amountCents)} from ${who}`, body: `${invoice} · settles in 3–5 business days; not counted as paid until it clears`, accent: "money", flagged: false }
         : { title: `Payment returned: ${usd(input.amountCents)} from ${who}`, body: `The bank reversed the ${how.toLowerCase()} payment on ${invoice} · ${owed}`, accent: "flag", flagged: true };

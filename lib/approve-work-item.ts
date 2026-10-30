@@ -93,6 +93,31 @@ export async function claimApproval(id: string): Promise<({ ok: true } & Claimed
   return { ok: false, error: staleApprovalError(now[0] ?? null) };
 }
 
+/** Why a Decline tap changed nothing: the draft already went out, or the item
+ *  is already settled. A stale button must never relabel a sent email as
+ *  cancelled. */
+export function staleDeclineError(state: { approval_status: string; status: string } | null): string {
+  if (!state) return "Work item not found.";
+  if (state.approval_status === "approved") return "Already approved and sent — Decline can't take it back.";
+  if (state.approval_status === "rejected") return "Already declined.";
+  if (state.status === "done") return "Already done — nothing to decline.";
+  return "Already cancelled.";
+}
+
+/** Flip an item to rejected/cancelled — only while it is still open and not
+ *  already approved; the check is the UPDATE itself (see claimApproval). */
+export async function claimRejection(id: string): Promise<({ ok: true } & { title: string; body: string; assignee_key: string | null }) | { ok: false; error: string }> {
+  const { rows } = await query<{ title: string; body: string; assignee_key: string | null }>(
+    `UPDATE work_items SET approval_status = 'rejected', status = 'cancelled'
+      WHERE id = $1 AND approval_status NOT IN ('approved','rejected') AND status NOT IN ('done','cancelled')
+     RETURNING title, body, assignee_key`,
+    [id],
+  );
+  if (rows[0]) return { ok: true, ...rows[0] };
+  const { rows: now } = await query<{ approval_status: string; status: string }>(`SELECT approval_status, status FROM work_items WHERE id = $1`, [id]);
+  return { ok: false, error: staleDeclineError(now[0] ?? null) };
+}
+
 /** Approve a work item awaiting human approval, session-free — the /engine and
  *  Today buttons, the corner popup and the Telegram button all land here (the
  *  caller has already checked who is asking). Clears the gate, moves the item
@@ -110,12 +135,9 @@ export async function approveWorkItemById(id: string): Promise<ApproveResult> {
  *  button: cancels it, records the rejection for the learning layer, and
  *  cancels a runbook step. */
 export async function rejectWorkItemById(id: string, via = "/engine"): Promise<{ ok: true; title: string } | { ok: false; error: string }> {
-  const { rows } = await query<{ title: string; body: string; assignee_key: string | null }>(
-    `UPDATE work_items SET approval_status = 'rejected', status = 'cancelled' WHERE id = $1
-     RETURNING title, body, assignee_key`,
-    [id],
-  );
-  if (!rows[0]) return { ok: false, error: "Work item not found." };
+  const claim = await claimRejection(id);
+  if (!claim.ok) return claim;
+  const rows = [claim];
   // W5 learning layer: a rejection is a signal about what NOT to propose.
   await captureAgentMemory({
     summary: `Rejected: ${rows[0].title}`,

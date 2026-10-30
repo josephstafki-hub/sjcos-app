@@ -105,6 +105,10 @@ test("Approve: only an item still awaiting approval; stale and racing taps send 
       assert.deepEqual(await approveWorkItemById(once), { ok: false, error: "Already approved — nothing more was sent." });
       assert.deepEqual(sends, [once]);
       assert.deepEqual(await stateOf(once), { status: "queued", approval_status: "approved" });
+      // A stale Decline on the sent draft changes nothing: it stays approved, not "cancelled".
+      assert.deepEqual(await rejectWorkItemById(once, "Telegram"), { ok: false, error: "Already approved and sent — Decline can't take it back." });
+      assert.deepEqual(await stateOf(once), { status: "queued", approval_status: "approved" });
+      assert.deepEqual(await rejectWorkItemById(rejected, "Telegram"), { ok: false, error: "Already declined." });
 
       // ── Two (or three) taps at the same moment: exactly one goes through.
       sends.length = 0;

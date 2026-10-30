@@ -9,7 +9,7 @@
 import { createHash } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { captureAgentMemory } from "@/lib/agent-memory";
-import { claimApproval, finishApproval } from "@/lib/approve-work-item";
+import { claimApproval, claimRejection, finishApproval } from "@/lib/approve-work-item";
 import type { ApproveResult } from "@/lib/approved-draft-rules";
 import { query } from "@/lib/db";
 import { requireAccess } from "@/lib/dal";
@@ -83,12 +83,9 @@ export async function approveRecordWorkItem(id: string, kind: RecordKind, slug: 
 
 export async function rejectRecordWorkItem(id: string, kind: RecordKind, slug: string): Promise<Result> {
   await requireAccess("today");
-  const { rows } = await query<{ title: string; body: string; assignee_key: string | null }>(
-    `UPDATE work_items SET approval_status = 'rejected', status = 'cancelled' WHERE id = $1
-     RETURNING title, body, assignee_key`,
-    [id],
-  );
-  if (!rows[0]) return { ok: false, error: "Work item not found." };
+  const claim = await claimRejection(id);
+  if (!claim.ok) return claim;
+  const rows = [claim];
   await writeReceipt("rejection", `Rejected: ${rows[0].title}`, id);
   // W5 learning layer: a rejection is a signal about what NOT to propose.
   await captureAgentMemory({

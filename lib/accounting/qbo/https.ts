@@ -5,7 +5,7 @@
 // entity query uses the documented `query` endpoint with LastUpdatedTime.
 // Nothing here is called until Joe connects the company (setup item).
 
-import type { QboAdapter, QboDoc, QboEntityKind, } from "./types.ts";
+import type { QboAdapter, QboDeleted, QboDoc, QboEntityKind } from "./types.ts";
 import { QboApiError, QboNotConnectedError, qboFaults } from "./types.ts";
 
 export interface IntuitCredentials {
@@ -125,5 +125,33 @@ export class HttpsQbo implements QboAdapter {
   async create(kind: QboEntityKind, doc: Partial<QboDoc>): Promise<QboDoc> {
     const r = await this.call<Record<string, QboDoc>>("POST", `/${kind.toLowerCase()}`, doc);
     return r[kind];
+  }
+
+  async findBy(kind: QboEntityKind, field: "DocNumber" | "DisplayName", value: string): Promise<QboDoc[]> {
+    // QuickBooks query strings escape a quote with a backslash.
+    const v = value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    const q = encodeURIComponent(`SELECT * FROM ${kind} WHERE ${field} = '${v}' MAXRESULTS 20`);
+    const r = await this.call<{ QueryResponse: Record<string, QboDoc[] | undefined> }>("GET", `/query?query=${q}`);
+    return r.QueryResponse[kind] ?? [];
+  }
+
+  /** Change Data Capture: the only QuickBooks endpoint that reports deletes
+   *  (as `status: "Deleted"`). It refuses a changedSince older than 30 days,
+   *  so the window is clamped. */
+  async listDeleted(kinds: QboEntityKind[], sinceIso: string): Promise<QboDeleted[]> {
+    if (!kinds.length) return [];
+    const floor = Date.now() - 29 * 86_400_000;
+    const since = new Date(Math.max(Date.parse(sinceIso) || floor, floor)).toISOString();
+    const r = await this.call<{ CDCResponse?: Array<{ QueryResponse?: Array<Record<string, Array<QboDoc & { status?: string }> | undefined>> }> }>(
+      "GET",
+      `/cdc?entities=${kinds.join(",")}&changedSince=${encodeURIComponent(since)}`,
+    );
+    const out: QboDeleted[] = [];
+    for (const qr of r.CDCResponse?.[0]?.QueryResponse ?? []) {
+      for (const kind of kinds) {
+        for (const d of qr[kind] ?? []) if (d.status === "Deleted") out.push({ kind, id: d.Id, at: d.MetaData?.LastUpdatedTime ?? null });
+      }
+    }
+    return out;
   }
 }

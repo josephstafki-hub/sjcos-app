@@ -246,12 +246,16 @@ by Joe/staff don't feed the weekly update (only sub logs do).
   - Funding ignores hand-kept `collected_to_date` (`lib/funding/index.ts:~73-86`).
   - There's no app UI.
 - **QuickBooks (A14), which must be done before the bookkeeper's Part B turns exports on:**
-  - Export never matches existing QBO records: invoices (`lib/accounting/server.ts:~115`) and customers by
-    name (`lib/accounting/qbo/sync.ts:~315`). It would duplicate them.
+  - ~~Export never matches existing QBO records.~~ **Done (branch `t3/tier3-qbo`):** a customer with the
+    same display name is reused (imported or asked of QuickBooks). An invoice or payment that looks like
+    an unmatched QuickBooks record is held back as `possible_duplicate` until the match is confirmed or
+    rejected on Settings › Accounting.
   - `reconcilePayout` has no caller; Square fees and net deposits are never reconciled.
   - Refunds and returns aren't mirrored.
-  - The `resolve_accounting_conflict` decision has no handler.
-  - Deletions never surface, because QBO's query endpoint omits deleted records **(inferred)**.
+  - ~~The `resolve_accounting_conflict` decision has no handler.~~ **Done:** Approve = QuickBooks is right
+    (accepted, no longer flagged). Reject = SJC OS is right (stays flagged until fixed in QuickBooks).
+  - ~~Deletions never surface.~~ **Done:** read through Change Data Capture (`listDeleted`). A posted record
+    becomes a conflict card; an unmatched one leaves the review list.
 - **Square (A20):**
   - `requestRefund` and `executeApprovedRefund` have no caller.
   - Dispute events are ignored.

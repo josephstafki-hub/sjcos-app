@@ -16,7 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { fakeQbo } from "./fake.ts";
 import { HttpsQbo } from "./https.ts";
-import { QboNotConnectedError, type QboAdapter, type QboDoc } from "./types.ts";
+import { QboNotConnectedError, type QboAdapter, type QboDeleted, type QboDoc } from "./types.ts";
 
 export type { QboAdapter, QboDoc, QboEntityKind } from "./types.ts";
 export { QboNotConnectedError } from "./types.ts";
@@ -126,6 +126,12 @@ class NotConnectedQbo implements QboAdapter {
     return this.fail();
   }
   create(): Promise<QboDoc> {
+    return this.fail();
+  }
+  findBy(): Promise<QboDoc[]> {
+    return this.fail();
+  }
+  listDeleted(): Promise<QboDeleted[]> {
     return this.fail();
   }
 }

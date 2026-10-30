@@ -47,11 +47,14 @@ export type SendOpResult = { ok: true; summary: string; intent_id?: string } | {
 export interface SendAuth {
   grantId?: string | null;
   decisionId?: string | null;
-  /** 'owner' | 'mcp:<agent>' for the audit line. */
+  /** 'owner' | 'mcp:<agent>' | 'staff:<user id>/authority:<grant id>' for the audit line. */
   actor?: string;
+  /** The signed-in person who clicked, when there is one. */
+  principal?: Principal;
 }
 
 function principalFor(auth?: SendAuth): Principal {
+  if (auth?.principal) return auth.principal;
   const actor = auth?.actor ?? "owner";
   if (actor.startsWith("mcp:")) return { kind: "agent", agent: actor.slice(4), runId: null, onBehalfOf: null };
   return { kind: "service", name: `send-ops:${actor}` };
@@ -301,7 +304,9 @@ async function stageAndSend(p: {
         payload: p.payload,
         grantId: p.auth?.grantId ?? null,
         decisionId: p.auth?.decisionId ?? null,
-        policyRef: p.auth?.grantId || p.auth?.decisionId ? null : `owner:${p.auth?.actor ?? "click"}`,
+        // A team member's click is theirs (the dispatcher re-checks their
+        // authority); everything else unapproved is the owner's click.
+        policyRef: p.auth?.grantId || p.auth?.decisionId ? null : p.auth?.actor?.startsWith("staff:") ? p.auth.actor : `owner:${p.auth?.actor ?? "click"}`,
         principal: principalFor(p.auth),
       }),
     );

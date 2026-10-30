@@ -19,7 +19,7 @@ import { specFor } from "./kinds.ts";
 
 export interface IntentAuthority {
   intent_id: string;
-  kind: "decision" | "grant" | "policy" | "owner";
+  kind: "decision" | "grant" | "policy" | "owner" | "staff";
   ref: string;
   consumed_at: string;
   transmitted: boolean;
@@ -78,6 +78,11 @@ export async function verifyAuthority(run: Run, intent: ActionIntent, worker: st
       if (!g || g.status !== "approved") return { ok: false, reason: `The permission behind this action was ${g?.status ?? "removed"}.`, disposition: "cancel" };
       return { ok: true, kind: "grant", ref: existing.ref, fresh: false };
     }
+    if (existing.kind === "staff") {
+      const why = await staffAuthorityGone(run, existing.ref);
+      if (why) return { ok: false, reason: why, disposition: "cancel" };
+      return { ok: true, kind: "staff", ref: existing.ref, fresh: false };
+    }
     if (existing.kind === "policy") {
       const live = await policyStillActive(run, existing.ref);
       if (!live) return { ok: false, reason: `Policy ${existing.ref} is no longer active; the action is held.`, disposition: "hold" };
@@ -124,6 +129,12 @@ export async function verifyAuthority(run: Run, intent: ActionIntent, worker: st
   }
 
   if (intent.policy_ref) {
+    if (/^staff:/.test(intent.policy_ref)) {
+      const why = await staffAuthorityGone(run, intent.policy_ref);
+      if (why) return { ok: false, reason: why, disposition: "cancel" };
+      await bind(run, intent.id, "staff", intent.policy_ref);
+      return { ok: true, kind: "staff", ref: intent.policy_ref, fresh: true };
+    }
     if (/^owner\b/.test(intent.policy_ref)) {
       await bind(run, intent.id, "owner", intent.policy_ref);
       return { ok: true, kind: "owner", ref: intent.policy_ref, fresh: true };
@@ -141,6 +152,22 @@ function recipientsOf(d: Decision): string[] {
   const list = (d.summary as { recipients?: { address?: string }[] })?.recipients;
   if (!Array.isArray(list)) return [];
   return list.map((r) => String(r?.address ?? "").trim().toLowerCase()).filter(Boolean);
+}
+
+/** A team member's send (`staff:<user id>/authority:<grant id>`, lib/
+ *  authority/client-sends.ts staffSendActor) holds only while the account is
+ *  an active team member and the authority grant it was released under is not
+ *  revoked. Returns why not, or null. */
+async function staffAuthorityGone(run: Run, ref: string): Promise<string | null> {
+  const m = /^staff:([0-9a-f-]{36})(?:\/authority:([0-9a-f-]{36}))?$/i.exec(ref);
+  if (!m) return `"${ref}" doesn't name a team member's authority.`;
+  if (!m[2]) return "This send names no approval authority; a team member needs one to send it.";
+  const [u] = await run<{ active: boolean; role: string; name: string }>(`SELECT active, role, name FROM users WHERE id = $1`, [m[1]]);
+  if (!u?.active || u.role !== "staff") return "The team member who sent this is no longer an active team member.";
+  const [g] = await run<{ revoked_at: string | null; user_id: string }>(`SELECT revoked_at::text AS revoked_at, user_id::text AS user_id FROM authority_grants WHERE id = $1`, [m[2]]);
+  if (!g || g.user_id !== m[1]) return `The approval authority ${u.name || "they"} sent this under no longer exists.`;
+  if (g.revoked_at) return `Joe revoked the approval authority ${u.name || "they"} sent this under.`;
+  return null;
 }
 
 async function policyStillActive(run: Run, ref: string): Promise<boolean> {

@@ -248,7 +248,7 @@ export async function sendInvoice(id: number): Promise<Result> {
     amountCents: Number(inv.amount),
   });
   if (!release.ok) return { ok: false, error: release.error };
-  const res = await sendInvoiceOp(id, release.via === "authority_grant" ? { actor: release.actor } : undefined);
+  const res = await sendInvoiceOp(id, release.via === "authority_grant" ? { actor: release.actor, principal: userPrincipal(user) } : undefined);
   try {
     await withTransaction((run) =>
       recordDeliveryOutcome(run, { invoiceId: id, ok: res.ok, error: res.ok ? null : res.error, principal: userPrincipal(user) }),

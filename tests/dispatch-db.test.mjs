@@ -361,3 +361,42 @@ test("V14: a missing/draft policy holds the automatic action; a paused lane stop
     assert.equal(fakeOutbox.filter((f) => f.payload.to === "+19995550001" || f.payload.to === "+19995550002" || f.payload.to === "zz-gone@example.test").length, 0);
   });
 });
+
+test("A team member's send is filed as theirs and re-checks their authority at dispatch: live → sent as 'staff'; revoked or deactivated → cancelled, nothing sent", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    await cleanFoundation(client);
+    await seed(client);
+    resetFakeOutbox();
+    const run = async (s, p) => (await client.query(s, p)).rows;
+    const deps = depsFor(url, client);
+    const [staff] = await run(`INSERT INTO users (email, password_hash, name, role, initials) VALUES ('zz-staff@example.test','x','Sam','staff','S') RETURNING id`);
+    const [g] = await run(`INSERT INTO authority_grants (user_id, action_type, granted_by) VALUES ($1, 'proposal', $2) RETURNING id`, [staff.id, owner.userId]);
+    const ref = `staff:${staff.id}/authority:${g.id}`;
+    const sam = { kind: "user", userId: staff.id, role: "staff", name: "Sam", permissions: ["invoices"] };
+    const stage = (key) =>
+      enqueueIntent(run, { operationKey: key, kind: "send_email", recipient: "c@example.test", payload: { to: "c@example.test", subject: key, bodyText: "b" }, policyRef: ref, principal: sam }).then((r) => r.intent);
+
+    const ok = await stage("zz:staff:live");
+    await dispatchOnce(deps, { intentIds: [ok.id] });
+    assert.equal(sends("zz:staff:live"), 1);
+    const a = await getIntentAuthority(run, ok.id);
+    assert.equal(a.kind, "staff");
+    assert.equal(a.ref, ref);
+    const [{ principal }] = await run(`SELECT principal FROM action_intents WHERE id = $1`, [ok.id]);
+    assert.equal(principal.userId, staff.id);
+
+    await run(`UPDATE authority_grants SET revoked_at = now() WHERE id = $1`, [g.id]);
+    const revoked = await stage("zz:staff:revoked");
+    await dispatchOnce(deps, { intentIds: [revoked.id] });
+    assert.equal(sends("zz:staff:revoked"), 0);
+    assert.equal((await getIntent(run, revoked.id)).state, "cancelled");
+    assert.match((await getIntent(run, revoked.id)).last_error, /revoked/);
+
+    await run(`UPDATE authority_grants SET revoked_at = NULL WHERE id = $1`, [g.id]);
+    await run(`UPDATE users SET active = false WHERE id = $1`, [staff.id]);
+    const gone = await stage("zz:staff:inactive");
+    await dispatchOnce(deps, { intentIds: [gone.id] });
+    assert.equal(sends("zz:staff:inactive"), 0);
+    assert.equal((await getIntent(run, gone.id)).state, "cancelled");
+  });
+});

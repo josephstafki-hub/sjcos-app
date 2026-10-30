@@ -265,6 +265,10 @@ export async function hermesChat(
     const mod = await import("@/lib/agent-runtime/instructions");
     const block = await mod.standingContextBlock(runDirect, context ?? null);
     operating = block.text;
+    // Tier 4: record which versions this Hermes turn was given (0055).
+    if (steer?.runId && block.versions) {
+      await query(`UPDATE dev_agent_runs SET instruction_versions = $2::jsonb WHERE id = $1`, [steer.runId, JSON.stringify(block.versions)]).catch(() => undefined);
+    }
   } catch {
     operating = "";
   }

@@ -374,11 +374,15 @@ by Joe/staff don't feed the weekly update (only sub logs do).
   - `lib/doc-drafts.ts:~871`
   - `lib/portal-publish.ts:~98`
   - `lib/lead-first-response.ts:~757`
-- **Monitoring:**
-  - There's no off-server uptime check, so a dead server alerts no one.
-  - The monitor's only fallback when Telegram fails is a local log.
-  - `docs/automation-reliability/monitoring.md` is referenced but missing.
-- **MCP:** the server has no `instructions`, and panel runs don't record which instruction versions they loaded.
+- ~~**Monitoring.**~~ **Done (branch `t3/tier4-mcp-monitor`):**
+  - The monitor pings an off-box heartbeat URL (`SJCOS_HEALTHCHECK_URL`): `/fail` with the problems on
+    failure. That URL is also the fallback when Telegram delivery fails.
+  - `docs/automation-reliability/monitoring.md` is written.
+  - **Joe owes:** make the free healthchecks.io check and paste the URL.
+- ~~**MCP.**~~ **Done (same branch):**
+  - The server sends `instructions` on connect (sends need grants; never touch policies/pricing/money
+    totals; the estimate and CO rules; email to-dos carry their message).
+  - Panel runs record `instruction_versions` (migration 0055).
 - **Evals** ran once on `claude-opus-5`. Re-run them on the live models (Opus 5.5, Haiku 5.5) and add
   V28 (message style) and V46 (loading parity).
 

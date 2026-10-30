@@ -21,11 +21,12 @@
 # minutes while failing, escalated wording from the 3rd notice, one "recovered"
 # message when clean again. Every run appends to logs/sjcos-monitor.log.
 #
-# LIMITATION: if this HOST is down (power, disk, kernel) nothing here runs.
-# Host-down detection needs another machine: put a cron on any always-on box
-# (phone-hosted cron apps count) that curls
-# https://os.sjcarpentryllc.com/api/health every 5 minutes and pages Joe on
-# non-200 — see docs/automation-reliability/monitoring.md.
+# OFF-BOX (Tier 4): if this HOST is down (power, disk, kernel) nothing here
+# runs, so nothing here can say so. With SJCOS_HEALTHCHECK_URL set (a free
+# healthchecks.io-style ping URL, in .env.local) every run pings it: plain on
+# success, /fail with the problems on failure. The outside service pages Joe
+# by email/SMS when the pings STOP (host down) or say fail. It is also the
+# fallback when Telegram delivery fails. See docs/automation-reliability/monitoring.md.
 #
 # Test seams (env): SJCOS_MONITOR_CURL, SJCOS_MONITOR_PSQL,
 # SJCOS_MONITOR_PG_ISREADY (commands), SJCOS_MONITOR_STATE, SJCOS_MONITOR_LOG,
@@ -64,6 +65,18 @@ DATABASE_URL="${DATABASE_URL:-$(envval DATABASE_URL)}"
 CRON_SECRET="${CRON_SECRET:-$(envval CRON_SECRET)}"
 TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-$(envval TELEGRAM_BOT_TOKEN)}"
 TELEGRAM_OWNER_CHAT_ID="${TELEGRAM_OWNER_CHAT_ID:-$(envval TELEGRAM_OWNER_CHAT_ID)}"
+HEALTHCHECK_URL="${SJCOS_HEALTHCHECK_URL:-$(envval SJCOS_HEALTHCHECK_URL)}"
+
+# Off-box heartbeat: success → the URL; failure → URL/fail with the summary.
+# Never blocks the run; unset = skipped.
+ping_offbox() {
+  [ -z "$HEALTHCHECK_URL" ] && return 0
+  if [ "$1" = ok ]; then
+    $CURL -fsS -m 10 --retry 2 "$HEALTHCHECK_URL" >/dev/null 2>&1 || echo "$(date -Is) off-box ping failed" >>"$LOG"
+  else
+    $CURL -fsS -m 10 --retry 2 --data-raw "$2" "$HEALTHCHECK_URL/fail" >/dev/null 2>&1 || echo "$(date -Is) off-box fail ping failed" >>"$LOG"
+  fi
+}
 
 FAILS=()
 INFO=()
@@ -167,11 +180,15 @@ send_telegram() {
        --data-urlencode "chat_id=$TELEGRAM_OWNER_CHAT_ID" --data-urlencode "text=$text" >/dev/null 2>&1; then
     return 0
   fi
-  echo "$(date -Is) ALERT DELIVERY FAILED (telegram): $text" >>"$LOG"; return 1
+  echo "$(date -Is) ALERT DELIVERY FAILED (telegram): $text" >>"$LOG"
+  # Telegram down: the off-box service carries it (it emails/texts Joe).
+  ping_offbox fail "Telegram delivery failed. $text"
+  return 1
 }
 
 if [ "${#FAILS[@]}" -eq 0 ]; then
   echo "$(date -Is) ok: ${INFO[*]}" >>"$LOG"
+  ping_offbox ok
   if [ -n "$prev_fp" ] && [ "$prev_count" -gt 0 ]; then
     down_for=$(( NOW - prev_since ))
     send_telegram "[SJC OS monitor] recovered — all checks pass again (was failing for $((down_for/60)) min)." || true
@@ -182,6 +199,7 @@ if [ "${#FAILS[@]}" -eq 0 ]; then
 fi
 
 echo "$(date -Is) FAIL(${#FAILS[@]}): $(printf '%s; ' "${FAILS[@]}")" >>"$LOG"
+ping_offbox fail "$(printf -- '- %s\n' "${FAILS[@]}")"
 since="$prev_since"; count="$prev_count"
 [ "$prev_fp" = "$fingerprint" ] || since=0
 [ "$since" = 0 ] && since="$NOW"

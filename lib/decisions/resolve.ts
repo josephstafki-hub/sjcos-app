@@ -13,6 +13,7 @@
 import { resolveAccountingConflict } from "../accounting/qbo/sync.ts";
 import { onDecisionResolved } from "../agent-runtime/hooks.ts";
 import { applyMarkupDecision } from "../estimating/learning.ts";
+import { ALLOCATION_REVIEW_ACTION, OVERAGE_CHANGE_ORDER_ACTION, settleWorkflowCard } from "../workflow/cards.ts";
 import { FINAL_INVOICE_ACTION, INITIAL_INVOICE_ACTION, PROGRESS_INVOICE_ACTION, issueFinalFromDecision, issueInitialFromDecision, issueProgressFromDecision, type DecisionInvoiceOutcome } from "../billing/commands.ts";
 import type { Run } from "../commands/core.ts";
 import { DECISION_COLS, getDecision, resolveDecision, type Decision, type ResolveResult } from "../commands/decisions.ts";
@@ -117,6 +118,7 @@ export async function resolveFromChannel(run: Run, input: ResolveFromChannelInpu
     else if (d.action === PROGRESS_INVOICE_ACTION) invoice = await issueApprovedInvoice(run, d.id, input.principal, issueProgressFromDecision);
     else if (d.action === FINAL_INVOICE_ACTION) invoice = await issueApprovedInvoice(run, d.id, input.principal, issueFinalFromDecision);
     else if (d.action === MARKUP_ACTION) markupLine = await applyMarkup(run, d.id, input.principal);
+    else if (d.action === ALLOCATION_REVIEW_ACTION || d.action === OVERAGE_CHANGE_ORDER_ACTION) markupLine = await settleCard(run, d, input.principal);
   } else {
     const rows = await run<{ id: string }>(
       `UPDATE action_intents SET state = 'cancelled', last_error = $2, completed_at = now(), lease_token = NULL, lease_until = NULL
@@ -183,6 +185,21 @@ async function settleAccountingConflict(run: Run, mappingId: string, outcome: "a
 }
 
 const MARKUP_ACTION = "change_markup";
+
+/** W03 allocation review / W11 over-allowance card (lib/workflow/cards.ts),
+ *  under a savepoint: a failure leaves the approval standing and says so. */
+async function settleCard(run: Run, d: Decision, principal: Principal): Promise<string | null> {
+  await run(`SAVEPOINT workflow_card`);
+  try {
+    const line = await settleWorkflowCard(run, d, principal);
+    await run(`RELEASE SAVEPOINT workflow_card`);
+    return line;
+  } catch (err) {
+    await run(`ROLLBACK TO SAVEPOINT workflow_card`);
+    console.error(`[decisions] card ${d.id} (${d.action}) failed:`, (err as Error).message);
+    return `Approved, but nothing was created: ${(err as Error).message}`;
+  }
+}
 
 /** An approved markup card (staff asked from the Cost book, or a learning
  *  proposal) changes the company default now, under a savepoint. */

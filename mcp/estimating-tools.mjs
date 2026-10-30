@@ -9,6 +9,7 @@ import { z } from "zod";
 import { getScopeRegister, allocateScope, applySiteFindings, getSiteVisitPlan } from "../lib/estimating/scope.ts";
 import { setDesignPath, applyClientExactProduct, applyFeedback, applyClientDirectionApproval, applySelectionChoice, getDesignDecisions } from "../lib/estimating/design.ts";
 import { researchPrice, candidateSuppliers, stageSupplierPricingRequest, recordSupplierEvidence } from "../lib/estimating/pricing.ts";
+import { stageAllocationReview } from "../lib/workflow/cards.ts";
 import { fakeFetcher } from "../lib/estimating/fetcher.ts";
 import { recordQuote, incorporateQuote, compareCompetingQuotes, chooseSupplierQuote, incorporateSubBid, applyOwnerPricing, recomputeDraftEstimate, freezeOfferedPrices, marginExposureReport, stageAllowanceOverage, loadLines } from "../lib/estimating/assembly.ts";
 import { estimateReadiness } from "../lib/estimating/readiness.ts";
@@ -54,6 +55,20 @@ export function registerEstimatingTools(server, { rows, json, pool, slugToId, cu
         const id = await project(a.project_slug);
         const p = await principal();
         return json(await tx((r) => allocateScope(r, id, { key: a.key, responsibility: a.responsibility, supply_by: a.supply_by, install_by: a.install_by, dedicated_price_cents: a.dedicated_price_cents ?? null, price_basis: a.price_basis ?? null, price_scope_note: a.price_scope_note, notes: a.notes, principal: p })));
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stage_scope_allocation_review",
+    { title: "Stage Joe's who-does-what review (W03)", description: "One card for Joe listing every scope item with who does it (Joe / a sub / a supplier), supply vs install, and his dedicated prices. Stage it once the allocation is recorded (allocate_scope) and before any bid package release; stage_package_release stages it on its own if it was skipped. Approving records the review and sends nothing.", inputSchema: { project_slug: z.string() } },
+    async ({ project_slug }) => {
+      try {
+        const id = await project(project_slug);
+        const p = await principal();
+        return json(await tx((r) => stageAllocationReview(r, id, p)));
       } catch (e) {
         return fail(e);
       }

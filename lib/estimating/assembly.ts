@@ -218,9 +218,12 @@ export async function recomputeDraftEstimate(run: Run, estimateId: number, opts:
   let offerChanged = false;
   const snapshot = e.offered_snapshot;
   for (const line of lines) {
+    // A line Joe typed (no source_kind) keeps his unit cost, markup and price;
+    // only A15 lines are priced from evidence with the default markup.
+    const typed = line.source_kind == null;
     const p = priceLine(line, { default_markup_pct: markupPct ?? 0 });
     gaps.push(...p.gaps);
-    if (markupPct == null && (p.mode === "cost_plus_markup" || p.mode === "owner_internal_cost")) {
+    if (markupPct == null && !typed && (p.mode === "cost_plus_markup" || p.mode === "owner_internal_cost")) {
       gaps.push({ kind: "unverified_assumption", ref: line.item_key ?? `line:${line.id}`, severity: "hard", detail: "no active markup — activate a pricing setup before a fixed price" });
     }
     const c = committedPrice(line, p.extended_cents, snapshot);
@@ -233,11 +236,12 @@ export async function recomputeDraftEstimate(run: Run, estimateId: number, opts:
     if (internal == null && !line.is_allowance) unknown += 1;
     subtotal += internal ?? 0;
     total += extended;
-    const unitCost = internal != null && line.qty > 0 ? Math.round(internal / line.qty) : line.unit_cost;
+    const unitCost = typed ? line.unit_cost : internal != null && line.qty > 0 ? Math.round(internal / line.qty) : line.unit_cost;
+    const markup = typed ? line.markup : (p.markup_pct_applied ?? 0);
     await run(
       `UPDATE estimate_lines SET extended = $2, internal_cost_cents = $3, unit_cost = $4, markup = $5, provisional = $6
         WHERE id = $1 AND (extended <> $2 OR internal_cost_cents IS DISTINCT FROM $3 OR unit_cost <> $4 OR markup <> $5 OR provisional <> $6)`,
-      [line.id, extended, internal, unitCost, p.markup_pct_applied ?? 0, line.provisional || p.mode === "unknown"],
+      [line.id, extended, internal, unitCost, markup, line.provisional || p.mode === "unknown"],
     );
   }
   // Scope items with no coverage at all (should not happen after ensureScopeLines, but bid exclusions can remove lines).

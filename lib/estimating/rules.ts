@@ -376,17 +376,25 @@ export interface LinePricing {
 
 type PricingLine = Pick<
   EstimateLineRecord,
-  "item_key" | "id" | "qty" | "unit" | "unit_cost" | "markup" | "source_kind" | "internal_cost_cents" | "owner_price_override_cents" | "owner_price_basis" | "is_allowance" | "allowance_cents" | "cost_observed_at" | "provisional" | "description"
+  "item_key" | "id" | "qty" | "unit" | "unit_cost" | "markup" | "extended" | "source_kind" | "internal_cost_cents" | "owner_price_override_cents" | "owner_price_basis" | "is_allowance" | "allowance_cents" | "cost_observed_at" | "provisional" | "description"
 >;
 
 /** One place for the money rules: allowance shows as the allowance amount;
  *  an owner CLIENT price is applied as-is (never marked up again); an owner
  *  INTERNAL cost gets markup once; a known cost gets markup once; an unknown
- *  cost is NOT zero — it is a gap. */
+ *  cost is NOT zero — it is a gap.
+ *
+ *  Markup: a line Joe typed (editor, takeoff, add_estimate_lines — no
+ *  source_kind) carries its own markup, chosen when the line was made; 0 there
+ *  means "no markup, unit_cost is the price" and is never swapped for the
+ *  default. The default applies only to A15 lines priced from cost evidence,
+ *  whose stored 0 means "no markup applied yet". */
 export function priceLine(line: PricingLine, opts: { default_markup_pct: number; stale_after_days?: number; now?: Date }): LinePricing {
   const ref = line.item_key ?? `line:${line.id}`;
   const gaps: Gap[] = [];
-  const markup = Number.isFinite(Number(line.markup)) && Number(line.markup) > 0 ? Number(line.markup) : opts.default_markup_pct;
+  const typed = line.source_kind == null;
+  const own = Number(line.markup);
+  const markup = typed ? (Number.isFinite(own) ? own : 0) : Number.isFinite(own) && own > 0 ? own : opts.default_markup_pct;
   if (!(line.qty > 0)) gaps.push({ kind: "missing_quantity", ref, severity: "hard", detail: `${line.description}: quantity is not known` });
   if (normalizeUnit(line.unit) == null) gaps.push({ kind: "missing_unit", ref, severity: "hard", detail: `${line.description}: unit "${line.unit}" is not a known unit` });
 
@@ -405,11 +413,17 @@ export function priceLine(line: PricingLine, opts: { default_markup_pct: number;
     const cost = line.owner_price_override_cents;
     return { internal_cost_cents: cost, extended_cents: Math.round(cost * (1 + markup / 100)), markup_pct_applied: markup, mode: "owner_internal_cost", gaps };
   }
-  let cost = line.internal_cost_cents;
-  if (cost == null && line.source_kind == null && line.unit_cost > 0 && line.qty > 0) {
-    // Legacy editor line: unit_cost is the cost the owner typed.
-    cost = Math.round(line.qty * line.unit_cost);
+  if (typed && line.qty > 0 && line.unit_cost !== 0) {
+    // Joe's own line: unit_cost is the cost he typed (negative on a credit
+    // line) and `extended` is the price the editor already worked out from it
+    // with the line's own markup — exactly what the editor and the client PDF
+    // show. There is no new evidence here, so the price stands; only the cost
+    // is filled in, from qty × unit_cost every time (internal_cost_cents on
+    // these lines is just an earlier recompute's copy; the editor never
+    // updates it).
+    return { internal_cost_cents: Math.round(line.qty * line.unit_cost), extended_cents: line.extended, markup_pct_applied: markup, mode: "cost_plus_markup", gaps };
   }
+  const cost = typed ? null : line.internal_cost_cents;
   if (cost == null) {
     gaps.push({ kind: "unknown_cost", ref, severity: "hard", detail: `${line.description}: no cost evidence yet (not zero)` });
     return { internal_cost_cents: null, extended_cents: null, markup_pct_applied: null, mode: "unknown", gaps };

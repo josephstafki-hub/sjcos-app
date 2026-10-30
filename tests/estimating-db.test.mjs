@@ -441,6 +441,91 @@ test("V37 + V17 price commitment: offer frozen at send, later supplier cost move
   });
 });
 
+test("W07 markup: a hand-priced estimate (markup 0) keeps every price through recompute and a sub-bid incorporation; the new evidence line gets the 25% default; explicit markups are kept", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    const run = await seed(client);
+    const { projectId, estimateId } = await mkProject(run, "zz-est-markup");
+    // As live: pricing setup v1 active at 25% (estimate.default_markup = 25).
+    await run(`INSERT INTO app_settings (key, value) VALUES ('estimate.default_markup', '25')`);
+    const ps = await proposePricingSetup(run, agent);
+    assert.equal((await activatePricingSetup(run, ps.version, owner, "app")).state, "active");
+
+    // Joe's hand-priced formal estimate (Tierney / Spaeth style), written exactly as the editor writes it (lib/actions/estimates.ts).
+    const editor = (qty, unitCost, markup) => Math.round(qty * unitCost * (1 + markup / 100));
+    const editorTotals = () => run(`UPDATE estimates SET subtotal = s.sub, total = s.tot, markup_total = s.tot - s.sub FROM (SELECT COALESCE(round(sum(qty * unit_cost)), 0)::int AS sub, COALESCE(sum(extended), 0)::int AS tot FROM estimate_lines WHERE estimate_id = $1) s WHERE estimates.id = $1`, [estimateId]);
+    const typed = [
+      { description: "Demo and haul-away", section: "Demo", unit: "ls", qty: 1, unit_cost: 1250000, markup: 0 },
+      { description: "Framing labor", section: "Framing", unit: "hr", qty: 37.5, unit_cost: 8500, markup: 0 },
+      { description: "LVP flooring", section: "Flooring", unit: "sf", qty: 412.25, unit_cost: 649, markup: 0 },
+      { description: "Shared delivery (half)", section: "General", unit: "ls", qty: 0.5, unit_cost: 12345, markup: 0 },
+      { description: "Trim package", section: "Trim", unit: "ls", qty: 1, unit_cost: 480000, markup: 15 },
+      { description: "Credit: client keeps the vanity", section: "Bath", unit: "ls", qty: 1, unit_cost: -45000, markup: 0 },
+      { description: "Wall tile (qty to confirm)", section: "Bath", unit: "sf", qty: 0, unit_cost: 1800, markup: 20 },
+    ];
+    for (const l of typed) {
+      await run(
+        `INSERT INTO estimate_lines (estimate_id, description, section, unit, qty, unit_cost, markup, extended, sort_order)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8, COALESCE((SELECT max(sort_order)+1 FROM estimate_lines WHERE estimate_id = $1), 0))`,
+        [estimateId, l.description, l.section, l.unit, l.qty, l.unit_cost, l.markup, editor(l.qty, l.unit_cost, l.markup)],
+      );
+    }
+    await editorTotals();
+    const joes = () => run(`SELECT id, description, qty::float AS qty, unit_cost, markup::float AS markup, extended FROM estimate_lines WHERE estimate_id = $1 AND source_kind IS NULL ORDER BY id`, [estimateId]);
+    const total = async () => (await run(`SELECT total FROM estimates WHERE id = $1`, [estimateId]))[0].total;
+    const asTyped = await joes();
+    const typedTotal = typed.reduce((s, l) => s + editor(l.qty, l.unit_cost, l.markup), 0);
+    assert.equal(await total(), typedTotal);
+
+    // Recompute (twice: the second pass sees the internal cost the first one filled in).
+    const rc = await recomputeDraftEstimate(run, estimateId, { principal: agent });
+    assert.equal(rc.markup_pct, 25);
+    assert.deepEqual(await joes(), asTyped, "price, unit cost and markup exactly as Joe typed them — markup 0 stays 0, not 25");
+    assert.equal(rc.total_cents, typedTotal);
+    assert.equal(await total(), typedTotal, "the estimate total the PDF prints is unchanged");
+    assert.ok(!rc.gaps.some((g) => /no active markup/.test(g.detail)), "Joe's own markup needs no pricing setup");
+    const credit = (await loadLines(run, estimateId)).find((l) => l.description.startsWith("Credit"));
+    assert.equal(credit.extended, -45000, "a credit line is not zeroed as an unknown cost");
+    assert.equal(credit.internal_cost_cents, -45000);
+    await recomputeDraftEstimate(run, estimateId, { principal: agent });
+    assert.deepEqual(await joes(), asTyped);
+
+    // Joe edits a line in the editor after a recompute: the next recompute keeps his new price.
+    const [framing] = await run(`SELECT id FROM estimate_lines WHERE estimate_id = $1 AND description = 'Framing labor'`, [estimateId]);
+    await run(`UPDATE estimate_lines SET qty = $2, unit_cost = $3, markup = $4, extended = $5 WHERE id = $1`, [framing.id, 40, 9000, 0, editor(40, 9000, 0)]);
+    await editorTotals();
+    const edited = await joes();
+    const editedTotal = await total();
+    await recomputeDraftEstimate(run, estimateId, { principal: agent });
+    assert.deepEqual(await joes(), edited, "never reverted to the cost an earlier recompute stored");
+    assert.equal((await loadLines(run, estimateId)).find((l) => l.description === "Framing labor").internal_cost_cents, 360000);
+    assert.equal(await total(), editedTotal);
+
+    // A real recompute path: Joe approves a sub bid for the estimate (incorporate_sub_bid).
+    await prepareScopeRegisterFromLead(run, projectId, await loadLeadFacts(run, projectId));
+    await run(`INSERT INTO subs (slug, name, trade) VALUES ('zz-plumber-mk', 'ZZ Plumbing', 'Plumbing')`);
+    const [pkg] = await run(`INSERT INTO bid_packages (project_id, title, trade, status) VALUES ($1, 'Plumbing', 'Plumbing', 'open') RETURNING id`, [projectId]);
+    const [inv] = await run(`INSERT INTO bid_invites (package_id, sub_slug, status) VALUES ($1, 'zz-plumber-mk', 'submitted') RETURNING id`, [pkg.id]);
+    const [bid] = await run(`INSERT INTO bid_submissions (invite_id, total) VALUES ($1, 450000) RETURNING id`, [inv.id]);
+    const sb = await incorporateSubBid(run, { bid_submission_id: Number(bid.id), estimate_id: estimateId, scope_keys: ["kitchen.plumbing"], principal: owner });
+    assert.equal(sb.state, "incorporated");
+    assert.deepEqual(await joes(), edited, "incorporating a bid does not touch Joe's lines");
+    let plumb = (await loadLines(run, estimateId)).find((l) => l.scope_item_key === "kitchen.plumbing");
+    assert.equal(plumb.source_kind, "sub_bid");
+    assert.equal(plumb.markup, 25, "new evidence line with no markup chosen → the default");
+    assert.equal(plumb.extended, 562500);
+    assert.equal(await total(), editedTotal + 562500);
+
+    // An explicit markup on that evidence line is kept by the next recompute.
+    await run(`UPDATE estimate_lines SET markup = 10 WHERE id = $1`, [plumb.id]);
+    await recomputeDraftEstimate(run, estimateId, { principal: agent });
+    plumb = (await loadLines(run, estimateId)).find((l) => l.scope_item_key === "kitchen.plumbing");
+    assert.equal(plumb.markup, 10);
+    assert.equal(plumb.extended, 495000);
+    assert.deepEqual(await joes(), edited);
+    assert.equal(await total(), editedTotal + 495000);
+  });
+});
+
 test("V25 learning: repeated ingestion does not amplify, late adjustment is a revision, outlier/small-sample guards, policy-gated auto update with rollback, markup change is a decision, pricing setup activation is owner-only", { skip }, async () => {
   await withTestDb(async (url, client) => {
     const run = await seed(client);

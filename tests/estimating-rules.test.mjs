@@ -122,9 +122,9 @@ test("W07 line pricing: unknown cost is a gap not zero; owner client price is ne
   const emptyAllowance = priceLine({ ...base, is_allowance: true, allowance_cents: null }, { default_markup_pct: 20 });
   assert.equal(emptyAllowance.extended_cents, null);
 
-  const legacy = priceLine({ ...base, source_kind: null, unit_cost: 1000, qty: 3 }, { default_markup_pct: 10 });
+  const legacy = priceLine({ ...base, source_kind: null, unit_cost: 1000, qty: 3, markup: 10, extended: 3300 }, { default_markup_pct: 25 });
   assert.equal(legacy.internal_cost_cents, 3000, "legacy editor line: unit_cost × qty is the cost");
-  assert.equal(legacy.extended_cents, 3300);
+  assert.equal(legacy.extended_cents, 3300, "…and its own markup, not the default");
 
   const stale = priceLine({ ...base, internal_cost_cents: 100, cost_observed_at: "2025-01-01T00:00:00Z" }, { default_markup_pct: 0, now: new Date("2026-09-23") });
   assert.ok(stale.gaps.some((g) => g.kind === "stale_price"));
@@ -132,6 +132,53 @@ test("W07 line pricing: unknown cost is a gap not zero; owner client price is ne
   assert.ok(badUnit.gaps.some((g) => g.kind === "missing_unit"));
   const noQty = priceLine({ ...base, qty: 0, internal_cost_cents: 100 }, { default_markup_pct: 0 });
   assert.ok(noQty.gaps.some((g) => g.kind === "missing_quantity"));
+});
+
+test("W07 markup: a line Joe typed keeps its own markup — 0 means no markup, never the default; only A15 evidence lines with no markup get the default", () => {
+  // The editor's own price (lib/actions/estimates.ts parseLine).
+  const editor = (qty, unit_cost, markup) => Math.round(qty * unit_cost * (1 + markup / 100));
+  const typed = (qty, unit_cost, markup, extra = {}) => ({ ...base, id: 7, item_key: null, source_kind: null, qty, unit: "ls", unit_cost, markup, extended: editor(qty, unit_cost, markup), ...extra });
+  const opts = { default_markup_pct: 25 };
+
+  // Hand-priced at markup 0 (Tierney / Spaeth): unit_cost is the price.
+  const zero = priceLine(typed(1, 1250000, 0), opts);
+  assert.equal(zero.extended_cents, 1250000, "markup 0 is no markup, not the 25% default");
+  assert.equal(zero.internal_cost_cents, 1250000);
+  assert.equal(zero.markup_pct_applied, 0);
+  assert.equal(zero.mode, "cost_plus_markup");
+  assert.deepEqual(zero.gaps, []);
+  const frac = priceLine(typed(412.25, 649, 0, { unit: "sf" }), opts);
+  assert.equal(frac.extended_cents, editor(412.25, 649, 0), "fractional quantity: the editor's figure to the cent");
+
+  // Explicit markup on a typed line: kept, whatever the default.
+  const explicit = priceLine(typed(2.5, 333, 12.5), opts);
+  assert.equal(explicit.extended_cents, editor(2.5, 333, 12.5));
+  assert.equal(explicit.markup_pct_applied, 12.5);
+  assert.equal(priceLine(typed(1, 480000, 15), { default_markup_pct: 0 }).extended_cents, 552000, "no default needed for Joe's own markup");
+
+  // Joe changed the line in the editor after an earlier recompute: the stale internal cost copy is ignored.
+  const edited = priceLine(typed(3, 1200, 0, { internal_cost_cents: 3000 }), opts);
+  assert.equal(edited.internal_cost_cents, 3600);
+  assert.equal(edited.extended_cents, 3600, "the editor's price, not one rebuilt from the stale copy");
+
+  // A credit line (negative unit cost) keeps its credit — it is not an unknown cost worth $0.
+  const credit = priceLine(typed(1, -45000, 0), opts);
+  assert.equal(credit.extended_cents, -45000);
+  assert.equal(credit.internal_cost_cents, -45000);
+
+  // A typed line with no cost yet is still a gap, never a price.
+  const unpriced = priceLine(typed(1, 0, 20), opts);
+  assert.equal(unpriced.extended_cents, null);
+  assert.ok(unpriced.gaps.some((g) => g.kind === "unknown_cost"));
+
+  // A15 line priced from cost evidence with no markup chosen → the default.
+  const bid = priceLine({ ...base, source_kind: "sub_bid", unit: "ls", qty: 1, internal_cost_cents: 450000, markup: 0 }, opts);
+  assert.equal(bid.extended_cents, 562500);
+  assert.equal(bid.markup_pct_applied, 25);
+  // …and an explicit markup on an A15 line is kept.
+  const bidOwn = priceLine({ ...base, source_kind: "supplier_quote", unit: "ls", qty: 1, internal_cost_cents: 100000, markup: 10 }, opts);
+  assert.equal(bidOwn.extended_cents, 110000);
+  assert.equal(bidOwn.markup_pct_applied, 10);
 });
 
 test("W07 committed price: a sent line keeps its offered price; added lines / changed quantities are offer changes", () => {

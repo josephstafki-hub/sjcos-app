@@ -33,6 +33,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { runWorkerOnce, processTrigger, WORKER_NAME } from "../lib/agent-runtime/worker.ts";
 import { getAgentTrigger, listPendingTriggers, sweepStrandedTriggers } from "../lib/agent-runtime/triggers.ts";
+import { enqueueMissingFinancials } from "../lib/workflow/financials-fill.ts";
 import { buildBusinessInstructions } from "../lib/agent-runtime/instructions.ts";
 import { runClaudeBusiness } from "../lib/agent-runtime/claude-runner.mjs";
 import { runHermesBusiness } from "../lib/agent-runtime/hermes-runner.mjs";
@@ -55,10 +56,12 @@ function databaseUrl() {
 
 export const FILING_MODEL = process.env.SJC_FILING_AGENT_MODEL || "haiku";
 
-/** Per-kind run shape: permit research gets the web and more turns; filing a
- *  sorted document is a few tool calls on the cheap model. */
+/** Per-kind run shape: permit research gets the web and more turns; filling a
+ *  job's financials is many tool calls (one per cost); filing a sorted
+ *  document is a few tool calls on the cheap model. */
 function runShape(kind, { model, maxTurns, timeoutMs }) {
   if (kind === "permit") return { model: model ?? "", maxTurns: Math.max(Number(maxTurns) || 0, 80), timeoutMs, webResearch: true };
+  if (kind === "financials") return { model: model ?? "", maxTurns: Math.max(Number(maxTurns) || 0, 100), timeoutMs: Math.max(Number(timeoutMs) || 0, 20 * 60 * 1000), webResearch: false }; // under the service's 25-min cap
   if (kind === "filing") return { model: FILING_MODEL, maxTurns: 15, timeoutMs: Math.min(Number(timeoutMs) || 0, 5 * 60 * 1000) || 5 * 60 * 1000, webResearch: false };
   return { model: model ?? "", maxTurns, timeoutMs, webResearch: false };
 }
@@ -145,6 +148,10 @@ async function main() {
       log(`done: ${JSON.stringify({ executionId: out.executionId, status: out.status })}`);
       return;
     }
+    // Construction jobs whose budget isn't finished and never had a financials
+    // run get one (lib/workflow/financials-fill.ts) — a few at a time.
+    const caught = await tx((run) => enqueueMissingFinancials(run, { limit: 2 }));
+    if (caught.length) log(`financials catch-up queued ${caught.length} job(s)`);
     const kinds = arg("--kinds", "") ? arg("--kinds").split(",").map((k) => k.trim()).filter(Boolean) : null;
     // --drain: keep taking passes while there is work of these kinds (bounded).
     for (let pass = 0; pass < (has("--drain") ? 25 : 1); pass++) {

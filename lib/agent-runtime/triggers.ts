@@ -20,7 +20,7 @@
 import { randomUUID } from "node:crypto";
 import type { Run } from "../commands/core.ts";
 
-export const TRIGGER_KINDS = ["signature", "message", "note", "quote", "selection", "payment", "field_report", "approval", "signoff", "sweep", "permit", "filing"] as const;
+export const TRIGGER_KINDS = ["signature", "message", "note", "quote", "selection", "payment", "field_report", "approval", "signoff", "sweep", "permit", "filing", "financials"] as const;
 export type TriggerKind = (typeof TRIGGER_KINDS)[number];
 
 export interface AgentTrigger {

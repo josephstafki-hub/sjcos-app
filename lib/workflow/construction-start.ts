@@ -14,7 +14,8 @@
 //     migration 0037), the draws set to bill at "Construction start" are DRAFTED for Joe (never sent from
 //     here), a notification lands, and the business agent is woken with a
 //     'permit' trigger to work out the city's permit requirements and file a
-//     permit brief on the project. Idempotent: a second call finds the project
+//     permit brief on the project, and a 'financials' trigger to fill in the
+//     job's budget and costs (lib/workflow/financials-fill.ts). Idempotent: a second call finds the project
 //     already in construction and the trigger already queued.
 //
 // Pure over run(sql, params): no server-only import.
@@ -23,6 +24,7 @@ import type { Run } from "../commands/core.ts";
 import { principalLabel, type Principal } from "../commands/principal.ts";
 import { drawEconomicKey, issueMilestoneInvoice } from "../billing/core.ts";
 import { parseDrawSchedule } from "../draw-schedule.ts";
+import { enqueueFinancialsFill } from "./financials-fill.ts";
 import { enqueueAgentTrigger } from "../agent-runtime/triggers.ts";
 import { getProjectWorkflow, noteWorkflowEvent, recordWorkflowEvent } from "./engine.ts";
 
@@ -130,11 +132,13 @@ export async function maybeStartConstruction(run: Run, projectId: string, ref: s
     enqueuedBy: "workflow:construction-start",
     payload: { project_slug: proj.slug, address: proj.address, started_by: ref },
   });
+  // …and the job's budget and costs (skill fill-project-financials).
+  await enqueueFinancialsFill(run, projectId, "workflow:construction-start");
 
   // The status trigger (db/apply-notifications-v2.mjs) already filed
   // "<project> → Construction" in this transaction; give it the why instead
   // of adding a second card. Pre-migration there is none, so insert.
-  const why = `Contract signed and deposit paid. Permit research started${draftedDraws.length ? `; ${draftedDraws.length} construction-start draw drafted for review` : ""}.`;
+  const why = `Contract signed and deposit paid. Permit research and the job's financials started${draftedDraws.length ? `; ${draftedDraws.length} construction-start draw drafted for review` : ""}.`;
   const enriched = await run<{ id: string }>(
     `UPDATE notifications SET subline = $2
       WHERE id = (SELECT id FROM notifications WHERE title = $1 AND href = $3 AND created_at > now() - interval '5 minutes'

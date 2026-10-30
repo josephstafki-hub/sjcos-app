@@ -66,7 +66,7 @@ export function registerContextTools(server, { rows, json, pool, slugToId, curre
 
   server.registerTool(
     "enqueue_agent_trigger",
-    { title: "Enqueue an event for the background operating agent", description: "Registers an event (signature, message, note, quote, selection, payment, field_report, approval, signoff, sweep, permit) so the background worker works it without Joe opening the panel. Idempotent on (kind, ref).", inputSchema: { kind: z.enum(TRIGGER_KINDS), ref: z.string(), project_slug: z.string().optional(), lead_slug: z.string().optional(), payload: z.record(z.string(), z.unknown()).optional() } },
+    { title: "Enqueue an event for the background operating agent", description: "Registers an event (signature, message, note, quote, selection, payment, field_report, approval, signoff, sweep, permit, financials) so the background worker works it without Joe opening the panel. Idempotent on (kind, ref).", inputSchema: { kind: z.enum(TRIGGER_KINDS), ref: z.string(), project_slug: z.string().optional(), lead_slug: z.string().optional(), payload: z.record(z.string(), z.unknown()).optional() } },
     async (a) => {
       try {
         const projectId = a.project_slug ? await slugToId("projects", a.project_slug) : null;

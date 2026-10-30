@@ -24,7 +24,7 @@ const stubs = {
     "export const ingestCloseoutActuals = async () => {};",
   [lib("closeout/hooks")]: "export const defaultCloseoutHooks = () => ({});",
   [lib("closeout/checklist")]:
-    "export const recordWrittenSignoff=async()=>{}; export const confirmCorrectionsBeforeWalkthrough=async()=>{}; export const prepareInternalInspection=async()=>{}; export const scheduleClientWalkthrough=async()=>{};",
+    "export const recordWrittenSignoff=async()=>{}; export const releaseSignoffHooks=async()=>({fired:false,blocked:null}); export const resolveClientPunch=async()=>{}; export const confirmCorrectionsBeforeWalkthrough=async()=>{}; export const prepareInternalInspection=async()=>{}; export const scheduleClientWalkthrough=async()=>{};",
   [lib("closeout/postproject")]:
     "export const runDuePostProjectActions=async(run,p,opts)=>{globalThis.__l4postopts=opts;return[];}; export const checkInReplyReceived=async()=>{}; export const recordCloseoutActuals=async()=>{};",
   [lib("client-activity")]: "export const logClientActivity = async () => {};",

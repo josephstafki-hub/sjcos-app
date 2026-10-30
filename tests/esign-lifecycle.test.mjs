@@ -67,6 +67,7 @@ const stubs = {
     export const estimateLinesChanged = () => false; export const ESTIMATE_LINE_FIELDS = [];`,
   [lib('billing/server')]: 'export const billingOnSignatureSigned = (...a) => globalThis.__esignTest.hook(...a);',
   [lib('workflow/server')]: 'export const workflowOnSignatureSigned = (...a) => globalThis.__esignTest.hook(...a);',
+  [lib('closeout/server')]: 'export const recordWrittenSignoffCmd = async () => ({ ok: true });',
   [lib('workflow/engine')]: 'export const classifySignedDoc = () => "precon";',
 };
 registerHooks({
@@ -251,7 +252,7 @@ test('MCP send forwards its owner grant, retries failed delivery through the sam
 
 test('delivery migration revokes existing void drafts and is safe to apply twice', { skip }, async () => {
   const f = await fixture('void');
-  const sql = readFileSync(new URL('../db/migrations/0048_signature_delivery.sql', import.meta.url), 'utf8');
+  const sql = readFileSync(new URL('../db/migrations/0051_signature_delivery.sql', import.meta.url), 'utf8');
   await run(sql);
   assert.deepEqual(await state(f), { draft: 'void', request: 'void' });
   await run(sql);

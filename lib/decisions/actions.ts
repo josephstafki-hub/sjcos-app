@@ -10,7 +10,7 @@
 import { revalidatePath } from "next/cache";
 import { sessionPrincipal, withTransaction } from "@/lib/commands/db";
 import { authorityFor, getDecision } from "@/lib/commands/decisions";
-import { LANES, listLanePauses, pauseLane, resumeLane, type Lane } from "@/lib/commands/policies";
+import { LANES, activatePolicy, disablePolicy, listLanePauses, pauseLane, resumeLane, type Lane } from "@/lib/commands/policies";
 import { isOwner } from "@/lib/commands/principal";
 import { notifyAgentOwner } from "@/lib/dev-agents";
 import { performApprovalEffects } from "./after-approval";
@@ -92,6 +92,27 @@ export async function revokeDecisionAction(id: string, reason: string): Promise<
   }
   refresh();
   return r.ok ? { ok: true, reply: `Revoked${r.cancelledIntents ? `; ${r.cancelledIntents} pending send${r.cancelledIntents === 1 ? "" : "s"} cancelled` : ""}.`, state: "revoked" } : { ok: false, error: "That decision cannot be revoked (already settled)." };
+}
+
+// ── Policies (owner only) ────────────────────────────────────────────────────
+
+/** Turn one policy version on (the active one before it retires). Only Joe;
+ *  an agent never activates a policy. */
+export async function activatePolicyAction(key: string, version: number): Promise<DecisionActionResult> {
+  const principal = await sessionPrincipal();
+  if (!principal || !isOwner(principal)) return { ok: false, error: "Owner only." };
+  const p = await withTransaction((run) => activatePolicy(run, key, Math.trunc(version)));
+  refresh();
+  if (!p) return { ok: false, error: `No version ${version} of "${key}".` };
+  return { ok: true, reply: `"${key}" is on (version ${p.version}). Anything held waiting for it goes out on the next dispatch pass.`, state: "active" };
+}
+
+export async function disablePolicyAction(key: string): Promise<DecisionActionResult> {
+  const principal = await sessionPrincipal();
+  if (!principal || !isOwner(principal)) return { ok: false, error: "Owner only." };
+  const n = await withTransaction((run) => disablePolicy(run, key));
+  refresh();
+  return n ? { ok: true, reply: `"${key}" is off. Its automatic actions now wait for you instead.`, state: "disabled" } : { ok: false, error: `"${key}" wasn't on.` };
 }
 
 // ── Lane kill switches (owner only) ──────────────────────────────────────────

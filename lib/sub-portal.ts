@@ -124,9 +124,9 @@ export async function getSubAssignment(subSlug: string): Promise<SubAssignment |
 /** The sub's current project (most recently assigned), or null when unassigned. */
 export async function getSubCurrentProject(
   subSlug: string,
-): Promise<{ id: string; name: string } | null> {
-  return queryOne<{ id: string; name: string }>(
-    `SELECT p.id, p.name
+): Promise<{ id: string; name: string; slug: string } | null> {
+  return queryOne<{ id: string; name: string; slug: string }>(
+    `SELECT p.id, p.name, p.slug
        FROM project_subs ps JOIN projects p ON p.id = ps.project_id
       WHERE ps.sub_slug = $1
       ORDER BY ps.assigned_at DESC LIMIT 1`,

@@ -15,6 +15,8 @@ import { emit } from "@/lib/notify";
 import { storeUpload } from "@/lib/upload-store";
 import { getSubCurrentProject } from "@/lib/sub-portal";
 import { getSub } from "@/lib/subs";
+import { userPrincipal, withTransaction } from "@/lib/commands/db";
+import { recordSubProgress } from "@/lib/field/reports";
 
 type Result = { ok: boolean; error?: string };
 
@@ -30,9 +32,13 @@ const parseDollars = (v: FormDataEntryValue | null) => {
 /** Resolve the sub the caller may write as: a sub → themselves; an owner →
  *  the previewed slug. Returns null when no sub identity is available. */
 async function resolveSubSlug(passedSlug: string): Promise<string | null> {
+  return (await resolveSubWriter(passedSlug)).subSlug;
+}
+
+async function resolveSubWriter(passedSlug: string) {
   const user = await requireRole("owner", "sub");
   const slug = user.role === "sub" ? user.linkSlug : passedSlug;
-  return slug || null;
+  return { subSlug: slug || null, user };
 }
 
 async function subName(slug: string): Promise<string> {
@@ -42,7 +48,7 @@ async function subName(slug: string): Promise<string> {
 
 /** Record a sub's daily log (text + optional photo), notify Joe. */
 export async function submitSubLog(slug: string, formData: FormData): Promise<Result> {
-  const subSlug = await resolveSubSlug(slug);
+  const { subSlug, user } = await resolveSubWriter(slug);
   if (!subSlug) return { ok: false, error: "No sub identity on this account." };
 
   const body = String(formData.get("body") ?? "").trim();
@@ -59,16 +65,37 @@ export async function submitSubLog(slug: string, formData: FormData): Promise<Re
       imagesOnly: true,
       tag: "SUB LOG",
       subtitle: `Sub log · ${await subName(subSlug)}`,
+      projectKey: project?.slug,
     });
     if (!stored.ok) return { ok: false, error: stored.error };
     photoFileId = stored.id;
   }
 
-  await query(
+  const { rows } = await query<{ id: number }>(
     `INSERT INTO sub_logs (sub_slug, project_id, body, photo_file_id)
-     VALUES ($1, $2, $3, $4)`,
+     VALUES ($1, $2, $3, $4) RETURNING id::int AS id`,
     [subSlug, project?.id ?? null, body, photoFileId],
   );
+
+  // The day's note is also the job's field progress report, which the Friday
+  // client update is built from (it reads field_reports only). Delays, extra
+  // cost or problems in it are held for Joe there, never sent as-is.
+  if (project && rows[0]) {
+    try {
+      await withTransaction((run) =>
+        recordSubProgress(run, userPrincipal(user), {
+          projectId: project.id,
+          subSlug,
+          body,
+          photos: photoFileId ? [{ fileId: photoFileId }] : [],
+          clientEventId: `sublog:${rows[0].id}`,
+          subLogId: rows[0].id,
+        }),
+      );
+    } catch (err) {
+      console.error("[sub-portal] field report from sub log failed:", (err as Error).message);
+    }
+  }
 
   const name = await subName(subSlug);
   await emit({

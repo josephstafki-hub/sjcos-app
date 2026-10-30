@@ -11,7 +11,8 @@ import { serveFile } from "@/lib/file-serve";
 //      scoped by project_key / lead_slug);
 //   3. it's the PDF/DOCX behind a document draft the owner published
 //      (document_drafts.client_visible = true, same scope) — draft blobs don't
-//      carry their own scope columns, so the draft row authorizes them.
+//      carry their own scope columns, so the draft row authorizes them;
+//   4. it's a photo in a Friday update published to their job.
 // Anything else stays owner-only on /api/files/[id].
 export async function GET(
   req: Request,
@@ -73,7 +74,18 @@ export async function GET(
       publishedDraft = !!draft;
     }
 
-    if (!ownUpload && !publishedFile && !publishedDraft) {
+    // 4. a photo in a Friday update published to their job.
+    let weeklyPhoto = false;
+    if (!ownUpload && !publishedFile && !publishedDraft && scope.kind === "project") {
+      const w = await queryOne<{ id: string }>(
+        `SELECT w.id FROM weekly_summaries w JOIN projects p ON p.id = w.project_id
+          WHERE p.slug = $2 AND w.status = 'published' AND w.content->'photos' ? $1 LIMIT 1`,
+        [id, scope.slug],
+      );
+      weeklyPhoto = !!w;
+    }
+
+    if (!ownUpload && !publishedFile && !publishedDraft && !weeklyPhoto) {
       return new Response("Forbidden", { status: 403 });
     }
   }

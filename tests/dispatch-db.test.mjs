@@ -400,3 +400,26 @@ test("A team member's send is filed as theirs and re-checks their authority at d
     assert.equal((await getIntent(run, gone.id)).state, "cancelled");
   });
 });
+
+test("Turning a policy on wakes the sends held because that version was off; other versions' holds stay; listPolicies counts them", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    await cleanFoundation(client);
+    await seed(client);
+    resetFakeOutbox();
+    const run = async (s, p) => (await client.query(s, p)).rows;
+    const { listPolicies } = await import("../lib/commands/policies.ts");
+    const v1 = await proposePolicyVersion(run, "zz.policy", { lane: "sends" }, "test");
+    const stage = (key, ref) =>
+      enqueueIntent(run, { operationKey: key, kind: "send_email", recipient: "p@example.test", payload: { to: "p@example.test", subject: key, bodyText: "b" }, policyRef: ref, principal: agent }).then((r) => r.intent);
+    const a = await stage("zz:pol:a", `policy:zz.policy@${v1.version}`);
+    const b = await stage("zz:pol:b", "policy:zz.policy@9");
+    await dispatchOnce(depsFor(url, client), { intentIds: [a.id, b.id] });
+    assert.equal((await getIntent(run, a.id)).state, "held");
+    assert.equal((await listPolicies(run)).find((p) => p.key === "zz.policy").held_sends, 1);
+    await activatePolicy(run, "zz.policy", v1.version);
+    assert.equal((await getIntent(run, a.id)).state, "pending", "held for this version → wakes");
+    assert.equal((await getIntent(run, b.id)).state, "held", "another version's hold stays");
+    await dispatchOnce(depsFor(url, client), { intentIds: [a.id] });
+    assert.equal(sends("zz:pol:a"), 1);
+  });
+});

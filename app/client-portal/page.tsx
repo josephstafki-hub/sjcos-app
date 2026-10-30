@@ -18,6 +18,8 @@ import { ProjectFinancials } from "@/components/portal/ProjectFinancials";
 import { stageLabel } from "@/lib/leads";
 import type { LeadStage } from "@/lib/types";
 import { queryOne } from "@/lib/db";
+import { runDirect } from "@/lib/commands/db";
+import { renderClientSummary, type SummaryContent } from "@/lib/field/weekly-summary";
 import { getClientWarranty } from "@/lib/warranty";
 import { ClientUploads } from "@/components/portal/ClientUploads";
 import { ClientPunch } from "@/components/portal/ClientPunch";
@@ -57,6 +59,19 @@ export default async function ClientPortalPage() {
   const thisWeek = schedule.filter((b) => b.iso >= today && b.iso <= weekEnd.toISOString().slice(0, 10));
   const sharedFiles = scope ? await getSharedFiles(scope) : [];
   const photos = sharedFiles.filter((file) => file.isImage).map((file) => ({ id: file.id, name: file.name, src: `/api/portal/project-file/${file.id}`, caption: file.when }));
+  // Friday updates published to this job (lib/field/weekly-summary.ts).
+  const weekly = slug
+    ? (
+        await runDirect<{ id: string; week: string; content: SummaryContent }>(
+          `SELECT w.id, to_char(w.week_start, 'Mon FMDD') AS week, w.content
+             FROM weekly_summaries w JOIN projects p ON p.id = w.project_id
+            WHERE p.slug = $1 AND w.status = 'published'
+            ORDER BY w.week_start DESC, w.revision DESC LIMIT 6`,
+          [slug],
+        ).catch(() => [])
+      ).map((w) => ({ id: w.id, week: w.week, ...renderClientSummary(w.content), photos: w.content.photos ?? [] }))
+    : [];
+
   const data = buildClientPortalData(project, logs);
   if (user.role === "client") data.clientInitials = user.initials || data.clientInitials;
   if (lead) {
@@ -162,6 +177,13 @@ export default async function ClientPortalPage() {
             {financials ? <div className="mt-3"><ProjectFinancials data={financials} /><Link href="/client-portal/money" className="mt-2 inline-flex min-h-11 items-center text-body font-semibold underline underline-offset-4">View invoices</Link></div>
               : <p className="mt-3 text-body text-ink-3">Joe will share pricing and invoices as your project takes shape.</p>}
           </section>
+          {weekly.length > 0 && <section><h2 className="font-serif text-heading font-semibold">Weekly updates</h2>
+            <div className="mt-3 divide-y divide-rule-soft">{weekly.map((w) => <article key={w.id} className="py-4">
+              <p className="text-meta text-ink-3">Week of {w.week}</p>{w.subject && <h3 className="mt-1 text-subheading font-semibold">{w.subject}</h3>}
+              <p className="mt-2 whitespace-pre-wrap text-body text-ink-2">{w.text}</p>
+              {w.photos.length > 0 && <PhotoGrid photos={w.photos.map((f) => ({ id: f, name: `Week of ${w.week}`, src: `/api/portal/project-file/${f}` }))} cols={4} className="mt-3" />}
+            </article>)}</div>
+          </section>}
           <section><h2 className="font-serif text-heading font-semibold">Updates</h2>
             <PhotoGrid photos={photos} cols={4} className="mt-3" />
             {data.entries.length === 0 ? <p className="mt-3 text-body text-ink-3">Joe posts site updates here as work happens. For a question in the meantime, <Link href="/client-portal/messages" className="underline">message Joe</Link>.</p>

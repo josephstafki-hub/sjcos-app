@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { FileCheck, FileText, ScrollText, Check } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import type { CloseoutView } from "@/lib/closeout";
-import { generateCompletionCertificate, generateLienWaiver } from "@/lib/actions/closeout";
+import { generateCompletionCertificate, generateLienWaiver, setProjectCommercial } from "@/lib/actions/closeout";
 import { runAction } from "@/lib/run-action";
 
 const WAIVER_CHIP: Record<string, "money" | "accent" | "flag" | "ghost"> = {
@@ -39,8 +39,21 @@ export function Closeout({ slug, view }: { slug: string; view: CloseoutView }) {
   const btn =
     "inline-flex items-center gap-1.5 rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-60";
 
+  function toggleCommercial(next: boolean) {
+    startTransition(async () => {
+      const res = await runAction(() => setProjectCommercial(slug, next), { fallback: "Couldn't save that." });
+      if (res.ok) router.refresh();
+    });
+  }
+
   return (
     <div className="max-w-[760px] space-y-4">
+      <label className="flex items-start gap-2 text-[12px] text-ink-2">
+        <input type="checkbox" className="mt-0.5" checked={view.commercial} disabled={pending} onChange={(e) => toggleCommercial(e.target.checked)} />
+        <span>
+          Commercial job <span className="text-ink-3">— the warranty email after sign-off leaves out the Minnesota home-improvement warranty</span>
+        </span>
+      </label>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Card className="p-3.5">
           <div className="flex items-center gap-2">

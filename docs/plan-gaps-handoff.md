@@ -170,6 +170,20 @@ Still open, needs Joe:
 
 ## Tier 2: switched on but doing nothing (wire them)
 
+**Worked 2026-10-30 on branch `t3/plan-gaps-tier2` (one PR, not merged/deployed).** Migration 0048.
+- Friday updates: sub day logs write the field progress report; no `portal_publish` intent (published_at is
+  the portal publication); the client portal home shows published updates and their photos.
+- After-job care: a signed completion sign-off calls `recordWrittenSignoffCmd`; the gate counts both punch
+  lists and closing the last item releases it; seeded `steps` read; `projects.commercial` (Closeout tab)
+  drops the MN warranty text.
+- Learning: seeded `minSamples` / `outlierSigma` read (MAD sigma rule); the learning step waits for
+  per-scope actuals and keeps a `heldOutEvaluation` report instead of claiming done. Budget lines can't
+  give per-unit samples, so a job with no per-scope actuals still teaches nothing (said plainly).
+- Policies screen on /engine/decisions (owner): on/off, versions, settings, held sends; turning one on wakes
+  its held sends.
+Not done: owner-side page for weekly summaries (they show on the portal and as cards); project daily logs
+by Joe/staff don't feed the weekly update (only sub logs do).
+
 - **Friday client updates:**
   - The sub portal writes `sub_logs`, not `field_reports` (`lib/actions/sub-portal.ts:~68`), so updates
     have no input. Write a client-visible field report from a sub log, or read sub logs.

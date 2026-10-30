@@ -3,10 +3,10 @@ import { PageHeader, Eyebrow } from "@/components/ui";
 import { requireAccess } from "@/lib/dal";
 import { runDirect, sessionPrincipal } from "@/lib/commands/db";
 import { authorityFor } from "@/lib/commands/decisions";
-import { LANES, listLanePauses } from "@/lib/commands/policies";
+import { LANES, listLanePauses, listPolicies } from "@/lib/commands/policies";
 import { isOwner } from "@/lib/commands/principal";
 import { listOpenDecisions, recentResolvedDecisions, type DecisionRow } from "@/lib/decisions/resolve";
-import { DecisionsClient, type DecisionView } from "@/components/engine/DecisionsClient";
+import { DecisionsClient, type DecisionView, type PolicyVersionView } from "@/components/engine/DecisionsClient";
 
 export const dynamic = "force-dynamic";
 
@@ -41,18 +41,30 @@ function view(d: DecisionRow, canResolve: boolean, reason: string | null): Decis
  *  Approve / Reject / Request changes / Hold. The owner sees everything;
  *  staff see the decisions they hold authority for (authority_grants). The
  *  same decision row is what the Telegram buttons point at, so an answer
- *  here resolves it everywhere. Owner-only lane kill switches live below. */
+ *  here resolves it everywhere. Owner-only lane kill switches and policy
+ *  switches live below. */
 export default async function DecisionsPage({ searchParams }: { searchParams: Promise<{ d?: string }> }) {
   await requireAccess("engine");
   const principal = await sessionPrincipal();
   const owner = principal ? isOwner(principal) : false;
   const { d: focus } = await searchParams;
 
-  const [open, resolved, pauses] = await Promise.all([
+  const [open, resolved, pauses, policyRows] = await Promise.all([
     listOpenDecisions(runDirect, { includeHeld: true, limit: 150 }),
     owner ? recentResolvedDecisions(runDirect, 30) : Promise.resolve([] as DecisionRow[]),
     owner ? listLanePauses(runDirect) : Promise.resolve([]),
+    owner ? listPolicies(runDirect) : Promise.resolve([]),
   ]);
+  const policies: PolicyVersionView[] = policyRows.map((p) => ({
+    key: p.key,
+    version: p.version,
+    state: p.state,
+    notes: p.notes,
+    config: p.config,
+    effectiveFrom: p.effective_from,
+    createdBy: p.created_by,
+    heldSends: Number(p.held_sends),
+  }));
 
   const pending: DecisionView[] = [];
   for (const d of open) {
@@ -81,6 +93,7 @@ export default async function DecisionsPage({ searchParams }: { searchParams: Pr
           owner={owner}
           lanes={[...LANES]}
           pauses={pauses}
+          policies={policies}
           focusId={focus ?? null}
         />
       </div>

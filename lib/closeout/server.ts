@@ -10,7 +10,7 @@ import type { Principal } from "@/lib/commands/principal";
 import { notifyOwner } from "@/lib/notify-owner";
 import type { OwnerAlert } from "@/lib/field/hooks";
 import { defaultCloseoutHooks, type CloseoutHooks } from "./hooks";
-import { recordWrittenSignoff, confirmCorrectionsBeforeWalkthrough, prepareInternalInspection, scheduleClientWalkthrough } from "./checklist";
+import { recordWrittenSignoff, releaseSignoffHooks, resolveClientPunch, confirmCorrectionsBeforeWalkthrough, prepareInternalInspection, scheduleClientWalkthrough } from "./checklist";
 import { runDuePostProjectActions, checkInReplyReceived, recordCloseoutActuals } from "./postproject";
 import type { CloseoutActuals } from "./hooks";
 import { ingestCloseoutActuals as estimatingIngest, type ActualInput } from "@/lib/estimating/learning";
@@ -68,6 +68,22 @@ export async function recordWrittenSignoffCmd(principal: Principal, signatureReq
     result: await recordWrittenSignoff(run, signatureRequestId, hooks),
     afterCommit: [flush],
   }));
+}
+
+/** A punch item was closed (the job's punch list or the client's): a sign-off
+ *  held for open punch now schedules its after-job care. No-op without one. */
+export async function releaseSignoffAfterPunch(projectId: string) {
+  const { hooks, flush } = boundCloseoutHooks();
+  const out = await withTransaction((run) => releaseSignoffHooks(run, projectId, hooks));
+  await flush();
+  return out;
+}
+
+/** Resolve a client punch item, then release a held sign-off. */
+export async function resolveClientPunchCmd(input: Parameters<typeof resolveClientPunch>[1]) {
+  const checklist = await withTransaction((run) => resolveClientPunch(run, input));
+  const release = await releaseSignoffAfterPunch(input.projectId);
+  return { ok: true as const, checklist, release };
 }
 
 export async function checkInReplyCmd(principal: Principal, input: { projectId: string; body: string; hasIssue: boolean; messageId: string }) {

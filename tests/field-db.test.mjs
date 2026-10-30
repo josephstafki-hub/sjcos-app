@@ -60,12 +60,13 @@ test("V23 weekly updates: duplicate upload deduped, conflicting progress not res
     // Publish under the active policy → intents; second build is a no-op.
     const a = await buildWeeklyClientSummary(run, f.owner, f.p1, ws);
     assert.equal(a.outcome, "published");
-    assert.ok(a.summary.publish_intent_id && a.summary.email_intent_id);
+    assert.ok(a.summary.published_at && a.summary.email_intent_id, "published on the portal; the email is the one send");
+    assert.equal(a.summary.publish_intent_id, null);
     const b = await buildWeeklyClientSummary(run, f.owner, f.p1, ws);
     assert.equal(b.outcome, "already_published");
     assert.equal(b.summary.id, a.summary.id);
     const intents = await run(`SELECT kind, payload FROM action_intents WHERE project_id = $1`, [f.p1]);
-    assert.equal(intents.length, 2, "one portal + one email intent, not duplicated");
+    assert.deepEqual(intents.map((i) => i.kind), ["send_email"], "one email intent, not duplicated (the portal shows it from published_at)");
     for (const i of intents) assert.ok(!JSON.stringify(i.payload).match(/rotten|4,200|zz-priv/), "intent payload carries no held/private content");
   });
 });

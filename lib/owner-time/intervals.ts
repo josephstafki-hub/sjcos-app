@@ -82,6 +82,7 @@ export interface StartTimerInput {
 
 /** Start a manual/job timer. Refuses if one is already running. */
 export async function startTimer(run: Run, input: StartTimerInput): Promise<{ interval: TimeInterval; applied: boolean }> {
+  if (!input.projectId && input.category === "site") throw new Error("Choose a job for Site time, or use an overhead category such as Admin.");
   const ev = await recordTimeEvent(run, input.userId, input.clientEventId, "start_timer", { projectId: input.projectId, category: input.category });
   if (!ev.applied) return { interval: (await getInterval(run, ev.intervalId!, input.userId))!, applied: false };
   const running = await runningTimer(run, input.userId);
@@ -143,6 +144,7 @@ export async function correctInterval(run: Run, input: CorrectionInput): Promise
     category: input.category ?? before.category,
     state: input.state ?? (before.state === "confirmed" ? "confirmed" : "confirmed"),
   };
+  if (after.state === "confirmed" && !after.project_id && after.category === "site") throw new Error("Choose a job for Site time, or use an overhead category such as Admin.");
   if (after.end_at && Date.parse(after.end_at) <= Date.parse(after.start_at)) throw new Error("End must be after the start.");
   if (after.state === "confirmed" && !after.end_at) {
     const running = await runningTimer(run, input.userId);

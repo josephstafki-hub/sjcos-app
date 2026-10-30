@@ -30,6 +30,7 @@ import {
   SOURCE_LABELS,
   CATEGORY_LABELS,
   flagLabel,
+  durationLabel,
 } from "@/lib/owner-time/labels";
 import type { ReviewList, TimeInterval } from "@/lib/owner-time/intervals";
 
@@ -47,7 +48,7 @@ const fmt = new Intl.DateTimeFormat("en-US", {
 const when = (iso: string | null) =>
   iso ? fmt.format(new Date(iso)) : "Running";
 const dur = (i: TimeInterval) =>
-  `${(((i.end_at ? Date.parse(i.end_at) : Date.now()) - Date.parse(i.start_at)) / 3600_000).toFixed(2)} h`;
+  durationLabel((i.end_at ? Date.parse(i.end_at) : Date.now()) - Date.parse(i.start_at));
 
 export function TimeReview({
   review,
@@ -65,7 +66,7 @@ export function TimeReview({
   const trigger = useRef<HTMLElement | null>(null);
   const [pending, start] = useTransition();
   const [projectId, setProjectId] = useState("");
-  const [category, setCategory] = useState<Category>("site");
+  const [category, setCategory] = useState<Category>("admin");
   const [note, setNote] = useState("");
   const [filter, setFilter] = useState("recorded");
   const [editing, setEditing] = useState<string | null>(null);
@@ -136,7 +137,7 @@ export function TimeReview({
                 aria-label="Timer job"
                 className={`${input} mt-1.5 w-full`}
                 value={projectId}
-                onChange={(e) => setProjectId(e.target.value)}
+                onChange={(e) => { setProjectId(e.target.value); if (!e.target.value && category === "site") setCategory("admin"); }}
               >
                 <option value="">Overhead · no job</option>
                 {projects.map((p) => (
@@ -154,7 +155,7 @@ export function TimeReview({
                 onChange={(e) => setCategory(e.target.value as Category)}
               >
                 {CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
+                  <option key={c} value={c} disabled={c === "site" && !projectId}>
                     {CATEGORY_LABELS[c]}
                   </option>
                 ))}
@@ -183,6 +184,7 @@ export function TimeReview({
           </div>
         )}
       </Card>
+      <p className="text-meta text-ink-3">Site time requires a job. For overhead, choose Admin, Design, Estimating or Other.</p>
       {children}
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -222,7 +224,7 @@ export function TimeReview({
               <TableHead>
                 <tr>
                   <TableHeader>Job & time · Central</TableHeader>
-                  <TableHeader numeric>Hours</TableHeader>
+                  <TableHeader numeric>Duration</TableHeader>
                   <TableHeader className="@max-3xl/page:hidden">
                     Review
                   </TableHeader>
@@ -441,7 +443,7 @@ export function TimeReview({
             <h2 className="font-serif text-title">Adjust time</h2>
             <p className="text-meta text-ink-3">
               All dates and times are Central. Saving keeps the correction
-              history.
+              history. Site time requires a job; overhead uses another category.
             </p>
             <label className="block text-label">
               Start · Central
@@ -469,7 +471,7 @@ export function TimeReview({
                 className={`${input} mt-1.5 w-full`}
                 value={edit.projectId}
                 onChange={(e) =>
-                  setEdit({ ...edit, projectId: e.target.value })
+                  setEdit({ ...edit, projectId: e.target.value, category: !e.target.value && edit.category === "site" ? "admin" : edit.category })
                 }
               >
                 <option value="">Overhead · no job</option>
@@ -490,7 +492,7 @@ export function TimeReview({
                 }
               >
                 {CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
+                  <option key={c} value={c} disabled={c === "site" && !edit.projectId}>
                     {CATEGORY_LABELS[c]}
                   </option>
                 ))}
@@ -513,7 +515,7 @@ export function TimeReview({
               <Button variant="secondary" onClick={() => setEditing(null)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={pending}>
+              <Button type="submit" disabled={pending || (!edit.projectId && edit.category === "site")}>
                 {pending ? "Saving…" : "Save"}
               </Button>
             </div>

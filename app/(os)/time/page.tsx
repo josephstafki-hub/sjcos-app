@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/dal";
 import { runDirect } from "@/lib/commands/db";
 import { timeReview } from "@/lib/owner-time/server";
 import { businessReviewRange } from "@/lib/business-time";
+import { durationLabel } from "@/lib/owner-time/labels";
 import { TimeReview } from "@/components/time/TimeReview";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +31,7 @@ export default async function TimePage({
       `SELECT category, rate_cents::int AS rate_cents, effective_from::text AS effective_from FROM owner_labor_rates ORDER BY category, effective_from DESC`,
     ).catch(() => []),
   ]);
-  const hours = (h: number) => h.toFixed(1); // reviewRange totals are already hours
+  const hours = (h: number) => durationLabel(h * 3600_000); // totals arrive in hours
   return (
     <Shell breadcrumb="TIME">
       <div className="mx-auto max-w-[1240px] px-4 pb-16 pt-6 @3xl/page:px-5 @5xl/page:px-8">
@@ -46,11 +47,11 @@ export default async function TimePage({
           to={to}
         >
         <div className="mt-6 grid grid-cols-2 gap-3 @xl/page:grid-cols-4">
-          <KpiTile label="Site" value={`${hours(review.totals.site)} h`} />
-          <KpiTile label="Office" value={`${hours(review.totals.office)} h`} />
+          <KpiTile label="Site" value={hours(review.totals.site)} />
+          <KpiTile label="Office" value={hours(review.totals.office)} />
           <KpiTile
             label="Overhead"
-            value={`${hours(review.totals.overhead)} h`}
+            value={hours(review.totals.overhead)}
           />
           <KpiTile
             label="Review flags"

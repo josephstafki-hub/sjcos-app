@@ -45,3 +45,9 @@ export function flagLabel(
       return "Needs review. Check the times, then keep or discard.";
   }
 }
+
+/** Keep short work visible instead of rounding it to zero hours. */
+export function durationLabel(milliseconds: number): string {
+  const minutes = Math.max(0, milliseconds) / 60_000;
+  return minutes === 0 ? "0 min" : minutes < 1 ? "<1 min" : minutes < 60 ? `${Math.round(minutes)} min` : `${(minutes / 60).toFixed(2)} h`;
+}

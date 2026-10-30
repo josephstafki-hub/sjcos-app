@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Image as ImageIcon, Phone, ArrowLeft } from "lucide-react";
-import { Avatar, Card, Chip, Eyebrow } from "@/components/ui";
+import { Avatar, Button, Card, Chip, Eyebrow } from "@/components/ui";
 import { getSubLogs, getSubInvoices, getSubAssignment, getSubDocuments, getOwnerPhone } from "@/lib/sub-portal";
 import { SubDocs } from "@/components/sub-portal/SubDocs";
 import { SubSafety } from "@/components/sub-portal/SubSafety";
@@ -93,7 +93,7 @@ export default async function SubPortalPage() {
         </h1>
         {!assignment && (
           <p className="mt-2 text-body text-ink-3">
-            When Joe assigns you to a job, its scope and schedule show up here.
+            {slug ? "When Joe assigns you to a job, its scope and schedule show up here. You can still upload account paperwork and contact Joe below." : "Owner preview — no subcontractor selected. Job logging, invoices and account actions require a subcontractor account."}
           </p>
         )}
 
@@ -125,7 +125,7 @@ export default async function SubPortalPage() {
 
             <Card className="p-3.5">
               <h2 className="mb-2 font-serif text-subheading font-semibold text-ink">Log your day</h2>
-              <SubLogComposer slug={slug ?? ""} voiceEnabled={whisperAvailable()} />
+              {assignment ? <SubLogComposer slug={slug ?? ""} voiceEnabled={whisperAvailable()} /> : <><Button disabled title="Joe must assign a job first">Log day</Button><p className="mt-2 text-body text-ink-2">Daily logs need an assigned job. Message Joe below to confirm your assignment.</p></>}
 
               {logs.length > 0 && (
                 <div className="mt-3 border-t border-rule pt-2.5">
@@ -190,7 +190,7 @@ export default async function SubPortalPage() {
                 </div>
               )}
 
-              <SubInvoiceSubmit slug={slug ?? ""} />
+              {assignment ? <SubInvoiceSubmit slug={slug ?? ""} /> : <><Button disabled className="mt-3" title="Joe must assign a job first">Submit final invoice</Button><p className="mt-2 text-body text-ink-2">Final invoices need an assigned job so Joe can review the correct scope.</p></>}
             </Card>
 
             {orientations.length > 0 && (
@@ -200,20 +200,21 @@ export default async function SubPortalPage() {
             )}
 
             <Card className="p-3">
-              <SubDocs slug={slug ?? ""} docs={subDocs} />
+              {slug ? <SubDocs slug={slug} docs={subDocs} /> : <p className="text-body text-ink-2">Owner preview — no subcontractor selected. Account paperwork is available when signed in as a subcontractor.</p>}
             </Card>
 
             <Card className="p-3">
               <Eyebrow muted>Talk to Joe</Eyebrow>
               <PortalMessenger
                 surface="sub"
+                disabled={!slug}
                 thread={thread}
                 placeholder="Message Joe about today…"
               />
               {joePhone && (
                 <div className="mt-2 flex items-center gap-1.5 text-ink-3">
                   <Phone className="size-3" strokeWidth={1.5} />
-                  <span className="font-sans text-meta">{joePhone}</span>
+                  <a href={`tel:${joePhone}`} className="text-meta underline">{joePhone}</a>
                 </div>
               )}
             </Card>

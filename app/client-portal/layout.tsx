@@ -71,12 +71,13 @@ export default async function ClientPortalLayout({
 
   return (
     <div className="flex h-dvh flex-col bg-paper">
-      <header className="flex min-h-16 flex-none items-center gap-3 border-b border-rule bg-card px-4 sm:px-7">
-        <span className="font-serif text-heading font-semibold text-accent-2">SJ Carpentry</span>
-        <span className="hidden text-body text-ink-3 sm:inline">
-          Client portal · {title ?? "Your project"}
-        </span>
-        <div className="flex-1" />
+      <header className="flex min-h-16 flex-none flex-wrap items-center gap-3 border-b border-rule bg-card px-4 sm:px-7">
+        <div className="min-w-0 flex-1 py-2">
+          <span className="font-serif text-heading font-semibold text-accent-2">SJ Carpentry</span>
+          <p className="text-body text-ink-2">
+            {title ?? (user.role === "owner" ? "Owner preview — no project selected" : "No project linked — contact Joe")}
+          </p>
+        </div>
         {user.role === "owner" && (
           <Link
             href="/today"

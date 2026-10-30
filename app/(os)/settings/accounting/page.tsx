@@ -64,13 +64,25 @@ export default async function AccountingSettingsPage({ searchParams }: { searchP
             <div className="flex flex-wrap justify-between gap-2"><dt className="text-ink-3">Last sync</dt><dd>{c?.last_sync_at ? new Date(c.last_sync_at).toLocaleString() : 'No sync yet'}</dd></div>
           </dl>
           <div className="mt-4">
-            {s.environment !== "fake" && s.oauthConfigured ? <QboConnectButtons connected={c?.state === "connected"} configured disconnect={disconnectQboConnection} /> : <p className="text-body text-ink-2">Not connected — add your QuickBooks keys with your account administrator. <a href="#quickbooks-setup" className="text-accent-2 underline">Setup checklist</a></p>}
-            <div className="mt-3"><AccountingSettingsButtons test={testQboConnection} importNow={importQboNow} /></div>
+            {s.environment !== "fake" && s.oauthConfigured ? <QboConnectButtons connected={c?.state === "connected"} configured disconnect={disconnectQboConnection} /> : <p className="text-body text-ink-2">QuickBooks needs a one-time setup on the server before you can connect your company. <a href="#quickbooks-setup" className="text-accent-2 underline">Setup checklist</a></p>}
+            <div className="mt-3"><AccountingSettingsButtons test={testQboConnection} importNow={importQboNow} testMode={s.environment === "fake"} connected={c?.state === "connected"} /></div>
           </div>
         </Card>
 
+        <Card id="quickbooks-setup" className="p-4">
+          <h2 className="text-subheading font-semibold">Connect QuickBooks</h2>
+          <ol className="mt-3 list-decimal space-y-3 pl-5 text-body text-ink-2">
+            <li>Open <a href="https://developer.intuit.com/app/developer/dashboard" className="underline">Intuit Developer</a> for your QuickBooks application. Connecting it requires a one-time setup on the server to securely install the sign-in keys; secret keys cannot be entered on this page.</li>
+            <li>Return to Settings › Accounting, choose Connect to QuickBooks, sign in and select SJ Carpentry LLC. Check the company name here.</li>
+            <li>Run an import with all sync switches off to preview counts. Then enable imports and review the proposed matches below.</li>
+            <li>Have your bookkeeper confirm the account and tax mappings before enabling invoice or payment sync.</li>
+            <li>Confirm the server’s scheduled QuickBooks sync is enabled before relying on regular imports.</li>
+          </ol>
+        </Card>
+
         <Card className="p-3">
-          <div className="text-meta text-ink-3">Sync directions (each one is a separate decision)</div>
+          <div className="text-meta text-ink-3">Saved sync preferences</div>
+          <p className="mt-1 text-body text-ink-2">{c?.state === "connected" ? "These preferences apply to the connected company." : "These are saved preferences, not a live connection. No live syncing is available until QuickBooks is connected."}</p>
           <ul className="mt-2 flex flex-col gap-2">
             {switchRows.map((r) => (
               <li key={r.key} className="flex items-start gap-3 text-body">
@@ -78,7 +90,7 @@ export default async function AccountingSettingsPage({ searchParams }: { searchP
                   <input type="hidden" name="key" value={r.key} />
                   <input type="hidden" name="enabled" value={s.switches[r.key] ? "false" : "true"} />
                   <button type="submit" className={`rounded-md border px-2.5 py-1 text-meta font-semibold ${s.switches[r.key] ? "border-money bg-money-soft text-money" : "border-rule text-ink-2"}`}>
-                    {s.switches[r.key] ? "ON" : "OFF"}
+                    {s.switches[r.key] ? "Enabled" : "Off"}
                   </button>
                 </form>
                 <div>
@@ -90,8 +102,8 @@ export default async function AccountingSettingsPage({ searchParams }: { searchP
           </ul>
         </Card>
 
-        <Card className="p-3">
-          <div className="text-meta text-ink-3">Mappings</div>
+        <details className="rounded-lg border border-rule-soft bg-card p-3">
+          <summary className="cursor-pointer text-subheading font-semibold text-ink">Mapping details</summary>
           <div className="mt-2 flex flex-wrap gap-2 text-meta text-ink-2">
             {Object.entries(s.counts).map(([k, n]) => (
               <Chip key={k} kind={k === "conflict" ? "flag" : k === "unmapped" ? "accent" : "ghost"}>{k}: {n}</Chip>
@@ -145,10 +157,10 @@ export default async function AccountingSettingsPage({ searchParams }: { searchP
               </ul>
             </div>
           )}
-        </Card>
+        </details>
 
         <Card className="p-3">
-          <div className="text-meta text-ink-3">Import batches</div>
+          <div className="text-meta text-ink-3">Import batches{s.connection?.environment === "fake" ? " · Test imports (sample company)" : ""}</div>
           <div className="mt-2 max-w-full overflow-x-auto"><table className="w-full text-meta">
             <thead className="text-ink-3">
               <tr><th className="text-left">When</th><th className="text-left">Entity</th><th>Seen</th><th>New</th><th>Changed</th><th>Conflicts</th><th>Dry run</th></tr>
@@ -157,12 +169,12 @@ export default async function AccountingSettingsPage({ searchParams }: { searchP
               {s.batches.map((b, i) =>
                 b.error ? (
                   <tr key={i} className="border-t border-rule text-ink-3">
-                    <td>{b.started_at.slice(0, 16)}</td><td>{b.entity_kind}</td>
+                    <td>{b.started_at.slice(0, 16)}</td><td>{s.connection?.environment === "fake" ? "Test · " : ""}{b.entity_kind}</td>
                     <td colSpan={5} className="italic">skipped: {b.error}</td>
                   </tr>
                 ) : (
                   <tr key={i} className="border-t border-rule text-ink-2">
-                    <td>{b.started_at.slice(0, 16)}</td><td>{b.entity_kind}</td><td className="text-center">{b.seen}</td><td className="text-center">{b.created}</td><td className="text-center">{b.updated}</td><td className="text-center">{b.conflicts}</td><td className="text-center">{b.dry_run ? "yes" : "no"}</td>
+                    <td>{b.started_at.slice(0, 16)}</td><td>{s.connection?.environment === "fake" ? "Test · " : ""}{b.entity_kind}</td><td className="text-center">{b.seen}</td><td className="text-center">{b.created}</td><td className="text-center">{b.updated}</td><td className="text-center">{b.conflicts}</td><td className="text-center">{b.dry_run ? "yes" : "no"}</td>
                   </tr>
                 ),
               )}
@@ -171,16 +183,7 @@ export default async function AccountingSettingsPage({ searchParams }: { searchP
           </table></div>
         </Card>
 
-        <Card id="quickbooks-setup" className="p-4">
-          <h2 className="text-subheading font-semibold">Connect QuickBooks</h2>
-          <ol className="mt-3 list-decimal space-y-3 pl-5 text-body text-ink-2">
-            <li>Ask your account administrator to prepare your QuickBooks connection keys. Secret keys cannot be entered on this page.</li>
-            <li>Return to Settings › Accounting, choose Connect to QuickBooks, sign in and select SJ Carpentry LLC. Check the company name here.</li>
-            <li>Run an import with all sync switches off to preview counts. Then enable imports and review the proposed matches below.</li>
-            <li>Have your bookkeeper confirm the account and tax mappings before enabling invoice or payment sync.</li>
-            <li>Ask your administrator to confirm regular syncing is running.</li>
-          </ol>
-        </Card>
+
       </SettingsSection>
     </Shell>
   );

@@ -6,6 +6,8 @@ import { ACTION_LABEL, GATED_ACTIONS, grantWaiting, stagedResultOf, stagedSendOf
 import { GrantDetails } from "@/components/engine/GrantDetails";
 import { approveGrant, createGrantAction, denyGrant, revokeGrant } from "@/lib/actions/owner-grants";
 import { runAction } from "@/lib/run-action";
+import { PermissionTargetPicker } from "@/components/engine/PermissionTargetPicker";
+import type { PermissionRecord } from "@/lib/actions/permission-records";
 import { toast } from "@/components/ui/Toast";
 
 const inputCls =
@@ -48,6 +50,9 @@ export function PermissionsClient({ grants, details }: { grants: OwnerGrant[]; d
   const [pending, start] = useTransition();
   const [notice, setNotice] = useState("");
   const [copied, setCopied] = useState("");
+  const [action, setAction] = useState("send_email");
+  const [record, setRecord] = useState<PermissionRecord | null>(null);
+  const [pickerVersion, setPickerVersion] = useState(0);
 
   // runAction raises the site-wide toast on failure; the notice line only
   // carries the success message.
@@ -103,7 +108,7 @@ export function PermissionsClient({ grants, details }: { grants: OwnerGrant[]; d
               run(
                 async () => {
                   const r = await createGrantAction(fd);
-                  if (r.ok) form.reset();
+                  if (r.ok) { form.reset(); setRecord(null); setPickerVersion((v) => v + 1); }
                   return r;
                 },
                 "Granted — copy the id to the agent (it's in the Live list).",
@@ -112,7 +117,7 @@ export function PermissionsClient({ grants, details }: { grants: OwnerGrant[]; d
           >
             <label className="text-meta text-ink-3">
               Action
-              <select name="action" className={inputCls} defaultValue="send_email">
+              <select name="action" className={inputCls} value={action} onChange={(e) => {setAction(e.target.value); setRecord(null);}}>
                 {GATED_ACTIONS.map((a) => (
                   <option key={a} value={a}>
                     {ACTION_LABEL[a]}
@@ -121,14 +126,10 @@ export function PermissionsClient({ grants, details }: { grants: OwnerGrant[]; d
                 <option value="*">Any send (use sparingly)</option>
               </select>
             </label>
-            <label className="text-meta text-ink-3">
-              Target id (optional — bid package / PO / invoice / draft / issue id)
-              <input name="target_id" className={inputCls} placeholder="e.g. 12" />
-            </label>
-            <label className="text-meta text-ink-3">
-              Only to this address (send_email)
-              <input name="to" type="email" className={inputCls} placeholder="someone@example.com" />
-            </label>
+            {action !== "*" && <PermissionTargetPicker key={`${action}:${pickerVersion}`} action={action} onPick={setRecord} />}
+            <p className="@xl/page:col-span-2 rounded-md bg-paper-2 p-3 text-body text-ink-2" aria-live="polite">
+              {action === "*" ? "Any send — this grant is not limited to one record or recipient. Uses and expiry below still apply." : record ? `${ACTION_LABEL[action as keyof typeof ACTION_LABEL]}: ${record.label}. Only this target is covered, within the uses and expiry below. Creating a grant does not send it.` : "Choose a record or recipient to review exactly what this permission covers."}
+            </p>
             <label className="text-meta text-ink-3">
               Note for the audit
               <input name="reason" className={inputCls} placeholder="Why this is okay to send" />
@@ -142,7 +143,7 @@ export function PermissionsClient({ grants, details }: { grants: OwnerGrant[]; d
               <input name="hours" type="number" min={0.25} max={168} step={0.25} defaultValue={24} className={inputCls} />
             </label>
             <div className="@xl/page:col-span-2">
-              <button type="submit" className={primaryCls} disabled={pending}>
+              <button type="submit" className={primaryCls} disabled={pending || (action !== "*" && !record)}>
                 Grant
               </button>
             </div>

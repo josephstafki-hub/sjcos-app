@@ -49,7 +49,7 @@ export default async function PaymentsSettingsPage() {
             <Chip kind={chip} dot>{state}</Chip>
           </div>
           <div className="mt-3 text-body text-ink-2">
-            {!readiness.connected ? <p>Not connected — add your Square keys. <a href="#square-setup" className="text-accent-2 underline">Follow the setup checklist</a>.</p> : <p>{env === 'sandbox' ? 'Test account verified. No real money is charged.' : `Account verified${caps.location_name ? ` · ${caps.location_name}` : ''}.`}</p>}
+            {!readiness.connected ? <p>Online payments need Square business verification and a one-time setup on the server. <a href="#square-setup" className="text-accent-2 underline">Follow the setup checklist</a>.</p> : <p>{env === 'sandbox' ? 'Test account verified. No real money is charged.' : `Account verified${caps.location_name ? ` · ${caps.location_name}` : ''}.`}</p>}
             {env === 'fake' && <p className="mt-1 text-meta text-ink-3">Test payments are simulated. No Square account is connected.</p>}
             {readiness.connected&&<p className="mt-1 text-meta text-ink-3">Last checked: {cfg?.verified_at ? new Date(cfg.verified_at).toLocaleString() : 'Not yet checked'}</p>}
           </div>
@@ -66,30 +66,16 @@ export default async function PaymentsSettingsPage() {
           </div>
         </Card>
 
-        <Card className="p-3">
-          <div className="text-meta text-ink-3">Public configuration</div>
-          <SettingsForm action={saveSquareConfig} className="mt-2 grid grid-cols-1 gap-2 @xl/page:grid-cols-2">
-            <label className="flex flex-col gap-1 text-meta text-ink-3">
-              Environment
-              <select name="environment" defaultValue={cfg?.environment ?? "sandbox"} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-body text-ink">
-                <option value="sandbox">sandbox</option>
-                <option value="production">production</option>
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-meta text-ink-3">
-              Location id
-              <input name="locationId" defaultValue={cfg?.location_id ?? ""} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-body text-ink" />
-            </label>
-            <label className="flex flex-col gap-1 text-meta text-ink-3">
-              Application id (public)
-              <input name="applicationId" defaultValue={cfg?.application_id ?? ""} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-body text-ink" />
-            </label>
-            <label className="flex flex-col gap-1 text-meta text-ink-3">
-              Notification URL registered with Square
-              <input name="notificationUrl" defaultValue={cfg?.notification_url ?? "https://os.sjcarpentryllc.com/api/webhooks/square"} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-body text-ink" />
-            </label>
 
-          </SettingsForm>
+        <Card id="square-setup" className="p-4">
+          <h2 className="text-subheading font-semibold text-ink">Connect your Square account</h2>
+          <ol className="mt-3 list-decimal space-y-3 pl-5 text-body text-ink-2">
+            <li>Sign in to Square and finish your business verification for SJ Carpentry LLC.</li>
+            <li>Open <a href="https://developer.squareup.com/apps" target="_blank" rel="noopener noreferrer" className="text-accent-2 underline">Square applications</a>, select your application, then Credentials. Choose test or production keys.</li>
+            <li>Complete the one-time setup on the server to securely install your Square access and payment notification keys. Secret keys cannot be entered on this page.</li>
+            <li>Save the matching application and location details in Configuration details below. Select Test connection to check the account.</li>
+            <li>Before accepting real payments, confirm server payment notifications and reconciliation are running.</li>
+          </ol>
         </Card>
 
         <Card className="p-3">
@@ -131,16 +117,36 @@ export default async function PaymentsSettingsPage() {
           </SettingsForm>
         </Card>
 
-        <Card id="square-setup" className="p-4">
-          <h2 className="text-subheading font-semibold text-ink">Connect your Square account</h2>
-          <ol className="mt-3 list-decimal space-y-3 pl-5 text-body text-ink-2">
-            <li>Sign in to Square and finish your business verification for SJ Carpentry LLC.</li>
-            <li>Open <a href="https://developer.squareup.com/apps" target="_blank" rel="noopener noreferrer" className="text-accent-2 underline">Square applications</a>, select your application, then Credentials. Choose test or production keys.</li>
-            <li>Have your account administrator securely install your Square access and payment notification keys. Secret keys cannot be entered on this page.</li>
-            <li>Save the matching application and location details above. Select Test connection to check the account.</li>
-            <li>Before accepting real payments, have your administrator confirm payment notifications and reconciliation are running.</li>
-          </ol>
+
+        <details className="rounded-lg border border-rule-soft p-4">
+          <summary className="cursor-pointer text-subheading font-semibold text-ink">Configuration details</summary>
+        <Card className="p-3">
+          <div className="text-meta text-ink-3">Public configuration</div>
+          <SettingsForm action={saveSquareConfig} className="mt-2 grid grid-cols-1 gap-2 @xl/page:grid-cols-2">
+            <label className="flex flex-col gap-1 text-meta text-ink-3">
+              Environment
+              <select name="environment" defaultValue={cfg?.environment ?? "sandbox"} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-body text-ink">
+                <option value="sandbox">sandbox</option>
+                <option value="production">production</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-meta text-ink-3">
+              Location id
+              <input name="locationId" defaultValue={cfg?.location_id ?? ""} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-body text-ink" />
+            </label>
+            <label className="flex flex-col gap-1 text-meta text-ink-3">
+              Application id (public)
+              <input name="applicationId" defaultValue={cfg?.application_id ?? ""} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-body text-ink" />
+            </label>
+            <label className="flex flex-col gap-1 text-meta text-ink-3">
+              Notification URL registered with Square
+              <input name="notificationUrl" defaultValue={cfg?.notification_url ?? "https://os.sjcarpentryllc.com/api/webhooks/square"} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-body text-ink" />
+            </label>
+
+          </SettingsForm>
         </Card>
+
+        </details>
       </SettingsSection>
     </Shell>
   );

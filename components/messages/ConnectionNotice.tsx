@@ -21,6 +21,7 @@ export function ConnectionNotice({ kind }: { kind: "sms" | "voice" }) {
           Connection help
         </summary>
         <p className="mt-2 max-w-prose">{copy.help}</p>
+        <Button href="https://portal.telnyx.com/" variant="secondary" size="sm" className="mr-2 mt-3">Open Telnyx setup</Button>
         <Button
           variant="secondary"
           size="sm"

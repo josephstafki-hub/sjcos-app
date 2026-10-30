@@ -10,11 +10,13 @@ import type { PortalMessage } from "@/lib/portal-messages";
  *  server-side from identity, so `surface` is only a routing hint. */
 export function PortalMessenger({
   surface,
+  disabled = false,
   thread,
   placeholder = "Message Joe…",
   listMaxHClass = "max-h-[220px]",
 }: {
   surface: "client" | "sub";
+  disabled?: boolean;
   thread: PortalMessage[];
   placeholder?: string;
   /** Cap on the thread list — the sidebar embed stays short, the full
@@ -58,6 +60,7 @@ export function PortalMessenger({
       >
         <input type="hidden" name="surface" value={surface} />
         <textarea
+          disabled={disabled}
           name="body"
           required
           rows={2}
@@ -65,6 +68,7 @@ export function PortalMessenger({
           className="resize-none rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent"
         />
         <SubmitButton
+          disabled={disabled}
           pendingLabel="Sending…"
           className="min-h-11 self-end rounded-md border border-ink bg-ink px-3 py-1.5 text-body font-semibold text-paper hover:bg-ink-hover"
         >

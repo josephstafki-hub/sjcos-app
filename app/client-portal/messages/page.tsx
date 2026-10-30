@@ -24,7 +24,10 @@ export default async function PortalMessagesPage() {
         project.
       </p>
       <div className="my-5 border-t border-rule" />
+      {!scope && <p className="mb-4 text-body text-ink-2">No project selected. This preview cannot send messages.</p>}
+      {thread.length === 0 && <div className="mb-4 rounded-lg border border-rule-soft bg-card p-4"><h2 className="text-subheading font-semibold text-ink">Your conversation starts here</h2><p className="mt-1 text-body text-ink-2">Sent messages and Joe’s replies appear in this conversation. Joe also sees them on your project’s Client portal tab.</p></div>}
       <PortalMessenger
+        disabled={!scope}
         surface="client"
         thread={thread}
         placeholder="Message Joe about the project…"

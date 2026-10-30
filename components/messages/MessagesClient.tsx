@@ -277,6 +277,8 @@ export function MessagesClient({
           <MessageSquare className="size-4 text-ink-3" strokeWidth={1.5} />
           <span className="flex-1 text-subheading font-semibold text-ink">Text messages</span>
           <Button size="sm"
+            disabled={!configured}
+            title={!configured ? "Finish connection setup below first" : undefined}
             type="button"
             onClick={() => {
               setComposeErr(null);

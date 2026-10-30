@@ -8,6 +8,7 @@ import type {
   Selection, SelectionOption, SelectionStatus, SelectionsView, SelectionGroup,
 } from "@/lib/selections";
 import { decideSelection } from "@/lib/actions/selections";
+import { splitSelectionGroups } from "@/lib/portal-selection-groups";
 import { runAction } from "@/lib/run-action";
 
 const STATUS_CHIP: Record<SelectionStatus, ChipKind> = {
@@ -50,9 +51,11 @@ export function ClientSelections({ view }: { view: SelectionsView }) {
     });
   }
 
-  if (view.groups.length === 0) {
-    return <div className="mt-2 text-label text-ink-3">Nothing to review right now.</div>;
-  }
+  const sections = splitSelectionGroups(view.groups);
+  if (view.groups.length === 0) return <div className="space-y-6">
+    <section><h2 className="text-subheading font-semibold text-ink">Pending decisions</h2><p className="mt-2 text-body text-ink-2">No selections published yet. Joe’s options will appear here when they are ready for your review.</p></section>
+    <section className="border-t border-rule-soft pt-4"><h2 className="text-subheading font-semibold text-ink">History</h2><p className="mt-2 text-body text-ink-2">Your choices and declined options will appear here after you review a selection.</p></section>
+  </div>;
 
   const over = view.totalBudget > 0 && view.totalBudget - view.totalSpent < 0;
   const pct =
@@ -111,15 +114,14 @@ export function ClientSelections({ view }: { view: SelectionsView }) {
         </Card>
       )}
 
-      {view.groups.map((g) => (
-        <ClientSection
-          key={g.id ?? "ungrouped"}
-          group={g}
-          depth={0}
-          pending={pending}
-          onChoose={choose}
-          onDeclineAll={declineAll}
-        />
+      {([['pending', 'Pending decisions', 'No decisions waiting on you. Joe’s next published options will appear here.'], ['history', 'History', 'Your completed decisions will appear here. Declined options stay here while Joe prepares alternatives.']] as const).map(([key, title, empty]) => (
+        <section key={key} className="mt-4 border-t border-rule-soft pt-4">
+          <h2 className="text-subheading font-semibold text-ink">{title}</h2>
+          {key === 'history' && sections.history.length > 0 && <p className="mt-1 text-body text-ink-2">Past choices and declined options. Declined options are waiting on Joe.</p>}
+          {sections[key].length === 0 ? <p className="mt-2 text-body text-ink-2">{empty}</p> : sections[key].map((g) => (
+            <ClientSection key={g.id ?? "ungrouped"} group={g} depth={0} pending={pending} onChoose={choose} onDeclineAll={declineAll} />
+          ))}
+        </section>
       ))}
     </div>
   );

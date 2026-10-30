@@ -50,8 +50,12 @@ export default async function PortalDocumentsPage() {
 
       <div className="my-5 border-t border-rule" />
       <div id="documents" className="scroll-mt-4">
-        <Eyebrow muted>To sign · history</Eyebrow>
-        <ClientSignDocs docs={signDocs} />
+        <Eyebrow muted>To sign</Eyebrow>
+        {toSign ? <ClientSignDocs docs={signDocs.filter((d) => d.status === "sent")} /> : <p className="mt-2 text-body text-ink-2">No documents waiting on your signature. New requests from Joe will appear here.</p>}
+      </div>
+      <div className="mt-6 border-t border-rule-soft pt-4">
+        <Eyebrow muted>History</Eyebrow>
+        {signDocs.some((d) => d.status !== "sent") ? <ClientSignDocs docs={signDocs.filter((d) => d.status !== "sent")} /> : <p className="mt-2 text-body text-ink-2">Signed and declined documents will appear here for reference.</p>}
       </div>
 
       {sharedDocs.length > 0 && (

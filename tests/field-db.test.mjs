@@ -70,6 +70,48 @@ test("V23 weekly updates: duplicate upload deduped, conflicting progress not res
   });
 });
 
+test("weekly update under the seeded policy shape: empty week held (no email), material issue held for Joe, plain progress sent, day/time read from the policy", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    const f = await fresh(client);
+    const run = runOf(client);
+    // Exactly the config migration 0004 seeds (and production runs on).
+    const seeded = {
+      lane: "weekly_summary", tz: "America/Chicago", day: 4, time: "09:30", perJobOverride: true,
+      sources: ["sub_portal_progress", "approved_photos", "schedule_milestones"],
+      screen: ["delay", "unexpected_condition", "added_cost", "material_problem"],
+      stop: ["opt_out", "pending_owner_decision", "no_verified_inputs"],
+    };
+    const p = await proposePolicyVersion(run, "weekly.client_summary", seeded, "test");
+    await activatePolicy(run, "weekly.client_summary", p.version);
+    const ws = await centralWeekStart(run);
+
+    // day/time come from the policy: Thursday 09:30 Central, not the Friday 15:00 default.
+    const before = new Date(await weeklySlotInstant(run, ws, 4, 9, 0));
+    const after = new Date(await weeklySlotInstant(run, ws, 4, 9, 31));
+    assert.equal((await dueWeeklySummaries(run, before)).filter((d) => d.projectId === f.p2).length, 0);
+    assert.equal((await dueWeeklySummaries(run, after)).filter((d) => d.projectId === f.p2).length, 1);
+
+    // No field reports at all → held, nothing enqueued, no "nothing happened" email.
+    const empty = await buildWeeklyClientSummary(run, f.owner, f.p2, ws);
+    assert.equal(empty.outcome, "held");
+    assert.match(empty.summary.held_reason, /no verified field updates/);
+    assert.equal((await run(`SELECT count(*)::int AS n FROM action_intents WHERE project_id = $1`, [f.p2]))[0].n, 0);
+
+    // A client-visible note that reads like a delay/cost/problem is held; plain progress goes.
+    await recordSubProgress(run, f.subA, { projectId: f.p1, body: "Cabinets set and leveled", clientEventId: "m1" });
+    await recordSubProgress(run, f.subA, { projectId: f.p1, body: "Found rot behind the sink wall", clientEventId: "m2" });
+    await recordSubProgress(run, f.subA, { projectId: f.p1, body: "Counters back-ordered, install pushed back a week", clientEventId: "m3" });
+    await recordSubProgress(run, f.subA, { projectId: f.p1, body: "Extra cost for the outlet move, about $350", clientEventId: "m4" });
+    const sent = await buildWeeklyClientSummary(run, f.owner, f.p1, ws);
+    assert.equal(sent.outcome, "published");
+    const texts = sent.summary.content.claims.map((c) => c.text);
+    assert.deepEqual(texts, ["Cabinets set and leveled"]);
+    assert.equal(sent.summary.content.held.length, 3);
+    const [email] = await run(`SELECT payload FROM action_intents WHERE project_id = $1 AND kind = 'send_email'`, [f.p1]);
+    assert.ok(!/rot|back-ordered|\$350/i.test(email.payload.bodyText), "screened notes never reach the client email");
+  });
+});
+
 test("V41 field evidence: weekly photos reused, missing part asked once, completion → decision, Joe confirms → hook once, repeated timer → one summary", { skip }, async () => {
   await withTestDb(async (url, client) => {
     const f = await fresh(client);

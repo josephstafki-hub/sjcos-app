@@ -5,6 +5,9 @@
 // from. Internal notes, prices, private files and unverified milestone claims
 // never enter. Reports tied to an OPEN incident (snag) are withheld until Joe
 // decides how to tell the client; unrelated factual progress still goes out.
+// Notes that read like a delay, an unexpected condition, an added cost or a
+// material problem are held the same way (policy `screen`). A week with
+// nothing verified is held, never sent as an empty update.
 //
 // Publishing enqueues intents (portal_publish + optional send_email) that the
 // WS-approvals dispatcher delivers. Replay-safe: UNIQUE(project, week,
@@ -54,6 +57,34 @@ export interface WeeklySummary {
   published_at: string | null;
 }
 
+/** Material issues the policy screens to Joe first (config `screen`). A
+ *  client_ok progress note that reads like one of these is held, not sent:
+ *  a false hold costs one line in the update, a false send tells the client
+ *  about a delay or a cost before Joe has. */
+const MATERIAL_ISSUE: Record<string, RegExp> = {
+  delay: /\b(delay(ed|s)?|behind schedule|pushed back|postpone\w*|reschedul\w*|back-?order\w*|lead time)\b/i,
+  unexpected_condition: /\b(unexpected\w*|rot(ted|ten)?|mold|mildew|asbestos|termite\w*|water damage|leak\w*|structural|not (up )?to code|code (issue|violation)|knob and tube)\b/i,
+  added_cost: /(\$\s?\d|\b(extra|additional|added|more) (cost|charge|money|work|fee)s?\b|\bchange order\b|\bover (the )?(budget|bid|estimate)\b|\bupcharge\b|\bprice (increase|went up)\b)/i,
+  material_problem: /\b(damaged|defect\w*|wrong (size|color|colour|part|item|material|order)|broken|crack(ed|s)?|missing (part|piece|material)s?|out of stock|short (on )?material)\b/i,
+};
+
+export function materialIssue(text: string, screen: unknown): string | null {
+  const keys = Array.isArray(screen) && screen.length ? screen.map(String) : Object.keys(MATERIAL_ISSUE);
+  for (const k of keys) if (MATERIAL_ISSUE[k]?.test(text)) return k.replace(/_/g, " ");
+  return null;
+}
+
+/** The policy's default slot. The seeded config says { day: 5, time: "15:00" };
+ *  { weekday, hour, minute } is read too. */
+export function policySlot(cfg: Record<string, unknown>): { weekday: number; hour: number; minute: number } {
+  const t = /^(\d{1,2}):(\d{2})$/.exec(String(cfg.time ?? "").trim());
+  return {
+    weekday: Number(cfg.weekday ?? cfg.day ?? 5),
+    hour: Number(cfg.hour ?? (t ? t[1] : 15)),
+    minute: Number(cfg.minute ?? (t ? t[2] : 0)),
+  };
+}
+
 const SUMMARY_COLS = `id, project_id, to_char(week_start, 'YYYY-MM-DD') AS week_start, revision, content, status, held_reason, publish_intent_id,
   email_intent_id, decision_id, auth_ref, published_at::text AS published_at`;
 
@@ -80,7 +111,7 @@ async function permittedPhotoIds(run: Run, refs: PhotoRef[]): Promise<string[]> 
 }
 
 /** Assemble the content for (project, week). Pure read; no rows written. */
-export async function assembleWeeklyContent(run: Run, projectId: string, weekStart: string): Promise<SummaryContent> {
+export async function assembleWeeklyContent(run: Run, projectId: string, weekStart: string, screen?: unknown): Promise<SummaryContent> {
   const [proj] = await run<{ name: string }>(`SELECT name FROM projects WHERE id = $1`, [projectId]);
   const reports = await run<{ id: string; kind: string; body: string; photos: PhotoRef[]; author: string; reported_at: string; claimed_milestone_key: string | null; verification: string }>(
     `SELECT id, kind, body, photos, author, reported_at::text AS reported_at, claimed_milestone_key, verification
@@ -119,6 +150,11 @@ export async function assembleWeeklyContent(run: Run, projectId: string, weekSta
         held.push({ reportId: r.id, reason: "completion claim not yet confirmed" });
         continue;
       }
+    }
+    const issue = text ? materialIssue(text, screen) : null;
+    if (issue) {
+      held.push({ reportId: r.id, reason: `may mention a ${issue} — Joe tells the client first` });
+      continue;
     }
     // Same bytes re-uploaded under a new id in a later report: one photo, once.
     const unseenRefs = (r.photos ?? []).filter((p) => {
@@ -181,7 +217,8 @@ export async function buildWeeklyClientSummary(
   if (existing?.status === "published") return { summary: existing, created: false, outcome: "already_published" };
   if (existing?.status === "pending_decision") return { summary: existing, created: false, outcome: "pending_decision" };
 
-  const content = await assembleWeeklyContent(run, projectId, ws);
+  const policy = await activePolicy(run, WEEKLY_POLICY_KEY);
+  const content = await assembleWeeklyContent(run, projectId, ws, policy?.config.screen);
   const nothingPublishable = content.claims.length === 0 && content.photos.length === 0 && content.milestonesConfirmed.length === 0;
   const heldReason = content.held.length
     ? `${content.held.length} item(s) withheld: ${[...new Set(content.held.map((h) => h.reason))].join("; ")}`
@@ -198,8 +235,13 @@ export async function buildWeeklyClientSummary(
     );
   }
 
-  if (nothingPublishable && content.held.length) {
-    [summary] = await run<WeeklySummary>(`UPDATE weekly_summaries SET status = 'held' WHERE id = $1 RETURNING ${SUMMARY_COLS}`, [summary.id]);
+  // Nothing verified to report (policy stop `no_verified_inputs`): no
+  // "nothing happened" email. The week is held, not sent.
+  if (nothingPublishable) {
+    [summary] = await run<WeeklySummary>(`UPDATE weekly_summaries SET status = 'held', held_reason = $2 WHERE id = $1 RETURNING ${SUMMARY_COLS}`, [
+      summary.id,
+      heldReason ?? "no verified field updates this week",
+    ]);
     return { summary, created: !existing, outcome: "held" };
   }
 
@@ -209,7 +251,6 @@ export async function buildWeeklyClientSummary(
     return { summary, created: !existing, outcome: "lane_paused" };
   }
 
-  const policy = await activePolicy(run, WEEKLY_POLICY_KEY);
   if (!policy) {
     const staged = await stageDecision(run, {
       kind: "weekly_summary",
@@ -317,10 +358,7 @@ export async function publishApprovedWeeklySummary(run: Run, principal: Principa
 export async function dueWeeklySummaries(run: Run, now: Date = new Date()): Promise<{ projectId: string; weekStart: string; dueAt: string }[]> {
   const ws = await centralWeekStart(run, now);
   const policy = await activePolicy(run, WEEKLY_POLICY_KEY);
-  const cfg = policy?.config ?? {};
-  const defWeekday = Number(cfg.weekday ?? 5);
-  const defHour = Number(cfg.hour ?? 15);
-  const defMinute = Number(cfg.minute ?? 0);
+  const def = policySlot(policy?.config ?? {});
   const rows = await run<{ id: string; weekday: number | null; hour: number | null; minute: number | null; enabled: boolean | null }>(
     `SELECT p.id, s.weekday, s.hour, s.minute, s.enabled
        FROM projects p LEFT JOIN weekly_summary_settings s ON s.project_id = p.id
@@ -331,7 +369,7 @@ export async function dueWeeklySummaries(run: Run, now: Date = new Date()): Prom
   const due: { projectId: string; weekStart: string; dueAt: string }[] = [];
   for (const r of rows) {
     if (r.enabled === false) continue;
-    const at = await weeklySlotInstant(run, ws, r.weekday ?? defWeekday, r.hour ?? defHour, r.minute ?? defMinute);
+    const at = await weeklySlotInstant(run, ws, r.weekday ?? def.weekday, r.hour ?? def.hour, r.minute ?? def.minute);
     if (new Date(at).getTime() <= now.getTime()) due.push({ projectId: r.id, weekStart: ws, dueAt: at });
   }
   return due;

@@ -599,14 +599,20 @@ function median(xs: number[]): number {
 /** Small-sample + outlier guard. `samples` are verified unit costs (cents).
  *  Nothing replaces an established value below `min_samples`, beyond
  *  `max_delta_pct` from it, or when a single sample sits far from its peers. */
-export function outlierGuard(established: number | null, samples: number[], opts: { min_samples?: number; max_delta_pct?: number; outlier_pct?: number } = {}): OutlierVerdict {
+export function outlierGuard(established: number | null, samples: number[], opts: { min_samples?: number; max_delta_pct?: number; outlier_pct?: number; outlier_sigma?: number } = {}): OutlierVerdict {
   const minN = opts.min_samples ?? 3;
   const maxDelta = opts.max_delta_pct ?? 25;
   const outlierPct = opts.outlier_pct ?? 60;
   const clean = samples.filter((s) => Number.isFinite(s) && s > 0);
   if (!clean.length) return { apply: false, reason: "no verified samples", n: 0, median_unit_cost: null, proposed_unit_cost: null, delta_pct: null, outliers: [] };
   const med = median(clean);
-  const outliers = clean.length >= 3 ? clean.filter((s) => Math.abs(s - med) / med * 100 > outlierPct) : [];
+  // outlier_sigma (the seeded policy's outlierSigma): farther than k robust
+  // standard deviations (1.4826 × median absolute deviation) from the median.
+  // With no spread to measure, the percent rule decides.
+  const robustSd = 1.4826 * median(clean.map((s) => Math.abs(s - med)));
+  const far = (s: number) =>
+    opts.outlier_sigma != null && robustSd > 0 ? Math.abs(s - med) > opts.outlier_sigma * robustSd : (Math.abs(s - med) / med) * 100 > outlierPct;
+  const outliers = clean.length >= 3 ? clean.filter(far) : [];
   const kept = clean.filter((s) => !outliers.includes(s));
   const proposed = kept.length ? median(kept) : med;
   const n = kept.length;

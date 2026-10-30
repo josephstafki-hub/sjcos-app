@@ -26,6 +26,7 @@ import {
 } from "@/lib/rooms";
 import { roomKey } from "@/lib/chat";
 import type { ProjectStatus } from "@/lib/types";
+import { releaseSignoffAfterPunch } from "@/lib/closeout/server";
 
 /** Kebab-case a display name into a URL slug. */
 function slugify(name: string): string {
@@ -255,7 +256,15 @@ export async function advanceProjectStatus(slug: string) {
 /** Toggle a punch-list item done/open. Owner-gated; `slug` drives revalidation. */
 export async function setPunchDone(id: number, done: boolean, slug: string) {
   await requireAccess("projects");
-  await query(`UPDATE project_punch SET done = $2 WHERE id = $1`, [id, done]);
+  const row = await queryOne<{ project_id: string }>(`UPDATE project_punch SET done = $2 WHERE id = $1 RETURNING project_id`, [id, done]);
+  // The last item closed may release a client sign-off held for open punch.
+  if (row && done) {
+    try {
+      await releaseSignoffAfterPunch(row.project_id);
+    } catch (err) {
+      console.error("[punch] sign-off release failed:", err);
+    }
+  }
   revalidatePath(`/projects/${slug}`);
 }
 

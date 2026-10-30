@@ -23,6 +23,7 @@ import { parseSignatureDataUrl } from "@/lib/signature-image";
 import type { DocType, SigMethod } from "@/lib/esign-types";
 import { billingOnSignatureSigned } from "@/lib/billing/server";
 import { workflowOnSignatureSigned } from "@/lib/workflow/server";
+import { recordWrittenSignoffCmd } from "@/lib/closeout/server";
 import { classifySignedDoc } from "@/lib/workflow/engine";
 
 type Result = { ok: true; id?: number } | { ok: false; error: string };
@@ -286,6 +287,15 @@ async function applySignature(o: ApplySignatureInput): Promise<boolean> {
     await workflowOnSignatureSigned(o.id);
   } catch (err) {
     console.error(`[esign] workflow hook failed for request ${o.id}:`, err);
+  }
+  // W12: a signed completion sign-off is the written client sign-off; once no
+  // punch item is open it schedules the after-job care (warranty, review
+  // request, check-in, learning — policy postproject.followthrough).
+  try {
+    const [sr] = (await query<{ doc_type: string }>(`SELECT doc_type FROM signature_requests WHERE id = $1`, [o.id])).rows;
+    if (sr?.doc_type === "completion") await recordWrittenSignoffCmd({ kind: "service", name: "esign:signed" }, o.id);
+  } catch (err) {
+    console.error(`[esign] closeout sign-off hook failed for request ${o.id}:`, err);
   }
   return true;
 }

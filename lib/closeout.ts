@@ -18,6 +18,8 @@ export interface CloseoutView {
   docs: CloseoutDoc[];
   lienWaiverStatus: string | null; // signature_request status, if one exists
   outreachSent: boolean;
+  /** Commercial job: no Minnesota home-improvement warranty text. */
+  commercial: boolean;
 }
 
 export async function getCloseoutView(slug: string): Promise<CloseoutView> {
@@ -43,8 +45,8 @@ export async function getCloseoutView(slug: string): Promise<CloseoutView> {
     [slug],
   );
 
-  const outreach = await queryOne<{ v: boolean }>(
-    `SELECT (closeout_outreach_at IS NOT NULL) AS v FROM projects WHERE slug = $1`,
+  const outreach = await queryOne<{ v: boolean; commercial: boolean }>(
+    `SELECT (closeout_outreach_at IS NOT NULL) AS v, commercial FROM projects WHERE slug = $1`,
     [slug],
   );
 
@@ -52,5 +54,6 @@ export async function getCloseoutView(slug: string): Promise<CloseoutView> {
     docs,
     lienWaiverStatus: waiver?.status ?? null,
     outreachSent: outreach?.v ?? false,
+    commercial: outreach?.commercial ?? false,
   };
 }

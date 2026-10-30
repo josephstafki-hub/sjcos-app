@@ -174,3 +174,62 @@ test("V29 signatures/marketing: edited signed artifact → new revision voids th
     assert.equal(a.revision.id, b.revision.id);
   });
 });
+
+test("After-job care under the seeded policy: steps (warranty day 1, review day 7, check-in day 90) set the dates; the job's own punch list holds the sign-off; a commercial job's warranty email has no Minnesota home warranty", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    const f = await fresh(client);
+    const run = runOf(client);
+    const { hooks } = spyHooks();
+    const p = await proposePolicyVersion(run, "postproject.followthrough", { lane: "sends", steps: [{ key: "warranty_care", daysAfter: 1 }, { key: "review_request", daysAfter: 7 }, { key: "checkin", daysAfter: 90 }] }, "test");
+    await activatePolicy(run, "postproject.followthrough", p.version);
+    const [punch] = await run(`INSERT INTO project_punch (project_id, item) VALUES ($1, 'Install register cover') RETURNING id`, [f.p1]);
+    const [sr] = await run(`INSERT INTO signature_requests (project_id, doc_type, title, body, status, signed_name, signed_at) VALUES ($1, 'completion', 'zz-signoff2', 'Accepted', 'signed', 'Pat Client', now()) RETURNING id`, [f.p1]);
+    const s = await recordWrittenSignoff(run, Number(sr.id), hooks);
+    assert.equal(s.hooksFired, false, "an open item on the job's punch list holds it");
+    assert.match(s.blocked, /1 punch item/);
+    await run(`UPDATE project_punch SET done = true WHERE id = $1`, [punch.id]);
+    assert.equal((await releaseSignoffHooks(run, f.p1, hooks)).fired, true);
+    const days = Object.fromEntries(
+      (await run(`SELECT kind, round(extract(epoch FROM scheduled_for - now()) / 86400)::int AS d FROM post_project_actions WHERE project_id = $1`, [f.p1])).map((r) => [r.kind, r.d]),
+    );
+    assert.deepEqual(days, { warranty_docs: 1, review_request: 7, checkin: 90, learning: 0 });
+
+    // Commercial: no Minnesota statutory warranty in the text.
+    const { warrantyDocText } = await import("../lib/closeout/postproject.ts");
+    assert.match(await warrantyDocText(run, f.p1, MN_WARRANTY_TIERS), /Minnesota statutory/);
+    await run(`UPDATE projects SET commercial = true WHERE id = $1`, [f.p1]);
+    assert.equal(await warrantyDocText(run, f.p1, MN_WARRANTY_TIERS), null, "no configured terms and no MN text → nothing to send");
+  });
+});
+
+test("The after-job learning step waits for per-scope actuals, then keeps an estimate-vs-actual report; it never says 'done' with nothing recorded", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    const f = await fresh(client);
+    const run = runOf(client);
+    const { hooks } = spyHooks();
+    await run(`INSERT INTO post_project_actions (project_id, kind, scheduled_for) VALUES ($1, 'learning', now() - interval '1 minute')`, [f.p1]);
+    let out = await runDuePostProjectActions(run, f.owner, { mnTiers: [] }, hooks);
+    let step = out.find((a) => a.kind === "learning");
+    assert.equal(step.state, "scheduled", "no actuals yet: wait, don't claim done");
+    assert.match(step.note, /Waiting for per-scope actuals/);
+    // The contract estimate's internal costs per scope, and the job's actuals.
+    const [e] = await run(`INSERT INTO estimates (project_id, title, kind, status, total) VALUES ($1, 'Formal', 'formal', 'draft', 300000) RETURNING id`, [f.p1]);
+    await run(
+      `INSERT INTO estimate_lines (estimate_id, description, qty, unit_cost, extended, scope_item_key, internal_cost_cents)
+       VALUES ($1, 'Cabinets', 1, 100000, 120000, 'kitchen.cabinets', 100000), ($1, 'Tile', 1, 50000, 60000, 'kitchen.tile', 50000)`,
+      [e.id],
+    );
+    await run(`UPDATE estimates SET status = 'approved', approved_at = now() WHERE id = $1`, [e.id]);
+    await recordCloseoutActuals(run, { projectId: f.p1, actuals: { lines: [
+      { scope_key: "kitchen.cabinets", unit: "ls", quantity: 1, actual_cost_cents: 110000, source: "closeout" },
+      { scope_key: "kitchen.tile", unit: "ls", quantity: 1, actual_cost_cents: 50000, source: "closeout" },
+    ] } }, hooks);
+    await run(`UPDATE post_project_actions SET scheduled_for = now() - interval '1 minute' WHERE project_id = $1 AND kind = 'learning'`, [f.p1]);
+    out = await runDuePostProjectActions(run, f.owner, { mnTiers: [] }, hooks);
+    step = out.find((a) => a.kind === "learning");
+    assert.equal(step.state, "done");
+    assert.equal(step.detail.held_out.compared, 2);
+    assert.equal(step.detail.held_out.scopes.find((x) => x.scope_key === "kitchen.cabinets").error_pct, -9.1);
+    assert.match(step.note, /2 scope\(s\)/);
+  });
+});

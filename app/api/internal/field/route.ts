@@ -14,8 +14,8 @@ import { listFieldReports } from "@/lib/field/reports";
 import { openIncidents } from "@/lib/field/incidents";
 import { assembleWeeklyContent, listPublishedSummaries } from "@/lib/field/weekly-summary";
 import { centralWeekStart } from "@/lib/field/dates";
-import { prepareInternalInspectionCmd, confirmCorrectionsCmd, scheduleWalkthroughCmd, checkInReplyCmd, recordCloseoutActualsCmd } from "@/lib/closeout/server";
-import { recordCorrection, recordClientPunch, resolveClientPunch, closeoutOverview } from "@/lib/closeout/checklist";
+import { prepareInternalInspectionCmd, confirmCorrectionsCmd, scheduleWalkthroughCmd, checkInReplyCmd, recordCloseoutActualsCmd, resolveClientPunchCmd } from "@/lib/closeout/server";
+import { recordCorrection, recordClientPunch, closeoutOverview } from "@/lib/closeout/checklist";
 import { activePolicy, policyRef } from "@/lib/commands/policies";
 
 export const runtime = "nodejs";
@@ -108,7 +108,7 @@ export async function POST(req: Request) {
       case "record_client_punch":
         return NextResponse.json({ ok: true, checklist: await withTransaction((run) => recordClientPunch(run, body.input as Parameters<typeof recordClientPunch>[1])) });
       case "resolve_client_punch":
-        return NextResponse.json({ ok: true, checklist: await withTransaction((run) => resolveClientPunch(run, body.input as Parameters<typeof resolveClientPunch>[1])) });
+        return NextResponse.json(await resolveClientPunchCmd(body.input as Parameters<typeof resolveClientPunchCmd>[0]));
       case "checkin_reply":
         return NextResponse.json(await checkInReplyCmd(principal, body.input as Parameters<typeof checkInReplyCmd>[1]));
       case "record_actuals":

@@ -18,6 +18,7 @@ import { enqueueIntent } from "../commands/intents.ts";
 import { activePolicy, policyRef } from "../commands/policies.ts";
 import type { Principal } from "../commands/principal.ts";
 import type { CloseoutActuals, CloseoutHooks } from "./hooks.ts";
+import { heldOutEvaluation } from "../estimating/rules.ts";
 
 export const POSTPROJECT_POLICY_KEY = "postproject.followthrough";
 
@@ -42,15 +43,24 @@ async function setting(run: Run, key: string): Promise<string> {
   return (row?.value ?? "").trim();
 }
 
+/** Days after sign-off for one step. The seeded policy lists
+ *  `steps: [{ key, daysAfter }]` (warranty_care 1, review_request 7, checkin
+ *  90); an older flat key is still read; else the default. */
+function stepDays(config: Record<string, unknown> | undefined, stepKey: string, flatKey: string, fallback: number): number {
+  const steps = Array.isArray(config?.steps) ? (config.steps as { key?: unknown; daysAfter?: unknown }[]) : [];
+  const step = steps.find((x) => x?.key === stepKey);
+  const n = Number(step?.daysAfter ?? config?.[flatKey]);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n) : fallback;
+}
+
 /** Schedule the four actions (idempotent: UNIQUE(project, kind)). */
 export async function schedulePostProjectActions(run: Run, projectId: string): Promise<PostProjectAction[]> {
   const policy = await activePolicy(run, POSTPROJECT_POLICY_KEY);
-  const checkinDays = Number(policy?.config.checkin_days ?? 30);
   const rows: PostProjectAction[] = [];
   const plan: { kind: PostKind; days: number }[] = [
-    { kind: "warranty_docs", days: 0 },
-    { kind: "review_request", days: Number(policy?.config.review_delay_days ?? 0) },
-    { kind: "checkin", days: checkinDays },
+    { kind: "warranty_docs", days: stepDays(policy?.config, "warranty_care", "warranty_delay_days", 0) },
+    { kind: "review_request", days: stepDays(policy?.config, "review_request", "review_delay_days", 0) },
+    { kind: "checkin", days: stepDays(policy?.config, "checkin", "checkin_days", 30) },
     { kind: "learning", days: 0 },
   ];
   for (const p of plan) {
@@ -78,12 +88,15 @@ async function clientEmailFor(run: Run, projectId: string): Promise<{ email: str
 export async function warrantyDocText(run: Run, projectId: string, mnTiers: { label: string; detail: string }[]): Promise<string | null> {
   const terms = await setting(run, "company.warranty_terms");
   const company = (await setting(run, "company.name")) || "SJ Carpentry LLC";
-  if (!terms && !mnTiers.length) return null;
+  // The Minnesota statutory warranty is a home-improvement warranty: not on a commercial job.
+  const [p] = await run<{ commercial: boolean }>(`SELECT commercial FROM projects WHERE id = $1`, [projectId]);
+  const tiers = p?.commercial ? [] : mnTiers;
+  if (!terms && !tiers.length) return null;
   const lines = [`Warranty coverage for your project with ${company}:`, ""];
   if (terms) lines.push(terms, "");
-  if (mnTiers.length) {
+  if (tiers.length) {
     lines.push("Minnesota statutory home-improvement warranty (Minn. Stat. §327A.02):");
-    for (const t of mnTiers) lines.push(`• ${t.label} — ${t.detail}`);
+    for (const t of tiers) lines.push(`• ${t.label} — ${t.detail}`);
   }
   lines.push("", "Keep this for your records. Reply to this email to report anything covered.");
   return lines.join("\n");
@@ -127,9 +140,7 @@ export async function runDuePostProjectActions(run: Run, principal: Principal, o
       subject = `Checking in on ${c.projectName}`;
       body = `Hi ${c.first},\n\nIt's been a few weeks since we wrapped up ${c.projectName}. How is everything holding up? If anything needs a look, just reply here and I'll take care of it.`;
     } else if (a.kind === "learning") {
-      // Actuals are recorded explicitly (recordCloseoutActuals); this row
-      // just marks the learning step as opened.
-      out.push(await setState(run, a.id, "done", "closeout actuals recorded via recordCloseoutActuals()"));
+      out.push(await learningStep(run, a));
       continue;
     }
     if (!c.email) {
@@ -170,6 +181,52 @@ export async function runDuePostProjectActions(run: Run, principal: Principal, o
   }
   void hooks;
   return out;
+}
+
+/** The learning step. Per-scope actuals (unit, quantity, cost; recorded with
+ *  recordCloseoutActuals, which also feeds the cost book) are compared with
+ *  the contract estimate's internal costs scope by scope (heldOutEvaluation)
+ *  and the report kept on the step. With none recorded yet it waits a week at
+ *  a time, eight times, then says plainly that this job taught nothing. */
+async function learningStep(run: Run, a: PostProjectAction): Promise<PostProjectAction> {
+  const [act] = await run<{ actuals: CloseoutActuals }>(`SELECT actuals FROM closeout_actuals WHERE project_id = $1 ORDER BY revision DESC LIMIT 1`, [a.project_id]);
+  const lines = (Array.isArray(act?.actuals?.lines) ? act.actuals.lines : []) as { scope_key?: string; actual_cost_cents?: number | null }[];
+  if (!lines.some((l) => l?.scope_key)) {
+    const waits = Number(a.detail?.waits ?? 0);
+    if (waits >= 8) return setState(run, a.id, "not_configured", "No per-scope actuals were recorded for this job (unit, quantity and cost per scope), so the cost book learned nothing from it.");
+    const [row] = await run<PostProjectAction>(
+      `UPDATE post_project_actions SET scheduled_for = now() + interval '7 days', note = $2, detail = detail || $3::jsonb WHERE id = $1 RETURNING ${COLS}`,
+      [a.id, "Waiting for per-scope actuals (record_actuals) before the estimate-vs-actual check.", JSON.stringify({ waits: waits + 1 })],
+    );
+    return row;
+  }
+  const actual = new Map<string, number | null>();
+  for (const l of lines) {
+    if (!l?.scope_key) continue;
+    const prev = actual.has(l.scope_key) ? actual.get(l.scope_key)! : 0;
+    actual.set(l.scope_key, prev == null || l.actual_cost_cents == null ? null : prev + Number(l.actual_cost_cents));
+  }
+  const estimated = await run<{ scope_key: string; cents: string | null }>(
+    `SELECT l.scope_item_key AS scope_key,
+            CASE WHEN bool_and(l.internal_cost_cents IS NOT NULL) THEN sum(l.internal_cost_cents)::text END AS cents
+       FROM estimate_lines l
+      WHERE l.estimate_id = project_contract_estimate_id($1) AND l.superseded_by IS NULL AND l.scope_item_key IS NOT NULL
+      GROUP BY l.scope_item_key`,
+    [a.project_id],
+  );
+  const report = heldOutEvaluation(
+    estimated.map((e) => ({ scope_key: e.scope_key, cents: e.cents == null ? null : Number(e.cents) })),
+    [...actual].map(([scope_key, cents]) => ({ scope_key, cents })),
+  );
+  const note =
+    report.mean_abs_error_pct == null
+      ? `Estimate vs actual: nothing comparable (${report.note}).`
+      : `Estimate vs actual over ${report.compared} scope(s): off by ${report.mean_abs_error_pct}% on average, ${report.bias_pct! >= 0 ? "over" : "under"} by ${Math.abs(report.bias_pct!)}% overall. ${report.note}.`;
+  const [row] = await run<PostProjectAction>(
+    `UPDATE post_project_actions SET state = 'done', note = $2, detail = detail || $3::jsonb WHERE id = $1 RETURNING ${COLS}`,
+    [a.id, note, JSON.stringify({ held_out: report })],
+  );
+  return row;
 }
 
 async function setState(run: Run, id: string, state: PostProjectAction["state"], note: string): Promise<PostProjectAction> {

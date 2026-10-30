@@ -25,6 +25,9 @@ test('Today recovery is scoped, reversible, and respects scheduled dates', { ski
     await run("UPDATE work_items SET status='done',due_at=now()+interval '6 days' WHERE id=$1", [done.id]);
     await recoverWorkItem(run, done.id, 'done', owner);
     assert.ok((await run('SELECT snoozed_until > now() AS future FROM work_items WHERE id=$1', [done.id]))[0].future);
+    const [waiting] = await run("INSERT INTO work_items (title,status,due_at) VALUES ('ZZ QA waiting on client','waiting_on_client',now()+interval '7 days') RETURNING id");
+    assert.equal((await listRecoverableWork(run, owner, 'snoozed')).some(x => x.id === waiting.id), false, 'waiting-on-client work is not actionable Today');
+    assert.equal(await recoverWorkItem(run, waiting.id, 'snoozed', owner), false);
     // Only the explicit Bring back today action reschedules future work to today.
     assert.equal(await recoverWorkItem(run, scheduled.id, 'snoozed', owner), true);
     const [awake] = await run('SELECT snoozed_until, due_at <= now() AS due FROM work_items WHERE id=$1', [scheduled.id]);

@@ -28,17 +28,19 @@ export function WeekStrip({ week }: { week: TodayCalDay[] }) {
           return (
             <button
               key={d.iso}
+              aria-label={`${d.dow} ${d.day}`}
+              aria-pressed={selected}
               onClick={() => setOpenIso((cur) => (cur === d.iso ? null : d.iso))}
               className={[
-                "flex-1 rounded border py-1.5 text-center transition-colors",
-                selected ? "border-ink ring-1 ring-ink" : "border-rule",
+                "min-h-11 min-w-0 flex-1 rounded-md border py-2 text-center transition-colors focus-visible:outline-2 focus-visible:outline-focus",
+                selected ? "border-accent bg-selected" : "border-rule",
                 d.today
-                  ? "bg-ink text-paper hover:bg-ink-2"
+                  ? "bg-selected text-ink hover:bg-accent-soft"
                   : "bg-paper text-ink-2 hover:bg-paper-2",
               ].join(" ")}
             >
-              <div className="font-mono text-[9px] opacity-70">{d.dow}</div>
-              <div className="font-mono text-[16px] font-semibold leading-tight tabular-nums">
+              <div className="text-meta opacity-70">{d.dow}</div>
+              <div className="text-subheading font-semibold leading-tight tabular-nums">
                 {d.day}
               </div>
               {d.blocks.length > 0 && (
@@ -56,20 +58,20 @@ export function WeekStrip({ week }: { week: TodayCalDay[] }) {
 
       {open && (
         <div className="mt-2 rounded-md border border-rule bg-paper-2 p-2.5">
-          <div className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+          <div className="mb-1.5 text-meta text-ink-3">
             {dayHeading(open)}
           </div>
           {open.blocks.length === 0 ? (
-            <div className="text-[12px] text-ink-3">Nothing scheduled.</div>
+            <div className="text-meta text-ink-3">Nothing scheduled.</div>
           ) : (
             <div className="flex flex-col gap-1.5">
               {open.blocks.map((b, i) => (
                 <div key={i} className="flex items-center gap-2">
-                  <span className="w-12 font-mono text-[11px] tabular-nums text-ink-3">
+                  <span className="w-12 text-meta tabular-nums text-ink-3">
                     {b.time}
                   </span>
                   <span className={`size-1.5 rounded-full ${DOT[b.dot]}`} />
-                  <span className="text-[12.5px] text-ink">{b.label}</span>
+                  <span className="text-body text-ink">{b.label}</span>
                 </div>
               ))}
             </div>

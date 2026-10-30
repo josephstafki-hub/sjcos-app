@@ -65,6 +65,8 @@ export interface PurchaseOrderView {
   subtotalLabel: string;
   createdAtLabel: string;
   sentAtLabel: string | null;
+  /** What the PO has bound: commitment, job cash held, bills (null = nothing yet). */
+  commitmentLabel: string | null;
   lines: PoLineView[];
 }
 

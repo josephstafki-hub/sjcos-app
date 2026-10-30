@@ -21,6 +21,7 @@ import { laneOpen } from "../commands/policies.ts";
 import { principalLabel, type Principal } from "../commands/principal.ts";
 import { escalateShortfall, projectFunding, reserveFunds } from "../funding/index.ts";
 import { constructionGateSatisfied, type ConstructionGate } from "./gate.ts";
+import { composePoEmail } from "./po-email.ts";
 import {
   COMMITMENT_COLS,
   PURCHASE_ACTION,
@@ -436,6 +437,9 @@ export async function commitOnApproval(run: Run, input: CommitInput): Promise<Co
   let intentId: string | null = null;
   if (c.kind === "purchase_order") {
     const [po] = await run<{ id: number; slug: string }>(`SELECT po.id, p.slug FROM purchase_orders po JOIN projects p ON p.id = po.project_id WHERE po.id = $1`, [Number(c.ref)]);
+    // The email itself: without a subject and body the provider refuses it.
+    const mail = await composePoEmail(run, Number(c.ref));
+    if (!mail.ok) throw new Error(`purchase order ${c.ref}: ${mail.error}`);
     const { intent } = await enqueueIntent(run, {
       operationKey: `po:${c.ref}:send:rev${c.revision}`,
       kind: "send_purchase_order",
@@ -443,7 +447,20 @@ export async function commitOnApproval(run: Run, input: CommitInput): Promise<Co
       targetId: c.ref,
       recipient: c.payee_contact,
       projectId: c.project_id,
-      payload: { purchaseOrderId: Number(c.ref), projectSlug: po?.slug ?? null, commitmentId: c.id, revision: c.revision, to: c.payee_contact, totalCents: c.total_cents },
+      payload: {
+        purchaseOrderId: Number(c.ref),
+        projectSlug: po?.slug ?? null,
+        commitmentId: c.id,
+        revision: c.revision,
+        to: c.payee_contact,
+        subject: mail.email.subject,
+        bodyText: mail.email.body,
+        po_number: mail.po.po_number,
+        project_name: mail.po.project_name,
+        vendor_name: mail.po.vendor_name,
+        slug: po?.slug ?? null,
+        totalCents: c.total_cents,
+      },
       artifactRevision: `rev${c.revision}`,
       decisionId: input.decisionId,
       commandId: input.commandId ?? null,
@@ -465,6 +482,44 @@ export async function commitOnApproval(run: Run, input: CommitInput): Promise<Co
     [c.id, intentId],
   );
   return { ok: true, commitment: normalize(updated), intentId, reservationId: reserved.reservationId, already: false };
+}
+
+export type OwnerPoGuard =
+  | { ok: true; commitmentId: number; reservationId: number | null; notes: string[] }
+  | { ok: false; reason: string; /** Joe may send anyway after seeing why. */ overridable: boolean };
+
+/** Joe's own "Send to vendor" on a PO (or an agent's, under his grant): the
+ *  same checks a purchase decision gets, then the commitment is recorded as
+ *  committed and the cash held, so funding sees it. The construction gate and
+ *  a cash shortfall can be overridden by Joe after he's told; the purchases
+ *  lane can't. A PO already committed through its decision passes. */
+export async function commitOwnerPurchaseOrder(run: Run, input: { purchaseOrderId: number; principal: Principal; override?: boolean }): Promise<OwnerPoGuard> {
+  const [po] = await run<{ commitment_id: number | null; project_id: string }>(`SELECT commitment_id, project_id FROM purchase_orders WHERE id = $1 FOR UPDATE`, [input.purchaseOrderId]);
+  if (!po) return { ok: false, reason: "Purchase order not found.", overridable: false };
+  if (po.commitment_id) {
+    const live = await getCommitment(run, Number(po.commitment_id));
+    if (live && live.state === "committed") return { ok: true, commitmentId: live.id, reservationId: null, notes: [] };
+  }
+  const lane = await laneOpen(run, "purchases");
+  if (!lane.open) return { ok: false, reason: `Purchases are paused: ${lane.reason}`, overridable: false };
+  const notes: string[] = [];
+  const gate = await constructionGateSatisfied(run, po.project_id);
+  if (!gate.ok) {
+    const why = gate.unknown ? `the construction gate can't be checked (${gate.reason})` : gate.reason;
+    if (!input.override) return { ok: false, reason: `Not ordered yet: ${why}.`, overridable: true };
+    notes.push(`sent before the construction gate: ${why}`);
+  }
+  const prep = await prepareCommitment(run, { source: { kind: "purchase_order", purchaseOrderId: input.purchaseOrderId }, principal: input.principal });
+  if (!prep.ok) return { ok: false, reason: prep.reason, overridable: false };
+  const c = prep.commitment;
+  const reserved = await reserveFunds(run, { projectId: c.project_id, commitmentId: c.id, amountCents: c.total_cents, note: `${c.kind} ${c.ref} rev${c.revision} (owner send)` });
+  if (!reserved.ok) {
+    if (!input.override) return { ok: false, reason: `Not ordered yet: ${reserved.reason}`, overridable: true };
+    notes.push(`sent without the cash on hand: ${reserved.reason}`);
+  }
+  await run(`UPDATE commitments SET state = 'committed', updated_at = now() WHERE id = $1`, [c.id]);
+  await run(`UPDATE purchase_orders SET commitment_id = $2 WHERE id = $1`, [input.purchaseOrderId, c.id]);
+  return { ok: true, commitmentId: c.id, reservationId: reserved.ok ? reserved.reservationId : null, notes };
 }
 
 export async function listCommitments(run: Run, opts: { projectId?: string | null; states?: string[]; limit?: number } = {}): Promise<Commitment[]> {

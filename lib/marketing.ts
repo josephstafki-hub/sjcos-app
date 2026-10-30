@@ -17,6 +17,7 @@ export interface MarketingDraft {
   copyError?: string;
   status: "draft" | "posted";
   projectName: string | null;
+  projectSlug: string | null;
   createdLabel: string;
 }
 
@@ -28,9 +29,10 @@ export async function getMarketingDrafts(): Promise<MarketingDraft[]> {
     body: string;
     status: "draft" | "posted";
     project_name: string | null;
+    project_slug: string | null;
     created_label: string;
   }>(
-    `SELECT d.id, d.kind, d.title, d.body, d.status, p.name AS project_name,
+    `SELECT d.id, d.kind, d.title, d.body, d.status, p.name AS project_name, p.slug AS project_slug,
             to_char(d.created_at, 'Mon FMDD, YYYY') AS created_label
        FROM marketing_drafts d
        LEFT JOIN projects p ON p.id = d.project_id
@@ -47,6 +49,7 @@ export async function getMarketingDrafts(): Promise<MarketingDraft[]> {
       ...(!copy.body ? {copyError: "This draft could not be read. Replace it with your copy or generate a new draft."} : {}),
       status: r.status,
       projectName: r.project_name,
+      projectSlug: r.project_slug,
       createdLabel: r.created_label,
     };
   });

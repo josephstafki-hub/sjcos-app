@@ -2,6 +2,8 @@
 
 import { useMemo, useState, useTransition } from "react";
 import {
+  Button,
+  Segmented,
   Card,
   Chip,
   TableWrapper,
@@ -41,7 +43,11 @@ export function PlanRulesPanel({
     measure: string;
     tag: string;
   } | null>(null);
+  const [feedback,setFeedback] = useState("");
   const [group, setGroup] = useState("All");
+  const [filter, setFilter] = useState("all");
+  const [expanded, setExpanded] = useState<string[]>([]);
+  const isMapped = (key: string) => (byMeasure.get(key) ?? []).some(r => r.enabled && r.costItemId != null);
 
   const groups = useMemo(
     () => ["All", ...new Set(MEASURE_DEFS.map((m) => m.group))],
@@ -53,12 +59,12 @@ export function PlanRulesPanel({
     return m;
   }, [rules]);
   const mapped = MEASURE_DEFS.filter((m) =>
-    (byMeasure.get(m.key) ?? []).some((r) => r.enabled),
+    isMapped(m.key),
   ).length;
 
   const set = (measure: string, tag: string, costItemId: number | null) =>
     start(async () => {
-      await runAction(() => setPlanCostRule(measure, tag, costItemId));
+      await runAction(() => setPlanCostRule(measure, tag, costItemId),{onSuccess:()=>setFeedback("Saved"),onError:setFeedback});
     });
 
   const itemsFor = (unit: string) =>
@@ -101,6 +107,22 @@ export function PlanRulesPanel({
         </select>
       </label>
 
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Segmented aria-label="Mapping status" value={filter} onChange={setFilter} options={[{value:"all",label:"All",count:MEASURE_DEFS.length},{value:"mapped",label:"Mapped",count:mapped},{value:"unmapped",label:"Unmapped",count:MEASURE_DEFS.length-mapped}]} />
+        <Button variant="secondary" size="sm" disabled={mapped === MEASURE_DEFS.length} onClick={() => {
+          const next = MEASURE_DEFS.find(m => !isMapped(m.key));
+          if (!next) return;
+          setFilter("unmapped");setGroup("All");setExpanded(e => [...new Set([...e,next.group])]);
+          requestAnimationFrame(() => {const field = document.getElementById(`rule-${next.key}`);field?.scrollIntoView({block:"center",behavior:"smooth"});field?.focus();});
+        }}>Map next unmapped</Button>
+      </div>
+      <p role="status" className="mb-3 text-meta text-ink-2">{pending ? "Saving…" : feedback}</p>
+      {groups.filter(g => g !== "All" && (group === "All" || group === g)).map(g => {
+        const measures = MEASURE_DEFS.filter(m => m.group === g && (filter === "all" || (filter === "mapped" ? isMapped(m.key) : !isMapped(m.key))));
+        if (!measures.length) return null;
+        const groupMapped = MEASURE_DEFS.filter(m => m.group === g && isMapped(m.key)).length;
+        return <details key={g} open={expanded.includes(g)} onToggle={e => {const open=e.currentTarget.open;setExpanded(old => open ? [...new Set([...old,g])] : old.filter(v => v !== g));}} className="mb-3 rounded-lg border border-rule-soft">
+        <summary className="cursor-pointer px-3 py-3 text-subheading font-semibold">{g} <span className="ml-2 text-meta font-normal text-ink-3">{groupMapped} mapped · {MEASURE_DEFS.filter(m => m.group === g).length-groupMapped} unmapped</span></summary>
       <TableWrapper>
         <Table density="compact">
           <TableHead>
@@ -117,9 +139,7 @@ export function PlanRulesPanel({
             </tr>
           </TableHead>
           <TableBody>
-            {MEASURE_DEFS.filter(
-              (m) => group === "All" || m.group === group,
-            ).map((m) => {
+            {measures.map((m) => {
               const rows = byMeasure.get(m.key) ?? [];
               const base = rows.find((r) => r.materialTag === "");
               const extras = rows.filter((r) => r.materialTag !== "");
@@ -142,7 +162,7 @@ export function PlanRulesPanel({
                   }}
                   onToggle={(id, on) =>
                     start(async () => {
-                      await runAction(() => setPlanCostRuleEnabled(id, on));
+                      await runAction(() => setPlanCostRuleEnabled(id, on),{onSuccess:()=>setFeedback("Saved"),onError:setFeedback});
                     })
                   }
                 />
@@ -150,7 +170,7 @@ export function PlanRulesPanel({
             })}
           </TableBody>
         </Table>
-      </TableWrapper>
+      </TableWrapper></details>;})}
     </div>
   );
 }
@@ -182,6 +202,8 @@ function RuleRows({
 }) {
   const select = (value: number | null, tag: string) => (
     <select
+      id={tag === "" ? `rule-${measure.key}` : undefined}
+      aria-label={`${measure.label} ${tag || "default"} cost-book item`}
       value={value ?? ""}
       disabled={pending}
       onChange={(e) =>

@@ -30,6 +30,7 @@ export function CostBookClient({ data }: { data: CostBookData }) {
     [view, setView] = useState("active"),
     [editing, setEditing] = useState<CostItem | null>(null),
     [markup, setMarkup] = useState(String(data.defaultMarkup));
+  const [feedback,setFeedback] = useState("");
   const cats = ["All", ...new Set(data.items.map((i) => i.category))].sort(
     (a, b) => (a === "All" ? -1 : b === "All" ? 1 : a.localeCompare(b)),
   );
@@ -43,7 +44,7 @@ export function CostBookClient({ data }: { data: CostBookData }) {
       await runAction(async () => {
         const result = await fn();
         return result ?? { ok: true };
-      });
+      }, {onSuccess:()=>setFeedback("Saved"),onError:setFeedback});
     });
   return (
     <div className="space-y-4">
@@ -100,6 +101,7 @@ export function CostBookClient({ data }: { data: CostBookData }) {
             Save markup
           </Button>
         )}
+        <span role="status" className="text-meta text-ink-2">{pending ? "Saving…" : feedback}</span>
         <span className="ml-auto text-meta text-ink-3">
           {visible.length} items
         </span>

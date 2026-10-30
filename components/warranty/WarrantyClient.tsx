@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import { ShieldCheck, Sparkles } from "lucide-react";
 import {
@@ -32,7 +33,7 @@ export function WarrantyClient({
 }) {
   const [pending, start] = useTransition();
   const [summary, setSummary] = useState("");
-  const [view, setView] = useState("Active claims");
+  const [view, setView] = useState(data.claims.some(c => !c.resolved) ? "Active claims" : data.projects.some(p => p.status === "unconfirmed") ? "Needs details" : "Under warranty");
   const active = data.claims.filter((c) => !c.resolved),
     resolved = data.claims.filter((c) => c.resolved);
   const shown = data.projects.filter(
@@ -89,6 +90,7 @@ export function WarrantyClient({
           />
         }
       />
+      <p className="mt-4 text-body text-ink-2">Review coverage and claims for completed jobs. Historical jobs without a recorded closeout or written terms stay in Needs details until the records are repaired.</p>
       {summary && <AiBubble className="mt-4">{summary}</AiBubble>}
       <div id="claims" className="mt-6 scroll-mt-4">
         {view.includes("claims") ? (
@@ -130,6 +132,7 @@ export function WarrantyClient({
                               : "Unconfirmed"}
                         </Chip>
                       </div>
+                      {projects.find(project => project.name === p.project) && <Link href={`/projects/${projects.find(project => project.name === p.project)!.slug}?tab=Closeout`} className="mt-2 block text-label font-normal text-accent-2 hover:underline">{p.status === "unconfirmed" ? "Record closeout & coverage" : "Review project closeout"} →</Link>}
                       <p className="mt-2 whitespace-pre-line text-body font-normal text-ink-2">
                         {p.warranty}
                       </p>

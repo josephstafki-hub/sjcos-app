@@ -143,7 +143,7 @@ export function UnsortedClient({
 
   return (
     <div className="[&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus [&_input]:focus-visible:outline-2 [&_input]:focus-visible:outline-focus [&_select]:focus-visible:outline-2 [&_select]:focus-visible:outline-focus mx-auto flex min-h-full max-w-[1240px] flex-col gap-6 px-4 py-6 @2xl/page:px-5 @5xl/page:px-8">
-      <PageHeader title="Unsorted" meta="Invoices and receipts from email, scans and texts that need a job. Choose where each goes to attach it and log the cost." actions={<Button href="/scan" variant="secondary" icon={Camera}>Scan receipt</Button>} filters={<Segmented aria-label="Unsorted views" className="max-sm:h-12 [&_button]:max-sm:h-11" value={tab} onChange={t => setTab(t as "sort" | "filed")} options={[{value:"sort",label:"To sort",count:pending || undefined},{value:"filed",label:"Filed lately"}]} />} />
+      <PageHeader title="Unsorted" meta={<span className="block whitespace-normal break-words">Invoices and receipts from email, scans and texts that need a job. Choose where each goes to attach it and log the cost.</span>} actions={<Button href="/scan" variant="secondary" icon={Camera}>Scan receipt</Button>} filters={<Segmented aria-label="Unsorted views" className="max-sm:h-12 [&_button]:max-sm:h-11" value={tab} onChange={t => setTab(t as "sort" | "filed")} options={[{value:"sort",label:"To sort",count:pending || undefined},{value:"filed",label:"Filed lately"}]} />} />
 
       {last && tab === "sort" && (
         <div className="flex items-center gap-2 rounded-lg border border-rule bg-money-soft px-3 py-2 text-body text-ink">
@@ -198,12 +198,15 @@ export function UnsortedClient({
             ))}
           </Card>
 
-          <div className="order-3 flex min-w-0 flex-col gap-3 @4xl/page:order-none">
+          <details className="order-3 min-w-0 @4xl/page:order-none">
+            <summary className="cursor-pointer py-3 text-label text-accent-2">Document facts & preview</summary>
+            <div className="space-y-3">
             {(selected.extracted || selected.extract_state) && (
               <ReceiptFacts key={`f${selected.id}`} doc={selected} byslug={byslug} busy={busy} onReread={() => reread(selected.id)} />
             )}
             <DocPreview key={`p${selected.id}`} doc={selected} files={files} />
-          </div>
+            </div>
+          </details>
           <SortPanel key={`s${selected.id}`} doc={selected} projects={projects} byslug={byslug} busy={busy} onFile={file} onNote={note} />
         </div>
         </div>
@@ -603,6 +606,7 @@ function SortPanel({
 
       <Card className="flex flex-col gap-2 p-3.5">
         <div className="tabular-nums text-meta text-ink-3">Where does it go?</div>
+        <p className="text-meta text-ink-2">Choose a destination below to file this document.</p>
         {suggestions.map((s, i) => (
           <button
             key={s.project_slug}
@@ -612,7 +616,7 @@ function SortPanel({
           >
             <kbd className="mt-0.5 grid size-5 flex-none place-items-center rounded border border-rule bg-paper-2 tabular-nums text-meta text-ink-3">{i + 1}</kbd>
             <span className="min-w-0 flex-1">
-              <span className="block break-words text-subheading font-semibold text-ink">{s.project!.name}</span>
+              <span className="block break-words text-subheading font-semibold text-ink">File to {s.project!.name}</span>
               <span className="block text-meta leading-snug text-ink-3">{s.reason || s.project!.client_name}</span>
             </span>
           </button>
@@ -624,7 +628,7 @@ function SortPanel({
         >
           <kbd className="grid size-5 flex-none place-items-center rounded border border-rule bg-paper-2 tabular-nums text-meta text-ink-3">O</kbd>
           <Building2 className="size-3.5 flex-none text-ink-3" />
-          <span className="flex-1 text-body font-semibold text-ink">Overhead</span>
+          <span className="flex-1 text-body font-semibold text-ink">File as overhead</span>
           <span className="text-meta text-ink-3">company, not a job</span>
         </button>
 
@@ -684,8 +688,8 @@ function SortPanel({
         </div>
       </Card>
 
-      <Card className="flex flex-col gap-2 p-3.5 text-body">
-        <div className="tabular-nums text-meta text-ink-3">Details</div>
+      <details className="rounded-lg border border-rule-soft bg-card p-3.5 text-body">
+        <summary className="cursor-pointer text-label text-accent-2">Edit filing details</summary>
         <div className="grid grid-cols-[70px_1fr] items-center gap-x-2 gap-y-1.5">
           <label className="text-ink-3" htmlFor="u-kind">Type</label>
           <select
@@ -732,7 +736,7 @@ function SortPanel({
             <Button variant="ghost" onClick={dismiss} disabled={busy} className="h-auto min-h-9 w-full justify-start whitespace-normal py-2 text-left text-flag">Not a business cost — set it aside</Button>
           </div>
         </details>
-      </Card>
+      </details>
     </div>
   );
 }

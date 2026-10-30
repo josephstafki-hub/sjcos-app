@@ -40,6 +40,7 @@ function uploadRefusal(r: Extract<ReceiveResult, { ok: false }>, expires: string
 
 function revalidateSub(slug: string) {
   revalidatePath("/sub-portal");
+  revalidatePath("/subs");
   revalidatePath(`/subs/${slug}`);
   revalidatePath("/today");
   revalidatePath("/engine");

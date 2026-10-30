@@ -3,6 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Search, Star } from "lucide-react";
 import {
+  Button,
   Chip,
   Segmented,
   EmptyState,
@@ -15,15 +16,18 @@ import {
   TablePrimaryCell,
   TableCell,
 } from "@/components/ui";
+import { CoiUpload } from "./CoiUpload";
 import type { SubsData } from "@/lib/subs";
 export function SubsClient({ data }: { data: SubsData }) {
   const [trade, setTrade] = useState("All"),
     [view, setView] = useState("active"),
     [q, setQ] = useState("");
+  const [missingCoi, setMissingCoi] = useState(false);
   const subs = data.subs.filter(
     (s) =>
       s.archived === (view === "archived") &&
       (trade === "All" || s.tradeKey === trade) &&
+      (!missingCoi || s.coiStatus === "missing") &&
       `${s.name} ${s.trade}`.toLowerCase().includes(q.toLowerCase()),
   );
   return (
@@ -72,6 +76,7 @@ export function SubsClient({ data }: { data: SubsData }) {
             ))}
           </select>
         </label>
+        <Button variant={missingCoi ? "primary" : "secondary"} size="sm" aria-pressed={missingCoi} onClick={() => setMissingCoi(!missingCoi)}>Missing COI</Button>
         <span className="self-center text-meta text-ink-3">
           {subs.length} shown
         </span>
@@ -136,6 +141,8 @@ export function SubsClient({ data }: { data: SubsData }) {
                           ? "COI expired"
                           : "COI missing"}
                   </Chip>
+                  {s.coiStatus !== "current" && <Link href={`/subs/${s.slug}?tab=Paperwork`} className="mt-2 block text-label text-accent-2 hover:underline">Review COI paperwork →</Link>}
+                  <CoiUpload slug={s.slug} />
                 </TableCell>
                 <TableCell className="@max-3xl/page:hidden">
                   {s.rate || "—"}

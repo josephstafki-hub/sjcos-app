@@ -117,7 +117,7 @@ export function CatalogClient({ data }: { data: CatalogData }) {
                 /* eslint-disable-next-line @next/next/no-img-element */ <img
                   loading="lazy"
                   src={`/api/files/${m.imageId}?w=320`}
-                  alt={m.name}
+                  alt={/touch.?up|finish reference/i.test(`${m.name} ${m.description}`) ? `Finish reference for ${m.name}` : m.name}
                   className="aspect-[4/3] w-full bg-paper-2 object-cover"
                 />
               ) : (
@@ -126,6 +126,7 @@ export function CatalogClient({ data }: { data: CatalogData }) {
                   <span className="sr-only">No product image</span>
                 </div>
               )}
+              {m.imageId && /touch.?up|finish reference/i.test(`${m.name} ${m.description}`) && <p className="bg-paper-2 px-3 py-1 text-meta text-ink-2">Finish reference · shown on cabinetry</p>}
             </div>
             <div className="absolute right-2 top-2">
               <details className="relative">

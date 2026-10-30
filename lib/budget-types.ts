@@ -279,6 +279,8 @@ export interface BudgetView {
   /** How the job total and paid figures are made up (the same figures the
    *  projects list shows). Absent only on fixtures. */
   jobMoney?: JobMoney;
+  /** Next unbilled milestone from the formal estimate in effect. */
+  nextDraw?: { label: string; amountCents: number } | null;
   completeness: BudgetCompleteness;
   retainageCents?: number;
   notes?: string[];

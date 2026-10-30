@@ -50,18 +50,18 @@ export function HeadlineStrip({
       <div className="grid grid-cols-1 gap-4 @3xl:grid-cols-[minmax(0,15rem)_minmax(0,1fr)]">
         {/* Hero: exactly one. Words, never $0, when profit isn't known. */}
         <div className="min-w-0">
-          <div className="text-[12px] text-ink-3">
+          <div className="text-label text-ink-3">
             {c.profit === "projected" ? "Projected profit" : c.profit === "planned" ? "Planned profit" : "Profit"}
           </div>
           {profit != null ? (
             <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-              <span className={`font-serif text-[38px] leading-none ${loss ? "text-flag" : "text-ink"}`}>{loss ? `−${fmtK(-profit)}` : fmtK(profit)}</span>
+              <span className={`font-serif text-kpi leading-none ${loss ? "text-flag" : "text-ink"}`}>{loss ? `−${fmtK(-profit)}` : fmtK(profit)}</span>
               <Chip kind={marginKind}>{loss ? "loss" : `${fmtPct(margin)} margin`}</Chip>
             </div>
           ) : (
-            <div className="mt-1 font-serif text-[26px] leading-tight text-ink-2">Not known yet</div>
+            <div className="mt-1 font-serif text-kpi leading-tight text-ink-2">Not known yet</div>
           )}
-          <div className="mt-1.5 text-[11.5px] leading-snug text-ink-3">
+          <div className="mt-1.5 text-meta leading-snug text-ink-3">
             {c.profit === "projected" && t.plannedProfitCents != null && `the plan was ${fmtK(t.plannedProfitCents)}`}
             {c.profit === "planned" && "the plan — no costs entered yet"}
             {unknown && (view.lines.length
@@ -82,13 +82,13 @@ export function HeadlineStrip({
       </div>
 
       {/* One thought per line: profit, progress, cash, problems. Easier to scan than a block. */}
-      <div className="mt-3.5 flex flex-col gap-1.5 text-[13px] leading-snug text-ink-2">
+      <div className="mt-3.5 flex flex-col gap-1.5 text-body leading-snug text-ink-2">
         {sentences.map((s) => <p key={s}>{s}</p>)}
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-1.5">
         {chips.map((label, i) => <Chip key={label} kind={i === 0 && !unknown ? "info" : "ghost"}>{label}</Chip>)}
-        <span className="ml-1 font-mono text-[10px] text-ink-4">as of {view.asOfLabel}</span>
+        <span className="ml-1 tabular-nums text-meta text-ink-3">as of {view.asOfLabel}</span>
         <span className="flex-1" />
         {unknown && canAdopt && (
           <button type="button" disabled={pending} onClick={onAdopt} className={BTN_PRIMARY}>Use estimate as budget</button>

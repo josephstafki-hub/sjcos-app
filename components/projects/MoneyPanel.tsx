@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Plus, X, DollarSign, Pencil, Trash2, Sparkles, FileText } from "lucide-react";
+import { ActionMenu } from "./ActionMenu";
+
+import { Fragment, useState, useTransition } from "react";
+import { Plus, X, DollarSign, Pencil, Sparkles, FileText } from "lucide-react";
 import { runAction } from "@/lib/run-action";
-import { Card, Chip, Eyebrow } from "@/components/ui";
+import { Button, Chip, EmptyState, Table, TableWrapper, TableHead, TableBody, TableHeader, TableRow, TableCell, TablePrimaryCell } from "@/components/ui";
 import type { ChipKind } from "@/components/ui/Chip";
 import type { ProjectMoney, InvoiceStatus, Invoice, InvoiceLine, ManualPaymentView } from "@/lib/money";
 import {
@@ -36,9 +38,8 @@ const STATUS_CHIP: Record<InvoiceStatus, ChipKind> = {
 
 type Result = { ok: boolean; error?: string };
 
-/** Project Money tab — invoice list (edit draft / send / mark paid / delete
- *  draft), a paid/outstanding totals rail, and a New-invoice modal (Qwen
- *  drafts the line items, or start blank and fill them in). */
+/** Invoice ledger with draft editing, partial payments and payment history.
+ *  The same controls are available in table and narrow stacked layouts. */
 export function MoneyPanel({ slug, money }: { slug: string; money: ProjectMoney }) {
   const [pending, startTransition] = useTransition();
   const [modal, setModal] = useState(false);
@@ -55,182 +56,56 @@ export function MoneyPanel({ slug, money }: { slug: string; money: ProjectMoney 
     });
   }
 
-  // minmax(0,1fr), not 1fr: a raw 1fr track's minimum is its content's min-content
-  // width, so one long nowrap invoice line blows the whole column past the viewport.
+  const invoiceActions = (inv: Invoice) => (
+    <div className="flex flex-wrap justify-end gap-1">
+              {inv.lines.length > 0 && <Button variant="ghost" icon={FileText} iconOnly aria-label={`Preview ${inv.number}`} title="Preview PDF — what the client receives" href={`/api/projects/${slug}/invoices/${inv.id}/preview`} target="_blank" rel="noreferrer" />}
+              {inv.status === "draft" && <Button variant="ghost" icon={Pencil} iconOnly aria-label={`Edit ${inv.number}`} title="Edit line items" onClick={() => setEditing(inv)} />}
+              {(inv.status === "draft" || unsent(inv)) && <Button size="sm" variant="secondary" disabled={pending} title={inv.deliveryError ?? undefined} onClick={() => run(() => sendInvoice(inv.id))}>{inv.deliveryState === "failed" ? "Resend" : "Send"}</Button>}
+              {(inv.status === "sent" || inv.status === "draft") && <Button size="sm" variant="secondary" disabled={pending} onClick={() => setRecording(inv)}>Record payment</Button>}
+              {inv.status === "draft" && <ActionMenu label={`More actions for ${inv.number}`}><Button variant="ghost" className="text-flag" disabled={pending} onClick={() => run(() => deleteInvoice(inv.id))}>Delete draft</Button></ActionMenu>}
+            </div>
+  );
+  const invoiceDetails = (inv: Invoice) => (
+    <details className="py-2"><summary className="cursor-pointer text-meta text-ink-3">Line items & payments</summary><div className="space-y-2 py-3">
+            {inv.lines.map((line,i) => <div key={i} className="flex justify-between gap-4 text-meta"><span className="text-ink-2">{line.label}</span><span className="tabular-nums">{fmt(line.amount)}</span></div>)}
+            {(inv.manualPayments ?? []).map(payment => <div key={payment.id} className="flex flex-wrap items-center gap-2 border-t border-rule-soft pt-2 text-meta text-ink-3"><span>{payment.receivedAt} · {payment.method} · {fmt(payment.amount)}{payment.reversed ? " · Undone" : " received"}</span>{payment.note && <span>{payment.note}</span>}{!payment.reversed && <Button size="sm" variant="ghost" disabled={pending} onClick={() => setUndoing({invoice:inv,payment})}>Undo payment</Button>}</div>)}
+          </div></details>
+  );
+
   return (
-    <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[minmax(0,1fr)_300px]">
-      {/* Invoices */}
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center">
-          <h3 className="flex-1 font-serif text-[16px] font-semibold text-ink">Invoices</h3>
-          <button
-            onClick={() => setModal(true)}
-            className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
-          >
-            <Plus className="size-3" strokeWidth={1.5} />
-            New invoice
-          </button>
-        </div>
-
-        {money.invoices.length === 0 ? (
-          <Card kind="dashed" className="p-8 text-center">
-            <div className="text-[13px] text-ink-3">No invoices yet. Create one to draft line items.</div>
-          </Card>
-        ) : (
-          <Card className="overflow-hidden p-0">
-            {money.invoices.map((inv, i) => (
-              <div key={inv.id} className={i ? "border-t border-rule-soft" : ""}>
-                {/* Wrapping row: when the column is narrow (phone, operator panel
-                    open) the amount/status/actions group drops to its own line
-                    instead of colliding with the milestone or clipping. */}
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 pt-3">
-                  <span className="w-[64px] flex-none font-mono text-[11px] text-ink-3">{inv.number}</span>
-                  <div className="min-w-0 flex-1 basis-[140px]">
-                    <div className="truncate text-[13px] text-ink">{inv.milestone}</div>
-                    <div className="font-mono text-[10px] text-ink-3">{inv.statusLabel}</div>
-                  </div>
-                  <div className="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-1.5">
-                    <span className="font-mono text-[12px] text-ink-2">{fmt(inv.amount)}</span>
-                    {unsent(inv) ? (
-                      <Chip kind="flag" dot>
-                        not sent
-                      </Chip>
-                    ) : (
-                      <Chip kind={STATUS_CHIP[inv.status]} dot>
-                        {inv.status}
-                      </Chip>
-                    )}
-                    <div className="flex items-center justify-end gap-1.5">
-                      {inv.lines.length > 0 && (
-                        <a
-                          href={`/api/projects/${slug}/invoices/${inv.id}/preview`}
-                          target="_blank"
-                          rel="noreferrer"
-                          title="Preview PDF — what the client receives"
-                          className="rounded-md border border-rule p-1 text-ink-3 hover:bg-paper-2 hover:text-ink"
-                        >
-                          <FileText className="size-3" strokeWidth={1.75} />
-                        </a>
-                      )}
-                      {inv.status === "draft" && (
-                        <>
-                          <button
-                            onClick={() => setEditing(inv)}
-                            title="Edit line items"
-                            className="rounded-md border border-rule p-1 text-ink-3 hover:bg-paper-2 hover:text-ink"
-                          >
-                            <Pencil className="size-3" strokeWidth={1.75} />
-                          </button>
-                          <button
-                            disabled={pending}
-                            onClick={() => run(() => deleteInvoice(inv.id))}
-                            title="Delete draft"
-                            className="rounded-md border border-rule p-1 text-ink-3 hover:bg-paper-2 hover:text-flag disabled:opacity-50"
-                          >
-                            <Trash2 className="size-3" strokeWidth={1.75} />
-                          </button>
-                          <button
-                            disabled={pending}
-                            onClick={() => run(() => sendInvoice(inv.id))}
-                            className="rounded-md border border-accent bg-accent-soft px-2 py-1 text-[11px] font-semibold text-accent-2 hover:bg-accent-soft/70 disabled:opacity-50"
-                          >
-                            Send
-                          </button>
-                        </>
-                      )}
-                      {unsent(inv) && (
-                        <button
-                          disabled={pending}
-                          onClick={() => run(() => sendInvoice(inv.id))}
-                          title={inv.deliveryError ?? "Issued but never emailed to the client"}
-                          className="rounded-md border border-accent bg-accent-soft px-2 py-1 text-[11px] font-semibold text-accent-2 hover:bg-accent-soft/70 disabled:opacity-50"
-                        >
-                          {inv.deliveryState === "failed" ? "Resend" : "Send"}
-                        </button>
-                      )}
-                      {/* Drafts too: a deposit paid by check before the invoice
-                          was ever emailed (or a job with no client email on
-                          file) still needs to land as paid. */}
-                      {(inv.status === "sent" || inv.status === "draft") && (
-                        <button
-                          disabled={pending}
-                          onClick={() => setRecording(inv)}
-                          className="rounded-md border border-money/40 bg-money/10 px-2 py-1 text-[11px] font-semibold text-money hover:bg-money/20 disabled:opacity-50"
-                        >
-                          Record payment
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                {/* read-only line breakdown */}
-                {inv.lines.length > 0 && (
-                  <div className="flex flex-col gap-0.5 px-4 pb-1.5 pl-[80px] pt-1.5">
-                    {inv.lines.map((l, k) => (
-                      <div key={k} className="flex items-center gap-2 text-[11px]">
-                        <span className="min-w-0 flex-1 truncate text-ink-3">{l.label}</span>
-                        <span className="font-mono text-ink-3">{fmt(l.amount)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {(inv.manualPayments ?? []).length > 0 && (
-                  <div className="space-y-1 px-4 py-2">
-                    {(inv.manualPayments ?? []).map(payment => (
-                      <div key={payment.id} className="flex flex-wrap items-center gap-2 text-[11px] text-ink-3">
-                        <span>{payment.receivedAt} · {payment.method} · {fmt(payment.amount)}{payment.reversed ? " · Undone" : " received"}</span>
-                        {payment.note && <span>{payment.note}</span>}
-                        {!payment.reversed && <button disabled={pending} onClick={() => setUndoing({ invoice: inv, payment })}
-                          className="rounded border border-rule px-2 py-1 text-ink hover:bg-paper-2 disabled:opacity-50">Undo payment</button>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {/* Collections — overdue sent invoices with money owed and nothing in flight (P4-7) */}
-                {inv.status === "sent" && !unsent(inv) && inv.pending === 0 && inv.balance > 0 && inv.daysOverdue !== null && inv.daysOverdue >= 15 && (
-                  <div className="flex flex-wrap items-center gap-2 px-4 pb-3 pl-[80px] pt-1">
-                    <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-flag">
-                      {inv.daysOverdue}d overdue
-                    </span>
-                    <button
-                      disabled={pending}
-                      onClick={() => run(() => generateDemandLetter(inv.id, true))}
-                      className="rounded-md border border-flag/40 bg-flag/10 px-2 py-0.5 text-[11px] font-semibold text-flag hover:bg-flag/20 disabled:opacity-50"
-                    >
-                      Demand letter
-                    </button>
-                    {inv.daysOverdue >= 30 && (
-                      <button
-                        disabled={pending}
-                        onClick={() => run(() => generateLienPackage(inv.id))}
-                        className="rounded-md border border-flag/40 bg-flag/10 px-2 py-0.5 text-[11px] font-semibold text-flag hover:bg-flag/20 disabled:opacity-50"
-                      >
-                        Lien package (draft)
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
-          </Card>
-        )}
+    <div className="space-y-4 max-sm:[&_button]:min-h-11 max-sm:[&_button]:min-w-11">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div><h3 className="font-serif text-heading font-semibold text-ink">Invoices</h3><p className="mt-1 text-meta text-ink-3">{fmt(money.paidTotal)} paid on invoices · {fmt(money.outstanding)} outstanding{money.pendingTotal > 0 ? ` · ${fmt(money.pendingTotal)} in flight` : ""}</p></div>
+        <Button icon={Plus} onClick={() => setModal(true)}>New invoice</Button>
       </div>
-
-      {/* Billed totals — derived from the invoices themselves (P1-B7 retired the
-          retainer ledger; SJC bills fixed-price draws, not against a balance). */}
-      <Card className="h-fit p-3.5">
-        <Eyebrow muted>Billed</Eyebrow>
-        <div className="mt-2 flex flex-col gap-1.5">
-          <Row label="Paid" value={fmt(money.paidTotal)} valueClass="text-money" />
-          <Row label="Outstanding" value={fmt(money.outstanding)} />
-          <div className="mt-0.5 flex items-center border-t border-rule-soft pt-1.5">
-            <span className="flex-1 text-[12px] font-semibold text-ink">Billed to date</span>
-            <span className="font-mono text-[13px] font-semibold text-accent-2">
-              {fmt(money.paidTotal + money.outstanding)}
-            </span>
-          </div>
+      {money.invoices.length === 0 ? <EmptyState icon={FileText} title="No invoices yet" description="Create an invoice to bill a milestone and track its payments here." /> : (
+        <>
+        <div className="divide-y divide-rule-soft rounded-lg border border-rule-soft bg-card @xl/page:hidden">
+          {money.invoices.map(inv => <div key={inv.id} className="space-y-3 p-3">
+            <div className="text-subheading font-semibold text-ink">{inv.milestone}</div>
+            <div className="flex flex-wrap items-center justify-between gap-2"><div><span className="font-mono text-meta text-ink-3">{inv.number}</span><span className="ml-2"><Chip kind={unsent(inv) ? "flag" : STATUS_CHIP[inv.status]}>{unsent(inv) ? "Not sent" : inv.status[0].toUpperCase() + inv.status.slice(1)}</Chip></span></div><span className="text-body font-semibold tabular-nums">{fmt(inv.amount)}</span></div>
+            {inv.balance > 0 && inv.balance !== inv.amount && <div className="text-right text-meta text-ink-3">{fmt(inv.balance)} open</div>}
+            <div className="text-meta text-ink-3">{inv.statusLabel}</div>
+            {invoiceActions(inv)}
+            {(inv.lines.length > 0 || (inv.manualPayments ?? []).length > 0) && invoiceDetails(inv)}
+            {inv.status === "sent" && !unsent(inv) && inv.pending === 0 && inv.balance > 0 && inv.daysOverdue !== null && inv.daysOverdue >= 15 && <div className="flex flex-wrap items-center gap-2"><span className="text-meta text-flag">{inv.daysOverdue} days overdue</span><Button size="sm" variant="secondary" disabled={pending} onClick={() => run(() => generateDemandLetter(inv.id,true))}>Demand letter</Button>{inv.daysOverdue >= 30 && <Button size="sm" variant="secondary" disabled={pending} onClick={() => run(() => generateLienPackage(inv.id))}>Lien package</Button>}</div>}
+          </div>)}
+          <div className="flex items-center justify-between gap-3 p-3 text-body font-semibold"><span>Invoice total</span><span className="tabular-nums">{fmt(money.invoices.reduce((sum,inv) => sum + inv.amount,0))}</span></div>
         </div>
-      </Card>
+        <TableWrapper className="@max-xl/page:hidden"><Table density="compact">
+          <TableHead><TableRow><TableHeader>Invoice</TableHeader><TableHeader numeric>Amount</TableHeader><TableHeader><span className="sr-only">Actions</span></TableHeader></TableRow></TableHead>
+          <TableBody>{money.invoices.map(inv => <Fragment key={inv.id}><TableRow>
+            <TablePrimaryCell meta={<><span className="font-mono">{inv.number}</span> · {inv.statusLabel}</>}>{inv.milestone}<span className="mt-1 block"><Chip kind={unsent(inv) ? "flag" : STATUS_CHIP[inv.status]}>{unsent(inv) ? "Not sent" : inv.status[0].toUpperCase() + inv.status.slice(1)}</Chip></span></TablePrimaryCell>
+            <TableCell numeric className="whitespace-nowrap">{fmt(inv.amount)}{inv.balance > 0 && inv.balance !== inv.amount && <div className="text-meta text-ink-3">{fmt(inv.balance)} open</div>}</TableCell>
+            <TableCell>{invoiceActions(inv)}</TableCell>
+          </TableRow>
+          {(inv.lines.length > 0 || (inv.manualPayments ?? []).length > 0) && <TableRow><TableCell colSpan={3} className="!py-0">{invoiceDetails(inv)}</TableCell></TableRow>}
+          {inv.status === "sent" && !unsent(inv) && inv.pending === 0 && inv.balance > 0 && inv.daysOverdue !== null && inv.daysOverdue >= 15 && <TableRow><TableCell colSpan={3}><div className="flex flex-wrap items-center gap-2"><span className="text-meta text-flag">{inv.daysOverdue} days overdue</span><Button size="sm" variant="secondary" disabled={pending} onClick={() => run(() => generateDemandLetter(inv.id,true))}>Demand letter</Button>{inv.daysOverdue >= 30 && <Button size="sm" variant="secondary" disabled={pending} onClick={() => run(() => generateLienPackage(inv.id))}>Lien package</Button>}</div></TableCell></TableRow>}
+          </Fragment>)}</TableBody>
+          <tfoot><TableRow><TableCell className="font-semibold">Invoice total</TableCell><TableCell numeric className="font-semibold">{fmt(money.invoices.reduce((sum,inv) => sum + inv.amount,0))}</TableCell><TableCell /></TableRow></tfoot>
+        </Table></TableWrapper>
+        </>
+      )}
 
       {modal && (
         <NewInvoiceModal
@@ -276,14 +151,14 @@ function PaymentModal({ invoice, pending, onClose, onSave }: {
   const [note, setNote] = useState("");
   return <ModalShell title={`Record payment · ${invoice.number}`} onClose={onClose}>
     <form className="flex flex-col gap-3 p-4" onSubmit={e => { e.preventDefault(); onSave({ amountCents: dollarsToCents(amount), method, receivedAt: date, note }); }}>
-      <p className="text-[12px] text-ink-2">{fmt(open)} open. Enter the amount actually received; partial payments leave the rest open.</p>
-      {invoice.lifecycle === "draft" && <p className="text-[12px] text-ink-3">This records a payment received outside the app and issues this draft invoice. Nothing is emailed.</p>}
+      <p className="text-label text-ink-2">{fmt(open)} open. Enter the amount actually received; partial payments leave the rest open.</p>
+      {invoice.lifecycle === "draft" && <p className="text-label text-ink-3">This records a payment received outside the app and issues this draft invoice. Nothing is emailed.</p>}
       <label className="flex flex-col gap-1"><span className={LABEL}>Amount received ($)</span><input className={FIELD} type="number" step="0.01" min="0.01" max={open / 100} value={amount} onChange={e => setAmount(e.target.value)} required autoFocus /></label>
       <label className="flex flex-col gap-1"><span className={LABEL}>Date received</span><input className={FIELD} type="date" value={date} onChange={e => setDate(e.target.value)} required /></label>
       <label className="flex flex-col gap-1"><span className={LABEL}>Method</span><select className={FIELD} value={method} onChange={e => setMethod(e.target.value)}><option value="check">Check</option><option value="cash">Cash</option><option value="ach">Bank transfer</option><option value="card">Card received outside the app</option><option value="manual">Other</option></select></label>
       <label className="flex flex-col gap-1"><span className={LABEL}>Reference / note</span><input className={FIELD} value={note} onChange={e => setNote(e.target.value)} placeholder="Check number or payment reference" /></label>
-      <div className="flex justify-end gap-2"><button type="button" className={FIELD} onClick={onClose}>Cancel</button><button disabled={pending || invoice.pending > 0} className="rounded-md bg-ink px-3 py-1.5 text-[12px] text-paper disabled:opacity-50">{pending ? "Recording…" : "Record payment"}</button></div>
-      {invoice.pending > 0 && <p role="status" className="text-[12px] text-flag">An online payment is in flight. Wait for it to settle before recording another.</p>}
+      <div className="flex justify-end gap-2"><button type="button" className={FIELD} onClick={onClose}>Cancel</button><button disabled={pending || invoice.pending > 0} className="rounded-md bg-ink px-3 py-1.5 text-label text-paper disabled:opacity-50">{pending ? "Recording…" : "Record payment"}</button></div>
+      {invoice.pending > 0 && <p role="status" className="text-label text-flag">An online payment is in flight. Wait for it to settle before recording another.</p>}
     </form>
   </ModalShell>;
 }
@@ -292,31 +167,23 @@ function UndoPaymentModal({ payment, pending, onClose, onUndo }: { payment: Manu
   const [reason, setReason] = useState("");
   return <ModalShell title="Undo manual payment" onClose={onClose}>
     <form className="flex flex-col gap-3 p-4" onSubmit={e => { e.preventDefault(); onUndo(reason); }}>
-      <p className="text-[12px] text-ink-2">Undo the {fmt(payment.amount)} {payment.method} entry from {payment.receivedAt}. The original stays in the history, and the invoice balance reopens. This corrects the record; no money is transferred.</p>
+      <p className="text-label text-ink-2">Undo the {fmt(payment.amount)} {payment.method} entry from {payment.receivedAt}. The original stays in the history, and the invoice balance reopens. This corrects the record; no money is transferred.</p>
       <label className="flex flex-col gap-1"><span className={LABEL}>Reason</span><input autoFocus required minLength={3} value={reason} onChange={e => setReason(e.target.value)} className={FIELD} /></label>
-      <div className="flex justify-end gap-2"><button type="button" className={FIELD} onClick={onClose}>Cancel</button><button disabled={pending || reason.trim().length < 3} className="rounded-md bg-ink px-3 py-1.5 text-[12px] text-paper disabled:opacity-50">{pending ? "Undoing…" : "Undo payment"}</button></div>
+      <div className="flex justify-end gap-2"><button type="button" className={FIELD} onClick={onClose}>Cancel</button><button disabled={pending || reason.trim().length < 3} className="rounded-md bg-ink px-3 py-1.5 text-label text-paper disabled:opacity-50">{pending ? "Undoing…" : "Undo payment"}</button></div>
     </form>
   </ModalShell>;
 }
 
-function Row({ label, value, valueClass = "text-ink-2" }: { label: string; value: string; valueClass?: string }) {
-  return (
-    <div className="flex items-center">
-      <span className="flex-1 text-[12px] text-ink-2">{label}</span>
-      <span className={`font-mono text-[12px] ${valueClass}`}>{value}</span>
-    </div>
-  );
-}
 
-const FIELD = "rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent";
-const LABEL = "font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3";
+const FIELD = "rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent";
+const LABEL = "text-label font-medium text-ink-3";
 
 function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink/30 p-4 pt-[10vh]" onClick={onClose}>
-      <div className="w-full max-w-[480px] rounded-lg border border-rule bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" aria-label={title} className="max-h-[85dvh] overflow-y-auto w-full max-w-[480px] rounded-lg border border-rule bg-card shadow-modal" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-rule px-4 py-3">
-          <h2 className="font-serif text-[17px] font-semibold text-ink">{title}</h2>
+          <h2 className="font-serif text-heading font-semibold text-ink">{title}</h2>
           <button onClick={onClose} className="text-ink-3 hover:text-ink" aria-label="Close">
             <X className="size-4" strokeWidth={1.5} />
           </button>
@@ -357,7 +224,7 @@ function NewInvoiceModal({
         </label>
         <div className="mt-1 flex items-center justify-end gap-2">
           {pending && (
-            <span className="mr-auto inline-flex items-center gap-1 text-[11px] text-ai-2">
+            <span className="mr-auto inline-flex items-center gap-1 text-meta text-ai-2">
               <DollarSign className="size-3 animate-pulse" strokeWidth={1.75} />
               Drafting line items…
             </span>
@@ -365,7 +232,7 @@ function NewInvoiceModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2"
+            className="rounded-md border border-rule px-3 py-1.5 text-label font-semibold text-ink-3 hover:bg-paper-2"
           >
             Cancel
           </button>
@@ -373,7 +240,7 @@ function NewInvoiceModal({
             type="button"
             disabled={pending}
             onClick={() => onCreate(milestone, notes, "blank")}
-            className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50"
+            className="rounded-md border border-rule px-3 py-1.5 text-label font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50"
           >
             Start blank
           </button>
@@ -381,7 +248,7 @@ function NewInvoiceModal({
             type="button"
             disabled={pending}
             onClick={() => onCreate(milestone, notes, "ai")}
-            className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-3 py-1.5 text-label font-semibold text-paper hover:bg-ink-hover disabled:opacity-50"
           >
             <Sparkles className="size-3" strokeWidth={1.75} />
             Draft with AI
@@ -474,7 +341,7 @@ function EditInvoiceModal({
           <button
             type="button"
             onClick={addLine}
-            className="mt-0.5 inline-flex w-fit items-center gap-1 rounded-md border border-rule px-2 py-1 text-[11px] font-semibold text-ink-2 hover:bg-paper-2"
+            className="mt-0.5 inline-flex w-fit items-center gap-1 rounded-md border border-rule px-2 py-1 text-meta font-semibold text-ink-2 hover:bg-paper-2"
           >
             <Plus className="size-3" strokeWidth={1.75} />
             Add line
@@ -482,15 +349,15 @@ function EditInvoiceModal({
         </div>
 
         <div className="flex items-center border-t border-rule-soft pt-2">
-          <span className="flex-1 text-[12px] font-semibold text-ink">Total</span>
-          <span className="font-mono text-[14px] font-semibold text-accent-2">{fmt(total)}</span>
+          <span className="flex-1 text-label font-semibold text-ink">Total</span>
+          <span className="tabular-nums text-subheading font-semibold text-accent-2">{fmt(total)}</span>
         </div>
 
         <div className="mt-1 flex items-center justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2"
+            className="rounded-md border border-rule px-3 py-1.5 text-label font-semibold text-ink-3 hover:bg-paper-2"
           >
             Cancel
           </button>
@@ -498,7 +365,7 @@ function EditInvoiceModal({
             type="button"
             disabled={pending}
             onClick={save}
-            className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
+            className="rounded-md border border-ink bg-ink px-3 py-1.5 text-label font-semibold text-paper hover:bg-ink-hover disabled:opacity-50"
           >
             Save
           </button>

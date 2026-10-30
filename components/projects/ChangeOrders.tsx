@@ -1,21 +1,18 @@
 "use client";
 
-import { useState, useTransition, type FormEvent } from "react";
+import { FinancialTable } from "./FinancialTable";
+import { ActionMenu } from "./ActionMenu";
+import { Fragment, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { FileEdit, Plus, X, Check, Clock, Ban, Sparkles, Trash2 } from "lucide-react";
-import { Card, Chip } from "@/components/ui";
-import { CO_STATUS_LABEL, CO_STATUS_KIND, type CoStatus, type ChangeOrderView } from "@/lib/co-types";
+import { FileEdit, Plus, X, Sparkles } from "lucide-react";
+import { Button, Card, TableWrapper, TableHead, TableBody, TableHeader, TableRow, TableCell, TablePrimaryCell, TableGroupRow } from "@/components/ui";
+import { fmtUsd } from "@/lib/cost-book-units";
+import { CO_STATUS_LABEL, type ChangeOrderView } from "@/lib/co-types";
 import { WHERE, type ScopeChangeContext } from "@/lib/estimate-kinds";
 import { createChangeOrder, draftChangeOrder, sendChangeOrder, deleteChangeOrder } from "@/lib/actions/change-orders";
 import { runAction } from "@/lib/run-action";
 import { TabLink } from "./TabNav";
 
-function StatusIcon({ status }: { status: CoStatus }) {
-  if (status === "approved") return <Check className="size-3.5 text-money" strokeWidth={2} />;
-  if (status === "declined") return <Ban className="size-3.5 text-ink-3" strokeWidth={1.75} />;
-  if (status === "sent") return <Clock className="size-3.5 text-accent" strokeWidth={1.75} />;
-  return <FileEdit className="size-3.5 text-ink-3" strokeWidth={1.75} />;
-}
 
 /** Money tab · "Change orders" section. Draft a CO (optional AI scope draft),
  *  send it for the client to e-sign in the portal, track its status.
@@ -89,12 +86,12 @@ export function ChangeOrders({ slug, orders, phase }: { slug: string; orders: Ch
   }
 
   const inputCls =
-    "w-full rounded-md border border-rule bg-card px-2.5 py-1.5 text-[13px] text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none";
+    "w-full rounded-md border border-rule bg-card px-2.5 py-1.5 text-body text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none";
 
   return (
     <div className="max-w-[760px] space-y-4">
       <div className="flex items-center justify-between">
-        <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
+        <div className="text-label font-medium text-ink-3">
           {orders.length} change order{orders.length === 1 ? "" : "s"} ·{" "}
           {orders.filter((o) => o.status === "sent").length} awaiting signature
         </div>
@@ -102,7 +99,7 @@ export function ChangeOrders({ slug, orders, phase }: { slug: string; orders: Ch
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
-            className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
+            className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-label font-semibold text-paper hover:bg-ink-hover"
           >
             {open ? <X className="size-3" strokeWidth={2} /> : <Plus className="size-3" strokeWidth={2} />}
             {open ? "Cancel" : "New change order"}
@@ -111,11 +108,11 @@ export function ChangeOrders({ slug, orders, phase }: { slug: string; orders: Ch
       </div>
 
       {!canCreate && (
-        <Card className="border-accent/40 bg-accent-soft p-3.5">
-          <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-accent-2">
+        <Card className="border-rule-soft bg-card p-3.5">
+          <div className="text-label font-medium text-accent-2">
             Pre-construction · {phase.statusLabel}
           </div>
-          <div className="mt-1 text-[12px] text-ink-2">
+          <div className="mt-1 text-label text-ink-2">
             Change orders start once the contract is signed. Until then a client addition or change is priced as a
             pre-con change estimate under{" "}
             <TabLink tab="Money" section="Pre-con changes" className="font-semibold text-accent-2 underline-offset-2 hover:underline">
@@ -130,7 +127,7 @@ export function ChangeOrders({ slug, orders, phase }: { slug: string; orders: Ch
         <Card className="p-4">
           <form onSubmit={submit} className="space-y-3">
             <label className="block">
-              <span className="mb-1 block text-[11px] font-semibold text-ink-2">Title</span>
+              <span className="mb-1 block text-meta font-semibold text-ink-2">Title</span>
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -140,13 +137,13 @@ export function ChangeOrders({ slug, orders, phase }: { slug: string; orders: Ch
               />
             </label>
             <label className="block">
-              <span className="mb-1 flex items-center gap-2 text-[11px] font-semibold text-ink-2">
+              <span className="mb-1 flex items-center gap-2 text-meta font-semibold text-ink-2">
                 Scope description
                 <button
                   type="button"
                   onClick={aiDraft}
                   disabled={drafting}
-                  className="inline-flex items-center gap-1 rounded border border-ai px-1.5 py-0.5 text-[10px] font-semibold text-ai-2 hover:bg-ai-soft disabled:opacity-60"
+                  className="inline-flex items-center gap-1 rounded border border-ai px-1.5 py-0.5 text-meta font-semibold text-ai-2 hover:bg-ai-soft disabled:opacity-60"
                 >
                   <Sparkles className="size-2.5" strokeWidth={1.75} />
                   {drafting ? "Drafting…" : "Draft with AI"}
@@ -161,7 +158,7 @@ export function ChangeOrders({ slug, orders, phase }: { slug: string; orders: Ch
               />
             </label>
             <label className="block max-w-[220px]">
-              <span className="mb-1 block text-[11px] font-semibold text-ink-2">Amount (USD)</span>
+              <span className="mb-1 block text-meta font-semibold text-ink-2">Amount (USD)</span>
               <input
                 value={price}
                 onChange={(e) => setPrice(e.target.value)}
@@ -170,75 +167,43 @@ export function ChangeOrders({ slug, orders, phase }: { slug: string; orders: Ch
                 className={inputCls}
               />
             </label>
-            {error && <div className="text-[12px] text-flag">{error}</div>}
+            {error && <div className="text-label text-flag">{error}</div>}
             <div className="flex items-center gap-2">
               <button
                 type="submit"
                 disabled={pending}
-                className="rounded-md border border-accent bg-accent px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-accent-2 disabled:opacity-60"
+                className="rounded-md border border-accent bg-accent px-3 py-1.5 text-label font-semibold text-white hover:bg-accent-2 disabled:opacity-60"
               >
                 {pending ? "Saving…" : "Save draft"}
               </button>
-              <span className="text-[11px] text-ink-3">Save it, then send it for the client to e-sign.</span>
+              <span className="text-meta text-ink-3">Save it, then send it for the client to e-sign.</span>
             </div>
           </form>
         </Card>
       )}
 
-      {error && !open && <div className="text-[12px] text-flag">{error}</div>}
+      {error && !open && <div className="text-label text-flag">{error}</div>}
 
       {orders.length === 0 ? (
         <Card kind="dashed" className="p-8 text-center">
           <FileEdit className="mx-auto size-5 text-ink-3" strokeWidth={1.5} />
-          <div className="mt-2 font-serif text-[15px] font-semibold text-ink-2">No change orders yet</div>
-          <div className="mt-1 text-[12px] text-ink-3">
+          <div className="mt-2 font-serif text-subheading font-semibold text-ink-2">No change orders yet</div>
+          <div className="mt-1 text-label text-ink-3">
             {canCreate
               ? "Draft a change to the signed contract's scope + price and send it to the client to approve and e-sign."
               : "Nothing to do here before the contract is signed."}
           </div>
         </Card>
       ) : (
-        <div className="space-y-2.5">
-          {orders.map((o) => (
-            <Card key={o.id} className="p-3.5">
-              <div className="flex items-start gap-3">
-                <StatusIcon status={o.status} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="truncate font-serif text-[15px] font-semibold text-ink">{o.title}</span>
-                    <Chip kind={CO_STATUS_KIND[o.status]}>{CO_STATUS_LABEL[o.status]}</Chip>
-                    <span className="font-mono text-[12px] font-semibold text-accent-2">{o.priceLabel}</span>
-                  </div>
-                  {o.description && <p className="mt-1 text-[12px] text-ink-2">{o.description}</p>}
-                  <div className="mt-1 text-[11px] text-ink-3">Created {o.createdAtLabel}</div>
-                </div>
-                <div className="flex flex-none flex-col items-end gap-1.5">
-                  {(o.status === "draft" || o.status === "declined") && (
-                    <button
-                      type="button"
-                      onClick={() => send(o.id)}
-                      disabled={pending}
-                      className="rounded-md border border-accent bg-accent px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-accent-2 disabled:opacity-60"
-                    >
-                      Send for signature
-                    </button>
-                  )}
-                  {(o.status === "draft" || o.status === "declined") && (
-                    <button
-                      type="button"
-                      onClick={() => remove(o.id)}
-                      disabled={pending}
-                      aria-label="Delete change order"
-                      className="rounded-md border border-rule bg-card px-1.5 py-1 text-ink-3 hover:bg-paper-2 hover:text-flag disabled:opacity-60"
-                    >
-                      <Trash2 className="size-3.5" strokeWidth={1.5} />
-                    </button>
-                  )}
-                </div>
-              </div>
-            </Card>
-          ))}
-        </div>
+        <TableWrapper><FinancialTable>
+          <TableHead><TableRow><TableHeader>Change order</TableHeader><TableHeader numeric>Amount</TableHeader><TableHeader><span className="sr-only">Actions</span></TableHeader></TableRow></TableHead>
+          <TableBody>{(["draft","sent","approved","declined"] as const).map(status => {const group=orders.filter(o => o.status === status);return group.length > 0 && <Fragment key={status}><TableGroupRow colSpan={3} count={group.length}>{CO_STATUS_LABEL[status]}</TableGroupRow>{group.map(o => <TableRow key={o.id}>
+            <TablePrimaryCell meta={<>{o.description && <span className="block">{o.description}</span>}Created {o.createdAtLabel}</>}>{o.title}</TablePrimaryCell>
+            <TableCell numeric className="whitespace-nowrap">{fmtUsd(o.priceCents)}</TableCell>
+            <TableCell>{(status === "draft" || status === "declined") && <ActionMenu label={`More actions for ${o.title}`}><Button variant="ghost" size="sm" disabled={pending} onClick={() => send(o.id)}>Send for signature</Button><Button variant="ghost" className="text-flag" onClick={() => remove(o.id)} disabled={pending}>Delete</Button></ActionMenu>}</TableCell>
+          </TableRow>)}</Fragment>})}</TableBody>
+          <tfoot><TableRow className="border-t border-rule"><TableCell className="font-semibold">Approved total</TableCell><TableCell numeric className="font-semibold">{fmtUsd(orders.filter(o => o.status === "approved").reduce((sum,o) => sum+o.priceCents,0))}</TableCell><TableCell /></TableRow></tfoot>
+        </FinancialTable></TableWrapper>
       )}
     </div>
   );

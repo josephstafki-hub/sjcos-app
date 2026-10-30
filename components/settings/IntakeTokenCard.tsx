@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Check, Copy, RefreshCw } from "lucide-react";
+import { runAction } from "@/lib/run-action";
 import { Card } from "@/components/ui";
 import { regenerateIntakeToken } from "@/lib/actions/lead-intake-token";
 
@@ -43,13 +44,13 @@ function CopyRow({ label, value, mono = true }: { label: string; value: string; 
 
 export function IntakeTokenCard({ token, endpoint }: { token: string | null; endpoint: string }) {
   const [current, setCurrent] = useState(token);
+  const [feedback,setFeedback] = useState("");
   const [pending, startTransition] = useTransition();
 
   function regenerate() {
     if (current && !confirm("Generate a new token? The old one stops working immediately.")) return;
     startTransition(async () => {
-      const next = await regenerateIntakeToken();
-      setCurrent(next);
+      await runAction(async () => {const next = await regenerateIntakeToken();setCurrent(next);return {ok:true};}, {onSuccess:()=>setFeedback("Saved"),onError:setFeedback});
     });
   }
 
@@ -74,6 +75,7 @@ export function IntakeTokenCard({ token, endpoint }: { token: string | null; end
         )}
       </div>
 
+      <p role="status" className="mt-3 text-meta text-ink-2">{pending ? "Saving…" : feedback}</p>
       <div className="mt-4">
         <button
           type="button"

@@ -3,7 +3,7 @@
 import { SettingsForm } from "./SettingsForm";
 import Link from "next/link";
 import { useState, useTransition } from "react";
-import { Avatar, Card, Chip, Eyebrow, Field, PageHeader } from "@/components/ui";
+import { Avatar, Button, Card, Chip, Eyebrow, Field, PageHeader } from "@/components/ui";
 import { DesignerDefaultsCard } from "@/components/settings/DesignerDefaultsCard";
 import type { SettingsData } from "@/lib/settings";
 import {
@@ -56,9 +56,11 @@ function TextInput({
 function FirstResponseModelPicker({ initial }: { initial: "claude" | "hermes" }) {
   const [model, setModel] = useState(initial);
   const [pending, startTransition] = useTransition();
+  const [feedback, setFeedback] = useState("");
   return (
     <div className="flex w-full items-center gap-3 border-t border-rule-soft py-1.5">
       <span className="flex-1 text-body text-ink">Who drafts the first response to new inbound leads</span>
+      <span role="status" className="text-meta text-ink-2">{pending ? "Saving…" : feedback}</span>
       <select
         value={model}
         disabled={pending}
@@ -66,7 +68,7 @@ function FirstResponseModelPicker({ initial }: { initial: "claude" | "hermes" })
           const next = e.target.value === "hermes" ? "hermes" : "claude";
           setModel(next);
           startTransition(async () => {
-            await runAction(() => setLeadFirstResponseModel(next), { fallback: "Couldn't save the first-response model." });
+            await runAction(() => setLeadFirstResponseModel(next), { fallback: "Couldn't save the first-response model.", onSuccess: () => setFeedback("Saved"), onError: message => {setModel(model);setFeedback(message);} });
           });
         }}
         className="rounded-md border border-rule bg-card px-2 py-1 text-meta text-ink disabled:opacity-60"
@@ -91,12 +93,13 @@ function Toggle({
 }) {
   const [on, setOn] = useState(initial);
   const [pending, startTransition] = useTransition();
+  const [feedback, setFeedback] = useState("");
 
   function flip() {
     const next = !on;
     setOn(next); // optimistic
     startTransition(async () => {
-      await runAction(() => action(settingKey, next), { fallback: "Couldn't save that setting.", onError: () => setOn(!next) });
+      await runAction(() => action(settingKey, next), { fallback: "Couldn't save that setting.", onSuccess: () => setFeedback("Saved"), onError: message => {setOn(!next);setFeedback(message);} });
     });
   }
 
@@ -109,6 +112,7 @@ function Toggle({
       className="flex w-full items-center gap-3 border-t border-rule-soft py-4 text-left first:border-t-0 disabled:opacity-60"
     >
       <span className="flex-1 text-body text-ink">{label}</span>
+      <span role="status" className="text-meta text-ink-2">{pending ? "Saving…" : feedback}</span>
       <span
         className={[
           "relative h-5 w-9 flex-none rounded-full border transition-colors",
@@ -124,6 +128,17 @@ function Toggle({
       </span>
     </button>
   );
+}
+
+function UserActiveButton({id, active}: {id:string;active:boolean}) {
+  const [pending,start] = useTransition();
+  const [feedback,setFeedback] = useState("");
+  return <div className="space-y-1">
+    <Button variant="secondary" size="sm" disabled={pending} onClick={()=>start(async()=>{
+      await runAction(()=>setUserActive(id,!active),{onSuccess:()=>setFeedback("Saved"),onError:setFeedback});
+    })}>{pending ? "Saving…" : active ? "Disable" : "Enable"}</Button>
+    <p role="status" className="text-meta text-ink-2">{feedback}</p>
+  </div>;
 }
 
 const MORE_SETTINGS = [
@@ -382,19 +397,7 @@ export function SettingsClient({ data }: { data: SettingsData }) {
                     <StaffAccessButton id={m.id} name={m.name} email={m.email ?? ""} permissions={m.permissions ?? []} />
                   )}
                   {m.id && !m.isOwner ? (
-                    <form action={setUserActive.bind(null, m.id, m.active === false)}>
-                      <button
-                        type="submit"
-                        className={[
-                          "rounded-md border px-2 py-0.5 text-meta font-semibold transition-colors",
-                          m.active === false
-                            ? "border-accent bg-accent-soft text-accent-2 hover:bg-accent-soft/70"
-                            : "border-rule text-ink-3 hover:bg-paper-2",
-                        ].join(" ")}
-                      >
-                        {m.active === false ? "Enable" : "Disable"}
-                      </button>
-                    </form>
+                    <UserActiveButton id={m.id} active={m.active !== false} />
                   ) : (
                     <Chip kind={m.chip}>{m.chip === "accent" ? "owner" : m.chip === "ai" ? "system" : "guest"}</Chip>
                   )}

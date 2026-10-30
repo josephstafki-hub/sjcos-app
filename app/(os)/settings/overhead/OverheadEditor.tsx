@@ -25,6 +25,7 @@ const month = () => new Date().toISOString().slice(0, 7);
 
 export function OverheadEditor({ subs, charges, summary, reconcile, thresholdCents }: { subs: Subscription[]; charges: MeteredCharge[]; summary: OverheadSummary; reconcile: { lines: ReconcileLine[]; caveat: string }; thresholdCents: number | null }) {
   const [pending, start] = useTransition();
+  const [feedback, setFeedback] = useState("");
   const [sub, setSub] = useState({ name: "", vendor: "", amountDollars: "", cadence: "monthly" as Cadence, source: "owner_reported" as SubscriptionSource, startedOn: "", externalRef: "", notes: "" });
   const [chg, setChg] = useState({ provider: "", period: month(), amountDollars: "", source: "bill" as ChargeSource, externalRef: "", notes: "" });
   const [threshold, setThreshold] = useState(thresholdCents === null ? "" : (thresholdCents / 100).toFixed(2));
@@ -33,12 +34,13 @@ export function OverheadEditor({ subs, charges, summary, reconcile, thresholdCen
 
   const go = (fn: () => Promise<{ ok: boolean; error?: string }>, after?: () => void) =>
     start(async () => {
-      const r = await runAction(fn);
-      if (r && r.ok !== false) after?.();
+      const r = await runAction(fn, {onError: message => setFeedback(message)});
+      if (r && r.ok !== false) {setFeedback("Saved");after?.();}
     });
 
   return (
     <div className="flex flex-col gap-6">
+      <p role="status" className="sticky top-0 z-10 bg-paper py-2 text-body text-ink-2">{pending ? "Saving…" : feedback}</p>
       <Card kind="soft" className="px-4 py-3 text-meta text-ink-3">
         <div className="flex flex-wrap gap-4 text-body text-ink">
           <div>Fixed <strong>{dollars(summary.fixed.monthly_cents)}</strong>/mo</div>
@@ -94,21 +96,21 @@ export function OverheadEditor({ subs, charges, summary, reconcile, thresholdCen
         <Card className="mt-3 px-4 py-3">
           <Eyebrow muted>Add a subscription</Eyebrow>
           <div className="mt-2 grid gap-2 @3xl/page:grid-cols-2">
-            <input className={inputCls} aria-label="Name" placeholder="Name" value={sub.name} onChange={(e) => setSub({ ...sub, name: e.target.value })} />
-            <input className={inputCls} aria-label="Vendor" placeholder="Vendor" value={sub.vendor} onChange={(e) => setSub({ ...sub, vendor: e.target.value })} />
-            <input className={inputCls} aria-label="Amount ($)" placeholder="Amount ($)" inputMode="decimal" value={sub.amountDollars} onChange={(e) => setSub({ ...sub, amountDollars: e.target.value })} />
-            <select aria-label="Billing frequency" className={inputCls} value={sub.cadence} onChange={(e) => setSub({ ...sub, cadence: e.target.value as Cadence })}>
+            <label className="flex min-w-0 flex-col gap-1 text-label text-ink-2">Name<input className={inputCls} aria-label="Name" placeholder="Name" value={sub.name} onChange={(e) => setSub({ ...sub, name: e.target.value })} /></label>
+            <label className="flex min-w-0 flex-col gap-1 text-label text-ink-2">Vendor<input className={inputCls} aria-label="Vendor" placeholder="Vendor" value={sub.vendor} onChange={(e) => setSub({ ...sub, vendor: e.target.value })} /></label>
+            <label className="flex min-w-0 flex-col gap-1 text-label text-ink-2">Amount ($)<input className={inputCls} aria-label="Amount ($)" placeholder="Amount ($)" inputMode="decimal" value={sub.amountDollars} onChange={(e) => setSub({ ...sub, amountDollars: e.target.value })} /></label>
+            <label className="flex min-w-0 flex-col gap-1 text-label text-ink-2">Billing frequency<select aria-label="Billing frequency" className={inputCls} value={sub.cadence} onChange={(e) => setSub({ ...sub, cadence: e.target.value as Cadence })}>
               <option value="monthly">monthly</option>
               <option value="yearly">yearly</option>
-            </select>
-            <select aria-label="Subscription source" className={inputCls} value={sub.source} onChange={(e) => setSub({ ...sub, source: e.target.value as SubscriptionSource })}>
+            </select></label>
+            <label className="flex min-w-0 flex-col gap-1 text-label text-ink-2">Subscription source<select aria-label="Subscription source" className={inputCls} value={sub.source} onChange={(e) => setSub({ ...sub, source: e.target.value as SubscriptionSource })}>
               <option value="owner_reported">owner-reported</option>
               <option value="bill">from a bill</option>
               <option value="qbo">from QuickBooks</option>
-            </select>
-            <input className={inputCls} type="date" aria-label="Subscription start date" value={sub.startedOn} onChange={(e) => setSub({ ...sub, startedOn: e.target.value })} />
-            <input className={inputCls} aria-label="Bill reference (optional)" placeholder="Bill reference (optional)" value={sub.externalRef} onChange={(e) => setSub({ ...sub, externalRef: e.target.value })} />
-            <input className={inputCls} aria-label="Notes" placeholder="Notes" value={sub.notes} onChange={(e) => setSub({ ...sub, notes: e.target.value })} />
+            </select></label>
+            <label className="flex min-w-0 flex-col gap-1 text-label text-ink-2">Subscription start date<input className={inputCls} type="date" aria-label="Subscription start date" value={sub.startedOn} onChange={(e) => setSub({ ...sub, startedOn: e.target.value })} /></label>
+            <label className="flex min-w-0 flex-col gap-1 text-label text-ink-2">Bill reference (optional)<input className={inputCls} aria-label="Bill reference (optional)" placeholder="Bill reference (optional)" value={sub.externalRef} onChange={(e) => setSub({ ...sub, externalRef: e.target.value })} /></label>
+            <label className="flex min-w-0 flex-col gap-1 text-label text-ink-2">Notes<input className={inputCls} aria-label="Notes" placeholder="Notes" value={sub.notes} onChange={(e) => setSub({ ...sub, notes: e.target.value })} /></label>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-3">
             <button
@@ -162,18 +164,18 @@ export function OverheadEditor({ subs, charges, summary, reconcile, thresholdCen
         <Card className="mt-3 px-4 py-3">
           <Eyebrow muted>Record a metered charge</Eyebrow>
           <div className="mt-2 grid gap-2 @3xl/page:grid-cols-2">
-            <input className={inputCls} aria-label="Provider (Anthropic, OpenAI…)" placeholder="Provider (Anthropic, OpenAI…)" value={chg.provider} onChange={(e) => setChg({ ...chg, provider: e.target.value })} />
-            <input className={inputCls} aria-label="Period YYYY-MM" placeholder="Period YYYY-MM" value={chg.period} onChange={(e) => setChg({ ...chg, period: e.target.value })} />
-            <input className={inputCls} aria-label="Amount ($)" placeholder="Amount ($)" inputMode="decimal" value={chg.amountDollars} onChange={(e) => setChg({ ...chg, amountDollars: e.target.value })} />
-            <select aria-label="Charge source" className={inputCls} value={chg.source} onChange={(e) => setChg({ ...chg, source: e.target.value as ChargeSource })}>
+            <label className="flex min-w-0 flex-col gap-1 text-label text-ink-2">Provider (Anthropic, OpenAI…)<input className={inputCls} aria-label="Provider (Anthropic, OpenAI…)" placeholder="Provider (Anthropic, OpenAI…)" value={chg.provider} onChange={(e) => setChg({ ...chg, provider: e.target.value })} /></label>
+            <label className="flex min-w-0 flex-col gap-1 text-label text-ink-2">Period YYYY-MM<input className={inputCls} aria-label="Period YYYY-MM" placeholder="Period YYYY-MM" value={chg.period} onChange={(e) => setChg({ ...chg, period: e.target.value })} /></label>
+            <label className="flex min-w-0 flex-col gap-1 text-label text-ink-2">Amount ($)<input className={inputCls} aria-label="Amount ($)" placeholder="Amount ($)" inputMode="decimal" value={chg.amountDollars} onChange={(e) => setChg({ ...chg, amountDollars: e.target.value })} /></label>
+            <label className="flex min-w-0 flex-col gap-1 text-label text-ink-2">Charge source<select aria-label="Charge source" className={inputCls} value={chg.source} onChange={(e) => setChg({ ...chg, source: e.target.value as ChargeSource })}>
               <option value="bill">from a bill</option>
               <option value="provider_usage">provider usage page</option>
               <option value="qbo">from QuickBooks</option>
               <option value="owner_reported">owner-reported</option>
               <option value="estimate">estimate (labelled)</option>
-            </select>
-            <input className={inputCls} aria-label="Bill or invoice reference" placeholder="Bill or invoice reference" value={chg.externalRef} onChange={(e) => setChg({ ...chg, externalRef: e.target.value })} />
-            <input className={inputCls} aria-label="Notes" placeholder="Notes" value={chg.notes} onChange={(e) => setChg({ ...chg, notes: e.target.value })} />
+            </select></label>
+            <label className="flex min-w-0 flex-col gap-1 text-label text-ink-2">Bill or invoice reference<input className={inputCls} aria-label="Bill or invoice reference" placeholder="Bill or invoice reference" value={chg.externalRef} onChange={(e) => setChg({ ...chg, externalRef: e.target.value })} /></label>
+            <label className="flex min-w-0 flex-col gap-1 text-label text-ink-2">Notes<input className={inputCls} aria-label="Notes" placeholder="Notes" value={chg.notes} onChange={(e) => setChg({ ...chg, notes: e.target.value })} /></label>
           </div>
           <div className="mt-2">
             <button type="button" className={primaryCls} disabled={pending || !chg.provider || !chg.amountDollars} onClick={() => go(() => addMeteredChargeAction(chg), () => setChg({ ...chg, amountDollars: "", externalRef: "", notes: "" }))}>
@@ -187,7 +189,7 @@ export function OverheadEditor({ subs, charges, summary, reconcile, thresholdCen
         <Eyebrow muted>Monthly threshold (notification only)</Eyebrow>
         <Card className="mt-2 px-4 py-3">
           <div className="flex max-w-[420px] items-center gap-2">
-            <input className={inputCls} aria-label="Blank = no threshold" placeholder="Blank = no threshold" inputMode="decimal" value={threshold} onChange={(e) => setThreshold(e.target.value)} />
+            <label className="flex min-w-0 flex-col gap-1 text-label text-ink-2">Monthly threshold ($)<input className={inputCls} aria-label="Blank = no threshold" placeholder="Blank = no threshold" inputMode="decimal" value={threshold} onChange={(e) => setThreshold(e.target.value)} /></label>
             <button type="button" className={btnCls} disabled={pending} onClick={() => go(() => setAlertThresholdAction(threshold))}>
               Save
             </button>

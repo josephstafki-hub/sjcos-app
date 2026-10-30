@@ -32,7 +32,8 @@ export function DesignerDefaultsCard({ defaults }: { defaults: DesignerDefaults 
     return out;
   });
   const initialValues = Object.fromEntries([...NUMBER_FIELDS.map(f=>[f.key,fmtIn(defaults[f.key] as number)]), ["doorStyle",defaults.doorStyle], ["finish",defaults.finish]]);
-  const dirty = Object.keys(values).some(k=>values[k]!==initialValues[k]);
+  const [baseline,setBaseline] = useState(initialValues);
+  const dirty = Object.keys(values).some(k=>values[k]!==baseline[k]);
   const [pending, start] = useTransition();
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
@@ -52,7 +53,9 @@ export function DesignerDefaultsCard({ defaults }: { defaults: DesignerDefaults 
     patch.finish = values.finish;
     start(async () => {
       const r = await runAction(() => saveDesignerDefaults(patch));
+      if (!r.ok) setError(r.error ?? "Could not save defaults.");
       if (r.ok) {
+        setBaseline({...values});
         setSaved(true);
         setTimeout(() => setSaved(false), 2500);
       }
@@ -76,6 +79,7 @@ export function DesignerDefaultsCard({ defaults }: { defaults: DesignerDefaults 
           <label key={f.key} className="flex flex-col gap-1">
             <span className="text-meta text-ink-3">{f.label}</span>
             <input
+              disabled={pending}
               value={values[f.key] ?? ""}
               onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
               className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent"
@@ -86,6 +90,7 @@ export function DesignerDefaultsCard({ defaults }: { defaults: DesignerDefaults 
         <label className="flex flex-col gap-1">
           <span className="text-meta text-ink-3">Default door style</span>
           <select
+            disabled={pending}
             value={values.doorStyle}
             onChange={(e) => setValues((v) => ({ ...v, doorStyle: e.target.value }))}
             className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent"
@@ -100,6 +105,7 @@ export function DesignerDefaultsCard({ defaults }: { defaults: DesignerDefaults 
         <label className="flex flex-col gap-1">
           <span className="text-meta text-ink-3">Default cabinet finish</span>
           <select
+            disabled={pending}
             value={values.finish}
             onChange={(e) => setValues((v) => ({ ...v, finish: e.target.value }))}
             className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent"
@@ -112,10 +118,10 @@ export function DesignerDefaultsCard({ defaults }: { defaults: DesignerDefaults 
           </select>
         </label>
       </div>
-      {error && <div className="mt-3 text-meta text-flag">{error}</div>}
+      {error && <div role="alert" className="mt-3 text-meta text-flag">{error}</div>}
       <div className="sticky bottom-3 z-10 mt-4 flex flex-wrap items-center gap-2 rounded-lg bg-card p-3">
         {dirty && <Button onClick={save} disabled={pending}>{pending ? "Saving…" : "Save defaults"}</Button>}
-        <button onClick={reset} className="text-meta text-ink-3 hover:text-ink">
+        <button disabled={pending} onClick={reset} className="text-meta text-ink-3 hover:text-ink">
           Reset to built-in
         </button>
         {saved && <span className="text-meta text-money">Saved.</span>}

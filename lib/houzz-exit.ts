@@ -6,6 +6,7 @@
 // criterion holds — a merge or deploy of this code is not that decision.
 
 import type { Run } from "./commands/core";
+import { squareEnvironment } from "./payments/square";
 
 export interface HouzzCriterion {
   n: 1 | 2 | 3 | 4 | 5;
@@ -58,34 +59,29 @@ export async function houzzExitInventory(run: Run): Promise<HouzzExitInventory> 
   const by_status: Record<string, number> = {};
   for (const r of byStatusRows) by_status[r.status] = Number(r.n);
   const outstanding = await run<{ id: number; number: string; project: string; slug: string; milestone: string; amount_cents: number; sent_at: string | null; delivery: string | null }>(
-    `SELECT i.id::int AS id, i.number, p.name AS project, p.slug, i.milestone, i.amount::int AS amount_cents, i.sent_at::text AS sent_at,
-            (SELECT d.state FROM invoice_deliveries d WHERE d.invoice_id = i.id ORDER BY d.created_at DESC LIMIT 1) AS delivery
+    `SELECT i.id::int AS id, i.number, p.name AS project, p.slug, i.milestone, i.amount::int AS amount_cents, i.sent_at::text AS sent_at, i.delivery_state AS delivery
        FROM invoices i JOIN projects p ON p.id = i.project_id
       WHERE i.status = 'sent' ORDER BY i.sent_at NULLS LAST, i.id`,
-  ).catch(() =>
-    run<{ id: number; number: string; project: string; slug: string; milestone: string; amount_cents: number; sent_at: string | null; delivery: string | null }>(
-      `SELECT i.id::int AS id, i.number, p.name AS project, p.slug, i.milestone, i.amount::int AS amount_cents, i.sent_at::text AS sent_at, NULL::text AS delivery
-         FROM invoices i JOIN projects p ON p.id = i.project_id WHERE i.status = 'sent' ORDER BY i.sent_at NULLS LAST, i.id`,
-    ),
   );
   const [hx] = await run<{ n: string; cents: string }>(`SELECT count(*)::text AS n, COALESCE(sum(amount_cents),0)::text AS cents FROM expenses WHERE source_ref LIKE 'houzz:%'`).catch(() => [{ n: "0", cents: "0" }]);
   const imported_history = {
     houzz_expenses: Number(hx?.n ?? 0),
     houzz_expense_cents: Number(hx?.cents ?? 0),
-    houzz_lead_imports: await count(run, `SELECT 1 FROM sjc_temp_lead_imports WHERE lower(coalesce(source,'')) LIKE '%houzz%' OR lower(raw::text) LIKE '%houzz%'`),
+    houzz_lead_imports: await count(run, `SELECT 1 FROM sjc_temp_lead_imports WHERE lower(raw::text) LIKE '%houzz%'`),
     retainers_recorded: await count(run, `SELECT 1 FROM retainers WHERE collected > 0`),
   };
   const designer = {
     designs: await count(run, `SELECT 1 FROM plan_designs`),
     versions: await count(run, `SELECT 1 FROM plan_design_versions`),
-    pinned_versions: await count(run, `SELECT 1 FROM document_revisions WHERE artifact_kind = 'plan_design_version'`),
+    pinned_versions: await count(run, `SELECT 1 FROM document_revisions WHERE doc_kind = 'plan_design_version'`),
     exports: await count(run, `SELECT 1 FROM plan_design_files`),
   };
   const [square, qbo, a21, a20] = await Promise.all([capability(run, "feature.square"), capability(run, "feature.qbo"), capability(run, "A21"), capability(run, "A20")]);
-  const squareConnected = await count(run, `SELECT 1 FROM app_settings WHERE key IN ('square.access_token','square.location_id') AND value <> ''`);
+  // Square is configured by env (SQUARE_ENV + SQUARE_ACCESS_TOKEN, lib/payments/square), not app settings.
+  const squareMode = squareEnvironment();
   const active_senders = [
     { owner: "SJC OS dispatcher (lib/dispatch)", what: "invoice emails, reminders, bid packages, POs, weekly summaries", state: `sends lane ${await laneState(run, "sends")}` },
-    { owner: "SJC OS Square adapter", what: "card / ACH customer payments (checkout on the client portal)", state: squareConnected >= 2 ? "configured" : "not configured" },
+    { owner: "SJC OS Square adapter", what: "card / ACH customer payments (checkout on the client portal)", state: squareMode === "fake" ? "not configured" : `configured (${squareMode})` },
     { owner: "SJC OS payments lane", what: "vendor payments (manual confirmation only — no rail)", state: `payments lane ${await laneState(run, "payments")}` },
     { owner: "Houzz Pro (external)", what: "invoice payment links, reminders, design files — retired by hand", state: "owner-reported: still in use for online payment links" },
   ];
@@ -100,7 +96,8 @@ export async function houzzExitInventory(run: Run): Promise<HouzzExitInventory> 
     const ev: string[] = [];
     const gaps: string[] = [];
     if (square?.proven) ev.push("feature.square proven"); else gaps.push(`Square payments not proven (${square ? `implemented=${square.implemented} deployed=${square.deployed} enabled=${square.enabled}` : "no capability row"})`);
-    if (squareConnected >= 2) ev.push("Square credentials configured"); else gaps.push("Square account not configured (no merchant approval yet)");
+    if (squareMode === "production") ev.push("Square production credentials configured");
+    else gaps.push(squareMode === "sandbox" ? "Square is on sandbox credentials, not production" : "Square account not configured (SQUARE_ENV / SQUARE_ACCESS_TOKEN unset)");
     if (qbo?.enabled) ev.push("QBO sync enabled"); else gaps.push("QuickBooks reconciliation not enabled");
     if (a20?.proven) ev.push("A20 proven"); else gaps.push("A20 (refunds/returns/existing invoices) not proven");
     crit.push({ n: 1, title: "SJC/Square card and bank payments live and reconciled (refunds, returns, existing invoices)", status: gaps.length ? "not_met" : "met", evidence: ev, gaps });

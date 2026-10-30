@@ -19,6 +19,7 @@ import "server-only";
 // Joe's box, never a log line.
 
 import { randomUUID } from "node:crypto";
+import { connectionCopy } from "./comms/connection-copy";
 import { query, queryOne } from "./db";
 import { commsEnvReport, voiceConfigFrom, type VoiceConfig } from "./comms/env";
 import { normalizeE164 } from "./comms/phone";
@@ -538,8 +539,7 @@ export type PlaceCallResult =
 export async function placeCall(input: PlaceCallInput): Promise<PlaceCallResult> {
   const cfg = voiceConfig();
   if (!cfg) {
-    const s = voiceStatus();
-    return { ok: false, error: s.enabled ? `Voice is misconfigured: ${s.problems.join("; ")}` : "Voice is not configured (VOICE_APPLICATION_ID unset).", blocked: "not_configured" };
+    return { ok: false, error: connectionCopy("voice").error, blocked: "not_configured" };
   }
   const norm = normalizeE164(input.to);
   if (!norm.ok) return { ok: false, error: norm.error, blocked: "invalid_number" };

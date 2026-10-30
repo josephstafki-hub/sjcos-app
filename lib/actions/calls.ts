@@ -6,17 +6,17 @@
 // this number and lib/voice.ts placeCall spends it. One provider path, always
 // audited, for Joe and agents alike.
 
+import { connectionCopy } from "../comms/connection-copy";
 import { revalidatePath } from "next/cache";
 import { requireAccess } from "@/lib/dal";
 import { createGrant } from "@/lib/owner-grants";
 import { normalizeE164 } from "@/lib/comms/phone";
-import { getCall, getCallEvents, placeCall, voiceConfigured, voiceStatus, type CallRow } from "@/lib/voice";
+import { getCall, getCallEvents, placeCall, voiceConfigured, type CallRow } from "@/lib/voice";
 
 export async function placeCallAction(phone: string, contactName?: string | null): Promise<{ ok: boolean; callId?: string; error?: string }> {
   await requireAccess("comms");
   if (!voiceConfigured()) {
-    const s = voiceStatus();
-    return { ok: false, error: s.enabled ? `Voice is misconfigured: ${s.problems.join("; ")}` : "Voice is not connected yet." };
+    return { ok: false, error: connectionCopy("voice").error };
   }
   const norm = normalizeE164(phone);
   if (!norm.ok) return { ok: false, error: norm.error };

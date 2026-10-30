@@ -24,6 +24,7 @@ import "server-only";
 // rows (Telnyx URLs expire), a Telegram push, and — via the hourly detector
 // layer — a work item if the text sits unanswered for 4 hours.
 
+import { connectionCopy } from "./comms/connection-copy";
 import { query, queryOne } from "./db";
 import { commsEnvReport, smsConfigFrom, type SmsConfig } from "./comms/env";
 import { normalizeE164 } from "./comms/phone";
@@ -63,9 +64,7 @@ export function smsStatus(): { configured: boolean; enabled: boolean; problems: 
 }
 
 function notConfiguredError(): string {
-  const s = smsStatus();
-  if (!s.enabled) return "SMS is not configured (SMS_PROVIDER is unset).";
-  return `SMS is misconfigured: ${s.problems.join("; ")}`;
+  return connectionCopy("sms").error;
 }
 
 // ─── Types ───────────────────────────────────────────────────────────────────

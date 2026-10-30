@@ -14,6 +14,7 @@ import { headers } from "next/headers";
 import { query, queryOne } from "@/lib/db";
 import { requireRole, requireAccess } from "@/lib/dal";
 import { emit } from "@/lib/notify";
+import { notifyOwner } from "@/lib/notify-owner";
 import { logClientActivity, ownerHrefForLinkSlug } from "@/lib/client-activity";
 import type { PortalScope } from "@/lib/client-portal";
 import { finalizeSignedDraft } from "@/lib/doc-drafts";
@@ -22,6 +23,7 @@ import { parseSignatureDataUrl } from "@/lib/signature-image";
 import type { DocType, SigMethod } from "@/lib/esign-types";
 import { billingOnSignatureSigned } from "@/lib/billing/server";
 import { workflowOnSignatureSigned } from "@/lib/workflow/server";
+import { classifySignedDoc } from "@/lib/workflow/engine";
 
 type Result = { ok: true; id?: number } | { ok: false; error: string };
 
@@ -280,6 +282,43 @@ async function applySignature(o: ApplySignatureInput): Promise<boolean> {
   return true;
 }
 
+/** The job name when this request is the construction contract (same rule the
+ *  workflow uses to mark the contract signed), else null. */
+async function signedContractJob(id: number): Promise<string | null> {
+  const row = await queryOne<{ doc_type: string; title: string; template_key: string | null; job: string | null }>(
+    `SELECT sr.doc_type, sr.title,
+            (SELECT d.template_key FROM document_drafts d WHERE d.signature_request_id = sr.id LIMIT 1) AS template_key,
+            COALESCE(p.name, l.name) AS job
+       FROM signature_requests sr
+       LEFT JOIN projects p ON p.id = sr.project_id
+       LEFT JOIN leads l ON l.slug = sr.lead_slug
+      WHERE sr.id = $1`,
+    [id],
+  );
+  if (!row || classifySignedDoc(row) !== "contract") return null;
+  return row.job ?? row.title;
+}
+
+/** Tell Joe a signature came in. The contract gets its own card and a push to
+ *  his phone; every other document keeps the plain bell card. */
+async function notifySigned(
+  id: number,
+  card: { title: string; subline: string; href: string },
+  how: string,
+): Promise<void> {
+  const job = await signedContractJob(id).catch(() => null);
+  if (job) {
+    await notifyOwner({
+      kind: "contract_signed",
+      title: `Contract signed: ${job}`,
+      body: how,
+      href: card.href,
+    });
+    return;
+  }
+  await emit({ kind: "decision", tag: "Signature", icon: "star", accent: "money", ...card });
+}
+
 /** Client (or owner previewing): sign a sent request in the portal. Typed name
  *  + consent are required; a hand-drawn signature (from the pad) is optional
  *  and, when present, is what gets stamped on the executed copy. */
@@ -319,15 +358,15 @@ export async function signSignatureRequest(id: number, formData: FormData): Prom
   // test click, not news.
   if (user.role === "client") {
     const how = method === "drawn" ? "signed with a drawn signature" : "signed electronically";
-    await emit({
-      kind: "decision",
-      tag: "Signature",
-      icon: "star",
-      accent: "money",
-      title: `Signed: ${doc.title}`,
-      subline: `${signedName} ${how}`,
-      href: ownerHrefForLinkSlug(slug, { tab: "Documents", focus: `signature-${id}` }),
-    });
+    await notifySigned(
+      id,
+      {
+        title: `Signed: ${doc.title}`,
+        subline: `${signedName} ${how}`,
+        href: ownerHrefForLinkSlug(slug, { tab: "Documents", focus: `signature-${id}` }),
+      },
+      `${signedName} ${how}`,
+    );
     await logClientActivity({
       scope: scopeFor(slug),
       kind: "sign",
@@ -403,15 +442,8 @@ export async function signInPersonAction(id: number, formData: FormData): Promis
   const href = linkSlug
     ? ownerHrefForLinkSlug(linkSlug, { tab: "Documents", focus: `signature-${id}` })
     : "/today";
-  await emit({
-    kind: "decision",
-    tag: "Signature",
-    icon: "star",
-    accent: "money",
-    title: `Signed in person: ${doc.title}`,
-    subline: `${signedName} signed on your device · witnessed by ${witness}`,
-    href,
-  });
+  const how = `${signedName} signed on your device · witnessed by ${witness}`;
+  await notifySigned(id, { title: `Signed in person: ${doc.title}`, subline: how, href }, how);
   if (linkSlug) {
     await logClientActivity({
       scope: scopeFor(linkSlug),

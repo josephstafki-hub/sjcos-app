@@ -38,7 +38,9 @@ export type OwnerPushKind =
   | "comms"
   // A client paid online through Square (lib/payments/owner-alert.ts, which
   // stages the row in the payment's transaction; sendOwnerPushesNow sends it).
-  | "payment";
+  | "payment"
+  // A client signed the construction contract (lib/actions/esign.ts).
+  | "contract_signed";
 
 export interface NotifyOwnerInput {
   kind: OwnerPushKind;
@@ -69,8 +71,8 @@ export interface TelegramExtras {
 }
 
 const TZ = "America/Chicago";
-const MAX_PER_HOUR = 4; // transmitted pushes per rolling hour; 'grant', 'decision' and 'payment' are exempt
-const CAP_EXEMPT: ReadonlySet<OwnerPushKind> = new Set(["grant", "decision", "payment"]);
+const MAX_PER_HOUR = 4; // transmitted pushes per rolling hour; 'grant', 'decision', 'payment' and 'contract_signed' are exempt
+const CAP_EXEMPT: ReadonlySet<OwnerPushKind> = new Set(["grant", "decision", "payment", "contract_signed"]);
 
 // ── Channel registry ─────────────────────────────────────────────────────────
 // Keyed by name so a future 'mobile-push' channel (native app push) registers
@@ -150,6 +152,7 @@ const EMIT_DEFAULTS: Record<OwnerPushKind, Omit<EmitInput, "title">> = {
   voice_call: { kind: "job", tag: "Call", accent: "accent", icon: "chat" },
   comms: { kind: "job", tag: "Comms", accent: "flag", icon: "shield", flagged: true },
   payment: { kind: "money", tag: "Payment", accent: "money", icon: "money" },
+  contract_signed: { kind: "job", tag: "Contract", accent: "money", icon: "star", flagged: true },
 };
 
 // ── Quiet hours + throttle gate (one round trip; all wall-clock math in

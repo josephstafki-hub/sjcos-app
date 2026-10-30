@@ -379,7 +379,7 @@ export default async function SubDetailPage({
                   COI to review
                 </Chip>
               )}
-              <Chip kind="money">W-9 · {sub.w9}</Chip>
+              <Chip kind={sub.w9 === "missing" ? "flag" : "money"}>W-9 · {sub.w9}</Chip>
             </div>
             <h1 className="mt-1.5 font-serif text-[30px] font-medium leading-none tracking-tight text-accent-2">
               {sub.name} <span className="text-accent">· {sub.tradeLine}</span>

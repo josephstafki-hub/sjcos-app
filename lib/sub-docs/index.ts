@@ -32,6 +32,20 @@ import { routineSendAllowed } from "../leads/routine.ts";
 export type SubDocType = "w9" | "coi" | "agreement" | "other";
 export type SubDocStatus = "received" | "under_review" | "accepted" | "rejected" | "expired" | "superseded";
 
+/** A sub's COI status, worked out from its tracked expiry date on every read.
+ *  subs.coi_status is stamped when a COI is accepted and goes stale as the
+ *  days pass (a "current" COI that expired last month still says current).
+ *  `alias` is the subs table alias in the query. */
+export const coiStatusSql = (alias: string) =>
+  `CASE WHEN ${alias}.coi_expires_at IS NULL THEN 'missing'
+        WHEN ${alias}.coi_expires_at < CURRENT_DATE THEN 'expired'
+        WHEN ${alias}.coi_expires_at - CURRENT_DATE <= 30 THEN 'expiring'
+        ELSE 'current' END`;
+
+/** A W-9 that counts as on file: not rejected, expired or superseded. */
+export const w9OnFileSql = (alias: string) =>
+  `EXISTS (SELECT 1 FROM sub_documents sd WHERE sd.sub_slug = ${alias}.slug AND sd.doc_type = 'w9' AND sd.status IN ('received','under_review','accepted'))`;
+
 export interface SubDocumentRow {
   id: number;
   sub_slug: string;
@@ -588,7 +602,7 @@ export async function subPaperworkForOwner(
   subSlug: string,
 ): Promise<{ coiStatus: string | null; coiExpiresLabel: string | null; documents: OwnerSubDocument[] }> {
   const [sub] = await run<{ coi_status: string; coi_label: string | null }>(
-    `SELECT coi_status, to_char(coi_expires_at, 'FMMon FMDD, YYYY') AS coi_label FROM subs WHERE slug = $1`,
+    `SELECT ${coiStatusSql("subs")} AS coi_status, to_char(coi_expires_at, 'FMMon FMDD, YYYY') AS coi_label FROM subs WHERE slug = $1`,
     [subSlug],
   );
   const rows = await run<{ id: number; doc_type: SubDocType; file_id: string | null; expires_at: string | null; expires_label: string | null; status: SubDocStatus; review_note: string; when_label: string }>(

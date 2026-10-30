@@ -1,5 +1,6 @@
 "use server";
 
+import { businessDate } from "../business-time";
 import { revalidatePath } from "next/cache";
 import { requireRole, requireAccess } from "@/lib/dal";
 import { query, queryOne } from "@/lib/db";
@@ -13,14 +14,14 @@ function addWeekdays(start: Date, n: number): Date {
   const d = new Date(start);
   let added = 0;
   while (added < n) {
-    d.setDate(d.getDate() + 1);
-    const g = d.getDay();
+    d.setUTCDate(d.getUTCDate() + 1);
+    const g = d.getUTCDay();
     if (g !== 0 && g !== 6) added++;
   }
   return d;
 }
 function iso(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
 async function insertClaim(opts: {
@@ -30,7 +31,7 @@ async function insertClaim(opts: {
   issue: string;
   source: string;
 }): Promise<{ id: string | null; href: string }> {
-  const now = new Date();
+  const now = new Date(`${businessDate()}T12:00:00Z`);
   const ack = iso(addWeekdays(now, 5));
   const resolve = iso(new Date(now.getTime() + 30 * 86400_000));
   const ins = await queryOne<{ id: string }>(
@@ -145,4 +146,20 @@ export async function resolveWarrantyClaim(
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }
+}
+
+/** Recovery for a resolved claim; keeps its original issue and deadlines. */
+export async function reopenWarrantyClaim(id: string): Promise<{ ok: boolean; error?: string }> {
+  await requireAccess("warranty");
+  const row = await queryOne<{ id: string }>(`UPDATE warranty_claims SET resolved = false WHERE id = $1 RETURNING id`, [id]);
+  revalidatePath("/warranty");
+  return row ? { ok: true } : { ok: false, error: "That claim could not be found." };
+}
+
+export async function editWarrantyClaim(id: string, issue: string): Promise<{ ok: boolean; error?: string }> {
+  await requireAccess("warranty");
+  if (!issue.trim()) return { ok: false, error: "Describe the issue." };
+  const row = await queryOne<{ id: string }>(`UPDATE warranty_claims SET issue = $2 WHERE id = $1 RETURNING id`, [id, issue.trim()]);
+  revalidatePath("/warranty");
+  return row ? { ok: true } : { ok: false, error: "That claim could not be found." };
 }

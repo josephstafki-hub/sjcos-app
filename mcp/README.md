@@ -48,7 +48,7 @@ Safe by construction — internal records, append-only audit, and proposals only
 | `update_work_item_status` | Move an item's status (done sets completed_at) |
 | `enrich_work_item` | Rewrite a **detector-filed** item's factual body into a readable brief (original kept under `--- source facts ---`); refuses non-detector items; never touches status/priority/assignee/due/approvals |
 | `snooze_work_item` | Push `due_at` out + clear app-owned promotion (`{id, days?, reason?}`); snooze lands on 00:00 Central of the new due day; logs a receipt |
-| `submit_draft_for_approval` | Chat-lane item that needs a client-facing step: save the draft + set `approval_needed` (never sends itself). If the draft starts with `To:`/`Subject:` lines matching the lead/project email, Joe's Approve click **will** send it — do not call `send_email` afterward. Returns `approve_will_send` |
+| `submit_draft_for_approval` | Chat-lane item that needs a client-facing step: save the draft + set `approval_needed` (never sends itself). If the draft starts with `To:`/`Subject:` lines matching the lead/project email, Joe's Approve click **will** send it — do not call `send_email` afterward. A client who wrote in the **client portal** gets a portal reply: pass `channel: "portal"` with just the body, and Approve posts it in their portal thread as Joe. Returns `approve_will_send` |
 | `record_agent_run` / `record_receipt` | Open/close a run; append proof-of-work |
 | `create_skill_proposal` | Propose a skill → lands `proposed`, out of the library until Joe approves in `/engine` |
 | `record_skill_used` | Log that an agent followed a skill |

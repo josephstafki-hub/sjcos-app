@@ -18,7 +18,8 @@ import { recordSourceEvent } from "../commands/source-events.ts";
 import { cardText } from "./cards.ts";
 import { holdDecision, resolveFromChannel, type ResolveFromChannelResult } from "./resolve.ts";
 import { parseWorkItemCallback, type CallbackVerb, type WorkItemVerb } from "./keyboards.ts";
-import { findReplyTarget, recordOwnerReply, type RecordedReply } from "./owner-replies.ts";
+import { findReplyTarget, recordOwnerReply, rememberReplyTarget, type RecordedReply } from "./owner-replies.ts";
+import { recordPortalReply, type PortalReply } from "./portal-replies.ts";
 
 export { buildCallbackData, decisionKeyboard, type CallbackVerb } from "./keyboards.ts";
 const CODE_VERB: Record<string, CallbackVerb> = { a: "approve", c: "changes", h: "hold" };
@@ -98,6 +99,9 @@ export interface TelegramHandleResult {
   /** Joe typed a reply about a card: recorded and pulled here; the caller
    *  delivers it to the chat that asked and acknowledges. */
   ownerReply?: RecordedReply & { chatId: string; messageId: number };
+  /** Joe replied to a portal message push: his text is now in that portal
+   *  thread (posted in this transaction); the caller acknowledges it. */
+  portalReply?: PortalReply & { chatId: string; replyToMessageId: number };
   /** Joe typed something that couldn't be matched to one card. */
   help?: { chatId: string; messageId: number; text: string };
 }
@@ -228,7 +232,8 @@ export async function handleTelegramUpdate(run: Run, update: TelegramUpdate, dep
 
 export const REPLY_HELP =
   "To change a request or a draft, reply to its card (swipe left on it) and say what should change. " +
-  "Your reply pulls it back and goes to the agent that filed it; you'll hear back here.";
+  "Your reply pulls it back and goes to the agent that filed it; you'll hear back here. " +
+  "To answer a portal message, reply to its message here and your text is posted in the portal.";
 
 type Finish = (outcome: string, decisionId: string | null) => Promise<TelegramHandleResult>;
 
@@ -260,6 +265,13 @@ async function handleOwnerMessage(run: Run, m: NonNullable<TelegramUpdate["messa
   }
   const owner = await deps.ownerPrincipal();
   if (!owner) return help("message: no owner principal", "No active owner account — nothing was changed.");
+  if (target.portal) {
+    const posted = await recordPortalReply(run, { channelKey: target.portal.channelKey, text, principal: owner });
+    // A reply to his own message continues the same conversation.
+    await rememberReplyTarget(run, { chatId, messageId: m.message_id, portalChannelKey: posted.channelKey, portalMessageId: posted.messageId, kind: "portal_reply" });
+    const res = await finish(`portal reply: posted message ${posted.messageId} in ${posted.channelKey}`, null);
+    return { ...res, portalReply: { ...posted, chatId, replyToMessageId: m.message_id } };
+  }
   const recorded = await recordOwnerReply(run, { decisionId: target.decisionId, workItemId: target.workItemId, text, chatId, messageId: m.message_id, principal: owner });
   const about = recorded.workItemId ? ` (draft ${recorded.workItemId})` : "";
   const res = await finish(`owner reply ${recorded.id}: ${recorded.route}${recorded.pulled ? ", pulled" : ""}${about}`, recorded.decisionId);

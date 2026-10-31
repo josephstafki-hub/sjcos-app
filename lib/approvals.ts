@@ -111,7 +111,9 @@ export async function listPendingApprovals(opts: { limit?: number } = {}): Promi
       to: w.to,
       subject: w.subject,
       body: w.body,
-      effect: w.sends ? `Sends this email to ${w.to}.` : w.note ? `Approve doesn't email it: ${w.note}.` : "Approve hands it back to the agent to finish.",
+      effect: w.sends
+        ? w.channel === "portal" ? `Posts this in the client portal for ${w.to?.replace(/ \(client portal\)$/, "")}.` : `Sends this email to ${w.to}.`
+        : w.note ? `Approve doesn't ${w.channel === "portal" ? "post" : "email"} it: ${w.note}.` : "Approve hands it back to the agent to finish.",
       sends: w.sends,
       detail: null,
       href: w.href,

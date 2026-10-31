@@ -2,8 +2,12 @@
 // have a "Message Joe" thread. They persist to the existing chat_messages table
 // under a portal channel key, so there is one message store for the whole app:
 //   • sub portal    → dm:<sub-slug>     (Joe reads/replies in /chat DMs)
-//   • client portal → portal:<slug>     (Joe is notified; reply surface is /chat)
-// Writes + the owner notification live in lib/actions/portal.ts.
+//   • client portal → portal:<slug>     (Joe replies on the project / lead Client portal tab)
+// Writes + the owner notification live in lib/actions/portal.ts. Every client
+// or sub message also pushes to Joe's Telegram with its text; his swipe-reply
+// is posted back into the thread (lib/decisions/portal-replies.ts). An agent's
+// portal reply is a "To: client portal" draft Joe approves
+// (lib/approved-draft-send.ts postApprovedPortalReply).
 
 import { query } from "./db";
 

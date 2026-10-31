@@ -10,6 +10,7 @@ globalThis.__screen={get mailbox(){return mailbox},get allowed(){return allowed}
 }};
 const stubs={
  '@/lib/dal':`export const requireAccess=async()=>{if(!globalThis.__screen.allowed)throw Error('Forbidden');return {id:'u'}};`,
+ '@/lib/mailbox-email':`export const ensureMailboxEmail=async()=>globalThis.__screen.mailbox??'';`,
  '@/lib/mailbox':`export const withMailboxFor=async(u,f)=>f();export const activeMailbox=()=>({email:globalThis.__screen.mailbox});`,
  '@/lib/db':`export const query=(...a)=>globalThis.__screen.query(...a);`,
  'next/cache':`export const revalidatePath=()=>{};`,

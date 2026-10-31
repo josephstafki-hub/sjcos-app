@@ -2,6 +2,7 @@
 import {requireAccess} from '@/lib/dal';
 import {withMailboxFor, activeMailbox} from '@/lib/mailbox';
 import {query} from '@/lib/db';
+import {ensureMailboxEmail} from '@/lib/mailbox-email';
 import {revalidatePath} from 'next/cache';
 import {emailAddress, validRecipient} from '@/lib/inbox-rules';
 
@@ -12,7 +13,7 @@ export async function setInboxPreferenceAction(kind: 'sender'|'thread', target: 
     decision !== null && !(kind === 'sender' ? ['linked','lead','sub','vendor','other','pending','blocked'] : ['attention','other']).includes(decision))
     return {ok:false,error:'Choose a valid screening decision.'};
   return withMailboxFor(user, async()=>{
-    const mailbox = activeMailbox()?.email?.toLowerCase();
+    const mailbox = (await ensureMailboxEmail()) || undefined;
     if (!mailbox) return {ok:false,error:'Connect your mailbox before screening senders.'};
     const key = `${kind}:${kind==='sender' ? emailAddress(target) : target}`;
     try {

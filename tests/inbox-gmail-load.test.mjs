@@ -10,6 +10,7 @@ const stubs = {
   "./ai": "export const ai = {};",
   "./db": `export const query = async (sql) => ({ rows: globalThis.__queryRows?.(sql) ?? [] });`,
   "./dal": 'export const getCurrentUser = async () => ({ id: "u", role: "owner", name: "Joe" });',
+  "./mailbox-email": "export const ensureMailboxEmail=async()=>globalThis.__gmail.mailbox;",
   "./mailbox":
     'export const activeMailbox = () => ({ refreshToken: globalThis.__gmail.disconnected ? null : "r", email: globalThis.__gmail.mailbox, linked: false }); export const mailboxFor = async () => ({ refreshToken: globalThis.__gmail.disconnected ? null : "r", email: globalThis.__gmail.mailbox, linked: false }); export const runWithMailbox = (mb, fn) => fn();',
   "./dev-agents": "export const askHermes = async (...args) => { globalThis.__draftPrompts.push(args); return 'Suggested reply'; };",

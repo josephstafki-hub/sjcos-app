@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {registerHooks} from 'node:module';
 import {threadNeedsMe,rememberNeedsCount,loadedNeedsCount} from '../lib/inbox-rules.ts';
 let mailbox='owner@example.test';
-globalThis.__navMailbox=()=>({email:mailbox});
+globalThis.__navMailbox=()=>({email:mailbox,userId:mailbox==='owner@example.test'?'owner':'staff'});
 const stubs={
  '@/lib/dal':"export const can=()=>true,getCurrentUser=async()=>({id:'owner',role:'owner'});",
  '@/lib/db':"export const query=async()=>({rows:[]});",
@@ -18,8 +18,8 @@ const {getNavCounts}=await import('../lib/actions/nav.ts');
 test('sidebar reads the last normally loaded Needs me classifier count with no Gmail request',async()=>{
  const threads=[{view:'needs_reply'},{view:'needs_reply',newSender:true},{view:'needs_reply',automated:true,attentionRequired:true},{view:'done'}];
  assert.equal((await getNavCounts()).inbox,0);
- rememberNeedsCount(mailbox,threads.filter(t=>threadNeedsMe(t)).length);
+ rememberNeedsCount('owner',threads.filter(t=>threadNeedsMe(t)).length);
  assert.equal((await getNavCounts()).inbox,2);
  mailbox='staff@example.test';assert.equal((await getNavCounts()).inbox,0);
- assert.equal(loadedNeedsCount('OWNER@EXAMPLE.TEST'),2);
+ assert.equal(loadedNeedsCount('owner'),2); // keyed by the mailbox's user, so an env mailbox without a configured address still counts
 });

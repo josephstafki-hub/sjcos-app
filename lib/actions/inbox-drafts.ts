@@ -3,6 +3,7 @@
 import { query } from '@/lib/db';
 import { requireAccess, requireRole } from '@/lib/dal';
 import { activeMailbox, withMailboxFor } from '@/lib/mailbox';
+import { ensureMailboxEmail } from '@/lib/mailbox-email';
 import { revalidatePath } from 'next/cache';
 import type { DraftIdentity, DraftWriteResult, InboxDraft, SaveDraftInput } from '@/lib/inbox-draft-types';
 
@@ -13,7 +14,10 @@ async function scoped<T>(fn: (mailbox: string, userId: string, owner: boolean, c
   return withMailboxFor(user, async () => {
     const mb = activeMailbox();
     if (!mb || mb.userId !== user.id) throw new Error('Mailbox scope is unavailable.');
-    return fn(mb.email?.toLowerCase() || `user:${user.id}`, user.id, user.role === 'owner', Boolean(mb.email && mb.refreshToken));
+    // The owner's env mailbox may have no configured address; the sweep keys AI
+    // suggestions by the real Gmail address, so resolve it the same way here.
+    const email = mb.refreshToken ? await ensureMailboxEmail() : '';
+    return fn(email || `user:${user.id}`, user.id, user.role === 'owner', Boolean(email && mb.refreshToken));
   });
 }
 

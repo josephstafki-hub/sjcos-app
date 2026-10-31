@@ -15,6 +15,7 @@ const stubs = {
   './dev-agents': `export const chatReplyClaude=async (prompt)=>{globalThis.__auto.models.push('claude');globalThis.__auto.prompts.push(prompt);return 'Claude reply'};`,
   './direct-send-gate': `export const directSendBlocked=async()=>globalThis.__auto.blocked;`,
   './agent-runtime/instructions': `export const loadActiveInstructionBlocks=async()=>({tone_guide:{body:'TONE: plain words, no jargon.'}});`,
+  './mailbox-email': `export const ensureMailboxEmail=async()=>'joe@example.test';`,
   './mailbox': `export const mailboxFor=async owner=>({email:'JOE@example.test',refreshToken:'stub',userId:owner.id});
     export const runWithMailbox=async(mb,fn)=>{globalThis.__auto.mailbox=mb;return fn()};`,
 };

@@ -2,6 +2,7 @@ import 'server-only';
 import { query, queryOne } from './db';
 import { getInboxData, gatherReplyContext, draftReplyForThread, type InboxData, type InboxThread } from './inbox';
 import { fetchConversation, isGmailRateLimit, type RawGmailThread } from './gmail';
+import { ensureMailboxEmail } from './mailbox-email';
 import { conversationDraftContext, isNoReplyAddress, resolveReplyTarget, splitQuotedText } from './inbox-rules';
 import { chatReplyClaude } from './dev-agents';
 import { directSendBlocked } from './direct-send-gate';
@@ -24,8 +25,9 @@ export interface AutoDraftCandidate {
 /** Only the existing loader's Needs me classification; never fetch individual
  * threads to classify them. Unknown senders and attention-only automation wait
  * for Joe, even if their row appears in Needs me. */
-export function selectAutoDraftCandidates(data: InboxData): AutoDraftCandidate[] {
+export function selectAutoDraftCandidates(data: InboxData, skipped?: Record<string, number>): AutoDraftCandidate[] {
   if (data.emailPaused || data.loadError || !data.mailbox.connected) return [];
+  const skip = (reason: string) => { if (skipped) skipped[reason] = (skipped[reason] ?? 0) + 1; return [] as AutoDraftCandidate[]; };
   return data.threads.flatMap(thread => {
     const reader = data.readers[thread.id];
     const last = reader?.messages.at(-1);
@@ -33,10 +35,14 @@ export function selectAutoDraftCandidates(data: InboxData): AutoDraftCandidate[]
       ['client', 'sub'].includes(thread.audience ?? '') ||
       ['project', 'lead', 'sub'].includes(thread.linkedType ?? '');
     const target = reader?.replyTarget;
-    if (thread.channel !== 'email' || thread.view !== 'needs_reply' || !known ||
-        thread.newSender || thread.filedOther || thread.automated || reader?.automated ||
-        thread.inboundLast === false || !last?.id || last.outbound !== false ||
-        !target?.toEmail || isNoReplyAddress(target.toEmail) || isNoReplyAddress(last.fromEmail ?? '')) return [];
+    // Reasons are counts only (no names/addresses) so the cron result explains an empty run.
+    if (thread.channel !== 'email') return skip('not email');
+    if (thread.view !== 'needs_reply') return skip('not waiting on Joe');
+    if (!known) return skip('not a known client/lead/sub');
+    if (thread.newSender || thread.filedOther || thread.automated || reader?.automated) return skip('automated or unscreened');
+    if (thread.inboundLast === false || !last?.id || last.outbound !== false) return skip('Joe wrote last');
+    if (!target?.toEmail) return skip('no reply address');
+    if (isNoReplyAddress(target.toEmail) || isNoReplyAddress(last.fromEmail ?? '')) return skip('no-reply sender');
     return [{ thread, messageId: last.id, toEmail: target.toEmail,
       receivedAt: last.date ?? thread.receivedAt ?? 0 }];
   }).sort((a, b) => a.receivedAt - b.receivedAt || a.thread.id.localeCompare(b.thread.id));
@@ -100,7 +106,7 @@ export async function claimAutoDraft(mailbox: string, ownerId: string, candidate
 /** Owner mailbox only; a cron request has no signed-in session. No send API is
  * imported here. Paused lanes and opted-out recipients are respected anyway. */
 export async function sweepInboxDrafts() {
-  const counts = { attempted: 0, ready: 0, failed: 0, skipped: 0 };
+  const counts = { attempted: 0, ready: 0, failed: 0, skipped: 0, reasons: {} as Record<string, number> };
   const { rows: settings } = await query<{ key: string; value: string }>(
     `SELECT key, value FROM app_settings WHERE key=ANY($1::text[])`,
     [[AUTO_DRAFT_SETTING_KEY, DRAFT_MODEL_SETTING_KEY]]);
@@ -111,16 +117,17 @@ export async function sweepInboxDrafts() {
     `SELECT id, role FROM users WHERE role='owner' AND active=true ORDER BY created_at, id LIMIT 1`);
   if (!owner) return counts;
   const mb = await mailboxFor(owner);
-  if (!mb.refreshToken || !mb.email) return counts;
-  const mailbox = mb.email.toLowerCase();
+  if (!mb.refreshToken) return counts;
   return runWithMailbox(mb, async () => {
+    const mailbox = await ensureMailboxEmail();
+    if (!mailbox) throw new Error('Could not read the mailbox address from Gmail.');
     const data = await getInboxData(owner);
     // The loader has already logged the Gmail outage; never draft from its
     // last-good snapshot while Gmail is unavailable.
     if (data.emailPaused || data.loadError) throw new Error(data.loadError || 'Inbox email is paused.');
     // The timer's curl gives up at 290 s: never start a draft that could outlive it.
     const started = Date.now();
-    for (const candidate of selectAutoDraftCandidates(data)) {
+    for (const candidate of selectAutoDraftCandidates(data, counts.reasons)) {
       if (counts.attempted >= 3 || Date.now() - started > 150_000) break;
       if (await directSendBlocked(runQ, { lane: 'sends', to: candidate.toEmail })) { counts.skipped++; continue; }
       const claim = await claimAutoDraft(mailbox, owner.id, candidate, model);

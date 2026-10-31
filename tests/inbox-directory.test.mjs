@@ -7,6 +7,7 @@ registerHooks({resolve(s,c,n){
  if(s==='./db')return {url:'fake:db',shortCircuit:true};
  if(s==='@/lib/dal')return {url:'fake:dal',shortCircuit:true};
  if(s==='@/lib/mailbox')return {url:'fake:mailbox',shortCircuit:true};
+ if(s==='@/lib/mailbox-email')return {url:'fake:mailbox-email',shortCircuit:true};
  if(s==='@/lib/db')return {url:'fake:db',shortCircuit:true};
  if(s==='next/cache')return {url:'fake:cache',shortCircuit:true};
  if(s==='@/lib/inbox-directory')return n(new URL('../lib/inbox-directory.ts',import.meta.url).href,c);
@@ -18,6 +19,7 @@ registerHooks({resolve(s,c,n){
  'fake:dal':"export const requireAccess=async()=>{if(!globalThis.__directory.allowed())throw Error('Forbidden');return {role:'owner'};};",
  'fake:mailbox':'export const withMailboxFor=async(u,f)=>f(),activeMailbox=()=>({email:"joe@example.test"});',
  'fake:cache':'export const revalidatePath=()=>{};',
+ 'fake:mailbox-email':'export const ensureMailboxEmail=async()=>"joe@example.test";',
  };return u in sources?{format:'module',source:sources[u],shortCircuit:true}:n(u,c);}});
 const {searchInboxDirectoryAction}=await import('../lib/actions/inbox-screening.ts');
 test('whole directory is parameterized, prioritizes exact email then domain, and returns role/job evidence',async()=>{

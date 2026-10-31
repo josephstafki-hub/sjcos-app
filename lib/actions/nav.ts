@@ -43,7 +43,8 @@ export async function getNavCounts(): Promise<NavCounts> {
  *  report the owner's unread total to every staff login. */
 async function inboxUnread(user: CurrentUser): Promise<number> {
   return withMailboxFor(user, async () => {
-    return loadedNeedsCount(activeMailbox()?.email ?? '');
+    // Keyed by the mailbox's user (the inbox load records it); never a Gmail call per navigation.
+    return loadedNeedsCount(activeMailbox()?.userId ?? '');
   });
 }
 

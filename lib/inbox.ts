@@ -13,6 +13,7 @@ import type { SystemViewKey, ThreadChannel, ThreadStatus } from "./types";
 import { ai } from "./ai";
 import { query } from "./db";
 import { getCurrentUser } from "./dal";
+import { ensureMailboxEmail } from "./mailbox-email";
 import {
   activeMailbox,
   mailboxFor,
@@ -28,8 +29,7 @@ import {
   fetchThreadPage,
   fetchLabelCounts,
   type RawGmailThread,
-  type GmailCategory,
-} from "./gmail";
+  type GmailCategory, } from "./gmail";
 
 // ─── Left rail: smart views, channels, by-project ───────────────────────────
 
@@ -835,6 +835,7 @@ interface ContactMaps {
 
 /** Load the contact index from Postgres once per inbox build. */
 async function loadContactMaps(): Promise<ContactMaps> {
+  await ensureMailboxEmail();
   const [contacts, links, threadLinks, staff, preferences] = await Promise.all([
     query<ContactRow>(
       `SELECT lower(email) AS email, name, slug, 'client' AS kind, replace(stage,'_',' ') AS stage
@@ -1668,7 +1669,7 @@ async function buildFromGmail(
   attachInquiryContinuity(threads,Object.fromEntries(readerEntries));
   await attachThreadTodos(threads);
   const viewCounts = countViews(threads);
-  rememberNeedsCount(mailbox.email ?? "",viewCounts.needs_reply);
+  rememberNeedsCount(activeMailbox()?.userId ?? mailbox.email ?? "",viewCounts.needs_reply);
   const channelCounts = countChannels(threads);
 
   // Label rail: ALL user labels with true Gmail totals (threadsTotal), so the

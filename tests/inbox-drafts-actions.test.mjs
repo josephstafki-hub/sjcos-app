@@ -4,6 +4,7 @@ import { registerHooks } from 'node:module';
 const stubs={
  '@/lib/db':`export const query=async(sql,p)=>globalThis.__draftActions.query(sql,p);`,
  '@/lib/dal':`export const requireAccess=async area=>{if(area!=='inbox')throw Error('wrong permission');if(globalThis.__draftActions.denied)throw Error('denied');return globalThis.__draftActions.user;};export const requireRole=async role=>{if(globalThis.__draftActions.user.role!==role)throw Error('denied')};`,
+ '@/lib/mailbox-email':`export const ensureMailboxEmail=async()=>(globalThis.__draftActions.active?.email??'').toLowerCase();`,
  '@/lib/mailbox':`export const activeMailbox=()=>globalThis.__draftActions.active;
  export const withMailboxFor=async (user,fn)=>{const a=globalThis.__draftActions;a.scopes++;a.active={userId:user.id,email:a.email,refreshToken:a.email?'stub':null};return fn()};`,
  'next/cache':`export const revalidatePath=()=>{};`,

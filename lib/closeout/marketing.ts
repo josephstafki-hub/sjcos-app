@@ -17,7 +17,7 @@ import { getDecision, revokeDecision, type Decision } from "../commands/decision
 import { stageDecision } from "../commands/decisions.ts";
 import { cancelIntent, enqueueIntent, getIntent, hashPayload, reconcileIntent, type ActionIntent } from "../commands/intents.ts";
 import { isOwner, type Principal } from "../commands/principal.ts";
-import { isPostPlatform, postProblem, POST_PLATFORM_LABEL } from "../marketing-types.ts";
+import { isPostPlatform, POST_LIMITS, postProblem, POST_PLATFORM_LABEL } from "../marketing-types.ts";
 import { pinRevision, revisionRef } from "./revisions.ts";
 
 export async function grantPublicationRights(run: Run, input: { fileIds: string[]; projectId: string | null; grantedBy: string; grantedByUserId?: string | null; scope?: string[]; note?: string }): Promise<number> {
@@ -100,21 +100,48 @@ async function retirePendingCard(run: Run, d: MarketingDraftRow, actor: string):
   await run(`UPDATE marketing_drafts SET status = 'draft' WHERE id = $1 AND status = 'pending_decision'`, [d.id]);
 }
 
+/** The job's shareable photos, newest first: what an automatic pick draws from. */
+async function shareablePhotosNewestFirst(run: Run, projectId: string, scope: string): Promise<string[]> {
+  const rows = await run<{ file_id: string }>(
+    `SELECT r.file_id FROM publication_rights r JOIN files f ON f.id = r.file_id
+      WHERE r.project_id = $1 AND r.withdrawn_at IS NULL AND $2 = ANY(r.scope) AND f.type = 'img'
+      GROUP BY r.file_id, f.created_at ORDER BY f.created_at DESC`,
+    [projectId, scope],
+  );
+  return rows.map((r) => r.file_id);
+}
+
 /** Where a social post goes and which shareable photos go with it, in order.
- *  Only photos with a live publication right on the post's job are accepted. */
-export async function setDraftPost(run: Run, draftId: number, input: { platform: string; photoIds: string[]; actor: string }): Promise<{ draft: MarketingDraftRow; rejectedPhotoIds: string[] }> {
+ *  Only photos with a live publication right on the post's job are accepted.
+ *  `autoPick`: with no photos asked for and a site picked, take the newest
+ *  shareable photos the site takes (Joe changes them after). More photos than
+ *  the site takes are cut to its limit, first ones kept. */
+export async function setDraftPost(
+  run: Run,
+  draftId: number,
+  input: { platform: string; photoIds: string[]; actor: string; autoPick?: boolean },
+): Promise<{ draft: MarketingDraftRow; rejectedPhotoIds: string[]; autoPicked: number; trimmed: number }> {
   const d = await getDraft(run, draftId);
   if (!d) throw new Error("No such draft.");
   if (input.platform && !isPostPlatform(input.platform)) throw new Error(`"${input.platform}" isn't a place a post can go.`);
   if (d.status === "posted") throw new Error("Already posted.");
   await retirePendingCard(run, d, input.actor);
-  const allowed = d.project_id ? await authorizedPhotos(run, d.project_id, d.kind === "blog" ? "website" : "social") : [];
+  const scope = d.kind === "blog" ? "website" : "social";
+  const allowed = d.project_id ? await authorizedPhotos(run, d.project_id, scope) : [];
   const wanted = [...new Set(input.photoIds)];
-  const media = wanted.filter((id) => allowed.includes(id));
+  let media = wanted.filter((id) => allowed.includes(id));
+  const max = isPostPlatform(input.platform) ? POST_LIMITS[input.platform].maxPhotos : null;
+  let autoPicked = 0;
+  if (input.autoPick && !wanted.length && max && d.project_id) {
+    media = (await shareablePhotosNewestFirst(run, d.project_id, scope)).slice(0, max);
+    autoPicked = media.length;
+  }
+  const trimmed = max && media.length > max ? media.length - max : 0;
+  if (trimmed) media = media.slice(0, max!);
   await run(`UPDATE marketing_drafts SET audience = $2 WHERE id = $1`, [d.id, input.platform]);
   await run(`DELETE FROM marketing_draft_media WHERE draft_id = $1`, [d.id]);
   for (const [i, f] of media.entries()) await run(`INSERT INTO marketing_draft_media (draft_id, file_id, sort) VALUES ($1, $2, $3)`, [d.id, f, i]);
-  return { draft: (await getDraft(run, d.id))!, rejectedPhotoIds: wanted.filter((id) => !allowed.includes(id)) };
+  return { draft: (await getDraft(run, d.id))!, rejectedPhotoIds: wanted.filter((id) => !allowed.includes(id)), autoPicked, trimmed };
 }
 
 /** The text changed: a pending card for the old text is retired. */

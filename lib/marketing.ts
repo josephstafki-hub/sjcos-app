@@ -82,7 +82,7 @@ export async function getMarketingDrafts(): Promise<MarketingDraft[]> {
     );
     for (const p of pics) {
       const list = photosBySlug.get(p.project_key) ?? [];
-      if (list.length < 24) list.push({ id: p.id, name: p.name, shareable: p.shareable });
+      if (list.length < 120) list.push({ id: p.id, name: p.name, shareable: p.shareable });
       photosBySlug.set(p.project_key, list);
     }
   }

@@ -140,6 +140,10 @@ test("the chain: rights → pick photos → card → approve → dispatch hands 
     const tx = txOver(url);
     await client.query(`TRUNCATE publication_rights, marketing_draft_media, document_revisions, intent_authority RESTART IDENTITY CASCADE`);
     await client.query(`DELETE FROM marketing_drafts WHERE title LIKE 'zz-%'`);
+    await client.query(`DELETE FROM projects WHERE slug = 'zz-pub'`);
+    await client.query(`DELETE FROM files WHERE id LIKE 'zz-pub-%'`);
+    await client.query(`DELETE FROM notifications WHERE title LIKE 'Posted to %' OR title LIKE 'Not posted to %'`);
+    await client.query(`DELETE FROM users WHERE email = 'zz-owner@example.test'`);
     const [o] = await run(`INSERT INTO users (email, password_hash, name, role, initials) VALUES ('zz-owner@example.test','x','Joe','owner','J') RETURNING id`);
     const owner = { kind: "user", userId: o.id, role: "owner", name: "Joe", permissions: [] };
     const staff = { kind: "user", userId: uuid(99), role: "staff", name: "Abigail", permissions: ["marketing"] };

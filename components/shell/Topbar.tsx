@@ -48,6 +48,7 @@ export function Topbar({ breadcrumb = "TODAY", unread = 0, leading }: TopbarProp
           })}
         </ol>
       </nav>
+      {/^\/inbox(?:\/|$)/.test(pathname) && <span id="inbox-approval-badge" className="shrink-0" />}
       <CommandPalette />
       <Button onClick={() => window.dispatchEvent(new Event(PALETTE_EVENT))} variant="ghost" size="sm" icon={Search} aria-label="Search" title="Search (⌘K)">
         <span className="max-sm:hidden">Search… <kbd className="ml-3 font-mono text-meta text-ink-3">⌘K</kbd></span>

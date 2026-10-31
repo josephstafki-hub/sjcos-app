@@ -1,15 +1,17 @@
 import type { InboxThread, ThreadReader } from "./inbox";
 
-export type InboxTab = "needs" | "clients" | "leads" | "subs" | "other";
+export type InboxTab = "needs" | "clients" | "leads" | "subs" | "new" | "other";
 export const INBOX_TABS: { value: InboxTab; label: string }[] = [
   { value: "needs", label: "Needs me" },
   { value: "clients", label: "Clients" },
   { value: "leads", label: "Leads" },
   { value: "subs", label: "Subs & vendors" },
+  { value: "new", label: "New senders" },
   { value: "other", label: "Other" },
 ];
 export function inboxBucket(t: InboxThread): Exclude<InboxTab, "needs"> {
-  if (t.automated) return "other";
+  if (t.automated || t.filedOther) return "other";
+  if (t.newSender) return "new";
   if (
     t.audience === "sub" ||
     t.audience === "money" ||
@@ -30,7 +32,7 @@ export function inboxBucket(t: InboxThread): Exclude<InboxTab, "needs"> {
     t.audience === "client"
   )
     return "clients";
-  return "leads";
+  return "new";
 }
 export function matchesInboxTab(
   t: InboxThread,
@@ -38,14 +40,15 @@ export function matchesInboxTab(
   draftReady = false,
 ) {
   return tab === "needs"
-    ? !t.automated && (draftReady || t.view === "needs_reply")
+    ? !["other", "new"].includes(inboxBucket(t)) &&
+        (draftReady || t.view === "needs_reply")
     : inboxBucket(t) === tab;
 }
 export function tabCounts(
   threads: InboxThread[],
   drafts: ReadonlySet<string> = new Set(),
 ) {
-  const counts = { needs: 0, clients: 0, leads: 0, subs: 0, other: 0 };
+  const counts = { needs: 0, clients: 0, leads: 0, subs: 0, new: 0, other: 0 };
   for (const t of threads) {
     counts[inboxBucket(t)]++;
     if (matchesInboxTab(t, "needs", drafts.has(t.id))) counts.needs++;
@@ -233,4 +236,44 @@ export function relatedConversations(
       ((p.email && t.fromEmail?.toLowerCase() === p.email.toLowerCase()) ||
         (p.contactKey && t.contactKey === p.contactKey)),
   );
+}
+
+/** Rank only; stable sorting preserves arrival order within each group. */
+export function triageRank(t: InboxThread): number {
+  if (inboxBucket(t) === "other") return 4;
+  if (inboxBucket(t) === "new") return 3;
+  return t.view === "needs_reply" ? 0 : 2;
+}
+export function senderPreferenceKey(mailbox: string, sender: string) {
+  return `sjc:inbox:other:v1:${encodeURIComponent(mailbox.toLowerCase())}:${encodeURIComponent(sender.toLowerCase())}`;
+}
+export function applySenderPreference(
+  t: InboxThread,
+  other: boolean,
+): InboxThread {
+  return {
+    ...t,
+    filedOther: other,
+    needsMeReason: other
+      ? "Filed in Other"
+      : t.newSender
+        ? "New sender"
+        : t.needsMeReason,
+  };
+}
+
+/** Long imported notes belong in context, never in the job identity chip. */
+export function shortJobLabel(name: string): string {
+  const parts = name
+    .split(/\s+·\s+/)
+    .slice(0, 2)
+    .join(" · ");
+  return parts.length > 52 ? parts.slice(0, 49).trimEnd() + "…" : parts;
+}
+
+export function formatContactPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
+  return digits.length === 10
+    ? `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+    : phone;
 }

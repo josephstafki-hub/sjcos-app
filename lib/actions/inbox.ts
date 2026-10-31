@@ -11,6 +11,7 @@
 // thread archives it in their own account, and one with nothing linked gets
 // "Gmail is not connected" instead of a write against Joe's mailbox.
 
+import { inquiryReplySubject } from "@/lib/inbox-rules";
 import { sendSmsReply } from "@/lib/actions/sms";
 import { sendProjectMessage, sendLeadPortalMessage } from "@/lib/actions/portal";
 import { sendChatMessage } from "@/lib/actions/chat";
@@ -358,7 +359,7 @@ export async function sendChannelReplyAction(input: {
       if (!lead?.email) return { ok: false, error: "No email address supplied — open the lead to contact them." };
       result = await sendNewEmailAction({
         to: lead.email,
-        subject: `Re: Your inquiry — ${(lead.scope || lead.name).replace(/[\r\n]+/g, " ").slice(0, 100)}`,
+        subject: inquiryReplySubject(lead.scope,lead.name),
         body: input.body,
       });
     } else {

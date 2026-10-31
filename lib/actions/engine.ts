@@ -17,7 +17,7 @@ import { completeByPerson, maybeAdvanceRunbook, cancelRunbookInstance, repairRun
 import { assignNewItem, pickedPeople, setAssignees } from "@/lib/work-item-assign";
 import type { WorkItemStatus } from "@/lib/types";
 
-type Result = { ok: true } | { ok: false; error: string };
+type Result = { ok: true; id?: string; existing?: boolean } | { ok: false; error: string };
 
 export async function createWorkItem(formData: FormData): Promise<Result> {
   const me = await requireAccess("engine");
@@ -116,7 +116,7 @@ export async function createWorkItem(formData: FormData): Promise<Result> {
       revalidatePath("/engine");
       revalidatePath("/today");
     }
-    return { ok: true };
+    return { ok: true, id: prep.existingId, existing: true };
   }
   const created = await queryOne<{ id: string }>(
     `INSERT INTO work_items
@@ -139,10 +139,11 @@ export async function createWorkItem(formData: FormData): Promise<Result> {
       prep?.obligationId ?? null,
     ],
   );
-  if (created) await assignNewItem(created.id, title, people);
+  if (!created) return {ok:false,error:"Could not create the to-do."};
+  await assignNewItem(created.id, title, people);
   revalidatePath("/engine");
   revalidatePath("/today");
-  return { ok: true };
+  return { ok: true, id: created.id };
 }
 
 /** Edit existing details; assignment uses the same owner-only service as Today. */

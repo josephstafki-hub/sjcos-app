@@ -33,19 +33,26 @@ registerHooks({
   }
 });
 const {ReaderBody,ChannelReaderBody,ThreadRow,InboxClient}=await import(componentUrl);
-const messages=[{id:'1',fromName:'Tom',fromEmail:'tom@example.test',initials:'TT',meta:'Yesterday',date:1000,to:'Joe',body:['Old message text'],outbound:false},{id:'2',fromName:'Joe',fromEmail:'joe@example.test',initials:'JS',meta:'Today',date:2000,to:'Tom',cc:['Ana <ana@example.test>'],body:['Latest message body'],outbound:true,attachments:[{id:'a',name:'plan.pdf',size:4096,type:'application/pdf'}]}];
-const reader={channel:'email',messages,messageCount:2,subject:'Plans',aiDraft:{body:'',summary:''},replyPlaceholder:'Reply to Tom…',replyTarget:{toEmail:'tom@example.test',toName:'Tom',cc:['ana@example.test']}};
+const messages=[{id:'0',fromName:'Joe',initials:'JS',meta:'Earlier',date:500,to:'Tom',body:['Earlier outgoing message'],outbound:true},{id:'1',fromName:'Tom',fromEmail:'tom@example.test',initials:'TT',meta:'Yesterday',date:1000,to:'Joe',body:['Old message text'],outbound:false},{id:'2',fromName:'Joe',fromEmail:'joe@example.test',initials:'JS',meta:'Today',date:2000,to:'Tom',cc:['Ana <ana@example.test>'],body:['Latest message body'],outbound:true,attachments:[{id:'a',name:'plan.pdf',size:4096,type:'application/pdf'}]}];
+const reader={channel:'email',messages,messageCount:3,subject:'Plans',aiDraft:{body:'',summary:''},replyPlaceholder:'Reply to Tom…',replyTarget:{toEmail:'tom@example.test',toName:'Tom',cc:['ana@example.test']}};
 const render=(component,props)=>renderToStaticMarkup(React.createElement(component,props));
-test('email opens newest expanded, earlier 44px summary collapsed; displays identity, recipients and attachments',()=>{
+test('latest inbound opens above outbound-last reply, history is one disclosure and envelopes expand',()=>{
   const html=render(ReaderBody,{reader,threadId:'thread'});
-  assert.match(html,/Expand all/); assert.match(html,/h-11/); assert.match(html,/aria-expanded="false"/);
-  assert.match(html,/Latest message body/); assert.doesNotMatch(html,/Old message text<\/p>/);
-  assert.match(html,/plan.pdf/); assert.match(html,/application\/pdf/); assert.match(html,/ana@example.test/);
+  assert.match(html,/1 earlier messages/); assert.match(html,/Expand all/);
+  assert.match(html,/aria-expanded="true"/); assert.match(html,/Message details/);
+  assert.match(html,/Old message text<\/p>/,'newest inbound is expanded');
+  assert.doesNotMatch(html,/Latest message body<\/p>/,'newer outbound remains collapsed');
 });
-test('resolved To is visible and editable before typing; reply-all is opt-in',()=>{
+test('default composer is one reply/AI bar; recipient and reply-all are inspectable when expanded',()=>{
   const html=render(ReaderBody,{reader,threadId:'thread'});
-  assert.match(html,/To:/); assert.match(html,/tom@example.test/); assert.match(html,/aria-label="Reply recipient"/);
-  assert.match(html,/Reply all/); assert.doesNotMatch(html,/type="checkbox" checked/);
+  assert.match(html,/Reply to Tom…/); assert.match(html,/Draft with AI/);
+  assert.doesNotMatch(html,/textarea|Reply all|Focus draft Send/);
+  const expanded=render(ReaderBody,{reader:{...reader,aiDraft:{body:'Saved typed reply'}},threadId:'thread'});
+  assert.match(expanded,/To:/); assert.match(expanded,/tom@example.test/);
+  assert.match(expanded,/aria-label="Reply recipient"/); assert.match(expanded,/Reply all/);
+  assert.doesNotMatch(expanded,/type="checkbox" checked/);
+  const inboundLast={...reader,messages:[...messages,{...messages.at(-1),id:'3',outbound:false}]};
+  assert.match(render(ReaderBody,{reader:inboundLast,threadId:'thread'}),/plan.pdf/);
 });
 test('automated mail has Done and no composer or AI draft button',()=>{
   const html=render(ReaderBody,{reader:{...reader,automated:true},threadId:'thread'});
@@ -85,4 +92,18 @@ test('phase 2 uses counted split tabs, dense channel rows, no page title or nati
  assert.match(html,/data-thread-row/);assert.match(html,/min-h-16/);assert.match(html,/aria-label="Done: Tom"/);
  assert.match(source,/data-draft-send/);assert.match(source,/Your Send click approves this draft/);
  assert.match(source,/absolute inset-x-0 bottom-0/);assert.match(source,/ContextPanel/);
+});
+
+test('website card has contact actions, formatted phone and exact outgoing subject before Send',()=>{
+ const form={name:'Teresa',town:'Stillwater',phone:'9524656989',email:'teresa@example.test',outgoingSubject:'Re: Your inquiry — Basement'};
+ const html=render(ChannelReaderBody,{reader:{...reader,channel:'site_form',form,messages:[{...messages[1],body:['Partial basement finish','Preferred contact\nemail']}]},threadId:'siteform:teresa'});
+ for(const text of ['New website inquiry · Stillwater','tel:9524656989','sms:9524656989','mailto:teresa@example.test','(952) 465-6989','Subject: Re: Your inquiry — Basement']) assert.ok(html.includes(text),text);
+ assert.match(html,/font-semibold[^>]*>Partial basement finish/);
+});
+test('saved tasks return to the reader and mark the row; unread names get their own line',()=>{
+ const todo={id:'w1',title:'Send revised estimate',assignees:'Joe',due_at:'2026-11-06'};
+ const html=render(ReaderBody,{reader,threadId:'thread',todos:[todo]});
+ assert.match(html,/To-do: Send revised estimate/);assert.match(html,/Joe/);assert.match(html,/Fri/);assert.match(html,/engine\?work=w1/);
+ const row=render(ThreadRow,{thread:{id:'1',fromName:'Michelle Alcantara',channel:'email',initials:'MA',when:'2h',view:'needs_reply',preview:'Please revise the closet estimate',needsMeReason:'Client replied',projectLabel:'Closet',unread:true,hasOpenTodo:true},onSelect(){}});
+ assert.equal((row.match(/>2h</g) ?? []).length,1);assert.match(row,/Open to-do/);assert.match(row,/aria-label="Unread"/);assert.match(row,/Michelle Alcantara/);
 });

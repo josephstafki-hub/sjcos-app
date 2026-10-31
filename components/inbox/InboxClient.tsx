@@ -49,7 +49,11 @@ import {
   Avatar,
   VoiceButton,
 } from "@/components/ui";
-import { smsSegments } from "@/lib/inbox-rules";
+import {
+  smsSegments,
+  latestInboundIndex,
+  composerExpanded,
+} from "@/lib/inbox-rules";
 import { mergeTranscript } from "@/lib/append-transcript";
 import {
   draftReplyAction,
@@ -74,6 +78,7 @@ import type { ThreadChannel, ThreadStatus, SystemViewKey } from "@/lib/types";
 import { SYSTEM_VIEWS } from "@/lib/types";
 import type {
   InboxData,
+  InboxTodo,
   InboxThread,
   MailboxState,
   ThreadReader,
@@ -81,6 +86,11 @@ import type {
 
 import {
   INBOX_TABS,
+  triageRank,
+  senderPreferenceKey,
+  applySenderPreference,
+  shortJobLabel,
+  formatContactPhone,
   matchesInboxTab,
   tabCounts,
   shortcutFor,
@@ -211,6 +221,18 @@ export function InboxClient({
   const [mobileReader, setMobileReader] = useState(false);
   const [showSources, setShowSources] = useState(false);
   const [composing, setComposing] = useState(false);
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent("sjc:inbox-surface", {
+        detail: Boolean(task || help || linking || context || composing),
+      }),
+    );
+    return () => {
+      window.dispatchEvent(
+        new CustomEvent("sjc:inbox-surface", { detail: false }),
+      );
+    };
+  }, [task, help, linking, context, composing]);
   // Threads/readers grow as "Load more" pages in from Gmail.
   const [draftIds, setDraftIds] = useState<Set<string>>(new Set());
   const onDraftReady = useCallback(
@@ -225,6 +247,7 @@ export function InboxClient({
     [],
   );
   const [threads, setThreads] = useState(data.threads);
+  const [otherSenders, setOtherSenders] = useState<Set<string>>(new Set());
   const [readers, setReaders] = useState(data.readers);
   const [pageToken, setPageToken] = useState(data.nextPageToken);
   const [pagePausedAt, setPagePausedAt] = useState<number | null>(null);
@@ -294,8 +317,48 @@ export function InboxClient({
     } catch {}
   }, [selfEmail, threads, remoteData]);
 
+  useEffect(() => {
+    // A mailbox switch must never carry another account's screening choices.
+    const next = new Set<string>();
+    for (const thread of [...threads, ...(remoteData?.threads ?? [])]) {
+      if (!thread.fromEmail) continue;
+      try {
+        if (
+          localStorage.getItem(
+            senderPreferenceKey(selfEmail, thread.fromEmail),
+          ) === "other"
+        )
+          next.add(thread.fromEmail.toLowerCase());
+      } catch {
+        /* Keep the inbox usable when storage is unavailable. */
+      }
+    }
+    setOtherSenders(next);
+  }, [selfEmail, threads, remoteData]);
+  function fileSender(thread: InboxThread, other: boolean) {
+    if (!thread.fromEmail) return;
+    const email = thread.fromEmail.toLowerCase();
+    setOtherSenders((previous) => {
+      const next = new Set(previous);
+      if (other) next.add(email);
+      else next.delete(email);
+      return next;
+    });
+    try {
+      const key = senderPreferenceKey(selfEmail, email);
+      if (other) localStorage.setItem(key, "other");
+      else localStorage.removeItem(key);
+    } catch {
+      setNotice(
+        "Browser storage is unavailable. This choice may reset on refresh.",
+      );
+    }
+    setTab(other ? "other" : "new");
+    setSelectedId(thread.id);
+  }
+
   // Threads under the current lens, before the audience filter is applied.
-  const baseVisible = useMemo(() => {
+  const sourceVisible = useMemo(() => {
     switch (lens.kind) {
       case "all":
         return threads;
@@ -336,15 +399,28 @@ export function InboxClient({
     }
   }, [threads, lens, remoteData, draftIds]);
 
+  const baseVisible = useMemo(
+    () =>
+      sourceVisible.map((t) =>
+        applySenderPreference(
+          t,
+          Boolean(t.fromEmail && otherSenders.has(t.fromEmail.toLowerCase())),
+        ),
+      ),
+    [sourceVisible, otherSenders],
+  );
+
   const visible = useMemo(
     () =>
-      baseVisible.filter(
-        (t) =>
-          (!tab || matchesInboxTab(t, tab, draftIds.has(t.id))) &&
-          `${t.fromName} ${t.subject} ${t.preview} ${t.projectLabel ?? ""}`
-            .toLowerCase()
-            .includes(query.toLowerCase()),
-      ),
+      baseVisible
+        .filter(
+          (t) =>
+            (!tab || matchesInboxTab(t, tab, draftIds.has(t.id))) &&
+            `${t.fromName} ${t.subject} ${t.preview} ${t.projectLabel ?? ""}`
+              .toLowerCase()
+              .includes(query.toLowerCase()),
+        )
+        .sort((a, b) => triageRank(a) - triageRank(b)),
     [baseVisible, tab, draftIds, query],
   );
   // Count of threads sitting in the Gmail inbox (the plain "Inbox" rail view).
@@ -397,6 +473,7 @@ export function InboxClient({
               projectSlug: next && type === "project" ? slug : undefined,
               projectLabel: option?.name,
               contactStage: option?.stage,
+              newSender: next ? false : t.newSender,
             };
       setThreads((ts) => ts.map(patch));
       setRemoteData((d) => (d ? { ...d, threads: d.threads.map(patch) } : d));
@@ -1084,7 +1161,7 @@ export function InboxClient({
                   <p className="text-meta text-ink-3">
                     Email is paused. Try again to check this view.
                   </p>
-                ) : !data.mailbox.connected ? (
+                ) : !data.mailbox.connected && !tab ? (
                   <NoMailboxPrompt />
                 ) : (
                   <>
@@ -1100,7 +1177,10 @@ export function InboxClient({
                 <ThreadRow
                   key={t.id}
                   thread={
-                    draftIds.has(t.id)
+                    draftIds.has(t.id) &&
+                    !t.automated &&
+                    !t.filedOther &&
+                    !t.newSender
                       ? { ...t, needsMeReason: "Draft ready to review" }
                       : t
                   }
@@ -1157,9 +1237,7 @@ export function InboxClient({
                   <span className="min-w-0 flex-1 truncate text-body font-semibold @4xl/page:hidden">
                     {selected.fromName}
                   </span>
-                  <span className="shrink-0 text-meta text-ink-3 @4xl/page:hidden">
-                    {reader.channelLabel}
-                  </span>
+
                   <Button
                     onClick={archiveSelected}
                     icon={Check}
@@ -1316,35 +1394,62 @@ export function InboxClient({
                   </div>
                 </div>
                 <div className="px-4 pb-3">
-                  <h1 className="font-serif text-title font-medium leading-tight text-accent-2">
+                  <h1 className="line-clamp-2 font-serif text-title font-medium leading-tight text-accent-2">
                     {reader.subject}
                   </h1>
-                  <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
-                    <button
-                      onClick={() => setContext("person")}
-                      className="inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-full border border-rule bg-card px-2.5 text-meta text-ink-2 @4xl/page:min-h-8"
-                    >
-                      <Avatar initials={selected.initials} size="sm" />
-                      <span className="truncate">
-                        {selected.fromName} · {selected.contactRole ?? "Person"}
-                      </span>
-                    </button>
+                  <div className="mt-2 flex min-w-0 items-center gap-2">
                     <button
                       onClick={() =>
-                        selected.projectLabel
-                          ? setContext("job")
-                          : setLinking(true)
+                        setContext(selected.projectLabel ? "job" : "person")
                       }
-                      className="inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-full border border-rule bg-card px-2.5 text-meta text-ink-2 @4xl/page:min-h-8"
+                      title="Contact, job, money and open to-dos"
+                      className="inline-flex min-h-11 min-w-0 max-w-full items-center gap-1.5 rounded-full border border-rule bg-card px-2.5 text-meta text-ink-2 @4xl/page:min-h-8"
                     >
                       <LinkIcon className="size-3 shrink-0" />
                       <span className="truncate">
                         {selected.projectLabel
-                          ? `${selected.projectLabel}${selected.contactStage ? ` · ${selected.contactStage}` : ""}`
-                          : "Link to job / lead"}
+                          ? shortJobLabel(selected.projectLabel)
+                          : `${selected.fromName} · ${selected.contactRole ?? "New sender"}`}
+                        {selected.contactStage
+                          ? ` · ${selected.contactStage}`
+                          : ""}
                       </span>
                     </button>
+                    {!selected.projectLabel && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setLinking(true)}
+                        className="hidden @4xl/page:inline-flex"
+                      >
+                        Link to job / lead
+                      </Button>
+                    )}
                   </div>
+                  {(selected.newSender || selected.filedOther) &&
+                    selected.fromEmail &&
+                    !selected.automated && (
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-meta text-ink-3">
+                        <span className="min-w-0 break-all">
+                          {selected.filedOther
+                            ? "Filed in Other"
+                            : "New sender"}{" "}
+                          · {selected.fromEmail}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            fileSender(selected, !selected.filedOther)
+                          }
+                          className="min-h-11"
+                        >
+                          {selected.filedOther
+                            ? "Undo → New senders"
+                            : "Not important → Other"}
+                        </Button>
+                      </div>
+                    )}
                 </div>
               </div>
 
@@ -1352,6 +1457,7 @@ export function InboxClient({
                 <ReaderBody
                   key={selected.id}
                   reader={reader}
+                  todos={selected.todos}
                   threadId={selected.id}
                   onDone={archiveSelected}
                   onDraftReady={onDraftReady}
@@ -1361,6 +1467,7 @@ export function InboxClient({
                 <ChannelReaderBody
                   key={selected.id}
                   reader={reader}
+                  todos={selected.todos}
                   threadId={selected.id}
                   visible={mobileReader}
                   mailbox={selfEmail}
@@ -1404,7 +1511,26 @@ export function InboxClient({
           remind={task.remind}
           options={linkOptions}
           onClose={() => setTask(null)}
-          onCreated={setNotice}
+          onCreated={(todo) => {
+            const patch = (t: InboxThread) =>
+              t.id === task.thread.id
+                ? {
+                    ...t,
+                    hasOpenTodo: true,
+                    todos: [
+                      ...(t.todos ?? []).filter((old) => old.id !== todo.id),
+                      todo,
+                    ],
+                  }
+                : t;
+            setThreads((ts) => ts.map(patch));
+            setRemoteData((d) =>
+              d ? { ...d, threads: d.threads.map(patch) } : d,
+            );
+            setNotice(
+              task.remind ? "Reminder saved for its due day." : "To-do saved.",
+            );
+          }}
         />
       )}
       {composing && (
@@ -1447,7 +1573,7 @@ function ComposeModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 p-4"
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-ink/30 p-4"
       onClick={onClose}
     >
       <div
@@ -1663,13 +1789,41 @@ function useReplyShortcut(
   });
 }
 
+function ThreadTasks({ todos = [] }: { todos?: InboxTodo[] }) {
+  if (!todos.length) return null;
+  return (
+    <div aria-label="Linked to-dos" className="my-3 space-y-2">
+      {todos.map((todo) => (
+        <a
+          key={todo.id}
+          href={`/engine?work=${todo.id}`}
+          className="flex min-h-11 items-start gap-2 rounded-lg border border-rule bg-paper-2 px-3 py-2 text-body text-accent-2"
+        >
+          <ListPlus className="mt-1 size-4 shrink-0" />
+          <span>
+            To-do: {todo.title}
+            <span className="block text-meta text-ink-3">
+              {todo.assignees ?? "Open to-do"}
+              {todo.due_at
+                ? ` · ${new Date(todo.due_at.length === 10 ? todo.due_at + "T12:00:00Z" : todo.due_at).toLocaleDateString("en-US", { timeZone: "America/Chicago", weekday: "short", month: "short", day: "numeric" })}`
+                : ""}
+            </span>
+          </span>
+        </a>
+      ))}
+    </div>
+  );
+}
+
 function ChannelReaderBody({
   reader,
+  todos,
   threadId,
   visible,
   mailbox = "",
 }: {
   reader: ThreadReader;
+  todos?: InboxTodo[];
   threadId: string;
   visible?: boolean;
   mailbox?: string;
@@ -1681,6 +1835,7 @@ function ChannelReaderBody({
   const replyRef = useRef<HTMLTextAreaElement>(null);
   useReplyShortcut(replyRef);
   const [error, setError] = useState("");
+  const [sent, setSent] = useState(false);
   const [pending, start] = useTransition();
   const router = useRouter();
   const chat = reader.channel !== "site_form";
@@ -1698,6 +1853,7 @@ function ChannelReaderBody({
       );
       if (r.ok) {
         saved.clear();
+        setSent(true);
         router.refresh();
       } else setError(r.error ?? "Could not send your reply.");
     });
@@ -1744,23 +1900,70 @@ function ChannelReaderBody({
                         : "w-full"
                     }
                   >
-                    {reader.channel === "site_form" &&
-                    m.body.length > 1 &&
-                    m.body.slice(1).every((p) => FORM_FIELD.test(p)) ? (
-                      <>
-                        <p className="mb-3 whitespace-pre-line text-body leading-relaxed text-ink">
+                    {reader.channel === "site_form" && reader.form ? (
+                      <div className="rounded-xl border border-rule bg-card p-4">
+                        <h2 className="text-subheading font-semibold">
+                          {reader.form.name}
+                        </h2>
+                        <p className="mt-1 text-meta text-ink-3">
+                          New website inquiry
+                          {reader.form.town ? ` · ${reader.form.town}` : ""}
+                        </p>
+                        <p className="my-3 whitespace-pre-line text-body font-semibold leading-relaxed">
                           {m.body[0]}
                         </p>
-                        <dl className="grid gap-x-4 gap-y-2 @xl/page:grid-cols-[minmax(0,10rem)_minmax(0,1fr)]">
+                        <div className="flex flex-wrap gap-2">
+                          {reader.form.phone && (
+                            <>
+                              <a
+                                href={`tel:${reader.form.phone.replace(/[^+0-9]/g, "")}`}
+                                className="inline-flex min-h-11 items-center rounded-full border border-rule px-3 text-meta text-accent-2"
+                              >
+                                Call {formatContactPhone(reader.form.phone)}
+                              </a>
+                              <a
+                                href={`sms:${reader.form.phone.replace(/[^+0-9]/g, "")}`}
+                                className="inline-flex min-h-11 items-center rounded-full border border-rule px-3 text-meta text-accent-2"
+                              >
+                                Text
+                              </a>
+                            </>
+                          )}
+                          {reader.form.email && (
+                            <a
+                              href={`mailto:${reader.form.email}`}
+                              className="inline-flex min-h-11 max-w-full items-center break-all rounded-full border border-rule px-3 text-meta text-accent-2"
+                            >
+                              Email {reader.form.email}
+                            </a>
+                          )}
+                        </div>
+                        {m.body.length > 1 && (
+                          <details className="mt-2">
+                            <summary className="min-h-11 cursor-pointer py-3 text-meta text-accent-2">
+                              Inquiry details
+                            </summary>
+                            <PlainBody paras={m.body.slice(1)} />
+                          </details>
+                        )}
+                      </div>
+                    ) : reader.channel === "site_form" &&
+                      m.body.length > 1 &&
+                      m.body.slice(1).every((p) => FORM_FIELD.test(p)) ? (
+                      <>
+                        <p className="mb-3 whitespace-pre-line text-body font-semibold">
+                          {m.body[0]}
+                        </p>
+                        <dl className="space-y-2">
                           {m.body.slice(1).map((para, j) => {
                             const [, label, value] =
                               para.match(FORM_FIELD) ?? [];
                             return (
-                              <div key={j} className="contents">
+                              <div key={j}>
                                 <dt className="text-meta text-ink-3">
                                   {label}
                                 </dt>
-                                <dd className="mb-1 whitespace-pre-line break-words text-body text-ink">
+                                <dd className="whitespace-pre-line text-body">
                                   {value}
                                 </dd>
                               </div>
@@ -1768,8 +1971,13 @@ function ChannelReaderBody({
                           })}
                         </dl>
                       </>
-                    ) : (
+                    ) : m.body.some((p) => p.trim()) ? (
                       <PlainBody paras={m.body} />
+                    ) : (
+                      <p className="text-body text-ink-3">
+                        No text in this message. It may contain media that isn’t
+                        available here.
+                      </p>
                     )}
                   </div>
                 </div>
@@ -1777,26 +1985,39 @@ function ChannelReaderBody({
             );
           })}
         </div>
+        <ThreadTasks todos={todos} />
       </div>
-      <div className="flex-none border-t border-rule bg-paper-2 px-4 py-3">
+      <div
+        className="flex-none border-t border-rule bg-paper-2 px-4 py-3"
+        onFocusCapture={() =>
+          window.dispatchEvent(
+            new CustomEvent("sjc:inbox-surface", { detail: true }),
+          )
+        }
+      >
         <p className="mb-2 break-words text-meta text-ink-3">
           {reader.replyLabel}
         </p>
         {canReply && (
           <>
+            {reader.form && (
+              <p className="mb-2 break-words text-meta text-ink-2">
+                Subject: {reader.form.outgoingSubject}
+              </p>
+            )}
             <textarea
               ref={replyRef}
               aria-label={reader.channel === "sms" ? "Text reply" : "Reply"}
               value={body}
-              onChange={(e) => setBody(e.target.value)}
+              onChange={(e) => {
+                setBody(e.target.value);
+                setSent(false);
+              }}
               rows={reader.channel === "sms" ? 2 : 3}
               placeholder="Write a reply…"
               className="max-h-[30dvh] min-h-16 w-full resize-y rounded-lg border border-rule bg-card p-2 text-body text-ink"
             />
             <div className="mt-2 flex items-center gap-2">
-              <span className="hidden text-meta text-ink-3 @4xl/page:inline">
-                r Reply · e Done · ? Shortcuts
-              </span>
               {reader.channel === "sms" && (
                 <span className="text-meta text-ink-3">
                   {smsSegments(body)} segment
@@ -1813,6 +2034,15 @@ function ChannelReaderBody({
               </Button>
             </div>
           </>
+        )}
+        {sent && (
+          <p role="status" className="mt-2 text-meta text-accent-2">
+            {reader.channel === "site_form"
+              ? "Reply sent by email."
+              : reader.channel === "sms"
+                ? "Text sent."
+                : "Reply posted to portal."}
+          </p>
         )}
         {error && (
           <p role="alert" className="mt-2 text-meta text-flag">
@@ -1874,37 +2104,54 @@ function ThreadRow({
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
             <span
-              className={`min-w-0 flex-1 truncate text-label ${needs ? "font-bold text-ink" : "text-ink-2"}`}
+              className={`min-w-0 flex-1 break-words text-label ${thread.unread ? "font-bold text-ink" : needs ? "font-semibold text-ink" : "text-ink-2"}`}
             >
               {thread.fromName}
             </span>
-            {thread.projectLabel && (
-              <Chip kind="accent" className="max-w-20">
-                {thread.projectLabel}
-              </Chip>
+            {thread.unread && (
+              <span
+                aria-label="Unread"
+                className="size-1.5 shrink-0 rounded-full bg-accent"
+              />
             )}
             <span className="shrink-0 text-meta text-ink-3">{thread.when}</span>
           </span>
-          <span
-            className={`block truncate text-meta ${needs ? "text-accent-2" : "text-ink-3"}`}
-          >
-            {thread.needsMeReason ??
-              (thread.automated
-                ? "Automated message"
-                : thread.view === "done"
-                  ? "Handled"
-                  : thread.view === "awaiting_them"
-                    ? "Waiting for their reply"
-                    : thread.unread
-                      ? "Unread"
-                      : thread.subject)}
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span
+              className={`shrink-0 text-meta ${needs ? "text-accent-2" : "text-ink-3"}`}
+            >
+              {thread.needsMeReason ??
+                (thread.automated
+                  ? "Automated message"
+                  : thread.view === "done"
+                    ? "Handled"
+                    : thread.view === "awaiting_them"
+                      ? "Waiting for their reply"
+                      : thread.unread
+                        ? "Unread"
+                        : thread.subject)}
+            </span>
+            {thread.projectLabel && (
+              <span
+                title={thread.projectLabel}
+                className="min-w-0 truncate text-meta text-ink-3"
+              >
+                · {shortJobLabel(thread.projectLabel)}
+              </span>
+            )}
+            {thread.hasOpenTodo && (
+              <ListPlus
+                aria-label="Open to-do"
+                className="size-3.5 shrink-0 text-accent"
+              />
+            )}
           </span>
           <span className="block truncate text-meta text-ink-3">
             {thread.preview || thread.subject}
           </span>
         </span>
       </button>
-      <div className="absolute right-2 top-1 hidden items-center rounded-md border border-rule bg-card shadow-card group-hover:flex group-focus-within:flex [@media(hover:none)]:hidden">
+      <div className="absolute bottom-1 right-2 hidden items-center rounded-md border border-rule bg-card shadow-card group-hover:flex group-focus-within:flex [@media(hover:none)]:hidden">
         <Button
           variant="ghost"
           size="sm"
@@ -2019,7 +2266,10 @@ function EmailMessageCard({
       </button>
       {expanded && (
         <div className="border-t border-rule-soft px-3 py-3">
-          <div className="mb-3 break-words text-meta text-ink-3">
+          <details className="mb-2 break-words text-meta text-ink-3">
+            <summary className="min-h-11 cursor-pointer py-2 text-meta">
+              Message details · To: {message.to}
+            </summary>
             <p>
               {message.fromName} {message.fromEmail && `<${message.fromEmail}>`}
             </p>
@@ -2028,7 +2278,7 @@ function EmailMessageCard({
             {message.date && (
               <p>{new Date(message.date).toLocaleString("en-US")}</p>
             )}
-          </div>
+          </details>
           {html ? (
             <EmailHtml html={html} />
           ) : (
@@ -2061,12 +2311,14 @@ function EmailMessageCard({
 // thread); the mock path may arrive with aiDraft.body already filled.
 function ReaderBody({
   reader,
+  todos,
   threadId,
   onDone,
   onDraftReady,
   mailbox = "",
 }: {
   reader: ThreadReader;
+  todos?: InboxTodo[];
   threadId: string;
   onDone?: () => void;
   onDraftReady?: (id: string, ready: boolean) => void;
@@ -2075,7 +2327,8 @@ function ReaderBody({
   const [expanded, setExpanded] = useState<Set<string>>(
     () =>
       new Set([
-        reader.messages.at(-1)?.id ?? String(reader.messages.length - 1),
+        reader.messages[latestInboundIndex(reader.messages)]?.id ??
+          String(latestInboundIndex(reader.messages)),
       ]),
   );
   const saved = useInboxDraft(
@@ -2131,6 +2384,12 @@ function ReaderBody({
       root?.removeEventListener("inbox-approve", approve);
     };
   }, [isAI, reader.automated, reader.replyTarget]);
+  useEffect(() => {
+    if (typeof window !== "undefined" && (replying || draftOpen || drafting))
+      window.dispatchEvent(
+        new CustomEvent("sjc:inbox-surface", { detail: true }),
+      );
+  }, [replying, draftOpen, drafting]);
   function toggleMessage(id: string) {
     setExpanded((prev) => {
       const n = new Set(prev);
@@ -2212,6 +2471,11 @@ function ReaderBody({
         To {reader.replyTarget?.toName} &lt;{toEmail}&gt; · via Email · not sent
       </p>
       <textarea
+        onFocus={() =>
+          window.dispatchEvent(
+            new CustomEvent("sjc:inbox-surface", { detail: true }),
+          )
+        }
         ref={approvalRef}
         aria-label="AI draft body"
         value={draft}
@@ -2262,33 +2526,55 @@ function ReaderBody({
   return (
     <>
       <div ref={regionRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        <ThreadSummary reader={reader} />
-        <div className="mx-auto flex max-w-[720px] flex-col gap-3">
-          {reader.messages.length > 1 && (
-            <button
-              type="button"
-              onClick={() =>
-                setExpanded(
-                  new Set(reader.messages.map((m, i) => m.id ?? String(i))),
-                )
-              }
-              className="min-h-11 self-end px-2 text-meta font-semibold text-accent-2"
-            >
-              Expand all
-            </button>
+        <div className="mx-auto flex max-w-[720px] flex-col gap-2">
+          {latestInboundIndex(reader.messages) > 0 && (
+            <details>
+              <summary className="min-h-11 cursor-pointer py-3 text-meta font-semibold text-accent-2">
+                {latestInboundIndex(reader.messages)} earlier messages
+              </summary>
+              <ThreadSummary reader={reader} />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  setExpanded(
+                    new Set(reader.messages.map((m, i) => m.id ?? String(i))),
+                  )
+                }
+              >
+                Expand all
+              </Button>
+              <div className="space-y-2">
+                {reader.messages
+                  .slice(0, latestInboundIndex(reader.messages))
+                  .map((m, i) => (
+                    <EmailMessageCard
+                      key={m.id ?? i}
+                      message={m}
+                      threadId={threadId}
+                      expanded={expanded.has(m.id ?? String(i))}
+                      onToggle={() => toggleMessage(m.id ?? String(i))}
+                    />
+                  ))}
+              </div>
+            </details>
           )}
-          {reader.messages.map((m, i) => {
-            const id = m.id ?? String(i);
-            return (
-              <EmailMessageCard
-                key={id}
-                message={m}
-                threadId={threadId}
-                expanded={expanded.has(id)}
-                onToggle={() => toggleMessage(id)}
-              />
-            );
-          })}
+          {reader.messages
+            .slice(latestInboundIndex(reader.messages))
+            .map((m, j) => {
+              const id =
+                m.id ?? String(latestInboundIndex(reader.messages) + j);
+              return (
+                <EmailMessageCard
+                  key={id}
+                  message={m}
+                  threadId={threadId}
+                  expanded={expanded.has(id)}
+                  onToggle={() => toggleMessage(id)}
+                />
+              );
+            })}
+          <ThreadTasks todos={todos} />
           {!reader.automated && isAI && hasDraft && (
             <div
               className={`${draftOpen ? "absolute inset-x-0 bottom-0 z-40 max-h-[80%] overflow-y-auto rounded-t-2xl border-t border-rule bg-paper p-3 shadow-modal @4xl/page:static @4xl/page:z-auto @4xl/page:max-h-none @4xl/page:border-0 @4xl/page:bg-transparent @4xl/page:p-0 @4xl/page:shadow-none" : "hidden @4xl/page:block"}`}
@@ -2298,7 +2584,21 @@ function ReaderBody({
           )}
         </div>
       </div>
-      <div className="flex-none border-t border-rule bg-paper-2 px-4 py-2.5">
+      <div
+        className="flex-none border-t border-rule bg-paper-2 px-4 py-2.5"
+        onFocusCapture={() =>
+          window.dispatchEvent(
+            new CustomEvent("sjc:inbox-surface", { detail: true }),
+          )
+        }
+        onBlur={(e) => {
+          if (
+            !e.currentTarget.contains(e.relatedTarget as Node | null) &&
+            !draft.trim()
+          )
+            setReplying(false);
+        }}
+      >
         {reader.automated ? (
           <div className="flex items-center gap-2">
             <p className="flex-1 text-meta text-ink-3">
@@ -2312,33 +2612,40 @@ function ReaderBody({
           </p>
         ) : (
           <>
-            <div className="mb-2 flex flex-wrap items-center gap-2 text-meta text-ink-2">
-              <label className="flex min-w-0 max-w-full flex-wrap items-center gap-1 rounded-full border border-rule bg-card px-2 py-1">
-                To: {reader.replyTarget.toName} &lt;
-                <input
-                  aria-label="Reply recipient"
-                  type="email"
-                  value={toEmail}
-                  onChange={(e) => update({ toEmail: e.target.value })}
-                  className="min-h-8 min-w-0 max-w-full bg-transparent text-meta text-ink outline-none"
-                />
-                &gt;
-              </label>
-              <label className="inline-flex min-h-11 items-center gap-1">
-                <input
-                  type="checkbox"
-                  checked={replyAll}
-                  onChange={(e) => update({ replyAll: e.target.checked })}
-                />
-                Reply all
-              </label>
-              {replyAll &&
-                reader.replyTarget.cc.map((email) => (
-                  <Chip key={email} kind="ghost">
-                    Cc: {email}
-                  </Chip>
-                ))}
-            </div>
+            {(composerExpanded(replying, draft) || draftOpen) && (
+              <details className="mb-2 text-base text-ink-2 @4xl/page:text-meta">
+                <summary className="min-h-11 cursor-pointer break-words py-2">
+                  To: {reader.replyTarget.toName} &lt;{toEmail}&gt; · Email
+                </summary>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="flex min-w-0 max-w-full flex-wrap items-center gap-1 rounded-full border border-rule bg-card px-2 py-1">
+                    To: {reader.replyTarget.toName} &lt;
+                    <input
+                      aria-label="Reply recipient"
+                      type="email"
+                      value={toEmail}
+                      onChange={(e) => update({ toEmail: e.target.value })}
+                      className="min-h-11 min-w-0 max-w-full bg-transparent text-base text-ink outline-none @4xl/page:text-meta"
+                    />
+                    &gt;
+                  </label>
+                  <label className="inline-flex min-h-11 items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={replyAll}
+                      onChange={(e) => update({ replyAll: e.target.checked })}
+                    />
+                    Reply all
+                  </label>
+                  {replyAll &&
+                    reader.replyTarget.cc.map((email) => (
+                      <Chip key={email} kind="ghost">
+                        Cc: {email}
+                      </Chip>
+                    ))}
+                </div>
+              </details>
+            )}
             {isAI && hasDraft ? (
               <Button
                 variant="ai"
@@ -2347,7 +2654,7 @@ function ReaderBody({
               >
                 Review draft
               </Button>
-            ) : replying || hasDraft ? (
+            ) : composerExpanded(replying, draft) ? (
               <div className="rounded-lg border border-rule bg-card p-2">
                 <textarea
                   ref={composerRef}
@@ -2382,23 +2689,37 @@ function ReaderBody({
                 </div>
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  setReplying(true);
-                  setSent(false);
-                  requestAnimationFrame(() => composerRef.current?.focus());
-                }}
-                className="min-h-11 w-full rounded-lg border border-rule bg-card px-3 text-left text-body text-ink-3"
-              >
-                {reader.replyPlaceholder}
-              </button>
+              <div className="flex min-h-13 items-center gap-2 rounded-lg border border-rule bg-card px-3">
+                <button
+                  type="button"
+                  onFocus={() => {
+                    setReplying(true);
+                    requestAnimationFrame(() => composerRef.current?.focus());
+                  }}
+                  onClick={() => {
+                    setReplying(true);
+                    setSent(false);
+                    requestAnimationFrame(() => composerRef.current?.focus());
+                  }}
+                  title="Reply (r)"
+                  className="min-h-11 min-w-0 flex-1 truncate text-left text-body text-ink-3"
+                >
+                  {`Reply to ${reader.replyTarget.toName}…`}
+                </button>
+                <span className="text-ink-3">·</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => generate()}
+                  disabled={drafting || sending}
+                  className="min-h-11 shrink-0"
+                >
+                  Draft with AI
+                </Button>
+              </div>
             )}
-            {!isAI && (
+            {!isAI && composerExpanded(replying, draft) && (
               <div className="mt-2 flex items-center gap-1 overflow-x-auto">
-                <span className="shrink-0 text-meta text-ink-3">
-                  Draft a reply
-                </span>
                 {[
                   "Yes, works",
                   "Need more info",
@@ -2411,7 +2732,7 @@ function ReaderBody({
                     size="sm"
                     onClick={() => generate(intent)}
                     disabled={drafting || sending}
-                    className="min-h-11 @4xl/page:min-h-7"
+                    className="min-h-11 shrink-0 @4xl/page:min-h-7"
                   >
                     {intent}
                   </Button>
@@ -2423,9 +2744,6 @@ function ReaderBody({
                 Drafting a reply…
               </p>
             )}
-            <p className="mt-1 hidden text-meta text-ink-3 @4xl/page:block">
-              r Reply · a Focus draft Send · e Done · ? Shortcuts
-            </p>
           </>
         )}
         {error && (

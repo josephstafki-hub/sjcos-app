@@ -195,6 +195,7 @@ test("typed draft restores across conversation switches/reloads with edited reci
 });
 test("intent creates an editable approval card but NEVER sends until the Send click; failure preserves draft", async () => {
   mount("t1");
+  click("Reply to Tom…");
   click("Thanks");
   await settle();
   assert.equal(sends.length, 0);
@@ -222,4 +223,20 @@ test("intent creates an editable approval card but NEVER sends until the Send cl
   await settle();
   assert.equal(sends.length, 2);
   assert.equal(map.size, 0);
+});
+
+test("empty reply collapses on blur, typing preserves it and default AI button still never sends", async () => {
+  mount("blank");
+  assert.equal(find(n => n.props?.["aria-label"] === "Reply body"),undefined);
+  click("Reply to Tom…");
+  const box=find(n => n.props?.onBlur);
+  assert.ok(box);
+  box.props.onBlur({currentTarget:{contains:()=>false},relatedTarget:null});
+  render();flush();
+  assert.equal(find(n => n.props?.["aria-label"] === "Reply body"),undefined);
+  const before=sends.length;
+  click("Draft with AI");
+  await settle();
+  assert.equal(sends.length,before);
+  assert.equal(find(n => n.props?.["aria-label"] === "AI draft body").props.value,'Thanks, Tom.');
 });

@@ -39,7 +39,7 @@ test("split buckets distinguish jobs, leads, subs/vendors and automated mail; Ne
   );
   assert.deepEqual(
     tabCounts([thread, { ...thread, id: "t2", automated: true }]),
-    { needs: 1, clients: 1, leads: 0, subs: 0, other: 1 },
+    { needs: 1, clients: 1, leads: 0, subs: 0, new: 0, other: 1 },
   );
 });
 test("keyboard map never steals typing, modifiers or keys from dialogs and controls", () => {

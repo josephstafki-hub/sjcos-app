@@ -17,7 +17,9 @@
 // sends exactly what they would.
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
+import { approvalPlacement } from "@/lib/notification-placement";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BellRing, ChevronDown, ChevronUp, X } from "lucide-react";
 import { toast } from "@/components/ui/Toast";
@@ -41,6 +43,31 @@ function loadDismissed(): Set<string> {
 
 export function NotificationCenter() {
   const router = useRouter();
+  const pathname = usePathname();
+  const [inboxSurface, setInboxSurface] = useState(false);
+  const [opened, setOpened] = useState(false);
+  const [badgeSlot, setBadgeSlot] = useState<HTMLElement | null>(null);
+  const badgeRef = useRef<HTMLButtonElement>(null);
+  const placement = approvalPlacement(pathname, inboxSurface, opened);
+  useEffect(() => {
+    setOpened(false);
+    setBadgeSlot(document.getElementById("inbox-approval-badge"));
+    const change = (event: Event) => {
+      setInboxSurface(Boolean((event as CustomEvent).detail));
+      setOpened(false);
+    };
+    window.addEventListener("sjc:inbox-surface", change);
+    return () => window.removeEventListener("sjc:inbox-surface", change);
+  }, [pathname]);
+  const closeDecisions = () => { setOpened(false); badgeRef.current?.focus(); };
+  useEffect(() => {
+    if (!placement.compact || !opened) return;
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); setOpened(false); badgeRef.current?.focus(); }
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [placement.compact, opened]);
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
   // Nothing renders until the first poll returns approvals, so reading
   // sessionStorage here can't cause a hydration mismatch.
@@ -56,7 +83,7 @@ export function NotificationCenter() {
   useEffect(() => {
     const el = box.current;
     const root = document.documentElement;
-    if (!el) {
+    if (!el || placement.compact) {
       root.style.removeProperty("--sjc-approvals-h");
       return;
     }
@@ -147,6 +174,26 @@ export function NotificationCenter() {
   const visible = approvals.filter((a) => !dismissed.has(a.key));
   const hiddenCount = approvals.length - visible.length;
   if (!approvals.length) return null;
+
+  if (placement.compact) {
+    const badge = <button ref={badgeRef} type="button" onClick={() => setOpened(v => !v)}
+      aria-label={`${approvals.length} waiting on you — ${opened ? "hide" : "show"} decisions`}
+      aria-expanded={opened} aria-controls="inbox-decisions"
+      className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-full border border-rule bg-paper text-meta text-ink-2 hover:bg-paper-2">
+      <BellRing className="size-3.5 text-flag" />{approvals.length}
+    </button>;
+    return <>
+      {badgeSlot ? createPortal(badge, badgeSlot) : <div className="fixed right-28 top-[env(safe-area-inset-top)] z-[35]">{badge}</div>}
+      {placement.expanded && <div id="inbox-decisions" role="region" aria-label="Waiting on you"
+        className="fixed right-3 top-[calc(3rem+env(safe-area-inset-top))] z-[35] max-h-[calc(100dvh-8rem-env(safe-area-inset-bottom))] w-[min(380px,calc(100vw-24px))] space-y-2 overflow-y-auto rounded-xl border border-rule bg-paper p-3 shadow-pop">
+        <div className="flex items-center justify-between text-body font-semibold">Waiting on you
+          <button type="button" onClick={closeDecisions} aria-label="Close decisions" className="grid size-11 place-items-center rounded hover:bg-hover"><X className="size-4" /></button>
+        </div>
+        {approvals.slice(0,MAX_CARDS).map(a => <ApprovalCard key={a.key} approval={a} busy={busy === a.key} disabled={busy !== null} onAnswer={verb => void answer(a,verb)} floating />)}
+        <Link href="/notifications" className="inline-flex min-h-11 items-center text-body text-accent-2 underline">All decisions</Link>
+      </div>}
+    </>;
+  }
 
   return (
     <div ref={box}

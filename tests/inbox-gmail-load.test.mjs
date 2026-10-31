@@ -158,3 +158,35 @@ test('email, text and project portal share a person key and preserve job stages'
  invalidateInboxCache();const data=await getInboxData();for(const id of ['real','sms:5','portal:kitchen']){const t=data.threads.find(t=>t.id===id);assert.equal(t.contactKey,'lead:tom',id);assert.equal(t.contactStage,'Construction',id);}
  globalThis.__queryRows=null;globalThis.__gmail.threads=[];
 });
+
+test('round 2 screens real-mail cases, keeps new senders visible and loads to-dos in one batch', async () => {
+  globalThis.__gmail.fail=null;
+  globalThis.__gmail.threads=[
+    {...email,id:'known',fromEmail:'michelle@example.test'},
+    {...email,id:'bank',fromEmail:'eStatements@villagebankonline.com',bodyParas:['Please do not reply to this email.']},
+    {...email,id:'mca',fromEmail:'frank.v@easternfinancialpartners.test',subject:'Pre-Approved – MCA Consolidation',category:'updates',labelIds:['INBOX','CATEGORY_UPDATES']},
+    {...email,id:'pitch',fromEmail:'mary@example.test',subject:'Partnership Opportunity'},
+    {...email,id:'header',messages:[{...email,id:'m-header',automated:true,fromEmail:'sender@example.test',to:['Joe'],cc:[],body:['Newsletter']} ]},
+  ];
+  let taskReads=0;
+  globalThis.__queryRows=sql=> {
+    if (/FROM leads WHERE email/.test(sql)) return [{email:'michelle@example.test',name:'Michelle Alcantara',slug:'michelle',kind:'client',stage:'rough estimate'}];
+    if (/SELECT DISTINCT w.id::text/.test(sql)) {taskReads++;return [{id:'w1',thread_id:'known',title:'Send revised estimate',due_at:'2026-11-06',assignees:'Joe'}];}
+    return [];
+  };
+  invalidateInboxCache();
+  const data=await getInboxData();
+  assert.equal(data.threads.find(t=>t.id==='known').needsMeReason,'Lead replied');
+  assert.equal(data.threads.find(t=>t.id==='known').hasOpenTodo,true);
+  assert.equal(data.threads.find(t=>t.id==='known').todos[0].id,'w1');
+  assert.equal(taskReads,1,'one task read for the loaded window');
+  for(const id of ['bank','mca','header']) {
+    assert.equal(data.threads.find(t=>t.id===id).automated,true,id);
+    assert.equal(data.threads.find(t=>t.id===id).needsMeReason,undefined,id);
+    assert.equal(data.readers[id].automated,true,id);
+  }
+  const pitch=data.threads.find(t=>t.id==='pitch');
+  assert.equal(pitch.newSender,true);assert.equal(pitch.needsMeReason,'New sender');assert.equal(pitch.inInbox,true);
+  assert.equal(data.smartViews.find(v=>v.key==='needs_reply').count,1);
+  globalThis.__queryRows=null;globalThis.__gmail.threads=[];
+});

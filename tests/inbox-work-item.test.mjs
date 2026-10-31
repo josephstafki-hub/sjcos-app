@@ -107,3 +107,13 @@ test("a repeat reminder schedules the existing email to-do without creating or r
   );
   w.existingId = null;
 });
+
+test("create returns the exact saved or existing task id for the thread receipt", async () => {
+  const w=globalThis.__work;
+  w.existingId=null;
+  assert.equal((await createWorkItem(form())).id,'work-id');
+  w.existingId='existing-task';
+  const result=await createWorkItem(form());
+  assert.equal(result.id,'existing-task');assert.equal(result.existing,true);
+  w.existingId=null;
+});

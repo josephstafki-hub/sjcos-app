@@ -44,9 +44,30 @@ export function resolveReplyTarget(messages: ReplyMessage[], ownAddresses: strin
   return {toEmail,toName,cc,inReplyTo,references};
 }
 
-export function isAutomatedSender(email: string, category?: string): boolean {
-  if (['promotions','social','forums'].includes(category ?? '')) return true;
-  return /(?:^|[._+\-])(no-?reply|do-?not-?reply|notifications?|mailer-daemon)(?:[._+\-@]|$)/i.test(emailAddress(email));
+export interface AutomationSignals {
+  headers?: Record<string, string>;
+  body?: string;
+  labelIds?: string[];
+}
+export function isAutomatedSender(email: string, category?: string, signals: AutomationSignals = {}): boolean {
+  const bulkCategory = (value: string) => /^(?:CATEGORY_)?(?:promotions|updates|social|forums)$/i.test(value);
+  if (bulkCategory(category ?? '') || signals.labelIds?.some(bulkCategory)) return true;
+  const h = Object.fromEntries(Object.entries(signals.headers ?? {}).map(([k,v]) => [k.toLowerCase(),v.trim()]));
+  if (h['list-unsubscribe'] || h['list-id'] || /^(bulk|list|junk)$/i.test(h.precedence ?? '') ||
+      (h['auto-submitted'] && h['auto-submitted'].toLowerCase() !== 'no')) return true;
+  const address = emailAddress(email);
+  const [local, domain = ''] = address.split('@');
+  if (/(?:^|[._+\-])(no-?reply|do-?not-?reply|notifications?|mailer-daemon|e?statements?|alerts?|notify|billing|marketing|news|newsletter)(?:[._+\-]|$)/i.test(local)) return true;
+  if (local === 'info' && /bank|creditunion|financial/i.test(domain)) return true;
+  return /\bdo not reply\b|\bdon[’']t reply\b|\b(?:mailbox|inbox|email address) (?:is not|isn[’']t|not) monitored\b/i.test(signals.body ?? '');
+}
+
+export function latestInboundIndex(messages: {outbound?: boolean}[]): number {
+  const index = messages.findLastIndex(m => !m.outbound);
+  return index < 0 ? Math.max(0, messages.length - 1) : index;
+}
+export function composerExpanded(active: boolean, body: string): boolean {
+  return active || Boolean(body.trim());
 }
 
 export function needsMeReason(input: {
@@ -80,4 +101,8 @@ export function smsSegments(body: string): number {
     else return body.length <= 70 ? 1 : Math.ceil(body.length / 67);
   }
   return units <= 160 ? 1 : Math.ceil(units / 153);
+}
+
+export function inquiryReplySubject(scope: string, name: string): string {
+  return `Re: Your inquiry — ${(scope || name).replace(/[\r\n]+/g, " ").slice(0,100)}`;
 }

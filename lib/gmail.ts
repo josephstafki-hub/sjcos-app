@@ -121,6 +121,7 @@ export async function exchangeCodeForMailbox(
 /** Neutral, presentation-free view of a Gmail thread. lib/inbox.ts maps this
  *  onto the InboxThread / ThreadReader shapes the UI consumes. */
 export interface ConversationMessage {
+  automated?: boolean;
   id: string;
   fromName: string;
   fromEmail: string;
@@ -513,6 +514,10 @@ function conversationOf(id: string, data: gmail_v1.Schema$Thread, me: string): E
       to: splitAddresses(header(m,'To')), cc: splitAddresses(header(m,'Cc')),
       date: Number(m.internalDate ?? 0), body: extractBody(m.payload), snippet: m.snippet ?? '',
       outbound: Boolean(m.labelIds?.includes('SENT')) || ownAddresses.includes(from.email.toLowerCase()),
+      automated: isAutomatedSender(from.email, undefined, {
+        headers: Object.fromEntries((m.payload?.headers ?? []).map(h => [h.name ?? '', h.value ?? ''])),
+        labelIds: m.labelIds ?? [], body: extractBody(m.payload).join('\n') || m.snippet || '',
+      }),
       replyTo: header(m,'Reply-To'), messageId: header(m,'Message-ID'), references: header(m,'References'),
       attachments: collectFileParts(m.payload).map(p => ({id:p.body?.attachmentId ?? p.partId ?? '', name:p.filename ?? '',size:p.body?.size ?? 0,type:p.mimeType ?? 'application/octet-stream'})),
     };
@@ -986,7 +991,7 @@ export async function sendReply(opts: {
   const conversation = await fetchConversation(opts.threadId);
   const target = resolveReplyTarget(conversation.messages, conversation.ownAddresses);
   const incoming = [...conversation.messages].reverse().find(m => !m.outbound);
-  if (!target || (incoming && isAutomatedSender(incoming.fromEmail, conversation.category))) throw new Error("Automated message — no reply needed.");
+  if (!target || (incoming && (incoming.automated || isAutomatedSender(incoming.fromEmail, conversation.category, {body: incoming.body.join('\n')})))) throw new Error("Automated message — no reply needed.");
   const to = opts.toEmail?.trim() || target.toEmail;
   if (!validRecipient(to)) throw new Error("Enter a valid recipient email.");
   const subject = /^re:/i.test(conversation.subject) ? conversation.subject : `Re: ${conversation.subject}`;

@@ -6,7 +6,7 @@
 // opens a real reader pane. The AI draft-reply card routes through lib/ai.ts —
 // never a provider directly.
 
-import { isAutomatedSender, needsMeReason, resolveReplyTarget, type ReplyTarget } from "./inbox-rules";
+import { inquiryReplySubject, isAutomatedSender, needsMeReason, resolveReplyTarget, type ReplyTarget } from "./inbox-rules";
 import type { SystemViewKey, ThreadChannel, ThreadStatus } from "./types";
 import { ai } from "./ai";
 import { query } from "./db";
@@ -62,7 +62,14 @@ export const CHANNELS: { key: ThreadChannel; label: string }[] = [
 
 // ─── Thread list ─────────────────────────────────────────────────────────────
 
+export interface InboxTodo {
+  id: string;
+  title: string;
+  due_at: string | null;
+  assignees?: string;
+}
 export interface InboxThread {
+  todos?: InboxTodo[];
   fromEmail?: string;
   contactKey?: string;
   contactStage?:string;
@@ -89,6 +96,9 @@ export interface InboxThread {
   aiVerdict?: string;
   needsMeReason?: string;
   automated?: boolean;
+  hasOpenTodo?: boolean;
+  newSender?: boolean;
+  filedOther?: boolean;
   /** Marks a thread tied to an active job (accent "Active job" chip). */
   activeJob?: boolean;
   /** Gmail STARRED — drives pin/star UI and the starred treatment. */
@@ -245,6 +255,7 @@ export interface ThreadReader {
   replyTarget?: ReplyTarget | null;
   automated?: boolean;
   replyLabel?: string;
+  form?: {name:string;town:string;phone:string;email:string;outgoingSubject:string};
 }
 
 /** Curated reader content keyed by thread id. Threads not listed get a generic
@@ -334,7 +345,10 @@ function countViews(threads: InboxThread[]): Record<ThreadStatus, number> {
     snoozed: 0,
     done: 0,
   };
-  for (const t of threads) counts[t.view]++;
+  for (const t of threads) {
+    if (t.view === "needs_reply" && (t.automated || t.newSender)) continue;
+    counts[t.view]++;
+  }
   return counts;
 }
 
@@ -501,7 +515,8 @@ function displayName(raw: string): string {
  *  forums categories and no-reply senders. Kept out of "Needs reply" so promos
  *  (Home Depot etc.) don't get flagged as waiting on Joe. */
 function isBulk(r: RawGmailThread): boolean {
-  return isAutomatedSender(r.fromEmail, r.category);
+  const incoming = r.messages && [...r.messages].reverse().find(m => !m.outbound);
+  return isAutomatedSender(incoming?.fromEmail ?? r.fromEmail, r.category, { labelIds: r.labelIds, body: (incoming?.body.join("\n") || incoming?.snippet || r.bodyParas.join("\n") || r.snippet) }) || Boolean(incoming?.automated);
 }
 
 function viewOf(r: RawGmailThread): ThreadStatus {
@@ -672,7 +687,7 @@ export async function draftReplyForThread(
   const conversation = await fetchConversation(threadId);
   const target = resolveReplyTarget(conversation.messages, conversation.ownAddresses);
   const message = [...conversation.messages].reverse().find(m => !m.outbound);
-  if (!message || !target || isAutomatedSender(message.fromEmail,conversation.category)) throw new Error('No reply is needed for this message.');
+  if (!message || !target || message.automated || isAutomatedSender(message.fromEmail,conversation.category, {body: message.body.join("\n")})) throw new Error('No reply is needed for this message.');
   const raw = {id:threadId,fromName:message.fromName,fromEmail:message.fromEmail,subject:conversation.subject,bodyParas:message.body,snippet:message.snippet} as RawGmailThread;
 
   const { knowledge, matchLabel } = await gatherReplyContext(raw);
@@ -898,9 +913,12 @@ function mapRawThreads(
       done: threads[i].view === "done" || threads[i].view === "snoozed",
       audience: c.audience,
       isLead: c.linkedType === "lead" || (contactMaps.leadEmails.has(r.fromEmail.toLowerCase()) && !c.projectSlug),
-      age: relativeWhen(r.date),
+
     });
     const person=contactMaps.contactByEmail.get(threads[i].fromEmail ?? '');
+    const known = Boolean(person || c.projectSlug || c.linkedType || c.audience === "sub");
+    threads[i].newSender = !known && !isBulk(r) && !staff && !r.outbound;
+    if (threads[i].newSender && threads[i].view === "needs_reply") threads[i].needsMeReason = "New sender";
     threads[i].contactKey=person ? `${person.kind==='client'?'lead':person.kind}:${person.slug}` : c.projectSlug ? `project:${c.projectSlug}` : undefined;
     threads[i].contactStage=c.projectSlug ? contactMaps.projectByEmail.get(threads[i].fromEmail ?? '')?.stage : person?.stage;
     if(person?.kind==='client'&&!c.projectSlug&&!c.linkedType){c.linkedType='lead';c.linkedSlug=person.slug;c.projectLabel=person.name;}
@@ -917,6 +935,25 @@ function mapRawThreads(
     (r) => [r.id, rawToReader(r)] as [string, ThreadReader],
   );
   return { threads, readerEntries };
+}
+
+async function attachThreadTodos(threads: InboxThread[]): Promise<void> {
+  if (!threads.length) return;
+  try {
+  const {rows} = await query<InboxTodo & {thread_id:string}>(
+    `SELECT DISTINCT w.id::text,w.title,w.due_at,COALESCE(os.thread_id,w.source_id) AS thread_id,
+       COALESCE((SELECT string_agg(u.name,', ' ORDER BY u.name) FROM work_item_assignees a JOIN users u ON u.id=a.user_id WHERE a.work_item_id=w.id),'Joe') AS assignees
+     FROM work_items w LEFT JOIN obligation_sources os ON os.obligation_id=w.obligation_id
+     WHERE w.status NOT IN ('done','cancelled') AND w.archived_at IS NULL
+       AND (w.source_id=ANY($1::text[]) OR os.thread_id=ANY($1::text[]))`,
+    [threads.map(t => t.id)]);
+  for (const thread of threads) {
+    thread.todos = rows.filter(r => r.thread_id === thread.id);
+    thread.hasOpenTodo = thread.todos.length > 0;
+  }
+  } catch (error) {
+    console.error(`[inbox:tasks] Could not load linked to-dos: ${(error as Error).message}`);
+  }
 }
 
 const INBOX_PAGE = 50;
@@ -1114,7 +1151,7 @@ async function loadSmsThreads(): Promise<ChannelBuild> {
       linkedSlug:r.link_type === "project" || r.link_type === "lead" ? r.link_slug ?? undefined : undefined,
       emphasis: view === "needs_reply" ? "flag" : "ghost",
       unread: r.unread,
-      needsMeReason: needsMeReason({channel:"sms",inbound:r.last_dir === "in",audience, isLead:r.link_type === "lead",age:r.last_message_at ? relativeWhen(Date.parse(r.last_message_at)) : undefined}),
+      needsMeReason: needsMeReason({channel:"sms",inbound:r.last_dir === "in",audience, isLead:r.link_type === "lead"}),
       audience,
     });
     const conv = byThread.get(r.id) ?? [];
@@ -1240,7 +1277,7 @@ async function loadPortalThreads(): Promise<ChannelBuild> {
       view,
       tag: isSub ? "Sub portal" : "Client portal",
       emphasis: view === "needs_reply" ? "flag" : "ghost",
-      needsMeReason: needsMeReason({channel,inbound:view === "needs_reply",isLead,age:relativeWhen(Date.parse(g.last_at))}),
+      needsMeReason: needsMeReason({channel,inbound:view === "needs_reply",isLead}),
       audience: isSub ? "sub" : "client",
       projectSlug: !isSub && g.proj_name ? slug : undefined,
       projectLabel: !isSub && g.proj_name ? g.proj_name : undefined,
@@ -1280,9 +1317,10 @@ async function loadSiteFormThreads(): Promise<ChannelBuild> {
     scope: string;
     scope_city: string | null;
     email: string | null;
+    phone: string | null;
     created_at: string;
   }>(
-    `SELECT slug, name, stage, coalesce(scope,'') AS scope, scope_city, email, created_at
+    `SELECT slug, name, stage, coalesce(scope,'') AS scope, scope_city, email, phone, created_at
        FROM leads
       WHERE source ILIKE '%website%' AND stage <> 'lost'
       ORDER BY created_at DESC`,
@@ -1332,7 +1370,7 @@ async function loadSiteFormThreads(): Promise<ChannelBuild> {
     if (!body.length) body.push("New inquiry submitted through the website form.");
     readerEntries.push([
       id,
-      channelReader({
+      { ...channelReader({
         tag: r.scope_city ? `Website lead · ${r.scope_city}` : "Website lead",
         channel: "site_form",
         subject,
@@ -1349,7 +1387,7 @@ async function loadSiteFormThreads(): Promise<ChannelBuild> {
         ],
         actionHref: `/leads/${r.slug}`,
         actionLabel: "Open lead",
-      }),
+      }), form: {name:r.name,town:r.scope_city ?? "",phone:r.phone ?? "",email:r.email ?? "",outgoingSubject:inquiryReplySubject(r.scope,r.name)} },
     ]);
   }
   return { threads, readerEntries };
@@ -1467,6 +1505,7 @@ async function loadEmailPage(view: string, pageToken?: string, labelId?: string,
   const [page, labels] = payload;
   const maps = await loadContactMaps();
   const { threads, readerEntries } = mapRawThreads(page.threads, new Map(labels.map(l => [l.id, l.name])), maps);
+  await attachThreadTodos(threads);
   return {
     threads,
     readers: Object.fromEntries(readerEntries),
@@ -1502,6 +1541,7 @@ async function buildFromGmail(
   const threads = [...emailThreads, ...folded.threads];
   const readerEntries = [...emailReaderEntries, ...folded.readerEntries];
 
+  await attachThreadTodos(threads);
   const viewCounts = countViews(threads);
   const channelCounts = countChannels(threads);
 

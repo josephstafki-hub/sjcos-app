@@ -14,7 +14,7 @@ const stubs = {
   '@/lib/actions/portal':`export const sendProjectMessage=async(s,f)=>globalThis.__replyAction.calls.push(['project',s,f.get('body')]); export const sendLeadPortalMessage=async(s,f)=>globalThis.__replyAction.calls.push(['lead',s,f.get('body')]);`,
   '@/lib/actions/chat':`export const sendChatMessage=async(...a)=>{globalThis.__replyAction.calls.push(['sub',...a]);return {ok:true};};`,
 };
-registerHooks({resolve(s,c,n){if(s in stubs)return {url:'stub:'+s,shortCircuit:true}; if(s==='@/lib/types')return n(new URL('../lib/types.ts',import.meta.url).href,c); return n(s,c);},load(u,c,n){return u.startsWith('stub:')?{format:'module',source:stubs[u.slice(5)],shortCircuit:true}:n(u,c);}});
+registerHooks({resolve(s,c,n){if(s in stubs)return {url:'stub:'+s,shortCircuit:true}; if(s==='@/lib/inbox-rules')return n(new URL('../lib/inbox-rules.ts',import.meta.url).href,c); if(s==='@/lib/types')return n(new URL('../lib/types.ts',import.meta.url).href,c); return n(s,c);},load(u,c,n){return u.startsWith('stub:')?{format:'module',source:stubs[u.slice(5)],shortCircuit:true}:n(u,c);}});
 const actions=await import('../lib/actions/inbox.ts');
 test('channel adapters call the SAME existing SMS, project, lead and sub actions',async()=>{
   calls.length=0;

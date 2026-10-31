@@ -22,9 +22,15 @@ import {
   reminderDueAt,
   relatedConversations,
   SHORTCUTS,
+  formatContactPhone,
 } from "@/lib/inbox-experience";
 import { runAction } from "@/lib/run-action";
-import type { InboxThread, ThreadReader, InboxData } from "@/lib/inbox";
+import type {
+  InboxThread,
+  ThreadReader,
+  InboxData,
+  InboxTodo,
+} from "@/lib/inbox";
 import type { InboxContext } from "@/lib/inbox-context";
 
 export function InboxDialog({
@@ -73,7 +79,7 @@ export function InboxDialog({
   }, []);
   return (
     <div
-      className={`absolute inset-0 z-50 flex justify-center bg-ink/25 p-3 ${bottom ? "items-end" : "items-center"}`}
+      className={`absolute inset-0 z-[80] flex justify-center bg-ink/25 p-3 ${bottom ? "items-end" : "items-center"}`}
       onClick={onClose}
     >
       <div
@@ -218,7 +224,7 @@ export function MessageTaskDialog({
   remind: boolean;
   options: InboxData["linkOptions"];
   onClose: () => void;
-  onCreated: (text: string) => void;
+  onCreated: (todo: InboxTodo) => void;
 }) {
   const [title, setTitle] = useState(
     () => messageWorkItem(thread, reader, {}).get("title") as string,
@@ -270,11 +276,40 @@ export function MessageTaskDialog({
         { fallback: "Could not create the to-do." },
       );
       if (r.ok) {
-        onCreated(
-          remind
-            ? "Reminder saved in Today for its due day."
-            : "To-do created.",
-        );
+        let actual: InboxTodo | undefined;
+        try {
+          const context = await inboxContextAction({
+            threadId: thread.id,
+            email: thread.fromEmail,
+            contactKey: thread.contactKey,
+            projectSlug: thread.projectSlug,
+            leadSlug:
+              thread.linkedType === "lead" ? thread.linkedSlug : undefined,
+          });
+          actual = context.todos.find((t) => t.id === r.id);
+        } catch {
+          /* The saved task still gets a link if the context read fails. */
+        }
+        if (r.id)
+          onCreated(
+            actual ?? {
+              id: r.id,
+              title: r.existing
+                ? "Existing linked to-do"
+                : remind
+                  ? `Follow up: ${title}`
+                  : title,
+              due_at: r.existing ? null : dueAt || null,
+              assignees: r.existing
+                ? undefined
+                : assigned.length
+                  ? people
+                      .filter((p) => assigned.includes(p.id))
+                      .map((p) => p.name)
+                      .join(", ")
+                  : "Joe",
+            },
+          );
         onClose();
       } else setError(r.error ?? "Could not create the to-do.");
     });
@@ -288,8 +323,8 @@ export function MessageTaskDialog({
       {remind ? (
         <>
           <p className="text-body text-ink-2">
-            Create a linked to-do. It appears in Today on its due day, at 8am
-            Central.
+            Due at 8am Central. It appears in Today from midnight Central on its
+            due day.
           </p>
           <div className="flex flex-wrap gap-2">
             <Button
@@ -349,30 +384,41 @@ export function MessageTaskDialog({
         </select>
       </label>
       {people.length > 0 && (
-        <fieldset>
-          <legend className="mb-1 text-meta text-ink-3">
-            Assignee · leave empty for Joe
-          </legend>
-          {people.map((p) => (
-            <label
-              key={p.id}
-              className="flex min-h-11 items-center gap-2 text-body"
-            >
-              <input
-                type="checkbox"
-                checked={assigned.includes(p.id)}
-                onChange={(e) =>
-                  setAssigned((a) =>
-                    e.target.checked
-                      ? [...a, p.id]
-                      : a.filter((id) => id !== p.id),
-                  )
-                }
-              />
-              {p.name}
-            </label>
-          ))}
-        </fieldset>
+        <details>
+          <summary className="min-h-11 cursor-pointer py-3 text-meta text-ink-3">
+            Assignee ·{" "}
+            {assigned.length
+              ? people
+                  .filter((p) => assigned.includes(p.id))
+                  .map((p) => p.name)
+                  .join(", ")
+              : "Joe"}
+          </summary>
+          <fieldset>
+            <legend className="mb-1 text-meta text-ink-3">
+              Assignee · leave empty for Joe
+            </legend>
+            {people.map((p) => (
+              <label
+                key={p.id}
+                className="flex min-h-11 items-center gap-2 text-body"
+              >
+                <input
+                  type="checkbox"
+                  checked={assigned.includes(p.id)}
+                  onChange={(e) =>
+                    setAssigned((a) =>
+                      e.target.checked
+                        ? [...a, p.id]
+                        : a.filter((id) => id !== p.id),
+                    )
+                  }
+                />
+                {p.name}
+              </label>
+            ))}
+          </fieldset>
+        </details>
       )}
       {error && (
         <p role="alert" className="text-meta text-flag">
@@ -465,7 +511,6 @@ export function ContextPanel({
   onClose,
   onLink,
   onSelect,
-  initialTab = "person",
 }: {
   thread: InboxThread;
   threads: InboxThread[];
@@ -474,7 +519,6 @@ export function ContextPanel({
   onSelect: (id: string) => void;
   initialTab?: "person" | "job";
 }) {
-  const [tab, setTab] = useState(initialTab);
   const [data, setData] = useState<InboxContext | null>(null);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState("");
@@ -525,23 +569,15 @@ export function ContextPanel({
         aria-label="Close context panel"
         onClick={onClose}
         tabIndex={-1}
-        className="absolute inset-0 z-20 bg-ink/20 @[1280px]/page:hidden"
+        className="absolute inset-0 z-[65] bg-ink/20 @[1280px]/page:hidden"
       />
       <aside
         role="complementary"
         aria-label="Person and job context"
-        className="absolute inset-y-0 right-0 z-30 flex w-[300px] max-w-full flex-col border-l border-rule bg-paper-2 shadow-pop @[1280px]/page:static @[1280px]/page:shadow-none"
+        className="absolute inset-y-0 right-0 z-[70] flex w-[300px] max-w-full flex-col border-l border-rule bg-paper-2 shadow-pop @[1280px]/page:static @[1280px]/page:shadow-none"
       >
         <div className="flex min-h-13 items-center gap-2 border-b border-rule px-3">
-          <Segmented
-            aria-label="Context"
-            value={tab}
-            onChange={(v) => setTab(v as "person" | "job")}
-            options={[
-              { value: "person", label: "Person" },
-              { value: "job", label: "Job" },
-            ]}
-          />
+          <h2 className="text-subheading font-semibold">Person & job</h2>
           <div className="flex-1" />
           <Button
             icon={X}
@@ -563,7 +599,7 @@ export function ContextPanel({
           )}
           {data && (
             <>
-              {tab === "person" && (
+              {
                 <>
                   <Avatar initials={thread.initials} size="lg" />
                   <h3 className="text-subheading font-semibold">
@@ -574,28 +610,53 @@ export function ContextPanel({
                       <Chip kind="accent">{data.person.role}</Chip>
                       {[data.person.email, data.person.phone]
                         .filter(Boolean)
-                        .map((value) => (
-                          <button
-                            key={value}
-                            onClick={() => {
-                              navigator.clipboard
-                                .writeText(value!)
-                                .then(() => setCopied(value!))
-                                .catch(() =>
-                                  setError(
-                                    "Could not copy. Select the contact text to copy it.",
-                                  ),
-                                );
-                            }}
-                            className="flex min-h-11 w-full items-center gap-2 break-all text-left text-body text-accent-2"
-                          >
-                            <span className="min-w-0 flex-1">{value}</span>
-                            <Copy className="size-3.5 shrink-0" />
-                            {copied === value && (
-                              <span className="text-meta">Copied</span>
-                            )}
-                          </button>
-                        ))}
+                        .map((value) => {
+                          const email = value!.includes("@");
+                          const href = email
+                            ? `mailto:${value}`
+                            : `tel:${value!.replace(/[^+0-9]/g, "")}`;
+                          return (
+                            <div
+                              key={value}
+                              className="flex min-w-0 items-center gap-1"
+                            >
+                              <a
+                                href={href}
+                                className="inline-flex min-h-11 min-w-0 flex-1 items-center break-all text-body text-accent-2 underline"
+                              >
+                                {email ? value : formatContactPhone(value!)}
+                              </a>
+                              {!email && (
+                                <a
+                                  href={`sms:${value!.replace(/[^+0-9]/g, "")}`}
+                                  className="inline-flex min-h-11 items-center px-2 text-meta text-accent-2"
+                                >
+                                  Text
+                                </a>
+                              )}
+                              <button
+                                aria-label={`Copy ${value}`}
+                                onClick={() =>
+                                  navigator.clipboard
+                                    .writeText(value!)
+                                    .then(() => setCopied(value!))
+                                    .catch(() =>
+                                      setError(
+                                        "Could not copy. Select the contact text to copy it.",
+                                      ),
+                                    )
+                                }
+                                className="grid size-11 shrink-0 place-items-center rounded hover:bg-hover"
+                              >
+                                {copied === value ? (
+                                  <Check className="size-4" />
+                                ) : (
+                                  <Copy className="size-4" />
+                                )}
+                              </button>
+                            </div>
+                          );
+                        })}
                     </>
                   ) : (
                     <div>
@@ -616,8 +677,8 @@ export function ContextPanel({
                     </div>
                   )}
                 </>
-              )}
-              {(tab === "job" || data.job) && (
+              }
+              {
                 <section>
                   <h3 className="mb-2 text-meta font-semibold text-ink-3">
                     {data.job?.kind === "lead" ? "Lead" : "Job"}
@@ -662,7 +723,7 @@ export function ContextPanel({
                     Link to job / lead
                   </Button>
                 </section>
-              )}
+              }
               <section>
                 <h3 className="mb-2 text-meta font-semibold text-ink-3">
                   Next on the schedule

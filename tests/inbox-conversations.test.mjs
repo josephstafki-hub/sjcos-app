@@ -111,3 +111,16 @@ test('short replies and long email bodies are preserved in full', async () => {
   messages[0].payload.parts[0].body.data = Buffer.from(Array.from({length:25},(_,i)=>`Please review paragraph number ${i}.`).join('\n\n')).toString('base64url');
   assert.equal((await gmail.fetchConversation('long')).messages[0].body.length,25);
 });
+
+test('full Gmail payload supplies bulk headers without another request and send guard uses them', async () => {
+  mailbox={...mailbox,refreshToken:'header-cases'};
+  messages=[msg('10','Frank <frank.v@easternfinancialpartners.test>',{'List-Unsubscribe':'<mailto:leave@example.test>'})];
+  const before=calls.get;
+  const conversation=await gmail.fetchConversation('header-cases');
+  assert.equal(conversation.messages[0].automated,true);
+  assert.equal(calls.get,before+1);
+  const sent=calls.sent.length;
+  await assert.rejects(()=>gmail.sendReply({threadId:'header-cases',bodyText:'Please do not send'}),/Automated message/);
+  assert.equal(calls.sent.length,sent);
+  assert.equal(calls.get,before+1,'guard reuses detail payload');
+});

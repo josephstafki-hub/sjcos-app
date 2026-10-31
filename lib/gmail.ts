@@ -518,6 +518,7 @@ function conversationOf(id: string, data: gmail_v1.Schema$Thread, me: string): E
       automated: isAutomatedSender(from.email, undefined, {
         headers: Object.fromEntries((m.payload?.headers ?? []).map(h => [h.name ?? '', h.value ?? ''])),
         labelIds: m.labelIds ?? [], body: extractBody(m.payload).join('\n') || m.snippet || '',
+        conversational: /^(?:re|fwd?|aw)\s*:/i.test(header(m,'Subject')) || Boolean(header(m,'In-Reply-To')),
       }),
       replyTo: header(m,'Reply-To'), messageId: header(m,'Message-ID'), references: header(m,'References'),
       attachments: collectFileParts(m.payload).map(p => ({id:p.body?.attachmentId ?? p.partId ?? '', name:p.filename ?? '',size:p.body?.size ?? 0,type:p.mimeType ?? 'application/octet-stream'})),

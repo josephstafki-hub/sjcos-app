@@ -215,3 +215,18 @@ test("only true no-reply addresses refuse a reply; bulk-tagged senders can still
   for (const a of ["billing@vendor.test", "estatements@bank.test", "news@x.test", "michelle@example.test", "info@bank.test"])
     assert.equal(isNoReplyAddress(a), false, a);
 });
+
+test("Gmail's Updates tag alone never files a person in a conversation as automated", async () => {
+  const { automationDetails } = await import("../lib/inbox-rules.ts");
+  // becky (sub) "RE: COI request", Michael Larson replying to Joe — both tagged Updates by Gmail.
+  assert.equal(isAutomatedSender("becky@cpkdemolition.test", "CATEGORY_UPDATES", { conversational: true }), false);
+  assert.equal(isAutomatedSender("becky@cpkdemolition.test", undefined, { labelIds: ["INBOX", "CATEGORY_UPDATES"], conversational: true }), false);
+  // A one-off Updates mailing with no conversation still files as automated; promotions always do.
+  assert.equal(isAutomatedSender("frank@lender.test", "CATEGORY_UPDATES"), true);
+  assert.equal(isAutomatedSender("becky@cpkdemolition.test", "CATEGORY_PROMOTIONS", { conversational: true }), true);
+  // Fiverr's real wording surfaces as attention with its evidence.
+  const fiverr = automationDetails("noreply@e.fiverr.com", "Great news: Your order is ready", "",
+    "Keep in mind that your order will be automatically marked as complete after 3 days.");
+  assert.match(fiverr.attention ?? "", /automatically marked as complete after 3 days/i);
+  assert.match(automationDetails("x@y.test", "Order", "", "It will be marked complete automatically in 3 days").attention ?? "", /3 days/);
+});

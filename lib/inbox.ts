@@ -527,9 +527,13 @@ function displayName(raw: string): string {
 /** Bulk mail that never needs a personal reply — Gmail's promotions/social/
  *  forums categories and no-reply senders. Kept out of "Needs reply" so promos
  *  (Home Depot etc.) don't get flagged as waiting on Joe. */
+/** Joe already wrote in the thread, or it is a Re:/Fwd: chain — a person, not a mailer. */
+function conversational(r: RawGmailThread): boolean {
+  return Boolean(r.messages?.some(m => m.outbound)) || /^(?:re|fwd?|aw)\s*:/i.test(r.subject ?? "");
+}
 function isBulk(r: RawGmailThread): boolean {
   const incoming = r.messages && [...r.messages].reverse().find(m => !m.outbound);
-  return isAutomatedSender(incoming?.fromEmail ?? r.fromEmail, r.category, { labelIds: r.labelIds, body: (incoming?.body.join("\n") || incoming?.snippet || r.bodyParas.join("\n") || r.snippet) }) || Boolean(incoming?.automated);
+  return isAutomatedSender(incoming?.fromEmail ?? r.fromEmail, r.category, { labelIds: r.labelIds, conversational: conversational(r), body: (incoming?.body.join("\n") || incoming?.snippet || r.bodyParas.join("\n") || r.snippet) }) || Boolean(incoming?.automated);
 }
 
 function viewOf(r: RawGmailThread): ThreadStatus {
@@ -616,7 +620,7 @@ function rawToReader(r: RawGmailThread): ThreadReader {
     aiDraft: { summary: "", body: "" },
     replyPlaceholder: `Reply to ${r.fromName.split(" ")[0]}…`,
     replyTarget: r.messages ? resolveReplyTarget(r.messages, r.ownAddresses ?? []) : null,
-    automated: isBulk(r) || Boolean(incoming && isAutomatedSender(incoming.fromEmail, r.category)),
+    automated: isBulk(r) || Boolean(incoming && isAutomatedSender(incoming.fromEmail, r.category, { conversational: conversational(r) })),
   };
 }
 

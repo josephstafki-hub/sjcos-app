@@ -2187,8 +2187,8 @@ function ThreadRow({
             >
               {attention ? "Action required" : thread.needsMeReason ??
                 (thread.automated
-                  ? `${thread.automationKind ?? "Notification"}${thread.view==="done"?" · done":""}`
-                  : thread.view === "done"
+                  ? `${thread.automationKind ?? "Notification"}${thread.inInbox===false?" · done":""}`
+                  : thread.view === "done" && thread.inInbox === false
                     ? `${thread.automationKind??"Message"} · done`
                     : thread.view === "awaiting_them"
                       ? "Waiting for their reply"

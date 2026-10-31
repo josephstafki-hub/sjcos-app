@@ -48,10 +48,16 @@ export interface AutomationSignals {
   headers?: Record<string, string>;
   body?: string;
   labelIds?: string[];
+  /** A reply chain (Re:/Fwd:, In-Reply-To, or Joe already wrote in the thread). */
+  conversational?: boolean;
 }
 export function isAutomatedSender(email: string, category?: string, signals: AutomationSignals = {}): boolean {
-  const bulkCategory = (value: string) => /^(?:CATEGORY_)?(?:promotions|updates|social|forums)$/i.test(value);
+  const bulkCategory = (value: string) => /^(?:CATEGORY_)?(?:promotions|social|forums)$/i.test(value);
   if (bulkCategory(category ?? '') || signals.labelIds?.some(bulkCategory)) return true;
+  // Gmail files plenty of real people under Updates (a sub's "RE: COI request", a client's
+  // cost question). Updates alone only counts when the mail isn't part of a conversation.
+  const updates = (value: string) => /^(?:CATEGORY_)?updates$/i.test(value);
+  if (!signals.conversational && (updates(category ?? '') || signals.labelIds?.some(updates))) return true;
   const h = Object.fromEntries(Object.entries(signals.headers ?? {}).map(([k,v]) => [k.toLowerCase(),v.trim()]));
   if (h['list-unsubscribe'] || h['list-id'] || /^(bulk|list|junk)$/i.test(h.precedence ?? '') ||
       (h['auto-submitted'] && h['auto-submitted'].toLowerCase() !== 'no')) return true;
@@ -129,7 +135,7 @@ export function automationDetails(email: string, subject: string, snippet: strin
   // Do not turn routine success confirmations or negated warnings into demands.
   const evidence = text.replace(/\b(?:not|no longer)\s+(?:past due|on hold|suspended)\b/gi, '')
     .match(/\b(?:payment (?:has )?failed|failed payment|on hold|past due|action required|approval (?:is )?(?:needed|required)|(?:bid|estimate) (?:is )?(?:awaiting|needs?|pending) (?:your )?(?:review|approval)|(?:COI|insurance)(?: coverage| policy)? (?:is )?(?:expiring|expires|expired)|account (?:is |has been )?suspended|verify(?: (?:your )?(?:identity|account|payment|email))?)\b/i)?.[0];
-  const request = text.match(/\b(?:Your\s+order\s+will\s+be\s+marked\s+as\s+complete\s+automatically\s+in\s+\d+\s+days?|(?:[a-z]+\s+)?will\s+be\s+automatically\s+completed\s+in\s+\d+\s+days?|review\s+and\s+(?:accept|approve)|(?:approve|respond)\s+by\s+[^.!?\n]{1,80}|expires\s+on\s+[^.!?\n]{1,80}|final\s+notice)\b/i)?.[0];
+  const request = text.match(/\b(?:(?:your\s+)?(?:[a-z]+\s+)?(?:will|would)\s+be\s+(?:automatically\s+)?(?:marked\s+(?:as\s+)?)?complete[d]?(?:\s+automatically)?\s+(?:in|after|within)\s+\d+\s+(?:business\s+)?days?|review\s+and\s+(?:accept|approve)|(?:approve|respond)\s+by\s+[^.!?\n]{1,80}|expires\s+on\s+[^.!?\n]{1,80}|final\s+notice)\b/i)?.[0];
   return {kind, attention: evidence ?? request};
 }
 export function screeningEligible(input: {email: string; inbound: boolean; done: boolean; known: boolean; staff: boolean; automated?: boolean; ownAddresses: string[]; decision?: string}): boolean {

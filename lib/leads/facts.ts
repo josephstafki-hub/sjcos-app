@@ -28,7 +28,7 @@ const ASK: Record<FactKey, string> = {
   photos: "a couple of photos of the space as it is now",
   measurements: "rough measurements (length and width of the room, or the wall you're thinking of)",
   timeline: "when you're hoping to have it done",
-  budget_fit: "a rough budget range you have in mind, so I can point you the right way",
+  budget_fit: "a rough budget range you have in mind, if you don't mind sharing it",
   address: "the address of the house",
   goals: "what's driving the project (more space, updating the look, fixing something)",
   service_area: "",
@@ -36,11 +36,11 @@ const ASK: Record<FactKey, string> = {
 };
 
 export function draftMissingFactsEmail(firstName: string, keys: FactKey[], opts: { alreadyAskedOnce?: boolean } = {}): { subject: string; body: string } {
-  const asks = keys.filter((k) => ASK[k]).map((k) => ASK[k]);
-  const list = asks.length === 1 ? asks[0] : asks.length === 2 ? `${asks[0]} and ${asks[1]}` : `${asks.slice(0, -1).join(", ")}, and ${asks[asks.length - 1]}`;
+  // One question per line (Joe, 2026-10-30): a run-on list was hard to read.
+  const list = keys.filter((k) => ASK[k]).map((k) => `- ${ASK[k]}`).join("\n");
   const opener = opts.alreadyAskedOnce ? `Circling back on your project.` : `Thanks for reaching out about your project.`;
-  const body = `${firstName ? `${firstName}, ` : ""}${opener} To put a rough number together I'd need ${list}. Reply here with whatever you have and I'll take it from there.\n\nJoe\nSJ Carpentry LLC\n612-361-6585`;
-  return { subject: opts.alreadyAskedOnce ? "Re: your project" : "Your project — a couple of things I need", body };
+  const body = `Hi${firstName ? ` ${firstName}` : ""},\n\n${opener} To put a rough number together, it would help to have:\n\n${list}\n\nReply here with whatever you have and I'll take it from there.\n\nJoe\nSJ Carpentry LLC\n612-361-6585`;
+  return { subject: opts.alreadyAskedOnce ? "Re: your project" : "A few questions about your project", body };
 }
 
 export interface LeadSignals {

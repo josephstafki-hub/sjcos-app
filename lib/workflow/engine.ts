@@ -81,8 +81,9 @@ async function activePolicyVersions(run: Run): Promise<Record<string, number>> {
 
 export async function ensureProjectWorkflow(run: Run, projectId: string, startedBy = "system"): Promise<ProjectWorkflowRow> {
   const [row] = await run<ProjectWorkflowRow>(
-    `INSERT INTO project_workflows (project_id, definition_version, policy_versions, started_by)
-     VALUES ($1, $2, $3::jsonb, $4)
+    // A new row starts at the stage the job's status implies (0054), not W01.
+    `INSERT INTO project_workflows (project_id, definition_version, policy_versions, started_by, stage)
+     VALUES ($1, $2, $3::jsonb, $4, COALESCE((SELECT workflow_stage_for_status(status) FROM projects WHERE id = $1), 'W01'))
      ON CONFLICT (project_id) DO UPDATE SET project_id = EXCLUDED.project_id
      RETURNING ${WF_COLS}`,
     [projectId, WORKFLOW_DEFINITION_VERSION, JSON.stringify(await activePolicyVersions(run)), startedBy],

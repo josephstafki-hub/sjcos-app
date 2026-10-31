@@ -60,7 +60,7 @@ import {
   composerExpanded,
   isNoReplyAddress,
 } from "@/lib/inbox-rules";
-import { remoteImagePolicy } from "@/lib/inbox-image-policy";
+import { applyRemoteImagePolicy } from "@/lib/inbox-image-policy";
 import { mergeTranscript } from "@/lib/append-transcript";
 import {
   draftReplyAction,
@@ -1685,7 +1685,7 @@ function EmailHtml({ html }: { html: string }) {
       const natural = i.scrollWidth,
         room = i.clientWidth;
       setZoom(
-        natural > room + 2 && room > 0 ? Math.max(0.45, room / natural) : 1,
+        natural > room + 2 && room > 0 ? Math.max(0.85, room / natural) : 1,
       );
     };
     fit();
@@ -2204,7 +2204,7 @@ function ThreadRow({
                 · {shortJobLabel(thread.projectLabel)}
               </span>
             )}
-            <span title="Outstanding" className="ml-auto shrink-0 text-meta text-warn group-hover:invisible group-focus-within:invisible [@media(hover:none)]:!visible">
+            <span title="Outstanding" className="ml-auto shrink-0 text-meta text-warn">
               {Boolean(thread.outstandingCents)&&new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(thread.outstandingCents!/100)}
             </span>
           </span>
@@ -2315,6 +2315,7 @@ function EmailMessageCard({
       alive = false;
     };
   }, [expanded, threadId, message.id]);
+  const imagePolicy=useMemo(()=>applyRemoteImagePolicy(html,!blockImages||allowedImages),[html,blockImages,allowedImages]);
   return (
     <article className="overflow-hidden rounded-lg border border-rule bg-card">
       <button
@@ -2352,8 +2353,8 @@ function EmailMessageCard({
           </details>
           {html ? (
             <>
-              {blockImages&&!allowedImages&&/<img\b|url\s*\(/i.test(html)&&<div className="mb-2 flex flex-wrap items-center gap-2 text-meta text-ink-3"><span>Remote images blocked for this sender.</span><Button variant="secondary" size="sm" onClick={()=>{setAllowedImages(true);try{localStorage.setItem(imageKey,'show');}catch{}}}>Show images</Button></div>}
-              <EmailHtml key={`${imageKey}:${allowedImages}`} html={remoteImagePolicy(html,!blockImages||allowedImages)} />
+              {imagePolicy.blocked>0&&<div className="mb-2 flex flex-wrap items-center gap-2 text-meta text-ink-3"><span>{imagePolicy.blocked} remote {imagePolicy.blocked===1?"image":"images"} blocked ·</span><Button variant="secondary" size="sm" onClick={()=>{setAllowedImages(true);try{localStorage.setItem(imageKey,'show');}catch{}}}>Show images</Button></div>}
+              <EmailHtml key={`${imageKey}:${allowedImages}`} html={imagePolicy.html} />
             </>
           ) : (
             <PlainBody paras={message.body} />

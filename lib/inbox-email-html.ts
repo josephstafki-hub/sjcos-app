@@ -1,4 +1,5 @@
 import { parseDocument, DomUtils } from 'htmlparser2';
+import { Text } from 'domhandler';
 
 /** Normalize before sanitizing: Gmail's class/id markers otherwise disappear.
  * Keep attribution and history in one fold, including Outlook's following siblings. */
@@ -18,10 +19,30 @@ export function foldEmailQuotes(html: string): string {
       }
       while (boundary.next) DomUtils.appendChild(node, boundary.next);
     }
-    let before = node.prev;
-    while (before && (before.type === 'text' && !before.data.trim() || before.type === 'tag' && before.name === 'br')) before = before.prev;
-    if (before?.type === 'tag' && /^On\s+[\s\S]{4,1000}?wrote:\s*$/i.test(DomUtils.innerText(before).trim())) {
-      DomUtils.prependChild(node, before);
+    // iOS/Gmail mobile places attribution text + a mailto link in the same
+    // div as the signature. Move just the trailing line, never the whole div.
+    const siblings = [];
+    for (let p = node.prev; p; p = p.prev) siblings.unshift(p);
+    const pieces = siblings.map(p => p.type === 'tag' && p.name === 'br' ? '\n' : DomUtils.textContent(p));
+    const beforeText = pieces.join('');
+    const match = /(?:^|\n)[ \t\u00a0]*On[ \t\u00a0]+[\s\S]{4,1000}?wrote:[\s\u00a0]*$/i.exec(beforeText);
+    if (match) {
+      const start = match.index + match[0].indexOf('On');
+      let offset = 0;
+      for (let i = 0; i < siblings.length; i++) {
+        const part = siblings[i];
+        if (offset + pieces[i].length > start) {
+          let moving = siblings.slice(i);
+          if (part.type === 'text' && start > offset) {
+            const tail = new Text(part.data.slice(start - offset));
+            part.data = part.data.slice(0, start - offset);
+            moving = [tail, ...siblings.slice(i + 1)];
+          }
+          for (const item of moving.reverse()) DomUtils.prependChild(node, item);
+          break;
+        }
+        offset += pieces[i].length;
+      }
     }
   }
   return DomUtils.getOuterHTML(doc);

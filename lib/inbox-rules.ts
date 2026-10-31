@@ -162,7 +162,7 @@ export function substantiveSnippet(paras: string[], subject = ''): string {
   const text = splitQuotedText(paras).text
     .replace(/\[image:[^\]]*\]|https?:\/\/\S+|<https?:[^>]+>/gi, '')
     .replace(/^\s*(?:hi|hello|hey|dear|good morning|good afternoon)(?:[ \t]+[^,\n!]{1,50})?[,!][ \t]*(?:\n+)?/i, '');
-  const sentences = text.split(/\n+|(?<=[.!?])\s+/).map(s=>s.replace(/\s+/g,' ').trim()).filter(Boolean);
+  const sentences = text.replace(/([^.!?\n])\n(?!\n)/g, '$1 ').split(/\n+|(?<=[.!?])\s+/).map(s=>s.replace(/\s+/g,' ').trim()).filter(Boolean);
   const meaningful: string[] = [];
   for (const sentence of sentences) {
     if (/^(?:sent from my|(?:best|kind) regards|regards|sincerely|cheers)\b/i.test(sentence)) break;
@@ -173,6 +173,7 @@ export function substantiveSnippet(paras: string[], subject = ''): string {
     }
     if (/^[\w .'-]{1,35}$/.test(sentence) && !/[?.!]/.test(sentence) && meaningful.length) continue;
     if (/^(?:\[image|image unavailable|unsubscribe)\b/i.test(sentence)) continue;
+    if (/\b(?:don[’']t|do not|doesn[’']t|does not|no)\s+need\b|\b(?:don[’']t|do not)\s+reply\b|(?:something|anything) (?:went )?wrong with (?:the|this|your) email|\b(?:any )?questions (?:about|regarding)|\bif you have (?:any )?questions\b/i.test(sentence)) continue;
     meaningful.push(sentence);
   }
   const ask = meaningful.find(s=>/\?|\b(?:can you|could you|please|would you|need|when|how much|estimate|quote)\b/i.test(s));

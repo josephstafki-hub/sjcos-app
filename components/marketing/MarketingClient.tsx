@@ -5,17 +5,25 @@ import { useRouter } from "next/navigation";
 import { Megaphone, Sparkles, Copy, Check, Trash2, Send } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import type { MarketingDraft } from "@/lib/marketing";
+import type { PostingAccounts as Accounts } from "@/lib/publisher/core";
 import { generateDraft, updateDraft, markPosted, deleteDraft, setPhotoShareable } from "@/lib/actions/marketing";
 import { runAction } from "@/lib/run-action";
+import { InPostToggle, PostingPanel, StageChip } from "./PostingPanel";
+import { PostingAccounts } from "./PostingAccounts";
 
 /** /marketing — AI-drafted social + blog posts. Owner generates from a project,
- *  edits inline, copies, and marks posted (manual posting — no social API). */
+ *  edits inline, and either copies + posts by hand, or picks a platform and
+ *  photos and approves the posting agent to put it up (no social API). */
 export function MarketingClient({
   drafts,
   projects,
+  isOwner,
+  accounts,
 }: {
   drafts: MarketingDraft[];
   projects: { slug: string; name: string }[];
+  isOwner: boolean;
+  accounts: Accounts | null;
 }) {
   const router = useRouter();
   const [slug, setSlug] = useState(projects[0]?.slug ?? "");
@@ -45,9 +53,11 @@ export function MarketingClient({
         <Megaphone className="size-5 text-accent" strokeWidth={1.75} />
         <div className="flex-1">
           <h1 className="font-serif text-[30px] font-medium leading-none text-accent-2">Marketing</h1>
-          <div className="mt-1 text-[11px] text-ink-3">AI-drafted posts — you review and post them yourself.</div>
+          <div className="mt-1 text-[11px] text-ink-3">AI-drafted posts: post them yourself, or approve one and the posting agent puts it up.</div>
         </div>
       </div>
+
+      {isOwner && accounts && <PostingAccounts accounts={accounts} />}
 
       {/* Generate */}
       <Card className="mb-5 p-3.5">
@@ -82,7 +92,7 @@ export function MarketingClient({
       ) : (
         <div className="space-y-3">
           {drafts.map((d) => (
-            <DraftCard key={d.id} draft={d} />
+            <DraftCard key={d.id} draft={d} isOwner={isOwner} />
           ))}
         </div>
       )}
@@ -90,7 +100,7 @@ export function MarketingClient({
   );
 }
 
-function DraftCard({ draft }: { draft: MarketingDraft }) {
+function DraftCard({ draft, isOwner }: { draft: MarketingDraft; isOwner: boolean }) {
   const router = useRouter();
   const [body, setBody] = useState(draft.body);
   const [pending, startTransition] = useTransition();
@@ -129,11 +139,7 @@ function DraftCard({ draft }: { draft: MarketingDraft }) {
         <span className="flex-1 truncate font-serif text-[14px] font-semibold text-ink">
           {draft.projectName || draft.title || "Post"}
         </span>
-        {draft.status === "posted" ? (
-          <Chip kind="money" dot>posted</Chip>
-        ) : (
-          <span className="font-mono text-[10px] text-ink-3">{draft.createdLabel}</span>
-        )}
+        {draft.stage !== "draft" ? <StageChip stage={draft.stage} /> : <span className="font-mono text-[10px] text-ink-3">{draft.createdLabel}</span>}
       </div>
       <textarea
         value={body}
@@ -144,7 +150,7 @@ function DraftCard({ draft }: { draft: MarketingDraft }) {
       {draft.photos.length > 0 && draft.projectSlug && (
         <div className="mt-2">
           <div className="mb-1 text-[11px] text-ink-3">
-            Photos: tick the ones the client OK&apos;d sharing; download those to post with the text.
+            Photos: tick the ones the client OK&apos;d sharing; download those to post with the text{draft.kind === "social" ? ", or tick \u201cIn post\u201d for the posting agent" : ""}.
           </div>
           <div className="flex flex-wrap gap-2">
             {draft.photos.map((p) => (
@@ -170,11 +176,13 @@ function DraftCard({ draft }: { draft: MarketingDraft }) {
                     Download
                   </a>
                 )}
+                {p.shareable && draft.kind === "social" && <InPostToggle draft={draft} photoId={p.id} disabled={pending} />}
               </div>
             ))}
           </div>
         </div>
       )}
+      {draft.kind === "social" && <PostingPanel draft={draft} isOwner={isOwner} dirty={dirty} />}
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <button
           type="button"
@@ -195,7 +203,7 @@ function DraftCard({ draft }: { draft: MarketingDraft }) {
           </button>
         )}
         <div className="flex-1" />
-        {draft.status !== "posted" && (
+        {(draft.stage === "draft" || draft.stage === "failed") && (
           <button
             type="button"
             onClick={post}

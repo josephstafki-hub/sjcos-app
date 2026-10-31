@@ -27,6 +27,9 @@ export const KINDS = {
   send_sms: { provider: "sms", lane: "sends", optout: "sms", action: "send_sms", label: "Text message" },
   place_call: { provider: "voice", lane: "sends", optout: "phone", action: "place_call", label: "Phone call" },
   telegram_owner: { provider: "telegram", lane: "agents", optout: null, action: "telegram_owner", label: "Owner push" },
+  // An approved marketing post, put up by the posting agent in the browser
+  // (lib/providers/publisher.ts). Recipient = the platform.
+  publication: { provider: "publisher", lane: "publication", optout: null, action: "publish_marketing", label: "Marketing post" },
 } as const satisfies Record<string, KindSpec>;
 
 export type IntentKind = keyof typeof KINDS;

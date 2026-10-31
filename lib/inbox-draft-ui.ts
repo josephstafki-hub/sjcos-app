@@ -1,3 +1,4 @@
+import {cleanRowSummary} from './inbox-review.ts';
 import type {DraftIdentity, DraftText, DraftWriteResult, InboxDraft} from './inbox-draft-types';
 import type {DraftSyncSnapshot, DraftSyncStatus} from './inbox-draft-sync';
 import type {InboxThread, ThreadReader} from './inbox';
@@ -9,7 +10,7 @@ export function matchingSuggestion(rows: InboxDraft[], threadKey: string, reader
 }
 export function draftRow(thread: InboxThread, suggestion?: InboxDraft | null): InboxThread {
   if (!suggestion || thread.automated || thread.filedOther || thread.newSender || thread.view === 'done') return thread;
-  return {...thread, needsMeReason: `Draft ready · ${thread.needsMeReason || 'Reply to review'}`, preview: suggestion.summary || thread.preview};
+  return {...thread, needsMeReason: `Draft ready · ${thread.needsMeReason || 'Reply to review'}`, preview: cleanRowSummary(suggestion.summary || thread.preview,thread.fromName)};
 }
 export function draftStatusLabel(status: DraftSyncStatus): string {
   return {saved:'Saved',saving:'Saving…','local only':'Saved on this device only',conflict:'This draft changed on another device'}[status];

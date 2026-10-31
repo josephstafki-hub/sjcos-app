@@ -235,6 +235,8 @@ const THREADS: InboxThread[] = [
 // ─── Reader pane ─────────────────────────────────────────────────────────────
 
 export interface ReaderMessage {
+  media?: import("./sms").SmsMedia[];
+  originalHref?:string;
   deliveryState?:string;
   deliveryError?:string;
   imagesBlocked?:boolean;
@@ -551,7 +553,7 @@ function viewOf(r: RawGmailThread): ThreadStatus {
 }
 
 function rawToThread(r: RawGmailThread, labelMap: Map<string, string>): InboxThread {
-  const details = automationDetails(r.fromEmail, r.subject, r.snippet, (r.messages ?? []).filter(m=>!m.outbound).map(m=>splitQuotedText(m.body).text).join("\n") || splitQuotedText(r.bodyParas).text);
+  const details = automationDetails(r.fromEmail, r.subject, r.snippet, splitQuotedText(r.messages?.findLast(m=>!m.outbound)?.body ?? r.bodyParas).text, r.ownAddresses?.[0]);
   const view = isBulk(r) && details.attention && r.inInbox && !r.outbound && !r.snoozed ? "needs_reply" : viewOf(r);
   const needsReply = view === "needs_reply" && r.unread;
   // For outbound threads the counterparty is the recipient, not "me".
@@ -1220,9 +1222,10 @@ async function loadSmsThreads(): Promise<ChannelBuild> {
     body: string;
     status: string;
     error_detail: string | null;
+    media?: import("./sms").SmsMedia[];
     created_at: string;
   }>(
-    `SELECT id::text AS id, thread_id::text AS thread_id, direction, body, status, error_detail, created_at
+    `SELECT id::text AS id, thread_id::text AS thread_id, direction, body, status, error_detail, media, created_at
        FROM sms_messages WHERE thread_id = ANY($1::bigint[]) ORDER BY created_at, sms_messages.id`,
     [ids],
   );
@@ -1275,6 +1278,8 @@ async function loadSmsThreads(): Promise<ChannelBuild> {
       meta: relativeWhen(Date.parse(m.created_at)),
       to: m.direction === "in" ? "to Joe" : `to ${name}`,
       body: [m.body],
+      media:Array.isArray(m.media)?m.media:[],
+      originalHref:`/messages?thread=${encodeURIComponent(r.id)}#sms-message-${encodeURIComponent(m.id)}`,
     }));
     if (!messages.length) {
       messages.push({
@@ -1284,6 +1289,7 @@ async function loadSmsThreads(): Promise<ChannelBuild> {
         meta: r.last_message_at ? relativeWhen(Date.parse(r.last_message_at)) : "",
         to: "to Joe",
         body: [r.last_body || ""],
+        originalHref:`/messages?thread=${encodeURIComponent(r.id)}`,
       });
     }
     const href = smsLinkHref(r.link_type, r.link_slug);

@@ -66,6 +66,15 @@ export function readableEmailHtml(html:string):string {
       return /^(?:https?:|mailto:|tel:)/i.test(href)?`<a href="${escape(href)}" target="_blank" rel="noopener noreferrer">${contents()}</a>`:contents();
     }
     if(tag==='br')return '<br>';
+    if(tag==='table'){
+      const rows=DomUtils.findAll(e=>e.name==='tr',[node]).filter(row=>{let parent=row.parent;while(parent&&(!isTag(parent)||parent.name!=='table'))parent=parent.parent;return parent===node&&!DomUtils.findAll(e=>e.name==='table',row.children).length;});
+      const cells=(row:typeof node)=>row.children.filter(isTag).filter(n=>/^(?:td|th)$/.test(n.name));
+      const first=rows[0]&&cells(rows[0]);
+      // Comparison grids have a shared header and multiple records. Receipt
+      // label/value rows continue through the compact key/value path below.
+      const comparison=first&&first.length>=3&&first.every(c=>/[a-z]/i.test(DomUtils.textContent(c)))&&rows.length>=2&&rows.every(row=>cells(row).length===first.length);
+      if(comparison)return `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse"><thead><tr>${first.map(c=>`<th scope="col" style="padding:6px;text-align:left;border-bottom:1px solid">${c.children.map(render).join('')}</th>`).join('')}</tr></thead><tbody>${rows.slice(1).map(row=>`<tr>${cells(row).map(c=>`<td style="padding:6px;vertical-align:top">${c.children.map(render).join('')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    }
     if(tag==='tr'){
       const cells=node.children.filter(n=>isTag(n)&&/^(?:td|th)$/.test(n.name));
       const nested=cells.some(c=>DomUtils.findAll(e=>e.name==='table', [c]).length>0);

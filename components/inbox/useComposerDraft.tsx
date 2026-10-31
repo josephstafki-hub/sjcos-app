@@ -56,9 +56,9 @@ export function useComposerDraft(options: {mailbox:string;userId:string;owner:bo
   }
   return {value,set,clear,latest,revision,loaded:true,synced,suggestion,accepted,acceptSuggestion,prepare,finish};
 }
-export function DraftSyncFooter({saved,disabled=false}:{saved:ReturnType<typeof useComposerDraft>;disabled?:boolean}) {
+export function DraftSyncFooter({saved,disabled=false,localFiles=false}:{saved:ReturnType<typeof useComposerDraft>;disabled?:boolean;localFiles?:boolean}) {
   return <div className="flex flex-wrap items-center gap-1 py-1 text-meta text-ink-3" role="status">
-    <span>{draftStatusLabel(saved.synced.status)}</span>
+    <span>{localFiles&&saved.synced.status==='saved'?'Text saved · files on this device':draftStatusLabel(saved.synced.status)}</span>
     {saved.synced.status==='conflict'&&<><span>·</span><Button size="sm" variant="ghost" disabled={disabled} onClick={()=>saved.synced.keepMine()}>Keep mine</Button><Button size="sm" variant="ghost" disabled={disabled} onClick={()=>saved.synced.resolve('server')}>Use theirs</Button></>}
   </div>;
 }

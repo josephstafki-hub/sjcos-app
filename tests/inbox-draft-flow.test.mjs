@@ -131,6 +131,7 @@ const reader = {
   replyPlaceholder: "Reply to Tom…",
   aiDraft: { body: "" },
 };
+let readerExtra={};
 let tree,
   id = "t1",
   channel = null,
@@ -141,7 +142,7 @@ function render() {
   if(cardData){tree=EmailMessageCard(cardData);return;}
   if(clientData){tree=InboxClient({data:clientData,selfEmail:"joe@example.test",owner:viewerOwner});return;}
   const Component=channel?ChannelReaderBody:ReaderBody;
-  tree = Component({ reader:channel?{...reader,channel,replyLabel:"To (612) 555-1234"}:reader, threadId: id, mailbox: "joe@example.test", owner:viewerOwner, onSendDone:async()=>{globalThis.__doneCalls=(globalThis.__doneCalls??0)+1;return {ok:!globalThis.__doneFails,error:"offline"};} });
+  tree = Component({ ...readerExtra, reader:channel?{...reader,channel,replyLabel:"To (612) 555-1234"}:reader, threadId: id, mailbox: "joe@example.test", owner:viewerOwner, onSendDone:async()=>{globalThis.__doneCalls=(globalThis.__doneCalls??0)+1;return {ok:!globalThis.__doneFails,error:"offline"};} });
 }
 function flush() {
   for (let i = 0; i < 3; i++) {
@@ -426,7 +427,7 @@ test('ready automatic suggestion opens an editable approval card without saving 
  try{
   mount('arrival');await settle();
   assert.equal(find(n=>n.props?.['aria-label']==='AI draft body').props.value,'Automatic draft for review');
-  assert.ok(find(n=>String(n.props?.children).includes('Based on: The latest email')));
+  assert.ok(find(n=>n.props?.title==='Based on: The latest email and job notes'));
   assert.equal(sends.length,before);assert.equal(__draftServer.rows.has('arrival:email'),false);
   click('Send email');await settle();assert.equal(sends.length,before+1);
   assert.equal(__draftServer.calls.findLast(([type])=>type==='sent')[1].suggestionId,'11111111-1111-1111-1111-111111111111');
@@ -497,4 +498,26 @@ test('accepted automatic suggestion retains its exact id across reload for send 
   mount('accepted-reload');await settle();click('Send email');await settle();
   assert.equal(__draftServer.calls.findLast(([type])=>type==='sent')[1].suggestionId,'11111111-1111-1111-1111-111111111111');
  }finally{viewerOwner=false;__draftServer.suggestions=[];}
+});
+
+
+test('full draft review pins the incoming ask, opens source on one click and retains Claude on regenerate',async()=>{
+ const prior=reader.messages;viewerOwner=true;reader.messages=[{...prior[0],body:['Hi Builder,\n\nPlease add hallway painting to the estimate. Could you include popcorn removal?\n\nThanks,\nCasey']}];
+ __draftServer.suggestions=[autoSuggestion('review-focus')];const sendsBefore=sends.length;
+ try{
+  mount('review-focus');await settle();
+  assert.match(find(n=>n.props?.['aria-label']==='Incoming request').props.children,/hallway painting/);
+  assert.ok(find(n=>String(n.props?.children).includes('joe@example.test')));
+  click('Expand review');assert.ok(find(n=>n.props?.className?.includes('absolute inset-0 z-[65]')));
+  click('Read full message');assert.equal(find(n=>n.props?.hidden===false&&n.props?.className?.includes('max-h-[35dvh]')).props.hidden,false);
+  click('Regenerate');await settle();assert.equal(draftCalls.at(-1)[1],'claude');assert.equal(sends.length,sendsBefore);
+ }finally{viewerOwner=false;reader.messages=prior;__draftServer.suggestions=[];}
+});
+test('new sender composer opens only after Reply anyway, with no hidden draft Send action',()=>{
+ readerExtra={newSender:true,screening:'Screen sender'};
+ try{
+  mount('screen-first');assert.ok(find(n=>n.props?.['data-screen-first']!==undefined));
+  assert.equal(find(n=>n.props?.children==='Draft with AI'),undefined);assert.equal(find(n=>n.props?.children==='Send email'),undefined);
+  click('Reply anyway');assert.ok(find(n=>n.props?.['aria-label']==='Reply body'));
+ }finally{readerExtra={};}
 });

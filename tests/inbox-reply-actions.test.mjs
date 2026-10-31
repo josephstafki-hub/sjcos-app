@@ -4,12 +4,13 @@ import { registerHooks } from 'node:module';
 const calls=[];
 globalThis.__replyAction = { calls, queries:[], row:{email:'teresa@example.test',name:'Teresa',scope:'Kitchen'}, allowed:true };
 const stubs = {
+  '@/lib/inbox-autodraft':`export const draftAutoReply=async (candidate,model)=>{globalThis.__replyAction.calls.push(['regenerate',candidate.messageId,model]);return {body:'Fresh draft',toEmail:'client@example.test'};};`,
   'next/cache':'export const revalidatePath = () => {};',
-  '@/lib/dal':`export const requireAccess = async area => { if (!globalThis.__replyAction.allowed) throw Error('Forbidden'); return {id:'owner',role:'owner'}; };`,
+  '@/lib/dal':`export const requireAccess = async area => { if (!globalThis.__replyAction.allowed) throw Error('Forbidden'); return {id:'owner',role:globalThis.__replyAction.role??'owner'}; };`,
   '@/lib/db':`export const query = async (sql,p) => {globalThis.__replyAction.queries.push([sql,p]);if(globalThis.__replyAction.failLink&&sql.includes('INSERT INTO thread_links'))throw Error('db offline');return {rows:globalThis.__replyAction.row ? [globalThis.__replyAction.row] : []};};`,
   '@/lib/mailbox':`export const unlinkMailbox = async () => {}; export const withMailboxFor = async (u,fn) => fn();`,
   '@/lib/gmail':`export const gmailConfigured = () => true; export const sendReply = async o => globalThis.__replyAction.calls.push(['email',o]); export const sendNewEmail = async o => {globalThis.__replyAction.calls.push(['new',o]);if(globalThis.__replyAction.failSend)throw Error('offline');return {threadId:'sent-thread'};}; export const findCorrespondence=async email=>{globalThis.__replyAction.calls.push(['search',email]);return [{id:'older',subject:'Email conversation'}];}; export const fetchConversation=async()=>({messages:[{id:'original',attachments:[{id:'plan',name:'plan.pdf',size:4,type:'application/pdf'}]}]}); export const fetchInboxAttachment=async()=>({name:'plan.pdf',type:'application/pdf',bytes:Buffer.from('plan')}); export const modifyThread=async(...args)=>globalThis.__replyAction.calls.push(['modify',...args]); export const trashThread=async()=>{}; export const fetchThreadHtml=async()=>''; export const fetchMessageHtml=async(t,m)=>t+':'+m;`,
-  '@/lib/inbox':`export const draftReplyForThread=async()=>({}); export const invalidateInboxCache=()=>{}; export const loadMoreInbox=async()=>({}); export const loadLabelInbox=async()=>({}); export const loadSystemView=async()=>({});`,
+  '@/lib/inbox':`export const draftReplyForThread=async()=>({}); export const getInboxData=async()=>({threads:[{id:'claude-thread',channel:'email'}],readers:{'claude-thread':{messages:[{id:'latest',outbound:false}],replyTarget:{toEmail:'client@example.test'}}}}); export const invalidateInboxCache=()=>{}; export const loadMoreInbox=async()=>({}); export const loadLabelInbox=async()=>({}); export const loadSystemView=async()=>({});`,
   '@/lib/actions/sms':`export const sendSmsReply=async(...a)=>{globalThis.__replyAction.calls.push(['sms',...a]); return {ok:true};};`,
   '@/lib/actions/portal':`export const sendProjectMessage=async(s,f)=>globalThis.__replyAction.calls.push(['project',s,f.get('body')]); export const sendLeadPortalMessage=async(s,f)=>globalThis.__replyAction.calls.push(['lead',s,f.get('body')]);`,
   '@/lib/actions/chat':`export const sendChatMessage=async(...a)=>{globalThis.__replyAction.calls.push(['sub',...a]);return {ok:true};};`,
@@ -94,4 +95,18 @@ test('Report spam uses the existing Gmail modify helper; Undo restores inbox, ac
  assert.deepEqual(calls,[['modify','thread',{addLabelIds:['SPAM'],removeLabelIds:['INBOX']}],['modify','thread',{removeLabelIds:['SPAM'],addLabelIds:['INBOX']}] ]);
  calls.length=0;await actions.setThreadSpamAction('archived',false,false);assert.deepEqual(calls[0][2],{removeLabelIds:['SPAM']});
  globalThis.__replyAction.allowed=false;await assert.rejects(()=>actions.setThreadSpamAction('thread',true),/Forbidden/);globalThis.__replyAction.allowed=true;
+});
+
+
+test('Claude regeneration reuses the owner draft writer, retains model, and never sends',async()=>{
+ calls.length=0;const result=await actions.draftReplyAction('claude-thread','claude');
+ assert.equal(result.ok,true);assert.equal(result.model,'Claude');assert.deepEqual(calls,[['regenerate','latest','claude']]);
+ globalThis.__replyAction.role='staff';calls.length=0;
+ try{assert.equal((await actions.draftReplyAction('claude-thread','claude')).ok,false);assert.deepEqual(calls,[]);}finally{globalThis.__replyAction.role='owner';}
+});
+test('batch archive and undo use the existing mailbox helpers with Gmail fully stubbed',async()=>{
+ const {completeMailBatch}=await import('../lib/inbox-review.ts');calls.length=0;
+ const result=await completeMailBatch([{id:'a'},{id:'b'}],actions.archiveThreadAction);
+ await completeMailBatch(result.completed,actions.restoreThreadToInboxAction);
+ assert.deepEqual(calls,[['modify','a',{removeLabelIds:['INBOX']}],['modify','b',{removeLabelIds:['INBOX']}],['modify','a',{addLabelIds:['INBOX']}],['modify','b',{addLabelIds:['INBOX']}] ]);
 });

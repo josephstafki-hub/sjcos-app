@@ -9,6 +9,8 @@ import {
   useTransition,
   useCallback,
   type ReactNode,
+  type RefObject,
+  type TextareaHTMLAttributes,
 } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -114,6 +116,7 @@ import {
   type InboxTab,
   type SavedInboxDraft,
 } from "@/lib/inbox-experience";
+import {askExcerpt, rowActionTitle, automationState, composerMode, olderOtherMail, completeMailBatch, draftReviewSize, regenerateModel, restoreForwardChoices} from '@/lib/inbox-review';
 import {useComposerDraft, DraftSyncFooter} from './useComposerDraft';
 import {loadDrafts, dismissSuggestion} from '@/lib/actions/inbox-drafts';
 import {matchingSuggestion, draftRow, prepareDraftSend} from '@/lib/inbox-draft-ui';
@@ -826,6 +829,31 @@ export function InboxClient({
     }});
     router.refresh();return {ok:true};
   }
+  function markOtherDone(){
+    const candidates=olderOtherMail(visible);
+    startTransition(async()=>{
+      const result=await completeMailBatch(candidates,archiveThreadAction);
+      const ids=new Set(result.completed.map(t=>t.id));
+      const patch=(t:InboxThread)=>ids.has(t.id)?{...t,inInbox:false,view:'done' as const,needsMeReason:undefined}:t;
+      setThreads(ts=>ts.map(patch));setRemoteData(d=>d?{...d,threads:d.threads.map(patch)}:d);
+      setPassCompleted(prev=>new Set([...prev,...ids]));
+      if(ids.has(selectedId))setSelectedId(visible.find(t=>!ids.has(t.id))?.id??'');
+      setNotice(`${result.completed.length} older automated messages marked done.${result.failed.length?` ${result.failed.length} could not be archived; try again.`:''}`);
+      if(result.completed.length){
+        const remaining=new Map(result.completed.map(t=>[t.id,t]));
+        setUndo({label:'Undo mark all as done',run:async()=>{
+          const restored=await completeMailBatch([...remaining.values()],restoreThreadToInboxAction);
+          const originals=new Map(restored.completed.map(t=>[t.id,t]));
+          restored.completed.forEach(t=>remaining.delete(t.id));
+          setThreads(ts=>ts.map(t=>originals.get(t.id)??t));setRemoteData(d=>d?{...d,threads:d.threads.map(t=>originals.get(t.id)??t)}:d);
+          setPassCompleted(prev=>new Set([...prev].filter(id=>!originals.has(id))));
+          setNotice(restored.failed.length?`${restored.completed.length} restored. Undo failed for ${restored.failed.length}; try Undo again.`:'Mark all as done undone.');
+          if(!remaining.size)setUndo(null);router.refresh();
+        }});
+      }
+      router.refresh();
+    });
+  }
   const archiveSelected = () => {
     if (selected) startTransition(async()=>{await doneThread(selected);});
   };
@@ -1239,10 +1267,6 @@ export function InboxClient({
             mobileReader ? "hidden @4xl/page:flex" : "flex",
           ].join(" ")}
         >
-          <div className="relative border-b border-rule-soft px-3 py-1 @4xl/page:hidden">
-            <Button variant="ghost" className="min-h-11" aria-expanded={splitSheet} onClick={()=>setSplitSheet(v=>!v)}>{INBOX_TABS.find(t=>t.value===tab)?.label??headerLabel} {tab?counts[tab]:visible.length} ▾ <span className="text-meta text-ink-3">loaded</span></Button>
-            {splitSheet&&<div role="dialog" aria-label="Inbox splits" className="absolute inset-x-0 top-full z-[75] rounded-b-xl border border-rule bg-card p-3 shadow-pop"><div className="flex items-center"><h2 className="flex-1 text-subheading font-semibold">Inbox splits · loaded</h2><Button variant="ghost" icon={X} iconOnly aria-label="Close splits" title="Close splits" onClick={()=>setSplitSheet(false)}/></div>{INBOX_TABS.map(split=><button key={split.value} aria-pressed={tab===split.value} className="flex min-h-11 w-full items-center justify-between rounded-md px-3 text-body aria-pressed:bg-selected" onClick={()=>{setTab(split.value);setMobileReader(false);setSplitSheet(false);}}><span>{split.label}</span><span>{counts[split.value]}</span></button>)}</div>}
-          </div>
           {passFinished&&<div className="border-b border-rule-soft p-3"><p className="mb-2 text-body">This pass is finished.</p><Button variant="secondary" onClick={()=>{setLens({kind:'all'});setTab('needs');setQuery('');setPassFinished(false);}}>Back to Needs me ({globalNeedsCount})</Button></div>}
           {lens.kind !== "all" && (
             <div className="flex min-h-11 items-center gap-2 border-b border-rule-soft px-3">
@@ -1258,6 +1282,7 @@ export function InboxClient({
               </Button>
             </div>
           )}
+          {tab==='other'&&<div className="border-b border-rule-soft p-2"><Button variant="secondary" size="sm" disabled={pending||!olderOtherMail(visible).length} onClick={markOtherDone}>Mark all as done</Button><p className="mt-1 text-meta text-ink-3">Older automated mail in this view · {olderOtherMail(visible).length} to archive</p></div>}
           {tab==="new"&&<p className="border-b border-rule-soft px-3 py-2 text-meta text-ink-3">{counts.new} new {counts.new===1?"sender":"senders"}</p>}
           <div className="min-h-0 flex-1 overflow-y-auto">
             {remoteLoading && visible.length === 0 ? (
@@ -1325,12 +1350,16 @@ export function InboxClient({
               </button>
             )}
           </div>
+          {!composing&&<div className="relative border-t border-rule-soft px-3 py-1 @4xl/page:hidden">
+            <Button variant="ghost" className="min-h-11" aria-expanded={splitSheet} onClick={()=>setSplitSheet(v=>!v)}>{INBOX_TABS.find(t=>t.value===tab)?.label??headerLabel} {tab?counts[tab]:visible.length} ▾ <span className="text-meta text-ink-3">loaded</span></Button>
+            {splitSheet&&<div role="dialog" aria-label="Inbox splits" className="absolute inset-x-0 bottom-full z-[75] rounded-t-xl border border-rule bg-card p-3 shadow-pop"><div className="flex items-center"><h2 className="flex-1 text-subheading font-semibold">Inbox splits · loaded</h2><Button variant="ghost" icon={X} iconOnly aria-label="Close splits" title="Close splits" onClick={()=>setSplitSheet(false)}/></div>{INBOX_TABS.map(split=><button key={split.value} aria-pressed={tab===split.value} className="flex min-h-11 w-full items-center justify-between rounded-md px-3 text-body aria-pressed:bg-selected" onClick={()=>{setTab(split.value);setMobileReader(false);setSplitSheet(false);}}><span>{split.label}</span><span>{counts[split.value]}</span></button>)}</div>}
+          </div>}
         </section>
 
         {/* ─── Reader ───────────────────────────────────────────────── */}
         <section
           className={[
-            "min-w-0 flex-1 flex-col group/reader",
+            "relative min-w-0 flex-1 flex-col group/reader",
             mobileReader ? "flex" : "hidden @4xl/page:flex",
           ].join(" ")}
         >
@@ -1517,17 +1546,17 @@ export function InboxClient({
                     )}
                   </div>
                 </div>
-                <div className="px-4 pb-3 max-sm:group-has-[[data-reply-active=true]]/reader:pb-1">
-                  <h1 className="line-clamp-2 font-serif text-title font-medium leading-tight text-accent-2 max-sm:group-has-[[data-reply-active=true]]/reader:truncate max-sm:group-has-[[data-reply-active=true]]/reader:text-body">
+                <div className="px-4 pb-3 group-has-[[data-reply-active=true]]/reader:pb-1">
+                  <h1 className="line-clamp-2 font-serif text-title font-medium leading-tight text-accent-2 group-has-[[data-reply-active=true]]/reader:truncate group-has-[[data-reply-active=true]]/reader:text-body">
                     {reader.subject}
                   </h1>
-                  <button onClick={openContext} title="Open contact, job, money and to-dos" aria-label="Open person and job context" aria-expanded={Boolean(context || wideContext && contextPreference)} className="mt-2 flex min-h-11 w-full items-center gap-2 rounded-md border border-rule bg-card px-3 text-left text-meta text-ink-2 @4xl/page:min-h-8">
+                  <button onClick={openContext} title="Open contact, job, money and to-dos" aria-label="Open person and job context" aria-expanded={Boolean(context || wideContext && contextPreference)} className="mt-2 flex min-h-11 w-full items-center gap-2 rounded-md border border-rule bg-card px-3 text-left text-meta text-ink-2 @4xl/page:min-h-8 group-has-[[data-reply-active=true]]/reader:mt-1 group-has-[[data-reply-active=true]]/reader:min-h-7">
                     <span className="min-w-0 flex-1 truncate">{contextStripText(selected,contextData)}</span><ChevronRight className="size-3.5 shrink-0"/>
                   </button>
-                  {selected.automated&&<div className="mt-1 flex flex-wrap items-center gap-2 text-meta text-ink-3"><span>{selected.automationKind??'Notification'}{(selected.attentionOverride??selected.attentionRequired)?` · ${selected.attentionEvidence??'Marked by you'}`:''}</span><Button variant="secondary" size="sm" disabled={pending} onClick={()=>startTransition(async()=>{await savePreference(selected,'thread',(selected.attentionOverride??selected.attentionRequired)?'other':'attention');})}>{(selected.attentionOverride??selected.attentionRequired)?'Keep in Other':'Needs my attention'}</Button></div>}
+                  {selected.automated&&<div className="mt-1 flex flex-wrap items-center gap-2 text-meta text-ink-3"><span>{automationState(selected).label}</span><Button variant="secondary" size="sm" disabled={pending} onClick={()=>startTransition(async()=>{await savePreference(selected,'thread',(selected.attentionOverride??selected.attentionRequired)?'other':'attention');})}>{(selected.attentionOverride??selected.attentionRequired)?'Keep in Other':'Mark as needs my attention'}</Button></div>}
                   {(selected.newSender||selected.senderDecision)&&selected.fromEmail&&!selected.automated&&<div className="mt-1 flex flex-wrap items-center gap-1 text-meta text-ink-3">
                     <span title={selected.fromEmail} className="w-full truncate">{selected.newSender?'New sender':`Screened: ${selected.senderDecision}`} · {selected.fromEmail}</span>
-                    {selected.newSender?<SenderScreening thread={selected} onLink={()=>{setScreeningThread(selected);setLinking(true);}} onAdd={kind=>setAdding({thread:selected,kind})} onOther={()=>fileSender(selected,true)} onBlock={()=>blockSender(selected)} onSpam={()=>reportSpam(selected)}/>:<Button variant="ghost" size="sm" onClick={()=>startTransition(async()=>{if(await savePreference(selected,'sender','pending'))setTab('new');})}>Undo screening</Button>}
+                    {!selected.newSender&&<Button variant="ghost" size="sm" onClick={()=>startTransition(async()=>{if(await savePreference(selected,'sender','pending'))setTab('new');})}>Undo screening</Button>}
                   </div>}
 
                 </div>
@@ -1539,7 +1568,9 @@ export function InboxClient({
                   reader={reader}
                   todos={selected.todos}
                   threadId={selected.id}
-                  needsAttention={selected.attentionOverride??selected.attentionRequired}
+                  newSender={selected.newSender}
+                  screening={<SenderScreening thread={selected} onLink={()=>{setScreeningThread(selected);setLinking(true);}} onAdd={kind=>setAdding({thread:selected,kind})} onOther={()=>fileSender(selected,true)} onBlock={()=>blockSender(selected)} onSpam={()=>reportSpam(selected)}/>}
+                  needsAttention={automationState(selected).attention}
                   onMakeTodo={()=>openTask(selected,false)}
                   onDone={archiveSelected}
                   onSendDone={()=>doneThread(selected,true)}
@@ -1700,6 +1731,13 @@ function ComposeModal({
   const setSubject=(subject:string)=>saved.synced.setDraft(d=>({...d,subject}));
   const setBody=(next:string|((body:string)=>string))=>saved.synced.setDraft(d=>({...d,body:typeof next==='function'?next(d.body):next}));
   const [originals,setOriginals]=useState(forward?.message.attachments ?? []);
+  const forwardChoiceKey=JSON.stringify(['sjc:inbox:forward-files',selfEmail,userId,forward?.threadId,forward?.message.id]);
+  const [choicesLoaded,setChoicesLoaded]=useState(false);
+  useEffect(()=>{
+    try{setOriginals(restoreForwardChoices(forward?.message.attachments??[],localStorage.getItem(forwardChoiceKey)));}catch{}
+    setChoicesLoaded(true);
+  },[forwardChoiceKey,forward]);
+  useEffect(()=>{if(choicesLoaded&&forward)try{localStorage.setItem(forwardChoiceKey,JSON.stringify(originals.map(a=>a.id)));}catch{}},[choicesLoaded,forward,forwardChoiceKey,originals]);
   const files=useMailFiles(originals);
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
@@ -1774,15 +1812,15 @@ function ComposeModal({
           />
           <ul aria-label="Original files to forward">{originals.map(a=><li key={a.id} className="flex items-center gap-2 text-meta"><span className="min-w-0 flex-1 break-all">{a.name} · {fileSize(a.size)} · Original</span><Button variant="ghost" disabled={sending||sent} aria-label={`Remove ${a.name}`} title={`Remove ${a.name}`} icon={X} iconOnly onClick={()=>setOriginals(items=>items.filter(v=>v.id!==a.id))}/></li>)}</ul>
           {files.picker(sending||sent)}
-          <DraftSyncFooter saved={saved} disabled={sending||sent}/>
-          <p className="text-meta text-ink-3">Files stay on this device. Attach them here before sending.</p>
-          <Button variant="ghost" disabled={sending||sent} onClick={()=>startSend(async()=>{try{await saved.clear();onClose();}catch(e){setError((e as Error).message);}})}>Discard</Button>
+          <DraftSyncFooter saved={saved} disabled={sending||sent} localFiles={files.files.length>0||originals.length>0}/>
+          <p className="text-meta text-ink-3">New files stay on this device. Forwarded file choices restore on this device; review them before sending.</p>
+          <Button variant="ghost" disabled={sending||sent} onClick={()=>startSend(async()=>{try{await saved.clear();try{localStorage.removeItem(forwardChoiceKey);}catch{}onClose();}catch(e){setError((e as Error).message);}})}>Discard</Button>
           {error && <p className="text-meta text-flag">{error}</p>}
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <Button
               onClick={()=>send()}
               icon={Send}
-              disabled={!to.trim() || !body.trim() || sending || sent}
+              disabled={!to.trim() || !body.trim() || sending || sent || !choicesLoaded}
             >
               {sent ? "Sent ✓" : sending ? "Sending…" : "Send email"}
             </Button>
@@ -1881,12 +1919,12 @@ function useSafeDraft(saved:ReturnType<typeof useComposerDraft>, threadId:string
   const [pending,start]=useTransition();
   const alive=useRef(true);
   useEffect(()=>{alive.current=true;return ()=>{alive.current=false;};},[]);
-  function generate(intent='') {
+  function generate(intent='', model=saved.latest.current.model) {
     const snapshot={...saved.latest.current};
     const revision=saved.revision.current;
     onError('');
     start(async()=>{
-      const r=await runAction(()=>draftReplyAction(threadId,'hermes',intent),{fallback:'Could not draft a reply.'});
+      const r=await runAction(()=>draftReplyAction(threadId,regenerateModel(model),intent),{fallback:'Could not draft a reply.'});
       if(!alive.current)return;
       if(!r.ok){onError(r.error??'Could not draft a reply.');return;}
       const candidate:SavedInboxDraft={...snapshot,body:r.body??'',toEmail:snapshot.toEmail||r.toEmail||'',humanEdited:false,ai:true,model:r.model??'Hermes',basedOn:r.basedOn};
@@ -1902,6 +1940,27 @@ function useSafeDraft(saved:ReturnType<typeof useComposerDraft>, threadId:string
     </div>}
     {previous&&<Button variant="ghost" size="sm" onClick={()=>{saved.set(previous);setPrevious(null);setSuggestion(null);}}>Restore previous</Button>}
   </>};
+}
+/** Text height follows wrapped content; resize and keyboard changes re-measure. */
+function DraftBody({inputRef,expanded=false,...props}:TextareaHTMLAttributes<HTMLTextAreaElement>&{inputRef:RefObject<HTMLTextAreaElement|null>;expanded?:boolean}) {
+  const [more,setMore]=useState(false);
+  useLayoutEffect(()=>{
+    const input=inputRef.current;if(!input)return;
+    const remaining=()=>setMore(input.scrollHeight-input.scrollTop>input.clientHeight+2);
+    const measure=()=>{
+      if(!expanded){
+        input.style.height='0px';
+        const size=draftReviewSize(input.scrollHeight,window.visualViewport?.height??window.innerHeight,parseFloat(getComputedStyle(input).lineHeight)||24);
+        input.style.height=`${size.height}px`;
+      }else input.style.height='100%';
+      remaining();
+    };
+    measure();let width=input.clientWidth;
+    const observer=new ResizeObserver(()=>{if(input.clientWidth!==width){width=input.clientWidth;measure();}else remaining();});
+    observer.observe(input);input.addEventListener('scroll',remaining);window.addEventListener('resize',measure);window.visualViewport?.addEventListener('resize',measure);
+    return ()=>{observer.disconnect();input.removeEventListener('scroll',remaining);window.removeEventListener('resize',measure);window.visualViewport?.removeEventListener('resize',measure);};
+  },[props.value,expanded,inputRef]);
+  return <div className={expanded?'flex min-h-0 flex-1 flex-col':'relative'}><textarea {...props} ref={inputRef} rows={8} className={`${props.className??''} block min-h-0 overflow-y-auto ${expanded?'flex-1':''}`}/>{more&&<p className="shrink-0 bg-paper-2 px-1 text-meta font-semibold text-accent-2">More below ↓ · scroll to review</p>}</div>;
 }
 function useComposerViewport() {
   const [viewportSize,setViewportSize]=useState<{height:number;inset:number}|null>(null);
@@ -2153,14 +2212,14 @@ function ChannelReaderBody({
                           })}
                         </dl>
                       </>
-                    ) : m.body.some((p) => p.trim()) ? (
-                      <PlainBody paras={m.body} />
-                    ) : (
-                      <p className="text-body text-ink-3">
-                        No text in this message. It may contain media that isn’t
-                        available here.
-                      </p>
-                    )}
+                    ) : <>
+                      {m.body.some(p=>p.trim())?<PlainBody paras={m.body}/>:!m.media?.length&&<p className="text-body text-ink-3">No text or stored media is available for this message.</p>}
+                      {m.media?.map(media=><a key={media.file_id} href={`/api/files/${encodeURIComponent(media.file_id)}`} target="_blank" rel="noopener noreferrer" className="my-2 block max-w-full rounded-md border border-rule p-2 text-meta text-accent-2 underline">
+                        {/^image\//.test(media.mime)&&<img src={`/api/files/${encodeURIComponent(media.file_id)}?w=600`} alt={media.name} loading="lazy" className="mb-1 max-h-64 max-w-full rounded object-contain"/>}
+                        {media.name} · {fileSize(media.size)} · Open file
+                      </a>)}
+                      {reader.channel==='sms'&&m.originalHref&&<a href={m.originalHref} className="mt-2 block text-meta text-accent-2 underline">Open original message · {m.fromName} · {m.date?new Date(m.date).toLocaleString('en-US'):m.meta}</a>}
+                    </>}
                   </div>
                   {chat&&m.outbound&&m.deliveryState&&<div className="mt-1 flex max-w-[90%] flex-wrap items-center justify-end gap-1 text-meta text-ink-3">
                     <span className={/failed|undelivered|expired/i.test(m.deliveryState)?'text-flag':''}>{retried.has(m.id??'')?'Retry submitted · see newest message':/failed|undelivered|expired/i.test(m.deliveryState)?'Failed':m.deliveryState==='sent'?'Sent':m.deliveryState==='delivered'?'Delivered':m.deliveryState==='queued'?'Queued':m.deliveryState==='sending'?'Sending':m.deliveryState}</span>
@@ -2177,7 +2236,7 @@ function ChannelReaderBody({
       <div
         data-reply-active={expanded}
         style={composerStyle}
-        className="flex flex-none flex-col border-t border-rule bg-paper-2 px-4 py-2 max-sm:max-h-[var(--inbox-composer-max)] max-sm:mb-[var(--inbox-keyboard-inset)]"
+        className={`flex min-h-0 flex-col border-t border-rule bg-paper-2 px-4 py-2 mb-[var(--inbox-keyboard-inset)] flex-none max-h-[var(--inbox-composer-max)]`}
         onFocusCapture={() =>
           window.dispatchEvent(
             new CustomEvent("sjc:inbox-surface", { detail: true }),
@@ -2192,7 +2251,7 @@ function ChannelReaderBody({
         {safety.controls}
           {expanded ? <>
             {saved.value.ai&&<p className="text-meta text-ai">Draft by {saved.value.model} · {saved.value.basedOn}</p>}
-            <textarea ref={replyRef} aria-label={reader.channel==='sms'?'Text reply':'Reply'} value={body} disabled={pending} onChange={e=>{setBody(e.target.value);setSent(false);}} rows={2} placeholder="Write a reply…" className="max-h-[18dvh] min-h-16 w-full resize-y rounded-lg border border-rule bg-card p-2 text-body text-ink" />
+            <DraftBody inputRef={replyRef} aria-label={reader.channel==='sms'?'Text reply':'Reply'} value={body} disabled={pending} onChange={e=>{setBody(e.target.value);setSent(false);}} placeholder="Write a reply…" className="w-full resize-none rounded-lg border border-rule bg-card p-2 text-body text-ink" />
             <div className="grid grid-cols-2 gap-1">
               <div className="order-last col-span-2 flex flex-wrap items-center gap-1">
                   {reader.channel==='site_form'&&files.picker(pending)}
@@ -2206,10 +2265,10 @@ function ChannelReaderBody({
             <button onClick={()=>{setReplying(true);requestAnimationFrame(()=>replyRef.current?.focus());}} className="min-h-11 min-w-0 flex-1 truncate text-left text-body text-ink-3">Write a reply…</button>
             <Button variant="ai" size="sm" onClick={()=>generate()} disabled={safety.pending||pending}>Draft with AI</Button>
           </div>}
-          {reader.channel==='sms'&&<p className="text-meta text-ink-3">{smsSegments(body)} segment{smsSegments(body)===1?'':'s'}</p>}
+          {reader.channel==='sms'&&<p className="text-meta text-ink-3">{body.trim()?`${smsSegments(body)} segment${smsSegments(body)===1?'':'s'}`:'0 characters'}</p>}
           {safety.pending&&<p role="status" className="text-meta text-ink-3">Drafting a reply…</p>}
         </>}
-        <DraftSyncFooter saved={saved} disabled={pending}/>
+        <DraftSyncFooter saved={saved} disabled={pending} localFiles={files.files.length>0}/>
         {retryDone&&<Button variant="secondary" disabled={pending} onClick={()=>start(async()=>{const r=await retryDone();if(r.ok){setRetryDone(null);setError('');}else setError("Sent — couldn't mark done");})}>Retry marking done</Button>}
         {sent && (
           <p role="status" className="mt-2 text-meta text-accent-2">
@@ -2265,7 +2324,7 @@ function ThreadRow({
 }) {
   const Icon = CHANNEL_ICON[thread.channel];
   const [rowMenu, setRowMenu] = useState(false);
-  const attention=thread.automated && (thread.attentionOverride??thread.attentionRequired) && thread.view==="needs_reply";
+  const attention=automationState(thread).attention;
   const needs = Boolean(thread.needsMeReason) || thread.view === "needs_reply";
   return (
     <div
@@ -2303,21 +2362,12 @@ function ThreadRow({
             )}
             <span className="w-16 shrink-0 text-right text-meta text-ink-3 group-hover:invisible group-focus-within:invisible [@media(hover:none)]:!visible">{thread.when}</span>
           </span>
+          <span className="line-clamp-2 text-body leading-snug text-ink-2">
+            {rowActionTitle(thread)}
+          </span>
           <span className="flex min-w-0 items-center gap-1.5">
-            <span
-              className={`min-w-0 truncate text-meta ${attention?"rounded bg-warn-soft px-1 text-warn":needs?"text-accent-2":"text-ink-3"}`}
-            >
-              {attention ? thread.attentionEvidence ?? "Action required" : thread.needsMeReason ??
-                (thread.automated
-                  ? `${thread.automationKind ?? "Notification"}${thread.inInbox===false?" · done":""}`
-                  : thread.view === "done" && thread.inInbox === false
-                    ? "Done"
-                    : thread.view === "awaiting_them"
-                      ? "Waiting for their reply"
-                      : thread.unread
-                        ? "Unread"
-                        : thread.subject)}
-            </span>
+            {thread.needsMeReason?.startsWith('Draft ready')&&<span className="shrink-0 rounded bg-ai-soft px-1 text-meta font-semibold text-ai">Draft</span>}
+            <span className={`min-w-0 truncate text-meta ${attention?'text-warn':needs?'text-accent-2':'text-ink-3'}`} title={thread.automated?automationState(thread).label:thread.needsMeReason}>{thread.automated?automationState(thread).label:thread.needsMeReason?.replace(/^Draft ready(?: · )?/, '')|| (thread.view==='awaiting_them'?'Waiting for their reply':thread.view==='done'?'Done':'Unread')}</span>
             {thread.projectLabel && (
               <span
                 title={thread.projectLabel}
@@ -2332,11 +2382,8 @@ function ThreadRow({
           </span>
           {threadTodoCue(thread)&&<span title={threadTodoCue(thread)} aria-label="Open to-do" className="block truncate text-meta text-accent-2">{threadTodoCue(thread)}</span>}
           {thread.newSender&&!compact&&<span title={thread.fromEmail} className="block truncate text-meta text-ink-3">{thread.fromEmail}</span>}
-          {thread.attentionEvidence&&!attention&&!automationDeadline(thread.attentionEvidence,thread.receivedAt)&&<span className="block truncate text-meta text-ink-2">{thread.attentionEvidence}</span>}
+
           {automationDeadline(thread.attentionEvidence??'',thread.receivedAt)&&<span className="my-0.5 inline-block rounded bg-warn-soft px-1 text-meta font-semibold text-warn">{automationDeadline(thread.attentionEvidence??'',thread.receivedAt)}</span>}
-          <span className="line-clamp-2 text-body leading-snug text-ink-2">
-            {thread.preview || thread.subject}
-          </span>
 
         </span>
       </button>
@@ -2523,8 +2570,9 @@ function ReaderBody({
   needsAttention,
   onDraftReady,
   mailbox = "",
-  blockImages=false, userId=mailbox, owner=false,
+  blockImages=false, userId=mailbox, owner=false, newSender=false, screening,
 }: {
+  newSender?:boolean;screening?:ReactNode;
   userId?:string;owner?:boolean;
   blockImages?:boolean;
   reader: ThreadReader;
@@ -2563,7 +2611,11 @@ function ReaderBody({
   const [replying, setReplying] = useState(false);
   // Filed as automated, but Joe may still answer it (the server only refuses no-reply addresses).
   const [replyAnyway, setReplyAnyway] = useState(false);
-  const automated = Boolean(reader.automated) && !replyAnyway;
+  const mode = composerMode(newSender,replyAnyway,Boolean(reader.automated));
+  const automated = mode==='automated';
+  const screeningFirst=mode==='screen';
+  const [reviewExpanded,setReviewExpanded]=useState(false);
+  const [showSource,setShowSource]=useState(false);
   const [draftOpen, setDraftOpen] = useState(false);
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
@@ -2579,13 +2631,15 @@ function ReaderBody({
   const regionRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const hasDraft = Boolean(draft.trim());
+  const reviewActive=hasDraft&&!sent&&!screeningFirst&&!automated;
+  const incoming=reader.messages[latestInboundIndex(reader.messages)];
   useEffect(() => {
     onDraftReady?.(threadId, hasDraft && isAI && !sent);
   }, [threadId, hasDraft, isAI, sent, onDraftReady]);
   useEffect(() => {
     const root = regionRef.current?.closest("[data-inbox-root]");
     const reply = () => {
-      if (automated || !reader.replyTarget) return;
+      if (automated || screeningFirst || !reader.replyTarget) return;
       setReplying(true);
       if (isAI) setDraftOpen(true);
       requestAnimationFrame(() =>
@@ -2605,7 +2659,7 @@ function ReaderBody({
       root?.removeEventListener("inbox-reply", reply);
       root?.removeEventListener("inbox-approve", approve);
     };
-  }, [isAI, automated, reader.replyTarget]);
+  }, [isAI, automated, screeningFirst, reader.replyTarget]);
   useEffect(() => {
     if (typeof window !== "undefined" && (replying || draftOpen || drafting))
       window.dispatchEvent(
@@ -2629,7 +2683,7 @@ function ReaderBody({
     setError("");
     setSent(false);
     setDraftOpen(true);
-    safety.generate(intent);
+    safety.generate(intent,model);
   }
 
   function discard() {
@@ -2667,34 +2721,33 @@ function ReaderBody({
   }
   const approval = (
     <div
-      className="rounded-lg border border-ai/35 bg-card p-2"
+      className={`rounded-lg border border-ai/35 bg-card p-2 ${reviewExpanded?"flex min-h-0 flex-1 flex-col":""}`}
     >
-      <div className="mb-2 flex items-start gap-2">
-        <Chip kind="ai">Draft by {model || "AI"}</Chip>
-        <span className="flex-1" />
-
+      <div className="mb-1 flex min-w-0 items-center gap-1 text-meta text-ink-3">
+        <span className="shrink-0 font-semibold text-ai">Draft by {model || "AI"}</span>
+        <span className="min-w-0 flex-1 truncate" title={`From ${mailbox} · To ${reader.replyTarget?.toName} <${toEmail}>`}> · From {mailbox} · To {reader.replyTarget?.toName} &lt;{toEmail}&gt;</span>
+        <span className="shrink-0">· not sent</span>
+        {display.basedOn&&<button type="button" title={`Based on: ${display.basedOn.replace(/^Based on:\s*/i,'')}`} className="shrink-0 underline text-accent-2" onClick={()=>{setShowSource(true);requestAnimationFrame(()=>regionRef.current?.scrollIntoView({block:'nearest'}));}}>Based on…</button>}
       </div>
-      <p className="mb-2 break-words text-meta text-ink-3">
-        To {reader.replyTarget?.toName} &lt;{toEmail}&gt; · via Email · not sent
-      </p>
-      <p className="text-meta text-ink-3">{display.basedOn && `Based on: ${display.basedOn.replace(/^Based on:\s*/i,'')}`}</p>
-      <textarea
+      <details className="text-meta text-ink-3"><summary className="cursor-pointer">Recipients</summary><p>From {mailbox}</p><label>To <input aria-label="AI reply recipient" type="email" value={toEmail} disabled={sending} onChange={e=>update({toEmail:e.target.value})} className="min-h-9 w-full bg-paper p-1"/></label><label className="flex min-h-9 items-center gap-1"><input type="checkbox" checked={replyAll} disabled={sending} onChange={e=>{if(preview)saved.acceptSuggestion();saved.synced.setDraft(d=>({...d,cc:e.target.checked?reader.replyTarget?.cc??[]:[]}));}}/>Reply all{replyAll&&` · ${saved.synced.draft.cc.join(', ')}`}</label></details>
+      <DraftBody
         onFocus={() =>
           window.dispatchEvent(
             new CustomEvent("sjc:inbox-surface", { detail: true }),
           )
         }
-        ref={approvalRef}
+        inputRef={approvalRef}
+        expanded={reviewExpanded}
         aria-label="AI draft body"
         value={draft}
         disabled={sending}
         onChange={(e) => update({ body: e.target.value, humanEdited:true })}
-        rows={3}
-        className="max-h-[18dvh] min-h-16 w-full resize-y bg-transparent text-body leading-relaxed text-ink outline-none focus-visible:ring-1 focus-visible:ring-focus"
+        className="w-full resize-none bg-transparent text-body leading-relaxed text-ink outline-none focus-visible:ring-1 focus-visible:ring-focus"
       />
       <div className="mt-2 grid grid-cols-2 gap-1">
         <div className="col-span-2 flex flex-wrap gap-1">
         {files.picker(sending)}
+        <Button variant="secondary" onClick={()=>setReviewExpanded(v=>!v)}>{reviewExpanded?"Close review":"Expand review"}</Button>
         <Button variant="ghost" disabled={sending} onClick={()=>{if(preview)saved.acceptSuggestion();requestAnimationFrame(()=>approvalRef.current?.focus());}}>Edit</Button>
         <Button
           variant="ghost"
@@ -2714,17 +2767,17 @@ function ReaderBody({
         </Button>
         </div>
       </div>
-      <p className="mt-2 text-meta text-ink-3">
-        Your Send click approves this draft.
-      </p>
+      <div className="mt-1 flex flex-wrap items-center gap-x-2 text-meta text-ink-3"><span>Your Send click approves this draft.</span><DraftSyncFooter saved={saved} disabled={sending} localFiles={files.files.length>0}/></div>
     </div>
   );
   return (
-    <>
-      <div ref={regionRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+    <div className={reviewExpanded?"absolute inset-0 z-[65] flex min-h-0 flex-col bg-paper":"flex min-h-0 flex-1 flex-col"}>
+      {reviewExpanded&&<div className="flex shrink-0 items-center justify-between border-b border-rule px-4 py-2"><span className="font-semibold text-accent-2">Review reply</span><Button variant="ghost" onClick={()=>setReviewExpanded(false)}>Close review</Button></div>}
+
+      <div ref={regionRef} hidden={reviewActive&&!showSource} className={`min-h-0 overflow-y-auto px-4 py-2 ${reviewActive?"max-h-[35dvh] shrink":"flex-1"}`}>
         <div className="mx-auto flex max-w-[720px] flex-col gap-2">
           {reader.websiteInquiry&&<p className="text-meta text-accent-2">From website inquiry</p>}
-          <ThreadSummary reader={reader} />
+          {!reviewActive&&<ThreadSummary reader={reader} />}
           {latestInboundIndex(reader.messages) > 0 && (
             <details>
               <summary className="min-h-8 cursor-pointer truncate py-1 text-meta font-semibold text-accent-2">
@@ -2778,9 +2831,9 @@ function ReaderBody({
         </div>
       </div>
       <div
-        data-reply-active={composerExpanded(replying,draft)||draftOpen}
+        data-reply-active={!screeningFirst&&(composerExpanded(replying,draft)||draftOpen)}
         style={composerStyle}
-        className="flex flex-none flex-col border-t border-rule bg-paper-2 px-4 py-2 max-sm:max-h-[var(--inbox-composer-max)] max-sm:mb-[var(--inbox-keyboard-inset)]"
+        className={`flex min-h-0 flex-col border-t border-rule bg-paper-2 px-4 py-2 mb-[var(--inbox-keyboard-inset)] ${reviewActive?"flex-1":"flex-none max-h-[var(--inbox-composer-max)]"}`}
         onFocusCapture={() =>
           window.dispatchEvent(
             new CustomEvent("sjc:inbox-surface", { detail: true }),
@@ -2794,8 +2847,8 @@ function ReaderBody({
             setReplying(false);
         }}
       >
-        <div className="min-h-0 max-sm:overflow-y-auto">
-        {automated ? (
+        <div className={`min-h-0 ${reviewExpanded?"flex flex-1 flex-col":"flex-1 overflow-y-auto max-sm:overflow-y-auto"}`}>
+        {screeningFirst ? <div data-screen-first>{screening}<details className="mt-2"><summary className="min-h-9 cursor-pointer text-meta text-ink-3">Reply options</summary><Button variant="secondary" onClick={()=>{setReplyAnyway(true);setReplying(true);}}>Reply anyway</Button></details></div> : automated ? (
           <div className="flex items-center gap-2">
             <p className="flex-1 text-meta text-ink-3">
               {needsAttention?"Automated message · Needs your attention":"Automated message"}
@@ -2812,7 +2865,7 @@ function ReaderBody({
           </p>
         ) : (
           <>
-            {(composerExpanded(replying, draft) || draftOpen) && (
+            {!isAI&&(composerExpanded(replying, draft) || draftOpen) && (
               <details className="mb-2 text-base text-ink-2 @4xl/page:text-body">
                 <summary title={toEmail} className="min-h-8 cursor-pointer truncate py-1 font-semibold">
                   To: {reader.replyTarget.toName} &lt;{toEmail}&gt; · Email
@@ -2847,7 +2900,10 @@ function ReaderBody({
                 </div>
               </details>
             )}
-            {(composerExpanded(replying,draft)||draftOpen)&&<p aria-label="Incoming request" className="mb-2 line-clamp-3 border-l-2 border-accent pl-2 text-body text-ink-2 sm:hidden">{substantiveSnippet([...reader.messages].reverse().find(m=>!m.outbound)?.body??[],reader.subject)}</p>}
+            {reviewActive&&<div className="mb-2 shrink-0">
+              <div className="flex flex-wrap items-center gap-2 text-meta text-ink-3"><span>{reader.messages.length} {reader.messages.length===1?'message':'messages'}{latestInboundIndex(reader.messages)>0?` · ${latestInboundIndex(reader.messages)} earlier`:''}</span><button type="button" aria-expanded={showSource} className="min-h-8 text-accent-2 underline" onClick={()=>setShowSource(v=>!v)}>{showSource?'Hide full message':'Read full message'}</button>{!isAI&&<Button size="sm" variant="ghost" onClick={()=>setReviewExpanded(v=>!v)}>{reviewExpanded?'Close review':'Expand review'}</Button>}</div>
+              <blockquote aria-label="Incoming request" className={`overflow-y-auto border-l-2 border-accent pl-2 text-body text-ink-2 ${reviewExpanded?'max-h-[24dvh]':'max-h-24'}`}>{askExcerpt(incoming?.body??[],reader.subject)}</blockquote>
+            </div>}
             {safety.controls}
             {suggestion&&!preview&&saved.accepted?.id!==suggestion.id&&<div className="rounded-md border border-ai/30 bg-ai-soft p-2 text-meta">
               <p>{suggestion.model==='hermes'?'Hermes':'Claude'} drafted a reply</p>
@@ -2856,9 +2912,10 @@ function ReaderBody({
               <Button size="sm" variant="ghost" disabled={sending} onClick={()=>startSend(async()=>{try{await dismissSuggestion(suggestion.id);setDismissed(suggestion.id);await saved.synced.refresh();window.dispatchEvent(new Event('inbox-drafts-changed'));}catch{setError('Could not dismiss the suggestion.');}})}>Dismiss</Button></div>
             </div>}
             {isAI && hasDraft ? approval : composerExpanded(replying, draft) ? (
-              <div className="rounded-lg border border-rule bg-card p-2">
-                <textarea
-                  ref={composerRef}
+              <div className={`rounded-lg border border-rule bg-card p-2 ${reviewExpanded?"flex min-h-0 flex-1 flex-col":""}`}>
+                <DraftBody
+                  inputRef={composerRef}
+                  expanded={reviewExpanded}
                   aria-label="Reply body"
                   value={draft}
                   disabled={sending}
@@ -2866,9 +2923,8 @@ function ReaderBody({
                     setSent(false);
                     update({ body: e.target.value, humanEdited:true });
                   }}
-                  rows={3}
                   placeholder={reader.replyPlaceholder}
-                  className="max-h-[30dvh] min-h-16 w-full resize-y bg-transparent text-body text-ink outline-none"
+                  className="w-full resize-none bg-transparent text-body leading-relaxed text-ink outline-none"
                 />
                 <div className="grid grid-cols-2 gap-1">
                   <div className="order-last col-span-2 flex flex-wrap items-center gap-1">
@@ -2955,16 +3011,15 @@ function ReaderBody({
             Reply sent ✓
           </p>
         )}
-        <DraftSyncFooter saved={saved} disabled={sending}/>
-        {files.files.length>0&&<p className="text-meta text-ink-3">Attached files stay on this device.</p>}
+        {!isAI&&hasDraft&&!screeningFirst&&<DraftSyncFooter saved={saved} disabled={sending} localFiles={files.files.length>0}/>}
         </div>
-        {!automated&&reader.replyTarget&&(composerExpanded(replying,draft)||draftOpen)&&<div className="grid shrink-0 grid-cols-2 gap-1 bg-paper-2 pt-2">
+        {!automated&&!screeningFirst&&reader.replyTarget&&(composerExpanded(replying,draft)||draftOpen)&&<div className="grid shrink-0 grid-cols-2 gap-1 bg-paper-2 pt-2">
           <Button data-draft-send={isAI||undefined} className="min-h-11 min-w-0 @4xl/page:min-h-8" icon={Send} disabled={!hasDraft||!toEmail.trim()||sending||drafting||sent} onClick={()=>send()}>{sending?'Sending…':'Send email'}</Button>
           {onSendDone&&<Button variant="secondary" className="min-h-11 min-w-0 @4xl/page:min-h-8" disabled={!hasDraft||!toEmail.trim()||sending||drafting||sent} onClick={()=>send(true)}>Send &amp; Done</Button>}
         </div>}
 
       </div>
-    </>
+    </div>
   );
 }
 

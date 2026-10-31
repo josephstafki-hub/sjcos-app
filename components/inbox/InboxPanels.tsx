@@ -18,7 +18,6 @@ import {
   summarizeInboxAction,
 } from "@/lib/actions/inbox-experience";
 import {
-  attentionTaskTitle,
   messageWorkItem,
   reminderDueAt, centralDay, type ReminderPreset,
   relatedConversations,
@@ -27,7 +26,8 @@ import {
 } from "@/lib/inbox-experience";
 import { searchInboxDirectoryAction } from "@/lib/actions/inbox-screening";
 import type { InboxDirectoryEntry } from "@/lib/inbox-directory";
-import {summaryEligible, substantiveSnippet} from "@/lib/inbox-rules";
+import {reminderTitle, askExcerpt} from '@/lib/inbox-review';
+import {summaryEligible} from "@/lib/inbox-rules";
 import { runAction } from "@/lib/run-action";
 import type {
   InboxThread,
@@ -268,7 +268,7 @@ export function MessageTaskDialog({
   onCreated: (todo: InboxTodo) => void;
 }) {
   const [title, setTitle] = useState(
-    () => thread.automated && !remind ? attentionTaskTitle(thread) : substantiveSnippet([...reader.messages].reverse().find(m=>!m.outbound)?.body??[],thread.subject).slice(0,160),
+    () => reminderTitle({...thread,preview:askExcerpt(reader.messages.findLast(m=>!m.outbound)?.body??[],thread.preview||thread.subject)}),
   );
   const [due, setDue] = useState("");
   const [preset,setPreset]=useState<ReminderPreset | null>(remind?"tomorrow":null);
@@ -310,7 +310,7 @@ export function MessageTaskDialog({
       const r = await runAction(
         () => {
           const fd = messageWorkItem(thread, reader, {
-            title: remind ? `Follow up: ${title}` : title,
+            title,
             dueAt,
             job,
             assignees: assigned,
@@ -341,9 +341,7 @@ export function MessageTaskDialog({
               id: r.id,
               title: r.existing
                 ? "Existing linked to-do"
-                : remind
-                  ? `Follow up: ${title}`
-                  : title,
+                : title,
               due_at: r.existing ? null : dueAt || null,
               assignees: r.existing
                 ? undefined
@@ -370,9 +368,6 @@ export function MessageTaskDialog({
       bottom
     >
       <p className="text-body text-ink-2">Creates a to-do; the email stays in your inbox. Future work appears in Today from midnight Central on the chosen day.</p>
-      <label className="block text-meta text-ink-3">Title
-        <input value={title} onChange={e=>setTitle(e.target.value)} className="mt-1 min-h-11 w-full rounded-md border border-rule bg-paper px-3 text-body text-ink"/>
-      </label>
       <fieldset><legend className="mb-1 text-meta text-ink-3">Work on · Central time</legend>
         <div className="flex flex-wrap gap-1">{([['today','Later today · 3pm'],['tomorrow','Tomorrow · 8am'],['monday','Monday · 8am'],['week','Next week'],['pick','Pick a date…']] as const).map(([value,label])=><Button key={value} variant={preset===value?'primary':'secondary'} size="sm" className="min-h-11" aria-pressed={preset===value} disabled={pending} onClick={()=>setPreset(value)}>{label}</Button>)}
           {!remind&&<Button size="sm" variant={preset===null?'primary':'ghost'} className="min-h-11" onClick={()=>{setPreset(null);setDue('');}}>No due day</Button>}
@@ -380,6 +375,10 @@ export function MessageTaskDialog({
         {preset==='pick'&&<MiniCalendar value={due} onChange={setDue}/>}
         {preset==='pick'&&due&&<p className="mt-1 text-meta text-ink-2">{due} · 8am Central</p>}
       </fieldset>
+      <details><summary className="min-h-9 cursor-pointer py-2 text-meta font-semibold text-accent-2">More options</summary><div className="space-y-3 pt-2">
+      <label className="block text-meta text-ink-3">Title
+        <input value={title} onChange={e=>setTitle(e.target.value)} className="mt-1 min-h-11 w-full rounded-md border border-rule bg-paper px-3 text-body text-ink"/>
+      </label>
       <div className="relative">
         <label className="block text-meta text-ink-3">Job or lead
           <input role="combobox" aria-label="Job or lead" aria-expanded={jobOpen} aria-controls="inbox-job-options" aria-autocomplete="list" aria-activedescendant={jobOpen?`inbox-job-${jobCursor}`:undefined}
@@ -397,6 +396,7 @@ export function MessageTaskDialog({
         {people.filter(p=>!/^Joe(?:\s|$)/i.test(p.name)).map(p=><Button key={p.id} size="sm" className="min-h-11" variant={assigned.includes(p.id)?'primary':'secondary'} aria-pressed={assigned.includes(p.id)} onClick={()=>setAssigned(ids=>ids.includes(p.id)?ids.filter(id=>id!==p.id):[...ids,p.id])}>{p.name}</Button>)}
       </div></fieldset>
       <details><summary className="cursor-pointer text-meta text-ink-3">Email evidence</summary><blockquote className="mt-2 max-h-28 overflow-y-auto border-l-2 border-rule pl-3 text-meta text-ink-2">{[...reader.messages].reverse().find(m=>!m.outbound)?.body.join('\n').slice(0,1200)??thread.preview}</blockquote></details>
+      </div></details>
       {error && (
         <p role="alert" className="text-meta text-flag">
           {error}
@@ -406,7 +406,7 @@ export function MessageTaskDialog({
         onClick={() => create()}
         disabled={pending || !title.trim() || (preset==="pick" && !due)}
       >
-        {pending ? "Saving…" : remind ? "Set reminder" : "Create to-do"}
+        {pending ? "Saving…" : remind ? "Set" : "Create to-do"}
       </Button>
     </InboxDialog>
   );
@@ -812,12 +812,11 @@ export function SenderScreening({thread,onLink,onAdd,onOther,onBlock,onSpam}:{th
     <p className="mb-1 text-meta text-ink-3">{reason}</p>
     <DuplicateNotice directory={directory} onLink={onLink}/>
     <div className="flex flex-wrap items-center gap-1">
-      <Button size="sm" className="min-h-11" variant={recommended==='link'?'primary':'secondary'} onClick={onLink}>Link{recommended==='link'?' · Recommended':''}</Button>
-      {recommended==='lead'&&<Button size="sm" className="min-h-11" disabled={directory.loading||Boolean(directory.error)} onClick={()=>onAdd('lead')}>Add as lead · Recommended</Button>}
-      <details className="relative"><summary className="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-meta font-semibold text-ink-2">Add as ▾</summary><div className="absolute left-0 top-full z-[75] min-w-36 rounded-lg border border-rule bg-card p-1 shadow-pop">{(['lead','sub','vendor'] as const).map(kind=><Button key={kind} disabled={directory.loading||Boolean(directory.error)} variant="ghost" onClick={()=>onAdd(kind)} className="w-full justify-start">{kind[0].toUpperCase()+kind.slice(1)}</Button>)}</div></details>
-      <Button size="sm" className="min-h-11" variant={recommended==='other'?'primary':'ghost'} onClick={onOther}>Always file to Other{recommended==='other'?' · Recommended':''}</Button>
-      {onBlock&&<Button size="sm" variant="ghost" className="min-h-11" onClick={onBlock}>Block sender</Button>}
-      {onSpam&&<Button size="sm" variant="ghost" className="min-h-11" onClick={onSpam}>Report spam</Button>}
+      <Button size="sm" className="h-9 min-h-9" variant={recommended==='link'?'primary':'secondary'} onClick={onLink}>Link</Button>
+      <details className="relative"><summary className="flex h-9 min-h-9 cursor-pointer items-center rounded-md border border-rule bg-card px-3 text-meta font-semibold text-ink-2">Add as ▾</summary><div className="absolute left-0 top-full z-[75] min-w-36 rounded-lg border border-rule bg-card p-1 shadow-pop">{(['lead','sub','vendor'] as const).map(kind=><Button key={kind} disabled={directory.loading||Boolean(directory.error)} variant="ghost" onClick={()=>onAdd(kind)} className="w-full justify-start">{kind[0].toUpperCase()+kind.slice(1)}</Button>)}</div></details>
+      <Button size="sm" className="h-9 min-h-9" variant={recommended==='other'?'primary':'ghost'} onClick={onOther}>Always file to Other</Button>
+      {onBlock&&<Button size="sm" variant="ghost" className="h-9 min-h-9" onClick={onBlock} title="Block in SJC OS: future mail files to Other">Block</Button>}
+      {onSpam&&<Button size="sm" variant="ghost" className="h-9 min-h-9" onClick={onSpam}>Report spam</Button>}
     </div>
   </div>;
 }

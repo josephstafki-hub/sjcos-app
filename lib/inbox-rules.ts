@@ -123,7 +123,7 @@ export function inquiryReplySubject(scope: string, name: string): string {
 
 export type AutomationKind = 'Receipt' | 'Statement' | 'Payment' | 'Alert' | 'Marketing' | 'Notification';
 /** Uses only the already-fetched envelope; no provider calls or AI. */
-export function automationDetails(email: string, subject: string, snippet: string, body = ""): {kind: AutomationKind; attention?: string} {
+export function automationDetails(email: string, subject: string, snippet: string, body = "", mailbox = ""): {kind: AutomationKind; attention?: string} {
   const text = `${subject} ${snippet} ${body}`;
   const domain = emailAddress(email).split('@')[1] ?? '';
   const money = /squareup|square\.com|stripe|intuit|quickbooks|paypal|bank|creditunion/i.test(domain);
@@ -142,7 +142,13 @@ export function automationDetails(email: string, subject: string, snippet: strin
   const evidence = text.replace(/\b(?:not|no longer)\s+(?:past due|on hold|suspended)\b/gi, '')
     .match(/\b(?:payment (?:has )?failed|failed payment|on hold|past due|action required|approval (?:is )?(?:needed|required)|(?:bid|estimate) (?:is )?(?:awaiting|needs?|pending) (?:your )?(?:review|approval)|(?:COI|insurance)(?: coverage| policy)? (?:is )?(?:expiring|expires|expired)|account (?:is |has been )?suspended|verify (?:your )?(?:identity|account|payment(?: method)?|email(?: address)?))\b/i)?.[0];
   const request = text.match(/\b(?:(?:your\s+)?(?:[a-z]+\s+)?(?:will|would)\s+be\s+(?:automatically\s+)?(?:marked\s+(?:as\s+)?)?complete[d]?(?:\s+automatically)?\s+(?:in|after|within)\s+\d+\s+(?:business\s+)?days?|review\s+and\s+(?:accept|approve)|(?:approve|respond)\s+by\s+[^.!?\n]{1,80}|expires\s+on\s+[^.!?\n]{1,80}|final\s+notice)\b/i)?.[0];
-  return {kind, attention: financing ? undefined : evidence ?? request};
+  const informationRequest = text.match(/\bcomplete (?:the |your )?information request(?: within(?: the next)? \d+ (?:business )?days?)?/i)?.[0];
+  // A mention's author can be anyone. Only a request addressed to this account
+  // is attention evidence; a notification about another account is not.
+  const account = emailAddress(mailbox).split('@')[0];
+  const github = /(?:^|\.)github\.com$/i.test(domain);
+  const addressed = account && [...text.matchAll(/@([a-z0-9_-]+)/gi)].some(m=>m[1].toLowerCase()===account.toLowerCase());
+  return {kind, attention: financing || github && !addressed ? undefined : informationRequest ?? evidence ?? request};
 }
 export function screeningEligible(input: {email: string; inbound: boolean; done: boolean; known: boolean; staff: boolean; automated?: boolean; ownAddresses: string[]; decision?: string}): boolean {
   return input.inbound && !input.done && !input.staff && !input.automated &&

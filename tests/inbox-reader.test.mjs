@@ -72,7 +72,7 @@ test('automated mail has Done and no composer or AI draft button',()=>{
 test('chat uses left/right bubbles with days, scrolls newest, and has the inline channel composer',()=>{
   const html=render(ChannelReaderBody,{reader:{...reader,channel:'sms',replyLabel:'Text from the SJC number (612) 555-1234'},threadId:'sms:1'});
   assert.match(html,/items-start/); assert.match(html,/items-end/); assert.match(html,/role="separator"/);
-  assert.match(html,/Text from the SJC number/); assert.doesNotMatch(html,/textarea/); assert.match(html,/Write a reply…/); assert.match(html,/Draft with AI/); assert.match(html,/segment/);
+  assert.match(html,/Text from the SJC number/); assert.doesNotMatch(html,/textarea/); assert.match(html,/Write a reply…/); assert.match(html,/Draft with AI/); assert.match(html,/0 characters/);
   assert.match(source,/scrollTop\s*=\s*[^;]*scrollHeight/);
 });
 test('chat row shows a repeated subject/preview only once and a plain needs-me reason',()=>{
@@ -101,7 +101,7 @@ test('phase 2 uses counted split tabs, dense channel rows, no page title or nati
  assert.doesNotMatch(html,/inbox-link|<select|>Inbox<\/h1>/);
  assert.match(html,/data-thread-row/);assert.match(html,/min-h-16/);assert.match(html,/aria-label="Done: Tom"/);
  assert.match(source,/data-draft-send/);assert.match(source,/Your Send click approves this draft/);
- assert.match(source,/max-sm:max-h-\[var\(--inbox-composer-max\)\]/);assert.match(source,/ContextPanel/);
+ assert.match(source,/max-h-\[var\(--inbox-composer-max\)\]/);assert.match(source,/ContextPanel/);
 });
 
 test('website card has contact actions, formatted phone and exact outgoing subject before Send',()=>{
@@ -136,4 +136,16 @@ test('screening rows expose one Screen control, job-wide tasks have their own cu
  const html=render(ThreadRow,{thread,onSelect(){},onScreen(){}});
  assert.match(html,/Screen…/);assert.doesNotMatch(html,/Add as|Link to existing/);assert.match(html,/2 job to-dos/);
  assert.match(html,/top-2 right-2/);assert.match(html,/group-hover:invisible/);
+});
+
+
+test('new sender renders screening instead of any reply or Send until Reply anyway',()=>{
+ const html=render(ReaderBody,{reader:{...reader,aiDraft:{body:'Unreviewed saved text'}},threadId:'stranger',newSender:true,screening:React.createElement('div',{},'Screen this sender')});
+ assert.match(html,/Screen this sender/);assert.match(html,/Reply options/);assert.match(html,/Reply anyway/);
+ assert.doesNotMatch(html,/textarea|Draft with AI|Send email/);
+});
+test('SMS media uses only stored authorised file ids, with exact original message recovery',()=>{
+ const sms={...messages[1],body:[''],media:[{file_id:'photo-1',mime:'image/jpeg',name:'Site photo',size:100}],originalHref:'/messages?thread=7#sms-message-71'};
+ const html=render(ChannelReaderBody,{reader:{...reader,channel:'sms',messages:[sms]},threadId:'sms:7'});
+ assert.match(html,/src="\/api\/files\/photo-1\?w=600"/);assert.match(html,/href="\/api\/files\/photo-1"/);assert.match(html,/href="\/messages\?thread=7#sms-message-71"/);assert.match(html,/Open original message/);assert.doesNotMatch(html,/No text or stored media/);
 });

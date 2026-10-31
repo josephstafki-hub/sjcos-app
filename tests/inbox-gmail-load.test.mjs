@@ -317,3 +317,15 @@ test('unified readers expose persisted outbound SMS status and successful portal
  try{const data=await getInboxData();const sms=data.readers['sms:7'].messages[0];assert.equal(sms.deliveryState,'failed');assert.equal(sms.deliveryError,'Carrier rejected');assert.equal(sms.outbound,true);assert.equal(data.readers['dm:pat'].messages[0].deliveryState,'sent');}
  finally{globalThis.__queryRows=null;invalidateInboxCache();}
 });
+
+
+test('stored MMS media and exact original-thread recovery travel through the existing batched SMS load',async()=>{
+ globalThis.__gmail.fail=null;globalThis.__gmail.threads=[];invalidateInboxCache();let mediaQuery='';
+ globalThis.__queryRows=sql=>{
+  if(/FROM sms_threads/.test(sql))return [{id:'17',phone:'+16125550199',contact_name:'Pat',last_dir:'in',last_body:'',last_message_at:'2026-10-31T15:00:00Z'}];
+  if(/FROM sms_messages WHERE/.test(sql)){mediaQuery=sql;return [{id:'171',thread_id:'17',direction:'in',body:'',created_at:'2026-10-31T15:00:00Z',media:[{file_id:'file-1',mime:'image/jpeg',name:'Site photo',size:100}]}];}
+  return [];
+ };
+ try{const data=await getInboxData();const m=data.readers['sms:17'].messages[0];assert.equal(m.media[0].file_id,'file-1');assert.equal(m.originalHref,'/messages?thread=17#sms-message-171');assert.match(mediaQuery,/error_detail, media, created_at/);}
+ finally{globalThis.__queryRows=null;invalidateInboxCache();}
+});

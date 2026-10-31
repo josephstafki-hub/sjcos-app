@@ -24,7 +24,7 @@ const stubs={
  '@/lib/actions/inbox-experience':`export const inboxPeopleAction=async()=>[],inboxContextAction=async()=>({todos:[]}),summarizeInboxAction=globalThis.__panels.summarize;`,
  '@/lib/run-action':`export const runAction=async f=>f();`,
 };
-registerHooks({resolve(s,c,n){if(s in stubs&&(s!=='react'||c.parentURL===url))return {url:'stub:'+s,shortCircuit:true};if(s==='@/lib/inbox-rules')return n(new URL('../lib/inbox-rules.ts',import.meta.url).href,c);if(s==='@/lib/inbox-experience')return n(new URL('../lib/inbox-experience.ts',import.meta.url).href,c);return n(s,c)},load(u,c,n){if(u===url)return {format:'module',source:ts.transpileModule(readFileSync(new URL(url),'utf8')+'\nexport {DuplicateNotice};',{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText,shortCircuit:true};return u.startsWith('stub:')?{format:'module',source:stubs[u.slice(5)],shortCircuit:true}:n(u,c)}});
+registerHooks({resolve(s,c,n){if(s in stubs&&(s!=='react'||c.parentURL===url))return {url:'stub:'+s,shortCircuit:true};if(s==='@/lib/inbox-review')return n(new URL('../lib/inbox-review.ts',import.meta.url).href,c);if(s==='@/lib/inbox-rules')return n(new URL('../lib/inbox-rules.ts',import.meta.url).href,c);if(s==='@/lib/inbox-experience')return n(new URL('../lib/inbox-experience.ts',import.meta.url).href,c);return n(s,c)},load(u,c,n){if(u===url)return {format:'module',source:ts.transpileModule(readFileSync(new URL(url),'utf8')+'\nexport {DuplicateNotice};',{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText,shortCircuit:true};return u.startsWith('stub:')?{format:'module',source:stubs[u.slice(5)],shortCircuit:true}:n(u,c)}});
 const {MessageTaskDialog,ThreadSummary,ContactCreateDialog,DuplicateNotice,SenderScreening,MiniCalendar,InboxDialog}=await import(url);
 const thread={id:'thread-1',channel:'email',subject:'Review tile',fromName:'Tom',fromEmail:'tom@example.test',preview:'Please review the tile'};
 const reader={messages:[{id:'message-1',fromName:'Tom',fromEmail:'tom@example.test',body:['Please review the tile'],date:1000}]};
@@ -37,7 +37,7 @@ test('reminder presets select without saving, then one confirmation captures sou
  creates=[];const render=mount(MessageTaskDialog,{thread,reader,remind:true,onClose(){},onCreated(){},options:{projects:[{slug:'kitchen',name:'Kitchen'}],leads:[]}});
  find(n=>n.props?.children==='Monday · 8am').props.onClick();render();assert.equal(creates.length,0);
  find(n=>n.props?.role==='combobox').props.onFocus();render();find(n=>n.props?.role==='option'&&n.props.id==='inbox-job-0').props.onClick();render();
- find(n=>n.props?.children==='Set reminder').props.onClick();await settle();assert.equal(creates.length,1);
+ find(n=>n.props?.children==='Set').props.onClick();await settle();assert.equal(creates.length,1);
  assert.equal(creates[0].get('job'),'project:kitchen');assert.deepEqual(JSON.parse(creates[0].get('email')).message_id,'message-1');assert.ok(creates[0].get('due_at'));
  assert.ok(find(n=>n.type==='blockquote').props.children.includes('Please review'));
 });
@@ -75,7 +75,7 @@ test('screener gives evidence and one recommended remembered filing action for a
  let filed=0;mount(SenderScreening,{thread:{...thread,newSender:true,screeningFacts:{knownContact:false,hasUnsubscribe:true,looksPitch:true}},onLink(){},onAdd(){},onOther:()=>filed++});
  const text=nodes(tree).flatMap(n=>[n.props?.children].flat(Infinity)).filter(x=>typeof x==='string').join(' ');
  assert.match(text,/No saved contact.*unsubscribe link.*Looks like a pitch/);
- const action=find(n=>n.props?.variant==='primary');assert.match(action.props.children.join(''),/Always file to Other.*Recommended/);action.props.onClick();assert.equal(filed,1);
+ const action=find(n=>n.props?.variant==='primary');assert.equal(action.props.children,'Always file to Other');action.props.onClick();assert.equal(filed,1);
  assert.equal(nodes(tree).filter(n=>n.props?.variant==='primary').length,1);
 });
 
@@ -101,7 +101,7 @@ test('inline calendar changes months and selects an ISO day without a native dat
 
 test('Block and spam are same-height explicit screener controls',()=>{
  let blocked=0,spam=0;mount(SenderScreening,{thread,onLink(){},onAdd(){},onOther(){},onBlock:()=>blocked++,onSpam:()=>spam++});
- for(const label of ['Block sender','Report spam']){const button=find(n=>n.props?.children===label);assert.ok(button.props.className.includes('min-h-11'));button.props.onClick();}
+ for(const label of ['Block','Report spam']){const button=find(n=>n.props?.children===label);assert.ok(button.props.className.includes('min-h-9'));button.props.onClick();}
  assert.equal(blocked,1);assert.equal(spam,1);
 });
 test('desktop task popover anchors without a modal backdrop, phone remains a bottom sheet',()=>{

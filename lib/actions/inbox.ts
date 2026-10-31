@@ -328,16 +328,26 @@ export async function sendNewEmailAction(input: {
  *  inbox load. Returns the draft plus the recipient/subject needed to send. */
 export async function draftReplyAction(
   threadId: string,
-  model?: DraftModel,
+  model?: DraftModel | "claude",
   intent?: string,
 ): Promise<{ ok: boolean; summary?: string; body?: string; toEmail?: string; subject?: string; model?:string; basedOn?:string; error?: string }> {
-  // Whitelist the model — never trust the client string. Anything but the
-  // explicit "qwen" choice drafts with Hermes (grounded; Qwen is never used
-  // for client-facing writing by default).
-  const m: DraftModel = model === "qwen" ? "qwen" : "hermes";
+  // Keep regeneration with the displayed author; Claude reuses the owner-only
+  // automatic draft writer and never enters a send path.
+  const m = model === "claude" ? "claude" : model === "qwen" ? "qwen" : "hermes";
   return mailbox(async () => {
     if (!/^(sms:|portal:|dm:|siteform:)/.test(threadId) && !gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
     try {
+      if(m==='claude'){
+        const user=await requireAccess('inbox');
+        if(user.role!=='owner')return {ok:false,error:'Only Joe can regenerate a Claude draft.'};
+        const {getInboxData}=await import('@/lib/inbox');
+        const {draftAutoReply}=await import('@/lib/inbox-autodraft');
+        const data=await getInboxData(user),thread=data.threads.find(t=>t.id===threadId);
+        const message=data.readers[threadId]?.messages.at(-1);
+        if(data.emailPaused||data.loadError||!thread||thread.channel!=='email'||!message?.id||message.outbound)return {ok:false,error:'Reopen the latest incoming email before regenerating.'};
+        const d=await draftAutoReply({thread,messageId:message.id,toEmail:data.readers[threadId]?.replyTarget?.toEmail??'',receivedAt:message.date??0},'claude');
+        return {ok:true,...d,model:'Claude'};
+      }
       const d = await draftReplyForThread(threadId, m, typeof intent === "string" ? intent.slice(0,200) : "");
       return { ok: true, ...d, model:m === "hermes" ? "Hermes" : "Qwen" };
     } catch (err) {

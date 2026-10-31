@@ -100,10 +100,16 @@ async function handleExit(run: Run, input: LocationEventInput, candidates: Candi
     const [row] = await run<TimeInterval>(`UPDATE time_intervals SET suggested_end_at = $2::timestamptz WHERE id = $1 RETURNING ${INTERVAL_COLS}`, [running.id, input.at]);
     return { kind: "exit_suggested", interval: row };
   }
+  // Only a prompt for a job this exit is near: leaving job B (or a phone
+  // reporting "outside" for every watched site when monitoring starts) must
+  // not discard an open arrival at job A.
+  const near = candidates.map((c) => c.projectId);
   const [prompt] = await run<TimeInterval & { dwell_s: number }>(
     `SELECT ${INTERVAL_COLS}, COALESCE((SELECT max(dwell_s) FROM job_sites WHERE project_id = t.project_id OR project_id IN (SELECT (c->>'projectId')::uuid FROM jsonb_array_elements(t.choices) c)), 300) AS dwell_s
-       FROM time_intervals t WHERE user_id = $1 AND source = 'geofence_prompt' AND state = 'inferred' AND end_at IS NULL ORDER BY start_at DESC LIMIT 1`,
-    [input.userId],
+       FROM time_intervals t WHERE user_id = $1 AND source = 'geofence_prompt' AND state = 'inferred' AND end_at IS NULL
+        AND (t.project_id = ANY($2::uuid[]) OR EXISTS (SELECT 1 FROM jsonb_array_elements(t.choices) c WHERE (c->>'projectId')::uuid = ANY($2::uuid[])))
+      ORDER BY start_at DESC LIMIT 1`,
+    [input.userId, near],
   );
   if (prompt) {
     const dwelled = (Date.parse(input.at) - Date.parse(prompt.start_at)) / 1000;

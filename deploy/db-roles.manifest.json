@@ -3012,6 +3012,12 @@
       "sjcos_readonly": [
         "SELECT"
       ]
+    },
+    "inbox_drafts": {
+      "note": "Mailbox/user scoped synced drafts and AI suggestions. Website only; no agent/worker write path.",
+      "sjcos_readonly": [
+        "SELECT"
+      ]
     }
   }
 }

@@ -142,3 +142,8 @@ export async function loadInboxContext(
     todos: work.rows,
   };
 }
+
+/** Money is gated like the rest of the app: staff need the Money area. */
+export function withoutMoney(context: InboxContext): InboxContext {
+  return context.job ? { ...context, job: { ...context.job, money: null } } : context;
+}

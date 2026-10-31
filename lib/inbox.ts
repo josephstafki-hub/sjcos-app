@@ -1002,6 +1002,9 @@ function mapRawThreads(
 }
 
 async function attachThreadMoney(threads: InboxThread[]): Promise<void> {
+  // Job balances are money: staff without the Money area never get them.
+  const who = await getCurrentUser().catch(() => null) as { role?: string; permissions?: string[] } | null;
+  if (!who || !(who.role === 'owner' || (who.role === 'staff' && who.permissions?.includes('money')))) return;
   const slugs=[...new Set(threads.map(t=>t.projectSlug || (t.linkedType==='project'?t.linkedSlug:undefined)).filter((s):s is string=>Boolean(s)))];
   if(!slugs.length)return;
   try {

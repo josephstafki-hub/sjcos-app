@@ -4,12 +4,12 @@ import { registerHooks } from "node:module";
 const calls = [];
 globalThis.__i2 = { calls, allowed: true };
 const stubs = {
-  "@/lib/dal": `export const requireAccess=async()=>{if(!globalThis.__i2.allowed)throw Error('Forbidden');return {id:'u',role:'owner'};};`,
+  "@/lib/dal": `export const requireAccess=async()=>{if(!globalThis.__i2.allowed)throw Error('Forbidden');return {id:'u',role:'owner'};};export const can=(u)=>u.role==='owner';`,
   "@/lib/db": `export const query=async(s,p)=>(globalThis.__i2.calls.push([s,p]),{rows:[]});`,
   "@/lib/ai": `export const ai={name:'Test model',summarize:async()=>{globalThis.__i2.calls.push(['ai']);return {summary:'Tom needs plans',bullets:['one','two','three','four','five']};}};`,
   "next/cache": "export const revalidatePath=()=>{};",
   "@/lib/inbox-context":
-    "export const loadInboxContext=async()=>({person:null,job:null,todos:[],schedule:null});",
+    "export const loadInboxContext=async()=>({person:null,job:null,todos:[],schedule:null});export const withoutMoney=c=>c;",
 };
 registerHooks({
   resolve(s, c, n) {

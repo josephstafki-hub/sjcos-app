@@ -1,12 +1,13 @@
 "use server";
-import { requireAccess } from "@/lib/dal";
+import { can, requireAccess } from "@/lib/dal";
 import { query } from "@/lib/db";
 import { ai } from "@/lib/ai";
 import { revalidatePath } from "next/cache";
-import { loadInboxContext, type InboxContextInput } from "@/lib/inbox-context";
+import { loadInboxContext, withoutMoney, type InboxContextInput } from "@/lib/inbox-context";
 export async function inboxContextAction(input: InboxContextInput) {
-  await requireAccess("inbox");
-  return loadInboxContext(input);
+  const me = await requireAccess("inbox");
+  const context = await loadInboxContext(input);
+  return can(me, "money") ? context : withoutMoney(context);
 }
 export async function inboxPeopleAction(): Promise<
   { id: string; name: string }[]

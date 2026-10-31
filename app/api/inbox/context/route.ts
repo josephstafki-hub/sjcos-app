@@ -1,5 +1,5 @@
 import { can, getCurrentUser } from '@/lib/dal';
-import { loadInboxContext, type InboxContextInput } from '@/lib/inbox-context';
+import { loadInboxContext, withoutMoney, type InboxContextInput } from '@/lib/inbox-context';
 
 /** Independent read: never wait behind the browser's serialized Server Actions. */
 export async function GET(request: Request) {
@@ -16,7 +16,8 @@ export async function GET(request: Request) {
   if (!input.threadId || Object.values(input).some(v=>v.length>512 || /[\x00-\x1f]/.test(v)))
     return Response.json({error:'Invalid conversation'}, {status:400});
   try {
-    return Response.json(await loadInboxContext(input), {headers:{'Cache-Control':'private, no-store'}});
+    const context = await loadInboxContext(input);
+    return Response.json(can(user,'money') ? context : withoutMoney(context), {headers:{'Cache-Control':'private, no-store'}});
   } catch {
     return Response.json({error:'Could not load context. Try again.'}, {status:503,headers:{'Cache-Control':'private, no-store'}});
   }

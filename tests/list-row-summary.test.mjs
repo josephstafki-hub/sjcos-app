@@ -30,9 +30,9 @@ test('row disclosure keeps structured facts and full source narrative separately
 });
 
 test('only a leading repeated client prefix is removed', () => {
-  assert.equal(withoutRepeatedClientPrefix('Alcantara: confirm the closet layout', 'Alcantara · Closet'), 'confirm the closet layout');
-  assert.equal(withoutRepeatedClientPrefix('Egan: cut joist after approval', 'Molly Egan'), 'cut joist after approval');
-  assert.equal(withoutRepeatedClientPrefix('Rob Whitcomb: call about scope', 'Rob Whitcomb'), 'call about scope');
+  assert.equal(withoutRepeatedClientPrefix('Alcantara: confirm the closet layout', 'Alcantara · Closet'), 'Confirm the closet layout');
+  assert.equal(withoutRepeatedClientPrefix('Egan: cut joist after approval', 'Molly Egan'), 'Cut joist after approval');
+  assert.equal(withoutRepeatedClientPrefix('Rob Whitcomb: call about scope', 'Rob Whitcomb'), 'Call about scope');
   assert.equal(withoutRepeatedClientPrefix('Supplier: confirm delivery', 'Molly Egan'), 'Supplier: confirm delivery');
   assert.equal(withoutRepeatedClientPrefix('Call Egan: discuss scope', 'Molly Egan'), 'Call Egan: discuss scope');
   assert.equal(withoutRepeatedClientPrefix('Next: call Egan', 'Molly Egan'), 'Next: call Egan');

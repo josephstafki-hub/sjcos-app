@@ -22,6 +22,8 @@ export function withoutRepeatedClientPrefix(text: string, name: string): string 
   const words = (value: string): string[] => value.toLocaleLowerCase("en-US").match(/[\p{L}\p{N}]+/gu) ?? [];
   const prefix = words(match[1]);
   const client = words(name);
-  return prefix.length && prefix.every(word => word.length >= 3 && client.includes(word))
-    ? text.slice(match[0].length) : text;
+  if (!(prefix.length && prefix.every(word => word.length >= 3 && client.includes(word)))) return text;
+  const rest = text.slice(match[0].length);
+  // "Alcantara: review/pay …" → "Review/pay …": the rest now starts the line.
+  return rest.charAt(0).toLocaleUpperCase("en-US") + rest.slice(1);
 }

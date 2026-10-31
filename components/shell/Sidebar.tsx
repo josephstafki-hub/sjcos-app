@@ -22,6 +22,7 @@ import {
   LayoutGrid,
   Calculator,
   Cpu,
+  Gavel,
   ShieldCheck,
   Star,
   Megaphone,
@@ -75,6 +76,7 @@ const TOOLS: NavItem[] = [
   { label: "Warranty", href: "/warranty", icon: Star },
   { label: "Marketing", href: "/marketing", icon: Megaphone },
   { label: "Engine", href: "/engine", icon: Cpu },
+  { label: "Decisions", href: "/engine/decisions", icon: Gavel },
   { label: "Books", href: "/books", icon: BookOpen, tag: "soon", disabled: true },
 ];
 

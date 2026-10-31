@@ -14,7 +14,7 @@ test('pagination only exposes a token belonging to the current source',()=>{
  assert.equal(canLoadMore({token:'x',lens:'project'}),false);
  assert.equal(canLoadMore({token:'x',lens:'system',remoteReady:false}),false);
  assert.equal(canLoadMore({token:'x',lens:'system',remoteReady:true}),true);
- assert.equal(canLoadMore({token:'x',lens:'all',tab:'needs',visibleCount:6,knownTotal:6}),false);
+ assert.equal(canLoadMore({token:'x',lens:'all',tab:'needs',visibleCount:6,knownTotal:6}),true); // loaded counts never prove exhaustion
  assert.equal(canLoadMore({token:'x',lens:'all',tab:'needs',visibleCount:6}),true);
  assert.equal(canLoadMore({lens:'all'}),false);
 });

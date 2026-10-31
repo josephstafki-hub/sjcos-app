@@ -23,9 +23,9 @@ test('a nonempty human draft is protected even if unchanged during generation',(
  const human={body:'Already written',toEmail:'a@example.test',model:'',ai:false};const suggestion={...human,body:'AI text',ai:true};
  assert.deepEqual(draftGenerationResult(human,human,suggestion),{value:human,previous:human,suggestion});
 });
-test('exhausted split counts hide Load more and local channels never offer Gmail pagination',()=>{
- assert.equal(canLoadMore({token:'next',lens:'all',tab:'needs',visibleCount:6,knownTotal:6}),false);
- assert.equal(canLoadMore({token:'next',lens:'all',tab:'needs',visibleCount:7,knownTotal:6}),false);
+test('a Gmail next-page token always keeps older mail reachable; loaded split counts never hide it',()=>{
+ assert.equal(canLoadMore({token:'next',lens:'all',tab:'needs',visibleCount:6,knownTotal:6}),true);
+ assert.equal(canLoadMore({token:undefined,lens:'all',tab:'needs',visibleCount:6,knownTotal:6}),false);
  for(const channel of ['sms','site_form','client_portal','sub_portal']) assert.equal(canLoadMore({token:'next',lens:'channel',channel}),false);
 });
 

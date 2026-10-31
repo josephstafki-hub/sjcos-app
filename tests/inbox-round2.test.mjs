@@ -230,3 +230,9 @@ test("Gmail's Updates tag alone never files a person in a conversation as automa
   assert.match(fiverr.attention ?? "", /automatically marked as complete after 3 days/i);
   assert.match(automationDetails("x@y.test", "Order", "", "It will be marked complete automatically in 3 days").attention ?? "", /3 days/);
 });
+
+test("a bank statement's 'please verify the accuracy' is routine, not an obligation", async () => {
+  const { automationDetails } = await import("../lib/inbox-rules.ts");
+  assert.equal(automationDetails("eStatements@villagebankonline.com", "Your eStatement is ready", "", "Please verify the accuracy of your document and report errors within 60 days.").attention, undefined);
+  assert.match(automationDetails("security@bank.test", "Action needed", "", "Please verify your identity to keep your account open.").attention ?? "", /verify your identity/i);
+});

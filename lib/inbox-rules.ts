@@ -134,7 +134,7 @@ export function automationDetails(email: string, subject: string, snippet: strin
     : /sale|discount|save on|offer|unsubscribe|promotion/i.test(text) ? 'Marketing' : 'Notification';
   // Do not turn routine success confirmations or negated warnings into demands.
   const evidence = text.replace(/\b(?:not|no longer)\s+(?:past due|on hold|suspended)\b/gi, '')
-    .match(/\b(?:payment (?:has )?failed|failed payment|on hold|past due|action required|approval (?:is )?(?:needed|required)|(?:bid|estimate) (?:is )?(?:awaiting|needs?|pending) (?:your )?(?:review|approval)|(?:COI|insurance)(?: coverage| policy)? (?:is )?(?:expiring|expires|expired)|account (?:is |has been )?suspended|verify(?: (?:your )?(?:identity|account|payment|email))?)\b/i)?.[0];
+    .match(/\b(?:payment (?:has )?failed|failed payment|on hold|past due|action required|approval (?:is )?(?:needed|required)|(?:bid|estimate) (?:is )?(?:awaiting|needs?|pending) (?:your )?(?:review|approval)|(?:COI|insurance)(?: coverage| policy)? (?:is )?(?:expiring|expires|expired)|account (?:is |has been )?suspended|verify (?:your )?(?:identity|account|payment(?: method)?|email(?: address)?))\b/i)?.[0];
   const request = text.match(/\b(?:(?:your\s+)?(?:[a-z]+\s+)?(?:will|would)\s+be\s+(?:automatically\s+)?(?:marked\s+(?:as\s+)?)?complete[d]?(?:\s+automatically)?\s+(?:in|after|within)\s+\d+\s+(?:business\s+)?days?|review\s+and\s+(?:accept|approve)|(?:approve|respond)\s+by\s+[^.!?\n]{1,80}|expires\s+on\s+[^.!?\n]{1,80}|final\s+notice)\b/i)?.[0];
   return {kind, attention: evidence ?? request};
 }

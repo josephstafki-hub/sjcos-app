@@ -393,7 +393,8 @@ export function canLoadMore(input:{token?:string;lens:string;channel?:string;rem
   if(!input.token)return false;
   if(input.lens==='label'||input.lens==='system')return Boolean(input.remoteReady);
   if(input.lens==='project'||input.lens==='channel'&&input.channel!=='email')return false;
-  if(input.knownTotal!==undefined&&input.visibleCount!==undefined&&input.visibleCount>=input.knownTotal)return false;
+  // Split counts come from the loaded pages only, so they can never prove the mailbox is
+  // exhausted. While Gmail hands back a next-page token there is older mail to scan.
   return true;
 }
 export function draftGenerationResult(snapshot:SavedInboxDraft,current:SavedInboxDraft,suggestion:SavedInboxDraft, changed=false) {

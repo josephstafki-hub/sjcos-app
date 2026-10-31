@@ -1247,7 +1247,7 @@ export function InboxClient({
                 disabled={loadingMore}
                 className="w-full border-t border-rule px-3 py-2.5 text-center text-meta font-medium text-ink-3 hover:bg-paper-3 disabled:opacity-60"
               >
-                {loadingMore ? "Loading…" : "Load more"}
+                {loadingMore ? "Loading older email…" : "Load older email"}
               </button>
             )}
           </div>
@@ -2189,7 +2189,7 @@ function ThreadRow({
                 (thread.automated
                   ? `${thread.automationKind ?? "Notification"}${thread.inInbox===false?" · done":""}`
                   : thread.view === "done" && thread.inInbox === false
-                    ? `${thread.automationKind??"Message"} · done`
+                    ? "Done"
                     : thread.view === "awaiting_them"
                       ? "Waiting for their reply"
                       : thread.unread

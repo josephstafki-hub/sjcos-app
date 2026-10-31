@@ -5,12 +5,14 @@ import {useSyncedDraft} from './useSyncedDraft';
 import {discardDraft, dismissSuggestion, markDraftSent} from '@/lib/actions/inbox-drafts';
 import {draftStatusLabel, finishDraftSend, prepareDraftSend} from '@/lib/inbox-draft-ui';
 import type {SavedInboxDraft} from '@/lib/inbox-experience';
-import type {DraftText} from '@/lib/inbox-draft-types';
+import type {DraftText, InboxDraft} from '@/lib/inbox-draft-types';
 import type {ThreadChannel} from '@/lib/types';
 
 /** UI metadata stays separate from synced text. AI suggestions never become
  * human drafts until an explicit Use it click (or Send on the approval card). */
-export function useComposerDraft(options: {mailbox:string;userId:string;owner:boolean;threadKey:string;channel:ThreadChannel;latestMessageId?:string;initial?:Partial<DraftText>}) {
+export function useComposerDraft(options: {mailbox:string;userId:string;owner:boolean;threadKey:string;channel:ThreadChannel;latestMessageId?:string;initial?:Partial<DraftText>;
+  /** The suggestion the list already loaded — shown at once instead of waiting for this composer's own load. */
+  initialSuggestion?:InboxDraft|null}) {
   const synced = useSyncedDraft(options);
   const metaKey=JSON.stringify(['sjc:inbox:draft-meta',options.mailbox,options.userId,options.threadKey,options.channel]);
   type Metadata=Pick<SavedInboxDraft,'ai'|'model'|'basedOn'|'humanEdited'> & {suggestionId?:string};
@@ -34,11 +36,17 @@ export function useComposerDraft(options: {mailbox:string;userId:string;owner:bo
     metadata({...meta,suggestionId,ai:next.ai,model:next.model,basedOn:next.basedOn,humanEdited:next.humanEdited});
     synced.setDraft(current=>({...current,body:next.body,toEmail:next.toEmail}));
   }
-  const suggestion=options.owner&&options.channel==='email'&&options.latestMessageId&&synced.suggestion?.sourceMessageId===options.latestMessageId&&synced.suggestion.channel===options.channel?synced.suggestion:null;
+  const matches=(s?:InboxDraft|null)=>Boolean(options.owner&&options.channel==='email'&&options.latestMessageId&&s?.sourceMessageId===options.latestMessageId&&s.channel===options.channel);
+  const own=matches(synced.suggestion)?synced.suggestion:null;
+  // Until this composer's own load answers (server actions run one at a time, so it can
+  // queue for seconds on a phone), show the suggestion the list already has.
+  const early=!own&&!synced.checked&&matches(options.initialSuggestion)?options.initialSuggestion!:null;
+  const suggestion=own??early;
   function acceptSuggestion(){
     if(!suggestion)return;
     metadata({suggestionId:suggestion.id,ai:true,model:suggestion.model==='claude'?'Claude':'Hermes',basedOn:suggestion.basedOn,humanEdited:false});
-    synced.acceptSuggestion();
+    if(own)synced.acceptSuggestion();
+    else synced.setDraft(current=>({...current,body:suggestion.body,toEmail:suggestion.toEmail||current.toEmail}));
   }
   async function clear(){
     const snapshot=await prepareDraftSend(synced.draft,synced.flush);

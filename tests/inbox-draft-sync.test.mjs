@@ -75,3 +75,10 @@ test('suggestions are keyed to the latest inbound message, never an earlier unan
  const f=fixture({latestMessageId:'new',load:async()=>[row('Old AI',1,{source:'ai',sourceMessageId:'old'}),row('Current AI',1,{source:'ai',sourceMessageId:'new'})]});
  const sync=f.create();await sync.refresh();assert.equal(sync.getSnapshot().suggestion.body,'Current AI');assert.equal(sync.getSnapshot().draft.body,'');sync.dispose();
 });
+test('checked flips only after the server has answered, so an early list suggestion can show until then',async()=>{
+ const f=fixture();const sync=f.create();
+ assert.equal(sync.getSnapshot().checked,false,'not yet asked');
+ await sync.refresh();assert.equal(sync.getSnapshot().checked,true);sync.dispose();
+ const g=fixture();g.offline=true;const s2=g.create();await s2.refresh();
+ assert.equal(s2.getSnapshot().checked,false,'a failed load does not count as checked');s2.dispose();
+});

@@ -1575,7 +1575,7 @@ export function InboxClient({
                   onDone={archiveSelected}
                   onSendDone={()=>doneThread(selected,true)}
                   onDraftReady={onDraftReady}
-                  mailbox={selfEmail} userId={userId} owner={owner}
+                  mailbox={selfEmail} userId={userId} owner={owner} initialSuggestion={suggestions.get(selected.id)??null}
                   blockImages={!selected.contactRole && !selected.projectSlug && !["linked","lead","sub","vendor"].includes(selected.senderDecision??"")}
                 />
               ) : (
@@ -2570,9 +2570,9 @@ function ReaderBody({
   needsAttention,
   onDraftReady,
   mailbox = "",
-  blockImages=false, userId=mailbox, owner=false, newSender=false, screening,
+  blockImages=false, userId=mailbox, owner=false, newSender=false, screening, initialSuggestion=null,
 }: {
-  newSender?:boolean;screening?:ReactNode;
+  newSender?:boolean;screening?:ReactNode;initialSuggestion?:InboxDraft|null;
   userId?:string;owner?:boolean;
   blockImages?:boolean;
   reader: ThreadReader;
@@ -2593,7 +2593,7 @@ function ReaderBody({
       ]),
   );
   const saved = useComposerDraft({mailbox,userId,owner,threadKey:threadId,channel:'email',
-    latestMessageId:reader.messages.findLast(m=>!m.outbound)?.id,
+    latestMessageId:reader.messages.findLast(m=>!m.outbound)?.id, initialSuggestion,
     initial:{body:reader.aiDraft.body,toEmail:reader.replyTarget?.toEmail??'',subject:reader.subject}});
   const sentPreviewHidden=useRef(false);
   const [dismissed,setDismissed]=useState<string|null>(null);

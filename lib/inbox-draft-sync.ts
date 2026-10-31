@@ -11,6 +11,8 @@ export interface DraftSyncSnapshot {
   suggestion: InboxDraft | null;
   conflict: { current: InboxDraft | null } | null;
   version: number;
+  /** True once the server has been asked at least once for this thread. */
+  checked?: boolean;
 }
 interface SyncOptions {
   mailbox: string;
@@ -38,7 +40,7 @@ export function createDraftSync(options: SyncOptions) {
   const cancel = options.cancel ?? (handle => clearTimeout(handle as ReturnType<typeof setTimeout>));
   const legacyKey = draftKey(options.mailbox, options.threadKey);
   const key = `${legacyKey}:sync:${encodeURIComponent(options.userId)}:${options.channel}`;
-  let state: DraftSyncSnapshot = { draft: blank(options.initial), status: 'local only', suggestion: null, conflict: null, version: 0 };
+  let state: DraftSyncSnapshot = { draft: blank(options.initial), status: 'local only', suggestion: null, conflict: null, version: 0, checked: false };
   let dirty = false;
   let initialized = false;
   let busy = false;
@@ -119,7 +121,7 @@ export function createDraftSync(options: SyncOptions) {
       const current = rows.find(r => r.source === 'human' && r.channel === options.channel && r.threadKey === options.threadKey) ?? null;
       const suggestion = rows.find(r => r.source === 'ai' && r.status === 'ready' && r.threadKey === options.threadKey &&
         (!options.latestMessageId || r.sourceMessageId === options.latestMessageId)) ?? null;
-      state = { ...state, suggestion };
+      state = { ...state, suggestion, checked: true };
       if (!state.conflict) {
         if (dirty && (current?.version ?? 0) !== state.version) {
           // Even identical body text may have been sent/discarded. Tombstones

@@ -7,7 +7,7 @@ export default async function LeadsPage() {
 
   return (
     <Shell breadcrumb="LEADS">
-      <div className="mx-auto max-w-[1100px] px-4 py-6 sm:px-7">
+      <div className="mx-auto max-w-[1100px] px-4 py-3 @xl/page:py-6 @3xl/page:px-7">
         <LeadsClient data={data} />
       </div>
     </Shell>

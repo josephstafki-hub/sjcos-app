@@ -131,6 +131,7 @@ export function ThreadList({
   pageRoute?: string | null;
   className?: string;
 }) {
+  const [search, setSearch] = useState("");
   const [folders, setFolders] = useState<RailFolder[]>([]);
   const [threads, setThreads] = useState<RailThread[]>([]);
   const [archived, setArchived] = useState<RailThread[] | null>(null);
@@ -432,7 +433,9 @@ export function ThreadList({
   const statusOf = (t: RailThread): ThreadStatus =>
     resolveThreadStatus(t, { seen: isRunSeen, currentId, sinceMs: sinceMs ?? Number.POSITIVE_INFINITY });
 
-  const allGroups = groupThreads(folders, threads);
+  const needle = search.trim().toLowerCase();
+  const matchesSearch = (t: RailThread) => !needle || `${t.title} ${folders.find(f => f.id === t.folderId)?.name ?? ""}`.toLowerCase().includes(needle);
+  const allGroups = groupThreads(folders, threads.filter(matchesSearch)).filter(g => !needle || g.folder?.name.toLowerCase().includes(needle) || g.threads.pinned.length + g.threads.active.length + g.threads.settled.length > 0);
   const scoped = scopeFolderId ? allGroups.filter((g) => g.key === scopeFolderId) : allGroups;
   const scopeFolder = scopeFolderId ? folders.find((f) => f.id === scopeFolderId) ?? null : null;
   // A scope whose folder vanished (deleted in another window) falls back to all.
@@ -529,22 +532,24 @@ export function ThreadList({
         )}
       </div>
 
+      <div className="border-b border-rule-soft p-2"><input type="search" aria-label="Search threads and folders" placeholder="Search threads and folders…" value={search} onChange={e => setSearch(e.target.value)} className="h-11 w-full rounded-md border border-rule bg-card px-3 text-body" /></div>
       {flash && <p className="border-b border-rule bg-flag-soft px-3 py-1.5 text-meta text-flag">{flash}</p>}
 
       <div className="flex-1 overflow-y-auto p-1.5">
+        {needle && scoped.length === 0 && <p role="status" className="px-2 py-3 text-body text-ink-3">No matching threads or folders.</p>}
         {loaded && threads.length === 0 && folders.length === 0 ? (
           <p className="px-2 py-3 text-meta text-ink-4">No chats yet.</p>
         ) : (
           scoped.map((g) => {
             const f = g.folder;
-            const collapsed = f ? f.collapsed : unfiledCollapsed;
+            const collapsed = !search.trim() && (f ? f.collapsed : unfiledCollapsed);
             const allRows = [...g.threads.pinned, ...g.threads.active, ...g.threads.settled];
             const roll = rollupStatus(allRows.map(statusOf));
             const holdsCurrent = !!currentId && allRows.some((t) => t.id === currentId);
             const isRouteFolder = f != null && f.id === routeFolderId;
             const sh = shelfState(g.key);
-            const settledOpen = sh.open || (!!currentId && g.threads.settled.some((t) => t.id === currentId));
-            const settledRows = settledOpen ? g.threads.settled.slice(0, sh.count) : [];
+            const settledOpen = !!search.trim() || sh.open || (!!currentId && g.threads.settled.some((t) => t.id === currentId));
+            const settledRows = settledOpen ? g.threads.settled.slice(0, search.trim() ? undefined : sh.count) : [];
             const settledMore = g.threads.settled.length - settledRows.length;
             return (
               <div key={g.key} className="mb-1">
@@ -700,10 +705,10 @@ export function ThreadList({
               </div>
             ))}
             {archived.length === 0 && !folders.some((f) => f.archivedAt) && <p className="px-2 py-1 text-meta text-ink-4">Nothing archived.</p>}
-            {archived.map((t) => (
+            {archived.filter(matchesSearch).map((t) => (
               <div key={t.id} className="group flex items-center gap-1.5 rounded-md px-2 py-1.5 hover:bg-card/60">
                 <AgentBadge agent={t.agent} />
-                <button onClick={() => onOpen(t.id)} className="min-w-0 flex-1 line-clamp-2 break-words text-left text-body text-ink-2" title={t.title}>
+                <button onClick={() => onOpen(t.id)} className="min-h-11 min-w-0 flex-1 line-clamp-2 break-words text-left text-body text-ink-2" title={t.title}>
                   {t.title}
                 </button>
                 <span className="flex-none text-meta text-ink-4 group-hover:hidden">{timeAgo(t.archivedAt, now)}</span>
@@ -784,7 +789,7 @@ export function ThreadList({
           )}
           <button
             onClick={() => onOpen(t.id)}
-            className={`min-w-0 flex-1 line-clamp-2 break-words text-left text-body ${settled ? "text-ink-2" : "font-medium text-ink"}`}
+            className={`min-h-11 min-w-0 flex-1 line-clamp-2 break-words text-left text-body ${settled ? "text-ink-2" : "font-medium text-ink"}`}
             title={t.title}
           >
             {t.title}

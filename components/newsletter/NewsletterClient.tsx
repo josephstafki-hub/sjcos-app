@@ -339,8 +339,12 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 border-b border-rule-soft px-4 py-5">
-        <PageHeader title="Newsletter" meta={`${activeCount} active contacts · ${queuedCount} messages queued`} filters={<Segmented aria-label="Newsletter view" value={view} onChange={v=>setView(v as "issues"|"contacts")} options={[{value:"issues",label:"Issues"},{value:"contacts",label:"Contacts",count:activeCount}]} />} />
+      <div className="shrink-0 border-b border-rule-soft px-4 py-2 @xl/page:py-4">
+        <div className="flex items-center justify-between gap-2"><PageHeader title="Newsletter" /><button type="button" onClick={() => setMobileEditor(false)} className={`${mobileEditor && view === "issues" ? "inline-flex" : "hidden"} min-h-11 items-center gap-1 rounded-md px-2 text-label hover:bg-hover @4xl/page:hidden`}><ArrowLeft className="size-3.5" /> Issues</button></div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Segmented aria-label="Newsletter view" value={view} onChange={v=>setView(v as "issues"|"contacts")} options={[{value:"issues",label:"Issues"},{value:"contacts",label:"Contacts",count:activeCount}]} className="h-12 [&_button]:h-11" />
+          <span className="hidden text-meta text-ink-3 @xl/page:block">{activeCount} active contacts · {queuedCount} messages queued</span>
+        </div>
       </div>
 
       {notice && (
@@ -348,7 +352,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
       )}
 
       {view === "contacts" ? (
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2 @xl/page:px-5 @xl/page:py-4">
           <RecipientsPanel
             recipients={recipients}
             setRecipients={setRecipients}
@@ -461,13 +465,6 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
       <section
         className={`min-h-0 min-w-0 flex-1 flex-col ${mobileEditor ? "flex" : "hidden @4xl/page:flex"}`}
       >
-        <button
-          type="button"
-          onClick={() => setMobileEditor(false)}
-          className="m-2 -mb-1 inline-flex min-h-11 shrink-0 w-fit items-center gap-1 rounded-md px-1.5 py-1 text-meta font-semibold text-ink-2 hover:bg-paper-2 @4xl/page:hidden"
-        >
-          <ArrowLeft className="size-3.5" strokeWidth={1.5} /> Back to issues
-        </button>
         {!current ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
             <Mail className="size-8 text-ink-3" strokeWidth={1.25} />
@@ -476,15 +473,16 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
         ) : (
           <>
             {/* Toolbar */}
-            <div className="shrink-0 flex flex-wrap items-center gap-2 border-b border-rule-soft px-4 py-2.5">
-              <div className="min-w-0 w-full"><Tabs tabs={["Edit", "Design", "Preview", "Recipients", "Automations", "Outbox"]} active={["Edit", "Design", "Preview", "Recipients", "Automations", "Outbox"].indexOf(mode)} onSelect={i=>setMode((["Edit", "Design", "Preview", "Recipients", "Automations", "Outbox"] as Mode[])[i])}/></div>
+            <div className="shrink-0 flex flex-wrap items-center gap-2 border-b border-rule-soft px-4 py-1 @xl/page:py-2.5">
+              <label className="flex min-h-11 min-w-0 items-center gap-2 text-label @xl/page:hidden">View<select aria-label="Issue view" value={mode} onChange={e=>setMode(e.target.value as Mode)} className="h-11 min-w-0 rounded-md border border-rule bg-card px-2 text-body">{(["Edit", "Design", "Preview", "Recipients", "Automations", "Outbox"] as Mode[]).map(m=><option key={m}>{m}</option>)}</select></label>
+              <div className="hidden min-w-0 w-full @xl/page:block"><Tabs tabs={["Edit", "Design", "Preview", "Recipients", "Automations", "Outbox"]} active={["Edit", "Design", "Preview", "Recipients", "Automations", "Outbox"].indexOf(mode)} onSelect={i=>setMode((["Edit", "Design", "Preview", "Recipients", "Automations", "Outbox"] as Mode[])[i])}/></div>
               <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2">
                 {!locked && mode === "Edit" && (
                   <button
                     type="button"
                     onClick={save}
                     disabled={pending}
-                    className="inline-flex items-center gap-1 rounded-md border border-rule px-2.5 py-1 text-meta font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-60"
+                    className="inline-flex min-h-11 items-center gap-1 rounded-md border border-rule px-2.5 py-1 text-meta font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-60"
                   >
                     {saved ? <Check className="size-3.5 text-money" strokeWidth={2} /> : null}
                     {saved ? "Saved" : "Save"}
@@ -506,7 +504,7 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
                       onClick={queue}
                       disabled={pending || audienceCount === 0}
                       title={audienceCount === 0 ? "Add recipients first" : "Parks each message in the Outbox — nothing sends yet"}
-                      className="inline-flex items-center gap-1.5 rounded-md bg-ink px-3 py-1.5 text-label font-semibold text-paper hover:bg-ink-hover disabled:opacity-50"
+                      className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-ink px-3 py-1.5 text-label font-semibold text-paper hover:bg-ink-hover disabled:opacity-50"
                     >
                       <Inbox className="size-3.5" strokeWidth={1.5} /> Queue for {audienceCount}
                     </button>
@@ -518,8 +516,8 @@ export function NewsletterClient({ data }: { data: NewsletterData }) {
               </div>
             </div>
 
-            {current.status === "queued" && <div className="shrink-0 border-b border-rule bg-info-soft px-4 py-2"><p className="text-body text-ink-2">Queued — review the email below. Editing is locked; nothing has been emailed. Release requires owner approval.</p><Button variant="secondary" size="sm" className="mt-2" onClick={() => setMode("Outbox")}>Open Outbox · {queuedCount} queued</Button></div>}
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            {current.status === "queued" && <details className="shrink-0 border-b border-rule bg-info-soft px-4"><summary className="flex min-h-11 cursor-pointer items-center text-label text-ink-2">Queued · nothing emailed · release needs approval</summary><p className="py-2 text-body text-ink-2">Editing is locked while queued. Review the email, then open Outbox to request release.</p><Button variant="secondary" size="sm" className="mb-2" onClick={() => setMode("Outbox")}>Open Outbox · {queuedCount} queued</Button></details>}
+            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2 @xl/page:px-5 @xl/page:py-4">
               {mode === "Edit" && (
                 <div className="mx-auto max-w-[620px] space-y-4">
                   <div>
@@ -725,7 +723,7 @@ function IssuePreview({ issue, baseUrl }: { issue: NewsletterIssue; baseUrl: str
   );
 
   return (
-    <div ref={previewRef} className="mx-auto min-w-0 max-w-[720px] space-y-3">
+    <div ref={previewRef} className="mx-auto min-w-0 max-w-[720px] space-y-1 @xl/page:space-y-3">
       <div className="flex items-center gap-2">
         <span className="text-meta text-ink-3">Preview</span>
         <div className="ml-auto flex gap-1">
@@ -734,7 +732,7 @@ function IssuePreview({ issue, baseUrl }: { issue: NewsletterIssue; baseUrl: str
               key={w}
               type="button"
               onClick={() => { chosen.current = true; setWidth(w); }}
-              className={`rounded-md px-2 py-0.5 text-meta font-semibold capitalize ${
+              className={`min-h-11 rounded-md px-2 text-meta font-semibold capitalize ${
                 width === w ? "bg-ink text-paper" : "text-ink-3 hover:bg-paper-2"
               }`}
             >

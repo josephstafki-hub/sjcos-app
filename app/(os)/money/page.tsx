@@ -20,8 +20,8 @@ export default async function MoneyPage() {
 
   return (
     <Shell breadcrumb="MONEY" aiContext={moneyContext(data)}>
-      <div className="mx-auto max-w-[1100px] px-4 py-6 @3xl/page:px-7">
-        <PageHeader title="Money" meta={summary} className="mb-5" />
+      <div className="mx-auto max-w-[1100px] px-4 py-3 @xl/page:py-6 @3xl/page:px-7">
+        <PageHeader title="Money" meta={summary} className="mb-2 @xl/page:mb-5" />
         <CompanyMoney data={data} />
       </div>
     </Shell>

@@ -92,17 +92,23 @@ function JobsList({ rows }: { rows: CompanyJobRow[] }) {
 const ATTENTION_SHOWN = 8;
 
 export function CompanyMoney({ data }: { data: CompanyMoneyData }) {
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const [closedOpen, setClosedOpen] = useState(false);
   const groups = groupAttention(data.attention);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-3 @xl/page:gap-6">
+      <div>
+        <button type="button" aria-expanded={summaryOpen} aria-controls="money-financial-summary" onClick={() => setSummaryOpen(!summaryOpen)} className="flex min-h-11 items-center rounded-md text-left text-body font-semibold hover:bg-hover focus-visible:outline-2 focus-visible:outline-focus @xl/page:hidden">Financial summary · {summaryOpen ? "hide" : "show"} totals and budget coverage</button>
+        <div id="money-financial-summary" className={`${summaryOpen ? "block" : "hidden"} space-y-3 @xl/page:block`}>
       {data.totals.profitJobs === 0 && <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warn/25 bg-warn-soft p-4 text-body text-warn" role="status"><p>Profit isn’t known on any job yet — no job has a finished budget.</p><Button href={data.attention.find(a => a.kind === "profit_unknown")?.href ?? (data.open[0] ? href(data.open[0].slug) : "/projects")} variant="ghost" size="sm">Fill budgets →</Button></div>}
       <Totals t={data.totals} />
       {data.totals.profitJobs > 0 && <p className="text-body text-ink-2">Profit {fmtK(data.totals.profitCents)} · {fmtPct(data.totals.blendedMarginPct)} margin, known on {data.totals.profitJobs} of {jobs(data.totals.jobCount)}.</p>}
       {data.totals.unbilledJobs > 0 && <p className="text-body text-ink-2">Work done, not billed: {fmtK(data.totals.unbilledCents)} · known on {jobs(data.totals.unbilledJobs)}.</p>}
 
+        </div>
+      </div>
       <Section title="Needs attention" sub="Grouped by kind. Oldest invoices first; other groups show the largest amounts first.">
         {!groups.length ? <EmptyState compact title="No money issues flagged" description="Budget, invoice and cost issues will appear here when they need a decision." /> : groups.map(group => {
           const expanded = expandedGroups.includes(group.title);

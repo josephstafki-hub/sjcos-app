@@ -33,7 +33,7 @@ export function TodayBody({ data }: { data: TodayData }) {
   const nextDay = data.week.find(day => day.iso >= (today?.iso ?? "") && day.blocks.length > 0);
   const nextBlock = nextDay?.blocks[0];
   return (
-    <div className="mx-auto max-w-[1240px] px-4 py-6 @2xl/page:px-5 @5xl/page:px-8">
+    <div className="mx-auto max-w-[1240px] px-4 py-3 @xl/page:py-6 @2xl/page:px-5 @5xl/page:px-8">
       <PageHeader
         title={data.greeting}
         meta={
@@ -46,7 +46,7 @@ export function TodayBody({ data }: { data: TodayData }) {
           </span>
         }
       />
-      <Link href="/schedule" className="mt-3 line-clamp-1 rounded border border-rule-soft px-3 py-2 text-meta text-ink-2 hover:bg-hover focus-visible:outline-2 focus-visible:outline-focus">
+      <Link href="/schedule" className="mt-3 hidden min-h-11 @xl/page:block line-clamp-1 rounded border border-rule-soft px-3 py-2 text-meta text-ink-2 hover:bg-hover focus-visible:outline-2 focus-visible:outline-focus">
         {nextBlock ? `${nextDay?.today ? "Today" : `${nextDay?.dow} ${nextDay?.day}`} · ${formatScheduleTime(nextBlock.time)} · ${nextBlock.label}` : "Nothing else posted this week · Open schedule"}
       </Link>
       <TodayQueueProvider
@@ -56,7 +56,7 @@ export function TodayBody({ data }: { data: TodayData }) {
         assignees={data.assignees}
         canPromote={data.canAssign}
       >
-        <div className="mt-4 grid min-w-0 grid-cols-1 gap-6 @6xl/page:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="mt-3 grid min-w-0 grid-cols-1 gap-6 @6xl/page:grid-cols-[minmax(0,1fr)_300px]">
           <div className="min-w-0 @6xl/page:col-start-1 @6xl/page:row-start-1"><TodayCards brief={brief} /></div>
           <aside className="flex min-w-0 flex-col gap-6 @6xl/page:order-none @6xl/page:col-start-2 @6xl/page:row-start-1">
             <Card className="p-4">

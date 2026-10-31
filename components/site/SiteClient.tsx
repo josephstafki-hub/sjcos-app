@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Globe, Sparkles, Copy, Check, Trash2, ImagePlus, FileText, ArrowLeft, ChevronRight } from "lucide-react";
-import { Card, Chip, VoiceButton, Button, PageHeader } from "@/components/ui";
+import { Card, Chip, VoiceButton, Button, PageHeader, Segmented } from "@/components/ui";
 import { PostPreview } from "@/components/marketing/PostPreview";
 import { mergeTranscript } from "@/lib/append-transcript";
 import type { BlogPost, ComposerProject } from "@/lib/site";
@@ -184,6 +184,7 @@ export function SiteClient({
 
 function PostEditor({ post, project }: { post: BlogPost; project?: ComposerProject }) {
   const router = useRouter();
+  const [view, setView] = useState("edit");
   const [body, setBody] = useState(post.body);
   const [title, setTitle] = useState(post.title);
   const [pending, startTransition] = useTransition();
@@ -251,6 +252,8 @@ function PostEditor({ post, project }: { post: BlogPost; project?: ComposerProje
         </div>
       )}
 
+      <Segmented aria-label="Post view" value={view} onChange={setView} options={[{value:"edit",label:"Edit"},{value:"preview",label:"Preview"}]} className="mb-4 h-12 [&_button]:h-11" />
+      <div hidden={view !== "edit"}>
       <label className="mb-4 block text-label text-ink-2">Headline
         <input disabled={pending} value={title} onChange={e=>{setTitle(e.target.value);setFeedback("");}} className="mt-1.5 w-full rounded-md border border-rule bg-card px-3 py-2 text-body text-ink focus:border-accent" />
       </label>
@@ -269,14 +272,15 @@ function PostEditor({ post, project }: { post: BlogPost; project?: ComposerProje
         </div>
       </div>
 
+      </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Button variant="secondary" size="sm" icon={copied?Check:Copy} disabled={!body.trim()} onClick={copy}>{copied?'Copied':'Copy'}</Button>
         {dirty&&<><Button size="sm" disabled={pending||!body.trim()||!title.trim()} onClick={save}>Save edits</Button><Button variant="ghost" size="sm" disabled={pending} onClick={()=>{setBody(post.body);setTitle(post.title);setFeedback('');}}>Revert</Button></>}
         <Button variant="secondary" size="sm" disabled={pending||dirty||(!body.trim()&&post.status!=='posted')} onClick={()=>startTransition(async()=>{await runAction(()=>post.status==='posted'?markDraft(post.id):markPosted(post.id), {onError:setFeedback,onSuccess:()=>{setFeedback("Saved");router.refresh();}});})}>{post.status==='posted'?'Move to drafts':'Mark posted'}</Button>
-        <details className="relative ml-auto"><summary aria-label="More post actions" className="cursor-pointer px-3 py-1 text-body">…</summary><div className="absolute right-0 z-10 rounded-lg border border-rule-soft bg-card p-1 shadow-pop"><Button variant="ghost" size="sm" className="text-flag" disabled={pending} onClick={()=>{if(confirm('Delete this post?'))remove();}}>Delete post</Button></div></details>
+        <details className="relative ml-auto"><summary className="flex min-h-11 cursor-pointer list-none items-center rounded-md px-3 text-body hover:bg-hover [&::-webkit-details-marker]:hidden">Post actions</summary><div className="absolute right-0 z-10 rounded-lg border border-rule-soft bg-card p-1 shadow-pop"><Button variant="ghost" size="sm" className="text-flag" disabled={pending} onClick={()=>{if(confirm('Delete this post?'))remove();}}>Delete post</Button></div></details>
       </div>
 
-      <div className="mt-4"><PostPreview title={title} body={body} /></div>
+      {view === "preview" && <div className="mt-4"><PostPreview title={title} body={body} /></div>}
       <div className="mt-2.5 text-meta text-ink-3">
         Publishing is manual — copy this post onto sjcarpentryllc.com yourself, then mark it posted.
         Nothing is published from here.

@@ -90,6 +90,8 @@ export function PanelChat({
   compact = false,
   threadsRail = false,
   showNarration = true,
+  threadView,
+  onThreadViewChange,
 }: {
   registerHandOff: (fn: (p: TodayPriority, kind: "do" | "prep") => void) => void;
   onRunStart: (run: ActiveRun) => void;
@@ -102,6 +104,8 @@ export function PanelChat({
    *  always-visible column (T3-style); narrower docks keep the History
    *  overlay drawer instead. */
   threadsRail?: boolean;
+  threadView?: boolean;
+  onThreadViewChange?: (open: boolean) => void;
   /** The "Here's the queue right now" opener at the top of the chat. Off in
    *  the popout window — the to-do list doesn't belong in its chats. */
   showNarration?: boolean;
@@ -370,6 +374,7 @@ export function PanelChat({
     setAllowSends(false);
     mentions.clear();
     setThreadsOpen(false);
+    onThreadViewChange?.(false);
     void chat.openConversation(id);
     inputRef.current?.focus();
   };
@@ -379,6 +384,7 @@ export function PanelChat({
     setAllowSends(false);
     mentions.clear();
     setThreadsOpen(false);
+    onThreadViewChange?.(false);
     if (folder) chat.newChatIn(folder.id, folder.name);
     else chat.newChat();
     inputRef.current?.focus();
@@ -389,6 +395,7 @@ export function PanelChat({
     setAllowSends(false);
     mentions.clear();
     setThreadsOpen(false);
+    onThreadViewChange?.(false);
     chat.newChatFor(entity, name);
     inputRef.current?.focus();
   };
@@ -461,7 +468,7 @@ export function PanelChat({
         <div className="flex-1" />
         {!threadsRail && (
           <button
-            onClick={() => setThreadsOpen((o) => !o)}
+            onClick={() => { setThreadsOpen((o) => !o); onThreadViewChange?.(!(threadView ?? threadsOpen)); }}
             aria-label="Threads"
             title="Threads"
             className="rounded-md p-1 text-ink-3 transition-colors hover:bg-paper"
@@ -489,7 +496,7 @@ export function PanelChat({
 
       <div className="relative flex min-h-0 flex-1 flex-col">
       {/* Thread drawer — overlays the transcript on narrow docks/mobile */}
-      {!threadsRail && threadsOpen && (
+      {!threadsRail && (threadView ?? threadsOpen) && (
         <div className="absolute inset-x-0 inset-y-0 z-10 flex flex-col bg-paper">
           <ThreadList
             variant="drawer"
@@ -502,7 +509,7 @@ export function PanelChat({
             onOpen={openThread}
             onNew={newThread}
             onNewFor={newThreadFor}
-            onClose={() => setThreadsOpen(false)}
+            onClose={() => { setThreadsOpen(false); onThreadViewChange?.(false); }}
             onCurrentRemoved={() => newThread()}
           />
         </div>

@@ -614,7 +614,7 @@ export function ChatClient({ data }: { data: ChatData }) {
       {/* ─── Channel rail ─────────────────────────────────────────── */}
       <aside
         className={[
-          "min-h-0 w-full flex-none flex-col overflow-y-auto border-r border-rule bg-paper-2 p-3 @2xl/page:w-[208px]",
+          "min-h-0 w-full flex-none flex-col overflow-y-auto border-r border-rule bg-paper-2 p-3 @2xl/page:w-60 @4xl/page:w-72 @6xl/page:w-80",
           mobileThread ? "hidden @2xl/page:flex" : "flex",
         ].join(" ")}
       >

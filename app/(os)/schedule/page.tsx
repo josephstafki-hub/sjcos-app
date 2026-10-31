@@ -30,7 +30,7 @@ export default async function SchedulePage({
 
   return (
     <Shell breadcrumb="SCHEDULE">
-      <div className="mx-auto max-w-[1240px] px-4 pb-16 pt-6 @3xl/page:px-5 @5xl/page:px-8">
+      <div className="mx-auto max-w-[1240px] px-4 pb-16 pt-3 @xl/page:pt-6 @3xl/page:px-5 @5xl/page:px-8">
         <PageHeader
           title={offset === 0 ? "This week on site" : "Week on site"}
           meta={`${data.weekLabel} · ${data.rangeLabel} · Central time`}
@@ -55,7 +55,7 @@ export default async function SchedulePage({
             </>
           }
         />
-        <div className="mb-4 mt-6 flex flex-wrap items-center gap-2">
+        <div className="mb-3 mt-3 @xl/page:mt-6 flex flex-wrap items-center gap-2">
           <Button
             href={hrefFor(offset - 1)}
             variant="secondary"
@@ -80,7 +80,7 @@ export default async function SchedulePage({
           </span>
         </div>
         <details className="group mb-3" open={conflictNote.startsWith("Double-booked") ? true : undefined}>
-          <summary className="cursor-pointer rounded py-2 text-meta text-ink-2 focus-visible:outline-2 focus-visible:outline-focus">{conflictNote.startsWith("Double-booked") ? "Matching start times found · review overlap check" : "Overlap check · durations missing; overlaps still need review"}</summary>
+          <summary className="flex min-h-11 cursor-pointer items-center rounded py-2 text-meta text-ink-2 focus-visible:outline-2 focus-visible:outline-focus">{conflictNote.startsWith("Double-booked") ? "Matching start times found · review overlap check" : "Overlap check · durations missing; overlaps still need review"}</summary>
         {/* Conflict note */}
         <ConflictBubble
           weekOffset={offset}

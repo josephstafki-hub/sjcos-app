@@ -32,7 +32,7 @@ test('search covers every open to-do with literal wildcard text and paged result
   await Workbench({ searchParams: Promise.resolve({ q: '50%_off', page: '2' }) });
   assert.match(captured.sql, /status NOT IN \('done','cancelled'\)/);
   assert.match(captured.sql, /LIMIT 31 OFFSET \$3/);
-  assert.deepEqual(captured.params, ['50%_off', '%50\\%\\_off%', 30]);
+  assert.deepEqual(captured.params, ['50%_off', '%50\\%\\_off%', 30, '', '', '']);
 });
 test('staff and selected subjects never query the company-wide picker', async () => {
   captured = undefined;
@@ -42,4 +42,13 @@ test('staff and selected subjects never query the company-wide picker', async ()
   role = 'owner';
   await Workbench({ searchParams: Promise.resolve({ s: 'selected-item' }) });
   assert.equal(captured, undefined);
+});
+
+test('status, person and job filters narrow the whole queue before pagination', async () => {
+  role = 'owner';
+  await Workbench({ searchParams: Promise.resolve({ status: 'blocked', who: 'person:staff-id', job: 'project:job-slug' }) });
+  assert.match(captured.sql, /w.status = \$4/);
+  assert.match(captured.sql, /work_item_assignees/);
+  assert.match(captured.sql, /p.slug/);
+  assert.deepEqual(captured.params.slice(3), ['blocked', 'person:staff-id', 'project:job-slug']);
 });

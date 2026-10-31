@@ -66,17 +66,18 @@ export function PanelDock({
       showQueueCards={false}
       showNarration={!inWindow}
       compact={compact}
+      threadView={inWindow && !twoCol ? narrowView === "threads" : undefined}
+      onThreadViewChange={(open) => setNarrowView(open ? "threads" : "chat")}
       threadsRail={!compact && width >= THREADS_RAIL_MIN}
     />
   );
 
-  if (inWindow && !twoCol) return <div className="h-full min-h-0 p-2">{chatPanel}</div>;
-
   if (!twoCol) return (
     <div className="flex h-full min-h-0 flex-col gap-2 p-2">
       <Segmented aria-label="Operator view" value={narrowView} onChange={setNarrowView}
-        options={[{ value: "queue", label: "Queue" }, { value: "chat", label: "Chat" }]} />
-      <div className={`min-h-0 flex-1 ${narrowView === "chat" ? "flex" : "hidden"}`}>{chatPanel}</div>
+        className="h-12 [&_button]:h-11"
+        options={[{ value: "queue", label: "Queue" }, ...(inWindow ? [{ value: "threads", label: "Threads" }] : []), { value: "chat", label: "Chat" }]} />
+      <div className={`min-h-0 flex-1 ${narrowView !== "queue" ? "flex" : "hidden"}`}>{chatPanel}</div>
       {narrowView === "queue" && <QueueRail className="flex min-h-0 flex-1"
         onHandOff={(p, k) => { handOffRef.current?.(p, k); setNarrowView("chat"); }}
         onInspect={inspect} focusedSubjectId={focusedSubjectId} />}

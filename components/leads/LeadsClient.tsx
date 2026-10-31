@@ -38,6 +38,7 @@ export function LeadsClient({ data }: { data: LeadsData }) {
   return (
     <div className="space-y-4">
       <PageHeader
+        className="[&>div]:flex-row [&>div]:gap-2 [&>div>div:last-child]:shrink-0"
         title="Leads"
         meta={data.summary}
         actions={<NewLeadButton />}

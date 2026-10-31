@@ -55,7 +55,7 @@ export function TodayCards({ brief }: { brief: ReactNode }) {
 
   return (
     <section className="flex min-w-0 flex-col gap-3">
-      {brief}
+      <div className="order-last @xl/page:order-none">{brief}</div>
       <Segmented
         aria-label="Today work views"
         className="max-sm:h-12 [&_button]:max-sm:h-11"

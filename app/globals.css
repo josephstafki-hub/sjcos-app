@@ -249,3 +249,31 @@ body {
   padding: 0.1em 0.35em;
   border-radius: 4px;
 }
+
+/* Disclosures: one quiet chevron instead of the browser's ▸ triangle (which read
+   as a stray glyph). Summaries that draw their own control opt out with list-none. */
+details > summary:not(.list-none) {
+  list-style: none;
+}
+details > summary:not(.list-none)::-webkit-details-marker {
+  display: none;
+}
+details > summary:not(.list-none)::before {
+  content: "";
+  display: inline-block;
+  flex: none;
+  width: 0.42em;
+  height: 0.42em;
+  margin: 0 0.55em 0.12em 0.1em;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+  opacity: 0.7;
+}
+details[open] > summary:not(.list-none)::before {
+  transform: rotate(45deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  details > summary:not(.list-none)::before { transition: none; }
+}

@@ -1073,3 +1073,18 @@ export async function gmailInboxUnread(): Promise<number> {
   const { data } = await gmail().users.labels.get({ userId: "me", id: "INBOX" });
   return data.threadsUnread ?? 0;
 }
+
+/** One authorized attachment requested on click, using the cached message envelope. */
+export async function fetchInboxAttachment(threadId: string, messageId: string, attachmentId: string): Promise<{bytes:Buffer;name:string;type:string}> {
+  const thread=await cachedThread(threadId);
+  const message=thread.messages?.find(m=>m.id===messageId);
+  const part=collectFileParts(message?.payload).find(p=>(p.body?.attachmentId??p.partId)===attachmentId);
+  if(!message||!part)throw Error('Attachment not found.');
+  let data=part.body?.data;
+  if(!data&&part.body?.attachmentId){
+    const result=await withGmailRetry('attachments.get',()=>gmail().users.messages.attachments.get({userId:'me',messageId,id:part.body!.attachmentId!}));
+    data=result.data.data??undefined;
+  }
+  if(!data)throw Error('Attachment unavailable.');
+  return {bytes:Buffer.from(data,'base64url'),name:part.filename||'attachment',type:part.mimeType||'application/octet-stream'};
+}

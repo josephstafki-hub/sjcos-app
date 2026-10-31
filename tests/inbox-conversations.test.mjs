@@ -129,3 +129,14 @@ test('full Gmail payload supplies bulk headers without another request; only no-
   await assert.rejects(()=>gmail.sendReply({threadId:'noreply-case',bodyText:'Please do not send'}),/doesn't accept replies/);
   assert.equal(calls.sent.length,sent+1);
 });
+
+test('attachments are metadata on open; only deliberate retrieval downloads bytes and validates membership',async()=>{
+ mailbox={...mailbox,refreshToken:'attachment-click'};messages=[msg('20','Client <client@example.test>')];
+ let downloads=0;
+ globalThis.__inboxFake.api.users.messages.attachments.get=async args=>{downloads++;assert.equal(args.messageId,'20');assert.equal(args.id,'a20');return {data:{data:Buffer.from('PDF bytes').toString('base64url')}};};
+ const conversation=await gmail.fetchConversation('attachments');assert.equal(downloads,0);assert.equal(conversation.messages[0].attachments[0].name,'plan.pdf');
+ const before=calls.get;
+ const attachment=await gmail.fetchInboxAttachment('attachments','20','a20');assert.equal(attachment.bytes.toString(),'PDF bytes');assert.equal(attachment.name,'plan.pdf');assert.equal(downloads,1);assert.equal(calls.get,before);
+ await assert.rejects(()=>gmail.fetchInboxAttachment('attachments','other-message','a20'),/not found/);
+ await assert.rejects(()=>gmail.fetchInboxAttachment('attachments','20','other-attachment'),/not found/);assert.equal(downloads,1);
+});

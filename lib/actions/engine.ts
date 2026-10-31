@@ -2,6 +2,7 @@
 
 // Open Engine write paths. Owner-gated. Reads stay in lib/engine.ts.
 
+import { prepareEmailWorkItem } from "@/lib/obligations/email";
 import { revalidatePath } from "next/cache";
 import { approveWorkItemById, rejectWorkItemById } from "@/lib/approve-work-item";
 import type { ApproveResult } from "@/lib/approved-draft-rules";
@@ -24,11 +25,15 @@ export async function createWorkItem(formData: FormData): Promise<Result> {
   if (!title) return { ok: false, error: "Title is required." };
   const body = String(formData.get("body") ?? "").trim();
   const priorityRaw = String(formData.get("priority") ?? "normal");
-  const priority = ["low", "normal", "high", "urgent"].includes(priorityRaw) ? priorityRaw : "normal";
+  const priority = ["low", "normal", "high", "urgent"].includes(priorityRaw)
+    ? priorityRaw
+    : "normal";
   const assigneeKey = String(formData.get("assignee_key") ?? "").trim() || null;
-  const assigneeKind = assigneeKey && assigneeKey !== "human-joe" ? "agent" : "human";
+  const assigneeKind =
+    assigneeKey && assigneeKey !== "human-joe" ? "agent" : "human";
   const dueAt = String(formData.get("due_at") ?? "").trim();
-  const expectedSkill = String(formData.get("expected_skill_slug") ?? "").trim() || null;
+  const expectedSkill =
+    String(formData.get("expected_skill_slug") ?? "").trim() || null;
   // Who it's on. Only the owner may put a to-do on someone else (Joe,
   // 2026-09-27), so anyone else's pick is ignored and the row lands with nobody
   // on it (= the owner's, the same as every other writer's default).
@@ -36,14 +41,103 @@ export async function createWorkItem(formData: FormData): Promise<Result> {
     me.role === "owner"
       ? await pickedPeople(formData.getAll("assigned_user_ids").map(String))
       : [];
-  if (!people) return { ok: false, error: "Only an active team login can hold a to-do." };
+  if (!people)
+    return { ok: false, error: "Only an active team login can hold a to-do." };
 
+  if (
+    dueAt &&
+    (!Number.isFinite(Date.parse(dueAt)) ||
+      (/^\d{4}-\d{2}-\d{2}$/.test(dueAt) &&
+        new Date(dueAt).toISOString().slice(0, 10) !== dueAt))
+  )
+    return { ok: false, error: "Choose a valid due date." };
+  let email: {
+    message_id: string;
+    thread_id: string;
+    from?: string;
+    received_at?: string;
+  } | null = null;
+  if (formData.get("email")) {
+    try {
+      const value = JSON.parse(String(formData.get("email")));
+      if (
+        !value ||
+        typeof value.message_id !== "string" ||
+        !value.message_id.trim() ||
+        typeof value.thread_id !== "string" ||
+        !value.thread_id.trim()
+      )
+        throw Error();
+      email = value;
+    } catch {
+      return {
+        ok: false,
+        error: "Open the email again before making a to-do.",
+      };
+    }
+  }
+  const job = String(formData.get("job") ?? "");
+  const [kind, slug] = job.split(":");
+  let projectId: string | null = null,
+    leadId: string | null = null;
+  if (job) {
+    if (!slug || !["project", "lead"].includes(kind))
+      return { ok: false, error: "Choose a job or lead." };
+    const [record] = await runDirect<{ id: string }>(
+      `SELECT id FROM ${kind === "project" ? "projects" : "leads"} WHERE slug=$1`,
+      [slug],
+    );
+    if (!record)
+      return { ok: false, error: "That job or lead could not be found." };
+    if (kind === "project") projectId = record.id;
+    else leadId = record.id;
+  }
+  const prep = email
+    ? await prepareEmailWorkItem(runDirect, {
+        email: {
+          messageId: email.message_id,
+          threadId: email.thread_id,
+          from: email.from,
+          receivedAt: email.received_at,
+        },
+        title,
+        projectId,
+        leadId,
+        createdBy: "user",
+      })
+    : null;
+  if (prep?.existingId) {
+    // Re-reminding the same email schedules its existing to-do; no re-assignment.
+    if (formData.get("reminder") === "true" && dueAt) {
+      await runDirect(
+        `UPDATE work_items SET due_at=CASE WHEN length($2::text)=10 THEN ($2::date::timestamp AT TIME ZONE 'America/Chicago') ELSE $2::timestamptz END,updated_at=now() WHERE id=$1`,
+        [prep.existingId, dueAt],
+      );
+      revalidatePath("/engine");
+      revalidatePath("/today");
+    }
+    return { ok: true };
+  }
   const created = await queryOne<{ id: string }>(
     `INSERT INTO work_items
-       (title, body, priority, assignee_kind, assignee_key, due_at, expected_skill_slug, source_kind, created_by)
-     VALUES ($1,$2,$3,$4,$5, CASE WHEN length($6::text) = 10 THEN ($6::date::timestamp AT TIME ZONE 'America/Chicago') ELSE NULLIF($6,'')::timestamptz END, $7, 'manual', 'user')
+       (title, body, priority, assignee_kind, assignee_key, due_at, expected_skill_slug, source_kind, created_by, project_id, lead_id, source_id, obligation_id)
+     VALUES ($1,$2,$3,$4,$5, CASE WHEN length($6::text) = 10 THEN ($6::date::timestamp AT TIME ZONE 'America/Chicago') ELSE NULLIF($6,'')::timestamptz END, $7, $8, 'user', $9, $10, $11, $12)
      RETURNING id`,
-    [title, body, priority, assigneeKind, assigneeKey, dueAt, expectedSkill],
+    [
+      title,
+      body,
+      priority,
+      assigneeKind,
+      assigneeKey,
+      dueAt,
+      expectedSkill,
+      email ? "email" : "manual",
+      projectId,
+      leadId,
+      email?.message_id ??
+        (String(formData.get("source_id") ?? "").trim() || null),
+      prep?.obligationId ?? null,
+    ],
   );
   if (created) await assignNewItem(created.id, title, people);
   revalidatePath("/engine");

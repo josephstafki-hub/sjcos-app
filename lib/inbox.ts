@@ -63,6 +63,10 @@ export const CHANNELS: { key: ThreadChannel; label: string }[] = [
 // ─── Thread list ─────────────────────────────────────────────────────────────
 
 export interface InboxThread {
+  fromEmail?: string;
+  contactKey?: string;
+  contactStage?:string;
+  contactRole?: "client" | "lead" | "sub" | "vendor";
   id: string;
   initials: string;
   fromName: string;
@@ -299,7 +303,7 @@ export interface InboxData {
   /** Gmail page token for loading the next batch (undefined = no more). */
   nextPageToken?: string;
   /** Records the owner can manually link a thread to (P6-3). */
-  linkOptions?: { projects: { slug: string; name: string }[]; leads: { slug: string; name: string }[] };
+  linkOptions?: { projects: { slug: string; name: string; stage?:string }[]; leads: { slug: string; name: string; stage?:string }[] };
   /** Whose mailbox this payload is, and whether one is connected at all. */
   mailbox: MailboxState;
   /** A failed Gmail load. Email retains its last good snapshot, when available. */
@@ -518,6 +522,7 @@ function rawToThread(r: RawGmailThread, labelMap: Map<string, string>): InboxThr
     .map((id) => labelMap.get(id)!);
   return {
     id: r.id,
+    fromEmail: r.outbound ? extractEmail(r.toLine) : r.fromEmail,
     initials: initialsOf(who),
     fromName: who,
     channel: "email",
@@ -662,6 +667,7 @@ export async function gatherReplyContext(raw: RawGmailThread): Promise<{
 export async function draftReplyForThread(
   threadId: string,
   model: DraftModel = "hermes",
+  intent = "",
 ): Promise<{ summary: string; body: string; toEmail: string; subject: string }> {
   const conversation = await fetchConversation(threadId);
   const target = resolveReplyTarget(conversation.messages, conversation.ownAddresses);
@@ -670,7 +676,7 @@ export async function draftReplyForThread(
   const raw = {id:threadId,fromName:message.fromName,fromEmail:message.fromEmail,subject:conversation.subject,bodyParas:message.body,snippet:message.snippet} as RawGmailThread;
 
   const { knowledge, matchLabel } = await gatherReplyContext(raw);
-  const excerpt = `${raw.fromName} <${raw.fromEmail}>: ${raw.subject}\n\n${raw.bodyParas.join("\n\n") || raw.snippet}`;
+  const excerpt = `${intent ? `Joe wants to convey: ${intent}\n\n` : ""}${raw.fromName} <${raw.fromEmail}>: ${raw.subject}\n\n${raw.bodyParas.join("\n\n") || raw.snippet}`;
 
   let body: string;
   if (model === "hermes") {
@@ -717,12 +723,14 @@ interface ContactRow {
   email: string;
   name: string;
   slug: string;
-  kind: "client" | "sub";
+  kind: "client" | "sub" | "vendor";
+  stage?:string;
 }
 interface ProjectLinkRow {
   email: string;
   project_slug: string;
   project_label: string;
+  stage?:string;
 }
 
 // Consumer mail providers — a sub on one of these is matched by exact address
@@ -761,9 +769,10 @@ interface ManualLink {
 interface ContactMaps {
   staffEmails: Set<string>;
   leadEmails: Set<string>;
+  contactByEmail: Map<string,ContactRow>;
   byEmail: Map<string, Audience>;
   subDomains: Set<string>;
-  projectByEmail: Map<string, { slug: string; label: string }>;
+  projectByEmail: Map<string, { slug: string; label: string; stage?:string }>;
   linkByThread: Map<string, ManualLink>;
 }
 
@@ -771,16 +780,18 @@ interface ContactMaps {
 async function loadContactMaps(): Promise<ContactMaps> {
   const [contacts, links, threadLinks, staff] = await Promise.all([
     query<ContactRow>(
-      `SELECT lower(email) AS email, name, slug, 'client' AS kind
+      `SELECT lower(email) AS email, name, slug, 'client' AS kind, replace(stage,'_',' ') AS stage
          FROM leads WHERE email IS NOT NULL AND email <> ''
        UNION ALL
-       SELECT lower(email) AS email, name, slug, 'sub' AS kind
-         FROM subs WHERE email IS NOT NULL AND email <> ''`,
+       SELECT lower(email) AS email, name, slug, 'sub' AS kind, NULL AS stage
+         FROM subs WHERE email IS NOT NULL AND email <> ''
+       UNION ALL SELECT lower(email), name, slug, 'vendor', NULL FROM vendors WHERE email IS NOT NULL AND email <> ''`,
     ),
     query<ProjectLinkRow>(
-      `SELECT lower(l.email) AS email, p.slug AS project_slug, p.name AS project_label
+      `SELECT lower(l.email) AS email, p.slug AS project_slug, p.name AS project_label, COALESCE(p.stage_label,replace(p.status,'_',' ')) AS stage
          FROM projects p JOIN leads l ON p.lead_id = l.id
-        WHERE l.email IS NOT NULL AND l.email <> ''`,
+        WHERE l.email IS NOT NULL AND l.email <> ''
+       UNION ALL SELECT lower(client_email), slug, name, COALESCE(stage_label,replace(status,'_',' ')) FROM projects WHERE client_email <> ''`,
     ),
     query<{ thread_id: string; link_type: "project" | "lead"; link_slug: string; label: string; project_slug: string | null }>(
       `SELECT tl.gmail_thread_id AS thread_id, tl.link_type, tl.link_slug,
@@ -798,7 +809,7 @@ async function loadContactMaps(): Promise<ContactMaps> {
   for (const c of contacts.rows) {
     // Subs win ties over clients (businesses are the more specific match).
     if (c.kind === "sub" || !byEmail.has(c.email)) {
-      byEmail.set(c.email, c.kind === "sub" ? "sub" : "client");
+      byEmail.set(c.email, c.kind === "sub" ? "sub" : c.kind === "vendor" ? "money" : "client");
     }
     if (c.kind === "sub") {
       const d = domainOf(c.email);
@@ -806,9 +817,9 @@ async function loadContactMaps(): Promise<ContactMaps> {
     }
   }
 
-  const projectByEmail = new Map<string, { slug: string; label: string }>();
+  const projectByEmail = new Map<string, { slug: string; label: string; stage?:string }>();
   for (const p of links.rows) {
-    projectByEmail.set(p.email, { slug: p.project_slug, label: p.project_label });
+    projectByEmail.set(p.email, { slug: p.project_slug, label: p.project_label,stage:p.stage });
   }
 
   const linkByThread = new Map<string, ManualLink>();
@@ -821,7 +832,7 @@ async function loadContactMaps(): Promise<ContactMaps> {
     });
   }
 
-  return { byEmail, subDomains, projectByEmail, linkByThread, staffEmails:new Set(staff.rows.map(r => r.email)), leadEmails:new Set(contacts.rows.filter(c=>c.kind === "client").map(c=>c.email)) };
+  return { contactByEmail:new Map(contacts.rows.map(c=>[c.email,c])), byEmail, subDomains, projectByEmail, linkByThread, staffEmails:new Set(staff.rows.map(r => r.email)), leadEmails:new Set(contacts.rows.filter(c=>c.kind === "client").map(c=>c.email)) };
 }
 
 /** Classify one thread's counterparty into an audience + optional project. A
@@ -889,6 +900,11 @@ function mapRawThreads(
       isLead: c.linkedType === "lead" || (contactMaps.leadEmails.has(r.fromEmail.toLowerCase()) && !c.projectSlug),
       age: relativeWhen(r.date),
     });
+    const person=contactMaps.contactByEmail.get(threads[i].fromEmail ?? '');
+    threads[i].contactKey=person ? `${person.kind==='client'?'lead':person.kind}:${person.slug}` : c.projectSlug ? `project:${c.projectSlug}` : undefined;
+    threads[i].contactStage=c.projectSlug ? contactMaps.projectByEmail.get(threads[i].fromEmail ?? '')?.stage : person?.stage;
+    if(person?.kind==='client'&&!c.projectSlug&&!c.linkedType){c.linkedType='lead';c.linkedSlug=person.slug;c.projectLabel=person.name;}
+    threads[i].contactRole = c.audience === "sub" ? "sub" : c.audience === "money" ? "vendor" : c.linkedType === "lead" || (contactMaps.leadEmails.has(threads[i].fromEmail ?? "") && !c.projectSlug) ? "lead" : c.projectSlug ? "client" : undefined;
     threads[i].audience = c.audience;
     threads[i].projectSlug = c.projectSlug;
     threads[i].projectLabel = c.projectLabel;
@@ -965,8 +981,8 @@ export async function loadSystemView(
 /** Records the owner can manually link a thread to (P6-3). */
 async function getLinkOptions(): Promise<InboxData["linkOptions"]> {
   const [projects, leads] = await Promise.all([
-    query<{ slug: string; name: string }>(`SELECT slug, name FROM projects ORDER BY updated_at DESC`),
-    query<{ slug: string; name: string }>(`SELECT slug, name FROM leads ORDER BY created_at DESC`),
+    query<{ slug: string; name: string; stage:string }>(`SELECT slug, name, COALESCE(stage_label,replace(status,'_',' ')) AS stage FROM projects ORDER BY updated_at DESC`),
+    query<{ slug: string; name: string; stage:string }>(`SELECT slug, name, replace(stage,'_',' ') AS stage FROM leads ORDER BY created_at DESC`),
   ]);
   return { projects: projects.rows, leads: leads.rows };
 }
@@ -1092,6 +1108,10 @@ async function loadSmsThreads(): Promise<ChannelBuild> {
       when: r.last_message_at ? relativeWhen(Date.parse(r.last_message_at)) : "",
       view,
       tag: "SMS",
+      contactKey:r.link_type && r.link_slug ? `${r.link_type}:${r.link_slug}` : undefined,
+      contactRole:r.link_type === "sub" ? "sub" : r.link_type === "lead" ? "lead" : r.link_type === "vendor" ? "vendor" : r.link_type ? "client" : undefined,
+      linkedType:r.link_type === "project" || r.link_type === "lead" ? r.link_type : undefined,
+      linkedSlug:r.link_type === "project" || r.link_type === "lead" ? r.link_slug ?? undefined : undefined,
       emphasis: view === "needs_reply" ? "flag" : "ghost",
       unread: r.unread,
       needsMeReason: needsMeReason({channel:"sms",inbound:r.last_dir === "in",audience, isLead:r.link_type === "lead",age:r.last_message_at ? relativeWhen(Date.parse(r.last_message_at)) : undefined}),
@@ -1145,12 +1165,13 @@ async function loadPortalThreads(): Promise<ChannelBuild> {
     client_name: string | null;
     sub_name: string | null;
     last_is_staff: boolean;
+    lead_slug:string|null;
   }>(
     `SELECT m.channel_key,
             max(m.created_at) AS last_at,
             (array_agg(m.author_kind ORDER BY m.created_at DESC, m.id DESC))[1] AS last_author,
             (array_agg(m.body        ORDER BY m.created_at DESC, m.id DESC))[1] AS last_body,
-            p.name AS proj_name, COALESCE(l.name, lead.name) AS client_name, s.name AS sub_name,
+            p.name AS proj_name, COALESCE(l.name, lead.name) AS client_name, s.name AS sub_name, COALESCE(l.slug,lead.slug) AS lead_slug,
             (array_agg(u.role IN ('owner','staff') ORDER BY m.created_at DESC, m.id DESC))[1] AS last_is_staff
        FROM chat_messages m
        LEFT JOIN projects p ON m.channel_key LIKE 'portal:%' AND p.slug = split_part(m.channel_key, ':', 2)
@@ -1165,7 +1186,7 @@ async function loadPortalThreads(): Promise<ChannelBuild> {
          OR (m.channel_key LIKE 'dm:%'
              AND m.channel_key NOT LIKE 'dm:team:%'
              AND m.channel_key NOT LIKE 'dm:client:%')
-      GROUP BY m.channel_key, p.name, l.name, lead.name, s.name
+      GROUP BY m.channel_key, p.name, l.name, lead.name, s.name, l.slug, lead.slug
       ORDER BY max(m.created_at) DESC`,
   );
   if (!groups.length) return { threads: [], readerEntries: [] };
@@ -1206,6 +1227,8 @@ async function loadPortalThreads(): Promise<ChannelBuild> {
     const view: ThreadStatus = g.last_author === "user" && !g.last_is_staff ? "needs_reply" : "awaiting_them";
     threads.push({
       id: g.channel_key,
+      contactKey: isSub ? `sub:${slug}` : g.lead_slug ? `lead:${g.lead_slug}` : isLead ? `lead:${slug}` : `project:${slug}`,
+      contactRole: isSub ? "sub" : isLead ? "lead" : "client",
       initials: initialsOf(name),
       fromName: name,
       channel,
@@ -1298,6 +1321,7 @@ async function loadSiteFormThreads(): Promise<ChannelBuild> {
       when: relativeWhen(Date.parse(r.created_at)),
       view,
       tag: "Website lead",
+      linkedType:"lead", linkedSlug:r.slug, contactRole:"lead", contactKey:`lead:${r.slug}`, fromEmail:r.email ?? undefined,
       emphasis: view === "needs_reply" ? "flag" : "ghost",
       audience: "client",
       needsMeReason: needsMeReason({channel:"site_form",inbound:true,done:view === "done"}),
@@ -1333,7 +1357,7 @@ async function loadSiteFormThreads(): Promise<ChannelBuild> {
 
 /** Fold all non-email channels, isolating each so one failing source never
  *  takes down the email inbox (it just contributes no threads). */
-async function loadChannelThreads(): Promise<ChannelBuild> {
+async function loadChannelThreads(maps:ContactMaps,options:InboxData["linkOptions"]): Promise<ChannelBuild> {
   const safe = async (
     fn: () => Promise<ChannelBuild>,
     label: string,
@@ -1350,10 +1374,33 @@ async function loadChannelThreads(): Promise<ChannelBuild> {
     safe(loadPortalThreads, "portal"),
     safe(loadSiteFormThreads, "site_form"),
   ]);
-  return {
-    threads: parts.flatMap((p) => p.threads),
-    readerEntries: parts.flatMap((p) => p.readerEntries),
-  };
+  const threads=parts.flatMap(p=>p.threads);
+  const readerEntries=parts.flatMap(p=>p.readerEntries);
+  const {rows:handled}=await query<{inbox_key:string;last_message_at:string}>(`SELECT inbox_key,last_message_at FROM threads WHERE inbox_key=ANY($1::text[]) AND status='done'`,[threads.map(t=>t.id)]);
+  const {rows:links}=await query<{thread_id:string;link_type:'project'|'lead';link_slug:string;label:string;stage:string}>(`SELECT tl.gmail_thread_id AS thread_id,tl.link_type,tl.link_slug,COALESCE(p.name,l.name) AS label,
+    COALESCE(p.stage_label,replace(p.status,'_',' '),replace(l.stage,'_',' ')) AS stage
+    FROM thread_links tl LEFT JOIN projects p ON tl.link_type='project' AND p.slug=tl.link_slug
+    LEFT JOIN leads l ON tl.link_type='lead' AND l.slug=tl.link_slug WHERE tl.gmail_thread_id=ANY($1::text[])`,[threads.map(t=>t.id)]);
+  const byId=new Map(links.map(l=>[l.thread_id,l]));
+  for(const t of threads){const l=byId.get(t.id);if(l){t.linkedType=l.link_type;t.linkedSlug=l.link_slug;t.projectSlug=l.link_type==='project'?l.link_slug:undefined;t.projectLabel=l.label;t.contactStage=l.stage;}}
+  const contactsByKey=new Map([...maps.contactByEmail.values()].map(c=>[`${c.kind==='client'?'lead':c.kind}:${c.slug}`,c]));
+  const projectContacts=new Map([...maps.projectByEmail].map(([email,p])=>[p.slug,{email,...p}]));
+  for(const t of threads){
+    const [kind,slug]=t.contactKey?.split(':') ?? [];
+    const project=kind==='project'||kind==='client' ? projectContacts.get(slug) : undefined;
+    const contact=contactsByKey.get(t.contactKey ?? '') ?? (project ? maps.contactByEmail.get(project.email) : undefined);
+    if(project){t.fromEmail=project.email;t.projectSlug=project.slug;t.projectLabel=project.label;}
+    if(contact){t.fromEmail=contact.email;t.contactKey=`${contact.kind==='client'?'lead':contact.kind}:${contact.slug}`;t.contactStage=contact.stage;}
+    const job=t.projectSlug ? options?.projects.find(p=>p.slug===t.projectSlug) ?? projectContacts.get(t.projectSlug) : undefined;
+    if(job){t.projectLabel='name' in job?job.name:job.label;t.contactStage=job.stage;}
+    if(!t.projectSlug&&t.linkedType==='lead'){const l=options?.leads.find(l=>l.slug===t.linkedSlug);if(l){t.projectLabel=l.name;t.contactStage=l.stage;}}
+    if(!t.projectLabel&&contact?.kind==='client'){t.projectLabel=contact.name;t.linkedType='lead';t.linkedSlug=contact.slug;}
+    if(!t.contactStage&&t.projectSlug)t.contactStage=projectContacts.get(t.projectSlug)?.stage;
+  }
+  const dates=new Map(handled.map(r=>[r.inbox_key,Date.parse(r.last_message_at)]));
+  const readers=new Map(readerEntries);
+  for(const t of threads){const through=dates.get(t.id);const last=readers.get(t.id)?.messages.at(-1)?.date;if(through&&last&&last<=through){t.view='done';t.needsMeReason=undefined;}}
+  return {threads,readerEntries};
 }
 
 // The page re-renders whenever anything in the database changes (LiveUpdates
@@ -1434,11 +1481,13 @@ async function buildFromGmail(
   /** Gmail's half supplied by the caller (empty when Gmail failed). */
   gmail?: [Awaited<ReturnType<typeof fetchThreadPage>>, Awaited<ReturnType<typeof fetchLabelCounts>>],
 ): Promise<InboxData> {
+  const contacts=loadContactMaps();
+  const options=getLinkOptions();
   const [[page, labels], contactMaps, linkOptions, folded] = await Promise.all([
     gmail ?? cachedGmail(),
-    loadContactMaps(),
-    getLinkOptions(),
-    loadChannelThreads(),
+    contacts,
+    options,
+    Promise.all([contacts,options]).then(([m,o])=>loadChannelThreads(m,o)),
   ]);
   const labelMap = new Map(labels.map((l) => [l.id, l.name]));
   const { threads: emailThreads, readerEntries: emailReaderEntries } =

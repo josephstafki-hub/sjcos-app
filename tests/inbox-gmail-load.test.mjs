@@ -139,3 +139,22 @@ test('reader preserves every email message and orders SMS ties by numeric messag
   assert.match(smsSql,/ORDER BY created_at, sms_messages.id/);
   globalThis.__queryRows=null;
 });
+
+test('channel Done survives reload, a newer inbound reopens it, and manual links enrich channels',async()=>{
+ globalThis.__gmail.fail=null;globalThis.__gmail.threads=[];let at='2026-10-30T12:00:00Z';
+ globalThis.__queryRows=sql=> /FROM sms_threads/.test(sql)?[{id:'5',phone:'+16125551234',contact_name:'Tom',unread:false,last_message_at:at,last_body:'Hi',last_dir:'in'}]
+  : /SELECT inbox_key/.test(sql)?[{inbox_key:'sms:5',last_message_at:'2026-10-30T12:00:00Z'}]
+  : /FROM thread_links tl/.test(sql)?[{thread_id:'sms:5',link_type:'project',link_slug:'kitchen',label:'Kitchen',stage:'Construction'}]:[];
+ invalidateInboxCache();let t=(await getInboxData()).threads.find(t=>t.id==='sms:5');assert.equal(t.view,'done');assert.equal(t.needsMeReason,undefined);assert.equal(t.projectSlug,'kitchen');assert.equal(t.projectLabel,'Kitchen');
+ at='2026-10-31T12:00:00Z';invalidateInboxCache();t=(await getInboxData()).threads.find(t=>t.id==='sms:5');assert.equal(t.view,'needs_reply');assert.ok(t.needsMeReason);
+ globalThis.__queryRows=null;
+});
+test('email, text and project portal share a person key and preserve job stages',async()=>{
+ globalThis.__gmail.threads=[{...email,fromEmail:'tom@example.test'}];
+ globalThis.__queryRows=sql=>/AS kind/.test(sql)?[{email:'tom@example.test',name:'Tom',slug:'tom',kind:'client',stage:'Rough estimate'}]
+ :/AS project_slug/.test(sql)?[{email:'tom@example.test',project_slug:'kitchen',project_label:'Kitchen',stage:'Construction'}]
+ :/FROM sms_threads/.test(sql)?[{id:'5',phone:'+16125551234',contact_name:'Tom',link_type:'project',link_slug:'kitchen',unread:false,last_message_at:'2026-10-30',last_body:'Hi',last_dir:'in'}]
+ :/GROUP BY m.channel_key/.test(sql)?[{channel_key:'portal:kitchen',proj_name:'Kitchen',lead_slug:'tom',client_name:'Tom',last_author:'user',last_is_staff:false,last_body:'Hello',last_at:'2026-10-30'}]:[];
+ invalidateInboxCache();const data=await getInboxData();for(const id of ['real','sms:5','portal:kitchen']){const t=data.threads.find(t=>t.id===id);assert.equal(t.contactKey,'lead:tom',id);assert.equal(t.contactStage,'Construction',id);}
+ globalThis.__queryRows=null;globalThis.__gmail.threads=[];
+});

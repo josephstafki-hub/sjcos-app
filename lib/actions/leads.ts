@@ -114,6 +114,8 @@ export async function createLead(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
   const scope = String(formData.get("scope") ?? "").trim();
+  const email = String(formData.get("email") ?? "").trim() || null;
+  const phone = String(formData.get("phone") ?? "").trim() || null;
   const valueDisplay = String(formData.get("value") ?? "").trim() || null;
   const source = String(formData.get("source") ?? "").trim() || "Manual entry";
   const referrerName = String(formData.get("referrer_name") ?? "").trim() || null;
@@ -121,9 +123,9 @@ export async function createLead(formData: FormData) {
 
   const slug = await uniqueSlug(name);
   await query(
-    `INSERT INTO leads (slug, name, scope, value_display, source, referrer_name, referrer_email, stage, last_contact_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'intake', now())`,
-    [slug, name, scope, valueDisplay, source, referrerName, referrerEmail],
+    `INSERT INTO leads (slug, name, scope, value_display, source, referrer_name, referrer_email, email, phone, stage, last_contact_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'intake', now())`,
+    [slug, name, scope, valueDisplay, source, referrerName, referrerEmail, email, phone],
   );
   await logLeadActivity(slug, "created", `Lead created · ${source}`);
 

@@ -50,12 +50,15 @@ test('sub-document review accepts W-9s without expiry while a COI still requires
   assert.doesNotMatch(accept, / disabled=/);
 });
 
-test('marketing (main\'s posting-agent screen) offers downloads only for approved photos and keeps Mark posted', () => {
-  const Marketing = component('components/marketing/MarketingClient.tsx', 'MarketingClient', { './PostingPanel': { PostingPanel: () => null, InPostToggle: () => null, StageChip: () => null }, './PostingAccounts': { PostingAccounts: () => null } });
-  const html = render(Marketing, { projects: [{ slug: 'job', name: 'Kitchen' }], accounts: {}, drafts: [{ id: 1, title: 'Clean headline', body: 'Finished work.', status: 'draft', kind: 'social', kindLabel: 'Social', projectSlug: 'job', projectName: 'Kitchen', createdLabel: 'Oct 30', media: [], platform: null, stage: 'draft', photos: [{ id: 'allowed', name: 'Approved.jpg', shareable: true }, { id: 'private', name: 'Private.jpg', shareable: false }] }] });
+test('marketing (main\'s posting-agent screen) keeps Mark posted; job photos offer downloads only for approved photos', () => {
+  const draft = { id: 1, title: 'Clean headline', body: 'Finished work.', status: 'draft', kind: 'social', kindLabel: 'Social', projectSlug: 'job', projectName: 'Kitchen', createdLabel: 'Oct 30', media: [], platform: null, stage: 'draft', photos: [{ id: 'allowed', name: 'Approved.jpg', shareable: true }, { id: 'private', name: 'Private.jpg', shareable: false }] };
+  const stubs = { './PostingPanel': { PostingPanel: () => null, InPostToggle: () => null, StageChip: () => null, editableStage: () => true }, './PostingAccounts': { PostingAccounts: () => null } };
+  const Marketing = component('components/marketing/MarketingClient.tsx', 'MarketingClient', { ...stubs, './PostPhotos': { PostPhotos: () => null } });
+  assert.match(render(Marketing, { projects: [{ slug: 'job', name: 'Kitchen' }], accounts: {}, isOwner: true, drafts: [draft] }), /Mark posted/);
+  const Photos = component('components/marketing/PostPhotos.tsx', 'PostPhotos', stubs);
+  const html = render(Photos, { draft, isOwner: true });
   assert.match(html, /href="\/api\/files\/allowed\?download=1"/);
   assert.doesNotMatch(html, /href="\/api\/files\/private\?download=1"/);
-  assert.match(html, /Mark posted/);
 });
 
 test('purchase-order table retains commitment status and excludes void orders from its total', () => {

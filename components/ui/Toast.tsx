@@ -28,6 +28,7 @@ export interface ToastInput {
   message: string;
   /** Raw detail (stack/API text) shown behind a "Details" disclosure. */
   details?: string;
+  action?: {label:string;onClick:()=>void};
   kind?: ToastKind;
   /** Override auto-dismiss: `true` = stays until closed; a number = ms. */
   sticky?: boolean | number;
@@ -37,6 +38,7 @@ export interface ToastItem extends Required<Pick<ToastInput, "message" | "kind">
   id: number;
   title: string;
   details?: string;
+  action?: {label:string;onClick:()=>void};
   /** ms until auto-dismiss; 0 = sticky. */
   ttl: number;
 }
@@ -94,6 +96,7 @@ export function toast(input: ToastInput): number {
     title: input.title?.trim() || DEFAULT_TITLE[kind],
     message,
     details: input.details?.trim() || undefined,
+    action:input.action,
     ttl,
   };
   // Collapse an identical error already on screen (e.g. a double-click) into
@@ -189,6 +192,7 @@ function ToastCard({ item }: { item: ToastItem }) {
       <div className="min-w-0 flex-1">
         <div className="font-mono text-[9.5px] font-medium uppercase tracking-[0.08em] opacity-80">{item.title}</div>
         <div className="mt-0.5 whitespace-pre-wrap break-words text-[12.5px] leading-snug text-ink">{item.message}</div>
+        {item.action&&<button type="button" onClick={()=>{item.action!.onClick();close();}} className="mt-2 min-h-11 rounded px-2 text-meta font-semibold underline hover:bg-paper/60">{item.action.label}</button>}
         {item.details && item.details !== item.message && (
           <details className="mt-1.5">
             <summary className="cursor-pointer select-none font-mono text-[10px] uppercase tracking-[0.08em] opacity-80">

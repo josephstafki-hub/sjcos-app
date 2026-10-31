@@ -89,3 +89,13 @@ export async function markChannelDoneAction(threadId: string, through: number) {
     return { ok: false, error: "Could not mark this conversation done." };
   }
 }
+
+/** Undo only the app's handled marker; original channel messages are untouched. */
+export async function undoChannelDoneAction(threadId: string) {
+  await requireAccess('inbox');
+  if (!/^(sms:[1-9]\d*|portal:(?:lead:)?[^:]+|dm:(?!team$|client$)[^:]+|siteform:[^:]+)$/.test(threadId)) return {ok:false,error:'Conversation not found.'};
+  try {
+    await query(`UPDATE threads SET status='needs_reply',updated_at=now() WHERE inbox_key=$1`,[threadId]);
+    revalidatePath('/inbox');return {ok:true};
+  } catch {return {ok:false,error:'Could not undo Done.'};}
+}

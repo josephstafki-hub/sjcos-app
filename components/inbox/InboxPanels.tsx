@@ -9,9 +9,9 @@ import {
 import { X, Search, Copy, Check, Clock, Link as LinkIcon } from "lucide-react";
 import { Button, Chip, Segmented, Avatar } from "@/components/ui";
 import { createWorkItem } from "@/lib/actions/engine";
-import { createLead } from "@/lib/actions/leads";
-import { createSub } from "@/lib/actions/subs";
-import { createVendor } from "@/lib/actions/vendors";
+import { createLeadFromInbox } from "@/lib/actions/leads";
+import { createSubFromInbox } from "@/lib/actions/subs";
+import { createVendorFromInbox } from "@/lib/actions/vendors";
 import {
   inboxContextAction,
   inboxPeopleAction,
@@ -227,9 +227,10 @@ export function MessageTaskDialog({
   onCreated: (todo: InboxTodo) => void;
 }) {
   const [title, setTitle] = useState(
-    () => messageWorkItem(thread, reader, {}).get("title") as string,
+    () => remind ? messageWorkItem(thread, reader, {}).get("title") as string : `Follow up with ${thread.fromName}: ${messageWorkItem(thread, reader, {}).get("title")}`.slice(0,160),
   );
   const [due, setDue] = useState("");
+  const [preset,setPreset]=useState<"tomorrow"|"monday"|"pick">("tomorrow");
   const [job, setJob] = useState(
     thread.projectSlug
       ? `project:${thread.projectSlug}`
@@ -323,21 +324,22 @@ export function MessageTaskDialog({
       {remind ? (
         <>
           <p className="text-body text-ink-2">
-            Due at 8am Central. It appears in Today from midnight Central on its
-            due day.
+            Creates a to-do for {preset==='pick'?(due||'your chosen day'):preset==='tomorrow'?'tomorrow':'Monday'} 8am Central — this conversation stays in your inbox.
           </p>
           <div className="flex flex-wrap gap-2">
             <Button
               variant="secondary"
               icon={Clock}
-              onClick={() => create("tomorrow")}
+              onClick={() => setPreset("tomorrow")}
+              aria-pressed={preset==="tomorrow"}
               disabled={pending}
             >
               Tomorrow · 8am
             </Button>
             <Button
               variant="secondary"
-              onClick={() => create("monday")}
+              onClick={() => setPreset("monday")}
+              aria-pressed={preset==="monday"}
               disabled={pending}
             >
               Monday · 8am
@@ -354,12 +356,13 @@ export function MessageTaskDialog({
           />
         </label>
       )}
+      <blockquote className="max-h-28 overflow-y-auto rounded border-l-2 border-rule bg-paper-2 p-3 text-meta text-ink-2">{[...reader.messages].reverse().find(m=>!m.outbound)?.body.join('\n').slice(0,600)??thread.preview}</blockquote>
       <label className="block text-meta text-ink-3">
         {remind ? "Or pick a day" : "Due day"}
         <input
           type="date"
           value={due}
-          onChange={(e) => setDue(e.target.value)}
+          onChange={(e) => {setDue(e.target.value);setPreset("pick");}}
           className="mt-1 min-h-11 w-full rounded-md border border-rule bg-paper px-3 text-body text-ink"
         />
       </label>
@@ -426,8 +429,8 @@ export function MessageTaskDialog({
         </p>
       )}
       <Button
-        onClick={() => create(remind ? "pick" : undefined)}
-        disabled={pending || (!remind && !title.trim()) || (remind && !due)}
+        onClick={() => create(remind ? preset : undefined)}
+        disabled={pending || (!remind && !title.trim()) || (remind && preset==="pick" && !due)}
       >
         {pending ? "Saving…" : remind ? "Set reminder" : "Create to-do"}
       </Button>
@@ -444,7 +447,7 @@ export function ThreadSummary({ reader }: { reader: ThreadReader }) {
   const [expanded, setExpanded] = useState(true);
   const [error, setError] = useState("");
   const [pending, start] = useTransition();
-  if (reader.messages.length < 4) return null;
+  if (reader.messages.length < 2 && !reader.messages.some(m=>m.body.join("\n").length>600)) return null;
   return (
     <div className="mb-3 rounded-lg border border-ai/25 bg-ai-soft/40 px-3 py-2">
       <div className="flex items-center gap-2">
@@ -511,6 +514,8 @@ export function ContextPanel({
   onClose,
   onLink,
   onSelect,
+  initialData,
+  loadError,
 }: {
   thread: InboxThread;
   threads: InboxThread[];
@@ -518,40 +523,13 @@ export function ContextPanel({
   onLink: () => void;
   onSelect: (id: string) => void;
   initialTab?: "person" | "job";
+  initialData?: InboxContext | null;
+  loadError?:string;
 }) {
-  const [data, setData] = useState<InboxContext | null>(null);
-  const [error, setError] = useState("");
-  const [copied, setCopied] = useState("");
-  const [adding, setAdding] = useState<"lead" | "sub" | "vendor" | null>(null);
-  useEffect(() => {
-    let active = true;
-    setData(null);
-    setError("");
-    inboxContextAction({
-      threadId: thread.id,
-      email: thread.fromEmail,
-      contactKey: thread.contactKey,
-      projectSlug: thread.projectSlug,
-      leadSlug: thread.linkedType === "lead" ? thread.linkedSlug : undefined,
-    })
-      .then((d) => {
-        if (active) setData(d);
-      })
-      .catch(() => {
-        if (active)
-          setError("Could not load context. Close and reopen to try again.");
-      });
-    return () => {
-      active = false;
-    };
-  }, [
-    thread.id,
-    thread.fromEmail,
-    thread.contactKey,
-    thread.projectSlug,
-    thread.linkedType,
-    thread.linkedSlug,
-  ]);
+  const data = initialData;
+  const [error,setError]=useState('');
+  const [copied,setCopied]=useState('');
+  const [adding,setAdding]=useState<'lead'|'sub'|'vendor'|null>(null);
   const related = relatedConversations(threads, {
     threadId: thread.id,
     email: data?.person?.email ?? thread.fromEmail,
@@ -589,12 +567,12 @@ export function ContextPanel({
           />
         </div>
         <div className="space-y-5 overflow-y-auto p-4">
-          {error && (
+          {(error||loadError) && (
             <p role="alert" className="text-meta text-flag">
-              {error}
+              {error||loadError}
             </p>
           )}
-          {!data && !error && (
+          {!data && !error && !loadError && (
             <p className="text-meta text-ink-3">Loading context…</p>
           )}
           {data && (
@@ -786,55 +764,27 @@ export function ContextPanel({
           )}
         </div>
       </aside>
-      {adding && (
-        <InboxDialog title={`Add as ${adding}`} onClose={() => setAdding(null)}>
-          <form
-            action={
-              adding === "lead"
-                ? createLead
-                : adding === "sub"
-                  ? createSub
-                  : createVendor
-            }
-            className="space-y-3"
-          >
-            <label className="block text-meta text-ink-3">
-              Name
-              <input
-                name="name"
-                required
-                defaultValue={thread.fromName}
-                className="mt-1 min-h-11 w-full rounded border border-rule bg-paper px-3 text-body text-ink"
-              />
-            </label>
-            {
-              <label className="block text-meta text-ink-3">
-                Email
-                <input
-                  name="email"
-                  type="email"
-                  defaultValue={thread.fromEmail}
-                  className="mt-1 min-h-11 w-full rounded border border-rule bg-paper px-3 text-body text-ink"
-                />
-              </label>
-            }
-            {adding === "lead" && (
-              <>
-                <input type="hidden" name="source" value="Inbox" />
-                <label className="block text-meta text-ink-3">
-                  Inquiry
-                  <textarea
-                    name="scope"
-                    defaultValue={`${thread.subject}\n${thread.fromEmail ?? ""}`}
-                    className="mt-1 min-h-24 w-full rounded border border-rule bg-paper p-3 text-body text-ink"
-                  />
-                </label>
-              </>
-            )}
-            <Button type="submit">Create {adding}</Button>
-          </form>
-        </InboxDialog>
-      )}
+      {adding && <ContactCreateDialog thread={thread} kind={adding} onClose={() => setAdding(null)} onCreated={() => {setAdding(null); onLink();}} />}
+
     </>
   );
+}
+
+export function ContactCreateDialog({thread,kind,onClose,onCreated}:{thread:InboxThread;kind:'lead'|'sub'|'vendor';onClose:()=>void;onCreated:(slug:string)=>void}) {
+  const [pending,start]=useTransition();
+  const [error,setError]=useState('');
+  const [created,setCreated]=useState(false);
+  return <InboxDialog title={`Add as ${kind}`} onClose={onClose}><form className="space-y-3" action={form=>start(async()=>{
+    setError('');
+    try {
+      const result=await (kind==='lead'?createLeadFromInbox:kind==='sub'?createSubFromInbox:createVendorFromInbox)(form);
+      if(result.slug){setCreated(true);onCreated(result.slug);}else setError('Enter a name.');
+    }catch{setError('Could not create the contact. Check the directory before trying again.');}
+  })}>
+    <label className="block text-meta text-ink-3">Name<input name="name" required defaultValue={thread.fromName} className="mt-1 min-h-11 w-full rounded border border-rule bg-paper px-3 text-body" /></label>
+    <label className="block text-meta text-ink-3">Email<input name="email" type="email" required readOnly defaultValue={thread.fromEmail} className="mt-1 min-h-11 w-full rounded border border-rule bg-paper px-3 text-body" /></label>
+    {kind==='lead'?<><input type="hidden" name="source" value="Inbox"/><label className="block text-meta text-ink-3">Inquiry<textarea name="scope" defaultValue={`${thread.subject}\n${thread.preview}`} className="mt-1 min-h-24 w-full rounded border border-rule bg-paper p-3 text-body" /></label></>:<label className="block text-meta text-ink-3">Trade<input name="trade" className="mt-1 min-h-11 w-full rounded border border-rule bg-paper px-3 text-body" /></label>}
+    {error&&<p role="alert" className="text-meta text-flag">{error}</p>}
+    <Button type="submit" disabled={pending||created}>{pending?'Creating…':`Create ${kind}`}</Button>
+  </form></InboxDialog>;
 }

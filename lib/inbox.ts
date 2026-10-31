@@ -906,6 +906,10 @@ function classifyThread(
   return { audience, projectSlug: project?.slug, projectLabel: project?.label };
 }
 
+// Remember aliases learned from already-fetched envelopes across pagination.
+// No profile/send-as fan-out; never carry addresses between mailboxes.
+const learnedMailboxAliases = new Map<string, Set<string>>();
+
 /** Map a page of raw Gmail threads → InboxThreads (audience/project resolved)
  *  + reader entries. Shared by the first load and "Load more". */
 function mapRawThreads(
@@ -913,7 +917,16 @@ function mapRawThreads(
   labelMap: Map<string, string>,
   contactMaps: ContactMaps,
 ): { threads: InboxThread[]; readerEntries: [string, ThreadReader][] } {
-  const own = [...new Set([activeMailbox()?.email ?? "", ...raw.flatMap(r=>[...(r.ownAddresses ?? []), ...r.messages?.filter(m=>m.outbound).map(m=>m.fromEmail) ?? [], ...(r.outbound ? [r.fromEmail] : [])])].map(emailAddress))];
+  const mailboxKey = mailboxCacheKey();
+  const aliases = learnedMailboxAliases.get(mailboxKey) ?? new Set<string>();
+  for (const r of raw) {
+    for (const address of [...(r.ownAddresses ?? []), ...(r.messages?.filter(m=>m.outbound).map(m=>m.fromEmail) ?? []), ...(r.outbound ? [r.fromEmail] : [])]) {
+      if (aliases.size < 100) aliases.add(emailAddress(address));
+    }
+  }
+  learnedMailboxAliases.set(mailboxKey, aliases);
+  if (learnedMailboxAliases.size > 20) learnedMailboxAliases.delete(learnedMailboxAliases.keys().next().value!);
+  const own = [emailAddress(activeMailbox()?.email ?? ''), ...aliases];
   const threads = raw.map((r) => rawToThread(r, labelMap));
   const knownIds = new Set<string>();
   raw.forEach((r, i) => {

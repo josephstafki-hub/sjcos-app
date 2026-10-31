@@ -374,3 +374,8 @@ export async function sendChannelReplyAction(input: {
     return { ok: false, error: (err as Error).message };
   }
 }
+
+/** Undo archive using the same signed-in mailbox scope. */
+export async function restoreThreadToInboxAction(threadId: string) {
+  return withGmail(()=>modifyThread(threadId,{addLabelIds:['INBOX']}));
+}

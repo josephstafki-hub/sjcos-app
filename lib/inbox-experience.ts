@@ -333,3 +333,24 @@ export async function completeAfterSend(send: () => Promise<CompletionResult>, d
   const completion = await retry();
   return {sent:true, done:completion.ok, error:completion.ok ? undefined : "Sent — couldn't mark done", retry};
 }
+
+/** Apply confirmed choices to all loaded rows while the server refresh arrives. */
+export function applyInboxPreferences(t:InboxThread, preferences:Record<string,string|null>):InboxThread {
+  const senderKey=`sender:${t.fromEmail?.toLowerCase()}`;
+  const threadKey=`thread:${t.id}`;
+  const decision=senderKey in preferences?preferences[senderKey]:t.senderDecision;
+  const override=threadKey in preferences?preferences[threadKey]:undefined;
+  const attentionOverride=override===undefined?t.attentionOverride:override===null?undefined:override==='attention';
+  const attention=Boolean(t.automated&&(attentionOverride??t.attentionRequired));
+  const actionable=attention&&t.inInbox&&t.inboundLast&&t.view!=='snoozed';
+  return {...t,senderDecision:decision??undefined,filedOther:decision==='other',attentionOverride,
+    view:actionable?'needs_reply':t.view,
+    needsMeReason:t.automated?(actionable?`Needs attention · ${t.needsMeReason?.split(' · ').slice(1).join(' · ')||'Marked by you'}`:undefined):t.needsMeReason,
+    newSender:decision==='pending'?t.view==='needs_reply':decision?false:t.newSender};
+}
+
+export function nextNeedsThread(threads:InboxThread[], currentId:string, drafts:ReadonlySet<string>=new Set()):InboxThread|undefined {
+  const queue=threads.filter(t=>matchesInboxTab(t,'needs',drafts.has(t.id))).sort((a,b)=>triageRank(a)-triageRank(b));
+  const index=queue.findIndex(t=>t.id===currentId);
+  return queue.slice(index+1).find(t=>t.id!==currentId)??queue.find(t=>t.id!==currentId);
+}

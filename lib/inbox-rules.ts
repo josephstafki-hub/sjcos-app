@@ -128,7 +128,7 @@ export function automationDetails(email: string, subject: string, snippet: strin
     : /sale|discount|save on|offer|unsubscribe|promotion/i.test(text) ? 'Marketing' : 'Notification';
   // Do not turn routine success confirmations or negated warnings into demands.
   const evidence = text.replace(/\b(?:not|no longer)\s+(?:past due|on hold|suspended)\b/gi, '')
-    .match(/\b(?:payment (?:has )?failed|failed payment|on hold|past due|action required|approval (?:is )?(?:needed|required)|(?:bid|estimate) (?:is )?(?:awaiting|needs?|pending) (?:your )?(?:review|approval)|(?:COI|insurance)(?: coverage| policy)? (?:is )?(?:expiring|expires|expired)|account (?:is |has been )?suspended|verify (?:your )?(?:identity|account|payment|email))\b/i)?.[0];
+    .match(/\b(?:payment (?:has )?failed|failed payment|on hold|past due|action required|approval (?:is )?(?:needed|required)|(?:bid|estimate) (?:is )?(?:awaiting|needs?|pending) (?:your )?(?:review|approval)|(?:COI|insurance)(?: coverage| policy)? (?:is )?(?:expiring|expires|expired)|account (?:is |has been )?suspended|verify(?: (?:your )?(?:identity|account|payment|email))?)\b/i)?.[0];
   return {kind, attention: evidence};
 }
 export function screeningEligible(input: {email: string; inbound: boolean; done: boolean; known: boolean; staff: boolean; automated?: boolean; ownAddresses: string[]; decision?: string}): boolean {

@@ -49,3 +49,9 @@ test("channel done stores the message cutoff, rejects email/invalid versions and
   );
   globalThis.__i2.allowed = true;
 });
+
+test('undo Done preserves the channel record and requires inbox access',async()=>{
+ calls.length=0;assert.equal((await a.undoChannelDoneAction('sms:7')).ok,true);assert.match(calls[0][0],/UPDATE threads SET status='needs_reply'/);assert.doesNotMatch(calls[0][0],/DELETE/);
+ calls.length=0;assert.equal((await a.undoChannelDoneAction('gmail-id')).ok,false);assert.equal(calls.length,0);
+ globalThis.__i2.allowed=false;await assert.rejects(()=>a.undoChannelDoneAction('sms:7'),/Forbidden/);globalThis.__i2.allowed=true;
+});

@@ -225,3 +225,12 @@ test('round 3 preserves action-required automation, excludes done/self/outbound 
  assert.equal(data.threads.find(t=>t.id==='pending').newSender,true);
  globalThis.__queryRows=null;globalThis.__gmail.threads=[];
 });
+
+test('an alias learned on one loaded page is excluded from screening on later pages, scoped to mailbox',async()=>{
+ globalThis.__gmail.threads=[{...email,id:'sent-alias',fromEmail:'second-alias@example.test',outbound:true,toLine:'client@example.test'}];
+ invalidateInboxCache();await getInboxData();
+ globalThis.__gmail.threads=[{...email,id:'self-alias',fromEmail:'second-alias@example.test'}];invalidateInboxCache();
+ assert.equal((await getInboxData()).threads[0].newSender,false);
+ globalThis.__gmail.mailbox='separate@example.test';invalidateInboxCache();assert.equal((await getInboxData()).threads[0].newSender,true);
+ globalThis.__gmail.mailbox='joe@example.test';globalThis.__gmail.threads=[];
+});

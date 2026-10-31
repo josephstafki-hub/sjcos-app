@@ -12,6 +12,8 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import {
+  Sparkles,
+  Paperclip,
   Filter,
   Mail,
   MessageSquare,
@@ -66,6 +68,7 @@ import {
   setThreadReadAction,
   setThreadImportantAction,
   archiveThreadAction,
+  restoreThreadToInboxAction,
   trashThreadAction,
   loadMoreInboxAction,
   loadLabelInboxAction,
@@ -74,6 +77,7 @@ import {
   unlinkThread,
   disconnectMyMailboxAction,
 } from "@/lib/actions/inbox";
+import {toast,dismissToast} from "@/components/ui/Toast";
 import { runAction } from "@/lib/run-action";
 import type { ThreadChannel, ThreadStatus, SystemViewKey } from "@/lib/types";
 import { SYSTEM_VIEWS } from "@/lib/types";
@@ -88,9 +92,10 @@ import type {
 import {
   INBOX_TABS,
   triageRank,
-  readOtherSenders,
-  rememberOtherSender,
-  applySenderPreference,
+  nextNeedsThread,
+  applyInboxPreferences,
+  contextStripText,
+  completeAfterSend,
   shortJobLabel,
   formatContactPhone,
   matchesInboxTab,
@@ -102,8 +107,11 @@ import {
   type InboxTab,
   type SavedInboxDraft,
 } from "@/lib/inbox-experience";
-import { markChannelDoneAction } from "@/lib/actions/inbox-experience";
+import { setInboxPreferenceAction } from "@/lib/actions/inbox-screening";
+import type { InboxContext } from "@/lib/inbox-context";
+import { inboxContextAction, undoChannelDoneAction, markChannelDoneAction } from "@/lib/actions/inbox-experience";
 import {
+  ContactCreateDialog,
   ContextPanel,
   LinkPicker,
   MessageTaskDialog,
@@ -212,6 +220,25 @@ export function InboxClient({
   const rootRef = useRef<HTMLDivElement>(null);
   const [context, setContext] = useState<"person" | "job" | null>(null);
   const [linking, setLinking] = useState(false);
+  const [screeningThread,setScreeningThread]=useState<InboxThread|null>(null);
+  const [adding,setAdding]=useState<{thread:InboxThread;kind:'lead'|'sub'|'vendor'}|null>(null);
+  const [contextError,setContextError]=useState("");
+  const [contextData,setContextData]=useState<InboxContext|null>(null);
+  const [wideContext,setWideContext]=useState(false);
+  const [contextPreference,setContextPreference]=useState(true);
+  const tabsRef=useRef<HTMLDivElement>(null);
+  useEffect(()=>{try{setContextPreference(localStorage.getItem('sjc:inbox:context')!=='closed');}catch{}},[]);
+  useEffect(()=>{
+    const root=rootRef.current;
+    const container=root?.closest('.\\@container\\/page') ?? root?.parentElement;
+    if(!container)return;
+    const observer=new ResizeObserver(([entry])=>setWideContext(entry.contentRect.width>=1280));
+    observer.observe(container);return ()=>observer.disconnect();
+  },[]);
+  useEffect(()=>{tabsRef.current?.querySelector('[aria-pressed="true"]')?.scrollIntoView({block:'nearest',inline:'nearest'});},[tab]);
+  function closeContext(){setContext(null);if(wideContext){setContextPreference(false);try{localStorage.setItem('sjc:inbox:context','closed');}catch{}}}
+  function openContext(){setContext('job');if(wideContext){setContextPreference(true);try{localStorage.setItem('sjc:inbox:context','open');}catch{}}}
+
   const [task, setTask] = useState<{
     thread: InboxThread;
     remind: boolean;
@@ -249,7 +276,7 @@ export function InboxClient({
     [],
   );
   const [threads, setThreads] = useState(data.threads);
-  const [otherSenders, setOtherSenders] = useState<Set<string>>(new Set());
+  const [preferences,setPreferences]=useState<Record<string,string|null>>({});
   const [readers, setReaders] = useState(data.readers);
   const [pageToken, setPageToken] = useState(data.nextPageToken);
   const [pagePausedAt, setPagePausedAt] = useState<number | null>(null);
@@ -300,9 +327,15 @@ export function InboxClient({
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [undo,setUndo]=useState<{label:string;run:()=>Promise<void>}|null>(null);
   // Optimistic star state, keyed by thread id, until the revalidate lands.
   const [starOverride, setStarOverride] = useState<Record<string, boolean>>({});
   const [pending, startTransition] = useTransition();
+  useEffect(()=>{
+    if(!undo)return;
+    const id=toast({kind:'success',message:'Inbox updated.',sticky:15000,action:{label:undo.label,onClick:()=>startTransition(undo.run)}});
+    return ()=>dismissToast(id);
+  },[undo]);
 
   useEffect(() => {
     try {
@@ -319,39 +352,19 @@ export function InboxClient({
     } catch {}
   }, [selfEmail, threads, remoteData]);
 
-  useEffect(() => {
-    // A mailbox switch must never carry another account's screening choices.
-    try {
-      const emails = [...threads, ...(remoteData?.threads ?? [])]
-        .map((t) => t.fromEmail)
-        .filter((email): email is string => Boolean(email));
-      setOtherSenders(readOtherSenders(localStorage, selfEmail, emails));
-    } catch {
-      setOtherSenders(new Set());
+  useEffect(()=>setPreferences({}),[selfEmail]);
+  async function savePreference(thread:InboxThread,kind:'sender'|'thread',decision:string|null, offerUndo=true) {
+    const target=kind==='sender'?thread.fromEmail:thread.id;if(!target)return false;
+    const r=await runAction(()=>setInboxPreferenceAction(kind,target,decision),{fallback:'Could not save your decision.'});
+    if(!r.ok){setNotice(r.error??'Could not save your decision.');return false;}
+    setPreferences(p=>({...p,[`${kind}:${kind==='sender'?target.toLowerCase():target}`]:decision}));
+    if(offerUndo){
+      setNotice(decision==='other'?'Filed in Other.':'Screening decision saved.');
+      setUndo({label:'Undo',run:async()=>{if(await savePreference(thread,kind,r.previous??null,false)){setNotice('Decision undone.');setUndo(null);}}});
     }
-  }, [selfEmail, threads, remoteData]);
-  function fileSender(thread: InboxThread, other: boolean) {
-    if (!thread.fromEmail) return;
-    const email = thread.fromEmail.toLowerCase();
-    setOtherSenders((previous) => {
-      const next = new Set(previous);
-      if (other) next.add(email);
-      else next.delete(email);
-      return next;
-    });
-    try {
-      if (!rememberOtherSender(localStorage, selfEmail, email, other))
-        setNotice(
-          "Browser storage is unavailable. This choice may reset on refresh.",
-        );
-    } catch {
-      setNotice(
-        "Browser storage is unavailable. This choice may reset on refresh.",
-      );
-    }
-    setTab(other ? "other" : "new");
-    setSelectedId(thread.id);
+    router.refresh();return true;
   }
+  function fileSender(thread:InboxThread,other:boolean){startTransition(async()=>{await savePreference(thread,'sender',other?'other':null);});}
 
   // Threads under the current lens, before the audience filter is applied.
   const sourceVisible = useMemo(() => {
@@ -395,16 +408,7 @@ export function InboxClient({
     }
   }, [threads, lens, remoteData, draftIds]);
 
-  const baseVisible = useMemo(
-    () =>
-      sourceVisible.map((t) =>
-        applySenderPreference(
-          t,
-          Boolean(t.fromEmail && otherSenders.has(t.fromEmail.toLowerCase())),
-        ),
-      ),
-    [sourceVisible, otherSenders],
-  );
+  const baseVisible=useMemo(()=>sourceVisible.map(t=>applyInboxPreferences(t,preferences)),[sourceVisible,preferences]);
 
   const visible = useMemo(
     () =>
@@ -412,11 +416,12 @@ export function InboxClient({
         .filter(
           (t) =>
             (!tab || matchesInboxTab(t, tab, draftIds.has(t.id))) &&
-            `${t.fromName} ${t.subject} ${t.preview} ${t.projectLabel ?? ""}`
+            `${t.fromName} ${t.fromEmail??""} ${t.subject} ${t.preview} ${t.projectLabel ?? ""}`
               .toLowerCase()
               .includes(query.toLowerCase()),
         )
-        .sort((a, b) => triageRank(a) - triageRank(b)),
+        .sort((a, b) => triageRank(a) - triageRank(b))
+        .filter((t,i,all)=>tab!=='new'||all.findIndex(other=>other.fromEmail?.toLowerCase()===t.fromEmail?.toLowerCase())===i),
     [baseVisible, tab, draftIds, query],
   );
   // Count of threads sitting in the Gmail inbox (the plain "Inbox" rail view).
@@ -433,19 +438,27 @@ export function InboxClient({
   const selected =
     visible.find((t) => t.id === selectedId) ?? visible[0] ?? null;
   const reader = selected ? readers[selected.id] : undefined;
+  useEffect(()=>{
+    let active=true;setContextData(null);setContextError("");
+    if(selected)inboxContextAction({threadId:selected.id,email:selected.fromEmail,contactKey:selected.contactKey,projectSlug:selected.projectSlug,leadSlug:selected.linkedType==='lead'?selected.linkedSlug:undefined}).then(d=>{if(active)setContextData(d);}).catch(()=>{if(active)setContextError('Could not load context. Select this conversation again to retry.');});
+    return ()=>{active=false;};
+  },[selected?.id,selected?.projectSlug,selected?.linkedSlug,selected?.contactKey]);
   // Email gets its mailbox controls; every channel has its own reply adapter.
   const readerIsEmail = (reader?.channel ?? "email") === "email";
 
   const linkOptions = data.linkOptions;
+  const linkTarget=screeningThread??selected;
   const currentLink =
-    selected?.linkedType && selected?.linkedSlug
-      ? `${selected.linkedType}:${selected.linkedSlug}`
+    linkTarget?.linkedType && linkTarget?.linkedSlug
+      ? `${linkTarget.linkedType}:${linkTarget.linkedSlug}`
       : "";
 
   // A shared link is stored through the existing inbox link action on every channel.
   function relink(next: string) {
-    if (!selected) return;
-    const id = selected.id;
+    if (!linkTarget) return;
+    const target=linkTarget;
+    const id = target.id;
+    const previousLink=currentLink;
     const [type, slug] = next.split(":") as ["project" | "lead", string];
     const option = (
       type === "project" ? linkOptions?.projects : linkOptions?.leads
@@ -459,6 +472,16 @@ export function InboxClient({
         setNotice(r.error ?? "Could not link this conversation.");
         return;
       }
+      if(next && target.fromEmail){
+        const screened=await savePreference(target,'sender','linked',false);
+        setNotice(screened?'Sender linked.':"Linked to the job; couldn't save the screening decision.");
+        setUndo({label:'Undo',run:async()=>{
+          const [oldType,oldSlug]=previousLink.split(':') as ['project'|'lead',string];
+          const result=await runAction(()=>previousLink?linkThread(id,oldType,oldSlug):unlinkThread(id),{fallback:'Could not undo link.'});
+          if(result.ok){if(await savePreference(target,'sender',target.senderDecision??'pending',false)){setNotice('Link undone.');setUndo(null);}router.refresh();}else setNotice(result.error??'Could not undo link.');
+        }});
+      }
+      setScreeningThread(null);
       const patch = (t: InboxThread): InboxThread =>
         t.id !== id
           ? t
@@ -684,39 +707,23 @@ export function InboxClient({
   };
 
   // Confirm the existing archive/handled path before updating the visible list.
-  function doneThread(t: InboxThread) {
-    startTransition(async () => {
-      const r = await runAction(
-        () =>
-          t.channel === "email"
-            ? archiveThreadAction(t.id)
-            : markChannelDoneAction(
-                t.id,
-                readers[t.id]?.messages.at(-1)?.date ?? 0,
-              ),
-        { fallback: "Could not mark done." },
-      );
-      if (!r.ok) {
-        setNotice(r.error ?? "Could not mark done.");
-        return;
-      }
-      const patch = (v: InboxThread) =>
-        v.id === t.id
-          ? {
-              ...v,
-              inInbox: false,
-              view: "done" as const,
-              needsMeReason: undefined,
-            }
-          : v;
-      setThreads((ts) => ts.map(patch));
-      setRemoteData((d) => (d ? { ...d, threads: d.threads.map(patch) } : d));
-      setMobileReader(false);
-      router.refresh();
-    });
+  async function doneThread(t: InboxThread, sent=false) {
+    const r=await runAction(()=>t.channel==='email'?archiveThreadAction(t.id):markChannelDoneAction(t.id,readers[t.id]?.messages.at(-1)?.date??0),{fallback:'Could not mark done.'});
+    if(!r.ok){setNotice(sent?"Sent — couldn't mark done":r.error??'Could not mark done.');return r;}
+    const next=nextNeedsThread(threads.map(t=>applyInboxPreferences(t,preferences)),t.id,draftIds);
+    const patch=(v:InboxThread)=>v.id===t.id?{...v,inInbox:false,view:'done' as const,needsMeReason:undefined,newSender:false}:v;
+    setThreads(ts=>ts.map(patch));setRemoteData(d=>d?{...d,threads:d.threads.map(patch)}:d);
+    if(sent){setLens({kind:'all'});setTab('needs');setSelectedId(next?.id??'');setMobileReader(Boolean(next));}
+    else setMobileReader(false);
+    setNotice(sent?'Sent and marked done.':'Marked done.');
+    setUndo({label:'Undo',run:async()=>{
+      const result=await runAction(()=>t.channel==='email'?restoreThreadToInboxAction(t.id):undoChannelDoneAction(t.id),{fallback:'Could not undo Done.'});
+      if(result.ok){setThreads(ts=>ts.map(v=>v.id===t.id?t:v));setRemoteData(d=>d?{...d,threads:d.threads.map(v=>v.id===t.id?t:v)}:d);setNotice('Done undone.');setUndo(null);setSelectedId(t.id);router.refresh();}else setNotice(result.error??'Could not undo Done.');
+    }});
+    router.refresh();return {ok:true};
   }
   const archiveSelected = () => {
-    if (selected) doneThread(selected);
+    if (selected) startTransition(async()=>{await doneThread(selected);});
   };
   function navigate(delta: number) {
     const i = visible.findIndex((t) => t.id === selected?.id);
@@ -734,7 +741,7 @@ export function InboxClient({
       if (e.key === "Escape") {
         setMenuOpen(false);
         setShowSources(false);
-        setContext(null);
+        closeContext();
         return;
       }
       const action = shortcutFor({
@@ -796,7 +803,7 @@ export function InboxClient({
         >
           Views
         </Button>
-        <div className="order-last w-full overflow-x-auto @4xl/page:order-none @4xl/page:w-auto @4xl/page:flex-1">
+        <div ref={tabsRef} className="order-last w-full min-w-0 overflow-x-auto [mask-image:linear-gradient(to_right,black_94%,transparent)] @4xl/page:order-none @4xl/page:w-auto @4xl/page:flex-1">
           <Segmented
             aria-label="Inbox splits"
             value={tab ?? ""}
@@ -808,7 +815,7 @@ export function InboxClient({
               ...t,
               count: emailPaused ? "—" : counts[t.value],
             }))}
-            className="h-11 [&_button]:h-11 @4xl/page:h-8 @4xl/page:[&_button]:h-7"
+            className="w-max !max-w-none !overflow-visible h-11 [&_button]:shrink-0 [&_button]:h-11 @4xl/page:h-8 @4xl/page:[&_button]:h-7"
           />
         </div>
         <label className="flex min-h-11 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-rule bg-card px-2 @4xl/page:min-h-8 @4xl/page:w-28 @4xl/page:flex-none">
@@ -846,8 +853,9 @@ export function InboxClient({
           className="flex items-center gap-2 border-b border-rule bg-paper-2 px-4 py-2 text-meta text-ink-2"
         >
           <span className="flex-1">{notice}</span>
+          {undo&&<Button variant="ghost" onClick={()=>startTransition(undo.run)} disabled={pending}>{undo.label}</Button>}
           <Button
-            onClick={() => setNotice(null)}
+            onClick={() => {setNotice(null);setUndo(null);}}
             icon={X}
             iconOnly
             aria-label="Dismiss notice"
@@ -1134,6 +1142,7 @@ export function InboxClient({
               </Button>
             </div>
           )}
+          {tab==="new"&&<p className="border-b border-rule-soft px-3 py-2 text-meta text-ink-3">{counts.new} new {counts.new===1?"sender":"senders"}</p>}
           <div className="min-h-0 flex-1 overflow-y-auto">
             {remoteLoading && visible.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
@@ -1169,9 +1178,10 @@ export function InboxClient({
                 )}
               </div>
             ) : (
-              visible.map((t) => (
+              visible.map((t,i) => (
+                <div key={t.id}>
+                {(i===0||rowDay(t)!==rowDay(visible[i-1]))&&<p className="border-b border-rule-soft bg-paper-2 px-3 py-1.5 text-meta font-semibold text-ink-3">{rowDay(t)}</p>}
                 <ThreadRow
-                  key={t.id}
                   thread={
                     draftIds.has(t.id) &&
                     !t.automated &&
@@ -1181,13 +1191,17 @@ export function InboxClient({
                       : t
                   }
                   selected={selected?.id === t.id}
-                  onDone={() => doneThread(t)}
+                  onDone={() => startTransition(async()=>{await doneThread(t);})}
                   onRemind={() => setTask({ thread: t, remind: true })}
+                  onScreen={t.newSender?()=>{setScreeningThread(t);setLinking(true);}:undefined}
+                  onAdd={t.newSender?kind=>setAdding({thread:t,kind}):undefined}
+                  onOther={t.newSender?()=>fileSender(t,true):undefined}
                   onSelect={() => {
                     setSelectedId(t.id);
                     setMobileReader(true);
                   }}
                 />
+                </div>
               ))
             )}
 
@@ -1393,59 +1407,15 @@ export function InboxClient({
                   <h1 className="line-clamp-2 font-serif text-title font-medium leading-tight text-accent-2">
                     {reader.subject}
                   </h1>
-                  <div className="mt-2 flex min-w-0 items-center gap-2">
-                    <button
-                      onClick={() =>
-                        setContext(selected.projectLabel ? "job" : "person")
-                      }
-                      title="Contact, job, money and open to-dos"
-                      className="inline-flex min-h-11 min-w-0 max-w-full items-center gap-1.5 rounded-full border border-rule bg-card px-2.5 text-meta text-ink-2 @4xl/page:min-h-8"
-                    >
-                      <LinkIcon className="size-3 shrink-0" />
-                      <span className="truncate">
-                        {selected.projectLabel
-                          ? shortJobLabel(selected.projectLabel)
-                          : `${selected.fromName} · ${selected.contactRole ?? "New sender"}`}
-                        {selected.contactStage
-                          ? ` · ${selected.contactStage}`
-                          : ""}
-                      </span>
-                    </button>
-                    {!selected.projectLabel && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setLinking(true)}
-                        className="hidden @4xl/page:inline-flex"
-                      >
-                        Link to job / lead
-                      </Button>
-                    )}
-                  </div>
-                  {(selected.newSender || selected.filedOther) &&
-                    selected.fromEmail &&
-                    !selected.automated && (
-                      <div className="mt-1 flex flex-wrap items-center gap-2 text-meta text-ink-3">
-                        <span className="min-w-0 break-all">
-                          {selected.filedOther
-                            ? "Filed in Other"
-                            : "New sender"}{" "}
-                          · {selected.fromEmail}
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            fileSender(selected, !selected.filedOther)
-                          }
-                          className="min-h-11"
-                        >
-                          {selected.filedOther
-                            ? "Undo → New senders"
-                            : "Not important → Other"}
-                        </Button>
-                      </div>
-                    )}
+                  <button onClick={openContext} title="Open contact, job, money and to-dos" className="mt-2 flex min-h-11 w-full items-center gap-2 rounded-md border border-rule bg-card px-3 text-left text-meta text-ink-2 @4xl/page:min-h-8">
+                    <span className="min-w-0 flex-1 line-clamp-2">{contextStripText(selected,contextData)}</span><ChevronRight className="size-3.5 shrink-0"/>
+                  </button>
+                  {selected.automated&&<div className="mt-1 flex flex-wrap items-center gap-2 text-meta text-ink-3"><span>{selected.automationKind??'Notification'}{(selected.attentionOverride??selected.attentionRequired)?' · Needs attention':''}</span><Button variant="ghost" size="sm" disabled={pending} onClick={()=>startTransition(async()=>{await savePreference(selected,'thread',(selected.attentionOverride??selected.attentionRequired)?'other':'attention');})}>{(selected.attentionOverride??selected.attentionRequired)?'Keep in Other':'Needs my attention'}</Button></div>}
+                  {(selected.newSender||selected.senderDecision)&&selected.fromEmail&&!selected.automated&&<div className="mt-1 flex flex-wrap items-center gap-1 text-meta text-ink-3">
+                    <span className="w-full break-all">{selected.newSender?'New sender':`Screened: ${selected.senderDecision}`} · {selected.fromEmail}</span>
+                    {selected.newSender?<><Button variant="secondary" size="sm" onClick={()=>{setScreeningThread(selected);setLinking(true);}}>Link to existing</Button>{(['lead','sub','vendor'] as const).map(kind=><Button key={kind} variant="ghost" size="sm" onClick={()=>setAdding({thread:selected,kind})}>Add as {kind}</Button>)}<Button variant="ghost" size="sm" onClick={()=>fileSender(selected,true)}>Other</Button></>:<Button variant="ghost" size="sm" onClick={()=>startTransition(async()=>{if(await savePreference(selected,'sender','pending'))setTab('new');})}>Undo screening</Button>}
+                  </div>}
+
                 </div>
               </div>
 
@@ -1455,7 +1425,9 @@ export function InboxClient({
                   reader={reader}
                   todos={selected.todos}
                   threadId={selected.id}
+                  needsAttention={selected.attentionOverride??selected.attentionRequired}
                   onDone={archiveSelected}
+                  onSendDone={()=>doneThread(selected,true)}
                   onDraftReady={onDraftReady}
                   mailbox={selfEmail}
                 />
@@ -1466,6 +1438,7 @@ export function InboxClient({
                   todos={selected.todos}
                   threadId={selected.id}
                   visible={mobileReader}
+                  onSendDone={()=>doneThread(selected,true)}
                   mailbox={selfEmail}
                 />
               )}
@@ -1473,13 +1446,15 @@ export function InboxClient({
           )}
         </section>
 
-        {context && selected && (
+        {(context || wideContext && contextPreference) && selected && (
           <ContextPanel
             key={`${selected.id}:${context}`}
             thread={selected}
             threads={threads}
-            initialTab={context}
-            onClose={() => setContext(null)}
+            initialTab={context??"job"}
+            initialData={contextData}
+            loadError={contextError}
+            onClose={closeContext}
             onLink={() => setLinking(true)}
             onSelect={(id) => {
               setLens({ kind: "all" });
@@ -1496,9 +1471,15 @@ export function InboxClient({
           options={linkOptions}
           value={currentLink}
           onPick={relink}
-          onClose={() => setLinking(false)}
+          onClose={() => {setLinking(false);setScreeningThread(null);}}
         />
       )}
+      {adding&&<ContactCreateDialog thread={adding.thread} kind={adding.kind} onClose={()=>setAdding(null)} onCreated={slug=>{
+        const {thread,kind}=adding;setAdding(null);
+        const patch=(t:InboxThread)=>t.fromEmail===thread.fromEmail?{...t,newSender:false,contactRole:kind,contactKey:`${kind}:${slug}`}:t;
+        setThreads(ts=>ts.map(patch));
+        startTransition(async()=>{const screened=await savePreference(thread,'sender',kind,false);setNotice(screened?`Added as ${kind}. Undo screening keeps the contact in your directory.`:`Contact created; couldn't save the screening decision.`);setUndo({label:'Undo screening',run:async()=>{if(await savePreference(thread,'sender','pending',false)){setTab('new');setUndo(null);setNotice('Screening undone; contact kept.');}}});});
+      }}/>}
       {help && <ShortcutHelp onClose={() => setHelp(false)} />}
       {task && readers[task.thread.id] && (
         <MessageTaskDialog
@@ -1617,11 +1598,11 @@ function ComposeModal({
           {error && <p className="text-meta text-flag">{error}</p>}
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <Button
-              onClick={send}
+              onClick={()=>send()}
               icon={Send}
               disabled={!to.trim() || !body.trim() || sending || sent}
             >
-              {sent ? "Sent ✓" : sending ? "Sending…" : "Send"}
+              {sent ? "Sent ✓" : sending ? "Sending…" : "Send email"}
             </Button>
             <VoiceButton
               compact
@@ -1671,14 +1652,25 @@ function EmailHtml({ html }: { html: string }) {
       );
     };
     fit();
+    // Gmail's attribution is often a sibling immediately before the blockquote.
+    inner.current?.querySelectorAll('blockquote').forEach(quote=>{
+      const before=quote.previousElementSibling;
+      if(before&&/^On [\s\S]{4,400}wrote:\s*$/.test(before.textContent?.trim()??''))quote.prepend(before);
+      const gmailQuote=quote.parentElement?.classList.contains('gmail_quote')?quote.parentElement:null;
+      if(gmailQuote)gmailQuote.querySelectorAll('.gmail_attr').forEach(attr=>quote.prepend(attr));
+    });
     setHasQuote(!!inner.current?.querySelector("blockquote"));
     const ro = new ResizeObserver(fit);
     if (outer.current) ro.observe(outer.current);
     const imgs = Array.from(inner.current?.querySelectorAll("img") ?? []);
-    imgs.forEach((im) => im.addEventListener("load", fit));
+    const failed=(event:Event)=>{
+      const im=event.target as HTMLImageElement;
+      const placeholder=document.createElement('span');placeholder.className='inline-block rounded border border-rule px-2 py-1 text-meta text-ink-3';placeholder.textContent=im.alt?`Image unavailable · ${im.alt}`:'Image unavailable';im.replaceWith(placeholder);fit();
+    };
+    imgs.forEach(im=>{im.addEventListener('load',fit);im.addEventListener('error',failed);if(im.complete&&im.naturalWidth===0)failed({target:im} as unknown as Event);});
     return () => {
       ro.disconnect();
-      imgs.forEach((im) => im.removeEventListener("load", fit));
+      imgs.forEach(im=>{im.removeEventListener('load',fit);im.removeEventListener('error',failed);});
     };
   }, [html]);
   return (
@@ -1816,12 +1808,14 @@ function ChannelReaderBody({
   todos,
   threadId,
   visible,
+  onSendDone,
   mailbox = "",
 }: {
   reader: ThreadReader;
   todos?: InboxTodo[];
   threadId: string;
   visible?: boolean;
+  onSendDone?:()=>Promise<{ok:boolean;error?:string}>;
   mailbox?: string;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
@@ -1832,6 +1826,7 @@ function ChannelReaderBody({
   useReplyShortcut(replyRef);
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
+  const [retryDone,setRetryDone]=useState<null|(()=>Promise<{ok:boolean;error?:string}>)>(null);
   const [pending, start] = useTransition();
   const router = useRouter();
   const chat = reader.channel !== "site_form";
@@ -1840,14 +1835,15 @@ function ChannelReaderBody({
       scroller.current.scrollTop = scroller.current.scrollHeight;
   }, [chat, threadId, reader.messages, visible]);
   const canReply = chat || Boolean(reader.messages[0]?.fromEmail);
-  function send() {
+  function send(andDone=false) {
     setError("");
     start(async () => {
-      const r = await runAction(
+      const r = await completeAfterSend(()=>runAction(
         () => sendChannelReplyAction({ threadId, body }),
         { fallback: "Could not send your reply." },
-      );
-      if (r.ok) {
+      ),andDone?onSendDone:undefined);
+      if (r.sent) {
+        if(r.error){setError(r.error);setRetryDone(()=>r.retry??null);}
         saved.clear();
         setSent(true);
         router.refresh();
@@ -2022,15 +2018,17 @@ function ChannelReaderBody({
               )}
               <div className="flex-1" />
               <Button
-                onClick={send}
+                onClick={()=>send()}
                 disabled={!body.trim() || pending}
                 icon={Send}
               >
-                {pending ? "Sending…" : "Send"}
+                {pending ? "Sending…" : reader.channel==="sms"?"Send text":reader.channel==="site_form"?"Send email":"Post to portal"}
               </Button>
+              {onSendDone&&<Button variant="secondary" disabled={!body.trim()||pending} onClick={()=>send(true)}>Send &amp; Done</Button>}
             </div>
           </>
         )}
+        {retryDone&&<Button variant="secondary" disabled={pending} onClick={()=>start(async()=>{const r=await retryDone();if(r.ok){setRetryDone(null);setError('');}else setError("Sent — couldn't mark done");})}>Retry marking done</Button>}
         {sent && (
           <p role="status" className="mt-2 text-meta text-accent-2">
             {reader.channel === "site_form"
@@ -2059,18 +2057,28 @@ function ChannelReaderBody({
   );
 }
 
+function rowDay(thread:InboxThread):string {
+  if(!thread.receivedAt)return /am|pm/.test(thread.when)?'Today':thread.when==='Yesterday'?'Yesterday':'Earlier';
+  const day=(date:Date)=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago'}).format(date);
+  const now=new Date();const yesterday=new Date(now);yesterday.setDate(now.getDate()-1);
+  return day(new Date(thread.receivedAt))===day(now)?'Today':day(new Date(thread.receivedAt))===day(yesterday)?'Yesterday':'Earlier';
+}
 function ThreadRow({
   thread,
   selected,
   onSelect,
   onDone,
   onRemind,
+  onScreen, onAdd, onOther,
 }: {
   thread: InboxThread;
   selected: boolean;
   onSelect: () => void;
   onDone?: () => void;
   onRemind?: () => void;
+  onScreen?:()=>void;
+  onAdd?:(kind:"lead"|"sub"|"vendor")=>void;
+  onOther?:()=>void;
 }) {
   const Icon = CHANNEL_ICON[thread.channel];
   const [rowMenu, setRowMenu] = useState(false);
@@ -2086,7 +2094,7 @@ function ThreadRow({
         data-thread-row={thread.id}
         onClick={onSelect}
         aria-current={selected ? "true" : undefined}
-        className="flex min-h-16 w-full items-start gap-2 px-3 py-2 text-left [@media(hover:none)]:pr-14"
+        className="flex min-h-16 w-full items-start gap-2 px-3 py-2 text-left pr-24 [@media(hover:none)]:pr-14"
       >
         <span className="relative mt-1 shrink-0">
           <Avatar initials={thread.initials} kind={needs ? "accent" : "gray"} />
@@ -2100,7 +2108,7 @@ function ThreadRow({
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
             <span
-              className={`min-w-0 flex-1 break-words text-label ${thread.unread ? "font-bold text-ink" : needs ? "font-semibold text-ink" : "text-ink-2"}`}
+              className={`min-w-0 flex-1 truncate text-label ${thread.unread ? "font-bold text-ink" : needs ? "font-semibold text-ink" : "text-ink-2"}`}
             >
               {thread.fromName}
             </span>
@@ -2110,7 +2118,7 @@ function ThreadRow({
                 className="size-1.5 shrink-0 rounded-full bg-accent"
               />
             )}
-            <span className="shrink-0 text-meta text-ink-3">{thread.when}</span>
+            <span className="absolute right-3 top-2 shrink-0 text-meta text-ink-3 [@media(hover:none)]:right-14">{thread.when}</span>
           </span>
           <span className="flex min-w-0 items-center gap-1.5">
             <span
@@ -2118,7 +2126,7 @@ function ThreadRow({
             >
               {thread.needsMeReason ??
                 (thread.automated
-                  ? "Automated message"
+                  ? thread.automationKind ?? "Notification"
                   : thread.view === "done"
                     ? "Handled"
                     : thread.view === "awaiting_them"
@@ -2142,12 +2150,15 @@ function ThreadRow({
               />
             )}
           </span>
+          {thread.newSender&&<span className="block break-all text-meta text-ink-3">{thread.fromEmail}</span>}
           <span className="block truncate text-meta text-ink-3">
-            {thread.preview || thread.subject}
+            {thread.newSender?thread.subject:thread.preview || thread.subject}
           </span>
+          {thread.todos?.[0]&&<span className="mt-1 flex min-w-0 justify-end gap-2 text-meta text-accent-2"><span className="truncate">{thread.todos[0].title}</span><span className="shrink-0">{thread.todos[0].due_at?new Date(thread.todos[0].due_at).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:'America/Chicago'}):'No due day'}</span></span>}
         </span>
       </button>
-      <div className="absolute bottom-1 right-2 hidden items-center rounded-md border border-rule bg-card shadow-card group-hover:flex group-focus-within:flex [@media(hover:none)]:hidden">
+      {onScreen&&<div className="flex flex-wrap gap-1 px-3 pb-2"><Button variant="secondary" size="sm" onClick={onScreen}>Link to existing</Button>{(['lead','sub','vendor'] as const).map(kind=><Button key={kind} variant="ghost" size="sm" onClick={()=>onAdd?.(kind)}>Add as {kind}</Button>)}<Button variant="ghost" size="sm" onClick={onOther}>Other</Button></div>}
+      <div className="absolute top-8 right-2 hidden items-center rounded-md border border-rule bg-card shadow-card group-hover:flex group-focus-within:flex [@media(hover:none)]:hidden">
         <Button
           variant="ghost"
           size="sm"
@@ -2264,7 +2275,7 @@ function EmailMessageCard({
         <div className="border-t border-rule-soft px-3 py-3">
           <details className="mb-2 break-words text-meta text-ink-3">
             <summary className="min-h-11 cursor-pointer py-2 text-meta">
-              Message details · To: {message.to}
+              Message details
             </summary>
             <p>
               {message.fromName} {message.fromEmail && `<${message.fromEmail}>`}
@@ -2290,7 +2301,7 @@ function EmailMessageCard({
                   key={a.id || i}
                   className="break-words text-meta text-ink-2"
                 >
-                  {a.name} · {Math.ceil(a.size / 1024)} KB · {a.type}
+                  <div className="flex min-w-0 flex-wrap items-center gap-2"><Paperclip className="size-3.5 shrink-0"/><span className="min-w-0 flex-1 break-all">{a.name} · {Math.ceil(a.size / 1024)} KB</span>{message.id&&a.id&&<><a className="inline-flex min-h-11 items-center px-2 text-accent-2 underline" target="_blank" rel="noopener noreferrer" href={`/api/inbox/attachment?${new URLSearchParams({thread:threadId,message:message.id,attachment:a.id})}`}>Open</a><a className="inline-flex min-h-11 items-center px-2 text-accent-2 underline" href={`/api/inbox/attachment?${new URLSearchParams({thread:threadId,message:message.id,attachment:a.id,download:'1'})}`}>Download</a></>}</div>
                 </li>
               ))}
             </ul>
@@ -2310,6 +2321,8 @@ function ReaderBody({
   todos,
   threadId,
   onDone,
+  onSendDone,
+  needsAttention,
   onDraftReady,
   mailbox = "",
 }: {
@@ -2317,6 +2330,8 @@ function ReaderBody({
   todos?: InboxTodo[];
   threadId: string;
   onDone?: () => void;
+  onSendDone?:()=>Promise<{ok:boolean;error?:string}>;
+  needsAttention?:boolean;
   onDraftReady?: (id: string, ready: boolean) => void;
   mailbox?: string;
 }) {
@@ -2349,6 +2364,7 @@ function ReaderBody({
   const [draftOpen, setDraftOpen] = useState(false);
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
+  const [retryDone,setRetryDone]=useState<null|(()=>Promise<{ok:boolean;error?:string}>)>(null);
   const [drafting, startDraft] = useTransition();
   const [sending, startSend] = useTransition();
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -2425,10 +2441,10 @@ function ReaderBody({
     setError("");
     onDraftReady?.(threadId, false);
   }
-  function send() {
+  function send(andDone=false) {
     setError("");
     startSend(async () => {
-      const r = await runAction(
+      const r = await completeAfterSend(()=>runAction(
         () =>
           sendReplyAction({
             threadId,
@@ -2438,8 +2454,9 @@ function ReaderBody({
             body: draft,
           }),
         { fallback: "Send failed." },
-      );
-      if (r.ok) {
+      ),andDone?onSendDone:undefined);
+      if (r.sent) {
+        if(r.error){setError(r.error);setRetryDone(()=>r.retry??null);}
         saved.clear();
         setSent(true);
         setDraftOpen(false);
@@ -2486,13 +2503,14 @@ function ReaderBody({
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <Button
           data-draft-send
-          onClick={send}
+          onClick={()=>send()}
           disabled={!hasDraft || !toEmail.trim() || sending || drafting}
           icon={Send}
           className="min-h-11 @4xl/page:min-h-8"
         >
-          {sending ? "Sending…" : "Send"}
+          {sending ? "Sending…" : "Send email"}
         </Button>
+        {onSendDone&&<Button variant="secondary" disabled={!hasDraft||!toEmail.trim()||sending||drafting} onClick={()=>send(true)}>Send &amp; Done</Button>}
         <Button
           variant="ghost"
           onClick={() => approvalRef.current?.focus()}
@@ -2526,12 +2544,13 @@ function ReaderBody({
     <>
       <div ref={regionRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         <div className="mx-auto flex max-w-[720px] flex-col gap-2">
+          <ThreadSummary reader={reader} />
           {latestInboundIndex(reader.messages) > 0 && (
             <details>
               <summary className="min-h-11 cursor-pointer py-3 text-meta font-semibold text-accent-2">
-                {latestInboundIndex(reader.messages)} earlier messages
+                {latestInboundIndex(reader.messages)} earlier {latestInboundIndex(reader.messages)===1?"message":"messages"}
+                <span className="block truncate font-normal text-ink-3">{reader.messages[latestInboundIndex(reader.messages)-1]?.body[0]}</span>
               </summary>
-              <ThreadSummary reader={reader} />
               <Button
                 variant="ghost"
                 size="sm"
@@ -2601,7 +2620,7 @@ function ReaderBody({
         {automated ? (
           <div className="flex items-center gap-2">
             <p className="flex-1 text-meta text-ink-3">
-              Automated message — no reply needed
+              {needsAttention?"Automated message · Needs your attention":"Automated message"}
             </p>
             {reader.replyTarget && !isNoReplyAddress(reader.replyTarget.toEmail) && (
               <Button variant="ghost" onClick={() => { setReplyAnyway(true); setReplying(true); }}>Reply anyway</Button>
@@ -2615,7 +2634,7 @@ function ReaderBody({
         ) : (
           <>
             {(composerExpanded(replying, draft) || draftOpen) && (
-              <details className="mb-2 text-base text-ink-2 @4xl/page:text-meta">
+              <details className="mb-2 text-meta text-ink-2">
                 <summary className="min-h-11 cursor-pointer break-words py-2">
                   To: {reader.replyTarget.toName} &lt;{toEmail}&gt; · Email
                 </summary>
@@ -2680,14 +2699,15 @@ function ReaderBody({
                   </Button>
                   <span className="flex-1" />
                   <Button
-                    onClick={send}
+                    onClick={()=>send()}
                     disabled={
                       !hasDraft || !toEmail.trim() || sending || drafting
                     }
                     icon={Send}
                   >
-                    {sending ? "Sending…" : "Send"}
+                    {sending ? "Sending…" : "Send email"}
                   </Button>
+                  {onSendDone&&<Button variant="secondary" disabled={!hasDraft||!toEmail.trim()||sending||drafting} onClick={()=>send(true)}>Send &amp; Done</Button>}
                 </div>
               </div>
             ) : (
@@ -2708,9 +2728,9 @@ function ReaderBody({
                 >
                   {`Reply to ${reader.replyTarget.toName}…`}
                 </button>
-                <span className="text-ink-3">·</span>
                 <Button
-                  variant="ghost"
+                  variant="ai"
+                  icon={Sparkles}
                   size="sm"
                   onClick={() => generate()}
                   disabled={drafting || sending}
@@ -2720,6 +2740,7 @@ function ReaderBody({
                 </Button>
               </div>
             )}
+            {composerExpanded(replying,draft)&&<Button variant="ai" icon={Sparkles} size="sm" onClick={()=>generate()} disabled={drafting||sending} className="mt-2 min-h-11">Draft with AI</Button>}
             {!isAI && composerExpanded(replying, draft) && (
               <div className="mt-2 flex items-center gap-1 overflow-x-auto">
                 {[
@@ -2753,6 +2774,7 @@ function ReaderBody({
             {error}
           </p>
         )}
+        {retryDone&&<Button variant="secondary" disabled={sending} onClick={()=>startSend(async()=>{const r=await retryDone();if(r.ok){setRetryDone(null);setError('');}else setError("Sent — couldn't mark done");})}>Retry marking done</Button>}
         {sent && (
           <p role="status" className="mt-1 text-meta text-ink-3">
             Reply sent ✓

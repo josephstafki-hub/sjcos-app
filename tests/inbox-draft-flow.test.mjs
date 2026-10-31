@@ -69,6 +69,8 @@ const actionNames = source
   .map((s) => s.trim())
   .filter(Boolean);
 const stubs = {
+  "@/components/ui/Toast":"export const toast=()=>1,dismissToast=()=>{};",
+  "@/lib/actions/inbox-screening":"export const setInboxPreferenceAction=async()=>({ok:true});",
   react: `const h=globalThis.__draftHooks;export const useState=h.useState,useRef=h.useRef,useEffect=h.useEffect,useLayoutEffect=h.useEffect,useTransition=h.useTransition,useCallback=f=>f,useMemo=f=>f();`,
   "next/navigation": "export const useRouter=()=>({refresh(){}});",
   "@/components/ui": `export const Button=()=>null,Avatar=()=>null,Chip=()=>null,VoiceButton=()=>null,EmptyState=()=>null,Segmented=()=>null;`,
@@ -79,9 +81,9 @@ const stubs = {
     )
     .join("\n"),
   "@/lib/actions/inbox-experience":
-    "export const markChannelDoneAction=async()=>({ok:true});",
+    "export const inboxContextAction=async()=>null,undoChannelDoneAction=async()=>({ok:true});export const markChannelDoneAction=async()=>({ok:true});",
   "./InboxPanels":
-    "export const ThreadSummary=()=>null,ContextPanel=()=>null,LinkPicker=()=>null,MessageTaskDialog=()=>null,ShortcutHelp=()=>null;",
+    "export const ContactCreateDialog=()=>null,ThreadSummary=()=>null,ContextPanel=()=>null,LinkPicker=()=>null,MessageTaskDialog=()=>null,ShortcutHelp=()=>null;",
   "@/lib/run-action": "export const runAction=async fn=>fn();",
 };
 registerHooks({
@@ -122,7 +124,7 @@ let tree,
   id = "t1";
 function render() {
   cursor = 0;
-  tree = ReaderBody({ reader, threadId: id, mailbox: "joe@example.test" });
+  tree = ReaderBody({ reader, threadId: id, mailbox: "joe@example.test", onSendDone:async()=>{globalThis.__doneCalls=(globalThis.__doneCalls??0)+1;return {ok:!globalThis.__doneFails,error:"offline"};} });
 }
 function flush() {
   for (let i = 0; i < 3; i++) {
@@ -240,3 +242,15 @@ test("empty reply collapses on blur, typing preserves it and default AI button s
   assert.equal(sends.length,before);
   assert.equal(find(n => n.props?.["aria-label"] === "AI draft body").props.value,'Thanks, Tom.');
 });
+
+
+test('Send & Done keeps failed drafts; completion failure clears sent draft and retry only completes',async()=>{
+ mount('send-done');click('Reply to Tom…');
+ find(n=>n.props?.['aria-label']==='Reply body').props.onChange({target:{value:'Approved reply'}});render();flush();
+ const before=sends.length;globalThis.__doneCalls=0;globalThis.__sendFails=true;
+ click('Send & Done');await settle();assert.equal(sends.length,before+1);assert.equal(globalThis.__doneCalls,0);assert.equal(find(n=>n.props?.['aria-label']==='Reply body').props.value,'Approved reply');
+ globalThis.__sendFails=false;globalThis.__doneFails=true;
+ click('Send & Done');await settle();assert.equal(sends.length,before+2);assert.equal(globalThis.__doneCalls,1);assert.equal(readDraftFor('send-done'),null);
+ globalThis.__doneFails=false;click('Retry marking done');await settle();assert.equal(sends.length,before+2);assert.equal(globalThis.__doneCalls,2);
+});
+function readDraftFor(id){return map.get(`sjc:inbox:draft:v1:joe%40example.test:${id}`)??null;}

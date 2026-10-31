@@ -39,3 +39,19 @@ test('send failure never completes; completion retry never sends again',async()=
  assert.equal(r.sent,true);assert.equal(r.done,false);assert.deepEqual(calls,['send','done']);
  calls.length=0;await r.retry();assert.deepEqual(calls,['done']);
 });
+
+test('attention overrides apply immediately to routine automation and never resurrect archived or outbound mail',async()=>{
+ const {applyInboxPreferences}=await import('../lib/inbox-experience.ts');
+ const base={id:'Auto-ID',fromEmail:'alerts@example.test',automated:true,view:'done',inInbox:true,inboundLast:true};
+ const attention=applyInboxPreferences(base,{'thread:Auto-ID':'attention'});
+ assert.equal(attention.view,'needs_reply');assert.equal(matchesInboxTab(attention,'needs'),true);
+ assert.equal(matchesInboxTab(applyInboxPreferences(attention,{'thread:Auto-ID':'other'}),'needs'),false);
+ for(const patch of [{inInbox:false},{inboundLast:false},{view:'snoozed'}])assert.notEqual(applyInboxPreferences({...base,...patch},{'thread:Auto-ID':'attention'}).view,'needs_reply');
+});
+
+test('Send & Done advances to next human then action-required automation and wraps without selecting itself',async()=>{
+ const {nextNeedsThread}=await import('../lib/inbox-experience.ts');
+ const human=id=>({id,view:'needs_reply',contactRole:'client'});
+ const queue=[{id:'auto',view:'needs_reply',automated:true,attentionRequired:true},human('a'),human('b')];
+ assert.equal(nextNeedsThread(queue,'a').id,'b');assert.equal(nextNeedsThread(queue,'b').id,'auto');assert.equal(nextNeedsThread(queue,'auto').id,'a');assert.equal(nextNeedsThread([human('a')],'a'),undefined);
+});

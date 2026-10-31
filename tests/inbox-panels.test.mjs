@@ -1,0 +1,54 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {registerHooks} from 'node:module';
+import ts from 'typescript';
+const url=new URL('../components/inbox/InboxPanels.tsx',import.meta.url).href;
+let states=[],cursor=0,pending=[],creates=[],summaries=0,contacts=[];
+globalThis.__panels={
+ useState(initial){const i=cursor++;if(!(i in states))states[i]=typeof initial==='function'?initial():initial;return [states[i],v=>{states[i]=typeof v==='function'?v(states[i]):v}];},
+ useRef(){return {current:null}},useEffect(){},useTransition(){return [false,fn=>pending.push(Promise.resolve(fn()))]},
+ create:async fd=>{creates.push(fd);return {ok:true,id:'work-1'}},
+ summarize:async()=>{summaries++;return {ok:true,summary:{headline:'Review plans',bullets:[],model:'test',at:1000}}},
+ contact:async kind=>{contacts.push(kind);return {slug:'contact'}}
+};
+const stubs={
+ react:`const h=globalThis.__panels;export const useState=h.useState,useRef=h.useRef,useEffect=h.useEffect,useTransition=h.useTransition;`,
+ '@/components/ui':`export const Button=()=>null,Chip=()=>null,Segmented=()=>null,Avatar=()=>null;`,
+ '@/lib/actions/engine':`export const createWorkItem=globalThis.__panels.create;`,
+ '@/lib/actions/leads':`export const createLeadFromInbox=async()=>globalThis.__panels.contact('lead');`,
+ '@/lib/actions/subs':`export const createSubFromInbox=async()=>globalThis.__panels.contact('sub');`,
+ '@/lib/actions/vendors':`export const createVendorFromInbox=async()=>globalThis.__panels.contact('vendor');`,
+ '@/lib/actions/inbox-experience':`export const inboxPeopleAction=async()=>[],inboxContextAction=async()=>({todos:[]}),summarizeInboxAction=globalThis.__panels.summarize;`,
+ '@/lib/run-action':`export const runAction=async f=>f();`,
+};
+registerHooks({resolve(s,c,n){if(s in stubs&&(s!=='react'||c.parentURL===url))return {url:'stub:'+s,shortCircuit:true};if(s==='@/lib/inbox-experience')return n(new URL('../lib/inbox-experience.ts',import.meta.url).href,c);return n(s,c)},load(u,c,n){if(u===url)return {format:'module',source:ts.transpileModule(readFileSync(new URL(url),'utf8'),{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText,shortCircuit:true};return u.startsWith('stub:')?{format:'module',source:stubs[u.slice(5)],shortCircuit:true}:n(u,c)}});
+const {MessageTaskDialog,ThreadSummary,ContactCreateDialog}=await import(url);
+const thread={id:'thread-1',channel:'email',subject:'Review tile',fromName:'Tom',fromEmail:'tom@example.test',preview:'Please review the tile'};
+const reader={messages:[{id:'message-1',fromName:'Tom',fromEmail:'tom@example.test',body:['Please review the tile'],date:1000}]};
+let tree;
+function nodes(n){return !n||typeof n!=='object'?[]:[n,...[n.props?.children].flat(Infinity).flatMap(nodes)]}
+function find(predicate){return nodes(tree).find(predicate)}
+function mount(component,props){states=[];cursor=0;tree=component(props);return ()=>{cursor=0;tree=component(props)}}
+async function settle(){await Promise.all(pending);pending=[];}
+test('reminder presets select without saving, then one confirmation captures source, chosen day and job',async()=>{
+ creates=[];const render=mount(MessageTaskDialog,{thread,reader,remind:true,onClose(){},onCreated(){},options:{projects:[{slug:'kitchen',name:'Kitchen'}],leads:[]}});
+ find(n=>n.props?.children==='Monday · 8am').props.onClick();render();assert.equal(creates.length,0);
+ find(n=>n.type==='select').props.onChange({target:{value:'project:kitchen'}});render();
+ find(n=>n.props?.children==='Set reminder').props.onClick();await settle();assert.equal(creates.length,1);
+ assert.equal(creates[0].get('job'),'project:kitchen');assert.deepEqual(JSON.parse(creates[0].get('email')).message_id,'message-1');assert.ok(creates[0].get('due_at'));
+ assert.ok(find(n=>n.type==='blockquote').props.children.includes('Please review'));
+});
+test('summary is above history at caller and stays on demand for two messages or a substantive single message',async()=>{
+ summaries=0;mount(ThreadSummary,{reader});assert.equal(tree,null);
+ const render=mount(ThreadSummary,{reader:{...reader,messages:[...reader.messages,...reader.messages]}});assert.notEqual(tree,null);assert.equal(summaries,0);
+ find(n=>n.props?.children==='Summarize').props.onClick();await settle();render();assert.equal(summaries,1);
+ mount(ThreadSummary,{reader:{messages:[{...reader.messages[0],body:['x'.repeat(601)]}]}});assert.notEqual(tree,null);assert.equal(summaries,1);
+});
+test('screening contact dialog reuses the appropriate existing create action once',async()=>{
+ for(const kind of ['lead','sub','vendor']){
+  let created;mount(ContactCreateDialog,{thread,kind,onClose(){},onCreated:slug=>created=slug});
+  const before=contacts.length;assert.equal(created,undefined);
+  find(n=>n.type==='form').props.action(new FormData());await settle();assert.equal(contacts.length,before+1);assert.equal(contacts.at(-1),kind);assert.equal(created,'contact');
+ }
+});

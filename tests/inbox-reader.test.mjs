@@ -10,6 +10,8 @@ const componentUrl = new URL('../components/inbox/InboxClient.tsx',import.meta.u
 const source = readFileSync(new URL(componentUrl),'utf8');
 registerHooks({
   resolve(s,c,n){
+    if(s==='@/components/ui/Toast')return {url:'stub:toast',shortCircuit:true};
+    if(s==='@/lib/actions/inbox-screening')return {url:'stub:screen',shortCircuit:true};
     if(s==='./InboxPanels')return {url:'stub:panels',shortCircuit:true};
     if(s==='@/lib/actions/inbox-experience')return {url:'stub:experience-actions',shortCircuit:true};
     if(s==='@/lib/run-action')return {url:'stub:run',shortCircuit:true};
@@ -22,8 +24,10 @@ registerHooks({
   load(u,c,n){
     if(u===componentUrl)return {format:'module',source:ts.transpileModule(source+'\nexport {ReaderBody, ChannelReaderBody, ThreadRow};',{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText,shortCircuit:true};
     const stubs={
-      'stub:panels':'export const ThreadSummary=()=>null;export const ContextPanel=()=>null;export const LinkPicker=()=>null;export const MessageTaskDialog=()=>null;export const ShortcutHelp=()=>null;',
-      'stub:experience-actions':'export const markChannelDoneAction=async()=>({ok:true});',
+      'stub:toast':'export const toast=()=>1,dismissToast=()=>{};',
+      'stub:screen':'export const setInboxPreferenceAction=async()=>({ok:true});',
+      'stub:panels':'export const ContactCreateDialog=()=>null;export const ThreadSummary=()=>null;export const ContextPanel=()=>null;export const LinkPicker=()=>null;export const MessageTaskDialog=()=>null;export const ShortcutHelp=()=>null;',
+      'stub:experience-actions':'export const inboxContextAction=async()=>null,undoChannelDoneAction=async()=>({ok:true});export const markChannelDoneAction=async()=>({ok:true});',
       'stub:run':'export const runAction=async fn=>fn();',
       'stub:router':'export const useRouter=()=>({refresh(){}});',
       'stub:ui':`const React=globalThis.__readerReact; export const Button=({children,icon,iconOnly,variant,size,...props})=>React.createElement('button',props,children); export const Avatar=()=>null; export const Chip=({children})=>React.createElement('span',{},children); export const VoiceButton=()=>null; export const PageHeader=()=>null; export const EmptyState=()=>null; export const Segmented=({options})=>React.createElement('div',{},options.map(o=>React.createElement('button',{key:o.value},o.label, ' ',o.count)));`,
@@ -38,7 +42,7 @@ const reader={channel:'email',messages,messageCount:3,subject:'Plans',aiDraft:{b
 const render=(component,props)=>renderToStaticMarkup(React.createElement(component,props));
 test('latest inbound opens above outbound-last reply, history is one disclosure and envelopes expand',()=>{
   const html=render(ReaderBody,{reader,threadId:'thread'});
-  assert.match(html,/1 earlier messages/); assert.match(html,/Expand all/);
+  assert.match(html,/1 earlier message/); assert.match(html,/Expand all/);
   assert.match(html,/aria-expanded="true"/); assert.match(html,/Message details/);
   assert.match(html,/Old message text<\/p>/,'newest inbound is expanded');
   assert.doesNotMatch(html,/Latest message body<\/p>/,'newer outbound remains collapsed');
@@ -56,7 +60,7 @@ test('default composer is one reply/AI bar; recipient and reply-all are inspecta
 });
 test('automated mail has Done and no composer or AI draft button',()=>{
   const html=render(ReaderBody,{reader:{...reader,automated:true},threadId:'thread'});
-  assert.match(html,/Automated message — no reply needed/); assert.match(html,/>Done</);
+  assert.match(html,/Automated message/); assert.match(html,/>Done</);
   assert.doesNotMatch(html,/Reply to Tom|Draft with|textarea/);
 });
 test('chat uses left/right bubbles with days, scrolls newest, and has the inline channel composer',()=>{

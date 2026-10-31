@@ -1,3 +1,4 @@
+import { stageLabel } from "./inbox-rules";
 import { query } from "./db";
 export interface InboxContextInput {
   threadId: string;
@@ -19,6 +20,7 @@ export interface InboxContext {
     name: string;
     stage: string;
     kind: "project" | "lead";
+    latestNote?: string | null;
     money: { total: number; paid: number; outstanding: number } | null;
   } | null;
   schedule: { label: string; day: string; time: string } | null;
@@ -36,6 +38,7 @@ export async function loadInboxContext(
     slug: string;
     name: string;
     stage: string;
+    latest_note: string | null;
     total_cents: string;
     collected_cents: string;
     lead_slug: string | null;
@@ -43,7 +46,7 @@ export async function loadInboxContext(
     email: string | null;
     phone: string | null;
   }>(
-    `SELECT p.slug, p.name, COALESCE(p.stage_label, replace(p.status, '_', ' ')) AS stage,
+    `SELECT p.slug, p.name, p.status AS stage, p.stage_label AS latest_note,
             p.total_cents::text, p.collected_cents::text, l.slug AS lead_slug,
             COALESCE(NULLIF(p.client_name,''),l.name) AS person_name,
             COALESCE(NULLIF(p.client_email,''),l.email) AS email, l.phone
@@ -114,7 +117,8 @@ export async function loadInboxContext(
       ? {
           slug: p.slug,
           name: p.name,
-          stage: p.stage,
+          stage: stageLabel(p.stage),
+          latestNote: p.latest_note,
           kind: "project",
           money: {
             total: Number(p.total_cents),
@@ -129,7 +133,7 @@ export async function loadInboxContext(
         ? {
             slug: c.slug,
             name: c.name,
-            stage: c.stage?.replaceAll("_", " ") ?? "",
+            stage: stageLabel(c.stage ?? ""),
             kind: "lead",
             money: null,
           }

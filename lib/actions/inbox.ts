@@ -268,13 +268,13 @@ export async function draftReplyAction(
   threadId: string,
   model?: DraftModel,
   intent?: string,
-): Promise<{ ok: boolean; summary?: string; body?: string; toEmail?: string; subject?: string; model?:string; error?: string }> {
+): Promise<{ ok: boolean; summary?: string; body?: string; toEmail?: string; subject?: string; model?:string; basedOn?:string; error?: string }> {
   // Whitelist the model — never trust the client string. Anything but the
   // explicit "qwen" choice drafts with Hermes (grounded; Qwen is never used
   // for client-facing writing by default).
   const m: DraftModel = model === "qwen" ? "qwen" : "hermes";
   return mailbox(async () => {
-    if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
+    if (!/^(sms:|portal:|dm:|siteform:)/.test(threadId) && !gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
     try {
       const d = await draftReplyForThread(threadId, m, typeof intent === "string" ? intent.slice(0,200) : "");
       return { ok: true, ...d, model:m === "hermes" ? "Hermes" : "Qwen" };

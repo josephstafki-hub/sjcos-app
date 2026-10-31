@@ -136,3 +136,31 @@ export function screeningEligible(input: {email: string; inbound: boolean; done:
     !input.ownAddresses.map(emailAddress).includes(emailAddress(input.email)) &&
     (input.decision === 'pending' || (!input.known && !input.decision));
 }
+
+/** Status is structured; stage_label is a free-text latest note. */
+export function stageLabel(status: string): string {
+  const words = status.replaceAll('_', ' ').trim();
+  if (/^pre[ -]construction$/i.test(words)) return 'Pre-construction';
+  if (/^intake$/i.test(words)) return 'New inquiry';
+  return words ? words[0].toUpperCase() + words.slice(1) : '';
+}
+
+export function splitQuotedText(paras: string[]): {text: string; quote: string} {
+  const text = paras.join('\n\n').replaceAll('\r', '');
+  const match = /(?:^|\n)[ \t]*(?:On [\s\S]{4,500}?wrote:[ \t]*(?:\n|$)|>|-{2,}\s*(?:Original|Forwarded) message)/im.exec(text);
+  return match ? {text:text.slice(0,match.index).trimEnd(),quote:text.slice(match.index).trimStart()} : {text,quote:''};
+}
+
+export function substantiveSnippet(paras: string[]): string {
+  return splitQuotedText(paras).text
+    .replace(/^\s*(?:hi|hello|hey|dear|good morning|good afternoon)(?:[ \t]+[^,\n!]{1,50})?[,!][ \t]*(?:\n+)?/i,'')
+    .replace(/\s+/g,' ').trim().slice(0,280);
+}
+
+export function conversationDraftContext(messages: {fromName?:string; outbound?:boolean; body:string[]}[], before=messages.length): {text:string; count:number} {
+  const earlier=messages.slice(0,before).slice(-6);
+  return {count:earlier.length,text:earlier.map(m=>`${m.outbound?'Joe':m.fromName||'Sender'}: ${splitQuotedText(m.body).text.slice(0,1800)}`).join('\n\n').slice(0,12000)};
+}
+export function channelCommitLabel(channel:ThreadChannel):string {
+  return channel==='sms'?'Send text':channel==='client_portal'?'Post to client portal':channel==='sub_portal'?'Post to sub portal':'Send email';
+}

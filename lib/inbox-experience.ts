@@ -38,11 +38,11 @@ export function matchesInboxTab(
   t: InboxThread,
   tab: InboxTab,
   draftReady = false,
-) {
+): boolean {
   return tab === "needs"
     ? !t.filedOther && (!t.automated || Boolean(t.attentionOverride ?? t.attentionRequired)) && (t.automated || inboxBucket(t) !== "new") &&
         (draftReady || t.view === "needs_reply")
-    : inboxBucket(t) === tab;
+    : inboxBucket(t) === tab && !(tab === "other" && t.automated && matchesInboxTab(t, "needs", draftReady));
 }
 export function tabCounts(
   threads: InboxThread[],
@@ -50,7 +50,7 @@ export function tabCounts(
 ) {
   const counts = { needs: 0, clients: 0, leads: 0, subs: 0, new: 0, other: 0 };
   for (const t of threads) {
-    if(inboxBucket(t)!=="new") counts[inboxBucket(t)]++;
+    if(inboxBucket(t)!=="new" && matchesInboxTab(t,inboxBucket(t),drafts.has(t.id))) counts[inboxBucket(t)]++;
     if (matchesInboxTab(t, "needs", drafts.has(t.id))) counts.needs++;
   }
   counts.new=new Set(threads.filter(t=>inboxBucket(t)==="new").map(t=>t.fromEmail?.toLowerCase()??t.id)).size;
@@ -191,6 +191,7 @@ export interface SavedInboxDraft {
   model: string;
   ai: boolean;
   replyAll?: boolean;
+  basedOn?: string;
 }
 type StorageRead = Pick<Storage, "getItem">;
 type StorageWrite = Pick<Storage, "setItem" | "removeItem">;
@@ -312,13 +313,13 @@ export function rememberOtherSender(
   }
 }
 
-export function contextStripText(thread: Pick<InboxThread,'projectLabel'|'fromName'|'contactStage'>, context?: {job?: {name: string; stage: string; money?: {outstanding: number} | null} | null; schedule?: {label: string; day: string} | null} | null): string {
+export function contextStripText(thread: Pick<InboxThread,'projectLabel'|'fromName'|'contactStage'>, context?: {job?: {name: string; stage: string; money?: {outstanding: number} | null} | null; schedule?: {label: string; day: string} | null; todos?: unknown[]} | null): string {
   const job = context?.job;
   const stage = (job?.stage || thread.contactStage || '').replaceAll('_', ' ');
   const identity = shortJobLabel(job?.name || thread.projectLabel || thread.fromName || 'No linked job');
   const cue = job?.money ? `${new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(job.money.outstanding/100)} outstanding`
     : context?.schedule ? `Next: ${context.schedule.label} ${new Date(context.schedule.day+'T12:00:00Z').toLocaleDateString('en-US',{weekday:'short',timeZone:'UTC'})}` : '';
-  return ['Context', identity, stage === 'intake' ? 'New inquiry' : stage, cue].filter(Boolean).join(' · ');
+  return ['Context', identity, stage === 'intake' ? 'New inquiry' : /^pre construction$/i.test(stage) ? 'Pre-construction' : stage ? stage[0].toUpperCase()+stage.slice(1) : '', cue, context?.todos?.length ? `${context.todos.length} open to-do${context.todos.length===1?'':'s'}` : ''].filter(Boolean).join(' · ');
 }
 type CompletionResult = {ok: boolean; error?: string};
 /** Completion is separate so retrying it can never repeat a successful send. */
@@ -350,7 +351,39 @@ export function applyInboxPreferences(t:InboxThread, preferences:Record<string,s
 }
 
 export function nextNeedsThread(threads:InboxThread[], currentId:string, drafts:ReadonlySet<string>=new Set()):InboxThread|undefined {
-  const queue=threads.filter(t=>matchesInboxTab(t,'needs',drafts.has(t.id))).sort((a,b)=>triageRank(a)-triageRank(b));
+  const queue=orderedInboxThreads(threads.filter(t=>matchesInboxTab(t,'needs',drafts.has(t.id))));
   const index=queue.findIndex(t=>t.id===currentId);
   return queue.slice(index+1).find(t=>t.id!==currentId)??queue.find(t=>t.id!==currentId);
+}
+
+export function rowDay(thread: Pick<InboxThread,'receivedAt'|'when'>, now=new Date()): 'Today'|'Yesterday'|'Earlier' {
+  if(!thread.receivedAt)return /am|pm/.test(thread.when??'')?'Today':thread.when==='Yesterday'?'Yesterday':'Earlier';
+  const day=(date:Date)=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago'}).format(date);
+  // Resolve yesterday by its Central calendar date, independent of browser zone/DST.
+  const parts=new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);
+  const get=(kind:string)=>parts.find(p=>p.type===kind)!.value;
+  const yesterday=new Date(`${get('year')}-${get('month')}-${get('day')}T12:00:00Z`);yesterday.setUTCDate(yesterday.getUTCDate()-1);
+  return day(new Date(thread.receivedAt))===day(now)?'Today':day(new Date(thread.receivedAt))===day(yesterday)?'Yesterday':'Earlier';
+}
+export function orderedInboxThreads(threads:InboxThread[],now=new Date()):InboxThread[] {
+  const days={Today:0,Yesterday:1,Earlier:2};
+  return [...threads].sort((a,b)=>days[rowDay(a,now)]-days[rowDay(b,now)]||triageRank(a)-triageRank(b));
+}
+export function canLoadMore(input:{token?:string;lens:string;channel?:string;remoteReady?:boolean;tab?:InboxTab|null;visibleCount?:number;knownTotal?:number}):boolean {
+  if(!input.token)return false;
+  if(input.lens==='label'||input.lens==='system')return Boolean(input.remoteReady);
+  if(input.lens==='project'||input.lens==='channel'&&input.channel!=='email')return false;
+  if(input.knownTotal!==undefined&&input.visibleCount!==undefined&&input.visibleCount>=input.knownTotal)return false;
+  return true;
+}
+export function draftGenerationResult(snapshot:SavedInboxDraft,current:SavedInboxDraft,suggestion:SavedInboxDraft, changed=false) {
+  const conflict=changed||JSON.stringify(snapshot)!==JSON.stringify(current);
+  return {value:conflict?current:suggestion,previous:snapshot,suggestion:conflict?suggestion:null};
+}
+export function completionQueue(threads:InboxThread[],currentId:string,drafts:ReadonlySet<string>=new Set()) {
+  const remaining=threads.filter(t=>t.id!==currentId);
+  return {next:nextNeedsThread(threads,currentId,drafts),left:remaining.filter(t=>matchesInboxTab(t,'needs',drafts.has(t.id))).length};
+}
+export function attentionTaskTitle(thread:Pick<InboxThread,'subject'|'fromName'>):string {
+  return `${thread.fromName}: ${thread.subject.replace(/^(?:re:\s*)+/i,'')}`.slice(0,160);
 }

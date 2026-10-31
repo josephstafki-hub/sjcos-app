@@ -9,7 +9,8 @@ globalThis.__contextRun = async (sql, params) => {
       {
         slug: "kitchen",
         name: "Kitchen",
-        stage: "Construction",
+        stage: "construction",
+        latest_note: "INV-003 sent for $4,359.56, awaiting payment.",
         total_cents: "10000000",
         collected_cents: "2500000",
         lead_slug: "tom",
@@ -37,6 +38,7 @@ globalThis.__contextRun = async (sql, params) => {
 };
 registerHooks({
   resolve(s, c, n) {
+    if(s === "./inbox-rules") return n("./inbox-rules.ts",c);
     if (s === "./db") return { url: "stub:db", shortCircuit: true };
     return n(s, c);
   },
@@ -66,6 +68,8 @@ test("context reads ledger cents, contact, stage, next schedule and open work wi
     outstanding: 7500000,
   });
   assert.equal(c.job.stage, "Construction");
+  assert.equal(c.job.latestNote,"INV-003 sent for $4,359.56, awaiting payment.");
+  assert.ok(!queries.some(([sql])=>/COALESCE\(p.stage_label/.test(sql)));
   assert.equal(c.schedule.label, "Tile install");
   assert.equal(c.todos[0].title, "Confirm tile");
   assert.ok(queries.every(([sql]) => !/INSERT|UPDATE|DELETE|gmail/i.test(sql)));

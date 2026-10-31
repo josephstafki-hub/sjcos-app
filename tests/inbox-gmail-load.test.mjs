@@ -234,3 +234,23 @@ test('an alias learned on one loaded page is excluded from screening on later pa
  globalThis.__gmail.mailbox='separate@example.test';invalidateInboxCache();assert.equal((await getInboxData()).threads[0].newSender,true);
  globalThis.__gmail.mailbox='joe@example.test';globalThis.__gmail.threads=[];
 });
+
+
+test('row money uses a single batch read for shared and distinct jobs and never writes totals',async()=>{
+ const sqls=[];globalThis.__gmail.fail=null;globalThis.__gmail.disconnected=false;globalThis.__gmail.mailbox='money-test@example.test';
+ globalThis.__gmail.threads=[{...email,id:'job-a',fromEmail:'a@example.test'},{...email,id:'job-b',fromEmail:'b@example.test'},{...email,id:'job-a2',fromEmail:'a@example.test'}];
+ globalThis.__queryRows=sql=>{
+   sqls.push(sql);
+   if(/AS project_slug/.test(sql))return [{email:'a@example.test',project_slug:'a',project_label:'Job A',stage:'construction'},{email:'b@example.test',project_slug:'b',project_label:'Job B',stage:'pre_construction'}];
+   if(/AS outstanding_cents/.test(sql))return [{slug:'a',outstanding_cents:'225000'},{slug:'b',outstanding_cents:'50000'}];
+   return [];
+ };
+ invalidateInboxCache();const data=await getInboxData();
+ assert.equal(sqls.filter(sql=>/AS outstanding_cents/.test(sql)).length,1);
+ assert.equal(data.threads.find(t=>t.id==='job-a').outstandingCents,225000);
+ assert.equal(data.threads.find(t=>t.id==='job-a2').outstandingCents,225000);
+ assert.equal(data.threads.find(t=>t.id==='job-b').outstandingCents,50000);
+ assert.equal(data.threads.find(t=>t.id==='job-b').contactStage,'Pre-construction');
+ assert.ok(sqls.every(sql=>!/^\s*(UPDATE|INSERT|DELETE)/i.test(sql)));
+ globalThis.__queryRows=undefined;
+});

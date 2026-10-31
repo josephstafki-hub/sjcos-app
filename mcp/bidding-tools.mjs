@@ -32,6 +32,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { agentNameOf } from "./tool-shared.mjs";
+import { isPdf, pdfPagePngs, pdfText, PDF_MAX_IMAGE_PAGES } from "./pdf-read.mjs";
 
 const t = (v, max = 300) => String(v ?? "").trim().slice(0, max);
 
@@ -59,6 +60,7 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
     // (same stance as lib/file-serve.ts).
     readFile(path.join(uploadDir, path.basename(f.storage_path)))
       .catch(() => { throw new Error(`'${f.name}' is missing on disk.`); });
+  const storedPath = (f) => path.join(uploadDir, path.basename(f.storage_path));
 
   const projectBySlug = async (slug) => {
     const r = await rows(`SELECT id, slug, name FROM projects WHERE slug = $1`, [t(slug, 80)]);
@@ -334,8 +336,8 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
       description:
         "Return the actual pixels of an uploaded project image (photos, plan snapshots, mood " +
         "pins — any files row with an image/* mime_type; see list_project_files) so an agent " +
-        "can look at it. Downscaled and re-encoded to keep responses small; PDFs and other " +
-        "non-image files can't be viewed this way.",
+        "can look at it. Downscaled and re-encoded to keep responses small. For a PDF use " +
+        "get_project_file (its text, or format 'pages' for page images).",
       inputSchema: {
         project_slug: z.string(),
         file_id: z.string().describe("A file id from list_project_files."),
@@ -377,22 +379,28 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
       description:
         "Fetch one uploaded file by id (ids come from list_project_files). Images default to " +
         "format 'base64': the actual pixels as an inline image block. Text files (markdown, txt, " +
-        "html, csv, json — e.g. a permit brief) default to format 'text': the content inline. format 'url' works for " +
+        "html, csv, json — e.g. a permit brief) default to format 'text': the content inline. " +
+        "PDFs (estimates, contracts, invoices, Houzz exports) default to format 'text': the PDF's " +
+        "text with its table layout kept; a scanned PDF with no text layer comes back as page " +
+        "images instead (up to " + PDF_MAX_IMAGE_PAGES + " pages, see page_from/page_to). format " +
+        "'pages' forces page images for a PDF (drawings, handwriting, stamps). format 'url' works for " +
         "ANY file type including PDFs: a short-lived signed link that serves the original " +
         "bytes with no login — use it when your client can't take an inline image, or to hand " +
         "a plan/invoice PDF to something that fetches URLs. The link expires (default 15 min); " +
         "mint a fresh one instead of storing it, and don't put it anywhere client-facing.",
       inputSchema: {
         file_id: z.string().describe("A file id from list_project_files."),
-        format: z.enum(["base64", "url", "text"]).optional()
-          .describe("Default: base64 for images, text for text files (markdown/txt/html/csv/json — e.g. a permit brief), url for everything else."),
+        format: z.enum(["base64", "url", "text", "pages"]).optional()
+          .describe("Default: base64 for images, text for text files (markdown/txt/html/csv/json — e.g. a permit brief) and PDFs, url for everything else. pages = a PDF's pages as images."),
+        page_from: z.number().int().optional().describe("PDF only: first page (1-based). Default 1."),
+        page_to: z.number().int().optional().describe(`PDF only: last page. Default: the last page for text, page_from+${PDF_MAX_IMAGE_PAGES - 1} for page images.`),
         expires_minutes: z.number().int().optional()
           .describe("URL lifetime in minutes, 1–60 (default 15). url format only."),
         width: z.number().int().optional()
           .describe("Max pixel width for base64, 160–1280 (default 1024)."),
       },
     },
-    async ({ file_id, format, expires_minutes, width }) => {
+    async ({ file_id, format, expires_minutes, width, page_from, page_to }) => {
       try {
         const found = await rows(
           `SELECT id, name, mime_type, size_label, project_key, storage_path FROM files
@@ -404,15 +412,38 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
         const f = found[0];
         const isImage = String(f.mime_type || "").startsWith("image/");
         const isText = /^(text\/|application\/json)/.test(String(f.mime_type || "")) || /\.(md|txt|csv|json|html?)$/i.test(f.name || "");
-        const mode = format || (isImage ? "base64" : isText ? "text" : "url");
+        const pdf = !isImage && !isText && isPdf(f);
+        const mode = format || (isImage ? "base64" : isText || pdf ? "text" : "url");
         const meta = {
           file_id: f.id, name: f.name, mime_type: f.mime_type,
           size_label: f.size_label, project_slug: f.project_key || null,
         };
 
+        const pageImages = async (note) => {
+          const r = await pdfPagePngs(storedPath(f), { from: page_from, to: page_to ?? (page_from ? undefined : PDF_MAX_IMAGE_PAGES) });
+          const blocks = [];
+          for (const png of r.images) blocks.push((await toImageBlock(png, width ?? 1280)).block);
+          if (!blocks.length) throw new Error(`Couldn't render any pages of '${f.name}'.`);
+          const more = r.pages && r.to < r.pages ? ` Pages ${r.to + 1}–${r.pages} not shown: ask again with page_from ${r.to + 1}.` : "";
+          return {
+            content: [
+              ...blocks,
+              { type: "text", text: JSON.stringify({ ...meta, format: "pages", pages: r.pages, shown: `${r.from}-${r.to}`, note: `${note ?? ""}${more}`.trim() || undefined }) },
+            ],
+          };
+        };
+
+        if (pdf && mode === "pages") return await pageImages(null);
+        if (pdf && mode === "text") {
+          const r = await pdfText(storedPath(f), { from: page_from, to: page_to });
+          if (r.scanned) return await pageImages("This PDF has no text layer (a scan), so its pages are shown as images.");
+          return json({ ...meta, format: "text", pages: r.pages, shown: `${r.from}-${r.to}`, text: r.text, truncated: r.truncated });
+        }
+        if (mode === "pages") throw new Error(`'${f.name}' is ${f.mime_type || "not a PDF"} — pages is for PDFs only.`);
+
         if (mode === "text") {
           if (!isText)
-            throw new Error(`'${f.name}' is ${f.mime_type || "not text"} — text is for markdown/txt/html/csv/json files; use format "url".`);
+            throw new Error(`'${f.name}' is ${f.mime_type || "not text"} — text is for markdown/txt/html/csv/json files and PDFs; use format "url".`);
           const buf = await readStored(f);
           const MAX = 200_000;
           const body = buf.toString("utf8");

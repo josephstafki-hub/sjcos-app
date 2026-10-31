@@ -822,7 +822,7 @@ export async function stopDevAgentRun(runId: string): Promise<{ ok: true } | { o
     [runId, msg],
   );
   if (updated?.conversation_id) {
-    await insertMessage(updated.conversation_id, "assistant", msg, { agent: run.agent }).catch(() => {});
+    await insertMessage(updated.conversation_id, "assistant", msg, { agent: run.agent, runId }).catch(() => {});
   }
   return { ok: true };
 }

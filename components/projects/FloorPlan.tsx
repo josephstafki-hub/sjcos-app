@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { Plus, X, Check, Eye, EyeOff } from "lucide-react";
-import { Card, Chip } from "@/components/ui";
+import { Button, Card, Chip, EmptyState } from "@/components/ui";
 import { runAction } from "@/lib/run-action";
 import type { FloorplanVersion } from "@/lib/floorplans";
 import type { PlanDesignSummary } from "@/lib/plan-designs";
@@ -62,26 +62,16 @@ export function FloorPlan({
       <DesignsStrip scope={{ projectSlug: slug }} designs={designs} />
       <div className="my-1 border-t border-rule" />
       <div className="flex items-center">
-        <h3 className="flex-1 font-serif text-[16px] font-semibold text-ink">Plan versions</h3>
-        <button
-          onClick={() => setModal(true)}
-          className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
-        >
-          <Plus className="size-3" strokeWidth={1.5} />
-          Upload version
-        </button>
+        <h3 className="flex-1 font-serif text-heading font-semibold text-ink">Plan versions</h3>
+        <Button icon={Plus} onClick={() => setModal(true)}>Upload version</Button>
       </div>
 
-      {notice && <div className="text-[12px] text-money">{notice}</div>}
+      {notice && <div className="text-label text-money">{notice}</div>}
 
       {!selected ? (
-        <Card kind="dashed" className="p-8 text-center">
-          <div className="text-[13px] text-ink-3">
-            No floor plan yet. Upload a plan image or PDF — re-upload to add a new version.
-          </div>
-        </Card>
+        <EmptyState compact title="No plan versions yet" description="Upload a plan image or PDF, or publish a version from a design above. Each revision stays here for comparison." />
       ) : (
-        <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[1fr_240px]">
+        <div className="grid grid-cols-1 gap-3.5 @4xl/page:grid-cols-[minmax(0,1fr)_240px]">
           {/* Preview + notes for the selected version */}
           <div className="flex flex-col gap-3">
             {/* Dashboard state + the publish switch for the selected version. */}
@@ -100,8 +90,8 @@ export function FloorPlan({
                 disabled={pending}
                 className={
                   selected.published
-                    ? "inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50"
-                    : "inline-flex items-center gap-1 rounded-md border border-accent bg-accent px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
+                    ? "inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-label font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50"
+                    : "inline-flex items-center gap-1 rounded-md border border-accent bg-accent px-2.5 py-1 text-label font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
                 }
               >
                 {selected.published ? (
@@ -116,7 +106,7 @@ export function FloorPlan({
               </button>
             </div>
             {selected.designId != null && (
-              <div className="flex flex-wrap items-center gap-2 text-[12px] text-ink-3">
+              <div className="flex flex-wrap items-center gap-2 text-label text-ink-3">
                 <span>Cut from the designer.</span>
                 <Link href={`/floor/${selected.designId}`} className="font-semibold text-ink-2 underline hover:text-ink">
                   Open design
@@ -149,17 +139,17 @@ export function FloorPlan({
 
           {/* Version list */}
           <div className="flex flex-col gap-2">
-            <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Versions</span>
+            <span className="text-label font-medium text-ink-3">Versions</span>
             {versions.map((v) => (
               <button
                 key={v.id}
                 data-focus={`floorplan-${v.id}`}
                 onClick={() => setSelectedId(v.id)}
-                className={`flex items-center gap-2 rounded-md border px-2.5 py-2 text-left text-[12px] transition-colors ${
+                className={`flex items-center gap-2 rounded-md border px-2.5 py-2 text-left text-label transition-colors ${
                   v.id === selected.id ? "border-accent bg-accent-soft" : "border-rule hover:bg-paper-2"
                 }`}
               >
-                <span className="font-mono font-semibold text-ink">v{v.version}</span>
+                <span className="tabular-nums font-semibold text-ink">v{v.version}</span>
                 <span className="flex-1 truncate text-ink-3">{v.uploaded}</span>
                 {v.published && (
                   <span title="On client dashboard">
@@ -209,19 +199,19 @@ function NotesEditor({
   const dirty = notes !== initial;
   return (
     <Card className="p-3">
-      <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Notes for this version</span>
+      <span className="text-label font-medium text-ink-3">Notes for this version</span>
       <textarea
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
         rows={3}
         placeholder="Mark-ups, change requests, dimensions to confirm…"
-        className="mt-1.5 w-full rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+        className="mt-1.5 w-full rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent"
       />
       <div className="mt-1.5 flex justify-end">
         <button
           disabled={disabled || !dirty}
           onClick={() => onSave(notes)}
-          className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-40"
+          className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-label font-semibold text-paper hover:bg-ink-hover disabled:opacity-40"
         >
           <Check className="size-3" strokeWidth={1.75} />
           Save notes
@@ -244,9 +234,9 @@ function UploadModal({
   const [tooBig, setTooBig] = useState("");
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink/30 p-4 pt-[12vh]" onClick={onClose}>
-      <div className="w-full max-w-[460px] rounded-lg border border-rule bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-[460px] rounded-lg border border-rule bg-card shadow-modal" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-rule px-4 py-3">
-          <h2 className="font-serif text-[17px] font-semibold text-ink">Upload floor plan</h2>
+          <h2 className="font-serif text-heading font-semibold text-ink">Upload floor plan</h2>
           <button onClick={onClose} className="text-ink-3 hover:text-ink" aria-label="Close">
             <X className="size-4" strokeWidth={1.5} />
           </button>
@@ -272,39 +262,39 @@ function UploadModal({
           className="flex flex-col gap-3 p-4"
         >
           <label className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Plan file (image or PDF)</span>
+            <span className="text-label font-medium text-ink-3">Plan file (image or PDF)</span>
             <input
               name="file"
               type="file"
               accept="image/*,application/pdf"
               required
-              className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[12px] text-ink-2 outline-none file:mr-2 file:rounded file:border-0 file:bg-paper-3 file:px-2 file:py-1 file:text-[11px] file:text-ink-2"
+              className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-label text-ink-2 outline-none file:mr-2 file:rounded file:border-0 file:bg-paper-3 file:px-2 file:py-1 file:text-meta file:text-ink-2"
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Notes (optional)</span>
+            <span className="text-label font-medium text-ink-3">Notes (optional)</span>
             <textarea
               name="notes"
               rows={3}
               placeholder="What changed in this version."
-              className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+              className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent"
             />
           </label>
 
-          {tooBig && <div className="text-[12px] text-flag">{tooBig}</div>}
+          {tooBig && <div className="text-label text-flag">{tooBig}</div>}
 
           <div className="mt-1 flex items-center justify-end gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2"
+              className="rounded-md border border-rule px-3 py-1.5 text-label font-semibold text-ink-3 hover:bg-paper-2"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={pending}
-              className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
+              className="rounded-md border border-ink bg-ink px-3 py-1.5 text-label font-semibold text-paper hover:bg-ink-hover disabled:opacity-50"
             >
               Upload
             </button>

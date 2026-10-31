@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { COMPLIANCE_SOURCE, CENTRAL_TODAY } from "../lib/compliance-source.mjs";
 // SJC OS — MCP server (AI-agnostic).
 //
 // A standard Model Context Protocol server exposing curated tools over the SJC OS
@@ -91,6 +92,8 @@ import { registerProcurementTools } from "./procurement-tools.mjs";
 import { registerBillingTools } from "./billing-tools.mjs";
 import { registerContextTools } from "./context-tools.mjs";
 import { registerFieldTools } from "./field-tools.mjs";
+import { editWorkItem } from "../lib/work-item-edit.ts";
+import { registerDirectoryTools } from "./directory-tools.mjs";
 import { registerTeamTools } from "./team-tools.mjs";
 import { registerProjectTools } from "./project-tools.mjs";
 import { registerLeadTools } from "./lead-tools.mjs";
@@ -469,7 +472,7 @@ server.registerTool(
       rows(`SELECT status, count(*)::int AS n FROM projects GROUP BY status ORDER BY status`),
       rows(`SELECT count(*)::int AS subs FROM subs`),
       rows(`SELECT COALESCE(sum(amount),0)::int AS outstanding FROM invoices WHERE status = 'sent'`),
-      rows(`SELECT count(*)::int AS due_60d FROM compliance_items WHERE resolved = false AND due_date - CURRENT_DATE BETWEEN 0 AND 60`),
+      rows(`SELECT count(*)::int AS due_60d FROM (${COMPLIANCE_SOURCE}) compliance WHERE due_date <= ${CENTRAL_TODAY} + 60`),
       rows(`SELECT status, count(*)::int AS n FROM work_items GROUP BY status ORDER BY status`),
       rows(`SELECT count(*)::int AS n FROM work_items WHERE approval_status = 'requested'`),
       // Never let a financials hiccup take the whole snapshot down.
@@ -651,15 +654,15 @@ server.registerTool(
   {
     title: "List subcontractors",
     description: "List subs, optionally filtered by trade (substring match). Includes COI status + expiry.",
-    inputSchema: { trade: z.string().optional() },
+    inputSchema: { trade: z.string().optional(), archived: z.boolean().optional() },
   },
-  async ({ trade }) => {
-    const where = trade ? `WHERE trade ILIKE $1` : ``;
+  async ({ trade, archived = false }) => {
+    const where = `WHERE (archived_at IS NOT NULL) = $1` + (trade ? ` AND trade ILIKE $2` : ``);
     return json(
       await rows(
-        `SELECT slug, name, trade, rate, rating, jobs_count, coi_status, coi_expires_at, email, phone
+        `SELECT slug, name, trade, rate, rating, GREATEST(jobs_count, (SELECT count(*)::int FROM project_subs ps JOIN projects p ON p.id=ps.project_id WHERE ps.sub_slug=subs.slug AND p.status='warranty')) AS jobs_count, CASE WHEN coi_expires_at IS NULL THEN 'missing' WHEN coi_expires_at < CURRENT_DATE THEN 'expired' WHEN coi_expires_at-CURRENT_DATE <= 30 THEN 'expiring' ELSE 'current' END AS coi_status, coi_expires_at, email, phone
            FROM subs ${where} ORDER BY fav DESC, name`,
-        trade ? [`%${trade}%`] : [],
+        trade ? [archived, `%${trade}%`] : [archived],
       ),
     );
   },
@@ -670,10 +673,10 @@ server.registerTool(
   {
     title: "List vendors",
     description: "List materials suppliers (vendors), favorites first. Distinct from subs (labor).",
-    inputSchema: {},
+    inputSchema: { archived: z.boolean().optional() },
   },
-  async () =>
-    json(await rows(`SELECT id, slug, name, trade, email, phone, fav FROM vendors ORDER BY fav DESC, name`)),
+  async ({ archived = false }) =>
+    json(await rows(`SELECT id, slug, name, trade, email, phone, fav FROM vendors WHERE (archived_at IS NOT NULL) = $1 ORDER BY fav DESC, name`, [archived])),
 );
 
 server.registerTool(
@@ -731,9 +734,9 @@ server.registerTool(
   async ({ within_days = 90 }) => {
     return json(
       await rows(
-        `SELECT title, kind, due_date, (due_date - CURRENT_DATE) AS days_out, owner, step
-           FROM compliance_items
-          WHERE resolved = false AND due_date - CURRENT_DATE BETWEEN 0 AND $1
+        `SELECT title, kind, due_date, (due_date - ${CENTRAL_TODAY}) AS days_out, who AS owner, step
+           FROM (${COMPLIANCE_SOURCE}) compliance
+          WHERE due_date <= ${CENTRAL_TODAY} + $1
           ORDER BY due_date`,
         [within_days],
       ),
@@ -749,15 +752,18 @@ server.registerTool(
     inputSchema: { project_slug: z.string().optional(), status: z.string().optional() },
   },
   async ({ project_slug, status }) => {
+    const requestStatus = `CASE WHEN EXISTS (
+      SELECT 1 FROM document_drafts d WHERE d.signature_request_id = sr.id AND d.status = 'void'
+    ) THEN 'void' ELSE sr.status END`;
     const conds = [];
     const params = [];
     if (project_slug) { params.push(project_slug); conds.push(`p.slug = $${params.length}`); }
-    if (status) { params.push(status); conds.push(`sr.status = $${params.length}`); }
+    if (status) { params.push(status); conds.push(`${requestStatus} = $${params.length}`); }
     const where = conds.length ? `WHERE ${conds.join(" AND ")}` : ``;
     return json(
       await rows(
-        `SELECT sr.id, sr.doc_type, sr.title, sr.status, sr.signer_name, sr.signed_name,
-                sr.signed_at, p.slug AS project_slug
+        `SELECT sr.id, sr.doc_type, sr.title, ${requestStatus} AS status, sr.signer_name, sr.signed_name,
+                sr.signed_at, sr.email_delivery_status, sr.email_delivery_note, sr.emailed_at, p.slug AS project_slug
            FROM signature_requests sr
            LEFT JOIN projects p ON p.id = sr.project_id
            ${where}
@@ -1348,7 +1354,7 @@ server.registerTool(
          (title, body, priority, assignee_kind, assignee_key, due_at, project_id, lead_id,
           expected_skill_slug, expected_runbook_slug, requires_approval, source_kind, created_by,
           source_id, obligation_id)
-       VALUES ($1,$2,$3,$4,$5,NULLIF($6,'')::timestamptz,$7,$8,$9,$10,$11,$13,$12,$14,$15)
+       VALUES ($1,$2,$3,$4,$5,CASE WHEN length($6::text) = 10 THEN ($6::date::timestamp AT TIME ZONE 'America/Chicago') ELSE NULLIF($6,'')::timestamptz END,$7,$8,$9,$10,$11,$13,$12,$14,$15)
        RETURNING id`,
       [
         a.title, a.body ?? "", a.priority ?? "normal", a.assignee_kind ?? "human",
@@ -1360,6 +1366,24 @@ server.registerTool(
     );
     const onIt = resolved.people.length ? await writeAssignees(r[0].id, resolved.people) : [];
     return json({ ok: true, id: r[0].id, assigned_to: onIt ?? [] });
+  },
+);
+
+server.registerTool(
+  "update_work_item",
+  {
+    title: "Edit a work item",
+    description: "Correct title, description, priority, due date or linked job without creating a duplicate. Omit fields to keep them; null clears a date or job. Future due dates stay snoozed until that day in Central time. To change people, use assign_work_item (owner instruction required).",
+    inputSchema: {
+      id: z.string().uuid(), title: z.string().optional(), body: z.string().optional(),
+      priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
+      due_at: z.string().nullable().optional(), project_slug: z.string().nullable().optional(), lead_slug: z.string().nullable().optional(),
+    },
+  },
+  async ({id, ...patch}) => {
+    const mangled = strippedDollarError(patch.title, patch.body);
+    if (mangled) return mangled;
+    return json(await editWorkItem(rows, id, patch));
   },
 );
 
@@ -1709,6 +1733,21 @@ server.registerTool(
                  w.due_at NULLS LAST, w.updated_at DESC, w.id`,
     );
     return json(items.map((w) => ({ ...w, lane: laneForMjs(w) })));
+  },
+);
+
+server.registerTool(
+  "restore_work_item",
+  {
+    title: "Restore a done or snoozed to-do",
+    description: "Reopen done/cancelled human work, or explicitly bring snoozed work back today. Reopen preserves its due date; snoozed recovery changes the due day to today. Never promotes work.",
+    inputSchema: { id: z.string(), from: z.enum(["done", "snoozed"]) },
+  },
+  async ({ id, from }) => {
+    const { recoverWorkItem } = await import("../lib/today-recovery.mjs");
+    const ok = await recoverWorkItem(rows, id, from);
+    if (ok) await rows(`INSERT INTO agent_receipts (work_item_id, receipt_kind, label) VALUES ($1, 'db_row', $2)`, [id, from === "done" ? "Reopened to-do" : "Brought snoozed to-do back today"]);
+    return json(ok ? { ok: true, id } : { ok: false, error: "No matching done or snoozed human to-do." });
   },
 );
 
@@ -2900,6 +2939,7 @@ server.registerTool(
   // unattended and unknown runs are refused. Never an owner account, and never
   // an owner row, through MCP. Internal records, nothing emailed, no delete.
   // See mcp/team-tools.mjs.
+  registerDirectoryTools(server, { rows, json, currentPrincipal, pool });
   registerTeamTools(server, { rows, json, currentPrincipal });
   registerProjectTools(server, { rows, json, strippedDollarError, currentPrincipal });
   // A lead's Phase 1 rough estimate (the lead page's Rough estimate tab):

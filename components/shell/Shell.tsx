@@ -62,7 +62,7 @@ export async function Shell({ children, breadcrumb, aiContext }: ShellProps) {
     <div className="flex h-full overflow-hidden bg-paper">
       {/* Desktop rail — collapses into the Topbar hamburger drawer below lg. */}
       <div className="hidden flex-none lg:flex">
-        <Sidebar user={sidebarUser} />
+        <Sidebar user={sidebarUser} collapsible />
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar
@@ -74,7 +74,7 @@ export async function Shell({ children, breadcrumb, aiContext }: ShellProps) {
             toolbar that didn't wrap) must never make the whole page pan
             sideways on a phone. Anything genuinely wide (tables) scrolls
             inside its own overflow-x-auto wrapper. */}
-        <div className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto">{children}</div>
+        <div className="@container/page relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto">{children}</div>
       </div>
       <PageAiContext context={aiContext} />
     </div>

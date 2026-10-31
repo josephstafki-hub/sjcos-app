@@ -69,6 +69,11 @@ export async function testSquareConnection(): Promise<Result & { capabilities?: 
   const rows = await query<{ location_id: string }>(`SELECT location_id FROM payment_provider_config WHERE provider = 'square'`);
   const locationId = rows.rows[0]?.location_id || null;
   const adapter = getSquareAdapter();
+  if (adapter.environment === "fake") {
+    await query(`UPDATE payment_provider_config SET connection_state = 'unconfigured', capabilities = '{}'::jsonb, verified_at = NULL, last_error = NULL WHERE provider = 'square'`);
+    revalidatePath("/settings/payments");
+    return { ok: false, error: "Not connected — add your Square keys. In Settings › Integrations, open Square, then use the setup checklist with your account administrator." };
+  }
   try {
     const caps = await adapter.verifyConnection(locationId);
     const connected = caps.merchantApproved && (caps.card || caps.ach);

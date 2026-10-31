@@ -9,6 +9,7 @@ import { query, queryOne } from "@/lib/db";
 import { requireAccess } from "@/lib/dal";
 import { ai } from "@/lib/ai";
 import { emit } from "@/lib/notify";
+import { normalizeMarketingCopy } from "@/lib/marketing-copy";
 import { type DraftKind } from "@/lib/marketing-types";
 import { runDirect, userPrincipal, withTransaction } from "@/lib/commands/db";
 import { getDraft, grantPublicationRights, noteDraftEdited, setDraftPost, stagePublication, withdrawPublicationRights } from "@/lib/closeout/marketing";
@@ -29,7 +30,7 @@ function draftPrompt(kind: DraftKind, name: string, scope: string, city: string)
         `Write a short blog post (3–4 short paragraphs) for a residential carpentry/remodeling company, ` +
         `SJ Carpentry LLC, about a completed project: "${name}"${scope ? ` (${scope})` : ""}${where}. ` +
         `Warm, professional, homeowner-friendly; highlight craftsmanship and the client experience. Do NOT ` +
-        `invent specific prices, dates, or names beyond what's given. End with a soft call to action.`,
+        `invent specific prices, dates, or names beyond what's given. End with a soft call to action. Return only plain prose, no JSON or code fences.`,
       fallback:
         `${name}\n\nWe recently wrapped up ${scope || "a remodeling project"}${where}, and we couldn't be ` +
         `happier with how it turned out. From the first walkthrough to the final punch list, our team focused ` +
@@ -42,7 +43,7 @@ function draftPrompt(kind: DraftKind, name: string, scope: string, city: string)
     prompt:
       `Write a short, upbeat social media post (2–3 sentences) for SJ Carpentry LLC celebrating a completed ` +
       `project: "${name}"${scope ? ` (${scope})` : ""}${where}. Friendly and proud, homeowner-friendly. End ` +
-      `with 3–5 relevant hashtags. Do NOT invent specific prices, dates, or client names.`,
+      `with 3–5 relevant hashtags. Do NOT invent specific prices, dates, or client names. Return plain prose with hashtags as text, no JSON or arrays.`,
     fallback:
       `Another one in the books! We just finished ${scope || "a great project"}${where} and we're proud of ` +
       `how it came together. Thanks to our client for trusting us with their home. 🛠️\n\n` +
@@ -52,7 +53,7 @@ function draftPrompt(kind: DraftKind, name: string, scope: string, city: string)
 
 /** Generate (and store) a draft for a project. Returns ok; the draft appears on
  *  /marketing. AI failure falls back to a deterministic template. */
-export async function generateDraft(slug: string, kindRaw: string): Promise<Result> {
+export async function generateDraft(slug: string, kindRaw: string): Promise<Result & {id?: number}> {
   await requireAccess("marketing");
   const kind: DraftKind = KINDS.includes(kindRaw as DraftKind) ? (kindRaw as DraftKind) : "social";
   const proj = await queryOne<{ id: string; name: string; scope: string | null; city: string | null }>(
@@ -63,22 +64,25 @@ export async function generateDraft(slug: string, kindRaw: string): Promise<Resu
 
   const { prompt, fallback } = draftPrompt(kind, proj.name, proj.scope ?? "", proj.city ?? "");
   let body = "";
+  let title = proj.name;
   try {
     const res = await ai.ask({ prompt });
-    body = (res.answer ?? "").trim();
+    const copy = normalizeMarketingCopy(res.answer ?? "");
+    body = copy.body;
+    title = copy.title ?? proj.name;
   } catch {
     body = "";
   }
   if (!body) body = fallback;
 
-  await query(
+  const created = await query<{id:number}>(
     `INSERT INTO marketing_drafts (project_id, kind, title, body, status)
-     VALUES ($1, $2, $3, $4, 'draft')`,
-    [proj.id, kind, proj.name, body],
+     VALUES ($1, $2, $3, $4, 'draft') RETURNING id`,
+    [proj.id, kind, title, body],
   );
   revalidatePath("/marketing");
   revalidatePath("/site"); // blog drafts also surface in the Website composer
-  return { ok: true };
+  return { ok: true, id: created.rows[0]?.id };
 }
 
 /** Auto-draft a social post when a project reaches completion (P6-2). Gated by
@@ -104,9 +108,12 @@ export async function autoDraftSocialOnCompletion(slug: string): Promise<void> {
 
   const { prompt, fallback } = draftPrompt("social", proj.name, proj.scope ?? "", proj.city ?? "");
   let body = "";
+  let title = proj.name;
   try {
     const res = await ai.ask({ prompt });
-    body = (res.answer ?? "").trim();
+    const copy = normalizeMarketingCopy(res.answer ?? "");
+    body = copy.body;
+    title = copy.title ?? proj.name;
   } catch {
     body = "";
   }
@@ -114,7 +121,7 @@ export async function autoDraftSocialOnCompletion(slug: string): Promise<void> {
   await query(
     `INSERT INTO marketing_drafts (project_id, kind, title, body, status)
      VALUES ($1, 'social', $2, $3, 'draft')`,
-    [proj.id, proj.name, body],
+    [proj.id, title, body],
   );
   revalidatePath("/marketing");
   revalidatePath("/site"); // blog drafts also surface in the Website composer
@@ -146,9 +153,12 @@ export async function autoDraftBlogOnCompletion(slug: string): Promise<void> {
 
   const { prompt, fallback } = draftPrompt("blog", proj.name, proj.scope ?? "", proj.city ?? "");
   let body = "";
+  let title = proj.name;
   try {
     const res = await ai.ask({ prompt });
-    body = (res.answer ?? "").trim();
+    const copy = normalizeMarketingCopy(res.answer ?? "");
+    body = copy.body;
+    title = copy.title ?? proj.name;
   } catch {
     body = "";
   }
@@ -156,7 +166,7 @@ export async function autoDraftBlogOnCompletion(slug: string): Promise<void> {
   await query(
     `INSERT INTO marketing_drafts (project_id, kind, title, body, status)
      VALUES ($1, 'blog', $2, $3, 'draft')`,
-    [proj.id, proj.name, body],
+    [proj.id, title, body],
   );
 
   // Ask for photos/video if none are on file — the post can't go live without
@@ -184,14 +194,18 @@ export async function autoDraftBlogOnCompletion(slug: string): Promise<void> {
   revalidatePath("/site"); // blog drafts also surface in the Website composer
 }
 
-/** Edit a draft's body. */
-export async function updateDraft(id: number, body: string): Promise<Result> {
+/** Save readable copy and its headline together. An approval card for the old
+ *  text is retired; refused while the post is going up. */
+export async function updateDraft(id: number, body: string, title?: string): Promise<Result> {
   const user = await requireAccess("marketing");
-  // An approval card for the old text is retired; refused while it's going up.
+  const clean = normalizeMarketingCopy(body);
+  if (!clean.body) return {ok:false,error:"Enter the post as readable text before saving."};
+  const headline = title?.trim() ?? clean.title;
+  if (title !== undefined && !headline) return {ok:false,error:"Enter a headline before saving."};
   try {
     await withTransaction(async (run) => {
       await noteDraftEdited(run, id, `${user.role}:${user.name}`);
-      await run(`UPDATE marketing_drafts SET body = $2 WHERE id = $1`, [id, body.trim()]);
+      await run(`UPDATE marketing_drafts SET body = $2, title = COALESCE($3, title) WHERE id = $1`, [id, clean.body, headline ?? null]);
     });
   } catch (err) {
     return { ok: false, error: (err as Error).message };
@@ -232,6 +246,14 @@ export async function markPosted(id: number, url?: string | null): Promise<Resul
   revalidatePath("/marketing");
   revalidatePath("/site"); // blog drafts also surface in the Website composer
   return { ok: true };
+}
+
+/** Undo a manual "posted" marker. No external post is changed. */
+export async function markDraft(id: number): Promise<Result> {
+  await requireAccess("marketing");
+  await query(`UPDATE marketing_drafts SET status = 'draft' WHERE id = $1 AND status = 'posted'`, [id]);
+  revalidatePath("/marketing"); revalidatePath("/site");
+  return {ok:true};
 }
 
 /** Joe looked after an unsure run: it isn't up. The send is closed as not

@@ -32,6 +32,8 @@ export interface MemoriesData {
   pending: MemoryView[];
   /** Approved + can_use_as_instruction — Joe's standing orders to all agents. */
   instructions: MemoryView[];
+  examples: MemoryView[];
+  history: MemoryView[];
 }
 
 interface MemoryRow {
@@ -72,7 +74,7 @@ function rowToView(r: MemoryRow): MemoryView {
 }
 
 export async function getMemoriesData(): Promise<MemoriesData> {
-  const [pending, instructions] = await Promise.all([
+  const [pending, instructions, examples, history] = await Promise.all([
     query<MemoryRow>(
       `SELECT ${MEMORY_SELECT} FROM agent_memories m
         WHERE m.review_status = 'pending'
@@ -83,9 +85,15 @@ export async function getMemoriesData(): Promise<MemoriesData> {
         WHERE m.review_status = 'approved' AND m.can_use_as_instruction = true
         ORDER BY m.confidence DESC NULLS LAST, m.updated_at DESC`,
     ),
+    query<MemoryRow>(`SELECT ${MEMORY_SELECT} FROM agent_memories m
+      WHERE m.review_status = 'approved' AND m.can_use_as_instruction = false ORDER BY m.updated_at DESC`),
+    query<MemoryRow>(`SELECT ${MEMORY_SELECT} FROM agent_memories m
+      WHERE m.review_status = 'rejected' ORDER BY m.updated_at DESC`),
   ]);
   return {
     pending: pending.rows.map(rowToView),
     instructions: instructions.rows.map(rowToView),
+    examples: examples.rows.map(rowToView),
+    history: history.rows.map(rowToView),
   };
 }

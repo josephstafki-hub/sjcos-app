@@ -13,7 +13,7 @@ import {
   Archive,
   ArchiveRestore,
 } from "lucide-react";
-import { Card, Chip, Avatar, VoiceButton } from "@/components/ui";
+import { Button, PageHeader, Card, Chip, Avatar, VoiceButton } from "@/components/ui";
 import { mergeTranscript } from "@/lib/append-transcript";
 import {
   sendChatMessage,
@@ -74,7 +74,7 @@ interface DmOption {
 /** Small-caps mono section label for the light-background rail. */
 function RailLabel({ children }: { children: string }) {
   return (
-    <div className="px-1 pb-1 pt-2 font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-ink-3">
+    <div className="px-1 pb-1 pt-2 text-meta font-medium text-ink-3">
       {children}
     </div>
   );
@@ -103,8 +103,9 @@ export function ChatClient({ data }: { data: ChatData }) {
   // The lists below follow the server: LiveUpdates refreshes the page when a
   // message lands (someone else's post, a portal reply, an agent), and
   // useServerState adopts it. Plain useState kept the first render forever.
-  // Mobile master/detail: below lg, show the channel rail OR the messages.
-  const [mobileThread, setMobileThread] = useState(false);
+  // Narrow page containers show the room list OR the conversation.
+  const [mobileThread, setMobileThread] = useState(Boolean(data.selectedKey));
+  const [roomQuery, setRoomQuery] = useState("");
   const [views, setViews] = useServerState(data.views);
   const [channels, setChannels] = useServerState(data.channels);
   const [rooms, setRooms] = useServerState(data.rooms);
@@ -609,20 +610,24 @@ export function ChatClient({ data }: { data: ChatData }) {
   const archivedItem = view?.archived ? archived.find((a) => a.key === view.key) : undefined;
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full min-h-0 flex-col [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus"><div className="border-b border-rule-soft px-4 py-5 @2xl/page:px-5"><PageHeader title="Team Chat" meta="Channels and direct messages for your team and jobs." /></div><div className="flex min-h-0 flex-1">
       {/* ─── Channel rail ─────────────────────────────────────────── */}
       <aside
         className={[
-          "w-full flex-none flex-col overflow-y-auto border-r border-rule bg-paper-2 p-3 lg:w-[220px]",
-          mobileThread ? "hidden lg:flex" : "flex",
+          "min-h-0 w-full flex-none flex-col overflow-y-auto border-r border-rule bg-paper-2 p-3 @2xl/page:w-60 @4xl/page:w-72 @6xl/page:w-80",
+          mobileThread ? "hidden @2xl/page:flex" : "flex",
         ].join(" ")}
       >
+        <input type="search" aria-label="Search rooms and people" placeholder="Search rooms and people…"
+          value={roomQuery} onChange={(e) => setRoomQuery(e.target.value)}
+          className="mb-2 w-full rounded-md border border-rule bg-card px-3 py-2 text-body text-ink" />
         <RailLabel>Channels</RailLabel>
         <div className="flex flex-col gap-0.5">
-          {channels.map((c) => (
+          {channels.filter((c) => c.name.toLowerCase().includes(roomQuery.toLowerCase())).map((c) => (
             <ChannelItem
               key={c.key}
               channel={c}
+              lastMessage={views[c.key]?.messages.at(-1)}
               active={c.key === selectedKey}
               onSelect={() => selectChannel(c.key)}
               // Owner only — archiving a channel is a company decision.
@@ -655,10 +660,10 @@ export function ChatClient({ data }: { data: ChatData }) {
                   }
                 }}
                 placeholder="channel-name"
-                className="w-full rounded-md border border-rule bg-card px-2 py-1 text-[12px] text-ink outline-none focus:border-accent"
+                className="w-full rounded-md border border-rule bg-card px-2 py-1 text-meta text-ink focus-visible:outline-2 focus-visible:outline-focus"
               />
               {createError && (
-                <div className="px-1 pt-1 text-[10px] text-flag">{createError}</div>
+                <div className="px-1 pt-1 text-meta text-flag">{createError}</div>
               )}
             </div>
           ) : (
@@ -667,7 +672,7 @@ export function ChatClient({ data }: { data: ChatData }) {
             canManage && (
               <button
                 onClick={() => setCreating(true)}
-                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[12px] text-ink-3 transition-colors hover:bg-paper-3 hover:text-ink-2"
+                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-meta text-ink-3 transition-colors hover:bg-paper-3 hover:text-ink-2"
               >
                 <Plus className="size-3.5 flex-none" strokeWidth={2} />
                 New channel
@@ -677,22 +682,23 @@ export function ChatClient({ data }: { data: ChatData }) {
         </div>
 
         <div className="my-2 h-px bg-rule" />
-        <RailLabel>Rooms</RailLabel>
+        <RailLabel>Jobs</RailLabel>
         <div className="flex flex-col gap-0.5">
           {rooms.length === 0 && !canManage && (
-            <p className="px-2 py-1 text-[11px] leading-snug text-ink-4">
+            <p className="px-2 py-1 text-meta leading-snug text-ink-3">
               Joe adds you to a job&apos;s room when you&apos;re on it.
             </p>
           )}
           {rooms.length === 0 && canManage && (
-            <p className="px-2 py-1 text-[11px] leading-snug text-ink-4">
+            <p className="px-2 py-1 text-meta leading-snug text-ink-3">
               No active leads or projects.
             </p>
           )}
-          {rooms.map((c) => (
+          {rooms.filter((c) => c.name.toLowerCase().includes(roomQuery.toLowerCase())).map((c) => (
             <ChannelItem
               key={c.key}
               channel={c}
+              lastMessage={views[c.key]?.messages.at(-1)}
               active={c.key === selectedKey}
               onSelect={() => selectChannel(c.key)}
               // Rooms archive themselves when the job closes; this is the
@@ -711,7 +717,7 @@ export function ChatClient({ data }: { data: ChatData }) {
             <button
               onClick={() => setShowArchived((s) => !s)}
               aria-expanded={showArchived}
-              className="mt-1 flex w-full items-center gap-1 rounded-md px-1 py-1 text-left font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-ink-3 transition-colors hover:text-ink-2"
+              className="mt-1 flex w-full items-center gap-1 rounded-md px-1 py-1 text-left text-meta font-medium text-ink-3 transition-colors hover:text-ink-2"
             >
               <ChevronRight
                 className={["size-3 flex-none transition-transform", showArchived ? "rotate-90" : ""].join(" ")}
@@ -725,7 +731,7 @@ export function ChatClient({ data }: { data: ChatData }) {
                   <div
                     key={c.key}
                     className={[
-                      "group flex w-full items-center gap-1 rounded-md px-2 py-1 text-[12px] transition-colors",
+                      "group flex w-full items-center gap-1 rounded-md px-2 py-1 text-meta transition-colors",
                       c.key === selectedKey ? "bg-paper-3 text-ink-2" : "text-ink-3 hover:bg-paper-3",
                     ].join(" ")}
                   >
@@ -752,28 +758,11 @@ export function ChatClient({ data }: { data: ChatData }) {
         )}
 
         <div className="my-2 h-px bg-rule" />
-        <RailLabel>Direct</RailLabel>
+        <RailLabel>People</RailLabel>
         <div className="flex flex-col gap-0.5">
-          {directs.map((d) => (
-            <button
-              key={d.key}
-              onClick={() => selectChannel(d.key)}
-              className={[
-                "flex w-full items-center gap-2 rounded-md px-2 py-1 text-left transition-colors",
-                d.key === selectedKey
-                  ? "bg-accent-soft text-accent-2"
-                  : "text-ink-2 hover:bg-paper-3",
-              ].join(" ")}
-            >
-              <span className="relative flex-none">
-                <Avatar initials={d.initials} size="sm" kind="gray" />
-                {d.online && (
-                  <span className="absolute -bottom-px -right-px size-1.5 rounded-full border border-paper bg-money" />
-                )}
-              </span>
-              <span className="flex-1 truncate text-[12px]">{d.name}</span>
-              <ChatBadge unread={d.unread} awaitingReply={d.awaitingReply} />
-            </button>
+          {directs.filter((d) => d.name.toLowerCase().includes(roomQuery.toLowerCase())).map((d) => (
+            <ChannelItem key={d.key} channel={d} lastMessage={views[d.key]?.messages.at(-1)}
+              active={d.key === selectedKey} onSelect={() => selectChannel(d.key)} />
           ))}
           {pickingDm ? (
             <div className="px-1 pt-1">
@@ -788,12 +777,12 @@ export function ChatClient({ data }: { data: ChatData }) {
                   if (e.key === "Escape") closeDmPicker();
                 }}
                 placeholder="Search subs, team, clients…"
-                className="w-full rounded-md border border-rule bg-card px-2 py-1 text-[12px] text-ink outline-none focus:border-accent"
+                className="w-full rounded-md border border-rule bg-card px-2 py-1 text-meta text-ink focus-visible:outline-2 focus-visible:outline-focus"
               />
-              {dmError && <div className="px-1 pt-1 text-[10px] text-flag">{dmError}</div>}
+              {dmError && <div className="px-1 pt-1 text-meta text-flag">{dmError}</div>}
               <div className="mt-1 max-h-56 overflow-y-auto">
                 {dmMatches.length === 0 ? (
-                  <div className="px-2 py-1.5 text-[11px] text-ink-3">No one matches.</div>
+                  <div className="px-2 py-1.5 text-meta text-ink-3">No one matches.</div>
                 ) : (
                   dmMatches.map((o) => (
                     <button
@@ -802,7 +791,7 @@ export function ChatClient({ data }: { data: ChatData }) {
                       className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-ink-2 transition-colors hover:bg-paper-3"
                     >
                       <Avatar initials={o.initials} size="sm" kind="gray" />
-                      <span className="flex-1 truncate text-[12px]">
+                      <span className="flex-1 truncate text-meta">
                         {o.name}
                         <span className="text-ink-3"> · {o.subtitle}</span>
                       </span>
@@ -814,7 +803,7 @@ export function ChatClient({ data }: { data: ChatData }) {
           ) : (
             <button
               onClick={() => setPickingDm(true)}
-              className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[12px] text-ink-3 transition-colors hover:bg-paper-3 hover:text-ink-2"
+              className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-meta text-ink-3 transition-colors hover:bg-paper-3 hover:text-ink-2"
             >
               <Plus className="size-3.5 flex-none" strokeWidth={2} />
               New message
@@ -829,12 +818,12 @@ export function ChatClient({ data }: { data: ChatData }) {
           <>
             <div className="my-2 h-px bg-rule" />
             <RailLabel>{`Portal outbox (${outbox.length})`}</RailLabel>
-            {outboxError && <div className="px-1 pb-1 text-[10px] text-flag">{outboxError}</div>}
+            {outboxError && <div className="px-1 pb-1 text-meta text-flag">{outboxError}</div>}
             <div className="flex flex-col gap-1">
               {outbox.map((d) => (
                 <div key={d.id} className="rounded-md border border-rule bg-card px-2 py-1.5">
-                  <div className="truncate text-[11.5px] text-ink-2">{d.preview}</div>
-                  <div className="mt-0.5 flex items-center gap-1 text-[10px] text-ink-3">
+                  <div className="truncate text-meta text-ink-2">{d.preview}</div>
+                  <div className="mt-0.5 flex items-center gap-1 text-meta text-ink-3">
                     <Send className="size-2.5 flex-none" strokeWidth={1.75} />
                     <span className="truncate">{d.recipientLabel}</span>
                   </div>
@@ -842,14 +831,14 @@ export function ChatClient({ data }: { data: ChatData }) {
                     <button
                       onClick={() => releaseDeliveryHandler(d.id)}
                       disabled={outboxPending === d.id}
-                      className="rounded border border-accent/40 px-1.5 py-0.5 text-[10px] font-medium text-accent-2 transition-colors hover:bg-accent-soft disabled:opacity-50"
+                      className="rounded border border-accent/40 px-1.5 py-0.5 text-meta font-medium text-accent-2 transition-colors hover:bg-accent-soft disabled:opacity-50"
                     >
                       Release
                     </button>
                     <button
                       onClick={() => skipDeliveryHandler(d.id)}
                       disabled={outboxPending === d.id}
-                      className="rounded px-1.5 py-0.5 text-[10px] text-ink-3 transition-colors hover:bg-paper-3 hover:text-ink-2 disabled:opacity-50"
+                      className="rounded px-1.5 py-0.5 text-meta text-ink-3 transition-colors hover:bg-paper-3 hover:text-ink-2 disabled:opacity-50"
                     >
                       Discard
                     </button>
@@ -865,7 +854,7 @@ export function ChatClient({ data }: { data: ChatData }) {
             <div className="my-2 h-px bg-rule" />
             <Card kind="ai" className="flex items-center gap-1.5 p-2">
               <Sparkles className="size-3 flex-none text-ai-2" strokeWidth={1.5} />
-              <span className="text-[11px] text-ai-2">{aiFooter}</span>
+              <span className="text-meta text-ai-2">{aiFooter}</span>
             </Card>
           </>
         )}
@@ -874,30 +863,31 @@ export function ChatClient({ data }: { data: ChatData }) {
       {/* ─── Messages ─────────────────────────────────────────────── */}
       <section
         className={[
-          "min-w-0 flex-1 flex-col",
-          mobileThread ? "flex" : "hidden lg:flex",
+          "min-h-0 min-w-0 flex-1 flex-col",
+          mobileThread ? "flex" : "hidden @2xl/page:flex",
         ].join(" ")}
       >
         {!view ? (
-          <div className="flex flex-1 items-center justify-center p-8 text-center text-[13px] text-ink-3">
+          <div className="flex flex-1 items-center justify-center p-8 text-center text-body text-ink-3">
             No channel selected. Create one from the rail to get started.
           </div>
         ) : (
         <>
         <div className="flex-none border-b border-rule px-5 py-3">
-          <div className="flex items-center gap-3">
             <button
               onClick={() => setMobileThread(false)}
-              aria-label="Back to channels"
-              className="-ml-1 rounded p-0.5 text-ink-3 hover:bg-paper-3 lg:hidden"
+              aria-label="Back to rooms"
+              title="Back to rooms"
+              className="-ml-1 inline-flex min-h-11 shrink-0 items-center gap-1 px-1 rounded-md text-ink-3 hover:bg-hover @2xl/page:hidden"
             >
-              <ChevronLeft className="size-5" strokeWidth={1.5} />
+              <ChevronLeft className="size-4" strokeWidth={1.5} /> Back to rooms
             </button>
+          <div className="flex items-center gap-3">
             <div className="min-w-0 flex-1">
-              <h1 className="font-serif text-[20px] font-medium leading-tight text-accent-2">
+              <h1 className="text-subheading font-semibold text-ink">
                 {view.name}
               </h1>
-              <div className="mt-0.5 text-[11px] text-ink-3">{view.description}</div>
+              <div className="mt-0.5 text-meta text-ink-3">{view.description}</div>
             </div>
             <div className="relative flex items-center gap-1.5">
               <div className="flex -space-x-1">
@@ -914,7 +904,7 @@ export function ChatClient({ data }: { data: ChatData }) {
               {view.canManageMembers && (
                 <button
                   onClick={() => setManaging((m) => !m)}
-                  aria-label="Manage participants"
+                  aria-label="Manage participants" title="Manage participants"
                   className={[
                     "flex-none rounded-full border border-rule p-1 transition-colors",
                     managing ? "bg-accent-soft text-accent-2" : "text-ink-3 hover:bg-paper-3",
@@ -955,10 +945,10 @@ export function ChatClient({ data }: { data: ChatData }) {
               <Chip kind="ghost">{view.daySeparator}</Chip>
             </div>
             {view.messages.length === 0 && view.archived && (
-              <div className="py-8 text-center text-[12px] text-ink-3">No messages.</div>
+              <div className="py-8 text-center text-meta text-ink-3">No messages.</div>
             )}
             {view.messages.length === 0 && !view.archived && (
-              <div className="py-8 text-center text-[12px] text-ink-3">
+              <div className="py-8 text-center text-meta text-ink-3">
                 No messages yet. Say something
                 {aiMembers.length ? (
                   <>
@@ -974,7 +964,7 @@ export function ChatClient({ data }: { data: ChatData }) {
               <MessageRow key={i} message={m} />
             ))}
             {typing && (
-              <div className="flex items-center gap-2 pl-1 text-[12px] text-ai-2">
+              <div className="flex items-center gap-2 pl-1 text-meta text-ai-2">
                 <Sparkles className="size-3 animate-pulse" strokeWidth={1.5} />
                 {typing} is typing…
               </div>
@@ -987,13 +977,13 @@ export function ChatClient({ data }: { data: ChatData }) {
           // re-opens the composer.
           <div className="flex flex-none items-center gap-3 border-t border-rule bg-paper-2 px-5 py-3">
             <Archive className="size-4 flex-none text-ink-3" strokeWidth={1.75} />
-            <span className="flex-1 text-[12px] text-ink-3">
+            <span className="flex-1 text-meta text-ink-3">
               Archived — the job closed or it was archived by hand. Members and history are kept.
             </span>
             {archivedItem && (
               <button
                 onClick={() => restoreHandler(archivedItem)}
-                className="flex flex-none items-center gap-1.5 rounded-md border border-accent/40 px-2.5 py-1 text-[12px] font-medium text-accent-2 transition-colors hover:bg-accent-soft"
+                className="flex flex-none items-center gap-1.5 rounded-md border border-accent/40 px-2.5 py-1 text-meta font-medium text-accent-2 transition-colors hover:bg-accent-soft"
               >
                 <ArchiveRestore className="size-3.5" strokeWidth={1.75} />
                 Restore
@@ -1007,7 +997,7 @@ export function ChatClient({ data }: { data: ChatData }) {
               e.preventDefault();
               send();
             }}
-            className="flex items-end gap-2"
+            className="flex items-end gap-2 rounded-lg border border-rule bg-card p-2 focus-within:outline-2 focus-within:outline-focus"
           >
             <textarea
               value={input}
@@ -1019,24 +1009,20 @@ export function ChatClient({ data }: { data: ChatData }) {
                 }
               }}
               rows={1}
-              placeholder={`Message ${view.name}…  (${composerHint})`}
-              className="flex-1 resize-none rounded-md border border-rule bg-card px-3 py-2 text-[13px] text-ink outline-none focus:border-accent"
+              placeholder="Write a message…"
+              aria-label={`Message ${view.name}`}
+              title={composerHint}
+              className="min-w-0 flex-1 resize-none border-0 bg-transparent px-2 py-1 text-body text-ink outline-none"
             />
             <VoiceButton compact onText={(t) => setInput((cur) => mergeTranscript(cur, t))} />
-            <button
-              type="submit"
-              disabled={!input.trim()}
-              aria-label="Send"
-              className="flex-none rounded-md bg-accent px-3 py-2 text-white transition-colors hover:bg-accent-2 disabled:opacity-50"
-            >
-              <Send className="size-4" strokeWidth={1.75} />
-            </button>
+            <Button type="submit" icon={Send} iconOnly aria-label="Send" title="Send" disabled={!input.trim()} />
           </form>
         </div>
         )}
         </>
         )}
       </section>
+      </div>
     </div>
   );
 }
@@ -1046,8 +1032,10 @@ function ChannelItem({
   active,
   onSelect,
   onArchive,
+  lastMessage,
 }: {
   channel: ChatChannel;
+  lastMessage?: ChatMessage;
   active: boolean;
   onSelect: () => void;
   /** Owner only — archives the channel/room (reversible from Archived). */
@@ -1056,23 +1044,26 @@ function ChannelItem({
   return (
     <div
       className={[
-        "group flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-[12.5px] transition-colors",
+        "group flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-body transition-colors",
         active ? "bg-accent-soft font-semibold text-accent-2" : "text-ink-2 hover:bg-paper-3",
       ].join(" ")}
     >
-      <button onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-2 text-left">
-        <span className="flex-1 truncate">{channel.name}</span>
+      <button onClick={onSelect} aria-current={active ? "true" : undefined} className="flex min-h-11 min-w-0 flex-1 items-center gap-2 text-left">
+        <span className="min-w-0 flex-1">
+          <span className="block break-words">{channel.name}</span>
+          <span className="block truncate text-meta font-normal text-ink-3">{lastMessage ? `${lastMessage.name}: ${lastMessage.text}` : "No messages yet"}</span>
+        </span>
+        {lastMessage && <span className="shrink-0 text-meta font-normal text-ink-3">{lastMessage.time}</span>}
         <ChatBadge unread={channel.unread} awaitingReply={channel.awaitingReply} />
       </button>
       {onArchive && (
-        <button
-          onClick={onArchive}
-          aria-label={`Archive ${channel.name}`}
-          title="Archive"
-          className="flex-none rounded p-0.5 text-ink-3 opacity-0 transition-opacity hover:bg-paper-3 hover:text-ink-2 group-hover:opacity-100"
-        >
-          <Archive className="size-3" strokeWidth={2} />
-        </button>
+        <details className="relative shrink-0">
+          <summary aria-label={`More actions for ${channel.name}`} title={`More actions for ${channel.name}`}
+            className="list-none cursor-pointer rounded-md px-2 py-2 text-ink-2 hover:bg-paper-3 [&::-webkit-details-marker]:hidden">…</summary>
+          <div className="absolute right-0 z-20 w-44 rounded-md border border-rule bg-card p-1 shadow-pop">
+            <Button variant="ghost" size="sm" onClick={onArchive}>Archive room</Button>
+          </div>
+        </details>
       )}
     </div>
   );
@@ -1084,9 +1075,7 @@ function ChannelItem({
 function ChatBadge({ unread, awaitingReply }: { unread?: number; awaitingReply?: boolean }) {
   if (unread) {
     return (
-      <Chip kind="accent" className="px-1.5">
-        {unread}
-      </Chip>
+      <span className="size-2 shrink-0 rounded-full bg-accent" title={`${unread} unread messages`} aria-label={`${unread} unread messages`} />
     );
   }
   if (awaitingReply) {
@@ -1182,24 +1171,24 @@ function MembersPopover({
       {/* Click-away backdrop. */}
       <div className="fixed inset-0 z-10" onClick={onClose} />
       <div className="absolute right-0 top-9 z-20 w-60 rounded-lg border border-rule bg-card p-2 shadow-lg">
-        <div className="px-1 pb-1 font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-ink-3">
+        <div className="px-1 pb-1 text-meta font-medium text-ink-3">
           Participants
         </div>
         <div className="flex flex-col gap-0.5">
           <div className="flex items-center gap-2 rounded-md px-1.5 py-1">
             <Avatar initials="JS" size="sm" kind="accent" />
-            <span className="flex-1 truncate text-[12px] text-ink-2">Joe · you</span>
-            <span className="text-[10px] text-ink-3">owner</span>
+            <span className="flex-1 truncate text-meta text-ink-2">Joe · you</span>
+            <span className="text-meta text-ink-3">owner</span>
           </div>
           {members.map((m) => (
             <div key={m.slug} className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-paper-3">
               <Avatar initials={m.initials} size="sm" kind="gray" />
-              <span className="flex-1 truncate text-[12px] text-ink-2">
+              <span className="flex-1 truncate text-meta text-ink-2">
                 {m.name.split(/\s+/)[0]} · {m.trade}
               </span>
               <button
                 onClick={() => onRemove(m.slug)}
-                aria-label={`Remove ${m.name}`}
+                aria-label={`Remove ${m.name}`} title={`Remove ${m.name}`}
                 className="flex-none rounded p-0.5 text-ink-3 hover:bg-flag-soft hover:text-flag"
               >
                 <X className="size-3.5" strokeWidth={2} />
@@ -1211,7 +1200,7 @@ function MembersPopover({
         {available.length > 0 && (
           <>
             <div className="my-1.5 h-px bg-rule" />
-            <div className="px-1 pb-1 font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-ink-3">
+            <div className="px-1 pb-1 text-meta font-medium text-ink-3">
               Add a sub
             </div>
             <div className="flex max-h-44 flex-col gap-0.5 overflow-y-auto">
@@ -1222,7 +1211,7 @@ function MembersPopover({
                   className="flex items-center gap-2 rounded-md px-1.5 py-1 text-left hover:bg-paper-3"
                 >
                   <Avatar initials={m.initials} size="sm" kind="gray" />
-                  <span className="flex-1 truncate text-[12px] text-ink-2">
+                  <span className="flex-1 truncate text-meta text-ink-2">
                     {m.name.split(/\s+/)[0]} · {m.trade}
                   </span>
                   <Plus className="size-3.5 flex-none text-accent" strokeWidth={2} />
@@ -1234,20 +1223,20 @@ function MembersPopover({
 
         {/* ─── Team ── SJC's own staff, added independently of subs (P1-D1). ── */}
         <div className="my-1.5 h-px bg-rule" />
-        <div className="px-1 pb-1 font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-ink-3">
+        <div className="px-1 pb-1 text-meta font-medium text-ink-3">
           Team
         </div>
         <div className="flex flex-col gap-0.5">
           {teamMembers.map((m) => (
             <div key={m.slug} className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-paper-3">
               <Avatar initials={m.initials} size="sm" kind="gray" />
-              <span className="flex-1 truncate text-[12px] text-ink-2">
+              <span className="flex-1 truncate text-meta text-ink-2">
                 {m.name.split(/\s+/)[0]}
                 {m.roleLabel ? ` · ${m.roleLabel}` : ""}
               </span>
               <button
                 onClick={() => onRemoveTeam(m.slug)}
-                aria-label={`Remove ${m.name}`}
+                aria-label={`Remove ${m.name}`} title={`Remove ${m.name}`}
                 className="flex-none rounded p-0.5 text-ink-3 hover:bg-flag-soft hover:text-flag"
               >
                 <X className="size-3.5" strokeWidth={2} />
@@ -1255,7 +1244,7 @@ function MembersPopover({
             </div>
           ))}
           {teamMembers.length === 0 && !addingTeam && (
-            <p className="px-1.5 py-1 text-[11px] text-ink-3">No team members in this channel.</p>
+            <p className="px-1.5 py-1 text-meta text-ink-3">No team members in this channel.</p>
           )}
         </div>
 
@@ -1268,7 +1257,7 @@ function MembersPopover({
                 className="flex items-center gap-2 rounded-md px-1.5 py-1 text-left hover:bg-paper-3"
               >
                 <Avatar initials={m.initials} size="sm" kind="gray" />
-                <span className="flex-1 truncate text-[12px] text-ink-2">
+                <span className="flex-1 truncate text-meta text-ink-2">
                   {m.name.split(/\s+/)[0]}
                   {m.roleLabel ? ` · ${m.roleLabel}` : ""}
                 </span>
@@ -1289,7 +1278,7 @@ function MembersPopover({
                 if (e.key === "Escape") setAddingTeam(false);
               }}
               placeholder="Name"
-              className="rounded-md border border-rule bg-paper px-2 py-1 text-[12px] text-ink outline-none focus:border-accent"
+              className="rounded-md border border-rule bg-paper px-2 py-1 text-meta text-ink focus-visible:outline-2 focus-visible:outline-focus"
             />
             <input
               value={teamRole}
@@ -1299,13 +1288,13 @@ function MembersPopover({
                 if (e.key === "Escape") setAddingTeam(false);
               }}
               placeholder="Role (optional)"
-              className="rounded-md border border-rule bg-paper px-2 py-1 text-[12px] text-ink outline-none focus:border-accent"
+              className="rounded-md border border-rule bg-paper px-2 py-1 text-meta text-ink focus-visible:outline-2 focus-visible:outline-focus"
             />
-            {teamError && <p className="px-0.5 text-[11px] text-flag">{teamError}</p>}
+            {teamError && <p className="px-0.5 text-meta text-flag">{teamError}</p>}
             <div className="flex gap-1">
               <button
                 onClick={submitNewTeammate}
-                className="flex-1 rounded-md bg-accent px-2 py-1 text-[12px] font-medium text-paper hover:bg-accent-2"
+                className="flex-1 rounded-md bg-accent px-2 py-1 text-meta font-medium text-paper hover:bg-accent-2"
               >
                 Add
               </button>
@@ -1316,7 +1305,7 @@ function MembersPopover({
                   setTeamRole("");
                   setTeamError(null);
                 }}
-                className="rounded-md border border-rule px-2 py-1 text-[12px] text-ink-2 hover:bg-paper-3"
+                className="rounded-md border border-rule px-2 py-1 text-meta text-ink-2 hover:bg-paper-3"
               >
                 Cancel
               </button>
@@ -1328,7 +1317,7 @@ function MembersPopover({
               setAddingTeam(true);
               setTeamError(null);
             }}
-            className="mt-0.5 flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-[12px] text-accent hover:bg-paper-3"
+            className="mt-0.5 flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-meta text-accent hover:bg-paper-3"
           >
             <Plus className="size-3.5 flex-none" strokeWidth={2} />
             New teammate
@@ -1340,20 +1329,20 @@ function MembersPopover({
         {canManageClients && (
           <>
             <div className="my-1.5 h-px bg-rule" />
-            <div className="px-1 pb-1 font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-ink-3">
+            <div className="px-1 pb-1 text-meta font-medium text-ink-3">
               Clients
             </div>
             <div className="flex flex-col gap-0.5">
               {clientMembers.map((c) => (
                 <div key={c.id} className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-paper-3">
                   <Avatar initials={c.initials} size="sm" kind="gray" />
-                  <span className="flex-1 truncate text-[12px] text-ink-2">
+                  <span className="flex-1 truncate text-meta text-ink-2">
                     {c.name}
                     {c.email ? <span className="text-ink-3"> · {c.email}</span> : null}
                   </span>
                   <button
                     onClick={() => onRemoveClient(c.id)}
-                    aria-label={`Remove ${c.name}`}
+                    aria-label={`Remove ${c.name}`} title={`Remove ${c.name}`}
                     className="flex-none rounded p-0.5 text-ink-3 hover:bg-flag-soft hover:text-flag"
                   >
                     <X className="size-3.5" strokeWidth={2} />
@@ -1361,7 +1350,7 @@ function MembersPopover({
                 </div>
               ))}
               {clientMembers.length === 0 && !addingClient && (
-                <p className="px-1.5 py-1 text-[11px] text-ink-3">No clients in this room.</p>
+                <p className="px-1.5 py-1 text-meta text-ink-3">No clients in this room.</p>
               )}
             </div>
 
@@ -1376,7 +1365,7 @@ function MembersPopover({
                     if (e.key === "Escape") setAddingClient(false);
                   }}
                   placeholder="Name"
-                  className="rounded-md border border-rule bg-paper px-2 py-1 text-[12px] text-ink outline-none focus:border-accent"
+                  className="rounded-md border border-rule bg-paper px-2 py-1 text-meta text-ink focus-visible:outline-2 focus-visible:outline-focus"
                 />
                 <input
                   value={clientEmail}
@@ -1386,13 +1375,13 @@ function MembersPopover({
                     if (e.key === "Escape") setAddingClient(false);
                   }}
                   placeholder="Email (optional)"
-                  className="rounded-md border border-rule bg-paper px-2 py-1 text-[12px] text-ink outline-none focus:border-accent"
+                  className="rounded-md border border-rule bg-paper px-2 py-1 text-meta text-ink focus-visible:outline-2 focus-visible:outline-focus"
                 />
-                {clientError && <p className="px-0.5 text-[11px] text-flag">{clientError}</p>}
+                {clientError && <p className="px-0.5 text-meta text-flag">{clientError}</p>}
                 <div className="flex gap-1">
                   <button
                     onClick={submitNewClient}
-                    className="flex-1 rounded-md bg-accent px-2 py-1 text-[12px] font-medium text-paper hover:bg-accent-2"
+                    className="flex-1 rounded-md bg-accent px-2 py-1 text-meta font-medium text-paper hover:bg-accent-2"
                   >
                     Add
                   </button>
@@ -1403,7 +1392,7 @@ function MembersPopover({
                       setClientEmail("");
                       setClientError(null);
                     }}
-                    className="rounded-md border border-rule px-2 py-1 text-[12px] text-ink-2 hover:bg-paper-3"
+                    className="rounded-md border border-rule px-2 py-1 text-meta text-ink-2 hover:bg-paper-3"
                   >
                     Cancel
                   </button>
@@ -1415,7 +1404,7 @@ function MembersPopover({
                   setAddingClient(true);
                   setClientError(null);
                 }}
-                className="mt-0.5 flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-[12px] text-accent hover:bg-paper-3"
+                className="mt-0.5 flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-meta text-accent hover:bg-paper-3"
               >
                 <Plus className="size-3.5 flex-none" strokeWidth={2} />
                 Add client
@@ -1427,7 +1416,7 @@ function MembersPopover({
         {canManageAi && (
           <>
             <div className="my-1.5 h-px bg-rule" />
-            <div className="px-1 pb-1 font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-ink-3">
+            <div className="px-1 pb-1 text-meta font-medium text-ink-3">
               AI models
             </div>
             <div className="flex flex-col gap-0.5">
@@ -1441,7 +1430,7 @@ function MembersPopover({
                     className="group/ai flex items-center gap-2 rounded-md px-1.5 py-1 text-left hover:bg-paper-3"
                   >
                     <Avatar initials={meta.initials} size="sm" kind="ai" />
-                    <span className="flex-1 truncate text-[12px] text-ink-2">
+                    <span className="flex-1 truncate text-meta text-ink-2">
                       {meta.name}
                       <span className="text-ink-3"> · @{agent}</span>
                     </span>
@@ -1473,13 +1462,13 @@ function MessageRow({ message }: { message: ChatMessage }) {
       />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <span className="font-serif text-[13px] font-semibold text-ink">{message.name}</span>
+          <span className="font-serif text-body font-semibold text-ink">{message.name}</span>
           {message.system && <Chip kind="ai">AI · system</Chip>}
-          <span className="font-mono text-[9px] text-ink-3">{message.time}</span>
+          <span className="text-meta text-ink-3">{message.time}</span>
         </div>
         <p
           className={[
-            "mt-0.5 text-[13px] leading-relaxed",
+            "mt-0.5 text-body leading-relaxed",
             message.kind === "ai" ? "text-ai-2" : "text-ink",
           ].join(" ")}
         >

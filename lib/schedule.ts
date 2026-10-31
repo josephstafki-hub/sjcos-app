@@ -5,19 +5,24 @@
 //   • app/api/schedule/route.ts   — exposes the same payload over HTTP
 //
 // DB-backed (Phase 7-B): the week strip reads schedule_blocks and the daily-log
-// lane reads daily_logs, both scoped to the week containing CURRENT_DATE (so the
+// lane reads daily_logs, both scoped to the week containing (now() AT TIME ZONE 'America/Chicago')::date (so the
 // view always lands on "this week"). The conflict note is computed here from
 // real blocks (deterministic — no AI call, nothing invented).
 
 import { query } from "./db";
+import { formatScheduleTime, parseScheduleTime } from "./schedule-time";
 
 /** Color treatment for a timeblock pill — job (accent), AI-scheduled (ai), or
  *  routine/other (ghost). Matches the design's `d` field. */
 export type BlockTone = "accent" | "ai" | "ghost";
 
 export interface ScheduleBlock {
+  id?: string;
+  projectId?: string;
   /** Time label, e.g. "8:00" / "AM" / "all". */
   time: string;
+  /** Original stored label for the edit form, separate from safe display. */
+  rawTime?: string;
   label: string;
   tone: BlockTone;
   /** The project this block belongs to, if any. NULL = standalone meeting. */
@@ -80,6 +85,8 @@ interface DayRow {
   today: boolean;
 }
 interface BlockRow {
+  id: string;
+  project_id: string | null;
   iso: string;
   time_label: string;
   label: string;
@@ -114,11 +121,11 @@ interface WeekRow {
  *  The strip only shows Mon–Fri, so on Sat/Sun "this week" rolls forward to the
  *  upcoming week (the finished one isn't useful). `offset` is coerced to a safe
  *  integer before interpolation. */
-function weekBounds(offset: number) {
+export function weekBounds(offset: number) {
   const n = Math.trunc(Number.isFinite(offset) ? offset : 0);
   const monday =
-    `(date_trunc('week', CURRENT_DATE)` +
-    ` + (CASE WHEN extract(isodow FROM CURRENT_DATE) >= 6 THEN interval '1 week' ELSE interval '0' END)` +
+    `(date_trunc('week', (now() AT TIME ZONE 'America/Chicago')::date)` +
+    ` + (CASE WHEN extract(isodow FROM (now() AT TIME ZONE 'America/Chicago')::date) >= 6 THEN interval '1 week' ELSE interval '0' END)` +
     ` + interval '${n} week')`;
   const friday = `(${monday} + interval '4 day')`;
   return { monday, friday };
@@ -131,21 +138,26 @@ export async function getScheduleData(weekOffset = 0): Promise<ScheduleData> {
       SELECT to_char(d, 'YYYY-MM-DD') AS iso,
              to_char(d, 'DY')         AS dow,
              to_char(d, 'FMDD')       AS date,
-             (d::date = CURRENT_DATE) AS today
+             (d::date = (now() AT TIME ZONE 'America/Chicago')::date) AS today
       FROM generate_series(${MONDAY}, ${FRIDAY}, interval '1 day') d
       ORDER BY d`),
     query<BlockRow>(`
-      SELECT to_char(b.block_date, 'YYYY-MM-DD') AS iso, b.time_label, b.label, b.tone,
+      SELECT b.id, b.project_id, to_char(b.block_date, 'YYYY-MM-DD') AS iso, b.time_label, b.label, b.tone,
              p.slug AS project_slug, p.name AS project_name
       FROM schedule_blocks b
       LEFT JOIN projects p ON p.id = b.project_id
       WHERE b.block_date >= ${MONDAY} AND b.block_date <= ${FRIDAY}
       ORDER BY b.block_date, b.sort_min`),
     query<LogRow>(`
-      SELECT to_char(log_date, 'YYYY-MM-DD') AS iso, body, photos
-      FROM daily_logs
-      WHERE project_id IS NULL
-        AND log_date >= ${MONDAY} AND log_date <= ${FRIDAY}`),
+      SELECT to_char(d.log_date, 'YYYY-MM-DD') AS iso,
+             string_agg(CASE WHEN p.id IS NULL THEN d.body
+                        ELSE p.name || E'\\n' || d.body END,
+                        E'\\n\\n' ORDER BY p.name NULLS FIRST, d.id) AS body,
+             sum(d.photos)::int AS photos
+      FROM daily_logs d
+      LEFT JOIN projects p ON p.id = d.project_id
+      WHERE d.log_date >= ${MONDAY} AND d.log_date <= ${FRIDAY}
+      GROUP BY d.log_date`),
     query<WeekRow>(`
       SELECT to_char(${MONDAY}, 'FMIW')           AS weeknum,
              to_char(${MONDAY}, 'FMMon FMDD')     AS range_start,
@@ -209,13 +221,24 @@ export async function getScheduleData(weekOffset = 0): Promise<ScheduleData> {
     const tone: BlockTone = b.tone === "accent" || b.tone === "ai" ? b.tone : "ghost";
     const list = blocksByDay.get(b.iso) ?? [];
     list.push({
+      id: b.id,
+      projectId: b.project_id ?? undefined,
       time: b.time_label,
+      rawTime: b.time_label,
       label: b.label,
       tone,
       projectSlug: b.project_slug ?? undefined,
       projectName: b.project_name ?? undefined,
     });
     blocksByDay.set(b.iso, list);
+  }
+
+  // Older labels may predate validation. Compare actual clock times, and
+  // surface invalid legacy labels for correction instead of sorting as 00:00.
+  for (const blocks of blocksByDay.values()) {
+    const minutes = (time: string) => { try { return parseScheduleTime(time).minutes; } catch { return Infinity; } };
+    blocks.sort((a,b) => minutes(a.time) - minutes(b.time));
+    for (const b of blocks) b.time = formatScheduleTime(b.time);
   }
 
   // Derived entries append after the day's manual blocks (which carry real
@@ -268,7 +291,7 @@ export async function getScheduleData(weekOffset = 0): Promise<ScheduleData> {
   const week = weekRes.rows[0];
 
   return {
-    weekLabel: `WEEK ${week?.weeknum ?? ""}`,
+    weekLabel: `Week ${week?.weeknum ?? ""}`,
     rangeLabel: `${week?.range_start ?? ""} – ${week?.range_end ?? ""}`,
     days,
     logs: {
@@ -352,8 +375,8 @@ export async function getScheduleTemplates(): Promise<ScheduleTemplateOption[]> 
  *  view paints first. Deterministic and grounded in the real week's blocks: a
  *  conflict is two blocks on the same day claiming the same time slot. Never
  *  invents names or jobs. */
-export async function getScheduleConflict(): Promise<string> {
-  const { monday: MONDAY, friday: FRIDAY } = weekBounds(0);
+export async function getScheduleConflict(weekOffset = 0): Promise<string> {
+  const { monday: MONDAY, friday: FRIDAY } = weekBounds(weekOffset);
   const { rows } = await query<{
     iso: string;
     day_label: string;
@@ -373,8 +396,12 @@ export async function getScheduleConflict(): Promise<string> {
 
   const clashes: string[] = [];
   const bySlot = new Map<string, string>();
+  let unknown = 0;
   for (const r of rows) {
-    const slot = `${r.iso}|${r.time_label.trim().toLowerCase()}`;
+    let time;
+    try { time = parseScheduleTime(r.time_label); } catch { unknown++; continue; }
+    if (time.label === "All day") { unknown++; continue; }
+    const slot = `${r.iso}|${time.minutes}`;
     const prev = bySlot.get(slot);
     if (prev) {
       clashes.push(`${r.day_label}: “${prev}” and “${r.label}” are both booked for ${r.time_label}`);
@@ -388,5 +415,5 @@ export async function getScheduleConflict(): Promise<string> {
   }
 
   const dayCount = new Set(rows.map((r) => r.iso)).size;
-  return `No conflicts this week — ${rows.length} block${rows.length === 1 ? "" : "s"} across ${dayCount} day${dayCount === 1 ? "" : "s"}, no double-bookings.`;
+  return `No matching start times among ${rows.length} blocks across ${dayCount} days.${unknown ? ` ${unknown} all-day or unspecified time${unknown === 1 ? " needs" : "s need"} review.` : ""} Durations are not recorded, so overlapping work still needs review.`;
 }

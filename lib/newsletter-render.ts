@@ -132,7 +132,7 @@ export function renderIssueHtml(issue: RenderableIssue, opts: RenderOpts): strin
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f4f2ed">` +
     `<tr><td align="center">` +
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" ` +
-    `style="width:600px;max-width:100%;background:#ffffff;border:1px solid #e2e0da;border-radius:6px">` +
+    `style="width:100%;max-width:600px;background:#ffffff;border:1px solid #e2e0da;border-radius:6px">` +
     rows.join("") +
     `</table>${pixel}</td></tr></table></div>`
   );

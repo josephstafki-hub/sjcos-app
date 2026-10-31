@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Card, Chip, Eyebrow, type ChipKind } from "@/components/ui";
+import { queueScopeMatches, type QueueScope } from "@/lib/daily-work-presentation";
+import { WorkItemEditor } from "./WorkItemEditor";
+import { Card, Chip, Eyebrow, Button, Tabs, EmptyState as UiEmptyState, type ChipKind } from "@/components/ui";
 import {
   WORK_STATUSES,
   STATUS_LABEL,
@@ -49,14 +51,15 @@ import {
   rejectMemory,
   revokeMemoryInstruction,
   setMemoryStaleAfter,
+  restoreMemory,
 } from "@/lib/actions/memories";
 
 const inputCls =
-  "w-full rounded-md border border-rule bg-paper px-3 py-2 text-[13px] text-ink outline-none focus:border-accent";
+  "w-full rounded-md border border-rule bg-paper px-3 py-2 text-body text-ink outline-none focus:border-accent";
 const btnCls =
-  "rounded-md border border-rule bg-paper-2 px-3 py-1.5 text-[12px] font-semibold text-ink-2 transition-colors hover:border-accent hover:text-accent-2 disabled:opacity-50";
+  "rounded-md border border-rule bg-paper-2 px-3 py-1.5 text-meta font-semibold text-ink-2 transition-colors hover:border-accent hover:text-accent-2 disabled:opacity-50";
 const btnPrimary =
-  "rounded-md bg-accent px-3 py-1.5 text-[12px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50";
+  "rounded-md bg-accent px-3 py-1.5 text-meta font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50";
 
 function statusChip(status: WorkItemStatus): ChipKind {
   if (status === "approval_needed" || status === "blocked") return "flag";
@@ -82,8 +85,8 @@ type Tab = "queue" | "knowledge" | "skills" | "memories";
 const BUCKET_META: { key: QueueBucket; label: string; kind: ChipKind }[] = [
   { key: "approval", label: "Needs approval", kind: "flag" },
   { key: "active", label: "In progress", kind: "accent" },
-  { key: "waiting", label: "Waiting / blocked", kind: "info" },
   { key: "queued", label: "Queued", kind: "default" },
+  { key: "waiting", label: "Waiting / blocked", kind: "info" },
   { key: "done", label: "Done · cancelled", kind: "ghost" },
 ];
 
@@ -112,37 +115,21 @@ export function EngineClient({
     { key: "queue", label: "Work queue", count: engine.counts.total },
     { key: "knowledge", label: "Knowledge", count: knowledge.length },
     { key: "skills", label: "Skills & runbooks", count: skills.approved.length + skills.proposed.length },
-    { key: "memories", label: "Memories", count: memories.pending.length + memories.instructions.length },
+    { key: "memories", label: "Memories", count: memories.pending.length + memories.instructions.length + memories.examples.length + memories.history.length },
   ];
 
   return (
     <div>
-      <EngineStatusStrip engine={engine} />
 
       {activeRunbooks.length > 0 && <ActiveRunbooks instances={activeRunbooks} />}
 
-      <div className="mb-4 mt-5 flex gap-1 border-b border-rule">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={[
-              "-mb-px border-b-2 px-3 py-2 text-[13px] font-semibold transition-colors",
-              tab === t.key
-                ? "border-accent text-accent-2"
-                : "border-transparent text-ink-3 hover:text-ink-2",
-            ].join(" ")}
-          >
-            {t.label}
-            <span className="ml-1.5 font-mono text-[10px] text-ink-4">{t.count}</span>
-          </button>
-        ))}
-      </div>
+      <Tabs className="mb-2" tabs={tabs.map(t=>t.label)} counts={tabs.map(t=>t.count)} active={tabs.findIndex(t=>t.key===tab)} onSelect={i=>setTab(tabs[i].key)} />
 
       {tab === "queue" && <QueueTab engine={engine} skills={skills} canAssign={canAssign} meId={meId} />}
       {tab === "knowledge" && <KnowledgeTab initial={knowledge} />}
       {tab === "skills" && <SkillsTab skills={skills} />}
       {tab === "memories" && <MemoriesTab memories={memories} />}
+      <div className="mt-6"><EngineStatusStrip engine={engine} /></div>
     </div>
   );
 }
@@ -151,53 +138,17 @@ export function EngineClient({
 
 function EngineStatusStrip({ engine }: { engine: EngineData }) {
   const { ledgers, receipts } = engine;
-  return (
-    <div className="grid gap-3 md:grid-cols-2">
-      <Card kind="soft" className="p-3.5">
-        <Eyebrow muted>Runtime status ledger</Eyebrow>
-        {ledgers.length === 0 ? (
-          <p className="mt-2 text-[12px] text-ink-4">
-            No runtimes have checked in yet. Agents (Hermes, Claude Code, …) post their state here as they run.
-          </p>
-        ) : (
-          <ul className="mt-2 space-y-2">
-            {ledgers.map((l) => (
-              <li key={l.runtimeName} className="flex items-start gap-2">
-                <Chip kind={l.state === "error" || l.state === "blocked" ? "flag" : l.state === "running" ? "accent" : "ghost"} dot>
-                  {l.state}
-                </Chip>
-                <div className="min-w-0 flex-1">
-                  <div className="font-mono text-[11px] text-ink-2">{l.runtimeName}</div>
-                  <div className="truncate text-[12px] text-ink-3">
-                    {l.currentWorkItemTitle ?? l.note ?? l.blockedReason ?? "idle"}
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-
-      <Card kind="soft" className="p-3.5">
-        <Eyebrow muted>Recent receipts</Eyebrow>
-        {receipts.length === 0 ? (
-          <p className="mt-2 text-[12px] text-ink-4">
-            Proof-of-work trail. Every agent action (email sent, file written, row changed, …) lands here.
-          </p>
-        ) : (
-          <ul className="mt-2 space-y-1.5">
-            {receipts.slice(0, 6).map((r) => (
-              <li key={r.id} className="flex items-center gap-2 text-[12px]">
-                <Chip kind="ghost">{r.receiptKind}</Chip>
-                <span className="min-w-0 flex-1 truncate text-ink-3">{r.label || r.uri || "—"}</span>
-                {r.runtimeName && <span className="font-mono text-[10px] text-ink-4">{r.runtimeName}</span>}
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
+  return <details className="min-w-0 rounded-lg border border-rule-soft bg-card px-4 py-3">
+    <summary className="cursor-pointer text-body text-ink-2">Runtime status ledger · {ledgers.length} checked in <span className="text-ink-3"> · {receipts.length} recent receipts</span></summary>
+    <div className="mt-4 grid min-w-0 gap-5 @3xl/page:grid-cols-2">
+      <section className="min-w-0"><Eyebrow muted>Runtime status ledger</Eyebrow>
+        {!ledgers.length ? <p className="mt-2 break-words text-body text-ink-3">No runtimes have checked in yet. Agents report their state here as they run.</p> : <ul className="mt-2 divide-y divide-rule-soft">{ledgers.map(l=><li key={l.runtimeName} className="flex gap-2 py-2"><Chip kind={l.state==='error'?'flag':'ghost'}>{l.state}</Chip><div className="min-w-0 text-body"><span>{agentLabel(l.runtimeName)}</span><p className="break-words text-meta text-ink-3">{l.currentWorkItemTitle ?? l.note ?? l.blockedReason ?? 'Idle'}</p></div></li>)}</ul>}
+      </section>
+      <section className="min-w-0"><Eyebrow muted>Recent receipts</Eyebrow>
+        {!receipts.length ? <p className="mt-2 text-body text-ink-3">Agent actions appear here with their proof of work.</p> : <ul className="mt-2 divide-y divide-rule-soft">{receipts.slice(0,6).map(r=><li key={r.id} className="py-2"><details><summary className="cursor-pointer break-words text-body text-ink-2">{r.label || 'Receipt'}</summary><div className="mt-1 break-words text-meta text-ink-3">{r.receiptKind.replaceAll('_',' ')} · {r.runtimeName ? agentLabel(r.runtimeName) : 'Agent'} · {new Date(r.createdAt).toLocaleString()}{r.uri&&<p className="break-all">{r.uri}</p>}</div></details></li>)}</ul>}
+      </section>
     </div>
-  );
+  </details>;
 }
 
 // ─── Active runbooks (W6 stepper) ────────────────────────────────────────────
@@ -224,9 +175,9 @@ function ActiveRunbooks({ instances }: { instances: RunbookInstanceView[] }) {
     <section className="mt-4">
       <div className="mb-2 flex items-center gap-2">
         <Chip kind="ai" dot>Active runbooks</Chip>
-        <span className="font-mono text-[10px] text-ink-4">{instances.length}</span>
+        <span className="text-meta text-ink-3">{instances.length}</span>
       </div>
-      <div className="space-y-2">
+      <div className="divide-y divide-rule-soft">
         {instances.map((i) => (
           <Card key={i.id} kind="soft" className="p-3.5">
             <div className="flex items-start justify-between gap-3">
@@ -235,9 +186,9 @@ function ActiveRunbooks({ instances }: { instances: RunbookInstanceView[] }) {
                   <Chip kind={runbookStatusChip(i.status)} dot>{RUNBOOK_STATUS_LABEL[i.status]}</Chip>
                   {i.repairState === "needs_review" && <Chip kind="flag" dot>Needs a look</Chip>}
                   {i.repairState === "repaired" && <Chip kind="ghost">repaired</Chip>}
-                  <span className="font-mono text-[11px] text-ink-4">{i.runbookSlug}</span>
+                  <span className="text-meta text-ink-3">{i.runbookSlug}</span>
                 </div>
-                <div className="mt-1 text-[13.5px] font-semibold text-ink">
+                <div className="mt-1 text-subheading font-semibold text-ink">
                   {i.runbookTitle}
                   {i.targetKind && i.targetSlug && (
                     <>
@@ -251,15 +202,15 @@ function ActiveRunbooks({ instances }: { instances: RunbookInstanceView[] }) {
                     </>
                   )}
                 </div>
-                <div className="mt-0.5 text-[12px] text-ink-3">
+                <div className="mt-0.5 text-meta text-ink-3">
                   Step {i.currentStep} of {i.stepCount}
                   {i.currentStepTitle ? `: ${i.currentStepTitle}` : ""}
                 </div>
-                <div className="mt-1 font-mono text-[10px] text-ink-4">
+                <div className="mt-1 text-meta text-ink-3">
                   started {i.startedAt.slice(0, 10)} · {i.startedBy}
                 </div>
                 {i.repairState === "needs_review" && (
-                  <div className="mt-1.5 text-[12px] text-flag">
+                  <div className="mt-1.5 text-body text-flag">
                     Stuck{i.blockedReason ? `: ${i.blockedReason}` : ""}. Repair recreates a missing step from its runbook; if it can&apos;t, cancel it.
                   </div>
                 )}
@@ -306,6 +257,13 @@ function ActiveRunbooks({ instances }: { instances: RunbookInstanceView[] }) {
 // in lib/engine-views.ts), filters on top, and Queue vs Archived. The board
 // filters in the browser; the archive is paged from the server.
 
+function QueueFilterDisclosure({ children, label }: { children: ReactNode; label: string }) {
+  return <details className="mb-2 min-w-0">
+    <summary className="cursor-pointer py-2 text-label font-semibold text-ink-2">Folders and filters · {label}</summary>
+    <div className="grid gap-3 py-2 @3xl/page:grid-cols-[180px_minmax(0,1fr)]">{children}</div>
+  </details>;
+}
+
 function QueueTab({
   engine,
   skills,
@@ -322,7 +280,7 @@ function QueueTab({
   const [filter, setFilter] = useState<QueueFilter>(NO_FILTER);
   // Board-only, so it sits beside QueueFilter rather than in it (the archive
   // is all closed items — nothing there waits on anyone).
-  const [onMe, setOnMe] = useState(false);
+  const [scope, setScope] = useState<QueueScope>("all");
   const router = useRouter();
   const [pending, start] = useTransition();
   const formRef = useRef<HTMLFormElement>(null);
@@ -330,12 +288,13 @@ function QueueTab({
   const folders = queueFolders(engine.items, engine.assignees, engine.ownerId);
   const inFolder = engine.items.filter((it) => matchesQueueFilter(it, filter, engine.ownerId));
   const onMeCount = inFolder.filter((it) => isWaitingOn(it, meId, engine.ownerId)).length;
-  const shown = onMe ? inFolder.filter((it) => isWaitingOn(it, meId, engine.ownerId)) : inFolder;
+  const othersCount = inFolder.filter(it => queueScopeMatches(it.status, false, "others")).length;
+  const shown = inFolder.filter(it => queueScopeMatches(it.status, isWaitingOn(it, meId, engine.ownerId), scope));
   const buckets = Object.fromEntries(
     BUCKET_META.map((b) => [b.key, shown.filter((it) => it.bucket === b.key)]),
   ) as Record<QueueBucket, WorkItemView[]>;
   const nonEmpty = BUCKET_META.filter((b) => buckets[b.key].length > 0);
-  const filtered = onMe || filter.job !== "" || filter.by !== "" || filter.q.trim() !== "";
+  const filtered = scope !== "all" || filter.job !== "" || filter.by !== "" || filter.q.trim() !== "";
 
   const archiveAll = (items: WorkItemView[]) => {
     if (!confirm(`Archive ${items.length} done and cancelled item${items.length === 1 ? "" : "s"}? They move to Archived — nothing is deleted.`)) return;
@@ -352,7 +311,7 @@ function QueueTab({
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="mb-1 flex items-center justify-between gap-3">
         <div className="flex rounded-md border border-rule bg-paper-2 p-0.5">
           {(
             [
@@ -364,12 +323,12 @@ function QueueTab({
               key={v.key}
               onClick={() => setView(v.key)}
               className={[
-                "rounded px-3 py-1 text-[12px] font-semibold transition-colors",
+                "rounded px-3 py-1 text-meta font-semibold transition-colors",
                 view === v.key ? "bg-paper text-accent-2 shadow-sm" : "text-ink-3 hover:text-ink-2",
               ].join(" ")}
             >
               {v.label}
-              <span className="ml-1.5 font-mono text-[10px] text-ink-4">{v.count}</span>
+              <span className="ml-1.5 text-meta text-ink-3">{v.count}</span>
             </button>
           ))}
         </div>
@@ -396,7 +355,7 @@ function QueueTab({
           >
             <input name="title" placeholder="What needs to happen?" className={inputCls} required />
             <textarea name="body" placeholder="Details / context (optional)" rows={2} className={inputCls} />
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 @xl/page:grid-cols-3">
               <select name="priority" defaultValue="normal" className={inputCls}>
                 {(["urgent", "high", "normal", "low"] as WorkItemPriority[]).map((p) => (
                   <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>
@@ -417,9 +376,9 @@ function QueueTab({
             {canAssign && (
               <fieldset className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
                 <legend className="sr-only">Who&apos;s on it</legend>
-                <span className="text-[12px] text-ink-3">On it:</span>
+                <span className="text-meta text-ink-3">On it:</span>
                 {engine.assignees.map((a, i) => (
-                  <label key={a.userId} className="inline-flex items-center gap-1.5 text-[12.5px] text-ink-2">
+                  <label key={a.userId} className="inline-flex items-center gap-1.5 text-body text-ink-2">
                     <input
                       type="checkbox"
                       name="assigned_user_ids"
@@ -445,22 +404,17 @@ function QueueTab({
         </Card>
       )}
 
-      <div className="grid gap-5 lg:grid-cols-[190px_minmax(0,1fr)]">
-        <QueueRail
-          folders={folders}
-          active={filter.who}
-          showCounts={view === "queue"}
-          onPick={(who) => setFilter((f) => ({ ...f, who }))}
-        />
-
+      <QueueFilterDisclosure label={folders.all.who === filter.who && !filtered ? "Everything" : "Filtered"}>
+        <QueueRail folders={folders} active={filter.who} showCounts={view === "queue"} onPick={who => setFilter(f => ({ ...f, who }))} />
         <div className="min-w-0">
-          <QueueFilters
-            items={engine.items}
-            filter={filter}
-            onChange={setFilter}
-            onMe={view === "queue" ? { on: onMe, count: onMeCount, set: setOnMe } : null}
-          />
-
+          <QueueFilters items={engine.items} filter={filter} onChange={setFilter} onMe={null} />
+          {view === "queue" && <label className="text-label text-ink-3">Work scope <select className={inputCls} value={scope} onChange={e => setScope(e.target.value as QueueScope)}>
+            <option value="all">All records ({inFolder.length})</option><option value="mine">Waiting on me ({onMeCount})</option><option value="others">Waiting on client / sub ({othersCount})</option>
+          </select></label>}
+        </div>
+      </QueueFilterDisclosure>
+      <p className="mb-2 text-meta text-ink-3">{view === "queue" ? `${shown.length} shown · ${folders.all.open} open / ${engine.items.length} total records` : "Archived records · folder and filters apply"}</p>
+      <div className="min-w-0">
           {view === "archived" ? (
             <ArchiveList
               filter={filter}
@@ -471,7 +425,7 @@ function QueueTab({
           ) : engine.counts.total === 0 ? (
             <EmptyState
               title="The queue is empty"
-              body="Work items land here from you, the temp-CRM import, or agents via MCP (create_work_item). Each item can name the skill/runbook a worker should load."
+              body="Add a work item above. Work created by agents also appears here for review."
             />
           ) : nonEmpty.length === 0 ? (
             <EmptyState
@@ -479,15 +433,15 @@ function QueueTab({
               body={filtered ? "No work items match these filters." : "Nothing is on the queue for this folder right now."}
             />
           ) : (
-            <div className="space-y-6">
+            <div className="space-y-3">
               {nonEmpty.map((b) => (
                 <section key={b.key}>
                   <div className="mb-2 flex items-center gap-2">
                     <Chip kind={b.kind} dot>{b.label}</Chip>
-                    <span className="font-mono text-[10px] text-ink-4">{buckets[b.key].length}</span>
+                    <span className="text-meta text-ink-3">{buckets[b.key].length}</span>
                     {b.key === "done" && (
                       <button
-                        className="ml-auto text-[11px] font-semibold text-accent-2 hover:underline disabled:opacity-50"
+                        className="ml-auto text-meta font-semibold text-accent-2 hover:underline disabled:opacity-50"
                         disabled={pending}
                         onClick={() => archiveAll(buckets.done)}
                       >
@@ -495,7 +449,7 @@ function QueueTab({
                       </button>
                     )}
                   </div>
-                  <div className="space-y-2">
+                  <div className="divide-y divide-rule-soft">
                     {buckets[b.key].map((it) => (
                       <WorkItemCard
                         key={it.id}
@@ -509,7 +463,6 @@ function QueueTab({
               ))}
             </div>
           )}
-        </div>
       </div>
     </div>
   );
@@ -518,7 +471,7 @@ function QueueTab({
 /** Small-caps mono section label for the folder rail (same as /inbox's). */
 function RailLabel({ children }: { children: string }) {
   return (
-    <div className="hidden px-1 pb-1 pt-2 font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-ink-3 lg:block">
+    <div className="hidden px-1 pb-1 pt-2 text-label font-medium text-ink-3 @4xl/page:block">
       {children}
     </div>
   );
@@ -541,27 +494,28 @@ function QueueRail({
       key={f.who}
       onClick={() => onPick(f.who)}
       className={[
-        "flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px]",
+        "flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-meta",
         active === f.who
           ? "bg-accent-soft font-semibold text-accent-2"
           : f.open === 0 && showCounts
-            ? "text-ink-4 hover:bg-paper-3"
+            ? "text-ink-3 hover:bg-paper-3"
             : "text-ink-2 hover:bg-paper-3",
       ].join(" ")}
     >
-      <span className="min-w-0 flex-1 truncate">{f.label}</span>
-      {showCounts && <span className="font-mono text-[10px] text-ink-3">{f.open}</span>}
+      <span className="min-w-0 flex-1">{f.label}</span>
+      {showCounts && <span className="text-meta text-ink-3">{f.open}</span>}
     </button>
   );
-  return (
-    <nav aria-label="Work queue folders" className="flex flex-wrap gap-1 lg:flex-col lg:flex-nowrap lg:gap-0.5">
-      {row(folders.all)}
-      <RailLabel>People</RailLabel>
-      {folders.people.map(row)}
-      <RailLabel>Agents</RailLabel>
-      {folders.agents.map(row)}
+  return <>
+    <label className="text-label text-ink-3 @5xl/page:hidden">Work queue folder
+      <select aria-label="Work queue folder" value={active} onChange={e=>onPick(e.target.value)} className={`${inputCls} mt-1.5`}>
+        {[folders.all,...folders.people,...folders.agents].map(f=><option key={f.who} value={f.who}>{f.label}{showCounts?` · ${f.open}`:''}</option>)}
+      </select>
+    </label>
+    <nav aria-label="Work queue folders" className="hidden flex-col gap-0.5 @5xl/page:flex">
+      {row(folders.all)}<RailLabel>People</RailLabel>{folders.people.map(row)}<RailLabel>Agents</RailLabel>{folders.agents.map(row)}
     </nav>
-  );
+  </>;
 }
 
 /** Search + job + "filed by" (+ "Waiting on me" on the board). Options come
@@ -593,7 +547,7 @@ function QueueFilters({
   if (filter.by && !filers.has(filter.by)) filers.set(filter.by, 0);
   const byLabel = (m: Map<string, string>) => [...m].sort((a, b) => a[1].localeCompare(b[1]));
   const selectCls =
-    "rounded-md border border-rule bg-paper px-2 py-1.5 text-[12px] text-ink-2 outline-none focus:border-accent";
+    "rounded-md border border-rule bg-paper px-2 py-1.5 text-meta text-ink-2 outline-none focus:border-accent";
   const active = filter.job !== "" || filter.by !== "" || filter.q !== "" || !!onMe?.on;
 
   return (
@@ -604,21 +558,21 @@ function QueueFilters({
           aria-pressed={onMe.on}
           title="Hide what's waiting on a client, a sub, an agent or someone else"
           className={[
-            "rounded-md border px-2.5 py-1.5 text-[12px] font-semibold transition-colors",
+            "rounded-md border px-2.5 py-1.5 text-meta font-semibold transition-colors",
             onMe.on
               ? "border-accent bg-accent-soft text-accent-2"
               : "border-rule bg-paper text-ink-2 hover:border-accent hover:text-accent-2",
           ].join(" ")}
         >
           Waiting on me
-          <span className="ml-1.5 font-mono text-[10px] text-ink-4">{onMe.count}</span>
+          <span className="ml-1.5 text-meta text-ink-3">{onMe.count}</span>
         </button>
       )}
       <input
         value={filter.q}
         onChange={(e) => onChange({ ...filter, q: e.target.value })}
         placeholder="Search work items…"
-        className="min-w-[180px] flex-1 rounded-md border border-rule bg-paper px-3 py-1.5 text-[12px] text-ink outline-none focus:border-accent"
+        className="min-w-[180px] flex-1 rounded-md border border-rule bg-paper px-3 py-1.5 text-meta text-ink outline-none focus:border-accent"
       />
       <select
         value={filter.job}
@@ -651,7 +605,7 @@ function QueueFilters({
       </select>
       {active && (
         <button
-          className="text-[11px] text-ink-4 hover:text-accent-2"
+          className="text-meta text-ink-3 hover:text-accent-2"
           onClick={() => {
             onChange({ ...filter, job: "", by: "", q: "" });
             onMe?.set(false);
@@ -712,7 +666,7 @@ function ArchiveList({
       setHasMore(r.hasMore);
     });
 
-  if (items === null) return <p className="py-6 text-center text-[12px] text-ink-4">Loading the archive…</p>;
+  if (items === null) return <p className="py-6 text-center text-meta text-ink-3">Loading the archive…</p>;
   if (items.length === 0)
     return (
       <EmptyState
@@ -726,7 +680,7 @@ function ArchiveList({
     );
 
   return (
-    <div className="space-y-2">
+    <div className="divide-y divide-rule-soft">
       {items.map((it) => (
         <WorkItemCard
           key={it.id}
@@ -747,110 +701,46 @@ function ArchiveList({
   );
 }
 
-function WorkItemCard({
-  item,
-  assignees,
-  canAssign,
-  onRestored,
-}: {
-  item: WorkItemView;
-  assignees: EngineData["assignees"];
-  canAssign: boolean;
-  /** Archived view only: drop the card once it's back on the board. */
-  onRestored?: () => void;
+function WorkItemCard({item,assignees,canAssign,onRestored}: {
+  item: WorkItemView; assignees: EngineData["assignees"]; canAssign: boolean; onRestored?:()=>void;
 }) {
-  const router = useRouter();
-  const [pending, start] = useTransition();
-  const run = (fn: () => Promise<ActionLike>) => start(async () => { await runAction(fn); router.refresh(); });
-  // Approve says what it did: "Emailed <to> — <subject>" or "Approved. Nothing
-  // was emailed: …" — plain success used to read as "the email went out".
-  const approve = () =>
-    start(async () => {
-      await runAction(() => approveWorkItem(item.id), { onSuccess: (r) => toast(describeApproval(r)) });
-      router.refresh();
-    });
-  const restore = () =>
-    start(async () => {
-      const r = await runAction(() => restoreWorkItem(item.id), { fallback: "Could not restore that." });
-      if (r.ok) onRestored?.();
-      router.refresh();
-    });
-
-  return (
-    <Card kind={item.bucket === "approval" && !item.archivedAt ? "flag" : "default"} className="p-3.5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Chip kind={statusChip(item.status)}>{STATUS_LABEL[item.status]}</Chip>
-            {item.priority !== "normal" && <Chip kind={priorityChip(item.priority)}>{PRIORITY_LABEL[item.priority]}</Chip>}
-            {item.assigneeKey && item.assigneeKey !== "human-joe" && (
-              <Chip kind="ghost">{agentLabel(item.assigneeKey)}</Chip>
-            )}
-            {item.assignedTo.map((a) => (
-              <Chip key={a.userId} kind="accent">{a.name}</Chip>
-            ))}
-            {item.expectedSkillSlug && <Chip kind="ai">skill: {item.expectedSkillSlug}</Chip>}
-            {item.expectedRunbookSlug && <Chip kind="ai">runbook: {item.expectedRunbookSlug}</Chip>}
-          </div>
-          <div className="mt-1.5 text-[13.5px] font-semibold text-ink">{item.title}</div>
-          {item.body && <div className="mt-0.5 line-clamp-2 text-[12px] text-ink-3">{item.body}</div>}
-          <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-ink-4">
-            {item.dueAt && <span>due {item.dueAt.slice(0, 10)}</span>}
-            {item.projectSlug && <Link href={`/projects/${item.projectSlug}`} className="text-accent-2 hover:underline">{item.projectName ?? "project"} ↗</Link>}
-            {item.leadSlug && <Link href={`/leads/${item.leadSlug}`} className="text-accent-2 hover:underline">{item.leadName ?? "lead"} ↗</Link>}
-            {item.blockedReason && <span className="text-flag">{item.blockedReason}</span>}
-            <span className="font-mono text-[10px]">filed by {item.createdBy}</span>
-            {item.archivedAt && <span className="font-mono text-[10px]">archived {item.archivedAt.slice(0, 10)}</span>}
-          </div>
-        </div>
-        <div className="flex flex-none flex-col items-end gap-1.5">
-          {item.archivedAt ? (
-            <button className={btnCls} disabled={pending} onClick={restore}>Restore</button>
-          ) : item.bucket === "approval" ? (
-            <>
-              <button className={btnPrimary} disabled={pending} onClick={approve}>Approve</button>
-              <button className={btnCls} disabled={pending} onClick={() => run(() => rejectWorkItem(item.id))}>Reject</button>
-            </>
-          ) : (
-            <>
-              <select
-                className="rounded-md border border-rule bg-paper px-2 py-1 text-[11px] text-ink-2 outline-none focus:border-accent"
-                value={item.status}
-                disabled={pending}
-                onChange={(e) => run(() => setWorkItemStatus(item.id, e.target.value as WorkItemStatus))}
-              >
-                {WORK_STATUSES.map((s) => (
-                  <option key={s} value={s}>{STATUS_LABEL[s]}</option>
-                ))}
-              </select>
-              {/* Switch who's on it, without leaving the board. Owner-only —
-                  the action re-checks. */}
-              {canAssign && (
-                <AssigneePicker
-                  roster={assignees}
-                  assigned={item.assignedTo}
-                  onChange={(ids) => run(() => setWorkItemAssignees(item.id, ids))}
-                  disabled={pending}
-                  align="right"
-                  triggerClassName="max-w-[160px] truncate rounded-md border border-rule bg-paper px-2 py-1 text-[11px] text-ink-2 outline-none transition-colors hover:border-accent focus:border-accent disabled:opacity-50"
-                  trigger={`${assigneeSummary(item.assignedTo, assignees)} ▾`}
-                />
-              )}
-              {item.bucket === "done" && (
-                <button
-                  className="text-[11px] font-semibold text-ink-3 hover:text-accent-2 disabled:opacity-50"
-                  disabled={pending}
-                  onClick={() => run(() => archiveWorkItems([item.id]))}
-                >
-                  Archive
-                </button>
-              )}
-            </>
-          )}
+  const router=useRouter(); const [pending,start]=useTransition();
+  const [open,setOpen]=useState(false); const [editing,setEditing]=useState(false);
+  const run=(fn:()=>Promise<ActionLike>)=>start(async()=>{await runAction(fn);router.refresh();});
+  return <div className="group min-w-0 py-1">
+    <div className="flex items-start gap-3 rounded-md px-2 py-2 hover:bg-hover">
+      <div className="min-w-0 flex-1">
+        <button onClick={()=>setOpen(!open)} aria-expanded={open} className="text-left text-subheading font-semibold text-ink hover:text-accent-2">{item.title}</button>
+        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-meta text-ink-3">
+          <Chip kind={statusChip(item.status)}>{STATUS_LABEL[item.status]}</Chip>
+          {item.priority!=="normal"&&<span>{PRIORITY_LABEL[item.priority]} priority</span>}
+          {(item.projectName||item.leadName)&&<span>{item.projectName??item.leadName}</span>}
+          {item.dueAt&&<span>Due {item.dueAt.slice(0,10)}</span>}
+          <span>Filed by {item.createdBy === "user" ? "you" : ({"inbox-cron":"Inbox","hermes-cron":"Hermes","claude-in-app":"Claude"}[item.createdBy] ?? agentLabel(item.createdBy))}</span>
+          {item.assignedTo.length>0&&<span>{item.assignedTo.map(a=>a.name).join(', ')}</span>}
+          {item.assigneeKey&&item.assigneeKey!=="human-joe"&&<span>{agentLabel(item.assigneeKey)}</span>}
         </div>
       </div>
-    </Card>
-  );
+      <Button variant="ghost" size="sm" onClick={()=>{setOpen(true);setEditing(!editing);}} aria-label={`Edit ${item.title}`}>Edit</Button>
+    </div>
+    {open&&<div className="mx-3 mb-3 rounded-lg border border-rule-soft bg-card p-4">
+      {editing?<WorkItemEditor item={item} assignees={assignees} canAssign={canAssign} onClose={()=>setEditing(false)}/>:<>
+        {item.body&&<p className="whitespace-pre-wrap break-words text-body text-ink-2">{item.body}</p>}
+        {item.blockedReason&&<p className="mt-2 text-body text-warn">{item.blockedReason}</p>}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {item.archivedAt?<Button variant="secondary" size="sm" disabled={pending} onClick={()=>start(async()=>{const r=await runAction(()=>restoreWorkItem(item.id));if(r.ok)onRestored?.();router.refresh();})}>Restore</Button>:item.bucket==='approval'?<><Button size="sm" disabled={pending} onClick={()=>start(async()=>{await runAction(()=>approveWorkItem(item.id),{onSuccess:r=>toast(describeApproval(r))});router.refresh();})}>Approve</Button><Button variant="secondary" size="sm" disabled={pending} onClick={()=>run(()=>rejectWorkItem(item.id))}>Reject</Button></>:<>
+            <label className="text-label text-ink-3">Status <select aria-label="Work item status" value={item.status} disabled={pending} onChange={e=>run(()=>setWorkItemStatus(item.id,e.target.value as WorkItemStatus))} className="ml-2 rounded-md border border-rule bg-card px-2 py-1.5 text-body text-ink">{WORK_STATUSES.map(status=><option key={status} value={status}>{STATUS_LABEL[status]}</option>)}</select></label>
+            {canAssign&&<AssigneePicker triggerClassName={btnCls} roster={assignees} assigned={item.assignedTo} onChange={ids=>run(()=>setWorkItemAssignees(item.id,ids))} disabled={pending} trigger={`${assigneeSummary(item.assignedTo,assignees)} ▾`}/>}
+            {item.bucket==='done'&&<details className="relative"><summary className="cursor-pointer px-2 text-body" aria-label="More work item actions">…</summary><div className="absolute right-0 z-10 rounded-lg border border-rule-soft bg-card p-1 shadow-pop"><Button variant="ghost" size="sm" disabled={pending} onClick={()=>run(()=>archiveWorkItems([item.id]))}>Archive</Button></div></details>}
+          </>}
+          {item.projectSlug&&<Button variant="ghost" size="sm" href={`/projects/${item.projectSlug}`}>Open job ↗</Button>}
+          {item.leadSlug&&<Button variant="ghost" size="sm" href={`/leads/${item.leadSlug}`}>Open lead ↗</Button>}
+        </div>
+        {(item.expectedSkillSlug||item.expectedRunbookSlug)&&<p className="mt-2 text-meta text-ink-3">{item.expectedSkillSlug ? `Skill: ${item.expectedSkillSlug}` : `Runbook: ${item.expectedRunbookSlug}`}</p>}
+      </>}
+      <Button variant="ghost" size="sm" className="mt-3" onClick={()=>{setOpen(false);setEditing(false);}}>Close details</Button>
+    </div>}
+  </div>;
 }
 
 // ─── Knowledge tab ───────────────────────────────────────────────────────────
@@ -876,7 +766,7 @@ function KnowledgeTab({ initial }: { initial: KnowledgeItemView[] }) {
     start(async () => setItems(await searchKnowledgeAction(query)));
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
+    <div className="grid gap-5 @4xl/page:grid-cols-[1fr_360px]">
       <div>
         <form
           onSubmit={(e) => { e.preventDefault(); runSearch(q); }}
@@ -900,7 +790,7 @@ function KnowledgeTab({ initial }: { initial: KnowledgeItemView[] }) {
             body="Durable business context — client/vendor notes, decisions, business rules, SOPs, lessons, selection preferences. Agents also write here via MCP (capture_knowledge). The temp-CRM import backfills status/scope/qualification notes."
           />
         ) : (
-          <ul className="space-y-2">
+          <ul className="divide-y divide-rule-soft">
             {items.map((k) => (
               <li key={k.id}>
                 <Card kind="soft" className="p-3.5">
@@ -909,14 +799,14 @@ function KnowledgeTab({ initial }: { initial: KnowledgeItemView[] }) {
                       <div className="flex flex-wrap items-center gap-1.5">
                         <Chip kind="accent">{k.kind}</Chip>
                         <Chip kind="ghost">{k.source}</Chip>
-                        {k.projectSlug && <Link href={`/projects/${k.projectSlug}`} className="text-[11px] text-accent-2 hover:underline">{k.projectSlug} ↗</Link>}
-                        {k.leadSlug && <Link href={`/leads/${k.leadSlug}`} className="text-[11px] text-accent-2 hover:underline">{k.leadSlug} ↗</Link>}
+                        {k.projectSlug && <Link href={`/projects/${k.projectSlug}`} className="text-meta text-accent-2 hover:underline">{k.projectSlug} ↗</Link>}
+                        {k.leadSlug && <Link href={`/leads/${k.leadSlug}`} className="text-meta text-accent-2 hover:underline">{k.leadSlug} ↗</Link>}
                       </div>
-                      <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed text-ink-2">{k.content}</p>
-                      <div className="mt-1 font-mono text-[10px] text-ink-4">{k.createdBy} · {k.createdAt.slice(0, 10)}</div>
+                      <p className="mt-1.5 whitespace-pre-wrap text-body leading-relaxed text-ink-2">{k.content}</p>
+                      <div className="mt-1 text-meta text-ink-3">{k.createdBy} · {k.createdAt.slice(0, 10)}</div>
                     </div>
                     <button
-                      className="flex-none text-[11px] text-ink-4 hover:text-flag"
+                      className="flex-none text-meta text-ink-3 hover:text-flag"
                       onClick={() => start(async () => {
                         const r = await runAction(() => deleteKnowledge(k.id), { fallback: "Could not delete that." });
                         if (!r.ok) return;
@@ -936,7 +826,7 @@ function KnowledgeTab({ initial }: { initial: KnowledgeItemView[] }) {
 
       <div>
         <Card kind="ai" className="p-4">
-          <Eyebrow>Capture knowledge</Eyebrow>
+          <Eyebrow muted>Capture knowledge</Eyebrow>
           <form
             ref={captureRef}
             action={(fd) =>
@@ -967,10 +857,10 @@ function SkillsTab({ skills }: { skills: SkillsLibrary }) {
       {skills.proposed.length > 0 && (
         <section>
           <div className="mb-2 flex items-center gap-2">
-            <Chip kind="flag" dot>Proposed · needs review</Chip>
-            <span className="font-mono text-[10px] text-ink-4">{skills.proposed.length}</span>
+            <Chip kind="flag" dot>Needs review</Chip>
+            <span className="text-meta text-ink-3">{skills.proposed.length}</span>
           </div>
-          <div className="space-y-2">
+          <div className="divide-y divide-rule-soft">
             {skills.proposed.map((s) => <SkillCard key={s.slug} skill={s} review />)}
           </div>
         </section>
@@ -979,7 +869,7 @@ function SkillsTab({ skills }: { skills: SkillsLibrary }) {
       <section>
         <div className="mb-2 flex items-center gap-2">
           <Chip kind="accent" dot>Skill library</Chip>
-          <span className="font-mono text-[10px] text-ink-4">{skills.approved.length}</span>
+          <span className="text-meta text-ink-3">{skills.approved.length}</span>
         </div>
         {skills.approved.length === 0 ? (
           <EmptyState
@@ -987,7 +877,7 @@ function SkillsTab({ skills }: { skills: SkillsLibrary }) {
             body="Reusable operating procedures agents load before working — how to draft a client follow-up, triage a lead under $20k, run the daily ops review. Proposals (from agents or seeded) appear above for your approval."
           />
         ) : (
-          <div className="space-y-2">
+          <div className="divide-y divide-rule-soft">
             {skills.approved.map((s) => <SkillCard key={s.slug} skill={s} />)}
           </div>
         )}
@@ -997,9 +887,9 @@ function SkillsTab({ skills }: { skills: SkillsLibrary }) {
         <section>
           <div className="mb-2 flex items-center gap-2">
             <Chip kind="info" dot>Runbooks</Chip>
-            <span className="font-mono text-[10px] text-ink-4">{skills.runbooks.length}</span>
+            <span className="text-meta text-ink-3">{skills.runbooks.length}</span>
           </div>
-          <div className="space-y-2">
+          <div className="divide-y divide-rule-soft">
             {skills.runbooks.map((r) => <RunbookCard key={r.slug} runbook={r} />)}
           </div>
         </section>
@@ -1015,24 +905,24 @@ function SkillCard({ skill, review }: { skill: SkillView; review?: boolean }) {
   const run = (fn: () => Promise<ActionLike>) => start(async () => { await runAction(fn); router.refresh(); });
 
   return (
-    <Card kind={review ? "flag" : "default"} className="p-3.5">
+    <Card className="p-3.5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <Chip kind="ghost">{skill.category}</Chip>
-            <span className="font-mono text-[11px] text-ink-4">{skill.slug}</span>
+            <span className="text-meta text-ink-3">{skill.slug}</span>
             {skill.proposedBy && review && <Chip kind="ai">by {skill.proposedBy}</Chip>}
           </div>
-          <div className="mt-1 text-[13.5px] font-semibold text-ink">{skill.title}</div>
-          {skill.description && <div className="mt-0.5 text-[12px] text-ink-3">{skill.description}</div>}
-          {skill.whenToUse && <div className="mt-0.5 text-[12px] text-ink-4"><span className="font-semibold">When:</span> {skill.whenToUse}</div>}
+          <div className="mt-1 text-subheading font-semibold text-ink">{skill.title}</div>
+          {skill.description && <div className="mt-0.5 text-meta text-ink-3">{skill.description}</div>}
+          {skill.whenToUse && <div className="mt-0.5 text-meta text-ink-3"><span className="font-semibold">When:</span> {skill.whenToUse}</div>}
           {skill.body && (
-            <button className="mt-1.5 text-[11px] text-accent-2 hover:underline" onClick={() => setOpen((v) => !v)}>
+            <button className="mt-1.5 text-meta text-accent-2 hover:underline" onClick={() => setOpen((v) => !v)}>
               {open ? "Hide procedure" : "View procedure"}
             </button>
           )}
           {open && (
-            <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-rule bg-paper-2 p-3 font-mono text-[11.5px] leading-relaxed text-ink-2">
+            <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-paper-2 p-3 font-sans text-body leading-relaxed text-ink-2">
               {skill.body}
             </pre>
           )}
@@ -1052,20 +942,20 @@ function RunbookCard({ runbook }: { runbook: RunbookView }) {
   return (
     <Card kind="soft" className="p-3.5">
       <div className="flex items-center gap-2">
-        <span className="font-mono text-[11px] text-ink-4">{runbook.slug}</span>
+        <span className="text-meta text-ink-3">{runbook.slug}</span>
         {!runbook.active && <Chip kind="ghost">inactive</Chip>}
       </div>
-      <div className="mt-1 text-[13.5px] font-semibold text-ink">{runbook.title}</div>
-      {runbook.description && <div className="mt-0.5 text-[12px] text-ink-3">{runbook.description}</div>}
+      <div className="mt-1 text-subheading font-semibold text-ink">{runbook.title}</div>
+      {runbook.description && <div className="mt-0.5 text-meta text-ink-3">{runbook.description}</div>}
       {runbook.steps.length > 0 && (
         <ol className="mt-2 space-y-1">
           {runbook.steps.map((s) => (
-            <li key={s.stepOrder} className="flex items-start gap-2 text-[12px] text-ink-2">
-              <span className="mt-px font-mono text-[10px] text-ink-4">{s.stepOrder}</span>
+            <li key={s.stepOrder} className="flex items-start gap-2 text-meta text-ink-2">
+              <span className="mt-px text-meta text-ink-3">{s.stepOrder}</span>
               <span className="flex-1">
                 {s.title}
-                {s.skillSlug && <span className="ml-1.5 font-mono text-[10px] text-accent-2">{s.skillSlug}</span>}
-                <span className="ml-1.5 font-mono text-[10px] text-ink-4">{s.assignedTo === "human" ? "Joe" : "agent"}</span>
+                {s.skillSlug && <span className="ml-1.5 text-meta text-accent-2">{s.skillSlug}</span>}
+                <span className="ml-1.5 text-meta text-ink-3">{s.assignedTo === "human" ? "Joe" : "agent"}</span>
                 {s.requiresHumanApproval && <Chip kind="flag" className="ml-1.5">approval</Chip>}
               </span>
             </li>
@@ -1081,16 +971,22 @@ function RunbookCard({ runbook }: { runbook: RunbookView }) {
 // here for review; the approved-as-instruction list below is literally Joe's
 // standing orders to all agents (served via get_standing_instructions).
 
-function MemoriesTab({ memories }: { memories: MemoriesData }) {
+function MemoriesTab({ memories: all }: { memories: MemoriesData }) {
+  const [search, setSearch] = useState("");
+  const match = (m: MemoryView) => `${m.summary} ${m.content} ${m.runtimeName ?? ''}`.toLowerCase().includes(search.trim().toLowerCase());
+  const memories = { pending: all.pending.filter(match), instructions: all.instructions.filter(match), examples: all.examples.filter(match), history: all.history.filter(match) };
   return (
     <div className="space-y-6">
+      <label className="block text-label text-ink-2">Search memories
+        <input aria-label="Search memories" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Find a rule, example or rejected memory…" className={`${inputCls} mt-1.5`} />
+      </label>
       {memories.pending.length > 0 && (
         <section>
           <div className="mb-2 flex items-center gap-2">
-            <Chip kind="flag" dot>Pending · needs review</Chip>
-            <span className="font-mono text-[10px] text-ink-4">{memories.pending.length}</span>
+            <Chip kind="flag" dot>Pending review</Chip>
+            <span className="text-meta text-ink-3">{memories.pending.length}</span>
           </div>
-          <div className="space-y-2">
+          <div className="divide-y divide-rule-soft">
             {memories.pending.map((m) => <MemoryCard key={m.id} memory={m} review />)}
           </div>
         </section>
@@ -1098,8 +994,8 @@ function MemoriesTab({ memories }: { memories: MemoriesData }) {
 
       <section>
         <div className="mb-2 flex items-center gap-2">
-          <Chip kind="accent" dot>Standing orders to all agents</Chip>
-          <span className="font-mono text-[10px] text-ink-4">{memories.instructions.length}</span>
+          <Chip kind="accent" dot>Standing instructions</Chip>
+          <span className="text-meta text-ink-3">{memories.instructions.length}</span>
         </div>
         {memories.instructions.length === 0 ? (
           <EmptyState
@@ -1107,12 +1003,20 @@ function MemoriesTab({ memories }: { memories: MemoriesData }) {
             body="When you approve a pending memory as an instruction, it becomes a standing order every agent loads at the start of a pass — until you revoke it or it goes stale. Nothing an agent writes lands here without your click."
           />
         ) : (
-          <div className="space-y-2">
+          <div className="divide-y divide-rule-soft">
             {memories.instructions.map((m) => <MemoryCard key={m.id} memory={m} />)}
           </div>
         )}
       </section>
 
+      <section><h2 className="mb-2 text-heading font-serif">Approved examples · {memories.examples.length}</h2>
+        <p className="mb-3 text-body text-ink-3">Evidence agents can cite, including revoked rules. Restore to review before approving a rule again.</p>
+        <div className="divide-y divide-rule-soft">{memories.examples.map(m=><MemoryCard key={m.id} memory={m}/>)}</div>
+      </section>
+      <section><h2 className="mb-2 text-heading font-serif">History · {memories.history.length}</h2>
+        <p className="mb-3 text-body text-ink-3">Rejected memories stay here with their sources. Restore returns one to review.</p>
+        <div className="divide-y divide-rule-soft">{memories.history.map(m=><MemoryCard key={m.id} memory={m}/>)}</div>
+      </section>
       {memories.pending.length === 0 && (
         <EmptyState
           title="Nothing waiting for review"
@@ -1147,23 +1051,23 @@ function MemoryCard({ memory, review }: { memory: MemoryView; review?: boolean }
   });
 
   return (
-    <Card kind={review ? "flag" : "default"} className="p-3.5">
-      <div className="flex items-start justify-between gap-3">
+    <div className="py-4">
+      <div className="flex flex-col items-start justify-between gap-3 @3xl/page:flex-row">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <Chip kind="ghost">{memory.memoryType}</Chip>
             {memory.runtimeName && <Chip kind="ai">{memory.runtimeName}</Chip>}
-            <span className="font-mono text-[10px] text-ink-4">captured {captured}</span>
+            <span className="text-meta text-ink-3">captured {captured}</span>
             {memory.confidence !== null && (
-              <span className="font-mono text-[10px] text-ink-4">conf {memory.confidence}</span>
+              <span className="text-meta text-ink-3">conf {memory.confidence}</span>
             )}
           </div>
-          <div className="mt-1 text-[13.5px] font-semibold text-ink">{memory.summary}</div>
-          <button className="mt-1.5 text-[11px] text-accent-2 hover:underline" onClick={() => setOpen((v) => !v)}>
+          <div className="mt-1 text-subheading font-semibold text-ink">{memory.summary}</div>
+          <button className="mt-1.5 text-meta text-accent-2 hover:underline" onClick={() => setOpen((v) => !v)}>
             {open ? "Hide details" : "View details"}
           </button>
           {open && (
-            <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-rule bg-paper-2 p-3 font-mono text-[11.5px] leading-relaxed text-ink-2">
+            <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-paper-2 p-3 font-sans text-body leading-relaxed text-ink-2">
               {memory.content}
             </pre>
           )}
@@ -1172,11 +1076,11 @@ function MemoryCard({ memory, review }: { memory: MemoryView; review?: boolean }
               {memory.refs.map((r, i) => {
                 const href = refHref(r);
                 return href ? (
-                  <Link key={i} href={href} className="font-mono text-[10px] text-accent-2 hover:underline">
+                  <Link key={i} href={href} className="text-meta text-accent-2 hover:underline">
                     {r.label || `${r.kind} ${r.id ?? ""}`}
                   </Link>
                 ) : (
-                  <span key={i} className="font-mono text-[10px] text-ink-4">
+                  <span key={i} className="text-meta text-ink-3">
                     {r.label || `${r.kind} ${r.id ?? ""}`}
                   </span>
                 );
@@ -1196,12 +1100,12 @@ function MemoryCard({ memory, review }: { memory: MemoryView; review?: boolean }
               Reject
             </button>
           </div>
-        ) : (
+        ) : memory.canUseAsInstruction && memory.reviewStatus === "approved" ? (
           <div className="flex flex-none flex-col items-end gap-1.5">
             <button className={btnCls} disabled={pending} onClick={() => run(() => revokeMemoryInstruction(memory.id))}>
               Revoke
             </button>
-            <label className="text-[10px] text-ink-4">
+            <label className="text-meta text-ink-3">
               stale after
               <input
                 type="date"
@@ -1211,23 +1115,21 @@ function MemoryCard({ memory, review }: { memory: MemoryView; review?: boolean }
                   setStale(e.target.value);
                   run(() => setMemoryStaleAfter(memory.id, e.target.value));
                 }}
-                className="ml-1 rounded-md border border-rule bg-paper px-1.5 py-0.5 text-[11px] text-ink-2"
+                className="ml-1 rounded-md border border-rule bg-paper px-1.5 py-0.5 text-meta text-ink-2"
               />
             </label>
           </div>
-        )}
+        ) : <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" size="sm" disabled={pending} onClick={()=>run(()=>restoreMemory(memory.id))}>Restore to review</Button>
+          {memory.reviewStatus==='approved'&&<Button variant="ghost" size="sm" disabled={pending} onClick={()=>run(()=>rejectMemory(memory.id))}>Revoke example</Button>}
+        </div>}
       </div>
-    </Card>
+    </div>
   );
 }
 
 // ─── shared ──────────────────────────────────────────────────────────────────
 
 function EmptyState({ title, body }: { title: string; body: string }) {
-  return (
-    <Card kind="dashed" className="p-6 text-center">
-      <div className="text-[14px] font-semibold text-ink-2">{title}</div>
-      <p className="mx-auto mt-1 max-w-[460px] text-[12.5px] leading-relaxed text-ink-4">{body}</p>
-    </Card>
-  );
+  return <UiEmptyState title={title} description={body} compact />;
 }

@@ -1,8 +1,10 @@
 import { Shell } from "@/components/shell/Shell";
-import { Eyebrow } from "@/components/ui";
+import { Button, PageHeader, KpiTile } from "@/components/ui";
 import { requireRole } from "@/lib/dal";
 import { runDirect } from "@/lib/commands/db";
 import { timeReview } from "@/lib/owner-time/server";
+import { businessReviewRange } from "@/lib/business-time";
+import { durationLabel } from "@/lib/owner-time/labels";
 import { TimeReview } from "@/components/time/TimeReview";
 
 export const dynamic = "force-dynamic";
@@ -12,33 +14,88 @@ export const dynamic = "force-dynamic";
  *  inferred, review, no project), keep/adjust/discard on uncertain intervals,
  *  a manual timer for work outside instrumented tools. Corrections keep their
  *  audit history; nothing here bills a client or books payroll. */
-export default async function TimePage({ searchParams }: { searchParams: Promise<{ from?: string; to?: string }> }) {
+export default async function TimePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ from?: string; to?: string }>;
+}) {
   const user = await requireRole("owner");
   const sp = await searchParams;
-  const to = sp.to && Number.isFinite(Date.parse(sp.to)) ? new Date(sp.to).toISOString() : new Date().toISOString();
-  const from = sp.from && Number.isFinite(Date.parse(sp.from)) ? new Date(sp.from).toISOString() : new Date(Date.parse(to) - 7 * 86400_000).toISOString();
+  const { from, to, error } = businessReviewRange(sp);
   const [review, projects, rates] = await Promise.all([
     timeReview(user.id, from, to),
-    runDirect<{ id: string; name: string; slug: string }>(`SELECT id, name, slug FROM projects WHERE status NOT IN ('warranty') ORDER BY name`),
-    runDirect<{ category: string; rate_cents: number; effective_from: string }>(`SELECT category, rate_cents::int AS rate_cents, effective_from::text AS effective_from FROM owner_labor_rates ORDER BY category, effective_from DESC`).catch(() => []),
+    runDirect<{ id: string; name: string; slug: string }>(
+      `SELECT id, name, slug FROM projects ORDER BY name`,
+    ),
+    runDirect<{ category: string; rate_cents: number; effective_from: string }>(
+      `SELECT category, rate_cents::int AS rate_cents, effective_from::text AS effective_from FROM owner_labor_rates ORDER BY category, effective_from DESC`,
+    ).catch(() => []),
   ]);
-  const hours = (h: number) => h.toFixed(1); // reviewRange totals are already hours
+  const hours = (h: number) => durationLabel(h * 3600_000); // totals arrive in hours
   return (
     <Shell breadcrumb="TIME">
-      <div className="mx-auto max-w-[1100px] px-7 pb-16 pt-6">
-        <div className="mb-4">
-          <Eyebrow>
-            site {hours(review.totals.site)} h · office {hours(review.totals.office)} h · overhead {hours(review.totals.overhead)} h · {review.flags.length} to review
-          </Eyebrow>
-          <h1 className="mt-1 font-serif text-[34px] font-medium leading-none tracking-tight text-accent-2">Job time</h1>
-          <p className="mt-2 max-w-[640px] text-[13px] leading-relaxed text-ink-3">
-            Site clock-ins come from the phone&apos;s job-site prompts you confirmed; office time from real work in the designer.
-            Overlaps are counted once. Inferred and review rows stay out of verified job cost until you keep or discard them.
-            Hours are valued only by a dated rate you approved; otherwise a job reads &ldquo;cost not configured&rdquo;. Nothing here
-            bills a client, creates payroll or posts to QuickBooks.
-          </p>
+      <div className="mx-auto max-w-[1240px] px-4 pb-16 pt-6 @3xl/page:px-5 @5xl/page:px-8">
+        <PageHeader
+          title="Job time"
+          meta="Confirmed work, recorded hours and corrections · all times Central"
+        />
+        <TimeReview
+          review={review}
+          projects={projects}
+          rates={rates}
+          from={from}
+          to={to}
+        >
+        <div className="mt-6 grid grid-cols-2 gap-3 @xl/page:grid-cols-4">
+          <KpiTile label="Site" value={hours(review.totals.site)} />
+          <KpiTile label="Office" value={hours(review.totals.office)} />
+          <KpiTile
+            label="Overhead"
+            value={hours(review.totals.overhead)}
+          />
+          <KpiTile
+            label="Review flags"
+            value={review.flags.length}
+            tone={review.flags.length ? "warn" : "default"}
+          />
         </div>
-        <TimeReview review={review} projects={projects} rates={rates} from={from} to={to} />
+        <form className="mt-6 flex flex-wrap items-end gap-3">
+          <label className="text-label text-ink-2">
+            From · Central
+            <input
+              name="from"
+              type="date"
+              defaultValue={new Intl.DateTimeFormat("en-CA", {
+                timeZone: "America/Chicago",
+              }).format(new Date(from))}
+              className="mt-1.5 block h-9 max-w-full rounded-md border border-rule bg-card px-3 text-body"
+            />
+          </label>
+          <label className="text-label text-ink-2">
+            Through · Central
+            <input
+              name="to"
+              type="date"
+              defaultValue={new Intl.DateTimeFormat("en-CA", {
+                timeZone: "America/Chicago",
+              }).format(new Date(Date.parse(to) - 1))}
+              className="mt-1.5 block h-9 max-w-full rounded-md border border-rule bg-card px-3 text-body"
+            />
+          </label>
+          <Button type="submit" variant="secondary">
+            Apply dates
+          </Button>
+        </form>
+        {error && (
+          <p role="alert" className="mt-3 text-meta text-flag">
+            {error} Showing the last seven days.
+          </p>
+        )}
+        <p className="mt-3 text-meta text-ink-3">
+          Overlaps count once. Unconfirmed time stays out of verified job cost
+          until reviewed. These hours do not bill clients or create payroll.
+        </p>
+        </TimeReview>
       </div>
     </Shell>
   );

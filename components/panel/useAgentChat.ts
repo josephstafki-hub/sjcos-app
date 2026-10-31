@@ -48,6 +48,7 @@ export interface ActiveRun {
  *  show "✦ Have Hermes do it — …". Setting `agent` forces the turn onto that
  *  agent, abandoning the current thread if it belongs to a different one. */
 export interface PanelSend {
+  contextRefs?: import("@/lib/panel-context").PanelContextRef[];
   directive: string;
   display?: string;
   agent?: PanelAgent;
@@ -124,6 +125,7 @@ export function useAgentChat({
 }: UseAgentChatOptions) {
   const [agent, setAgent] = useState<PanelAgent>(PANEL_DEFAULT_AGENT);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [conversationTitle, setConversationTitle] = useState("New chat");
   /** The job folder the open thread is filed under (header chip). */
   const [folderName, setFolderName] = useState<string | null>(null);
   /** This tab's thread-rail scope (a folder id); new chats file under it. */
@@ -251,7 +253,7 @@ export function useAgentChat({
         setActivity("");
         setMessages((m) => [
           ...m,
-          { id: `err-${runId}`, role: "assistant", body: `⚠️ ${p.error}`, costUsd: null, createdAt: "", subjectWorkItemId: subjectId ?? null, agent: null, attachments: null },
+          { id: `err-${runId}`, runId, role: "assistant", body: `⚠️ ${p.error}`, costUsd: null, createdAt: "", subjectWorkItemId: subjectId ?? null, agent: null, attachments: null },
         ]);
         postPanelMessage({ type: "run", phase: "end", runId, agent, subjectId: subjectId ?? null }, { local: true });
         if (p.nextRunId) {
@@ -272,7 +274,7 @@ export function useAgentChat({
         if (p.activity) setLogs((l) => ({ ...l, [`run-${runId}`]: p.activity! }));
         setMessages((m) => [
           ...m,
-          { id: `run-${runId}`, role: "assistant", body: p.answer, costUsd: p.costUsd, createdAt: "", subjectWorkItemId: subjectId ?? null, agent: p.agent ?? null, attachments: null, tokenUsage: p.tokenUsage ?? null },
+          { id: `run-${runId}`, runId, role: "assistant", body: p.answer, costUsd: p.costUsd, createdAt: "", subjectWorkItemId: subjectId ?? null, agent: p.agent ?? null, attachments: null, tokenUsage: p.tokenUsage ?? null },
         ]);
         postPanelMessage({ type: "run", phase: "end", runId, agent, subjectId: subjectId ?? null }, { local: true });
         if (!p.answer.startsWith("⚠️")) cbRef.current.onAnswer?.(runId, p.answer, false);
@@ -358,11 +360,13 @@ export function useAgentChat({
       if (!detail) {
         writePanelState({ conversationId: null });
         setConversationId(null);
+        setConversationTitle("New chat");
         setMessages([]);
         return;
       }
       setAgent(detail.agent);
       setConversationId(detail.id);
+      setConversationTitle(detail.title || "New chat");
       setFolderName(detail.folderName);
       setMessages(detail.messages);
       setClaudeSessionId(detail.claudeSessionId);
@@ -406,7 +410,7 @@ export function useAgentChat({
     startTransition(() => {
       setClaudeOptsState(st.claude);
       setFolderScopeState(st.folderId);
-      const open = deepLink ?? st.conversationId;
+      const open = new URLSearchParams(window.location.search).has("new") ? null : deepLink ?? st.conversationId;
       if (open) {
         void openConversation(open);
       } else if (st.agent !== PANEL_DEFAULT_AGENT) {
@@ -453,6 +457,7 @@ export function useAgentChat({
     setNextHome(null);
     writePanelState({ conversationId: null });
     setConversationId(null);
+    setConversationTitle("New chat");
     resetView();
     if (leftRunning) setNotice(LEFT_RUNNING_NOTICE);
   };
@@ -465,6 +470,7 @@ export function useAgentChat({
     writePanelState({ conversationId: null, agent: a });
     setAgent(a);
     setConversationId(null);
+    setConversationTitle("New chat");
     resetView();
     if (leftRunning) setNotice(LEFT_RUNNING_NOTICE);
   };
@@ -652,6 +658,7 @@ export function useAgentChat({
         }
         writePanelState({ conversationId: convId, agent: target });
         setConversationId(convId);
+        setConversationTitle((spec.display ?? spec.directive).replace(/\s+/g, " ").trim().slice(0, 80) || "New chat");
         setNextHome(null);
         setFolderName(home?.name ?? null);
       }
@@ -690,6 +697,7 @@ export function useAgentChat({
         spec.attachments,
         spec.subjectId,
         spec.allowSends,
+        spec.contextRefs,
       );
       if (!live.alive) return;
       if (!r.ok) {
@@ -728,6 +736,7 @@ export function useAgentChat({
     agent,
     selectAgent,
     conversationId,
+    conversationTitle,
     folderName,
     folderScope,
     setFolderScope,

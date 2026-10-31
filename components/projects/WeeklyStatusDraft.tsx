@@ -1,28 +1,44 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { AiStreamSkeleton } from "@/components/ui";
+import { useState, useTransition } from "react";
+import { Button } from "@/components/ui";
+import { WeeklyStatusSend } from "./WeeklyStatusSend";
 import { draftWeeklyStatus } from "@/lib/actions/projects";
 
-/** The AI-drafted weekly-status line, loaded after the page paints. Lives on
- *  the client so a router.refresh() elsewhere on the page (saving an estimate
- *  line, ticking a punch item) never waits on the slow CPU Qwen draft — see
- *  draftWeeklyStatus for the full story. Keeps whatever it already has across
- *  refreshes; only re-asks when the project changes. */
+/** Draft only on request; opening a record must not start CPU inference. */
 export function WeeklyStatusDraft({ slug }: { slug: string }) {
   const [text, setText] = useState<string | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    setText(null);
-    draftWeeklyStatus(slug)
-      .then((t) => alive && setText(t))
-      .catch(() => alive && setText(""));
-    return () => {
-      alive = false;
-    };
-  }, [slug]);
-
-  if (text === null) return <AiStreamSkeleton />;
-  return <>{text || "Draft unavailable right now."}</>;
+  const [pending, start] = useTransition();
+  return (
+    <div className="space-y-3">
+      <p className="text-body text-ink-2">
+        {text ??
+          "Prepare a weekly update from the project’s latest notes, then review it before sending."}
+      </p>
+      <Button
+        variant="secondary"
+        size="sm"
+        disabled={pending}
+        onClick={() =>
+          start(async () => {
+            try {
+              setText(
+                (await draftWeeklyStatus(slug)) ||
+                  "Draft unavailable right now.",
+              );
+            } catch {
+              setText("Could not prepare the draft. Try again.");
+            }
+          })
+        }
+      >
+        {pending ? "Preparing…" : text ? "Refresh draft" : "Prepare draft"}
+      </Button>
+      {text &&
+        text !== "Draft unavailable right now." &&
+        !text.startsWith("Could not prepare") && (
+          <WeeklyStatusSend slug={slug} />
+        )}
+    </div>
+  );
 }

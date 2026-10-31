@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useServerState } from "@/lib/use-server-state";
-import { MessageSquare, Phone, PhoneCall, Send, AlertCircle, ExternalLink, Plus, X, ArrowLeft, Ban, Paperclip, ShieldBan } from "lucide-react";
-import { Chip } from "@/components/ui";
+import { MessageSquare, Phone, PhoneCall, Send, AlertCircle, ExternalLink, Plus, X, ArrowLeft, Ban, Paperclip, MoreHorizontal, ShieldBan } from "lucide-react";
+import { ConnectionNotice } from "@/components/messages/ConnectionNotice";
+import { Button, PageHeader, Chip } from "@/components/ui";
 import {
   loadSmsThread,
   sendSmsReply,
@@ -47,7 +48,6 @@ export function MessagesClient({
   threads: initialThreads,
   linkOptions,
   configured,
-  problems,
   voiceConfigured,
 }: {
   threads: SmsThreadSummary[];
@@ -253,57 +253,47 @@ export function MessagesClient({
       />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <span className={`truncate text-[13px] ${t.unread ? "font-semibold text-ink" : "text-ink-2"}`}>
+          <span className={`break-words text-subheading ${t.unread ? "font-semibold text-ink" : "text-ink-2"}`}>
             {threadTitle(t)}
           </span>
           {t.linkType && <Chip kind="ghost">{t.linkType}</Chip>}
           {t.blockedAt && <Chip kind="flag">blocked</Chip>}
           {t.optedOut && <Chip kind="flag">opted out</Chip>}
         </div>
-        <div className="font-mono text-[10px] text-ink-3">{fmtWhen(t.lastMessageAt)}</div>
+        <div className="text-meta text-ink-3">{fmtWhen(t.lastMessageAt)}</div>
       </div>
     </button>
   );
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full min-h-0 flex-col [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus"><div className="border-b border-rule-soft px-4 py-5 @2xl/page:px-5"><PageHeader title="Messages" meta="Text conversations with clients, subs and vendors." /></div><div className="flex min-h-0 flex-1">
       {/* Thread rail */}
       <aside
-        className={`w-full flex-none flex-col border-r border-rule bg-paper-2 lg:w-[300px] ${
-          mobileThread ? "hidden lg:flex" : "flex"
+        className={`w-full flex-none flex-col border-r border-rule bg-paper-2 @3xl/page:w-[300px] ${
+          mobileThread ? "hidden @3xl/page:flex" : "flex"
         }`}
       >
         <div className="flex items-center gap-2 border-b border-rule px-4 py-3">
           <MessageSquare className="size-4 text-ink-3" strokeWidth={1.5} />
-          <span className="flex-1 font-serif text-[15px] font-semibold text-ink">Text messages</span>
-          <button
+          <span className="flex-1 text-subheading font-semibold text-ink">Text messages</span>
+          <Button size="sm"
+            disabled={!configured}
+            title={!configured ? "Finish connection setup below first" : undefined}
             type="button"
             onClick={() => {
               setComposeErr(null);
               setComposeOpen(true);
             }}
-            className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2 py-1 text-[11px] font-semibold text-paper hover:bg-[#232a1e]"
           >
             <Plus className="size-3" strokeWidth={2} /> New
-          </button>
+          </Button>
         </div>
 
-        {!configured && (
-          <div className="m-3 rounded-lg border border-dashed border-rule bg-paper px-3 py-2.5">
-            <div className="flex items-center gap-1.5 text-[12px] font-semibold text-ink-2">
-              <AlertCircle className="size-3.5 text-flag" strokeWidth={1.5} /> SMS not connected
-            </div>
-            <p className="mt-1 text-[11px] leading-relaxed text-ink-3">
-              {problems.length
-                ? problems.join("; ")
-                : "Texting runs on Telnyx. Set the SMS_* env vars and restart to go live — see docs/comms.md. Outbound texts also wait on 10DLC campaign approval (scripts/register-10dlc.mjs)."}
-            </p>
-          </div>
-        )}
+        {!configured && <ConnectionNotice kind="sms" />}
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           {openThreads.length === 0 ? (
-            <div className="px-4 py-10 text-center text-[12px] text-ink-3">
+            <div className="px-4 py-10 text-center text-meta text-ink-3">
               No conversations yet. Inbound texts to the business number appear here.
             </div>
           ) : (
@@ -314,7 +304,7 @@ export function MessagesClient({
               <button
                 type="button"
                 onClick={() => setShowBlocked((v) => !v)}
-                className="flex w-full items-center gap-1.5 border-b border-rule-soft px-4 py-2 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3 hover:bg-paper"
+                className="flex w-full items-center gap-1.5 border-b border-rule-soft px-4 py-2 text-left text-meta text-ink-3 hover:bg-paper"
               >
                 <ShieldBan className="size-3.5" strokeWidth={1.5} />
                 <span className="flex-1">Blocked · {blockedThreads.length}</span>
@@ -328,7 +318,7 @@ export function MessagesClient({
 
       {/* Conversation */}
       <section
-        className={`min-w-0 flex-1 flex-col ${mobileThread ? "flex" : "hidden lg:flex"}`}
+        className={`min-w-0 flex-1 flex-col ${mobileThread ? "flex" : "hidden @3xl/page:flex"}`}
       >
         {selected ? (
           <>
@@ -337,13 +327,13 @@ export function MessagesClient({
                 type="button"
                 onClick={() => setMobileThread(false)}
                 aria-label="Back to conversations"
-                className="-ml-1 inline-flex size-7 flex-none items-center justify-center rounded-md text-ink-2 hover:bg-black/5 lg:hidden"
+                className="-ml-1 inline-flex size-11 flex-none items-center justify-center rounded-md text-ink-2 hover:bg-black/5 @3xl/page:hidden"
               >
                 <ArrowLeft className="size-4" strokeWidth={1.5} />
               </button>
               <Phone className="size-3.5 text-ink-3" strokeWidth={1.5} />
-              <span className="font-serif text-[15px] font-semibold text-ink">{threadTitle(selected)}</span>
-              <span className="font-mono text-[11px] text-ink-3">{selected.phone}</span>
+              <span className="text-subheading font-semibold text-ink">{threadTitle(selected)}</span>
+              <span className="text-meta text-ink-3">{selected.phone}</span>
               {selected.optedOut && (
                 <Chip kind="flag">opted out{selected.optedOutAt ? ` ${selected.optedOutAt.slice(0, 10)}` : ""}</Chip>
               )}
@@ -356,16 +346,17 @@ export function MessagesClient({
                     onClick={callSelected}
                     disabled={dialing}
                     title="Ring my cell, then call them"
-                    className="inline-flex items-center gap-1 rounded-md border border-rule bg-paper px-2 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50"
+                    className="inline-flex items-center gap-1 rounded-md border border-rule bg-paper px-2 py-1 text-meta font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50"
                   >
                     <PhoneCall className="size-3.5" strokeWidth={1.5} /> {dialing ? "Ringing…" : "Call"}
                   </button>
                 )}
+                <details className="relative"><summary aria-label="More conversation actions" title="More conversation actions" className="flex size-8 cursor-pointer list-none items-center justify-center rounded-md hover:bg-hover focus-visible:outline-2 focus-visible:outline-focus"><MoreHorizontal className="size-4" /></summary><div className="absolute right-0 top-full z-20 mt-1 w-48 rounded-lg border border-rule-soft bg-card p-1 shadow-pop">
                 <button
                   type="button"
                   onClick={() => toggleOptOut(selected)}
                   title={selected.optedOut ? "Clear the local opt-out (they asked in person)" : "Mark as opted out"}
-                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[12px] ${
+                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-meta ${
                     selected.optedOut ? "border-flag text-flag hover:bg-flag-soft" : "border-rule text-ink-3 hover:bg-paper-2"
                   }`}
                 >
@@ -375,17 +366,18 @@ export function MessagesClient({
                   type="button"
                   onClick={() => toggleBlocked(selected)}
                   title={selected.blockedAt ? "Unblock this number" : "Block this number: keep its texts, but no alerts and nothing sent to it"}
-                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[12px] ${
+                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-meta ${
                     selected.blockedAt ? "border-flag text-flag hover:bg-flag-soft" : "border-rule text-ink-3 hover:bg-paper-2"
                   }`}
                 >
                   <ShieldBan className="size-3.5" strokeWidth={1.5} /> {selected.blockedAt ? "Unblock" : "Block"}
                 </button>
-                <span className="hidden font-mono text-[10px] uppercase tracking-[0.1em] text-ink-3 sm:inline">Linked to</span>
+                </div></details>
+                <span className="hidden text-meta text-ink-3 @xl/page:inline">Linked to</span>
                 <select
                   value={selected.linkType && selected.linkSlug ? `${selected.linkType}:${selected.linkSlug}` : ""}
                   onChange={(e) => changeLink(selected.id, e.target.value)}
-                  className="max-w-[180px] rounded-md border border-rule bg-paper px-2 py-1 text-[12px] text-ink outline-none focus:border-accent"
+                  className="max-w-[180px] rounded-md border border-rule bg-paper px-2 py-1 text-meta text-ink focus-visible:outline-2 focus-visible:outline-focus"
                 >
                   <option value="">Not linked</option>
                   {linkOptions.leads.length > 0 && (
@@ -431,14 +423,14 @@ export function MessagesClient({
 
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-paper-2 px-5 py-4">
               {loading ? (
-                <div className="py-10 text-center text-[12px] text-ink-3">Loading…</div>
+                <div className="py-10 text-center text-meta text-ink-3">Loading…</div>
               ) : messages.length === 0 ? (
-                <div className="py-10 text-center text-[12px] text-ink-3">No messages in this thread yet.</div>
+                <div className="py-10 text-center text-meta text-ink-3">No messages in this thread yet.</div>
               ) : (
                 messages.map((m) => (
                   <div key={m.id} className={`flex ${m.direction === "out" ? "justify-end" : "justify-start"}`}>
                     <div
-                      className={`max-w-[68%] rounded-2xl px-3.5 py-2 text-[13px] ${
+                      className={`max-w-[68%] rounded-lg px-3.5 py-2 text-body ${
                         m.direction === "out"
                           ? m.status === "failed"
                             ? "rounded-br-sm border border-flag/50 bg-flag-soft text-ink"
@@ -455,7 +447,7 @@ export function MessagesClient({
                                 <img src={`/api/files/${a.file_id}?w=320`} alt={a.name} className="max-h-48 rounded-lg" />
                               </a>
                             ) : (
-                              <a key={a.file_id} href={`/api/files/${a.file_id}?download=1`} className="inline-flex items-center gap-1 rounded-md border border-rule bg-paper px-2 py-1 text-[11px] text-ink-2">
+                              <a key={a.file_id} href={`/api/files/${a.file_id}?download=1`} className="inline-flex items-center gap-1 rounded-md border border-rule bg-paper px-2 py-1 text-meta text-ink-2">
                                 <Paperclip className="size-3" strokeWidth={1.5} /> {a.name}
                               </a>
                             ),
@@ -464,7 +456,7 @@ export function MessagesClient({
                       )}
                       {m.body && <div className="whitespace-pre-wrap break-words">{m.body}</div>}
                       <div
-                        className={`mt-0.5 font-mono text-[9px] ${
+                        className={`mt-0.5 text-meta ${
                           m.direction === "out" && m.status !== "failed" ? "text-white/70" : "text-ink-3"
                         }`}
                       >
@@ -474,7 +466,7 @@ export function MessagesClient({
                         {m.direction === "out" && m.status !== "sent" && m.status !== "delivered" && ` · ${m.status}`}
                       </div>
                       {m.direction === "out" && m.status === "failed" && m.errorDetail && (
-                        <div className="mt-1 text-[11px] text-flag">{m.errorDetail}</div>
+                        <div className="mt-1 text-meta text-flag">{m.errorDetail}</div>
                       )}
                     </div>
                   </div>
@@ -483,10 +475,10 @@ export function MessagesClient({
             </div>
 
             {notice && (
-              <div className="border-t border-rule bg-flag-soft px-5 py-2 text-[12px] text-flag">{notice}</div>
+              <div className="border-t border-rule bg-flag-soft px-5 py-2 text-meta text-flag">{notice}</div>
             )}
             {selected.blockedAt && (
-              <div className="border-t border-rule bg-paper-2 px-5 py-2 text-[12px] text-ink-2">
+              <div className="border-t border-rule bg-paper-2 px-5 py-2 text-meta text-ink-2">
                 <ShieldBan className="mr-1 inline size-3.5 text-flag" strokeWidth={1.5} />
                 You blocked {threadTitle(selected)}
                 {` on ${selected.blockedAt.slice(0, 10)}`}. Their texts are kept here, but you won&apos;t be notified and
@@ -494,14 +486,14 @@ export function MessagesClient({
               </div>
             )}
             {selected.optedOut && !selected.blockedAt && (
-              <div className="border-t border-rule bg-paper-2 px-5 py-2 text-[12px] text-ink-2">
+              <div className="border-t border-rule bg-paper-2 px-5 py-2 text-meta text-ink-2">
                 <Ban className="mr-1 inline size-3.5 text-flag" strokeWidth={1.5} />
                 {threadTitle(selected)} opted out (STOP). The OS will not text them until they send START. Calling is still fine.
               </div>
             )}
 
             {/* Composer */}
-            <div className="flex items-end gap-2 border-t border-rule px-5 py-3">
+            <div className="m-3 flex items-end gap-2 rounded-lg border border-rule bg-card p-2 focus-within:outline-2 focus-within:outline-focus">
               <textarea
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
@@ -514,22 +506,15 @@ export function MessagesClient({
                 rows={1}
                 placeholder={!configured ? "SMS not connected" : selected.blockedAt ? "Blocked number — unblock to text" : selected.optedOut ? "Contact opted out — texting blocked" : "Type a text…"}
                 disabled={composerDisabled}
-                className="max-h-32 min-h-[38px] flex-1 resize-y rounded-lg border border-rule bg-paper px-3 py-2 text-[13px] text-ink outline-none focus:border-accent disabled:bg-paper-2 disabled:text-ink-3"
+                className="max-h-32 min-h-9 min-w-0 flex-1 resize-y border-0 bg-transparent px-2 py-1 text-body text-ink outline-none disabled:text-ink-3"
               />
-              <button
-                type="button"
-                onClick={send}
-                disabled={composerDisabled || !draft.trim()}
-                className="inline-flex h-[38px] flex-none items-center gap-1.5 rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
-              >
-                <Send className="size-3.5" strokeWidth={1.5} /> Send
-              </button>
+              <Button onClick={send} disabled={composerDisabled || !draft.trim()} icon={Send}>Send</Button>
             </div>
           </>
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-            <MessageSquare className="size-8 text-ink-4" strokeWidth={1.25} />
-            <div className="text-[13px] text-ink-3">
+            <MessageSquare className="size-8 text-ink-3" strokeWidth={1.25} />
+            <div className="text-body text-ink-3">
               {threads.length === 0
                 ? "No conversations yet."
                 : "Select a conversation to view it."}
@@ -539,85 +524,67 @@ export function MessagesClient({
       </section>
 
       {/* New-message compose modal */}
+      </div>
+
       {composeOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 px-4"
           onClick={() => !sending && setComposeOpen(false)}
         >
           <div
-            className="w-full max-w-[420px] rounded-xl border border-rule bg-card p-5 shadow-xl"
+            className="w-full max-w-[420px] rounded-xl border border-rule bg-card p-5 shadow-modal"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-2">
-              <h2 className="flex-1 font-serif text-[17px] font-semibold text-ink">New text message</h2>
-              <button
-                type="button"
-                onClick={() => setComposeOpen(false)}
-                className="text-ink-3 hover:text-ink"
-                aria-label="Close"
-              >
-                <X className="size-4" strokeWidth={1.5} />
-              </button>
+              <h2 className="flex-1 font-serif text-heading font-semibold text-ink">New text message</h2>
+              <Button onClick={() => setComposeOpen(false)} icon={X} iconOnly aria-label="Close" title="Close" />
             </div>
 
             {!configured && (
-              <div className="mt-3 flex items-start gap-1.5 rounded-md border border-dashed border-rule bg-paper px-2.5 py-2 text-[11px] text-ink-3">
+              <div className="mt-3 flex items-start gap-1.5 rounded-md border border-dashed border-rule bg-paper px-2.5 py-2 text-meta text-ink-3">
                 <AlertCircle className="mt-0.5 size-3.5 flex-none text-flag" strokeWidth={1.5} />
-                SMS is not connected. You can compose now, but sending is disabled until Telnyx is configured.
+                Texting is not connected. You can write a draft, but sending stays off until setup is complete.
               </div>
             )}
 
             <div className="mt-4 flex flex-col gap-3">
               <div>
-                <label className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">To · phone</label>
+                <label className="text-meta text-ink-3">To · phone</label>
                 <input
                   value={newPhone}
                   onChange={(e) => setNewPhone(e.target.value)}
                   placeholder="+16125551234"
-                  className="mt-1 w-full rounded-md border border-rule bg-paper px-2.5 py-1.5 font-mono text-[13px] text-ink outline-none focus:border-accent"
+                  className="mt-1 w-full rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink focus-visible:outline-2 focus-visible:outline-focus"
                 />
               </div>
               <div>
-                <label className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+                <label className="text-meta text-ink-3">
                   Contact name · optional
                 </label>
                 <input
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                   placeholder="e.g. Marco (framing)"
-                  className="mt-1 w-full rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+                  className="mt-1 w-full rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink focus-visible:outline-2 focus-visible:outline-focus"
                 />
               </div>
               <div>
-                <label className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Message</label>
+                <label className="text-meta text-ink-3">Message</label>
                 <textarea
                   value={newBody}
                   onChange={(e) => setNewBody(e.target.value)}
                   rows={3}
                   placeholder="Type your text… (first contact: end with 'Reply STOP to opt out')"
-                  className="mt-1 w-full resize-y rounded-md border border-rule bg-paper px-2.5 py-2 text-[13px] text-ink outline-none focus:border-accent"
+                  className="mt-1 w-full resize-y rounded-md border border-rule bg-paper px-2.5 py-2 text-body text-ink focus-visible:outline-2 focus-visible:outline-focus"
                 />
               </div>
             </div>
 
-            {composeErr && <p className="mt-2 text-[12px] text-flag">{composeErr}</p>}
+            {composeErr && <p className="mt-2 text-meta text-flag">{composeErr}</p>}
 
             <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setComposeOpen(false)}
-                className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-2 hover:bg-paper-2"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={startNew}
-                disabled={!configured || sending || !newPhone.trim() || !newBody.trim()}
-                className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3.5 py-1.5 text-[12px] font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
-              >
-                <Send className="size-3.5" strokeWidth={1.5} /> {sending ? "Sending…" : "Send text"}
-              </button>
+              <Button onClick={() => setComposeOpen(false)} variant="secondary">Cancel</Button>
+              <Button onClick={startNew} icon={Send} disabled={!configured || sending || !newPhone.trim() || !newBody.trim()}>{sending ? "Sending…" : "Send text"}</Button>
             </div>
           </div>
         </div>

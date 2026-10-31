@@ -3,11 +3,12 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Globe, Sparkles, Copy, Check, Trash2, ImagePlus, FileText, ArrowLeft } from "lucide-react";
-import { Card, Chip, VoiceButton } from "@/components/ui";
+import { Globe, Sparkles, Copy, Check, Trash2, ImagePlus, FileText, ArrowLeft, ChevronRight } from "lucide-react";
+import { Card, Chip, VoiceButton, Button, PageHeader, Segmented } from "@/components/ui";
+import { PostPreview } from "@/components/marketing/PostPreview";
 import { mergeTranscript } from "@/lib/append-transcript";
 import type { BlogPost, ComposerProject } from "@/lib/site";
-import { generateDraft, updateDraft, markPosted, deleteDraft } from "@/lib/actions/marketing";
+import { generateDraft, updateDraft, markPosted, markDraft, deleteDraft } from "@/lib/actions/marketing";
 import { runAction } from "@/lib/run-action";
 
 // Website Content Composer (P2-4). Replaces the old mock CMS Site tab. Writes the
@@ -45,6 +46,7 @@ export function SiteClient({
       const r = await runAction(() => generateDraft(slug, "blog"), { fallback: "Couldn't draft." });
       if (!r.ok) setError(r.error ?? "Couldn't draft.");
       else {
+        if (r.id != null) setSelectedId(r.id);
         setMobileEditor(true);
         router.refresh();
       }
@@ -52,36 +54,37 @@ export function SiteClient({
   }
 
   const selectCls =
-    "rounded-md border border-rule bg-card px-2.5 py-1.5 text-[13px] text-ink-2 outline-none focus:border-accent";
+    "rounded-md border border-rule bg-card px-2.5 py-1.5 text-body text-ink-2 outline-none focus:border-accent";
 
   return (
-    <div className="flex h-full">
+    <div className="flex min-h-full min-w-0">
       {/* ─── Posts rail ───────────────────────────────────────────── */}
       <aside
-        className={`w-full flex-none flex-col overflow-y-auto border-r border-rule bg-paper-2 p-3.5 lg:w-[300px] ${
-          mobileEditor ? "hidden lg:flex" : "flex"
+        className={`w-full flex-none flex-col overflow-y-auto border-r border-rule-soft bg-paper p-3.5 @2xl/page:w-56 ${
+          mobileEditor ? "hidden @2xl/page:flex" : "flex"
         }`}
       >
         <div className="flex items-center gap-1.5">
           <Globe className="size-4 text-accent" strokeWidth={1.75} />
-          <h2 className="flex-1 font-serif text-[15px] font-semibold text-ink">Website content</h2>
+          <h2 className="flex-1 font-serif text-subheading font-semibold text-ink">Website content</h2>
         </div>
-        <div className="mt-0.5 text-[11px] text-ink-3">
+        <div className="mt-0.5 text-meta text-ink-3">
           Blog posts about completed jobs. You publish them to the site yourself.
         </div>
 
         {/* Compose a new post */}
         <Card className="mt-3 p-2.5">
-          <div className="mb-1.5 flex items-center gap-1 font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-ink-3">
+          <div className="mb-1.5 flex items-center gap-1 text-label font-medium text-ink-3">
             <Sparkles className="size-3 text-accent" strokeWidth={1.75} /> Write a post
           </div>
           {projects.length === 0 ? (
-            <div className="text-[12px] text-ink-3">
+            <div className="text-meta text-ink-3">
               No projects yet — posts are written from completed projects.
             </div>
           ) : (
             <>
               <select
+                aria-label="Project"
                 value={slug}
                 onChange={(e) => setSlug(e.target.value)}
                 className={`${selectCls} w-full`}
@@ -93,23 +96,18 @@ export function SiteClient({
                   </option>
                 ))}
               </select>
-              <button
-                type="button"
-                onClick={generate}
-                disabled={pending}
-                className="mt-2 w-full rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-60"
-              >
+              <Button variant="ai" icon={Sparkles} onClick={generate} disabled={pending} className="mt-2 w-full">
                 {pending ? "Writing…" : "Write blog post"}
-              </button>
+              </Button>
             </>
           )}
-          {error && <div className="mt-1.5 text-[12px] text-flag">{error}</div>}
+          {error && <div className="mt-1.5 text-meta text-flag">{error}</div>}
         </Card>
 
         <div className="my-3 border-t border-rule" />
 
         {posts.length === 0 ? (
-          <Card kind="dashed" className="p-4 text-center text-[12px] text-ink-3">
+          <Card kind="dashed" className="p-4 text-center text-meta text-ink-3">
             No posts yet. Write one above — a blog post also auto-drafts when a job completes.
           </Card>
         ) : (
@@ -125,14 +123,14 @@ export function SiteClient({
                     setMobileEditor(true);
                   }}
                   className={[
-                    "rounded-md border px-2.5 py-2 text-left transition-colors",
+                    "rounded-md px-2.5 py-3 text-left transition-colors",
                     post.id === selectedId
-                      ? "border-accent bg-accent-soft"
-                      : "border-rule bg-card hover:bg-paper-3",
+                      ? "bg-selected"
+                      : "hover:bg-hover",
                   ].join(" ")}
                 >
-                  <div className="flex items-center gap-1.5">
-                    <span className="flex-1 truncate text-[13px] font-semibold text-ink">
+                  <div className="flex flex-col items-start gap-1.5">
+                    <span className="min-w-0 text-body font-semibold text-ink">
                       {post.projectName || post.title || "Untitled post"}
                     </span>
                     {post.status === "posted" ? (
@@ -141,7 +139,7 @@ export function SiteClient({
                       <Chip kind="flag">needs photos</Chip>
                     ) : null}
                   </div>
-                  <div className="mt-0.5 font-mono text-[10px] text-ink-3">{post.createdLabel}</div>
+                  <div className="mt-0.5 flex items-center justify-between gap-2 text-meta text-ink-3">{post.createdLabel}<ChevronRight aria-hidden="true" className="size-4 @2xl/page:hidden" /></div>
                 </button>
               );
             })}
@@ -151,14 +149,14 @@ export function SiteClient({
 
       {/* ─── Editor ───────────────────────────────────────────────── */}
       <section
-        className={`min-w-0 flex-1 flex-col overflow-y-auto bg-paper-3 p-4 sm:p-6 ${
-          mobileEditor ? "flex" : "hidden lg:flex"
+        className={`min-w-0 flex-1 flex-col overflow-y-auto bg-paper p-4 @xl/page:p-6 ${
+          mobileEditor ? "flex" : "hidden @2xl/page:flex"
         }`}
       >
         <button
           type="button"
           onClick={() => setMobileEditor(false)}
-          className="mb-3 -ml-1 inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 lg:hidden"
+          className="mb-3 -ml-1 inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-1 text-meta font-semibold text-ink-2 hover:bg-paper-2 @2xl/page:hidden"
         >
           <ArrowLeft className="size-3.5" strokeWidth={1.5} /> Posts
         </button>
@@ -170,11 +168,11 @@ export function SiteClient({
           />
         ) : (
           <div className="m-auto max-w-[380px] text-center">
-            <FileText className="mx-auto size-8 text-ink-4" strokeWidth={1.25} />
-            <div className="mt-2 font-serif text-[16px] font-semibold text-ink-2">
+            <FileText className="mx-auto size-8 text-ink-3" strokeWidth={1.25} />
+            <div className="mt-2 font-serif text-heading font-semibold text-ink-2">
               No post selected
             </div>
-            <div className="mt-1 text-[12px] text-ink-3">
+            <div className="mt-1 text-meta text-ink-3">
               Pick a post from the list, or write a new one from a completed project.
             </div>
           </div>
@@ -186,10 +184,13 @@ export function SiteClient({
 
 function PostEditor({ post, project }: { post: BlogPost; project?: ComposerProject }) {
   const router = useRouter();
+  const [view, setView] = useState("edit");
   const [body, setBody] = useState(post.body);
+  const [title, setTitle] = useState(post.title);
   const [pending, startTransition] = useTransition();
   const [copied, setCopied] = useState(false);
-  const dirty = body !== post.body;
+  const [feedback, setFeedback] = useState("");
+  const dirty = body !== post.body || title !== post.title;
   const needsPhotos = project ? project.photoCount === 0 : false;
   const needsVideo = project ? project.photoCount > 0 && project.videoCount === 0 : false;
 
@@ -201,8 +202,7 @@ function PostEditor({ post, project }: { post: BlogPost; project?: ComposerProje
   }
   function save() {
     startTransition(async () => {
-      await runAction(() => updateDraft(post.id, body), { fallback: "Couldn't save the edits." });
-      router.refresh();
+      await runAction(() => updateDraft(post.id, body, title), { fallback: "Couldn't save the edits.", onSuccess:()=>{setFeedback("Saved");router.refresh();},onError:setFeedback });
     });
   }
   function post_() {
@@ -220,20 +220,16 @@ function PostEditor({ post, project }: { post: BlogPost; project?: ComposerProje
 
   return (
     <div className="mx-auto w-full max-w-[720px]">
-      <div className="mb-3 flex items-center gap-2">
-        <Chip kind="accent">Blog post</Chip>
-        <h1 className="flex-1 truncate font-serif text-[22px] font-medium text-ink">
-          {post.projectName || post.title || "Untitled post"}
-        </h1>
-        {post.status === "posted" && <Chip kind="money" dot>posted</Chip>}
-      </div>
+      <PageHeader className="mb-5" variant="record" title={post.title || post.projectName || "Untitled post"} badge={<Chip kind={post.status==='posted'?'money':'ghost'}>{post.status==='posted'?'Posted':'Draft'}</Chip>} meta={post.projectName} />
 
+      {post.projectSlug && <Link href={`/projects/${post.projectSlug}`} className="mb-3 block text-body text-accent-2 hover:underline">Source project · {post.projectName} →</Link>}
+      <p role="status" className="mb-3 text-meta text-ink-2">{pending ? "Saving…" : feedback || (dirty ? "Unsaved changes" : "Saved")}</p>
       {/* Media ask — the post can't go live without imagery. Informational, never
           sends anything to the client. */}
       {needsPhotos && (
         <Card kind="soft" className="mb-3 flex items-start gap-2.5 border-flag/40 p-3">
           <ImagePlus className="mt-0.5 size-4 flex-none text-flag" strokeWidth={1.75} />
-          <div className="text-[12px] leading-relaxed text-ink-2">
+          <div className="text-meta leading-relaxed text-ink-2">
             <span className="font-semibold text-ink">Needs photos or video.</span> This project has
             no photos on file{project && project.videoCount > 0 ? " (video only)" : ""}, and a blog
             post shouldn&apos;t go live without them.{" "}
@@ -251,65 +247,41 @@ function PostEditor({ post, project }: { post: BlogPost; project?: ComposerProje
         </Card>
       )}
       {needsVideo && (
-        <div className="mb-3 text-[11px] text-ink-3">
+        <div className="mb-3 text-meta text-ink-3">
           No video on file for this project — optional, but a short clip helps the post.
         </div>
       )}
 
+      <Segmented aria-label="Post view" value={view} onChange={setView} options={[{value:"edit",label:"Edit"},{value:"preview",label:"Preview"}]} className="mb-4 h-12 [&_button]:h-11" />
+      <div hidden={view !== "edit"}>
+      <label className="mb-4 block text-label text-ink-2">Headline
+        <input disabled={pending} value={title} onChange={e=>{setTitle(e.target.value);setFeedback("");}} className="mt-1.5 w-full rounded-md border border-rule bg-card px-3 py-2 text-body text-ink focus:border-accent" />
+      </label>
+      {post.copyError && <p role="status" className="mb-3 text-body text-warn">{post.copyError}</p>}
       <div className="relative">
         <textarea
+          disabled={pending}
           value={body}
-          onChange={(e) => setBody(e.target.value)}
+          onChange={(e) => {setBody(e.target.value);setFeedback("");}}
           rows={16}
-          className="w-full resize-y rounded-md border border-rule bg-paper px-3 py-2.5 text-[13px] leading-relaxed text-ink outline-none focus:border-accent"
+          aria-label="Blog post copy"
+          className="w-full resize-y rounded-md border border-rule bg-paper px-3 py-2.5 text-body leading-relaxed text-ink outline-none focus:border-accent"
         />
         <div className="absolute right-2 top-2">
-          <VoiceButton compact onText={(t) => setBody((cur) => mergeTranscript(cur, t))} />
+          <VoiceButton compact onText={(t) => {setBody((cur) => mergeTranscript(cur, t));setFeedback("");}} />
         </div>
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={copy}
-          className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink-2 hover:bg-paper-2"
-        >
-          {copied ? <Check className="size-3 text-money" strokeWidth={2} /> : <Copy className="size-3" strokeWidth={1.75} />}
-          {copied ? "Copied" : "Copy"}
-        </button>
-        {dirty && (
-          <button
-            type="button"
-            onClick={save}
-            disabled={pending}
-            className="rounded-md border border-accent bg-accent-soft px-2 py-1 text-[11px] font-semibold text-accent-2 hover:bg-accent-soft/70 disabled:opacity-60"
-          >
-            Save edits
-          </button>
-        )}
-        <div className="flex-1" />
-        {post.status !== "posted" && (
-          <button
-            type="button"
-            onClick={post_}
-            disabled={pending}
-            className="rounded-md border border-ink bg-ink px-2 py-1 text-[11px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-60"
-          >
-            Mark posted
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={remove}
-          disabled={pending}
-          aria-label="Delete post"
-          className="rounded-md border border-rule bg-card px-1.5 py-1 text-ink-3 hover:bg-paper-2 hover:text-flag disabled:opacity-60"
-        >
-          <Trash2 className="size-3.5" strokeWidth={1.5} />
-        </button>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Button variant="secondary" size="sm" icon={copied?Check:Copy} disabled={!body.trim()} onClick={copy}>{copied?'Copied':'Copy'}</Button>
+        {dirty&&<><Button size="sm" disabled={pending||!body.trim()||!title.trim()} onClick={save}>Save edits</Button><Button variant="ghost" size="sm" disabled={pending} onClick={()=>{setBody(post.body);setTitle(post.title);setFeedback('');}}>Revert</Button></>}
+        <Button variant="secondary" size="sm" disabled={pending||dirty||(!body.trim()&&post.status!=='posted')} onClick={()=>startTransition(async()=>{await runAction(()=>post.status==='posted'?markDraft(post.id):markPosted(post.id), {onError:setFeedback,onSuccess:()=>{setFeedback("Saved");router.refresh();}});})}>{post.status==='posted'?'Move to drafts':'Mark posted'}</Button>
+        <details className="relative ml-auto"><summary className="flex min-h-11 cursor-pointer list-none items-center rounded-md px-3 text-body hover:bg-hover [&::-webkit-details-marker]:hidden">Post actions</summary><div className="absolute right-0 z-10 rounded-lg border border-rule-soft bg-card p-1 shadow-pop"><Button variant="ghost" size="sm" className="text-flag" disabled={pending} onClick={()=>{if(confirm('Delete this post?'))remove();}}>Delete post</Button></div></details>
       </div>
 
-      <div className="mt-2.5 text-[11px] text-ink-3">
+      {view === "preview" && <div className="mt-4"><PostPreview title={title} body={body} /></div>}
+      <div className="mt-2.5 text-meta text-ink-3">
         Publishing is manual — copy this post onto sjcarpentryllc.com yourself, then mark it posted.
         Nothing is published from here.
       </div>

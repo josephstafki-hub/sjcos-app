@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionMenu } from "./ActionMenu";
+
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -17,7 +19,7 @@ import {
   Type,
   X,
 } from "lucide-react";
-import { Card, Chip } from "@/components/ui";
+import { Button, Card, Chip } from "@/components/ui";
 import { runAction } from "@/lib/run-action";
 import { CATEGORIES } from "@/lib/catalog-categories";
 import type { MoodBoardData, MoodItem } from "@/lib/mood";
@@ -65,10 +67,10 @@ interface RunOptions {
   refresh?: boolean;
 }
 
-const FIELD = "rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent";
-const LABEL = "font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3";
+const FIELD = "rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent";
+const LABEL = "text-label font-medium text-ink-3";
 const TOOL =
-  "inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50";
+  "inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-label font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50";
 
 /** A starting palette for swatches and board backgrounds — warm neutrals and
  *  the greens/clays that show up most in this shop's finishes. */
@@ -204,73 +206,26 @@ export function MoodBoard({
 
   return (
     <div className="flex flex-col gap-4" data-focus={room ? `mood-${room}` : undefined}>
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex-1">
-          <h3 className="font-serif text-[16px] font-semibold text-ink">
-            {board?.title || "Mood board"}
-          </h3>
-          <p className="mt-0.5 text-[12px] text-ink-3">
-            Drag to move, handles to resize (corners keep proportions, Shift frees them), the stem
-            above to rotate, the crop tool to pan and zoom an image inside its frame. Arrow keys
-            nudge the selected item; Delete removes it.
-          </p>
+      <div className="space-y-3">
+        <div className="min-w-0">
+          <h3 className="font-serif text-heading font-semibold text-ink">{board?.title || "Mood board"}</h3>
+          <p className="mt-1 text-body text-ink-3">Arrange references, finishes and notes for this room.</p>
+          <details className="mt-1 text-meta text-ink-3"><summary className="cursor-pointer">Canvas controls</summary><p className="mt-1 max-w-prose">Drag to move and use handles to resize. Shift frees proportions. Use the stem to rotate and the crop tool to pan an image. Arrow keys nudge; Delete removes the selected item.</p></details>
         </div>
-        <button
-          onClick={() => publishBoard(!board?.published)}
-          disabled={!room || pending}
-          title={board?.published ? "Remove this board from the client dashboard" : "Publish this board to the client dashboard (emails the client)"}
-          className={
-            board?.published
-              ? TOOL
-              : "inline-flex items-center gap-1 rounded-md border border-accent bg-accent px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
-          }
-        >
-          {board?.published ? (
-            <>
-              <EyeOff className="size-3" strokeWidth={1.5} /> Unpublish
-            </>
-          ) : (
-            <>
-              <Eye className="size-3" strokeWidth={1.5} /> Publish
-            </>
-          )}
-        </button>
-        <button onClick={() => setSettingsOpen(true)} disabled={!room} className={TOOL} title="Board settings">
-          <Settings2 className="size-3" strokeWidth={1.5} />
-          Settings
-        </button>
-        <button
-          onClick={() => setDeleteOpen(true)}
-          disabled={!room}
-          title="Delete this board"
-          className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:border-flag hover:text-flag disabled:opacity-50"
-        >
-          <Trash2 className="size-3" strokeWidth={1.5} />
-          Delete
-        </button>
-        <button onClick={() => setTextOpen(true)} disabled={!room} className={TOOL}>
-          <Type className="size-3" strokeWidth={1.5} />
-          Text
-        </button>
-        <button onClick={() => setSwatchOpen(true)} disabled={!room} className={TOOL}>
-          <Palette className="size-3" strokeWidth={1.5} />
-          Swatch
-        </button>
-        <button onClick={() => setUpload(true)} disabled={!room} className={TOOL}>
-          <ImagePlus className="size-3" strokeWidth={1.5} />
-          Upload image
-        </button>
-        <button
-          onClick={() => setPicker(true)}
-          disabled={!room}
-          className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
-        >
-          <LayoutGrid className="size-3" strokeWidth={1.5} />
-          Add from catalog
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="secondary" icon={board?.published ? EyeOff : Eye} onClick={() => publishBoard(!board?.published)} disabled={!room || pending} title={board?.published ? "Remove this board from the client dashboard" : "Publish this board to the client dashboard (emails the client)"}>{board?.published ? "Unpublish" : "Publish"}</Button>
+          <Button variant="secondary" icon={Settings2} onClick={() => setSettingsOpen(true)} disabled={!room}>Settings</Button>
+          <ActionMenu label="More board actions"><Button variant="ghost" className="text-flag" icon={Trash2} disabled={!room} onClick={() => setDeleteOpen(true)}>Delete board</Button></ActionMenu>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 border-t border-rule-soft pt-3">
+          <Button variant="secondary" icon={Type} onClick={() => setTextOpen(true)} disabled={!room}>Text</Button>
+          <Button variant="secondary" icon={Palette} onClick={() => setSwatchOpen(true)} disabled={!room}>Swatch</Button>
+          <Button variant="secondary" icon={ImagePlus} onClick={() => setUpload(true)} disabled={!room}>Upload image</Button>
+          <Button icon={LayoutGrid} onClick={() => setPicker(true)} disabled={!room}>Add from catalog</Button>
+        </div>
       </div>
 
-      {notice && <div className="text-[12px] text-money">{notice}</div>}
+      {notice && <div className="text-label text-money">{notice}</div>}
 
       {/* Dashboard state for the active board. */}
       {board && (
@@ -279,9 +234,7 @@ export function MoodBoard({
             {board.published ? "On client dashboard" : "Hidden from client"}
           </Chip>
           {board.approvedLabel && (
-            <Chip kind="money" dot>
-              approved by {board.approvedName || "client"} · {board.approvedLabel}
-            </Chip>
+            <span className="text-meta text-money">Approved by {board.approvedName || "client"} · {board.approvedLabel}</span>
           )}
         </div>
       )}
@@ -302,12 +255,12 @@ export function MoodBoard({
               if (e.key === "Enter") addRoom(e.currentTarget.value);
               if (e.key === "Escape") setNewRoom(false);
             }}
-            className="w-[120px] rounded-md border border-accent bg-paper px-2 py-0.5 text-[12px] text-ink outline-none"
+            className="w-[120px] rounded-md border border-accent bg-paper px-2 py-0.5 text-label text-ink outline-none"
           />
         ) : (
           <button
             onClick={() => setNewRoom(true)}
-            className="inline-flex items-center gap-1 rounded-md border border-dashed border-rule px-2 py-0.5 text-[11px] font-semibold text-ink-3 hover:border-ink-3 hover:text-ink-2"
+            className="inline-flex items-center gap-1 rounded-md border border-dashed border-rule px-2 py-0.5 text-meta font-semibold text-ink-3 hover:border-ink-3 hover:text-ink-2"
           >
             <Plus className="size-3" strokeWidth={1.5} />
             New board
@@ -317,7 +270,7 @@ export function MoodBoard({
 
       {room === null ? (
         <Card kind="dashed" className="p-8 text-center">
-          <div className="text-[13px] text-ink-3">
+          <div className="text-body text-ink-3">
             No mood board yet. Add a board for a room, then pin items from the catalog.
           </div>
         </Card>
@@ -341,7 +294,7 @@ export function MoodBoard({
             onDuplicate={(id) => run(() => duplicateMoodItem(id), { fallback: "Could not duplicate that." })}
           />
           {items.length === 0 && (
-            <p className="-mt-2 text-center text-[12px] text-ink-3">
+            <p className="-mt-2 text-center text-label text-ink-3">
               {room} is empty — add items from the catalog, upload a reference image, or drop in text
               and colour swatches.
             </p>
@@ -353,8 +306,8 @@ export function MoodBoard({
               <Card className="divide-y divide-rule p-0">
                 {products.map((p) => (
                   <div key={p.id} className="flex items-center gap-2 px-3 py-2">
-                    <span className="flex-1 text-[12px] text-ink">{p.label}</span>
-                    {p.priceLabel && <span className="text-[12px] text-ink-2">{p.priceLabel}</span>}
+                    <span className="flex-1 text-label text-ink">{p.label}</span>
+                    {p.priceLabel && <span className="text-label text-ink-2">{p.priceLabel}</span>}
                     {p.sourceUrl && (
                       <a
                         href={p.sourceUrl}
@@ -378,8 +331,8 @@ export function MoodBoard({
               <Card className="divide-y divide-rule p-0">
                 {board.feedback.map((f) => (
                   <div key={f.id} className="px-3 py-2">
-                    <p className="whitespace-pre-wrap text-[12.5px] leading-snug text-ink">{f.body}</p>
-                    <div className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-ink-3">
+                    <p className="whitespace-pre-wrap text-body leading-snug text-ink">{f.body}</p>
+                    <div className="mt-0.5 text-label font-medium text-ink-3">
                       {f.name} · {f.when}
                     </div>
                   </div>
@@ -488,7 +441,7 @@ export function MoodBoard({
       {deleteOpen && room && (
         <ModalShell title={`Delete ${room}?`} onClose={() => setDeleteOpen(false)}>
           <div className="flex flex-col gap-3 p-4">
-            <p className="text-[13px] text-ink-2">
+            <p className="text-body text-ink-2">
               This deletes the {room} board and all{" "}
               {items.length === 1 ? "1 item" : `${items.length} items`} on it. Uploaded images stay
               in Files; this can&apos;t be undone.
@@ -497,14 +450,14 @@ export function MoodBoard({
               <button
                 type="button"
                 onClick={() => setDeleteOpen(false)}
-                className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2"
+                className="rounded-md border border-rule px-3 py-1.5 text-label font-semibold text-ink-3 hover:bg-paper-2"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={() => deleteBoard(room)}
-                className="inline-flex items-center gap-1 rounded-md border border-flag bg-flag px-3 py-1.5 text-[12px] font-semibold text-paper hover:opacity-90 disabled:opacity-50"
+                className="inline-flex items-center gap-1 rounded-md border border-flag bg-flag px-3 py-1.5 text-label font-semibold text-paper hover:opacity-90 disabled:opacity-50"
               >
                 <Trash2 className="size-3" strokeWidth={1.75} />
                 Delete board
@@ -582,7 +535,7 @@ function CatalogPicker({
       {catalog.length === 0 ? (
         <div className="p-4">
           <Card kind="dashed" className="p-8 text-center">
-            <div className="text-[13px] text-ink-3">
+            <div className="text-body text-ink-3">
               The catalog is empty. Add materials on the{" "}
               <Link href="/catalog" className="text-accent-2 underline">
                 Catalog
@@ -612,11 +565,11 @@ function CatalogPicker({
 
           <div className="max-h-[46vh] overflow-y-auto p-3">
             {shown.length === 0 ? (
-              <div className="py-8 text-center text-[13px] text-ink-3">
+              <div className="py-8 text-center text-body text-ink-3">
                 No materials match that search.
               </div>
             ) : (
-              <div className="grid grid-cols-3 gap-2 md:grid-cols-4">
+              <div className="grid grid-cols-2 gap-2 @3xl/page:grid-cols-4">
                 {shown.map((m) => {
                   const on = picked.includes(m.id);
                   return (
@@ -639,8 +592,8 @@ function CatalogPicker({
                         </span>
                       )}
                       <div className="border-t border-rule px-1.5 py-1">
-                        <div className="line-clamp-1 text-[11px] text-ink">{m.name}</div>
-                        <div className="line-clamp-1 text-[10px] text-ink-3">
+                        <div className="line-clamp-1 text-meta text-ink">{m.name}</div>
+                        <div className="line-clamp-1 text-meta text-ink-3">
                           {m.priceLabel || m.supplier}
                         </div>
                       </div>
@@ -652,20 +605,20 @@ function CatalogPicker({
           </div>
 
           <div className="flex items-center gap-2 border-t border-rule p-3">
-            <span className="flex-1 text-[12px] text-ink-3">
+            <span className="flex-1 text-label text-ink-3">
               {picked.length === 0 ? "Nothing picked yet" : `${picked.length} picked`}
             </span>
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2"
+              className="rounded-md border border-rule px-3 py-1.5 text-label font-semibold text-ink-3 hover:bg-paper-2"
             >
               Cancel
             </button>
             <button
               disabled={pending || picked.length === 0}
               onClick={() => onPin(picked)}
-              className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-3 py-1.5 text-label font-semibold text-paper hover:bg-ink-hover disabled:opacity-50"
             >
               <Check className="size-3" strokeWidth={1.75} />
               Add {picked.length > 0 ? picked.length : ""} to board
@@ -705,7 +658,7 @@ function UploadModal({
             accept="image/*"
             required
             autoFocus
-            className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[12px] text-ink-2 outline-none file:mr-2 file:rounded file:border-0 file:bg-paper-3 file:px-2 file:py-1 file:text-[11px] file:text-ink-2"
+            className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-label text-ink-2 outline-none file:mr-2 file:rounded file:border-0 file:bg-paper-3 file:px-2 file:py-1 file:text-meta file:text-ink-2"
           />
         </label>
         <label className="flex flex-col gap-1">
@@ -840,7 +793,7 @@ function BoardSettingsModal({
             maxLength={60}
             className={FIELD}
           />
-          <span className="text-[11px] text-ink-3">
+          <span className="text-meta text-ink-3">
             Renaming onto an existing board merges the two.
           </span>
         </label>
@@ -870,7 +823,7 @@ function BoardSettingsModal({
               type="button"
               disabled={pending}
               onClick={onDelete}
-              className="inline-flex items-center gap-1 rounded-md border border-flag px-3 py-1.5 text-[12px] font-semibold text-flag hover:bg-flag/10 disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-md border border-flag px-3 py-1.5 text-label font-semibold text-flag hover:bg-flag/10 disabled:opacity-50"
             >
               <Trash2 className="size-3" strokeWidth={1.75} />
               Delete board and everything on it
@@ -879,7 +832,7 @@ function BoardSettingsModal({
             <button
               type="button"
               onClick={() => setConfirmDelete(true)}
-              className="inline-flex items-center gap-1 text-[12px] font-semibold text-ink-3 hover:text-flag"
+              className="inline-flex items-center gap-1 text-label font-semibold text-ink-3 hover:text-flag"
             >
               <Trash2 className="size-3" strokeWidth={1.75} />
               Delete board
@@ -889,14 +842,14 @@ function BoardSettingsModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2"
+              className="rounded-md border border-rule px-3 py-1.5 text-label font-semibold text-ink-3 hover:bg-paper-2"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={pending}
-              className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-3 py-1.5 text-label font-semibold text-paper hover:bg-ink-hover disabled:opacity-50"
             >
               <Check className="size-3" strokeWidth={1.75} />
               Save
@@ -999,7 +952,7 @@ function ColorField({
           onChange={(e) => onChange(e.target.value)}
           maxLength={7}
           spellCheck={false}
-          className={`${FIELD} w-[110px] font-mono uppercase`}
+          className={`${FIELD} w-[110px] tabular-nums`}
         />
       </div>
       <div className="flex flex-wrap gap-1">
@@ -1034,11 +987,11 @@ function ModalShell({
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink/30 p-4 pt-[10vh]" onClick={onClose}>
       <div
-        className={`w-full ${wide ? "max-w-[720px]" : "max-w-[460px]"} rounded-lg border border-rule bg-card shadow-xl`}
+        className={`w-full ${wide ? "max-w-[720px]" : "max-w-[460px]"} rounded-lg border border-rule bg-card shadow-modal`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-rule px-4 py-3">
-          <h2 className="font-serif text-[17px] font-semibold text-ink">{title}</h2>
+          <h2 className="font-serif text-heading font-semibold text-ink">{title}</h2>
           <button onClick={onClose} className="text-ink-3 hover:text-ink" aria-label="Close">
             <X className="size-4" strokeWidth={1.5} />
           </button>
@@ -1065,14 +1018,14 @@ function ModalActions({
       <button
         type="button"
         onClick={onClose}
-        className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2"
+        className="rounded-md border border-rule px-3 py-1.5 text-label font-semibold text-ink-3 hover:bg-paper-2"
       >
         Cancel
       </button>
       <button
         type="submit"
         disabled={pending || disabled}
-        className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
+        className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-3 py-1.5 text-label font-semibold text-paper hover:bg-ink-hover disabled:opacity-50"
       >
         <Check className="size-3" strokeWidth={1.75} />
         {submitLabel}

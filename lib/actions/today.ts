@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAccess, requireRole } from "@/lib/dal";
+import { runDirect } from "@/lib/commands/db";
+import { listRecoverableWork, recoverWorkItem } from "@/lib/today-recovery.mjs";
 import { ai } from "@/lib/ai";
 import { query, queryOne } from "@/lib/db";
 import { completeByPerson } from "@/lib/runbook-engine";
@@ -201,4 +203,17 @@ export async function assignTodayItem(
     revalidatePath("/engine");
   }
   return getQueueSnapshot(owner);
+}
+
+/** Same scoped recovery service used by the MCP operator. */
+export async function loadTodayRecovery(view: "done" | "snoozed") {
+  return listRecoverableWork(runDirect, await requireAccess("today"), view);
+}
+
+export async function restoreTodayItem(id: string, view: "done" | "snoozed") {
+  const user = await requireAccess("today");
+  const restored = await recoverWorkItem(runDirect, id, view, user);
+  if (!restored) throw new Error("This to-do is no longer in this view, or it isn't assigned to you.");
+  revalidatePath("/today");
+  return getQueueSnapshot(user);
 }

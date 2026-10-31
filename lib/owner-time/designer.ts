@@ -78,7 +78,7 @@ export async function materializeDesignerIntervals(run: Run, userId: string, ses
     if (Date.parse(r.end) <= Date.parse(r.start)) continue;
     const [row] = await run<TimeInterval>(
       `INSERT INTO time_intervals (user_id, project_id, category, start_at, end_at, source, state, session_id, client_event_id, note)
-       VALUES ($1, $2, 'design', $3::timestamptz, $4::timestamptz, 'designer_activity', 'inferred', $5, $6, 'active designer work') RETURNING ${INTERVAL_COLS}`,
+       VALUES ($1, $2, 'design', $3::timestamptz, $4::timestamptz, 'designer_activity', 'inferred', $5, $6, 'active designer work') ON CONFLICT (source, client_event_id) WHERE client_event_id IS NOT NULL DO NOTHING RETURNING ${INTERVAL_COLS}`,
       [userId, r.projectId, r.start, r.end, sessionId, `${sessionId}:run${i}`],
     );
     if (row) out.push(row);
@@ -87,7 +87,7 @@ export async function materializeDesignerIntervals(run: Run, userId: string, ses
     if (r.gapAfter && next) {
       const [gap] = await run<TimeInterval>(
         `INSERT INTO time_intervals (user_id, project_id, category, start_at, end_at, source, state, review_reason, session_id, client_event_id, note)
-         VALUES ($1, $2, 'design', $3::timestamptz, $4::timestamptz, 'designer_activity', 'review', 'idle gap — were you thinking, or away?', $5, $6, 'gap') RETURNING ${INTERVAL_COLS}`,
+         VALUES ($1, $2, 'design', $3::timestamptz, $4::timestamptz, 'designer_activity', 'review', 'idle gap — were you thinking, or away?', $5, $6, 'gap') ON CONFLICT (source, client_event_id) WHERE client_event_id IS NOT NULL DO NOTHING RETURNING ${INTERVAL_COLS}`,
         [userId, r.projectId, r.end, next.start, sessionId, `${sessionId}:gap${i}`],
       );
       if (gap) out.push(gap);

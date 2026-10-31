@@ -1,5 +1,8 @@
 import { Shell } from "@/components/shell/Shell";
-import { Card, Chip, Eyebrow } from "@/components/ui";
+import { SettingsForm } from "@/components/settings/SettingsForm";
+import { SettingsSection } from "@/components/settings/SettingsSection";
+import { squareReadiness } from "@/lib/payments/readiness";
+import { Card, Chip, Eyebrow, PageHeader, Button } from "@/components/ui";
 import { requireRole } from "@/lib/dal";
 import { queryOne } from "@/lib/db";
 import { getProviderConfig, recentOnlinePayments } from "@/lib/payments/server";
@@ -26,18 +29,13 @@ export default async function PaymentsSettingsPage() {
     { key: "AMERICAN_EXPRESS", label: "American Express" },
     { key: "DISCOVER", label: "Discover" },
   ];
-  const caps = (cfg?.capabilities ?? {}) as { merchant_approved?: boolean; card?: boolean; ach?: boolean; refunds?: boolean; location_name?: string | null; note?: string | null };
-  const secrets = {
-    accessToken: !!(process.env.SQUARE_ACCESS_TOKEN ?? "").trim(),
-    signatureKey: !!(process.env.SQUARE_WEBHOOK_SIGNATURE_KEY ?? "").trim(),
-    notificationUrl: (process.env.SQUARE_WEBHOOK_NOTIFICATION_URL ?? "").trim(),
-    envName: (process.env.SQUARE_ENV ?? "").trim() || "(unset)",
-  };
-  const state = cfg?.connection_state ?? "unconfigured";
-  const chip = state === "connected" ? "money" : state === "error" ? "flag" : state === "configured" ? "accent" : "ghost";
+  const readiness = squareReadiness(env, cfg);
+  const caps = readiness.capabilities as { merchant_approved?: boolean; card?: boolean; ach?: boolean; refunds?: boolean; location_name?: string };
+  const state = readiness.connected ? (env === "sandbox" ? "Test account" : "Connected") : "Not connected";
+  const chip = readiness.connected ? (env === "sandbox" ? "info" : "money") : "ghost";
 
   const checklist: { label: string; ok: boolean }[] = [
-    { label: "Merchant account approved", ok: caps.merchant_approved === true },
+    { label: "Merchant approval", ok: caps.merchant_approved === true },
     { label: "Card payments", ok: caps.card === true },
     { label: "ACH bank transfers", ok: caps.ach === true },
     { label: "Refunds", ok: caps.refunds === true },
@@ -45,36 +43,24 @@ export default async function PaymentsSettingsPage() {
 
   return (
     <Shell breadcrumb="SETTINGS / PAYMENTS">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-6 py-6">
-        <div>
-          <Eyebrow>Customer payments</Eyebrow>
-          <h1 className="mt-1 font-serif text-[24px] font-medium text-ink">Square — card and bank transfer</h1>
-          <p className="mt-1 text-[13px] text-ink-2">
-            Clients pay open invoices from their portal. The adapter runs in <b>{env}</b> mode
-            {env === "fake" ? " (no account connected: payments are recorded as test payments, nothing is charged)" : ""}.
-          </p>
-        </div>
-
+      <SettingsSection active="/settings/payments">
+        <PageHeader title="Square payments" meta="Card and bank transfer payments from the client portal." />
+        <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 rounded-md border border-rule bg-card px-3 py-2 shadow-card" role="status"><Chip kind={env === "production" && readiness.connected ? "money" : "warn"} dot>{env === "fake" ? "Sample mode" : env === "sandbox" ? "Sandbox mode" : readiness.connected ? "Live ready" : "Setup incomplete"}</Chip><span className="text-meta text-ink-2">{env === "fake" || env === "sandbox" ? "Test payments only — no real money charged." : readiness.connected ? "Production account verified." : "Real payments are not ready."}</span></div>
         <Card className="p-3">
           <div className="flex items-center gap-2">
-            <span className="flex-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Connection</span>
+            <span className="flex-1 text-meta text-ink-3">Connection</span>
             <Chip kind={chip} dot>{state}</Chip>
           </div>
-          <div className="mt-2 grid grid-cols-1 gap-1 text-[12.5px] text-ink-2 sm:grid-cols-2">
-            <div>Environment: <span className="font-mono">{cfg?.environment ?? "sandbox"}</span></div>
-            <div>SQUARE_ENV: <span className="font-mono">{secrets.envName}</span></div>
-            <div>Location: <span className="font-mono">{cfg?.location_id || "—"}</span>{caps.location_name ? ` (${caps.location_name})` : ""}</div>
-            <div>Application id: <span className="font-mono">{cfg?.application_id || "—"}</span></div>
-            <div>Access token (env): {secrets.accessToken ? "present" : "missing"}</div>
-            <div>Webhook signature key (env): {secrets.signatureKey ? "present" : "missing"}</div>
-            <div className="sm:col-span-2">Webhook notification URL (env): <span className="font-mono">{secrets.notificationUrl || "—"}</span></div>
-            <div className="sm:col-span-2">Last verified: {cfg?.verified_at ?? "never"}{cfg?.last_error ? ` · error: ${cfg.last_error}` : ""}{caps.note ? ` · ${caps.note}` : ""}</div>
+          <div className="mt-3 text-body text-ink-2">
+            {!readiness.connected ? <p>Online payments need Square business verification and a one-time setup on the server. <a href="#square-setup" className="text-accent-2 underline">Follow the setup checklist</a>.</p> : <p>{env === 'sandbox' ? 'Test account verified. No real money is charged.' : `Account verified${caps.location_name ? ` · ${caps.location_name}` : ''}.`}</p>}
+            {env === 'fake' && <p className="mt-1 text-meta text-ink-3">Test payments are simulated. No Square account is connected.</p>}
+            {readiness.connected&&<p className="mt-1 text-meta text-ink-3">Last checked: {cfg?.verified_at ? new Date(cfg.verified_at).toLocaleString() : 'Not yet checked'}</p>}
           </div>
           <ul className="mt-3 flex flex-col gap-1">
             {checklist.map((c) => (
-              <li key={c.label} className="flex items-center gap-2 text-[12.5px]">
+              <li key={c.label} className="flex items-center gap-2 text-body">
                 <span className={`inline-block h-2 w-2 rounded-full ${c.ok ? "bg-money" : "bg-ink-4"}`} />
-                <span className={c.ok ? "text-ink" : "text-ink-3"}>{c.label}</span>
+                <span className={c.ok ? "text-ink" : "text-ink-3"}>{env === "sandbox" && readiness.connected ? `Test · ${c.label}` : c.label}{!readiness.connected ? " · Not verified" : ""}</span>
               </li>
             ))}
           </ul>
@@ -83,96 +69,94 @@ export default async function PaymentsSettingsPage() {
           </div>
         </Card>
 
-        <Card className="p-3">
-          <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Recent online payments</div>
-          <p className="mt-1 text-[12px] text-ink-2">A refund goes back to the client&apos;s card or bank. Asking files a refund card on Decisions; approving it refunds in Square and re-opens the invoice by the same amount.</p>
+
+        <Card className="p-4">
+          <h2 className="text-subheading font-semibold text-ink">Recent online payments</h2>
+          <p className="mt-1 text-body text-ink-2">A refund goes back to the client&apos;s card or bank. Asking files a refund card on Decisions; approving it refunds in Square and re-opens the invoice by the same amount.</p>
           <RefundPayments rows={online} request={requestRefund} />
         </Card>
 
-        <Card className="p-3">
-          <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Public configuration</div>
-          <form action={saveSquareConfig} className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <label className="flex flex-col gap-1 text-[11px] text-ink-3">
-              Environment
-              <select name="environment" defaultValue={cfg?.environment ?? "sandbox"} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-[13px] text-ink">
-                <option value="sandbox">sandbox</option>
-                <option value="production">production</option>
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-[11px] text-ink-3">
-              Location id
-              <input name="locationId" defaultValue={cfg?.location_id ?? ""} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-[13px] text-ink" />
-            </label>
-            <label className="flex flex-col gap-1 text-[11px] text-ink-3">
-              Application id (public)
-              <input name="applicationId" defaultValue={cfg?.application_id ?? ""} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-[13px] text-ink" />
-            </label>
-            <label className="flex flex-col gap-1 text-[11px] text-ink-3">
-              Notification URL registered with Square
-              <input name="notificationUrl" defaultValue={cfg?.notification_url ?? "https://os.sjcarpentryllc.com/api/webhooks/square"} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-[13px] text-ink" />
-            </label>
-            <div className="sm:col-span-2">
-              <button type="submit" className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper">Save</button>
-            </div>
-          </form>
+        <Card id="square-setup" className="p-4">
+          <h2 className="text-subheading font-semibold text-ink">Connect your Square account</h2>
+          <ol className="mt-3 list-decimal space-y-3 pl-5 text-body text-ink-2">
+            <li>Sign in to Square and finish your business verification for SJ Carpentry LLC.</li>
+            <li>Open <a href="https://developer.squareup.com/apps" target="_blank" rel="noopener noreferrer" className="text-accent-2 underline">Square applications</a>, select your application, then Credentials. Choose test or production keys.</li>
+            <li>Complete the one-time setup on the server to securely install your Square access and payment notification keys. Secret keys cannot be entered on this page.</li>
+            <li>Save the matching application and location details in Configuration details below. Select Test connection to check the account.</li>
+            <li>Before accepting real payments, confirm server payment notifications and reconciliation are running.</li>
+          </ol>
         </Card>
 
         <Card className="p-3">
-          <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Credit card surcharge</div>
-          <p className="mt-1 text-[12px] text-ink-3">
+          <div className="text-meta text-ink-3">Credit card surcharge</div>
+          <p className="mt-1 text-meta text-ink-3">
             Credit cards pay enough on top of the invoice to cover Square&rsquo;s fee, up to each brand&rsquo;s cap. Debit and prepaid cards, bank transfer and check pay no surcharge. Square&rsquo;s own surcharge setting doesn&rsquo;t reach online payments, so this is what applies on the client portal.
           </p>
-          <form action={saveCardSurcharge} className="mt-2 grid gap-2 sm:grid-cols-2">
-            <label className="flex flex-col gap-1 text-[12px] text-ink-2">
+          <SettingsForm action={saveCardSurcharge} className="mt-2 grid gap-2 @xl/page:grid-cols-2">
+            <label className="flex flex-col gap-1 text-meta text-ink-2">
               Square&rsquo;s fee per card payment (%) — 0 turns the surcharge off
-              <input name="feePct" type="number" step="0.01" min="0" max="20" defaultValue={surcharge.feePct} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-[13px] text-ink" />
+              <input name="feePct" type="number" step="0.01" min="0" max="20" defaultValue={surcharge.feePct} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-body text-ink" />
             </label>
-            <label className="flex flex-col gap-1 text-[12px] text-ink-2">
+            <label className="flex flex-col gap-1 text-meta text-ink-2">
               Cap for any brand not listed below (%)
-              <input name="capPct" type="number" step="0.01" min="0" max="5" defaultValue={surcharge.capPct} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-[13px] text-ink" />
+              <input name="capPct" type="number" step="0.01" min="0" max="5" defaultValue={surcharge.capPct} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-body text-ink" />
             </label>
             {surchargeBrands.map((b) => (
-              <label key={b.key} className="flex flex-col gap-1 text-[12px] text-ink-2">
+              <label key={b.key} className="flex flex-col gap-1 text-meta text-ink-2">
                 {b.label} cap (%) — blank uses the cap above
-                <input name={`cap_${b.key}`} type="number" step="0.01" min="0" max="5" defaultValue={surcharge.brandCapPct[b.key] ?? ""} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-[13px] text-ink" />
+                <input name={`cap_${b.key}`} type="number" step="0.01" min="0" max="5" defaultValue={surcharge.brandCapPct[b.key] ?? ""} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-body text-ink" />
               </label>
             ))}
-            <div className="sm:col-span-2 text-[12px] text-ink-3">
+            <div className="@xl/page:col-span-2 text-meta text-ink-3">
               Covering a {fmtPct(surcharge.feePct)} fee in full takes {fmtPct(offsetPct(surcharge))}. Charged now:{" "}
               {surchargeBrands.map((b) => `${b.label} ${fmtPct(surchargePct(surcharge, b.key))}`).join(" · ")}
               {" · other brands "}{fmtPct(surchargePct(surcharge, null))}.
               <br />
               Clients read: {surchargeNotice(surcharge) ?? "(no surcharge notice — surcharge is off)"}
             </div>
-            <div className="sm:col-span-2">
-              <button type="submit" className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper">Save surcharge</button>
-            </div>
-          </form>
+
+          </SettingsForm>
         </Card>
 
         <Card className="p-3">
-          <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">What clients see when online payment is off</div>
-          <form action={saveOfflineInstructions} className="mt-2 flex flex-col gap-2">
-            <textarea name="instructions" rows={3} defaultValue={offline?.value ?? ""} placeholder="Pay by check to SJ Carpentry LLC, or use the payment link Joe sends you." className="rounded-md border border-rule bg-paper px-2 py-1.5 text-[13px] text-ink" />
-            <div>
-              <button type="submit" className="rounded-md border border-rule px-3 py-1.5 text-[12px] text-ink">Save text</button>
-            </div>
-          </form>
+          <div className="text-meta text-ink-3">What clients see when online payment is off</div>
+          <SettingsForm action={saveOfflineInstructions} className="mt-2 flex flex-col gap-2">
+            <textarea name="instructions" rows={3} defaultValue={offline?.value ?? ""} placeholder="Pay by check to SJ Carpentry LLC, or use the payment link Joe sends you." className="rounded-md border border-rule bg-paper px-2 py-1.5 text-body text-ink" />
+
+          </SettingsForm>
         </Card>
 
-        <Card kind="soft" className="p-3">
-          <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Setup checklist (Joe)</div>
-          <ol className="mt-2 list-decimal space-y-1 pl-5 text-[12.5px] text-ink-2">
-            <li>Open a Square account and complete merchant identity verification (SJ Carpentry LLC).</li>
-            <li>In the Square Developer dashboard create an application; copy the <b>sandbox</b> Application ID + Access Token first, then production once approved.</li>
-            <li>Enable ACH (bank transfer) on the account; it is a separate Square entitlement.</li>
-            <li>Register the webhook subscription (payment.created, payment.updated, refund.created, refund.updated) at the notification URL above and copy the signature key.</li>
-            <li>Put <span className="font-mono">SQUARE_ENV</span>, <span className="font-mono">SQUARE_ACCESS_TOKEN</span>, <span className="font-mono">SQUARE_WEBHOOK_SIGNATURE_KEY</span>, <span className="font-mono">SQUARE_WEBHOOK_NOTIFICATION_URL</span> in .env.local and restart sjcos.service.</li>
-            <li>Save the location + application id here, press <b>Test connection</b>, and pay a $1 sandbox invoice from a test client portal.</li>
-            <li>Enable the <span className="font-mono">sjcos-payments-reconcile.timer</span> (deploy/) so missed webhooks settle within 15 minutes.</li>
-          </ol>
+
+        <details className="rounded-lg border border-rule-soft p-4">
+          <summary className="cursor-pointer text-subheading font-semibold text-ink">Configuration details</summary>
+        <Card className="p-3">
+          <div className="text-meta text-ink-3">Public configuration</div>
+          <SettingsForm action={saveSquareConfig} className="mt-2 grid grid-cols-1 gap-2 @xl/page:grid-cols-2">
+            <label className="flex flex-col gap-1 text-meta text-ink-3">
+              Environment
+              <select name="environment" defaultValue={cfg?.environment ?? "sandbox"} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-body text-ink">
+                <option value="sandbox">sandbox</option>
+                <option value="production">production</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-meta text-ink-3">
+              Location id
+              <input name="locationId" defaultValue={cfg?.location_id ?? ""} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-body text-ink" />
+            </label>
+            <label className="flex flex-col gap-1 text-meta text-ink-3">
+              Application id (public)
+              <input name="applicationId" defaultValue={cfg?.application_id ?? ""} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-body text-ink" />
+            </label>
+            <label className="flex flex-col gap-1 text-meta text-ink-3">
+              Notification URL registered with Square
+              <input name="notificationUrl" defaultValue={cfg?.notification_url ?? "https://os.sjcarpentryllc.com/api/webhooks/square"} className="rounded-md border border-rule bg-paper px-2 py-1.5 text-body text-ink" />
+            </label>
+
+          </SettingsForm>
         </Card>
-      </div>
+
+        </details>
+      </SettingsSection>
     </Shell>
   );
 }

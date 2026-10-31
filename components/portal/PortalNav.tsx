@@ -1,48 +1,39 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useRef } from "react";
+import { portalSectionPath } from "@/lib/portal-presentation";
+import { Tabs } from "@/components/ui";
 
-export interface PortalNavItem {
-  href: string;
-  label: string;
-  /** Attention count rendered as a small badge; 0 hides it. */
-  badge?: number;
-}
+export interface PortalNavItem { href: string; label: string; badge?: number }
 
-/** Horizontal section nav for the client portal, under the header. Active
- *  state comes from the pathname; the Home item only matches exactly so it
- *  doesn't light up for every sub-route. */
 export function PortalNav({ items }: { items: PortalNavItem[] }) {
   const pathname = usePathname();
-
-  return (
-    <nav className="flex flex-none items-center gap-1 overflow-x-auto border-b border-rule bg-paper-2 px-5">
-      {items.map((item) => {
-        const active =
-          item.href === "/client-portal"
-            ? pathname === "/client-portal"
-            : pathname === item.href || pathname.startsWith(item.href + "/");
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={[
-              "flex flex-none items-center gap-1.5 border-b-2 px-2.5 py-2 font-mono text-[10px] uppercase tracking-[0.12em] transition-colors",
-              active
-                ? "border-accent text-accent-2"
-                : "border-transparent text-ink-3 hover:text-ink-2",
-            ].join(" ")}
-          >
-            {item.label}
-            {(item.badge ?? 0) > 0 && (
-              <span className="inline-flex min-w-[16px] items-center justify-center rounded-full bg-accent px-1 font-mono text-[9px] font-semibold text-white">
-                {item.badge}
-              </span>
-            )}
-          </Link>
-        );
-      })}
-    </nav>
-  );
+  const nav = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const root = nav.current;
+    const selected = root?.querySelector<HTMLElement>('[aria-current="page"]');
+    const scroller = selected?.parentElement;
+    if (!root || !selected || !scroller) return;
+    const reveal = () => {
+      const left = selected.offsetLeft - scroller.offsetLeft;
+      const padding = 40; // leave the overflow arrows clear of the selected label
+      if (left < scroller.scrollLeft + padding) scroller.scrollLeft = Math.max(0, left - padding);
+      else if (left + selected.offsetWidth > scroller.scrollLeft + scroller.clientWidth - padding) {
+        scroller.scrollLeft = left + selected.offsetWidth - scroller.clientWidth + padding;
+      }
+    };
+    const frame = requestAnimationFrame(reveal);
+    const observer = new ResizeObserver(reveal);
+    observer.observe(scroller);
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); };
+  }, [pathname]);
+  const sectionPath = portalSectionPath(pathname);
+  const active = items.findIndex((item) => item.href === "/client-portal"
+    ? sectionPath === item.href : sectionPath === item.href || sectionPath.startsWith(item.href + "/"));
+  return <div ref={nav} className="flex-none bg-card px-1 sm:px-5">
+    <Tabs tabs={items.map((i) => i.label)} routes={items.map((i) => i.href)}
+      counts={items.map((i) => i.badge ? i.badge : null)} active={Math.max(0, active)}
+      aria-label="Client portal sections" className="[&_a]:h-11" />
+  </div>;
 }

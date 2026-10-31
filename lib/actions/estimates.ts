@@ -45,7 +45,8 @@ function parseLine(formData: FormData) {
   const description = String(formData.get("description") ?? "").trim();
   const section = String(formData.get("section") ?? "General").trim() || "General";
   const unit = String(formData.get("unit") ?? "ea").trim() || "ea";
-  const qty = Math.max(0, Number(formData.get("qty")) || 0);
+  const qtyRaw = String(formData.get("qty") ?? "").trim();
+  const qty = qtyRaw ? Number(qtyRaw) : NaN;
   const unitCost = dollarsToCents(String(formData.get("unitCost") ?? ""));
   const markup = Math.max(0, Math.min(999, Number(formData.get("markup")) || 0));
   const costItemRaw = String(formData.get("costItemId") ?? "").trim();
@@ -99,6 +100,7 @@ export async function addEstimateLine(estimateId: number, slug: string, formData
   await requireAccess("estimates");
   const v = parseLine(formData);
   if (!v.description) return { ok: false, error: "A line description is required." };
+  if (!Number.isFinite(v.qty) || v.qty < 0) return { ok: false, error: "Enter a quantity of zero or more." };
   try {
     await query(
       `INSERT INTO estimate_lines
@@ -120,6 +122,7 @@ export async function updateEstimateLine(lineId: number, slug: string, formData:
   await requireAccess("estimates");
   const v = parseLine(formData);
   if (!v.description) return { ok: false, error: "A line description is required." };
+  if (!Number.isFinite(v.qty) || v.qty < 0) return { ok: false, error: "Enter a quantity of zero or more." };
   let row: { estimate_id: string } | null;
   try {
     row = await queryOne<{ estimate_id: string }>(
@@ -347,6 +350,9 @@ export async function addTakeoffLines(
   entries: { costItemId: number; qty: number }[],
 ): Promise<Result> {
   await requireAccess("estimates");
+  if ((entries ?? []).some((e) => !Number.isFinite(e.qty) || e.qty < 0)) {
+    return { ok: false, error: "Enter a quantity of zero or more for every item." };
+  }
   const valid = (entries ?? []).filter((e) => e.costItemId && e.qty > 0);
   if (valid.length === 0) return { ok: false, error: "Enter a quantity for at least one item." };
 

@@ -8,6 +8,8 @@ import type {
   Selection, SelectionOption, SelectionStatus, SelectionsView, SelectionGroup,
 } from "@/lib/selections";
 import { decideSelection } from "@/lib/actions/selections";
+import { selectionMessageHref, selectionNeedsPriceConfirmation, selectionPriceLabel } from "@/lib/portal-selection-price";
+import { splitSelectionGroups } from "@/lib/portal-selection-groups";
 import { runAction } from "@/lib/run-action";
 
 const STATUS_CHIP: Record<SelectionStatus, ChipKind> = {
@@ -19,9 +21,9 @@ const STATUS_CHIP: Record<SelectionStatus, ChipKind> = {
 
 const STATUS_LABEL: Record<SelectionStatus, string> = {
   draft: "draft",
-  pending: "needs your decision",
+  pending: "Needs decision",
   approved: "decided",
-  declined: "you asked for other options",
+  declined: "Awaiting new options",
 };
 
 const fmt = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
@@ -50,9 +52,11 @@ export function ClientSelections({ view }: { view: SelectionsView }) {
     });
   }
 
-  if (view.groups.length === 0) {
-    return <div className="mt-2 text-[12px] text-ink-3">Nothing to review right now.</div>;
-  }
+  const sections = splitSelectionGroups(view.groups);
+  if (view.groups.length === 0) return <div className="space-y-6">
+    <section><h2 className="text-subheading font-semibold text-ink">Pending decisions</h2><p className="mt-2 text-body text-ink-2">No selections published yet. Joe’s options will appear here when they are ready for your review.</p></section>
+    <section className="border-t border-rule-soft pt-4"><h2 className="text-subheading font-semibold text-ink">History</h2><p className="mt-2 text-body text-ink-2">Your choices and declined options will appear here after you review a selection.</p></section>
+  </div>;
 
   const over = view.totalBudget > 0 && view.totalBudget - view.totalSpent < 0;
   const pct =
@@ -60,21 +64,21 @@ export function ClientSelections({ view }: { view: SelectionsView }) {
 
   return (
     <div className="mt-2 flex flex-col gap-3">
-      {error && <div className="text-[11px] text-flag">{error}</div>}
+      {error && <div className="text-meta text-flag">{error}</div>}
 
       {view.totalOpen > 0 && (
-        <div className="text-[12px] font-semibold text-ink-2">
+        <div className="text-label font-semibold text-ink-2">
           {view.totalOpen} decision{view.totalOpen === 1 ? "" : "s"} waiting on you
         </div>
       )}
 
       {view.totalBudget > 0 ? (
-        <Card kind="accent" className="p-2.5">
+        <Card className="p-2.5">
           <div className="flex items-baseline justify-between">
-            <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-ink-3">
+            <span className="font-sans text-meta text-ink-3">
               Your selections vs. budget
             </span>
-            <span className="text-[12px] font-semibold text-ink">
+            <span className="text-label font-semibold text-ink">
               {fmt(view.totalSpent)} <span className="font-normal text-ink-3">of {fmt(view.totalBudget)}</span>
             </span>
           </div>
@@ -84,7 +88,7 @@ export function ClientSelections({ view }: { view: SelectionsView }) {
               style={{ width: `${over ? 100 : pct}%` }}
             />
           </div>
-          <p className="mt-1 text-[11px]">
+          <p className="mt-1 text-meta">
             <span className={over ? "text-flag" : "text-money"}>
               {over
                 ? `${fmt(view.totalSpent - view.totalBudget)} over budget`
@@ -98,28 +102,27 @@ export function ClientSelections({ view }: { view: SelectionsView }) {
       ) : (
         // No budget set yet — still keep the running total in front of the
         // client so a pick never disappears into the page.
-        <Card kind="accent" className="p-2.5">
+        <Card className="p-2.5">
           <div className="flex items-baseline justify-between">
-            <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-ink-3">
+            <span className="font-sans text-meta text-ink-3">
               Your selections so far
             </span>
-            <span className="text-[12px] font-semibold text-ink">{fmt(view.totalSpent)}</span>
+            <span className="text-label font-semibold text-ink">{fmt(view.totalSpent)}</span>
           </div>
           {view.totalProposed > 0 && (
-            <p className="mt-1 text-[11px] text-ink-3">{fmt(view.totalProposed)} still to decide</p>
+            <p className="mt-1 text-meta text-ink-3">{fmt(view.totalProposed)} still to decide</p>
           )}
         </Card>
       )}
 
-      {view.groups.map((g) => (
-        <ClientSection
-          key={g.id ?? "ungrouped"}
-          group={g}
-          depth={0}
-          pending={pending}
-          onChoose={choose}
-          onDeclineAll={declineAll}
-        />
+      {([['pending', 'Pending decisions', 'No decisions waiting on you. Joe’s next published options will appear here.'], ['history', 'History', 'Your completed decisions will appear here. Declined options stay here while Joe prepares alternatives.']] as const).map(([key, title, empty]) => (
+        <section key={key} className="mt-4 border-t border-rule-soft pt-4">
+          <h2 className="text-subheading font-semibold text-ink">{title}</h2>
+          {key === 'history' && sections.history.length > 0 && <p className="mt-1 text-body text-ink-2">Past choices and declined options. Declined options are waiting on Joe.</p>}
+          {sections[key].length === 0 ? <p className="mt-2 text-body text-ink-2">{empty}</p> : sections[key].map((g) => (
+            <ClientSection key={g.id ?? "ungrouped"} group={g} depth={0} pending={pending} onChoose={choose} onDeclineAll={declineAll} />
+          ))}
+        </section>
       ))}
     </div>
   );
@@ -144,14 +147,14 @@ function ClientSection({
     <div className={`flex flex-col gap-2 ${depth ? "border-l border-rule-soft pl-3" : ""}`}>
       <div className="flex items-baseline justify-between gap-2">
         <span
-          className={`font-mono uppercase tracking-[0.1em] ${
-            depth ? "text-[9px] text-ink-3" : "text-[10px] text-ink-2"
+          className={`font-sans ${
+            depth ? "text-meta text-ink-3" : "text-meta text-ink-2"
           }`}
         >
           {g.name}
         </span>
         {showBudget && (
-          <span className="text-[11px] text-ink-3">
+          <span className="text-meta text-ink-3">
             {fmt(g.spent)} / {fmt(g.budget)} ·{" "}
             <span className={over ? "text-flag" : "text-money"}>
               {over ? `${fmt(-g.remaining)} over` : `${fmt(g.remaining)} left`}
@@ -197,9 +200,9 @@ function ClientDecision({
   return (
     <Card className="flex flex-col gap-2 p-2.5">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <span className="text-[12px] font-semibold text-ink">{s.area}</span>
+        <span className="text-label font-semibold text-ink">{s.area}</span>
         {s.allowance > 0 && (
-          <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-3">
+          <span className="font-sans text-meta text-ink-3">
             allowance {fmt(s.allowance)}
           </span>
         )}
@@ -207,9 +210,10 @@ function ClientDecision({
           {STATUS_LABEL[s.status]}
         </Chip>
       </div>
-      {s.choice && <p className="text-[11px] leading-snug text-ink-3">{s.choice}</p>}
+      {s.status === "declined" && <p className="text-body text-ink-3">You asked for other options. Joe will share a new choice here; no decision is needed from you yet.</p>}
+      {s.choice && <p className="text-meta leading-snug text-ink-3">{s.choice}</p>}
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 gap-3 @lg/page:grid-cols-2">
         {s.options.map((o) => (
           <ClientOption
             key={o.id}
@@ -227,7 +231,7 @@ function ClientDecision({
         <button
           disabled={pending}
           onClick={() => onDeclineAll(s.id)}
-          className="inline-flex items-center gap-1 self-start rounded-md border border-rule px-2 py-1 text-[11px] font-semibold text-ink-3 hover:bg-paper-2 hover:text-flag disabled:opacity-50"
+          className="inline-flex min-h-11 items-center gap-1 self-start rounded-md border border-rule px-2 py-1 text-meta font-semibold text-ink-3 hover:bg-paper-2 hover:text-flag disabled:opacity-50"
         >
           <X className="size-3" strokeWidth={1.75} />
           None of these
@@ -252,26 +256,27 @@ function ClientOption({
   pending: boolean;
   onChoose: () => void;
 }) {
+  const needsPrice = selectionNeedsPriceConfirmation(o.price, o.note);
   const delta = allowance > 0 && o.price > 0 ? o.price - allowance : 0;
   return (
     <div
-      className={`flex flex-col overflow-hidden rounded-md border ${
+      className={`grid grid-cols-[80px_minmax(0,1fr)] @lg/page:flex @lg/page:flex-col overflow-hidden rounded-md border ${
         isChosen ? "border-money ring-1 ring-money/30" : "border-rule"
       }`}
     >
       {o.imageUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={o.imageUrl} alt={o.name} className="aspect-[4/3] w-full border-b border-rule object-cover" />
+        <img src={o.imageUrl} alt={o.name} className="h-24 w-full object-cover @lg/page:h-32" />
       ) : (
-        <div className="aspect-[4/3] border-b border-rule bg-paper-3" />
+        <div className="hidden @lg/page:block @lg/page:h-16 bg-paper-3" aria-hidden="true" />
       )}
-      <div className="flex flex-1 flex-col gap-0.5 p-2">
+      <div className={`flex min-w-0 flex-1 flex-col gap-0.5 p-2 ${!o.imageUrl ? "col-span-2" : ""}`}>
         {o.brand && (
-          <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-3">{o.brand}</span>
+          <span className="font-sans text-meta text-ink-3">{o.brand}</span>
         )}
-        <span className="text-[11px] leading-snug text-ink">{o.name}</span>
-        {o.price > 0 && (
-          <span className="text-[11px] font-semibold text-ink-2">
+        <span className="text-meta leading-snug text-ink">{o.name}</span>
+        {o.price > 0 ? (
+          <span className="text-meta font-semibold text-ink-2">
             {fmt(o.price)}
             {delta !== 0 && (
               <span className={`ml-1 font-normal ${delta > 0 ? "text-flag" : "text-money"}`}>
@@ -279,8 +284,12 @@ function ClientOption({
               </span>
             )}
           </span>
-        )}
-        {o.note && <span className="text-[10px] leading-snug text-ink-3">{o.note}</span>}
+        ) : <span className="text-meta font-semibold text-ink-2">{selectionPriceLabel(o.price, o.note)}</span>}
+        {o.note && <details className="text-meta text-ink-3"><summary className="cursor-pointer py-1">Option details</summary><p className="leading-snug">{o.note}</p></details>}
+        {needsPrice && <div className="mt-2 space-y-1 text-body text-ink-2">
+          <p>Choose this records your preference for {o.name}; Joe still needs to confirm the price. The running total uses {allowance > 0 ? `${fmt(allowance)} (your allowance) as a placeholder` : "a $0 placeholder"}, not a confirmed price.</p>
+          <a href={selectionMessageHref(o.name)} className="inline-flex min-h-11 items-center font-semibold text-accent-2 underline">Message Joe about {o.name}</a>
+        </div>}
         <div className="mt-auto pt-1.5">
           {isChosen ? (
             <Chip kind="money" dot>your pick</Chip>
@@ -289,7 +298,7 @@ function ClientOption({
               <button
                 disabled={pending}
                 onClick={onChoose}
-                className="inline-flex w-full items-center justify-center gap-1 rounded border border-money/40 bg-money/10 px-2 py-1 text-[11px] font-semibold text-money hover:bg-money/20 disabled:opacity-50"
+                className="inline-flex min-h-11 w-full items-center justify-center gap-1 rounded border border-money/40 bg-money/10 px-2 py-1 text-meta font-semibold text-money hover:bg-money/20 disabled:opacity-50"
               >
                 <Check className="size-3" strokeWidth={1.75} />
                 Choose this

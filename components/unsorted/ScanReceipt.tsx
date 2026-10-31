@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Camera, CheckCircle2, ImagePlus, Loader2, Send, X } from "lucide-react";
-import { Card } from "@/components/ui";
+import { Button, PageHeader, Card } from "@/components/ui";
 
 export interface ScanJob {
   slug: string;
@@ -107,17 +107,11 @@ export function ScanReceipt({ jobs, canSort }: { jobs: ScanJob[]; canSort: boole
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-lg flex-col gap-3 px-4 py-5">
-      <div>
-        <h1 className="font-serif text-[28px] font-medium leading-none tracking-tight text-accent-2">Scan a receipt</h1>
-        <p className="mt-1.5 text-[12.5px] text-ink-3">
-          Snap it and send it. Claude reads the store, items and total and files it to the job — or puts it in Unsorted if it
-          can&apos;t tell which job.
-        </p>
-      </div>
+    <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-4 py-6 @2xl/page:px-5 [&_input]:focus-visible:outline-2 [&_input]:focus-visible:outline-focus [&_select]:focus-visible:outline-2 [&_select]:focus-visible:outline-focus">
+      <PageHeader title="Scan a receipt" meta="Photograph or upload a receipt. Claude reads it and files it to the job, or leaves it in Unsorted for review." />
 
       {sent && (
-        <Card className="flex items-start gap-2.5 border-money bg-money-soft p-3.5 text-[13px] text-ink">
+        <Card className="flex items-start gap-2.5 border-rule-soft bg-card p-3.5 text-body text-ink">
           <CheckCircle2 className="mt-0.5 size-4 flex-none text-money" />
           <div className="min-w-0 flex-1">
             {sent.count > 0 && (
@@ -138,24 +132,7 @@ export function ScanReceipt({ jobs, canSort }: { jobs: ScanJob[]; canSort: boole
       <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { add(e.target.files); e.target.value = ""; }} />
       <input ref={libraryRef} type="file" accept="image/*,application/pdf" multiple className="hidden" onChange={(e) => { add(e.target.files); e.target.value = ""; }} />
 
-      <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-2">
-        <button
-          type="button"
-          onClick={() => cameraRef.current?.click()}
-          className="flex flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-accent bg-accent-soft px-3 py-7 text-accent-2 active:scale-[0.99]"
-        >
-          <Camera className="size-8" strokeWidth={1.5} />
-          <span className="text-[15px] font-semibold">{pics.length ? "Take another" : "Take a photo"}</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => libraryRef.current?.click()}
-          className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-rule bg-card px-3 py-7 text-ink-2 active:scale-[0.99]"
-        >
-          <ImagePlus className="size-6" strokeWidth={1.5} />
-          <span className="text-[12.5px] font-semibold">From photos</span>
-        </button>
-      </div>
+      <Card className="p-4 @2xl/page:p-5"><div className="mb-5 flex items-start gap-3"><Camera className="size-8 shrink-0 text-ink-3" strokeWidth={1.25} /><div><h2 className="text-subheading font-semibold text-ink">Add your receipt</h2><p className="mt-1 text-body text-ink-3">Keep the store, date and total in the frame. You can add several photos for a long receipt.</p></div></div><div className="flex flex-wrap gap-2"><Button size="lg" icon={Camera} onClick={() => cameraRef.current?.click()}>{pics.length ? "Take another" : "Take a photo"}</Button><Button size="lg" icon={ImagePlus} variant="secondary" onClick={() => libraryRef.current?.click()}>From photos</Button></div></Card>
 
       {pics.length > 0 && (
         <Card className="flex flex-col gap-3 p-3.5">
@@ -166,33 +143,26 @@ export function ScanReceipt({ jobs, canSort }: { jobs: ScanJob[]; canSort: boole
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={p.url} alt={p.file.name} className="size-full object-cover" />
                 ) : (
-                  <div className="grid size-full place-items-center p-2 text-center text-[11px] text-ink-3">{p.file.name}</div>
+                  <div className="grid size-full place-items-center p-2 text-center text-meta text-ink-3">{p.file.name}</div>
                 )}
-                <button
-                  type="button"
-                  onClick={() => remove(p.key)}
-                  aria-label="Remove photo"
-                  className="absolute right-1 top-1 grid size-6 place-items-center rounded-full bg-black/60 text-white"
-                >
-                  <X className="size-3.5" />
-                </button>
+                <Button onClick={() => remove(p.key)} icon={X} iconOnly aria-label="Remove photo" title="Remove photo" variant="secondary" className="absolute right-1 top-1" />
               </div>
             ))}
           </div>
 
           {pics.length > 1 && (
-            <label className="flex items-start gap-2 text-[12.5px] text-ink-2">
+            <label className="flex items-start gap-2 text-body text-ink-2">
               <input type="checkbox" checked={oneReceipt} onChange={(e) => setOneReceipt(e.target.checked)} className="mt-0.5" />
               <span>
                 These photos are one long receipt
-                <span className="block text-[11px] text-ink-3">Otherwise each photo is its own receipt.</span>
+                <span className="block text-meta text-ink-3">Otherwise each photo is its own receipt.</span>
               </span>
             </label>
           )}
 
-          <label className="flex flex-col gap-1 text-[12px] text-ink-3">
+          <label className="flex flex-col gap-1 text-label text-ink-2">
             Which job? (optional)
-            <select value={job} onChange={(e) => setJob(e.target.value)} className="rounded-lg border border-rule bg-paper px-2.5 py-2 text-[14px] text-ink">
+            <select value={job} onChange={(e) => setJob(e.target.value)} className="h-9 max-sm:h-11 rounded-md border border-rule bg-card px-3 text-body text-ink">
               <option value="">Not sure — let Claude figure it out</option>
               {jobs.map((j) => (
                 <option key={j.slug} value={j.slug}>
@@ -203,30 +173,22 @@ export function ScanReceipt({ jobs, canSort }: { jobs: ScanJob[]; canSort: boole
             </select>
           </label>
 
-          <label className="flex flex-col gap-1 text-[12px] text-ink-3">
+          <label className="flex flex-col gap-1 text-label text-ink-2">
             Anything to add? (optional)
             <input
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="e.g. trim for the Libby basement"
-              className="rounded-lg border border-rule bg-paper px-2.5 py-2 text-[14px] text-ink placeholder:text-ink-4"
+              className="h-9 max-sm:h-11 rounded-md border border-rule bg-card px-3 text-body text-ink placeholder:text-ink-3"
             />
           </label>
 
-          {error && <p className="text-[12.5px] text-flag">{error}</p>}
+          {error && <p role="alert" className="text-body text-flag">{error}</p>}
 
-          <button
-            type="button"
-            onClick={send}
-            disabled={sending}
-            className="flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-3 text-[15px] font-semibold text-white disabled:opacity-60"
-          >
-            {sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-            {sending ? "Sending…" : `Send ${pics.length === 1 || oneReceipt ? "receipt" : `${pics.length} receipts`}`}
-          </button>
+          <Button size="lg" onClick={send} disabled={sending} icon={sending ? Loader2 : Send}>{sending ? "Sending…" : `Send ${pics.length === 1 || oneReceipt ? "receipt" : `${pics.length} receipts`}`}</Button>
         </Card>
       )}
-      {!pics.length && error && <p className="text-[12.5px] text-flag">{error}</p>}
+      {!pics.length && error && <p role="alert" className="text-body text-flag">{error}</p>}
     </div>
   );
 }

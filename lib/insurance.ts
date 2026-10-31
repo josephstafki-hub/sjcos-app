@@ -8,6 +8,7 @@ import { POLICY_LABEL, type PolicyType } from "./insurance-types";
 
 export interface InsurancePolicy {
   id: number;
+  archived: boolean;
   policyType: PolicyType;
   typeLabel: string;
   carrier: string;
@@ -23,9 +24,10 @@ export interface InsurancePolicy {
   notes: string;
 }
 
-export async function getInsurancePolicies(): Promise<InsurancePolicy[]> {
+export async function getInsurancePolicies(includeArchived = false): Promise<InsurancePolicy[]> {
   const { rows } = await query<{
     id: number;
+    archived: boolean;
     policy_type: PolicyType;
     carrier: string;
     policy_number: string;
@@ -37,15 +39,16 @@ export async function getInsurancePolicies(): Promise<InsurancePolicy[]> {
     days: number | null;
     notes: string;
   }>(
-    `SELECT id, policy_type, carrier, policy_number, coverage_amount, premium,
+    `SELECT id, archived, policy_type, carrier, policy_number, coverage_amount, premium,
             to_char(effective_date, 'YYYY-MM-DD') AS effective,
             to_char(expires_date, 'YYYY-MM-DD')   AS expires,
             to_char(expires_date, 'Mon FMDD, YYYY') AS expires_label,
-            (expires_date - CURRENT_DATE)          AS days,
+            (expires_date - (now() AT TIME ZONE 'America/Chicago')::date)          AS days,
             notes
        FROM insurance_policies
-      WHERE archived = false
+      WHERE ($1::boolean OR archived = false)
       ORDER BY expires_date NULLS LAST, policy_type`,
+    [includeArchived],
   );
   return rows.map((r) => {
     const days = r.days;
@@ -53,6 +56,7 @@ export async function getInsurancePolicies(): Promise<InsurancePolicy[]> {
     if (days !== null) status = days < 0 ? "expired" : days <= 30 ? "expiring" : "current";
     return {
       id: r.id,
+      archived: r.archived,
       policyType: r.policy_type,
       typeLabel: POLICY_LABEL[r.policy_type] ?? r.policy_type,
       carrier: r.carrier,

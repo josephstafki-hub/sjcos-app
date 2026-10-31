@@ -32,7 +32,7 @@ export function SubDocs({ slug, docs }: { slug: string; docs: DocRow[] }) {
   const formRef = useRef<HTMLFormElement>(null);
 
   const inputCls =
-    "rounded-md border border-rule bg-card px-2 py-1 text-[12px] text-ink-2 outline-none focus:border-accent";
+    "rounded-md border border-rule bg-card px-2 py-1 text-label text-ink-2 outline-none focus:border-accent";
 
   return (
     <div>
@@ -47,10 +47,10 @@ export function SubDocs({ slug, docs }: { slug: string; docs: DocRow[] }) {
               ) : (
                 <FileText className="size-3 flex-none text-ink-3" strokeWidth={1.75} />
               )}
-              <span className="flex-1 text-[12px] text-ink-2">{d.docLabel}</span>
+              <span className="flex-1 text-label text-ink-2">{d.docLabel}</span>
               {d.state !== "on_file" && <Chip kind={STATE_CHIP[d.state].kind}>{STATE_CHIP[d.state].label}</Chip>}
               {d.expiresLabel && <Chip kind="ghost">exp {d.expiresLabel}</Chip>}
-              <span className="font-mono text-[10px] text-ink-3">{d.when}</span>
+              <span className="font-sans text-meta text-ink-3">{d.when}</span>
             </div>
           ))}
         </div>
@@ -84,14 +84,14 @@ export function SubDocs({ slug, docs }: { slug: string; docs: DocRow[] }) {
             ))}
           </select>
           {docType === "coi" && (
-            <label className="flex items-center gap-1 text-[11px] text-ink-3">
+            <label className="flex items-center gap-1 text-meta text-ink-3">
               Expires
               <input name="expires" type="date" className={inputCls} />
             </label>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-paper-2">
+          <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-label font-semibold text-ink hover:bg-paper-2">
             <FileText className="size-3" strokeWidth={1.75} />
             {fileName || "Choose file"}
             <input
@@ -106,13 +106,13 @@ export function SubDocs({ slug, docs }: { slug: string; docs: DocRow[] }) {
           <button
             type="submit"
             disabled={pending}
-            className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-3 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-3 py-1 text-label font-semibold text-paper hover:bg-ink-hover disabled:opacity-50"
           >
             <Upload className="size-3" strokeWidth={1.75} />
             {pending ? "Uploading…" : "Upload"}
           </button>
         </div>
-        {error && <div className="text-[11px] text-flag">{error}</div>}
+        {error && <div className="text-meta text-flag">{error}</div>}
       </form>
     </div>
   );

@@ -131,6 +131,7 @@ export function ThreadList({
   pageRoute?: string | null;
   className?: string;
 }) {
+  const [search, setSearch] = useState("");
   const [folders, setFolders] = useState<RailFolder[]>([]);
   const [threads, setThreads] = useState<RailThread[]>([]);
   const [archived, setArchived] = useState<RailThread[] | null>(null);
@@ -432,7 +433,9 @@ export function ThreadList({
   const statusOf = (t: RailThread): ThreadStatus =>
     resolveThreadStatus(t, { seen: isRunSeen, currentId, sinceMs: sinceMs ?? Number.POSITIVE_INFINITY });
 
-  const allGroups = groupThreads(folders, threads);
+  const needle = search.trim().toLowerCase();
+  const matchesSearch = (t: RailThread) => !needle || `${t.title} ${folders.find(f => f.id === t.folderId)?.name ?? ""}`.toLowerCase().includes(needle);
+  const allGroups = groupThreads(folders, threads.filter(matchesSearch)).filter(g => !needle || g.folder?.name.toLowerCase().includes(needle) || g.threads.pinned.length + g.threads.active.length + g.threads.settled.length > 0);
   const scoped = scopeFolderId ? allGroups.filter((g) => g.key === scopeFolderId) : allGroups;
   const scopeFolder = scopeFolderId ? folders.find((f) => f.id === scopeFolderId) ?? null : null;
   // A scope whose folder vanished (deleted in another window) falls back to all.
@@ -452,8 +455,9 @@ export function ThreadList({
 
   return (
     <aside
+      style={variant === "rail" ? { width: "18rem", minWidth: "14rem", maxWidth: "45%" } : undefined}
       className={`flex min-h-0 flex-col overflow-hidden ${
-        variant === "rail" ? "rounded-[10px] border border-rule bg-paper shadow-card" : "bg-paper"
+        variant === "rail" ? "rounded-lg border border-rule bg-paper shadow-card" : "bg-paper"
       } ${className}`}
     >
       <div className="relative flex items-center gap-1.5 border-b border-rule px-3 py-2">
@@ -482,13 +486,13 @@ export function ThreadList({
           <button
             onClick={() => onScopeChange(null)}
             title="Show all folders"
-            className="flex min-w-0 items-center gap-1 rounded-md bg-paper-2 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-2 hover:bg-paper-3"
+            className="flex min-w-0 items-center gap-1 rounded-md bg-paper-2 px-1.5 py-0.5 text-label font-semibold text-ink-2 hover:bg-paper-3"
           >
             <span className="truncate">{scopeFolder.name}</span>
             <X className="size-3 flex-none" strokeWidth={2} />
           </button>
         ) : (
-          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">Threads</span>
+          <span className="text-label font-semibold text-ink-3">Threads</span>
         )}
         <div className="flex-1" />
         <button
@@ -517,33 +521,35 @@ export function ThreadList({
           onClick={() => onNew(scopeFolder)}
           aria-label="New chat"
           title={scopeFolder ? `New chat in ${scopeFolder.name}` : "New chat (Unfiled)"}
-          className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink-2"
+          className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-meta text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink-2"
         >
           <Plus className="size-3" strokeWidth={2} /> New
         </button>
         {onClose && (
-          <button onClick={onClose} aria-label="Close threads" className="rounded p-0.5 text-ink-3 hover:bg-paper-2">
+          <button onClick={onClose} aria-label="Close threads" title="Close threads" className="rounded p-0.5 text-ink-3 hover:bg-paper-2">
             <X className="size-3.5" strokeWidth={1.75} />
           </button>
         )}
       </div>
 
-      {flash && <p className="border-b border-rule bg-flag-soft px-3 py-1.5 text-[11px] text-flag">{flash}</p>}
+      <div className="border-b border-rule-soft p-2"><input type="search" aria-label="Search threads and folders" placeholder="Search threads and folders…" value={search} onChange={e => setSearch(e.target.value)} className="h-11 w-full rounded-md border border-rule bg-card px-3 text-body" /></div>
+      {flash && <p className="border-b border-rule bg-flag-soft px-3 py-1.5 text-meta text-flag">{flash}</p>}
 
       <div className="flex-1 overflow-y-auto p-1.5">
+        {needle && scoped.length === 0 && <p role="status" className="px-2 py-3 text-body text-ink-3">No matching threads or folders.</p>}
         {loaded && threads.length === 0 && folders.length === 0 ? (
-          <p className="px-2 py-3 text-[11.5px] text-ink-4">No chats yet.</p>
+          <p className="px-2 py-3 text-meta text-ink-4">No chats yet.</p>
         ) : (
           scoped.map((g) => {
             const f = g.folder;
-            const collapsed = f ? f.collapsed : unfiledCollapsed;
+            const collapsed = !search.trim() && (f ? f.collapsed : unfiledCollapsed);
             const allRows = [...g.threads.pinned, ...g.threads.active, ...g.threads.settled];
             const roll = rollupStatus(allRows.map(statusOf));
             const holdsCurrent = !!currentId && allRows.some((t) => t.id === currentId);
             const isRouteFolder = f != null && f.id === routeFolderId;
             const sh = shelfState(g.key);
-            const settledOpen = sh.open || (!!currentId && g.threads.settled.some((t) => t.id === currentId));
-            const settledRows = settledOpen ? g.threads.settled.slice(0, sh.count) : [];
+            const settledOpen = !!search.trim() || sh.open || (!!currentId && g.threads.settled.some((t) => t.id === currentId));
+            const settledRows = settledOpen ? g.threads.settled.slice(0, search.trim() ? undefined : sh.count) : [];
             const settledMore = g.threads.settled.length - settledRows.length;
             return (
               <div key={g.key} className="mb-1">
@@ -593,12 +599,12 @@ export function ThreadList({
                     <button
                       onClick={() => f && onScopeChange(scopeFolderId === f.id ? null : f.id)}
                       title={f ? (scopeFolderId === f.id ? "Show all folders" : `Only ${f.name}`) : "Threads not filed under a job"}
-                      className="min-w-0 flex-1 truncate text-left font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3 hover:text-ink"
+                      className="min-w-0 flex-1 truncate text-left text-label font-semibold text-ink-3 hover:text-ink"
                     >
                       {g.name}
                     </button>
                     {roll !== "idle" && (collapsed || !holdsCurrent) && <StatusDot status={roll} />}
-                    <span className="font-mono text-[10px] text-ink-4 group-hover/f:hidden">{g.count}</span>
+                    <span className="text-meta text-ink-4 group-hover/f:hidden">{g.count}</span>
                     {f && (
                       <div className="hidden items-center gap-0.5 group-hover/f:flex">
                         <button
@@ -612,7 +618,7 @@ export function ThreadList({
                         <button
                           onMouseDown={(e) => e.stopPropagation()}
                           onClick={() => setMenu(menu?.id === f.id ? null : { kind: "folder", id: f.id })}
-                          aria-label="Folder menu"
+                          aria-label="Folder menu" title="Folder menu"
                           className="rounded p-0.5 hover:bg-paper-2"
                         >
                           <MoreHorizontal className="size-3 text-ink-4" strokeWidth={2} />
@@ -657,7 +663,7 @@ export function ThreadList({
                           onClick={() =>
                             setShelf((s) => ({ ...s, [g.key]: { open: !settledOpen, count: sh.count } }))
                           }
-                          className="mt-0.5 flex w-full items-center gap-1 rounded-md px-2 py-1 text-left font-mono text-[10px] text-ink-4 hover:bg-card/60 hover:text-ink-3"
+                          className="mt-0.5 flex w-full items-center gap-1 rounded-md px-2 py-1 text-left text-meta text-ink-4 hover:bg-card/60 hover:text-ink-3"
                         >
                           {settledOpen ? (
                             <ChevronDown className="size-3" strokeWidth={2} />
@@ -672,7 +678,7 @@ export function ThreadList({
                             onClick={() =>
                               setShelf((s) => ({ ...s, [g.key]: { open: true, count: sh.count + SETTLED_PAGE } }))
                             }
-                            className="w-full px-2 py-1 text-left text-[10.5px] text-ink-4 hover:text-ink-3"
+                            className="w-full px-2 py-1 text-left text-meta text-ink-4 hover:text-ink-3"
                           >
                             Show {Math.min(settledMore, SETTLED_PAGE)} more
                           </button>
@@ -680,7 +686,7 @@ export function ThreadList({
                       </>
                     )}
                     {allRows.length === 0 && (
-                      <p className="px-2 py-1 text-[11px] text-ink-4">Empty — start a chat here.</p>
+                      <p className="px-2 py-1 text-meta text-ink-4">Empty — start a chat here.</p>
                     )}
                   </div>
                 )}
@@ -691,15 +697,21 @@ export function ThreadList({
 
         {showArchived && archived && (
           <div className="mt-2 border-t border-rule pt-1.5">
-            <div className="px-2 pb-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-4">Archived</div>
-            {archived.length === 0 && <p className="px-2 py-1 text-[11px] text-ink-4">Nothing archived.</p>}
-            {archived.map((t) => (
-              <div key={t.id} className="group flex items-center gap-1.5 rounded-md px-2 py-1.5 opacity-60 hover:bg-card/60 hover:opacity-100">
+            <div className="px-2 pb-1 text-label font-semibold text-ink-4">Archived</div>
+            {folders.filter((f) => f.archivedAt).map((f) => (
+              <div key={f.id} className="flex items-center gap-2 px-2 py-2 text-body">
+                <span className="min-w-0 flex-1 break-words">{f.name}</span>
+                <button type="button" onClick={() => void archiveFolder(f, false)} className="rounded-md px-2 py-1 text-label hover:bg-hover" aria-label={`Restore folder ${f.name}`}>Restore folder</button>
+              </div>
+            ))}
+            {archived.length === 0 && !folders.some((f) => f.archivedAt) && <p className="px-2 py-1 text-meta text-ink-4">Nothing archived.</p>}
+            {archived.filter(matchesSearch).map((t) => (
+              <div key={t.id} className="group flex items-center gap-1.5 rounded-md px-2 py-1.5 hover:bg-card/60">
                 <AgentBadge agent={t.agent} />
-                <button onClick={() => onOpen(t.id)} className="min-w-0 flex-1 truncate text-left text-[12.5px] text-ink-2" title={t.title}>
+                <button onClick={() => onOpen(t.id)} className="min-h-11 min-w-0 flex-1 line-clamp-2 break-words text-left text-body text-ink-2" title={t.title}>
                   {t.title}
                 </button>
-                <span className="flex-none font-mono text-[10px] text-ink-4 group-hover:hidden">{timeAgo(t.archivedAt, now)}</span>
+                <span className="flex-none text-meta text-ink-4 group-hover:hidden">{timeAgo(t.archivedAt, now)}</span>
                 <div className="hidden flex-none items-center gap-0.5 group-hover:flex">
                   {t.archivedAt && (
                     <button onClick={() => void setArchivedThread(t.id, false)} aria-label="Restore" title="Restore" className="rounded p-0.5 hover:bg-paper-2">
@@ -718,7 +730,7 @@ export function ThreadList({
 
       <button
         onClick={() => setShowArchived((v) => !v)}
-        className="border-t border-rule px-3 py-1.5 text-left text-[10.5px] text-ink-4 transition-colors hover:bg-paper-2 hover:text-ink-3"
+        className="border-t border-rule px-3 py-1.5 text-left text-meta text-ink-4 transition-colors hover:bg-paper-2 hover:text-ink-3"
       >
         {showArchived ? "Hide archived" : "Show archived"}
       </button>
@@ -749,7 +761,7 @@ export function ThreadList({
               : status === "completed"
                 ? "new"
                 : timeAgo(settled ? t.settledAt ?? t.lastActivityAt : t.lastActivityAt ?? t.updatedAt, now);
-    const recede = settled || (status === "idle" && !isCurrent);
+    const recede = settled;
     return (
       <div
         key={t.id}
@@ -767,7 +779,7 @@ export function ThreadList({
         }}
         className={`group relative flex flex-col rounded-md px-2 py-1.5 ${
           isCurrent ? "bg-card" : "hover:bg-card/60"
-        } ${recede ? "opacity-70 hover:opacity-100" : ""} ${dragId === t.id ? "opacity-40" : ""} ${dragId ? "cursor-grabbing" : ""}`}
+        } ${recede ? "bg-paper-2/40" : ""} ${dragId === t.id ? "opacity-40" : ""} ${dragId ? "cursor-grabbing" : ""}`}
       >
         <div className="flex items-center gap-1.5">
           {pinned ? (
@@ -777,14 +789,14 @@ export function ThreadList({
           )}
           <button
             onClick={() => onOpen(t.id)}
-            className={`min-w-0 flex-1 truncate text-left text-[12.5px] ${settled ? "text-ink-3" : "text-ink-2"}`}
+            className={`min-h-11 min-w-0 flex-1 line-clamp-2 break-words text-left text-body ${settled ? "text-ink-2" : "font-medium text-ink"}`}
             title={t.title}
           >
             {t.title}
           </button>
           {status !== "idle" && <StatusDot status={status} />}
           <span
-            className={`flex-none font-mono text-[10px] group-hover:hidden ${
+            className={`flex-none text-meta group-hover:hidden ${
               status === "idle" ? "text-ink-4" : status === "working" ? "text-ai-2" : status === "completed" ? "text-money" : "text-flag"
             }`}
             title={meta.label || undefined}
@@ -813,7 +825,7 @@ export function ThreadList({
                 setMover(null);
                 setMenu(menuOpen ? null : { kind: "thread", id: t.id });
               }}
-              aria-label="More"
+              aria-label="More" title="More"
               className="rounded p-0.5 hover:bg-paper-2"
             >
               <MoreHorizontal className="size-3 text-ink-4" strokeWidth={2} />
@@ -824,7 +836,7 @@ export function ThreadList({
           <button
             onClick={() => void fileUnder(t)}
             title={`File this thread under ${t.suggestedFolder.name}`}
-            className="mt-0.5 flex items-center gap-1 self-start rounded-full bg-ai-soft px-1.5 py-px text-[10px] text-ai-2 hover:bg-ai-soft/70"
+            className="mt-0.5 flex items-center gap-1 self-start rounded-full bg-ai-soft px-1.5 py-px text-meta text-ai-2 hover:bg-ai-soft/70"
           >
             <FolderInput className="size-2.5" strokeWidth={2} />
             <span className="truncate">File under {t.suggestedFolder.name}?</span>
@@ -858,7 +870,7 @@ export function ThreadList({
         )}
         {moverOpen && (
           <Menu onDone={() => setMover(null)}>
-            <div className="px-2 pb-1 font-mono text-[9.5px] uppercase tracking-[0.12em] text-ink-4">Move to</div>
+            <div className="px-2 pb-1 text-label font-semibold text-ink-4">Move to</div>
             {t.folderId && <MenuItem icon={X} label="Unfiled" onClick={() => void move(t.id, null)} />}
             {folders
               .filter((f) => !f.archivedAt && f.id !== t.folderId)
@@ -876,7 +888,7 @@ export function ThreadList({
 function AgentBadge({ agent }: { agent: RailThread["agent"] }) {
   return (
     <span
-      className="flex size-4 flex-none items-center justify-center rounded bg-paper-2 font-mono text-[9px] text-ink-3"
+      className="flex size-4 flex-none items-center justify-center rounded bg-paper-2 text-meta text-ink-3"
       title={AGENT_META[agent].label}
     >
       {AGENT_META[agent].initials}
@@ -935,7 +947,7 @@ function MenuItem({
       onClick={onClick}
       disabled={disabled}
       data-keep-open={keepOpen ? "" : undefined}
-      className={`flex w-full items-center gap-2 px-2.5 py-1 text-left text-[11.5px] hover:bg-paper-2 disabled:opacity-40 ${
+      className={`flex w-full items-center gap-2 px-2.5 py-1 text-left text-meta hover:bg-paper-2 disabled:opacity-40 ${
         danger ? "text-flag" : "text-ink-2"
       }`}
     >

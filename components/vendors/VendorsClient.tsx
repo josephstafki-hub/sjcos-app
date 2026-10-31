@@ -1,47 +1,107 @@
 "use client";
-
+import { formatUsPhone } from "@/lib/comms/phone";
+import { useState } from "react";
 import Link from "next/link";
-import { Star } from "lucide-react";
-import { Avatar, Card, Chip } from "@/components/ui";
-import type { VendorCard, VendorsData } from "@/lib/vendors";
-
+import { Search, Star } from "lucide-react";
+import {
+  Segmented,
+  EmptyState,
+  TableWrapper,
+  Table,
+  TableHead,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TablePrimaryCell,
+  TableCell,
+} from "@/components/ui";
+import type { VendorsData } from "@/lib/vendors";
 export function VendorsClient({ data }: { data: VendorsData }) {
-  return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {data.vendors.map((v) => (
-        <VendorGridCard key={v.slug} vendor={v} />
-      ))}
-      {data.vendors.length === 0 && (
-        <Card kind="dashed" className="col-span-full p-8 text-center">
-          <div className="text-[13px] text-ink-3">No vendors yet — add one, or save a one-off supplier from a purchase order.</div>
-        </Card>
-      )}
-    </div>
+  const [view, setView] = useState("active"),
+    [q, setQ] = useState("");
+  const vendors = data.vendors.filter(
+    (v) =>
+      v.archived === (view === "archived") &&
+      `${v.name} ${v.trade} ${v.email}`.toLowerCase().includes(q.toLowerCase()),
   );
-}
-
-function VendorGridCard({ vendor: v }: { vendor: VendorCard }) {
   return (
-    <Link href={`/vendors/${v.slug}`} className="block">
-      <Card className="p-3.5 transition-colors hover:bg-paper-2">
-        <div className="flex items-start gap-2.5">
-          <Avatar initials={v.initials} kind={v.fav ? "accent" : "gray"} size="lg" />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1">
-              <span className="flex-1 truncate font-serif text-[14px] font-semibold text-ink">{v.name}</span>
-              {v.fav && <Star className="size-3 flex-none fill-accent text-accent" strokeWidth={1.5} />}
-            </div>
-            <div className="mt-0.5 text-[11px] text-ink-3">{v.trade || "—"}</div>
-          </div>
-        </div>
-
-        <div className="my-3 border-t border-dashed border-rule" />
-
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Chip kind="ghost">{v.poCount} PO{v.poCount === 1 ? "" : "s"}</Chip>
-          {v.email && <Chip kind="ghost">{v.email}</Chip>}
-        </div>
-      </Card>
-    </Link>
+    <div className="mt-5 space-y-4">
+      <div className="flex flex-wrap gap-3">
+        <Segmented
+          aria-label="Vendor status"
+          value={view}
+          onChange={setView}
+          options={[
+            {
+              value: "active",
+              label: "Active",
+              count: data.vendors.filter((v) => !v.archived).length,
+            },
+            {
+              value: "archived",
+              label: "Archived",
+              count: data.vendors.filter((v) => v.archived).length,
+            },
+          ]}
+        />
+        <label className="ml-auto flex h-9 w-full items-center gap-2 rounded-md border border-rule bg-card px-3 @xl/page:w-60">
+          <Search className="size-4 shrink-0 text-ink-3" />
+          <input
+            aria-label="Search vendors"
+            type="search"
+            placeholder="Search vendors…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            className="w-full min-w-0 bg-transparent text-body outline-none"
+          />
+        </label>
+      </div>
+      <TableWrapper>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableHeader>Vendor</TableHeader>
+              <TableHeader className="@max-2xl/page:hidden">
+                Contact
+              </TableHeader>
+              <TableHeader numeric>POs</TableHeader>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {vendors.map((v) => (
+              <TableRow key={v.slug}>
+                <TablePrimaryCell meta={v.trade || "Supplier"}>
+                  <Link href={`/vendors/${v.slug}`} className="hover:underline">
+                    {v.name}
+                  </Link>
+                  <div className="flex flex-wrap gap-3 text-label">
+                    {v.phone && <a href={`tel:${v.phone}`} className="inline-flex min-h-11 items-center rounded-md px-3 text-accent-2 hover:bg-hover focus-visible:outline-2 focus-visible:outline-focus">Call</a>}
+                    {v.email && <a href={`mailto:${v.email}`} className="inline-flex min-h-11 items-center rounded-md px-3 text-accent-2 hover:bg-hover focus-visible:outline-2 focus-visible:outline-focus">Email</a>}
+                  </div>
+                  {v.fav && (
+                    <span role="img" aria-label={`${v.name} is a favorite vendor`} title="Favorite vendor">
+                      <Star aria-hidden="true" className="inline size-3 fill-accent text-accent" />
+                    </span>
+                  )}
+                </TablePrimaryCell>
+                <TableCell className="@max-2xl/page:hidden">
+                  <div className="break-all text-body">
+                    {v.email || "No email recorded"}
+                  </div>
+                  <div className="text-meta text-ink-3">{formatUsPhone(v.phone)}</div>
+                </TableCell>
+                <TableCell numeric>{v.poCount}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        {!vendors.length && (
+          <EmptyState
+            title="No vendors in this view"
+            description="Add a supplier, adjust your search, or open Archived to restore a vendor."
+          />
+        )}
+      </TableWrapper>
+    </div>
   );
 }

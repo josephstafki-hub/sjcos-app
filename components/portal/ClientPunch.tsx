@@ -40,7 +40,7 @@ export function ClientPunch({ items }: { items: PunchItem[] }) {
 
   return (
     <Card className="overflow-hidden p-0">
-      <div className="border-b border-rule bg-paper-2 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+      <div className="border-b border-rule bg-paper-2 px-3 py-2 font-sans text-meta text-ink-3">
         {open > 0 ? `${open} to confirm` : "All confirmed — thank you"}
       </div>
       {rows.map((p, i) => (
@@ -58,11 +58,11 @@ export function ClientPunch({ items }: { items: PunchItem[] }) {
           >
             {p.clientConfirmed && <Check className="size-3 text-paper" strokeWidth={2.5} />}
           </span>
-          <span className={`flex-1 text-[12.5px] ${p.clientConfirmed ? "text-ink-3" : "text-ink"}`}>{p.item}</span>
-          <span className="font-mono text-[10px] text-ink-3">{p.clientConfirmed ? "confirmed" : "confirm"}</span>
+          <span className={`flex-1 text-body ${p.clientConfirmed ? "text-ink-3" : "text-ink"}`}>{p.item}</span>
+          <span className="font-sans text-meta text-ink-3">{p.clientConfirmed ? "confirmed" : "confirm"}</span>
         </button>
       ))}
-      {error && <div className="border-t border-rule-soft px-3 py-2 text-[11px] text-flag">{error}</div>}
+      {error && <div className="border-t border-rule-soft px-3 py-2 text-meta text-flag">{error}</div>}
     </Card>
   );
 }

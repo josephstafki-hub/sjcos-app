@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -32,6 +32,8 @@ import {
   UserRound,
   UserCheck,
   LogOut,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 import { Logo } from "./Logo";
 import { logout } from "@/lib/actions/auth";
@@ -108,57 +110,57 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(href + "/");
 }
 
-function RailLabel({ children }: { children: string }) {
+const COLLAPSE_KEY = "sjcos:sidebar:collapsed";
+const COLLAPSE_EVENT = "sjcos:sidebar-change";
+let fallbackCollapsed = false;
+function readCollapsed() {
+  try { return localStorage.getItem(COLLAPSE_KEY) === "true"; } catch { return fallbackCollapsed; }
+}
+function subscribeCollapsed(notify: () => void) {
+  window.addEventListener("storage", notify);
+  window.addEventListener(COLLAPSE_EVENT, notify);
+  return () => {
+    window.removeEventListener("storage", notify);
+    window.removeEventListener(COLLAPSE_EVENT, notify);
+  };
+}
+function toggleCollapsed() {
+  fallbackCollapsed = !readCollapsed();
+  try { localStorage.setItem(COLLAPSE_KEY, String(fallbackCollapsed)); } catch {}
+  window.dispatchEvent(new Event(COLLAPSE_EVENT));
+}
+const expandedOnServer = () => false;
+
+function RailLabel({ children, collapsed }: { children: string; collapsed: boolean }) {
   return (
-    <div className="flex-none px-2 pb-1 pt-1 font-mono text-[9.5px] font-medium uppercase tracking-[0.16em] text-[rgba(241,236,225,0.42)]">
+    <div className={collapsed ? "sr-only" : "flex-none px-2 py-1 font-sans text-label font-semibold text-sidebar-text-dim"}>
       {children}
     </div>
   );
 }
 
-function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
+function NavLink({ item, pathname, collapsed }: { item: NavItem; pathname: string; collapsed: boolean }) {
   const active = isActive(pathname, item.href);
   const Icon = item.icon;
+  const classes = `flex h-8 flex-none items-center rounded-md font-sans text-body font-medium transition-colors ${collapsed ? "justify-center" : "gap-2 px-2.5"}`;
+  const title = `${item.label}${item.badge ? ` · ${item.badge} unread` : ""}${item.tag ? ` · ${item.tag}` : ""}`;
 
-  // Disabled ("soon") items render as a non-clickable row instead of a dead link.
-  if (item.disabled) {
-    return (
-      <div
-        className="flex flex-none cursor-default items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium text-[rgba(241,236,225,0.4)]"
-        aria-disabled
-      >
-        <Icon className="size-3.5 flex-none text-[rgba(241,236,225,0.4)]" strokeWidth={1.5} />
-        <span className="flex-1 truncate">{item.label}</span>
-        {item.tag && (
-          <span className="font-mono text-[9px] text-[rgba(241,236,225,0.32)]">{item.tag}</span>
-        )}
-      </div>
-    );
-  }
+  if (item.disabled) return (
+    <div title={title} aria-label={title} aria-disabled="true" className={`${classes} cursor-default text-sidebar-text-dim`}>
+      <Icon aria-hidden className="size-4 flex-none" strokeWidth={1.5} />
+      {!collapsed && <><span className="flex-1 truncate">{item.label}</span>{item.tag && <span className="text-meta">{item.tag}</span>}</>}
+    </div>
+  );
 
   return (
-    <Link
-      href={item.href}
-      className={[
-        "flex flex-none items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors",
-        active
-          ? "bg-[rgba(191,208,166,0.18)] font-semibold text-[#FBFAF4]"
-          : "text-[rgba(241,236,225,0.82)] hover:bg-[rgba(255,255,255,0.07)] hover:text-[#FBFAF4]",
-      ].join(" ")}
-    >
-      <Icon
-        className={active ? "size-3.5 flex-none text-[#BFD0A6]" : "size-3.5 flex-none text-[rgba(241,236,225,0.78)]"}
-        strokeWidth={1.5}
-      />
-      <span className="flex-1 truncate">{item.label}</span>
-      {item.badge && (
-        <span className="rounded-full bg-[rgba(191,208,166,0.22)] px-1.5 font-mono text-[9px] font-semibold text-[#E7EFD6]">
-          {item.badge}
-        </span>
-      )}
-      {item.tag && (
-        <span className="font-mono text-[9px] text-[rgba(241,236,225,0.38)]">{item.tag}</span>
-      )}
+    <Link href={item.href} title={title} aria-label={collapsed ? title : undefined} aria-current={active ? "page" : undefined}
+      className={`${classes} focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sidebar-sage ${active ? "bg-sidebar-active font-semibold text-card" : "text-sidebar-text hover:bg-sidebar-active hover:text-card"}`}>
+      <Icon aria-hidden className={`size-4 flex-none ${active ? "text-sidebar-sage" : ""}`} strokeWidth={1.5} />
+      {!collapsed && <>
+        <span className="flex-1 truncate">{item.label}</span>
+        {item.badge && <span className="rounded bg-sidebar-active px-1.5 text-meta font-semibold text-sidebar-sage">{item.badge}</span>}
+        {item.tag && <span className="text-meta text-sidebar-text-dim">{item.tag}</span>}
+      </>}
     </Link>
   );
 }
@@ -173,8 +175,30 @@ export type SidebarUser = {
 };
 
 /** Forest-green primary navigation panel. */
-export function Sidebar({ user }: { user: SidebarUser }) {
+export function Sidebar({ user, collapsible = false }: { user: SidebarUser; collapsible?: boolean }) {
+  const storedCollapsed = useSyncExternalStore(subscribeCollapsed, readCollapsed, expandedOnServer);
+  const collapsed = collapsible && storedCollapsed;
+
+  useEffect(() => {
+    if (!collapsible) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "[" || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || event.defaultPrevented) return;
+      if (!window.matchMedia("(min-width: 1024px)").matches) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]')) return;
+      event.preventDefault();
+      toggleCollapsed();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [collapsible]);
   const pathname = usePathname();
+  // Keep the current page's row in view: on a short screen the list scrolls,
+  // and a highlighted row cut off at the bottom edge reads as a stray bar.
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    listRef.current?.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView({ block: "nearest" });
+  }, [pathname]);
   const perms = user.staffPerms;
   const visible = (items: NavItem[]) => (perms ? items.filter((i) => staffMayOpen(perms, i.href)) : items);
   const work = visible(WORK);
@@ -254,72 +278,54 @@ export function Sidebar({ user }: { user: SidebarUser }) {
 
   const accountRow = (
     <>
-      <span className="inline-flex size-[26px] flex-none items-center justify-center rounded-full border border-[rgba(191,208,166,0.5)] bg-[rgba(191,208,166,0.18)] font-mono text-[10px] font-semibold text-[#E7EFD6]">
+      <span className="inline-flex size-6 flex-none items-center justify-center rounded-full border border-sidebar-sage/50 bg-sidebar-active text-label font-semibold text-sidebar-sage">
         {user.initials}
       </span>
-      <div className="min-w-0 flex-1">
-        <div className="truncate font-serif text-[13.5px] font-semibold text-paper">{user.name}</div>
-        <div className="truncate text-[11px] text-[rgba(241,236,225,0.5)]">{user.roleLabel}</div>
-      </div>
+      {!collapsed && <div className="min-w-0 flex-1">
+        <div className="truncate text-body font-semibold text-paper">{user.name}</div>
+        <div className="truncate text-meta text-sidebar-text-dim">{user.roleLabel}</div>
+      </div>}
     </>
   );
 
   return (
-    <nav className="flex h-full w-[232px] flex-none flex-col bg-sidebar px-3 py-3.5">
-      <div className="flex-none px-1.5 pb-3.5 pt-0.5">
-        <Link href="/today">
-          <Logo onDark />
+    <nav aria-label="Main navigation" data-collapsed={collapsed} className={`flex h-full flex-none flex-col bg-sidebar py-3 ${collapsed ? "w-14 px-2" : "w-[216px] px-3"}`}>
+      <div className={`flex flex-none items-center pb-3 ${collapsed ? "flex-col gap-2" : "justify-between gap-1 px-1"}`}>
+        <Link href="/today" title="SJC OS · Today" aria-label="SJC OS · Today" className="rounded focus-visible:outline-2 focus-visible:outline-sidebar-sage">
+          <Logo onDark compact={collapsed} />
         </Link>
+        {collapsible && <button type="button" onClick={toggleCollapsed} aria-expanded={!collapsed}
+          title={collapsed ? "Expand navigation ([)" : "Collapse navigation ([)"}
+          aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
+          className="inline-flex size-7 flex-none items-center justify-center rounded-md text-sidebar-text-dim hover:bg-sidebar-active hover:text-paper focus-visible:outline-2 focus-visible:outline-sidebar-sage">
+          {collapsed ? <PanelLeftOpen aria-hidden className="size-4" strokeWidth={1.5} /> : <PanelLeftClose aria-hidden className="size-4" strokeWidth={1.5} />}
+        </button>}
       </div>
 
-      {/* Link list scrolls inside the green panel so the rows can never spill
-          past it (which would paint them on the cream body) and so the account
-          row below stays pinned and visible at any viewport height. */}
-      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto [scrollbar-color:rgba(241,236,225,0.25)_transparent] [scrollbar-width:thin]">
-        <div className="flex-none pt-1.5" />
-
-        <RailLabel>Work</RailLabel>
-        {work.map((item) => (
-          <NavLink
-            key={item.href}
-            item={{ ...item, badge: badgeFor(item.href) }}
-            pathname={pathname}
-          />
-        ))}
-
-        {tools.length > 0 && (
-          <>
-            <div className="my-2 h-px flex-none bg-[rgba(255,255,255,0.09)]" />
-            <RailLabel>Tools</RailLabel>
-            {tools.map((item) => (
-              <NavLink key={item.href} item={item} pathname={pathname} />
-            ))}
-          </>
-        )}
-
-        {external.length > 0 && (
-          <>
-            <div className="my-2 h-px flex-none bg-[rgba(255,255,255,0.09)]" />
-            <RailLabel>External</RailLabel>
-            {external.map((item) => (
-              <NavLink key={item.href} item={item} pathname={pathname} />
-            ))}
-          </>
-        )}
+      <div ref={listRef} className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto [scrollbar-color:var(--sidebar-text-dim)_transparent] [scrollbar-width:thin]">
+        <RailLabel collapsed={collapsed}>Work</RailLabel>
+        {work.map((item) => <NavLink key={item.href} item={{ ...item, badge: badgeFor(item.href) }} pathname={pathname} collapsed={collapsed} />)}
+        {tools.length > 0 && <>
+          <div className="my-2 h-px flex-none bg-sidebar-text-dim/20" />
+          <RailLabel collapsed={collapsed}>Tools</RailLabel>
+          {tools.map((item) => <NavLink key={item.href} item={item} pathname={pathname} collapsed={collapsed} />)}
+        </>}
+        {external.length > 0 && <>
+          <div className="my-2 h-px flex-none bg-sidebar-text-dim/20" />
+          <RailLabel collapsed={collapsed}>External</RailLabel>
+          {external.map((item) => <NavLink key={item.href} item={item} pathname={pathname} collapsed={collapsed} />)}
+        </>}
       </div>
 
-      <div className="mt-2.5 flex flex-none items-center gap-2 border-t border-[rgba(255,255,255,0.1)] px-1.5 pb-[max(0.125rem,env(safe-area-inset-bottom))] pt-2">
-        {/* Settings is owner-only; a staff member's account row is plain text. */}
+      <div className={`mt-3 flex flex-none items-center gap-2 border-t border-sidebar-text-dim/20 pb-[max(0.125rem,env(safe-area-inset-bottom))] pt-2 ${collapsed ? "flex-col" : "px-1"}`}>
         {perms ? (
-          <div className="flex min-w-0 flex-1 items-center gap-2">{accountRow}</div>
+          <div title={`${user.name} · ${user.roleLabel}`} className="flex min-w-0 flex-1 items-center gap-2">{accountRow}</div>
         ) : (
-          <Link href="/settings" className="flex min-w-0 flex-1 items-center gap-2">
-            {accountRow}
-          </Link>
+          <Link href="/settings" title={`${user.name} · Settings`} aria-label={collapsed ? `${user.name} · Settings` : undefined} className="flex min-w-0 flex-1 items-center gap-2 rounded focus-visible:outline-2 focus-visible:outline-sidebar-sage">{accountRow}</Link>
         )}
         <form action={logout} className="flex-none">
-          <button type="submit" aria-label="Log out" className="block p-1">
-            <LogOut className="size-3.5 text-[rgba(241,236,225,0.55)] hover:text-paper" strokeWidth={1.5} />
+          <button type="submit" aria-label="Log out" title="Log out" className="block rounded p-1 text-sidebar-text-dim hover:text-paper focus-visible:outline-2 focus-visible:outline-sidebar-sage">
+            <LogOut aria-hidden className="size-4" strokeWidth={1.5} />
           </button>
         </form>
       </div>

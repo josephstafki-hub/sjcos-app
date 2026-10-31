@@ -1,14 +1,14 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Card, Chip, Eyebrow } from "@/components/ui";
+import { Chip, Eyebrow } from "@/components/ui";
 import { CAPABILITY_STATES, type CapabilityReport, type CapabilityState } from "@/lib/measure/capabilities";
 import { updateCapability } from "@/lib/measure/actions";
 import { runAction } from "@/lib/run-action";
 
 const btnCls =
-  "rounded-md border border-ink-4 px-2.5 py-1 text-[12px] font-medium text-ink-2 transition-colors hover:bg-paper-2 disabled:cursor-not-allowed disabled:opacity-40";
-const inputCls = "w-full rounded-md border border-rule bg-paper px-2 py-1 text-[12px] text-ink outline-none focus:border-accent";
+  "rounded-md border border-ink-4 px-2.5 py-1 text-meta font-medium text-ink-2 transition-colors hover:bg-paper-2 disabled:cursor-not-allowed disabled:opacity-40";
+const inputCls = "w-full rounded-md border border-rule bg-paper px-2 py-1 text-meta text-ink outline-none focus:border-accent";
 
 const STATE_LABEL: Record<CapabilityState, string> = {
   implemented: "Implemented",
@@ -17,8 +17,14 @@ const STATE_LABEL: Record<CapabilityState, string> = {
   proven: "Proven",
 };
 
-function StateChip({ on, label }: { on: boolean; label: string }) {
-  return on ? <Chip kind="money">{label}</Chip> : <Chip kind="ghost">{label}</Chip>;
+function StateSummary({ row }: { row: CapabilityReport["rows"][number] }) {
+  const furthest = [...CAPABILITY_STATES].reverse().find(state => row[state]);
+  return <div className="space-y-1">
+    <Chip kind={furthest === "proven" ? "money" : "ghost"}>{furthest ? STATE_LABEL[furthest] : "Not implemented"}</Chip>
+    <ol aria-label="Capability progress" className="flex gap-1">
+      {CAPABILITY_STATES.map(state => <li key={state} title={`${STATE_LABEL[state]}: ${row[state] ? "recorded" : "not recorded"}`} className={`h-1.5 w-5 rounded-full ${row[state] ? "bg-accent" : "bg-paper-3"}`}><span className="sr-only">{STATE_LABEL[state]}: {row[state] ? "recorded" : "not recorded"}</span></li>)}
+    </ol>
+  </div>;
 }
 
 export function CapabilitiesTable({ report, canEdit }: { report: CapabilityReport; canEdit: boolean }) {
@@ -44,42 +50,34 @@ export function CapabilitiesTable({ report, canEdit }: { report: CapabilityRepor
 
   return (
     <div className="flex flex-col gap-6">
-      <Card kind="soft" className="px-4 py-3 text-[12px] leading-relaxed text-ink-3">
-        {report.caveat} Counts: {CAPABILITY_STATES.map((s) => `${STATE_LABEL[s].toLowerCase()} ${report.counts[s]}`).join(" · ")} of {report.counts.total}.
-      </Card>
       {groups.map((g) => (
         <section key={g.title}>
           <Eyebrow>{g.title}</Eyebrow>
-          <div className="mt-2 overflow-x-auto">
-            <table className="w-full min-w-[720px] border-collapse text-[13px]">
-              <thead>
-                <tr className="border-b border-rule text-left text-[11px] uppercase tracking-wide text-ink-3">
+          <div className="mt-2 @xl/page:overflow-x-auto">
+            <table className="w-full border-collapse text-body @xl/page:min-w-[520px] @max-xl/page:block">
+              <thead className="@max-xl/page:hidden">
+                <tr className="border-b border-rule text-left text-meta text-ink-3">
                   <th className="py-2 pr-3">Key</th>
                   <th className="py-2 pr-3">Capability</th>
-                  <th className="py-2 pr-3">Owner</th>
                   <th className="py-2 pr-3">States</th>
                   <th className="py-2 pr-3">Evidence</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="@max-xl/page:block">
                 {g.rows.map((r) => (
-                  <tr key={r.key} className="border-b border-rule-soft align-top">
-                    <td className="py-2 pr-3 font-mono text-[12px] text-ink-2">{r.key}</td>
+                  <tr key={r.key} className="border-b border-rule-soft align-top @max-xl/page:grid @max-xl/page:grid-cols-[3.5rem_minmax(0,1fr)] @max-xl/page:gap-x-2 @max-xl/page:py-2">
+                    <td className="py-2 pr-3 text-meta text-ink-2">{r.key}</td>
                     <td className="py-2 pr-3 text-ink">
                       {r.title}
-                      {!r.in_catalogue ? <span className="ml-2 text-[11px] text-ink-4">(not in catalogue)</span> : null}
-                      {r.notes ? <div className="mt-1 text-[12px] text-ink-3">{r.notes}</div> : null}
+                      {!r.in_catalogue ? <span className="ml-2 text-meta text-ink-3">(not in catalogue)</span> : null}
+                      {r.owner ? <div className="mt-0.5 text-meta text-ink-3">{r.owner}</div> : null}
+                      {r.notes ? <div className="mt-1 text-meta text-ink-3">{r.notes}</div> : null}
                     </td>
-                    <td className="py-2 pr-3 text-[12px] text-ink-3">{r.owner || "—"}</td>
-                    <td className="py-2 pr-3">
-                      <div className="flex flex-wrap gap-1">
-                        {CAPABILITY_STATES.map((s) => (
-                          <StateChip key={s} on={r[s]} label={STATE_LABEL[s]} />
-                        ))}
-                      </div>
+                    <td className="w-44 py-2 pr-3 @max-xl/page:col-start-2 @max-xl/page:w-auto @max-xl/page:py-1">
+                      <StateSummary row={r} />
                     </td>
-                    <td className="py-2 pr-3">
-                      <div className="flex items-center gap-2">
+                    <td className="py-2 pr-3 @max-xl/page:col-start-2 @max-xl/page:py-1">
+                      <div className="flex flex-col items-start gap-1 whitespace-nowrap @4xl/page:flex-row @4xl/page:items-center @4xl/page:gap-2">
                         <button type="button" className={btnCls} onClick={() => setOpen(open === r.key ? null : r.key)}>
                           {r.evidence.length} entr{r.evidence.length === 1 ? "y" : "ies"}
                         </button>
@@ -90,13 +88,13 @@ export function CapabilitiesTable({ report, canEdit }: { report: CapabilityRepor
                         ) : null}
                       </div>
                       {open === r.key ? (
-                        <ul className="mt-2 flex flex-col gap-1 text-[12px] text-ink-2">
-                          {r.evidence.length === 0 ? <li className="text-ink-4">No evidence recorded — every state is a claim until one is.</li> : null}
+                        <ul className="mt-2 flex flex-col gap-1 text-meta text-ink-2">
+                          {r.evidence.length === 0 ? <li className="text-ink-3">No evidence recorded — every state is a claim until one is.</li> : null}
                           {r.evidence.map((e, i) => (
                             <li key={i}>
-                              <span className="font-mono text-ink-3">{e.date}</span> · <span className="font-mono">{e.version}</span> ·{" "}
+                              <span className="text-ink-3">{e.date}</span> · <span className="font-mono">{e.version}</span> ·{" "}
                               {(e.states ?? []).join(", ") || "—"} · {e.note}
-                              {e.by ? <span className="text-ink-4"> — {e.by}</span> : null}
+                              {e.by ? <span className="text-ink-3"> — {e.by}</span> : null}
                             </li>
                           ))}
                         </ul>

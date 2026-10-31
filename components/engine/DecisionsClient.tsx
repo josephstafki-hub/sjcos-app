@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Card, Chip, Eyebrow, toast } from "@/components/ui";
+import { Card, Chip, Eyebrow, Button, toast } from "@/components/ui";
 import { runAction } from "@/lib/run-action";
+import { laneLabel } from "@/lib/daily-work-presentation";
 import { normalizeSummary } from "@/lib/decisions/summary";
 import {
   activatePolicyAction,
@@ -43,9 +44,9 @@ export interface DecisionView {
   authorityReason: string | null;
 }
 
-const btn = "rounded-md border border-ink-4 px-2.5 py-1 text-[12px] font-medium text-ink-2 transition-colors hover:bg-paper-2 disabled:cursor-not-allowed disabled:opacity-40";
-const primary = "rounded-md border border-accent bg-accent-soft px-2.5 py-1 text-[12px] font-semibold text-accent-2 hover:bg-accent-soft/70 disabled:opacity-50";
-const inputCls = "w-full rounded-md border border-rule bg-paper px-3 py-2 text-[13px] text-ink outline-none focus:border-accent";
+const btn = "rounded-md border border-ink-4 px-2.5 py-1 text-meta font-medium text-ink-2 transition-colors hover:bg-paper-2 disabled:cursor-not-allowed disabled:opacity-40";
+const primary = "rounded-md border border-accent bg-accent-soft px-2.5 py-1 text-meta font-semibold text-accent-2 hover:bg-accent-soft/70 disabled:opacity-50";
+const inputCls = "w-full rounded-md border border-rule bg-paper px-3 py-2 text-body text-ink outline-none focus:border-accent";
 
 const usd = (c: number) => `$${(c / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 function fmt(iso: string | null) {
@@ -56,7 +57,7 @@ function fmt(iso: string | null) {
 
 function KindChip({ d }: { d: DecisionView }) {
   if (d.status !== "pending") return <Chip kind={d.status === "approved" || d.status === "consumed" ? "money" : "ghost"}>{d.status}</Chip>;
-  if (d.heldUntil && new Date(d.heldUntil).getTime() > Date.now()) return <Chip kind="ghost">On hold until {fmt(d.heldUntil)}</Chip>;
+  if (d.heldUntil && new Date(d.heldUntil).getTime() > Date.now()) return <><Chip kind="ghost">On hold</Chip><span className="text-meta text-ink-2">Until {fmt(d.heldUntil)}</span></>;
   return <Chip kind="flag">Waiting on you</Chip>;
 }
 
@@ -64,8 +65,8 @@ function Section({ label, items }: { label: string; items: string[] }) {
   if (!items.length) return null;
   return (
     <div>
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">{label}</div>
-      <ul className="mt-0.5 list-disc pl-4 text-[13px] leading-relaxed text-ink-2">
+      <div className="text-meta font-semibold text-ink-3">{label}</div>
+      <ul className="mt-0.5 list-disc pl-4 text-body leading-relaxed text-ink-2">
         {items.map((x, i) => (
           <li key={i}>{x}</li>
         ))}
@@ -82,8 +83,8 @@ function Preview({ d }: { d: DecisionView }) {
     <div className="flex flex-col gap-3">
       {recipients.length > 0 && (
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Recipients</div>
-          <ul className="mt-0.5 text-[13px] leading-relaxed text-ink-2">
+          <div className="text-meta font-semibold text-ink-3">Recipients</div>
+          <ul className="mt-0.5 text-body leading-relaxed text-ink-2">
             {recipients.map((r, i) => (
               <li key={i}>
                 {r.name}
@@ -94,12 +95,12 @@ function Preview({ d }: { d: DecisionView }) {
           </ul>
         </div>
       )}
-      {!recipients.length && d.recipient ? <div className="text-[13px] text-ink-2">To: {d.recipient}</div> : null}
-      {d.amountCents != null ? <div className="text-[13px] text-ink-2">Amount: {usd(d.amountCents)}</div> : null}
+      {!recipients.length && d.recipient ? <div className="text-body text-ink-2">To: {d.recipient}</div> : null}
+      {d.amountCents != null ? <div className="text-body text-ink-2">Amount: {usd(d.amountCents)}</div> : null}
       {s.notes.map((n, i) => (
         <div key={i}>
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">{n.label}</div>
-          <p className="mt-0.5 whitespace-pre-line text-[13px] leading-relaxed text-ink-2">{n.text}</p>
+          <div className="text-meta font-semibold text-ink-3">{n.label}</div>
+          <p className="mt-0.5 whitespace-pre-line text-body leading-relaxed text-ink-2">{n.text}</p>
         </div>
       ))}
       <Section label="Included" items={s.inclusions} />
@@ -112,12 +113,12 @@ function Preview({ d }: { d: DecisionView }) {
       <Section label="Missing or open" items={s.gaps} />
       <Section label="Since last review" items={s.changes} />
       {s.effect ? (
-        <div className="rounded-md border border-rule bg-paper-2 p-2 text-[13px] leading-relaxed text-ink">
+        <div className="rounded-md border border-rule bg-paper-2 p-2 text-body leading-relaxed text-ink">
           <span className="font-semibold">If approved:</span> {s.effect}
         </div>
       ) : null}
       {d.href ? (
-        <a href={d.href} className="text-[12px] font-medium text-accent-2 underline">
+        <a href={d.href} className="text-meta font-medium text-accent-2 underline">
           Open the full artifact
         </a>
       ) : null}
@@ -146,14 +147,14 @@ function DecisionCard({ d, open, onToggle, owner }: { d: DecisionView; open: boo
           <div className="flex flex-wrap items-center gap-2">
             <KindChip d={d} />
             <Chip kind="ghost">{d.kind.replace(/_/g, " ")}</Chip>
-            <span className="text-[11px] text-ink-3">asked by {d.requestedBy} · {fmt(d.createdAt)}</span>
+            <span className="text-meta text-ink-3">asked by {d.requestedBy} · {fmt(d.createdAt)}</span>
           </div>
-          <div className="mt-1 text-[14px] font-medium text-ink">{d.title}</div>
-          {normalizeSummary(d.summary).effect && !open ? <div className="mt-0.5 line-clamp-2 text-[12px] text-ink-3">{normalizeSummary(d.summary).effect}</div> : null}
-          {d.holdNote && live ? <div className="mt-0.5 text-[12px] text-ink-3">Hold note: {d.holdNote}</div> : null}
-          {d.decisionNote && !live ? <div className="mt-0.5 text-[12px] text-ink-3">{d.decisionNote}</div> : null}
-          {!live && d.decidedAt ? <div className="mt-0.5 text-[11px] text-ink-3">{d.status} via {d.decidedVia ?? "app"} · {fmt(d.decidedAt)}</div> : null}
-          {live && !d.canResolve && d.authorityReason ? <div className="mt-0.5 text-[12px] text-flag">{d.authorityReason}</div> : null}
+          <div className="mt-1 text-subheading font-medium text-ink">{d.title}</div>
+          {normalizeSummary(d.summary).effect && !open ? <div className="mt-0.5 line-clamp-2 text-meta text-ink-3">{normalizeSummary(d.summary).effect}</div> : null}
+          {d.holdNote && live ? <div className="mt-0.5 text-meta text-ink-3">Hold note: {d.holdNote}</div> : null}
+          {d.decisionNote && !live ? <div className="mt-0.5 text-meta text-ink-3">{d.decisionNote}</div> : null}
+          {!live && d.decidedAt ? <div className="mt-0.5 text-meta text-ink-3">{d.status} via {d.decidedVia ?? "app"} · {fmt(d.decidedAt)}</div> : null}
+          {live && !d.canResolve && d.authorityReason ? <div className="mt-0.5 text-meta text-flag">{d.authorityReason}</div> : null}
         </div>
         <button type="button" className={btn} onClick={onToggle}>
           {open ? "Hide preview" : "Full preview"}
@@ -171,6 +172,9 @@ function DecisionCard({ d, open, onToggle, owner }: { d: DecisionView; open: boo
           <button type="button" className={primary} disabled={pending || !d.canResolve} onClick={() => run(() => approveDecisionAction(d.id, d.contentHash))}>
             Approve
           </button>
+          <details className="relative">
+            <summary aria-label={`More actions for ${d.title}`} title="More actions" className="cursor-pointer list-none rounded-md border border-rule px-3 py-2 text-body text-ink-2">…</summary>
+            <div className="absolute right-0 z-10 mt-1 flex min-w-48 flex-col gap-2 rounded-lg border border-rule bg-card p-2 shadow-pop">
           <button type="button" className={btn} disabled={pending || !d.canResolve} onClick={() => setMode(mode === "changes" ? "none" : "changes")}>
             Request changes
           </button>
@@ -185,13 +189,15 @@ function DecisionCard({ d, open, onToggle, owner }: { d: DecisionView; open: boo
               Revoke
             </button>
           ) : null}
-          <span className="basis-full text-[11px] text-ink-3">Expires {fmt(d.expiresAt)}</span>
+            </div>
+          </details>
+          <span className="basis-full text-meta text-ink-3">Expires {fmt(d.expiresAt)}</span>
         </div>
       )}
 
       {live && mode !== "none" && (
         <form
-          className="mt-2 flex flex-col gap-2 sm:flex-row"
+          className="mt-2 flex flex-col gap-2 @xl/page:flex-row"
           onSubmit={(e) => {
             e.preventDefault();
             if (mode === "changes") run(() => requestChangesAction(d.id, note, d.contentHash));
@@ -231,23 +237,27 @@ function LaneSwitches({ lanes, pauses }: { lanes: string[]; pauses: { lane: stri
   const paused = new Map(pauses.map((p) => [p.lane, p]));
   return (
     <Card className="p-3">
-      <div className="text-[12px] text-ink-3">
+      <div className="text-meta text-ink-3">
         A paused lane stops NEW dispatch on it — nothing is lost, held sends wake when it reopens. Anything already in an
-        unknown state stays held for reconciliation either way. &ldquo;all&rdquo; stops everything.
+        unknown state stays held for reconciliation either way. All lanes stops everything.
       </div>
       <input className={`${inputCls} mt-2`} placeholder="Reason (shown on every held send)" value={reason} onChange={(e) => setReason(e.target.value)} />
-      <div className="mt-2 flex flex-wrap gap-2">
-        {lanes.map((lane) => {
+      <div className="mt-3 divide-y divide-rule-soft">
+        {[...lanes].sort((a, b) => Number(paused.has(b)) - Number(paused.has(a))).map((lane) => {
           const p = paused.get(lane);
-          return p ? (
-            <button key={lane} type="button" className={`${btn} border-flag text-flag`} disabled={pending} onClick={() => run(() => resumeLaneAction(lane))} title={`${p.reason} · ${p.paused_by} · ${fmt(p.paused_at)}`}>
-              Resume {lane}
-            </button>
-          ) : (
-            <button key={lane} type="button" className={btn} disabled={pending} onClick={() => run(() => pauseLaneAction(lane, reason))}>
-              Pause {lane}
-            </button>
-          );
+          const stopped = p ?? paused.get("all");
+          return <div key={lane} className="flex flex-wrap items-center gap-3 py-3">
+            <span className="min-w-0 flex-1 text-body font-semibold text-ink">{laneLabel(lane)}</span>
+            <Chip kind={stopped ? "flag" : "money"}>{stopped ? "Paused" : "Running"}</Chip>
+            {p ? <Button variant="secondary" size="sm" disabled={pending} onClick={() => run(() => resumeLaneAction(lane))}>Resume</Button> : <details className="relative">
+              <summary aria-label={`More controls for ${lane}`} title="Lane controls" className="cursor-pointer list-none rounded-md border border-rule px-3 py-2 text-body">…</summary>
+              <div className="absolute right-0 z-10 mt-1 min-w-48 rounded-lg border border-rule bg-card p-2 shadow-pop">
+                <Button variant="ghost" size="sm" disabled={pending || Boolean(stopped)} onClick={() => run(() => pauseLaneAction(lane, reason))}>Pause {lane === "all" ? "everything" : "lane"}</Button>
+                {stopped && <p className="text-meta text-ink-2">Resume All lanes to reopen this lane.</p>}
+              </div>
+            </details>}
+            {stopped && <p className="basis-full text-meta text-ink-2">{stopped.reason || "Paused by owner"} · {stopped.paused_by} · {fmt(stopped.paused_at)}</p>}
+          </div>;
         })}
       </div>
     </Card>
@@ -290,16 +300,19 @@ function PolicySwitches({ policies }: { policies: PolicyVersionView[] }) {
         return (
           <Card key={key} className="p-3">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="font-mono text-[12px] font-semibold text-ink">{key}</span>
+              <span className="text-body font-semibold text-ink">{key}</span>
               <Chip kind={active ? "money" : "ghost"} dot>
                 {active ? `on · v${active.version}` : "off"}
               </Chip>
               {held > 0 && <Chip kind="flag">{held} send{held === 1 ? "" : "s"} held for it</Chip>}
               <div className="ml-auto flex gap-2">
                 {active ? (
-                  <button type="button" className={`${btn} border-flag text-flag`} disabled={pending} onClick={() => run(() => disablePolicyAction(key))}>
-                    Turn off
-                  </button>
+                  <details className="relative">
+                    <summary aria-label={`More controls for ${key}`} title="Policy controls" className="cursor-pointer list-none rounded-md border border-rule px-3 py-2 text-body">…</summary>
+                    <div className="absolute right-0 z-10 min-w-40 rounded-lg border border-rule bg-card p-2 shadow-pop">
+                      <Button variant="ghost" size="sm" disabled={pending} onClick={() => run(() => disablePolicyAction(key))}>Turn off</Button>
+                    </div>
+                  </details>
                 ) : null}
                 {latest && latest.state !== "active" && (
                   <button type="button" className={btn} disabled={pending} onClick={() => run(() => activatePolicyAction(key, latest.version))}>
@@ -308,18 +321,18 @@ function PolicySwitches({ policies }: { policies: PolicyVersionView[] }) {
                 )}
               </div>
             </div>
-            {(active ?? latest)?.notes && <p className="mt-1.5 text-[12px] leading-relaxed text-ink-3">{(active ?? latest)!.notes}</p>}
+            {(active ?? latest)?.notes && <p className="mt-1.5 text-body leading-relaxed text-ink-3">{(active ?? latest)!.notes}</p>}
             <details className="mt-1.5">
-              <summary className="cursor-pointer text-[11px] text-ink-3">Versions and settings</summary>
+              <summary className="cursor-pointer text-meta text-ink-3">Versions and settings</summary>
               <div className="mt-1.5 flex flex-col gap-1.5">
                 {versions.map((v) => (
                   <div key={v.version} className="rounded-md border border-rule p-2">
-                    <div className="flex items-center gap-2 text-[11px] text-ink-3">
+                    <div className="flex items-center gap-2 text-meta text-ink-3">
                       <span className="font-mono">v{v.version}</span>
                       <Chip kind={POLICY_CHIP[v.state]}>{v.state}</Chip>
                       <span>{v.effectiveFrom ? `since ${fmt(v.effectiveFrom)}` : `by ${v.createdBy}`}</span>
                     </div>
-                    <pre className="mt-1 overflow-x-auto whitespace-pre-wrap font-mono text-[11px] text-ink-2">{JSON.stringify(v.config, null, 2)}</pre>
+                    <pre className="mt-1 overflow-x-auto whitespace-pre-wrap font-mono text-meta text-ink-2">{JSON.stringify(v.config, null, 2)}</pre>
                   </div>
                 ))}
               </div>
@@ -328,7 +341,7 @@ function PolicySwitches({ policies }: { policies: PolicyVersionView[] }) {
         );
       })}
       {keys.length === 0 && (
-        <Card kind="dashed" className="p-4 text-center text-[12px] text-ink-3">
+        <Card kind="dashed" className="p-4 text-center text-body text-ink-3">
           No policies yet.
         </Card>
       )}
@@ -366,13 +379,23 @@ export function DecisionsClient({
   );
   return (
     <div className="flex flex-col gap-6">
+      {owner && (
+        <section>
+          <Eyebrow>Kill switches</Eyebrow>
+          {pauses.length > 0 ? <div className="mt-2"><LaneSwitches lanes={lanes.filter(lane => pauses.some(p => p.lane === lane))} pauses={pauses} /></div> : null}
+          <details className="mt-2">
+            <summary className="cursor-pointer text-meta text-ink-3">Other lane controls</summary>
+            <LaneSwitches lanes={lanes.filter(lane => !pauses.some(p => p.lane === lane))} pauses={pauses} />
+          </details>
+        </section>
+      )}
       <section>
         <Eyebrow>Waiting on you</Eyebrow>
         <div className="mt-2 flex flex-col gap-2">
           {ready.map(card)}
           {ready.length === 0 && (
             <Card kind="dashed" className="p-6 text-center">
-              <div className="text-[13px] text-ink-3">Nothing is waiting for a decision.</div>
+              <div className="text-body text-ink-3">Nothing is waiting for a decision.</div>
             </Card>
           )}
         </div>
@@ -384,17 +407,9 @@ export function DecisionsClient({
         </section>
       )}
       {owner && (
-        <section>
-          <Eyebrow>Kill switches</Eyebrow>
-          <div className="mt-2">
-            <LaneSwitches lanes={lanes} pauses={pauses} />
-          </div>
-        </section>
-      )}
-      {owner && (
         <section id="policies">
           <Eyebrow>Policies</Eyebrow>
-          <p className="mt-1 max-w-[680px] text-[12px] text-ink-3">
+          <p className="mt-1 max-w-[680px] text-body text-ink-3">
             A policy that is on lets that kind of automatic action go out without a card each time, inside its settings. Off, the same
             action waits for you as a card. Only you can turn one on.
           </p>

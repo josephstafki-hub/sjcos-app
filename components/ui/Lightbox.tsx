@@ -327,7 +327,7 @@ export function Lightbox({
           <button
             type="button"
             onClick={() => step(-1)}
-            aria-label="Previous (←)"
+            aria-label="Previous (←)" title="Previous (←)"
             className="absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-ink/40 p-2 text-paper/80 hover:bg-ink/70 hover:text-paper"
           >
             <ChevronLeft className="size-7" strokeWidth={1.5} />
@@ -371,7 +371,7 @@ export function Lightbox({
           <button
             type="button"
             onClick={() => step(1)}
-            aria-label="Next (→)"
+            aria-label="Next (→)" title="Next (→)"
             className="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-ink/40 p-2 text-paper/80 hover:bg-ink/70 hover:text-paper"
           >
             <ChevronRight className="size-7" strokeWidth={1.5} />

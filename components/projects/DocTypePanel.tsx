@@ -27,6 +27,7 @@ import {
   updateDocDraftFieldsAction,
   renderDocDraftAction,
   submitDocDraftForSignatureAction,
+  retryDocDraftSignatureDeliveryAction,
   prepareInPersonSigningAction,
   setDocDraftVisibilityAction,
   voidDocDraftAction,
@@ -34,6 +35,7 @@ import {
   unlockDocDraftForEditAction,
   draftDocNarrative,
 } from "@/lib/actions/doc-drafts";
+import type { SignatureDelivery } from "@/lib/esign-types";
 import { runAction } from "@/lib/run-action";
 
 export interface DocDraftItem {
@@ -60,6 +62,7 @@ export interface DocDraftItem {
   sentAtLabel: string | null;
   declineReason: string | null;
   manifest: TemplateManifest;
+  delivery?: SignatureDelivery;
 }
 
 const STATUS_KIND: Record<string, "money" | "accent" | "flag" | "ghost"> = {
@@ -72,7 +75,7 @@ const STATUS_KIND: Record<string, "money" | "accent" | "flag" | "ghost"> = {
 const STATUS_LABEL: Record<string, string> = {
   draft: "Draft",
   rendered: "Rendered",
-  submitted: "Sent for signature",
+  submitted: "Awaiting signature",
   signed: "Signed",
   void: "Voided",
 };
@@ -104,6 +107,7 @@ export interface DocSourcePicker {
 export function DocTypePanel({
   slug,
   leadSlug,
+  projectSlug,
   templateKey,
   manifest,
   drafts,
@@ -114,6 +118,8 @@ export function DocTypePanel({
 }: {
   slug?: string;
   leadSlug?: string;
+  /** Converted project, for the lead Formal Estimate handoff. */
+  projectSlug?: string;
   templateKey: string;
   manifest: TemplateManifest;
   drafts: DocDraftItem[];
@@ -215,6 +221,32 @@ export function DocTypePanel({
     });
   }
 
+  function retry(d: DocDraftItem) {
+    setNotice(null);
+    startTransition(async () => {
+      const res = await runAction(() => retryDocDraftSignatureDeliveryAction(d.id), { fallback: "Couldn't retry the signature email." });
+      if (res.ok) setNotice(res.delivery.note);
+      router.refresh();
+    });
+  }
+
+  if (leadSlug && templateKey === "estimate_doc") {
+    return (
+      <Card className="p-4">
+        <h3 className="font-serif text-heading font-semibold text-ink">Formal Estimate</h3>
+        <p className="mt-1 text-label text-ink-3">
+          A lead uses the Rough estimate. The Formal Estimate is prepared on the project after conversion.
+        </p>
+        <Link
+          href={projectSlug ? `/projects/${projectSlug}?tab=Documents&focus=formal-estimate` : `/leads/${leadSlug}?tab=Rough%20estimate`}
+          className="mt-2 inline-block text-label font-semibold text-accent-2 hover:underline"
+        >
+          {projectSlug ? "Open the project's Formal Estimate →" : "Open Rough estimate →"}
+        </Link>
+      </Card>
+    );
+  }
+
   const editing = editingId != null ? drafts.find((d) => d.id === editingId) ?? null : null;
   const rows = drafts.map((d) => (
     <DraftRow
@@ -226,6 +258,7 @@ export function DocTypePanel({
       onDelete={() => remove(d)}
       onPublish={(to) => publish(d, to)}
       onUpdate={() => update(d)}
+      onRetry={() => retry(d)}
     />
   ));
 
@@ -235,23 +268,23 @@ export function DocTypePanel({
     return (
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3">
-          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Client PDF</span>
+          <span className="text-meta text-ink-3">Client PDF</span>
           {!editing && !hasLiveCopy && (
             <button
               type="button"
               onClick={() => create()}
               disabled={pending}
-              className="inline-flex flex-none items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[11px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-60"
+              className="inline-flex flex-none items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-meta font-semibold text-paper hover:bg-ink-hover disabled:opacity-60"
             >
               <Plus className="size-3" strokeWidth={2} /> {pending ? "Making…" : "Make client PDF"}
             </button>
           )}
         </div>
-        {notice && <div className="text-[12px] text-money">{notice}</div>}
+        {notice && <div className="text-label text-money">{notice}</div>}
         {editing ? (
           <DraftEditor key={editing.id} draft={editing} onClose={() => setEditingId(null)} />
         ) : drafts.length === 0 ? (
-          <div className="text-[12px] text-ink-3">No client PDF yet. Make one when the lines are ready; it&rsquo;s printed from them.</div>
+          <div className="text-label text-ink-3">No client PDF yet. Make one when the lines are ready; it&rsquo;s printed from them.</div>
         ) : (
           <div className="space-y-2">{rows}</div>
         )}
@@ -261,16 +294,16 @@ export function DocTypePanel({
 
   return (
     <div className="max-w-[820px] space-y-4">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col items-start justify-between gap-3 @2xl/page:flex-row">
         <div className="min-w-0">
-          <h3 className="font-serif text-[17px] font-semibold text-ink">{heading ?? manifest.title}</h3>
-          <div className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
+          <h3 className="font-serif text-heading font-semibold text-ink">{heading ?? manifest.title}</h3>
+          <div className="mt-0.5 text-meta text-ink-3">
             {drafts.length} document{drafts.length === 1 ? "" : "s"}
           </div>
           {source ? (
-            <div className="mt-1 text-[12px] text-ink-3">{source.explainer}</div>
+            <div className="mt-1 text-label text-ink-3">{source.explainer}</div>
           ) : (
-            note && <div className="mt-1 text-[12px] text-ink-3">{note}</div>
+            note && <div className="mt-1 text-label text-ink-3">{note}</div>
           )}
         </div>
         {!editing && !note && (!source || source.options.length > 0) && (
@@ -278,7 +311,7 @@ export function DocTypePanel({
             type="button"
             onClick={() => (source ? setPicking((v) => !v) : create())}
             disabled={pending}
-            className="inline-flex flex-none items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-60"
+            className="inline-flex flex-none items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-label font-semibold text-paper hover:bg-ink-hover disabled:opacity-60"
           >
             <Plus className="size-3" strokeWidth={2} /> {picking ? "Cancel" : `New ${manifest.title}`}
           </button>
@@ -286,7 +319,7 @@ export function DocTypePanel({
       </div>
 
       {source && source.options.length === 0 && !editing && (
-        <Card kind="dashed" className="p-3.5 text-[12px] text-ink-2">{source.empty}</Card>
+        <Card kind="dashed" className="p-3.5 text-label text-ink-2">{source.empty}</Card>
       )}
 
       {source && picking && !editing && (
@@ -299,11 +332,11 @@ export function DocTypePanel({
             className="flex flex-wrap items-end gap-3"
           >
             <label className="flex min-w-[260px] flex-1 flex-col gap-1">
-              <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{source.label}</span>
+              <span className="text-meta text-ink-3">{source.label}</span>
               <select
                 value={sourceId ?? ""}
                 onChange={(e) => setSourceId(Number(e.target.value))}
-                className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+                className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent"
               >
                 {source.options.map((o) => (
                   <option key={o.id} value={o.id}>
@@ -315,7 +348,7 @@ export function DocTypePanel({
             <button
               type="submit"
               disabled={pending || sourceId == null}
-              className="rounded-md border border-accent bg-accent px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-accent-2 disabled:opacity-60"
+              className="rounded-md border border-accent bg-accent px-3 py-1.5 text-label font-semibold text-white hover:bg-accent-2 disabled:opacity-60"
             >
               {pending ? "Creating…" : `Create ${manifest.title}`}
             </button>
@@ -323,15 +356,15 @@ export function DocTypePanel({
         </Card>
       )}
 
-      {notice && <div className="text-[12px] text-money">{notice}</div>}
+      {notice && <div className="text-label text-money">{notice}</div>}
 
       {editing ? (
         <DraftEditor key={editing.id} draft={editing} onClose={() => setEditingId(null)} />
       ) : drafts.length === 0 ? (
         <Card kind="dashed" className="p-8 text-center">
           <FileText className="mx-auto size-5 text-ink-3" strokeWidth={1.5} />
-          <div className="mt-2 font-serif text-[15px] font-semibold text-ink-2">No {manifest.title.toLowerCase()} yet</div>
-          <div className="mt-1 text-[12px] text-ink-3">
+          <div className="mt-2 font-serif text-subheading font-semibold text-ink-2">No {manifest.title.toLowerCase()} yet</div>
+          <div className="mt-1 text-label text-ink-3">
             Start one from the template, fill it in, and send it for signature when it&rsquo;s ready.
           </div>
         </Card>
@@ -357,6 +390,7 @@ function DraftRow({
   onDelete,
   onPublish,
   onUpdate,
+  onRetry,
 }: {
   draft: DocDraftItem;
   pending: boolean;
@@ -366,8 +400,11 @@ function DraftRow({
   onDelete: () => void;
   onPublish: (to: boolean) => void;
   onUpdate: () => void;
+  onRetry: () => void;
 }) {
   const fileHref = (id: string | null) => (id ? `/api/files/${id}` : null);
+  const failedDelivery = draft.status === "submitted" && draft.delivery?.status === "failed";
+  const canRetry = draft.status === "submitted" && !["sent", "pending"].includes(draft.delivery?.status ?? "unknown");
   const sentOrSigned = draft.status === "submitted" || draft.status === "signed";
   const editable = draft.status === "draft" || draft.status === "rendered";
   const stale = !!draft.lines_changed && draft.status !== "void";
@@ -383,19 +420,19 @@ function DraftRow({
       className="p-3.5"
       data-focus={draft.signature_request_id ? `signature-${draft.signature_request_id}` : `draft-${draft.id}`}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex flex-col gap-3 @4xl/page:flex-row @4xl/page:items-start">
         <StatusIcon status={draft.status} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="truncate font-serif text-[15px] font-semibold text-ink">{draft.title}</span>
-            <Chip kind={STATUS_KIND[draft.status] ?? "ghost"}>{STATUS_LABEL[draft.status] ?? draft.status}</Chip>
+            <span className="truncate font-serif text-subheading font-semibold text-ink">{draft.title}</span>
+            <Chip kind={failedDelivery ? "flag" : STATUS_KIND[draft.status] ?? "ghost"}>{failedDelivery ? "Email not delivered" : STATUS_LABEL[draft.status] ?? draft.status}</Chip>
             {draft.client_visible && (
               <Chip kind="money" dot>
                 On dashboard
               </Chip>
             )}
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-3 text-[11px] text-ink-3">
+          <div className="mt-1 flex flex-wrap items-center gap-3 text-meta text-ink-3">
             {draft.status === "signed" && draft.signedName ? (
               <span>
                 Signed by {draft.signedName}
@@ -403,8 +440,7 @@ function DraftRow({
               </span>
             ) : draft.status === "submitted" ? (
               <span>
-                Sent to {draft.signerName || "client"}
-                {draft.sentAtLabel ? ` · ${draft.sentAtLabel}` : ""}
+                {draft.delivery?.status === "sent" ? "Emailed to " : "Awaiting signature from "}{draft.signerName || "client"}
               </span>
             ) : (
               <span>Created {draft.createdAtLabel}</span>
@@ -420,8 +456,13 @@ function DraftRow({
               </a>
             )}
           </div>
+          {draft.status === "submitted" && draft.delivery?.status !== "sent" && (
+            <p className="mt-1.5 text-label text-flag">
+              {draft.delivery?.note || "Email delivery is unconfirmed. Retry the email or have the client sign in person."}
+            </p>
+          )}
           {stale && (
-            <div className="mt-1.5 flex items-start gap-1.5 text-[12px] text-flag">
+            <div className="mt-1.5 flex items-start gap-1.5 text-label text-flag">
               <TriangleAlert className="mt-0.5 size-3.5 flex-none" strokeWidth={1.75} />
               <span>
                 {draft.status === "signed"
@@ -435,14 +476,19 @@ function DraftRow({
             </div>
           )}
         </div>
-        <div className="flex flex-none items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5 @4xl/page:flex-none">
+          {canRetry && (
+            <button type="button" onClick={onRetry} disabled={pending} className="rounded-md border border-rule bg-card px-2 py-1 text-meta font-semibold text-ink-2 disabled:opacity-60">
+              Retry email
+            </button>
+          )}
           {canUpdate && (
             <button
               type="button"
               onClick={onUpdate}
               disabled={pending}
               title="Print the PDF again from the estimate's current lines (nothing is emailed)"
-              className="inline-flex items-center gap-1 rounded-md border border-accent bg-accent px-2 py-1 text-[11px] font-semibold text-white hover:bg-accent-2 disabled:opacity-60"
+              className="inline-flex items-center gap-1 rounded-md border border-accent bg-accent px-2 py-1 text-meta font-semibold text-white hover:bg-accent-2 disabled:opacity-60"
             >
               <RefreshCw className="size-3" strokeWidth={2} />
               {draft.pdf_file_id ? "Update PDF" : "Make PDF"}
@@ -452,7 +498,7 @@ function DraftRow({
             <Link
               href={`/sign/${draft.signature_request_id}`}
               title="Client is here? Open this document on this device for them to sign now"
-              className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink-2 hover:bg-paper-2"
+              className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1 text-meta font-semibold text-ink-2 hover:bg-paper-2"
             >
               <PenLine className="size-3" strokeWidth={2} />
               Sign in person
@@ -470,8 +516,8 @@ function DraftRow({
               }
               className={
                 draft.client_visible
-                  ? "rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink-3 hover:bg-paper-2 disabled:opacity-60"
-                  : "rounded-md border border-accent bg-accent px-2 py-1 text-[11px] font-semibold text-white hover:bg-accent-2 disabled:opacity-60"
+                  ? "rounded-md border border-rule bg-card px-2 py-1 text-meta font-semibold text-ink-3 hover:bg-paper-2 disabled:opacity-60"
+                  : "rounded-md border border-accent bg-accent px-2 py-1 text-meta font-semibold text-white hover:bg-accent-2 disabled:opacity-60"
               }
             >
               {draft.client_visible ? "Unpublish" : "Publish"}
@@ -481,19 +527,24 @@ function DraftRow({
             type="button"
             onClick={onEdit}
             disabled={pending}
-            className="rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink-3 hover:bg-paper-2 disabled:opacity-60"
+            className="rounded-md border border-rule bg-card px-2 py-1 text-meta font-semibold text-ink-3 hover:bg-paper-2 disabled:opacity-60"
           >
             Edit
           </button>
           {draft.status !== "void" && (
+            <details className="relative">
+              <summary aria-label={`More actions for ${draft.title}`} className="flex size-7 cursor-pointer list-none items-center justify-center rounded-md border border-rule text-body hover:bg-hover">…</summary>
+              <div className="absolute right-0 z-30 mt-1 min-w-32 rounded-lg border border-rule-soft bg-card p-1 shadow-pop">
             <button
               type="button"
               onClick={onDelete}
               disabled={pending}
-              className="rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink-3 hover:bg-paper-2 hover:text-flag disabled:opacity-60"
+              className="rounded-md border border-rule bg-card px-2 py-1 text-meta font-semibold text-ink-3 hover:bg-paper-2 hover:text-flag disabled:opacity-60"
             >
               {sentOrSigned ? "Void" : "Delete"}
             </button>
+              </div>
+            </details>
           )}
         </div>
       </div>
@@ -587,25 +638,25 @@ function DraftEditor({ draft, onClose }: { draft: DocDraftItem; onClose: () => v
     <Card className="p-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
-          <span className="font-serif text-[15px] font-semibold text-ink">{draft.title}</span>
+          <span className="font-serif text-subheading font-semibold text-ink">{draft.title}</span>
           <Chip kind={STATUS_KIND[draft.status] ?? "ghost"}>{STATUS_LABEL[draft.status] ?? draft.status}</Chip>
         </div>
-        <button type="button" onClick={onClose} className="text-[11px] font-semibold text-ink-3 hover:text-ink">
+        <button type="button" onClick={onClose} className="text-meta font-semibold text-ink-3 hover:text-ink">
           Close
         </button>
       </div>
 
       {draft.missing.length > 0 && (
-        <div className="mt-1 text-[11px] text-flag">Still need: {draft.missing.join(", ")}</div>
+        <div className="mt-1 text-meta text-flag">Still need: {draft.missing.map(key => draft.manifest.fields.find(field => field.key === key)?.label || key.replaceAll("_", " ")).join(", ")}</div>
       )}
       {linesLocked && (
-        <div className="mt-1 text-[11px] text-ink-3">
+        <div className="mt-1 text-meta text-ink-3">
           The lines and totals come from the estimate. Change them there; Save &amp; preview prints the current lines.
         </div>
       )}
 
       <form onSubmit={onSubmit} className="space-y-3">
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="mt-3 grid grid-cols-1 gap-3 @xl/page:grid-cols-2">
           {draft.manifest.fields
             .filter((f) => f.kind !== "table" && !f.key.startsWith("company_"))
             .map((f) => (
@@ -622,16 +673,16 @@ function DraftEditor({ draft, onClose }: { draft: DocDraftItem; onClose: () => v
         </div>
 
         {showGateOverride && (
-          <label className="flex items-center gap-1.5 text-[11px] text-ink-3">
+          <label className="flex items-center gap-1.5 text-meta text-ink-3">
             <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} />
             Override the pre-con approval gate (design / selections / estimate sign-offs) and send anyway
           </label>
         )}
 
-        {error && <div className="text-[12px] text-flag">{error}</div>}
+        {error && <div className="text-label text-flag">{error}</div>}
 
         {delivery && (
-          <div className={`text-[12px] ${delivery.sent ? "text-money" : "text-flag"}`}>
+          <div className={`text-label ${delivery.sent ? "text-money" : "text-flag"}`}>
             {delivery.sent ? "Sent · " : "Recorded, but not delivered · "}
             {delivery.note}
           </div>
@@ -641,7 +692,7 @@ function DraftEditor({ draft, onClose }: { draft: DocDraftItem; onClose: () => v
           <button
             type="submit"
             disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded-md border border-accent bg-accent px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-accent-2 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-md border border-accent bg-accent px-3 py-1.5 text-label font-semibold text-white hover:bg-accent-2 disabled:opacity-60"
           >
             {saving ? "Saving…" : "Save & preview"}
           </button>
@@ -650,7 +701,7 @@ function DraftEditor({ draft, onClose }: { draft: DocDraftItem; onClose: () => v
               type="button"
               onClick={send}
               disabled={busy}
-              className="inline-flex items-center gap-1.5 rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 rounded-md border border-ink bg-ink px-3 py-1.5 text-label font-semibold text-paper hover:bg-ink-hover disabled:opacity-60"
             >
               {sending ? "Sending…" : draft.template_key === "contract" ? "Send Contract" : "Send for signature"}
             </button>
@@ -661,7 +712,7 @@ function DraftEditor({ draft, onClose }: { draft: DocDraftItem; onClose: () => v
               onClick={signInPerson}
               disabled={busy}
               title="Open this document on this device for the client to sign right now — nothing is emailed"
-              className="inline-flex items-center gap-1.5 rounded-md border border-rule bg-card px-3 py-1.5 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 rounded-md border border-rule bg-card px-3 py-1.5 text-label font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-60"
             >
               <PenLine className="size-3.5" strokeWidth={2} />
               {sending ? "Preparing…" : "Sign in person"}
@@ -671,7 +722,7 @@ function DraftEditor({ draft, onClose }: { draft: DocDraftItem; onClose: () => v
             <Link
               href={`/sign/${draft.signature_request_id}`}
               title="Open this document on this device for the client to sign right now"
-              className="inline-flex items-center gap-1.5 rounded-md border border-rule bg-card px-3 py-1.5 text-[12px] font-semibold text-ink-2 hover:bg-paper-2"
+              className="inline-flex items-center gap-1.5 rounded-md border border-rule bg-card px-3 py-1.5 text-label font-semibold text-ink-2 hover:bg-paper-2"
             >
               <PenLine className="size-3.5" strokeWidth={2} />
               Sign in person
@@ -681,7 +732,7 @@ function DraftEditor({ draft, onClose }: { draft: DocDraftItem; onClose: () => v
       </form>
 
       <div className="mt-4">
-        <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
+        <div className="mb-1 text-meta text-ink-3">
           Preview · what the client will see
         </div>
         <iframe
@@ -714,25 +765,25 @@ function FieldRow({
   const isMoney = field.kind === "money_cents";
   const display = isMoney && typeof value === "number" ? fmtUsd(value) : value == null ? "" : String(value);
   const inputCls =
-    "w-full rounded-md border border-rule bg-card px-2.5 py-1.5 text-[13px] text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none";
-  const span = field.kind === "narrative" ? "sm:col-span-2" : "";
+    "w-full rounded-md border border-rule bg-card px-2.5 py-1.5 text-body text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none";
+  const span = field.kind === "narrative" ? "@xl/page:col-span-2" : "";
 
   return (
     <label className={`block ${span}`}>
-      <span className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-ink-2">
+      <span className="mb-1 flex items-center gap-1.5 text-meta font-semibold text-ink-2">
         {field.label}
         {field.required && <span className="text-flag">*</span>}
         {fromLines ? (
-          <span className="text-[10px] font-normal text-ink-3">from the lines</span>
+          <span className="text-meta font-normal text-ink-3">from the lines</span>
         ) : (
-          field.source === "auto" && <span className="text-[10px] font-normal text-ink-3">auto</span>
+          field.source === "auto" && <span className="text-meta font-normal text-ink-3">auto</span>
         )}
         {field.source === "ai" && onDraftAI && (
-          <button type="button" onClick={onDraftAI} disabled={pending} className="inline-flex items-center gap-0.5 text-[10px] font-normal text-accent-2 hover:underline disabled:opacity-60">
+          <button type="button" onClick={onDraftAI} disabled={pending} className="inline-flex items-center gap-0.5 text-meta font-normal text-accent-2 hover:underline disabled:opacity-60">
             <Sparkles className="size-2.5" strokeWidth={2} /> Draft with AI
           </button>
         )}
-        {mark && <span className="ml-auto text-[9px] font-normal uppercase tracking-wide text-ink-3">{mark}</span>}
+        {mark && <span className="ml-auto text-meta font-normal tracking-wide text-ink-3">{mark}</span>}
       </span>
 
       {fromLines ? (

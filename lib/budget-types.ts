@@ -151,6 +151,10 @@ export interface BudgetParty {
 }
 
 export interface BudgetClientInvoice {
+  /** In-flight payments, not yet collected; same ledger as the portal. */
+  pendingCents?: number;
+  /** Remaining balance, including partial payments. */
+  balanceCents?: number;
   number: string;
   dateLabel: string;
   label: string;
@@ -279,6 +283,8 @@ export interface BudgetView {
   /** How the job total and paid figures are made up (the same figures the
    *  projects list shows). Absent only on fixtures. */
   jobMoney?: JobMoney;
+  /** Next unbilled milestone from the formal estimate in effect. */
+  nextDraw?: { label: string; amountCents: number } | null;
   completeness: BudgetCompleteness;
   retainageCents?: number;
   notes?: string[];
@@ -713,9 +719,11 @@ export function describeFinancials(v: BudgetView, t: BudgetTotals): string[] {
     let cash = "";
     if (t.unpaidInvoicesCents > 0) {
       const oldest = v.clientInvoices
-        .filter((i) => i.status === "sent" && (i.daysOutstanding ?? 0) > 0)
+        .filter((i) => i.status === "sent" && (i.pendingCents ?? 0) <= 0 && (i.daysOutstanding ?? 0) > 0)
         .sort((a, b) => (b.daysOutstanding ?? 0) - (a.daysOutstanding ?? 0))[0];
       cash = `${fmtK(t.unpaidInvoicesCents)} of invoices are sent and not yet paid`;
+      const processing = v.clientInvoices.reduce((sum, i) => sum + (i.pendingCents ?? 0), 0);
+      if (processing > 0) cash += `, including ${fmtK(processing)} Processing`;
       if (oldest) cash += `; ${oldest.number} is ${oldest.daysOutstanding} days out`;
       cash += ". ";
     }

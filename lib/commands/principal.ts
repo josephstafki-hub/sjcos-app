@@ -62,9 +62,10 @@ export function hasArea(p: Principal, area: PermissionKey): boolean {
 }
 
 export function principalLabel(p: Principal): string {
-  if (p.kind === "user") return `${p.role}:${p.name}`;
-  if (p.kind === "service") return p.name;
-  return `${p.agent}${p.onBehalfOf ? ` for ${p.onBehalfOf.name}` : " (unattended)"}`;
+  if (p.kind === "user") return p.name?.trim() ? `${p.role}:${p.name}` : "Author not recorded";
+  if (p.kind === "service") return p.name?.trim() || "Author not recorded";
+  if (p.kind !== "agent" || !p.agent?.trim()) return "Author not recorded";
+  return `${p.agent}${p.onBehalfOf?.name ? ` for ${p.onBehalfOf.name}` : " (unattended)"}`;
 }
 
 export const SYSTEM: ServicePrincipal = { kind: "service", name: "system" };

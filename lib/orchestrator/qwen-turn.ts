@@ -1,5 +1,6 @@
 import "server-only";
 
+import { agentGrounding } from "@/lib/agent-context";
 import { isVisionModel, qwenChat } from "@/lib/ai";
 import { steerTicker, takePendingSteers } from "@/lib/run-steers";
 import { qwenProgress, type RunLog } from "./activity";
@@ -29,7 +30,7 @@ export async function qwenSteerable(
     let raw = "";
     try {
       const turns = await composeQwenTurns(conversationId, { vision: isVisionModel() });
-      raw = await qwenChat(turns, pageContext, qwenProgress(log), ctl.signal);
+      raw = await qwenChat(turns, agentGrounding(pageContext), qwenProgress(log), ctl.signal);
     } catch (err) {
       if (!steered) throw err;
     } finally {

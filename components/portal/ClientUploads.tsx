@@ -68,8 +68,8 @@ export function ClientUploads({ uploads }: { uploads: UploadRow[] }) {
               className="flex items-center gap-1.5 text-ink-2 hover:text-accent-2"
             >
               <FileText className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
-              <span className="min-w-0 flex-1 truncate text-[12px]">{u.name}</span>
-              <span className="font-mono text-[10px] text-ink-3">{u.when}</span>
+              <span className="min-w-0 flex-1 truncate text-label">{u.name}</span>
+              <span className="font-sans text-meta text-ink-3">{u.when}</span>
             </a>
           ))}
         </div>
@@ -96,7 +96,7 @@ export function ClientUploads({ uploads }: { uploads: UploadRow[] }) {
           });
         }}
       >
-        <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-paper-3">
+        <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-label font-semibold text-ink hover:bg-paper-3">
           <FileText className="size-3" strokeWidth={1.75} />
           {fileName || "Choose file"}
           <input
@@ -110,12 +110,12 @@ export function ClientUploads({ uploads }: { uploads: UploadRow[] }) {
         <button
           type="submit"
           disabled={pending}
-          className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
+          className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-label font-semibold text-paper hover:bg-ink-hover disabled:opacity-50"
         >
           <Upload className="size-3" strokeWidth={1.75} />
           {pending ? "Uploading…" : "Share"}
         </button>
-        {error && <div className="w-full text-[11px] text-flag">{error}</div>}
+        {error && <div className="w-full text-meta text-flag">{error}</div>}
       </form>
     </div>
   );

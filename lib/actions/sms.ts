@@ -6,12 +6,13 @@
 // (createGrant, requested_by 'owner') and sendSms() spends it — so there is
 // one code path to the provider, always audited, for Joe and agents alike.
 
+import { connectionCopy } from "../comms/connection-copy";
 import { revalidatePath } from "next/cache";
 import { query } from "@/lib/db";
 import { requireAccess } from "@/lib/dal";
 import { createGrant } from "@/lib/owner-grants";
 import { normalizeE164 } from "@/lib/comms/phone";
-import { getSmsThread, sendSms, smsConfigured, smsStatus, upsertSmsThread, type SmsMessage } from "@/lib/sms";
+import { getSmsThread, sendSms, smsConfigured, upsertSmsThread, type SmsMessage } from "@/lib/sms";
 
 /** Load a thread's messages and clear its unread flag (opening = reading).
  *  Owner-only. Returns null if the thread is gone. */
@@ -32,8 +33,7 @@ export async function loadSmsThread(id: number, markRead = true): Promise<{ mess
 
 async function ownerSend(to: string, body: string, contactName?: string | null): Promise<{ ok: boolean; threadId?: number; error?: string }> {
   if (!smsConfigured()) {
-    const s = smsStatus();
-    return { ok: false, error: s.enabled ? `SMS is misconfigured: ${s.problems.join("; ")}` : "SMS is not connected yet." };
+    return { ok: false, error: connectionCopy("sms").error };
   }
   const norm = normalizeE164(to);
   if (!norm.ok) return { ok: false, error: norm.error };

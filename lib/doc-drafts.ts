@@ -15,6 +15,8 @@ import path from "node:path";
 import { captureAgentMemory } from "./agent-memory";
 import { fieldValuesText, materialDiff } from "./agent-draft-diff";
 import { query, queryOne } from "./db";
+import { withEsignTransaction, lockSignableRequest, SIGNATURE_CLOSED_ERROR } from "./esign-state";
+import type { SignatureDelivery } from "./esign-types";
 import { directSendBlocked } from "./direct-send-gate";
 import type { Run } from "./commands/core";
 
@@ -77,9 +79,12 @@ export interface DraftRow {
   sig_signed_at?: Date | null;
   sig_sent_at?: Date | null;
   sig_decline_reason?: string | null;
+  sig_delivery_status?: SignatureDelivery["status"];
+  sig_delivery_note?: string;
 }
 
 export interface DraftView extends DraftRow {
+  delivery: SignatureDelivery;
   missing: string[];
   manifest: ReturnType<typeof templateManifest>;
   createdAtLabel: string;
@@ -100,7 +105,8 @@ const DRAFT_SELECT = `
   d.signature_request_id, d.estimate_id, d.created_via, d.created_at,
   sr.signer_name AS sig_signer_name, sr.signed_name AS sig_signed_name,
   sr.signed_at AS sig_signed_at, sr.sent_at AS sig_sent_at,
-  sr.decline_reason AS sig_decline_reason`;
+  sr.decline_reason AS sig_decline_reason,
+  sr.email_delivery_status AS sig_delivery_status, sr.email_delivery_note AS sig_delivery_note`;
 const DRAFT_JOIN = `LEFT JOIN signature_requests sr ON sr.id = d.signature_request_id`;
 
 function dateLabel(d: Date | null | undefined): string | null {
@@ -157,6 +163,7 @@ function viewOf(draft: DraftRow, lines_changed = false): DraftView {
     signedAtLabel: dateLabel(draft.sig_signed_at),
     sentAtLabel: dateLabel(draft.sig_sent_at),
     declineReason: draft.sig_decline_reason ?? null,
+    delivery: { status: draft.sig_delivery_status ?? "unknown", note: draft.sig_delivery_note ?? "" },
     lines_changed,
   };
 }
@@ -698,9 +705,13 @@ export async function submitDocDraftForSignature(
 ): Promise<SubmitResult | DraftError> {
   const draft = await loadDraft(id);
   if (!draft) return { ok: false, error: `Draft ${id} not found.` };
+  if (draft.status === "submitted" && ["failed", "unknown"].includes(draft.sig_delivery_status ?? "unknown") && !opts.inPerson) {
+    return retryDocDraftSignatureDelivery(id);
+  }
   if (draft.status === "submitted" || draft.status === "signed") {
     return { ok: false, error: "Draft already submitted." };
   }
+  if (draft.status === "void") return { ok: false, error: SIGNATURE_CLOSED_ERROR };
   if (!draft.pdf_file_id || draft.status !== "rendered") {
     return { ok: false, error: "Render the draft before submitting it for signature." };
   }
@@ -771,11 +782,16 @@ export async function submitDocDraftForSignature(
         },
   });
 
-  await query(
+  const attached = await query(
     `UPDATE document_drafts SET signature_request_id = $2, status = 'submitted', updated_at = now()
-      WHERE id = $1`,
+      WHERE id = $1 AND status = 'rendered'`,
     [id, reqId],
   );
+
+  if (!attached.rowCount) {
+    await query(`UPDATE signature_requests SET status = 'void' WHERE id = $1 AND status = 'sent'`, [reqId]);
+    return { ok: false, error: SIGNATURE_CLOSED_ERROR };
+  }
 
   // W5 learning layer: Joe just approved this document. If he materially
   // changed it after the AI last filled it, that edit is a preference worth
@@ -809,28 +825,53 @@ export async function submitDocDraftForSignature(
     }
   }
 
-  // In person: the client is sitting here — the owner's device is the delivery.
-  if (opts.inPerson) {
-    return {
-      ok: true,
-      signatureRequestId: reqId,
-      delivery: { sent: false, note: "Ready to sign in person — nothing was emailed." },
-    };
+  return deliverDraftSignature(draft, reqId, !!opts.inPerson);
+}
+
+/** Retry the same open request, never create another legal record. The owner
+ * action and grant-gated MCP send both reach this service. */
+export async function retryDocDraftSignatureDelivery(
+  id: number,
+): Promise<SubmitResult | DraftError> {
+  const draft = await loadDraft(id);
+  if (!draft || draft.status !== "submitted" || !draft.signature_request_id || !draft.pdf_file_id) {
+    return { ok: false, error: SIGNATURE_CLOSED_ERROR };
   }
+  if (await linesChanged(draft)) return { ok: false, error: LINES_CHANGED_ERROR };
+  return deliverDraftSignature(draft, Number(draft.signature_request_id), false);
+}
 
-  // Actually deliver it. Until this existed, "sent" only ever meant "a row says
-  // sent" — the client had no way to learn a document was waiting. The email
-  // carries the PDF to read and a portal link to sign in, no account needed.
-  const delivery = await emailDocForSignature({
-    draftTitle: draft.title,
-    pdfFileId: draft.pdf_file_id,
-    signerName: signer.name,
-    signerEmail: signer.email,
-    projectSlug: slug,
-    leadSlug: draft.lead_slug,
+async function deliverDraftSignature(draft: DraftRow, requestId: number, inPerson: boolean): Promise<SubmitResult | DraftError> {
+  return withEsignTransaction(async (client) => {
+    if (!(await lockSignableRequest(client, requestId))) return { ok: false, error: SIGNATURE_CLOSED_ERROR };
+    const { rows: [request] } = await client.query<{ email_delivery_status: string }>(
+      `SELECT email_delivery_status FROM signature_requests WHERE id = $1`, [requestId],
+    );
+    if (["sent", "pending"].includes(request.email_delivery_status)) {
+      return { ok: false, error: "This signature email was already delivered or is being sent. No second email was sent." };
+    }
+    if (inPerson) {
+      const delivery = { sent: false, note: "Ready to sign in person — nothing was emailed." };
+      await client.query(`UPDATE signature_requests SET email_delivery_status = 'in_person', email_delivery_note = $2 WHERE id = $1`, [requestId, delivery.note]);
+      return { ok: true, signatureRequestId: requestId, delivery };
+    }
+    const slug = await projectSlug(draft.project_id);
+    // Resolve contact details again so adding a missing address makes Retry work.
+    const signer = slug ? await getProjectSignerDefaults(slug) : await leadSigner(draft.lead_slug);
+    signer.email ||= String(draft.field_values.client_email ?? "").trim();
+    signer.name ||= String(draft.field_values.client_name ?? "").trim();
+    await client.query(`UPDATE signature_requests SET email_delivery_status = 'pending', email_delivery_note = 'Sending signature email…', signer_email = $2, signer_name = $3 WHERE id = $1`, [requestId, signer.email, signer.name]);
+    const delivery = await emailDocForSignature({
+      draftTitle: draft.title, pdfFileId: draft.pdf_file_id!, signerName: signer.name,
+      signerEmail: signer.email, projectSlug: slug, leadSlug: draft.lead_slug,
+    });
+    await client.query(
+      `UPDATE signature_requests SET email_delivery_status = $2, email_delivery_note = $3,
+          emailed_at = CASE WHEN $2 = 'sent' THEN now() ELSE emailed_at END WHERE id = $1`,
+      [requestId, delivery.sent ? "sent" : "failed", delivery.note],
+    );
+    return { ok: true, signatureRequestId: requestId, delivery };
   });
-
-  return { ok: true, signatureRequestId: reqId, delivery };
 }
 
 /** Email the rendered PDF + a portal link to the signer. Never throws: the
@@ -890,7 +931,7 @@ async function emailDocForSignature(o: {
     });
     return { sent: true, note: `Emailed to ${o.signerEmail.trim()} with a portal link.` };
   } catch (err) {
-    return { sent: false, note: `Recorded as sent, but the email failed: ${(err as Error).message}` };
+    return { sent: false, note: `Awaiting signature; email not delivered: ${(err as Error).message}` };
   }
 }
 
@@ -931,8 +972,25 @@ export async function setDocDraftClientVisible(
 // ─── Void / clone / delete ───────────────────────────────────────────────────
 
 export async function voidDocDraft(id: number): Promise<{ ok: true } | DraftError> {
-  const r = await query(`UPDATE document_drafts SET status = 'void', updated_at = now() WHERE id = $1`, [id]);
-  return r.rowCount ? { ok: true } : { ok: false, error: `Draft ${id} not found.` };
+  return withEsignTransaction(async (client) => {
+    const { rows } = await client.query<{ signature_request_id: string | null }>(
+      `SELECT signature_request_id FROM document_drafts WHERE id = $1 FOR UPDATE`, [id],
+    );
+    if (!rows.length) return { ok: false, error: `Draft ${id} not found.` };
+    const revoked = await client.query<{ id: string }>(
+      `UPDATE signature_requests SET status = 'void'
+        WHERE id IN (SELECT signature_request_id FROM document_drafts WHERE id = $1)
+          AND status IN ('draft','sent') RETURNING id`, [id],
+    );
+    for (const request of revoked.rows) {
+      await client.query(
+        `INSERT INTO signature_events (request_id, kind, actor, detail)
+         VALUES ($1, 'voided', 'Owner', 'Signature request revoked — document voided')`, [request.id],
+      );
+    }
+    await client.query(`UPDATE document_drafts SET status = 'void', client_visible = false, updated_at = now() WHERE id = $1`, [id]);
+    return { ok: true };
+  });
 }
 
 /** Hard-delete a draft that was never sent — a signed/sent document is voided

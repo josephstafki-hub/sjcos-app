@@ -10,6 +10,7 @@ import { query } from "@/lib/db";
 import { assembleBudgetView } from "@/lib/budget-assemble";
 import { buildCompanyMoney, type CompanyMoney } from "@/lib/budget-company";
 import { findProjects, loadRawProjectMoney, todayCentral, type Run } from "@/lib/budget-queries";
+import { parseDrawSchedule } from "@/lib/draw-schedule";
 import type { BudgetView } from "@/lib/budget-types";
 
 const run: Run = async <T,>(sql: string, params?: unknown[]) => (await query(sql, params)).rows as T[];
@@ -25,7 +26,15 @@ export async function getBudgetViews(projectIds: string[]): Promise<Map<string, 
 export async function getProjectBudget(slug: string): Promise<BudgetView | null> {
   const [project] = await findProjects(run, { slug });
   if (!project) return null;
-  return (await getBudgetViews([project.id])).get(project.id) ?? null;
+  const view = (await getBudgetViews([project.id])).get(project.id) ?? null;
+  if (view?.jobMoney?.estimateId) {
+    const { rows } = await query<{ draw_schedule: unknown; total: number }>(
+      "SELECT draw_schedule, total FROM estimates WHERE id = $1", [view.jobMoney.estimateId],
+    );
+    const draw = parseDrawSchedule(rows[0]?.draw_schedule)?.find(d => !d.billed && d.percent > 0);
+    view.nextDraw = draw ? { label: draw.label, amountCents: Math.round(Number(rows[0].total) * draw.percent / 100) } : null;
+  }
+  return view;
 }
 
 /** The company /money page: every job, open and closed. */

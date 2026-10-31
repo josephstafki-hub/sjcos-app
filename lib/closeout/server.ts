@@ -8,7 +8,6 @@ import "server-only";
 import { command, withTransaction, ownerPrincipalForPolicy } from "@/lib/commands/db";
 import type { Principal } from "@/lib/commands/principal";
 import { notifyOwner } from "@/lib/notify-owner";
-import { MN_WARRANTY_TIERS } from "@/lib/warranty-mn";
 import type { OwnerAlert } from "@/lib/field/hooks";
 import { defaultCloseoutHooks, type CloseoutHooks } from "./hooks";
 import { recordWrittenSignoff, releaseSignoffHooks, resolveClientPunch, confirmCorrectionsBeforeWalkthrough, prepareInternalInspection, scheduleClientWalkthrough } from "./checklist";
@@ -106,7 +105,9 @@ export async function recordCloseoutActualsCmd(principal: Principal, input: { pr
 export async function runPostProjectTick(now = new Date()) {
   const principal = await ownerPrincipalForPolicy();
   const { hooks, flush } = boundCloseoutHooks();
-  const out = await withTransaction((run) => runDuePostProjectActions(run, principal, { mnTiers: MN_WARRANTY_TIERS, now }, hooks));
+  // V45: the configured company warranty terms are the only coverage source.
+  // A built-in tier list must not manufacture coverage in a client document.
+  const out = await withTransaction((run) => runDuePostProjectActions(run, principal, { mnTiers: [], now }, hooks));
   await flush();
   return { processed: out.length, states: out.map((a) => `${a.kind}:${a.state}`) };
 }

@@ -34,19 +34,19 @@ export function MoodFeedbackForm({ room }: { room: string }) {
           onChange={(e) => setBody(e.target.value)}
           rows={2}
           placeholder="Thoughts on this board? Tell Joe what's working and what isn't…"
-          className="min-w-0 flex-1 rounded-md border border-rule bg-card px-2.5 py-1.5 text-[13px] text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none"
+          className="min-w-0 flex-1 rounded-md border border-rule bg-card px-2.5 py-1.5 text-body text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none"
         />
         <button
           type="button"
           onClick={send}
           disabled={pending}
-          className="inline-flex flex-none items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1.5 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-60"
+          className="inline-flex flex-none items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1.5 text-label font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-60"
         >
           <MessageSquare className="size-3" strokeWidth={1.75} />
           {pending ? "Sending…" : "Send feedback"}
         </button>
       </div>
-      {error && <div className="mt-1 text-[11px] text-flag">{error}</div>}
+      {error && <div className="mt-1 text-meta text-flag">{error}</div>}
     </div>
   );
 }

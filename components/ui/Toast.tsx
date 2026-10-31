@@ -203,7 +203,7 @@ function ToastCard({ item }: { item: ToastItem }) {
       <button
         type="button"
         onClick={close}
-        aria-label="Dismiss"
+        aria-label="Dismiss" title="Dismiss"
         className="-mr-1 -mt-0.5 flex-none rounded p-1 opacity-70 hover:bg-paper/60 hover:opacity-100"
       >
         <X className="size-3.5" strokeWidth={2} />

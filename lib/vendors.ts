@@ -8,6 +8,7 @@ import { query } from "./db";
 import type { VendorOption } from "./po-types";
 
 export interface VendorCard {
+  archived: boolean;
   slug: string;
   initials: string;
   name: string;
@@ -25,6 +26,7 @@ export interface VendorsData {
 
 interface VendorRow {
   id: string;
+  archived: boolean;
   slug: string;
   name: string;
   trade: string;
@@ -36,7 +38,7 @@ interface VendorRow {
 }
 
 const VENDOR_SELECT = `
-  SELECT v.id, v.slug, v.name, v.trade, v.email, v.phone, v.notes, v.fav,
+  SELECT v.archived_at IS NOT NULL AS archived, v.id, v.slug, v.name, v.trade, v.email, v.phone, v.notes, v.fav,
          (SELECT count(*)::int FROM purchase_orders po WHERE po.vendor_id = v.id) AS po_count
     FROM vendors v`;
 
@@ -49,6 +51,7 @@ function vendorInitials(name: string): string {
 
 function rowToCard(r: VendorRow): VendorCard {
   return {
+    archived: r.archived,
     slug: r.slug,
     initials: vendorInitials(r.name),
     name: r.name,
@@ -61,7 +64,9 @@ function rowToCard(r: VendorRow): VendorCard {
 }
 
 export async function getVendorsData(): Promise<VendorsData> {
-  const { rows } = await query<VendorRow>(`${VENDOR_SELECT} ORDER BY v.fav DESC, v.name`);
+  const { rows } = await query<VendorRow>(
+    `${VENDOR_SELECT} ORDER BY v.fav DESC, v.name`,
+  );
   const vendors = rows.map(rowToCard);
   return {
     summary: `${vendors.length} vendor${vendors.length === 1 ? "" : "s"}`,
@@ -72,8 +77,16 @@ export async function getVendorsData(): Promise<VendorsData> {
 /** Saved-vendor options for the PO vendor picker (name/trade/contact + fav,
  *  favorites first). */
 export async function listVendors(): Promise<VendorOption[]> {
-  const { rows } = await query<{ id: string; slug: string; name: string; trade: string; email: string | null; phone: string | null; fav: boolean }>(
-    `SELECT id, slug, name, trade, email, phone, fav FROM vendors ORDER BY fav DESC, name`,
+  const { rows } = await query<{
+    id: string;
+    slug: string;
+    name: string;
+    trade: string;
+    email: string | null;
+    phone: string | null;
+    fav: boolean;
+  }>(
+    `SELECT id, slug, name, trade, email, phone, fav FROM vendors WHERE archived_at IS NULL ORDER BY fav DESC, name`,
   );
   return rows.map((r) => ({
     id: r.id,
@@ -87,6 +100,7 @@ export async function listVendors(): Promise<VendorOption[]> {
 }
 
 export interface VendorDetail {
+  archived: boolean;
   slug: string;
   initials: string;
   name: string;
@@ -95,11 +109,22 @@ export interface VendorDetail {
   phone: string;
   fav: boolean;
   notes: string;
-  purchaseOrders: { poNumber: string; projectName: string; projectSlug: string; title: string; status: string; subtotalLabel: string; createdLabel: string }[];
+  purchaseOrders: {
+    poNumber: string;
+    projectName: string;
+    projectSlug: string;
+    title: string;
+    status: string;
+    subtotalLabel: string;
+    createdLabel: string;
+  }[];
 }
 
 export async function getVendor(slug: string): Promise<VendorDetail | null> {
-  const { rows } = await query<VendorRow>(`${VENDOR_SELECT} WHERE v.slug = $1`, [slug]);
+  const { rows } = await query<VendorRow>(
+    `${VENDOR_SELECT} WHERE v.slug = $1`,
+    [slug],
+  );
   if (!rows[0]) return null;
   const card = rowToCard(rows[0]);
 
@@ -121,6 +146,7 @@ export async function getVendor(slug: string): Promise<VendorDetail | null> {
   );
 
   return {
+    archived: card.archived,
     slug: card.slug,
     initials: card.initials,
     name: card.name,

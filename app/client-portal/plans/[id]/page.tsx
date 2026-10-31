@@ -34,7 +34,7 @@ export default async function PortalPlan3DPage({
     return (
       <Frame>
         <Card className="p-4">
-          <p className="text-[13.5px] leading-relaxed text-ink-2">
+          <p className="text-body leading-relaxed text-ink-2">
             This version doesn&apos;t have a 3D model. Plans drawn in the designer show up
             here in 3D; uploaded sheets are viewable from the Floor plans page.
           </p>
@@ -49,7 +49,7 @@ export default async function PortalPlan3DPage({
     return (
       <Frame>
         <Card className="p-4">
-          <p className="text-[13.5px] leading-relaxed text-ink-2">
+          <p className="text-body leading-relaxed text-ink-2">
             Not available. This plan version isn&apos;t shared with your account.
           </p>
         </Card>
@@ -81,15 +81,15 @@ export default async function PortalPlan3DPage({
 
   return (
     <Frame>
-      <h1 className="mt-1 font-serif text-[26px] font-medium leading-tight text-accent-2">
+      <h1 className="mt-1 font-serif text-title font-medium leading-tight text-accent-2">
         {design.name}
         {versionLabel && (
-          <span className="ml-2 font-mono text-[12px] font-normal uppercase tracking-[0.1em] text-ink-3">
+          <span className="ml-2 font-sans text-label font-normal text-ink-3">
             {versionLabel}
           </span>
         )}
       </h1>
-      <p className="mt-1.5 text-[13px] leading-relaxed text-ink-2">
+      <p className="mt-1.5 text-body leading-relaxed text-ink-2">
         Walk through the plan and leave notes on anything you&apos;d like changed. Joe sees
         every comment pinned right where you left it.
       </p>
@@ -108,10 +108,10 @@ export default async function PortalPlan3DPage({
 
 function Frame({ children }: { children: React.ReactNode }) {
   return (
-    <main className="mx-auto w-full max-w-4xl px-9 py-7">
+    <main className="mx-auto w-full max-w-4xl px-4 py-7 sm:px-8">
       <Link
         href="/client-portal/plans"
-        className="mb-3 inline-flex min-h-9 items-center gap-1 rounded-md border border-rule bg-card px-2.5 text-[12px] font-semibold text-ink-2 hover:bg-paper-2"
+        className="mb-3 inline-flex min-h-9 items-center gap-1 rounded-md border border-rule bg-card px-2.5 text-label font-semibold text-ink-2 hover:bg-paper-2"
       >
         <ArrowLeft className="size-3.5" strokeWidth={1.75} />
         All floor plans

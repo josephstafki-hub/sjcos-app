@@ -1,140 +1,96 @@
-import Link from "next/link";
 import { Suspense } from "react";
-import { AiBubble, Card, Chip } from "@/components/ui";
+import Link from "next/link";
+import { TodayWaitingSummary } from "./TodayWaitingSummary";
+import { Sparkles } from "lucide-react";
+import { Button, Card, PageHeader } from "@/components/ui";
 import { TodayCards } from "./TodayCards";
+import { formatScheduleTime } from "@/lib/schedule-time";
 import { WeekStrip } from "./WeekStrip";
 import { TodayQueueProvider } from "./TodayQueueContext";
 import { getTodayBrief, type BriefInput, type TodayData } from "@/lib/today";
 
-const DOT: Record<string, string> = {
-  flag: "bg-flag",
-  accent: "bg-accent",
-  ai: "bg-ai",
-  money: "bg-money",
-  ghost: "bg-ink-4",
-};
-
-/** Inner content of the Today dashboard: brief + the one to-do list (Up next
- *  cards, then the rest) + the week/schedule rail. Chat moved to the universal
- *  operator panel — cards hand off to it over the panel bus. */
+/** The full work list stays on Today, alongside the compact dock queue. */
 export function TodayBody({ data }: { data: TodayData }) {
-  // The AI brief bubble, rendered on the server (Suspense streams the text) and
-  // passed into the client feed as its pinned first item.
   const brief = !data.canAssign ? null : (
-    <AiBubble
-      actions={
-        <Link
-          href="/schedule"
-          className="rounded-md bg-ai px-2.5 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-ai-2"
-        >
+    <div className="rounded-lg border border-ai/20 bg-card px-3 py-2 shadow-card">
+      <div className="mb-1 flex items-center justify-between gap-3">
+        <h2 className="flex items-center gap-2 text-subheading text-ai-2">
+          <Sparkles className="size-4" />
+          {data.briefHeadline}
+        </h2>
+        <Button href="/schedule" variant="ai" size="sm">
           Open agenda
-        </Link>
-      }
-    >
-      <div className="mb-1 font-serif text-[13.5px] font-semibold text-ai-2">
-        {data.briefHeadline}
+        </Button>
       </div>
-      <Suspense fallback={<BriefSkeleton />}>
-        <BriefText inputs={data.briefInputs} />
-      </Suspense>
-    </AiBubble>
-  );
-
-  return (
-    <div className="mx-auto max-w-[1100px] px-4 py-6 sm:px-7">
-      {/* Header strip */}
-      <div className="mb-3.5 flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
-        <div className="min-w-0 flex-1">
-          <h1 className="font-serif text-[34px] font-medium leading-none tracking-tight text-accent-2">
-            {data.greeting}
-          </h1>
-        </div>
-        <div className="flex flex-col gap-1.5 sm:items-end">
-          <div className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-3">
-            {data.weekLabel}
-          </div>
-          {/* Wraps on phones so long money chips ($122,613 outstanding A/R)
-              stay on screen instead of clipping past the right edge. */}
-          <div className="flex flex-wrap gap-1.5 sm:flex-nowrap">
-            {data.headerChips.map((c) => (
-              <Chip key={c.label} kind={c.kind} dot>
-                {c.label}
-              </Chip>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Two-column body: the to-do list (left) and the calendar rail. The
-          list used to be split — five cards here, "Waiting on me" in the rail
-          — but it was one queue, so it's one column now (Joe, 2026-10-17).
-          minmax(0,…) so a long title can't blow the column out. */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)]">
-        <TodayQueueProvider
-          initialPriorities={data.priorities}
-          initialWaiting={data.waiting}
-          canAssign={data.canAssign}
-          assignees={data.assignees}
-          canPromote={data.canAssign}
-        >
-          {/* Brief + Up next + the rest; chat lives in the operator panel. */}
-          <TodayCards brief={brief} />
-
-          {/* Right rail */}
-          <aside className="flex flex-col gap-3">
-            <div>
-              <h2 className="mb-1.5 font-serif text-[16px] font-semibold text-ink">This week</h2>
-              <WeekStrip week={data.week} />
-            </div>
-
-            <Card className="p-3">
-              <h3 className="font-serif text-[13.5px] font-semibold text-ink">Today&apos;s schedule</h3>
-              <div className="mt-2 flex flex-col gap-1.5">
-                {data.schedule.map((s, i) => {
-                  const row = (
-                    <>
-                      <span className="w-9 font-mono text-[11px] tabular-nums text-ink-3">{s.time}</span>
-                      <span className={`size-1.5 rounded-full ${DOT[s.dot]}`} />
-                      <span className="text-[13px] text-ink">{s.label}</span>
-                    </>
-                  );
-                  return s.href ? (
-                    <Link
-                      key={i}
-                      href={s.href}
-                      className="-mx-1 flex items-center gap-2 rounded px-1 py-0.5 transition-colors hover:bg-paper-2"
-                    >
-                      {row}
-                    </Link>
-                  ) : (
-                    <div key={i} className="flex items-center gap-2">
-                      {row}
-                    </div>
-                  );
-                })}
-              </div>
-            </Card>
-          </aside>
-        </TodayQueueProvider>
+      <div className="text-body text-ink-2">
+        <Suspense fallback={<BriefSkeleton />}>
+          <BriefText inputs={data.briefInputs} />
+        </Suspense>
       </div>
     </div>
   );
+  const today = data.week.find(day => day.today);
+  const nextDay = data.week.find(day => day.iso >= (today?.iso ?? "") && day.blocks.length > 0);
+  const nextBlock = nextDay?.blocks[0];
+  return (
+    <div className="mx-auto max-w-[1240px] px-4 py-3 @xl/page:py-6 @2xl/page:px-5 @5xl/page:px-8">
+      <PageHeader
+        title={data.greeting}
+        meta={
+          <span className="flex flex-wrap gap-x-4 gap-y-1">
+            <span className="capitalize">{data.dateLabel.toLowerCase()}</span>
+            {data.canAssign ? <Link href="/projects" className="rounded hover:underline focus-visible:outline-2 focus-visible:outline-focus">{data.weekLabel.toLowerCase()}</Link> : <span>{data.weekLabel.toLowerCase()}</span>}
+            {data.headerChips.map((c, i) => (
+              <Link key={c.label} href={i === 0 ? "/money" : "/leads"} className="rounded hover:underline focus-visible:outline-2 focus-visible:outline-focus">{c.label}</Link>
+            ))}
+          </span>
+        }
+      />
+      <Link href="/schedule" className="mt-3 hidden min-h-11 @xl/page:block line-clamp-1 rounded border border-rule-soft px-3 py-2 text-meta text-ink-2 hover:bg-hover focus-visible:outline-2 focus-visible:outline-focus">
+        {nextBlock ? `${nextDay?.today ? "Today" : `${nextDay?.dow} ${nextDay?.day}`} · ${formatScheduleTime(nextBlock.time)} · ${nextBlock.label}` : "Nothing else posted this week · Open schedule"}
+      </Link>
+      <TodayQueueProvider
+        initialPriorities={data.priorities}
+        initialWaiting={data.waiting}
+        canAssign={data.canAssign}
+        assignees={data.assignees}
+        canPromote={data.canAssign}
+      >
+        <div className="mt-3 grid min-w-0 grid-cols-1 gap-6 @6xl/page:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="min-w-0 @6xl/page:col-start-1 @6xl/page:row-start-1"><TodayCards brief={brief} /></div>
+          <aside className="flex min-w-0 flex-col gap-6 @6xl/page:order-none @6xl/page:col-start-2 @6xl/page:row-start-1">
+            <Card className="p-4">
+              <details>
+                <summary className="cursor-pointer text-subheading font-semibold text-ink">This week's schedule</summary>
+                <div className="mt-3"><WeekStrip week={data.week} /></div>
+              </details>
+            </Card>
+            <div className="hidden @6xl/page:block"><TodayWaitingSummary /></div>
+          </aside>
+        </div>
+        <div className="mt-6 @6xl/page:hidden"><TodayWaitingSummary /></div>
+      </TodayQueueProvider>
+    </div>
+  );
 }
-
-/** Async server component: awaits the AI brief inside the Suspense boundary so
- *  the rest of the page can stream immediately. */
 async function BriefText({ inputs }: { inputs: BriefInput }) {
   const text = await getTodayBrief(inputs);
-  return <div>{text}</div>;
+  return (
+    <details className="group">
+      <summary className="cursor-pointer list-none rounded focus-visible:outline-2 focus-visible:outline-focus">
+        <span className="line-clamp-1 @3xl/page:line-clamp-2 group-open:line-clamp-none">{text}</span>
+        <span className="mt-1 block text-meta text-ai-2 group-open:hidden">
+          Read brief
+        </span>
+      </summary>
+    </details>
+  );
 }
-
-/** Shimmer shown while the brief is being composed. */
 function BriefSkeleton() {
   return (
-    <div className="space-y-1.5" aria-hidden>
-      <div className="h-3 w-[92%] animate-pulse rounded bg-ai/15" />
-      <div className="h-3 w-[78%] animate-pulse rounded bg-ai/15" />
-      <div className="h-3 w-[40%] animate-pulse rounded bg-ai/15" />
+    <div className="space-y-2" aria-label="Loading today's brief">
+      <div className="h-4 w-full animate-pulse rounded bg-paper-3" />
+      <div className="h-4 w-4/5 animate-pulse rounded bg-paper-3" />
     </div>
   );
 }

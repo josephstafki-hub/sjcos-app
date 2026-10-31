@@ -138,3 +138,16 @@ test("on a single connection the queries run one at a time; on a pool they overl
   assert.equal(await overlap({ sequential: true }), 1, "a transaction client cannot have two queries in flight");
   assert.ok((await overlap({})) > 1);
 });
+
+
+test("financial reader loads pending payment truth from the portal's ledger", async () => {
+  const { run, calls } = fakeDb({ projects: [projectRow()], invoices: [{
+    project_id: P1, number: "INV-004", milestone: "Draw", amount: "225000", status: "sent",
+    paid_cents: "0", balance_cents: "225000", pending_cents: "225000", sent_on: "2026-08-01",
+  }] });
+  const raw = (await loadRawProjectMoney(run, [P1])).get(P1);
+  assert.equal(raw.invoices[0].pendingCents, 225000);
+  const sql = calls.find(c => /FROM invoices i/.test(c.sql)).sql;
+  assert.match(sql, /p.kind = 'payment' AND p.status = 'pending'/);
+  assert.equal(assembleBudgetView(raw, {asOf: "2026-10-30"}).clientInvoices[0].statusLabel, "Processing");
+});

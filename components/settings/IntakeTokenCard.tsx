@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Check, Copy, RefreshCw } from "lucide-react";
+import { runAction } from "@/lib/run-action";
 import { Card } from "@/components/ui";
 import { regenerateIntakeToken } from "@/lib/actions/lead-intake-token";
 
@@ -19,10 +20,10 @@ function CopyRow({ label, value, mono = true }: { label: string; value: string; 
   }
   return (
     <div>
-      <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{label}</div>
+      <div className="text-meta text-ink-3">{label}</div>
       <div className="mt-1 flex items-center gap-2">
         <code
-          className={`min-w-0 flex-1 truncate rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[12px] text-ink ${
+          className={`min-w-0 flex-1 truncate rounded-md border border-rule bg-paper px-2.5 py-1.5 text-meta text-ink ${
             mono ? "font-mono" : ""
           }`}
         >
@@ -43,20 +44,20 @@ function CopyRow({ label, value, mono = true }: { label: string; value: string; 
 
 export function IntakeTokenCard({ token, endpoint }: { token: string | null; endpoint: string }) {
   const [current, setCurrent] = useState(token);
+  const [feedback,setFeedback] = useState("");
   const [pending, startTransition] = useTransition();
 
   function regenerate() {
     if (current && !confirm("Generate a new token? The old one stops working immediately.")) return;
     startTransition(async () => {
-      const next = await regenerateIntakeToken();
-      setCurrent(next);
+      await runAction(async () => {const next = await regenerateIntakeToken();setCurrent(next);return {ok:true};}, {onSuccess:()=>setFeedback("Saved"),onError:setFeedback});
     });
   }
 
   return (
     <Card className="mt-5 max-w-[760px] p-4">
-      <div className="font-serif text-[14px] font-semibold text-ink">Website lead form → OS</div>
-      <div className="mt-0.5 text-[11px] text-ink-3">
+      <div className="font-serif text-subheading font-semibold text-ink">Website lead form → OS</div>
+      <div className="mt-0.5 text-meta text-ink-3">
         Drop new leads straight from your website into the pipeline. Have your web developer POST the
         form as JSON to the endpoint below with an{" "}
         <code className="font-mono">Authorization: Bearer &lt;token&gt;</code> header. Every lead is
@@ -68,18 +69,19 @@ export function IntakeTokenCard({ token, endpoint }: { token: string | null; end
         {current ? (
           <CopyRow label="Intake token" value={current} />
         ) : (
-          <div className="rounded-md border border-dashed border-rule bg-paper px-2.5 py-2 text-[12px] text-ink-3">
+          <div className="rounded-md border border-dashed border-rule bg-paper px-2.5 py-2 text-meta text-ink-3">
             No token yet — generate one to connect the website form.
           </div>
         )}
       </div>
 
+      <p role="status" className="mt-3 text-meta text-ink-2">{pending ? "Saving…" : feedback}</p>
       <div className="mt-4">
         <button
           type="button"
           onClick={regenerate}
           disabled={pending}
-          className="inline-flex items-center gap-1.5 rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper transition-colors hover:bg-[#232a1e] disabled:opacity-60"
+          className="inline-flex items-center gap-1.5 rounded-md border border-ink bg-ink px-3 py-1.5 text-meta font-semibold text-paper transition-colors hover:bg-ink-hover disabled:opacity-60"
         >
           <RefreshCw className={`size-3.5 ${pending ? "animate-spin" : ""}`} strokeWidth={1.5} />
           {current ? "Regenerate token" : "Generate token"}

@@ -22,8 +22,9 @@ import {
 
 export const estimateDocTemplate: DocTemplate = {
   key: "estimate_doc",
-  version: "2026-10-28.1",
+  version: "2026-10-30.1",
   title: "Formal Estimate",
+  titleFor: v => v.estimate_kind === "precon_change" ? "Pre-construction Change Estimate" : "Formal Estimate",
   subtitle: "Prepared following site visit, material takeoff, and confirmed selections.",
   docClass: "transactional",
   scope: "both",
@@ -33,6 +34,7 @@ export const estimateDocTemplate: DocTemplate = {
     { key: "company_phone", label: "Company phone", kind: "text", source: "auto", required: true },
     { key: "company_email", label: "Company email", kind: "text", source: "auto", required: true },
     { key: "company_license", label: "Company license", kind: "text", source: "auto", required: false },
+    { key: "estimate_kind", label: "Estimate kind", kind: "text", source: "auto", required: false },
     { key: "estimate_number", label: "Estimate #", kind: "text", source: "auto", required: true },
     { key: "date_prepared", label: "Date prepared", kind: "date", source: "auto", required: true },
     { key: "valid_until", label: "Valid until", kind: "date", source: "auto", required: true },
@@ -50,7 +52,6 @@ export const estimateDocTemplate: DocTemplate = {
     },
     { key: "line_items_table", label: "Estimated line items", kind: "table", source: "auto", required: true },
     { key: "subtotal", label: "Estimated subtotal", kind: "money_cents", source: "auto", required: true },
-    { key: "contingency", label: "Contingency / allowance buffer", kind: "money_cents", source: "owner", required: false },
     { key: "total", label: "Total estimated investment", kind: "money_cents", source: "auto", required: true },
   ],
   build,
@@ -73,14 +74,8 @@ function build(v: FieldValues): TemplateSection[] {
     ]),
   );
 
-  out.push(heading("Project Scope Summary"));
   const summary = str(v, "scope_summary");
-  out.push(
-    para(
-      summary ||
-        "Brief description of the project scope. Full scope of work is detailed in the attached Scope of Work (SOW) document.",
-    ),
-  );
+  if (summary) out.push(heading("Project Scope Summary"), para(summary));
 
   out.push(heading("Estimated Line Items"));
   const lines = table(v, "line_items_table");
@@ -88,7 +83,6 @@ function build(v: FieldValues): TemplateSection[] {
   out.push(
     infoGrid([
       { label: "Estimated Subtotal", value: money(v, "subtotal") },
-      { label: "Contingency / Allowance Buffer", value: money(v, "contingency", "$0.00") },
       { label: "Total Estimated Investment", value: money(v, "total") },
     ]),
   );
@@ -96,6 +90,7 @@ function build(v: FieldValues): TemplateSection[] {
   out.push(
     heading("Allowances & Selections"),
     bulletList([
+      "Any contingency or allowance is included in the listed line items and total.",
       "Line items marked as allowances reflect a budgeted amount for materials or finishes not yet finalized by the client.",
       "Allowances are estimates only and are subject to change once selections are confirmed in writing.",
       "Any difference between an allowance and the confirmed selection price will be reflected in the final contract price or a change order.",
@@ -105,7 +100,9 @@ function build(v: FieldValues): TemplateSection[] {
   out.push(
     heading("Notes & Terms"),
     bulletList([
-      "This is a formal estimate based on a completed site visit, material takeoff, and available client selections.",
+      v.estimate_kind === "precon_change"
+        ? "This estimate prices changes before the construction contract is signed."
+        : "This is a formal estimate based on a completed site visit, material takeoff, and available client selections.",
       "This estimate is not a contract. A signed contract and deposit are required before work is scheduled.",
       "Pricing is valid for 30 days from the date prepared above; material and labor costs may change after that period.",
       "Any change to scope after acceptance will be handled through SJ Carpentry's written change order process.",

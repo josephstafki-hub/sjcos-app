@@ -5,6 +5,7 @@ import "server-only";
 // platform + photos and asks for the posting agent (A17: approve the card, the
 // agent puts it up in the browser). Writes stay in lib/actions/marketing.ts.
 
+import { normalizeMarketingCopy } from "./marketing-copy";
 import { query } from "./db";
 import { DRAFT_KIND_LABEL, isPostPlatform, type DraftKind, type PostPlatform } from "./marketing-types";
 import { readJournal } from "./publisher/core";
@@ -19,6 +20,7 @@ export interface MarketingDraft {
   kindLabel: string;
   title: string;
   body: string;
+  copyError?: string;
   status: string;
   projectName: string | null;
   projectSlug: string | null;
@@ -86,23 +88,27 @@ export async function getMarketingDrafts(): Promise<MarketingDraft[]> {
       photosBySlug.set(p.project_key, list);
     }
   }
-  return rows.map((r) => ({
-    id: r.id,
-    kind: r.kind,
-    kindLabel: DRAFT_KIND_LABEL[r.kind] ?? "Post",
-    title: r.title,
-    body: r.body,
-    status: r.status,
-    projectName: r.project_name,
-    projectSlug: r.project_slug,
-    createdLabel: r.created_label,
-    photos: r.project_slug ? (photosBySlug.get(r.project_slug) ?? []) : [],
-    platform: isPostPlatform(r.audience) ? r.audience : null,
-    media: r.media ?? [],
-    ...stageOf(r),
-    postedUrl: r.posted_url,
-    pendingDecision: r.status === "pending_decision" && r.decision_status === "pending" && r.decision_id ? { id: r.decision_id, contentHash: r.decision_hash } : null,
-  }));
+  return rows.map((r) => {
+    const copy = normalizeMarketingCopy(r.body);
+    return {
+      id: r.id,
+      kind: r.kind,
+      kindLabel: DRAFT_KIND_LABEL[r.kind] ?? "Post",
+      title: copy.title ?? r.title,
+      body: copy.body,
+      ...(!copy.body ? {copyError: "This draft could not be read. Replace it with your copy or generate a new draft."} : {}),
+      status: r.status,
+      projectName: r.project_name,
+      projectSlug: r.project_slug,
+      createdLabel: r.created_label,
+      photos: r.project_slug ? (photosBySlug.get(r.project_slug) ?? []) : [],
+      platform: isPostPlatform(r.audience) ? r.audience : null,
+      media: r.media ?? [],
+      ...stageOf(r),
+      postedUrl: r.posted_url,
+      pendingDecision: r.status === "pending_decision" && r.decision_status === "pending" && r.decision_id ? { id: r.decision_id, contentHash: r.decision_hash } : null,
+    };
+  });
 }
 
 function stageOf(r: PostState) {

@@ -11,8 +11,9 @@
 // mounted.
 
 import { useState, useTransition } from "react";
-import { Card } from "@/components/ui";
+import { Card, KpiTile, Table, TableWrapper, TableHead, TableBody, TableHeader, TableRow, TableCell, TablePrimaryCell, Chip } from "@/components/ui";
 import { runAction } from "@/lib/run-action";
+import { fmtUsd } from "@/lib/cost-book-units";
 import { computeTotals, describeFinancials, fmtK, type BudgetChangeOrder, type BudgetCostRow, type BudgetLine, type BudgetView } from "@/lib/budget-types";
 import {
   adoptEstimateAsBudget, assignCost, deleteBudgetLine, deleteExpense, linkCostToPurchaseOrder,
@@ -23,6 +24,7 @@ import { InOutBars } from "./budget/InOutBars";
 import { CoChart, PayChart, TradeChart } from "./budget/Charts";
 import { ChangeOrderCards, CostsLedger, FundingTable, HowFigured, InvoicesTable, TradesTable } from "./budget/Folds";
 import { CoCostsModal, ExpenseModal, LineModal, OutsideMoneyModal, PayersModal, PaymentModal, SettingsModal, parseTarget } from "./budget/EditModals";
+import { TabLink } from "./TabNav";
 import { JobMoneyCard } from "./budget/JobMoneyCard";
 import { BTN, Fold, Section } from "./budget/parts";
 
@@ -78,6 +80,17 @@ export function BudgetPanel({ slug, budget, isOwner, hasApprovedEstimate, poOpti
   // 1280px laptop, so the layout answers to the column, never the window.
   return (
     <div className="@container flex flex-col gap-5">
+      {budget.jobMoney && <div className="grid grid-cols-2 gap-3 @2xl/page:grid-cols-4">
+        <KpiTile label="Contract" value={fmtK(budget.jobMoney.totalCents)} hint="Job total from the financial ledger, including approved changes, pre-con fees and money agreed outside the app." />
+        <KpiTile label="Paid" value={fmtK(budget.jobMoney.collectedCents)} tone="money" hint="Settled invoice payments plus money recorded as paid outside the app." />
+        <KpiTile label="Remaining" value={fmtK(budget.jobMoney.totalCents - budget.jobMoney.collectedCents)} hint="Contract less paid, including work that has not been billed yet." />
+        <KpiTile label="Next draw" value={budget.nextDraw ? fmtK(budget.nextDraw.amountCents) : "—"} meta={budget.nextDraw?.label ?? "No unbilled draw scheduled"} hint="Next unbilled milestone on the formal estimate in effect. This is a scheduled draw, not a past-due invoice." />
+      </div>}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between gap-3"><h3 className="font-serif text-heading font-semibold">Invoices</h3><TabLink tab="Money" section="Invoices" className="text-label font-semibold text-accent-2 hover:underline">Manage invoices →</TabLink></div>
+        {budget.clientInvoices.length === 0 ? <p className="py-3 text-body text-ink-3">Invoices will appear here when a milestone is billed. Open Invoices to create one.</p> : <TableWrapper><Table density="compact"><TableHead><TableRow><TableHeader>Invoice</TableHeader><TableHeader numeric>Amount</TableHeader><TableHeader className="@max-3xl/page:hidden">Status</TableHeader></TableRow></TableHead><TableBody>{budget.clientInvoices.map(i => <TableRow key={i.number}><TablePrimaryCell meta={<><span className="font-mono">{i.number}</span> · {i.dateLabel}<span className="block @3xl/page:hidden">{i.statusLabel}</span></>}>{i.label}</TablePrimaryCell><TableCell numeric className="whitespace-nowrap">{fmtUsd(i.amountCents)}</TableCell><TableCell className="@max-3xl/page:hidden"><Chip kind={i.status === "paid" ? "ok" : i.status === "draft" ? "neutral" : "info"}>{i.statusLabel}</Chip></TableCell></TableRow>)}</TableBody></Table></TableWrapper>}
+      </section>
+      <details className="rounded-lg border border-rule-soft bg-card p-4"><summary className="cursor-pointer text-subheading font-semibold text-ink">Budget and profit</summary><div className="mt-3">
       <HeadlineStrip
         view={budget} t={t} sentences={sentences} pending={pending}
         canAdopt={hasApprovedEstimate && budget.lines.length === 0}
@@ -85,7 +98,7 @@ export function BudgetPanel({ slug, budget, isOwner, hasApprovedEstimate, poOpti
         onAddLine={() => setModal({ kind: "line", line: null })}
         onSettings={() => setModal({ kind: "settings" })}
         onShowFigured={showFigured}
-      />
+      /></div></details>
 
       {budget.jobMoney && (
         <Section title="Job total and paid" sub="What the projects list shows for this job, and what it adds up from.">
@@ -151,7 +164,7 @@ export function BudgetPanel({ slug, budget, isOwner, hasApprovedEstimate, poOpti
         )}
         {budget.notes && budget.notes.length > 0 && (
           <Fold title="Notes and open questions" right={String(budget.notes.length)} open={open.notes} onToggle={() => toggle("notes")}>
-            <ul className="list-disc space-y-1 pl-5 text-[12.5px] text-ink-2">{budget.notes.map((n) => <li key={n}>{n}</li>)}</ul>
+            <ul className="list-disc space-y-1 pl-5 text-body text-ink-2">{budget.notes.map((n) => <li key={n}>{n}</li>)}</ul>
           </Fold>
         )}
         <div id="budget-figured" className="scroll-mt-4">

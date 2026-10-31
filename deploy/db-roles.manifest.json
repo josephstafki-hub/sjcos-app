@@ -472,7 +472,8 @@
     },
     "catalog_items": {
       "sjcos_agent": [
-        "SELECT"
+        "SELECT",
+        "UPDATE"
       ],
       "sjcos_worker": [
         "SELECT"
@@ -547,7 +548,8 @@
     "chat_members": {
       "sjcos_agent": [
         "SELECT",
-        "INSERT"
+        "INSERT",
+        "DELETE"
       ],
       "sjcos_worker": [
         "SELECT"
@@ -2030,7 +2032,10 @@
     },
     "project_subs": {
       "sjcos_agent": [
-        "SELECT"
+        "SELECT",
+        "INSERT",
+        "UPDATE",
+        "DELETE"
       ],
       "sjcos_worker": [
         "SELECT"
@@ -2657,6 +2662,20 @@
         "SELECT"
       ]
     },
+    "sub_assignment_trash": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE",
+        "DELETE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
     "sub_document_requests": {
       "sjcos_agent": [
         "SELECT"
@@ -2709,7 +2728,8 @@
     },
     "sub_portal_invites": {
       "sjcos_agent": [
-        "SELECT"
+        "SELECT",
+        "UPDATE"
       ],
       "sjcos_worker": [
         "SELECT"
@@ -2720,7 +2740,8 @@
     },
     "subs": {
       "sjcos_agent": [
-        "SELECT"
+        "SELECT",
+        "UPDATE"
       ],
       "sjcos_worker": [
         "SELECT"
@@ -2887,7 +2908,8 @@
     },
     "vendors": {
       "sjcos_agent": [
-        "SELECT"
+        "SELECT",
+        "UPDATE"
       ],
       "sjcos_worker": [
         "SELECT"

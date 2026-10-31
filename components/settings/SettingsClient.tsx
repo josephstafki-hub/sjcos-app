@@ -1,8 +1,10 @@
 "use client";
 
+import { SettingsForm } from "./SettingsForm";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Avatar, Card, Chip, Eyebrow, Field } from "@/components/ui";
+import { Avatar, Button, Card, Chip, Eyebrow, Field, PageHeader } from "@/components/ui";
 import { DesignerDefaultsCard } from "@/components/settings/DesignerDefaultsCard";
 import type { SettingsData } from "@/lib/settings";
 import {
@@ -14,10 +16,11 @@ import {
   updateBillingRates,
 } from "@/lib/actions/settings";
 import { setUserActive } from "@/lib/actions/users";
-import { AddUserButton, StaffAccessButton } from "./TeamAccess";
+import { AddUserButton, ResetPasswordButton, StaffAccessButton } from "./TeamAccess";
 import { runAction } from "@/lib/run-action";
 import { ClipTokenCard } from "./ClipTokenCard";
 import { IntakeTokenCard } from "./IntakeTokenCard";
+import { MORE_SETTINGS } from "./settings-nav";
 
 /** Shared text input for the editable forms, themed to match the modals. */
 function TextInput({
@@ -37,14 +40,14 @@ function TextInput({
 }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{label}</span>
+      <span className="text-meta text-ink-3">{label}</span>
       <input
         name={name}
         type={type}
         required={required}
         defaultValue={defaultValue}
         placeholder={placeholder}
-        className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+        className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent"
       />
     </label>
   );
@@ -55,9 +58,11 @@ function TextInput({
 function FirstResponseModelPicker({ initial }: { initial: "claude" | "hermes" }) {
   const [model, setModel] = useState(initial);
   const [pending, startTransition] = useTransition();
+  const [feedback, setFeedback] = useState("");
   return (
     <div className="flex w-full items-center gap-3 border-t border-rule-soft py-1.5">
-      <span className="flex-1 text-[13px] text-ink">Who drafts the first response to new inbound leads</span>
+      <span className="flex-1 text-body text-ink">Who drafts the first response to new inbound leads</span>
+      <span role="status" className="text-meta text-ink-2">{pending ? "Saving…" : feedback}</span>
       <select
         value={model}
         disabled={pending}
@@ -65,10 +70,10 @@ function FirstResponseModelPicker({ initial }: { initial: "claude" | "hermes" })
           const next = e.target.value === "hermes" ? "hermes" : "claude";
           setModel(next);
           startTransition(async () => {
-            await runAction(() => setLeadFirstResponseModel(next), { fallback: "Couldn't save the first-response model." });
+            await runAction(() => setLeadFirstResponseModel(next), { fallback: "Couldn't save the first-response model.", onSuccess: () => setFeedback("Saved"), onError: message => {setModel(model);setFeedback(message);} });
           });
         }}
-        className="rounded-md border border-rule bg-card px-2 py-1 text-[12px] text-ink disabled:opacity-60"
+        className="rounded-md border border-rule bg-card px-2 py-1 text-meta text-ink disabled:opacity-60"
       >
         <option value="claude">Claude</option>
         <option value="hermes">Hermes</option>
@@ -90,26 +95,30 @@ function Toggle({
 }) {
   const [on, setOn] = useState(initial);
   const [pending, startTransition] = useTransition();
+  const [feedback, setFeedback] = useState("");
 
   function flip() {
     const next = !on;
     setOn(next); // optimistic
     startTransition(async () => {
-      await runAction(() => action(settingKey, next), { fallback: "Couldn't save that setting." });
+      await runAction(() => action(settingKey, next), { fallback: "Couldn't save that setting.", onSuccess: () => setFeedback("Saved"), onError: message => {setOn(!next);setFeedback(message);} });
     });
   }
 
   return (
     <button
+      role="switch"
+      aria-checked={on}
       onClick={flip}
       disabled={pending}
-      className="flex w-full items-center gap-3 border-t border-rule-soft py-1.5 text-left first:border-t-0 disabled:opacity-60"
+      className="flex w-full items-center gap-3 border-t border-rule-soft py-4 text-left first:border-t-0 disabled:opacity-60"
     >
-      <span className="flex-1 text-[13px] text-ink">{label}</span>
+      <span className="flex-1 text-body text-ink">{label}</span>
+      <span role="status" className="text-meta text-ink-2">{pending ? "Saving…" : feedback}</span>
       <span
         className={[
           "relative h-5 w-9 flex-none rounded-full border transition-colors",
-          on ? "border-ai bg-ai" : "border-rule bg-paper-3",
+          on ? "border-accent bg-accent" : "border-rule bg-paper-3",
         ].join(" ")}
       >
         <span
@@ -123,28 +132,41 @@ function Toggle({
   );
 }
 
-const MORE_SETTINGS = [
-  { title: "Pricing", href: "/settings/pricing" },
-  { title: "Overhead", href: "/settings/overhead" },
-  { title: "Payments · Square", href: "/settings/payments" },
-  { title: "Accounting · QuickBooks", href: "/settings/accounting" },
-];
+export function UserActiveButton({id, active}: {id:string;active:boolean}) {
+  const [pending,start] = useTransition();
+  const [feedback,setFeedback] = useState("");
+  return <div className="space-y-1">
+    <Button variant="secondary" size="sm" disabled={pending} onClick={()=>start(async()=>{
+      await runAction(()=>setUserActive(id,!active),{onSuccess:()=>setFeedback("Saved"),onError:setFeedback});
+    })}>{pending ? "Saving…" : active ? "Disable" : "Enable"}</Button>
+    <p role="status" className="text-meta text-ink-2">{feedback}</p>
+  </div>;
+}
 
-export function SettingsClient({ data }: { data: SettingsData }) {
-  const [active, setActive] = useState("profile");
+
+
+export function SettingsClient({ data, initialSection = "profile" }: { data: SettingsData; initialSection?: string }) {
+  const [active, setActive] = useState(initialSection);
+  const router = useRouter();
 
   return (
-    <div className="flex h-full flex-col lg:flex-row">
+    <div className="flex min-h-full flex-col @4xl/page:flex-row">
       {/* Category rail — horizontal scrolling tabs on mobile, vertical rail on desktop */}
-      <aside className="flex-none border-b border-rule bg-paper-2 p-3.5 lg:w-[220px] lg:border-b-0 lg:border-r">
+      <aside className="flex-none border-b border-rule bg-paper-2 p-3.5 @4xl/page:w-52 @4xl/page:border-b-0 @4xl/page:border-r">
         <Eyebrow muted>Settings</Eyebrow>
-        <div className="mt-2 flex gap-0.5 overflow-x-auto lg:flex-col">
+        <label className="mt-2 flex items-center gap-2 text-label @4xl/page:hidden">Section
+          <select aria-label="Settings section" value={active} onChange={(e) => e.target.value.startsWith("/") ? router.push(e.target.value) : setActive(e.target.value)} className="h-11 min-w-0 flex-1 rounded-md border border-rule bg-card px-2 text-body">
+            {data.categories.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+            {MORE_SETTINGS.map((m) => <option key={m.href} value={m.href}>{m.title}</option>)}
+          </select>
+        </label>
+        <div className="mt-2 hidden gap-0.5 @4xl/page:flex @4xl/page:flex-col">
           {data.categories.map((c) => (
             <button
               key={c.id}
               onClick={() => setActive(c.id)}
               className={[
-                "whitespace-nowrap rounded px-2.5 py-1.5 text-left text-[13px] transition-colors",
+                "whitespace-normal break-words rounded px-2.5 py-1.5 text-left text-body transition-colors",
                 c.id === active
                   ? "bg-accent-soft font-medium text-accent-2"
                   : "text-ink-2 hover:bg-paper-3",
@@ -156,55 +178,40 @@ export function SettingsClient({ data }: { data: SettingsData }) {
         </div>
         {/* Owner pages with their own route. Settings is owner-only, so every
             link here opens for whoever can see this rail. */}
-        <div className="mt-4 hidden lg:block">
+        <div className="mt-4 hidden @4xl/page:block">
           <Eyebrow muted>More settings</Eyebrow>
           <div className="mt-2 flex flex-col gap-0.5">
             {MORE_SETTINGS.map((m) => (
-              <Link key={m.href} href={m.href} className="rounded px-2.5 py-1.5 text-[13px] text-ink-2 hover:bg-paper-3">
+              <Link key={m.href} href={m.href} className="rounded px-2.5 py-1.5 text-body text-ink-2 hover:bg-paper-3">
                 {m.title}
               </Link>
             ))}
           </div>
         </div>
-        <div className="mt-2 flex gap-0.5 overflow-x-auto lg:hidden">
-          {MORE_SETTINGS.map((m) => (
-            <Link key={m.href} href={m.href} className="whitespace-nowrap rounded px-2.5 py-1.5 text-[13px] text-ink-2 hover:bg-paper-3">
-              {m.title}
-            </Link>
-          ))}
-        </div>
+
       </aside>
 
       {/* Content */}
-      <section className="min-w-0 flex-1 overflow-y-auto px-8 py-6">
+      <section className="min-w-0 flex-1 px-4 py-6 @4xl/page:px-6"><div className="max-w-2xl">
         {active === "profile" && (
           <>
-            <Eyebrow>Profile</Eyebrow>
-            <h1 className="mt-1 font-serif text-[30px] font-medium leading-none text-accent-2">
-              {data.profile.name}
-            </h1>
-            <div className="mt-1.5 text-[11px] text-ink-3">{data.profile.meta}</div>
+            <PageHeader title={<> {data.profile.name} </>} />
+            <div className="mt-1.5 text-meta text-ink-3">{data.profile.meta}</div>
 
             <div className="my-5 border-t border-rule" />
-            <form action={updateProfile} className="max-w-[720px]">
-              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+            <p className="mb-3 text-body text-ink-2">Profile changes do not autosave. Edit your details, then choose Save profile.</p>
+            <SettingsForm action={updateProfile} className="max-w-2xl" saveLabel="Save profile">
+              <div className="grid grid-cols-1 gap-5 @3xl/page:grid-cols-2">
                 <TextInput name="name" label="Display name" defaultValue={data.profile.name} required />
                 <TextInput name="email" label="Email" type="email" defaultValue={data.profile.email} required />
                 <TextInput name="company" label="Business name" defaultValue={data.profile.company} />
                 <TextInput name="phone" label="Phone (SMS in)" defaultValue={data.profile.phone} />
               </div>
-              <div className="mt-5">
-                <button
-                  type="submit"
-                  className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper transition-colors hover:bg-[#232a1e]"
-                >
-                  Save changes
-                </button>
-              </div>
-            </form>
+
+            </SettingsForm>
 
             <div className="my-5 border-t border-rule" />
-            <div className="grid max-w-[720px] grid-cols-1 gap-5 sm:grid-cols-2">
+            <div className="grid max-w-2xl grid-cols-1 gap-5 @3xl/page:grid-cols-2">
               {data.profile.fields.map((f) => (
                 <Field key={f.label} label={f.label} value={f.value} />
               ))}
@@ -214,28 +221,25 @@ export function SettingsClient({ data }: { data: SettingsData }) {
 
         {active === "company" && (
           <>
-            <Eyebrow>Company &amp; documents</Eyebrow>
-            <h1 className="mt-1 font-serif text-[30px] font-medium leading-none text-accent-2">
-              Company &amp; documents
-            </h1>
-            <div className="mt-1.5 text-[11px] text-ink-3">
+            <PageHeader title={<> Company &amp; documents </>} />
+            <div className="mt-1.5 text-meta text-ink-3">
               Boilerplate baked into generated contracts &amp; scopes of work.
             </div>
 
             <div className="my-5 border-t border-rule" />
-            <form action={updateCompanyDocs} className="max-w-[720px]">
-              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+            <SettingsForm action={updateCompanyDocs} className="max-w-2xl">
+              <div className="grid grid-cols-1 gap-5 @3xl/page:grid-cols-2">
                 <TextInput name="license" label="License #" defaultValue={data.companyDocs.license} placeholder="e.g. BC123456" />
                 <TextInput name="address" label="Business address" defaultValue={data.companyDocs.address} placeholder="Street, City, MN ZIP" />
                 <TextInput name="depositPct" label="Default deposit %" type="number" defaultValue={data.companyDocs.depositPct} />
               </div>
               <label className="mt-5 flex flex-col gap-1">
-                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Standard contract terms</span>
+                <span className="text-meta text-ink-3">Standard contract terms</span>
                 <textarea
                   name="terms"
                   rows={10}
                   defaultValue={data.companyDocs.terms}
-                  className="resize-y rounded-md border border-rule bg-paper px-2.5 py-2 text-[12px] leading-relaxed text-ink outline-none focus:border-accent"
+                  className="resize-y rounded-md border border-rule bg-paper px-2.5 py-2 text-meta leading-relaxed text-ink outline-none focus:border-accent"
                 />
               </label>
               <label className="mt-4 flex items-center gap-2">
@@ -245,23 +249,23 @@ export function SettingsClient({ data }: { data: SettingsData }) {
                   defaultChecked={data.companyDocs.autoSendMilestone}
                   className="size-3.5 accent-accent"
                 />
-                <span className="text-[13px] text-ink-2">
+                <span className="text-body text-ink-2">
                   Auto-send milestone invoices when a project reaches a billing stage
                 </span>
               </label>
 
               <div className="my-4 border-t border-rule-soft" />
-              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-5 @3xl/page:grid-cols-2">
                 <TextInput name="googleReviewUrl" label="Google review link" defaultValue={data.companyDocs.googleReviewUrl} placeholder="https://g.page/r/…/review" />
               </div>
               <label className="mt-5 flex flex-col gap-1">
-                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Warranty terms (sent at completion)</span>
+                <span className="text-meta text-ink-3">Warranty terms (sent at completion)</span>
                 <textarea
                   name="warrantyTerms"
                   rows={4}
                   defaultValue={data.companyDocs.warrantyTerms}
                   placeholder="e.g. One-year workmanship warranty from substantial completion…"
-                  className="resize-y rounded-md border border-rule bg-paper px-2.5 py-2 text-[12px] leading-relaxed text-ink outline-none focus:border-accent"
+                  className="resize-y rounded-md border border-rule bg-paper px-2.5 py-2 text-meta leading-relaxed text-ink outline-none focus:border-accent"
                 />
               </label>
               <label className="mt-4 flex items-center gap-2">
@@ -271,7 +275,7 @@ export function SettingsClient({ data }: { data: SettingsData }) {
                   defaultChecked={data.companyDocs.autoOutreach}
                   className="size-3.5 accent-accent"
                 />
-                <span className="text-[13px] text-ink-2">
+                <span className="text-body text-ink-2">
                   Auto-send warranty info + Google review request when a job completes
                 </span>
               </label>
@@ -282,28 +286,21 @@ export function SettingsClient({ data }: { data: SettingsData }) {
                   defaultChecked={data.companyDocs.autoDraftSocial}
                   className="size-3.5 accent-accent"
                 />
-                <span className="text-[13px] text-ink-2">
+                <span className="text-body text-ink-2">
                   Auto-draft a social post when a job completes (review on Marketing)
                 </span>
               </label>
-              <div className="mt-5">
-                <button
-                  type="submit"
-                  className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper transition-colors hover:bg-[#232a1e]"
-                >
-                  Save changes
-                </button>
-              </div>
-            </form>
+
+            </SettingsForm>
 
             <div className="my-8 border-t border-rule" />
-            <h2 className="font-serif text-[19px] font-semibold text-ink">Billing rates</h2>
-            <div className="mt-1 text-[11px] text-ink-3">
+            <h2 className="font-serif text-heading font-semibold text-ink">Billing rates</h2>
+            <div className="mt-1 text-meta text-ink-3">
               Hourly rates + third-party markup printed on the Pre-Construction Agreement. Free text
               (e.g. &ldquo;$52 / hr&rdquo;, &ldquo;Unbilled&rdquo;, &ldquo;20%&rdquo;).
             </div>
-            <form action={updateBillingRates} className="mt-5 max-w-[720px]">
-              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+            <SettingsForm action={updateBillingRates} className="mt-5 max-w-2xl">
+              <div className="grid grid-cols-1 gap-5 @3xl/page:grid-cols-2">
                 <TextInput name="markup" label="Third-party markup" defaultValue={data.billingRates.markup} placeholder="e.g. 20%" />
                 <TextInput
                   name="preconFeePct"
@@ -315,40 +312,30 @@ export function SettingsClient({ data }: { data: SettingsData }) {
                   <TextInput key={r.key} name={r.key} label={r.label} defaultValue={r.value} placeholder="e.g. $52 / hr" />
                 ))}
               </div>
-              <div className="mt-5">
-                <button
-                  type="submit"
-                  className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper transition-colors hover:bg-[#232a1e]"
-                >
-                  Save billing rates
-                </button>
-              </div>
-            </form>
+
+            </SettingsForm>
           </>
         )}
 
         {active === "integrations" && (
           <>
-            <Eyebrow>Integrations</Eyebrow>
-            <h1 className="mt-1 font-serif text-[30px] font-medium leading-none text-accent-2">
-              Integrations
-            </h1>
-            <div className="mt-1.5 text-[11px] text-ink-3">
+            <PageHeader title={<> Integrations </>} />
+            <div className="mt-1.5 text-meta text-ink-3">
               {data.integrations.filter((it) => it.connected).length} of {data.integrations.length} connected
             </div>
-            <div className="mt-5 grid max-w-[760px] grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="mt-5 divide-y divide-rule-soft">
               {data.integrations.map((it) => {
                 const body = (
-                  <Card className={`h-full p-3 ${it.href ? "transition-colors hover:border-accent hover:bg-paper-3" : ""}`}>
-                    <div className="font-serif text-[13px] font-semibold text-ink">{it.name}</div>
-                    <div className="mt-0.5 text-[11px] text-ink-3">{it.sub}</div>
+                  <div className={`py-4 ${it.href ? "transition-colors hover:bg-hover" : ""}`}>
+                    <div className="font-serif text-body font-semibold text-ink">{it.name}</div>
+                    <div className="mt-0.5 text-meta text-ink-3">{it.sub}</div>
                     <div className="mt-2 flex items-center justify-between gap-2">
                       <Chip kind={it.connected ? "money" : "ghost"} dot>
                         {it.connected ? "connected" : "not connected"}
                       </Chip>
-                      {it.href && <span className="text-[11px] font-medium text-accent">Open →</span>}
+                      {it.href && <span className="text-meta font-medium text-accent">Open →</span>}
                     </div>
-                  </Card>
+                  </div>
                 );
                 return it.href ? (
                   <Link key={it.name} href={it.href} className="block">
@@ -367,11 +354,8 @@ export function SettingsClient({ data }: { data: SettingsData }) {
 
         {active === "ai" && (
           <>
-            <Eyebrow>AI</Eyebrow>
-            <h1 className="mt-1 font-serif text-[30px] font-medium leading-none text-accent-2">
-              AI defaults
-            </h1>
-            <div className="mt-1.5 text-[11px] text-ink-3">
+            <PageHeader title={<> AI defaults </>} />
+            <div className="mt-1.5 text-meta text-ink-3">
               Control what the AI does automatically. Changes save instantly.
             </div>
             <div className="mt-5 max-w-[600px]">
@@ -385,11 +369,10 @@ export function SettingsClient({ data }: { data: SettingsData }) {
 
         {active === "team" && (
           <>
-            <div className="flex items-start justify-between">
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <Eyebrow>Team &amp; roles</Eyebrow>
-                <h1 className="mt-1 font-serif text-[30px] font-medium leading-none text-accent-2">Team &amp; roles</h1>
-                <div className="mt-1.5 text-[11px] text-ink-3">
+                <PageHeader title={<> Team &amp; roles </>} />
+                <div className="mt-1.5 text-meta text-ink-3">
                   {data.team.length} members · team members see only the areas you tick; the money areas are grantable one by one
                 </div>
               </div>
@@ -399,36 +382,27 @@ export function SettingsClient({ data }: { data: SettingsData }) {
               {data.team.map((m, i) => (
                 <div
                   key={m.id ?? m.name}
-                  className={`flex items-center gap-3 px-4 py-3 ${i ? "border-t border-rule-soft" : ""} ${
+                  className={`flex flex-wrap items-start gap-3 px-4 py-3 ${i ? "border-t border-rule-soft" : ""} ${
                     m.active === false ? "opacity-55" : ""
                   }`}
                 >
                   <Avatar initials={m.initials} size="sm" kind={m.chip === "accent" ? "accent" : m.chip === "ai" ? "ai" : "gray"} />
-                  <div className="min-w-0 flex-1">
-                    <div className="font-serif text-[13.5px] font-semibold text-ink">{m.name}</div>
-                    <div className="text-[11px] text-ink-3">{m.role}</div>
+                  <div className="min-w-0 flex-1 basis-48">
+                    <div className="text-subheading font-semibold text-ink">{m.id ? <Link href={`/settings/team/${m.id}`} className="hover:underline">{m.name}</Link> : m.name}</div>
+                    <div className="text-meta text-ink-3">{m.role}</div>
                   </div>
+                  <div className="flex basis-full flex-wrap items-center gap-2 @3xl/page:basis-auto">
+                  {m.id && !m.isOwner && <ResetPasswordButton id={m.id} name={m.name} />}
                   {/* Team members get an Access editor; every real non-owner row gets enable/disable. */}
                   {m.id && m.roleKey === "staff" && (
                     <StaffAccessButton id={m.id} name={m.name} email={m.email ?? ""} permissions={m.permissions ?? []} />
                   )}
                   {m.id && !m.isOwner ? (
-                    <form action={setUserActive.bind(null, m.id, m.active === false)}>
-                      <button
-                        type="submit"
-                        className={[
-                          "rounded-md border px-2 py-0.5 text-[11px] font-semibold transition-colors",
-                          m.active === false
-                            ? "border-accent bg-accent-soft text-accent-2 hover:bg-accent-soft/70"
-                            : "border-rule text-ink-3 hover:bg-paper-2",
-                        ].join(" ")}
-                      >
-                        {m.active === false ? "Enable" : "Disable"}
-                      </button>
-                    </form>
+                    <UserActiveButton id={m.id} active={m.active !== false} />
                   ) : (
                     <Chip kind={m.chip}>{m.chip === "accent" ? "owner" : m.chip === "ai" ? "system" : "guest"}</Chip>
                   )}
+                  </div>
                 </div>
               ))}
             </Card>
@@ -437,9 +411,8 @@ export function SettingsClient({ data }: { data: SettingsData }) {
 
         {active === "notifications" && (
           <>
-            <Eyebrow>Notifications</Eyebrow>
-            <h1 className="mt-1 font-serif text-[30px] font-medium leading-none text-accent-2">Notifications</h1>
-            <div className="mt-1.5 text-[11px] text-ink-3">Choose what reaches you. Changes save instantly.</div>
+            <PageHeader title={<> Notifications </>} />
+            <div className="mt-1.5 text-meta text-ink-3">Choose what reaches you. Changes save instantly.</div>
             <div className="mt-5 max-w-[600px]">
               {data.notifyToggles.map((t) => (
                 <Toggle key={t.key} settingKey={t.key} label={t.label} on={t.on} action={setNotifyToggle} />
@@ -449,9 +422,8 @@ export function SettingsClient({ data }: { data: SettingsData }) {
         )}
         {active === "designer" && (
           <>
-            <Eyebrow>Floor-plan designer</Eyebrow>
-            <h1 className="mt-1 font-serif text-[30px] font-medium leading-none text-accent-2">Designer defaults</h1>
-            <div className="mt-1.5 text-[11px] text-ink-3">
+            <PageHeader title={<> Designer defaults </>} />
+            <div className="mt-1.5 text-meta text-ink-3">
               Starting values for every new design — wall thickness, heights, overhangs, door and window sizes. A design
               keeps its own copy, so changing these never moves an existing plan.
             </div>
@@ -459,7 +431,7 @@ export function SettingsClient({ data }: { data: SettingsData }) {
             <DesignerDefaultsCard defaults={data.designerDefaults} />
           </>
         )}
-      </section>
+      </div></section>
     </div>
   );
 }

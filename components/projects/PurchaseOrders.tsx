@@ -1,14 +1,15 @@
 "use client";
 
-import { useState, useTransition, type FormEvent } from "react";
+import { FinancialTable } from "./FinancialTable";
+import { ActionMenu } from "./ActionMenu";
+import { Fragment, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { ClipboardList, Plus, X, Pencil, Trash2, ChevronLeft, Send, PackageCheck, Ban, CheckCircle2 } from "lucide-react";
-import { Card, Chip } from "@/components/ui";
-import { PO_STATUS_LABEL, PO_STATUS_KIND, poDollarsToCents, type PoStatus, type PurchaseOrderView, type VendorOption, type AssignedSubOption, type PoVendorKind } from "@/lib/po-types";
+import { ClipboardList, Plus, X, Pencil, ChevronLeft, Send } from "lucide-react";
+import { Button, Card, Chip, TableWrapper, TableHead, TableBody, TableHeader, TableRow, TableCell, TablePrimaryCell, TableGroupRow } from "@/components/ui";
+import { PO_STATUS_LABEL, PO_STATUS_KIND, poDollarsToCents, type PurchaseOrderView, type VendorOption, type AssignedSubOption, type PoVendorKind } from "@/lib/po-types";
 import { fmtUsd } from "@/lib/cost-book-units";
 import {
   createPurchaseOrder,
-  updatePurchaseOrder,
   addPOLine,
   updatePOLine,
   deletePOLine,
@@ -24,15 +25,8 @@ import { createVendorInline } from "@/lib/actions/vendors";
 import { runAction } from "@/lib/run-action";
 
 const inputCls =
-  "w-full rounded-md border border-rule bg-card px-2.5 py-1.5 text-[13px] text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none";
+  "w-full rounded-md border border-rule bg-card px-2.5 py-1.5 text-body text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none";
 
-function StatusIcon({ status }: { status: PoStatus }) {
-  if (status === "fulfilled" || status === "closed") return <CheckCircle2 className="size-3.5 text-money" strokeWidth={1.75} />;
-  if (status === "void") return <Ban className="size-3.5 text-ink-3" strokeWidth={1.75} />;
-  if (status === "partial") return <PackageCheck className="size-3.5 text-accent" strokeWidth={1.75} />;
-  if (status === "sent" || status === "queued") return <Send className="size-3.5 text-accent" strokeWidth={1.75} />;
-  return <ClipboardList className="size-3.5 text-ink-3" strokeWidth={1.75} />;
-}
 
 interface VendorFields {
   vendorKind: PoVendorKind;
@@ -66,7 +60,7 @@ function VendorPicker({
     <button
       type="button"
       onClick={() => onChange({ ...EMPTY_VENDOR, vendorKind: kind })}
-      className={`rounded-full border px-3 py-1 text-[12px] font-semibold transition-colors ${
+      className={`rounded-full border px-3 py-1 text-label font-semibold transition-colors ${
         value.vendorKind === kind ? "border-ink bg-ink text-paper" : "border-rule bg-card text-ink-2 hover:bg-paper-2"
       }`}
     >
@@ -119,7 +113,7 @@ function VendorPicker({
       )}
 
       {value.vendorKind === "one_off" && (
-        <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-1.5 @3xl/page:grid-cols-3">
           <input
             placeholder="Vendor name"
             value={value.vendorName}
@@ -141,7 +135,7 @@ function VendorPicker({
         </div>
       )}
       {value.vendorKind === "one_off" && (
-        <label className="flex items-center gap-1.5 text-[11px] text-ink-3">
+        <label className="flex items-center gap-1.5 text-meta text-ink-3">
           <input type="checkbox" checked={saveAsVendor} onChange={(e) => onSaveAsVendorChange(e.target.checked)} className="accent-accent" />
           Save as a vendor for next time
         </label>
@@ -262,7 +256,10 @@ export function PurchaseOrders({
     startTransition(async () => {
       // A PO held by the construction gate or the job's cash comes back with
       // confirm: Joe sees why and can send it anyway.
-      const first = await sendPurchaseOrder(slug, poId, { to, subject, body });
+      const first = await runAction(() => sendPurchaseOrder(slug, poId, { to, subject, body }), {
+        fallback: "Couldn't send the purchase order.",
+        toast: false, // A held PO gets an override question; other errors show below.
+      });
       const res =
         !first.ok && "confirm" in first && first.confirm && confirm(`${first.error}\n\nSend it to the vendor anyway?`)
           ? await runAction(() => sendPurchaseOrder(slug, poId, { to, subject, body }, true), { fallback: "Couldn't send the purchase order." })
@@ -321,8 +318,8 @@ export function PurchaseOrders({
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="font-serif text-[17px] font-semibold text-ink">Purchase orders</h3>
-              <div className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
+              <h3 className="font-serif text-heading font-semibold text-ink">Purchase orders</h3>
+              <div className="mt-0.5 text-label font-medium text-ink-3">
                 {orders.length} PO{orders.length === 1 ? "" : "s"} ·{" "}
                 {orders.filter((o) => o.status === "sent" || o.status === "partial").length} outstanding
               </div>
@@ -330,7 +327,7 @@ export function PurchaseOrders({
             <button
               type="button"
               onClick={() => { setShowNew((v) => !v); reset(); }}
-              className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
+              className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1.5 text-label font-semibold text-paper hover:bg-ink-hover"
             >
               {showNew ? <X className="size-3" strokeWidth={2} /> : <Plus className="size-3" strokeWidth={2} />}
               {showNew ? "Cancel" : "New purchase order"}
@@ -341,7 +338,7 @@ export function PurchaseOrders({
             <Card className="p-4">
               <form onSubmit={submitNew} className="space-y-3">
                 <label className="block">
-                  <span className="mb-1 block text-[11px] font-semibold text-ink-2">Title</span>
+                  <span className="mb-1 block text-meta font-semibold text-ink-2">Title</span>
                   <input
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
@@ -351,7 +348,7 @@ export function PurchaseOrders({
                   />
                 </label>
                 <div>
-                  <span className="mb-1 block text-[11px] font-semibold text-ink-2">Vendor</span>
+                  <span className="mb-1 block text-meta font-semibold text-ink-2">Vendor</span>
                   <VendorPicker
                     value={vendorFields}
                     onChange={setVendorFields}
@@ -362,72 +359,42 @@ export function PurchaseOrders({
                   />
                 </div>
                 <label className="block">
-                  <span className="mb-1 block text-[11px] font-semibold text-ink-2">Notes (optional)</span>
+                  <span className="mb-1 block text-meta font-semibold text-ink-2">Notes (optional)</span>
                   <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={`${inputCls} resize-y`} />
                 </label>
-                {error && <div className="text-[12px] text-flag">{error}</div>}
+                {error && <div className="text-label text-flag">{error}</div>}
                 <div className="flex items-center gap-2">
                   <button
                     type="submit"
                     disabled={pending}
-                    className="rounded-md border border-accent bg-accent px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-accent-2 disabled:opacity-60"
+                    className="rounded-md border border-accent bg-accent px-3 py-1.5 text-label font-semibold text-white hover:bg-accent-2 disabled:opacity-60"
                   >
                     {pending ? "Saving…" : "Save draft"}
                   </button>
-                  <span className="text-[11px] text-ink-3">Add line items next, then send it to the vendor.</span>
+                  <span className="text-meta text-ink-3">Add line items next, then send it to the vendor.</span>
                 </div>
               </form>
             </Card>
           )}
 
-          {error && !showNew && <div className="text-[12px] text-flag">{error}</div>}
+          {error && !showNew && <div className="text-label text-flag">{error}</div>}
 
           {orders.length === 0 ? (
             <Card kind="dashed" className="p-8 text-center">
               <ClipboardList className="mx-auto size-5 text-ink-3" strokeWidth={1.5} />
-              <div className="mt-2 font-serif text-[15px] font-semibold text-ink-2">No purchase orders yet</div>
-              <div className="mt-1 text-[12px] text-ink-3">Draft a PO for materials, then send it to the vendor.</div>
+              <div className="mt-2 font-serif text-subheading font-semibold text-ink-2">No purchase orders yet</div>
+              <div className="mt-1 text-label text-ink-3">Draft a PO for materials, then send it to the vendor.</div>
             </Card>
           ) : (
-            <div className="space-y-2.5">
-              {orders.map((o) => (
-                <Card key={o.id} className="p-3.5">
-                  <div className="flex items-start gap-3">
-                    <StatusIcon status={o.status} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="font-mono text-[11px] text-ink-3">{o.poNumber}</span>
-                        <span className="truncate font-serif text-[15px] font-semibold text-ink">{o.title}</span>
-                        <Chip kind={PO_STATUS_KIND[o.status]}>{PO_STATUS_LABEL[o.status]}</Chip>
-                        <span className="font-mono text-[12px] font-semibold text-accent-2">{o.subtotalLabel}</span>
-                      </div>
-                      <div className="mt-1 text-[11px] text-ink-3">
-                        {o.vendorName} · Created {o.createdAtLabel} · {o.lines.length} line{o.lines.length === 1 ? "" : "s"}
-                      </div>
-                      {o.commitmentLabel && <div className="mt-0.5 text-[11px] text-ink-3">{o.commitmentLabel}</div>}
-                    </div>
-                    <div className="flex flex-none flex-col items-end gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setEditingId(o.id)}
-                        className="rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink-3 hover:bg-paper-2"
-                      >
-                        Open
-                      </button>
-                      {(o.status === "draft" || o.status === "queued") && (
-                        <button
-                          type="button"
-                          onClick={() => remove(o.id)}
-                          className="rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink-3 hover:bg-paper-2 hover:text-flag"
-                        >
-                          Delete
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </Card>
-              ))}
-            </div>
+            <TableWrapper><FinancialTable>
+              <TableHead><TableRow><TableHeader>Purchase order</TableHeader><TableHeader numeric>Amount</TableHeader><TableHeader><span className="sr-only">Actions</span></TableHeader></TableRow></TableHead>
+              <TableBody>{(["draft","queued","sent","partial","fulfilled","closed","void"] as const).map(status => {const group=orders.filter(o => o.status === status);return group.length > 0 && <Fragment key={status}><TableGroupRow colSpan={3} count={group.length}>{PO_STATUS_LABEL[status]}</TableGroupRow>{group.map(o => <TableRow key={o.id}>
+                <TablePrimaryCell meta={<><span className="tabular-nums">{o.poNumber}</span> · {o.vendorName} · {o.lines.length} lines</>}>{o.title}{o.commitmentLabel && <div className="mt-0.5 text-meta font-normal text-ink-3">{o.commitmentLabel}</div>}</TablePrimaryCell>
+                <TableCell numeric className="whitespace-nowrap">{fmtUsd(o.subtotal)}</TableCell>
+                <TableCell><div className="flex justify-end gap-1"><Button variant="ghost" size="sm" onClick={() => setEditingId(o.id)}>Open</Button>{(status === "draft" || status === "queued") && <ActionMenu label={`More actions for ${o.poNumber}`}><Button variant="ghost" className="text-flag" onClick={() => remove(o.id)}>Delete</Button></ActionMenu>}</div></TableCell>
+              </TableRow>)}</Fragment>})}</TableBody>
+              <tfoot><TableRow className="border-t border-rule"><TableCell className="font-semibold">Total · excluding void</TableCell><TableCell numeric className="font-semibold">{fmtUsd(orders.filter(o => o.status !== "void").reduce((sum,o) => sum+o.subtotal,0))}</TableCell><TableCell /></TableRow></tfoot>
+            </FinancialTable></TableWrapper>
           )}
         </div>
       )}
@@ -437,7 +404,7 @@ export function PurchaseOrders({
           <button
             type="button"
             onClick={() => setEditingId(null)}
-            className="inline-flex items-center gap-1 text-[12px] font-semibold text-ink-3 hover:text-ink"
+            className="inline-flex items-center gap-1 text-label font-semibold text-ink-3 hover:text-ink"
           >
             <ChevronLeft className="size-3.5" strokeWidth={2} /> All purchase orders
           </button>
@@ -446,23 +413,23 @@ export function PurchaseOrders({
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-[11px] text-ink-3">{selected.poNumber}</span>
-                  <h3 className="font-serif text-[18px] font-semibold text-ink">{selected.title}</h3>
+                  <span className="tabular-nums text-meta text-ink-3">{selected.poNumber}</span>
+                  <h3 className="font-serif text-heading font-semibold text-ink">{selected.title}</h3>
                   <Chip kind={PO_STATUS_KIND[selected.status]}>{PO_STATUS_LABEL[selected.status]}</Chip>
                 </div>
-                <div className="mt-0.5 text-[11px] text-ink-3">
+                <div className="mt-0.5 text-meta text-ink-3">
                   {selected.vendorName}
                   {selected.vendorEmail ? ` · ${selected.vendorEmail}` : ""}
                   {selected.vendorPhone ? ` · ${selected.vendorPhone}` : ""}
                 </div>
-                <div className="mt-0.5 text-[11px] text-ink-3">
+                <div className="mt-0.5 text-meta text-ink-3">
                   Created {selected.createdAtLabel}
                   {selected.sentAtLabel ? ` · Sent ${selected.sentAtLabel}` : ""}
                 </div>
-                {selected.notes && <div className="mt-1.5 text-[12px] text-ink-2">{selected.notes}</div>}
+                {selected.notes && <div className="mt-1.5 text-label text-ink-2">{selected.notes}</div>}
               </div>
               <div className="text-right">
-                <div className="font-mono text-[22px] font-semibold text-accent-2">{selected.subtotalLabel}</div>
+                <div className="tabular-nums text-title font-semibold text-accent-2">{selected.subtotalLabel}</div>
               </div>
             </div>
 
@@ -470,7 +437,7 @@ export function PurchaseOrders({
               {editable && (
                 <button
                   onClick={() => setLineModal({ mode: "add", description: "", unit: "ea", qty: "", unitCost: "" })}
-                  className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e]"
+                  className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1 text-label font-semibold text-paper hover:bg-ink-hover"
                 >
                   <Plus className="size-3" strokeWidth={2} /> Add line
                 </button>
@@ -479,7 +446,7 @@ export function PurchaseOrders({
                 <button
                   onClick={() => queue(selected.id)}
                   disabled={pending}
-                  className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-60"
+                  className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-label font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-60"
                 >
                   Mark ready to send
                 </button>
@@ -488,7 +455,7 @@ export function PurchaseOrders({
                 <button
                   onClick={() => send(selected.id)}
                   disabled={pending}
-                  className="inline-flex items-center gap-1 rounded-md border border-accent bg-accent px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-accent-2 disabled:opacity-60"
+                  className="inline-flex items-center gap-1 rounded-md border border-accent bg-accent px-2.5 py-1 text-label font-semibold text-white hover:bg-accent-2 disabled:opacity-60"
                 >
                   <Send className="size-3" strokeWidth={1.75} /> Send to vendor
                 </button>
@@ -497,44 +464,27 @@ export function PurchaseOrders({
                 <button
                   onClick={() => close(selected.id)}
                   disabled={pending}
-                  className="inline-flex items-center gap-1 rounded-md border border-money/40 bg-money/10 px-2.5 py-1 text-[12px] font-semibold text-money hover:bg-money/20 disabled:opacity-60"
+                  className="inline-flex items-center gap-1 rounded-md border border-money/40 bg-money/10 px-2.5 py-1 text-label font-semibold text-money hover:bg-money/20 disabled:opacity-60"
                 >
                   Mark complete
                 </button>
               )}
-              {selected.status !== "void" && selected.status !== "closed" && (
-                <button
-                  onClick={() => voidPo(selected.id)}
-                  disabled={pending}
-                  className="rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-3 hover:bg-paper-2 hover:text-flag disabled:opacity-60"
-                >
-                  Void
-                </button>
-              )}
-              {(selected.status === "draft" || selected.status === "queued") && (
-                <button
-                  onClick={() => remove(selected.id)}
-                  disabled={pending}
-                  className="rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-3 hover:bg-paper-2 hover:text-flag disabled:opacity-60"
-                >
-                  Delete
-                </button>
-              )}
+              {selected.status !== "void" && selected.status !== "closed" && <ActionMenu label="More purchase order actions"><Button variant="ghost" className="text-flag" disabled={pending} onClick={() => voidPo(selected.id)}>Void</Button>{editable && <Button variant="ghost" className="text-flag" disabled={pending} onClick={() => remove(selected.id)}>Delete</Button>}</ActionMenu>}
             </div>
-            {error && <div className="mt-2 text-[12px] text-flag">{error}</div>}
+            {error && <div className="mt-2 text-label text-flag">{error}</div>}
           </Card>
 
           {selected.lines.length === 0 ? (
-            <Card kind="dashed" className="p-8 text-center text-[12px] text-ink-3">
+            <Card kind="dashed" className="p-8 text-center text-label text-ink-3">
               No lines yet — add one above.
             </Card>
           ) : (
-            <Card className="overflow-hidden p-0">
-              {selected.lines.map((l, k) => (
-                <div key={l.id} className={`group flex items-center gap-3 px-4 py-2.5 text-[13px] ${k ? "border-t border-rule-soft" : ""}`}>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium text-ink">{l.description}</div>
-                    <div className="font-mono text-[11px] text-ink-3">
+            <TableWrapper><FinancialTable><TableHead><TableRow><TableHeader>Item</TableHeader><TableHeader numeric>Amount</TableHeader><TableHeader><span className="sr-only">Actions / receiving</span></TableHeader></TableRow></TableHead><TableBody>
+              {selected.lines.map(l => (
+                <TableRow key={l.id}>
+                  <TableCell className="min-w-44">
+                    <div className="break-words font-medium text-ink">{l.description}</div>
+                    <div className="tabular-nums text-meta text-ink-3">
                       {l.qtyOrdered} {l.unit} × {l.unitCostLabel}
                       {!editable && (
                         <span className={l.qtyReceived >= l.qtyOrdered && l.qtyOrdered > 0 ? " text-money" : l.qtyReceived > 0 ? " text-accent" : ""}>
@@ -542,7 +492,8 @@ export function PurchaseOrders({
                         </span>
                       )}
                     </div>
-                  </div>
+                  </TableCell>
+                  <TableCell numeric className="whitespace-nowrap">{fmtUsd(l.extended)}</TableCell><TableCell>
                   {!editable && ["sent", "partial", "fulfilled"].includes(selected.status) && (
                     <input
                       type="number"
@@ -555,12 +506,12 @@ export function PurchaseOrders({
                         if (Number.isFinite(n) && n !== l.qtyReceived) receive(l.id, n);
                       }}
                       title="Qty received"
-                      className="w-[64px] rounded-md border border-rule bg-paper px-1.5 py-1 text-right text-[12px] text-ink outline-none focus:border-accent"
+                      className="w-[64px] rounded-md border border-rule bg-paper px-1.5 py-1 text-right text-label text-ink outline-none focus:border-accent"
                     />
                   )}
-                  <span className="w-[76px] flex-none text-right font-mono text-[13px] text-ink">{l.extendedLabel}</span>
+
                   {editable && (
-                    <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                    <div className="flex items-center gap-1 opacity-100 transition-opacity @3xl/page:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
                       <button
                         onClick={() =>
                           setLineModal({ mode: "edit", lineId: l.id, description: l.description, unit: l.unit, qty: String(l.qtyOrdered), unitCost: fmtUsd(l.unitCost).replace("$", "") })
@@ -570,30 +521,28 @@ export function PurchaseOrders({
                       >
                         <Pencil className="size-3.5" strokeWidth={1.75} />
                       </button>
-                      <button onClick={() => removeLine(l.id)} title="Delete" className="rounded p-1 text-ink-3 hover:bg-paper-2 hover:text-flag">
-                        <Trash2 className="size-3.5" strokeWidth={1.75} />
-                      </button>
+                      <ActionMenu label={`More actions for ${l.description}`}><Button variant="ghost" className="text-flag" onClick={() => removeLine(l.id)}>Delete line</Button></ActionMenu>
                     </div>
                   )}
-                </div>
+                </TableCell></TableRow>
               ))}
-            </Card>
+            </TableBody><tfoot><TableRow><TableCell className="font-semibold">Total</TableCell><TableCell numeric className="font-semibold">{fmtUsd(selected.subtotal)}</TableCell><TableCell /></TableRow></tfoot></FinancialTable></TableWrapper>
           )}
         </>
       )}
 
       {lineModal && (
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink/30 p-4 pt-[10vh]" onClick={() => setLineModal(null)}>
-          <div className="w-full max-w-[440px] rounded-lg border border-rule bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-[440px] rounded-lg border border-rule bg-card shadow-modal" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-rule px-4 py-3">
-              <h2 className="font-serif text-[16px] font-semibold text-ink">{lineModal.mode === "add" ? "Add line" : "Edit line"}</h2>
+              <h2 className="font-serif text-heading font-semibold text-ink">{lineModal.mode === "add" ? "Add line" : "Edit line"}</h2>
               <button onClick={() => setLineModal(null)} className="text-ink-3 hover:text-ink" aria-label="Close">
                 <X className="size-4" strokeWidth={1.5} />
               </button>
             </div>
             <form onSubmit={submitLine} className="flex flex-col gap-3 p-4">
               <label className="flex flex-col gap-1">
-                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Description</span>
+                <span className="text-label font-medium text-ink-3">Description</span>
                 <input
                   value={lineModal.description}
                   onChange={(e) => setLineModal({ ...lineModal, description: e.target.value })}
@@ -604,7 +553,7 @@ export function PurchaseOrders({
               </label>
               <div className="grid grid-cols-3 gap-2">
                 <label className="flex flex-col gap-1">
-                  <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Qty</span>
+                  <span className="text-label font-medium text-ink-3">Qty</span>
                   <input
                     value={lineModal.qty}
                     onChange={(e) => setLineModal({ ...lineModal, qty: e.target.value })}
@@ -614,11 +563,11 @@ export function PurchaseOrders({
                   />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Unit</span>
+                  <span className="text-label font-medium text-ink-3">Unit</span>
                   <input value={lineModal.unit} onChange={(e) => setLineModal({ ...lineModal, unit: e.target.value })} className={inputCls} />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Unit cost</span>
+                  <span className="text-label font-medium text-ink-3">Unit cost</span>
                   <input
                     value={lineModal.unitCost}
                     onChange={(e) => setLineModal({ ...lineModal, unitCost: e.target.value })}
@@ -629,14 +578,14 @@ export function PurchaseOrders({
                 </label>
               </div>
               <div className="flex items-center justify-between border-t border-rule-soft pt-2">
-                <span className="text-[12px] text-ink-3">
+                <span className="text-label text-ink-3">
                   Extended: {fmtUsd(Math.round((Number(lineModal.qty) || 0) * poDollarsToCents(lineModal.unitCost)))}
                 </span>
                 <div className="flex items-center gap-2">
-                  <button type="button" onClick={() => setLineModal(null)} className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2">
+                  <button type="button" onClick={() => setLineModal(null)} className="rounded-md border border-rule px-3 py-1.5 text-label font-semibold text-ink-3 hover:bg-paper-2">
                     Cancel
                   </button>
-                  <button type="submit" disabled={pending} className="rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50">
+                  <button type="submit" disabled={pending} className="rounded-md border border-ink bg-ink px-3 py-1.5 text-label font-semibold text-paper hover:bg-ink-hover disabled:opacity-50">
                     Save
                   </button>
                 </div>
@@ -648,16 +597,16 @@ export function PurchaseOrders({
 
       {sendModal && (
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink/30 p-4 pt-[6vh]" onClick={() => setSendModal(null)}>
-          <div className="w-full max-w-[640px] rounded-lg border border-rule bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-[640px] rounded-lg border border-rule bg-card shadow-modal" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-rule px-4 py-3">
-              <h2 className="font-serif text-[16px] font-semibold text-ink">Send to vendor</h2>
+              <h2 className="font-serif text-heading font-semibold text-ink">Send to vendor</h2>
               <button onClick={() => setSendModal(null)} className="text-ink-3 hover:text-ink" aria-label="Close">
                 <X className="size-4" strokeWidth={1.5} />
               </button>
             </div>
             <form onSubmit={submitSend} className="flex flex-col gap-3 p-4">
               <label className="flex flex-col gap-1">
-                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">To</span>
+                <span className="text-label font-medium text-ink-3">To</span>
                 <input
                   type="email"
                   value={sendModal.to}
@@ -668,11 +617,11 @@ export function PurchaseOrders({
                 />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Subject</span>
+                <span className="text-label font-medium text-ink-3">Subject</span>
                 <input value={sendModal.subject} onChange={(e) => setSendModal({ ...sendModal, subject: e.target.value })} required className={inputCls} />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Email</span>
+                <span className="text-label font-medium text-ink-3">Email</span>
                 <textarea
                   value={sendModal.body}
                   onChange={(e) => setSendModal({ ...sendModal, body: e.target.value })}
@@ -682,15 +631,15 @@ export function PurchaseOrders({
                 />
               </label>
               <div className="flex items-center justify-between border-t border-rule-soft pt-2">
-                <span className="text-[12px] text-ink-3">Sent exactly as written. The PO is marked sent once it goes.</span>
+                <span className="text-label text-ink-3">Sent exactly as written. The PO is marked sent once it goes.</span>
                 <div className="flex items-center gap-2">
-                  <button type="button" onClick={() => setSendModal(null)} className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2">
+                  <button type="button" onClick={() => setSendModal(null)} className="rounded-md border border-rule px-3 py-1.5 text-label font-semibold text-ink-3 hover:bg-paper-2">
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={pending}
-                    className="inline-flex items-center gap-1 rounded-md border border-accent bg-accent px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
+                    className="inline-flex items-center gap-1 rounded-md border border-accent bg-accent px-3 py-1.5 text-label font-semibold text-white hover:bg-accent-2 disabled:opacity-50"
                   >
                     <Send className="size-3" strokeWidth={1.75} /> Send
                   </button>

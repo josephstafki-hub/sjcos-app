@@ -1,16 +1,23 @@
+import { formatUsPhone } from "@/lib/comms/phone";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Phone, MessageSquare, Sparkles, Check } from "lucide-react";
+import { Phone, Sparkles, Check } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { AiBubble, AiStream, Avatar, Card, Chip, Eyebrow, Field } from "@/components/ui";
+import { AiBubble, Card, Chip, Eyebrow, Field } from "@/components/ui";
 import type { ChipKind } from "@/components/ui/Chip";
 import { AssignToJobButton } from "@/components/subs/AssignToJobButton";
 import { getScheduleProjects } from "@/lib/schedule";
+import { PageHeader } from "@/components/ui";
+import { DirectoryRecordMenu } from "@/components/subs/DirectoryRecordMenu";
+import { RemoveAssignmentButton } from "@/components/subs/RemoveAssignmentButton";
+import { RestoreAssignmentButton } from "@/components/subs/RestoreAssignmentButton";
+import { SubSummary } from "@/components/subs/SubSummary";
+import { CoiUpload } from "@/components/subs/CoiUpload";
 import { SubTabs } from "@/components/subs/SubTabs";
 import { SubNotes } from "@/components/subs/SubNotes";
 import { SubDocReview } from "@/components/subs/SubDocReview";
-import { getSub, getSubSummary } from "@/lib/subs";
+import { getSub } from "@/lib/subs";
 import { can, getCurrentUser } from "@/lib/dal";
 import type { JobDot } from "@/lib/subs";
 import { getSubLogs, getSubInvoices } from "@/lib/sub-portal";
@@ -20,8 +27,14 @@ import { SUB_DOC_LABEL } from "@/lib/sub-doc-types";
 
 // sub_invoices.amount is CENTS (Phase 5.0).
 const usd = (cents: number) =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format((cents || 0) / 100);
-const SUB_INVOICE_CHIP = { submitted: "info", approved: "accent", paid: "money" } as const;
+  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
+    (cents || 0) / 100,
+  );
+const SUB_INVOICE_CHIP = {
+  submitted: "info",
+  approved: "accent",
+  paid: "money",
+} as const;
 
 /** Review state of an uploaded document, as a chip. Every upload waits for
  *  Joe's OK (a COI also needs the expiry date he reads on it). */
@@ -71,15 +84,24 @@ export default async function SubDetailPage({
     getScheduleProjects(),
   ]);
   const subDocs = paperwork.documents;
-  const coiToReview = subDocs.some((d) => d.docType === "coi" && d.status === "under_review");
+  const coiToReview = subDocs.some(
+    (d) => d.docType === "coi" && d.status === "under_review",
+  );
+
+  const editRate = <DirectoryRecordMenu table="subs" slug={slug} name={sub.name} trade={sub.rawTrade} email={sub.email ?? ""} phone={sub.phone ?? ""} rate={showMoney ? sub.rawRate : undefined} archived={sub.archived} editLabel="Edit rate & details" />;
+  const requestCoi = sub.email ? <a href={`mailto:${sub.email}?subject=${encodeURIComponent("Certificate of insurance requested")}&body=${encodeURIComponent("Please send your current certificate of insurance for our records. Thank you.")}`} className="inline-flex min-h-9 items-center text-label font-semibold text-accent-2 hover:underline" title="Opens an email draft for you to review and send">Request COI ↗</a> : <p className="text-meta text-ink-3">Add an email in Edit details to request a COI.</p>;
   const papersToReview = subDocs.filter((d) => d.docType !== "coi" && d.status === "under_review").length;
 
   const overview = (
-    <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[1fr_1fr_320px]">
+    <div className="grid grid-cols-1 gap-4 @4xl/page:grid-cols-2">
+      <div className="space-y-3 @4xl/page:col-span-2">
+        {sub.paperwork.some((p) => !p.ok) && <div className="flex flex-wrap items-center gap-3 text-body text-ink-2"><Link href={`/subs/${slug}?tab=Paperwork`} className="font-semibold text-accent-2 hover:underline">Repair missing paperwork →</Link>{paperwork.coiStatus !== "current" && requestCoi}</div>}
+        {showMoney && !sub.rate.amount && <div className="flex flex-wrap items-center gap-3 text-body">Rate not recorded {editRate}</div>}
+      </div>
       {/* Reliability + AI summary */}
       <Card className="p-3.5">
-        <h3 className="mb-2.5 font-serif text-[15px] font-semibold text-ink">
-          Reliability · {sub.jobsCount} jobs
+        <h3 className="mb-2.5 font-serif text-heading font-semibold text-ink">
+          Reliability · {sub.jobsCount} completed jobs
         </h3>
         <div className="grid grid-cols-2 gap-3">
           {sub.reliability.map((r) => (
@@ -88,14 +110,14 @@ export default async function SubDetailPage({
         </div>
         <div className="my-3 border-t border-dashed border-rule" />
         <Eyebrow muted>AI summary</Eyebrow>
-        <AiBubble className="mt-1.5">
-          <AiStream load={() => getSubSummary(sub.aiSummaryInput)} />
-        </AiBubble>
+        <SubSummary slug={slug} />
       </Card>
 
       {/* Recent jobs */}
       <Card className="p-3.5">
-        <h3 className="mb-2 font-serif text-[15px] font-semibold text-ink">Recent jobs</h3>
+        <h3 className="mb-2 font-serif text-heading font-semibold text-ink">
+          Recent jobs
+        </h3>
         {sub.recentJobs.length > 0 ? (
           <div className="flex flex-col">
             {sub.recentJobs.map((j, i) => (
@@ -103,18 +125,25 @@ export default async function SubDetailPage({
                 key={j.name}
                 className={`flex items-center gap-2 py-1.5 ${i ? "border-t border-rule-soft" : ""}`}
               >
-                <span className={`size-2 flex-none rounded-full ${DOT[j.dot]}`} />
+                <span
+                  className={`size-2 flex-none rounded-full ${DOT[j.dot]}`}
+                />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate font-serif text-[13.5px] font-semibold text-ink">
-                    {j.name}
+                  <div className="truncate font-serif text-body font-semibold text-ink">
+                    <Link
+                      href={`/projects/${j.projectSlug}`}
+                      className="hover:underline"
+                    >
+                      {j.name}
+                    </Link>
                   </div>
-                  <div className="text-[11px] text-ink-3">{j.detail}</div>
+                  <div className="text-meta text-ink-3">{j.detail}</div>
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <div className="text-[12px] text-ink-3">No recent jobs logged yet.</div>
+          <div className="text-body text-ink-3">No recent jobs logged yet.</div>
         )}
       </Card>
 
@@ -126,11 +155,13 @@ export default async function SubDetailPage({
             {sub.paperwork.map((p) => (
               <div key={p.label} className="flex items-center gap-2">
                 <Check
-                  className={`size-3 flex-none ${p.ok ? "text-money" : "text-ink-4"}`}
+                  className={`size-3 flex-none ${p.ok ? "text-money" : "invisible"}`}
                   strokeWidth={2}
                 />
-                <span className="flex-1 text-[12px] text-ink-2">{p.label}</span>
-                <span className={`font-mono text-[10px] ${p.ok ? "text-ink-3" : "text-ink-4"}`}>
+                <span className="flex-1 text-body text-ink-2">{p.label}</span>
+                <span
+                  className={`text-meta ${p.ok ? "text-ink-3" : "text-ink-4"}`}
+                >
                   {p.value}
                 </span>
               </div>
@@ -141,19 +172,32 @@ export default async function SubDetailPage({
         {showMoney && (
           <Card className="p-3">
             <Eyebrow muted>Rate</Eyebrow>
-            <div className="mt-1 font-serif text-[26px] font-semibold leading-none text-ink">
-              {sub.rate.amount}
-              {sub.rate.unit && <span className="text-[14px] text-ink-3">{sub.rate.unit}</span>}
+            <div
+              className={`mt-1 text-ink ${sub.rate.amount ? "font-serif text-kpi" : "text-body text-ink-3"}`}
+            >
+              {sub.rate.amount || "Not recorded"}
+              {sub.rate.unit && (
+                <span className="text-subheading text-ink-3">
+                  {sub.rate.unit}
+                </span>
+              )}
             </div>
-            {sub.rate.note && <div className="mt-1.5 text-[11px] text-ink-3">{sub.rate.note}</div>}
+            {sub.rate.note && (
+              <div className="mt-1.5 text-meta text-ink-3">{sub.rate.note}</div>
+            )}
           </Card>
         )}
 
         {sub.taxNote && (
           <Card kind="ai" className="p-2.5">
             <div className="flex items-start gap-2">
-              <Sparkles className="mt-0.5 size-3 flex-none text-ai-2" strokeWidth={1.5} />
-              <span className="text-[11px] leading-snug text-ai-2">{sub.taxNote}</span>
+              <Sparkles
+                className="mt-0.5 size-3 flex-none text-ai-2"
+                strokeWidth={1.5}
+              />
+              <span className="text-meta leading-snug text-ai-2">
+                {sub.taxNote}
+              </span>
             </div>
           </Card>
         )}
@@ -165,9 +209,10 @@ export default async function SubDetailPage({
   const jobsPanel = (
     <div className="flex max-w-[680px] flex-col gap-3.5">
       {sub.recentJobs.length > 0 ? (
-        <Card className="overflow-hidden p-0">
-          <div className="border-b border-rule bg-paper-2 px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
-            {sub.jobsCount} job{sub.jobsCount === 1 ? "" : "s"} with SJ Carpentry
+        <Card className="overflow-visible p-0">
+          <div className="border-b border-rule bg-paper-2 px-4 py-2.5 text-label font-medium text-ink-3">
+            {sub.assignmentCount} assignment
+            {sub.assignmentCount === 1 ? "" : "s"} with SJ Carpentry
           </div>
           {sub.recentJobs.map((j, i) => (
             <div
@@ -176,30 +221,67 @@ export default async function SubDetailPage({
             >
               <span className={`size-2 flex-none rounded-full ${DOT[j.dot]}`} />
               <div className="min-w-0 flex-1">
-                <div className="truncate font-serif text-[13.5px] font-semibold text-ink">{j.name}</div>
-                <div className="text-[11px] text-ink-3">{j.detail}</div>
+                <div className="font-sans text-body font-semibold text-ink">
+                  {j.name}
+                </div>
+                <div className="text-meta text-ink-3">{j.detail}</div>
               </div>
+              <RemoveAssignmentButton
+                projectSlug={j.projectSlug}
+                subSlug={slug}
+              />
             </div>
           ))}
         </Card>
       ) : (
         <Card kind="dashed" className="p-8 text-center">
-          <div className="font-serif text-[16px] font-semibold text-ink-2">No jobs yet</div>
-          <div className="mt-1 text-[12px] text-ink-3">Assign this sub to a job to start their history.</div>
+          <div className="font-serif text-heading font-semibold text-ink-2">
+            No jobs yet
+          </div>
+          <div className="mt-1 text-body text-ink-3">
+            Assign this sub to a job to start their history.
+          </div>
         </Card>
       )}
 
+      {sub.removedJobs.length > 0 && (
+        <Card className="p-4">
+          <h2 className="mb-3 font-serif text-heading">Removed assignments</h2>
+          <div className="divide-y divide-rule-soft">
+            {sub.removedJobs.map((j) => (
+              <div
+                key={j.projectSlug}
+                className="flex flex-wrap items-center justify-between gap-3 py-3"
+              >
+                <span className="text-body">{j.name}</span>
+                <RestoreAssignmentButton
+                  projectSlug={j.projectSlug}
+                  subSlug={slug}
+                />
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
       {subInvoices.length > 0 && (
         <Card className="p-3.5">
           <Eyebrow muted>Submitted invoices · from the portal</Eyebrow>
           <div className="mt-2 flex flex-col gap-2">
             {subInvoices.map((inv) => (
-              <div key={inv.id} className="flex items-center gap-2 border-t border-rule-soft pt-2 first:border-t-0 first:pt-0">
-                <span className="font-mono text-[13px] text-ink">{usd(inv.amount)}</span>
+              <div
+                key={inv.id}
+                className="flex items-center gap-2 border-t border-rule-soft pt-2 first:border-t-0 first:pt-0"
+              >
+                <span className="tabular-nums text-body text-ink">
+                  {usd(inv.amount)}
+                </span>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[12.5px] text-ink-2">{inv.note || "Final invoice"}</div>
-                  <div className="font-mono text-[10px] text-ink-3">
-                    {inv.when}{inv.projectName ? ` · ${inv.projectName}` : ""}
+                  <div className="truncate text-body text-ink-2">
+                    {inv.note || "Final invoice"}
+                  </div>
+                  <div className="text-meta text-ink-3">
+                    {inv.when}
+                    {inv.projectName ? ` · ${inv.projectName}` : ""}
                   </div>
                 </div>
                 <Chip kind={SUB_INVOICE_CHIP[inv.status]} dot>
@@ -217,10 +299,16 @@ export default async function SubDetailPage({
           <div className="mt-2 flex flex-col gap-2.5">
             {subLogs.map((l) => (
               <div key={l.id} className="border-l-2 border-rule pl-2.5">
-                <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">
-                  {l.when}{l.hasPhoto ? " · 📷" : ""}{l.projectName ? ` · ${l.projectName}` : ""}
+                <div className="text-label font-medium text-ink-3">
+                  {l.when}
+                  {l.hasPhoto ? " · 📷" : ""}
+                  {l.projectName ? ` · ${l.projectName}` : ""}
                 </div>
-                {l.body && <p className="mt-0.5 text-[12.5px] leading-snug text-ink">{l.body}</p>}
+                {l.body && (
+                  <p className="mt-0.5 text-body leading-snug text-ink">
+                    {l.body}
+                  </p>
+                )}
               </div>
             ))}
           </div>
@@ -234,12 +322,24 @@ export default async function SubDetailPage({
     <div className="flex max-w-[520px] flex-col gap-3.5">
       <Card className="p-3.5">
         <Eyebrow muted>Paperwork on file</Eyebrow>
+        {paperwork.coiStatus !== "current" && requestCoi}
+        <CoiUpload slug={slug} initiallyOpen={paperwork.coiStatus === "missing"} />
+        <CoiUpload slug={slug} docType="w9" initiallyOpen={sub.w9 === "missing"} />
+        <CoiUpload slug={slug} docType="agreement" initiallyOpen={!subDocs.some((d) => d.docType === "agreement" && (d.status === "received" || d.status === "accepted"))} />
         <div className="mt-2.5 flex flex-col gap-2">
           {sub.paperwork.map((p) => (
-            <div key={p.label} className="flex items-center gap-2 border-t border-rule-soft pt-2 first:border-t-0 first:pt-0">
-              <Check className={`size-3.5 flex-none ${p.ok ? "text-money" : "text-ink-4"}`} strokeWidth={2} />
-              <span className="flex-1 text-[13px] text-ink">{p.label}</span>
-              <span className={`font-mono text-[11px] ${p.ok ? "text-ink-3" : "text-flag"}`}>
+            <div
+              key={p.label}
+              className="flex items-center gap-2 border-t border-rule-soft pt-2 first:border-t-0 first:pt-0"
+            >
+              <Check
+                className={`size-3.5 flex-none ${p.ok ? "text-money" : "invisible"}`}
+                strokeWidth={2}
+              />
+              <span className="flex-1 text-body text-ink">{p.label}</span>
+              <span
+                className={`text-meta ${p.ok ? "text-ink-3" : "text-flag"}`}
+              >
                 {p.ok ? p.value : `${p.value} · needed`}
               </span>
             </div>
@@ -255,35 +355,44 @@ export default async function SubDetailPage({
               const chip = docStatusChip(d);
               const reviewable = d.status === "under_review" || d.status === "received";
               return (
-                <div key={d.id} className="border-t border-rule-soft pt-2 first:border-t-0 first:pt-0">
+                <div
+                  key={d.id}
+                  className="border-t border-rule-soft pt-2 first:border-t-0 first:pt-0"
+                >
                   <div className="flex items-center gap-2">
-                    <span className="flex-1 text-[13px] text-ink">{SUB_DOC_LABEL[d.docType] ?? "Document"}</span>
+                    <span className="flex-1 text-body text-ink">
+                      {SUB_DOC_LABEL[d.docType] ?? "Document"}
+                    </span>
                     {chip && (
                       <Chip kind={chip.kind} dot>
                         {chip.label}
                       </Chip>
                     )}
-                    {d.expiresLabel && <Chip kind="ghost">exp {d.expiresLabel}</Chip>}
+                    {d.expiresLabel && (
+                      <Chip kind="ghost">exp {d.expiresLabel}</Chip>
+                    )}
                     {d.fileId ? (
                       <a
                         href={`/api/files/${d.fileId}`}
                         target="_blank"
                         rel="noopener"
-                        className="font-mono text-[11px] font-semibold text-accent-2 hover:underline"
+                        className="text-meta font-semibold text-accent-2 hover:underline"
                       >
                         Open
                       </a>
                     ) : (
-                      <span className="font-mono text-[11px] text-ink-3">{d.when}</span>
+                      <span className="text-meta text-ink-3">{d.when}</span>
                     )}
                   </div>
                   {d.status === "rejected" && d.reviewNote && (
-                    <div className="mt-0.5 text-[11px] text-ink-3">{d.reviewNote}</div>
+                    <div className="mt-0.5 text-meta text-ink-3">
+                      {d.reviewNote}
+                    </div>
                   )}
                   {reviewable &&
                     (isOwner ? (
                       <>
-                        <div className="mt-0.5 text-[11px] text-ink-3">
+                        <div className="mt-0.5 text-meta text-ink-3">
                           {d.docType === "coi"
                             ? d.expiresAt
                               ? "The date is what the sub typed. Check the certificate, then accept it with the date it shows."
@@ -295,7 +404,9 @@ export default async function SubDetailPage({
                         <SubDocReview slug={slug} documentId={d.id} typedExpiry={d.expiresAt} docType={d.docType} />
                       </>
                     ) : (
-                      <div className="mt-0.5 text-[11px] text-ink-3">Not current until Joe accepts it.</div>
+                      <div className="mt-0.5 text-meta text-ink-3">
+                        Not current until Joe accepts it.
+                      </div>
                     ))}
                 </div>
               );
@@ -308,20 +419,32 @@ export default async function SubDetailPage({
 
   // ── Pricing panel — rate card + 1099 note ──────────────────────────────────
   const pricingPanel = (
-    <div className="grid max-w-[680px] grid-cols-1 gap-3.5 sm:grid-cols-2">
+    <div className="grid max-w-[680px] grid-cols-1 gap-3.5 @xl/page:grid-cols-2">
+      <div className="@xl/page:col-span-2">{editRate}</div>
       <Card className="p-3.5">
         <Eyebrow muted>Rate</Eyebrow>
-        <div className="mt-1 font-serif text-[30px] font-semibold leading-none text-ink">
-          {sub.rate.amount}
-          {sub.rate.unit && <span className="text-[15px] text-ink-3">{sub.rate.unit}</span>}
+        <div
+          className={`mt-1 text-ink ${sub.rate.amount ? "font-serif text-kpi" : "text-body text-ink-3"}`}
+        >
+          {sub.rate.amount || "Not recorded"}
+          {sub.rate.unit && (
+            <span className="text-heading text-ink-3">{sub.rate.unit}</span>
+          )}
         </div>
-        {sub.rate.note && <div className="mt-2 text-[12px] text-ink-3">{sub.rate.note}</div>}
+        {sub.rate.note && (
+          <div className="mt-2 text-body text-ink-3">{sub.rate.note}</div>
+        )}
       </Card>
       {sub.taxNote && (
         <Card kind="ai" className="p-3">
           <div className="flex items-start gap-2">
-            <Sparkles className="mt-0.5 size-3.5 flex-none text-ai-2" strokeWidth={1.5} />
-            <span className="text-[12px] leading-snug text-ai-2">{sub.taxNote}</span>
+            <Sparkles
+              className="mt-0.5 size-3.5 flex-none text-ai-2"
+              strokeWidth={1.5}
+            />
+            <span className="text-body leading-snug text-ai-2">
+              {sub.taxNote}
+            </span>
           </div>
         </Card>
       )}
@@ -334,9 +457,7 @@ export default async function SubDetailPage({
       <SubNotes slug={sub.slug} notes={sub.notes} />
       <div>
         <Eyebrow muted>AI summary</Eyebrow>
-        <AiBubble className="mt-1.5">
-          <AiStream load={() => getSubSummary(sub.aiSummaryInput)} />
-        </AiBubble>
+        <SubSummary slug={slug} />
       </div>
     </div>
   );
@@ -351,82 +472,85 @@ export default async function SubDetailPage({
 
   return (
     <Shell breadcrumb={`SUBS › ${sub.name.toUpperCase()}`}>
-      <div className="mx-auto max-w-[1100px] px-7 pb-14 pt-6">
-        <Link href="/subs" className="text-[11px] text-ink-3 hover:text-ink-2">
-          ← All subs
-        </Link>
-
-        {/* Header */}
-        <div className="mt-2 flex flex-wrap items-start gap-4">
-          <Avatar initials={sub.initials} kind="accent" size="lg" className="size-14 text-[18px]" />
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-1.5">
-              {sub.working && (
-                <Chip kind="accent" dot>
-                  Working this wk
-                </Chip>
-              )}
-              {paperwork.coiStatus === "expiring" ? (
-                <Chip kind="flag" dot>
-                  COI expires {sub.coiLabel}
-                </Chip>
-              ) : paperwork.coiStatus === "expired" ? (
-                <Chip kind="flag" dot>
-                  COI expired{paperwork.coiExpiresLabel ? ` ${paperwork.coiExpiresLabel}` : ""}
-                </Chip>
-              ) : paperwork.coiStatus === "missing" ? (
-                <Chip kind="ghost">No COI</Chip>
-              ) : (
-                <Chip kind="money">COI · {sub.coiLabel}</Chip>
-              )}
-              {coiToReview && (
-                <Chip kind="info" dot>
-                  COI to review
-                </Chip>
-              )}
-              {papersToReview > 0 && (
-                <Chip kind="info" dot>
-                  {papersToReview === 1 ? "1 paper to review" : `${papersToReview} papers to review`}
-                </Chip>
-              )}
-              <Chip kind={sub.w9 === "missing" ? "flag" : "money"}>W-9 · {sub.w9}</Chip>
-            </div>
-            <h1 className="mt-1.5 font-serif text-[30px] font-medium leading-none tracking-tight text-accent-2">
-              {sub.name} <span className="text-accent">· {sub.tradeLine}</span>
-            </h1>
-            <div className="mt-1.5 text-[11px] text-ink-3">{sub.contact}</div>
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {sub.phone ? (
-              <a
-                href={`tel:${sub.phone.replace(/[^\d+]/g, "")}`}
-                className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-paper-2"
+      <div className="mx-auto max-w-[1100px] px-4 pb-14 pt-6 @2xl/page:px-7">
+        <PageHeader
+          variant="record"
+          title={sub.name}
+          badge={
+            <div className="flex flex-wrap gap-2">
+              {sub.archived && <Chip>Archived</Chip>}
+              <Chip
+                kind={
+                  paperwork.coiStatus === "current"
+                    ? "ok"
+                    : paperwork.coiStatus === "expiring"
+                      ? "warn"
+                      : "flag"
+                }
               >
-                <Phone className="size-3" strokeWidth={1.5} />
-                Call
-              </a>
-            ) : (
-              <span className="inline-flex cursor-not-allowed items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-4">
-                <Phone className="size-3" strokeWidth={1.5} />
-                Call
-              </span>
-            )}
-            <Link
-              href="/chat"
-              className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-paper-2"
-            >
-              <MessageSquare className="size-3" strokeWidth={1.5} />
-              Chat
-            </Link>
-            <AssignToJobButton
-              subSlug={slug}
-              defaultRole={sub.tradeLine}
-              projects={projects.map((p) => ({ slug: p.slug, name: p.name }))}
-            />
-          </div>
-        </div>
+                {paperwork.coiStatus === "current"
+                  ? "COI current"
+                  : paperwork.coiStatus === "expiring"
+                    ? "COI expiring"
+                    : paperwork.coiStatus === "expired"
+                      ? "COI expired"
+                      : "COI missing"}
+              </Chip>
+              <Chip kind={sub.w9 === "missing" ? "flag" : "ok"}>
+                {sub.w9 === "missing" ? "W-9 missing" : "W-9 on file"}
+              </Chip>
+              {coiToReview && <Chip kind="info">COI to review</Chip>}
+              {papersToReview > 0 && <Chip kind="info">{papersToReview === 1 ? "1 paper to review" : `${papersToReview} papers to review`}</Chip>}
+            </div>
+          }
+          meta={
+            <>
+              <span className="block text-body text-ink-2">{sub.rawTrade}</span>
+              <span className="break-words">{[sub.email, formatUsPhone(sub.phone)].filter(Boolean).join(" · ") || "No contact details recorded"}</span>
+            </>
+          }
+          actions={
+            <>
+              {sub.phone && (
+                <a
+                  href={`tel:${sub.phone.replace(/[^\d+]/g, "")}`}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-rule bg-card px-3 text-body font-semibold hover:bg-hover"
+                >
+                  <Phone className="size-3.5" />
+                  Call
+                </a>
+              )}
+              {!sub.archived && (
+                <AssignToJobButton
+                  subSlug={slug}
+                  defaultRole={sub.rawTrade}
+                  projects={projects.map((p) => ({
+                    slug: p.slug,
+                    name: p.name,
+                  }))}
+                />
+              )}
+              <DirectoryRecordMenu
+                table="subs"
+                slug={slug}
+                name={sub.name}
+                trade={sub.rawTrade}
+                email={sub.email ?? ""}
+                phone={sub.phone ?? ""}
+                rate={showMoney ? sub.rawRate : undefined}
+                archived={sub.archived}
+              />
+            </>
+          }
+        />
+        {sub.archived && (
+          <p className="mt-4 rounded-md bg-neutral-soft px-3 py-2 text-body text-ink-2">
+            Archived · assignments and paperwork are preserved. Use the actions
+            menu to restore this sub.
+          </p>
+        )}
 
-        <SubTabs panels={panels} jobsCount={sub.jobsCount} />
+        <SubTabs panels={panels} jobsCount={sub.assignmentCount} />
       </div>
     </Shell>
   );

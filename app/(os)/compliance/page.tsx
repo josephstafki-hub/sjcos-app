@@ -1,36 +1,22 @@
 import { Shell } from "@/components/shell/Shell";
-import { AiBubble, AiStream } from "@/components/ui";
-import { getComplianceData, getComplianceSummary } from "@/lib/compliance";
+import { getComplianceData } from "@/lib/compliance";
 import { ComplianceClient } from "@/components/compliance/ComplianceClient";
-import { InsuranceSection } from "@/components/insurance/InsuranceSection";
+import { InsuranceSection } from "@/components/compliance/InsuranceSection";
 import { getInsurancePolicies } from "@/lib/insurance";
-
 export default async function CompliancePage() {
-  const [data, policies] = await Promise.all([getComplianceData(), getInsurancePolicies()]);
-
+  const [data, policies] = await Promise.all([
+    getComplianceData(),
+    getInsurancePolicies(true),
+  ]);
   return (
-    <Shell breadcrumb="COMPLIANCE · CALENDAR">
-      <div className="mx-auto max-w-[1100px] px-7 pb-16 pt-6">
+    <Shell breadcrumb="COMPLIANCE">
+      <div className="mx-auto max-w-[1240px] px-4 pb-16 pt-6 @3xl/page:px-5 @5xl/page:px-8">
         <ComplianceClient
           eyebrow={data.eyebrow}
           filters={data.filters}
           windows={data.windows}
           timeline={data.timeline}
-          aiSlot={
-            <AiBubble
-              className="mb-3.5"
-              actions={
-                <a
-                  href="#compliance-timeline"
-                  className="rounded-md bg-ai px-2.5 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-ai-2"
-                >
-                  View timeline
-                </a>
-              }
-            >
-              <AiStream load={() => getComplianceSummary(data.summaryInput)} />
-            </AiBubble>
-          }
+          history={data.history}
         />
         <InsuranceSection policies={policies} />
       </div>

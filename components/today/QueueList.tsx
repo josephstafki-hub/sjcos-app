@@ -1,12 +1,13 @@
 "use client";
 
+import { Button, Segmented } from "@/components/ui";
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowUp, ArrowUpRight, Check, ChevronDown, ChevronRight, Clock } from "lucide-react";
+import { ArrowUp, ArrowUpRight, Check, ChevronDown, ChevronRight, Clock, MoreHorizontal } from "lucide-react";
 import type { TodayPriority, WaitingItem } from "@/lib/today";
 import { useTodayQueue } from "./TodayQueueContext";
 import { AssignmentLine, pageLabel, QueueActions } from "./QueueActions";
-import { DueLabel } from "./PriorityCard";
+import { DueLabel } from "./TodayPriorityRow";
 
 type View = "job" | "due" | "quick";
 
@@ -49,33 +50,19 @@ export function QueueList({ onHandOff }: { onHandOff: (p: TodayPriority, kind: "
   const showAll = (key: string) => setShownGroups((cur) => new Set(cur).add(key));
 
   return (
-    <div>
-      <div className="mb-1.5 flex flex-wrap items-center gap-2 border-t border-dashed border-rule pt-3">
-        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">The rest</span>
-        <span className="text-[11px] text-ink-4">{active.length}</span>
+    <div id="today-rest" className="scroll-mt-4">
+      <div className="mb-1.5 flex flex-wrap items-center gap-2 border-t border-rule-soft pt-3">
+        <span className="font-serif text-heading text-ink">The rest</span>
+        <span className="text-meta text-ink-3">{active.length}</span>
         <div className="flex-1" />
-        <div className="inline-flex overflow-hidden rounded-md border border-rule">
-          {VIEWS.map((v) => (
-            <button
-              key={v.key}
-              type="button"
-              onClick={() => setView(v.key)}
-              aria-pressed={view === v.key}
-              className={`px-2 py-0.5 text-[11px] ${
-                view === v.key ? "bg-ink text-paper" : "bg-paper-2 text-ink-3 hover:bg-paper"
-              }`}
-            >
-              {v.label}
-            </button>
-          ))}
-        </div>
+        <Segmented aria-label="Group the work list" value={view} onChange={v => setView(v as View)} options={VIEWS.map(v => ({value:v.key,label:v.label}))} />
       </div>
 
       {active.length === 0 && withSubs.length === 0 && (
-        <div className="py-2 text-[12px] text-ink-3">Nothing else on the list.</div>
+        <div className="py-2 text-meta text-ink-3">Nothing else on the list.</div>
       )}
       {active.length > 0 && groups.length === 0 && (
-        <div className="py-2 text-[12px] text-ink-3">No quick ones right now.</div>
+        <div className="py-2 text-meta text-ink-3">No quick ones right now.</div>
       )}
 
       {groups.map((g) => {
@@ -99,7 +86,7 @@ export function QueueList({ onHandOff }: { onHandOff: (p: TodayPriority, kind: "
               <button
                 type="button"
                 onClick={() => showAll(g.key)}
-                className="py-1 pl-[30px] text-[11.5px] text-ink-3 hover:text-ink-2 hover:underline"
+                className="py-1 pl-[30px] text-meta text-ink-3 hover:text-ink-2 hover:underline"
               >
                 + {g.items.length - cap} more
               </button>
@@ -121,8 +108,8 @@ export function QueueList({ onHandOff }: { onHandOff: (p: TodayPriority, kind: "
             ) : (
               <ChevronRight className="size-3.5 text-ink-3" strokeWidth={2} />
             )}
-            <span className="text-[12px] font-bold text-ink-3">Waiting on a sub · {withSubs.length}</span>
-            <span className="text-[11px] text-ink-4">not on you right now</span>
+            <span className="text-meta font-bold text-ink-3">Waiting on a sub · {withSubs.length}</span>
+            <span className="text-meta text-ink-3">not on you right now</span>
           </button>
           {showSubs &&
             withSubs.map((item) => (
@@ -144,8 +131,8 @@ export function QueueList({ onHandOff }: { onHandOff: (p: TodayPriority, kind: "
 function GroupHeader({ group }: { group: Group }) {
   return (
     <div className="flex items-baseline gap-2 border-b border-rule-soft px-0.5 py-1">
-      <span className="min-w-0 truncate font-serif text-[14px] font-semibold text-ink">{group.name}</span>
-      <span className="flex-none text-[11px] text-ink-4">
+      <span className="min-w-0 truncate text-subheading font-semibold text-ink">{group.name}</span>
+      <span className="flex-none text-meta text-ink-3">
         {group.items.length}
         {group.upNext ? ` · ${group.upNext} in Up next` : ""}
       </span>
@@ -153,7 +140,7 @@ function GroupHeader({ group }: { group: Group }) {
       {group.href && (
         <Link
           href={group.href}
-          className="inline-flex flex-none items-center gap-0.5 text-[11px] text-ink-3 hover:text-ink-2 hover:underline"
+          className="inline-flex flex-none items-center gap-0.5 text-meta text-ink-3 hover:text-ink-2 hover:underline"
         >
           {pageLabel(group.href)} <ArrowUpRight className="size-3" strokeWidth={2} />
         </Link>
@@ -180,17 +167,12 @@ function QueueRow({
   const canUp = canPromote && item.checkable && !item.waitingOnSub;
 
   return (
-    <div className={busy ? "opacity-60" : ""}>
+    <div data-today-item className={busy ? "opacity-60" : ""}>
       <div
-        className={`group flex items-center gap-2 rounded-md px-1 py-[5px] transition-colors hover:bg-paper-2 ${
+        className={`group flex items-center gap-2 rounded-md px-2 py-3 transition-colors hover:bg-paper-2 ${
           open ? "bg-paper-2" : ""
         }`}
       >
-        <span
-          className={`w-[3px] self-stretch flex-none rounded-full ${
-            item.priority === "urgent" ? "bg-flag" : item.priority === "high" ? "bg-flag/45" : ""
-          }`}
-        />
         {item.checkable ? (
           <button
             type="button"
@@ -198,30 +180,32 @@ function QueueRow({
             disabled={busy}
             title="Mark done"
             aria-label={`Mark ${item.title} done`}
-            className="group/box grid size-3.5 flex-none place-items-center rounded-[3px] border-[1.5px] border-ink-4 transition-colors hover:border-money hover:bg-money/10 disabled:opacity-50"
+            className="group/box grid size-3.5 flex-none place-items-center rounded border border-ink-4 max-sm:size-11 transition-colors hover:border-money hover:bg-money/10 disabled:opacity-50"
           >
             <Check className="size-2.5 text-money opacity-0 group-hover/box:opacity-100" strokeWidth={2.5} />
           </button>
         ) : (
-          <span className="size-3.5 flex-none rounded-[3px] border-[1.5px] border-ink-4" />
+          <span className="size-3.5 flex-none rounded border-[1.5px] border-ink-4" />
         )}
         <button
           type="button"
+          data-today-row={item.id}
+          data-checkable={item.checkable}
           onClick={onToggle}
           aria-expanded={open}
-          className={`min-w-0 flex-1 truncate text-left text-[12.5px] ${
+          className={`min-w-0 flex-1 rounded text-left text-body focus-visible:outline-2 focus-visible:outline-focus ${
             open ? "font-semibold text-ink" : "text-ink-2"
           }`}
         >
           {item.title}
-          {showGroup && <span className="text-ink-4"> · {item.group.name}</span>}
+          {showGroup && <span className="text-ink-3"> · {item.group.name}</span>}
         </button>
         {item.assignment && (
           <span
             title={item.assignment.label}
-            className="flex-none rounded bg-accent-soft px-1 font-mono text-[9.5px] font-semibold text-accent-2"
+            className="hidden max-w-40 flex-none rounded bg-accent-soft px-1 text-meta font-semibold text-accent-2 @3xl/page:block"
           >
-            {item.assignment.others.map((a) => a.initials).join(" ")}
+            {item.assignment.label}
           </span>
         )}
         {item.due && (
@@ -229,9 +213,10 @@ function QueueRow({
             <DueLabel due={item.due} overdue={item.overdue} />
           </span>
         )}
+        <Button icon={MoreHorizontal} iconOnly size="sm" title="Actions" aria-label={`Actions for ${item.title}`} aria-expanded={open} onClick={onToggle} className="hidden [@media(hover:none)]:inline-flex max-sm:size-11" />
         {/* Quick moves on hover. On a phone there's no hover — tapping the row
             opens it, which has the same buttons. */}
-        <span className="hidden flex-none gap-1 group-hover:flex">
+        <span className="hidden flex-none gap-1 group-hover:flex group-focus-within:flex [@media(hover:none)]:hidden">
           {canUp && (
             <MiniButton onClick={() => promote(item.id)} disabled={busy} title="Move to Up next">
               <ArrowUp className="size-3" strokeWidth={2} /> Up next
@@ -246,7 +231,7 @@ function QueueRow({
             <Link
               href={item.href}
               title={pageLabel(item.href)}
-              className="inline-flex items-center rounded-[5px] border border-rule bg-paper px-1.5 py-px text-ink-2 transition-colors hover:bg-paper-3"
+              className="inline-flex items-center rounded-md border border-rule bg-paper px-1.5 py-px text-ink-2 transition-colors hover:bg-paper-3"
             >
               <ArrowUpRight className="size-3" strokeWidth={2} />
             </Link>
@@ -255,8 +240,8 @@ function QueueRow({
       </div>
 
       {open && (
-        <div className="mb-1.5 ml-[26px] mt-0.5 rounded-[10px] border border-rule bg-paper px-3 py-2.5 shadow-card">
-          <div className="text-[12px] text-ink-3">{item.sub}</div>
+        <div className="mb-3 ml-6 space-y-2 px-3 py-2">
+          <div className="text-meta text-ink-3">{item.sub}</div>
           {item.assignment && (
             <div className="mt-1.5">
               <AssignmentLine assignment={item.assignment} />
@@ -288,7 +273,7 @@ function MiniButton({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className="inline-flex items-center gap-0.5 rounded-[5px] border border-rule bg-paper px-1.5 py-px text-[10.5px] font-semibold text-ink-2 transition-colors hover:bg-paper-3 disabled:opacity-50"
+      className="inline-flex items-center gap-0.5 rounded-md border border-rule bg-paper px-1.5 py-px text-meta font-semibold text-ink-2 transition-colors hover:bg-paper-3 disabled:opacity-50"
     >
       {children}
     </button>

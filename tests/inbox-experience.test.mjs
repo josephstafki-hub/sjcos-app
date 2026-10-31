@@ -194,3 +194,23 @@ test("context conversations match person across channels without subject/name fa
     0,
   );
 });
+
+test("a focused conversation row keeps inbox shortcuts after a mouse click", () => {
+  assert.equal(
+    shortcutFor({ key: "j", tagName: "BUTTON", listRow: true }),
+    "next",
+  );
+  assert.equal(
+    shortcutFor({ key: "Enter", tagName: "BUTTON", listRow: true }),
+    "open",
+  );
+  assert.equal(
+    shortcutFor({
+      key: "e",
+      tagName: "TEXTAREA",
+      editable: true,
+      listRow: true,
+    }),
+    null,
+  );
+});

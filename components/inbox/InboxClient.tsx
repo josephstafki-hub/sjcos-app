@@ -670,6 +670,7 @@ export function InboxClient({
         metaKey: e.metaKey,
         altKey: e.altKey,
         tagName: el.tagName,
+        listRow: Boolean(el.closest("[data-thread-row]")),
         editable: el.isContentEditable,
         inDialog:
           Boolean(el.closest('[role="dialog"],[role="menu"]')) ||

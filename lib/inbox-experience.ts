@@ -67,6 +67,7 @@ export const SHORTCUTS = {
 export function shortcutFor(e: {
   key: string;
   tagName?: string;
+  listRow?: boolean;
   editable?: boolean;
   inDialog?: boolean;
   ctrlKey?: boolean;
@@ -80,7 +81,7 @@ export function shortcutFor(e: {
     e.altKey ||
     e.editable ||
     e.inDialog ||
-    /^(INPUT|TEXTAREA|SELECT|BUTTON|A)$/.test(e.tagName ?? "")
+    (!e.listRow && /^(INPUT|TEXTAREA|SELECT|BUTTON|A)$/.test(e.tagName ?? ""))
   )
     return null;
   return (

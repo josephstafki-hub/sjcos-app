@@ -353,6 +353,7 @@ export function InboxClient({
   } | null>(null);
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const moreButtonRef=useRef<HTMLButtonElement>(null);
   const [sentCompletions,setSentCompletions]=useState<SentCompletion[]>([]);
   useEffect(()=>{
     const refresh=()=>{try{setSentCompletions(readCompletions(localStorage,completionKey(selfEmail)));}catch{setSentCompletions([]);}};
@@ -1411,6 +1412,7 @@ export function InboxClient({
                   <div className="relative">
                     <button
                       onClick={() => setMenuOpen((o) => !o)}
+                      ref={moreButtonRef}
                       aria-label="More actions"
                       aria-haspopup="menu"
                       aria-expanded={menuOpen}
@@ -1438,7 +1440,7 @@ export function InboxClient({
                             icon={Clock}
                             onClick={() => {
                               setMenuOpen(false);
-                              openTask(selected,true);
+                              openTask(selected,true,moreButtonRef.current);
                             }}
                           >
                             Remind me
@@ -1447,7 +1449,7 @@ export function InboxClient({
                             icon={ListPlus}
                             onClick={() => {
                               setMenuOpen(false);
-                              openTask(selected,false);
+                              openTask(selected,false,moreButtonRef.current);
                             }}
                           >
                             Make to-do

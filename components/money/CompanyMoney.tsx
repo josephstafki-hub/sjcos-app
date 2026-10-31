@@ -36,15 +36,15 @@ function Totals({ t }: { t: CompanyTotals }) {
     <div className="grid grid-cols-2 gap-3 @2xl/page:grid-cols-4">
       <KpiTile label="Contracted" value={fmtK(t.contractedCents)} meta={`Across ${jobs(t.jobCount)}`} hint="Job totals come from each project's ledger: its formal estimate, approved changes, pre-con fees and agreed money outside the app." />
       <KpiTile label="Collected" value={fmtK(t.collectedCents)} meta={`${fmtPct(t.contractedCents > 0 ? t.collectedCents / t.contractedCents : null)} of contracted`} hint="Includes settled invoice payments and paid money recorded outside the app." />
-      <KpiTile label="Left to collect" value={fmtK(t.leftToCollectCents)} hint="Price less collected, including work not billed yet. This is not what clients owe today." />
-      <KpiTile label="Unpaid invoices" value={fmtK(t.unpaidInvoicesCents)} meta={`Billing tracked on ${t.billingTrackedJobs} of ${jobs(t.jobCount)}`} hint="Invoices issued from SJC OS with an open balance. Excludes work that has not been billed." />
+      <KpiTile label="Left to collect" value={fmtK(t.leftToCollectCents)} meta="All open jobs · includes unbilled work" hint="Job totals less collections across every stage except closed/warranty. Includes work not billed and payments processing. This is not what clients owe today." />
+      <KpiTile label="Invoice balances" value={fmtK(t.unpaidInvoicesCents)} meta="Includes payments processing" hint={`Open balances on issued invoices plus unpaid opening billing, across open jobs. Pending payments remain in this balance until settled. Billing tracked on ${t.billingTrackedJobs} of ${jobs(t.jobCount)}. Excludes work not billed.`} />
     </div>
   );
 }
 
 const SORTS: [CompanySortKey, string][] = [
   ["profit", "Profit"], ["margin", "Margin"], ["price", "Price"], ["cost", "Cost"], ["workDone", "Work done"],
-  ["leftToCollect", "Left to collect"], ["unpaid", "Unpaid invoices"], ["collected", "Collected"], ["name", "Name"],
+  ["leftToCollect", "Left to collect"], ["unpaid", "Invoice balances"], ["collected", "Collected"], ["name", "Name"],
 ];
 
 function JobsList({ rows }: { rows: CompanyJobRow[] }) {
@@ -72,7 +72,7 @@ function JobsList({ rows }: { rows: CompanyJobRow[] }) {
         <Button variant="ghost" iconOnly icon={Arrow} aria-label="Reverse sort order" title="Reverse sort order" onClick={() => setDir(dir === "asc" ? "desc" : "asc")} />
       </div>
       <TableWrapper><Table density="compact">
-        <TableHead><TableRow>{th("name","Job","",false)}{th("price","Price")}{th("cost","Cost","@max-3xl/page:hidden")}{th("profit","Profit","@max-3xl/page:hidden")}{th("margin","Margin","@max-5xl/page:hidden")}{th("workDone","Work done","@max-5xl/page:hidden")}{th("collected","Collected","@max-xl/page:hidden")}{th("unpaid","Unpaid inv.","@max-5xl/page:hidden")}{th("leftToCollect","Left to collect","@max-4xl/page:hidden")}</TableRow></TableHead>
+        <TableHead><TableRow>{th("name","Job","",false)}{th("price","Price")}{th("cost","Cost","@max-3xl/page:hidden")}{th("profit","Profit","@max-3xl/page:hidden")}{th("margin","Margin","@max-5xl/page:hidden")}{th("workDone","Work done","@max-5xl/page:hidden")}{th("collected","Collected","@max-xl/page:hidden")}{th("unpaid","Inv. balance","@max-5xl/page:hidden")}{th("leftToCollect","Left to collect","@max-4xl/page:hidden")}</TableRow></TableHead>
         <TableBody>{sorted.map(r => <TableRow key={r.slug} title={r.headline}>
           <TablePrimaryCell meta={<span>{STAGE[r.stage] ?? r.stage} · {STATUS[r.profitStatus].label}<span className="block @xl/page:hidden">Collected {fmtK(r.collectedCents)}</span></span>}><Link href={href(r.slug)} className="hover:underline">{r.name}</Link></TablePrimaryCell>
           <TableCell numeric>{fmtK(r.priceCents)}</TableCell>
@@ -113,10 +113,11 @@ export function CompanyMoney({ data }: { data: CompanyMoneyData }) {
               {attention.map((a, i) => <li key={`${a.slug}-${a.kind}-${i}`} className="flex flex-wrap items-center gap-3 p-3">
                 <div className="min-w-0 flex-1 basis-40">
                   <Link href={a.href} className="text-subheading font-semibold hover:underline">{a.name}</Link>
+                  {a.kind === "invoice_processing" && <Chip kind="info" className="ml-2">Processing</Chip>}
                   <p className="mt-1 text-meta text-ink-2">{a.text}</p>
                 </div>
                 <div className="text-right tabular-nums">{fmtK(a.amountCents)}<div className="text-meta text-ink-3">{attentionAmountLabel(a.kind)}</div></div>
-                <Button variant="secondary" size="sm" href={a.href}>{a.kind === "profit_unknown" ? "Add budget" : "Review"}</Button>
+                <Button variant="secondary" size="sm" href={a.href}>{a.kind === "profit_unknown" ? "Add budget" : a.kind === "invoice_processing" ? "Monitor payment" : "Review"}</Button>
               </li>)}
             </ul>
             {group.items.length > ATTENTION_SHOWN && <Button variant="ghost" size="sm" onClick={() => setExpandedGroups(expanded ? expandedGroups.filter(t => t !== group.title) : [...expandedGroups, group.title])}>{expanded ? "Show fewer" : `Show all ${group.items.length}`}</Button>}

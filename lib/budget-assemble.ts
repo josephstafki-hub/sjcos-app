@@ -114,6 +114,7 @@ export interface RawInvoice {
   status: "draft" | "issued" | "sent" | "partially_paid" | "paid" | "void" | "disputed";
   /** Settled cash, net of refunds/returns, and remaining balance from invoice_payments. */
   paidCents?: number;
+  pendingCents?: number;
   balanceCents?: number;
   createdOn: string | null;
   sentOn: string | null;
@@ -462,7 +463,8 @@ export function assembleBudgetView(raw: RawProjectMoney, opts: { asOf: string })
     const sentDay = dayNumber(i.sentOn);
     const days = isOpenInvoice(i) && sentDay != null && asOfDay != null ? Math.max(0, asOfDay - sentDay) : null;
     const statusLabel =
-      i.status === "issued" ? "Issued"
+      (i.pendingCents ?? 0) > 0 ? "Processing"
+        : i.status === "issued" ? "Issued"
         : i.status === "partially_paid" ? `${fmtUsd(i.balanceCents ?? i.amountCents)} open`
         : i.status === "disputed" ? "Disputed"
         : i.status === "paid"
@@ -478,6 +480,7 @@ export function assembleBudgetView(raw: RawProjectMoney, opts: { asOf: string })
       }));
     return {
       number: i.number,
+      pendingCents: i.pendingCents ?? 0,
       balanceCents: Math.max(0, i.balanceCents ?? (i.status === "paid" ? 0 : i.amountCents)),
       dateLabel: dayLabel(i.sentOn ?? i.createdOn),
       label: i.milestone,

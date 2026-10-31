@@ -54,7 +54,7 @@ export interface CompanyJobRow {
 }
 
 export type AttentionKind =
-  | "invoice_unpaid" | "trade_over" | "invoice_overdue" | "under_billed" | "unsigned_co_spend" | "collected_mismatch"
+  | "invoice_processing" | "invoice_unpaid" | "trade_over" | "invoice_overdue" | "under_billed" | "unsigned_co_spend" | "collected_mismatch"
   | "billed_over_po" | "possible_duplicate" | "profit_unknown" | "costs_stale" | "co_pending" | "unassigned_costs";
 
 export interface AttentionItem {
@@ -127,6 +127,11 @@ export function buildCompanyMoney(views: BudgetView[]): CompanyMoney {
       if (o.varianceCents > ATTENTION.tradeOverCents) add("trade_over", `${o.line.trade} is ${fmtSigned(o.varianceCents)} over budget`, o.varianceCents);
     for (const i of view.clientInvoices) {
       const balance = i.balanceCents ?? i.amountCents;
+      if (i.status === "draft") continue;
+      if ((i.pendingCents ?? 0) > 0) {
+        add("invoice_processing", `${i.number} · Processing ${fmtK(i.pendingCents!)} — wait for the payment to clear`, i.pendingCents!);
+        continue;
+      }
       if (i.status !== "sent" || balance <= 0) continue;
       const days = i.daysOutstanding ?? 0;
       add(days > ATTENTION.invoiceOverdueDays ? "invoice_overdue" : "invoice_unpaid",
@@ -197,6 +202,7 @@ export function sortCompanyRows(rows: CompanyJobRow[], key: CompanySortKey, dir:
 /** Separate actionable balances from job values; age first, then financial impact. */
 export function groupAttention(items: AttentionItem[]) {
   const groups = [
+    { title: "Processing payments", kinds: ["invoice_processing"] },
     { title: "Unpaid / overdue invoices", kinds: ["invoice_overdue", "invoice_unpaid"] },
     { title: "Unassigned costs", kinds: ["unassigned_costs"] },
     { title: "Jobs missing a budget", kinds: ["profit_unknown"] },
@@ -210,6 +216,7 @@ export function groupAttention(items: AttentionItem[]) {
 
 export function attentionAmountLabel(kind: AttentionKind): string {
   switch (kind) {
+    case "invoice_processing": return "Processing";
     case "invoice_overdue": case "invoice_unpaid": return "Unpaid balance";
     case "profit_unknown": return "Job value";
     case "unassigned_costs": return "Unassigned cost";

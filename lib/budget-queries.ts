@@ -103,6 +103,8 @@ export async function loadRawProjectMoney(
       `SELECT i.project_id, i.number, i.milestone, i.amount, i.status, i.line_items,
               ${day("i.created_at")} AS created_on, ${day("i.sent_at")} AS sent_on, ${day("i.paid_at")} AS paid_on,
               cash.paid_cents,
+              COALESCE((SELECT SUM(p.amount_cents) FROM invoice_payments p
+                         WHERE p.invoice_id = i.id AND p.kind = 'payment' AND p.status = 'pending'), 0)::int AS pending_cents,
               CASE WHEN i.status IN ('draft','void') THEN 0 ELSE GREATEST(0, i.amount - cash.applied_cents) END AS balance_cents
          FROM invoices i
          LEFT JOIN LATERAL (
@@ -212,6 +214,7 @@ export async function loadRawProjectMoney(
     of(i)?.invoices.push({
       number: text(i.number), milestone: text(i.milestone), amountCents: num(i.amount),
       status: text(i.status) as RawInvoice["status"],
+      pendingCents: num(i.pending_cents),
       paidCents: numOrNull(i.paid_cents) ?? undefined, balanceCents: numOrNull(i.balance_cents) ?? undefined,
       createdOn: i.created_on == null ? null : text(i.created_on),
       sentOn: i.sent_on == null ? null : text(i.sent_on),

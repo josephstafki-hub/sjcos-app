@@ -699,7 +699,7 @@ export async function getTodayData(viewer: QueueViewer): Promise<TodayData> {
     // Today header chip.
     headerChips: isOwner(viewer)
       ? [
-          { kind: "money" as ChipKind, label: `${dollars(outstanding)} outstanding A/R` },
+          { kind: "money" as ChipKind, label: `${dollars(outstanding)} left to collect · on-site + closeout jobs, including unbilled work` },
           { kind: "flag" as ChipKind, label: `${flaggedLeads} lead${flaggedLeads === 1 ? "" : "s"} need attention` },
         ]
       : [],

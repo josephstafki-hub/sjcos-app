@@ -157,8 +157,9 @@ export function substantiveSnippet(paras: string[]): string {
     .replace(/\s+/g,' ').trim().slice(0,280);
 }
 
-export function conversationDraftContext(messages: {fromName?:string; outbound?:boolean; body:string[]}[], before=messages.length): {text:string; count:number} {
-  const earlier=messages.slice(0,before).slice(-6);
+export function conversationDraftContext(messages: {fromName?:string; outbound?:boolean; body:string[]}[], focalIndex=messages.length): {text:string; count:number} {
+  // Every message predates this draft, including Joe’s answer after the latest inbound.
+  const earlier=messages.filter((_,index)=>index!==focalIndex).slice(-6);
   return {count:earlier.length,text:earlier.map(m=>`${m.outbound?'Joe':m.fromName||'Sender'}: ${splitQuotedText(m.body).text.slice(0,1800)}`).join('\n\n').slice(0,12000)};
 }
 export function channelCommitLabel(channel:ThreadChannel):string {

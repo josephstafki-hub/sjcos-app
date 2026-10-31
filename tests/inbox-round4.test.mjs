@@ -43,8 +43,8 @@ test('AI generation protects edits and retains previous draft',()=>{
 });
 test('draft context is bounded, includes both directions and strips quotes',()=>{
  const history=Array.from({length:10},(_,i)=>({fromName:i%2?'Joe':'Client',outbound:i%2===1,body:[`Message ${i}\nOn Tuesday, someone wrote:\n> secret quoted text ${'x'.repeat(5000)}`]}));
- const c=conversationDraftContext(history,8);
- assert.equal(c.count,6);assert.match(c.text,/Message 2/);assert.match(c.text,/Joe/);assert.doesNotMatch(c.text,/Message 0|secret quoted/);assert.ok(c.text.length<=12000);
+ const c=conversationDraftContext(history,9);
+ assert.equal(c.count,6);assert.match(c.text,/Message 3/);assert.match(c.text,/Joe/);assert.doesNotMatch(c.text,/Message 0|secret quoted/);assert.ok(c.text.length<=12000);
 });
 test('Done chooses eligible next and counts remaining with no completed draft ghost',()=>{
  const rows=['a','b','c'].map(id=>({id,view:'needs_reply',contactRole:'client'}));
@@ -53,4 +53,9 @@ test('Done chooses eligible next and counts remaining with no completed draft gh
 });
 test('commit labels name the actual destination',()=>{
  assert.equal(channelCommitLabel('sub_portal'),'Post to sub portal');assert.equal(channelCommitLabel('client_portal'),'Post to client portal');assert.equal(channelCommitLabel('sms'),'Send text');assert.equal(channelCommitLabel('site_form'),'Send email');
+});
+test('draft context includes Joe’s newer outbound answer when the last incoming ask is older',()=>{
+ const history=[{fromName:'Client',body:['Can we meet Monday?'],outbound:false},{fromName:'Joe',body:['Monday is confirmed.'],outbound:true}];
+ const context=conversationDraftContext(history,0);
+ assert.equal(context.count,1);assert.match(context.text,/Joe: Monday is confirmed/);assert.doesNotMatch(context.text,/Can we meet/);
 });

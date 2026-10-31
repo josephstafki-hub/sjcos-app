@@ -38,7 +38,7 @@ export default async function EnginePage() {
             client-facing waits for your approval.
           </p>
           <p className="mt-2 text-meta text-ink-2">The work-item total covers all unarchived records, including done and cancelled. Approval and waiting counts cover all folders; waiting includes blocked work. Folder counts cover open work; “Waiting on me” narrows the current folder and filters to work waiting on you.</p>
-          <nav className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-meta">
+          <nav className="mt-4 flex flex-wrap gap-2">
             {[
               { href: "/engine/decisions", label: "Decisions" },
               ...(user.role === "owner" ? [{ href: "/engine/permissions", label: "Permissions" }] : []),
@@ -46,8 +46,12 @@ export default async function EnginePage() {
               { href: "/engine/measure", label: "Measurement" },
               { href: "/engine/houzz-exit", label: "Houzz exit" },
             ].map((l) => (
-              <Link key={l.href} href={l.href} className="text-accent-2 underline-offset-2 hover:underline">
-                {l.label}
+              <Link
+                key={l.href}
+                href={l.href}
+                className="rounded-md border border-rule bg-paper-2 px-3 py-1.5 text-[12px] font-semibold text-ink-2 transition-colors hover:border-accent hover:text-accent-2"
+              >
+                {l.label} →
               </Link>
             ))}
           </nav>

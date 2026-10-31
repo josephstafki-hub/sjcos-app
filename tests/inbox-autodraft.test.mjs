@@ -14,6 +14,7 @@ const stubs = {
     export const isGmailRateLimit=e=>e?.code===429;`,
   './dev-agents': `export const chatReplyClaude=async (prompt)=>{globalThis.__auto.models.push('claude');globalThis.__auto.prompts.push(prompt);return 'Claude reply'};`,
   './direct-send-gate': `export const directSendBlocked=async()=>globalThis.__auto.blocked;`,
+  './agent-runtime/instructions': `export const loadActiveInstructionBlocks=async()=>({tone_guide:{body:'TONE: plain words, no jargon.'}});`,
   './mailbox': `export const mailboxFor=async owner=>({email:'JOE@example.test',refreshToken:'stub',userId:owner.id});
     export const runWithMailbox=async(mb,fn)=>{globalThis.__auto.mailbox=mb;return fn()};`,
 };
@@ -114,4 +115,14 @@ test('a human draft started during generation wins; dismissed/sent suggestions r
  __auto.human.clear();const candidate=selectAutoDraftCandidates(__auto.data)[0];
  assert.equal(await claimAutoDraft('joe@example.test','owner',candidate,'claude'),null);
  __auto.claims.get('1:m-1').status='sent';assert.equal(await claimAutoDraft('joe@example.test','owner',candidate,'claude'),null);
+});
+
+test('Claude auto-drafts carry Joe\'s tone guide, sender-only/no-pricing rules and his sign-off', async () => {
+  await sweepInboxDrafts();
+  const p = globalThis.__auto.prompts[0];
+  assert.ok(p, 'the sweep drafted with Claude');
+  assert.match(p, /TONE: plain words/);
+  assert.match(p, /Address only the sender/);
+  assert.match(p, /Never volunteer prices/);
+  assert.match(p, /Joe\nSJ Carpentry LLC\n612-361-6585/);
 });

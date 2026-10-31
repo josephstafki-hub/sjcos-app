@@ -57,6 +57,12 @@ export function Button({
     const { disabled, ...linkProps } = props;
     // A disabled link must also be inert for keyboard users.
     if (disabled) return <span role="link" className={classes} aria-disabled="true" aria-label={props["aria-label"]} title={props.title}>{content}</span>;
+    // Files, PDFs and downloads (/api/…) aren't pages: a plain <a>, so Next
+    // doesn't prefetch a binary response that never settles.
+    if (typeof linkProps.href === "string" && linkProps.href.startsWith("/api/")) {
+      const { href, prefetch: _prefetch, replace: _replace, scroll: _scroll, shallow: _shallow, locale: _locale, legacyBehavior: _legacy, passHref: _passHref, onNavigate: _onNavigate, ...anchorProps } = linkProps;
+      return <a href={href} {...anchorProps} className={classes}>{content}</a>;
+    }
     return <Link {...linkProps} className={classes}>{content}</Link>;
   }
   return <button type="button" {...props} className={classes}>{content}</button>;

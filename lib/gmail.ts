@@ -122,6 +122,7 @@ export async function exchangeCodeForMailbox(
 /** Neutral, presentation-free view of a Gmail thread. lib/inbox.ts maps this
  *  onto the InboxThread / ThreadReader shapes the UI consumes. */
 export interface ConversationMessage {
+  hasUnsubscribe?:boolean;
   automated?: boolean;
   id: string;
   fromName: string;
@@ -462,6 +463,17 @@ function sanitizeEmailHtml(html: string): string {
       img: ["src", "alt", "width", "height", "style"],
       font: ["color", "face", "size"],
     },
+    // Email may format its own tables and type, but cannot position an overlay
+    // over app controls or inject active CSS. Media URLs are filtered separately.
+    allowedStyles: { '*': Object.fromEntries([
+      'width','min-width','max-width','height','min-height','max-height',
+      'padding','padding-top','padding-right','padding-bottom','padding-left',
+      'margin','margin-top','margin-right','margin-bottom','margin-left',
+      'border','border-top','border-right','border-bottom','border-left','border-color','border-width','border-style','border-radius','border-collapse','border-spacing',
+      'table-layout','vertical-align','text-align','text-decoration','text-transform','text-indent',
+      'font-family','font-size','font-weight','font-style','line-height','letter-spacing','white-space','word-break','overflow-wrap','color',
+      'background','background-color','background-image','background-size','background-repeat','background-position','display',
+    ].map(property=>[property,[/^(?!.*(?:expression|javascript:|@import|behavior|binding))[^{}]+$/i]])) },
     allowedSchemes: ["http", "https", "mailto", "tel"],
     allowedSchemesByTag: { img: ["http", "https", "data", "cid"] },
     transformTags: {
@@ -515,6 +527,7 @@ function conversationOf(id: string, data: gmail_v1.Schema$Thread, me: string): E
       to: splitAddresses(header(m,'To')), cc: splitAddresses(header(m,'Cc')),
       date: Number(m.internalDate ?? 0), body: extractBody(m.payload), snippet: m.snippet ?? '',
       outbound: Boolean(m.labelIds?.includes('SENT')) || ownAddresses.includes(from.email.toLowerCase()),
+      hasUnsubscribe:Boolean(header(m,'List-Unsubscribe')),
       automated: isAutomatedSender(from.email, undefined, {
         headers: Object.fromEntries((m.payload?.headers ?? []).map(h => [h.name ?? '', h.value ?? ''])),
         labelIds: m.labelIds ?? [], body: extractBody(m.payload).join('\n') || m.snippet || '',
@@ -1010,6 +1023,16 @@ export async function sendReply(opts: {
   const mime = [...extra, buildMime(to, subject, opts.bodyText, opts.attachments)].join('\r\n');
   await sendMime(mime, opts.threadId);
   conversationCache.delete(detailKey(opts.threadId));
+}
+
+/** On opening a website inquiry, one address search discovers older mail too.
+ * Headers/bodies are not fetched: no per-thread fan-out or render polling. */
+export async function findCorrespondence(email:string):Promise<{id:string;subject:string}[]> {
+  if(!validRecipient(email))throw Error('Invalid inquiry address.');
+  const {data}=await withGmailRetry('threads.list(inquiry)',()=>gmail().users.threads.list({
+    userId:'me',maxResults:20,q:`-in:spam -in:trash {from:${email} to:${email}}`,
+  }));
+  return (data.threads ?? []).filter(t=>Boolean(t.id)).map(t=>({id:t.id!,subject:'Email conversation'}));
 }
 
 /** Compose and send a brand-new email (not part of an existing thread). */

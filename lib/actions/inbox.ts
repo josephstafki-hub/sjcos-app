@@ -28,6 +28,7 @@ import {
   fetchThreadHtml,
   fetchMessageHtml,
   fetchConversation,
+  findCorrespondence,
   fetchInboxAttachment,
 } from "@/lib/gmail";
 import { draftReplyForThread, invalidateInboxCache, loadMoreInbox, loadLabelInbox, loadSystemView } from "@/lib/inbox";
@@ -244,6 +245,17 @@ export async function getThreadHtmlAction(threadId: string, messageId?: string):
     } catch {
       return { html: "" };
     }
+  });
+}
+
+/** Lazy on inquiry open. Uses the lead's address, never a client-supplied search. */
+export async function findInquiryConversationsAction(threadId:string):Promise<{ok:boolean;conversations?:{id:string;subject:string}[];error?:string}> {
+  return mailbox(async()=>{
+    if(!/^siteform:[^:]+$/.test(threadId))return {ok:false,error:'Inquiry not found.'};
+    const {rows}=await query<{email:string}>("SELECT email FROM leads WHERE slug=$1 AND source ILIKE '%website%'",[threadId.slice(9)]);
+    if(!rows[0]?.email)return {ok:true,conversations:[]};
+    if(!gmailConfigured())return {ok:false,error:'Connect Gmail to check earlier email.'};
+    try{return {ok:true,conversations:await findCorrespondence(rows[0].email)};}catch{return {ok:false,error:'Could not check earlier email. You can retry before replying.'};}
   });
 }
 

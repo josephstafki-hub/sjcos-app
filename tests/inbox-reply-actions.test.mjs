@@ -6,9 +6,9 @@ globalThis.__replyAction = { calls, queries:[], row:{email:'teresa@example.test'
 const stubs = {
   'next/cache':'export const revalidatePath = () => {};',
   '@/lib/dal':`export const requireAccess = async area => { if (!globalThis.__replyAction.allowed) throw Error('Forbidden'); return {id:'owner',role:'owner'}; };`,
-  '@/lib/db':`export const query = async (sql,p) => {globalThis.__replyAction.queries.push([sql,p]);return {rows:globalThis.__replyAction.row ? [globalThis.__replyAction.row] : []};};`,
+  '@/lib/db':`export const query = async (sql,p) => {globalThis.__replyAction.queries.push([sql,p]);if(globalThis.__replyAction.failLink&&sql.includes('INSERT INTO thread_links'))throw Error('db offline');return {rows:globalThis.__replyAction.row ? [globalThis.__replyAction.row] : []};};`,
   '@/lib/mailbox':`export const unlinkMailbox = async () => {}; export const withMailboxFor = async (u,fn) => fn();`,
-  '@/lib/gmail':`export const gmailConfigured = () => true; export const sendReply = async o => globalThis.__replyAction.calls.push(['email',o]); export const sendNewEmail = async o => {globalThis.__replyAction.calls.push(['new',o]);if(globalThis.__replyAction.failSend)throw Error('offline');return {threadId:'sent-thread'};}; export const fetchConversation=async()=>({messages:[{id:'original',attachments:[{id:'plan',name:'plan.pdf',size:4,type:'application/pdf'}]}]}); export const fetchInboxAttachment=async()=>({name:'plan.pdf',type:'application/pdf',bytes:Buffer.from('plan')}); export const modifyThread=async()=>{}; export const trashThread=async()=>{}; export const fetchThreadHtml=async()=>''; export const fetchMessageHtml=async(t,m)=>t+':'+m;`,
+  '@/lib/gmail':`export const gmailConfigured = () => true; export const sendReply = async o => globalThis.__replyAction.calls.push(['email',o]); export const sendNewEmail = async o => {globalThis.__replyAction.calls.push(['new',o]);if(globalThis.__replyAction.failSend)throw Error('offline');return {threadId:'sent-thread'};}; export const findCorrespondence=async email=>{globalThis.__replyAction.calls.push(['search',email]);return [{id:'older',subject:'Email conversation'}];}; export const fetchConversation=async()=>({messages:[{id:'original',attachments:[{id:'plan',name:'plan.pdf',size:4,type:'application/pdf'}]}]}); export const fetchInboxAttachment=async()=>({name:'plan.pdf',type:'application/pdf',bytes:Buffer.from('plan')}); export const modifyThread=async()=>{}; export const trashThread=async()=>{}; export const fetchThreadHtml=async()=>''; export const fetchMessageHtml=async(t,m)=>t+':'+m;`,
   '@/lib/inbox':`export const draftReplyForThread=async()=>({}); export const invalidateInboxCache=()=>{}; export const loadMoreInbox=async()=>({}); export const loadLabelInbox=async()=>({}); export const loadSystemView=async()=>({});`,
   '@/lib/actions/sms':`export const sendSmsReply=async(...a)=>{globalThis.__replyAction.calls.push(['sms',...a]); return {ok:true};};`,
   '@/lib/actions/portal':`export const sendProjectMessage=async(s,f)=>globalThis.__replyAction.calls.push(['project',s,f.get('body')]); export const sendLeadPortalMessage=async(s,f)=>globalThis.__replyAction.calls.push(['lead',s,f.get('body')]);`,
@@ -73,4 +73,16 @@ test('successful form sends link the returned Gmail id only after send; failed s
  const r=await actions.sendChannelReplyAction({threadId:'siteform:teresa',body:'Thanks'});assert.equal(r.threadId,'sent-thread');
  assert.ok(queries.some(([sql,p])=>sql.includes('INSERT INTO thread_links')&&p[0]==='sent-thread'&&p[1]==='teresa'));
  queries.length=0;globalThis.__replyAction.failSend=true;assert.equal((await actions.sendChannelReplyAction({threadId:'siteform:teresa',body:'No'})).ok,false);assert.equal(queries.some(([sql])=>sql.includes('INSERT INTO thread_links')),false);globalThis.__replyAction.failSend=false;
+});
+
+test('inquiry lookup uses a server-resolved address and requires access',async()=>{
+ calls.length=0;globalThis.__replyAction.row={email:'alex@example.test'};
+ const r=await actions.findInquiryConversationsAction('siteform:alex');assert.equal(r.ok,true);assert.deepEqual(calls,[['search','alex@example.test']]);assert.equal(r.conversations[0].id,'older');
+ assert.equal((await actions.findInquiryConversationsAction('email:bad')).ok,false);
+ globalThis.__replyAction.allowed=false;await assert.rejects(()=>actions.findInquiryConversationsAction('siteform:alex'),/Forbidden/);globalThis.__replyAction.allowed=true;
+});
+
+test('a sent form reply remains successful if linking fails, so Joe is never offered a resend',async()=>{
+ globalThis.__replyAction.row={email:'alex@example.test',name:'Alex',scope:'Scope'};globalThis.__replyAction.failLink=true;
+ const r=await actions.sendChannelReplyAction({threadId:'siteform:alex',body:'Hello'});assert.equal(r.ok,true);assert.match(r.warning,/Email sent.*Do not send again/);assert.equal(r.threadId,'sent-thread');globalThis.__replyAction.failLink=false;
 });

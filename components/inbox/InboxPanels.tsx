@@ -527,6 +527,7 @@ export function ContextPanel({
   loadError,
   onRetry,
   docked=false,
+  compact=false,
   refreshing=false,
 }: {
   thread: InboxThread;
@@ -539,6 +540,7 @@ export function ContextPanel({
   loadError?:string;
   onRetry?:()=>void;
   docked?:boolean;
+  compact?:boolean;
   refreshing?:boolean;
 }) {
   const data = initialData;
@@ -567,7 +569,7 @@ export function ContextPanel({
       <aside
         role="complementary"
         aria-label="Person and job context"
-        className={`${docked?"static w-[300px] shadow-none":"absolute inset-x-0 bottom-0 max-h-[85%] w-full rounded-t-xl shadow-pop @4xl/page:inset-y-0 @4xl/page:left-auto @4xl/page:right-0 @4xl/page:max-h-none @4xl/page:w-[300px] @4xl/page:rounded-none"} z-[70] flex shrink-0 max-w-full flex-col border-l border-rule bg-paper-2`}
+        className={`${docked?(compact?"static w-[280px] shadow-none":"static w-[300px] shadow-none"):"absolute inset-x-0 bottom-0 max-h-[85%] w-full rounded-t-xl shadow-pop @4xl/page:inset-y-0 @4xl/page:left-auto @4xl/page:right-0 @4xl/page:max-h-none @4xl/page:w-[300px] @4xl/page:rounded-none"} z-[70] flex shrink-0 max-w-full flex-col border-l border-rule bg-paper-2`}
       >
         <div className="flex min-h-13 items-center gap-2 border-b border-rule px-3">
           <h2 className="text-subheading font-semibold">Person & job</h2>
@@ -834,12 +836,18 @@ function DuplicateNotice({directory,onLink}:{directory:ReturnType<typeof useDire
 }
 export function SenderScreening({thread,onLink,onAdd,onOther}:{thread:InboxThread;onLink:()=>void;onAdd:(kind:'lead'|'sub'|'vendor')=>void;onOther:()=>void}) {
   const directory=useDirectoryMatches('',thread.fromEmail??'');
+  const exact=directory.entries.some(entry=>entry.match==='email');
+  const pitch=thread.screeningFacts?.looksPitch;
+  const recommended=exact?'link':pitch?'other':'lead';
+  const reason=[thread.screeningFacts?.knownContact?'Screening requested by you':thread.screeningFacts?'No saved contact for this address':'Sender not yet screened',thread.screeningFacts?.hasUnsubscribe?'Has an unsubscribe link':'',pitch?'Looks like a pitch':''].filter(Boolean).join(' · ');
   return <div className="w-full min-w-0">
+    <p className="mb-1 text-meta text-ink-3">{reason}</p>
     <DuplicateNotice directory={directory} onLink={onLink}/>
-    <div className="flex items-center gap-1">
-      <Button size="sm" variant="secondary" onClick={onLink}>Link</Button>
-      <details className="relative"><summary className="flex min-h-11 cursor-pointer items-center rounded-md border border-rule px-3 text-meta font-semibold text-ink-2">Add as ▾</summary><div className="absolute left-0 top-full z-[75] min-w-36 rounded-lg border border-rule bg-card p-1 shadow-pop">{(['lead','sub','vendor'] as const).map(kind=><Button key={kind} disabled={directory.loading||Boolean(directory.error)} variant="ghost" onClick={()=>onAdd(kind)} className="w-full justify-start">{kind[0].toUpperCase()+kind.slice(1)}</Button>)}</div></details>
-      <Button size="sm" variant="ghost" onClick={onOther}>Other</Button>
+    <div className="flex flex-wrap items-center gap-1">
+      <Button size="sm" variant={recommended==='link'?'primary':'secondary'} onClick={onLink}>Link{recommended==='link'?' · Recommended':''}</Button>
+      {recommended==='lead'&&<Button size="sm" disabled={directory.loading||Boolean(directory.error)} onClick={()=>onAdd('lead')}>Add as lead · Recommended</Button>}
+      <details className="relative"><summary className="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-meta font-semibold text-ink-2">Add as ▾</summary><div className="absolute left-0 top-full z-[75] min-w-36 rounded-lg border border-rule bg-card p-1 shadow-pop">{(['lead','sub','vendor'] as const).map(kind=><Button key={kind} disabled={directory.loading||Boolean(directory.error)} variant="ghost" onClick={()=>onAdd(kind)} className="w-full justify-start">{kind[0].toUpperCase()+kind.slice(1)}</Button>)}</div></details>
+      <Button size="sm" variant={recommended==='other'?'primary':'ghost'} onClick={onOther}>Always file to Other{recommended==='other'?' · Recommended':''}</Button>
     </div>
   </div>;
 }

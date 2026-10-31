@@ -100,7 +100,7 @@ registerHooks({
     if (u === url)
       return {
         format: "module",
-        source: ts.transpileModule(source + "\nexport {ReaderBody,ChannelReaderBody,EmailMessageCard};", {
+        source: ts.transpileModule(source + "\nexport {ReaderBody,ChannelReaderBody,EmailMessageCard,sendWithReceipt};", {
           compilerOptions: {
             jsx: ts.JsxEmit.ReactJSX,
             module: ts.ModuleKind.ESNext,
@@ -114,7 +114,7 @@ registerHooks({
       : n(u, c);
   },
 });
-const { ReaderBody, ChannelReaderBody, InboxClient, EmailMessageCard } = await import(url);
+const { ReaderBody, ChannelReaderBody, InboxClient, EmailMessageCard, sendWithReceipt } = await import(url);
 const reader = {
   messages: [{ id: "m1", fromEmail:"tom@example.test", body: ["Plans?"] }],
   subject: "Plans",
@@ -255,8 +255,9 @@ test("empty reply collapses on blur, typing preserves it and default AI button s
 test('Send & Done keeps failed drafts; completion failure clears sent draft and retry only completes',async()=>{
  mount('send-done');click('Reply to Tom…');
  find(n=>n.props?.['aria-label']==='Reply body').props.onChange({target:{value:'Approved reply'}});render();flush();
+ find(n=>n.props?.type==='file').props.onChange({target:{files:[new File(['photo'],'reply.png',{type:'image/png'})],value:'reply.png'}});render();flush();
  const before=sends.length;globalThis.__doneCalls=0;globalThis.__sendFails=true;
- click('Send & Done');await settle();assert.equal(sends.length,before+1);assert.equal(globalThis.__doneCalls,0);assert.equal(find(n=>n.props?.['aria-label']==='Reply body').props.value,'Approved reply');
+ click('Send & Done');await settle();assert.equal(sends.length,before+1);assert.equal(globalThis.__doneCalls,0);assert.ok(find(n=>n.props?.['aria-label']==='Remove reply.png'));assert.equal(find(n=>n.props?.['aria-label']==='Reply body').props.value,'Approved reply');
  globalThis.__sendFails=false;globalThis.__doneFails=true;
  click('Send & Done');await settle();assert.equal(sends.length,before+2);assert.equal(globalThis.__doneCalls,1);assert.equal(readDraftFor('send-done'),null);
  globalThis.__doneFails=false;click('Retry marking done');await settle();assert.equal(sends.length,before+2);assert.equal(globalThis.__doneCalls,2);
@@ -324,7 +325,7 @@ test('plain Done advances after confirmation, clears search and reports remainin
  const timers=new Map();let timerId=0;const realSet=globalThis.setTimeout,realClear=globalThis.clearTimeout,realFetch=globalThis.fetch;
  globalThis.fetch=async()=>{const data=globalThis.__contextRequest();return {ok:true,json:()=>data};};
  globalThis.setTimeout=fn=>{timers.set(++timerId,fn);return timerId;};globalThis.clearTimeout=id=>timers.delete(id);
- globalThis.window={dispatchEvent(){}};globalThis.document={addEventListener(){},removeEventListener(){}};
+ globalThis.window={dispatchEvent(){},addEventListener(){},removeEventListener(){}};globalThis.document={addEventListener(){},removeEventListener(){}};
  globalThis.__archive=async()=>({ok:true});
  let resolveContext;globalThis.__contextRequest=()=>new Promise(resolve=>{resolveContext=resolve;});
  const row=id=>({id,fromName:id,fromEmail:`${id}@example.test`,channel:'email',when:'2h',view:'needs_reply',contactRole:'client',inInbox:true});
@@ -337,11 +338,13 @@ test('plain Done advances after confirmation, clears search and reports remainin
   let panel=find(n=>n.props?.initialData);assert.deepEqual(panel.props.initialData,cached);assert.equal(panel.props.docked,false,'phone strip opens the context sheet');assert.equal(find(n=>n.props?.['aria-label']==='Open person and job context').props['aria-expanded'],true);
   panel.props.onRetry();render();flush();panel=find(n=>n.props?.initialData);assert.deepEqual(panel.props.initialData,cached);
   for(const fn of timers.values())fn();render();flush();panel=find(n=>n.props?.initialData);assert.match(panel.props.loadError,/taking too long/);assert.ok(panel.props.onRetry);
+  find(n=>n.props?.['aria-label']==='Inbox splits'&&n.props?.onChange).props.onChange('clients');render();flush();
   find(n=>n.props?.['aria-label']==='Search inbox').props.onChange({target:{value:'a'}});render();flush();
   click('Done');await settle();
   const selected=find(n=>n.type===ReaderBody);assert.equal(selected.props.threadId,'b');
   assert.equal(find(n=>n.props?.['aria-label']==='Search inbox').props.value,'');
   assert.ok(nodes(tree).some(n=>typeof n.props?.children==='string'&&n.props.children.includes('2 left in Needs me')));
+  click('Undo Done');await settle();assert.equal(find(n=>n.props?.['aria-label']==='Inbox splits'&&n.props?.onChange).props.value,'clients');assert.equal(find(n=>n.props?.['aria-label']==='Search inbox').props.value,'a');assert.equal(find(n=>n.type===ReaderBody).props.threadId,'a');
  }finally{
   cleanups.forEach(fn=>fn?.());cleanups=[];clientData=null;globalThis.setTimeout=realSet;globalThis.clearTimeout=realClear;globalThis.fetch=realFetch;delete globalThis.window;delete globalThis.document;
  }
@@ -370,4 +373,14 @@ test('remote image consent is explicit and remembered per sender and mailbox wit
   await open('different@example.test');assert.doesNotMatch(formatted(),/src="https:/);
   await open('unknown@example.test','staff@example.test');assert.doesNotMatch(formatted(),/src="https:/);
  }finally{cardData=null;delete globalThis.__imageHtml;}
+});
+
+test('confirmation clears the draft and records recipient before completion resolves; a retry never resends',async()=>{
+ const {readCompletions,completionKey}=await import('../lib/inbox-completion.ts');
+ const key=completionKey('receipt@example.test');let confirmed=false,sent=0,finish,doneCount=0;
+ const result=sendWithReceipt('receipt@example.test','receipt-thread',{...reader,channel:'email'},'tom@example.test',async()=>{sent++;return {ok:true}},()=>{doneCount++;return new Promise(resolve=>finish=resolve)},()=>{confirmed=true});
+ for(let i=0;i<5;i++)await Promise.resolve();assert.equal(confirmed,true);assert.equal(readCompletions(localStorage,key)[0].recipient,'tom@example.test');
+ finish({ok:false});const pendingResult=await result;assert.equal(pendingResult.sent,true);assert.equal(readCompletions(localStorage,key).length,1);
+ const retry=pendingResult.retry();for(let i=0;i<3;i++)await Promise.resolve();finish({ok:true});await retry;
+ assert.equal(readCompletions(localStorage,key).length,0);assert.equal(sent,1);assert.equal(doneCount,2);
 });

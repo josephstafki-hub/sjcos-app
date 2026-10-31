@@ -43,3 +43,33 @@ test('website continuity shows existing email before composing and contacted aft
  const persisted={id:'siteform:older',channel:'site_form',view:'needs_reply'};const older={form:{email:'old@example.test',contactedAt:'2026-11-01',conversations:[{id:'old-email',subject:'Email conversation'}]}};
  attachInquiryContinuity([persisted],{[persisted.id]:older});assert.equal(older.form.contacted,true);
 });
+
+test('sent completion survives reload and mailbox changes; completion-only retry never needs a send callback',async()=>{
+ const {saveCompletion,readCompletions,completionKey,retryCompletion}=await import('../lib/inbox-completion.ts');
+ const map=new Map();const store={getItem:k=>map.get(k)??null,setItem:(k,v)=>map.set(k,v)};const key=completionKey('Builder@example.test');
+ const receipt={threadId:'mail',recipient:'alex@example.test',channel:'email',sentAt:1000,through:900};saveCompletion(store,key,receipt);
+ assert.deepEqual(readCompletions(store,key),[receipt]);assert.deepEqual(readCompletions(store,completionKey('staff@example.test')),[]);
+ let finishes=0;const reloaded=readCompletions(store,key)[0];
+ assert.equal((await retryCompletion(store,key,reloaded,async()=>{finishes++;return {ok:false}})).ok,false);assert.equal(readCompletions(store,key).length,1);
+ assert.equal((await retryCompletion(store,key,reloaded,async()=>{finishes++;return {ok:true}})).ok,true);assert.equal(readCompletions(store,key).length,0);assert.equal(finishes,2);
+});
+
+test('mixed embedded and remote srcsets retain embedded fallbacks and count remote candidates',()=>{
+ const result=applyRemoteImagePolicy('<img src="data:image/png;base64,AAAA" srcset="data:image/png;base64,BBBB 1x, https://track.test/image 2x"><source srcset="cid:wide 1x, /remote.png 2x">',false);
+ assert.equal(result.blocked,2);assert.match(result.html,/src="data:image/);assert.match(result.html,/BBBB 1x/);assert.match(result.html,/cid:wide/);assert.doesNotMatch(result.html,/track.test|remote.png/);
+});
+
+test('default dock layout keeps a 440px reader and falls back to a sheet below the budget',async()=>{
+ const {contextLayout}=await import('../lib/inbox-experience.ts');
+ assert.equal(contextLayout(964).docked,true);assert.equal(contextLayout(964).compact,true);assert.ok(964-240-280>=440);assert.equal(contextLayout(959).docked,false);
+});
+
+test('CSS escaped URL spelling is blocked without discarding padding',()=>{
+ const result=applyRemoteImagePolicy(String.raw`<div style="padding:12px;background: u\72l(https://tracker.test/bg)">Keep</div>`,false);
+ assert.equal(result.blocked,1);assert.doesNotMatch(result.html,/tracker.test/);assert.match(result.html,/padding:12px/);
+});
+
+test('background-only decorative boxes collapse along with blocked icons',()=>{
+ const result=applyRemoteImagePolicy('<div style="width:600px;height:300px;background:url(https://track.test/logo)"></div><table><tr><td background="https://track.test/icon" width="100" height="100"></td></tr></table>',false);
+ assert.equal(result.blocked,2);assert.equal(result.html,'');
+});

@@ -338,7 +338,7 @@ export function contextStripText(thread: Pick<InboxThread,'projectLabel'|'fromNa
 }
 /** Width of the inbox itself (the left app dock is outside this box). */
 export function contextLayout(width:number): {docked:boolean;compact:boolean} {
-  return {docked:width>=1120,compact:width>=1120&&width<1180};
+  return {docked:width>=960,compact:width>=960&&width<1180};
 }
 
 type CompletionResult = {ok: boolean; error?: string};

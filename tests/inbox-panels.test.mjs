@@ -25,7 +25,7 @@ const stubs={
  '@/lib/run-action':`export const runAction=async f=>f();`,
 };
 registerHooks({resolve(s,c,n){if(s in stubs&&(s!=='react'||c.parentURL===url))return {url:'stub:'+s,shortCircuit:true};if(s==='@/lib/inbox-experience')return n(new URL('../lib/inbox-experience.ts',import.meta.url).href,c);return n(s,c)},load(u,c,n){if(u===url)return {format:'module',source:ts.transpileModule(readFileSync(new URL(url),'utf8')+'\nexport {DuplicateNotice};',{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText,shortCircuit:true};return u.startsWith('stub:')?{format:'module',source:stubs[u.slice(5)],shortCircuit:true}:n(u,c)}});
-const {MessageTaskDialog,ThreadSummary,ContactCreateDialog,DuplicateNotice}=await import(url);
+const {MessageTaskDialog,ThreadSummary,ContactCreateDialog,DuplicateNotice,SenderScreening}=await import(url);
 const thread={id:'thread-1',channel:'email',subject:'Review tile',fromName:'Tom',fromEmail:'tom@example.test',preview:'Please review the tile'};
 const reader={messages:[{id:'message-1',fromName:'Tom',fromEmail:'tom@example.test',body:['Please review the tile'],date:1000}]};
 let tree;
@@ -69,4 +69,12 @@ test('failed duplicate check blocks creation rather than suggesting a new record
  assert.equal(find(n=>n.props?.type==='submit').props.disabled,true);const before=contacts.length;
  find(n=>n.type==='form').props.action(new FormData());await settle();assert.equal(contacts.length,before);
  globalThis.__panels.directoryError=false;
+});
+
+test('screener gives evidence and one recommended remembered filing action for a pitch',()=>{
+ let filed=0;mount(SenderScreening,{thread:{...thread,newSender:true,screeningFacts:{knownContact:false,hasUnsubscribe:true,looksPitch:true}},onLink(){},onAdd(){},onOther:()=>filed++});
+ const text=nodes(tree).flatMap(n=>[n.props?.children].flat(Infinity)).filter(x=>typeof x==='string').join(' ');
+ assert.match(text,/No saved contact.*unsubscribe link.*Looks like a pitch/);
+ const action=find(n=>n.props?.variant==='primary');assert.match(action.props.children.join(''),/Always file to Other.*Recommended/);action.props.onClick();assert.equal(filed,1);
+ assert.equal(nodes(tree).filter(n=>n.props?.variant==='primary').length,1);
 });

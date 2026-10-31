@@ -60,6 +60,7 @@ import {
   composerExpanded,
   isNoReplyAddress,
 } from "@/lib/inbox-rules";
+import {completionKey,readCompletions,saveCompletion,clearCompletion,retryCompletion,type SentCompletion} from "@/lib/inbox-completion";
 import {attachInquiryContinuity} from "@/lib/inbox-continuity";
 import {MAIL_FILE_ACCEPT,validateMailFiles,fileSize} from "@/lib/inbox-files";
 import { applyRemoteImagePolicy } from "@/lib/inbox-image-policy";
@@ -69,6 +70,7 @@ import {
   getThreadHtmlAction,
   sendReplyAction,
   sendChannelReplyAction,
+  findInquiryConversationsAction,
   sendNewEmailAction,
   setThreadStarredAction,
   setThreadReadAction,
@@ -260,6 +262,7 @@ export function InboxClient({
   const router = useRouter();
   const [mobileReader, setMobileReader] = useState(false);
   const [showSources, setShowSources] = useState(false);
+  const [splitSheet,setSplitSheet]=useState(false);
   const [composing, setComposing] = useState(false);
   useEffect(() => {
     window.dispatchEvent(
@@ -337,6 +340,16 @@ export function InboxClient({
   } | null>(null);
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [sentCompletions,setSentCompletions]=useState<SentCompletion[]>([]);
+  useEffect(()=>{
+    const refresh=()=>{try{setSentCompletions(readCompletions(localStorage,completionKey(selfEmail)));}catch{setSentCompletions([]);}};
+    refresh();window.addEventListener('inbox-completion-changed',refresh);window.addEventListener('storage',refresh);
+    return ()=>{window.removeEventListener('inbox-completion-changed',refresh);window.removeEventListener('storage',refresh);};
+  },[selfEmail]);
+  async function retrySentCompletion(receipt:SentCompletion){
+    const r=await retryCompletion(localStorage,completionKey(selfEmail),receipt,async saved=>saved.channel==='email'?archiveThreadAction(saved.threadId):markChannelDoneAction(saved.threadId,saved.through));
+    completionChanged();if(!r.ok)setNotice("Sent — couldn't mark done. Try again.");else{setNotice('Marked done. The message stays sent.');router.refresh();}
+  }
   const [notice, setNotice] = useState<string | null>(null);
   const [undo,setUndo]=useState<{label:string;run:()=>Promise<void>}|null>(null);
   // Optimistic star state, keyed by thread id, until the revalidate lands.
@@ -444,6 +457,7 @@ export function InboxClient({
     () => tabCounts(baseVisible, draftIds),
     [baseVisible, draftIds],
   );
+  const globalNeedsCount=tabCounts(threads.map(t=>applyInboxPreferences(t,preferences)),draftIds).needs;
   // Keep the selection valid as the lens narrows the list.
   const selected =
     visible.find((t) => t.id === selectedId) ?? visible[0] ?? null;
@@ -747,6 +761,7 @@ export function InboxClient({
 
   // Confirm the existing archive/handled path before updating the visible list.
   async function doneThread(t: InboxThread, sent=false) {
+    const previousView={lens,tab,query,selectedId,mobileReader};
     const r=await runAction(()=>t.channel==='email'?archiveThreadAction(t.id):markChannelDoneAction(t.id,readers[t.id]?.messages.at(-1)?.date??0),{fallback:'Could not mark done.'});
     if(!r.ok){setNotice(sent?"Sent — couldn't mark done":r.error??'Could not mark done.');return r;}
     const queue=completionQueue([...new Map([...threads,...(remoteData?.threads??[])].map(t=>[t.id,applyInboxPreferences(t,preferences)])).values()],t.id,draftIds);
@@ -758,7 +773,7 @@ export function InboxClient({
     setNotice(`${sent?'Sent and marked done.':'Marked done.'} ${queue.left} left in Needs me.`);
     setUndo({label:sent?'Undo Done — the message stays sent.':'Undo Done',run:async()=>{
       const result=await runAction(()=>t.channel==='email'?restoreThreadToInboxAction(t.id):undoChannelDoneAction(t.id),{fallback:'Could not undo Done.'});
-      if(result.ok){setThreads(ts=>ts.map(v=>v.id===t.id?t:v));setRemoteData(d=>d?{...d,threads:d.threads.map(v=>v.id===t.id?t:v)}:d);setNotice('Done undone.');setUndo(null);setSelectedId(t.id);router.refresh();}else setNotice(result.error??'Could not undo Done.');
+      if(result.ok){setThreads(ts=>ts.map(v=>v.id===t.id?t:v));setRemoteData(d=>d?{...d,threads:d.threads.map(v=>v.id===t.id?t:v)}:d);setNotice('Done undone.');setUndo(null);setLens(previousView.lens);setTab(previousView.tab);setQuery(previousView.query);setSelectedId(previousView.selectedId||t.id);setMobileReader(previousView.mobileReader);router.refresh();}else setNotice(result.error??'Could not undo Done.');
     }});
     router.refresh();return {ok:true};
   }
@@ -781,6 +796,7 @@ export function InboxClient({
       if (e.key === "Escape") {
         setMenuOpen(false);
         setShowSources(false);
+        setSplitSheet(false);
         closeContext();
         return;
       }
@@ -798,6 +814,7 @@ export function InboxClient({
           linking ||
           Boolean(task) ||
           composing ||
+          splitSheet ||
           showSources ||
           menuOpen ||
           pending,
@@ -843,7 +860,7 @@ export function InboxClient({
         >
           Views
         </Button>
-        <div ref={tabsRef} className="order-last w-full min-w-0 overflow-x-auto [mask-image:linear-gradient(to_right,black_94%,transparent)] @4xl/page:order-none @4xl/page:w-auto @4xl/page:flex-1">
+        <div ref={tabsRef} className="hidden @4xl/page:block order-last w-full min-w-0 overflow-x-auto [mask-image:linear-gradient(to_right,black_94%,transparent)] @4xl/page:order-none @4xl/page:w-auto @4xl/page:flex-1">
           <Segmented
             aria-label="Inbox splits"
             value={tab ?? ""}
@@ -887,6 +904,7 @@ export function InboxClient({
           </Button>
         )}
       </div>
+      {sentCompletions.map(receipt=><div key={receipt.threadId} role="status" className="flex flex-wrap items-center gap-2 border-b border-warn/20 bg-warn-soft px-3 py-2 text-meta"><span className="min-w-0 flex-1 break-words">Sent — couldn’t mark done · {receipt.recipient} · {receipt.channel.replaceAll('_',' ')} · {new Date(receipt.sentAt).toLocaleString('en-US')}</span><Button variant="secondary" disabled={pending} onClick={()=>startTransition(()=>retrySentCompletion(receipt))}>Retry</Button></div>)}
       {notice && (
         <div
           role="status"
@@ -1166,7 +1184,7 @@ export function InboxClient({
           data-inbox-list
           className={[
             "min-w-0 w-full flex-none flex-col border-r border-rule-soft",
-            compactList && (context || contextPreference) ? "@4xl/page:w-[260px]" : "@4xl/page:w-80 @[1100px]/page:w-[260px] @[1280px]/page:w-[340px]",
+            compactList && (context || contextPreference) ? "@4xl/page:w-[240px]" : "@4xl/page:w-80 @[1100px]/page:w-[260px] @[1280px]/page:w-[340px]",
             mobileReader ? "hidden @4xl/page:flex" : "flex",
           ].join(" ")}
         >
@@ -1504,6 +1522,7 @@ export function InboxClient({
             loadError={contextResult?.key===contextKey?contextError:undefined}
             onRetry={()=>setContextRefresh(n=>n+1)}
             docked={wideContext}
+            compact={compactList}
             onClose={closeContext}
             onLink={() => setLinking(true)}
             onSelect={(id) => {
@@ -1515,6 +1534,11 @@ export function InboxClient({
             }}
           />
         )}
+      </div>
+      <div className="relative z-40 flex shrink-0 items-center gap-2 border-t border-rule bg-paper px-3 py-1 @4xl/page:hidden">
+        <Button variant={tab==='needs'?'primary':'secondary'} className="min-h-11 flex-1" onClick={()=>{setLens({kind:'all'});setTab('needs');setMobileReader(false);setSplitSheet(false);}}>Needs me {globalNeedsCount}</Button>
+        <Button variant="secondary" className="min-h-11 flex-1" aria-expanded={splitSheet} onClick={()=>setSplitSheet(v=>!v)}>{tab&&tab!=='needs'?`${INBOX_TABS.find(t=>t.value===tab)?.label} ${counts[tab]}`:'Splits'} ▾</Button>
+        {splitSheet&&<div role="dialog" aria-label="Inbox splits" className="absolute inset-x-0 bottom-full rounded-t-xl border border-rule bg-card p-3 shadow-pop"><div className="flex items-center"><h2 className="flex-1 text-subheading font-semibold">Inbox splits</h2><Button variant="ghost" icon={X} iconOnly aria-label="Close splits" title="Close splits" onClick={()=>setSplitSheet(false)}/></div>{INBOX_TABS.map(split=><button key={split.value} aria-pressed={tab===split.value} className="flex min-h-11 w-full items-center justify-between rounded-md px-3 text-body aria-pressed:bg-selected" onClick={()=>{setTab(split.value);setMobileReader(false);setSplitSheet(false);}}><span>{split.label}</span><span>{counts[split.value]}</span></button>)}</div>}
       </div>
       {linking && (
         <LinkPicker
@@ -1571,6 +1595,20 @@ export function InboxClient({
       )}
     </div>
   );
+}
+
+const completionChanged=()=>window.dispatchEvent(new Event('inbox-completion-changed'));
+async function sendWithReceipt(mailbox:string,threadId:string,reader:ThreadReader,recipient:string,send:()=>Promise<{ok:boolean;error?:string}>,done?:()=>Promise<{ok:boolean;error?:string}>,confirmed?:()=>void) {
+ const receipt:SentCompletion={threadId,recipient,channel:reader.channel,sentAt:Date.now(),through:reader.messages.at(-1)?.date ?? 0};
+ return completeAfterSend(async()=>{
+   const result=await send();
+   if(result.ok)receipt.sentAt=Date.now();
+   if(result.ok&&done){try{saveCompletion(localStorage,completionKey(mailbox),receipt);completionChanged();}catch{}}
+   if(result.ok)confirmed?.();
+   return result;
+ },done?async()=>{
+   const result=await done();if(result.ok){try{clearCompletion(localStorage,completionKey(mailbox),threadId);completionChanged();}catch{}}return result;
+ }:undefined);
 }
 
 function useMailFiles(originals: {name:string;size:number;type:string}[] = []) {
@@ -1700,52 +1738,28 @@ function ComposeModal({
 /** "Project\nPartial basement finish" — a website-form field and its value. */
 const FORM_FIELD = /^([^\n]{1,40})\n([\s\S]+)$/;
 
-/** Where the quoted earlier conversation starts in a plain-text body: the
- *  "On <date>, <name> wrote:" line, or the first "> " quoted line. */
-/** A rich email body. Wide newsletter / store emails (fixed 600–700px tables)
- *  are scaled down to the reading column instead of scrolling sideways; the
- *  quoted earlier conversation (blockquotes) folds behind "Show quoted text". */
+/** Wide mail tables scroll at their natural text size; quoted history folds. */
 function EmailHtml({ html }: { html: string }) {
-  const outer = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
-  const [zoom, setZoom] = useState(1);
   const [hasQuote, setHasQuote] = useState(false);
   const [showQuote, setShowQuote] = useState(false);
   useLayoutEffect(() => {
-    const fit = () => {
-      const o = outer.current,
-        i = inner.current;
-      if (!o || !i) return;
-      i.style.zoom = "1";
-      // Text wraps to the column; only a fixed-width layout (a 600–700px table)
-      // overflows it — that one is scaled down to fit.
-      const natural = i.scrollWidth,
-        room = i.clientWidth;
-      setZoom(
-        natural > room + 2 && room > 0 ? Math.max(0.85, room / natural) : 1,
-      );
-    };
-    fit();
     setHasQuote(!!inner.current?.querySelector("blockquote"));
-    const ro = new ResizeObserver(fit);
-    if (outer.current) ro.observe(outer.current);
     const imgs = Array.from(inner.current?.querySelectorAll("img") ?? []);
     const failed=(event:Event)=>{
       const im=event.target as HTMLImageElement;
       if(!im.getAttribute('src')){im.remove();return;}
-      const placeholder=document.createElement('span');placeholder.className='inline-block rounded border border-rule px-2 py-1 text-meta text-ink-3';placeholder.textContent=im.alt?`Image unavailable · ${im.alt}`:'Image unavailable';im.replaceWith(placeholder);fit();
+      const placeholder=document.createElement('span');placeholder.className='inline-block rounded border border-rule px-2 py-1 text-meta text-ink-3';placeholder.textContent=im.alt?`Image unavailable · ${im.alt}`:'Image unavailable';im.replaceWith(placeholder);
     };
-    imgs.forEach(im=>{im.addEventListener('load',fit);im.addEventListener('error',failed);if(im.complete&&im.naturalWidth===0)failed({target:im} as unknown as Event);});
+    imgs.forEach(im=>{im.addEventListener('error',failed);if(im.complete&&im.naturalWidth===0)failed({target:im} as unknown as Event);});
     return () => {
-      ro.disconnect();
-      imgs.forEach(im=>{im.removeEventListener('load',fit);im.removeEventListener('error',failed);});
+      imgs.forEach(im=>im.removeEventListener('error',failed));
     };
   }, [html]);
   return (
-    <div ref={outer} className="min-w-0 overflow-x-auto">
+    <div className="min-w-0 overflow-x-auto">
       <div
         ref={inner}
-        style={{ zoom }}
         className={`email-html text-body leading-relaxed text-ink [&_a]:text-accent [&_a]:underline [&_img]:my-1 [&_img]:rounded ${showQuote ? "" : "[&_blockquote]:hidden"}`}
         dangerouslySetInnerHTML={{ __html: html }}
       />
@@ -1933,6 +1947,16 @@ function ChannelReaderBody({
   onSendDone?:()=>Promise<{ok:boolean;error?:string}>;
   mailbox?: string;
 }) {
+  const [earlierEmail,setEarlierEmail]=useState<{id:string;subject:string}[]>([]);
+  const [emailSearch,setEmailSearch]=useState('');
+  const [searchAttempt,setSearchAttempt]=useState(0);
+  useEffect(()=>{
+    if(reader.channel!=='site_form'||!reader.form?.email)return;
+    let active=true;setEmailSearch('Checking earlier email…');
+    findInquiryConversationsAction(threadId).then(result=>{if(!active)return;if(result.ok){setEarlierEmail(result.conversations ?? []);setEmailSearch('');}else setEmailSearch(result.error ?? 'Could not check earlier email.');}).catch(()=>{if(active)setEmailSearch('Could not check earlier email.');});
+    return ()=>{active=false;};
+  },[threadId,reader.channel,reader.form?.email,searchAttempt]);
+  const conversations=[...new Map([...(reader.form?.conversations ?? []),...earlierEmail].map(c=>[c.id,c])).values()];
   const scroller = useRef<HTMLDivElement>(null);
   const files=useMailFiles();
   const saved = useInboxDraft(mailbox, threadId, "");
@@ -1960,10 +1984,10 @@ function ChannelReaderBody({
     setError("");
     start(async () => {
       let sendWarning:string|undefined;
-      const r = await completeAfterSend(()=>runAction(
+      const r = await sendWithReceipt(mailbox,threadId,reader,reader.form?.email ?? reader.replyLabel ?? reader.channel,()=>runAction(
         async () => {const result=await sendChannelReplyAction({ threadId, body, ...(reader.channel==='site_form'?{files:files.data()}:{}) });sendWarning=result.warning;return result;},
         { fallback: "Could not send your reply." },
-      ),andDone?onSendDone:undefined);
+      ),andDone?onSendDone:undefined,()=>{saved.clear();files.clear();setSent(true);});
       if (r.sent) {
         if(r.error){setError(r.error);setRetryDone(()=>r.retry??null);}
         if(sendWarning)setError(sendWarning);
@@ -2024,7 +2048,8 @@ function ChannelReaderBody({
                           {reader.form.contacted?"Contacted":"New website inquiry"}
                           {reader.form.town ? ` · ${reader.form.town}` : ""}
                         </p>
-                        {Boolean(reader.form.conversations?.length)&&<div className="my-2 border-y border-rule-soft py-2 text-meta"><p className="font-semibold">{reader.form.contacted?'Contacted · Open email conversation':'Existing email conversation — review before replying'}</p>{reader.form.conversations!.map(c=><a key={c.id} className="flex min-h-11 items-center text-accent-2 underline" href={`https://mail.google.com/mail/u/?authuser=${encodeURIComponent(mailbox)}#all/${encodeURIComponent(c.id)}`} target="_blank" rel="noopener noreferrer" onClick={e=>{if(availableConversations.includes(c.id)&&onOpenConversation){e.preventDefault();onOpenConversation(c.id);}}}>{c.subject} ↗</a>)}</div>}
+                        {Boolean(conversations.length)&&<div className="my-2 border-y border-rule-soft py-2 text-meta"><p className="font-semibold">{reader.form.contacted?'Contacted · Open email conversation':'Existing email conversation — review before replying'}</p>{conversations.map(c=><a key={c.id} className="flex min-h-11 items-center text-accent-2 underline" href={`https://mail.google.com/mail/u/?authuser=${encodeURIComponent(mailbox)}#all/${encodeURIComponent(c.id)}`} target="_blank" rel="noopener noreferrer" onClick={e=>{if(availableConversations.includes(c.id)&&onOpenConversation){e.preventDefault();onOpenConversation(c.id);}}}>{c.subject} ↗</a>)}</div>}
+                        {emailSearch&&<p role="status" className="my-2 text-meta text-ink-3">{emailSearch}{emailSearch!=='Checking earlier email…'&&<Button size="sm" variant="ghost" onClick={()=>setSearchAttempt(n=>n+1)}>Retry email check</Button>}</p>}
                         <p className="my-3 whitespace-pre-line text-body font-semibold leading-relaxed">
                           {m.body[0]}
                         </p>
@@ -2212,6 +2237,7 @@ function ThreadRow({
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
+            {compact&&<Icon className="size-3 shrink-0 text-accent-2" aria-label={thread.channel.replaceAll('_',' ')}/>}
             <span
               className={`min-w-0 flex-1 truncate text-label ${thread.unread ? "font-bold text-ink" : needs ? "font-semibold text-ink" : "text-ink-2"}`}
             >
@@ -2254,7 +2280,7 @@ function ThreadRow({
           </span>
           {threadTodoCue(thread)&&<span title={threadTodoCue(thread)} aria-label="Open to-do" className="block truncate text-meta text-accent-2">{threadTodoCue(thread)}</span>}
           {thread.newSender&&!compact&&<span title={thread.fromEmail} className="block truncate text-meta text-ink-3">{thread.fromEmail}</span>}
-          <span className={`${compact?"hidden":"block"} truncate text-meta text-ink-3`}>
+          <span className={`block truncate text-meta text-ink-3`}>
             {thread.preview || thread.subject}
           </span>
 
@@ -2559,7 +2585,7 @@ function ReaderBody({
   function send(andDone=false) {
     setError("");
     startSend(async () => {
-      const r = await completeAfterSend(()=>runAction(
+      const r = await sendWithReceipt(mailbox,threadId,reader,toEmail,()=>runAction(
         () =>
           sendReplyAction({
             threadId,
@@ -2570,7 +2596,7 @@ function ReaderBody({
             files:files.data(),
           }),
         { fallback: "Send failed." },
-      ),andDone?onSendDone:undefined);
+      ),andDone?onSendDone:undefined,()=>{saved.clear();files.clear();setSent(true);});
       if (r.sent) {
         if(r.error){setError(r.error);setRetryDone(()=>r.retry??null);}
         saved.clear();files.clear();

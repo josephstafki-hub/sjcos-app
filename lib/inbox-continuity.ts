@@ -6,7 +6,7 @@ export function attachInquiryContinuity(threads:InboxThread[],readers:Record<str
   const form=readers[formThread.id]?.form;if(!form)continue;
   const related=threads.filter(t=>t.channel==='email'&&(
    t.linkedType==='lead'&&t.linkedSlug===formThread.linkedSlug ||
-   Boolean(form.email)&&readers[t.id]?.messages.some(m=>[m.fromEmail,...(m.to?[m.to]:[]),...(m.cc ?? [])].some(address=>address?.toLowerCase().includes(form.email.toLowerCase())))
+   Boolean(form.email)&&readers[t.id]?.messages.some(m=>[m.fromEmail,...(m.to?[m.to]:[]),...(m.cc ?? [])].some(address=>Array.from(address?.toLowerCase().match(/[^\s<>,;]+@[^\s<>,;]+/g) ?? []).includes(form.email.toLowerCase())))
   ));
   form.conversations=[...new Map([...(form.conversations ?? []),...related.map(t=>({id:t.id,subject:t.subject}))].map(t=>[t.id,t])).values()];
   for(const email of related){email.websiteInquiry=formThread.id;readers[email.id].websiteInquiry=formThread.id;}

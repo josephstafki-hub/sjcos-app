@@ -73,6 +73,7 @@ export interface InboxTodo {
 }
 export interface InboxThread {
   websiteInquiry?:string;
+  screeningFacts?:{knownContact:boolean;hasUnsubscribe:boolean;looksPitch:boolean};
   outstandingCents?: number;
   todos?: InboxTodo[];
   fromEmail?: string;
@@ -976,6 +977,7 @@ function mapRawThreads(
     const bulk = Boolean(threads[i].automated);
     const decision = contactMaps.preferences.get(`sender:${threads[i].fromEmail?.toLowerCase()}`);
     const override = contactMaps.preferences.get(`thread:${r.id}`);
+    threads[i].screeningFacts={knownContact:known,hasUnsubscribe:Boolean(r.messages?.some(m=>m.hasUnsubscribe)),looksPitch:/\b(?:partnership|marketing|promot(?:e|ion)|grow your|offer our|our services|pre-approved|funding offer)\b/i.test(r.subject+' '+(r.messages?.at(-1)?.body.join(' ') ?? r.snippet))};
     threads[i].senderDecision = decision;
     threads[i].filedOther = decision === 'other';
     threads[i].attentionOverride = override ? override === 'attention' : undefined;

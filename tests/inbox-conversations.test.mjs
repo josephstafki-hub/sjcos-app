@@ -175,3 +175,10 @@ test('new mail and replies reuse mixed MIME, safe Unicode filenames and 76-colum
  raw=Buffer.from(calls.sent.at(-1).requestBody.raw,'base64url').toString();assert.match(raw,/multipart\/mixed/);assert.match(raw,/floor plan.pdf/);
  await assert.rejects(()=>gmail.sendNewEmail({to:'bad\r\nBcc: victim@example.test',subject:'No',bodyText:'No'}),/recipient/i);
 });
+
+test('inquiry correspondence search lists ids once without fetching message details',async()=>{
+ let lists=0;const gets=calls.get;
+ globalThis.__inboxFake.api.users.threads.list=async opts=>{lists++;assert.equal(opts.q,'-in:spam -in:trash {from:alex@example.test to:alex@example.test}');return {data:{threads:[{id:'older-thread'}]}};};
+ assert.deepEqual(await gmail.findCorrespondence('alex@example.test'),[{id:'older-thread',subject:'Email conversation'}]);assert.equal(lists,1);assert.equal(calls.get,gets);
+ await assert.rejects(()=>gmail.findCorrespondence('bad@example.test from:other@example.test'),/Invalid/);assert.equal(lists,1);
+});

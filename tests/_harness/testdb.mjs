@@ -112,11 +112,33 @@ export function stopCluster() {
   return true;
 }
 
+/** The narrow database logins (deploy/db-roles.md), created cluster-wide
+ *  BEFORE a database loads its schema so the grant migrations (0060 onward)
+ *  grant for real, as in production after Joe's bootstrap. NOLOGIN here:
+ *  tests reach them with SET ROLE (or `options=-c role=…`) as the superuser. */
+export const DB_ROLES = ["sjcos_agent", "sjcos_worker", "sjcos_readonly", "sjcos_backup"];
+export function ensureDbRoles(state) {
+  const sql = `DO $$ DECLARE r text; BEGIN
+    FOREACH r IN ARRAY ARRAY[${DB_ROLES.map((r) => `'${r}'`).join(", ")}] LOOP
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN EXECUTE format('CREATE ROLE %I NOLOGIN', r); END IF;
+      EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; -- a parallel test file made it first
+      END;
+    END LOOP; END $$`;
+  spawnSync(bin("psql"), [state.admin, "-Atqc", sql], { stdio: "ignore" });
+}
+
+/** A harness URL whose every connection runs as `role` (SET ROLE at connect). */
+export function urlAsRole(url, role) {
+  return `${url}&options=${encodeURIComponent(`-c role=${role}`)}`;
+}
+
 /** Drop and recreate sjcos_test, then load schema.sql + migrations. */
 export async function resetDatabase(state) {
   assertNotProduction(state.url);
   spawnSync(bin("psql"), [state.admin, "-Atc", "DROP DATABASE IF EXISTS sjcos_test WITH (FORCE)"], { stdio: "ignore" });
   spawnSync(bin("psql"), [state.admin, "-Atc", "CREATE DATABASE sjcos_test"], { stdio: "ignore" });
+  ensureDbRoles(state);
   await loadSchema(state.url);
 }
 
@@ -163,6 +185,7 @@ export async function withTestDb(fn, { fresh = false, name } = {}) {
   if (fresh || !existsSync(marker)) {
     spawnSync(bin("psql"), [state.admin, "-Atc", `DROP DATABASE IF EXISTS ${db} WITH (FORCE)`], { stdio: "ignore" });
     spawnSync(bin("psql"), [state.admin, "-Atc", `CREATE DATABASE ${db}`], { stdio: "ignore" });
+    ensureDbRoles(state);
     await loadSchema(url);
     writeFileSync(marker, new Date().toISOString());
   } else {

@@ -6,9 +6,10 @@ import { Megaphone, Sparkles, Copy, Check, Trash2, Send } from "lucide-react";
 import { Card, Chip } from "@/components/ui";
 import type { MarketingDraft } from "@/lib/marketing";
 import type { PostingAccounts as Accounts } from "@/lib/publisher/core";
-import { generateDraft, updateDraft, markPosted, deleteDraft, setPhotoShareable } from "@/lib/actions/marketing";
+import { generateDraft, updateDraft, markPosted, deleteDraft } from "@/lib/actions/marketing";
 import { runAction } from "@/lib/run-action";
-import { InPostToggle, PostingPanel, StageChip } from "./PostingPanel";
+import { PostingPanel, StageChip } from "./PostingPanel";
+import { PostPhotos } from "./PostPhotos";
 import { PostingAccounts } from "./PostingAccounts";
 
 /** /marketing — AI-drafted social + blog posts. Owner generates from a project,
@@ -147,41 +148,7 @@ function DraftCard({ draft, isOwner }: { draft: MarketingDraft; isOwner: boolean
         rows={draft.kind === "blog" ? 8 : 4}
         className="w-full resize-y rounded-md border border-rule bg-paper px-2.5 py-2 text-[13px] leading-relaxed text-ink outline-none focus:border-accent"
       />
-      {draft.photos.length > 0 && draft.projectSlug && (
-        <div className="mt-2">
-          <div className="mb-1 text-[11px] text-ink-3">
-            Photos: tick the ones the client OK&apos;d sharing; download those to post with the text{draft.kind === "social" ? ", or tick \u201cIn post\u201d for the posting agent" : ""}.
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {draft.photos.map((p) => (
-              <div key={p.id} className={`flex flex-col items-center gap-1 rounded-md border p-1 ${p.shareable ? "border-money" : "border-rule"}`}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={`/api/files/${p.id}`} alt={p.name} className="size-16 rounded object-cover" loading="lazy" />
-                <label className="flex items-center gap-1 text-[10px] text-ink-3">
-                  <input
-                    type="checkbox"
-                    checked={p.shareable}
-                    disabled={pending}
-                    onChange={(e) =>
-                      startTransition(async () => {
-                        await runAction(() => setPhotoShareable(draft.projectSlug!, p.id, e.target.checked), { fallback: "Couldn't change that photo." });
-                        router.refresh();
-                      })
-                    }
-                  />
-                  OK to share
-                </label>
-                {p.shareable && (
-                  <a href={`/api/files/${p.id}?download=1`} download={p.name} className="text-[10px] font-semibold text-accent-2 hover:underline">
-                    Download
-                  </a>
-                )}
-                {p.shareable && draft.kind === "social" && <InPostToggle draft={draft} photoId={p.id} disabled={pending} />}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <PostPhotos draft={draft} isOwner={isOwner} />
       {draft.kind === "social" && <PostingPanel draft={draft} isOwner={isOwner} dirty={dirty} />}
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <button

@@ -197,7 +197,8 @@ export function InPostToggle({ draft, photoId, disabled }: { draft: MarketingDra
         onChange={(e) =>
           startTransition(async () => {
             const media = e.target.checked ? [...draft.media, photoId] : draft.media.filter((m) => m !== photoId);
-            await runAction(() => setPostTarget(draft.id, (draft.platform ?? "") as PostPlatform | "", media), { fallback: "Couldn't change the photos." });
+            const r = await runAction(() => setPostTarget(draft.id, (draft.platform ?? "") as PostPlatform | "", media), { fallback: "Couldn't change the photos." });
+            if (r && "ok" in r && r.ok && "message" in r && r.message) toast({ kind: "info", message: String(r.message) });
             router.refresh();
           })
         }

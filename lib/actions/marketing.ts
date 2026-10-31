@@ -13,7 +13,8 @@ import { normalizeMarketingCopy } from "@/lib/marketing-copy";
 import { type DraftKind } from "@/lib/marketing-types";
 import { runDirect, userPrincipal, withTransaction } from "@/lib/commands/db";
 import { getDraft, grantPublicationRights, noteDraftEdited, setDraftPost, stagePublication, withdrawPublicationRights } from "@/lib/closeout/marketing";
-import { isPostPlatform, postProblem, POST_PLATFORM_LABEL } from "@/lib/marketing-types";
+import { isPostPlatform, POST_LIMITS, postProblem, POST_PLATFORM_LABEL } from "@/lib/marketing-types";
+import { storeUpload } from "@/lib/upload-store";
 import { retryPost as retryPostNow, savePostingAccounts as saveAccounts, settlePost } from "@/lib/publisher/server";
 
 type Result = { ok: boolean; error?: string };
@@ -265,15 +266,65 @@ export async function markNotPosted(id: number): Promise<Result> {
   return r.ok ? { ok: true } : { ok: false, error: r.message };
 }
 
-/** Where the post goes and which shareable photos go with it. Retires an
- *  approval card for the old choice. */
+/** Where the post goes and which shareable photos go with it, in order.
+ *  Picking a site on a post with no photos picks the newest shareable ones
+ *  for him (he changes them after). Retires an approval card for the old
+ *  choice. */
 export async function setPostTarget(id: number, platform: string, photoIds: string[]): Promise<Result & { message?: string }> {
   const user = await requireAccess("marketing");
   if (platform && !isPostPlatform(platform)) return { ok: false, error: "Pick Facebook, Instagram or Google Business Profile." };
   try {
-    const r = await withTransaction((run) => setDraftPost(run, id, { platform, photoIds: photoIds.slice(0, 20), actor: `${user.role}:${user.name}` }));
+    const before = await getDraft(runDirect, id);
+    const autoPick = !!platform && !photoIds.length && before?.audience !== platform;
+    const r = await withTransaction((run) => setDraftPost(run, id, { platform, photoIds: photoIds.slice(0, 20), actor: `${user.role}:${user.name}`, autoPick }));
     revalidatePath("/marketing");
-    return { ok: true, message: r.rejectedPhotoIds.length ? `${r.rejectedPhotoIds.length} photo(s) left out: not OK'd to share.` : undefined };
+    const notes: string[] = [];
+    if (r.autoPicked) notes.push(`Picked ${r.autoPicked} photo${r.autoPicked === 1 ? "" : "s"} the client OK'd. Change them under "In this post".`);
+    if (r.trimmed && isPostPlatform(platform)) notes.push(`${POST_PLATFORM_LABEL[platform]} takes ${POST_LIMITS[platform].maxPhotos}; ${r.trimmed} left out.`);
+    if (r.rejectedPhotoIds.length) notes.push(`${r.rejectedPhotoIds.length} photo(s) left out: not OK'd to share.`);
+    return { ok: true, message: notes.join(" ") || undefined };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+const OWN_PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+/** Joe adds his own photos to a post: they're saved on the job's files and,
+ *  since he took them or chose them himself, count as OK to share and go into
+ *  the post (social posts, until it's on its way). Staff can add photos to the
+ *  job; Joe ticks OK to share. */
+export async function addPostPhotos(formData: FormData): Promise<Result & { message?: string }> {
+  const user = await requireAccess("marketing");
+  const id = Number(formData.get("draftId"));
+  const files = formData.getAll("photos").filter((f): f is File => f instanceof File && f.size > 0).slice(0, 10);
+  if (!files.length) return { ok: false, error: "Choose a photo to add." };
+  const bad = files.find((f) => !OWN_PHOTO_TYPES.includes(f.type));
+  if (bad) return { ok: false, error: `${bad.name}: use a JPG, PNG or WebP photo (on an iPhone, choose it from Photos and it's converted for you).` };
+  const d = await getDraft(runDirect, id);
+  if (!d) return { ok: false, error: "No such draft." };
+  const [proj] = d.project_id ? await runDirect<{ id: string; slug: string }>(`SELECT id, slug FROM projects WHERE id = $1`, [d.project_id]) : [];
+  if (!proj) return { ok: false, error: "This post isn't tied to a job, so there's nowhere to keep the photos." };
+
+  const added: string[] = [];
+  for (const f of files) {
+    const stored = await storeUpload(f, { idPrefix: "mkt", projectKey: proj.slug, imagesOnly: true, tag: "MARKETING", subtitle: "Marketing photo" });
+    if (!stored.ok) return { ok: false, error: `${f.name}: ${stored.error}${added.length ? ` (${added.length} added before it)` : ""}` };
+    added.push(stored.id);
+  }
+  revalidatePath("/marketing");
+  if (user.role !== "owner") return { ok: true, message: `Added ${added.length} photo${added.length === 1 ? "" : "s"} to the job. Joe ticks OK to share before they can go in a post.` };
+
+  await grantPublicationRights(runDirect, { fileIds: added, projectId: proj.id, grantedBy: user.name || "Joe", grantedByUserId: user.id, note: "Joe's own photo (added on /marketing)" });
+  const editable = d.kind === "social" && ["draft", "failed", "pending_decision"].includes(d.status);
+  if (!editable) return { ok: true, message: `Added ${added.length} photo${added.length === 1 ? "" : "s"}, OK to share.` };
+  try {
+    const r = await withTransaction((run) => setDraftPost(run, id, { platform: d.audience, photoIds: [...d.media, ...added], actor: `${user.role}:${user.name}` }));
+    const n = added.length - r.trimmed;
+    const notes = [`Added ${added.length} photo${added.length === 1 ? "" : "s"}; ${n} in the post.`];
+    if (r.trimmed && isPostPlatform(d.audience)) notes.push(`${POST_PLATFORM_LABEL[d.audience]} takes ${POST_LIMITS[d.audience].maxPhotos}; take one out to swap.`);
+    revalidatePath("/marketing");
+    return { ok: true, message: notes.join(" ") };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }

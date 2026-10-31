@@ -107,10 +107,9 @@ export function registerMeasureTools(server, { rows, json, pool }) {
             const snap = await snapshotProcedures(txRun, { knownTools });
             const checks = await checkProcedures(txRun, { knownTools });
             if (knownTools.length) {
-              await client.query(
-                `INSERT INTO app_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-                [KNOWN_TOOLS_SETTING, JSON.stringify(knownTools)],
-              );
+              // Through the owner-run helper (db/migrations/0060_db_roles.sql):
+              // the agent login may not write app_settings itself.
+              await client.query(`SELECT sjcos_record_known_tools($1::jsonb)`, [JSON.stringify(knownTools)]);
             }
             await client.query("COMMIT");
             result = { snapshot: { snapshot_id: snap.snapshot_id, recorded: snap.recorded, unchanged: snap.unchanged }, opened: checks.opened, resolved: checks.resolved };

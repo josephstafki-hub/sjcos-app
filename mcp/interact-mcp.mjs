@@ -21,7 +21,6 @@
 // right chat thread, and raises MCP_TOOL_TIMEOUT so a blocked prompt isn't
 // killed by the CLI's default tool timeout.
 
-import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
@@ -29,15 +28,14 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { registerAskOwner } from "./interact-tools.mjs";
+import { databaseUrlFor, mcpLogin } from "../lib/db-login.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Same login rule as mcp/sjcos-mcp.mjs (deploy/db-roles.md): owner only when
+// the launcher set SJC_DB_LOGIN=owner, the narrow agent login otherwise.
 function databaseUrl() {
-  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
-  const env = readFileSync(path.join(__dirname, "..", ".env.local"), "utf8");
-  const m = env.match(/^DATABASE_URL=(.+)$/m);
-  if (!m) throw new Error("DATABASE_URL not found (env or .env.local)");
-  return m[1].trim().replace(/^["']|["']$/g, "");
+  return databaseUrlFor(mcpLogin(), { envFile: path.join(__dirname, "..", ".env.local") });
 }
 
 const pool = new pg.Pool({ connectionString: databaseUrl(), max: 2 });

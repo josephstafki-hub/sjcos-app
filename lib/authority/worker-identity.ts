@@ -1,7 +1,7 @@
 // Worker identity registry (A08b). Every unattended process that touches the
 // business runs AS one of these identities: a name, the lanes / intent kinds
-// it may work, and the Postgres role it should connect with once
-// deploy/db-roles.sql is applied. assertWorkerMay() is the code-side check;
+// it may work, and the Postgres role it should connect with once the logins
+// in deploy/db-roles.md are applied. assertWorkerMay() is the code-side check;
 // the database role is the enforced one (a worker connected as sjcos_worker
 // cannot UPDATE users or authority_grants no matter what a prompt says).
 //
@@ -24,7 +24,7 @@ export interface WorkerIdentity {
   intentKinds: readonly string[];
   /** lane_pauses lanes it participates in (kill switches). */
   lanes: readonly string[];
-  /** Postgres role from deploy/db-roles.sql. */
+  /** Postgres role (deploy/db-roles.md, deploy/db-roles.manifest.json). */
   dbRole: "sjcos_worker" | "sjcos_agent" | "sjcos_readonly" | "sjcos_backup";
   /** Human note for the credentials inventory. */
   note: string;

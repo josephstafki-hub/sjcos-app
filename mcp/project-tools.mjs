@@ -129,13 +129,14 @@ export function registerProjectTools(server, { rows, json, strippedDollarError, 
     // Portal login, invite, portal chat and lead-stage files follow the lead
     // onto the project. Best-effort — never block the conversion.
     try {
-      await rows(
-        `UPDATE users
-            SET link_slug = $2,
-                email = CASE WHEN email = $3 THEN $4 ELSE email END
-          WHERE role = 'client' AND link_slug = $1`,
-        [`lead:${slug}`, pslug, `lead-${slug}@client-portal.invalid`, `${pslug}@client-portal.invalid`],
-      );
+      // Owner-run helper (db/migrations/0060_db_roles.sql): the agent login
+      // cannot write users; this moves only a client login off its lead link.
+      await rows(`SELECT sjcos_relink_client_login($1, $2, $3, $4)`, [
+        `lead:${slug}`,
+        pslug,
+        `lead-${slug}@client-portal.invalid`,
+        `${pslug}@client-portal.invalid`,
+      ]);
       await rows(`UPDATE client_portal_invites SET project_slug = $2, lead_slug = NULL WHERE lead_slug = $1`, [slug, pslug]);
       await rows(`UPDATE chat_messages SET channel_key = $2 WHERE channel_key = $1`, [`portal:lead:${slug}`, `portal:${pslug}`]);
       await rows(

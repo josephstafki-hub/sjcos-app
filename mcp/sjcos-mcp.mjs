@@ -97,15 +97,20 @@ import { registerLeadTools } from "./lead-tools.mjs";
 import { areaRefusal, logLiveChanges, writeTable } from "./tool-shared.mjs";
 import { registerFilingTools } from "./filing-tools.mjs";
 import { registerUploadTools } from "./upload-tools.mjs";
+import { databaseUrlFor, mcpLogin } from "../lib/db-login.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Database login (deploy/db-roles.md): the narrow sjcos_agent login
+// (DATABASE_URL_AGENT) unless the launcher explicitly asked for the owner —
+// scripts/run-claude-agent.mjs sets SJC_DB_LOGIN=owner only for Joe's own
+// operator runs in the Ask window. Hermes, claude.ai / ChatGPT (via
+// sjcos-mcp.service), business runs, staff panel turns and bare `claude mcp`
+// stdio spawns all get the narrow login. Falls back to DATABASE_URL until Joe
+// adds the DATABASE_URL_AGENT line.
+const DB_LOGIN = mcpLogin();
 function databaseUrl() {
-  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
-  const env = readFileSync(path.join(__dirname, "..", ".env.local"), "utf8");
-  const m = env.match(/^DATABASE_URL=(.+)$/m);
-  if (!m) throw new Error("DATABASE_URL not found (env or .env.local)");
-  return m[1].trim().replace(/^["']|["']$/g, "");
+  return databaseUrlFor(DB_LOGIN, { envFile: path.join(__dirname, "..", ".env.local") });
 }
 
 const pool = new pg.Pool({ connectionString: databaseUrl(), max: 4 });
@@ -426,6 +431,23 @@ export const SERVER_INSTRUCTIONS = [
 
 function buildServer() {
 const server = new McpServer({ name: "sjcos", version: "1.0.0" }, { instructions: SERVER_INSTRUCTIONS });
+
+// A refusal from the narrow database login (deploy/db-roles.md) comes back as
+// a plain answer the agent can act on, not a crash. Every register*Tools
+// module below registers through this same server object.
+const registerToolRaw = server.registerTool.bind(server);
+server.registerTool = (name, spec, handler) =>
+  registerToolRaw(name, spec, async (...args) => {
+    try {
+      return await handler(...args);
+    } catch (e) {
+      if (e?.code !== "42501") throw e;
+      return {
+        isError: true,
+        content: [{ type: "text", text: `${e.message}. This connection's database login may not make that change — it is Joe's to do in the app or from his own Ask window. Stage it for him instead (stage_decision, request_owner_permission or ask_owner).` }],
+      };
+    }
+  });
 
 server.registerTool(
   "business_snapshot",

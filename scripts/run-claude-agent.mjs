@@ -967,7 +967,13 @@ async function main() {
   // killed by the CLI's default, even if he answers hours later.
   // A08a MCP identity: the sjcos server reads SJC_PRINCIPAL_USER_ID (stdio)
   // and derives the role from the users row itself — never from env.
+  // Database login for the MCP servers (deploy/db-roles.md): the owner login
+  // only for Joe's own operator run (PROFILE is "operator" only when the run's
+  // principal is the active owner — see main()), so the Ask window can still
+  // read anything and change anything he asks. Staff turns and business /
+  // autonomous runs get the narrow sjcos_agent login.
   const tags = {
+    SJC_DB_LOGIN: PROFILE === "operator" ? "owner" : "agent",
     SJC_RUN_ID: RUN_ID,
     ...(conversation_id ? { SJC_CONVERSATION_ID: conversation_id } : {}),
     SJC_AGENT: "claude",

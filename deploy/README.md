@@ -384,7 +384,9 @@ Install any timer the same way as the existing ones:
 `INTUIT_CLIENT_ID` / `INTUIT_CLIENT_SECRET` / `QBO_REALM_ID` / `QBO_REFRESH_TOKEN` / `QBO_ENV` (sandbox|production) (unset = fake QBO
 adapter, dry-run), `BACKUP_PASSPHRASE` + one of `BACKUP_DIR` / `BACKUP_RCLONE_REMOTE`
 / `BACKUP_SSH_TARGET`, optional `SJC_AGENT_MODEL` / `SJC_AGENT_RUNTIME` for the
-business worker, optional `DATABASE_URL_AGENT` once `deploy/db-roles.sql` is applied.
+business worker, optional `DATABASE_URL_AGENT` / `DATABASE_URL_WORKER` /
+`DATABASE_URL_READONLY` / `DATABASE_URL_BACKUP` once the narrow logins are applied
+(`deploy/db-roles.md`; each falls back to `DATABASE_URL`).
 
 **Rollback:** code rollback (`~/sjcos-backups/next-rollback` + restart) and
 `pause lane all` on `/engine/decisions`; migrations are additive and stay.

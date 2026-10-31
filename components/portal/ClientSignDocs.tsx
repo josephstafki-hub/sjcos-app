@@ -14,7 +14,7 @@ const usd = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency
 /** Client-portal "Documents to sign" section. Pending requests expand into a
  *  review-and-sign panel (read the document, consent, type name → Sign), with a
  *  decline path. Signed/declined items show as history. */
-export function ClientSignDocs({ docs, reviews = {}, preview = false }: { preview?: boolean; docs: SignatureRequestView[]; reviews?: Record<number, PortalSignatureReview> }) {
+export function ClientSignDocs({ docs, reviews = {}, preview = false, onSigned }: { onSigned?: (id: number) => void; preview?: boolean; docs: SignatureRequestView[]; reviews?: Record<number, PortalSignatureReview> }) {
   const pending = docs.filter((d) => d.status === "sent");
   const history = docs.filter((d) => d.status !== "sent");
 
@@ -25,7 +25,7 @@ export function ClientSignDocs({ docs, reviews = {}, preview = false }: { previe
   return (
     <div className="mt-2 flex flex-col gap-2">
       {pending.map((d) => (
-        <SignCard key={d.id} doc={d} review={reviews[d.id]} preview={preview} />
+        <SignCard key={d.id} doc={d} review={reviews[d.id]} preview={preview} onSigned={onSigned} />
       ))}
       {history.map((d) => (
         <div key={d.id} className="flex flex-wrap items-center gap-3 border-b border-rule-soft py-3 text-body">
@@ -42,7 +42,7 @@ export function ClientSignDocs({ docs, reviews = {}, preview = false }: { previe
   );
 }
 
-function SignCard({ doc, review, preview }: { doc: SignatureRequestView; review?: PortalSignatureReview; preview: boolean }) {
+function SignCard({ doc, review, preview, onSigned }: { onSigned?: (id: number) => void; doc: SignatureRequestView; review?: PortalSignatureReview; preview: boolean }) {
   const [open, setOpen] = useState(false);
   const [declining, setDeclining] = useState(false);
   const [name, setName] = useState(doc.signerName ?? "");
@@ -79,7 +79,8 @@ function SignCard({ doc, review, preview }: { doc: SignatureRequestView; review?
     startTransition(async () => {
       const res = await runAction(() => signSignatureRequest(doc.id, fd));
       if (!res.ok) setError(res.error);
-      // success → revalidatePath refreshes the server component
+      else onSigned?.(doc.id);
+      // revalidatePath refreshes the server component with the signed record
     });
   }
 

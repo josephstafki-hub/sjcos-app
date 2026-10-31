@@ -13,3 +13,16 @@ test('prices and credits have clear labels',()=>{
 test('bundled pricing discloses unconfirmed effect before choosing',()=>{
  assert.equal(selectionPriceLabel(0,'Quoted with kitchen cabinets'),'Priced with other work — effect on total unconfirmed; confirm with Joe');
 });
+
+const { selectionNeedsPriceConfirmation, selectionMessageHref } = await import('../lib/portal-selection-price.ts');
+test('unknown and bundled prices offer an option-specific message draft', () => {
+ assert.equal(selectionNeedsPriceConfirmation(0, ''), true);
+ assert.equal(selectionNeedsPriceConfirmation(0, 'Quoted with kitchen cabinets'), true);
+ assert.equal(selectionNeedsPriceConfirmation(0, 'Included in contract'), false);
+ assert.equal(selectionNeedsPriceConfirmation(600, ''), false);
+ assert.equal(selectionNeedsPriceConfirmation(-50, ''), false);
+ const option = 'Cambria vanity & top #2?';
+ const url = new URL(selectionMessageHref(option), 'https://example.com');
+ assert.equal(url.pathname, '/client-portal/messages');
+ assert.equal(url.searchParams.get('draft'), `Hi Joe, please confirm the price and effect on my project total for ${option}.`);
+});

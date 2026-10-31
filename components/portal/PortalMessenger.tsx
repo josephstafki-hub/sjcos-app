@@ -11,12 +11,14 @@ import type { PortalMessage } from "@/lib/portal-messages";
  *  server-side from identity, so `surface` is only a routing hint. */
 export function PortalMessenger({
   surface,
+  initialDraft = "",
   disabled = false,
   thread,
   placeholder = "Message Joe…",
   listMaxHClass = "max-h-[220px]",
 }: {
   surface: "client" | "sub";
+  initialDraft?: string;
   disabled?: boolean;
   thread: PortalMessage[];
   placeholder?: string;
@@ -74,6 +76,7 @@ export function PortalMessenger({
         <textarea
           disabled={disabled}
           name="body"
+          defaultValue={initialDraft}
           required
           rows={2}
           placeholder={placeholder}

@@ -48,3 +48,21 @@ export function portalInvoiceSummary<T extends { status: string; lifecycle: stri
     stillToBillCents: currentCents == null ? null : Math.max(0, currentCents - outsidePaidCents - issued.reduce((sum, i) => sum + i.amount, 0)),
   };
 }
+
+
+/** Payment routes belong to Money, including nested payment details. */
+export function portalSectionPath(pathname: string): string {
+  return pathname.startsWith("/client-portal/pay/") ? "/client-portal/money" : pathname;
+}
+
+export function signatureSections<T extends { id: number; status: string }>(docs: T[], justSignedId: number | null) {
+  return {
+    pending: docs.filter(d => d.status === "sent"),
+    justSigned: docs.find(d => d.id === justSignedId && d.status === "signed"),
+    history: docs.filter(d => d.status !== "sent" && !(d.id === justSignedId && d.status === "signed")),
+  };
+}
+
+export function scheduleEmptyMonth(hasPastWork: boolean, monthLabel: string): string {
+  return hasPastWork ? `No upcoming work left in ${monthLabel}.` : `No work scheduled in ${monthLabel}.`;
+}

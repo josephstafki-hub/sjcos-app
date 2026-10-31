@@ -17,8 +17,9 @@ export default async function PortalSelectionsPage() {
         Your decisions, room by room.
       </h1>
       <p className="mt-1.5 text-body leading-relaxed text-ink-2">
-        Pick one option for each decision — the price against your allowance is shown up
-        front, and the running budget updates as you choose.
+        Pick one option for each decision. Posted prices are compared with your allowance.
+        When a price is unconfirmed, Choose records your preference for Joe to price;
+        the running total uses the allowance as a placeholder until a price is posted.
       </p>
       <div className="my-5 border-t border-rule" />
       <ClientSelections view={view} />

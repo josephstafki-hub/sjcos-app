@@ -1,6 +1,6 @@
 import { requireRole } from "@/lib/dal";
 import { ChevronDown, FileText, Image as ImageIcon } from "lucide-react";
-import { Button, Card, Chip, Eyebrow } from "@/components/ui";
+import { Card, Chip, Eyebrow } from "@/components/ui";
 import type { ChipKind } from "@/components/ui";
 import { portalScope, getSharedDocs, getSharedFiles } from "@/lib/client-portal";
 import { getClientSignatures, getLeadClientSignatures } from "@/lib/esign";
@@ -8,7 +8,7 @@ import { getProjectEstimates, type EstimateDetail } from "@/lib/estimates";
 import { getProjectChangeOrders } from "@/lib/change-orders";
 import { getPortalSignatureReviews } from "@/lib/portal-signature-review";
 import { usd } from "@/lib/money";
-import { ClientSignDocs } from "@/components/portal/ClientSignDocs";
+import { ClientDocumentSignatures } from "@/components/portal/ClientDocumentSignatures";
 
 // Client-portal documents: one place for everything that needs (or carries) a
 // signature — contracts, estimates, change orders, and any other doc Joe
@@ -38,7 +38,6 @@ export default async function PortalDocumentsPage() {
   // Clients never see internal drafts.
   const clientEstimates = estimates.filter((e) => e.status !== "draft");
   const clientCOs = changeOrders.filter((c) => c.status !== "draft");
-  const signedContracts = signDocs.filter(d => d.docType === "contract" && d.status === "signed");
   const signedFileIds = new Set(signDocs.filter(d => d.status === "signed" && reviews[d.id]?.hasSignedCopy).map(d => d.fileId));
   const toSign = signDocs.filter((d) => d.status === "sent").length;
 
@@ -55,23 +54,7 @@ export default async function PortalDocumentsPage() {
         type your name, and the project record updates on Joe&apos;s side instantly.
       </p>
 
-      {signedContracts.map(doc => <Card key={doc.id} className="mt-5 p-4">
-        <h2 className="font-serif text-heading font-semibold">Contract signed</h2>
-        <p className="mt-2 text-body text-ink-2">{doc.title} · Signed {doc.signedAtLabel ?? "— date not recorded"}{doc.signedName ? ` by ${doc.signedName}` : ""}.</p>
-        {reviews[doc.id]?.hasSignedCopy ? <div className="mt-3 flex flex-wrap gap-3">
-          <Button href={`/api/portal/sign-doc/${doc.id}`} target="_blank" rel="noopener">View signed copy</Button>
-          <Button variant="secondary" href={`/api/portal/sign-doc/${doc.id}?download=1`} download>Download signed copy</Button>
-        </div> : <p className="mt-3 text-body text-ink-3">Your signature is recorded. The signed PDF is not available yet. <a href="/client-portal/messages" className="underline">Ask Joe for a copy.</a></p>}
-      </Card>)}
-      <div className="my-5 border-t border-rule" />
-      <div id="documents" className="scroll-mt-4">
-        <Eyebrow muted>To sign</Eyebrow>
-        {toSign ? <ClientSignDocs preview={user.role === "owner"} reviews={reviews} docs={signDocs.filter((d) => d.status === "sent")} /> : <p className="mt-2 text-body text-ink-2">No documents waiting on your signature. New requests from Joe will appear here.</p>}
-      </div>
-      <div className="mt-6 border-t border-rule-soft pt-4">
-        <Eyebrow muted>History</Eyebrow>
-        {signDocs.some((d) => d.status !== "sent") ? <ClientSignDocs preview={user.role === "owner"} reviews={reviews} docs={signDocs.filter((d) => d.status !== "sent")} /> : <p className="mt-2 text-body text-ink-2">Signed and declined documents will appear here for reference.</p>}
-      </div>
+      <ClientDocumentSignatures preview={user.role === "owner"} reviews={reviews} docs={signDocs} />
 
       {sharedDocs.length > 0 && (
         <>

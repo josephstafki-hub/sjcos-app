@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Card, Eyebrow } from "@/components/ui";
-import { schedulePresentation } from "@/lib/portal-presentation";
+import { scheduleEmptyMonth, schedulePresentation } from "@/lib/portal-presentation";
 import { getPortalProjectUpdate } from "@/lib/client-portal";
 import { portalSlug } from "@/lib/client-portal";
 import { getProjectScheduleBlocks, type ProjectScheduleBlock } from "@/lib/schedule";
@@ -66,7 +66,7 @@ export default async function PortalSchedulePage({
       </p>
       <div className="my-5 border-t border-rule" />
 
-      {nextEvent && <Card className="mb-4 p-3"><p className="text-meta text-ink-3">Next posted work · {nextEvent.dateLabel} · {nextEvent.time}</p><p className="mt-1 text-subheading font-semibold text-ink">{nextEvent.label}</p><Link href={`/client-portal/schedule?m=${nextEvent.iso.slice(0, 7)}#month-agenda`} className="mt-2 inline-flex min-h-11 items-center text-body font-semibold text-accent-2 underline">Jump to this event’s month</Link></Card>}
+      {nextEvent && <Card className="mb-4 p-3"><p className="text-meta text-ink-3">Next posted work · {new Date(`${nextEvent.iso}T12:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" })} · {nextEvent.dateLabel} · {nextEvent.time}</p><p className="mt-1 text-subheading font-semibold text-ink">{nextEvent.label}</p><Link href={`/client-portal/schedule?m=${nextEvent.iso.slice(0, 7)}#month-agenda`} className="mt-2 inline-flex min-h-11 items-center text-body font-semibold text-accent-2 underline">Jump to this event’s month</Link></Card>}
 
       {!nextEvent && <Card className="mb-4 p-4"><h2 className="font-serif text-heading font-semibold">No upcoming work posted yet</h2><p className="mt-2 text-body text-ink-3">Joe will post dates here once work is scheduled.</p><Link href="/client-portal/messages" className="mt-2 inline-flex min-h-11 items-center text-body font-semibold text-accent-2 underline">Message Joe</Link></Card>}
       {update?.body && <details className="mb-4 text-body text-ink-2"><summary className="cursor-pointer font-semibold">Dates mentioned in Joe’s update</summary><p className="mt-2">Expected — not yet scheduled unless also posted in the schedule below.</p><p className="mt-2 whitespace-pre-wrap">{update.body}</p></details>}
@@ -162,7 +162,7 @@ export default async function PortalSchedulePage({
             </div>
           </div>
 
-          {upcoming.length === 0 && <p className="mt-4 text-body text-ink-3">No work scheduled in {monthLabel}. {nextEvent ? "The next posted event is shown above." : "Message Joe to ask about upcoming dates."}</p>}
+          {upcoming.length === 0 && <p className="mt-4 text-body text-ink-3">{scheduleEmptyMonth(view.past.some(b => b.iso.startsWith(view.month)), monthLabel)} {nextEvent ? "The next posted event is shown above." : "Message Joe to ask about upcoming dates."}</p>}
           {/* Upcoming agenda for the chosen month; past work lives in History. */}
           {upcoming.length > 0 && (
             <>

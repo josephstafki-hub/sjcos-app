@@ -60,3 +60,25 @@ test('a schedule with only past work keeps History separate and has no next post
  assert.equal(result.month, '2026-10');
  assert.deepEqual(schedulePresentation([], '2026-10-30').upcoming, []);
 });
+
+const { portalSectionPath, signatureSections, scheduleEmptyMonth } = await import('../lib/portal-presentation.ts');
+test('pending signatures lead; only the just-signed receipt is promoted on this visit', () => {
+ const old = {id: 1, status: 'signed'}, pending = {id: 2, status: 'sent'}, fresh = {id: 3, status: 'signed'};
+ const docs = [old, fresh, pending];
+ assert.deepEqual(signatureSections(docs, null), {pending: [pending], justSigned: undefined, history: [old, fresh]});
+ assert.deepEqual(signatureSections(docs, 3), {pending: [pending], justSigned: fresh, history: [old]});
+ assert.equal(signatureSections(docs, 2).justSigned, undefined, 'a pending record cannot claim signing success');
+ assert.deepEqual(signatureSections(docs, null).history, [old, fresh], 'later visits return receipts to history');
+});
+test('month empty state distinguishes past work from an empty month', () => {
+ assert.equal(scheduleEmptyMonth(true, 'October 2026'), 'No upcoming work left in October 2026.');
+ assert.equal(scheduleEmptyMonth(false, 'November 2026'), 'No work scheduled in November 2026.');
+ const next = schedulePresentation([{iso:'2026-10-01',label:'Past work'}, {iso:'2026-12-03',label:'Cabinets'}], '2026-10-30');
+ assert.equal(next.month, '2026-12');
+ assert.equal(next.upcoming[0].label, 'Cabinets');
+});
+test('payment details select Money while other portal sections keep their path', () => {
+ assert.equal(portalSectionPath('/client-portal/pay/29'), '/client-portal/money');
+ assert.equal(portalSectionPath('/client-portal/pay/29/details'), '/client-portal/money');
+ for (const path of ['/client-portal', '/client-portal/money', '/client-portal/plans/4']) assert.equal(portalSectionPath(path), path);
+});

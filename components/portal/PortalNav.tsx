@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
+import { portalSectionPath } from "@/lib/portal-presentation";
 import { Tabs } from "@/components/ui";
 
 export interface PortalNavItem { href: string; label: string; badge?: number }
@@ -27,8 +28,9 @@ export function PortalNav({ items }: { items: PortalNavItem[] }) {
     observer.observe(scroller);
     return () => { cancelAnimationFrame(frame); observer.disconnect(); };
   }, [pathname]);
+  const sectionPath = portalSectionPath(pathname);
   const active = items.findIndex((item) => item.href === "/client-portal"
-    ? pathname === item.href : pathname === item.href || pathname.startsWith(item.href + "/"));
+    ? sectionPath === item.href : sectionPath === item.href || sectionPath.startsWith(item.href + "/"));
   return <div ref={nav} className="flex-none bg-card px-1 sm:px-5">
     <Tabs tabs={items.map((i) => i.label)} routes={items.map((i) => i.href)}
       counts={items.map((i) => i.badge ? i.badge : null)} active={Math.max(0, active)}

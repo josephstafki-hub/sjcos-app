@@ -10,3 +10,12 @@ export function selectionPriceLabel(price: number, note: string): string {
   if (/\b(?:quoted|priced)\s+(?:with|in|as part of|elsewhere)\b/i.test(note)) return "Priced with other work — effect on total unconfirmed; confirm with Joe";
   return missing;
 }
+
+
+export function selectionNeedsPriceConfirmation(price: number, note: string): boolean {
+  return price === 0 && selectionPriceLabel(price, note) !== "Included";
+}
+
+export function selectionMessageHref(option: string): string {
+  return `/client-portal/messages?draft=${encodeURIComponent(`Hi Joe, please confirm the price and effect on my project total for ${option}.`)}`;
+}

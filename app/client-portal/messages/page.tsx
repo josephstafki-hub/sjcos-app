@@ -9,7 +9,8 @@ import { PortalMessenger } from "@/components/portal/PortalMessenger";
 // portal:lead:<slug> during the lead stage — the thread is renamed onto the
 // project on conversion); Joe sees it in the project's / the lead's
 // Client portal tab and gets a notification on every send.
-export default async function PortalMessagesPage() {
+export default async function PortalMessagesPage({ searchParams }: { searchParams: Promise<{ draft?: string }> }) {
+  const { draft } = await searchParams;
   const user = await requireRole("owner", "client");
   const scope = await portalScope();
   const channelSlug = scope ? (scope.kind === "lead" ? `lead:${scope.slug}` : scope.slug) : null;
@@ -30,8 +31,10 @@ export default async function PortalMessagesPage() {
       {thread.length === 0 && <div className="mb-4 rounded-lg border border-rule-soft bg-card p-4"><h2 className="text-subheading font-semibold text-ink">Your conversation starts here</h2><p className="mt-1 text-body text-ink-2">Sent messages and Joe’s replies appear in this conversation. Joe also sees them on your project’s Client portal tab.</p></div>}
       {user.role === "owner" && <p className="mb-3 text-body text-ink-3">Preview only. Reply from the project’s Client portal tab.</p>}
       <PortalMessenger
+        key={draft ?? ""}
         disabled={!scope || user.role === "owner"}
         surface="client"
+        initialDraft={draft ?? ""}
         thread={thread}
         placeholder="Message Joe about the project…"
         listMaxHClass="h-[min(48dvh,28rem)]"

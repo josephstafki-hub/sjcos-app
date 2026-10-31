@@ -6,6 +6,7 @@
 // opens a real reader pane. The AI draft-reply card routes through lib/ai.ts —
 // never a provider directly.
 
+import { isAutomatedSender, needsMeReason, resolveReplyTarget, type ReplyTarget } from "./inbox-rules";
 import type { SystemViewKey, ThreadChannel, ThreadStatus } from "./types";
 import { ai } from "./ai";
 import { query } from "./db";
@@ -21,9 +22,8 @@ import { askHermes } from "./dev-agents";
 import type { DraftModel } from "./dev-agents-meta";
 import {
   gmailOAuthAppConfigured,
-  fetchThreads,
+  fetchConversation,
   fetchThreadPage,
-  fetchLabels,
   fetchLabelCounts,
   type RawGmailThread,
   type GmailCategory,
@@ -40,7 +40,7 @@ export const SMART_VIEWS: {
   /** Status-dot color (Chip/Avatar kind). */
   dot: "flag" | "ghost";
 }[] = [
-  { key: "needs_reply", label: "Needs reply", dot: "flag" },
+  { key: "needs_reply", label: "Needs me", dot: "flag" },
   { key: "awaiting_them", label: "Awaiting them", dot: "ghost" },
   { key: "snoozed", label: "Snoozed", dot: "ghost" },
   // "Done", not "Done today": Gmail exposes no archive timestamp, so a literal
@@ -83,6 +83,8 @@ export interface InboxThread {
   urgent?: boolean;
   /** Claude's one-word read, surfaced as an "AI: …" chip. */
   aiVerdict?: string;
+  needsMeReason?: string;
+  automated?: boolean;
   /** Marks a thread tied to an active job (accent "Active job" chip). */
   activeJob?: boolean;
   /** Gmail STARRED — drives pin/star UI and the starred treatment. */
@@ -205,6 +207,13 @@ const THREADS: InboxThread[] = [
 // ─── Reader pane ─────────────────────────────────────────────────────────────
 
 export interface ReaderMessage {
+  id?: string;
+  fromEmail?: string;
+  cc?: string[];
+  date?: number;
+  outbound?: boolean;
+  attachments?: import("./gmail").ConversationMessage["attachments"];
+
   fromName: string;
   initials: string;
   /** "maria@chen.example · 9:14am" */
@@ -226,10 +235,12 @@ export interface ThreadReader {
    *  `body` is the generated reply (from ai.draft) shown on "Review draft". */
   aiDraft: { summary: string; body: string };
   replyPlaceholder: string;
-  /** Non-email channels are read-only in the inbox (replies happen on the
-   *  channel's own surface / are approval-gated). These point at that surface. */
+  /** Secondary link to the channel's existing project, lead or sub page. */
   actionHref?: string;
   actionLabel?: string;
+  replyTarget?: ReplyTarget | null;
+  automated?: boolean;
+  replyLabel?: string;
 }
 
 /** Curated reader content keyed by thread id. Threads not listed get a generic
@@ -273,8 +284,8 @@ export function channelLabel(channel: ThreadChannel): string {
 
 export interface InboxData {
   /** Smart views with live counts; the active one drives the list header. */
-  smartViews: { key: ThreadStatus; label: string; dot: "flag" | "ghost"; count: number; active: boolean }[];
-  channels: { key: ThreadChannel; label: string; count: number }[];
+  smartViews: { key: ThreadStatus; label: string; dot: "flag" | "ghost"; count: number | null; active: boolean }[];
+  channels: { key: ThreadChannel; label: string; count: number | null }[];
   projects: { slug?: string; label: string; count: number; emphasis?: "accent" | "flag" }[];
   /** All user Gmail labels with true thread totals (count = null when the
    *  per-label count fetch failed → the rail hides that badge). */
@@ -291,9 +302,10 @@ export interface InboxData {
   linkOptions?: { projects: { slug: string; name: string }[]; leads: { slug: string; name: string }[] };
   /** Whose mailbox this payload is, and whether one is connected at all. */
   mailbox: MailboxState;
-  /** Gmail is connected but this load failed (rate limit, outage). The lists
-   *  are empty on purpose; the page says why. */
+  /** A failed Gmail load. Email retains its last good snapshot, when available. */
   loadError?: string;
+  emailPaused?: boolean;
+  lastSyncedAt?: number;
 }
 
 /** What the Email rail needs to say about the connected account. `connected:
@@ -380,8 +392,7 @@ async function buildReader(t: InboxThread): Promise<ThreadReader> {
  *  than the one account that used to live in the environment.
  *
  *  Three outcomes, in order:
- *    • mailbox linked → live Gmail (degrading to the mock on a Gmail failure,
- *      same as before, so /inbox still renders when Google is having a day).
+ *    • mailbox linked → Gmail, keeping the last good snapshot on failure.
  *    • signed in, nothing linked → the blank state: no email threads, a Connect
  *      button. Never the demo mock, and never another person's mail.
  *    • no session at all (a build-time prerender) → the demo mock, unchanged. */
@@ -390,7 +401,7 @@ export async function getInboxData(viewer?: MailboxViewer): Promise<InboxData> {
   if (!who) return buildFromMock(unconnectedMailbox());
   const mb = activeMailbox() ?? (await mailboxFor(who));
   return runWithMailbox(mb, async () => {
-    if (!mb.refreshToken) return buildEmptyMailbox(mb);
+    if (!mb.refreshToken) return buildFromGmail(mailboxState(mb), [{threads:[]},[]]);
     try {
       return await buildFromGmail(mailboxState(mb));
     } catch (err) {
@@ -400,9 +411,15 @@ export async function getInboxData(viewer?: MailboxViewer): Promise<InboxData> {
       console.error(`[inbox:gmail] could not load — ${message}`);
       // Texts, portal messages and website forms don't come from Gmail: keep
       // showing them; only the email half is missing.
-      const base = await buildFromGmail(mailboxState(mb), [{ threads: [], nextPageToken: undefined }, []]).catch(() => buildEmptyMailbox(mb));
+      const snapshot = gmailSnapshots.get(mailboxCacheKey());
+      const base = await buildFromGmail(mailboxState(mb), snapshot?.data ?? [{ threads: [], nextPageToken: undefined }, []]).catch(() => buildEmptyMailbox(mb));
       return {
         ...base,
+        emailPaused: true,
+        lastSyncedAt: snapshot?.at,
+        channels: base.channels.map(c => c.key === 'email' ? {...c,count:null} : c),
+        smartViews: base.smartViews.map(v => ({...v,count:null})),
+        labels: base.labels.map(l => ({...l,count:null})),
         loadError: /rate limit|quota/i.test(message)
           ? "Gmail is answering too many requests right now. Try again in a minute."
           : "Gmail didn't answer, so your email can't be shown right now. Try again in a minute.",
@@ -433,7 +450,7 @@ function buildEmptyMailbox(mb: Mailbox): InboxData {
     channels: CHANNELS.map((c) => ({ ...c, count: 0 })),
     projects: [],
     labels: [],
-    activeView: { key: "needs_reply", label: "Needs reply" },
+    activeView: { key: "needs_reply", label: "Needs me" },
     threads: [],
     readers: {},
     selectedId: "",
@@ -480,8 +497,7 @@ function displayName(raw: string): string {
  *  forums categories and no-reply senders. Kept out of "Needs reply" so promos
  *  (Home Depot etc.) don't get flagged as waiting on Joe. */
 function isBulk(r: RawGmailThread): boolean {
-  if (r.category === "promotions" || r.category === "social" || r.category === "forums") return true;
-  return /\b(no-?reply|do-?not-?reply)\b|^(noreply|donotreply)/i.test(r.fromEmail);
+  return isAutomatedSender(r.fromEmail, r.category);
 }
 
 function viewOf(r: RawGmailThread): ThreadStatus {
@@ -511,7 +527,7 @@ function rawToThread(r: RawGmailThread, labelMap: Map<string, string>): InboxThr
     view,
     tag: "Email",
     emphasis: needsReply ? "flag" : r.starred ? "accent" : "ghost",
-    aiVerdict: needsReply ? "needs your reply" : undefined,
+    automated: isBulk(r),
     starred: r.starred,
     unread: r.unread,
     labelNames: labelNames.length ? labelNames : undefined,
@@ -526,26 +542,41 @@ function rawToThread(r: RawGmailThread, labelMap: Map<string, string>): InboxThr
 // generated on demand when a thread is opened — see draftReplyForThread() and
 // lib/actions/inbox.ts. The reader still renders the real message immediately.
 function rawToReader(r: RawGmailThread): ThreadReader {
+  const messages: ReaderMessage[] = r.messages?.map(m => ({
+    id: m.id,
+    fromName: m.fromName,
+    fromEmail: m.fromEmail,
+    initials: initialsOf(m.fromName),
+    meta: relativeWhen(m.date),
+    to: m.to.join(", "),
+    cc: m.cc,
+    date: m.date,
+    body: m.body.length ? m.body : [m.snippet],
+    outbound: m.outbound,
+    attachments: m.attachments,
+  })) ?? [{
+    id: r.id,
+    fromName: r.fromName,
+    fromEmail: r.fromEmail,
+    initials: initialsOf(r.fromName),
+    meta: relativeWhen(r.date),
+    to: r.toLine,
+    date: r.date,
+    body: r.bodyParas.length ? r.bodyParas : [r.snippet],
+    outbound: r.outbound,
+  }];
+  const incoming = r.messages && [...r.messages].reverse().find(m => !m.outbound);
   return {
     tag: "Email",
     channel: "email",
     channelLabel: channelLabel("email"),
-    messageCount: 1,
+    messageCount: messages.length,
     subject: r.subject,
-    messages: [
-      {
-        fromName: r.fromName,
-        initials: initialsOf(r.fromName),
-        meta: `${r.fromEmail} · ${relativeWhen(r.date)}`,
-        to: r.toLine ? `to ${r.toLine}` : "to Joe",
-        body: r.bodyParas.length ? r.bodyParas : [r.snippet],
-      },
-    ],
-    aiDraft: {
-      summary: "",
-      body: "",
-    },
+    messages,
+    aiDraft: { summary: "", body: "" },
     replyPlaceholder: `Reply to ${r.fromName.split(" ")[0]}…`,
+    replyTarget: r.messages ? resolveReplyTarget(r.messages, r.ownAddresses ?? []) : null,
+    automated: isBulk(r) || Boolean(incoming && isAutomatedSender(incoming.fromEmail, r.category)),
   };
 }
 
@@ -632,8 +663,11 @@ export async function draftReplyForThread(
   threadId: string,
   model: DraftModel = "hermes",
 ): Promise<{ summary: string; body: string; toEmail: string; subject: string }> {
-  const raw = (await fetchThreads(50)).find((t) => t.id === threadId);
-  if (!raw) return { summary: "", body: "", toEmail: "", subject: "" };
+  const conversation = await fetchConversation(threadId);
+  const target = resolveReplyTarget(conversation.messages, conversation.ownAddresses);
+  const message = [...conversation.messages].reverse().find(m => !m.outbound);
+  if (!message || !target || isAutomatedSender(message.fromEmail,conversation.category)) throw new Error('No reply is needed for this message.');
+  const raw = {id:threadId,fromName:message.fromName,fromEmail:message.fromEmail,subject:conversation.subject,bodyParas:message.body,snippet:message.snippet} as RawGmailThread;
 
   const { knowledge, matchLabel } = await gatherReplyContext(raw);
   const excerpt = `${raw.fromName} <${raw.fromEmail}>: ${raw.subject}\n\n${raw.bodyParas.join("\n\n") || raw.snippet}`;
@@ -672,7 +706,7 @@ export async function draftReplyForThread(
   return {
     summary: `Drafted with ${who}${grounding} Review before sending.`,
     body,
-    toEmail: raw.fromEmail,
+    toEmail: target.toEmail,
     subject: raw.subject,
   };
 }
@@ -725,6 +759,8 @@ interface ManualLink {
   label: string;
 }
 interface ContactMaps {
+  staffEmails: Set<string>;
+  leadEmails: Set<string>;
   byEmail: Map<string, Audience>;
   subDomains: Set<string>;
   projectByEmail: Map<string, { slug: string; label: string }>;
@@ -733,7 +769,7 @@ interface ContactMaps {
 
 /** Load the contact index from Postgres once per inbox build. */
 async function loadContactMaps(): Promise<ContactMaps> {
-  const [contacts, links, threadLinks] = await Promise.all([
+  const [contacts, links, threadLinks, staff] = await Promise.all([
     query<ContactRow>(
       `SELECT lower(email) AS email, name, slug, 'client' AS kind
          FROM leads WHERE email IS NOT NULL AND email <> ''
@@ -754,6 +790,7 @@ async function loadContactMaps(): Promise<ContactMaps> {
          LEFT JOIN projects p ON tl.link_type = 'project' AND p.slug = tl.link_slug
          LEFT JOIN leads    l ON tl.link_type = 'lead'    AND l.slug = tl.link_slug`,
     ),
+    query<{email:string}>(`SELECT lower(email) AS email FROM users WHERE role IN ('owner','staff')`),
   ]);
 
   const byEmail = new Map<string, Audience>();
@@ -784,7 +821,7 @@ async function loadContactMaps(): Promise<ContactMaps> {
     });
   }
 
-  return { byEmail, subDomains, projectByEmail, linkByThread };
+  return { byEmail, subDomains, projectByEmail, linkByThread, staffEmails:new Set(staff.rows.map(r => r.email)), leadEmails:new Set(contacts.rows.filter(c=>c.kind === "client").map(c=>c.email)) };
 }
 
 /** Classify one thread's counterparty into an audience + optional project. A
@@ -840,6 +877,18 @@ function mapRawThreads(
   const threads = raw.map((r) => rawToThread(r, labelMap));
   raw.forEach((r, i) => {
     const c = classifyThread(r, contactMaps);
+    const staff = contactMaps.staffEmails.has(r.fromEmail.toLowerCase());
+    if (staff && threads[i].view === 'needs_reply') threads[i].view = 'awaiting_them';
+    threads[i].needsMeReason = needsMeReason({
+      channel: "email",
+      inbound: !r.outbound,
+      staff,
+      automated: isBulk(r),
+      done: threads[i].view === "done" || threads[i].view === "snoozed",
+      audience: c.audience,
+      isLead: c.linkedType === "lead" || (contactMaps.leadEmails.has(r.fromEmail.toLowerCase()) && !c.projectSlug),
+      age: relativeWhen(r.date),
+    });
     threads[i].audience = c.audience;
     threads[i].projectSlug = c.projectSlug;
     threads[i].projectLabel = c.projectLabel;
@@ -861,19 +910,10 @@ export async function loadMoreInbox(pageToken: string): Promise<{
   threads: InboxThread[];
   readers: Record<string, ThreadReader>;
   nextPageToken?: string;
+  emailPaused?: boolean;
+  lastSyncedAt?: number;
 }> {
-  const [page, labels, contactMaps] = await Promise.all([
-    fetchThreadPage(INBOX_PAGE, pageToken),
-    fetchLabels(),
-    loadContactMaps(),
-  ]);
-  const labelMap = new Map(labels.map((l) => [l.id, l.name]));
-  const { threads, readerEntries } = mapRawThreads(page.threads, labelMap, contactMaps);
-  return {
-    threads,
-    readers: Object.fromEntries(readerEntries),
-    nextPageToken: page.nextPageToken,
-  };
+  return loadEmailPage("inbox", pageToken);
 }
 
 /** Fetch a page of threads scoped to a single Gmail label (server-side), for
@@ -887,19 +927,10 @@ export async function loadLabelInbox(
   threads: InboxThread[];
   readers: Record<string, ThreadReader>;
   nextPageToken?: string;
+  emailPaused?: boolean;
+  lastSyncedAt?: number;
 }> {
-  const [page, labels, contactMaps] = await Promise.all([
-    fetchThreadPage(INBOX_PAGE, pageToken, labelId),
-    fetchLabels(),
-    loadContactMaps(),
-  ]);
-  const labelMap = new Map(labels.map((l) => [l.id, l.name]));
-  const { threads, readerEntries } = mapRawThreads(page.threads, labelMap, contactMaps);
-  return {
-    threads,
-    readers: Object.fromEntries(readerEntries),
-    nextPageToken: page.nextPageToken,
-  };
+  return loadEmailPage(`label:${labelId}`, pageToken, labelId);
 }
 
 // Standard Gmail mailbox views (P1-C4): Unread / Starred / Sent scope by a
@@ -923,22 +954,12 @@ export async function loadSystemView(
   threads: InboxThread[];
   readers: Record<string, ThreadReader>;
   nextPageToken?: string;
+  emailPaused?: boolean;
+  lastSyncedAt?: number;
 }> {
   const def = SYSTEM_VIEW_FETCH[key];
-  const [page, labels, contactMaps] = await Promise.all([
-    // Spam/Trash pass their own q; label-scoped views keep the default (which
-    // excludes spam/trash), so "Unread" means unread mail you can actually see.
-    fetchThreadPage(INBOX_PAGE, pageToken, def.labelId, def.q ?? "-in:spam -in:trash"),
-    fetchLabels(),
-    loadContactMaps(),
-  ]);
-  const labelMap = new Map(labels.map((l) => [l.id, l.name]));
-  const { threads, readerEntries } = mapRawThreads(page.threads, labelMap, contactMaps);
-  return {
-    threads,
-    readers: Object.fromEntries(readerEntries),
-    nextPageToken: page.nextPageToken,
-  };
+  if (!def) throw new Error('Unknown view.');
+  return loadEmailPage(`system:${key}`, pageToken, def.labelId, def.q);
 }
 
 /** Records the owner can manually link a thread to (P6-3). */
@@ -953,9 +974,8 @@ async function getLinkOptions(): Promise<InboxData["linkOptions"]> {
 // ─── Non-email channel folding (SMS / portals / website forms) ───────────────
 // The unified inbox is Gmail-centric, so the "Channels" rail only ever showed
 // Email. These loaders fold each channel's REAL conversations (from Postgres)
-// into the same thread list so clicking a channel surfaces its threads and the
-// rail counts are truthful. Read/display only — replies happen on each
-// channel's own surface (the reader links out); nothing is sent from here.
+// into the same thread list. Replies adapt to the channel's existing actions;
+// no provider sends or writes are added to these readers.
 
 interface ChannelBuild {
   threads: InboxThread[];
@@ -964,14 +984,15 @@ interface ChannelBuild {
 
 type ChatAuthor = "owner" | "ai" | "user";
 
-/** A folded, read-only reader (no AI draft — those are Gmail-only and slow). */
-function readOnlyReader(opts: {
+/** A channel reader; no AI call is made while loading conversations. */
+function channelReader(opts: {
   tag: string;
   channel: ThreadChannel;
   subject: string;
   messages: ReaderMessage[];
   actionHref?: string;
   actionLabel?: string;
+  replyLabel?: string;
 }): ThreadReader {
   return {
     tag: opts.tag,
@@ -984,6 +1005,7 @@ function readOnlyReader(opts: {
     replyPlaceholder: "",
     actionHref: opts.actionHref,
     actionLabel: opts.actionLabel,
+    replyLabel:opts.replyLabel,
   };
 }
 
@@ -1029,13 +1051,14 @@ async function loadSmsThreads(): Promise<ChannelBuild> {
 
   const ids = rows.map((r) => r.id);
   const { rows: msgs } = await query<{
+    id: string;
     thread_id: string;
     direction: "in" | "out";
     body: string;
     created_at: string;
   }>(
-    `SELECT thread_id::text AS thread_id, direction, body, created_at
-       FROM sms_messages WHERE thread_id = ANY($1::bigint[]) ORDER BY created_at, id`,
+    `SELECT id::text AS id, thread_id::text AS thread_id, direction, body, created_at
+       FROM sms_messages WHERE thread_id = ANY($1::bigint[]) ORDER BY created_at, sms_messages.id`,
     [ids],
   );
   const byThread = new Map<string, typeof msgs>();
@@ -1050,9 +1073,9 @@ async function loadSmsThreads(): Promise<ChannelBuild> {
   for (const r of rows) {
     const id = `sms:${r.id}`;
     const name = r.contact_name || formatPhone(r.phone);
-    // Their text is the last (or unread) → waiting on Joe; else awaiting them.
+    // Only their last inbound text needs Joe; unread outbound is not an ask.
     const view: ThreadStatus =
-      r.unread || r.last_dir === "in" ? "needs_reply" : "awaiting_them";
+      r.last_dir === "in" ? "needs_reply" : "awaiting_them";
     const audience: Audience | undefined =
       r.link_type === "sub"
         ? "sub"
@@ -1071,10 +1094,12 @@ async function loadSmsThreads(): Promise<ChannelBuild> {
       tag: "SMS",
       emphasis: view === "needs_reply" ? "flag" : "ghost",
       unread: r.unread,
+      needsMeReason: needsMeReason({channel:"sms",inbound:r.last_dir === "in",audience, isLead:r.link_type === "lead",age:r.last_message_at ? relativeWhen(Date.parse(r.last_message_at)) : undefined}),
       audience,
     });
     const conv = byThread.get(r.id) ?? [];
     const messages: ReaderMessage[] = conv.map((m) => ({
+      id:m.id,date:Date.parse(m.created_at),outbound:m.direction === "out",
       fromName: m.direction === "in" ? name : "Joe",
       initials: m.direction === "in" ? initialsOf(name) : "JS",
       meta: relativeWhen(Date.parse(m.created_at)),
@@ -1083,7 +1108,8 @@ async function loadSmsThreads(): Promise<ChannelBuild> {
     }));
     if (!messages.length) {
       messages.push({
-        fromName: name,
+        id:`sms:${r.id}:latest`,date:r.last_message_at ? Date.parse(r.last_message_at) : undefined,outbound:r.last_dir === 'out',
+        fromName: r.last_dir === 'out' ? 'Joe' : name,
         initials: initialsOf(name),
         meta: r.last_message_at ? relativeWhen(Date.parse(r.last_message_at)) : "",
         to: "to Joe",
@@ -1093,10 +1119,11 @@ async function loadSmsThreads(): Promise<ChannelBuild> {
     const href = smsLinkHref(r.link_type, r.link_slug);
     readerEntries.push([
       id,
-      readOnlyReader({
+      channelReader({
         tag: `SMS · ${name}`,
         channel: "sms",
         subject: `Text — ${name}`,
+        replyLabel:process.env.SMS_FROM_NUMBER ? `Text from the SJC number ${formatPhone(process.env.SMS_FROM_NUMBER)}` : "Text from the SJC number",
         messages,
         actionHref: href,
         actionLabel: href ? "Open linked record" : undefined,
@@ -1117,15 +1144,19 @@ async function loadPortalThreads(): Promise<ChannelBuild> {
     proj_name: string | null;
     client_name: string | null;
     sub_name: string | null;
+    last_is_staff: boolean;
   }>(
     `SELECT m.channel_key,
             max(m.created_at) AS last_at,
             (array_agg(m.author_kind ORDER BY m.created_at DESC, m.id DESC))[1] AS last_author,
             (array_agg(m.body        ORDER BY m.created_at DESC, m.id DESC))[1] AS last_body,
-            p.name AS proj_name, l.name AS client_name, s.name AS sub_name
+            p.name AS proj_name, COALESCE(l.name, lead.name) AS client_name, s.name AS sub_name,
+            (array_agg(u.role IN ('owner','staff') ORDER BY m.created_at DESC, m.id DESC))[1] AS last_is_staff
        FROM chat_messages m
        LEFT JOIN projects p ON m.channel_key LIKE 'portal:%' AND p.slug = split_part(m.channel_key, ':', 2)
        LEFT JOIN leads    l ON p.lead_id = l.id
+       LEFT JOIN leads lead ON m.channel_key LIKE 'portal:lead:%' AND lead.slug = split_part(m.channel_key, ':', 3)
+       LEFT JOIN users u ON u.id = m.author_user_id
        LEFT JOIN subs     s ON m.channel_key LIKE 'dm:%'     AND s.slug = split_part(m.channel_key, ':', 2)
       -- Only sub DMs (dm:<slug>) map to the sub portal. Team/client DMs (P1-D3,
       -- dm:team:% / dm:client:%) are chat-surface only — excluding them keeps a
@@ -1134,22 +1165,26 @@ async function loadPortalThreads(): Promise<ChannelBuild> {
          OR (m.channel_key LIKE 'dm:%'
              AND m.channel_key NOT LIKE 'dm:team:%'
              AND m.channel_key NOT LIKE 'dm:client:%')
-      GROUP BY m.channel_key, p.name, l.name, s.name
+      GROUP BY m.channel_key, p.name, l.name, lead.name, s.name
       ORDER BY max(m.created_at) DESC`,
   );
   if (!groups.length) return { threads: [], readerEntries: [] };
 
   const keys = groups.map((g) => g.channel_key);
   const { rows: msgs } = await query<{
+    id:string;
     channel_key: string;
     author_kind: ChatAuthor;
+    is_staff: boolean;
     author_name: string;
     author_initials: string;
     body: string;
     created_at: string;
   }>(
-    `SELECT channel_key, author_kind, author_name, author_initials, body, created_at
-       FROM chat_messages WHERE channel_key = ANY($1) ORDER BY created_at, id`,
+    `SELECT m.id::text AS id, m.channel_key, m.author_kind, m.author_name, m.author_initials, m.body, m.created_at,
+            COALESCE(u.role IN ('owner','staff'), false) AS is_staff
+       FROM chat_messages m LEFT JOIN users u ON u.id = m.author_user_id
+      WHERE m.channel_key = ANY($1) ORDER BY m.created_at, m.id`,
     [keys],
   );
   const byKey = new Map<string, typeof msgs>();
@@ -1164,10 +1199,11 @@ async function loadPortalThreads(): Promise<ChannelBuild> {
   for (const g of groups) {
     const isSub = g.channel_key.startsWith("dm:");
     const channel: ThreadChannel = isSub ? "sub_portal" : "client_portal";
-    const slug = g.channel_key.split(":")[1] ?? "";
+    const isLead = g.channel_key.startsWith("portal:lead:");
+    const slug = g.channel_key.split(":")[isLead ? 2 : 1] ?? "";
     const name = isSub ? g.sub_name || slug : g.client_name || g.proj_name || slug;
     // Counterparty (user) sent last → waiting on Joe; owner/ai last → awaiting.
-    const view: ThreadStatus = g.last_author === "user" ? "needs_reply" : "awaiting_them";
+    const view: ThreadStatus = g.last_author === "user" && !g.last_is_staff ? "needs_reply" : "awaiting_them";
     threads.push({
       id: g.channel_key,
       initials: initialsOf(name),
@@ -1181,12 +1217,14 @@ async function loadPortalThreads(): Promise<ChannelBuild> {
       view,
       tag: isSub ? "Sub portal" : "Client portal",
       emphasis: view === "needs_reply" ? "flag" : "ghost",
+      needsMeReason: needsMeReason({channel,inbound:view === "needs_reply",isLead,age:relativeWhen(Date.parse(g.last_at))}),
       audience: isSub ? "sub" : "client",
       projectSlug: !isSub && g.proj_name ? slug : undefined,
       projectLabel: !isSub && g.proj_name ? g.proj_name : undefined,
     });
     const conv = byKey.get(g.channel_key) ?? [];
     const messages: ReaderMessage[] = conv.map((m) => ({
+      id:m.id,date:Date.parse(m.created_at),outbound:m.author_kind !== "user" || m.is_staff,
       fromName: m.author_name,
       initials: m.author_initials || initialsOf(m.author_name),
       meta: relativeWhen(Date.parse(m.created_at)),
@@ -1195,13 +1233,14 @@ async function loadPortalThreads(): Promise<ChannelBuild> {
     }));
     readerEntries.push([
       g.channel_key,
-      readOnlyReader({
+      channelReader({
         tag: isSub ? `Sub portal · ${name}` : `Client portal · ${name}`,
         channel,
         subject: isSub ? `Sub portal — ${name}` : `Client portal — ${name}`,
         messages,
-        actionHref: isSub ? "/chat" : `/projects/${slug}`,
-        actionLabel: isSub ? "Open in Chat" : "Open project comms",
+        replyLabel: `Visible to ${name} in their portal`,
+        actionHref: isSub ? `/subs/${slug}` : isLead ? `/leads/${slug}` : `/projects/${slug}`,
+        actionLabel: isSub ? "Open sub" : isLead ? "Open lead" : "Open project",
       }),
     ]);
   }
@@ -1217,9 +1256,10 @@ async function loadSiteFormThreads(): Promise<ChannelBuild> {
     stage: string;
     scope: string;
     scope_city: string | null;
+    email: string | null;
     created_at: string;
   }>(
-    `SELECT slug, name, stage, coalesce(scope,'') AS scope, scope_city, created_at
+    `SELECT slug, name, stage, coalesce(scope,'') AS scope, scope_city, email, created_at
        FROM leads
       WHERE source ILIKE '%website%' AND stage <> 'lost'
       ORDER BY created_at DESC`,
@@ -1260,7 +1300,7 @@ async function loadSiteFormThreads(): Promise<ChannelBuild> {
       tag: "Website lead",
       emphasis: view === "needs_reply" ? "flag" : "ghost",
       audience: "client",
-      aiVerdict: view === "needs_reply" ? "new lead — triage" : undefined,
+      needsMeReason: needsMeReason({channel:"site_form",inbound:true,done:view === "done"}),
     });
     const body: string[] = [];
     if (r.scope) body.push(r.scope);
@@ -1268,12 +1308,14 @@ async function loadSiteFormThreads(): Promise<ChannelBuild> {
     if (!body.length) body.push("New inquiry submitted through the website form.");
     readerEntries.push([
       id,
-      readOnlyReader({
+      channelReader({
         tag: r.scope_city ? `Website lead · ${r.scope_city}` : "Website lead",
         channel: "site_form",
         subject,
+        replyLabel:r.email ? `Reply by email to ${r.email}` : "No email address supplied — open the lead to contact them.",
         messages: [
           {
+            id,fromEmail:r.email ?? undefined,date:Date.parse(r.created_at),outbound:false,
             fromName: r.name,
             initials: initialsOf(r.name),
             meta: relativeWhen(Date.parse(r.created_at)),
@@ -1321,20 +1363,70 @@ async function loadChannelThreads(): Promise<ChannelBuild> {
 // counts) is kept for a short while per mailbox; texts, portal messages, forms
 // and job links stay live. Any inbox action clears it (invalidateInboxCache).
 const GMAIL_TTL_MS = 30_000;
-const gmailCache = new Map<string, { at: number; data: Promise<[Awaited<ReturnType<typeof fetchThreadPage>>, Awaited<ReturnType<typeof fetchLabelCounts>>]> }>();
+type GmailLoad = [Awaited<ReturnType<typeof fetchThreadPage>>, Awaited<ReturnType<typeof fetchLabelCounts>>];
+type GmailCache = Map<string, { at: number; data: Promise<GmailLoad> }>;
+type GmailSnapshots = Map<string, { at: number; data: GmailLoad }>;
+const gmailCache: GmailCache = new Map();
+const gmailSnapshots: GmailSnapshots = new Map();
+const viewCache: GmailCache = new Map();
+const viewSnapshots: GmailSnapshots = new Map();
+
+function mailboxCacheKey() {
+  const mb = activeMailbox();
+  return JSON.stringify([mb?.email, mb?.refreshToken]);
+}
 
 export function invalidateInboxCache(): void {
   gmailCache.clear();
+  viewCache.clear();
 }
 
-function cachedGmail(key: string) {
-  const hit = gmailCache.get(key);
+function cachedLoad(cache: GmailCache, snapshots: GmailSnapshots, key: string, load: () => Promise<GmailLoad>) {
+  const hit = cache.get(key);
   if (hit && Date.now() - hit.at < GMAIL_TTL_MS) return hit.data;
-  const data = Promise.all([fetchThreadPage(INBOX_PAGE), fetchLabelCounts()]);
-  gmailCache.set(key, { at: Date.now(), data });
-  // A failed load is not kept: the next render tries Gmail again.
-  data.catch(() => { if (gmailCache.get(key)?.data === data) gmailCache.delete(key); });
+  const data = load().then(result => {
+    // An invalidated request may finish after its replacement; never roll back.
+    if (cache.get(key)?.data === data) snapshots.set(key, { at: Date.now(), data: result });
+    while (snapshots.size > 100) snapshots.delete(snapshots.keys().next().value!);
+    return result;
+  });
+  cache.set(key, { at: Date.now(), data });
+  data.catch(() => { if (cache.get(key)?.data === data) cache.delete(key); });
+  // Bound retained payloads on this shared server.
+  while (cache.size > 100) cache.delete(cache.keys().next().value!);
   return data;
+}
+
+function cachedGmail() {
+  return cachedLoad(gmailCache, gmailSnapshots, mailboxCacheKey(), () =>
+    Promise.all([fetchThreadPage(INBOX_PAGE), fetchLabelCounts()]),
+  );
+}
+
+async function loadEmailPage(view: string, pageToken?: string, labelId?: string, q?: string) {
+  const key = JSON.stringify([mailboxCacheKey(), view, pageToken]);
+  let payload: GmailLoad;
+  let emailPaused = false;
+  try {
+    payload = await cachedLoad(viewCache, viewSnapshots, key, () =>
+      Promise.all([fetchThreadPage(INBOX_PAGE, pageToken, labelId, q), fetchLabelCounts()]),
+    );
+  } catch (err) {
+    const last = viewSnapshots.get(key);
+    if (!last) throw err;
+    payload = last.data;
+    emailPaused = true;
+  }
+  const [page, labels] = payload;
+  const maps = await loadContactMaps();
+  const { threads, readerEntries } = mapRawThreads(page.threads, new Map(labels.map(l => [l.id, l.name])), maps);
+  return {
+    threads,
+    readers: Object.fromEntries(readerEntries),
+    nextPageToken: page.nextPageToken,
+    emailPaused,
+    lastSyncedAt: viewSnapshots.get(key)?.at,
+  };
 }
 
 async function buildFromGmail(
@@ -1343,7 +1435,7 @@ async function buildFromGmail(
   gmail?: [Awaited<ReturnType<typeof fetchThreadPage>>, Awaited<ReturnType<typeof fetchLabelCounts>>],
 ): Promise<InboxData> {
   const [[page, labels], contactMaps, linkOptions, folded] = await Promise.all([
-    gmail ?? cachedGmail(mailbox.email ?? "default"),
+    gmail ?? cachedGmail(),
     loadContactMaps(),
     getLinkOptions(),
     loadChannelThreads(),
@@ -1404,13 +1496,14 @@ async function buildFromGmail(
     channels: CHANNELS.map((c) => ({ ...c, count: channelCounts[c.key] })),
     projects: projectsRail,
     labels: labelRail,
-    activeView: { key: "needs_reply", label: "Needs reply" },
+    activeView: { key: "needs_reply", label: "Needs me" },
     threads,
     readers: Object.fromEntries(readerEntries),
     selectedId: firstInDefault?.id ?? "",
     nextPageToken: page.nextPageToken,
     linkOptions,
     mailbox,
+    lastSyncedAt:gmailSnapshots.get(mailboxCacheKey())?.at,
   };
 }
 
@@ -1443,7 +1536,7 @@ async function buildFromMock(mailbox: MailboxState): Promise<InboxData> {
       { label: "Chen lead", count: 1, emphasis: "flag" },
     ],
     labels: [],
-    activeView: { key: "needs_reply", label: "Needs reply" },
+    activeView: { key: "needs_reply", label: "Needs me" },
     threads: THREADS,
     readers: Object.fromEntries(readerEntries),
     selectedId: THREADS[0].id,

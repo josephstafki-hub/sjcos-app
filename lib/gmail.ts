@@ -21,6 +21,7 @@ import { google } from "googleapis";
 import type { gmail_v1 } from "googleapis";
 import sanitizeHtml from "sanitize-html";
 import { activeMailbox } from "./mailbox";
+import { splitAddresses, resolveReplyTarget, validRecipient, isAutomatedSender } from "./inbox-rules";
 
 export const GMAIL_SCOPES = [
   // modify = read + label/state changes (star, archive, mark read, important,
@@ -119,6 +120,29 @@ export async function exchangeCodeForMailbox(
 
 /** Neutral, presentation-free view of a Gmail thread. lib/inbox.ts maps this
  *  onto the InboxThread / ThreadReader shapes the UI consumes. */
+export interface ConversationMessage {
+  id: string;
+  fromName: string;
+  fromEmail: string;
+  to: string[];
+  cc: string[];
+  date: number;
+  body: string[];
+  snippet: string;
+  outbound: boolean;
+  replyTo: string;
+  messageId: string;
+  references: string;
+  attachments: { id: string; name: string; size: number; type: string }[];
+}
+export interface EmailConversation {
+  id: string;
+  subject: string;
+  messages: ConversationMessage[];
+  ownAddresses: string[];
+  category: GmailCategory;
+}
+
 export interface RawGmailThread {
   id: string;
   fromName: string;
@@ -143,6 +167,8 @@ export interface RawGmailThread {
   labelIds: string[];
   /** Plain-text body paragraphs of the latest message. */
   bodyParas: string[];
+  messages?: ConversationMessage[];
+  ownAddresses?: string[];
 }
 
 export type GmailCategory =
@@ -333,8 +359,7 @@ function extractBody(payload: gmail_v1.Schema$MessagePart | undefined): string[]
     .replace(/\n{3,}/g, "\n\n")
     .split(/\n{2,}/)
     .map((p) => p.trim())
-    .filter(Boolean)
-    .slice(0, 14);
+    .filter(Boolean);
 }
 
 /** Reject parts that aren't real prose — both true binary (control/replacement
@@ -353,7 +378,8 @@ function looksLikeText(s: string): boolean {
   if (control / sample.length >= 0.05) return false;
 
   const tokens = sample.split(/\s+/).filter(Boolean);
-  if (tokens.length < 3) return false;
+  // A one-word acknowledgement is still a complete message.
+  if (tokens.length < 3) return sample.length < 160 && !/^[A-Za-z0-9+/=]{40,}$/.test(sample);
   const wordlike = tokens.filter((t) =>
     /^[a-zA-Z][a-zA-Z.,!?'"-]*$/.test(t),
   ).length;
@@ -452,28 +478,84 @@ function sanitizeEmailHtml(html: string): string {
 /** Full sanitized HTML body of a thread's latest message, with cid: inline
  *  images resolved to data URIs. Returns "" when there's no HTML part. Resolved
  *  lazily (on thread open) so the inbox list fetch stays cheap. */
+// Short-lived payload + HTML caches, scoped to the actual mailbox credential.
+// List loads already have full payloads: seed them instead of refetching on open.
+const conversationCache = new Map<string, { at: number; data: Promise<gmail_v1.Schema$Thread> }>();
+const messageHtmlCache = new Map<string, { at: number; data: Promise<string> }>();
+function trimDetailCaches() {
+  for (const cache of [conversationCache, messageHtmlCache]) {
+    for (const [key, entry] of cache) if (Date.now()-entry.at >= 30_000) cache.delete(key);
+    while (cache.size >= 200) cache.delete(cache.keys().next().value!);
+  }
+}
+function detailKey(id: string): string { return JSON.stringify([activeRefreshToken(), id]); }
+function seedConversation(id: string, data: gmail_v1.Schema$Thread) {
+  trimDetailCaches();
+  conversationCache.set(detailKey(id), { at: Date.now(), data: Promise.resolve(data) });
+}
+function cachedThread(id: string): Promise<gmail_v1.Schema$Thread> {
+  const key = detailKey(id);
+  const hit = conversationCache.get(key);
+  if (hit && Date.now() - hit.at < 30_000) return hit.data;
+  trimDetailCaches();
+  const data = withGmailRetry("threads.get", () => gmail().users.threads.get({ userId: "me", id, format: "full" })).then(r => r.data);
+  conversationCache.set(key, { at: Date.now(), data });
+  data.catch(() => { if (conversationCache.get(key)?.data === data) conversationCache.delete(key); });
+  return data;
+}
+function conversationOf(id: string, data: gmail_v1.Schema$Thread, me: string): EmailConversation {
+  const sorted = [...(data.messages ?? [])].sort((a,b) => Number(a.internalDate ?? 0) - Number(b.internalDate ?? 0));
+  const ownAddresses = [...new Set([me, activeMailbox()?.email ?? '', ...sorted.filter(m => m.labelIds?.includes('SENT')).map(m => parseFrom(header(m,'From')).email)].filter(Boolean).map(s => s.toLowerCase()))];
+  const messages = sorted.map((m): ConversationMessage => {
+    const from = parseFrom(header(m,'From'));
+    return {
+      id: m.id ?? '', fromName: from.name, fromEmail: from.email,
+      to: splitAddresses(header(m,'To')), cc: splitAddresses(header(m,'Cc')),
+      date: Number(m.internalDate ?? 0), body: extractBody(m.payload), snippet: m.snippet ?? '',
+      outbound: Boolean(m.labelIds?.includes('SENT')) || ownAddresses.includes(from.email.toLowerCase()),
+      replyTo: header(m,'Reply-To'), messageId: header(m,'Message-ID'), references: header(m,'References'),
+      attachments: collectFileParts(m.payload).map(p => ({id:p.body?.attachmentId ?? p.partId ?? '', name:p.filename ?? '',size:p.body?.size ?? 0,type:p.mimeType ?? 'application/octet-stream'})),
+    };
+  });
+  return { id, subject: header(sorted.at(-1),'Subject') || '(no subject)', messages, ownAddresses, category:deriveCategory(sorted.flatMap(m=>m.labelIds ?? [])) };
+}
+export async function fetchConversation(threadId: string): Promise<EmailConversation> {
+  const [data, me] = await Promise.all([cachedThread(threadId), fetchProfileEmail()]);
+  return conversationOf(threadId, data, me);
+}
 export async function fetchThreadHtml(threadId: string): Promise<string> {
+  const data = await cachedThread(threadId);
+  const message = [...(data.messages ?? [])].sort((a,b) => Number(a.internalDate ?? 0) - Number(b.internalDate ?? 0)).at(-1);
+  return message?.id ? fetchMessageHtml(threadId, message.id) : '';
+}
+export async function fetchMessageHtml(threadId: string, messageId: string): Promise<string> {
+  const key = detailKey(threadId) + ':' + messageId;
+  const hit = messageHtmlCache.get(key);
+  if (hit && Date.now() - hit.at < 30_000) return hit.data;
+  trimDetailCaches();
+  const data = renderMessageHtml(threadId, messageId);
+  messageHtmlCache.set(key, {at:Date.now(),data});
+  data.catch(() => { if (messageHtmlCache.get(key)?.data === data) messageHtmlCache.delete(key); });
+  return data;
+}
+async function renderMessageHtml(threadId: string, messageId: string): Promise<string> {
   const api = gmail();
-  const { data } = await withGmailRetry("threads.get", () =>
-    api.users.threads.get({ userId: "me", id: threadId, format: "full" }),
-  );
-  const msgs = data.messages ?? [];
-  const latest = msgs[msgs.length - 1];
-  if (!latest?.payload) return "";
-
-  const htmlData = findPart(latest.payload, "text/html");
+  const data = await cachedThread(threadId);
+  const message = data.messages?.find(m => m.id === messageId);
+  if (!message?.payload) return '';
+  const htmlData = findPart(message.payload, "text/html");
   if (!htmlData) return "";
   let html = Buffer.from(htmlData, "base64url").toString("utf-8");
 
   // Inline cid: images (signature logos etc.) → data URIs so they render.
-  const inlines = collectInlineImages(latest.payload);
-  if (inlines.length && latest.id) {
+  const inlines = collectInlineImages(message.payload);
+  if (inlines.length && message.id) {
     await Promise.all(
       inlines.map(async (img) => {
         try {
           const att = await api.users.messages.attachments.get({
             userId: "me",
-            messageId: latest.id!,
+            messageId: message.id!,
             id: img.attachmentId,
           });
           const b64 = (att.data.data ?? "").replace(/-/g, "+").replace(/_/g, "/");
@@ -694,7 +776,9 @@ export async function fetchThreadPage(
           format: "full",
         }),
       );
-      const msgs = data.messages ?? [];
+      seedConversation(id, data);
+      const conversation = conversationOf(id, data, me);
+      const msgs = [...(data.messages ?? [])].sort((a,b) => Number(a.internalDate ?? 0)-Number(b.internalDate ?? 0));
       const latest = msgs[msgs.length - 1];
       // Union every label id across the thread so a single read/starred/snoozed
       // message colours the whole conversation (matches Gmail's own behaviour).
@@ -716,10 +800,12 @@ export async function fetchThreadPage(
         important: labelIds.includes("IMPORTANT"),
         inInbox: labelIds.includes("INBOX"),
         snoozed: labelIds.includes("SNOOZED"),
-        outbound: email.toLowerCase() === me,
+        outbound: conversation.messages.at(-1)?.outbound ?? email.toLowerCase() === me,
         category: deriveCategory(labelIds),
         labelIds,
         bodyParas: extractBody(latest?.payload),
+        messages: conversation.messages,
+        ownAddresses: conversation.ownAddresses,
       } satisfies RawGmailThread;
     }),
   );
@@ -888,38 +974,32 @@ function buildMime(
   return parts.join("\r\n");
 }
 
-/** buildMime, base64url-encoded for the JSON `raw` field. */
-function buildRaw(
-  to: string,
-  subject: string,
-  bodyText: string,
-  attachments?: MailAttachment[],
-  bodyHtml?: string,
-): string {
-  return Buffer.from(buildMime(to, subject, bodyText, attachments, bodyHtml)).toString("base64url");
-}
-
 /** Send a reply on an existing thread. Posts with the threadId so Gmail keeps
  *  it in the same conversation. */
 export async function sendReply(opts: {
   threadId: string;
-  toEmail: string;
-  subject: string;
+  toEmail?: string;
+  subject?: string;
   bodyText: string;
+  replyAll?: boolean;
 }): Promise<void> {
-  const subject = opts.subject.startsWith("Re:")
-    ? opts.subject
-    : `Re: ${opts.subject}`;
-  const api = gmail();
-  await withGmailRetry("messages.send", () =>
-    api.users.messages.send({
-      userId: "me",
-      requestBody: {
-        raw: buildRaw(opts.toEmail, subject, opts.bodyText),
-        threadId: opts.threadId,
-      },
-    }),
-  );
+  const conversation = await fetchConversation(opts.threadId);
+  const target = resolveReplyTarget(conversation.messages, conversation.ownAddresses);
+  const incoming = [...conversation.messages].reverse().find(m => !m.outbound);
+  if (!target || (incoming && isAutomatedSender(incoming.fromEmail, conversation.category))) throw new Error("Automated message — no reply needed.");
+  const to = opts.toEmail?.trim() || target.toEmail;
+  if (!validRecipient(to)) throw new Error("Enter a valid recipient email.");
+  const subject = /^re:/i.test(conversation.subject) ? conversation.subject : `Re: ${conversation.subject}`;
+  const extra = [
+    ...(opts.replyAll && target.cc.length ? [`Cc: ${target.cc.join(', ')}`] : []),
+    ...(target.inReplyTo ? [`In-Reply-To: ${target.inReplyTo}`] : []),
+    ...(target.references ? [`References: ${target.references}`] : []),
+  ];
+  const mime = [...extra, buildMime(to, subject, opts.bodyText)].join('\r\n');
+  await withGmailRetry("messages.send", () => gmail().users.messages.send({
+    userId: "me", requestBody: { raw: Buffer.from(mime).toString('base64url'), threadId: opts.threadId },
+  }));
+  conversationCache.delete(detailKey(opts.threadId));
 }
 
 /** Compose and send a brand-new email (not part of an existing thread). */

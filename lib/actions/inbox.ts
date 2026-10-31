@@ -11,6 +11,9 @@
 // thread archives it in their own account, and one with nothing linked gets
 // "Gmail is not connected" instead of a write against Joe's mailbox.
 
+import { sendSmsReply } from "@/lib/actions/sms";
+import { sendProjectMessage, sendLeadPortalMessage } from "@/lib/actions/portal";
+import { sendChatMessage } from "@/lib/actions/chat";
 import { revalidatePath } from "next/cache";
 import { requireAccess } from "@/lib/dal";
 import {
@@ -20,6 +23,7 @@ import {
   modifyThread,
   trashThread,
   fetchThreadHtml,
+  fetchMessageHtml,
 } from "@/lib/gmail";
 import { draftReplyForThread, invalidateInboxCache, loadMoreInbox, loadLabelInbox, loadSystemView } from "@/lib/inbox";
 import type { InboxThread, ThreadReader } from "@/lib/inbox";
@@ -150,6 +154,8 @@ export async function loadMoreInboxAction(pageToken: string): Promise<{
   threads?: InboxThread[];
   readers?: Record<string, ThreadReader>;
   nextPageToken?: string;
+  emailPaused?: boolean;
+  lastSyncedAt?: number;
   error?: string;
 }> {
   return mailbox(async () => {
@@ -173,6 +179,8 @@ export async function loadLabelInboxAction(
   threads?: InboxThread[];
   readers?: Record<string, ThreadReader>;
   nextPageToken?: string;
+  emailPaused?: boolean;
+  lastSyncedAt?: number;
   error?: string;
 }> {
   return mailbox(async () => {
@@ -196,6 +204,8 @@ export async function loadSystemViewAction(
   threads?: InboxThread[];
   readers?: Record<string, ThreadReader>;
   nextPageToken?: string;
+  emailPaused?: boolean;
+  lastSyncedAt?: number;
   error?: string;
 }> {
   // The view arrives over the wire — reject anything that isn't a known key
@@ -218,11 +228,11 @@ export async function loadSystemViewAction(
 /** Rich sanitized HTML body for a thread's latest message (with images),
  *  fetched lazily when the reader opens. Empty string = no HTML / not connected;
  *  the reader keeps showing the plain-text paragraphs in that case. */
-export async function getThreadHtmlAction(threadId: string): Promise<{ html: string }> {
+export async function getThreadHtmlAction(threadId: string, messageId?: string): Promise<{ html: string }> {
   return mailbox(async () => {
     if (!gmailConfigured()) return { html: "" };
     try {
-      return { html: await fetchThreadHtml(threadId) };
+      return { html: messageId ? await fetchMessageHtml(threadId, messageId) : await fetchThreadHtml(threadId) };
     } catch {
       return { html: "" };
     }
@@ -281,9 +291,10 @@ export async function draftReplyAction(
 
 export async function sendReplyAction(input: {
   threadId: string;
-  toEmail: string;
-  subject: string;
+  toEmail?: string;
+  subject?: string;
   body: string;
+  replyAll?: boolean;
 }): Promise<{ ok: boolean; error?: string }> {
   if (!input.body.trim()) return { ok: false, error: "Reply body is empty." };
   return mailbox(async () => {
@@ -296,6 +307,7 @@ export async function sendReplyAction(input: {
         toEmail: input.toEmail,
         subject: input.subject,
         bodyText: input.body,
+        replyAll: input.replyAll,
       });
       invalidateInboxCache();
   revalidatePath("/inbox");
@@ -304,4 +316,59 @@ export async function sendReplyAction(input: {
       return { ok: false, error: (err as Error).message };
     }
   });
+}
+
+/** Each channel keeps its existing authorization, approval and send path. */
+export async function sendChannelReplyAction(input: {
+  threadId: string;
+  body: string;
+}): Promise<ActionResult> {
+  await requireAccess("inbox");
+  if (!input.body.trim()) return { ok: false, error: "Enter a message." };
+  const id = input.threadId;
+  try {
+    let result: ActionResult = { ok: true };
+    if (/^sms:[1-9]\d*$/.test(id)) {
+      const number = Number(id.slice(4));
+      if (!Number.isSafeInteger(number)) return { ok: false, error: "Conversation not found." };
+      result = await sendSmsReply(number, input.body);
+    } else if (/^portal:(?:lead:)?[^:]+$/.test(id)) {
+      const lead = id.startsWith("portal:lead:");
+      const slug = id.slice(lead ? 12 : 7);
+      const { rows } = await query(
+        lead ? "SELECT slug FROM leads WHERE slug = $1" : "SELECT slug FROM projects WHERE slug = $1",
+        [slug],
+      );
+      if (!rows.length) return { ok: false, error: "Conversation not found." };
+      const form = new FormData();
+      form.set("body", input.body);
+      if (lead) await sendLeadPortalMessage(slug, form);
+      else await sendProjectMessage(slug, form);
+    } else if (/^dm:(?!team$|client$)[^:]+$/.test(id)) {
+      const { rows } = await query("SELECT slug FROM subs WHERE slug = $1", [id.slice(3)]);
+      if (!rows.length) return { ok: false, error: "Conversation not found." };
+      result = await sendChatMessage(id, input.body);
+    } else if (/^siteform:[^:]+$/.test(id)) {
+      const { rows } = await query<{ email: string | null; name: string; scope: string }>(
+        `SELECT email, name, scope FROM leads WHERE slug = $1 AND source ILIKE '%website%'`,
+        [id.slice(9)],
+      );
+      const lead = rows[0];
+      if (!lead?.email) return { ok: false, error: "No email address supplied — open the lead to contact them." };
+      result = await sendNewEmailAction({
+        to: lead.email,
+        subject: `Re: Your inquiry — ${(lead.scope || lead.name).replace(/[\r\n]+/g, " ").slice(0, 100)}`,
+        body: input.body,
+      });
+    } else {
+      return { ok: false, error: "Conversation not found." };
+    }
+    if (result.ok) {
+      invalidateInboxCache();
+      revalidatePath("/inbox");
+    }
+    return result;
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
 }

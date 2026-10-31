@@ -42,6 +42,7 @@ export async function invoiceNotSent(run: Run, invoiceId: number, reason: string
 }
 
 const p = (intent: ActionIntent) => intent.payload as Record<string, unknown>;
+const PLATFORM_WORDS: Record<string, string> = { facebook: "Facebook", instagram: "Instagram", google_business: "Google Business Profile" };
 const s = (v: unknown) => (v == null ? "" : String(v));
 
 export const EFFECTS: Record<string, Effect> = {
@@ -125,6 +126,36 @@ export const EFFECTS: Record<string, Effect> = {
       await run(`UPDATE sms_messages SET status = 'failed', error_detail = $2, updated_at = now() WHERE id = $1 AND status = 'queued'`, [messageId, (r.error ?? "send failed").slice(0, 500)]);
     } else if (state === "unknown") {
       await run(`UPDATE sms_messages SET error_detail = $2, updated_at = now() WHERE id = $1 AND status = 'queued'`, [messageId, `outcome unknown — held for reconciliation: ${(r.error ?? "").slice(0, 300)}`]);
+    }
+  },
+
+  // An approved marketing post (lib/providers/publisher.ts): accepted = the
+  // posting agent has it; confirmed = it's up (with its link when the agent
+  // found one); failed = nothing went up, Joe can try again from /marketing.
+  async publication(run, intent, r, state) {
+    const id = Number(intent.target_id);
+    const pl = p(intent);
+    const where = PLATFORM_WORDS[s(pl.platform)] ?? s(pl.platform);
+    const job = s(pl.project_name);
+    if (state === "accepted") {
+      await run(`UPDATE marketing_drafts SET status = 'posting', post_error = NULL WHERE id = $1 AND status IN ('queued','failed')`, [id]);
+      return;
+    }
+    if (state === "confirmed") {
+      const url = r.providerState === "posted" && r.providerRef ? r.providerRef : null;
+      const rows = await run<{ id: number }>(
+        `UPDATE marketing_drafts SET status = 'posted', posted_url = COALESCE($2, posted_url), posted_at = now(), post_error = NULL WHERE id = $1 AND status <> 'posted' RETURNING id`,
+        [id, url],
+      );
+      if (!rows.length) return;
+      await notify(run, { kind: "job", tag: "Marketing", accent: "money", icon: "site", title: `Posted to ${where}${job ? ` · ${job}` : ""}`, subline: url ?? "Posted. The link wasn't found; add it on /marketing.", href: "/marketing" });
+      return;
+    }
+    if (FAILED.has(state)) {
+      const why = (r.error ?? "It didn't go up.").slice(0, 500);
+      const rows = await run<{ id: number }>(`UPDATE marketing_drafts SET status = 'failed', post_error = $2 WHERE id = $1 AND status IN ('queued','posting') RETURNING id`, [id, why]);
+      if (!rows.length) return;
+      await notify(run, { kind: "job", tag: "Marketing", accent: "flag", icon: "site", flagged: true, title: `Not posted to ${where}${job ? ` · ${job}` : ""}`, subline: why, href: "/marketing" });
     }
   },
 

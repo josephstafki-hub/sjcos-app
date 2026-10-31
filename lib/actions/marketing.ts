@@ -11,8 +11,10 @@ import { ai } from "@/lib/ai";
 import { emit } from "@/lib/notify";
 import { normalizeMarketingCopy } from "@/lib/marketing-copy";
 import { type DraftKind } from "@/lib/marketing-types";
-import { runDirect, userPrincipal } from "@/lib/commands/db";
-import { grantPublicationRights, withdrawPublicationRights } from "@/lib/closeout/marketing";
+import { runDirect, userPrincipal, withTransaction } from "@/lib/commands/db";
+import { getDraft, grantPublicationRights, noteDraftEdited, setDraftPost, stagePublication, withdrawPublicationRights } from "@/lib/closeout/marketing";
+import { isPostPlatform, postProblem, POST_PLATFORM_LABEL } from "@/lib/marketing-types";
+import { retryPost as retryPostNow, savePostingAccounts as saveAccounts, settlePost } from "@/lib/publisher/server";
 
 type Result = { ok: boolean; error?: string };
 
@@ -191,23 +193,55 @@ export async function autoDraftBlogOnCompletion(slug: string): Promise<void> {
   revalidatePath("/site"); // blog drafts also surface in the Website composer
 }
 
-/** Save readable copy and its headline together. */
+/** Save readable copy and its headline together. An approval card for the old
+ *  text is retired; refused while the post is going up. */
 export async function updateDraft(id: number, body: string, title?: string): Promise<Result> {
-  await requireAccess("marketing");
+  const user = await requireAccess("marketing");
   const clean = normalizeMarketingCopy(body);
   if (!clean.body) return {ok:false,error:"Enter the post as readable text before saving."};
   const headline = title?.trim() ?? clean.title;
   if (title !== undefined && !headline) return {ok:false,error:"Enter a headline before saving."};
-  await query(`UPDATE marketing_drafts SET body = $2, title = COALESCE($3, title) WHERE id = $1`, [id, clean.body, headline ?? null]);
+  try {
+    await withTransaction(async (run) => {
+      await noteDraftEdited(run, id, `${user.role}:${user.name}`);
+      await run(`UPDATE marketing_drafts SET body = $2, title = COALESCE($3, title) WHERE id = $1`, [id, clean.body, headline ?? null]);
+    });
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
   revalidatePath("/marketing");
   revalidatePath("/site"); // blog drafts also surface in the Website composer
   return { ok: true };
 }
 
-/** Mark a draft as posted (owner posts it manually elsewhere). */
-export async function markPosted(id: number): Promise<Result> {
-  await requireAccess("marketing");
-  await query(`UPDATE marketing_drafts SET status = 'posted' WHERE id = $1`, [id]);
+/** A link to a post on one of the sites Joe posts to, or null. */
+function postLink(raw: string | null | undefined): string | null | false {
+  const url = (raw ?? "").trim();
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" ? u.toString() : false;
+  } catch {
+    return false;
+  }
+}
+
+/** Mark a draft as posted (Joe posted it by hand, or checked that the agent's
+ *  post is up), optionally with the link to it. A send still waiting on an
+ *  answer is settled to match, never resent. */
+export async function markPosted(id: number, url?: string | null): Promise<Result> {
+  const user = await requireAccess("marketing");
+  const link = postLink(url);
+  if (link === false) return { ok: false, error: "That isn't a link (it should start with https://)." };
+  const d = await getDraft(runDirect, id);
+  if (!d) return { ok: false, error: "No such draft." };
+  if (d.publication_intent_id && (d.status === "queued" || d.status === "posting")) {
+    if (user.role !== "owner") return { ok: false, error: "Only Joe can say whether the agent's post went up." };
+    const r = await settlePost(userPrincipal(user), id, { posted: true, url: link });
+    if (!r.ok) return { ok: false, error: r.message };
+  } else {
+    await query(`UPDATE marketing_drafts SET status = 'posted', posted_url = COALESCE($2, posted_url), posted_at = COALESCE(posted_at, now()), post_error = NULL WHERE id = $1`, [id, link]);
+  }
   revalidatePath("/marketing");
   revalidatePath("/site"); // blog drafts also surface in the Website composer
   return { ok: true };
@@ -216,14 +250,82 @@ export async function markPosted(id: number): Promise<Result> {
 /** Undo a manual "posted" marker. No external post is changed. */
 export async function markDraft(id: number): Promise<Result> {
   await requireAccess("marketing");
-  await query(`UPDATE marketing_drafts SET status = 'draft' WHERE id = $1`, [id]);
+  await query(`UPDATE marketing_drafts SET status = 'draft' WHERE id = $1 AND status = 'posted'`, [id]);
   revalidatePath("/marketing"); revalidatePath("/site");
   return {ok:true};
 }
 
-/** Delete a draft. */
+/** Joe looked after an unsure run: it isn't up. The send is closed as not
+ *  posted, and Try again becomes available. Owner only. */
+export async function markNotPosted(id: number): Promise<Result> {
+  const user = await requireAccess("marketing");
+  if (user.role !== "owner") return { ok: false, error: "Only Joe can say whether the agent's post went up." };
+  const r = await settlePost(userPrincipal(user), id, { posted: false });
+  revalidatePath("/marketing");
+  return r.ok ? { ok: true } : { ok: false, error: r.message };
+}
+
+/** Where the post goes and which shareable photos go with it. Retires an
+ *  approval card for the old choice. */
+export async function setPostTarget(id: number, platform: string, photoIds: string[]): Promise<Result & { message?: string }> {
+  const user = await requireAccess("marketing");
+  if (platform && !isPostPlatform(platform)) return { ok: false, error: "Pick Facebook, Instagram or Google Business Profile." };
+  try {
+    const r = await withTransaction((run) => setDraftPost(run, id, { platform, photoIds: photoIds.slice(0, 20), actor: `${user.role}:${user.name}` }));
+    revalidatePath("/marketing");
+    return { ok: true, message: r.rejectedPhotoIds.length ? `${r.rejectedPhotoIds.length} photo(s) left out: not OK'd to share.` : undefined };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/** Ask Joe to approve this post for the posting agent: stages the
+ *  publish_marketing card (approve it here, on /engine/decisions or on
+ *  Telegram). Nothing is posted until it's approved. */
+export async function askToPost(id: number): Promise<Result & { message?: string }> {
+  const user = await requireAccess("marketing");
+  const d = await getDraft(runDirect, id);
+  if (!d) return { ok: false, error: "No such draft." };
+  if (d.kind !== "social") return { ok: false, error: "The posting agent posts social posts only." };
+  if (!isPostPlatform(d.audience)) return { ok: false, error: "Pick where it goes first." };
+  const problem = postProblem(d.audience, d.body, d.media.length);
+  if (problem) return { ok: false, error: problem };
+  try {
+    const r = await withTransaction((run) => stagePublication(run, userPrincipal(user), id));
+    revalidatePath("/marketing");
+    revalidatePath("/engine/decisions");
+    return { ok: true, message: r.created ? `Approval card ready: approve it to post to ${POST_PLATFORM_LABEL[d.audience]}.` : "It's already waiting for approval." };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/** Joe's Try again on a post that never went up (same approved post). */
+export async function retryPost(id: number): Promise<Result & { message?: string }> {
+  const user = await requireAccess("marketing");
+  if (user.role !== "owner") return { ok: false, error: "Only Joe can send a post again." };
+  const r = await retryPostNow(userPrincipal(user), id);
+  revalidatePath("/marketing");
+  return r.ok ? { ok: true, message: r.message } : { ok: false, error: r.message };
+}
+
+/** Joe's posting accounts: the Facebook page link, Instagram handle and
+ *  Google Business Profile name the agent posts as. Owner only. */
+export async function savePostingAccounts(input: { facebookPage: string; instagramHandle: string; googleBusinessName: string }): Promise<Result> {
+  const user = await requireAccess("marketing");
+  if (user.role !== "owner") return { ok: false, error: "Only Joe sets the posting accounts." };
+  const fb = input.facebookPage.trim();
+  if (fb && !/^https:\/\/(www\.|m\.)?facebook\.com\/\S+$/i.test(fb)) return { ok: false, error: "The Facebook page should be its link, like https://www.facebook.com/YourPage" };
+  await saveAccounts({ facebookPage: fb, instagramHandle: input.instagramHandle.trim().replace(/^@/, ""), googleBusinessName: input.googleBusinessName.trim() });
+  revalidatePath("/marketing");
+  return { ok: true };
+}
+
+/** Delete a draft (not while it's going up). */
 export async function deleteDraft(id: number): Promise<Result> {
   await requireAccess("marketing");
+  const d = await getDraft(runDirect, id);
+  if (d && (d.status === "queued" || d.status === "posting")) return { ok: false, error: "This post is going up right now; delete it after." };
   await query(`DELETE FROM marketing_drafts WHERE id = $1`, [id]);
   revalidatePath("/marketing");
   revalidatePath("/site"); // blog drafts also surface in the Website composer
@@ -245,6 +347,11 @@ export async function setPhotoShareable(projectSlug: string, fileId: string, sha
     await grantPublicationRights(runDirect, { fileIds: [fileId], projectId: proj.id, grantedBy: user.name || "Joe", grantedByUserId: user.id, note: "client OK'd sharing (marked on /marketing)" });
   } else {
     await withdrawPublicationRights(runDirect, userPrincipal(user), fileId, "taken back on /marketing");
+    // …and it comes off any post that hasn't gone out.
+    await query(
+      `DELETE FROM marketing_draft_media m USING marketing_drafts d WHERE m.draft_id = d.id AND m.file_id = $1 AND d.status IN ('draft','pending_decision','failed')`,
+      [fileId],
+    );
   }
   revalidatePath("/marketing");
   return { ok: true };

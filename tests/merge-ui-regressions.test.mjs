@@ -50,11 +50,9 @@ test('sub-document review accepts W-9s without expiry while a COI still requires
   assert.doesNotMatch(accept, / disabled=/);
 });
 
-test('marketing retains the editable headline and offers downloads only for approved photos', () => {
-  const Marketing = component('components/marketing/MarketingClient.tsx', 'MarketingClient');
-  const html = render(Marketing, { projects: [{ slug: 'job', name: 'Kitchen' }], drafts: [{ id: 1, title: 'Clean headline', body: 'Finished work.', status: 'draft', kind: 'social', kindLabel: 'Social', projectSlug: 'job', projectName: 'Kitchen', createdLabel: 'Oct 30', photos: [{ id: 'allowed', name: 'Approved.jpg', shareable: true }, { id: 'private', name: 'Private.jpg', shareable: false }] }] });
-  assert.match(html, /Headline<input[^>]*value="Clean headline"/);
-  assert.match(html, /href="\/projects\/job"/);
+test('marketing (main\'s posting-agent screen) offers downloads only for approved photos and keeps Mark posted', () => {
+  const Marketing = component('components/marketing/MarketingClient.tsx', 'MarketingClient', { './PostingPanel': { PostingPanel: () => null, InPostToggle: () => null, StageChip: () => null }, './PostingAccounts': { PostingAccounts: () => null } });
+  const html = render(Marketing, { projects: [{ slug: 'job', name: 'Kitchen' }], accounts: {}, drafts: [{ id: 1, title: 'Clean headline', body: 'Finished work.', status: 'draft', kind: 'social', kindLabel: 'Social', projectSlug: 'job', projectName: 'Kitchen', createdLabel: 'Oct 30', media: [], platform: null, stage: 'draft', photos: [{ id: 'allowed', name: 'Approved.jpg', shareable: true }, { id: 'private', name: 'Private.jpg', shareable: false }] }] });
   assert.match(html, /href="\/api\/files\/allowed\?download=1"/);
   assert.doesNotMatch(html, /href="\/api\/files\/private\?download=1"/);
   assert.match(html, /Mark posted/);

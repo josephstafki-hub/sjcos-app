@@ -383,8 +383,10 @@ by Joe/staff don't feed the weekly update (only sub logs do).
   - The server sends `instructions` on connect (sends need grants; never touch policies/pricing/money
     totals; the estimate and CO rules; email to-dos carry their message).
   - Panel runs record `instruction_versions` (migration 0055).
-- **Evals** ran once on `claude-opus-5`. Re-run them on the live models (Opus 5.5, Haiku 5.5) and add
-  V28 (message style) and V46 (loading parity).
+- ~~**Evals.**~~ **Done 2026-10-30 (branch `t3/evals-live-models`):** V28 + V46 added; runner now claims
+  each scenario's own trigger (the seed's signature trigger used to win). Opus 5.5 and Haiku 5.5 each 9/10;
+  both fail v41 on a harness limit (app-routed field tools hit the dead port; fixture has no contract).
+  Open: an eval mode with an app server on the harness DB (QA-sandbox shape) to cover app-routed tools.
 
 ## When you finish a slice
 

@@ -112,15 +112,20 @@ test('short replies and long email bodies are preserved in full', async () => {
   assert.equal((await gmail.fetchConversation('long')).messages[0].body.length,25);
 });
 
-test('full Gmail payload supplies bulk headers without another request and send guard uses them', async () => {
+test('full Gmail payload supplies bulk headers without another request; only no-reply addresses refuse a send', async () => {
   mailbox={...mailbox,refreshToken:'header-cases'};
   messages=[msg('10','Frank <frank.v@easternfinancialpartners.test>',{'List-Unsubscribe':'<mailto:leave@example.test>'})];
   const before=calls.get;
   const conversation=await gmail.fetchConversation('header-cases');
   assert.equal(conversation.messages[0].automated,true);
   assert.equal(calls.get,before+1);
+  // Filed under Other, but Joe chose "Reply anyway": a real address still sends.
   const sent=calls.sent.length;
-  await assert.rejects(()=>gmail.sendReply({threadId:'header-cases',bodyText:'Please do not send'}),/Automated message/);
-  assert.equal(calls.sent.length,sent);
-  assert.equal(calls.get,before+1,'guard reuses detail payload');
+  await gmail.sendReply({threadId:'header-cases',bodyText:'Not interested, thanks.'});
+  assert.equal(calls.sent.length,sent+1);
+  // A true no-reply address never gets a send.
+  mailbox={...mailbox,refreshToken:'noreply-case'};
+  messages=[msg('11','Bank <no-reply@bank.test>',{})];
+  await assert.rejects(()=>gmail.sendReply({threadId:'noreply-case',bodyText:'Please do not send'}),/doesn't accept replies/);
+  assert.equal(calls.sent.length,sent+1);
 });

@@ -127,3 +127,9 @@ test('Claude auto-drafts carry Joe\'s tone guide, sender-only/no-pricing rules a
   assert.match(p, /Never volunteer prices/);
   assert.match(p, /Joe\nSJ Carpentry LLC\n612-361-6585/);
 });
+
+test('an AI draft never opens with envelope lines — the composer shows To/Subject itself', async () => {
+  const { stripDraftHeaders } = await import('../lib/inbox-rules.ts');
+  assert.equal(stripDraftHeaders('To: teresa@example.test\nSubject: Re: Basement project details\n\nHi Teresa,\nThanks!'), 'Hi Teresa,\nThanks!');
+  assert.equal(stripDraftHeaders('Hi Teresa,\nSubject: the basement is great'), 'Hi Teresa,\nSubject: the basement is great');
+});

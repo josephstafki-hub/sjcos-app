@@ -8,7 +8,7 @@ import type { InboxLinkKind } from "./inbox-directory";
 // opens a real reader pane. The AI draft-reply card routes through lib/ai.ts —
 // never a provider directly.
 
-import { threadNeedsMe, rememberNeedsCount, stageLabel, substantiveSnippet, splitQuotedText, conversationDraftContext, automationDetails, screeningEligible, emailAddress, inquiryReplySubject, isAutomatedSender, isNoReplyAddress, needsMeReason, resolveReplyTarget, type ReplyTarget, type ReplyMessage } from "./inbox-rules";
+import { threadNeedsMe, rememberNeedsCount, stageLabel, substantiveSnippet, splitQuotedText, conversationDraftContext, automationDetails, screeningEligible, emailAddress, inquiryReplySubject, isAutomatedSender, isNoReplyAddress, needsMeReason, resolveReplyTarget, type ReplyTarget, type ReplyMessage, stripDraftHeaders } from "./inbox-rules";
 import type { SystemViewKey, ThreadChannel, ThreadStatus } from "./types";
 import { ai } from "./ai";
 import { query } from "./db";
@@ -748,7 +748,7 @@ export async function draftReplyForThread(
     // Per-thread session id so one client's facts never bleed into another's
     // draft if the gateway keeps conversational continuity per session.
     const answer = await askHermes(instruction, context, `inbox-draft-${threadId}`);
-    body = answer.replace(/^\s*subject:.*(\r?\n)+/i, "").trim();
+    body = stripDraftHeaders(answer);
     if (!body) throw new Error("Hermes returned an empty draft.");
   } else {
     const draft = await ai.draft({

@@ -233,3 +233,13 @@ export function automationDeadline(evidence:string, receivedAt?:number):string|u
 const loadedNeedsCounts=new Map<string,number>();
 export function rememberNeedsCount(mailbox:string,count:number) {loadedNeedsCounts.set(mailbox.toLowerCase(),count);}
 export function loadedNeedsCount(mailbox:string) {return loadedNeedsCounts.get(mailbox.toLowerCase()) ?? 0;}
+
+/** Models sometimes open a reply with envelope lines ("To: …", "Subject: …") because
+ *  staged approval drafts use that shape. The composer already shows the envelope, so a
+ *  reply body never starts with them. Leading header lines and blank lines are dropped. */
+export function stripDraftHeaders(text: string): string {
+  const lines = text.replace(/\r/g, "").split("\n");
+  let i = 0;
+  while (i < lines.length && (/^\s*$/.test(lines[i]) || /^\s*(?:to|cc|bcc|from|subject|re)\s*:/i.test(lines[i]))) i++;
+  return lines.slice(i).join("\n").trim();
+}

@@ -8,13 +8,13 @@ const stubs = {
   '@/lib/dal':`export const requireAccess = async area => { if (!globalThis.__replyAction.allowed) throw Error('Forbidden'); return {id:'owner',role:'owner'}; };`,
   '@/lib/db':`export const query = async (sql,p) => {globalThis.__replyAction.queries.push([sql,p]);return {rows:globalThis.__replyAction.row ? [globalThis.__replyAction.row] : []};};`,
   '@/lib/mailbox':`export const unlinkMailbox = async () => {}; export const withMailboxFor = async (u,fn) => fn();`,
-  '@/lib/gmail':`export const gmailConfigured = () => true; export const sendReply = async o => globalThis.__replyAction.calls.push(['email',o]); export const sendNewEmail = async o => globalThis.__replyAction.calls.push(['new',o]); export const modifyThread=async()=>{}; export const trashThread=async()=>{}; export const fetchThreadHtml=async()=>''; export const fetchMessageHtml=async(t,m)=>t+':'+m;`,
+  '@/lib/gmail':`export const gmailConfigured = () => true; export const sendReply = async o => globalThis.__replyAction.calls.push(['email',o]); export const sendNewEmail = async o => {globalThis.__replyAction.calls.push(['new',o]);if(globalThis.__replyAction.failSend)throw Error('offline');return {threadId:'sent-thread'};}; export const fetchConversation=async()=>({messages:[{id:'original',attachments:[{id:'plan',name:'plan.pdf',size:4,type:'application/pdf'}]}]}); export const fetchInboxAttachment=async()=>({name:'plan.pdf',type:'application/pdf',bytes:Buffer.from('plan')}); export const modifyThread=async()=>{}; export const trashThread=async()=>{}; export const fetchThreadHtml=async()=>''; export const fetchMessageHtml=async(t,m)=>t+':'+m;`,
   '@/lib/inbox':`export const draftReplyForThread=async()=>({}); export const invalidateInboxCache=()=>{}; export const loadMoreInbox=async()=>({}); export const loadLabelInbox=async()=>({}); export const loadSystemView=async()=>({});`,
   '@/lib/actions/sms':`export const sendSmsReply=async(...a)=>{globalThis.__replyAction.calls.push(['sms',...a]); return {ok:true};};`,
   '@/lib/actions/portal':`export const sendProjectMessage=async(s,f)=>globalThis.__replyAction.calls.push(['project',s,f.get('body')]); export const sendLeadPortalMessage=async(s,f)=>globalThis.__replyAction.calls.push(['lead',s,f.get('body')]);`,
   '@/lib/actions/chat':`export const sendChatMessage=async(...a)=>{globalThis.__replyAction.calls.push(['sub',...a]);return {ok:true};};`,
 };
-registerHooks({resolve(s,c,n){if(s in stubs)return {url:'stub:'+s,shortCircuit:true}; if(s==='@/lib/inbox-rules')return n(new URL('../lib/inbox-rules.ts',import.meta.url).href,c); if(s==='@/lib/types')return n(new URL('../lib/types.ts',import.meta.url).href,c); return n(s,c);},load(u,c,n){return u.startsWith('stub:')?{format:'module',source:stubs[u.slice(5)],shortCircuit:true}:n(u,c);}});
+registerHooks({resolve(s,c,n){if(s in stubs)return {url:'stub:'+s,shortCircuit:true}; if(s==='@/lib/inbox-files')return n(new URL('../lib/inbox-files.ts',import.meta.url).href,c); if(s==='@/lib/inbox-rules')return n(new URL('../lib/inbox-rules.ts',import.meta.url).href,c); if(s==='@/lib/types')return n(new URL('../lib/types.ts',import.meta.url).href,c); return n(s,c);},load(u,c,n){return u.startsWith('stub:')?{format:'module',source:stubs[u.slice(5)],shortCircuit:true}:n(u,c);}});
 const actions=await import('../lib/actions/inbox.ts');
 test('channel adapters call the SAME existing SMS, project, lead and sub actions',async()=>{
   calls.length=0;
@@ -56,4 +56,21 @@ test('directory links validate existing records and reuse thread_links for all f
  globalThis.__replyAction.row=null;const before=queries.length;assert.equal((await actions.linkThread('thread','sub','missing')).ok,false);assert.equal(queries.length,before+1);
  globalThis.__replyAction.allowed=false;await assert.rejects(()=>actions.linkThread('thread','sub','existing'),/Forbidden/);assert.equal(queries.length,before+1);
  globalThis.__replyAction.allowed=true;globalThis.__replyAction.row={slug:'existing'};
+});
+
+test('forward includes reviewed originals, uploads validate on the server, failed sends do not report success',async()=>{
+ calls.length=0;const form=new FormData();form.append('files',new File(['image'],'photo.png',{type:'image/png'}));
+ const input={to:'client@example.test',cc:'review@example.test',subject:'Forward',body:'Please review',files:form,forward:{threadId:'old',messageId:'original',attachmentIds:['plan']}};
+ assert.equal((await actions.sendNewEmailAction(input)).ok,true);assert.deepEqual(calls[0][1].attachments.map(a=>a.filename),['photo.png','plan.pdf']);
+ calls.length=0;assert.equal((await actions.sendNewEmailAction({...input,forward:{...input.forward,attachmentIds:[]}})).ok,true);assert.deepEqual(calls[0][1].attachments.map(a=>a.filename),['photo.png']);
+ globalThis.__replyAction.failSend=true;assert.equal((await actions.sendNewEmailAction(input)).ok,false);assert.equal(form.get('files').name,'photo.png');globalThis.__replyAction.failSend=false;
+ const bad=new FormData();bad.append('files',new File(['bad'],'run.exe'));calls.length=0;assert.equal((await actions.sendReplyAction({threadId:'t',body:'No',files:bad})).ok,false);assert.equal(calls.length,0);
+ const huge=new FormData();huge.append('files',new File([new Uint8Array(20*1024*1024+1)],'plan.pdf',{type:'application/pdf'}));assert.match((await actions.sendNewEmailAction({...input,files:huge})).error,/20 MB/);assert.equal(calls.length,0);
+});
+test('successful form sends link the returned Gmail id only after send; failed sends never write a link',async()=>{
+ globalThis.__replyAction.row={email:'teresa@example.test',name:'Teresa',scope:'Kitchen'};
+ const queries=globalThis.__replyAction.queries;queries.length=0;
+ const r=await actions.sendChannelReplyAction({threadId:'siteform:teresa',body:'Thanks'});assert.equal(r.threadId,'sent-thread');
+ assert.ok(queries.some(([sql,p])=>sql.includes('INSERT INTO thread_links')&&p[0]==='sent-thread'&&p[1]==='teresa'));
+ queries.length=0;globalThis.__replyAction.failSend=true;assert.equal((await actions.sendChannelReplyAction({threadId:'siteform:teresa',body:'No'})).ok,false);assert.equal(queries.some(([sql])=>sql.includes('INSERT INTO thread_links')),false);globalThis.__replyAction.failSend=false;
 });

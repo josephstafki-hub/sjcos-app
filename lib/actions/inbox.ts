@@ -11,6 +11,7 @@
 // thread archives it in their own account, and one with nothing linked gets
 // "Gmail is not connected" instead of a write against Joe's mailbox.
 
+import {validateMailFiles,mailFileType} from "@/lib/inbox-files";
 import type { InboxLinkKind } from "@/lib/inbox-directory";
 import { inquiryReplySubject } from "@/lib/inbox-rules";
 import { sendSmsReply } from "@/lib/actions/sms";
@@ -26,6 +27,8 @@ import {
   trashThread,
   fetchThreadHtml,
   fetchMessageHtml,
+  fetchConversation,
+  fetchInboxAttachment,
 } from "@/lib/gmail";
 import { draftReplyForThread, invalidateInboxCache, loadMoreInbox, loadLabelInbox, loadSystemView } from "@/lib/inbox";
 import type { InboxThread, ThreadReader } from "@/lib/inbox";
@@ -244,21 +247,64 @@ export async function getThreadHtmlAction(threadId: string, messageId?: string):
   });
 }
 
+/** Validate all metadata before reading bytes, including server-resolved originals. */
+async function outgoingAttachments(input:{files?:FormData;attachments?:import("@/lib/gmail").MailAttachment[];forward?:{threadId:string;messageId:string;attachmentIds:string[]}}) {
+  const uploads=(input.files?.getAll('files') ?? []).map(value=>{
+    if(typeof value==='string' || !(value instanceof Blob))throw Error('Invalid attachment.');
+    return value as File;
+  });
+  const existing=input.attachments ?? [];
+  let originals:import("@/lib/gmail").ConversationMessage['attachments']=[];
+  if(input.forward){
+    const conversation=await fetchConversation(input.forward.threadId);
+    const message=conversation.messages.find(m=>m.id===input.forward!.messageId);
+    if(!message)throw Error('Original message not found.');
+    const ids=[...new Set(input.forward.attachmentIds)];
+    originals=ids.map(id=>{const file=message.attachments?.find(a=>a.id===id);if(!file)throw Error('Original attachment not found.');return file;});
+  }
+  const metadata=[...uploads,...existing.map(a=>({name:a.filename,type:a.mimeType,size:a.content.length})),...(originals ?? [])];
+  validateMailFiles(metadata);
+  const attachments=[...existing];
+  for(const file of uploads)attachments.push({filename:file.name,mimeType:mailFileType(file),content:Buffer.from(await file.arrayBuffer())});
+  for(const file of originals ?? []){
+    const data=await fetchInboxAttachment(input.forward!.threadId,input.forward!.messageId,file.id);
+    attachments.push({filename:data.name,mimeType:data.type,content:data.bytes});
+  }
+  validateMailFiles(attachments.map(a=>({name:a.filename,type:a.mimeType,size:a.content.length})));
+  return attachments.length?attachments:undefined;
+}
+
 export async function sendNewEmailAction(input: {
-  to: string;
-  subject: string;
-  body: string;
+  to: string; cc?:string; subject: string; body: string;
   attachments?: import("@/lib/gmail").MailAttachment[];
-}): Promise<{ ok: boolean; error?: string }> {
+  files?:FormData;
+  forward?:{threadId:string;messageId:string;attachmentIds:string[]};
+  /** Only the website adapter sets this; verify it again before sending. */
+  inquirySlug?:string;
+}): Promise<{ ok: boolean; error?: string;threadId?:string;warning?:string }> {
   if (!input.to.trim()) return { ok: false, error: "Recipient is required." };
   if (!input.body.trim()) return { ok: false, error: "Body is empty." };
   return mailbox(async () => {
     if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
     try {
-      await sendNewEmail({ to: input.to.trim(), subject: input.subject, bodyText: input.body, attachments: input.attachments });
+      if(input.inquirySlug){
+        const {rows}=await query<{email:string}>("SELECT email FROM leads WHERE slug=$1 AND source ILIKE '%website%'",[input.inquirySlug]);
+        if(rows[0]?.email?.toLowerCase()!==input.to.trim().toLowerCase())return {ok:false,error:'Inquiry recipient changed. Reload before replying.'};
+      }
+      const attachments=await outgoingAttachments(input);
+      const sent=await sendNewEmail({ to: input.to.trim(), ...(input.cc?{cc:input.cc}:{}), subject: input.subject, bodyText: input.body, attachments });
+      let warning:string|undefined;
+      if(input.inquirySlug){
+        try{
+          if(!sent?.threadId)throw Error('Missing Gmail thread id');
+          await query(`WITH linked AS (INSERT INTO thread_links (gmail_thread_id,link_type,link_slug) VALUES ($1,'lead',$2)
+            ON CONFLICT (gmail_thread_id) DO UPDATE SET link_type='lead',link_slug=EXCLUDED.link_slug RETURNING gmail_thread_id)
+            UPDATE leads SET last_contact_at=now(),updated_at=now() WHERE slug=$2 AND EXISTS(SELECT 1 FROM linked)`,[sent.threadId,input.inquirySlug]);
+        }catch{warning='Email sent, but the inquiry link could not be saved. Do not send again.';}
+      }
       invalidateInboxCache();
-  revalidatePath("/inbox");
-      return { ok: true };
+      revalidatePath("/inbox");
+      return { ok: true,...(sent?.threadId?{threadId:sent.threadId}:{}),...(warning?{warning}:{}) };
     } catch (err) {
       return { ok: false, error: (err as Error).message };
     }
@@ -301,6 +347,7 @@ export async function sendReplyAction(input: {
   subject?: string;
   body: string;
   replyAll?: boolean;
+  files?:FormData;
 }): Promise<{ ok: boolean; error?: string }> {
   if (!input.body.trim()) return { ok: false, error: "Reply body is empty." };
   return mailbox(async () => {
@@ -308,12 +355,14 @@ export async function sendReplyAction(input: {
       return { ok: false, error: "Gmail is not connected yet." };
     }
     try {
+      const attachments=await outgoingAttachments(input);
       await sendReply({
         threadId: input.threadId,
         toEmail: input.toEmail,
         subject: input.subject,
         bodyText: input.body,
         replyAll: input.replyAll,
+        ...(attachments?{attachments}:{}),
       });
       invalidateInboxCache();
   revalidatePath("/inbox");
@@ -328,12 +377,13 @@ export async function sendReplyAction(input: {
 export async function sendChannelReplyAction(input: {
   threadId: string;
   body: string;
-}): Promise<ActionResult> {
+  files?:FormData;
+}): Promise<ActionResult & {warning?:string;threadId?:string}> {
   await requireAccess("inbox");
   if (!input.body.trim()) return { ok: false, error: "Enter a message." };
   const id = input.threadId;
   try {
-    let result: ActionResult = { ok: true };
+    let result: ActionResult & {warning?:string;threadId?:string} = { ok: true };
     if (/^sms:[1-9]\d*$/.test(id)) {
       const number = Number(id.slice(4));
       if (!Number.isSafeInteger(number)) return { ok: false, error: "Conversation not found." };
@@ -365,6 +415,8 @@ export async function sendChannelReplyAction(input: {
         to: lead.email,
         subject: inquiryReplySubject(lead.scope,lead.name),
         body: input.body,
+        inquirySlug:id.slice(9),
+        files:input.files,
       });
     } else {
       return { ok: false, error: "Conversation not found." };

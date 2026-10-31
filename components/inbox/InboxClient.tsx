@@ -60,6 +60,8 @@ import {
   composerExpanded,
   isNoReplyAddress,
 } from "@/lib/inbox-rules";
+import {attachInquiryContinuity} from "@/lib/inbox-continuity";
+import {MAIL_FILE_ACCEPT,validateMailFiles,fileSize} from "@/lib/inbox-files";
 import { applyRemoteImagePolicy } from "@/lib/inbox-image-policy";
 import { mergeTranscript } from "@/lib/append-transcript";
 import {
@@ -445,7 +447,12 @@ export function InboxClient({
   // Keep the selection valid as the lens narrows the list.
   const selected =
     visible.find((t) => t.id === selectedId) ?? visible[0] ?? null;
-  const reader = selected ? readers[selected.id] : undefined;
+  const continuityReaders=useMemo(()=>{
+    const copy=Object.fromEntries(Object.entries(readers).map(([id,r])=>[id,{...r,...(r.form?{form:{...r.form}}:{})}]));
+    attachInquiryContinuity([...threads,...(remoteData?.threads ?? [])].map(t=>({...t})),copy);return copy;
+  },[readers,threads,remoteData]);
+  const reader = selected ? continuityReaders[selected.id] : undefined;
+  function openConversation(id:string){setLens({kind:'all'});setTab(null);setQuery('');setSelectedId(id);setMobileReader(true);}
   const contextKey=`${selfEmail}:${selected?.id??''}`;
   const contextData=contextResult?.key===contextKey?contextResult.data:null;
   useEffect(()=>{
@@ -1476,6 +1483,8 @@ export function InboxClient({
                   todos={selected.todos}
                   threadId={selected.id}
                   visible={mobileReader}
+                  onOpenConversation={openConversation}
+                  availableConversations={threads.filter(t=>t.channel==='email').map(t=>t.id)}
                   onSendDone={()=>doneThread(selected,true)}
                   mailbox={selfEmail}
                 />
@@ -1564,16 +1573,40 @@ export function InboxClient({
   );
 }
 
+function useMailFiles(originals: {name:string;size:number;type:string}[] = []) {
+  const [files,setFiles]=useState<File[]>([]);
+  const [error,setError]=useState('');
+  const data=()=>{const form=new FormData();for(const file of files)form.append('files',file);return form;};
+  const picker=(disabled:boolean)=><div className="my-2 text-meta">
+    <label className={`inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-md border border-rule px-3 ${disabled?'opacity-50':''}`}>
+      <Paperclip className="size-4"/> Attach files / photos
+      <input type="file" multiple accept={MAIL_FILE_ACCEPT} disabled={disabled} className="sr-only" aria-label="Attach files or photos" onChange={e=>{
+        const next=[...files,...Array.from(e.target.files ?? [])];
+        try{validateMailFiles([...originals,...next]);setFiles(next);setError('');}catch(err){setError((err as Error).message);}e.target.value='';
+      }}/>
+    </label><span className="ml-2 text-ink-3">20 MB total</span>
+    <ul aria-label="Files to send" className="flex flex-wrap gap-2">{files.map((file,i)=><li key={i} className="flex min-w-0 items-center gap-1 rounded-md border border-rule bg-card px-2"><span className="break-all">{file.name} · {fileSize(file.size)}</span><Button variant="ghost" disabled={disabled} aria-label={`Remove ${file.name}`} title={`Remove ${file.name}`} icon={X} iconOnly onClick={()=>setFiles(items=>items.filter((_,j)=>j!==i))}/></li>)}</ul>
+    {error&&<p role="alert" className="text-flag">{error}</p>}
+  </div>;
+  return {files,data,picker,clear:()=>setFiles([])};
+}
+
+type ForwardMessage = {threadId:string;subject:string;message:ThreadReader['messages'][number]};
 function ComposeModal({
   selfEmail,
   onClose,
+  forward,
 }: {
   selfEmail: string;
   onClose: () => void;
+  forward?:ForwardMessage;
 }) {
-  const [to, setTo] = useState(selfEmail);
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
+  const [to, setTo] = useState(forward?'':selfEmail);
+  const [cc,setCc]=useState('');
+  const [subject, setSubject] = useState(forward?`Fwd: ${forward.subject.replace(/^fwd?:\s*/i,'')}`:'');
+  const [body, setBody] = useState(forward?`\n\n---------- Forwarded message ----------\nFrom: ${forward.message.fromName} <${forward.message.fromEmail ?? ''}>\nDate: ${forward.message.date?new Date(forward.message.date).toLocaleString('en-US'):forward.message.meta}\nSubject: ${forward.subject}\nTo: ${forward.message.to}\n\n${forward.message.body.join('\n\n')}`:'');
+  const [originals,setOriginals]=useState(forward?.message.attachments ?? []);
+  const files=useMailFiles(originals);
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
   const [sending, startSend] = useTransition();
@@ -1582,7 +1615,7 @@ function ComposeModal({
     setError("");
     startSend(async () => {
       const res = await runAction(
-        () => sendNewEmailAction({ to, subject, body }),
+        () => sendNewEmailAction({ to, cc, subject, body, files:files.data(), ...(forward?{forward:{threadId:forward.threadId,messageId:forward.message.id!,attachmentIds:originals.map(a=>a.id)}}:{}) }),
         { fallback: "Send failed." },
       );
       if (res.ok) {
@@ -1600,13 +1633,13 @@ function ComposeModal({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="New message"
+        aria-label={forward?"Forward message":"New message"}
         className="max-h-[90dvh] w-full max-w-[560px] overflow-y-auto rounded-xl border border-rule-soft bg-card shadow-modal"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 border-b border-rule px-4 py-3">
           <h3 className="flex-1 text-subheading font-semibold text-ink">
-            New message
+            {forward?"Forward message":"New message"}
           </h3>
           <Button
             onClick={onClose}
@@ -1624,6 +1657,8 @@ function ComposeModal({
             placeholder="To"
             className="rounded-md border border-rule bg-paper px-3 py-2 text-body text-ink focus:outline-none focus:ring-1 focus:ring-accent"
           />
+          <input value={cc} onChange={e=>setCc(e.target.value)} aria-label="Cc" placeholder="Cc (optional)" disabled={sending||sent} className="rounded-md border border-rule bg-paper px-3 py-2 text-body" />
+          {forward&&<p className="text-meta text-ink-3">Review To and Cc before sending. Original files are included below.</p>}
           <input
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
@@ -1639,6 +1674,8 @@ function ComposeModal({
             placeholder="Write your message…"
             className="resize-y rounded-md border border-rule bg-paper px-3 py-2 text-body leading-relaxed text-ink focus:outline-none focus:ring-1 focus:ring-accent"
           />
+          <ul aria-label="Original files to forward">{originals.map(a=><li key={a.id} className="flex items-center gap-2 text-meta"><span className="min-w-0 flex-1 break-all">{a.name} · {fileSize(a.size)} · Original</span><Button variant="ghost" disabled={sending||sent} aria-label={`Remove ${a.name}`} title={`Remove ${a.name}`} icon={X} iconOnly onClick={()=>setOriginals(items=>items.filter(v=>v.id!==a.id))}/></li>)}</ul>
+          {files.picker(sending||sent)}
           {error && <p className="text-meta text-flag">{error}</p>}
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <Button
@@ -1886,7 +1923,9 @@ function ChannelReaderBody({
   visible,
   onSendDone,
   mailbox = "",
+  onOpenConversation,availableConversations=[],
 }: {
+  onOpenConversation?:(id:string)=>void;availableConversations?:string[];
   reader: ThreadReader;
   todos?: InboxTodo[];
   threadId: string;
@@ -1895,6 +1934,7 @@ function ChannelReaderBody({
   mailbox?: string;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
+  const files=useMailFiles();
   const saved = useInboxDraft(mailbox, threadId, "");
   const body = saved.value.body;
   const setBody = (body: string) => saved.set({ ...saved.value, body, humanEdited:true });
@@ -1919,13 +1959,15 @@ function ChannelReaderBody({
   function send(andDone=false) {
     setError("");
     start(async () => {
+      let sendWarning:string|undefined;
       const r = await completeAfterSend(()=>runAction(
-        () => sendChannelReplyAction({ threadId, body }),
+        async () => {const result=await sendChannelReplyAction({ threadId, body, ...(reader.channel==='site_form'?{files:files.data()}:{}) });sendWarning=result.warning;return result;},
         { fallback: "Could not send your reply." },
       ),andDone?onSendDone:undefined);
       if (r.sent) {
         if(r.error){setError(r.error);setRetryDone(()=>r.retry??null);}
-        saved.clear();
+        if(sendWarning)setError(sendWarning);
+        saved.clear();files.clear();
         setSent(true);
         router.refresh();
       } else setError(r.error ?? "Could not send your reply.");
@@ -1979,9 +2021,10 @@ function ChannelReaderBody({
                           {reader.form.name}
                         </h2>
                         <p className="mt-1 text-meta text-ink-3">
-                          New website inquiry
+                          {reader.form.contacted?"Contacted":"New website inquiry"}
                           {reader.form.town ? ` · ${reader.form.town}` : ""}
                         </p>
+                        {Boolean(reader.form.conversations?.length)&&<div className="my-2 border-y border-rule-soft py-2 text-meta"><p className="font-semibold">{reader.form.contacted?'Contacted · Open email conversation':'Existing email conversation — review before replying'}</p>{reader.form.conversations!.map(c=><a key={c.id} className="flex min-h-11 items-center text-accent-2 underline" href={`https://mail.google.com/mail/u/?authuser=${encodeURIComponent(mailbox)}#all/${encodeURIComponent(c.id)}`} target="_blank" rel="noopener noreferrer" onClick={e=>{if(availableConversations.includes(c.id)&&onOpenConversation){e.preventDefault();onOpenConversation(c.id);}}}>{c.subject} ↗</a>)}</div>}
                         <p className="my-3 whitespace-pre-line text-body font-semibold leading-relaxed">
                           {m.body[0]}
                         </p>
@@ -2074,7 +2117,8 @@ function ChannelReaderBody({
         {canReply && <>
           <p title={reader.replyLabel} className="truncate text-meta font-semibold text-ink-2">{reader.replyLabel}</p>
           {reader.form&&<p className="truncate text-meta text-ink-3">Subject: {reader.form.outgoingSubject}</p>}
-          {safety.controls}
+          {reader.channel==='site_form'&&expanded&&files.picker(pending)}
+        {safety.controls}
           {expanded ? <>
             {saved.value.ai&&<p className="text-meta text-ai">Draft by {saved.value.model} · {saved.value.basedOn}</p>}
             <textarea ref={replyRef} aria-label={reader.channel==='sms'?'Text reply':'Reply'} value={body} disabled={pending} onChange={e=>{setBody(e.target.value);setSent(false);}} rows={2} placeholder="Write a reply…" className="max-h-[18dvh] min-h-16 w-full resize-y rounded-lg border border-rule bg-card p-2 text-body text-ink" />
@@ -2287,14 +2331,15 @@ function EmailMessageCard({
   threadId,
   expanded,
   onToggle,
-  blockImages=false, mailbox="",
+  blockImages=false, mailbox="", subject="Email conversation",
 }: {
-  blockImages?:boolean; mailbox?:string;
+  blockImages?:boolean; mailbox?:string; subject?:string;
   message: ThreadReader["messages"][number];
   threadId: string;
   expanded: boolean;
   onToggle: () => void;
 }) {
+  const [forwarding,setForwarding]=useState(false);
   const [html, setHtml] = useState("");
   const imageKey=`sjc:inbox:images:v1:${mailbox.toLowerCase()}:${message.fromEmail?.toLowerCase()??''}`;
   const [allowedImages,setAllowedImages]=useState(false);
@@ -2359,6 +2404,8 @@ function EmailMessageCard({
           ) : (
             <PlainBody paras={message.body} />
           )}
+          {message.id&&<Button variant="ghost" size="sm" onClick={()=>setForwarding(true)}>Forward</Button>}
+          {forwarding&&<ComposeModal selfEmail={mailbox} onClose={()=>setForwarding(false)} forward={{threadId,subject,message}}/>}
           {Boolean(message.attachments?.length) && (
             <ul
               aria-label="Attachments"
@@ -2441,6 +2488,7 @@ function ReaderBody({
   const drafting=safety.pending;
   const composerStyle=useComposerViewport();
   const [sending, startSend] = useTransition();
+  const files=useMailFiles();
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const latestPassage=useRef<HTMLDivElement>(null);
   const approvalRef = useRef<HTMLTextAreaElement>(null);
@@ -2501,7 +2549,7 @@ function ReaderBody({
   }
 
   function discard() {
-    saved.clear();
+    saved.clear();files.clear();
     setReplying(false);
     setDraftOpen(false);
     setSent(false);
@@ -2519,12 +2567,13 @@ function ReaderBody({
             replyAll,
             subject: reader.subject,
             body: draft,
+            files:files.data(),
           }),
         { fallback: "Send failed." },
       ),andDone?onSendDone:undefined);
       if (r.sent) {
         if(r.error){setError(r.error);setRetryDone(()=>r.retry??null);}
-        saved.clear();
+        saved.clear();files.clear();
         setSent(true);
         setDraftOpen(false);
         setReplying(false);
@@ -2599,6 +2648,7 @@ function ReaderBody({
     <>
       <div ref={regionRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         <div className="mx-auto flex max-w-[720px] flex-col gap-2">
+          {reader.websiteInquiry&&<p className="text-meta text-accent-2">From website inquiry</p>}
           <ThreadSummary reader={reader} />
           {latestInboundIndex(reader.messages) > 0 && (
             <details>
@@ -2624,7 +2674,7 @@ function ReaderBody({
                     <EmailMessageCard
                       key={m.id ?? i}
                       message={m}
-                      blockImages={m.imagesBlocked??(blockImages&&!m.outbound)} mailbox={mailbox}
+                      blockImages={m.imagesBlocked??(blockImages&&!m.outbound)} mailbox={mailbox} subject={reader.subject}
                       threadId={threadId}
                       expanded={expanded.has(m.id ?? String(i))}
                       onToggle={() => toggleMessage(m.id ?? String(i))}
@@ -2641,7 +2691,7 @@ function ReaderBody({
               return (
                 <div key={id} ref={j===0?latestPassage:undefined}><EmailMessageCard
                   message={m}
-                  blockImages={m.imagesBlocked??(blockImages&&!m.outbound)} mailbox={mailbox}
+                  blockImages={m.imagesBlocked??(blockImages&&!m.outbound)} mailbox={mailbox} subject={reader.subject}
                   threadId={threadId}
                   expanded={expanded.has(id)}
                   onToggle={() => toggleMessage(id)}
@@ -2722,6 +2772,7 @@ function ReaderBody({
               </details>
             )}
             {safety.controls}
+            {(composerExpanded(replying,draft)||draftOpen)&&files.picker(sending)}
             {isAI && hasDraft ? approval : composerExpanded(replying, draft) ? (
               <div className="rounded-lg border border-rule bg-card p-2">
                 <textarea

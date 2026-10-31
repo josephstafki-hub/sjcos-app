@@ -1,3 +1,4 @@
+import {attachInquiryContinuity} from "./inbox-continuity";
 import type { InboxLinkKind } from "./inbox-directory";
 // Unified inbox data builder. Mock-backed today; swaps to DB queries in Phase 7
 // (the threads table already exists — see db/schema.sql). Shape stays stable.
@@ -71,6 +72,7 @@ export interface InboxTodo {
   thread_linked?: boolean;
 }
 export interface InboxThread {
+  websiteInquiry?:string;
   outstandingCents?: number;
   todos?: InboxTodo[];
   fromEmail?: string;
@@ -250,6 +252,7 @@ export interface ReaderMessage {
 }
 
 export interface ThreadReader {
+  websiteInquiry?:string;
   automationKind?: import("./inbox-rules").AutomationKind;
   /** Header tag chip, e.g. "CHEN LEAD · PHASE 1". */
   tag: string;
@@ -268,7 +271,7 @@ export interface ThreadReader {
   replyTarget?: ReplyTarget | null;
   automated?: boolean;
   replyLabel?: string;
-  form?: {name:string;town:string;phone:string;email:string;outgoingSubject:string};
+  form?: {name:string;town:string;phone:string;email:string;outgoingSubject:string;contactedAt?:string;contacted?:boolean;conversations?:{id:string;subject:string}[]};
 }
 
 /** Curated reader content keyed by thread id. Threads not listed get a generic
@@ -1421,8 +1424,11 @@ async function loadSiteFormThreads(): Promise<ChannelBuild> {
     email: string | null;
     phone: string | null;
     created_at: string;
+    last_contact_at?:string;
+    email_thread_ids?:string[];
   }>(
-    `SELECT slug, name, stage, coalesce(scope,'') AS scope, scope_city, email, phone, created_at
+    `SELECT slug, name, stage, coalesce(scope,'') AS scope, scope_city, email, phone, created_at,last_contact_at,
+       ARRAY(SELECT tl.gmail_thread_id FROM thread_links tl WHERE tl.link_type='lead' AND tl.link_slug=leads.slug ORDER BY tl.created_at DESC) AS email_thread_ids
        FROM leads
       WHERE source ILIKE '%website%' AND stage <> 'lost'
       ORDER BY created_at DESC`,
@@ -1489,7 +1495,7 @@ async function loadSiteFormThreads(): Promise<ChannelBuild> {
         ],
         actionHref: `/leads/${r.slug}`,
         actionLabel: "Open lead",
-      }), form: {name:r.name,town:r.scope_city ?? "",phone:r.phone ?? "",email:r.email ?? "",outgoingSubject:inquiryReplySubject(r.scope,r.name)} },
+      }), form: {name:r.name,town:r.scope_city ?? "",phone:r.phone ?? "",email:r.email ?? "",contactedAt:r.last_contact_at,conversations:(r.email_thread_ids ?? []).map(id=>({id,subject:"Email conversation"})),outgoingSubject:inquiryReplySubject(r.scope,r.name)} },
     ]);
   }
   return { threads, readerEntries };
@@ -1614,6 +1620,7 @@ async function loadEmailPage(view: string, pageToken?: string, labelId?: string,
   const [page, labels] = payload;
   const maps = await loadContactMaps();
   const { threads, readerEntries } = mapRawThreads(page.threads, new Map(labels.map(l => [l.id, l.name])), maps);
+  attachInquiryContinuity(threads,Object.fromEntries(readerEntries));
   await attachThreadTodos(threads);
   return {
     threads,
@@ -1650,6 +1657,7 @@ async function buildFromGmail(
   const threads = [...emailThreads, ...folded.threads];
   const readerEntries = [...emailReaderEntries, ...folded.readerEntries];
 
+  attachInquiryContinuity(threads,Object.fromEntries(readerEntries));
   await attachThreadTodos(threads);
   const viewCounts = countViews(threads);
   const channelCounts = countChannels(threads);

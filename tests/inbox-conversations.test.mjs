@@ -164,3 +164,14 @@ test('realistic Gmail multipart payload folds attribution with history after san
  const blocked=remoteImagePolicy('<img src="https://tracker.test/x"><img src="data:image/png;base64,AA"><div style="background:url(https://tracker.test/bg)">text</div>',false);
  assert.doesNotMatch(blocked,/https:\/\/tracker/);assert.match(blocked,/src="data:/);
 });
+
+test('new mail and replies reuse mixed MIME, safe Unicode filenames and 76-column base64',async()=>{
+ const attachments=[{filename:'floor plan.pdf',mimeType:'application/pdf',content:Buffer.alloc(300,65)},{filename:'café.png',mimeType:'image/png',content:Buffer.from('photo')}];
+ await gmail.sendNewEmail({to:'review@example.test',cc:'copy@example.test',subject:'Review',bodyText:'Please review',attachments});
+ let raw=Buffer.from(calls.sent.at(-1).requestBody.raw,'base64url').toString();
+ assert.match(raw,/multipart\/mixed/);assert.match(raw,/Cc: copy@example.test/);assert.match(raw,/filename="floor plan.pdf"/);assert.match(raw,/filename\*=UTF-8''caf%C3%A9.png/);
+ for(const part of raw.split('Content-Transfer-Encoding: base64\r\n\r\n').slice(1))for(const line of part.split('\r\n--')[0].trim().split('\r\n'))assert.ok(line.length<=76);
+ await gmail.sendReply({threadId:'attachments',bodyText:'Attached',attachments});
+ raw=Buffer.from(calls.sent.at(-1).requestBody.raw,'base64url').toString();assert.match(raw,/multipart\/mixed/);assert.match(raw,/floor plan.pdf/);
+ await assert.rejects(()=>gmail.sendNewEmail({to:'bad\r\nBcc: victim@example.test',subject:'No',bodyText:'No'}),/recipient/i);
+});

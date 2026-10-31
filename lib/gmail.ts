@@ -22,7 +22,7 @@ import { google } from "googleapis";
 import type { gmail_v1 } from "googleapis";
 import sanitizeHtml from "sanitize-html";
 import { activeMailbox } from "./mailbox";
-import { splitAddresses, resolveReplyTarget, validRecipient, isAutomatedSender, isNoReplyAddress } from "./inbox-rules";
+import { emailAddress, splitAddresses, resolveReplyTarget, validRecipient, isAutomatedSender, isNoReplyAddress } from "./inbox-rules";
 
 export const GMAIL_SCOPES = [
   // modify = read + label/state changes (star, archive, mark read, important,
@@ -463,7 +463,7 @@ function sanitizeEmailHtml(html: string): string {
       font: ["color", "face", "size"],
     },
     allowedSchemes: ["http", "https", "mailto", "tel"],
-    allowedSchemesByTag: { img: ["http", "https", "data"] },
+    allowedSchemesByTag: { img: ["http", "https", "data", "cid"] },
     transformTags: {
       a: (tagName, attribs) => ({
         tagName,
@@ -934,6 +934,9 @@ function buildMime(
   // Renders the message body: a plain text/plain part, or — when an HTML
   // alternative is given (P2-5 newsletter open-pixel) — a multipart/alternative
   // wrapping text + HTML so clients that hide images still get the text.
+  for(const file of attachments ?? []){
+    if(/[\r\n"\\]/.test(file.filename)|| !/^[\w.+-]+\/[\w.+-]+$/.test(file.mimeType))throw Error('Invalid attachment headers.');
+  }
   const altBoundary = `sjcos_alt_${Math.random().toString(36).slice(2)}`;
   const bodyLines = bodyHtml
     ? [
@@ -989,6 +992,7 @@ export async function sendReply(opts: {
   subject?: string;
   bodyText: string;
   replyAll?: boolean;
+  attachments?: MailAttachment[];
 }): Promise<void> {
   const conversation = await fetchConversation(opts.threadId);
   const target = resolveReplyTarget(conversation.messages, conversation.ownAddresses);
@@ -1003,10 +1007,8 @@ export async function sendReply(opts: {
     ...(target.inReplyTo ? [`In-Reply-To: ${target.inReplyTo}`] : []),
     ...(target.references ? [`References: ${target.references}`] : []),
   ];
-  const mime = [...extra, buildMime(to, subject, opts.bodyText)].join('\r\n');
-  await withGmailRetry("messages.send", () => gmail().users.messages.send({
-    userId: "me", requestBody: { raw: Buffer.from(mime).toString('base64url'), threadId: opts.threadId },
-  }));
+  const mime = [...extra, buildMime(to, subject, opts.bodyText, opts.attachments)].join('\r\n');
+  await sendMime(mime, opts.threadId);
   conversationCache.delete(detailKey(opts.threadId));
 }
 
@@ -1020,31 +1022,28 @@ export interface MailAttachment {
 
 export async function sendNewEmail(opts: {
   to: string;
+  cc?: string;
   subject: string;
   bodyText: string;
   attachments?: MailAttachment[];
   bodyHtml?: string;
-}): Promise<void> {
-  const mime = buildMime(opts.to, opts.subject || "(no subject)", opts.bodyText, opts.attachments, opts.bodyHtml);
-  // The JSON endpoint rejects large payloads, so anything attachment-heavy
-  // (e.g. a bid packet with a multi-MB plan set) goes through the media-upload
-  // path instead — that one takes the raw RFC-2822 bytes, no base64 field.
+}): Promise<{threadId?:string}> {
+  if (!splitAddresses(opts.to).length || splitAddresses(opts.to).some(v=>!validRecipient(emailAddress(v))) || /[\r\n]/.test(opts.to)) throw Error("Enter a valid recipient email.");
+  if (opts.cc && (/[\r\n]/.test(opts.cc) || splitAddresses(opts.cc).some(v=>!validRecipient(emailAddress(v))))) throw Error("Enter valid Cc email addresses.");
+  if (/[\r\n]/.test(opts.subject)) throw Error("Invalid subject.");
+  const mime = (opts.cc ? `Cc: ${opts.cc}\r\n` : "") + buildMime(opts.to, opts.subject || "(no subject)", opts.bodyText, opts.attachments, opts.bodyHtml);
+  return sendMime(mime);
+}
+
+/** Both replies and new mail use the same upload/JSON transport. */
+async function sendMime(mime:string,threadId?:string):Promise<{threadId?:string}> {
   const api = gmail();
-  if (Buffer.byteLength(mime) > 4 * 1024 * 1024) {
-    await withGmailRetry("messages.send(media)", () =>
-      api.users.messages.send({
-        userId: "me",
-        media: { mimeType: "message/rfc822", body: mime },
-      }),
-    );
-  } else {
-    await withGmailRetry("messages.send", () =>
-      api.users.messages.send({
-        userId: "me",
-        requestBody: { raw: Buffer.from(mime).toString("base64url") },
-      }),
-    );
-  }
+  const response = await withGmailRetry("messages.send", () => api.users.messages.send(
+    Buffer.byteLength(mime)>4*1024*1024
+      ? {userId:"me",requestBody:threadId?{threadId}:undefined,media:{mimeType:"message/rfc822",body:mime}}
+      : {userId:"me",requestBody:{raw:Buffer.from(mime).toString("base64url"),...(threadId?{threadId}:{})}}
+  ));
+  return {threadId:response.data.threadId ?? undefined};
 }
 
 // ─── Mutations (require the gmail.modify scope) ──────────────────────────────

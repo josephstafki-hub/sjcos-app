@@ -25,3 +25,21 @@ test('rows reconstruct a full request, reject negated scope and boilerplate ques
  assert.equal(substantiveSnippet(["There is a bathroom we don't need to do anything with.\n\nWe need a bedroom with an egress window."],'Basement details'),'We need a bedroom with an egress window.');
  for(const footer of ['Something wrong with the email?',"If you have questions about this, please reply.","Please don’t reply to this email.",'If you have any questions, please contact us.']) assert.equal(substantiveSnippet([footer],'Payment received'),'Payment received');
 });
+
+test('files enforce a combined 20 MB cap, safe filenames and allowed types',async()=>{
+ const {validateMailFiles,MAX_MAIL_BYTES}=await import('../lib/inbox-files.ts');
+ validateMailFiles([{name:'plan.pdf',type:'application/pdf',size:MAX_MAIL_BYTES}]);
+ assert.throws(()=>validateMailFiles([{name:'plan.pdf',type:'application/pdf',size:MAX_MAIL_BYTES},{name:'photo.jpg',type:'image/jpeg',size:1}]),/20 MB/);
+ for(const file of [{name:'run.exe',type:'application/octet-stream',size:1},{name:'plan.pdf',type:'text/html',size:1},{name:'bad\r\n.pdf',type:'application/pdf',size:1}])assert.throws(()=>validateMailFiles([file]));
+});
+
+test('website continuity shows existing email before composing and contacted after a sent linked thread',async()=>{
+ const {attachInquiryContinuity}=await import('../lib/inbox-continuity.ts');
+ const form={id:'siteform:alex',channel:'site_form',linkedSlug:'alex',view:'needs_reply'};
+ const email={id:'e',channel:'email',subject:'Basement',linkedType:'lead',linkedSlug:'alex'};
+ const readers={'siteform:alex':{form:{email:'alex@example.test'}},e:{messages:[{fromEmail:'alex@example.test',body:['Scope']} ]}};
+ attachInquiryContinuity([form,email],readers);assert.deepEqual(readers[form.id].form.conversations,[{id:'e',subject:'Basement'}]);assert.equal(readers.e.websiteInquiry,form.id);assert.equal(form.view,'needs_reply');
+ readers.e.messages.push({outbound:true,fromEmail:'builder@example.test',to:'alex@example.test'});attachInquiryContinuity([form,email],readers);assert.equal(form.needsMeReason,'Contacted');assert.equal(form.view,'awaiting_them');
+ const persisted={id:'siteform:older',channel:'site_form',view:'needs_reply'};const older={form:{email:'old@example.test',contactedAt:'2026-11-01',conversations:[{id:'old-email',subject:'Email conversation'}]}};
+ attachInquiryContinuity([persisted],{[persisted.id]:older});assert.equal(older.form.contacted,true);
+});

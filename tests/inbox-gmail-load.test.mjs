@@ -28,6 +28,7 @@ const stubs = {
 registerHooks({
   resolve(s, c, n) {
     if (s in stubs && c.parentURL?.endsWith("/lib/inbox.ts")) return { url: `stub:${s}`, shortCircuit: true };
+    if (s === "./inbox-continuity") return n("../lib/inbox-continuity.ts", c);
     if (s === "./inbox-rules") return n("../lib/inbox-rules.ts", c);
     return n(s, c);
   },

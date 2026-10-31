@@ -23,7 +23,7 @@ export function foldEmailQuotes(html: string): string {
     // div as the signature. Move just the trailing line, never the whole div.
     const siblings = [];
     for (let p = node.prev; p; p = p.prev) siblings.unshift(p);
-    const pieces = siblings.map(p => p.type === 'tag' && p.name === 'br' ? '\n' : DomUtils.textContent(p));
+    const pieces = siblings.map(p => p.type === 'tag' && p.name === 'br' ? '\n' : (p.type === 'tag' && /^(?:div|p)$/.test(p.name) ? '\n' : '') + DomUtils.textContent(p));
     const beforeText = pieces.join('');
     const match = /(?:^|\n)[ \t\u00a0]*On[ \t\u00a0]+[\s\S]{4,1000}?wrote:[\s\u00a0]*$/i.exec(beforeText);
     if (match) {

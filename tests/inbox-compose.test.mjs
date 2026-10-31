@@ -65,3 +65,21 @@ test('new mail syncs recipient, Cc, subject and body; cleanup runs after success
  assert.equal(__draftServer.rows.get('compose:new:email').status,'sent');
  cleanups.forEach(f=>f?.());cleanups=[];
 });
+
+test('forward choices restore after closing, and Saved explicitly covers text rather than device files',async()=>{
+ cleanups.forEach(f=>f?.());cleanups=[];states=[];effects=[];pending=[];
+ const storage=new Map(),prior=globalThis.localStorage;
+ globalThis.localStorage={getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)};window.localStorage=localStorage;
+ const forward={threadId:'restore-files',subject:'Plans',message:{id:'original',fromName:'Casey',fromEmail:'casey@example.test',body:['Please review'],attachments:[{id:'plan',name:'scope.pdf',size:4,type:'application/pdf'}]}};
+ let tree;const render=()=>{cursor=0;tree=ComposeModal({selfEmail:'builder@example.test',forward,onClose(){}});};
+ const find=p=>nodes(tree).find(p);const flush=async()=>{for(let i=0;i<6;i++){const work=effects;effects=[];work.forEach(f=>f());await Promise.resolve();render();}};
+ try{
+  render();await flush();find(n=>n.props?.['aria-label']==='Remove scope.pdf').props.onClick();render();await flush();
+  cleanups.forEach(f=>f?.());cleanups=[];states=[];effects=[];render();await flush();
+  assert.equal(find(n=>n.props?.['aria-label']==='Remove scope.pdf'),undefined);
+  find(n=>n.props?.type==='file').props.onChange({target:{files:[new File(['photo'],'site.png',{type:'image/png'})],value:''}});render();await flush();
+  const footer=find(n=>n.type?.name==='DraftSyncFooter');assert.equal(footer.props.localFiles,true);
+  const text=nodes(footer.type({...footer.props,saved:{...footer.props.saved,synced:{...footer.props.saved.synced,status:'saved'}}})).flatMap(n=>[n.props?.children].flat()).filter(v=>typeof v==='string').join(' ');
+  assert.match(text,/Text saved · files on this device/);
+ }finally{cleanups.forEach(f=>f?.());cleanups=[];localStorage=prior;window.localStorage=prior;}
+});

@@ -2691,7 +2691,7 @@ function ReaderBody({
       try{
         if(preview&&suggestion){await dismissSuggestion(suggestion.id);setDismissed(suggestion.id);await saved.synced.refresh();}
         else await saved.clear();
-        files.clear();setReplying(false);setDraftOpen(false);setSent(false);setError('');onDraftReady?.(threadId,false);
+        files.clear();setReplying(false);setDraftOpen(false);setReviewExpanded(false);setSent(false);setError('');onDraftReady?.(threadId,false);
         window.dispatchEvent(new Event('inbox-drafts-changed'));
       }catch(e){setError((e as Error).message);}
     });
@@ -2713,7 +2713,7 @@ function ReaderBody({
         {fallback:'Send failed.'}),andDone?onSendDone:undefined,()=>{sentPreviewHidden.current=true;files.clear();setSent(true);});
       if(!r.sent){setError(r.error??'Send failed.');return;}
       if(r.error){setError(r.error);setRetryDone(()=>r.retry??null);}
-      setSent(true);setDraftOpen(false);setReplying(false);onDraftReady?.(threadId,false);
+      setSent(true);setDraftOpen(false);setReviewExpanded(false);setReplying(false);onDraftReady?.(threadId,false);
       const warning=await saved.finish(snapshot.version,suggestionId);if(warning)setError(warning);
       window.dispatchEvent(new Event('inbox-drafts-changed'));
       router.refresh();
@@ -2777,6 +2777,7 @@ function ReaderBody({
       <div ref={regionRef} hidden={reviewActive&&!showSource} className={`min-h-0 overflow-y-auto px-4 py-2 ${reviewActive?"max-h-[35dvh] shrink":"flex-1"}`}>
         <div className="mx-auto flex max-w-[720px] flex-col gap-2">
           {reader.websiteInquiry&&<p className="text-meta text-accent-2">From website inquiry</p>}
+          {reviewActive&&display.basedOn&&<p className="text-meta text-ink-3">{display.basedOn}</p>}
           {!reviewActive&&<ThreadSummary reader={reader} />}
           {latestInboundIndex(reader.messages) > 0 && (
             <details>

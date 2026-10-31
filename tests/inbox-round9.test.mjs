@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {draftReviewSize, askExcerpt, rowActionTitle, cleanRowSummary, automationState, composerMode, olderOtherMail, completeMailBatch, reminderTitle, restoreForwardChoices} from '../lib/inbox-review.ts';
+import {draftReviewSize, askExcerpt, rowActionTitle, cleanRowSummary, automationState, composerMode, olderOtherMail, completeMailBatch, reminderTitle, restoreForwardChoices, regenerateModel} from '../lib/inbox-review.ts';
 import {automationDetails} from '../lib/inbox-rules.ts';
 import {readableEmailHtml} from '../lib/inbox-email-html.ts';
 
@@ -34,6 +34,7 @@ test('automation row/reader status agrees on done, current attention and owner o
 test('third party GitHub mentions and quoted deadlines do not demand Joe’s attention',()=>{
  assert.equal(automationDetails('notifications@github.com','@other mentioned you','@other please review and approve by Friday.','', 'joe@example.test').attention,undefined);
  assert.ok(automationDetails('notifications@github.com','Review requested','@joe please review and approve by Friday.','', 'joe@example.test').attention);
+ assert.equal(automationDetails('notifications@github.com','@joe mentioned you','@other please review and approve by Friday.','', 'joe@example.test').attention,undefined);
  assert.ok(automationDetails('notify@squareup.com','Action required','Complete the information request within the next 5 days.').attention);
 });
 test('screen first suppresses drafts and composer until Reply anyway is explicitly chosen',()=>{
@@ -62,4 +63,8 @@ test('forward choices restore removed originals, retain empty selection and reje
 test('nested layout tables never swallow surrounding copy when preserving an inner comparison',()=>{
  const html=readableEmailHtml('<table><tr><td>Before<table><tr><th>Current</th><th>Proposed</th><th>Savings</th></tr><tr><td>500</td><td>400</td><td>100</td></tr></table>After</td></tr></table>');
  assert.match(html,/Before/);assert.match(html,/After/);assert.equal((html.match(/<table/g)??[]).length,1);
+});
+
+test('regeneration retains Claude, Hermes or an explicitly selected legacy Qwen author',()=>{
+ assert.deepEqual(['Claude','Hermes','Qwen',undefined].map(regenerateModel),['claude','hermes','qwen','hermes']);
 });

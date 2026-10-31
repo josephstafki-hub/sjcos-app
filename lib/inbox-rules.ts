@@ -147,7 +147,9 @@ export function automationDetails(email: string, subject: string, snippet: strin
   // is attention evidence; a notification about another account is not.
   const account = emailAddress(mailbox).split('@')[0];
   const github = /(?:^|\.)github\.com$/i.test(domain);
-  const addressed = account && [...text.matchAll(/@([a-z0-9_-]+)/gi)].some(m=>m[1].toLowerCase()===account.toLowerCase());
+  const addressed = account && [...text.matchAll(/@([a-z0-9_.-]+)/gi)].some(m=>
+    m[1].toLowerCase()===account.toLowerCase() &&
+    /\b(?:please|review|approve|respond|accept|verify|complete)\b/i.test(text.slice(m.index!+m[0].length).split(/[@.!?\n]/,1)[0]));
   return {kind, attention: financing || github && !addressed ? undefined : informationRequest ?? evidence ?? request};
 }
 export function screeningEligible(input: {email: string; inbound: boolean; done: boolean; known: boolean; staff: boolean; automated?: boolean; ownAddresses: string[]; decision?: string}): boolean {

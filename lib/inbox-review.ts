@@ -53,7 +53,7 @@ export async function completeMailBatch(rows:InboxThread[], action:(id:string)=>
   for(const row of rows){try{(await action(row.id)).ok?completed.push(row):failed.push(row);}catch{failed.push(row);}}
   return {completed,failed};
 }
-export function regenerateModel(model?:string):'claude'|'hermes' {return model?.toLowerCase()==='claude'?'claude':'hermes';}
+export function regenerateModel(model?:string):'claude'|'hermes'|'qwen' {return model?.toLowerCase()==='claude'?'claude':model?.toLowerCase()==='qwen'?'qwen':'hermes';}
 export function restoreForwardChoices<T extends {id:string}>(originals:T[], stored:string|null):T[] {
   if(stored===null)return originals;
   try{const ids:unknown=JSON.parse(stored);return Array.isArray(ids)?originals.filter(a=>ids.includes(a.id)):originals;}catch{return originals;}

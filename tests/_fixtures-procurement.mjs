@@ -117,13 +117,14 @@ export async function seedFile(client, id, opts = {}) {
   return id;
 }
 
-export async function activateRoutinePolicy(client) {
+export async function activateRoutinePolicy(client, key = "routine.followup") {
   await client.query(
-    `INSERT INTO policies (key, version, config, state, created_by, notes, effective_from) VALUES ('routine.followup', 1,
+    `INSERT INTO policies (key, version, config, state, created_by, notes, effective_from) VALUES ($1, 1,
       '{"lane":"routine_followup","tz":"America/Chicago","window":{"days":[1,2,3,4,5],"start":"09:00","end":"17:00"},
         "cadence":{"minHoursBetween":48,"maxPerRecipientPerWeek":2},"stop":["reply","decline","opt_out","pending_owner_decision"]}'::jsonb,
       'active', 'test', '', '2026-01-01T00:00:00Z')
      ON CONFLICT (key, version) DO UPDATE SET state = 'active', effective_from = '2026-01-01T00:00:00Z'`,
+    [key],
   );
 }
 

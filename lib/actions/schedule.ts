@@ -9,7 +9,7 @@ import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
 import { requireAccess } from "@/lib/dal";
 import { askOllamaJson } from "@/lib/ai";
-import { getScheduleConflict } from "@/lib/schedule";
+import { getScheduleConflict, weekBounds } from "@/lib/schedule";
 
 import { scheduleFields } from "../schedule-time";
 
@@ -217,9 +217,8 @@ export async function autoLogTodayFromPhotos(): Promise<
   return { ok: true, drafted: drafted.length, projects: drafted };
 }
 
-/** Apply on the schedule-conflict note: recheck this week's blocks and, if the
- *  double-booking is real, park a work item in Open Engine so it survives the
- *  page. Deduped on the open item's title. */
+/** Recheck the selected week and park a real double-booking in Open Engine.
+ *  Deduped on the ISO week, with a fallback for legacy untagged items. */
 export async function flagScheduleConflict(
   weekOffset = 0,
 ): Promise<{ ok: true; queued: boolean } | { ok: false; error: string }> {
@@ -232,9 +231,17 @@ export async function flagScheduleConflict(
     };
   }
   const title = `Resolve schedule conflict (${weekOffset === 0 ? "this week" : `week offset ${weekOffset}`})`;
+  // Keyed on the ISO week (A01), not the title; the legacy untagged row of
+  // the same title is still found so it isn't duplicated.
+  const { monday } = weekBounds(weekOffset);
+  const week = await queryOne<{ wk: string }>(`SELECT to_char(${monday}, 'IYYY-"W"IW') AS wk`);
+  const sourceId = `week:${week?.wk ?? "unknown"}`;
   const existing = await queryOne<{ id: string }>(
-    `SELECT id FROM work_items WHERE title = $1 AND completed_at IS NULL LIMIT 1`,
-    [title],
+    `SELECT id FROM work_items
+      WHERE completed_at IS NULL
+        AND ((source_kind = 'schedule_conflict' AND source_id = $1) OR (source_kind = 'manual' AND source_id IS NULL AND title = $2))
+      LIMIT 1`,
+    [sourceId, title],
   );
   if (existing) {
     await query(
@@ -245,9 +252,9 @@ export async function flagScheduleConflict(
     return { ok: true, queued: false };
   }
   await query(
-    `INSERT INTO work_items (title, body, priority, assignee_kind, source_kind, created_by)
-     VALUES ($1, $2, 'high', 'human', 'manual', 'user')`,
-    [title, text],
+    `INSERT INTO work_items (title, body, priority, assignee_kind, source_kind, source_id, created_by)
+     VALUES ($1, $2, 'high', 'human', 'schedule_conflict', $3, 'user')`,
+    [title, text, sourceId],
   );
   revalidatePath("/engine");
   revalidatePath("/today");

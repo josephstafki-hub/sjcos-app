@@ -207,64 +207,146 @@ by Joe/staff don't feed the weekly update (only sub logs do).
 
 ## Tier 3: built but not connected (branch + PR each)
 
-- **Bid-package and supplier-pricing release cards:** approving one sends nothing (`lib/decisions/resolve.ts`).
-  `sendBidPackageOp` (`lib/bidding.ts:~463`) is never given the card, and it needs a second grant.
-- **Construction agreement on acceptance (W08):** it is never generated. `send_document_for_signature`
-  always needs a grant, while the agent instructions say there's no further release.
-- **Agent wake-ups:** client, sub and supplier messages, quotes, payments, portal selections, mood-board
-  approvals and sub reports don't wake the agent. `onInboundMessage` (`lib/agent-runtime/hooks.ts:~91`)
-  has no callers.
-- **W02 hook failure:** a failure is only logged (`lib/actions/esign.ts:~275`), with no retry or repair.
-  The workflow runbooks (`db/seed-workflow-runbooks.mjs`) aren't seeded live, and live jobs show stage W01.
-- **W03 and W11:**
-  - W03: no allocation-review card is ever staged.
-  - W11: the over-allowance `prepare_change_order` card has no handler. Joe's rule is that no tool creates
-    change orders, so ask him how this card should end.
-- **Email intake (A01):**
-  - Hermes files email to-dos directly, with no message identity or obligation.
-  - `catchUpMailbox` and `handleReply` (`lib/obligations/*`) have no callers.
-  - Lead-thread sync and the detectors read one page of 150 threads, and the watermark moves anyway
-    (`lib/lead-thread-sync.ts:~142,~227`, `lib/detectors.ts:~139`).
-  - Title matching is left in `lib/actions/compliance.ts:~34` and `lib/actions/schedule.ts:~144`.
-- **Completion (A04):**
-  - Joe's own Mark done paths skip the evidence command and never resolve the obligation
-    (`lib/actions/today.ts:~140`, `lib/actions/engine.ts:~66`, `lib/actions/record-ops.ts:~51`).
-  - Evidence from another job is accepted (`lib/completion/complete.ts:~92-118`).
+- ~~**Bid-package and supplier-pricing release cards:** approving one sends nothing.~~ **Done (branch
+  `t3/tier3-release-cards`):** approving a card emails that one sub (or supplier) through
+  `lib/procurement/release-send.ts`, with the card as the approval (no second grant). The content is rebuilt
+  at approval and must hash to the card's; an edited package, note or address sends nothing.
+- ~~**Construction agreement on acceptance (W08):**~~ **Done (branch `t3/tier3-w08`):** a signed formal
+  estimate drafts and prints the construction agreement from that estimate (`lib/workflow/agreement.ts`).
+  It sends for signature on its own only while the `contract.send_on_acceptance` policy is active
+  (migration 0050, seeded OFF), and the contract approval gate still applies. Otherwise Joe is told it's
+  ready on Documents.
+- ~~**Agent wake-ups:**~~ **Done (branch `t3/tier3-wakeups`), behind a switch that ships OFF:**
+  - These now wake the operating agent:
+    - texts from a known contact
+    - client portal messages
+    - a lead's email reply (not while the first response is still being drafted)
+    - portal selections and mood-board approvals
+    - Square payments
+    - bids Joe records
+    - sub day logs
+  - They only fire while the `agent.event_wakeups` policy is active and lists the kind (migration 0049 seeds
+    it as a draft). Joe turns it on from /engine/decisions › Policies.
+  - Each wake-up is one agent run, about 16¢.
+  - Not wired: sub portal messages (no job to tie them to), and project client emails (part of A01 email
+    intake below).
+- **W02 hook failure:**
+  - ~~A failure is only logged.~~ **Done (same branch):** the post-signature steps (billing, workflow,
+    closeout, W08) run through `lib/esign-hooks.ts`. A failed step leaves a failed `esign` source event
+    that the worker retries; the steps are idempotent.
+  - Still open:
+    - The workflow runbooks (`db/seed-workflow-runbooks.mjs`) aren't seeded live. They seed as inactive or
+      proposed for Joe to approve in /engine, so run that at deploy.
+    - ~~Live jobs show stage W01 or W09.~~ **Done (branch `t3/stage-backfill`, migration 0054):** the
+      workflow stage follows the project status forward (trigger), new rows start there, and open jobs are
+      backfilled.
+- ~~**W03 and W11:**~~ **Done (branch `t3/tier3-w11-w03`, `lib/workflow/cards.ts`):**
+  - W03: a "Who does what" card lists every scope item (Joe / a sub / a supplier, supply vs install, his
+    prices). `stage_package_release` stages it first when the current allocation hasn't been reviewed, and
+    the agent can stage it with `stage_scope_allocation_review`. Approving records the review and sends
+    nothing. A later allocation change needs a new review.
+  - W11: after the contract, approving the over-allowance card drafts the change order. Before the
+    contract no card is staged (Joe, 2026-10-30: there is no contract to change); the choice goes into the
+    estimate.
+- ~~**Email intake (A01):**~~ **Done (branch `t3/tier3-email-intake`):**
+  - `create_work_item` takes `email: { message_id, thread_id }`. An email to-do is keyed on its message,
+    with an obligation (`lib/obligations/email.ts`); the same email filed twice returns the open one.
+  - `handleReply` is called from the lead-thread sync: our reply on that thread resolves the obligation
+    and completes the to-do ("Replied by email").
+  - Lead-thread sync pages through every thread since the watermark (cap 2000) and holds the watermark if
+    capped.
+  - The needs-reply detector reads headers for the last 45 days, paged, instead of 150 full bodies.
+  - The compliance renewal and schedule conflict to-dos dedupe on their source (item id / ISO week),
+    not their title.
+  - `catchUpMailbox` stays unused; the paging and watermark hold above cover what it was for.
+  - Hermes still has to pass `email` when it files from the inbox. The tool description says so.
+- ~~**Completion (A04):**~~ **Done (branch `t3/tier3-completion`):**
+  - Joe's Mark done (Today card, /engine, lead and project pages) now goes through `completeWorkItem` via
+    `completeByPerson` (`lib/runbook-engine.ts`): a manual receipt by the signed-in person, with the
+    obligation closed and the runbook advanced in the same transaction.
+  - Evidence from another job or lead is refused (`evidenceJobMismatch` in `lib/completion/complete.ts`).
 - **Runbooks (A02):**
-  - The owner path marks a step done, then advances separately and swallows errors
-    (`lib/runbook-engine.ts:~79-88`).
-  - `needs_review` isn't shown anywhere, and there's no owner Repair button.
-- **Leads (A11):** `lib/leads/{match,facts,routine,package}.ts` has no callers. Mind the `routine.followup`
-  key issue above.
-- **Sub paperwork (A12):** the review functions are now used for COIs. Extend them to W-9s and other documents.
-- **Procurement (A13):**
-  - The real PO send (`lib/send-ops.ts:~137`) skips commitments, cash and the construction gate.
-  - Funding ignores hand-kept `collected_to_date` (`lib/funding/index.ts:~73-86`).
-  - There's no app UI.
+  - ~~The owner path marks a step done, then advances separately and swallows errors.~~ Done paths are
+    fixed by the A04 change above. Other status changes (cancelled, blocked) still use the best-effort
+    `maybeAdvanceRunbook`.
+  - ~~`needs_review` isn't shown anywhere, and there's no owner Repair button.~~ **Done (branch
+    `t3/tier3-runbooks`):**
+    - A stuck instance shows "Needs a look" and its reason on /engine.
+    - **Repair** (owner) recreates the missing step from the pinned definition and re-checks the instance.
+      A legacy one with no pinned definition says to cancel it.
+- ~~**Leads (A11):**~~ **Done (branch `t3/tier3-leads`):**
+  - `import_lead` matches by email **and phone** (`matchIntake`). One match → refuse and point to that lead;
+    several leads → a review row, never a guessed merge.
+  - A lead's reply stops any missing-info ask.
+  - The missing-info asks (`collectMissingFacts`) moved to their own `lead.missing_facts` policy
+    (migration 0052, seeded OFF), so the active `routine.followup` (sub paperwork) never emails a lead.
+    The daily reminders pass asks up to 20 recent leads only while that policy is on.
+  - New MCP tools: `get_lead_qualification`, `preview_lead_followups`, `prepare_estimate_inputs`.
+- ~~**Sub paperwork (A12):**~~ **Done (branch `t3/tier3-subdocs`):**
+  - Every sub-portal upload (W-9, agreement, other) now goes under review with its own to-do for Joe.
+    For a W-9: signed, legal name; the tax ID is never stored.
+  - The Paperwork tab has Accept/Reject for each one, plus a "papers to review" chip. Only a COI needs an
+    expiry date.
+- ~~**Procurement (A13):**~~ **Done (branch `t3/tier3-procurement`):**
+  - "Send to vendor" now checks the purchases lane, the construction gate and the job's cash
+    (`commitOwnerPurchaseOrder`), then records the commitment and holds the cash.
+    - Joe sees why a PO is held and can send it anyway. Staff and agents can't.
+  - A PO committed through its purchase decision now carries its email; before, the intent had no
+    body, so the email provider refused it.
+  - Funding counts money paid outside the app (the ledger's opening collected).
+  - Each PO row shows what it has bound: "Committed · $X of job cash held · N bills".
 - **QuickBooks (A14), which must be done before the bookkeeper's Part B turns exports on:**
-  - Export never matches existing QBO records: invoices (`lib/accounting/server.ts:~115`) and customers by
-    name (`lib/accounting/qbo/sync.ts:~315`). It would duplicate them.
+  - ~~Export never matches existing QBO records.~~ **Done (branch `t3/tier3-qbo`):** a customer with the
+    same display name is reused (imported or asked of QuickBooks). An invoice or payment that looks like
+    an unmatched QuickBooks record is held back as `possible_duplicate` until the match is confirmed or
+    rejected on Settings › Accounting.
   - `reconcilePayout` has no caller; Square fees and net deposits are never reconciled.
   - Refunds and returns aren't mirrored.
-  - The `resolve_accounting_conflict` decision has no handler.
-  - Deletions never surface, because QBO's query endpoint omits deleted records **(inferred)**.
-- **Square (A20):**
-  - `requestRefund` and `executeApprovedRefund` have no caller.
-  - Dispute events are ignored.
-  - Reconcile misses a refund or return that arrives after completion.
-  - The worker doesn't retry failed Square events.
-  - The "ACH available" flag reads AUTOMATIC_TRANSFERS, which is likely the wrong capability **(inferred)**.
-- **Closeout and marketing (A17):** the `lib/closeout/marketing.ts` and `revisions.ts` functions have no
-  callers.
-- **Designer (A21):** "estimate from plan" reads the live drawing, not a pinned revision
-  (`lib/actions/plan-estimate.ts:~79`).
-- **Measurement (A18):**
-  - `openCase` and `closeCase` have no callers.
-  - Staff with cost-book access can change the default markup without a decision
-    (`lib/actions/cost-book.ts:~68`).
+  - ~~The `resolve_accounting_conflict` decision has no handler.~~ **Done:** Approve = QuickBooks is right
+    (accepted, no longer flagged). Reject = SJC OS is right (stays flagged until fixed in QuickBooks).
+  - ~~Deletions never surface.~~ **Done:** read through Change Data Capture (`listDeleted`). A posted record
+    becomes a conflict card; an unmatched one leaves the review list.
+- ~~**Square (A20):**~~ **Done (branch `t3/tier3-square`):**
+  - Settings › Payments lists recent online payments with **Refund…**. It files a refund card, and approving
+    the card refunds in Square (`executeRefundDecision` from `performApprovalEffects`).
+  - Dispute events: open → disputed, plus a Telegram alert with the reason and answer-by date. Won → stands.
+    Lost or accepted → a `return` on the invoice, once.
+  - The reconcile sweep re-reads completed payments from the last 90 days for late refunds (made in the
+    Dashboard, or with a webhook that never arrived) and bank returns. A refund made outside SJC OS alerts Joe.
+  - The worker retries failed Square events (`lib/worker/square-processor.ts`).
+  - ACH availability is now card processing on a US/USD location, not AUTOMATIC_TRANSFERS (payouts).
+- **Closeout and marketing (A17):**
+  - ~~`revisions.ts` has no callers.~~ **Done (branch `t3/tier3-closeout`):** every signed document's
+    content is pinned as its revision (a signature step in `lib/esign-hooks.ts`). The designer also pins
+    through it (#83).
+  - **Marketing is copy and paste (Joe, 2026-10-30: no paid social APIs).** /marketing drafts posts; Joe
+    copies the text and marks it posted.
+    - Each draft card now shows the job's photos with an **OK to share** tick (`publication_rights`, owner
+      only, `setPhotoShareable`) and a Download link for the shareable ones.
+    - The publish card and dispatcher `publication` kind stay unwired on purpose.
+    - Posting by an agent with computer use is a separate thread. Joe has the prompt.
+- ~~**Designer (A21):**~~ **Done (branch `t3/tier3-designer`):**
+  - "Estimate from plan" now reads a pinned design version. It reuses the newest version when that version
+    is the live drawing; otherwise it snapshots a new one first.
+  - The lines' sections cite it (`· Kitchen v3 · New`), and the panel says which version was used.
+  - A sent or signed estimate is refused up front (sent-estimate lock).
+- ~~**Measurement (A18):**~~ **Done (branch `t3/tier3-measure`):**
+  - Every outbound send is now a measurement case. A trigger on `action_intents` (migration 0051) opens the
+    case with the mode taken from what authorised the send, and closes it as success, failure or corrected.
+    `openCase`/`closeCase` stay available for non-send work.
+  - The Cost book markup now goes through the markup decision. Staff → a card Joe approves; Joe → applied
+    at once.
+  - Fixed: `applyMarkupDecision` never worked, because it didn't present the card's content hash.
+    Approving now writes a new pricing setup version plus the setting.
 - **Owner hours (A19):**
-  - `verifiedHoursForCloseout` and `setOwnerLaborRate` are unused.
-  - The phone side was never built; `sjcos-mobile` hasn't changed since 08-29.
+  - ~~`verifiedHoursForCloseout` and `setOwnerLaborRate` are unused.~~ **Done (branch
+    `t3/tier3-owner-hours`):**
+    - /time has a **Save rate** form (kind of work, $/h, from date). It goes through an approved
+      `owner_rate` decision.
+    - `get_project_financials` reports `owner_hours`: confirmed hours valued at those rates. This sits
+      beside cost and profit, not inside them.
+  - The phone side (geofence clock-in prompts) was never built; `sjcos-mobile` hasn't changed since
+    08-29. That's a separate repo.
 
 ## Tier 4: agent safety and operations
 
@@ -272,24 +354,35 @@ by Joe/staff don't feed the weekly update (only sub logs do).
   limits nor the A24 operating instructions. It has the full environment, the live repo and no timeout
   (`scripts/run-claude-agent.mjs` `buildPrompt` `~175-200`, `DEV_CLAUDE_TIMEOUT_MS` unset). Discuss with
   Joe before limiting his own tool.
-- **Hermes picked by a staff member runs as Joe**, with no person attached and no revocation check
-  (`lib/actions/ai-chat.ts:~152-183`).
+- ~~**Hermes picked by a staff member runs as Joe.**~~ **Done (branch `t3/tier4-hermes-staff`):**
+  - A staff turn in an Auto thread goes to Claude, which runs bound to that person.
+  - A staff thread pinned to Hermes or Qwen is refused, and voice won't delegate to them for staff.
 - **No database role isolation or dollar cap:**
   - `deploy/db-roles.sql` was never applied, and `DATABASE_URL_AGENT` is unused.
   - The worker identity lib (`lib/authority/worker-identity.ts`) has no callers.
-  - There's no dollar cap on worker runs (`scripts/run-business-agent.mjs:~66`).
-- **Owner grants aren't tied to the content** of the send (`lib/owner-grant-types.ts:~84-113`).
-- **Direct sends skip lanes, opt-outs and unknown-outcome handling:**
+  - ~~There's no dollar cap on worker runs.~~ **Done (branch `t3/tier4-cost-cap`):** a daily cap
+    (`agents.daily_cost_cap_usd`, default $25; normal days are $1–$9). When it's hit, the worker claims
+    nothing more that day and Joe gets one alert.
+- ~~**Owner grants aren't tied to the content.**~~ **Done (same branch):** a grant approved for an exact
+  message (a staged send) covers that subject and body only, checked at the agent call and at dispatch.
+  Run-scoped "Express permission" grants stay broad by design.
+- ~~**Direct sends skip lanes, opt-outs and unknown-outcome handling.**~~ **Done (same branch,
+  `lib/direct-send-gate.ts`):** all five check the lane and opt-outs first. A bid follow-up whose send may
+  have gone out is marked "unknown outcome" and never retried on its own (Joe gets a flag). The five:
   - `lib/bid-follow-ups.ts:~199`
   - `lib/newsletter-drip.ts:~243`
   - `lib/doc-drafts.ts:~871`
   - `lib/portal-publish.ts:~98`
   - `lib/lead-first-response.ts:~757`
-- **Monitoring:**
-  - There's no off-server uptime check, so a dead server alerts no one.
-  - The monitor's only fallback when Telegram fails is a local log.
-  - `docs/automation-reliability/monitoring.md` is referenced but missing.
-- **MCP:** the server has no `instructions`, and panel runs don't record which instruction versions they loaded.
+- ~~**Monitoring.**~~ **Done (branch `t3/tier4-mcp-monitor`):**
+  - The monitor pings an off-box heartbeat URL (`SJCOS_HEALTHCHECK_URL`): `/fail` with the problems on
+    failure. That URL is also the fallback when Telegram delivery fails.
+  - `docs/automation-reliability/monitoring.md` is written.
+  - **Joe owes:** make the free healthchecks.io check and paste the URL.
+- ~~**MCP.**~~ **Done (same branch):**
+  - The server sends `instructions` on connect (sends need grants; never touch policies/pricing/money
+    totals; the estimate and CO rules; email to-dos carry their message).
+  - Panel runs record `instruction_versions` (migration 0055).
 - **Evals** ran once on `claude-opus-5`. Re-run them on the live models (Opus 5.5, Haiku 5.5) and add
   V28 (message style) and V46 (loading parity).
 

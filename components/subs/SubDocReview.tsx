@@ -6,19 +6,24 @@ import { toast } from "@/components/ui/Toast";
 import { acceptSubDocument, rejectSubDocument } from "@/lib/actions/sub-docs";
 import { runAction } from "@/lib/run-action";
 
-/** Owner's Accept / Reject on a sub's uploaded COI. Accept asks for the expiry
- *  date Joe read on the certificate (prefilled with what the sub typed) and is
- *  the only thing that makes the COI current. Reject needs a reason, which goes
+/** Owner's Accept / Reject on a sub's upload (COI, W-9, agreement, other).
+ *  For a COI, Accept asks for the expiry date Joe read on the certificate
+ *  (prefilled with what the sub typed) and is the only thing that makes it
+ *  current; other papers are accepted as they are. Reject needs a reason, which goes
  *  to the sub in the email asking for a new one. The actions re-check owner. */
 export function SubDocReview({
   slug,
   documentId,
   typedExpiry,
+  docType = "coi",
 }: {
   slug: string;
   documentId: number;
   typedExpiry: string | null;
+  /** Only a COI is accepted with an expiry date. */
+  docType?: string;
 }) {
+  const isCoi = docType === "coi";
   const [pending, startTransition] = useTransition();
   const [expires, setExpires] = useState(typedExpiry ?? "");
   const [rejecting, setRejecting] = useState(false);
@@ -41,7 +46,7 @@ export function SubDocReview({
           toast({
             kind: "success",
             title: "Accepted",
-            message: `COI accepted · expires ${expires}`,
+            message: isCoi ? `COI accepted · expires ${expires}` : "Accepted",
           }),
       });
     });
@@ -101,15 +106,17 @@ export function SubDocReview({
 
   return (
     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-      <label className="flex items-center gap-1 text-meta text-ink-3">
-        Expires
-        <input
-          type="date"
-          value={expires}
-          onChange={(e) => setExpires(e.target.value)}
-          className={inputCls}
-        />
-      </label>
+      {isCoi && (
+        <label className="flex items-center gap-1 text-meta text-ink-3">
+          Expires
+          <input
+            type="date"
+            value={expires}
+            onChange={(e) => setExpires(e.target.value)}
+            className={inputCls}
+          />
+        </label>
+      )}
       <div className="flex-1" />
       <button
         type="button"
@@ -122,7 +129,7 @@ export function SubDocReview({
       <button
         type="button"
         className={btnPrimary}
-        disabled={pending || !expires}
+        disabled={pending || (isCoi && !expires)}
         onClick={accept}
       >
         <Check className="size-3" strokeWidth={2} />

@@ -197,6 +197,33 @@ export interface WorkerRunReport {
   executions: { triggerId: string; executionId: string; status: string; kind: string; ref: string }[];
 }
 
+export const DAILY_COST_CAP_KEY = "agents.daily_cost_cap_usd";
+const DEFAULT_DAILY_COST_CAP_USD = 25;
+
+/** Tier 4: a dollar ceiling on background agent runs per Central day
+ *  (app_settings agents.daily_cost_cap_usd, default $25; 0 = no cap). Normal
+ *  days run $1–$9; the cap stops a runaway loop, not normal work. When it is
+ *  reached the worker claims nothing more today (triggers wait, nothing is
+ *  lost) and Joe gets one bell + push for the day. */
+export async function dailyCostCap(run: Run): Promise<{ reached: boolean; spentUsd: number; capUsd: number; reason: string }> {
+  const [setting] = await run<{ value: string }>(`SELECT value FROM app_settings WHERE key = $1`, [DAILY_COST_CAP_KEY]);
+  const capUsd = setting ? Number(setting.value) : DEFAULT_DAILY_COST_CAP_USD;
+  const [row] = await run<{ spent: string }>(
+    `SELECT COALESCE(sum(cost_usd), 0)::text AS spent FROM agent_executions
+      WHERE started_at >= (date_trunc('day', now() AT TIME ZONE 'America/Chicago') AT TIME ZONE 'America/Chicago')`,
+  );
+  const spentUsd = Number(row?.spent ?? 0);
+  if (!Number.isFinite(capUsd) || capUsd <= 0 || spentUsd < capUsd) return { reached: false, spentUsd, capUsd, reason: "" };
+  const reason = `Background agents stopped for today: $${spentUsd.toFixed(2)} spent, over the $${capUsd.toFixed(2)} daily cap. Waiting work resumes tomorrow (raise agents.daily_cost_cap_usd to resume now).`;
+  const [day] = await run<{ d: string }>(`SELECT (now() AT TIME ZONE 'America/Chicago')::date::text AS d`);
+  const claimed = await run(`INSERT INTO reminder_log (dedup_key) VALUES ($1) ON CONFLICT DO NOTHING RETURNING dedup_key`, [`agent-cost-cap:${day?.d ?? "today"}`]);
+  if (claimed.length) {
+    await run(`INSERT INTO notifications (kind, tag, accent, icon, title, subline, when_label, flagged, href) VALUES ('job', 'Agents', 'flag', 'star', $1, $2, 'Just now', true, '/engine')`, ["Background agents hit today's spending cap", reason]);
+    await run(`INSERT INTO push_outbox (kind, title, body, href, send_after) VALUES ('agent_failure', $1, $2, '/engine', now())`, ["Agents hit today's spending cap", reason]);
+  }
+  return { reached: true, spentUsd, capUsd, reason };
+}
+
 /** One pass: sweep, check the 'agents' lane, claim, process. */
 export async function runWorkerOnce(tx: Tx, direct: Run, opts: WorkerOptions): Promise<WorkerRunReport> {
   const log = opts.onLog ?? (() => {});
@@ -208,6 +235,14 @@ export async function runWorkerOnce(tx: Tx, direct: Run, opts: WorkerOptions): P
     if (!lane.open) {
       report.lane = { open: false, reason: lane.reason };
       log(`lane 'agents' paused: ${lane.reason}`);
+      return report;
+    }
+  }
+  if (!opts.ignoreLane) {
+    const cap = await dailyCostCap(direct);
+    if (cap.reached) {
+      report.lane = { open: false, reason: cap.reason };
+      log(cap.reason);
       return report;
     }
   }

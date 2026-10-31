@@ -360,3 +360,62 @@ test("F2 V45 runtime follow-through does not append unconfigured statutory cover
     "only configured warranty terms may populate the document",
   );
 });
+
+
+test("renewals dedupe by source even after a rename, while same-named sources remain distinct", async () => {
+  const items = [{ id: "insurance:7", title: "Shared name", due: "Nov 1" }, { id: "compliance:8", title: "Shared name", due: "Nov 2" }];
+  reset((sql, params) => {
+    if (sql.includes("FROM compliance_items") && sql.includes("insurance_policies")) return items;
+    if (sql.includes("SELECT id FROM work_items")) {
+      assert.match(sql, /source_id = \$1/);
+      assert.match(sql, /source_kind IN \('compliance_renewal','manual'\)/);
+      assert.equal(params.length, 1);
+      return params[0] === "insurance:7" ? [{ id: "renamed-to-do" }] : [];
+    }
+    return [];
+  });
+  assert.deepEqual(await renewals.queueRenewalRequests(), { ok: true, queued: 1, alreadyQueued: 1 });
+  const insert = queries.find(q => q.s.includes("INSERT INTO work_items"));
+  assert.match(insert.s, /'compliance_renewal'/);
+  assert.equal(insert.p[2], "compliance:8");
+  assert.match(insert.p[1], /update the policy or compliance record/);
+});
+
+test("schedule flags keep the selected week and update its existing to-do even if renamed", async () => {
+  for (const weekOffset of [0, 2, -1]) {
+    for (const existing of [false, true]) {
+      const week = weekOffset === 2 ? "2026-W46" : weekOffset === -1 ? "2026-W43" : "2026-W44";
+      reset((sql, params) => {
+        if (sql.includes("FROM schedule_blocks b")) {
+          assert.ok(sql.includes(`interval '${weekOffset} week'`), "read blocks for the selected week");
+          return [{ iso: "2026-11-09", day_label: "Mon Nov 9", time_label: "9am", label: "First job" }, { iso: "2026-11-09", day_label: "Mon Nov 9", time_label: "09:00", label: "Other job" }];
+        }
+        if (sql.includes("AS wk")) {
+          assert.match(sql, /America\/Chicago/);
+          assert.ok(sql.includes(`interval '${weekOffset} week'`));
+          assert.match(sql, /extract\(isodow.*>= 6 THEN interval '1 week'/);
+          const blocks = queries.find(q => q.s.includes("FROM schedule_blocks b"));
+          const monday = sql.slice("SELECT to_char(".length, sql.indexOf(", 'IYYY"));
+          assert.ok(blocks.s.includes(`b.block_date >= ${monday}`), "dedupe key uses the same displayed week, including weekend rollover");
+          return [{ wk: week }];
+        }
+        if (sql.includes("SELECT id FROM work_items")) {
+          assert.equal(params[0], `week:${week}`);
+          assert.match(sql, /source_kind = 'schedule_conflict' AND source_id = \$1/);
+          assert.match(sql, /source_kind = 'manual' AND source_id IS NULL AND title = \$2/);
+          return existing ? [{ id: "renamed-conflict" }] : [];
+        }
+        return [];
+      });
+      assert.deepEqual(await schedule.flagScheduleConflict(weekOffset), { ok: true, queued: !existing });
+      const insert = queries.find(q => q.s.includes("INSERT INTO work_items"));
+      if (existing) {
+        assert.equal(insert, undefined);
+        assert.equal(queries.find(q => q.s.includes("UPDATE work_items SET body")).p[0], "renamed-conflict");
+      } else {
+        assert.equal(insert.p[2], `week:${week}`);
+        assert.match(insert.p[0], weekOffset === 0 ? /this week/ : new RegExp(`week offset ${weekOffset}`));
+      }
+    }
+  }
+});

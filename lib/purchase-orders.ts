@@ -23,6 +23,9 @@ interface PoRow {
   subtotal: number;
   created_label: string;
   sent_label: string | null;
+  commitment_state: string | null;
+  held_cents: string | null;
+  bills: number | null;
 }
 
 interface PoLineRow {
@@ -55,6 +58,17 @@ function lineToView(r: PoLineRow): PoLineView {
   };
 }
 
+/** "Committed · $1,200.00 of job cash held · 1 bill" — what the PO has
+ *  bound (A13): the commitment, the cash held for it, bills against it. */
+function commitmentLabel(r: PoRow): string | null {
+  if (!r.commitment_state || r.commitment_state === "void" || r.commitment_state === "draft") return null;
+  const held = Number(r.held_cents ?? 0);
+  const parts = [r.commitment_state === "committed" ? "Committed" : r.commitment_state.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase())];
+  if (held > 0) parts.push(`${fmtPoUsd(held)} of job cash held`);
+  if (r.bills) parts.push(`${r.bills} bill${r.bills === 1 ? "" : "s"}`);
+  return parts.join(" · ");
+}
+
 function rowToView(r: PoRow, lines: PoLineView[]): PurchaseOrderView {
   return {
     id: Number(r.id),
@@ -72,6 +86,7 @@ function rowToView(r: PoRow, lines: PoLineView[]): PurchaseOrderView {
     subtotalLabel: fmtPoUsd(r.subtotal),
     createdAtLabel: r.created_label,
     sentAtLabel: r.sent_label,
+    commitmentLabel: commitmentLabel(r),
     lines,
   };
 }
@@ -82,8 +97,12 @@ export async function getProjectPurchaseOrders(slug: string): Promise<PurchaseOr
     `SELECT po.id, po.po_number, po.title, po.notes, po.vendor_kind, po.vendor_id, po.sub_slug,
             po.vendor_name, po.vendor_email, po.vendor_phone, po.status, po.subtotal,
             to_char(po.created_at, 'Mon FMDD, YYYY') AS created_label,
-            to_char(po.sent_at, 'Mon FMDD, YYYY') AS sent_label
+            to_char(po.sent_at, 'Mon FMDD, YYYY') AS sent_label,
+            c.state AS commitment_state,
+            (SELECT COALESCE(sum(r.amount_cents), 0) FROM cash_reservations r WHERE r.commitment_id = c.id AND r.state = 'reserved')::text AS held_cents,
+            (SELECT count(*)::int FROM bills b WHERE b.commitment_id = c.id) AS bills
        FROM purchase_orders po
+       LEFT JOIN commitments c ON c.id = po.commitment_id
        JOIN projects p ON p.id = po.project_id
       WHERE p.slug = $1
       ORDER BY po.created_at DESC, po.id DESC`,
@@ -115,8 +134,12 @@ export async function getPurchaseOrder(slug: string, id: number): Promise<Purcha
     `SELECT po.id, po.po_number, po.title, po.notes, po.vendor_kind, po.vendor_id, po.sub_slug,
             po.vendor_name, po.vendor_email, po.vendor_phone, po.status, po.subtotal,
             to_char(po.created_at, 'Mon FMDD, YYYY') AS created_label,
-            to_char(po.sent_at, 'Mon FMDD, YYYY') AS sent_label
+            to_char(po.sent_at, 'Mon FMDD, YYYY') AS sent_label,
+            c.state AS commitment_state,
+            (SELECT COALESCE(sum(r.amount_cents), 0) FROM cash_reservations r WHERE r.commitment_id = c.id AND r.state = 'reserved')::text AS held_cents,
+            (SELECT count(*)::int FROM bills b WHERE b.commitment_id = c.id) AS bills
        FROM purchase_orders po
+       LEFT JOIN commitments c ON c.id = po.commitment_id
        JOIN projects p ON p.id = po.project_id
       WHERE po.id = $1 AND p.slug = $2`,
     [id, slug],

@@ -14,6 +14,8 @@ import { storeUpload } from "@/lib/upload-store";
 import { emit } from "@/lib/notify";
 import { logClientActivity, ownerHref } from "@/lib/client-activity";
 import { notifyDashboardPublish, type DeliveryNote } from "@/lib/portal-publish";
+import { withTransaction } from "@/lib/commands/db";
+import { onMoodBoardApproved } from "@/lib/agent-runtime/hooks";
 
 type Result = { ok: boolean; error?: string };
 
@@ -542,6 +544,13 @@ export async function approveMoodBoard(room: string, formData: FormData): Promis
       actorName: user.name || name,
       href: ownerHref({ kind: "project", slug }, { tab: "Mood", focus: `mood-${room}` }),
     });
+    // Wake the operating agent (only while agent.event_wakeups is on).
+    try {
+      const proj = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [slug]);
+      if (proj) await withTransaction((run) => onMoodBoardApproved(run, { projectId: proj.id, room, approvedName: name }));
+    } catch (err) {
+      console.error("[mood] agent wake-up failed:", (err as Error).message);
+    }
   }
 
   revalidatePath("/client-portal/mood");

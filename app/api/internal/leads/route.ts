@@ -16,6 +16,8 @@
 import { NextResponse } from "next/server";
 import { queryOne } from "@/lib/db";
 import { createInboundLead, type InboundLead } from "@/lib/intake";
+import { runDirect } from "@/lib/commands/db";
+import { matchIntake } from "@/lib/leads/match";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,17 +51,25 @@ export async function POST(req: Request) {
         if (!name) return NextResponse.json({ ok: false, error: "name required" }, { status: 400 });
 
         const email = str("email");
-        if (email && body.allow_duplicate !== true) {
-          const existing = await queryOne<{ slug: string; name: string }>(
-            `SELECT slug, name FROM leads WHERE lower(email) = lower($1) AND stage <> 'lost'
-              ORDER BY created_at DESC LIMIT 1`,
-            [email],
-          );
+        const phone = str("phone");
+        // Same person already a lead? Email or phone (lib/leads/match.ts):
+        // one match → work that lead; several that disagree → a review row,
+        // never a guessed merge.
+        if ((email || phone) && body.allow_duplicate !== true) {
+          const m = await matchIntake(runDirect, { email, phone, name }, { payload: { name, email, phone, source: str("source") ?? null } });
+          if (m.kind === "review") {
+            return NextResponse.json({
+              ok: false,
+              error: `${m.reason} Leads: ${m.candidates.map((c) => c.slug).join(", ")}. Logged for review (#${m.reviewId}); ask Joe which one, or re-send with allow_duplicate: true if it's a new project.`,
+              candidates: m.candidates.map((c) => c.slug),
+            });
+          }
+          const existing = m.kind === "matched" ? await queryOne<{ slug: string; name: string }>(`SELECT slug, name FROM leads WHERE id = $1`, [m.leadId]) : null;
           if (existing) {
             return NextResponse.json({
               ok: false,
               error:
-                `A non-lost lead with this email already exists: "${existing.name}" (${existing.slug}). ` +
+                `A non-lost lead with this email or phone already exists: "${existing.name}" (${existing.slug}). ` +
                 `Probably the same inquiry — work that lead instead, or re-send with allow_duplicate: true ` +
                 `if this is genuinely a new project from the same person.`,
               existing_slug: existing.slug,

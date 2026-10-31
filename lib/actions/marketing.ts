@@ -11,6 +11,8 @@ import { ai } from "@/lib/ai";
 import { emit } from "@/lib/notify";
 import { normalizeMarketingCopy } from "@/lib/marketing-copy";
 import { type DraftKind } from "@/lib/marketing-types";
+import { runDirect, userPrincipal } from "@/lib/commands/db";
+import { grantPublicationRights, withdrawPublicationRights } from "@/lib/closeout/marketing";
 
 type Result = { ok: boolean; error?: string };
 
@@ -225,5 +227,25 @@ export async function deleteDraft(id: number): Promise<Result> {
   await query(`DELETE FROM marketing_drafts WHERE id = $1`, [id]);
   revalidatePath("/marketing");
   revalidatePath("/site"); // blog drafts also surface in the Website composer
+  return { ok: true };
+}
+
+/** Joe marks a job photo as OK to share publicly (the client agreed) or takes
+ *  that back. Only shareable photos are offered for download on /marketing;
+ *  taking it back also pulls it from anything queued to publish. Owner only:
+ *  it records the client's permission. */
+export async function setPhotoShareable(projectSlug: string, fileId: string, shareable: boolean): Promise<Result> {
+  const user = await requireAccess("marketing");
+  if (user.role !== "owner") return { ok: false, error: "Only Joe records a client's OK to share photos." };
+  const proj = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [projectSlug]);
+  if (!proj) return { ok: false, error: "Project not found." };
+  const file = await queryOne<{ id: string }>(`SELECT id FROM files WHERE id = $1 AND project_key = $2 AND type = 'img'`, [fileId, projectSlug]);
+  if (!file) return { ok: false, error: "That photo isn't on this job." };
+  if (shareable) {
+    await grantPublicationRights(runDirect, { fileIds: [fileId], projectId: proj.id, grantedBy: user.name || "Joe", grantedByUserId: user.id, note: "client OK'd sharing (marked on /marketing)" });
+  } else {
+    await withdrawPublicationRights(runDirect, userPrincipal(user), fileId, "taken back on /marketing");
+  }
+  revalidatePath("/marketing");
   return { ok: true };
 }

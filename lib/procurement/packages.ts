@@ -23,6 +23,7 @@ import { commitOnApproval, prepareCommitment, stagePurchaseDecision, type Commit
 import type { ConstructionGate } from "./gate.ts";
 import { usd } from "./types.ts";
 import { manualMarketplaceFor } from "./vendor-rules.ts";
+import { allocationReviewed, stageAllocationReview } from "../workflow/cards.ts";
 
 export interface PackageReleaseInput {
   packageId: number;
@@ -68,19 +69,52 @@ function diffSummary(prev: DecisionSummary | null, next: DecisionSummary): strin
   return changes.length ? changes : ["No material change since the last card (re-staged)."];
 }
 
-/** Stage per-recipient release decisions for a bid package. */
-export async function stagePackageRelease(run: Run, input: PackageReleaseInput): Promise<{ ok: true; cards: ReleaseCard[]; packageRevision: string } | { ok: false; reason: string }> {
-  const [pkg] = await run<{ id: number; project_id: string; title: string; trade: string; scope_notes: string; due_date: string | null; status: string; project_name: string; slug: string }>(
+export interface ReleasePackage {
+  pkg: { id: number; project_id: string; title: string; trade: string; scope_notes: string; due_date: string | null; status: string; project_name: string; slug: string };
+  attachments: { label: string; revision: string; fileId: string }[];
+}
+
+/** A package and its packet as a release card sees them. */
+export async function packageForRelease(run: Run, packageId: number): Promise<ReleasePackage | null> {
+  const [pkg] = await run<ReleasePackage["pkg"]>(
     `SELECT b.id, b.project_id, b.title, b.trade, b.scope_notes, b.due_date::text AS due_date, b.status, p.name AS project_name, p.slug
        FROM bid_packages b JOIN projects p ON p.id = b.project_id WHERE b.id = $1`,
-    [input.packageId],
+    [packageId],
   );
-  if (!pkg) return { ok: false, reason: "Bid package not found." };
+  if (!pkg) return null;
   const files = await run<{ file_id: string; label: string; name: string; created_at: string }>(
     `SELECT f.file_id, f.label, fi.name, fi.created_at::text AS created_at FROM bid_package_files f JOIN files fi ON fi.id = f.file_id WHERE f.package_id = $1 ORDER BY f.sort_order, f.id`,
     [pkg.id],
   );
-  const attachments = files.map((f) => ({ label: f.label || f.name, revision: f.created_at.slice(0, 19), fileId: f.file_id }));
+  return { pkg, attachments: files.map((f) => ({ label: f.label || f.name, revision: f.created_at.slice(0, 19), fileId: f.file_id })) };
+}
+
+/** The revision a release card is bound to: scope, due date, packet files and
+ *  the card's included/excluded work. Any edit to the package changes it. */
+export function packageRevisionOf(
+  { pkg, attachments }: ReleasePackage,
+  parts: { inclusions: string[]; exclusions: string[]; quantities: unknown[] },
+): string {
+  return hashInput({ title: pkg.title, trade: pkg.trade, scope: pkg.scope_notes, due: pkg.due_date, attachments: attachments.map((a) => a.fileId + a.revision), inclusions: parts.inclusions, exclusions: parts.exclusions, quantities: parts.quantities }).slice(0, 16);
+}
+
+/** The exact content a bid release card approves (hashed onto the decision).
+ *  lib/procurement/release-send.ts rebuilds it from the package as it stands
+ *  at approval time: a different hash means the package changed. */
+export function releaseContentOf(c: { packageId: number; inviteId: number; packageRevision: string; address: string; inclusions: string[]; exclusions: string[]; quantities: unknown[]; attachments: { fileId: string }[]; message: string }) {
+  return { packageId: c.packageId, inviteId: c.inviteId, packageRevision: c.packageRevision, address: c.address, inclusions: c.inclusions, exclusions: c.exclusions, quantities: c.quantities, attachments: c.attachments.map((a) => a.fileId), message: c.message };
+}
+
+/** Stage per-recipient release decisions for a bid package. */
+export async function stagePackageRelease(run: Run, input: PackageReleaseInput): Promise<{ ok: true; cards: ReleaseCard[]; packageRevision: string } | { ok: false; reason: string }> {
+  const loaded = await packageForRelease(run, input.packageId);
+  if (!loaded) return { ok: false, reason: "Bid package not found." };
+  const { pkg, attachments } = loaded;
+  // W03: Joe reviews who does what before any bid request goes out.
+  if (!(await allocationReviewed(run, pkg.project_id))) {
+    const review = await stageAllocationReview(run, pkg.project_id, input.principal);
+    return { ok: false, reason: `Joe hasn't reviewed who does what on this job yet${review.ok ? `; that card is staged (decision ${review.decision.id})` : ""}. Release cards come after he approves it.` };
+  }
   const invites = await run<{ id: number; sub_slug: string; message: string; status: string; name: string; trade: string; email: string | null; phone: string | null }>(
     `SELECT i.id, i.sub_slug, i.message, i.status, s.name, s.trade, s.email, s.phone FROM bid_invites i JOIN subs s ON s.slug = i.sub_slug
       WHERE i.package_id = $1 AND ($2::bigint[] IS NULL OR i.id = ANY($2::bigint[])) ORDER BY i.id`,
@@ -90,7 +124,7 @@ export async function stagePackageRelease(run: Run, input: PackageReleaseInput):
   const inclusions = input.inclusions?.length ? input.inclusions : pkg.scope_notes ? pkg.scope_notes.split(/\r?\n/).map((s) => s.trim()).filter(Boolean) : [];
   if (!inclusions.length) return { ok: false, reason: "The package has no included work described; a release card must say what is being bid." };
   const exclusions = input.exclusions ?? [];
-  const packageRevision = hashInput({ title: pkg.title, trade: pkg.trade, scope: pkg.scope_notes, due: pkg.due_date, attachments: attachments.map((a) => a.fileId + a.revision), inclusions, exclusions, quantities: input.quantities ?? [] }).slice(0, 16);
+  const packageRevision = packageRevisionOf(loaded, { inclusions, exclusions, quantities: input.quantities ?? [] });
 
   const cards: ReleaseCard[] = [];
   for (const inv of invites) {
@@ -117,7 +151,7 @@ export async function stagePackageRelease(run: Run, input: PackageReleaseInput):
         : `Approving emails the ${pkg.title} package (rev ${packageRevision}) with ${attachments.length} attachment${attachments.length === 1 ? "" : "s"} to ${inv.name} <${address}> only. Other recipients are separate cards.`,
     };
     summary.changes = diffSummary(last?.summary ?? null, summary);
-    const content = { packageId: pkg.id, inviteId: inv.id, packageRevision, address, inclusions, exclusions, quantities: summary.quantities, attachments: attachments.map((a) => a.fileId), message: inv.message };
+    const content = releaseContentOf({ packageId: pkg.id, inviteId: inv.id, packageRevision, address, inclusions, exclusions, quantities: summary.quantities ?? [], attachments, message: inv.message });
     const staged = await stageDecision(run, {
       kind: "package_release",
       action: "send_bid_package",
@@ -175,6 +209,10 @@ export async function stageSupplierPricingRequest(run: Run, input: SupplierPrici
       ? `Approving hands the request text to Joe to paste for ${v.name}; nothing is sent automatically.`
       : `Approving emails a non-binding pricing request (rev ${revision}) to ${v.name} <${address}>. It commits nothing.`,
   };
+  // The request itself rides on the card: the send rebuilds the email from it
+  // and checks it against the approved hash.
+  const request = { vendorId: v.id, projectId: input.projectId, products: input.products, neededBy: input.neededBy ?? null, attachments: (input.attachments ?? []).map((a) => a.fileId), notes: input.notes ?? "" };
+  summary.request = request;
   const staged = await stageDecision(run, {
     kind: "package_release",
     action: "send_supplier_pricing_request",
@@ -183,7 +221,7 @@ export async function stageSupplierPricingRequest(run: Run, input: SupplierPrici
     targetKind: "vendor",
     targetId: v.id,
     recipient: address,
-    content: { vendorId: v.id, projectId: input.projectId, products: input.products, neededBy: input.neededBy ?? null, attachments: (input.attachments ?? []).map((a) => a.fileId) },
+    content: request,
     artifactRevision: revision,
     projectId: input.projectId,
     href: input.href ?? (p ? `/projects/${p.slug}` : null),

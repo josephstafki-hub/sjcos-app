@@ -16,7 +16,7 @@ export async function resolveComplianceItem(id: string) {
 
 /** "Collect renewals" on /compliance: park one Open Engine work item per
  *  unresolved item due in the next 45 days (deduped against open items by
- *  title). Internal only — nothing is sent to a sub or carrier from here. */
+ *  source record). Internal only — nothing is sent to a sub or carrier from here. */
 export async function queueRenewalRequests(): Promise<
   { ok: true; queued: number; alreadyQueued: number } | { ok: false; error: string }
 > {
@@ -31,9 +31,12 @@ export async function queueRenewalRequests(): Promise<
   let alreadyQueued = 0;
   for (const r of rows) {
     const title = `Collect renewal — ${r.title}`;
+    // Keyed on the compliance item, not the title (A01): a renamed item or a
+    // to-do someone retitled still dedupes; two items with the same name don't.
     const existing = await queryOne<{ id: string }>(
-      `SELECT id FROM work_items WHERE title = $1 AND completed_at IS NULL LIMIT 1`,
-      [title],
+      `SELECT id FROM work_items
+        WHERE source_id = $1 AND source_kind IN ('compliance_renewal','manual') AND completed_at IS NULL LIMIT 1`,
+      [r.id],
     );
     if (existing) {
       alreadyQueued++;
@@ -41,7 +44,7 @@ export async function queueRenewalRequests(): Promise<
     }
     await query(
       `INSERT INTO work_items (title, body, priority, assignee_kind, source_kind, source_id, created_by)
-       VALUES ($1, $2, 'normal', 'human', 'manual', $3, 'user')`,
+       VALUES ($1, $2, 'normal', 'human', 'compliance_renewal', $3, 'user')`,
       [title, `Due ${r.due}. Collect the renewal document and update the policy or compliance record.`, r.id],
     );
     queued++;

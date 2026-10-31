@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
 import { withTestDb, harnessAvailable, cleanFoundation } from "./_harness/testdb.mjs";
-import { SEED_VERSIONS, checksumOf } from "../lib/agent-runtime/instruction-texts.mjs";
+import { SEED_VERSIONS, WORKFLOW_DIGEST_V2, checksumOf } from "../lib/agent-runtime/instruction-texts.mjs";
+import { readFileSync } from "node:fs";
 import { standingContextBlock as standingBlockJs, activateInstructionVersion, proposeInstructionVersion, rollbackInstructionVersion } from "../lib/agent-runtime/instructions-block.mjs";
 import { buildBusinessInstructions, standingContextBlock, loadActiveInstructionBlocks } from "../lib/agent-runtime/instructions.ts";
 import { enqueueAgentTrigger, claimAgentTriggers, finishAgentTrigger, sweepStrandedTriggers, getAgentTrigger } from "../lib/agent-runtime/triggers.ts";
@@ -351,5 +352,23 @@ test("skill versions are immutable: a new body = a new version; activation is ex
     assert.equal(seeded2.stepsInserted, 0, "idempotent re-seed inserts nothing");
     const [w02] = await direct(`SELECT count(*)::int AS n FROM runbook_definition_versions WHERE runbook_slug = 'workflow-w02-signature-preparation'`);
     assert.equal(w02.n, 1, "definition version snapshot pinned");
+  });
+});
+
+test("workflow_digest v2 (0053): above-allowance choices are a change order only after the contract; the migration's text = the module's", { skip }, async () => {
+  await withTestDb(async (_url, client) => {
+    await cleanAgents(client);
+    const run = async (sql, params) => (await client.query(sql, params)).rows;
+    await client.query(readFileSync(new URL("../db/migrations/0053_workflow_digest_allowance_v2.sql", import.meta.url), "utf8"));
+    const blocks = await loadActiveInstructionBlocks(run);
+    assert.equal(blocks.workflow_digest.version, 2);
+    assert.equal(blocks.workflow_digest.body, WORKFLOW_DIGEST_V2);
+    assert.equal(blocks.workflow_digest.checksum, checksumOf(WORKFLOW_DIGEST_V2));
+    assert.match(blocks.workflow_digest.body, /Before the contract, a choice above an allowance goes into the estimate/);
+    const { rows } = await client.query(`SELECT version, state FROM agent_instruction_versions WHERE key = 'workflow_digest' ORDER BY version`);
+    assert.deepEqual(rows.map((r) => `${r.version}:${r.state}`), ["1:retired", "2:active"]);
+    // Re-running it changes nothing.
+    await client.query(readFileSync(new URL("../db/migrations/0053_workflow_digest_allowance_v2.sql", import.meta.url), "utf8"));
+    assert.equal((await client.query(`SELECT count(*)::int AS n FROM agent_instruction_versions WHERE key = 'workflow_digest'`)).rows[0].n, 2);
   });
 });

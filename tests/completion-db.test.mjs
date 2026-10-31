@@ -203,6 +203,37 @@ test("V06 record evidence checks the revision; manual completion on a legacy ite
   });
 });
 
+test("Evidence from another job or lead is refused; evidence with no job, or the same job, is taken", { skip }, async () => {
+  await withDb(async (url, client) => {
+    await clean(client);
+    const tx = txOver(url);
+    const leadA = (await client.query(`INSERT INTO leads (slug, name) VALUES ('zz-j-a', 'ZZ Anders') RETURNING id`)).rows[0].id;
+    const leadB = (await client.query(`INSERT INTO leads (slug, name) VALUES ('zz-j-b', 'ZZ Berg') RETURNING id`)).rows[0].id;
+    const item = (await client.query(`INSERT INTO work_items (title, body, status, lead_id, created_by) VALUES ('Send Anders the plan', '', 'queued', $1, 'test') RETURNING id`, [leadA])).rows[0].id;
+    const sent = async (leadId, key) => {
+      const r = await tx((run) => enqueueIntent(run, { operationKey: key, kind: "send_email", recipient: "x@example.test", leadId, payload: { to: "x@example.test" }, policyRef: "owner:test", principal: owner }));
+      await client.query(`UPDATE action_intents SET state = 'accepted' WHERE id = $1`, [r.intent.id]);
+      return r.intent.id;
+    };
+    const other = await sent(leadB, "zz-j-other");
+    const wrong = await tx((run) => completeWorkItem(run, { workItemId: item, principal: agent, evidence: { kind: "provider_accepted", intent_id: other } }));
+    assert.equal(wrong.ok, false);
+    assert.match(wrong.error, /another lead \(ZZ Berg\)/);
+    const k = (await client.query(`INSERT INTO knowledge_items (content, kind, source, lead_id) VALUES ('Berg draft', 'draft', 'agent', $1) RETURNING id`, [leadB])).rows[0].id;
+    assert.equal((await tx((run) => completeWorkItem(run, { workItemId: item, principal: agent, evidence: { kind: "draft", knowledge_item_id: k } }))).ok, false);
+    assert.equal(await status(client, item), "queued");
+    assert.equal((await receipts(client, item)).length, 0);
+
+    const own = await sent(leadA, "zz-j-own");
+    const ok = await tx((run) => completeWorkItem(run, { workItemId: item, principal: agent, evidence: { kind: "provider_accepted", intent_id: own } }));
+    assert.equal(ok.ok, true, ok.error);
+
+    // A to-do with no job takes evidence from anywhere.
+    const loose = (await client.query(`INSERT INTO work_items (title, body, status, created_by) VALUES ('General', '', 'queued', 'test') RETURNING id`)).rows[0].id;
+    assert.equal((await tx((run) => completeWorkItem(run, { workItemId: loose, principal: agent, evidence: { kind: "provider_accepted", intent_id: other } }))).ok, true);
+  });
+});
+
 test("V06 call follow-ups: a partial failure resumes only the missing actions; nothing is created twice", { skip }, async () => {
   await withDb(async (url, client) => {
     await clean(client);

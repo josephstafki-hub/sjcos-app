@@ -82,6 +82,7 @@ import { registerGrantTools } from "./grants-tools.mjs";
 import { registerCommsTools } from "./comms-tools.mjs";
 import { registerRunbookTools } from "./runbook-tools.mjs";
 import { registerAskOwner } from "./interact-tools.mjs";
+import { prepareEmailWorkItem } from "../lib/obligations/email.ts";
 import { registerObligationTools } from "./obligation-tools.mjs";
 import { registerDecisionTools } from "./decision-tools.mjs";
 import { registerMeasureTools } from "./measure-tools.mjs";
@@ -413,8 +414,21 @@ function strippedDollarError(...texts) {
 // so concurrent HTTP clients each need their own instance. The shared `pool` and
 // module-level helpers are reused across instances — only tool registration (a
 // handful of microseconds of zod schema setup) repeats.
+// Tier 4: what every MCP client (Hermes, claude.ai, ChatGPT, the panel) is
+// told when it connects. The detailed, versioned rules come from
+// get_operating_context; these are the few that must hold even for a client
+// that never calls it.
+export const SERVER_INSTRUCTIONS = [
+  "SJC OS is SJ Carpentry's system of record. Before working a project or lead, call get_operating_context (the versioned operating rules, active policies and scoped context). Read records with the tools; never rebuild history from an inbox scan.",
+  "Client-facing sends (emails, texts, invoices, POs, bid packages, documents for signature, newsletter release) need Joe's owner grant: draft and stage, then request_owner_permission. Pass owner_grant_id only for the exact target and message it was approved for. Never route around a grant.",
+  "Never activate a policy, arm a drip, or change pricing/markup; those are Joe's. A job's total, paid and % paid are computed from records; never write them.",
+  "Estimates: the formal estimate lives under Documents and is locked once out to the client. Before the contract, client changes are a Pre-con change estimate; after it, a change order. A selection over its allowance is a change order only after the contract.",
+  "Every to-do from an email passes email {message_id, thread_id} to create_work_item. Complete work with evidence (complete_work_item_with_evidence / update_work_item_status) and record what you did (record_agent_run, record_receipt).",
+  "Write money as \"$\" amounts through the tools; pass long text through mcp/call-tool.mjs stdin, never as a double-quoted shell argument.",
+].join("\n\n");
+
 function buildServer() {
-const server = new McpServer({ name: "sjcos", version: "1.0.0" });
+const server = new McpServer({ name: "sjcos", version: "1.0.0" }, { instructions: SERVER_INSTRUCTIONS });
 
 server.registerTool(
   "business_snapshot",
@@ -1283,11 +1297,31 @@ server.registerTool(
       expected_runbook_slug: z.string().optional(),
       requires_approval: z.boolean().optional(),
       created_by: z.string().optional(),
+      email: z
+        .object({ message_id: z.string(), thread_id: z.string().optional(), from: z.string().optional(), received_at: z.string().optional() })
+        .optional()
+        .describe(
+          "When the to-do comes from an email, the Gmail message it answers. Required for email to-dos: the same email filed twice is one to-do, and a reply on that thread closes it.",
+        ),
     },
   },
   async (a) => {
     const mangled = strippedDollarError(a.title, a.body);
     if (mangled) return mangled;
+    // An email to-do is keyed on its message (A01): a re-read of the same
+    // email returns the open to-do instead of filing another.
+    let emailSource = null;
+    if (a.email?.message_id) {
+      const prep = await prepareEmailWorkItem(rows, {
+        email: { messageId: a.email.message_id, threadId: a.email.thread_id ?? null, from: a.email.from ?? null, receivedAt: a.email.received_at ?? null },
+        title: a.title,
+        projectId: await slugToId("projects", a.project_slug),
+        leadId: await slugToId("leads", a.lead_slug),
+        createdBy: a.created_by ?? "agent",
+      });
+      if (prep.existingId) return json({ ok: true, id: prep.existingId, duplicate: true, note: "This email already has an open to-do." });
+      emailSource = { messageId: a.email.message_id.trim(), obligationId: prep.obligationId };
+    }
     // Who's on it — resolved before the insert so a bad name files nothing.
     // Nobody (or just Joe) = Joe's own, one spelling across the app, MCP,
     // detectors and runbooks.
@@ -1296,14 +1330,16 @@ server.registerTool(
     const r = await rows(
       `INSERT INTO work_items
          (title, body, priority, assignee_kind, assignee_key, due_at, project_id, lead_id,
-          expected_skill_slug, expected_runbook_slug, requires_approval, source_kind, created_by)
-       VALUES ($1,$2,$3,$4,$5,CASE WHEN length($6::text) = 10 THEN ($6::date::timestamp AT TIME ZONE 'America/Chicago') ELSE NULLIF($6,'')::timestamptz END,$7,$8,$9,$10,$11,'agent',$12)
+          expected_skill_slug, expected_runbook_slug, requires_approval, source_kind, created_by,
+          source_id, obligation_id)
+       VALUES ($1,$2,$3,$4,$5,CASE WHEN length($6::text) = 10 THEN ($6::date::timestamp AT TIME ZONE 'America/Chicago') ELSE NULLIF($6,'')::timestamptz END,$7,$8,$9,$10,$11,$13,$12,$14,$15)
        RETURNING id`,
       [
         a.title, a.body ?? "", a.priority ?? "normal", a.assignee_kind ?? "human",
         a.assignee_key ?? null, a.due_at ?? "", await slugToId("projects", a.project_slug),
         await slugToId("leads", a.lead_slug), a.expected_skill_slug ?? null,
         a.expected_runbook_slug ?? null, a.requires_approval ?? true, a.created_by ?? "agent",
+        emailSource ? "email" : "agent", emailSource?.messageId ?? null, emailSource?.obligationId ?? null,
       ],
     );
     const onIt = resolved.people.length ? await writeAssignees(r[0].id, resolved.people) : [];

@@ -6,7 +6,7 @@ import { runDirect } from "@/lib/commands/db";
 import { listRecoverableWork, recoverWorkItem } from "@/lib/today-recovery.mjs";
 import { ai } from "@/lib/ai";
 import { query, queryOne } from "@/lib/db";
-import { maybeAdvanceRunbook } from "@/lib/runbook-engine";
+import { completeByPerson } from "@/lib/runbook-engine";
 import { setAssignees } from "@/lib/work-item-assign";
 import {
   openWorkItemsSql,
@@ -127,9 +127,10 @@ export async function refreshTodayQueue(): Promise<QueueSnapshot> {
   return getQueueSnapshot(await requireAccess("today"));
 }
 
-/** Owner clicked "Mark done" on a card. Marks the work_item done and returns
- *  the fresh queue (the freed slot backfills inside getQueueSnapshot). Skips
- *  the write if the item is already done/cancelled. */
+/** Owner clicked "Mark done" on a card. Completes it through the evidence
+ *  command (manual, by this person; closes its obligation and runbook step)
+ *  and returns the fresh queue (the freed slot backfills inside
+ *  getQueueSnapshot). Already done/cancelled is a no-op. */
 export async function completeTodayItem(workItemId: string): Promise<QueueSnapshot> {
   const user = await requireAccess("today");
   if (!(await mayWorkItem(user, workItemId))) return getQueueSnapshot(user);
@@ -138,12 +139,8 @@ export async function completeTodayItem(workItemId: string): Promise<QueueSnapsh
     [workItemId],
   );
   if (cur && !["done", "cancelled"].includes(cur.status)) {
-    await query(
-      `UPDATE work_items SET status = 'done', completed_at = now(), updated_at = now()
-        WHERE id = $1 AND status NOT IN ('done','cancelled')`,
-      [workItemId],
-    );
-    await maybeAdvanceRunbook(workItemId); // W6: no-op unless this is a runbook step
+    const r = await completeByPerson(workItemId, user);
+    if (!r.ok) console.error(`[today] Mark done refused for ${workItemId}: ${r.error}`);
   }
   return getQueueSnapshot(user);
 }

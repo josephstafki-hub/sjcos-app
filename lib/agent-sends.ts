@@ -193,7 +193,12 @@ export async function performGrantedAction(input: AgentSendInput): Promise<Agent
 
   // Fast, relayable refusal when the grant plainly doesn't cover this. The
   // authoritative spend happens at dispatch.
-  const covers = await checkGrantCovers(input.grantId, action as GatedAction, { kind, id: targetId, to });
+  const covers = await checkGrantCovers(input.grantId, action as GatedAction, {
+    kind,
+    id: targetId,
+    to,
+    content: action === "send_email" && input.email?.body ? { subject: input.email.subject ?? null, body: input.email.body } : null,
+  });
   if (!covers.ok) return covers;
 
   let result: AgentSendResult;

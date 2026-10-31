@@ -7,7 +7,7 @@ import {useRouter} from 'next/navigation';
 import {Copy,Check,Sparkles,Megaphone,ChevronRight} from 'lucide-react';
 import {Button,Card,Chip,EmptyState,PageHeader} from '@/components/ui';
 import type {MarketingDraft} from '@/lib/marketing';
-import {generateDraft,updateDraft,markPosted,markDraft,deleteDraft} from '@/lib/actions/marketing';
+import {generateDraft,updateDraft,markPosted,markDraft,deleteDraft,setPhotoShareable} from '@/lib/actions/marketing';
 import {runAction} from '@/lib/run-action';
 
 const input='min-w-0 rounded-md border border-rule bg-card px-3 py-2 text-body text-ink';
@@ -51,6 +51,41 @@ function DraftRow({draft,initiallyOpen}:{draft:MarketingDraft;initiallyOpen:bool
     <Button variant="secondary" size="sm" disabled={pending||dirty||(!body.trim()&&draft.status!=='posted')} onClick={()=>run(()=>draft.status==='posted'?markDraft(draft.id):markPosted(draft.id))}>{draft.status==='posted'?'Move to drafts':'Mark posted'}</Button>
     <details className="relative ml-auto"><summary aria-label="More post actions" className="cursor-pointer rounded-md px-3 py-1 text-body hover:bg-hover">…</summary><div className="absolute right-0 z-10 rounded-lg border border-rule-soft bg-card p-1 shadow-pop"><Button variant="ghost" size="sm" className="text-flag" disabled={pending} onClick={()=>{if(confirm('Delete this draft?'))run(()=>deleteDraft(draft.id));}}>Delete draft</Button></div></details>
    </div>
+      {draft.photos.length > 0 && draft.projectSlug && (
+        <div className="mt-2">
+          <div className="mb-1 text-meta text-ink-3">
+            Photos: tick the ones the client OK&apos;d sharing; download those to post with the text.
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {draft.photos.map((p) => (
+              <div key={p.id} className={`flex flex-col items-center gap-1 rounded-md border p-1 ${p.shareable ? "border-money" : "border-rule"}`}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={`/api/files/${p.id}`} alt={p.name} className="size-16 rounded object-cover" loading="lazy" />
+                <label className="flex items-center gap-1 text-meta text-ink-3">
+                  <input
+                    type="checkbox"
+                    checked={p.shareable}
+                    disabled={pending}
+                    onChange={(e) => {
+                      const shareable = e.target.checked;
+                      start(async () => {
+                        await runAction(() => setPhotoShareable(draft.projectSlug!, p.id, shareable), { fallback: "Couldn't change that photo." });
+                        router.refresh();
+                      });
+                    }}
+                  />
+                  OK to share
+                </label>
+                {p.shareable && (
+                  <a href={`/api/files/${p.id}?download=1`} download={p.name} className="text-meta font-semibold text-accent-2 hover:underline">
+                    Download
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
    <PostPreview title={title} body={body}/>
   </div>}
  </section>;

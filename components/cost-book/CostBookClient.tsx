@@ -1,5 +1,6 @@
 "use client";
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { MoreHorizontal } from "lucide-react";
 import {
   Button,
@@ -23,8 +24,10 @@ import {
   setDefaultMarkup,
 } from "@/lib/actions/cost-book";
 import { runAction, type ActionLike } from "@/lib/run-action";
+import { toast } from "@/components/ui/Toast";
 import { CostItemModal } from "./CostItemModal";
 export function CostBookClient({ data }: { data: CostBookData }) {
+  const router = useRouter();
   const [pending, start] = useTransition(),
     [cat, setCat] = useState("All"),
     [view, setView] = useState("active"),
@@ -44,7 +47,12 @@ export function CostBookClient({ data }: { data: CostBookData }) {
       await runAction(async () => {
         const result = await fn();
         return result ?? { ok: true };
-      }, {onSuccess:()=>setFeedback("Saved"),onError:setFeedback});
+      }, {onSuccess:(result)=>{
+        const notice = "notice" in result ? String(result.notice ?? "") : "";
+        setFeedback(notice || "Saved");
+        if (notice) toast({ kind: "info", message: notice });
+        router.refresh();
+      },onError:setFeedback});
     });
   return (
     <div className="space-y-4">

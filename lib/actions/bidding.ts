@@ -14,6 +14,8 @@ import { query, queryOne } from "@/lib/db";
 import { requireAccess } from "@/lib/dal";
 import { emit } from "@/lib/notify";
 import { storeUpload } from "@/lib/upload-store";
+import { withTransaction } from "@/lib/commands/db";
+import { onQuoteRecorded } from "@/lib/agent-runtime/hooks";
 import {
   awardBidOp,
   bidInviteById,
@@ -387,6 +389,14 @@ export async function recordBid(inviteId: number, formData: FormData): Promise<R
 
   const result = await recordBidOp(inviteId, { ...bid, fileIds });
   if (!result.ok) return { ok: false, error: result.error };
+  // Joe recorded it: wake the operating agent to price it into the estimate
+  // (only while agent.event_wakeups is on). An agent's record_bid doesn't.
+  try {
+    const sub = await queryOne<{ id: number }>(`SELECT id::int AS id FROM bid_submissions WHERE invite_id = $1 ORDER BY id DESC LIMIT 1`, [inviteId]);
+    if (sub) await withTransaction((run) => onQuoteRecorded(run, sub.id));
+  } catch (err) {
+    console.error("[bidding] agent wake-up failed:", (err as Error).message);
+  }
   revalidatePath(`/projects/${invite.slug}`);
   revalidatePath("/notifications");
   return { ok: true };

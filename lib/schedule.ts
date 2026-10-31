@@ -121,7 +121,7 @@ interface WeekRow {
  *  The strip only shows Mon–Fri, so on Sat/Sun "this week" rolls forward to the
  *  upcoming week (the finished one isn't useful). `offset` is coerced to a safe
  *  integer before interpolation. */
-function weekBounds(offset: number) {
+export function weekBounds(offset: number) {
   const n = Math.trunc(Number.isFinite(offset) ? offset : 0);
   const monday =
     `(date_trunc('week', (now() AT TIME ZONE 'America/Chicago')::date)` +

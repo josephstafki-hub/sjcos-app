@@ -254,7 +254,16 @@ export function PurchaseOrders({
     if (!sendModal) return;
     const { poId, to, subject, body } = sendModal;
     startTransition(async () => {
-      const res = await runAction(() => sendPurchaseOrder(slug, poId, { to, subject, body }), { fallback: "Couldn't send the purchase order." });
+      // A PO held by the construction gate or the job's cash comes back with
+      // confirm: Joe sees why and can send it anyway.
+      const first = await runAction(() => sendPurchaseOrder(slug, poId, { to, subject, body }), {
+        fallback: "Couldn't send the purchase order.",
+        toast: false, // A held PO gets an override question; other errors show below.
+      });
+      const res =
+        !first.ok && "confirm" in first && first.confirm && confirm(`${first.error}\n\nSend it to the vendor anyway?`)
+          ? await runAction(() => sendPurchaseOrder(slug, poId, { to, subject, body }, true), { fallback: "Couldn't send the purchase order." })
+          : first;
       if (res.ok) setSendModal(null);
       else setError(res.error ?? "Couldn't send the purchase order.");
       router.refresh();
@@ -380,7 +389,7 @@ export function PurchaseOrders({
             <TableWrapper><FinancialTable>
               <TableHead><TableRow><TableHeader>Purchase order</TableHeader><TableHeader numeric>Amount</TableHeader><TableHeader><span className="sr-only">Actions</span></TableHeader></TableRow></TableHead>
               <TableBody>{(["draft","queued","sent","partial","fulfilled","closed","void"] as const).map(status => {const group=orders.filter(o => o.status === status);return group.length > 0 && <Fragment key={status}><TableGroupRow colSpan={3} count={group.length}>{PO_STATUS_LABEL[status]}</TableGroupRow>{group.map(o => <TableRow key={o.id}>
-                <TablePrimaryCell meta={<><span className="tabular-nums">{o.poNumber}</span> · {o.vendorName} · {o.lines.length} lines</>}>{o.title}</TablePrimaryCell>
+                <TablePrimaryCell meta={<><span className="tabular-nums">{o.poNumber}</span> · {o.vendorName} · {o.lines.length} lines</>}>{o.title}{o.commitmentLabel && <div className="mt-0.5 text-meta font-normal text-ink-3">{o.commitmentLabel}</div>}</TablePrimaryCell>
                 <TableCell numeric className="whitespace-nowrap">{fmtUsd(o.subtotal)}</TableCell>
                 <TableCell><div className="flex justify-end gap-1"><Button variant="ghost" size="sm" onClick={() => setEditingId(o.id)}>Open</Button>{(status === "draft" || status === "queued") && <ActionMenu label={`More actions for ${o.poNumber}`}><Button variant="ghost" className="text-flag" onClick={() => remove(o.id)}>Delete</Button></ActionMenu>}</div></TableCell>
               </TableRow>)}</Fragment>})}</TableBody>

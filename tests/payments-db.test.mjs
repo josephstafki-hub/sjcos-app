@@ -17,6 +17,7 @@ import {
   stageRefundDecision,
   executeRefund,
   getAttempt,
+  applyProviderDispute,
 } from "../lib/payments/service.ts";
 import { fakeSquare, FAKE_NOTIFICATION_URL, FAKE_SIGNATURE_KEY } from "../lib/payments/square/fake.ts";
 import { verifyWebhookSignature } from "../lib/payments/square/signature.ts";
@@ -481,5 +482,63 @@ test("Credit card surcharge: credit pays balance + surcharge, invoice credited t
     assert.equal((await run(`SELECT amount_cents FROM invoice_payments WHERE invoice_id = $1 AND kind = 'refund'`, [inv.id]))[0].amount_cents, 2200000);
     assert.equal((await invoiceBalance(run, inv.id)).balanceCents, 2200000, "balance re-opens to the invoice amount, not the surcharged total");
     assert.equal((await getAttempt(run, paid.attempt.id)).state, "refunded");
+  });
+});
+
+// Tier 3 (A20): Square can still move money after a payment completed.
+test("After completion: a Dashboard refund the webhook missed is picked up by the sweep; disputes open, win and lose; each tells Joe once", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    const projectId = await seed(client, "zz-pay-late");
+    const tx = txOver(url);
+    const run = runOn(client);
+    const adapter = getSquareAdapter();
+    const inv = await issued(tx, projectId, "draw:0:deposit", 200000);
+    const paid = await checkout(tx, adapter, { invoiceId: inv.id, method: "card", nonce: "late-0001-abcdef", sourceId: "cnon:card-ok" });
+    assert.equal(paid.attempt.state, "completed");
+    const floor = (await run(`SELECT COALESCE(max(id), 0)::bigint AS m FROM push_outbox`))[0].m;
+
+    // Refunded in the Square Dashboard; no webhook ever arrives.
+    fakeSquare.dashboardRefund(paid.payment.id, 50000);
+    const sweep = await tx((r) => reconcilePendingAttempts(r, adapter, { principal: owner }));
+    assert.ok(sweep.changed >= 1);
+    assert.equal((await invoiceBalance(run, inv.id)).balanceCents, 50000, "the invoice re-opens by the refund");
+    assert.equal(sweep.ownerPushIds.length, 1);
+    const again = await tx((r) => reconcilePendingAttempts(r, adapter, { principal: owner }));
+    assert.equal(again.changed, 0, "a second sweep changes nothing");
+    assert.equal((await run(`SELECT count(*)::int AS n FROM invoice_payments WHERE kind = 'refund'`))[0].n, 1);
+    const outside = await run(`SELECT title FROM push_outbox WHERE kind = 'payment' AND id > $1 AND title LIKE 'Refunded in Square%'`, [floor]);
+    assert.equal(outside.length, 1);
+
+    // A dispute opens: money held, not lost; Joe is told to answer it.
+    const dispute = { id: "dp_1", paymentId: paid.payment.id, state: "EVIDENCE_REQUIRED", amountCents: 150000, reason: "NOT_AS_DESCRIBED", dueAt: "2026-11-20T00:00:00Z" };
+    const open = await tx((r) => applyProviderDispute(r, { dispute, actor: "webhook:square" }));
+    assert.equal(open.state, "open");
+    assert.equal((await getAttempt(run, paid.attempt.id)).state, "disputed");
+    assert.equal((await invoiceBalance(run, inv.id)).balanceCents, 50000, "an open dispute moves no money");
+    const [card] = await run(`SELECT title, body FROM push_outbox WHERE id = $1`, [open.ownerPushId]);
+    assert.match(card.title, /Card payment disputed/);
+    assert.match(card.body, /not as described · answer by 2026-11-20/);
+    const repeat = await tx((r) => applyProviderDispute(r, { dispute: { ...dispute, state: "PROCESSING" }, actor: "webhook:square" }));
+    assert.equal(repeat.changed, false, "a later open state is not news");
+
+    // Won: the payment stands.
+    const won = await tx((r) => applyProviderDispute(r, { dispute: { ...dispute, state: "WON" }, actor: "webhook:square" }));
+    assert.equal(won.changed, true);
+    assert.equal((await getAttempt(run, paid.attempt.id)).state, "completed");
+
+    // A second dispute, lost: the card company takes the money back, once.
+    const d2 = { ...dispute, id: "dp_2", state: "LOST", amountCents: 150000 };
+    const lost = await tx((r) => applyProviderDispute(r, { dispute: d2, actor: "webhook:square" }));
+    assert.equal(lost.state, "lost");
+    assert.equal((await invoiceBalance(run, inv.id)).balanceCents, 200000, "refund + chargeback re-open the whole invoice");
+    assert.equal((await getAttempt(run, paid.attempt.id)).state, "returned");
+    const lostAgain = await tx((r) => applyProviderDispute(r, { dispute: d2, actor: "webhook:square" }));
+    assert.equal(lostAgain.changed, false);
+    assert.equal((await run(`SELECT count(*)::int AS n FROM invoice_payments WHERE kind = 'return'`))[0].n, 1);
+
+    // The webhook path routes dispute events the same way.
+    const evt = await processSquareEvent(run, { payload: { type: "dispute.state.updated", event_id: "e-d3", data: { object: { dispute: { id: "dp_2", state: "LOST", amount_money: { amount: 150000 }, disputed_payment: { payment_id: paid.payment.id } } } } }, sourceEventId: null });
+    assert.equal(evt.handled, "dispute:lost");
+    assert.equal(evt.changed, false);
   });
 });

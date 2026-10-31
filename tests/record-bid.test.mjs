@@ -34,7 +34,7 @@ const STUBS = {
   [lib("gmail")]: fwd("gmailConfigured", "sendNewEmail"),
   [lib("uploads")]: fwd("readUpload") + "\nexport const UPLOAD_DIR = '/nonexistent-uploads';",
   // The packet SEND path (not exercised here) stages intents through these.
-  [lib("commands/db")]: fwd("withTransaction"),
+  [lib("commands/db")]: fwd("withTransaction", "runDirect"),
   [lib("commands/intents")]: fwd("enqueueIntent"),
   [lib("dispatch/db")]: fwd("dispatchIntentsNow"),
 };

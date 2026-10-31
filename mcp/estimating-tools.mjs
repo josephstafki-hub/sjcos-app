@@ -9,6 +9,10 @@ import { z } from "zod";
 import { getScopeRegister, allocateScope, applySiteFindings, getSiteVisitPlan } from "../lib/estimating/scope.ts";
 import { setDesignPath, applyClientExactProduct, applyFeedback, applyClientDirectionApproval, applySelectionChoice, getDesignDecisions } from "../lib/estimating/design.ts";
 import { researchPrice, candidateSuppliers, stageSupplierPricingRequest, recordSupplierEvidence } from "../lib/estimating/pricing.ts";
+import { qualificationChecklist, syncFactsFromIntake } from "../lib/leads/qualification.ts";
+import { previewLeadFollowups } from "../lib/leads/facts.ts";
+import { prepareEstimateInputPackage } from "../lib/leads/package.ts";
+import { stageAllocationReview } from "../lib/workflow/cards.ts";
 import { fakeFetcher } from "../lib/estimating/fetcher.ts";
 import { recordQuote, incorporateQuote, compareCompetingQuotes, chooseSupplierQuote, incorporateSubBid, applyOwnerPricing, recomputeDraftEstimate, freezeOfferedPrices, marginExposureReport, stageAllowanceOverage, loadLines } from "../lib/estimating/assembly.ts";
 import { estimateReadiness } from "../lib/estimating/readiness.ts";
@@ -54,6 +58,71 @@ export function registerEstimatingTools(server, { rows, json, pool, slugToId, cu
         const id = await project(a.project_slug);
         const p = await principal();
         return json(await tx((r) => allocateScope(r, id, { key: a.key, responsibility: a.responsibility, supply_by: a.supply_by, install_by: a.install_by, dedicated_price_cents: a.dedicated_price_cents ?? null, price_basis: a.price_basis ?? null, price_scope_note: a.price_scope_note, notes: a.notes, principal: p })));
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  const leadId = async (slug) => {
+    const [l] = await run(`SELECT id FROM leads WHERE slug = $1`, [slug]);
+    if (!l) throw new Error(`No lead ${slug}`);
+    return l.id;
+  };
+
+  server.registerTool(
+    "get_lead_qualification",
+    { title: "A lead's qualification checklist (W01)", description: "Service area, job type, scope, budget fit, timeline, goals, photos, measurements, address: what is known (with its source), conflicting or missing, and the verdict (pass / qualified / needs info). Facts are refreshed from the intake answers first. Read-only otherwise.", inputSchema: { lead_slug: z.string() } },
+    async ({ lead_slug }) => {
+      try {
+        const id = await leadId(lead_slug);
+        return json(await tx(async (r) => {
+          await syncFactsFromIntake(r, id);
+          return qualificationChecklist(r, id);
+        }));
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "preview_lead_followups",
+    { title: "Preview missing-info asks to leads (dry run)", description: "What the missing-info asks WOULD do for open leads, lead by lead: the questions, and whether each would send under the lead.missing_facts policy or wait for Joe (and why). Sends nothing. The asks only run while Joe has that policy on.", inputSchema: { lead_slugs: z.array(z.string()).optional() } },
+    async ({ lead_slugs }) => {
+      try {
+        const ids = lead_slugs?.length ? await Promise.all(lead_slugs.map(leadId)) : null;
+        return json(await tx((r) => previewLeadFollowups(r, { dryRun: true, principal: principal(), leadIds: ids })));
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "prepare_estimate_inputs",
+    { title: "Hand a lead's estimate inputs to estimating", description: "Snapshot what is known for the rough estimate (facts with sources, photos on the lead, measurements, open questions) as a numbered package revision. Same facts → the same revision, no duplicate. Use it when the lead is ready for its rough estimate; list extra open questions in extra_questions.", inputSchema: { lead_slug: z.string(), extra_questions: z.array(z.string()).optional() } },
+    async ({ lead_slug, extra_questions }) => {
+      try {
+        const id = await leadId(lead_slug);
+        return json(await tx(async (r) => {
+          await syncFactsFromIntake(r, id);
+          return prepareEstimateInputPackage(r, { leadId: id, principal: principal(), extraQuestions: extra_questions ?? [] });
+        }));
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stage_scope_allocation_review",
+    { title: "Stage Joe's who-does-what review (W03)", description: "One card for Joe listing every scope item with who does it (Joe / a sub / a supplier), supply vs install, and his dedicated prices. Stage it once the allocation is recorded (allocate_scope) and before any bid package release; stage_package_release stages it on its own if it was skipped. Approving records the review and sends nothing.", inputSchema: { project_slug: z.string() } },
+    async ({ project_slug }) => {
+      try {
+        const id = await project(project_slug);
+        const p = await principal();
+        return json(await tx((r) => stageAllocationReview(r, id, p)));
       } catch (e) {
         return fail(e);
       }
@@ -193,7 +262,7 @@ export function registerEstimatingTools(server, { rows, json, pool, slugToId, cu
 
   server.registerTool(
     "stage_supplier_pricing_request",
-    { title: "Stage a supplier pricing request for Joe's approval (W05)", description: "Builds the exact request (products, quantities or explicit quantity gaps, need dates, documents) and stages a release decision. NOT sent: Joe approves the card (SJC OS / Telegram). Overrides the routine-message policy on purpose.", inputSchema: { project_slug: z.string(), supplier_name: z.string(), vendor_id: z.string().optional(), products: z.array(z.object({ product, qty: z.number().nullable(), unit: z.string().nullable(), item_key: z.string().optional(), scope_key: z.string().optional(), quantity_gap: z.string().optional() })), need_dates: z.object({ materials_on_site: z.string().optional(), quote_by: z.string().optional() }).optional(), documents: z.array(z.object({ label: z.string(), file_id: z.string().optional(), revision: z.string().optional() })).optional(), notes: z.string().optional() } },
+    { title: "Stage a supplier pricing request for Joe's approval (W05)", description: "Builds the exact request (products, quantities or explicit quantity gaps, need dates, documents) and stages a release decision. NOT sent until Joe approves the card (SJC OS / Telegram); approving emails it to the supplier, so never send it yourself. Overrides the routine-message policy on purpose.", inputSchema: { project_slug: z.string(), supplier_name: z.string(), vendor_id: z.string().optional(), products: z.array(z.object({ product, qty: z.number().nullable(), unit: z.string().nullable(), item_key: z.string().optional(), scope_key: z.string().optional(), quantity_gap: z.string().optional() })), need_dates: z.object({ materials_on_site: z.string().optional(), quote_by: z.string().optional() }).optional(), documents: z.array(z.object({ label: z.string(), file_id: z.string().optional(), revision: z.string().optional() })).optional(), notes: z.string().optional() } },
     async (a) => {
       try {
         const id = await project(a.project_slug);
@@ -328,7 +397,7 @@ export function registerEstimatingTools(server, { rows, json, pool, slugToId, cu
 
   server.registerTool(
     "stage_allowance_overage",
-    { title: "Client chose above an allowance → change-order payload + decision (W07/W11)", description: "Prices the overage (chosen cost with the active markup minus the allowance) as a change-order payload and stages a change_order decision for Joe. No change_orders row is written here; under the allowance returns the credit.", inputSchema: { project_slug: z.string(), item_key: z.string(), chosen: z.object({ description: z.string(), cost_cents: z.number().int(), source_ref: z.record(z.string(), z.unknown()).optional() }) } },
+    { title: "Client chose above an allowance after the contract → change-order card (W11)", description: "Only for a job UNDER CONTRACT whose contract carries an allowance: prices the overage (chosen cost with the active markup minus the allowance) and stages a change-order card; Joe approving it drafts the change order. Before the contract there is nothing to change-order: it stages nothing and says so (before_contract: true); put the choice into the estimate with apply_selection_choice instead. Under the allowance returns the credit.", inputSchema: { project_slug: z.string(), item_key: z.string(), chosen: z.object({ description: z.string(), cost_cents: z.number().int(), source_ref: z.record(z.string(), z.unknown()).optional() }) } },
     async (a) => {
       try {
         const id = await project(a.project_slug);

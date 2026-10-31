@@ -186,3 +186,84 @@ test("a record type the QuickBooks plan refuses is skipped, not fatal; it is ret
     await assert.rejects(importPostedEntities(run, qbo, { realmId: realm, principal: owner }), /reconnect QuickBooks/);
   });
 });
+
+// Before exports go on (Tier 3, A14): an export never duplicates what
+// QuickBooks already has, a delete in QuickBooks surfaces, and Joe's answer
+// on a conflict card does something.
+test("exports reuse the QuickBooks customer and hold back a likely duplicate invoice or payment; deletes surface; the conflict card settles the mapping", { skip }, async () => {
+  const { resolveAccountingConflict } = await import("../lib/accounting/qbo/sync.ts");
+  const { resolveFromChannel } = await import("../lib/decisions/resolve.ts");
+  await withTestDb(async (url, client) => {
+    await clean(client);
+    const run = async (s, p) => (await client.query(s, p)).rows;
+    const qbo = new FakeQbo();
+    const realm = qbo.realmId;
+    await ensureConnection(run, { realmId: realm, environment: "fake", companyName: qbo.companyName });
+    const [p] = await run(`INSERT INTO projects (slug, name, status, client_name) VALUES ('zz-qbo-d', 'ZZ Dup', 'construction', 'ZZ Larsen') RETURNING id`);
+    const [inv1] = await run(`INSERT INTO invoices (project_id, number, milestone, amount, status, issued_at, sent_at, economic_key) VALUES ($1, 'INV-501', 'Deposit', 1000000, 'sent', '2026-09-15', '2026-09-15', 'zz:d1') RETURNING id`, [p.id]);
+    const [inv2] = await run(`INSERT INTO invoices (project_id, number, milestone, amount, status, issued_at, sent_at, economic_key) VALUES ($1, 'INV-502', 'Draw 1', 500000, 'sent', '2026-09-25', '2026-09-25', 'zz:d2') RETURNING id`, [p.id]);
+    const [inv3] = await run(`INSERT INTO invoices (project_id, number, milestone, amount, status, issued_at, sent_at, economic_key) VALUES ($1, 'INV-503', 'Draw 2', 300000, 'sent', '2026-09-28', '2026-09-28', 'zz:d3') RETURNING id`, [p.id]);
+    const [pay1] = await run(`INSERT INTO invoice_payments (invoice_id, kind, amount_cents, method, status, received_at) VALUES ($1, 'payment', 500000, 'check', 'settled', '2026-09-27') RETURNING id`, [inv2.id]);
+
+    // The bookkeeper already keyed the customer, the deposit invoice and a check into QuickBooks.
+    const cust = await qbo.create("Customer", { DisplayName: "ZZ Larsen" });
+    await qbo.create("Invoice", { DocNumber: "INV-501", TxnDate: "2026-09-15", TotalAmt: 10000, CustomerRef: { value: cust.Id, name: "ZZ Larsen" } });
+    await qbo.create("Payment", { TxnDate: "2026-09-26", TotalAmt: 5000, CustomerRef: { value: cust.Id, name: "ZZ Larsen" } });
+    await setSwitch(run, "import_read", true, "test");
+    await importPostedEntities(run, qbo, { realmId: realm, principal: owner });
+    await setSwitch(run, "export_invoices", true, "test");
+    await setSwitch(run, "export_payments", true, "test");
+
+    const dup = await exportIssuedInvoice(run, qbo, { realmId: realm, invoiceId: Number(inv1.id), by: "test" });
+    assert.equal(dup.ok, false);
+    assert.equal(dup.code, "possible_duplicate");
+    assert.match(dup.reason, /#INV-501 for \$10,000\.00 \(ZZ Larsen\)/);
+
+    const e2 = await exportIssuedInvoice(run, qbo, { realmId: realm, invoiceId: Number(inv2.id), by: "test" });
+    assert.equal(e2.ok && e2.created, true, e2.reason);
+    assert.equal((await qbo.listChanges("Customer", null)).length, 1, "the existing customer is reused, not duplicated");
+    const [cmap] = await run(`SELECT internal_id, state FROM qbo_mappings WHERE entity_kind = 'Customer' AND qbo_id = $1`, [cust.Id]);
+    assert.deepEqual([cmap.internal_id, cmap.state], ["zz larsen", "posted"]);
+
+    const pd = await exportConfirmedPayment(run, qbo, { realmId: realm, invoicePaymentId: Number(pay1.id), by: "test" });
+    assert.equal(pd.ok, false);
+    assert.equal(pd.code, "possible_duplicate");
+    assert.equal((await qbo.listChanges("Payment", null)).length, 1, "no second payment in QuickBooks");
+
+    // Rejecting the proposed match lets the invoice go.
+    const [m1] = await run(`SELECT id FROM qbo_mappings WHERE entity_kind = 'Invoice' AND snapshot->>'DocNumber' = 'INV-501'`);
+    assert.equal(await rejectMapping(run, m1.id, "test", "different job"), true);
+    const e1 = await exportIssuedInvoice(run, qbo, { realmId: realm, invoiceId: Number(inv1.id), by: "test" });
+    assert.equal(e1.ok && e1.created, true, e1.reason);
+
+    // Keyed into QuickBooks after the last import: QuickBooks itself is asked.
+    await qbo.create("Invoice", { DocNumber: "INV-503", TotalAmt: 3000 });
+    const live = await exportIssuedInvoice(run, qbo, { realmId: realm, invoiceId: Number(inv3.id), by: "test" });
+    assert.equal(live.code, "possible_duplicate");
+    assert.match(live.reason, /hasn't matched/);
+
+    // Edited in QuickBooks → conflict card; Approve = QuickBooks is right.
+    qbo.mutate("Invoice", e2.qboId, { TotalAmt: 5100 });
+    const conf = await importPostedEntities(run, qbo, { realmId: realm, principal: owner });
+    assert.equal(conf.conflicts.length, 1);
+    await client.query("BEGIN");
+    const r = await resolveFromChannel(run, { decisionId: conf.conflicts[0].decision_id, via: "app", principal: owner, outcome: "approved" });
+    await client.query("COMMIT");
+    assert.equal(r.ok, true, r.reply);
+    assert.match(r.reply, /QuickBooks' version is accepted/);
+    assert.equal((await run(`SELECT state FROM qbo_mappings WHERE id = $1`, [conf.conflicts[0].mapping_id]))[0].state, "posted");
+    assert.equal((await importPostedEntities(run, qbo, { realmId: realm, principal: owner })).conflicts.length, 0, "accepted version doesn't flag again");
+
+    // Deleted in QuickBooks → conflict; Reject keeps it flagged, Approve stops tracking it.
+    qbo.delete_("Invoice", e1.qboId);
+    const del = await importPostedEntities(run, qbo, { realmId: realm, principal: owner });
+    assert.equal(del.conflicts.length, 1);
+    assert.match(del.conflicts[0].reason, /deleted in QuickBooks/);
+    const mid = del.conflicts[0].mapping_id;
+    assert.match(await resolveAccountingConflict(run, { mappingId: mid, outcome: "rejected", by: "Joe" }), /stays flagged/);
+    assert.equal((await run(`SELECT state FROM qbo_mappings WHERE id = $1`, [mid]))[0].state, "conflict");
+    assert.match(await resolveAccountingConflict(run, { mappingId: mid, outcome: "approved", by: "Joe" }), /stops tracking it/);
+    assert.equal((await run(`SELECT state FROM qbo_mappings WHERE id = $1`, [mid]))[0].state, "rejected");
+    assert.equal((await importPostedEntities(run, qbo, { realmId: realm, principal: owner })).conflicts.length, 0, "a delete is reported once");
+  });
+});

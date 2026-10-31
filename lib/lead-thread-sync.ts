@@ -31,6 +31,10 @@ import type { Run } from "./commands/core";
 import { readCheckpoint, advanceCheckpoint } from "./obligations/catchup";
 import { gmailConfigured, fetchThreadMetadata, gmailCallsSoFar } from "./gmail";
 import { cancelLeadNurture } from "./newsletter-drip";
+import { withTransaction } from "./commands/db";
+import { onInboundMessage } from "./agent-runtime/hooks";
+import { stopLeadFollowups } from "./leads/facts";
+import { settleEmailReplies } from "./obligations/email";
 
 export interface LeadThreadSyncChange {
   slug: string;
@@ -64,6 +68,7 @@ export function extractEmail(raw: string): string {
 }
 
 interface LeadRow {
+  id: string;
   slug: string;
   name: string;
   email: string | null;
@@ -139,7 +144,9 @@ export async function syncLeadThreads(
   const since = watermark ? watermark - WATERMARK_OVERLAP_MS : null;
 
   const [threads, leadRows, linkRows] = await Promise.all([
-    fetchThreadMetadata({ max: opts.max ?? 150, since, concurrency: 5 }),
+    // Incremental: EVERY thread since the watermark (paged, capped at 2000);
+    // a full rescan is the newest `max`.
+    since ? fetchThreadMetadata({ max: 2000, since, concurrency: 5, allPages: true }) : fetchThreadMetadata({ max: opts.max ?? 150, since, concurrency: 5 }),
     // Exclude 'lost' leads — they're off-pipeline by explicit owner action
     // (see lib/leads.ts stageIsLost). Their Gmail history is irrelevant to
     // "needs reply," and syncing would stomp a legitimate "Passed"/"Lost"
@@ -148,7 +155,7 @@ export async function syncLeadThreads(
     // belongs to the project (the needs-reply detector routes it there), so
     // flagging the hidden lead row would surface nowhere.
     query<LeadRow>(
-      `SELECT slug, name, email, flag_kind, last_contact_at::text AS last_contact_at
+      `SELECT id, slug, name, email, flag_kind, last_contact_at::text AS last_contact_at
          FROM leads WHERE email IS NOT NULL AND email <> '' AND stage <> 'lost'
           AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.lead_id = leads.id)`,
     ),
@@ -217,6 +224,25 @@ export async function syncLeadThreads(
           /* nurture cancel must never break the sync */
         }
       }
+      // The lead wrote: wake the operating agent to read it and draft a reply
+      // for Joe (only while the agent.event_wakeups policy is on). Not while
+      // the same-day first response is still being drafted for this lead.
+      if (!t.outbound) {
+        // They wrote back: any planned missing-info ask stops (A11).
+        await withTransaction((run) => stopLeadFollowups(run, lead.id, "client replied")).catch((err) =>
+          console.error("[lead-thread-sync] stop follow-ups failed:", (err as Error).message),
+        );
+        try {
+          const firstPending = await queryOne(`SELECT 1 FROM lead_first_responses WHERE lead_id = $1 AND status <> 'sent'`, [lead.id]);
+          if (!firstPending) {
+            await withTransaction((run) =>
+              onInboundMessage(run, { provider: "gmail", messageId: `${t.id}:${msgAt.toISOString()}`, leadId: lead.id, from: lead.name, subject: t.subject, at: msgAt.toISOString() }),
+            );
+          }
+        } catch (err) {
+          console.error("[lead-thread-sync] agent wake-up failed:", (err as Error).message);
+        }
+      }
     }
   }
 
@@ -224,7 +250,18 @@ export async function syncLeadThreads(
   // thrown quota error leaves it where it was so the next run re-covers the
   // window. Stamped with the run's START so anything that arrived mid-run is
   // inside the next window.
-  if (!dryRun) await writeWatermark(startedAt, { scanned: threads.length, matched: matchedThreads, changes: changes.length });
+  // Email to-dos (A01): a reply on a thread with an open email obligation
+  // settles it and completes its to-do. Best-effort; the flag sync stands.
+  if (!dryRun) {
+    await withTransaction((tx) => settleEmailReplies(tx, threads, "lead-thread-sync")).catch((err) =>
+      console.error("[lead-thread-sync] email reply settle failed:", (err as Error).message),
+    );
+  }
+
+  // A capped incremental walk left older threads unseen: hold the watermark
+  // so the next run covers them, instead of skipping past them for good.
+  if (!dryRun && !threads.capped) await writeWatermark(startedAt, { scanned: threads.length, matched: matchedThreads, changes: changes.length });
+  else if (!dryRun) console.warn(`[lead-thread-sync] ${threads.length} threads since the watermark hit the cap; watermark held`);
 
   return finish({
     configured: true,

@@ -85,6 +85,10 @@ async function optional(label, loader) {
 const processors = [];
 const telnyx = await optional("telnyx processor", async () => (await importApp("lib/worker/telnyx-processor.ts")).telnyxProcessor);
 if (telnyx) processors.push(telnyx);
+const square = await optional("square processor", async () => (await importApp("lib/worker/square-processor.ts")).squareProcessor);
+if (square) processors.push(square);
+const esign = await optional("esign processor", async () => (await importApp("lib/worker/esign-processor.ts")).esignProcessor);
+if (esign) processors.push(esign);
 
 const dispatcher = await optional("intent dispatcher (lib/dispatch)", async () => {
   for (const file of ["lib/dispatch/index.ts", "lib/dispatch/dispatcher.ts", "lib/dispatch/run.ts"]) {

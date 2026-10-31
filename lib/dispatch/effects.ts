@@ -74,6 +74,17 @@ export const EFFECTS: Record<string, Effect> = {
     await notify(run, { kind: "money", tag: "Money", accent: "money", icon: "money", title: `PO ${s(pl.po_number)} sent · ${s(pl.project_name)}`, subline: `${s(pl.amount_label)} · ${s(pl.vendor_name)}`, href: pl.slug ? `/projects/${s(pl.slug)}` : null });
   },
 
+  // A supplier pricing request (an approved release card) goes out as a plain
+  // email; the request row reads 'sent' once Gmail accepted it.
+  async send_email(run, intent, _r, state) {
+    if (!OK.has(state)) return;
+    const pl = p(intent);
+    if (!pl.pricing_request_id) return;
+    const rows = await run<{ id: string }>(`UPDATE supplier_pricing_requests SET status = 'sent' WHERE id = $1 AND status IN ('staged','approved') RETURNING id`, [s(pl.pricing_request_id)]);
+    if (!rows.length) return;
+    await notify(run, { kind: "job", tag: "Pricing", accent: "accent", icon: "mail", title: `Pricing request emailed to ${s(pl.supplier_name)}`, subline: s(pl.project_name) || null, href: pl.slug ? `/projects/${s(pl.slug)}` : null });
+  },
+
   async send_bid_package(run, intent, _r, state) {
     if (!OK.has(state)) return;
     const pl = p(intent);

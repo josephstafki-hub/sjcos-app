@@ -68,6 +68,12 @@ const stubs = {
   [lib('billing/server')]: 'export const billingOnSignatureSigned = (...a) => globalThis.__esignTest.hook(...a);',
   [lib('workflow/server')]: 'export const workflowOnSignatureSigned = (...a) => globalThis.__esignTest.hook(...a);',
   [lib('closeout/server')]: 'export const recordWrittenSignoffCmd = async () => ({ ok: true });',
+  [lib('commands/db')]: `export const runDirect = async (sql, params) => (await globalThis.__esignTest.query(sql, params)).rows;
+    export const withTransaction = async fn => fn(runDirect);`,
+  [lib('workflow/agreement')]: 'export const prepareAgreementOnAcceptance = async () => ({ ok: true });',
+  [lib('closeout/revisions')]: 'export const pinSignedSignatureRequest = async () => {};',
+  [lib('direct-send-gate')]: 'export const directSendBlocked = async () => null;',
+
   [lib('workflow/engine')]: 'export const classifySignedDoc = () => "precon";',
 };
 registerHooks({
@@ -252,7 +258,7 @@ test('MCP send forwards its owner grant, retries failed delivery through the sam
 
 test('delivery migration revokes existing void drafts and is safe to apply twice', { skip }, async () => {
   const f = await fixture('void');
-  const sql = readFileSync(new URL('../db/migrations/0051_signature_delivery.sql', import.meta.url), 'utf8');
+  const sql = readFileSync(new URL('../db/migrations/0058_signature_delivery.sql', import.meta.url), 'utf8');
   await run(sql);
   assert.deepEqual(await state(f), { draft: 'void', request: 'void' });
   await run(sql);

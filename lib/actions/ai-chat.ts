@@ -151,7 +151,7 @@ export async function sendMessageAction(
   allowSends?: boolean,
   contextRecords?: PanelContextRef[],
 ): Promise<SendResult> {
-  await requireAccess("ai");
+  const user = await requireAccess("ai");
   const explicitContext = await loadPanelContext(contextRecords ?? []);
   if (explicitContext) pageContext = [pageContext, explicitContext].filter(Boolean).join("\n\n");
   const text = prompt.trim();
@@ -186,6 +186,14 @@ export async function sendMessageAction(
     routedVia = decision.via;
   } else {
     agent = conv.agent;
+  }
+  // Tier 4: Hermes and Qwen act through connections that run as Joe, with no
+  // way to carry a staff member's identity or limits. A staff turn goes to
+  // Claude, which runs bound to that person (business profile, their send
+  // authority); a thread pinned to Hermes/Qwen is refused for staff.
+  if (user.role !== "owner" && (agent === "hermes" || agent === "qwen")) {
+    if (conv.agent === "auto") agent = "claude";
+    else return { ok: false, error: `${agent === "hermes" ? "Hermes" : "Qwen"} acts as Joe, so it's for Joe's account only. Pick Claude for this thread.` };
   }
 
   // Persist the user turn (with a paperclip note naming attachments, and the
@@ -532,7 +540,7 @@ export async function voiceTurnAction(
   transcript: string,
   pageContext?: string,
 ): Promise<VoiceTurnResult> {
-  await requireAccess("ai");
+  const user = await requireAccess("ai");
   const text = transcript.trim();
   if (!text) return { ok: false, error: "I didn't catch that." };
 
@@ -557,6 +565,11 @@ export async function voiceTurnAction(
   // Honor a pinned thread's agent; 'auto'/'claude' threads take Claude's pick.
   const agent: "hermes" | "qwen" =
     conv.agent === "hermes" || conv.agent === "qwen" ? conv.agent : reply.delegate.agent;
+  // Hermes/Qwen act as Joe (see sendMessageAction): no delegation for staff.
+  if (user.role !== "owner") {
+    const note = await insertMessage(conversationId, "assistant", "That needs Hermes or Qwen, which act as Joe, so they're for Joe's account only. Ask Claude in a typed message instead.", { agent: "concierge" });
+    return { ok: true, speak: reply.speak, ackMessageId: note.id };
+  }
   const runId = await startBackgroundTurn({
     conversationId,
     agent,

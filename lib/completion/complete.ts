@@ -74,7 +74,40 @@ interface WiRow {
   project_id: string | null;
 }
 
-type Validation = { ok: true; uri: string | null; label: string; metadata: Record<string, unknown> } | { ok: false; error: string };
+type Validation = { ok: true; uri: string | null; label: string; metadata: Record<string, unknown>; jobRef?: { table: string; id: string } } | { ok: false; error: string };
+
+// Where each evidence table records its job. Lead-slug tables map through leads.
+const JOB_COLS: Record<string, { project: string | null; lead: string | null }> = {
+  projects: { project: "t.id", lead: null },
+  leads: { project: null, lead: "t.id" },
+  action_intents: { project: "t.project_id", lead: "t.lead_id" },
+  calls: { project: "t.project_id", lead: "t.lead_id" },
+  knowledge_items: { project: "t.project_id", lead: "t.lead_id" },
+  obligations: { project: "t.project_id", lead: "t.lead_id" },
+  document_drafts: { project: "t.project_id", lead: "(SELECT l.id FROM leads l WHERE l.slug = t.lead_slug)" },
+  estimates: { project: "t.project_id", lead: "(SELECT l.id FROM leads l WHERE l.slug = t.lead_slug)" },
+  signature_requests: { project: "t.project_id", lead: "(SELECT l.id FROM leads l WHERE l.slug = t.lead_slug)" },
+  invoices: { project: "t.project_id", lead: null },
+  purchase_orders: { project: "t.project_id", lead: null },
+  bid_packages: { project: "t.project_id", lead: null },
+};
+
+/** Evidence must come from the to-do's own job: a receipt for one client's
+ *  email can't close another client's to-do. Only refuses when both sides
+ *  name a job and they differ (a to-do with no job takes any evidence). */
+async function evidenceJobMismatch(run: Run, wi: WiRow, ref: { table: string; id: string }): Promise<string | null> {
+  const cols = JOB_COLS[ref.table];
+  if (!cols || (!wi.project_id && !wi.lead_id)) return null;
+  const [row] = await run<{ project_id: string | null; lead_id: string | null; project_name: string | null; lead_name: string | null }>(
+    `SELECT x.project_id, x.lead_id, (SELECT name FROM projects WHERE id = x.project_id) AS project_name, (SELECT name FROM leads WHERE id = x.lead_id) AS lead_name
+       FROM (SELECT ${cols.project ?? "NULL::uuid"} AS project_id, ${cols.lead ?? "NULL::uuid"} AS lead_id FROM ${ref.table} t WHERE t.id::text = $1) x`,
+    [ref.id],
+  );
+  if (!row) return null;
+  if (wi.project_id && row.project_id && row.project_id !== wi.project_id) return `that evidence (${ref.table} ${ref.id}) is from another job (${row.project_name ?? row.project_id}), not this to-do's`;
+  if (wi.lead_id && row.lead_id && row.lead_id !== wi.lead_id) return `that evidence (${ref.table} ${ref.id}) is from another lead (${row.lead_name ?? row.lead_id}), not this to-do's`;
+  return null;
+}
 
 async function tableHasColumn(run: Run, table: string, column: string): Promise<boolean> {
   const rows = await run<{ ok: boolean }>(
@@ -93,12 +126,12 @@ async function validate(run: Run, ev: CompletionEvidence, principal: Principal):
       if (ev.knowledge_item_id) {
         const [k] = await run<{ id: string; kind: string }>(`SELECT id, kind FROM knowledge_items WHERE id = $1`, [ev.knowledge_item_id]);
         if (!k) return { ok: false, error: `draft evidence: knowledge item ${ev.knowledge_item_id} does not exist` };
-        return { ok: true, uri: `/brain?open=${k.id}`, label: ev.label ?? `Draft (knowledge item ${k.id})`, metadata: { knowledge_item_id: k.id, knowledge_kind: k.kind } };
+        return { ok: true, uri: `/brain?open=${k.id}`, label: ev.label ?? `Draft (knowledge item ${k.id})`, metadata: { knowledge_item_id: k.id, knowledge_kind: k.kind }, jobRef: { table: "knowledge_items", id: String(k.id) } };
       }
       if (ev.document_draft_id != null) {
         const [d] = await run<{ id: string; title: string; status: string | null }>(`SELECT id::text AS id, title, status FROM document_drafts WHERE id = $1`, [ev.document_draft_id]);
         if (!d) return { ok: false, error: `draft evidence: document draft ${ev.document_draft_id} does not exist` };
-        return { ok: true, uri: `/documents?draft=${d.id}`, label: ev.label ?? `Draft: ${d.title}`, metadata: { document_draft_id: d.id, document_status: d.status } };
+        return { ok: true, uri: `/documents?draft=${d.id}`, label: ev.label ?? `Draft: ${d.title}`, metadata: { document_draft_id: d.id, document_status: d.status }, jobRef: { table: "document_drafts", id: d.id } };
       }
       return { ok: false, error: "draft evidence needs knowledge_item_id or document_draft_id (the artifact must exist; a description is not an artifact)" };
     }
@@ -114,14 +147,14 @@ async function validate(run: Run, ev: CompletionEvidence, principal: Principal):
       if (!okStates.includes(it.state)) {
         return { ok: false, error: `${ev.kind} evidence: intent ${it.id} is '${it.state}', need ${okStates.join("|")} — an intent that is pending, unknown or failed is not proof` };
       }
-      return { ok: true, uri: it.provider_ref, label: ev.label ?? `${it.kind} ${it.operation_key} (${it.state})`, metadata: { intent_id: it.id, state: it.state, provider_ref: it.provider_ref } };
+      return { ok: true, uri: it.provider_ref, label: ev.label ?? `${it.kind} ${it.operation_key} (${it.state})`, metadata: { intent_id: it.id, state: it.state, provider_ref: it.provider_ref }, jobRef: { table: "action_intents", id: String(it.id) } };
     }
     case "business_response": {
       if (ev.obligation_id) {
         const [o] = await run<{ id: string; status: string; resolution: Record<string, unknown> }>(`SELECT id, status, resolution FROM obligations WHERE id = $1`, [ev.obligation_id]);
         if (!o) return { ok: false, error: `business_response evidence: obligation ${ev.obligation_id} does not exist` };
         if (o.status !== "done") return { ok: false, error: `business_response evidence: obligation ${o.id} is '${o.status}', not resolved` };
-        return { ok: true, uri: null, label: ev.label ?? `Counterparty responded (obligation ${o.id})`, metadata: { obligation_id: o.id, resolution: o.resolution } };
+        return { ok: true, uri: null, label: ev.label ?? `Counterparty responded (obligation ${o.id})`, metadata: { obligation_id: o.id, resolution: o.resolution }, jobRef: { table: "obligations", id: String(o.id) } };
       }
       if (ev.source_event_id) {
         const [s] = await run<{ id: string; provider: string; event_id: string; event_type: string }>(`SELECT id, provider, event_id, event_type FROM source_events WHERE id = $1`, [ev.source_event_id]);
@@ -150,7 +183,7 @@ async function validate(run: Run, ev: CompletionEvidence, principal: Principal):
       if (!row) return { ok: false, error: `record evidence: ${table} ${ev.id} does not exist` };
       if (row.rev == null) return { ok: false, error: `record evidence: ${table} carries no revision column to verify against` };
       if (!sameRevision(row.rev, ev.revision)) return { ok: false, error: `record evidence is stale: ${table} ${ev.id} is at revision ${row.rev}, evidence cites ${ev.revision}` };
-      return { ok: true, uri: null, label: ev.label ?? `${table} ${row.id} @ ${row.rev}`, metadata: { table, id: row.id, revision: row.rev } };
+      return { ok: true, uri: null, label: ev.label ?? `${table} ${row.id} @ ${row.rev}`, metadata: { table, id: row.id, revision: row.rev }, jobRef: { table, id: row.id } };
     }
   }
 }
@@ -199,6 +232,10 @@ export async function completeWorkItem(run: Run, input: CompleteWorkItemInput): 
 
   const v = await validate(run, input.evidence, input.principal);
   if (!v.ok) return { ok: false, error: v.error, required };
+  if (v.jobRef) {
+    const mismatch = await evidenceJobMismatch(run, wi, v.jobRef);
+    if (mismatch) return { ok: false, error: mismatch, required };
+  }
   if (!evidenceSatisfies(required, input.evidence.kind)) {
     return { ok: false, error: `this step requires '${required}' evidence; '${input.evidence.kind}' does not satisfy it`, required };
   }

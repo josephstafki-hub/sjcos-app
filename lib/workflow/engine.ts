@@ -81,8 +81,9 @@ async function activePolicyVersions(run: Run): Promise<Record<string, number>> {
 
 export async function ensureProjectWorkflow(run: Run, projectId: string, startedBy = "system"): Promise<ProjectWorkflowRow> {
   const [row] = await run<ProjectWorkflowRow>(
-    `INSERT INTO project_workflows (project_id, definition_version, policy_versions, started_by)
-     VALUES ($1, $2, $3::jsonb, $4)
+    // A new row starts at the stage the job's status implies (0054), not W01.
+    `INSERT INTO project_workflows (project_id, definition_version, policy_versions, started_by, stage)
+     VALUES ($1, $2, $3::jsonb, $4, COALESCE((SELECT workflow_stage_for_status(status) FROM projects WHERE id = $1), 'W01'))
      ON CONFLICT (project_id) DO UPDATE SET project_id = EXCLUDED.project_id
      RETURNING ${WF_COLS}`,
     [projectId, WORKFLOW_DEFINITION_VERSION, JSON.stringify(await activePolicyVersions(run)), startedBy],
@@ -412,9 +413,12 @@ export async function projectWorkflowView(run: Run, projectId: string): Promise<
          FROM scope_items WHERE project_id = $1 AND status NOT IN ('superseded','excluded')`,
       [projectId],
     );
-    const allocated = sc.total > 0 && sc.unassigned === 0;
-    gates.push({ key: "scope_allocated", label: "Joe's scope-allocation review done", met: allocated, detail: sc.total ? `${sc.total - sc.unassigned}/${sc.total} allocated (${sc.joe} retained by Joe)` : "no scope items" });
-    if (sc.total > 0 && !allocated) next.push(`Scope allocation: ${sc.unassigned} item(s) still unassigned (Joe / sub / supplier) before any bid package is released.`);
+    const [rv] = await run<{ n: number }>(`SELECT count(*)::int AS n FROM project_workflow_events WHERE project_id = $1 AND kind = 'scope_allocation_reviewed'`, [projectId]);
+    const reviewed = Number(rv?.n ?? 0) > 0;
+    const allocated = sc.total > 0 && sc.unassigned === 0 && reviewed;
+    gates.push({ key: "scope_allocated", label: "Joe's scope-allocation review done", met: allocated, detail: sc.total ? `${sc.total - sc.unassigned}/${sc.total} allocated (${sc.joe} retained by Joe)${reviewed ? ", reviewed" : ", not reviewed by Joe yet"}` : "no scope items" });
+    if (sc.total > 0 && sc.unassigned > 0) next.push(`Scope allocation: ${sc.unassigned} item(s) still unassigned (Joe / sub / supplier) before any bid package is released.`);
+    else if (sc.total > 0 && !reviewed) next.push("Scope allocation: stage the who-does-what card for Joe (stage_scope_allocation_review) before any bid package is released.");
   }
   if (await exists(run, "site_visit_plans")) {
     const [pl] = await run<{ open: number; total: number }>(

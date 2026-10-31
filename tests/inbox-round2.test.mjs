@@ -6,6 +6,8 @@ import {
   composerExpanded,
 } from "../lib/inbox-rules.ts";
 import {
+  readOtherSenders,
+  rememberOtherSender,
   inboxBucket,
   matchesInboxTab,
   triageRank,
@@ -150,4 +152,58 @@ test("empty composer collapses, saved drafts remain expanded; latest inbound win
     1,
   );
   assert.equal(latestInboundIndex([{ outbound: true }]), 0);
+});
+
+test("sender corrections survive reload, undo removes them, and choices never cross mailboxes", () => {
+  const map = new Map();
+  const storage = {
+    getItem: (key) => map.get(key) ?? null,
+    setItem: (key, value) => map.set(key, value),
+    removeItem: (key) => map.delete(key),
+  };
+  assert.equal(
+    rememberOtherSender(storage, "joe@example.test", "NEW@example.test", true),
+    true,
+  );
+  assert.deepEqual(
+    [...readOtherSenders(storage, "joe@example.test", ["new@example.test"])],
+    ["new@example.test"],
+  );
+  assert.equal(
+    readOtherSenders(storage, "staff@example.test", ["new@example.test"]).size,
+    0,
+  );
+  assert.equal(
+    rememberOtherSender(storage, "joe@example.test", "new@example.test", false),
+    true,
+  );
+  assert.equal(
+    readOtherSenders(storage, "joe@example.test", ["new@example.test"]).size,
+    0,
+  );
+  assert.equal(
+    rememberOtherSender(
+      {
+        setItem() {
+          throw Error("blocked");
+        },
+      },
+      "joe@example.test",
+      "new@example.test",
+      true,
+    ),
+    false,
+  );
+  assert.equal(
+    readOtherSenders(
+      {
+        getItem() {
+          throw Error("blocked");
+        },
+      },
+      "joe@example.test",
+      ["new@example.test"],
+    ).size,
+    0,
+  );
 });

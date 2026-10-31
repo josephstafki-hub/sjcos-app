@@ -277,3 +277,35 @@ export function formatContactPhone(phone: string): string {
     ? `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
     : phone;
 }
+
+export function readOtherSenders(
+  storage: StorageRead,
+  mailbox: string,
+  emails: string[],
+): Set<string> {
+  const senders = new Set<string>();
+  for (const email of emails) {
+    try {
+      if (storage.getItem(senderPreferenceKey(mailbox, email)) === "other")
+        senders.add(email.toLowerCase());
+    } catch {
+      /* Private mode: keep every sender visible. */
+    }
+  }
+  return senders;
+}
+export function rememberOtherSender(
+  storage: StorageWrite,
+  mailbox: string,
+  email: string,
+  other: boolean,
+): boolean {
+  try {
+    const key = senderPreferenceKey(mailbox, email);
+    if (other) storage.setItem(key, "other");
+    else storage.removeItem(key);
+    return true;
+  } catch {
+    return false;
+  }
+}

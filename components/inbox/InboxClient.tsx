@@ -87,7 +87,8 @@ import type {
 import {
   INBOX_TABS,
   triageRank,
-  senderPreferenceKey,
+  readOtherSenders,
+  rememberOtherSender,
   applySenderPreference,
   shortJobLabel,
   formatContactPhone,
@@ -319,21 +320,14 @@ export function InboxClient({
 
   useEffect(() => {
     // A mailbox switch must never carry another account's screening choices.
-    const next = new Set<string>();
-    for (const thread of [...threads, ...(remoteData?.threads ?? [])]) {
-      if (!thread.fromEmail) continue;
-      try {
-        if (
-          localStorage.getItem(
-            senderPreferenceKey(selfEmail, thread.fromEmail),
-          ) === "other"
-        )
-          next.add(thread.fromEmail.toLowerCase());
-      } catch {
-        /* Keep the inbox usable when storage is unavailable. */
-      }
+    try {
+      const emails = [...threads, ...(remoteData?.threads ?? [])]
+        .map((t) => t.fromEmail)
+        .filter((email): email is string => Boolean(email));
+      setOtherSenders(readOtherSenders(localStorage, selfEmail, emails));
+    } catch {
+      setOtherSenders(new Set());
     }
-    setOtherSenders(next);
   }, [selfEmail, threads, remoteData]);
   function fileSender(thread: InboxThread, other: boolean) {
     if (!thread.fromEmail) return;
@@ -345,9 +339,10 @@ export function InboxClient({
       return next;
     });
     try {
-      const key = senderPreferenceKey(selfEmail, email);
-      if (other) localStorage.setItem(key, "other");
-      else localStorage.removeItem(key);
+      if (!rememberOtherSender(localStorage, selfEmail, email, other))
+        setNotice(
+          "Browser storage is unavailable. This choice may reset on refresh.",
+        );
     } catch {
       setNotice(
         "Browser storage is unavailable. This choice may reset on refresh.",

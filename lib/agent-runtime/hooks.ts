@@ -124,7 +124,13 @@ export async function onInboundMessage(
     projectId: msg.projectId ?? null,
     leadId: msg.leadId ?? null,
     enqueuedBy: `hook:${msg.provider}`,
-    payload: { messages: [{ from: msg.from ?? "?", channel: msg.provider, subject: msg.subject ?? undefined, text: msg.text ?? "", at: msg.at ?? new Date().toISOString() }] },
+    payload: {
+      messages: [{ from: msg.from ?? "?", channel: msg.provider, subject: msg.subject ?? undefined, text: msg.text ?? "", at: msg.at ?? new Date().toISOString() }],
+      // The client wrote in the portal: the reply goes back there, not by email.
+      ...(msg.provider === "portal"
+        ? { reply_channel: "portal", reply_how: 'Draft the reply with submit_draft_for_approval channel "portal" (message body only). Approve posts it in this client\'s portal thread. Do not draft an email for it.' }
+        : {}),
+    },
   });
 }
 

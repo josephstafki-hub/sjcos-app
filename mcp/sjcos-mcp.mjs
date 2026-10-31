@@ -1800,19 +1800,43 @@ server.registerTool(
       "email, Joe's Approve click WILL send it. Do not call send_email afterward. " +
       "For a client email, ALWAYS start the draft with \"To: <their email>\" and " +
       "\"Subject: …\" lines, a blank line, then the body — a draft with no To: line " +
-      "is NOT emailed on approval (Joe just sees 'Nothing was emailed').",
+      "is NOT emailed on approval (Joe just sees 'Nothing was emailed'). " +
+      "REPLY ON THE CHANNEL IT CAME IN ON: a client who wrote in the client portal gets their reply in the " +
+      "portal — pass channel: \"portal\" and just the message body (no To:/Subject:, no sign-off block). " +
+      "Joe's Approve click then posts it in that client's portal thread as Joe. An emailed client gets an email draft. " +
+      "Draft the reply proactively, even when Joe has to decide something first (a short holding reply that " +
+      "promises nothing is fine).",
     inputSchema: {
       work_item_id: z.string(),
       draft: z.string(),
       kind: z.string().optional(),
+      channel: z
+        .enum(["email", "portal"])
+        .optional()
+        .describe("'portal' = reply in the client portal thread of the work item's project/lead (Approve posts it). Default: email (or an internal draft with no To: line)."),
     },
   },
-  async ({ work_item_id, draft, kind = "draft" }) => {
+  async ({ work_item_id, draft: rawDraft, kind: rawKind, channel = "email" }) => {
     const item = await rows(
       `SELECT id, title, lead_id, project_id, runbook_instance_id FROM work_items WHERE id = $1`,
       [work_item_id],
     );
     if (!item[0]) return json({ ok: false, error: `No work item ${work_item_id}` });
+    let draft = rawDraft;
+    if (channel === "portal") {
+      if (!item[0].lead_id && !item[0].project_id) {
+        return json({ ok: false, error: "A portal reply needs a work item on the client's project or lead (it posts in that portal thread)." });
+      }
+      // Normalise: drop any header block the agent wrote, then mark it a portal reply.
+      const lines = String(rawDraft ?? "").trimStart().split(/\r?\n/);
+      let i = 0;
+      while (i < lines.length && /^(To|Subject|From|Cc|Channel|Via):/i.test(lines[i])) i++;
+      if (i > 0 && i < lines.length && !lines[i].trim()) i++;
+      const body = lines.slice(i).join("\n").trim();
+      if (!body) return json({ ok: false, error: "The portal reply is empty." });
+      draft = `To: client portal\n\n${body}`;
+    }
+    const kind = rawKind ?? (channel === "portal" ? "portal_reply" : "draft");
     const fp = createHash("md5").update(draft).digest("hex");
     const k = await rows(
       `INSERT INTO knowledge_items (content, kind, source, project_id, lead_id, content_fingerprint, created_by)
@@ -1821,7 +1845,10 @@ server.registerTool(
        RETURNING id`,
       [draft, kind, item[0].project_id, item[0].lead_id, fp],
     );
-    const knowledgeId = k[0]?.id ?? null;
+    // The same text staged before (fingerprint hit): point at that row so
+    // Approve still finds the draft.
+    const knowledgeId =
+      k[0]?.id ?? (await rows(`SELECT id FROM knowledge_items WHERE content_fingerprint = $1 LIMIT 1`, [fp]))[0]?.id ?? null;
     // A fresh draft supersedes any earlier "Approved. Nothing was emailed" notice.
     await rows(
       `UPDATE work_items
@@ -1855,9 +1882,12 @@ server.registerTool(
       ok: true,
       knowledge_id: knowledgeId,
       approve_will_send: approveWillSend.willSend,
+      channel,
       note:
-        "If the draft starts with To:/Subject: matching the lead/project email, Joe's Approve " +
-        "click WILL send it. Do not call send_email afterward. " + approveWillSend.note,
+        channel === "portal"
+          ? "Joe's Approve click posts this in the client portal. Do not post or email it yourself. " + approveWillSend.note
+          : "If the draft starts with To:/Subject: matching the lead/project email, Joe's Approve " +
+            "click WILL send it. Do not call send_email afterward. " + approveWillSend.note,
     });
   },
 );
@@ -1866,6 +1896,21 @@ server.registerTool(
  *  reduced to "will Joe's Approve click email this draft?" so the agent hears
  *  about a missing To: line or a wrong address while it can still fix it. */
 async function approveWouldEmail(draft, leadId, projectId) {
+  if (/^To:\s*client portal\s*$/im.test(String(draft ?? "").trimStart().split(/\r?\n/)[0] ?? "")) {
+    // Portal reply: Approve posts it if the client has a portal login
+    // (lib/approved-draft-send.ts postApprovedPortalReply).
+    const r = await rows(
+      `SELECT EXISTS (SELECT 1 FROM users u WHERE u.role = 'client' AND u.active AND u.link_slug = ps.slug) AS ok
+         FROM (SELECT COALESCE(
+                 (SELECT slug FROM projects WHERE id = $2),
+                 (SELECT p.slug FROM projects p WHERE p.lead_id = $1 ORDER BY p.created_at DESC LIMIT 1),
+                 (SELECT 'lead:' || slug FROM leads WHERE id = $1)) AS slug) ps`,
+      [leadId ?? null, projectId ?? null],
+    );
+    return r[0]?.ok
+      ? { willSend: true, note: "Approve will post it in the client portal." }
+      : { willSend: false, note: "This client has no portal login, so Approve will refuse to post it. Send an email draft instead." };
+  }
   const lines = String(draft ?? "").trimStart().split(/\r?\n/);
   let to = null;
   for (const line of lines) {

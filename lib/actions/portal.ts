@@ -16,6 +16,7 @@ import { logClientActivity, ownerHref } from "@/lib/client-activity";
 import { storeUpload } from "@/lib/upload-store";
 import { withTransaction } from "@/lib/commands/db";
 import { onInboundMessage } from "@/lib/agent-runtime/hooks";
+import { notifyPortalMessage } from "@/lib/notify-owner";
 
 const PREVIEW_SLUG = { client: "henderson", sub: "marco" } as const;
 
@@ -150,14 +151,23 @@ export async function sendPortalMessage(formData: FormData) {
         : clientScope
           ? ownerHref(clientScope, { tab: "Client portal", focus })
           : "/notifications";
-    await emit({
-      kind: "mention",
-      tag: "Portal",
-      icon: "chat",
-      accent: "ai",
-      title: `${name} sent a message`,
-      subline: body.length > 120 ? `${body.slice(0, 117)}…` : body,
+    // The bell card + a Telegram push carrying the message. Joe's swipe-reply
+    // to that push is posted back into this thread (lib/notify-owner.ts
+    // notifyPortalMessage → app/api/telegram/webhook).
+    const context = clientScope
+      ? await queryOne<{ name: string }>(
+          clientScope.kind === "project" ? `SELECT name FROM projects WHERE slug = $1` : `SELECT name FROM leads WHERE slug = $1`,
+          [clientScope.slug],
+        ).catch(() => null)
+      : null;
+    await notifyPortalMessage({
+      surface,
+      channelKey,
+      messageId: inserted?.id ?? null,
+      name,
+      body,
       href,
+      context: context?.name ?? null,
     });
     if (clientScope) {
       await logClientActivity({

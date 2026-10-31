@@ -251,7 +251,10 @@ export async function markPosted(id: number, url?: string | null): Promise<Resul
 /** Undo a manual "posted" marker. No external post is changed. */
 export async function markDraft(id: number): Promise<Result> {
   await requireAccess("marketing");
-  await query(`UPDATE marketing_drafts SET status = 'draft' WHERE id = $1 AND status = 'posted'`, [id]);
+  // Only a post marked posted by hand: one the posting agent put up stays posted
+  // (reopening it would let the same post go up twice).
+  const r = await query(`UPDATE marketing_drafts SET status = 'draft' WHERE id = $1 AND status = 'posted' AND publication_intent_id IS NULL`, [id]);
+  if (!r.rowCount) return { ok: false, error: "The posting agent put this one up, so it stays posted. Delete it from the site itself if it needs to come down." };
   revalidatePath("/marketing"); revalidatePath("/site");
   return {ok:true};
 }

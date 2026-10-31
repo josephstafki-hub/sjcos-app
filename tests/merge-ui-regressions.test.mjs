@@ -50,15 +50,29 @@ test('sub-document review accepts W-9s without expiry while a COI still requires
   assert.doesNotMatch(accept, / disabled=/);
 });
 
-test('marketing (main\'s posting-agent screen) keeps Mark posted; job photos offer downloads only for approved photos', () => {
+test('marketing: redesigned card keeps every posting-agent piece; job photos offer downloads only for approved photos', () => {
   const draft = { id: 1, title: 'Clean headline', body: 'Finished work.', status: 'draft', kind: 'social', kindLabel: 'Social', projectSlug: 'job', projectName: 'Kitchen', createdLabel: 'Oct 30', media: [], platform: null, stage: 'draft', photos: [{ id: 'allowed', name: 'Approved.jpg', shareable: true }, { id: 'private', name: 'Private.jpg', shareable: false }] };
-  const stubs = { './PostingPanel': { PostingPanel: () => null, InPostToggle: () => null, StageChip: () => null, editableStage: () => true }, './PostingAccounts': { PostingAccounts: () => null } };
-  const Marketing = component('components/marketing/MarketingClient.tsx', 'MarketingClient', { ...stubs, './PostPhotos': { PostPhotos: () => null } });
-  assert.match(render(Marketing, { projects: [{ slug: 'job', name: 'Kitchen' }], accounts: {}, isOwner: true, drafts: [draft] }), /Mark posted/);
+  const marker = (name) => () => React.createElement('i', null, name);
+  const stubs = { './PostingPanel': { PostingPanel: marker('[posting-panel]'), InPostToggle: () => null, StageChip: ({ stage }) => React.createElement('i', null, `[stage:${stage}]`), editableStage: (s) => s === 'draft' || s === 'failed' || s === 'awaiting_approval' }, './PostingAccounts': { PostingAccounts: marker('[posting-accounts]') }, './PostPreview': { PostPreview: marker('[preview]') } };
+  const Marketing = component('components/marketing/MarketingClient.tsx', 'MarketingClient', { ...stubs, './PostPhotos': { PostPhotos: marker('[post-photos]') } });
+  const html = render(Marketing, { projects: [{ slug: 'job', name: 'Kitchen' }], accounts: {}, isOwner: true, drafts: [draft, { ...draft, id: 2, kind: 'blog', stage: 'posting', status: 'posting' }] });
+  // the redesign
+  assert.match(html, /Headline<input[^>]*value="Clean headline"/);
+  assert.match(html, /href="\/projects\/job"/);
+  assert.match(html, /Mark posted/);
+  // the posting agent's pieces are all still there (first card is open)
+  assert.match(html, /\[posting-accounts\]/);
+  assert.match(html, /\[post-photos\]/);
+  assert.match(html, /\[posting-panel\]/);
+  assert.match(html, /\[stage:posting\]/, 'a post going up shows its stage chip');
+  // a post going up can't be edited
+  const busy = render(Marketing, { projects: [], accounts: null, isOwner: true, drafts: [{ ...draft, stage: 'posting', status: 'posting' }] });
+  assert.match(busy, /Headline<input disabled=""/);
+  assert.doesNotMatch(busy, /Mark posted/);
   const Photos = component('components/marketing/PostPhotos.tsx', 'PostPhotos', stubs);
-  const html = render(Photos, { draft, isOwner: true });
-  assert.match(html, /href="\/api\/files\/allowed\?download=1"/);
-  assert.doesNotMatch(html, /href="\/api\/files\/private\?download=1"/);
+  const photos = render(Photos, { draft, isOwner: true });
+  assert.match(photos, /href="\/api\/files\/allowed\?download=1"/);
+  assert.doesNotMatch(photos, /href="\/api\/files\/private\?download=1"/);
 });
 
 test('purchase-order table retains commitment status and excludes void orders from its total', () => {

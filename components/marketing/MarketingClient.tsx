@@ -1,20 +1,24 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Megaphone, Sparkles, Copy, Check, Trash2, Send } from "lucide-react";
-import { Card, Chip } from "@/components/ui";
+import { Check, ChevronRight, Copy, Megaphone, Sparkles } from "lucide-react";
+import { Button, Card, Chip, EmptyState, PageHeader, Segmented } from "@/components/ui";
 import type { MarketingDraft } from "@/lib/marketing";
 import type { PostingAccounts as Accounts } from "@/lib/publisher/core";
-import { generateDraft, updateDraft, markPosted, deleteDraft } from "@/lib/actions/marketing";
+import { deleteDraft, generateDraft, markDraft, markPosted, updateDraft } from "@/lib/actions/marketing";
 import { runAction } from "@/lib/run-action";
-import { PostingPanel, StageChip } from "./PostingPanel";
+import { editableStage, PostingPanel, StageChip } from "./PostingPanel";
 import { PostPhotos } from "./PostPhotos";
 import { PostingAccounts } from "./PostingAccounts";
+import { PostPreview } from "./PostPreview";
 
-/** /marketing — AI-drafted social + blog posts. Owner generates from a project,
- *  edits inline, and either copies + posts by hand, or picks a platform and
- *  photos and approves the posting agent to put it up (no social API). */
+const input = "min-w-0 rounded-md border border-rule bg-card px-3 py-2 text-body text-ink";
+
+/** /marketing — AI-drafted social + blog posts. Draft from a project, edit the
+ *  headline and copy (with a rendered preview), then either copy and post it by
+ *  hand or pick a site + photos and approve the posting agent to put it up. */
 export function MarketingClient({
   drafts,
   projects,
@@ -29,71 +33,59 @@ export function MarketingClient({
   const router = useRouter();
   const [slug, setSlug] = useState(projects[0]?.slug ?? "");
   const [kind, setKind] = useState("social");
-  const [pending, startTransition] = useTransition();
+  const [pending, start] = useTransition();
   const [error, setError] = useState("");
+  const open = drafts.filter((d) => d.stage !== "posted").length;
 
   function generate() {
-    if (!slug) {
-      setError("Pick a project to draft about.");
-      return;
-    }
+    if (!slug) return setError("Choose a project to draft about.");
     setError("");
-    startTransition(async () => {
-      const r = await runAction(() => generateDraft(slug, kind), { fallback: "Couldn't draft." });
-      if (!r.ok) setError(r.error ?? "Couldn't draft.");
+    start(async () => {
+      const r = await runAction(() => generateDraft(slug, kind), { fallback: "Couldn't draft a post." });
+      if (!r.ok) setError(r.error ?? "Couldn't draft a post.");
       else router.refresh();
     });
   }
 
-  const selectCls =
-    "rounded-md border border-rule bg-card px-2.5 py-1.5 text-[13px] text-ink-2 outline-none focus:border-accent";
-
   return (
-    <div className="mx-auto max-w-[860px] px-7 pb-16 pt-6">
-      <div className="mb-4 flex items-center gap-2">
-        <Megaphone className="size-5 text-accent" strokeWidth={1.75} />
-        <div className="flex-1">
-          <h1 className="font-serif text-[30px] font-medium leading-none text-accent-2">Marketing</h1>
-          <div className="mt-1 text-[11px] text-ink-3">AI-drafted posts: post them yourself, or approve one and the posting agent puts it up.</div>
-        </div>
-      </div>
+    <div className="mx-auto max-w-4xl space-y-6 px-4 py-6 @3xl/page:px-6">
+      <PageHeader
+        title="Marketing"
+        meta={`${open} ${open === 1 ? "post" : "posts"} not posted yet · Post them yourself, or approve one and the posting agent puts it up.`}
+      />
 
       {isOwner && accounts && <PostingAccounts accounts={accounts} />}
 
-      {/* Generate */}
-      <Card className="mb-5 p-3.5">
-        <div className="flex flex-wrap items-center gap-2">
-          <Sparkles className="size-4 flex-none text-accent" strokeWidth={1.75} />
-          <select value={slug} onChange={(e) => setSlug(e.target.value)} className={`${selectCls} min-w-[180px] flex-1`}>
-            <option value="">Pick a project…</option>
+      <Card className="p-4">
+        <h2 className="mb-3 text-subheading font-semibold">Draft from a project</h2>
+        <div className="flex flex-wrap gap-2">
+          <select aria-label="Project" value={slug} onChange={(e) => setSlug(e.target.value)} className={`${input} w-full @3xl/page:w-auto @3xl/page:flex-1`}>
+            <option value="">Choose a project…</option>
             {projects.map((p) => (
               <option key={p.slug} value={p.slug}>{p.name}</option>
             ))}
           </select>
-          <select value={kind} onChange={(e) => setKind(e.target.value)} className={selectCls}>
+          <select aria-label="Post type" value={kind} onChange={(e) => setKind(e.target.value)} className={input}>
             <option value="social">Social post</option>
             <option value="blog">Blog post</option>
           </select>
-          <button
-            type="button"
-            onClick={generate}
-            disabled={pending}
-            className="inline-flex items-center gap-1.5 rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-60"
-          >
+          <Button variant="ai" icon={Sparkles} disabled={pending || !slug} onClick={generate}>
             {pending ? "Drafting…" : "Draft a post"}
-          </button>
+          </Button>
         </div>
-        {error && <div className="mt-1.5 text-[12px] text-flag">{error}</div>}
+        {error && <p role="alert" className="mt-2 text-body text-flag">{error}</p>}
       </Card>
 
       {drafts.length === 0 ? (
-        <Card kind="dashed" className="p-8 text-center text-[13px] text-ink-3">
-          No drafts yet. Draft a social or blog post from a project above — a social post also auto-drafts when a job completes.
-        </Card>
+        <EmptyState
+          icon={Megaphone}
+          title="Your posts start here"
+          description="Choose a project above to draft a social or blog post. A social post also drafts itself when a job is completed."
+        />
       ) : (
-        <div className="space-y-3">
-          {drafts.map((d) => (
-            <DraftCard key={d.id} draft={d} isOwner={isOwner} />
+        <div className="divide-y divide-rule-soft">
+          {drafts.map((draft, i) => (
+            <DraftRow key={draft.id} draft={draft} isOwner={isOwner} initiallyOpen={i === 0} />
           ))}
         </div>
       )}
@@ -101,95 +93,134 @@ export function MarketingClient({
   );
 }
 
-function DraftCard({ draft, isOwner }: { draft: MarketingDraft; isOwner: boolean }) {
+function DraftRow({ draft, isOwner, initiallyOpen }: { draft: MarketingDraft; isOwner: boolean; initiallyOpen: boolean }) {
   const router = useRouter();
+  const [open, setOpen] = useState(initiallyOpen);
   const [body, setBody] = useState(draft.body);
-  const [pending, startTransition] = useTransition();
+  const [title, setTitle] = useState(draft.title);
+  const [view, setView] = useState("edit");
+  const [feedback, setFeedback] = useState("");
+  const [pending, start] = useTransition();
   const [copied, setCopied] = useState(false);
-  const dirty = body !== draft.body;
+  const dirty = body !== draft.body || title !== draft.title;
+  // Text can change while it's a draft, not posted, or waiting on Joe's OK
+  // (an edit retires that card); not while it's going up or once it's up.
+  const editable = editableStage(draft.stage);
 
-  function copy() {
-    navigator.clipboard?.writeText(body).then(() => {
+  const run = (fn: () => Promise<{ ok: boolean; error?: string }>, done = "Saved") =>
+    start(async () => {
+      const r = await runAction(fn, { onError: setFeedback });
+      if (r.ok) {
+        setFeedback(done);
+        router.refresh();
+      }
+    });
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(title.trim() && draft.kind === "blog" ? `${title}\n\n${body}` : body);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    });
-  }
-  function save() {
-    startTransition(async () => {
-      await runAction(() => updateDraft(draft.id, body), { fallback: "Couldn't save the edits." });
-      router.refresh();
-    });
-  }
-  function post() {
-    startTransition(async () => {
-      await runAction(() => markPosted(draft.id), { fallback: "Couldn't mark it posted." });
-      router.refresh();
-    });
-  }
-  function remove() {
-    startTransition(async () => {
-      await runAction(() => deleteDraft(draft.id), { fallback: "Couldn't delete the draft." });
-      router.refresh();
-    });
+    } catch {
+      setCopied(false);
+    }
   }
 
   return (
-    <Card className="p-3.5">
-      <div className="mb-2 flex items-center gap-2">
-        <Chip kind={draft.kind === "blog" ? "accent" : "ghost"}>{draft.kindLabel}</Chip>
-        <span className="flex-1 truncate font-serif text-[14px] font-semibold text-ink">
-          {draft.projectName || draft.title || "Post"}
-        </span>
-        {draft.stage !== "draft" ? <StageChip stage={draft.stage} /> : <span className="font-mono text-[10px] text-ink-3">{draft.createdLabel}</span>}
-      </div>
-      <textarea
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-        rows={draft.kind === "blog" ? 8 : 4}
-        className="w-full resize-y rounded-md border border-rule bg-paper px-2.5 py-2 text-[13px] leading-relaxed text-ink outline-none focus:border-accent"
-      />
-      <PostPhotos draft={draft} isOwner={isOwner} />
-      {draft.kind === "social" && <PostingPanel draft={draft} isOwner={isOwner} dirty={dirty} />}
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={copy}
-          className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1 text-[11px] font-semibold text-ink-2 hover:bg-paper-2"
-        >
-          {copied ? <Check className="size-3 text-money" strokeWidth={2} /> : <Copy className="size-3" strokeWidth={1.75} />}
-          {copied ? "Copied" : "Copy"}
+    <section className="py-4">
+      <div className="flex items-start gap-3">
+        <button type="button" className="min-h-11 min-w-0 flex-1 text-left" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <h2 className="text-subheading font-semibold">{draft.title || draft.projectName || "Post"}</h2>
+          <p className="mt-1 text-meta text-ink-3">
+            {draft.kindLabel}
+            {draft.projectName ? ` · ${draft.projectName}` : ""} · {draft.createdLabel}
+          </p>
         </button>
-        {dirty && (
-          <button
-            type="button"
-            onClick={save}
-            disabled={pending}
-            className="rounded-md border border-accent bg-accent-soft px-2 py-1 text-[11px] font-semibold text-accent-2 hover:bg-accent-soft/70 disabled:opacity-60"
-          >
-            Save edits
-          </button>
-        )}
-        <div className="flex-1" />
-        {(draft.stage === "draft" || draft.stage === "failed") && (
-          <button
-            type="button"
-            onClick={post}
-            disabled={pending}
-            className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2 py-1 text-[11px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-60"
-          >
-            <Send className="size-3" strokeWidth={1.75} /> Mark posted
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={remove}
-          disabled={pending}
-          aria-label="Delete draft"
-          className="rounded-md border border-rule bg-card px-1.5 py-1 text-ink-3 hover:bg-paper-2 hover:text-flag disabled:opacity-60"
-        >
-          <Trash2 className="size-3.5" strokeWidth={1.5} />
-        </button>
+        <span className="self-center text-meta text-ink-3 max-sm:hidden">{open ? "Hide post" : "Open post"}</span>
+        <ChevronRight aria-hidden="true" className={`size-4 shrink-0 self-center text-ink-3 transition-transform ${open ? "rotate-90" : ""}`} />
+        <span className="self-center">{draft.stage === "draft" ? <Chip kind="ghost">Draft</Chip> : <StageChip stage={draft.stage} />}</span>
       </div>
-    </Card>
+
+      {open && (
+        <div className="mt-4 space-y-3">
+          {draft.projectSlug && (
+            <Link href={`/projects/${draft.projectSlug}`} className="text-body text-accent-2 hover:underline">
+              Source project · {draft.projectName} →
+            </Link>
+          )}
+          <p role="status" className={`text-meta ${feedback && feedback !== "Saved" && !pending ? "text-flag" : "text-ink-2"}`}>
+            {pending ? "Saving…" : feedback || (dirty ? "Unsaved changes" : editable ? "Saved" : "Locked while it's going up or once it's posted")}
+          </p>
+
+          <Segmented
+            aria-label="Post view"
+            value={view}
+            onChange={setView}
+            options={[{ value: "edit", label: "Edit" }, { value: "preview", label: "Preview" }]}
+            className="h-12 [&_button]:h-11"
+          />
+          {view === "edit" ? (
+            <div className="space-y-3">
+              <label className="block text-label text-ink-2">
+                Headline
+                <input disabled={pending || !editable} value={title} onChange={(e) => { setTitle(e.target.value); setFeedback(""); }} className={`${input} mt-1.5 w-full`} />
+              </label>
+              {draft.copyError && <p role="status" className="text-body text-warn">{draft.copyError}</p>}
+              <label className="block text-label text-ink-2">
+                Post copy
+                <textarea
+                  disabled={pending || !editable}
+                  value={body}
+                  onChange={(e) => { setBody(e.target.value); setFeedback(""); }}
+                  rows={draft.kind === "blog" ? 10 : 4}
+                  className={`${input} mt-2 w-full resize-y leading-relaxed`}
+                />
+              </label>
+            </div>
+          ) : (
+            <PostPreview title={title} body={body} />
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="secondary" size="sm" icon={copied ? Check : Copy} disabled={!body.trim()} onClick={copy}>
+              {copied ? "Copied" : "Copy"}
+            </Button>
+            {dirty && (
+              <>
+                <Button size="sm" disabled={pending || !body.trim() || !title.trim()} onClick={() => run(() => updateDraft(draft.id, body, title))}>
+                  Save edits
+                </Button>
+                <Button variant="ghost" size="sm" disabled={pending} onClick={() => { setBody(draft.body); setTitle(draft.title); setFeedback(""); }}>
+                  Revert
+                </Button>
+              </>
+            )}
+            {(draft.stage === "draft" || draft.stage === "failed") && (
+              <Button variant="secondary" size="sm" disabled={pending || dirty || !body.trim()} title={dirty ? "Save your edits first" : undefined} onClick={() => run(() => markPosted(draft.id), "Marked posted")}>
+                Mark posted
+              </Button>
+            )}
+            {draft.stage === "posted" && (
+              <Button variant="ghost" size="sm" disabled={pending} onClick={() => run(() => markDraft(draft.id), "Moved back to drafts")}>
+                Move to drafts
+              </Button>
+            )}
+            <details className="relative ml-auto">
+              <summary className="flex min-h-11 cursor-pointer list-none items-center rounded-md px-3 text-body hover:bg-hover [&::-webkit-details-marker]:hidden">
+                Post actions
+              </summary>
+              <div className="absolute right-0 z-10 rounded-lg border border-rule-soft bg-card p-1 shadow-pop">
+                <Button variant="ghost" size="sm" className="text-flag" disabled={pending} onClick={() => { if (confirm("Delete this draft?")) run(() => deleteDraft(draft.id), "Deleted"); }}>
+                  Delete draft
+                </Button>
+              </div>
+            </details>
+          </div>
+
+          <PostPhotos draft={draft} isOwner={isOwner} />
+          {draft.kind === "social" && <PostingPanel draft={draft} isOwner={isOwner} dirty={dirty} />}
+        </div>
+      )}
+    </section>
   );
 }

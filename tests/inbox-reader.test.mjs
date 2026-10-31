@@ -10,6 +10,8 @@ const componentUrl = new URL('../components/inbox/InboxClient.tsx',import.meta.u
 const source = readFileSync(new URL(componentUrl),'utf8');
 registerHooks({
   resolve(s,c,n){
+    if(s==='./InboxPanels')return {url:'stub:panels',shortCircuit:true};
+    if(s==='@/lib/actions/inbox-experience')return {url:'stub:experience-actions',shortCircuit:true};
     if(s==='@/lib/run-action')return {url:'stub:run',shortCircuit:true};
     if(s==='next/navigation')return {url:'stub:router',shortCircuit:true};
     if(s==='@/components/ui')return {url:'stub:ui',shortCircuit:true};
@@ -20,9 +22,11 @@ registerHooks({
   load(u,c,n){
     if(u===componentUrl)return {format:'module',source:ts.transpileModule(source+'\nexport {ReaderBody, ChannelReaderBody, ThreadRow};',{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText,shortCircuit:true};
     const stubs={
+      'stub:panels':'export const ThreadSummary=()=>null;export const ContextPanel=()=>null;export const LinkPicker=()=>null;export const MessageTaskDialog=()=>null;export const ShortcutHelp=()=>null;',
+      'stub:experience-actions':'export const markChannelDoneAction=async()=>({ok:true});',
       'stub:run':'export const runAction=async fn=>fn();',
       'stub:router':'export const useRouter=()=>({refresh(){}});',
-      'stub:ui':`const React=globalThis.__readerReact; export const Button=({children,onClick,disabled})=>React.createElement('button',{onClick,disabled},children); export const Avatar=()=>null; export const Chip=({children})=>React.createElement('span',{},children); export const VoiceButton=()=>null; export const PageHeader=()=>null; export const EmptyState=()=>null; export const Segmented=()=>null;`,
+      'stub:ui':`const React=globalThis.__readerReact; export const Button=({children,icon,iconOnly,variant,size,...props})=>React.createElement('button',props,children); export const Avatar=()=>null; export const Chip=({children})=>React.createElement('span',{},children); export const VoiceButton=()=>null; export const PageHeader=()=>null; export const EmptyState=()=>null; export const Segmented=({options})=>React.createElement('div',{},options.map(o=>React.createElement('button',{key:o.value},o.label, ' ',o.count)));`,
       'stub:actions':source.match(/import \{([\s\S]*?)\} from "@\/lib\/actions\/inbox"/)[1].split('import {').at(-1).split(',').map(s=>s.trim()).filter(Boolean).map(name=>`export const ${name}=async()=>({ok:true,html:''});`).join('\n'),
     };
     return u in stubs?{format:'module',source:stubs[u],shortCircuit:true}:n(u,c);
@@ -70,4 +74,15 @@ test('chat scroll effect runs again when the phone reader becomes visible',()=>{
   // The preselected reader can mount while its section is hidden on a phone.
   assert.ok(/<ChannelReaderBody[^>]*visible=\{mobileReader\}/.test(source), "phone visibility reaches chat reader");
   assert.ok(/\[chat,\s*threadId,\s*reader.messages,\s*visible\]/.test(source), "chat scroll updates on phone open");
+});
+
+test('phase 2 uses counted split tabs, dense channel rows, no page title or native link select',()=>{
+ const t={id:'t1',fromName:'Tom',channel:'email',subject:'Plans',preview:'Ready?',when:'2h',initials:'TT',view:'needs_reply',contactRole:'client',projectSlug:'kitchen',projectLabel:'Kitchen'};
+ const data={activeView:{key:'needs_reply',label:'Needs me'},smartViews:[],channels:[],projects:[],labels:[],threads:[t],readers:{t1:reader},selectedId:'t1',mailbox:{connected:true,email:'joe@example.test'}};
+ const html=render(InboxClient,{data,selfEmail:'joe@example.test'});
+ for(const label of ['Needs me','Clients','Leads','Subs &amp; vendors','Other','Search inbox'])assert.ok(html.includes(label),label);
+ assert.doesNotMatch(html,/inbox-link|<select|>Inbox<\/h1>/);
+ assert.match(html,/data-thread-row/);assert.match(html,/min-h-16/);assert.match(html,/aria-label="Done: Tom"/);
+ assert.match(source,/data-draft-send/);assert.match(source,/Your Send click approves this draft/);
+ assert.match(source,/absolute inset-x-0 bottom-0/);assert.match(source,/ContextPanel/);
 });

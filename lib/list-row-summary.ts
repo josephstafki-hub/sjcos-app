@@ -19,7 +19,7 @@ export function nextRowTodoSql(entity: "projects" | "leads"): string {
 export function withoutRepeatedClientPrefix(text: string, name: string): string {
   const match = text.match(/^([^:\n]+):\s*/);
   if (!match) return text;
-  const words = (value: string) => value.toLocaleLowerCase("en-US").match(/[\p{L}\p{N}]+/gu) ?? [];
+  const words = (value: string): string[] => value.toLocaleLowerCase("en-US").match(/[\p{L}\p{N}]+/gu) ?? [];
   const prefix = words(match[1]);
   const client = words(name);
   return prefix.length && prefix.every(word => word.length >= 3 && client.includes(word))

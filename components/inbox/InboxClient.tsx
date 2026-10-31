@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, useLayoutEffect, useRef, useTransition, type ReactNode } from "react";
+import { useMemo, useState, useEffect, useLayoutEffect, useRef, useTransition, useCallback, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   Filter,
@@ -28,11 +28,13 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Button, PageHeader, EmptyState, Segmented, Chip, Avatar, VoiceButton } from "@/components/ui";
+import { showThreadSubject, smsSegments } from "@/lib/inbox-rules";
 import { mergeTranscript } from "@/lib/append-transcript";
 import {
   draftReplyAction,
   getThreadHtmlAction,
   sendReplyAction,
+  sendChannelReplyAction,
   sendNewEmailAction,
   setThreadStarredAction,
   setThreadReadAction,
@@ -168,15 +170,18 @@ export function InboxClient({
   const [showSources, setShowSources] = useState(false);
   const [composing, setComposing] = useState(false);
   // Threads/readers grow as "Load more" pages in from Gmail.
+  const [draftReadyId, setDraftReadyId] = useState<string | null>(null);
+  const onDraftReady = useCallback((id:string, ready:boolean) => setDraftReadyId(ready ? id : null), []);
   const [threads, setThreads] = useState(data.threads);
   const [readers, setReaders] = useState(data.readers);
   const [pageToken, setPageToken] = useState(data.nextPageToken);
+  const [pagePausedAt, setPagePausedAt] = useState<number | null>(null);
   // Follow the server's first page: a refresh (LiveUpdates, or an action's own
   // revalidate) re-reads Gmail — new mail, read state, links. Plain useState
   // kept the first render forever, so counts and the list went stale. Pages
   // pulled in with "Load more" stay after it; render-phase adjustment, as in
   // lib/use-server-state.ts.
-  const serverJson = JSON.stringify([data.threads, data.readers]);
+  const serverJson = JSON.stringify([data.threads, data.readers, data.lastSyncedAt, data.emailPaused]);
   const [seenServer, setSeenServer] = useState({
     json: serverJson,
     ids: data.threads.map((t) => t.id),
@@ -186,6 +191,7 @@ export function InboxClient({
     const oldFirst = new Set(seenServer.ids);
     const fresh = new Set(data.threads.map((t) => t.id));
     setSeenServer({ json: serverJson, ids: [...fresh], token: data.nextPageToken });
+    if (!data.emailPaused) setPagePausedAt(null);
     setThreads((prev) => [...data.threads, ...prev.filter((t) => !oldFirst.has(t.id) && !fresh.has(t.id))]);
     setReaders((prev) => ({ ...prev, ...data.readers }));
     // Nothing paged in past the first page yet — the next page starts after the new one.
@@ -199,6 +205,8 @@ export function InboxClient({
     key: string;
     threads: InboxThread[];
     pageToken?: string;
+    emailPaused?: boolean;
+    lastSyncedAt?: number;
   } | null>(null);
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -213,7 +221,7 @@ export function InboxClient({
       case "inbox":
         return threads.filter((t) => t.inInbox);
       case "view":
-        return threads.filter((t) => t.view === lens.view);
+        return threads.filter((t) => t.view === lens.view || (lens.view === "needs_reply" && t.id === draftReadyId));
       case "channel":
         return threads.filter((t) => t.channel === lens.channel);
       case "label": {
@@ -239,7 +247,7 @@ export function InboxClient({
       case "project":
         return threads.filter((t) => t.projectSlug === lens.slug);
     }
-  }, [threads, lens, remoteData]);
+  }, [threads, lens, remoteData, draftReadyId]);
 
   // Layer the Clients/Subs/Money audience filter on top of the lens.
   const visible = useMemo(
@@ -269,9 +277,7 @@ export function InboxClient({
   const selected =
     visible.find((t) => t.id === selectedId) ?? visible[0] ?? null;
   const reader = selected ? readers[selected.id] : undefined;
-  // Non-email channels (SMS / portals / website forms) are read-only in the
-  // inbox: their reply/star/link surfaces are Gmail-only, so those controls are
-  // hidden and the reader links out to each channel's own surface instead.
+  // Email gets its mailbox controls; every channel has its own reply adapter.
   const readerIsEmail = (reader?.channel ?? "email") === "email";
 
   const linkOptions = data.linkOptions;
@@ -326,17 +332,21 @@ export function InboxClient({
       threads?: InboxThread[];
       readers?: Record<string, ThreadReader>;
       nextPageToken?: string;
+      emailPaused?: boolean;
+      lastSyncedAt?: number;
       error?: string;
     }>,
+    force = false,
   ) => {
-    if (remoteData?.key === key) return;
-    setRemoteData(null);
+    if (!force && remoteData?.key === key) return;
+    if (remoteData?.key !== key) setRemoteData(null);
+    setNotice(null);
     setRemoteLoading(true);
     startTransition(async () => {
       const r = await runAction(loader, { fallback: "Couldn't load that view." });
       if (r.ok && r.threads) {
         setReaders((prev) => ({ ...prev, ...(r.readers ?? {}) }));
-        setRemoteData({ key, threads: r.threads, pageToken: r.nextPageToken });
+        setRemoteData({ key, threads: r.threads, pageToken: r.nextPageToken, emailPaused:r.emailPaused,lastSyncedAt:r.lastSyncedAt });
       } else if (!r.ok) {
         setNotice(r.error ?? "Couldn't load that view.");
       }
@@ -356,6 +366,14 @@ export function InboxClient({
 
   const remoteKey = remoteKeyOf(lens);
   const onRemote = remoteKey !== null && remoteData?.key === remoteKey;
+  const remotePaused = onRemote && remoteData?.emailPaused;
+  const emailPaused = data.emailPaused || remotePaused || pagePausedAt !== null;
+  const lastSyncedAt = remotePaused ? remoteData?.lastSyncedAt : pagePausedAt ?? data.lastSyncedAt;
+  const retryEmail = () => {
+    if (lens.kind === 'label') fetchRemote(`label:${lens.id}`, () => loadLabelInboxAction(lens.id), true);
+    else if (lens.kind === 'system') fetchRemote(`system:${lens.view}`, () => loadSystemViewAction(lens.view), true);
+    router.refresh();
+  };
   // "Load more" pages within the open remote lens when one is selected, else the
   // main inbox.
   const moreToken = onRemote ? remoteData?.pageToken : pageToken;
@@ -374,6 +392,7 @@ export function InboxClient({
         { fallback: "Couldn't load more." },
       );
       if (r.ok && r.threads) {
+        setPagePausedAt(r.emailPaused ? r.lastSyncedAt ?? data.lastSyncedAt ?? 0 : null);
         setReaders((prev) => ({ ...prev, ...(r.readers ?? {}) }));
         if (onRemote) {
           setRemoteData((prev) =>
@@ -387,6 +406,8 @@ export function InboxClient({
                     ),
                   ],
                   pageToken: r.nextPageToken,
+                  emailPaused: r.emailPaused,
+                  lastSyncedAt: r.lastSyncedAt,
                 }
               : prev,
           );
@@ -500,10 +521,10 @@ export function InboxClient({
   return (
     <div className="flex h-full min-h-0 flex-col [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus">
       <div className="border-b border-rule-soft px-4 py-3 @2xl/page:px-5"><PageHeader title="Inbox" /></div>
-      {data.loadError && (
+      {(data.loadError || emailPaused) && (
         <div role="alert" className="flex flex-wrap items-center gap-3 border-b border-warn/20 bg-warn-soft px-4 py-3">
-          <p className="min-w-0 flex-1 text-body text-ink-2">{data.loadError}</p>
-          <Button variant="secondary" size="sm" onClick={() => router.refresh()}>Try again</Button>
+          <p className="min-w-0 flex-1 text-body text-ink-2">{emailPaused ? `Email paused · ${lastSyncedAt ? `last synced ${new Date(lastSyncedAt).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}` : "not synced yet"}` : data.loadError}</p>
+          <Button variant="secondary" size="sm" onClick={retryEmail}>Try again</Button>
         </div>
       )}
       {!data.mailbox.connected && (
@@ -540,7 +561,7 @@ export function InboxClient({
         >
           <Inbox className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
           <span className="flex-1">Inbox</span>
-          <span className="text-meta text-ink-3">{inboxCount}</span>
+          <span className="text-meta text-ink-3">{emailPaused ? "—" : inboxCount}</span>
         </button>
 
         <RailLabel>Smart views</RailLabel>
@@ -559,7 +580,7 @@ export function InboxClient({
             >
               <span className={`size-1.5 rounded-full ${DOT_BG[v.dot]}`} />
               <span className="flex-1">{v.label}</span>
-              <span className="text-meta text-ink-3">{v.count}</span>
+              <span className="text-meta text-ink-3">{emailPaused ? "—" : v.count ?? "—"}</span>
             </button>
           ))}
         </div>
@@ -613,7 +634,7 @@ export function InboxClient({
               >
                 <Icon className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
                 <span className="flex-1 truncate">{c.label}</span>
-                <span className="text-meta text-ink-3">{c.count}</span>
+                <span className="text-meta text-ink-3">{c.key === "email" && emailPaused ? "—" : c.count ?? "—"}</span>
               </button>
             );
           })}
@@ -638,9 +659,7 @@ export function InboxClient({
                 >
                   <Tag className="size-3 flex-none text-ink-3" strokeWidth={1.5} />
                   <span className="flex-1 truncate">{l.name}</span>
-                  {l.count != null && (
-                    <span className="text-meta text-ink-3">{l.count}</span>
-                  )}
+                  <span className="text-meta text-ink-3">{emailPaused ? "—" : l.count ?? "—"}</span>
                 </button>
               ))}
             </div>
@@ -671,7 +690,7 @@ export function InboxClient({
                       <span className="size-1.5" />
                     )}
                     <span className="flex-1 truncate">{p.label}</span>
-                    <span className="text-meta text-ink-3">{p.count}</span>
+                    <span className="text-meta text-ink-3">{emailPaused ? "—" : p.count}</span>
                   </button>
                 );
               })}
@@ -715,11 +734,14 @@ export function InboxClient({
               {/* On an empty remote lens (a mailbox/label that failed to load)
                   the reader — and its notice banner — never mounts, so surface a
                   fetch error here instead of a misleading "Nothing in …". */}
-              {notice && onRemote ? (
+              {notice && remoteKey !== null ? (
                 <>
                   <X className="size-6 text-flag" strokeWidth={1.5} />
                   <p className="text-meta text-flag">{notice}</p>
+                  <Button variant="secondary" size="sm" onClick={retryEmail}>Try again</Button>
                 </>
+              ) : emailPaused && !(lens.kind === "channel" && lens.channel !== "email") ? (
+                <p className="text-meta text-ink-3">Email is paused. Try again to check this view.</p>
               ) : !data.mailbox.connected ? (
                 <NoMailboxPrompt />
               ) : (
@@ -735,7 +757,7 @@ export function InboxClient({
             visible.map((t) => (
               <ThreadRow
                 key={t.id}
-                thread={t}
+                thread={t.id === draftReadyId ? {...t,needsMeReason:"Draft ready to review"} : t}
                 selected={selected?.id === t.id}
                 onSelect={() => {
                   setSelectedId(t.id);
@@ -861,13 +883,13 @@ export function InboxClient({
                 {reader.subject}
               </h1>
               <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                <Avatar initials={reader.messages[0].initials} size="sm" />
-                <span className="min-w-0 max-w-full flex-1 truncate text-meta text-ink-3" title={`${reader.messages[0].fromName} · ${reader.messages[0].meta}`}>
-                  <span className="font-medium text-ink-2">{reader.messages[0].fromName}</span> · {reader.messages[0].meta}
+                <Avatar initials={reader.messages.at(-1)?.initials} size="sm" />
+                <span className="min-w-0 max-w-full flex-1 truncate text-meta text-ink-3" title={`${reader.messages.at(-1)?.fromName} · ${reader.messages.at(-1)?.meta}`}>
+                  <span className="font-medium text-ink-2">{reader.messages.at(-1)?.fromName}</span> · {reader.messages.at(-1)?.meta}
                 </span>
-                <span className="inline-flex min-w-0 max-w-full items-center gap-1 text-meta text-ink-3" title={reader.messages[0].to}>
+                <span className="inline-flex min-w-0 max-w-full items-center gap-1 text-meta text-ink-3" title={reader.messages.at(-1)?.to}>
                   <ArrowRight className="size-3 flex-none" strokeWidth={1.5} />
-                  <span className="truncate">{reader.messages[0].to}</span>
+                  <span className="truncate">{reader.messages.at(-1)?.to}</span>
                 </span>
               </div>
 
@@ -912,9 +934,9 @@ export function InboxClient({
             )}
 
             {readerIsEmail ? (
-              <ReaderBody key={selected.id} reader={reader} threadId={selected.id} />
+              <ReaderBody key={selected.id} reader={reader} threadId={selected.id} onDone={archiveSelected} onDraftReady={onDraftReady} />
             ) : (
-              <ReadOnlyReaderBody key={selected.id} reader={reader} />
+              <ChannelReaderBody key={selected.id} reader={reader} threadId={selected.id} visible={mobileReader} />
             )}
           </>
         )}
@@ -1005,9 +1027,6 @@ function ComposeModal({
   );
 }
 
-// Non-email channels are read-only in the unified inbox: render the
-// conversation and link out to where a reply actually happens (the channel's
-// own surface). No AI-draft/Gmail-send composer, no lazy html fetch.
 /** "Project\nPartial basement finish" — a website-form field and its value. */
 const FORM_FIELD = /^([^\n]{1,40})\n([\s\S]+)$/;
 
@@ -1080,63 +1099,65 @@ function PlainBody({ paras }: { paras: string[] }) {
   );
 }
 
-function ReadOnlyReaderBody({ reader }: { reader: ThreadReader }) {
-  return (
-    <>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        <div className="flex max-w-[600px] flex-col gap-4">
-          {reader.messages.map((m, i) => (
-            <div key={i} className="flex flex-col gap-1">
-              <div className="flex items-center gap-1.5 text-meta text-ink-3">
-                <Avatar initials={m.initials} size="sm" />
-                <span className="font-medium text-ink-2">{m.fromName}</span>
-                <span>· {m.meta}</span>
-              </div>
-              <div className="flex flex-col gap-2 pl-[26px]">
-                {reader.channel === "site_form" && m.body.length > 1 && m.body.slice(1).every((p) => FORM_FIELD.test(p)) ? (
-                  <>
-                    <p className="whitespace-pre-line text-body leading-relaxed text-ink">{m.body[0]}</p>
-                    <dl className="grid gap-x-4 gap-y-2 @xl/page:grid-cols-[minmax(0,10rem)_minmax(0,1fr)]">
-                      {m.body.slice(1).map((para, j) => {
-                        const [, label, value] = para.match(FORM_FIELD) ?? [];
-                        return (
-                          <div key={j} className="contents">
-                            <dt className="text-meta text-ink-3 @xl/page:pt-0.5">{label}</dt>
-                            <dd className="mb-1 whitespace-pre-line break-words text-body text-ink @xl/page:mb-0">{value}</dd>
-                          </div>
-                        );
-                      })}
-                    </dl>
-                  </>
-                ) : m.body.map((para, j) => (
-                  <p key={j} className="whitespace-pre-line text-body leading-relaxed text-ink">
-                    {para}
-                  </p>
-                ))}
+function ChannelReaderBody({ reader, threadId, visible }: { reader: ThreadReader; threadId:string; visible?:boolean }) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const [body,setBody] = useState('');
+  const [error,setError] = useState('');
+  const [pending,start] = useTransition();
+  const router = useRouter();
+  const chat = reader.channel !== 'site_form';
+  useLayoutEffect(() => {
+    if (chat && scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
+  }, [chat,threadId,reader.messages,visible]);
+  const canReply = chat || Boolean(reader.messages[0]?.fromEmail);
+  function send() {
+    setError('');
+    start(async () => {
+      const r = await runAction(() => sendChannelReplyAction({threadId,body}),{fallback:'Could not send your reply.'});
+      if (r.ok) { setBody(''); router.refresh(); } else setError(r.error ?? 'Could not send your reply.');
+    });
+  }
+  return <>
+    <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <div className="flex flex-col gap-3">
+        {reader.messages.map((m,i) => {
+          const day = m.date ? new Date(m.date).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+          const previous = reader.messages[i-1]?.date;
+          const newDay = day && (!previous || new Date(previous).toDateString() !== new Date(m.date!).toDateString());
+          return <div key={m.id ?? i}>
+            {chat && newDay && <div role="separator" className="mb-3 text-center text-meta text-ink-3">{day}</div>}
+            <div className={`flex flex-col ${chat && m.outbound ? 'items-end' : 'items-start'}`}>
+              <div className="mb-1 text-meta text-ink-3">{m.fromName} · {m.meta}</div>
+              <div className={chat ? `max-w-[90%] rounded-xl px-3 py-2 ${m.outbound ? 'bg-accent-soft' : 'border border-rule bg-card'}` : 'w-full'}>
+                {reader.channel === 'site_form' && m.body.length > 1 && m.body.slice(1).every(p => FORM_FIELD.test(p)) ? <>
+                  <p className="mb-3 whitespace-pre-line text-body leading-relaxed text-ink">{m.body[0]}</p>
+                  <dl className="grid gap-x-4 gap-y-2 @xl/page:grid-cols-[minmax(0,10rem)_minmax(0,1fr)]">
+                    {m.body.slice(1).map((para,j) => {
+                      const [,label,value] = para.match(FORM_FIELD) ?? [];
+                      return <div key={j} className="contents"><dt className="text-meta text-ink-3">{label}</dt><dd className="mb-1 whitespace-pre-line break-words text-body text-ink">{value}</dd></div>;
+                    })}
+                  </dl>
+                </> : <PlainBody paras={m.body} />}
               </div>
             </div>
-          ))}
-        </div>
+          </div>;
+        })}
       </div>
-
-      <div className="flex-none border-t border-rule bg-paper-2 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <span className="flex-1 text-meta text-ink-3">
-            {reader.actionHref ? `Came in through ${reader.channelLabel.toLowerCase()} — reply from its page.` : `Came in through ${reader.channelLabel.toLowerCase()}; there is no reply from here.`}
-          </span>
-          {reader.actionHref && (
-            <a
-              href={reader.actionHref}
-              className="flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-meta font-medium text-white"
-            >
-              <ExternalLink className="size-3" strokeWidth={1.5} />
-              {reader.actionLabel ?? "Open"}
-            </a>
-          )}
+    </div>
+    <div className="flex-none border-t border-rule bg-paper-2 px-4 py-3">
+      <p className="mb-2 break-words text-meta text-ink-3">{reader.replyLabel}</p>
+      {canReply && <>
+        <textarea aria-label={reader.channel === 'sms' ? 'Text reply' : 'Reply'} value={body} onChange={e=>setBody(e.target.value)} rows={reader.channel === 'sms' ? 2 : 3} placeholder="Write a reply…" className="max-h-[30dvh] min-h-16 w-full resize-y rounded-lg border border-rule bg-card p-2 text-body text-ink" />
+        <div className="mt-2 flex items-center gap-2">
+          {reader.channel === 'sms' && <span className="text-meta text-ink-3">{smsSegments(body)} segment{smsSegments(body) === 1 ? '' : 's'}</span>}
+          <div className="flex-1" />
+          <Button onClick={send} disabled={!body.trim() || pending} icon={Send}>{pending ? 'Sending…' : 'Send'}</Button>
         </div>
-      </div>
-    </>
-  );
+      </>}
+      {error && <p role="alert" className="mt-2 text-meta text-flag">{error}</p>}
+      {reader.actionHref && <a href={reader.actionHref} className="mt-2 inline-flex min-h-11 items-center gap-1 text-meta text-accent-2 underline"><ExternalLink className="size-3" />{reader.actionLabel ?? 'Open project'}</a>}
+    </div>
+  </>;
 }
 
 function ThreadRow({
@@ -1184,22 +1205,18 @@ function ThreadRow({
               {thread.when}
             </span>
           </div>
-          <div
-            className={`mt-0.5 truncate text-meta ${unread ? "font-medium text-ink" : "text-ink-3"}`}
-          >
-            {thread.subject}
-          </div>
+          {showThreadSubject(thread) && <div className={`mt-0.5 truncate text-meta ${unread ? "font-medium text-ink" : "text-ink-3"}`}>{thread.subject}</div>}
+          {thread.needsMeReason && <p className="mt-0.5 truncate text-meta font-medium text-accent-2">{thread.needsMeReason}</p>}
           <div className={`mt-0.5 truncate text-meta ${unread ? "text-ink-2" : "text-ink-3"}`}>
             {thread.preview}
           </div>
-          {(thread.tag !== "Email" || thread.labelNames?.length || thread.aiVerdict || thread.activeJob) && <div className="mt-1.5 flex flex-wrap items-center gap-1">
+          {(thread.tag !== "Email" || thread.labelNames?.length || thread.activeJob) && <div className="mt-1.5 flex flex-wrap items-center gap-1">
             {thread.tag !== "Email" && <span className="text-meta text-ink-3">{thread.tag}</span>}
             {thread.labelNames?.map((name) => (
               <Chip key={name} kind="ghost">
                 {name}
               </Chip>
             ))}
-            {thread.aiVerdict && <Chip kind="ai">AI: {thread.aiVerdict}</Chip>}
             {thread.activeJob && (
               <Chip kind="accent" dot>
                 Active job
@@ -1212,11 +1229,46 @@ function ThreadRow({
   );
 }
 
+function EmailMessageCard({ message, threadId, expanded, onToggle }: {message:ThreadReader['messages'][number];threadId:string;expanded:boolean;onToggle:()=>void}) {
+  const [html,setHtml] = useState('');
+  const loaded = useRef(false);
+  useEffect(() => {
+    if (!expanded || loaded.current || !message.id) return;
+    let alive = true;
+    getThreadHtmlAction(threadId,message.id).then(r => {if (alive) {setHtml(r.html);loaded.current=true;}}).catch(()=>{});
+    return () => {alive=false;};
+  },[expanded,threadId,message.id]);
+  return <article className="overflow-hidden rounded-lg border border-rule bg-card">
+    <button onClick={onToggle} aria-expanded={expanded} className="flex h-11 w-full items-center gap-2 px-3 text-left">
+      <Avatar initials={message.initials} size="sm" />
+      <span className="max-w-[35%] truncate text-meta font-semibold text-ink">{message.fromName}</span>
+      {!expanded && <span className="min-w-0 flex-1 truncate text-meta text-ink-3">{message.body[0]}</span>}
+      <span className="ml-auto shrink-0 text-meta text-ink-3">{message.meta}</span>
+    </button>
+    {expanded && <div className="border-t border-rule-soft px-3 py-3">
+      <div className="mb-3 break-words text-meta text-ink-3">
+        <p>{message.fromName} {message.fromEmail && `<${message.fromEmail}>`}</p>
+        <p>To: {message.to}</p>
+        {Boolean(message.cc?.length) && <p>Cc: {message.cc!.join(', ')}</p>}
+        {message.date && <p>{new Date(message.date).toLocaleString('en-US')}</p>}
+      </div>
+      {html ? <EmailHtml html={html} /> : <PlainBody paras={message.body} />}
+      {Boolean(message.attachments?.length) && <ul aria-label="Attachments" className="mt-3 space-y-1 border-t border-rule-soft pt-2">
+        {message.attachments!.map((a,i)=><li key={a.id || i} className="break-words text-meta text-ink-2">{a.name} · {Math.ceil(a.size/1024)} KB · {a.type}</li>)}
+      </ul>}
+    </div>}
+  </article>;
+}
+
 // Scrollable message body + AI draft card + send composer, with the draft/send
 // state for this thread. Keyed on threadId by the caller so it resets on switch.
 // The AI draft is generated on demand (local-LLM, too slow to prebuild for every
 // thread); the mock path may arrive with aiDraft.body already filled.
-function ReaderBody({ reader, threadId }: { reader: ThreadReader; threadId: string }) {
+function ReaderBody({ reader, threadId, onDone, onDraftReady }: { reader: ThreadReader; threadId: string; onDone?:()=>void; onDraftReady?:(id:string,ready:boolean)=>void }) {
+  const [expanded,setExpanded] = useState<Set<string>>(() => new Set([reader.messages.at(-1)?.id ?? String(reader.messages.length-1)]));
+  const [toEmail,setToEmail] = useState(reader.replyTarget?.toEmail ?? '');
+  const [replyAll,setReplyAll] = useState(false);
+  const router = useRouter();
   const [draft, setDraft] = useState(reader.aiDraft.body);
   const [meta, setMeta] = useState<{ toEmail: string; subject: string; summary?: string } | null>(null);
   const [sent, setSent] = useState(false);
@@ -1228,21 +1280,28 @@ function ReaderBody({ reader, threadId }: { reader: ThreadReader; threadId: stri
   // itself gets the room.
   const [replying, setReplying] = useState(false);
 
-  // Rich HTML body (with inline images) is resolved lazily on thread open so the
-  // list fetch stays cheap. Empty string = no HTML / not connected → fall back to
-  // the plain-text paragraphs already on the reader.
-  const [html, setHtml] = useState("");
   useEffect(() => {
-    let alive = true;
-    getThreadHtmlAction(threadId)
-      .then((r) => {
-        if (alive) setHtml(r.html);
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [threadId]);
+    onDraftReady?.(threadId,!sent && hasDraft && Boolean(meta));
+    return () => onDraftReady?.(threadId,false);
+  },[threadId,hasDraft,meta,onDraftReady,sent]);
+
+  function markDone() {
+    if (onDone) { onDone(); return; }
+    startSend(async () => {
+      const result = await runAction(() => archiveThreadAction(threadId), { fallback: "Could not mark done." });
+      if (result.ok) router.refresh();
+      else setError(result.error ?? "Could not mark done.");
+    });
+  }
+
+  function toggleMessage(id: string) {
+    setExpanded(previous => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   function generate() {
     setError("");
@@ -1264,13 +1323,14 @@ function ReaderBody({ reader, threadId }: { reader: ThreadReader; threadId: stri
         () =>
           sendReplyAction({
             threadId,
-            toEmail: meta?.toEmail ?? "",
+            toEmail,
+            replyAll,
             subject: meta?.subject ?? reader.subject,
             body: draft,
           }),
         { fallback: "Send failed." },
       );
-      if (res.ok) setSent(true);
+      if (res.ok) { setSent(true); onDraftReady?.(threadId,false); router.refresh(); }
       else setError(res.error ?? "Send failed.");
     });
   }
@@ -1279,12 +1339,10 @@ function ReaderBody({ reader, threadId }: { reader: ThreadReader; threadId: stri
     <>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         <div className="flex max-w-[720px] flex-col gap-4">
-          {reader.messages.map((m, i) => {
-            const isLatest = i === reader.messages.length - 1;
-            // The rich HTML body (`fetchThreadHtml`) covers only the latest
-            // message; earlier ones keep the plain-text paragraphs.
-            if (isLatest && html) return <EmailHtml key={i} html={html} />;
-            return <PlainBody key={i} paras={m.body} />;
+          {reader.messages.length > 1 && <button type="button" onClick={()=>setExpanded(new Set(reader.messages.map((m,i)=>m.id ?? String(i))))} className="min-h-11 self-end px-2 text-meta font-semibold text-accent-2">Expand all</button>}
+          {reader.messages.map((m,i) => {
+            const id = m.id ?? String(i);
+            return <EmailMessageCard key={id} message={m} threadId={threadId} expanded={expanded.has(id)} onToggle={() => toggleMessage(id)} />;
           })}
         </div>
 
@@ -1292,6 +1350,19 @@ function ReaderBody({ reader, threadId }: { reader: ThreadReader; threadId: stri
       </div>
 
       <div className="flex-none border-t border-rule-soft px-4 py-2.5">
+        {reader.automated && (
+          <div className="flex items-center gap-2">
+            <p className="flex-1 text-meta text-ink-3">Automated message — no reply needed</p>
+            <Button onClick={markDone} disabled={sending}>Done</Button>
+          </div>
+        )}
+        {!reader.automated && !reader.replyTarget && <p className="text-meta text-ink-3">No incoming message to reply to.</p>}
+        {!reader.automated && reader.replyTarget && <>
+        <div className="mb-2 flex flex-wrap items-center gap-2 text-meta text-ink-2">
+          <label className="flex min-w-0 max-w-full flex-wrap items-center gap-1 rounded-full border border-rule bg-card px-2 py-1">To: {reader.replyTarget.toName} &lt;<input aria-label="Reply recipient" type="email" value={toEmail} onChange={e=>setToEmail(e.target.value)} className="min-h-8 min-w-0 max-w-full bg-transparent text-meta text-ink outline-none" />&gt;</label>
+          <label className="inline-flex min-h-11 items-center gap-1"><input type="checkbox" checked={replyAll} onChange={e=>setReplyAll(e.target.checked)} />Reply all</label>
+          {replyAll && reader.replyTarget.cc.map(email=><Chip key={email} kind="ghost">Cc: {email}</Chip>)}
+        </div>
         {!replying && !hasDraft && !drafting ? (
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => setReplying(true)} className="min-h-10 min-w-0 flex-1 truncate rounded-lg border border-rule bg-card px-3 text-left text-body text-ink-3 hover:border-ink-4">
@@ -1310,17 +1381,19 @@ function ReaderBody({ reader, threadId }: { reader: ThreadReader; threadId: stri
                 {hasDraft && <Button variant="ghost" size="sm" onClick={generate} disabled={drafting}>Regenerate draft</Button>}
               </div>
             )}
-            <textarea autoFocus value={draft} onChange={e => setDraft(e.target.value)} rows={4} placeholder={reader.replyPlaceholder} className="max-h-[40dvh] min-h-24 w-full resize-y border-0 bg-transparent text-body leading-relaxed text-ink outline-none" />
+            <textarea autoFocus value={draft} disabled={sending} onChange={e => setDraft(e.target.value)} rows={4} placeholder={reader.replyPlaceholder} className="max-h-[40dvh] min-h-24 w-full resize-y border-0 bg-transparent text-body leading-relaxed text-ink outline-none" />
             {error && <p role="alert" className="mt-2 text-meta text-flag">{error}</p>}
             <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
               {!hasDraft && !drafting && <Button variant="ghost" size="sm" onClick={generate}>{`Draft with ${AI_NAME}`}</Button>}
               <div className="flex-1" />
               <Button variant="ghost" size="sm" disabled={sending} onClick={() => { setReplying(false); setDraft(""); setMeta(null); setError(""); }}>Cancel</Button>
               <VoiceButton compact onText={t => setDraft(cur => mergeTranscript(cur,t))} />
-              <Button onClick={send} icon={Send} disabled={!draft.trim() || sending || sent}>{sent ? "Sent" : sending ? "Sending…" : "Send"}</Button>
+              <Button onClick={send} icon={Send} disabled={!draft.trim() || !toEmail.trim() || drafting || sending || sent}>{sent ? "Sent" : sending ? "Sending…" : "Send"}</Button>
             </div>
           </div>
         )}
+        </>}
+        {reader.automated && error && <p role="alert" className="mt-2 text-meta text-flag">{error}</p>}
         {sent && <p className="mt-1 text-meta text-ink-3">Reply sent ✓</p>}
       </div>
     </>

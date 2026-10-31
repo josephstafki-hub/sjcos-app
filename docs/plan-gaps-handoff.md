@@ -360,8 +360,12 @@ by Joe/staff don't feed the weekly update (only sub logs do).
 - **No database role isolation or dollar cap:**
   - `deploy/db-roles.sql` was never applied, and `DATABASE_URL_AGENT` is unused.
   - The worker identity lib (`lib/authority/worker-identity.ts`) has no callers.
-  - There's no dollar cap on worker runs (`scripts/run-business-agent.mjs:~66`).
-- **Owner grants aren't tied to the content** of the send (`lib/owner-grant-types.ts:~84-113`).
+  - ~~There's no dollar cap on worker runs.~~ **Done (branch `t3/tier4-cost-cap`):** a daily cap
+    (`agents.daily_cost_cap_usd`, default $25; normal days are $1–$9). When it's hit, the worker claims
+    nothing more that day and Joe gets one alert.
+- ~~**Owner grants aren't tied to the content.**~~ **Done (same branch):** a grant approved for an exact
+  message (a staged send) covers that subject and body only, checked at the agent call and at dispatch.
+  Run-scoped "Express permission" grants stay broad by design.
 - ~~**Direct sends skip lanes, opt-outs and unknown-outcome handling.**~~ **Done (same branch,
   `lib/direct-send-gate.ts`):** all five check the lane and opt-outs first. A bid follow-up whose send may
   have gone out is marked "unknown outcome" and never retried on its own (Joe gets a flag). The five:

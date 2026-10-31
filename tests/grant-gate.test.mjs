@@ -82,3 +82,25 @@ test("a request only waits on Joe until it lapses — expired requests stop nagg
   assert.equal(grantWaiting(live({ status: "approved" }), now), false);
   assert.equal(grantWaiting(live({ status: "denied" }), now), false);
 });
+
+// Tier 4: a permission Joe approved for an exact message covers that message.
+test("a grant carrying an approved message covers that message only", () => {
+  const email = live({
+    actions: ["send_email"],
+    target_kind: "email",
+    target_id: "pat@example.test",
+    scope: { staged: { action: "send_email", email: { to: "pat@example.test", subject: "Tile schedule", body: "Hi Pat,\n\nTile goes in Tuesday.\n\nJoe" } } },
+  });
+  const t = { kind: "email", id: "pat@example.test", to: "pat@example.test" };
+  assert.equal(grantCovers(email, "send_email", { ...t, content: { subject: "Tile schedule", body: "Hi Pat,\r\n\r\nTile goes in Tuesday.\n\nJoe  " } }, now).ok, true, "same words, different line endings");
+  assert.match(grantCovers(email, "send_email", { ...t, content: { subject: "Tile schedule", body: "Hi Pat, tile goes in Wednesday." } }, now).error, /isn't the one Joe approved/);
+  assert.match(grantCovers(email, "send_email", { ...t, content: { subject: "Change of plans", body: "Hi Pat,\n\nTile goes in Tuesday.\n\nJoe" } }, now).error, /isn't the one Joe approved/);
+  assert.match(grantCovers(email, "send_email", t, now).error, /exact message Joe approved/);
+  // A run-scoped "Express permission" grant (no staged message) is not bound to words.
+  const open = live({ actions: ["send_email"], target_kind: null, target_id: null, scope: {} });
+  assert.equal(grantCovers(open, "send_email", { ...t, content: { body: "anything" } }, now).ok, true);
+  // SMS too.
+  const sms = live({ scope: { staged: { action: "send_sms", sms: { to: "+13125550001", body: "Running 10 min late." } } } });
+  assert.equal(grantCovers(sms, "send_sms", { ...target, content: { body: "Running 10 min late." } }, now).ok, true);
+  assert.equal(grantCovers(sms, "send_sms", { ...target, content: { body: "Running an hour late." } }, now).ok, false);
+});

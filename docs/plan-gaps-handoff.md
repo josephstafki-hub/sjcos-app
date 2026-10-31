@@ -323,8 +323,11 @@ by Joe/staff don't feed the weekly update (only sub logs do).
     copies the text and marks it posted.
     - Each draft card now shows the job's photos with an **OK to share** tick (`publication_rights`, owner
       only, `setPhotoShareable`) and a Download link for the shareable ones.
-    - The publish card and dispatcher `publication` kind stay unwired on purpose.
-    - Posting by an agent with computer use is a separate thread. Joe has the prompt.
+    - **Posting agent (branch `t3/marketing-posting-agent`, PR, not deployed):** a social draft goes to one
+      site (Facebook page, Instagram, Google Business Profile). Joe approves the `publish_marketing` card,
+      the dispatcher's `publication` kind hands it to a memory-capped posting run, and Claude puts it up in
+      a browser on this server that Joe signed in to himself (live sign-in window on /marketing). The draft
+      gets the post's link. Migration 0056. Design and safety: `docs/marketing-posting-agent.md`.
 - ~~**Designer (A21):**~~ **Done (branch `t3/tier3-designer`):**
   - "Estimate from plan" now reads a pinned design version. It reuses the newest version when that version
     is the live drawing; otherwise it snapshots a new one first.

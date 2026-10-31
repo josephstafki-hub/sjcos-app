@@ -9,7 +9,9 @@ import "server-only";
 //   • perform a permission request's staged send (lib/grant-execution.ts),
 //   • send the one email an approved release card covers (bid package to a
 //     sub, pricing request to a supplier),
-//   • refund a payment in Square when its refund card is approved.
+//   • refund a payment in Square when its refund card is approved,
+//   • hand an approved marketing post to the posting agent (a declined one
+//     goes back to a draft).
 // Returns plain lines for the reply / toast / Telegram card edit.
 
 import { sendApprovedRelease } from "@/lib/bidding";
@@ -17,11 +19,15 @@ import { emailApprovedInvoice } from "@/lib/billing/server";
 import { executeRefundDecision } from "@/lib/payments/server";
 import { dispatchIntentsNow } from "@/lib/dispatch/db";
 import { runStagedGrant } from "@/lib/grant-execution";
+import { postApprovedPublication, publicationDeclined } from "@/lib/publisher/server";
 import type { ResolveFromChannelResult } from "./resolve";
 
 export async function performApprovalEffects(r: ResolveFromChannelResult): Promise<string[]> {
   if (!r.ok || !r.decision) return [];
   const lines: string[] = [];
+  if ((r.code === "rejected" || r.code === "changes_requested") && r.decision.action === "publish_marketing") {
+    await publicationDeclined(r.decision).catch((err) => console.error("[decisions] publication decline:", (err as Error).message));
+  }
   if (r.code === "approved" && r.intentIds.length) {
     try {
       const outcomes = await dispatchIntentsNow(r.intentIds);
@@ -59,6 +65,14 @@ export async function performApprovalEffects(r: ResolveFromChannelResult): Promi
     } catch (err) {
       console.error("[decisions] refund after approval failed:", (err as Error).message);
       lines.push(`Approved, but the refund step failed: ${(err as Error).message}`);
+    }
+  }
+  if (r.code === "approved" && r.decision.action === "publish_marketing") {
+    try {
+      lines.push(await postApprovedPublication(r.decision));
+    } catch (err) {
+      console.error("[decisions] publication after approval failed:", (err as Error).message);
+      lines.push(`Approved, but the post step failed: ${(err as Error).message}`);
     }
   }
   if (r.code === "approved" && r.grantId) {

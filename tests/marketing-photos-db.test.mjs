@@ -16,7 +16,8 @@ const STUBS = {
   "@/lib/dal": ["requireAccess"],
   "@/lib/ai": ["ai"],
   "@/lib/notify": ["emit"],
-  "@/lib/commands/db": ["runDirect", "userPrincipal"],
+  "@/lib/commands/db": ["runDirect", "userPrincipal", "withTransaction"],
+  "@/lib/publisher/server": ["retryPost", "savePostingAccounts", "settlePost"],
 };
 registerHooks({
   resolve(specifier, context, next) {

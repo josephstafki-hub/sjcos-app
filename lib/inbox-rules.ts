@@ -62,6 +62,14 @@ export function isAutomatedSender(email: string, category?: string, signals: Aut
   return /\bdo not reply\b|\bdon[’']t reply\b|\b(?:mailbox|inbox|email address) (?:is not|isn[’']t|not) monitored\b/i.test(signals.body ?? '');
 }
 
+/** Addresses that cannot take a reply at all. Narrower than isAutomatedSender:
+ *  a bulk/Updates tag or a List-Unsubscribe header files a thread under Other,
+ *  but Joe can still answer it. Only these addresses refuse a reply. */
+export function isNoReplyAddress(email: string): boolean {
+  const local = emailAddress(email).split('@')[0] ?? '';
+  return /(?:^|[._+\-])(no[-_]?reply|do[-_]?not[-_]?reply|mailer[-_]?daemon|postmaster)(?:[._+\-]|$)/i.test(local);
+}
+
 export function latestInboundIndex(messages: {outbound?: boolean}[]): number {
   const index = messages.findLastIndex(m => !m.outbound);
   return index < 0 ? Math.max(0, messages.length - 1) : index;

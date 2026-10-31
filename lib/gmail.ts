@@ -21,7 +21,7 @@ import { google } from "googleapis";
 import type { gmail_v1 } from "googleapis";
 import sanitizeHtml from "sanitize-html";
 import { activeMailbox } from "./mailbox";
-import { splitAddresses, resolveReplyTarget, validRecipient, isAutomatedSender } from "./inbox-rules";
+import { splitAddresses, resolveReplyTarget, validRecipient, isAutomatedSender, isNoReplyAddress } from "./inbox-rules";
 
 export const GMAIL_SCOPES = [
   // modify = read + label/state changes (star, archive, mark read, important,
@@ -991,8 +991,9 @@ export async function sendReply(opts: {
   const conversation = await fetchConversation(opts.threadId);
   const target = resolveReplyTarget(conversation.messages, conversation.ownAddresses);
   const incoming = [...conversation.messages].reverse().find(m => !m.outbound);
-  if (!target || (incoming && (incoming.automated || isAutomatedSender(incoming.fromEmail, conversation.category, {body: incoming.body.join('\n')})))) throw new Error("Automated message — no reply needed.");
+  if (!target) throw new Error("Automated message — no reply needed.");
   const to = opts.toEmail?.trim() || target.toEmail;
+  if (isNoReplyAddress(to)) throw new Error("That address doesn't accept replies.");
   if (!validRecipient(to)) throw new Error("Enter a valid recipient email.");
   const subject = /^re:/i.test(conversation.subject) ? conversation.subject : `Re: ${conversation.subject}`;
   const extra = [

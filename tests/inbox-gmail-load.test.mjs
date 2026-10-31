@@ -190,3 +190,21 @@ test('round 2 screens real-mail cases, keeps new senders visible and loads to-do
   assert.equal(data.smartViews.find(v=>v.key==='needs_reply').count,1);
   globalThis.__queryRows=null;globalThis.__gmail.threads=[];
 });
+
+test('a known client Gmail tags Updates (or a CRM List-Unsubscribe) stays in Needs me and can be answered', async () => {
+  globalThis.__gmail.fail=null;
+  globalThis.__gmail.threads=[
+    {...email,id:'client-upd',fromEmail:'michelle@example.test',category:'updates',labelIds:['INBOX','UNREAD','CATEGORY_UPDATES']},
+    {...email,id:'stranger-upd',fromEmail:'promo@shop.test',category:'updates',labelIds:['INBOX','CATEGORY_UPDATES']},
+  ];
+  globalThis.__queryRows=sql=>/FROM leads WHERE email/.test(sql)?[{email:'michelle@example.test',name:'Michelle Alcantara',slug:'michelle',kind:'client',stage:'rough estimate'}]:[];
+  invalidateInboxCache();
+  const data=await getInboxData();
+  const client=data.threads.find(t=>t.id==='client-upd');
+  assert.equal(client.automated,false);
+  assert.equal(client.view,'needs_reply');
+  assert.equal(client.needsMeReason,'Lead replied');
+  assert.equal(data.readers['client-upd'].automated,false);
+  assert.equal(data.threads.find(t=>t.id==='stranger-upd').automated,true);
+  globalThis.__queryRows=null;globalThis.__gmail.threads=[];
+});

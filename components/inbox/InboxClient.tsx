@@ -53,6 +53,7 @@ import {
   smsSegments,
   latestInboundIndex,
   composerExpanded,
+  isNoReplyAddress,
 } from "@/lib/inbox-rules";
 import { mergeTranscript } from "@/lib/append-transcript";
 import {
@@ -2342,6 +2343,9 @@ function ReaderBody({
   const update = (patch: Partial<SavedInboxDraft>) =>
     saved.set({ ...saved.value, ...patch });
   const [replying, setReplying] = useState(false);
+  // Filed as automated, but Joe may still answer it (the server only refuses no-reply addresses).
+  const [replyAnyway, setReplyAnyway] = useState(false);
+  const automated = Boolean(reader.automated) && !replyAnyway;
   const [draftOpen, setDraftOpen] = useState(false);
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
@@ -2358,7 +2362,7 @@ function ReaderBody({
   useEffect(() => {
     const root = regionRef.current?.closest("[data-inbox-root]");
     const reply = () => {
-      if (reader.automated || !reader.replyTarget) return;
+      if (automated || !reader.replyTarget) return;
       setReplying(true);
       if (isAI) setDraftOpen(true);
       requestAnimationFrame(() =>
@@ -2378,7 +2382,7 @@ function ReaderBody({
       root?.removeEventListener("inbox-reply", reply);
       root?.removeEventListener("inbox-approve", approve);
     };
-  }, [isAI, reader.automated, reader.replyTarget]);
+  }, [isAI, automated, reader.replyTarget]);
   useEffect(() => {
     if (typeof window !== "undefined" && (replying || draftOpen || drafting))
       window.dispatchEvent(
@@ -2570,7 +2574,7 @@ function ReaderBody({
               );
             })}
           <ThreadTasks todos={todos} />
-          {!reader.automated && isAI && hasDraft && (
+          {!automated && isAI && hasDraft && (
             <div
               className={`${draftOpen ? "absolute inset-x-0 bottom-0 z-40 max-h-[80%] overflow-y-auto rounded-t-2xl border-t border-rule bg-paper p-3 shadow-modal @4xl/page:static @4xl/page:z-auto @4xl/page:max-h-none @4xl/page:border-0 @4xl/page:bg-transparent @4xl/page:p-0 @4xl/page:shadow-none" : "hidden @4xl/page:block"}`}
             >
@@ -2594,11 +2598,14 @@ function ReaderBody({
             setReplying(false);
         }}
       >
-        {reader.automated ? (
+        {automated ? (
           <div className="flex items-center gap-2">
             <p className="flex-1 text-meta text-ink-3">
               Automated message — no reply needed
             </p>
+            {reader.replyTarget && !isNoReplyAddress(reader.replyTarget.toEmail) && (
+              <Button variant="ghost" onClick={() => { setReplyAnyway(true); setReplying(true); }}>Reply anyway</Button>
+            )}
             <Button onClick={onDone}>Done</Button>
           </div>
         ) : !reader.replyTarget ? (

@@ -207,3 +207,11 @@ test("sender corrections survive reload, undo removes them, and choices never cr
     0,
   );
 });
+
+test("only true no-reply addresses refuse a reply; bulk-tagged senders can still be answered", async () => {
+  const { isNoReplyAddress } = await import("../lib/inbox-rules.ts");
+  for (const a of ["noreply@x.test", "no-reply@x.test", "do-not-reply@bank.test", "donotreply@x.test", "MAILER-DAEMON@x.test", "Bank <no_reply@bank.test>"])
+    assert.equal(isNoReplyAddress(a), true, a);
+  for (const a of ["billing@vendor.test", "estatements@bank.test", "news@x.test", "michelle@example.test", "info@bank.test"])
+    assert.equal(isNoReplyAddress(a), false, a);
+});

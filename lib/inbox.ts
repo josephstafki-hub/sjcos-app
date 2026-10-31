@@ -6,7 +6,7 @@
 // opens a real reader pane. The AI draft-reply card routes through lib/ai.ts —
 // never a provider directly.
 
-import { inquiryReplySubject, isAutomatedSender, needsMeReason, resolveReplyTarget, type ReplyTarget } from "./inbox-rules";
+import { inquiryReplySubject, isAutomatedSender, isNoReplyAddress, needsMeReason, resolveReplyTarget, type ReplyTarget } from "./inbox-rules";
 import type { SystemViewKey, ThreadChannel, ThreadStatus } from "./types";
 import { ai } from "./ai";
 import { query } from "./db";
@@ -687,7 +687,7 @@ export async function draftReplyForThread(
   const conversation = await fetchConversation(threadId);
   const target = resolveReplyTarget(conversation.messages, conversation.ownAddresses);
   const message = [...conversation.messages].reverse().find(m => !m.outbound);
-  if (!message || !target || message.automated || isAutomatedSender(message.fromEmail,conversation.category, {body: message.body.join("\n")})) throw new Error('No reply is needed for this message.');
+  if (!message || !target || isNoReplyAddress(target.toEmail)) throw new Error('No reply is needed for this message.');
   const raw = {id:threadId,fromName:message.fromName,fromEmail:message.fromEmail,subject:conversation.subject,bodyParas:message.body,snippet:message.snippet} as RawGmailThread;
 
   const { knowledge, matchLabel } = await gatherReplyContext(raw);
@@ -901,23 +901,35 @@ function mapRawThreads(
   contactMaps: ContactMaps,
 ): { threads: InboxThread[]; readerEntries: [string, ThreadReader][] } {
   const threads = raw.map((r) => rawToThread(r, labelMap));
+  const knownIds = new Set<string>();
   raw.forEach((r, i) => {
     const c = classifyThread(r, contactMaps);
     const staff = contactMaps.staffEmails.has(r.fromEmail.toLowerCase());
     if (staff && threads[i].view === 'needs_reply') threads[i].view = 'awaiting_them';
+    const person=contactMaps.contactByEmail.get(threads[i].fromEmail ?? '');
+    const known = Boolean(person || c.projectSlug || c.linkedType || c.audience === "sub");
+    // A client, lead or sub is never "automated" because Gmail tagged the mail
+    // Updates or their mail tool added a List-Unsubscribe header.
+    if (known && !isNoReplyAddress(r.fromEmail) && threads[i].automated) {
+      threads[i].automated = false;
+      knownIds.add(r.id);
+      if (threads[i].view === "done" && r.inInbox && !r.snoozed && !r.outbound) {
+        threads[i].view = "needs_reply";
+        if (r.unread) threads[i].emphasis = "flag";
+      }
+    }
+    const bulk = Boolean(threads[i].automated);
     threads[i].needsMeReason = needsMeReason({
       channel: "email",
       inbound: !r.outbound,
       staff,
-      automated: isBulk(r),
+      automated: bulk,
       done: threads[i].view === "done" || threads[i].view === "snoozed",
       audience: c.audience,
       isLead: c.linkedType === "lead" || (contactMaps.leadEmails.has(r.fromEmail.toLowerCase()) && !c.projectSlug),
 
     });
-    const person=contactMaps.contactByEmail.get(threads[i].fromEmail ?? '');
-    const known = Boolean(person || c.projectSlug || c.linkedType || c.audience === "sub");
-    threads[i].newSender = !known && !isBulk(r) && !staff && !r.outbound;
+    threads[i].newSender = !known && !bulk && !staff && !r.outbound;
     if (threads[i].newSender && threads[i].view === "needs_reply") threads[i].needsMeReason = "New sender";
     threads[i].contactKey=person ? `${person.kind==='client'?'lead':person.kind}:${person.slug}` : c.projectSlug ? `project:${c.projectSlug}` : undefined;
     threads[i].contactStage=c.projectSlug ? contactMaps.projectByEmail.get(threads[i].fromEmail ?? '')?.stage : person?.stage;
@@ -932,7 +944,11 @@ function mapRawThreads(
     if (c.projectLabel) threads[i].tag = c.projectLabel;
   });
   const readerEntries = raw.map(
-    (r) => [r.id, rawToReader(r)] as [string, ThreadReader],
+    (r) => {
+      const reader = rawToReader(r);
+      if (knownIds.has(r.id)) reader.automated = false;
+      return [r.id, reader] as [string, ThreadReader];
+    },
   );
   return { threads, readerEntries };
 }
